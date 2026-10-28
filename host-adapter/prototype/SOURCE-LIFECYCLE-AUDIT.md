@@ -281,6 +281,39 @@ This is a route-family inventory, not an assertion that every direct `fetch` bel
 
 Before runtime integration, maintain a per-route ledger with: mounted path; source file/function; caller class; whether protected memory can reach input; final URL/headers/body materialization; all outbound call sites; streaming/cancellation behavior; denial response; no-fallback proof; post-assembly revocation-race test; and explicit disposition (`SUPPORTED`, `UNSUPPORTED`, or `OUT OF SCOPE`) approved by Core. Until a row is reviewed and tested, it is `UNSUPPORTED` for protected Memory→NPC content.
 
+## Server-mounted route map and delegated inference paths (pinned source, 28 Oct 2026)
+
+The pinned `src/server-startup.js` mounts the following relevant route families:
+
+| Mounted path | Router/source | What the source inspection establishes |
+|---|---|---|
+| `/api/backends/chat-completions` | `src/endpoints/backends/chat-completions.js` | Main Chat Completions dispatcher; many provider-specific and shared send branches |
+| `/api/backends/text-completions` | `src/endpoints/backends/text-completions.js` | Text generation dispatcher; final request is transformed after initial body serialization |
+| `/api/backends/kobold` | `src/endpoints/backends/kobold.js` | Separate generation route plus status, transcription and embedding paths |
+| `/api/extra/caption` | `src/endpoints/caption.js` | Delegated caption wrapper; does not itself reveal final transport |
+| `/api/extra/classify` | `src/endpoints/classify.js` | Delegated classification wrapper; calls a separate classification service |
+| `/api/vector` | `src/endpoints/vectors.js` | Vector API delegates to provider-specific/local vector implementations |
+| `/api/openai` | `src/endpoints/openai.js` | Multiple audio, image, video, embedding and transcription operations |
+| `/api/anthropic` | `src/endpoints/anthropic.js` | Separate caption inference path |
+| `/api/novelai` | `src/endpoints/novelai.js` | Separate generation, image and voice paths |
+| `/api/translate` | `src/endpoints/translate.js` | Translation routes, separate from normal generation |
+| `/api/speech` | `src/endpoints/speech.js` | Speech route family; requires its own transport trace |
+| `/api/minimax`, `/api/volcengine`, `/api/nanogpt` | Corresponding endpoint modules | Additional model/media/discovery operations |
+
+The list is bounded to route mounts directly evidenced in the inspected startup source. It is not a complete audit of dynamically registered extension endpoints or all callees.
+
+### Delegation findings
+
+- `src/endpoints/caption.js` calls a captioning function but contains no direct `fetch`; the final outbound call must be found in its callee chain.
+- `src/endpoints/classify.js` calls a classification service and logs the classification input at line 46. The callee must be traced to establish whether it makes an external model call and where.
+- `src/endpoints/vectors.js` dispatches to multiple vector implementations. Its route handler is not itself the final network boundary for implementations that call external services.
+- `src/endpoints/backends/kobold.js` has separate `/generate`, `/transcribe-audio`, and `/embed` routes. The generation boundary cannot be assumed to cover the other two.
+- `src/endpoints/anthropic.js` logs the captioning request body at line 34. Combined with the text-generation and image-caption logging findings above, prompt/input logging must be included in the privacy review separately from outbound authorization.
+
+### Coverage decision
+
+A future protected-content boundary must be defined from the actual call graph and mounted route map, not just the two main generation routers. Every route whose input can include protected Memory-derived content must either be included in the approved enforcement scope or explicitly denied/marked unsupported. A delegated wrapper with no direct `fetch` is not evidence that it is covered by another hook.
+
 ## Target-aware destructive/import guard follow-up (26 Oct 2026)
 
 The pinned candidate now checks the affected chat locator before direct single-chat delete paths and direct group-chat rename. Bulk group/character deletion, chat import, and chat-backup restore fail closed whenever any Host enrollment marker exists, because the current prototype cannot prove a complete inventory for every affected non-current chat. These guards prevent known UI entry points from silently mutating an enrolled history; they do not make those operations supported or provide tombstone-complete deletion.
