@@ -130,6 +130,15 @@ try {
     if (Test-Path -LiteralPath $existingEvidence) { Remove-Item -LiteralPath $existingEvidence -Force }
   }
 
+  # Regression: Apply must require an explicit maintenance-window attestation.
+  $noMaintenanceEvidence = $evidence + '.no-maintenance'
+  $rejected = $false
+  try {
+    & .\scripts\security\Set-AcceptedHeadAuthorityAcl.ps1 -AuthorityServiceName $testServices[0] -CoreServiceName $testServices[1] -ProviderServiceName $testServices[2] -GatewayServiceName $testServices[3] -AuthorityDbPath $db -CoreDbPath $coreDb -ProviderDbPath $providerDb -CoordinatorDbPath $coordinatorDb -BackupRoots @($backupRoot) -EvidencePath $noMaintenanceEvidence -Apply -Confirm:$false
+  } catch { $rejected = $_.Exception.Message -match 'requires -MaintenanceWindowConfirmed' }
+  if (-not $rejected) { throw 'Apply was not refused when maintenance-window attestation was omitted.' }
+  if (Test-Path -LiteralPath $noMaintenanceEvidence) { throw 'Refused Apply unexpectedly created evidence or modified ACLs before maintenance attestation.' }
+
   & .\scripts\security\Set-AcceptedHeadAuthorityAcl.ps1 -AuthorityServiceName $testServices[0] -CoreServiceName $testServices[1] -ProviderServiceName $testServices[2] -GatewayServiceName $testServices[3] -AuthorityDbPath $db -CoreDbPath $coreDb -ProviderDbPath $providerDb -CoordinatorDbPath $coordinatorDb -BackupRoots @($backupRoot) -EvidencePath $evidence -Apply -MaintenanceWindowConfirmed -Confirm:$false
   $report = Get-Content -LiteralPath $evidence -Raw | ConvertFrom-Json
   if ($report.status -ne 'APPLIED_AND_ACL_SHAPE_VERIFIED') {
