@@ -73,7 +73,7 @@ test('bound capture resolves canonical scope while holding the shared coordinato
   assert.equal(ledger.db.prepare('SELECT world_id FROM host_version_digest_ledger').get().world_id, 'canonical-world');
   assert.throws(() => ledger.captureBoundVersion({
     adapterId: 'adapter-a', conversationId: 'chat-a', world_id: 'caller-world',
-    message_id: 'message-b', version_id: 'version-b', content_sha256: digest('untrusted scope'),
+    message_id: 'message-b', version_id: 'version-b', content_sha256: digest('untrusted scope'), parent_version_id: null,
     active: false, deleted: false, resolveBinding: () => ({ world_id: 'caller-world', conversation_id: 'chat-a' }),
   }), /Invalid bound Host version entry/);
 });
@@ -818,4 +818,25 @@ test('pre-lineage database rows migrate as LEGACY/UNVERIFIED and are never guess
   assert.deepEqual(ledger.captureVersion(entry({ content_sha256: digest('legacy') })), {
     status: 'non_ready', code: 'HOST_LINEAGE_LEGACY_UNVERIFIED'
   });
+});
+
+test('event-only capture rejects unknown, cross-message, and legacy-unverified parents without persisting the child', async (t) => {
+  const ledger = setup(t);
+  const orphan = entry({ version_id: 'orphan-v', parent_version_id: 'missing-v', active: false });
+  assert.deepEqual(ledger.captureVersion(orphan), {
+    status: 'non_ready', code: 'HOST_LINEAGE_PARENT_UNKNOWN'
+  });
+  assert.equal(ledger.db.prepare("SELECT COUNT(*) AS n FROM host_version_digest_ledger WHERE version_id='orphan-v'").get().n, 0);
+
+  assert.equal((await ledger.reconcileConversation({
+    world_id: tuple.world_id, conversation_id: tuple.conversation_id, complete: true,
+    versions: [entry({ version_id: 'root-v', parent_version_id: null, active: true })]
+  })).status, 'ready');
+  const wrongMessageParent = entry({
+    message_id: 'message-b', version_id: 'child-v', parent_version_id: 'root-v', active: false
+  });
+  assert.deepEqual(ledger.captureVersion(wrongMessageParent), {
+    status: 'non_ready', code: 'HOST_LINEAGE_PARENT_UNKNOWN'
+  });
+  assert.equal(ledger.db.prepare("SELECT COUNT(*) AS n FROM host_version_digest_ledger WHERE version_id='child-v'").get().n, 0);
 });
