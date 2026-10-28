@@ -545,7 +545,7 @@ export class LogicEngine {
     if (seconds > 0) assert(options.durationDecision?.status === 'resolved' || ['time.advance', 'action.completed'].includes(x.event_type), 'INVALID_TIME_ADVANCE', 'Positive duration requires a supported time event or an active TimePolicy decision.');
 
     const effects = x.effects ?? [];
-    validateEffects(effects, { allowRelationshipTransition: options.allowRelationshipTransition === true });
+    validateEffects(effects, { allowRelationshipTransition: options.allowRelationshipTransition === true, allowKnowledgeAcquisition: options.allowKnowledgeAcquisition === true });
     const request = {
       operation: 'event.commit',
       event_id: x.event_id ?? null,
