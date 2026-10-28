@@ -113,10 +113,12 @@ async function readBoundedBody(response, maxBytes) {
 export function verifyRemoteAnchorEnvelope({
   envelope,
   installationId,
+  expectedKeyId,
   publicKey,
   minimumSequence = 0,
 }) {
-  if (!validId(installationId) || typeof publicKey !== 'string' || !publicKey.includes('PUBLIC KEY')
+  if (!validId(installationId) || !validId(expectedKeyId)
+    || typeof publicKey !== 'string' || !publicKey.includes('PUBLIC KEY')
     || !Number.isSafeInteger(minimumSequence) || minimumSequence < 0) {
     throw new TypeError('Invalid remote anchor verifier configuration.');
   }
@@ -126,6 +128,7 @@ export function verifyRemoteAnchorEnvelope({
   }
   const { record, signature } = envelope;
   validateRecord(record, installationId);
+  if (record.key_id !== expectedKeyId) fail('REMOTE_ANCHOR_KEY_ID_MISMATCH');
   if (record.sequence < minimumSequence) fail('REMOTE_ANCHOR_ROLLBACK_DETECTED');
 
   const bytes = Buffer.from(serializeRemoteAnchorRecord(record), 'utf8');
@@ -162,6 +165,7 @@ export async function fetchVerifiedRemoteAnchorHead({
   endpoint,
   installationId,
   serviceToken,
+  expectedKeyId,
   publicKey,
   minimumSequence = 0,
   timeoutMs = 3000,
@@ -207,7 +211,7 @@ export async function fetchVerifiedRemoteAnchorHead({
     } catch {
       fail('REMOTE_ANCHOR_RESPONSE_INVALID');
     }
-    return verifyRemoteAnchorEnvelope({ envelope, installationId, publicKey, minimumSequence });
+    return verifyRemoteAnchorEnvelope({ envelope, installationId, expectedKeyId, publicKey, minimumSequence });
   } catch (error) {
     if (error?.message?.startsWith('REMOTE_ANCHOR_')) throw error;
     throw new Error('REMOTE_ANCHOR_UNAVAILABLE');
