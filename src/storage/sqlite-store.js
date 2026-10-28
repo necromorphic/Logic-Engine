@@ -685,7 +685,7 @@ export class SQLiteStore {
         },
       },
       {
-        version: 15,
+        version: 14,
         apply: () => {
           this.db.exec(`CREATE TABLE IF NOT EXISTS npc_belief_transitions(
             world_id TEXT NOT NULL REFERENCES worlds(world_id),
