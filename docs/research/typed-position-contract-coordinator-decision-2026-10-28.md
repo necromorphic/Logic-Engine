@@ -108,3 +108,20 @@ The current GitHub access does not expose a verified named Core/TimeEngine owner
 - Tests executed for this review: **none**
 
 **Next coordinator action:** publish this candidate contract/report as a documentation-only draft PR, request the separate scoped Core and TimeEngine reviews once named owners can be verified, then reconcile their findings without reopening the now-decided v1 axis convention absent new evidence.
+
+
+## 8. Exact-head refresh — 2026-10-28 09:05 UTC
+
+This refresh records new evidence without upgrading any unverified claim.
+
+- Current `main` at refresh: `09a1a696fd7c5591f537b13df50793fab4ba36db` (commit message: `test(time): cover high fan-in dependency planning`). The earlier `da7fe72...` baseline is stale.
+- Current spatial contract candidate remains documentation-only; no spatial runtime gate, immutable World Pack schema digest/history, or durable TimeEngine-boundary-to-Core-cursor mapping was added by this refresh.
+- A separate Core transaction regression test was added in [PR #573](https://github.com/necromorphic/Logic-Engine/pull/573), head `ddc256fa8e85767d77d44463582e42bbd25e2baf`. It injects a failure after `rebuild()` has run during `commitSegment()` and asserts rollback of the segment's events, entity projection, revision, commit sequence, game-time coordinate, and idempotency rows.
+- Actions run [#40661437871](https://github.com/necromorphic/Logic-Engine/actions/runs/40661437871) is for that exact test head. The hosted `npc-boundary` job is green, but it does **not** execute the Core test. The Core `test` job is still `queued` on `[self-hosted, Windows, X64]`; therefore the new regression test is **NOT VERIFIED**. No pass is claimed.
+- Combined status for current `main` SHA `09a1a696fd7c5591f537b13df50793fab4ba36db` returned no status checks in the inspected response. This is absence of evidence, not a pass or a failure.
+
+### Updated gate
+
+The atomicity requirement now has a focused exact-head regression test proposed, but no executed result yet. The spatial contract remains **BLOCKED** independently by: (1) no runtime spatial validation gate, (2) no proven immutable/historical schema identity, (3) no proven complete entity incarnation guarantee across every path, (4) no confirmed TimeEngine-boundary ↔ Core composite cursor mapping, and (5) no independent owner-authored Core and TimeEngine reviews.
+
+**Immediate external blocker:** the repository's required Core test job is queued because it targets the self-hosted Windows runner; this connection cannot start or repair that runner. Once the runner is online and the job completes, inspect the exact run conclusion and logs before changing any test status. Do not merge the test PR or authorize spatial runtime work based only on the hosted NPC job.
