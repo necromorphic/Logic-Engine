@@ -1,0 +1,31 @@
+name: Spatial research tests
+on:
+  push:
+    branches: [ 'work/spatial-3d-research-validation-2026-10-28' ]
+    paths:
+      - 'tests/spatial-temporal-cursor-feasibility.test.js'
+      - 'tests/spatial-reasoning-feasibility.test.js'
+      - 'src/**'
+      - 'schemas/**'
+      - 'package.json'
+      - '.github/workflows/spatial-research-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: spatial-research-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  focused-spatial-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.18.0'
+      - name: Run spatial temporal and synthetic geometry tests
+        run: node --import ./tests/configure-test-env.js --test tests/spatial-temporal-cursor-feasibility.test.js tests/spatial-reasoning-feasibility.test.js
