@@ -152,6 +152,9 @@ function validState(state) {
     const currentRefs = [...belief.supporting_evidence_refs, ...belief.conflicting_evidence_refs];
     if (currentRefs.some((ref) => !validId(ref) || !evidenceByRef.has(ref)
       || evidenceByRef.get(ref).proposition_ref !== belief.proposition_ref)) return false;
+    if (belief.stance === "unknown" && (currentRefs.length > 0 || belief.review_required)) return false;
+    if (currentRefs.some((ref) => evidenceByRef.get(ref).status === "invalidated")
+      && !belief.review_required) return false;
     if (new Set(belief.supporting_evidence_refs).size !== belief.supporting_evidence_refs.length
       || new Set(belief.conflicting_evidence_refs).size !== belief.conflicting_evidence_refs.length
       || belief.supporting_evidence_refs.some((ref) => belief.conflicting_evidence_refs.includes(ref))) return false;
