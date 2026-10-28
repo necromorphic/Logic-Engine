@@ -201,3 +201,15 @@ test('a model cannot omit contradictory evidence or cite a different proposition
   }).reason, 'evidence_side_does_not_match_proposition_value');
 });
 
+test('withheld evidence for the same proposition blocks belief update without exposing the hidden value', () => {
+  const result = reduceNpcBeliefTransition({
+    knowledgeRead: knowledgeRead({
+      withheld_proposition_refs: [propositionRef],
+    }),
+    proposal: proposal(),
+  });
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'proposition_has_withheld_evidence');
+  assert.equal('withheld_proposition_refs' in result, false);
+});
+
