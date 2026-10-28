@@ -23,6 +23,7 @@ test('real Host → Core → Provider path preserves digest-only capture and fai
   const directory = mkdtempSync(join(tmpdir(), 'st-core-digest-capture-'));
   const hostDirectories = {
     chats: join(directory, 'chats'),
+    characters: join(directory, 'characters'),
     groups: join(directory, 'groups'),
     groupChats: join(directory, 'group_chats'),
     backups: join(directory, 'backups'),
