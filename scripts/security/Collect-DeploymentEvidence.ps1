@@ -244,6 +244,15 @@ $pathInputs = @($DataPath) + @($BackupPath) | Where-Object { $_ } | Select-Objec
 
 # Never let the evidence output overwrite an input, SQLite sidecar, or file in a backup tree.
 $fullOutputPath = [System.IO.Path]::GetFullPath($OutputPath)
+# Reject NTFS alternate data streams. A stream path can modify the source file while
+# appearing to be a distinct output path, bypassing ordinary path-equality checks.
+$pathAfterDrive = $fullOutputPath
+if ($fullOutputPath.Length -ge 2 -and $fullOutputPath[1] -eq [char]58) {
+    $pathAfterDrive = $fullOutputPath.Substring(2)
+}
+if ($pathAfterDrive.IndexOf([char]58) -ge 0) {
+    throw 'OutputPath must not use an NTFS alternate data stream.'
+}
 # Output ancestors must be real directories, not junctions/symlinks that could redirect the report into a protected tree.
 $outputParentDirectory = [System.IO.Path]::GetDirectoryName($fullOutputPath)
 if (-not $outputParentDirectory -or -not (Test-Path -LiteralPath $outputParentDirectory -PathType Container)) {
