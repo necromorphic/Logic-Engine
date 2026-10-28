@@ -141,6 +141,7 @@ All answers remain **UNCONFIRMED / BLOCKED** until backed by an existing contrac
 - [ ] Snapshot/time references and stale-result rejection use existing authoritative Core mechanisms.
 - [ ] Access filtering happens before model input; unknown and withheld data are not exposed.
 - [ ] Goal and action contracts have an approved owner, and one first action family has a verified candidate source, precondition evaluator, supported effect mapping, and result route.
+- [ ] Review the goal/plan lifecycle and rollback-reconciliation acceptance matrix in `docs/81-npc-goal-action-contracts-proposal.md` §14; this is a semantic design gate, not evidence that persistence or reconciliation exists.
 - [ ] NPC decision output is non-committing; only the existing Core path can validate and commit supported effects.
 - [ ] Retry, duplicate trigger, cancellation, supersession, restart and stale snapshot tests exercise real boundaries.
 - [ ] Failure injection proves no duplicate or partial canonical side effect.
