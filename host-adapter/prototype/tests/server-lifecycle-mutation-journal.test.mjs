@@ -964,3 +964,27 @@ test('concurrent first-time enrollments preserve both registry entries', async (
         await rm(root, { recursive: true, force: true });
     }
 });
+
+
+test('re-enrollment fails closed when the marker survives loss of the mutation journal', async () => {
+    const { root, request } = await fixture();
+    try {
+        await registerHostConversation(request, {
+            conversationId: 'conversation-1',
+            sourceLocator: 'chat-1',
+            domain: 'chats',
+        });
+        await rm(path.join(root, '.logic-engine-host', 'mutation-ledger.jsonl'), { force: true });
+
+        await assert.rejects(
+            registerHostConversation(request, {
+                conversationId: 'conversation-2',
+                sourceLocator: 'chat-2',
+                domain: 'chats',
+            }),
+            /HOST_ENROLLMENT_STATE_LOST/,
+        );
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
