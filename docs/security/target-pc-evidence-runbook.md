@@ -55,16 +55,16 @@ Use a new output filename outside all data and backup roots. Example paths below
 Set-ExecutionPolicy -Scope Process Bypass
 .\scripts\security\Collect-DeploymentEvidence.ps1 `
   -DataPath @(
-    'C:\\REAL\\PATH\\core.sqlite',
-    'C:\\REAL\\PATH\\provider.sqlite',
-    'C:\\REAL\\PATH\\coordinator.sqlite'
+    'C:\REAL\PATH\core.sqlite',
+    'C:\REAL\PATH\provider.sqlite',
+    'C:\REAL\PATH\coordinator.sqlite'
   ) `
   -BackupPath @(
-    'D:\\REAL\\BACKUP\\CORE',
-    'D:\\REAL\\BACKUP\\PROVIDER'
+    'D:\REAL\BACKUP\CORE',
+    'D:\REAL\BACKUP\PROVIDER'
   ) `
   -ProcessId @(1234, 5678) `
-  -OutputPath '.\\security-deployment-audit-2026-10-28.json'
+  -OutputPath '.\security-deployment-audit-2026-10-28.json'
 ```
 
 Include the actual Core, Provider, and coordinator database files, all actual backup roots, and verified process IDs. If a database does not exist in this installation, do not invent a path to make the report look complete; record the missing mechanism as unresolved.
@@ -74,7 +74,7 @@ The report is written only if the output filename does not already exist. Choose
 ## 4. Check the collection result
 
 ```powershell
-$r = Get-Content '.\\security-deployment-audit-2026-10-28.json' -Raw | ConvertFrom-Json
+$r = Get-Content '.\security-deployment-audit-2026-10-28.json' -Raw | ConvertFrom-Json
 $r.collectionStatus
 $r.incompleteReasons
 $r.pathAclEvidence | Where-Object { $_.error -or $null -eq $_.exists } |
