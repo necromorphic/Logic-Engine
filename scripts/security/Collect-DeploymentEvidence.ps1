@@ -392,8 +392,14 @@ foreach ($dataFile in $requestedDataPaths) {
         $rootEvidence = @($pathEvidence | Where-Object {
             $_.requestedPath -eq $dataFile -and $_.path -eq $expectedDataPath
         } | Select-Object -First 1)
-        if ($rootEvidence.Count -eq 0 -or $rootEvidence[0].exists -ne $true -or $rootEvidence[0].itemType -ne "File") {
+        if ($rootEvidence.Count -eq 0) {
             $incompleteReasons.Add("A supplied data database path is missing, inaccessible, invalid, or not a file.")
+        } else {
+            $rootItemEvidence = $rootEvidence[0]
+            $hasItemType = $rootItemEvidence.PSObject.Properties.Name -contains "itemType"
+            if ($rootItemEvidence.exists -ne $true -or -not $hasItemType -or $rootItemEvidence.itemType -ne "File") {
+                $incompleteReasons.Add("A supplied data database path is missing, inaccessible, invalid, or not a file.")
+            }
         }
     } catch {
         $incompleteReasons.Add("A supplied data database path could not be canonicalized.")
