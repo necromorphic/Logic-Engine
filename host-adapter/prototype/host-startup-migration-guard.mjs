@@ -46,6 +46,16 @@ async function readHostEnrollmentState(directories, fs) {
   let registry;
   try { registry = JSON.parse(registryText); } catch { throw new Error('HOST_STARTUP_MIGRATION_REGISTRY_INVALID'); }
   if (registry?.version !== 1 || !Array.isArray(registry.conversations)) throw new Error('HOST_STARTUP_MIGRATION_REGISTRY_INVALID');
+  if (registry.conversations.length === 0) {
+    const markerPath = path.join(path.dirname(canonicalChatsRoot), '.logic-engine-host-enrollment-marker');
+    try {
+      const markerStat = await fs.lstat(markerPath);
+      if (!markerStat.isFile() || markerStat.isSymbolicLink()) throw new Error('HOST_STARTUP_MIGRATION_MARKER_UNSAFE');
+      throw new Error('HOST_STARTUP_MIGRATION_STATE_LOST');
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error;
+    }
+  }
   return { enrolled: registry.conversations.length > 0, stateDirectoryExists: true };
 }
 
