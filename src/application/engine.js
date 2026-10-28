@@ -982,6 +982,35 @@ export class LogicEngine {
     });
   }
 
+  assertNoScheduledTriggerCrossing(id, events, expectedRevision) {
+    const durationMs = events.reduce((sum, event) => sum + (event.time_advance_seconds ?? 0) * 1000, 0);
+    if (durationMs === 0) return;
+    const world = this.getState(id);
+    // Do not reject stale revisions here: SQLiteStore checks idempotency replay
+    // before revision freshness, so an identical completed request can replay.
+    // A new stale request is still rejected by the canonical commit boundary.
+    let targetCoordinate;
+    try {
+      targetCoordinate = addTimeDuration(world.game_time_coordinate, durationMs);
+    } catch (error) {
+      const code = error.code === 'COORDINATE_OVERFLOW' ? 'TIME_COORDINATE_OVERFLOW' : (error.code || 'INVALID_TIME_COORDINATE');
+      throw new EngineError(code, error.message || 'Timed event target is outside the coordinate range.', 400);
+    }
+    assert(Number.isSafeInteger(expectedRevision) && expectedRevision >= 0,
+      'TIMED_EVENT_REVISION_REQUIRED', 'A direct timed commit requires expected_revision so trigger registration cannot race the time boundary.');
+    const due = this.store.listTimeTriggers(id)
+      .filter((trigger) => trigger.status === 'pending'
+        && trigger.due_coordinate > world.game_time_coordinate
+        && trigger.due_coordinate <= targetCoordinate)
+      .map((trigger) => trigger.trigger_id);
+    if (due.length) {
+      throw new EngineError('TIME_ADVANCE_OPERATION_REQUIRED',
+        'A direct timed commit cannot cross registered scheduled work; use the Core timed-action or time-advance operation.',
+        409, { trigger_ids: due, from_coordinate: world.game_time_coordinate, to_coordinate: targetCoordinate });
+    }
+  }
+
+
   /**
    * Ingests an immutable deployment-approved authoring source into the canonical
    * event log. This method is intentionally not exposed by the HTTP API.
