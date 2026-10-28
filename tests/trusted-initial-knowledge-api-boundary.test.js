@@ -52,7 +52,7 @@ test('public event API cannot commit a forged knowledge acquisition', async (t) 
   );
 
   assert.equal(response.status, 403);
-  assert.equal((await response.json()).error.code, 'UNSUPPORTED_EFFECT');
+  assert.equal((await response.json()).error.code, 'DIRECT_COMMIT_DISABLED');
   assert.equal(engine.getState('api-acquisition-world').world_revision, 0);
   assert.equal(
     store.db.prepare('SELECT COUNT(*) AS n FROM knowledge_acquisitions WHERE world_id=?')
