@@ -154,7 +154,7 @@ test('Core mutation after source validation but before Provider authorization co
     actorEntityId: s.scope.subject_id,
   });
   assert.equal(result.status, 'non_ready');
-  assert.equal(result.reason, 'memory_record_authorization_unavailable');
+  assert.equal(result.reason, 'memory_snapshot_stale');
   assert.equal(JSON.stringify(result).includes('changed during validation'), false);
 });
 
