@@ -332,6 +332,27 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
         return send(res, 405, { error: { code: 'METHOD_NOT_ALLOWED', message: 'Unsupported time-advance operation.' } });
       }
 
+      if (action === 'knowledge-assignments') {
+        if (parts.length !== 4) return send(res, 404, { error: { code: 'ROUTE_NOT_FOUND', message: 'Route not found.' } });
+        if (!secretMatches(req.headers['x-admin-token'], adminToken)) {
+          return send(res, 403, { error: { code: 'ADMIN_REQUIRED', message: 'Initial knowledge assignment requires a separate administrative credential.' } });
+        }
+        if (req.method === 'GET') {
+          const subjectId = url.searchParams.get('subject_id');
+          return send(res, 200, { knowledge: engine.listKnowledgeAssignments(worldId, subjectId) });
+        }
+        if (req.method === 'POST') {
+          const body = await readBody(req);
+          const allowed = ['assignment_id', 'subject_id', 'item_id', 'source_kind', 'source_ref', 'source_version', 'authorization_ref', 'expected_revision'];
+          if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some((key) => !allowed.includes(key))) {
+            throw new EngineError('INVALID_KNOWLEDGE_ASSIGNMENT', 'Request contains unsupported fields.');
+          }
+          const result = engine.assignKnowledge(worldId, body);
+          return send(res, result.idempotent_replay ? 200 : 201, { assignment: result });
+        }
+        return send(res, 405, { error: { code: 'METHOD_NOT_ALLOWED', message: 'Unsupported knowledge-assignment operation.' } });
+      }
+
       if (action === 'time-configurations') {
         if (parts.length === 4 && req.method === 'POST') {
           if (!secretMatches(req.headers['x-admin-token'], adminToken)) return send(res, 403, { error: { code: 'ADMIN_REQUIRED', message: 'A separate administrative credential is required to author time configuration.' } });
