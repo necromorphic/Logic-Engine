@@ -50,6 +50,15 @@ function hasEnrolledChatUnderCharacter(registry, avatarUrl) {
 
 function operationTargetsEnrolledHistory(operation, request, registry) {
     const body = request.body ?? {};
+    if (operation === 'chat-import') {
+        return registry.conversations.some(conversation => conversation.domain === 'chats');
+    }
+    if (operation === 'group-chat-import') {
+        return registry.conversations.some(conversation => conversation.domain === 'group_chats');
+    }
+    if (operation === 'data-maid-delete') {
+        return registry.conversations.length > 0;
+    }
     if (operation === 'chat-delete') {
         const characterDirectory = path.parse(String(body.avatar_url ?? '').replace('.png', '')).name;
         const chatName = path.parse(String(body.chatfile ?? '')).name;
