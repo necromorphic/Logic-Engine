@@ -172,6 +172,33 @@ test('existing authority database with missing schema fails closed without recre
   }
 });
 
+test('existing non-WAL authority database fails closed without changing its journal mode', () => {
+  const dir = tempDir();
+  const path = join(dir, 'authority.sqlite');
+  const first = new AcceptedHeadAuthority({ path, installationId: 'journal-mode-test-installation' });
+  first.close();
+
+  const switchMode = new DatabaseSync(path);
+  try {
+    assert.equal(switchMode.prepare('PRAGMA journal_mode=DELETE').get().journal_mode, 'delete');
+  } finally {
+    switchMode.close();
+  }
+
+  assert.throws(
+    () => new AcceptedHeadAuthority({ path, installationId: 'journal-mode-test-installation' }),
+    /ACCEPTED_HEAD_JOURNAL_MODE_INVALID/,
+  );
+
+  const verify = new DatabaseSync(path);
+  try {
+    assert.equal(verify.prepare('PRAGMA journal_mode').get().journal_mode, 'delete');
+  } finally {
+    verify.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('authority IPC requires explicit enrollment, enforces domain tokens, and fails closed while pending', async () => {
   const dir = tempDir();
   const path = join(dir, 'authority.sqlite');
