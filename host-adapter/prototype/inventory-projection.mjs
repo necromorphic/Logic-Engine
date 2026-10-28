@@ -58,7 +58,8 @@ export function projectHostInventoryForComparison(chat) {
       const version = identity.versions[versionIndex];
       if (!validId(version?.versionId) || versionIds.has(version.versionId)
         || !validDigest(version.payloadDigest)
-        || (version.parentVersionId != null && !validId(version.parentVersionId))) {
+        || !Object.hasOwn(version, 'parentVersionId')
+        || (version.parentVersionId !== null && !validId(version.parentVersionId))) {
         return { status: 'NON_READY', reason: 'VERSION_IDENTITY_INVALID_OR_COLLIDING', messageIndex, versionIndex };
       }
       if (version.payloadDigest !== hostCurrentDigest(sourceVersions[versionIndex])) {
@@ -121,7 +122,8 @@ export function projectHostCaptureLedgerForComparison(ledger) {
   const keyFor = (messageId, versionId) => JSON.stringify([messageId, versionId]);
   const addVersion = (messageId, version, current = false) => {
     if (!validId(messageId) || !validId(version?.versionId) || !validDigest(version?.payloadDigest)
-      || (version.parentVersionId != null && !validId(version.parentVersionId))) {
+      || !Object.hasOwn(version, 'parentVersionId')
+      || (version.parentVersionId !== null && !validId(version.parentVersionId))) {
       throw Error('VERSION_IDENTITY_INVALID');
     }
     const key = keyFor(messageId, version.versionId);
@@ -197,7 +199,8 @@ export function projectHostCaptureLedgerForComparison(ledger) {
       for (const tombstone of payload.tombstones) {
         const row = versions.get(keyFor(tombstone?.messageId, tombstone?.versionId));
         if (!row || row.payload_sha256 !== tombstone.payloadDigest || tombstone.deleted !== true
-          || tombstone.active !== false) {
+          || tombstone.active !== false || !Object.hasOwn(tombstone, 'parentVersionId')
+          || tombstone.parentVersionId !== row.parent_version_id) {
           return nonReady('TOMBSTONE_UNKNOWN_OR_CONTRADICTORY');
         }
         row.deleted = true;
@@ -261,11 +264,31 @@ export function projectHostCaptureLedgerForComparison(ledger) {
       for (const [messageId, ids] of nextCurrentMessages) currentMessages.set(messageId, ids);
     }
 
+    const versionsByMessage = new Map();
     for (const row of versions.values()) {
-      if (row.parent_version_id != null && !versions.has(keyFor(row.message_id, row.parent_version_id))) {
+      if (row.parent_version_id !== null && !versions.has(keyFor(row.message_id, row.parent_version_id))) {
         return nonReady('VERSION_PARENT_MISSING');
       }
+      if (row.parent_version_id === row.version_id) return nonReady('VERSION_LINEAGE_CYCLE');
       if (row.deleted && row.active) return nonReady('DELETED_VERSION_ACTIVE');
+      if (!versionsByMessage.has(row.message_id)) versionsByMessage.set(row.message_id, []);
+      versionsByMessage.get(row.message_id).push(row);
+    }
+    for (const messageVersions of versionsByMessage.values()) {
+      const roots = messageVersions.filter(row => row.parent_version_id === null);
+      if (roots.length !== 1) return nonReady('VERSION_ROOT_COUNT_INVALID');
+      const byId = new Map(messageVersions.map(row => [row.version_id, row]));
+      for (const row of messageVersions) {
+        const visited = new Set();
+        let current = row;
+        while (current.parent_version_id !== null) {
+          if (visited.has(current.version_id)) return nonReady('VERSION_LINEAGE_CYCLE');
+          visited.add(current.version_id);
+          current = byId.get(current.parent_version_id);
+          if (!current) return nonReady('VERSION_PARENT_MISSING');
+        }
+        if (current.version_id !== roots[0].version_id) return nonReady('VERSION_LINEAGE_DISCONNECTED');
+      }
     }
   } catch (error) {
     return nonReady(error?.message === 'TOMBSTONE_REAPPEARED'

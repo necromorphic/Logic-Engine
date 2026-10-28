@@ -165,7 +165,7 @@ test('capture-ledger projection preserves edit lineage and remains review-only',
 
 test('capture-ledger projection applies tombstones and deletes historical lineage with its message', () => {
   const v0 = ledgerVersion('version-0', 'alternative A', 0);
-  const v1 = ledgerVersion('version-1', 'alternative B', 1);
+  const v1 = ledgerVersion('version-1', 'alternative B', 1, 'version-0');
   const result = projectHostCaptureLedgerForComparison(captureLedger([
     { operation: 'baseline', payload: { messages: [ledgerMessage('message-1', [v0, v1], 1)] } },
     { operation: 'before:delete-message', payload: { affectedVersions: [
@@ -176,7 +176,7 @@ test('capture-ledger projection applies tombstones and deletes historical lineag
       versionPayloads: [],
       tombstones: [v0, v1].map(version => ({
         messageId: 'message-1', versionId: version.versionId, payloadDigest: version.payloadDigest,
-        deleted: true, active: false, reason: 'message-deleted',
+        parentVersionId: version.parentVersionId, deleted: true, active: false, reason: 'message-deleted',
       })),
       changes: [],
     } },
@@ -200,7 +200,7 @@ test('capture-ledger projection rejects missing deletion evidence and tombstone 
       versionPayloads: [],
       tombstones: [{
         messageId: 'message-1', versionId: 'version-0', payloadDigest: v0.payloadDigest,
-        deleted: true, active: false, reason: 'swipe-deleted',
+        parentVersionId: null, deleted: true, active: false, reason: 'swipe-deleted',
       }],
       changes: [ledgerMessage('message-1', [v0])],
     } },
@@ -208,3 +208,84 @@ test('capture-ledger projection rejects missing deletion evidence and tombstone 
   assert.equal(reappeared.status, 'NON_READY');
 });
 
+
+test('explicit null parent is a root; missing parent metadata is not normalized to root', () => {
+  const root = ledgerVersion('version-0', 'root text');
+  assert.equal(root.parentVersionId, null);
+  const accepted = projectHostCaptureLedgerForComparison(captureLedger([
+    { operation: 'baseline', payload: { messages: [ledgerMessage('message-1', [root])] } },
+  ]));
+  assert.equal(accepted.status, 'REVIEW_ONLY');
+
+  const missing = { ...root };
+  delete missing.parentVersionId;
+  const rejected = projectHostCaptureLedgerForComparison(captureLedger([
+    { operation: 'baseline', payload: { messages: [ledgerMessage('message-1', [missing])] } },
+  ]));
+  assert.equal(rejected.status, 'NON_READY');
+});
+
+test('capture-ledger lineage rejects unknown parents, self-parent, and cycles', () => {
+  const unknown = ledgerVersion('version-0', 'root text', 0, 'missing-parent');
+  const unknownResult = projectHostCaptureLedgerForComparison(captureLedger([
+    { operation: 'baseline', payload: { messages: [ledgerMessage('message-1', [unknown])] } },
+  ]));
+  assert.equal(unknownResult.status, 'NON_READY');
+
+  const self = ledgerVersion('version-0', 'self', 0, 'version-0');
+  const selfResult = projectHostCaptureLedgerForComparison(captureLedger([
+    { operation: 'baseline', payload: { messages: [ledgerMessage('message-1', [self])] } },
+  ]));
+  assert.equal(selfResult.status, 'NON_READY');
+
+  const v0 = ledgerVersion('version-0', 'A', 0, 'version-1');
+  const v1 = ledgerVersion('version-1', 'B', 1, 'version-0');
+  const cycleResult = projectHostCaptureLedgerForComparison(captureLedger([
+    { operation: 'baseline', payload: { messages: [ledgerMessage('message-1', [v0, v1], 1)] } },
+  ]));
+  assert.equal(cycleResult.status, 'NON_READY');
+});
+
+test('tombstone must repeat the immutable parent exactly', () => {
+  const root = ledgerVersion('version-0', 'root');
+  const child = ledgerVersion('version-1', 'child', 1, 'version-0');
+  const base = { operation: 'baseline', payload: { messages: [ledgerMessage('message-1', [root, child], 1)] } };
+  const tombstone = {
+    messageId: 'message-1', versionId: 'version-1', payloadDigest: child.payloadDigest,
+    parentVersionId: 'version-0', deleted: true, active: false, reason: 'swipe-deleted',
+  };
+  const after = { operation: 'after:delete-swipe', payload: {
+    versionPayloads: [], tombstones: [tombstone], changes: [ledgerMessage('message-1', [root])],
+  } };
+  assert.equal(projectHostCaptureLedgerForComparison(captureLedger([base, after])).status, 'REVIEW_ONLY');
+
+  for (const altered of [
+    (() => { const value = { ...tombstone }; delete value.parentVersionId; return value; })(),
+    { ...tombstone, parentVersionId: null },
+  ]) {
+    const rejected = projectHostCaptureLedgerForComparison(captureLedger([
+      base,
+      { ...after, payload: { ...after.payload, tombstones: [altered] } },
+    ]));
+    assert.equal(rejected.status, 'NON_READY');
+  }
+});
+
+test('Host snapshot projection rejects missing parent metadata instead of coercing it to root', () => {
+  const missing = message({ id: 'msg-missing-parent', versions: ['root'] });
+  delete missing._logicEngineLifecycle.versions[0].parentVersionId;
+  const result = projectHostInventoryForComparison([missing]);
+  assert.equal(result.status, 'NON_READY');
+});
+
+test('capture-ledger projection rejects a parent from another message', () => {
+  const parent = ledgerVersion('version-parent', 'other message root');
+  const child = ledgerVersion('version-child', 'child text', 0, 'version-parent');
+  const result = projectHostCaptureLedgerForComparison(captureLedger([
+    { operation: 'baseline', payload: { messages: [
+      ledgerMessage('message-a', [parent]),
+      ledgerMessage('message-b', [child]),
+    ] } },
+  ]));
+  assert.equal(result.status, 'NON_READY');
+});

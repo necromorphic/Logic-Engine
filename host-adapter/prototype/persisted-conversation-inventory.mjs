@@ -31,7 +31,7 @@ async function readStableFile(absolutePath, fs) {
     if (!sameStat(opened, afterHandle) || !sameStat(opened, afterPath) || bytes.length !== afterHandle.size) {
       throw Error('ARTIFACT_CHANGED_DURING_READ');
     }
-    return bytes.toString('utf8');
+    return { text: bytes.toString('utf8'), stat: afterPath };
   } finally {
     await handle.close().catch(() => {});
   }
@@ -82,12 +82,21 @@ export async function scanPersistedConversationInventories(roots, enrollments, {
   if (allowedRoots.size !== 2) return fail('BOTH_CHAT_DOMAINS_REQUIRED');
 
   const matchedFiles = new Map();
+  const observedFiles = [];
+  const observedDirectories = [];
   const parseErrors = [];
   for (const [domain, rootPath] of allowedRoots) {
     const walk = async directory => {
-      let entries;
-      try { entries = await fs.readdir(directory, { withFileTypes: true }); }
-      catch { parseErrors.push('DIRECTORY_ENUMERATION_FAILED:' + domain); return; }
+      let beforeDirectory, entries;
+      try {
+        beforeDirectory = await fs.lstat(directory);
+        if (beforeDirectory.isSymbolicLink() || !beforeDirectory.isDirectory()) {
+          parseErrors.push('DIRECTORY_TYPE_CHANGED:' + domain);
+          return;
+        }
+        entries = await fs.readdir(directory, { withFileTypes: true });
+      } catch { parseErrors.push('DIRECTORY_ENUMERATION_FAILED:' + domain); return; }
+      observedDirectories.push({ directory, domain, stat: beforeDirectory });
       entries.sort((a, b) => a.name.localeCompare(b.name, 'en'));
       for (const entry of entries) {
         const absolutePath = path.join(directory, entry.name);
@@ -104,9 +113,14 @@ export async function scanPersistedConversationInventories(roots, enrollments, {
         if (path.extname(entry.name).toLowerCase() !== '.jsonl') continue;
         let parsed;
         try {
-          const text = await readStableFile(absolutePath, fs);
+          const read = await readStableFile(absolutePath, fs);
+          const text = read.text;
+          observedFiles.push({ absolutePath, domain, stat: read.stat });
           const lines = text.split(/\r?\n/).filter(line => line.trim().length > 0);
-          if (!lines.length) continue;
+          if (!lines.length) {
+            parseErrors.push('CHAT_JSONL_EMPTY_OR_HEADER_MISSING:' + domain);
+            continue;
+          }
           parsed = lines.map(line => JSON.parse(line));
           if (!parsed.every(value => value && typeof value === 'object' && !Array.isArray(value))) throw Error('JSONL_RECORD_INVALID');
         } catch {
@@ -115,9 +129,15 @@ export async function scanPersistedConversationInventories(roots, enrollments, {
         }
         const header = parsed[0];
         const headerId = header.chat_metadata?.logic_engine_conversation_id;
-        if (typeof headerId !== 'string') continue;
+        if (typeof headerId !== 'string' || !validUuid(headerId)) {
+          parseErrors.push('UNENROLLED_CHAT_ARTIFACT:' + domain);
+          continue;
+        }
         const enrollment = enrollmentByUuid.get(headerId);
-        if (!enrollment) continue;
+        if (!enrollment) {
+          parseErrors.push('UNENROLLED_CONVERSATION_ARTIFACT:' + domain);
+          continue;
+        }
         if (enrollment.domain !== domain || path.parse(relativePath).name !== enrollment.sourceLocator
           || relativePath !== enrollment.sourcePath) {
           parseErrors.push('ENROLLED_CONVERSATION_LOCATOR_OR_DOMAIN_MISMATCH');
@@ -127,8 +147,30 @@ export async function scanPersistedConversationInventories(roots, enrollments, {
         candidates.push({ domain, relativePath, records: parsed.slice(1) });
         matchedFiles.set(enrollment.conversationId, candidates);
       }
+      try {
+        const afterDirectory = await fs.lstat(directory);
+        if (!sameStat(beforeDirectory, afterDirectory) || afterDirectory.isSymbolicLink() || !afterDirectory.isDirectory()) {
+          parseErrors.push('DIRECTORY_CHANGED_DURING_ENUMERATION:' + domain);
+        }
+      } catch { parseErrors.push('DIRECTORY_UNAVAILABLE_AFTER_ENUMERATION:' + domain); }
     };
     await walk(rootPath);
+  }
+  for (const observed of observedDirectories) {
+    try {
+      const current = await fs.lstat(observed.directory);
+      if (current.isSymbolicLink() || !current.isDirectory() || !sameStat(observed.stat, current)) {
+        parseErrors.push('CHAT_DIRECTORY_CHANGED_AFTER_SCAN:' + observed.domain);
+      }
+    } catch { parseErrors.push('CHAT_DIRECTORY_UNAVAILABLE_AFTER_SCAN:' + observed.domain); }
+  }
+  for (const observed of observedFiles) {
+    try {
+      const current = await fs.lstat(observed.absolutePath);
+      if (current.isSymbolicLink() || !current.isFile() || !sameStat(observed.stat, current)) {
+        parseErrors.push('CHAT_ARTIFACT_CHANGED_AFTER_SCAN:' + observed.domain);
+      }
+    } catch { parseErrors.push('CHAT_ARTIFACT_UNAVAILABLE_AFTER_SCAN:' + observed.domain); }
   }
   if (parseErrors.length) return fail(...[...new Set(parseErrors)].sort());
 

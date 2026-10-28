@@ -22,6 +22,8 @@ export async function scanHostArtifactRoots(roots, { fs = { lstat, open, readdir
   }
 
   const artifacts = [];
+  const observedFiles = [];
+  const observedDirectories = [];
   const errors = [];
   const domains = new Set();
   const rootPaths = [];
@@ -53,13 +55,19 @@ export async function scanHostArtifactRoots(roots, { fs = { lstat, open, readdir
 
   for (const root of rootPaths) {
     const walk = async (directory) => {
-      let entries;
+      let beforeDirectory, entries;
       try {
+        beforeDirectory = await fs.lstat(directory);
+        if (beforeDirectory.isSymbolicLink() || !beforeDirectory.isDirectory()) {
+          errors.push('Directory type changed during enumeration: ' + root.domain);
+          return;
+        }
         entries = await fs.readdir(directory, { withFileTypes: true });
       } catch {
         errors.push('Directory enumeration failed: ' + root.domain);
         return;
       }
+      observedDirectories.push({ directory, domain: root.domain, stat: beforeDirectory });
       entries.sort((a, b) => a.name.localeCompare(b.name, 'en'));
       for (const entry of entries) {
         const absolutePath = path.join(directory, entry.name);
@@ -103,6 +111,7 @@ export async function scanHostArtifactRoots(roots, { fs = { lstat, open, readdir
             errors.push('Artifact changed during scan: ' + root.domain);
             continue;
           }
+          observedFiles.push({ absolutePath, domain: root.domain, stat: afterPath });
           artifacts.push({
             artifactId: root.domain + ':' + relativePath,
             domain: root.domain,
@@ -116,8 +125,38 @@ export async function scanHostArtifactRoots(roots, { fs = { lstat, open, readdir
           await handle?.close().catch(() => {});
         }
       }
+      try {
+        const afterDirectory = await fs.lstat(directory);
+        if (!sameStat(beforeDirectory, afterDirectory) || afterDirectory.isSymbolicLink() || !afterDirectory.isDirectory()) {
+          errors.push('Directory changed during enumeration: ' + root.domain);
+        }
+      } catch {
+        errors.push('Directory unavailable after enumeration: ' + root.domain);
+      }
     };
     await walk(root.path);
+  }
+
+  for (const observed of observedDirectories) {
+    try {
+      const current = await fs.lstat(observed.directory);
+      if (current.isSymbolicLink() || !current.isDirectory() || !sameStat(observed.stat, current)) {
+        errors.push('Directory changed after scan: ' + observed.domain);
+      }
+    } catch {
+      errors.push('Directory unavailable after scan: ' + observed.domain);
+    }
+  }
+
+  for (const observed of observedFiles) {
+    try {
+      const current = await fs.lstat(observed.absolutePath);
+      if (current.isSymbolicLink() || !current.isFile() || !sameStat(observed.stat, current)) {
+        errors.push('Artifact changed after scan: ' + observed.domain);
+      }
+    } catch {
+      errors.push('Artifact unavailable after scan: ' + observed.domain);
+    }
   }
 
   artifacts.sort((a, b) => a.artifactId.localeCompare(b.artifactId, 'en'));
