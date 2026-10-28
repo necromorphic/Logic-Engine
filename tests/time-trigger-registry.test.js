@@ -593,3 +593,65 @@ test('registered scheduled events cannot bypass the active TimePolicy duration d
     (error) => error.code === 'DURATION_MISMATCH',
   );
 });
+
+
+test('interrupted timed action stays terminal on resume/replay and requires a new reviewed action', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+  engine.registerTimeConfiguration('time-trigger-world', {
+    version: 'interrupted-action-retry-policy',
+    world_pack_id: 'test.world',
+    world_pack_version: '1.0.0',
+    calendar_definition: {
+      calendar_id: 'interrupted-action.calendar',
+      version: '1.0.0',
+      day_length_ms: 86400000,
+      weekdays: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+      year_cycle: [{ id: 'standard', name: 'Standard', months: [{ id: 'jan', name: 'January', days: 31 }] }],
+      epoch: { coordinate: 0, year_number: 2026, year_cycle_index: 0, month_id: 'jan', day_of_month: 1, weekday_index: 0, time_of_day_ms: 0 },
+      holidays: [],
+    },
+    time_policy: {
+      policy_id: 'interrupted-action-retry.policy',
+      version: '1.0.0',
+      max_action_duration_ms: 43200000,
+      max_skip_duration_ms: 604800000,
+      duration_rules: [{ event_type: 'travel.completed', rule: { kind: 'fixed', duration_ms: 30000 } }],
+    },
+  });
+  engine.registerTimeTrigger('time-trigger-world', {
+    ...trigger('interrupt-before-travel', 10000, 'interruption-stop'),
+    interrupt_after_coordinate: true,
+  });
+  const request = {
+    idempotency_key: 'travel-attempt-1',
+    expected_revision: engine.getState('time-trigger-world').world_revision,
+    event: { turn_id: 'travel-attempt-1-turn', event_type: 'travel.completed', effects: [] },
+  };
+
+  const interrupted = engine.startTimedAction('time-trigger-world', request);
+  assert.equal(interrupted.status, 'interrupted');
+  assert.equal(interrupted.confirmed_coordinate, 10000);
+  assert.equal(interrupted.result.final_action_status, 'not_executed_interrupted');
+  assert.equal(engine.getEvents('time-trigger-world').some((event) => event.event_type === 'travel.completed'), false);
+
+  const resume = engine.resumeTimeAdvance('time-trigger-world', interrupted.operation_id);
+  assert.equal(resume.status, 'interrupted');
+  assert.equal(resume.result.final_action_status, 'not_executed_interrupted');
+
+  const replay = engine.startTimedAction('time-trigger-world', request);
+  assert.equal(replay.operation_id, interrupted.operation_id);
+  assert.equal(replay.status, 'interrupted');
+  assert.equal(replay.result.final_action_status, 'not_executed_interrupted');
+  assert.equal(engine.getEvents('time-trigger-world').some((event) => event.event_type === 'travel.completed'), false);
+
+  const retried = engine.startTimedAction('time-trigger-world', {
+    idempotency_key: 'travel-attempt-2',
+    expected_revision: engine.getState('time-trigger-world').world_revision,
+    event: { turn_id: 'travel-attempt-2-turn', event_type: 'travel.completed', effects: [] },
+  });
+  assert.equal(retried.status, 'completed');
+  assert.equal(retried.confirmed_coordinate, 40000);
+  assert.equal(retried.result.final_action_status, 'committed');
+  assert.equal(engine.getEvents('time-trigger-world').filter((event) => event.event_type === 'travel.completed').length, 1);
+});
