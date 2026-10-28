@@ -154,9 +154,24 @@ test("forgetting is explicit and traceable; it does not delete evidence history"
   assert.equal(result.state.evidence.length, 1);
 });
 
+test("canonical truth changes do not silently correct NPC beliefs", () => {
+  let state = admit(emptyState()).state;
+  state = apply(state, {
+    type: "belief_updated",
+    proposition_ref: "prop-secret-location",
+    stance: "believes_true",
+    revision_rule_ref: "rule-initial",
+    evidence_refs: ["evidence-1"],
+  }).state;
+  const result = apply(state, { type: "canonical_truth_changed" });
+  assert.equal(result.status, "unchanged");
+  assert.equal(result.state, state);
+  assert.equal(result.state.beliefs[0].stance, "believes_true");
+});
+
 test("unknown events, malformed scope, and sparse evidence lists fail closed", () => {
   assert.equal(createNpcEpistemicState({ world_id: "", subject_id: "npc-1" }).status, "non_ready");
-  assert.equal(apply(emptyState(), { type: "canonical_truth_changed" }).status, "non_ready");
+  assert.equal(apply(emptyState(), { type: "unrecognized_event" }).status, "non_ready");
   const state = admit(emptyState()).state;
   const sparse = [];
   sparse.length = 1;
