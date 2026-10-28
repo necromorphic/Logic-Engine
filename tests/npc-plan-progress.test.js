@@ -166,3 +166,36 @@ test("fails closed when plan reflection traps throw", () => {
     plan: null,
   });
 });
+
+
+test("fails closed on Object.prototype pollution without invoking inherited getters", () => {
+  let invoked = false;
+  Object.defineProperty(Object.prototype, "npcInjectedStatus", {
+    configurable: true,
+    get() { invoked = true; return "active"; },
+  });
+  let result;
+  try {
+    result = advanceNpcPlan(plan(), { type: "abandon" });
+  } finally {
+    delete Object.prototype.npcInjectedStatus;
+  }
+  assert.deepEqual(result, { status: "non_ready", plan: null });
+  assert.equal(invoked, false);
+});
+
+test("fails closed when Array.prototype iterator is replaced", () => {
+  const original = Object.getOwnPropertyDescriptor(Array.prototype, Symbol.iterator);
+  let result;
+  try {
+    Object.defineProperty(Array.prototype, Symbol.iterator, {
+      configurable: true,
+      writable: true,
+      value: function* pollutedIterator() { throw new Error("iterator invoked"); },
+    });
+    result = advanceNpcPlan(plan(), { type: "abandon" });
+  } finally {
+    Object.defineProperty(Array.prototype, Symbol.iterator, original);
+  }
+  assert.deepEqual(result, { status: "non_ready", plan: null });
+});
