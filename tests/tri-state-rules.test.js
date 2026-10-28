@@ -213,7 +213,7 @@ test('rejects accessor-backed context path properties without executing getters'
   Object.defineProperty(actor, 'secret', { enumerable: true, get() { reads += 1; return 'hidden'; } });
   assert.throws(
     () => evaluateCondition({ op: 'eq', path: 'actor.secret', value: 'hidden' }, { actor }),
-    (error) => error.code === 'INVALID_RULE_CONTEXT',
+    (error) => error.code === 'RULE_TYPE_MISMATCH',
   );
   assert.equal(reads, 0);
 });
@@ -242,7 +242,7 @@ test('rejects accessor-backed and cyclic nested comparison values without execut
   Object.defineProperty(nested, 'secret', { enumerable: true, get() { reads += 1; return 'x'; } });
   assert.throws(
     () => evaluateCondition({ op: 'eq', path: 'actor', value: { secret: 'x' } }, { actor: nested }),
-    (error) => error.code === 'INVALID_RULE_VALUE',
+    (error) => error.code === 'RULE_TYPE_MISMATCH',
   );
   assert.equal(reads, 0);
 
@@ -250,7 +250,7 @@ test('rejects accessor-backed and cyclic nested comparison values without execut
   cyclic.self = cyclic;
   assert.throws(
     () => evaluateCondition({ op: 'eq', path: 'actor', value: {} }, { actor: cyclic }),
-    (error) => error.code === 'INVALID_RULE_VALUE',
+    (error) => error.code === 'RULE_TYPE_MISMATCH',
   );
 });
 
@@ -313,11 +313,11 @@ test('rejects malformed comparison values even when the context path is absent',
   cyclic.self = cyclic;
   assert.throws(
     () => evaluateCondition({ op: 'eq', path: 'missing.path', value: cyclic }, {}),
-    (error) => error.code === 'INVALID_RULE_VALUE',
+    (error) => error.code === 'RULE_TYPE_MISMATCH',
   );
   assert.throws(
     () => evaluateConditionResult({ op: 'in', path: 'missing.path', values: [cyclic] }, {}),
-    (error) => error.code === 'INVALID_RULE_VALUE',
+    (error) => error.code === 'RULE_TYPE_MISMATCH',
   );
 });
 
@@ -327,11 +327,11 @@ test('dependency collection validates comparison payloads consistently with eval
   Object.defineProperty(invalid, 'secret', { enumerable: true, get() { throw new Error('getter must not execute'); } });
   assert.throws(
     () => collectConditionDependencies({ op: 'eq', path: 'actor.flag', value: invalid }),
-    (error) => error.code === 'INVALID_RULE_VALUE',
+    (error) => error.code === 'RULE_TYPE_MISMATCH',
   );
   assert.throws(
     () => collectConditionDependencies({ op: 'in', path: 'actor.flag', values: [invalid] }),
-    (error) => error.code === 'INVALID_RULE_VALUE',
+    (error) => error.code === 'RULE_TYPE_MISMATCH',
   );
 });
 
@@ -371,6 +371,6 @@ test('rule context paths reject non-enumerable own properties', () => {
   Object.defineProperty(actor, 'secret', { value: 'hidden', enumerable: false });
   assert.throws(
     () => evaluateCondition({ op: 'eq', path: 'actor.secret', value: 'hidden' }, { actor }),
-    (error) => error.code === 'INVALID_RULE_CONTEXT',
+    (error) => error.code === 'RULE_TYPE_MISMATCH',
   );
 });
