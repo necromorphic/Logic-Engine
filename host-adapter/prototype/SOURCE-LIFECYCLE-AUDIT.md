@@ -179,6 +179,157 @@ git -C /path/to/SillyTavern apply --check /path/to/Logic-Engine/host-adapter/pro
 
 The equivalent pinned-source apply-check, syntax/lint checks, Host prototype tests, and Chromium IndexedDB process-restart test have run in CI on the current PR head. This does **not** test a future send gate or establish Android/Termux runtime behavior. A future runtime diff must be reviewed separately by Core before application, and then must add route-level denial/error/bypass tests plus the real post-assembly revocation race test described above.
 
+## Provider-neutral final-send call-site matrix (pinned source, 28 Oct 2026)
+
+Source inspected: `src/endpoints/backends/chat-completions.js` at pinned SillyTavern SHA `06bde939fb1e9c4c8d8641d810f0a916b5bce127`. The line numbers below are 1-based in that exact file. They identify direct outbound calls, not an exhaustive inventory of every model-capable endpoint.
+
+| Call-site ID | Source line(s) | Role evidenced by the call site | Request materialization before transport | Disposition |
+|---|---:|---|---|---|
+| C01 | 410 | Chat-generation POST | Body serialized inline as `JSON.stringify(requestBody)`; target and server-owned headers are already resolved | Separate outbound branch; no shared gate proven |
+| C02 | 733 | Chat-generation POST | Body serialized inline as `JSON.stringify(body)`; URL and headers are already resolved | Separate outbound branch; no shared gate proven |
+| C03 | 852 | Chat-generation POST | Serialized body is stored in an options object before `fetch` | Separate outbound branch; exact options must be bound |
+| C04 | 942 | Chat-generation POST | Prepared request config passed directly to `fetch` | Separate outbound branch; exact config must be bound |
+| C05 | 1042, 1045 | Streaming and non-streaming chat-generation POST | Same prepared config reaches two conditional `fetch` call sites | Both branches require equivalent enforcement |
+| C06 | 1153 | Chat-generation POST | Prepared config passed directly to `fetch` | Separate outbound branch; no shared gate proven |
+| C07 | 1259 | Chat-generation POST | Prepared config passed directly to `fetch` | Separate outbound branch; no shared gate proven |
+| C08 | 1364 | Chat-generation POST | Prepared config passed directly to `fetch` | Separate outbound branch; no shared gate proven |
+| C09 | 1476 | Chat-generation POST | Prepared config passed directly to `fetch` | Separate outbound branch; no shared gate proven |
+| C10 | 1577 | Chat-generation POST | Prepared config passed directly to `fetch` | Separate outbound branch; no shared gate proven |
+| C11 | 1658 | Chat-generation POST | Prepared config passed directly to `fetch` | Separate outbound branch; no shared gate proven |
+| C12 | 1752 | Chat-generation POST | Body is serialized into config before `fetch`; target and headers are already resolved | Separate outbound branch; no shared gate proven |
+| C13 | 2689 | Generic/custom chat-generation POST | Body is serialized into config before `fetch`; custom headers and endpoint are resolved | Separate outbound branch; no shared gate proven |
+| AUX-01 | 1984 | Diagnostic deployment/model probe | Sends a small fixed test prompt during a status/configuration check | Not the ordinary user-turn send path, but still outbound model traffic; scope must be decided separately |
+
+### What this establishes
+
+- The pinned Chat Completions file contains multiple independent final transport call sites; a hook at one generic sender cannot be assumed to cover all branches.
+- The dedicated handler entry points map to these call sites in source order: C01 starts at line 230; C02 at 454; C03 at 800; C04 at 881; C05 at 971; C06 at 1071; C07 at 1183; C08 at 1289; C09 at 1394; C10 at 1506; C11 at 1607; C12 at 1687. The dispatcher's switch routes through early-return handlers at lines 2260–2272. C13 is the shared send path reached after additional source-selection branches spanning lines 2301–2576. Those predicates must be traced individually; C13 does not make the earlier handlers share one final boundary.
+- For branches that prebuild a config object, the final gate must bind the exact target, headers and already-serialized `config.body` immediately before the corresponding `fetch`. Re-serializing or rebuilding the request after authorization would break exact-request binding.
+- The diagnostic probe is a separate outbound path and must not be silently counted as ordinary generation or ignored if protected content can reach it.
+- The file also contains model-list/discovery calls. They are not interchangeable with generation calls and must be classified separately rather than counted as protected inference sends.
+- This matrix is source-inspected only. It does not prove that any gate exists, that all other endpoint files/extensions are covered, or that a revocation race is blocked.
+
+### Next source-first action
+
+Trace the dispatcher to each C01–C13 call site and record the branch predicate, final target/header/body construction, response/streaming behavior, and any early return. Then extend the same inventory to the separate Text Completions and other enabled model-capable routes. No runtime hook, route allowlist, new API/schema, or production wiring is introduced by this audit. Each unreviewed path remains unsupported for protected Memory→NPC content pending exact-diff Core approval and a real no-egress/revocation-race test.
+
+## Provider-neutral Text Completions and adjacent model-call inventory (pinned source, 28 Oct 2026)
+
+Source inspected: `src/endpoints/backends/text-completions.js` at pinned SillyTavern SHA `06bde939fb1e9c4c8d8641d810f0a916b5bce127`. Line numbers are 1-based in that exact file. This file combines user-turn generation with model discovery, diagnostics, captioning, and model-management operations; these must not be treated as one policy class.
+
+### User-turn generation
+
+| Call-site ID | Source line(s) | Route/function | Final request construction | Disposition |
+|---|---:|---|---|---|
+| T01 | 402 | `POST /generate`, streaming Ollama | `url` selected by `api_type`; `args.body` is rebuilt into the local-model request shape at lines 391–399 | Independent final-send branch |
+| T02 | 405 | `POST /generate`, streaming non-Ollama | Uses `url` and the fully transformed `args`; filtering/rewrites occur at lines 336–399 | Independent final-send branch |
+| T03 | 409 | `POST /generate`, non-streaming | Same transformation family as T02, but separate fetch branch and response handling | Independent final-send branch |
+
+The outbound target is derived from the request's `api_server` and `api_type` at lines 276–324. The serialized body is initially formed at lines 326–332 and then rewritten for multiple API types through line 399. Therefore, any future enforcement point must see the final `url`, final headers and exact final `args.body` after all rewrites. An earlier check would authorize a different request than the one sent. T01, T02 and T03 must all be covered; a streaming/non-streaming branch split is a bypass risk if only one is gated.
+
+### Other outbound calls in the same file
+
+| Call-site ID | Source line(s) | Purpose | Classification |
+|---|---:|---|---|
+| T-AUX01 | 89 | Abort an in-flight generation request | Cancellation control path; not a new generation request |
+| T-AUX02 | 153 | Fetch model list | Discovery traffic |
+| T-AUX03 | 191, 208 | Fetch model metadata/info | Discovery/configuration traffic |
+| T-AUX04 | 251 | Fetch backend properties | Configuration/diagnostic traffic |
+| T-AUX05 | 453 | Pull/download a model | Model-management operation |
+| T-AUX06 | 484 | Caption an image through a model | Separate inference path; request includes prompt and image data |
+| T-AUX07 | 530 | Fetch local backend properties | Configuration/diagnostic traffic |
+| T-AUX08 | 563, 574 | Query or mutate local backend slots | State-management path; some operations are destructive |
+| T-AUX09 | 614, 630 | Check permissions and download a model | Model-management path with two outbound calls |
+
+This list is based on direct `fetch` call sites in the pinned file. It does not imply every listed route should be subject to the same protected Memory→NPC policy. The image-caption path is model inference but is not the ordinary text-generation route; it needs an explicit scope decision. Model downloads and slot mutations need separate authorization/safety rules, not accidental inclusion in an inference gate.
+
+### Source-level disclosure finding
+
+At line 282, `POST /generate` logs the full inbound `request.body`. That body can contain prompts and generation input. At line 481, the image-caption route logs its full request body, which can contain the caption prompt and image data. These are potential sensitive-data disclosures in server logs. This audit records the findings only; no logging code is changed here.
+
+### Coverage limit and next step
+
+Together with the Chat Completions matrix above, this establishes that the pinned backend files have multiple distinct generation send boundaries plus auxiliary model-capable routes. It does not establish a universal interception point or complete coverage of every model-capable endpoint, extension, native caller, or custom route.
+
+Next: trace how the pinned server mounts these routers, inventory other model-capable endpoint files and extension routes, and classify each path as (a) protected user-turn inference, (b) other inference such as captioning, (c) discovery/diagnostic, or (d) management/control. Every unreviewed path remains unsupported for protected Memory→NPC content. No runtime hook, API/schema, or production wiring is introduced by this source audit.
+
+## Additional model-capable endpoint families (pinned source, 28 Oct 2026)
+
+This is a route-family inventory, not an assertion that every direct `fetch` below is a protected user-turn send. Sources inspected at pinned SillyTavern SHA `06bde939fb1e9c4c8d8641d810f0a916b5bce127`.
+
+| Source file | Relevant mounted route family observed in source | Outbound call-site evidence | Initial classification |
+|---|---|---|---|
+| `src/endpoints/openai.js` | `/caption-image`, `/generate-voice`, image/video generation, embeddings, transcription, and model-list helpers | Direct fetches at lines 241, 296, 361, 396, 436, 470, 506, 547, 591, 630, 670, 708, 731, 766, 830, 897 | Mixed multimodal inference, media generation, embeddings, discovery, and follow-up/poll/download requests; each route needs separate classification |
+| `src/endpoints/anthropic.js` | `/caption-image` | Direct fetch at line 36 | Separate image-caption inference route |
+| `src/endpoints/novelai.js` | `/generate`, `/generate-image`, `/generate-voice`, status and upscale paths | Direct fetches at lines 143, 269, 315, 403, 459 | Mixed generation, status, upscale, and auxiliary paths; do not treat as one boundary |
+| `src/endpoints/minimax.js` | `/generate-voice` | Direct fetches at lines 73 and 200 | Voice generation plus a subsequent media fetch |
+| `src/endpoints/volcengine.js` | `/generate-voice` | Direct fetch at line 34 | Separate voice-generation path |
+| `src/endpoints/nanogpt.js` | credits and model-provider discovery | Direct fetches at lines 52, 53, 113 | Account/model discovery traffic; not ordinary user-turn generation based on the inspected route names |
+| `src/endpoints/translate.js` | Translation endpoints | Direct fetches at lines 47, 133, 186, 238, 301, 348 | Separate translation calls; whether protected Memory→NPC content may enter these paths must be explicitly decided |
+| `src/endpoints/caption.js` | Caption route wrapper | No direct fetch found; calls local image-to-text transformer pipeline | Local inference; no remote egress shown in this call path |
+| `src/endpoints/classify.js` | Classification route wrapper | No direct fetch found; calls local text-classification transformer pipeline | Local inference; input is logged, so privacy/logging controls still apply |
+| `src/endpoints/vectors.js` | Vector operations | No direct fetch in wrapper; delegates to local and remote vector implementations | Source-dependent: inspect selected adapter; remote adapters have separate final-send boundaries |
+
+### Implications for the boundary design
+
+- A final-send gate scoped only to Chat Completions and Text Completions would not establish coverage of captioning, translation, speech/media generation, embedding, or delegated classification/vector paths.
+- Some of these routes are likely unrelated to the normal RP turn, but that is not enough to mark them safe: the contract must say whether protected Memory-derived material is allowed to reach each route.
+- Some routes perform more than one outbound call (for example, create/poll/fetch media workflows). Each network step needs a classification; gating only the initial request does not prove later calls cannot disclose protected material.
+- This is an inventory of selected pinned files, not a complete repository-wide route graph. Extension-defined routes, native callers, dynamically registered endpoints, and delegated callees remain to be traced.
+
+### Required route disposition ledger
+
+Before runtime integration, maintain a per-route ledger with: mounted path; source file/function; caller class; whether protected memory can reach input; final URL/headers/body materialization; all outbound call sites; streaming/cancellation behavior; denial response; no-fallback proof; post-assembly revocation-race test; and explicit disposition (`SUPPORTED`, `UNSUPPORTED`, or `OUT OF SCOPE`) approved by Core. Until a row is reviewed and tested, it is `UNSUPPORTED` for protected Memory→NPC content.
+
+## Server-mounted route map and delegated inference paths (pinned source, 28 Oct 2026)
+
+The pinned `src/server-startup.js` mounts the following relevant route families:
+
+| Mounted path | Router/source | What the source inspection establishes |
+|---|---|---|
+| `/api/backends/chat-completions` | `src/endpoints/backends/chat-completions.js` | Main Chat Completions dispatcher; many provider-specific and shared send branches |
+| `/api/backends/text-completions` | `src/endpoints/backends/text-completions.js` | Text generation dispatcher; final request is transformed after initial body serialization |
+| `/api/backends/kobold` | `src/endpoints/backends/kobold.js` | Separate generation route plus status, transcription and embedding paths |
+| `/api/extra/caption` | `src/endpoints/caption.js` | Delegated caption wrapper; does not itself reveal final transport |
+| `/api/extra/classify` | `src/endpoints/classify.js` | Delegated classification wrapper; calls a separate classification service |
+| `/api/vector` | `src/endpoints/vectors.js` | Vector API delegates to provider-specific/local vector implementations |
+| `/api/openai` | `src/endpoints/openai.js` | Multiple audio, image, video, embedding and transcription operations |
+| `/api/anthropic` | `src/endpoints/anthropic.js` | Separate caption inference path |
+| `/api/novelai` | `src/endpoints/novelai.js` | Separate generation, image and voice paths |
+| `/api/translate` | `src/endpoints/translate.js` | Translation routes, separate from normal generation |
+| `/api/speech` | `src/endpoints/speech.js` | Speech route family; requires its own transport trace |
+| `/api/minimax`, `/api/volcengine`, `/api/nanogpt` | Corresponding endpoint modules | Additional model/media/discovery operations |
+
+The list is bounded to route mounts directly evidenced in the inspected startup source. It is not a complete audit of dynamically registered extension endpoints or all callees.
+
+### Delegation findings
+
+- `src/endpoints/caption.js` uses `getPipeline('image-to-text')` from `src/transformers.js` and runs the pipeline locally; this wrapper has no direct outbound `fetch` in the inspected path. It is a separate local inference route, not evidence of a remote egress boundary.
+- `src/endpoints/classify.js` uses `getPipeline('text-classification')` from `src/transformers.js` and runs the pipeline locally. It logs the input text at line 46, so local log disclosure still matters even though this path is not an external model send in the inspected implementation.
+- `src/endpoints/vectors.js` dispatches to multiple vector implementations. Some are local (`src/vectors/embedding.js` uses a local transformer pipeline); others call remote endpoints, including `src/vectors/openai-vectors.js` line 113, `src/vectors/nomicai-vectors.js` line 36, `src/vectors/extras-vectors.js` line 54, and `src/vectors/cohere-vectors.js` line 20. The final boundary therefore depends on the selected vector source.
+- `src/endpoints/backends/kobold.js` has separate `/generate`, `/transcribe-audio`, and `/embed` routes, with direct send calls at lines 98, 215 and 256 respectively, plus an abort call at line 26 and status probes at lines 163, 169 and 175. The generation boundary cannot be assumed to cover the other routes.
+- `src/endpoints/anthropic.js` logs the captioning request body at line 34. Combined with the text-generation and image-caption logging findings above, prompt/input logging must be included in the privacy review separately from outbound authorization.
+
+### Kobold and vector adapter call-site notes
+
+| Call-site ID | Source line(s) | Route/adapter | Classification |
+|---|---:|---|---|
+| K01 | 98 | Kobold generation | User-turn generation send; body/config is prepared before fetch |
+| K02 | 215 | Kobold transcription | Separate audio inference path |
+| K03 | 256 | Kobold embedding | Separate embedding path |
+| K-AUX01 | 26 | Kobold abort | Cancellation/control request |
+| K-AUX02 | 163, 169, 175 | Kobold status | Status/version/model probes |
+| V01 | `src/vectors/openai-vectors.js:113` | Remote embedding adapter | Remote vector send |
+| V02 | `src/vectors/nomicai-vectors.js:36` | Remote embedding adapter | Remote vector send |
+| V03 | `src/vectors/extras-vectors.js:54` | Remote embedding adapter | Remote vector send |
+| V04 | `src/vectors/cohere-vectors.js:20` | Remote embedding adapter | Remote vector send |
+| V05 | `src/vectors/ollama-vectors.js:21` | Configured local/service embedding adapter | Network send to configured endpoint |
+| V06 | `src/vectors/embedding.js:9–25` | Transformer embedding adapter | Local pipeline; no outbound fetch in this adapter |
+
+### Coverage decision
+
+A future protected-content boundary must be defined from the actual call graph and mounted route map, not just the two main generation routers. Every route whose input can include protected Memory-derived content must either be included in the approved enforcement scope or explicitly denied/marked unsupported. A delegated wrapper with no direct `fetch` is not evidence that it is covered by another hook.
+
 ## Target-aware destructive/import guard follow-up (26 Oct 2026)
 
 The pinned candidate now checks the affected chat locator before direct single-chat delete paths and direct group-chat rename. Bulk group/character deletion, chat import, and chat-backup restore fail closed whenever any Host enrollment marker exists, because the current prototype cannot prove a complete inventory for every affected non-current chat. These guards prevent known UI entry points from silently mutating an enrolled history; they do not make those operations supported or provide tombstone-complete deletion.
