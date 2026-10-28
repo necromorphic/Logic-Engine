@@ -210,3 +210,12 @@
 
 **Это не production spatial runtime:** входные координаты и геометрия — тестовые данные; NPC не получают знания и воспоминания; Core, схема, API и хранилище не менялись. Для подтверждения видимости требуются явное состояние освещения и полный набор преград; иначе результат не подтверждается. Memory → NPC остаётся **DISABLED / FAIL-CLOSED**.
 
+### 3D-мышление для текстовой новеллы: комнаты, двери и контекст для LLM
+
+В исследовательской ветке [research/spatial-language-model-layer-2026-10-28](https://github.com/necromorphic/Logic-Engine/tree/research/spatial-language-model-layer-2026-10-28) добавлен отдельный синтетический модуль комнат, зон и дверей. Он определяет принадлежность позиции к объявленной зоне, ищет маршруты только через явно открытые двери и формирует компактный текстовый контекст для языковой модели. Неизвестные положения и состояния дверей не угадываются. Это алгоритмический эксперимент, не production-интеграция.
+
+- Реализация: [spatial-topology.js](experiments/spatial-scene-lab/spatial-topology.js)
+- Тесты: [spatial-topology.test.js](tests/spatial-topology.test.js)
+- План развития: [spatial-language-model-reasoning-roadmap-2026-10-28.md](docs/research/spatial-language-model-reasoning-roadmap-2026-10-28.md)
+
+Цель — не визуализировать мир, а передавать LLM краткие пространственные факты. Геометрическое расположение не означает видимость, слышимость, внимание, знание или память. Production spatial integration остаётся NO-GO; Memory → NPC остаётся DISABLED / FAIL-CLOSED.
