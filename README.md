@@ -2,14 +2,12 @@
 
 **«Логический движ» — проект универсального движка длительной ролевой симуляции.** Цель — хранить авторитетное состояние мира, рассчитывать причинно связанные изменения и игровое время, поддерживать автономность NPC и передавать подтверждённые результаты в повествование через адаптер SillyTavern.
 
-> **Актуальность: 28 октября 2026 года.**
->
-> **Сверка веток и PR:** последний полный снимок зафиксировал 512 веток; после него слиты три готовых PR (#470, #458, #324), а устаревший параллельный source-version PR #490 закрыт без слияния. Сейчас открыты 82 PR и 19 Issues. Количество веток требует повторной полной сверки, поэтому массовое удаление не выполнялось. Подробности: [отчёт по веткам и консолидации PR](docs/branch-pr-consolidation-2026-10-28.md) и [полный инвентарь](docs/branch-issue-inventory-2026-10-28.md).
+> **Актуальность: 29 октября 2026 года.** Последний проверенный функциональный commit `main` — `87b452939f690a6ad76cfeb0c3e06ad040fef900` (`feat(core): trusted initial knowledge source ingestion`, 28 октября); текущий `main` дополнительно содержит документальные обновления, последний проверенный SHA — `38392882997eb5634e2c716c7b203f16d3308207`. Открытые PR перечислены по актуальным head и CI; они не считаются частью `main`. Merge #665 добавил ограниченную Core-owned основу для trusted knowledge acquisition, но не включает NPC reader, prompt injection или production Memory → NPC. Количество открытых PR и веток для этой ревизии отдельно не пересчитывалось. Последний полный снимок веток — 512, это историческое значение, не текущий подсчёт. Подробности предыдущей сверки: [отчёт по веткам и консолидации PR](docs/branch-pr-consolidation-2026-10-28.md) и [полный инвентарь](docs/branch-issue-inventory-2026-10-28.md).
 > Это снимок проверенных изменений и известных блокеров на указанную дату. Портфельный трекер — [issue #252](https://github.com/necromorphic/Logic-Engine/issues/252); глобальный блокер Memory → NPC — [issue #264](https://github.com/necromorphic/Logic-Engine/issues/264).
 >
 > **Состояние проекта:** есть исполняемый прототип с HTTP API, SQLite-журналом событий, базовыми сущностями и фактами, идемпотентностью, аудитом, ограниченным причинным откатом, реестром механик и базовым жизненным циклом предложений. Это ещё не завершённая автономная симуляция и не готовая production-интеграция с SillyTavern.
 >
-> **Memory → NPC: Provider blocker #3 уже интегрирован в `main`; остальные блокеры остаются отдельными.** PR #618 добавил в основную ветку accepted-head контроль реальных записей Core/Provider, отзывов, tombstone/purge, reconciliation/readiness и восстановления, плюс защищённый Gateway pre-dispatch gate. Точная передача source-version token не перепроверялась в этой работе. Core source-version ledger/readback (#521), Host inventory/reconciliation chain (#524 → #531 → #555) и pinned SillyTavern sole-egress proof остаются отдельными незавершёнными линиями; успешные feature-HEAD не считаются интегрированными. Startup migration guard (#526) слит только в feature-ветку #524, не в `main`.
+> **Memory → NPC: Provider blocker #3 закрыт только в пределах интегрированного Provider/Gateway среза; сквозная интеграция не готова.** PR #618 находится в `main` и добавляет accepted-head контроль Core/Provider writes, отзывов, tombstone/purge, reconciliation/readiness и восстановления с pre-dispatch gate. Это не доказывает полноту Host inventory и не разрешает production-передачу памяти NPC. Актуальные кандидаты: [#681 — Core source-version ledger на текущую архитектуру](https://github.com/necromorphic/Logic-Engine/pull/681), [#680 — Host lifecycle inventory и request-bound save capability](https://github.com/necromorphic/Logic-Engine/pull/680), [#636 — Windows Provider acceptance evidence](https://github.com/necromorphic/Logic-Engine/pull/636), [#646 — сериализация начала dispatch относительно revoke](https://github.com/necromorphic/Logic-Engine/pull/646), [#670 — Core-owned NPC knowledge reader и belief boundary](https://github.com/necromorphic/Logic-Engine/pull/670), [#595 — fail-closed generation interceptor seam](https://github.com/necromorphic/Logic-Engine/pull/595), [#664 — trusted World Pack digest](https://github.com/necromorphic/Logic-Engine/pull/664). Все они остаются открытыми review-only кандидатами, а не интегрированным кодом; production dispatch не разрешён.
 >
 > **Production Memory → NPC остаётся DISABLED / FAIL-CLOSED.** Provider blocker #3 закрыт на уровне реализации и тестов: если отзыв записи/запроса или потеря readiness зафиксированы до durable `DISPATCH_STARTED`, Gateway обязан выполнить ноль исходящих вызовов и не создавать запись dispatch ledger. Проверено и восстановление старой Provider DB против независимого accepted head. Но независимый remote anti-rollback для самой authority, целевые ACL/backup-restore, полнота Host inventory, окончательная привязка сериализованного тела и доказательство единственного outbound-пути в установленном SillyTavern пока не подтверждены.
 >
@@ -32,7 +30,7 @@
 | Memory → NPC — техническая реализация | 70% | +5 п.п. |
 | Memory → NPC — production readiness | **0% — BLOCKED** | без изменения |
 
-Проценты учитывают свежие изменения в `main`, включая интегрированный Provider accepted-head/revocation gate и тесты отката/восстановления Core. Это оценка прогресса реализации, а не готовности production. Host-работа в отдельных feature-ветках не засчитывается как готовая интеграция.
+Проценты и диаграмма — историческая оценка `main` на 28.10.2026 до merge #665. После merge `87b452939f690a6ad76cfeb0c3e06ad040fef900` оценки не пересчитывались; новые открытые PR и feature-ветки не засчитываются как интегрированные. Это оценка прогресса реализации, а не готовности production.
 
 ### Memory → NPC: что готово и что блокирует включение
 
@@ -40,13 +38,14 @@
 
 **Изменения в основной ветке:** в `main` присутствуют контракт #527 (полный пустой результат отличается от отказа/неполноты) и PR #618 — accepted-head защита реальных Core/Provider writes, revoke, tombstone/purge, reconciliation/readiness и recovery с pre-dispatch Gateway gate. Это закрывает Provider blocker #3 на уровне кода и тестов, но не доказывает полноту Host inventory или сквозную доставку памяти конкретному NPC.
 
-**Кандидатные изменения, не считать частью `main`, пока PR не слит:**
-- [PR #521](https://github.com/necromorphic/Logic-Engine/pull/521) — долговечный Core source-version ledger/readback.
-- [PR #504](https://github.com/necromorphic/Logic-Engine/pull/504) — привязка версии источника в Provider → Core consumer.
-- [PR #524](https://github.com/necromorphic/Logic-Engine/pull/524) — Host reconciliation entry point; наличие API не доказывает полноту inventory.
-- [PR #526](https://github.com/necromorphic/Logic-Engine/pull/526) — startup migration guard, остаётся в feature-ветке.
-- [PR #528](https://github.com/necromorphic/Logic-Engine/pull/528) — возврат source-version token вместе с Provider candidate.
-- [PR #588](https://github.com/necromorphic/Logic-Engine/pull/588) — кандидат точной привязки версии источника в цепочке Provider → NPC.
+**Актуальные открытые кандидаты, не считать частью `main`, пока PR не слит:**
+- [PR #640](https://github.com/necromorphic/Logic-Engine/pull/640) — исходная source-version ledger ветка, только evidence; базовая история устарела.
+- [PR #681](https://github.com/necromorphic/Logic-Engine/pull/681) — Core source-version ledger/inventory, exact HEAD `1ee9e20fc7160e028d494f7860efbfdfc2f1c3fb`: Provider blocker-3 30/30 и полный Runtime workflow, включая `npm test`, oracle 20/20, NPC boundary и trusted-acquisition lifecycle, PASS ([Provider](https://github.com/necromorphic/Logic-Engine/actions/runs/40772284591), [Runtime](https://github.com/necromorphic/Logic-Engine/actions/runs/40772284701)). Ветка на 2 commits позади `main`; требует свежего порта. Миграция 14 конфликтует с #670 и должна быть согласована с #664.
+- [PR #632](https://github.com/necromorphic/Logic-Engine/pull/632) — закрытая без merge старая Host lifecycle validation-ветка; только evidence, не переносить её историю.
+- [PR #680](https://github.com/necromorphic/Logic-Engine/pull/680) — Host lifecycle/save-capability port, exact HEAD `bd1429280486ff26530b17ff31b60d17f4fe36de`: все пять exact-head workflows PASS, включая Host patch checks, IndexedDB restart, Runtime suite, NPC boundary, trusted-acquisition lifecycle и pinned-source Linux/Windows route harness ([CI](https://github.com/necromorphic/Logic-Engine/actions)). Это закрывает CI-проверку кандидата, но не доказывает полный all-time Host inventory, anti-rollback, target-PC ACL/restore, sole egress или live deployment.
+- [PR #636](https://github.com/necromorphic/Logic-Engine/pull/636) — Windows Memory Provider acceptance evidence.
+- [PR #646](https://github.com/necromorphic/Logic-Engine/pull/646) — сериализация старта Host dispatch относительно отзыва; нужен доказанный путь от этого gate до реального final-send.
+- [PR #670](https://github.com/necromorphic/Logic-Engine/pull/670) — Core-owned actor-scoped knowledge reader и belief-transition boundary поверх #665. Текущий head `a097c79470bef6caec3fa0c7d80f8e69911bc872`: Provider blocker-3 PASS; NPC-boundary и trusted-acquisition lifecycle PASS; отдельный full Runtime workflow повторно запущен после отменённого запуска и на момент обновления ещё выполняется. Остался контрактный Core-вопрос: acquisition не закрепляет версию/значение факта, а reader берёт текущее значение по `fact_id` ([обсуждение #140](https://github.com/necromorphic/Logic-Engine/issues/140#issuecomment-6480878131)). Миграция 14 конфликтует с #681 и #664; нужна единая последовательность миграций. Draft; production Memory → NPC отключён.
 
 **Обязательные блокеры включения:**
 1. Доказать полный Host inventory активных, исторических и удалённых версий переписки, включая пропущенные изменения, импорт, ветвление и восстановление.
@@ -97,7 +96,7 @@
 
 ## Текущая граница реализации
 
-| Область | Статус на 28.10.2026 |
+| Область | Статус на 29.10.2026 |
 |---|---|
 | HTTP API, SQLite-журнал, проекции, базовые сущности/факты, аудит и идемпотентность | Есть в прототипе; гарантия ограничена кодом и тестами текущей версии |
 | Причинный откат и перестроение проекций | Частично реализованы; полная семантика независимых альтернативных причин не подтверждена |
@@ -119,7 +118,7 @@
 
 - **[Issue #264 — Host → Provider evidence and production-readiness gate](https://github.com/necromorphic/Logic-Engine/issues/264):** единый пакет доказательств, Host inventory, Provider reconciliation, точный disclosure boundary и список минимальных решений Core. Не создавать параллельные mapping-документы.
 - **[Issue #258 — Host/Adapter lifecycle evidence](https://github.com/necromorphic/Logic-Engine/issues/258):** проверить идентичность и lifecycle на закреплённой версии SillyTavern `1.19.0-1-g06bde939f` (SHA `06bde939fb1e9c4c8d8641d810f0a916b5bce127`). Пока нет доказанного полного inventory; кандидат patch не считается применённым или runtime-проверенным.
-- **[Issue #181 — Memory Provider](https://github.com/necromorphic/Logic-Engine/issues/181):** Provider blocker #3 интегрирован в `main` через PR #618; Host inventory, внешний anti-rollback authority и production deployment controls остаются вне этого закрытого среза.
+- **[Issue #181 — Memory Provider](https://github.com/necromorphic/Logic-Engine/issues/181):** Provider blocker #3 интегрирован в `main` через PR #618; Host inventory, независимый anti-rollback authority и production deployment controls остаются вне этого закрытого среза. Приёмка пункта B зафиксирована в [`docs/memory-provider-acceptance-b-2026-10-28.md`](docs/memory-provider-acceptance-b-2026-10-28.md): Core запрещает долговременное хранение исходного текста SillyTavern, поэтому raw capture/read/active-selection остаются fail-closed; это не блокер ожидания нового решения. PR #636 собирает дополнительное Windows acceptance evidence, но пока не слит.
 - **[Issue #226 — Mechanics acceptance](https://github.com/necromorphic/Logic-Engine/issues/226):** остаётся блокер policy-freshness — авторитетный источник политики должен быть проверен при approval/commit, включая end-to-end rotation версии политики.
 - **[Issue #252 — Portfolio manager](https://github.com/necromorphic/Logic-Engine/issues/252):** общий реестр активных блоков, зависимостей, доказательств, владельцев и следующих действий.
 
