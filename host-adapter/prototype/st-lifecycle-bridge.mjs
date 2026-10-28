@@ -18,7 +18,7 @@ const activeIndex = message => {
   }
   return index;
 };
-const CURRENTLY_HOOKED_PATHS = Object.freeze(['create-message', 'message-send', 'message-receive', 'create-swipe', 'select-swipe', 'delete-swipe', 'delete-message', 'edit-message', 'rename-chat']);
+const CURRENTLY_HOOKED_PATHS = Object.freeze(['create-message', 'message-send', 'message-receive', 'select-swipe', 'delete-swipe', 'delete-message', 'edit-message', 'rename-chat']);
 const newId = () => {
   if (!globalThis.crypto?.randomUUID) throw Error('crypto.randomUUID unavailable; Host capture NON_READY');
   return globalThis.crypto.randomUUID();
@@ -254,13 +254,13 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
   async function beforeMutation(operation, messageIndexes, details = {}) {
     const conversationId = await getConversationId();
     if (!conversationId || !(await enrolledOrFailClosed(conversationId))) return { status: 'NOT_ENROLLED' };
-    if (!CURRENTLY_HOOKED_PATHS.includes(operation)) {
-      throw Error('NON_READY: unsupported/uninstrumented Host lifecycle operation ' + String(operation) + '; abort mutation before source change');
-    }
     // The adapter has no source-backed parent token for ST alternate generation.
     // Reject before native mutation rather than guessing a parent from swipe slot order.
     if (operation === 'create-swipe') {
       throw Error('NON_READY: alternate generation has no source-backed parent lineage; abort mutation before source change');
+    }
+    if (!CURRENTLY_HOOKED_PATHS.includes(operation)) {
+      throw Error('NON_READY: unsupported/uninstrumented Host lifecycle operation ' + String(operation) + '; abort mutation before source change');
     }
     const chat = getChat(), fingerprint = await currentFingerprint(chat);
     const latestFingerprint = await journal.latestSourceFingerprint(conversationId);
