@@ -337,3 +337,101 @@ The proposal binds each assignment semantically to world, canonical subject, ass
 
 `Memory → NPC` remains **DISABLED / FAIL-CLOSED**; Host remains **NON_READY**. No runtime readiness is claimed, and this documentation update does not claim tests were run.
 
+
+
+## 14. Goal/plan lifecycle and causal-reconciliation contract (design only)
+
+This section develops the NPC-domain boundary already stated in `docs/31-npc-subsystem-contract.md` §§5, 11–12. It does not define a storage format, executable enum, reducer API, or authorization to implement.
+
+### 14.1 Distinct domain meanings
+
+Keep these concepts separate:
+
+- **Goal:** a desired condition, not a prediction or guarantee that it will occur.
+- **Plan:** a revisable strategy for pursuing a goal, including assumptions, prerequisites, dependencies, and alternatives.
+- **Task:** a concrete step with an owner, prerequisites, progress, and a completion/failure condition.
+- **Commitment:** an obligation or promise; it is not proof that the promised action occurred.
+- **Intention:** a proposed or private direction of action; it is not a canonical event and is not automatically visible to other actors or the player.
+- **Authoritative outcome:** a result established by the appropriate Core boundary, not by NPC/model narration, a proposal status, or a caller-supplied success flag.
+
+NPC goal/plan/task state is NPC-domain state. It must not become a second canonical world state, event log, revision cursor, causal graph, or knowledge store. Core remains authoritative for canonical effects and their validity.
+
+### 14.2 Lifecycle semantics required before implementation review
+
+A future contract must distinguish at least the following *semantic situations*; these are not approved wire values:
+
+| Situation | Required meaning |
+|---|---|
+| Goal proposed / unresolved | A candidate goal exists but admissibility, priority, or a material dependency is not established. It must not silently become accepted. |
+| Goal accepted | The goal passed an explicitly owned admissibility policy. The policy owner and conflict rules must be named before implementation. |
+| Plan active | A strategy is currently considered viable under its recorded assumptions and prerequisites; this does not guarantee its steps will succeed. |
+| Plan needs reconsideration | A prerequisite failed, an assumption was contradicted, relevant information changed, a required resource became unavailable, a deadline passed, or an action failed. Do not continue automatically as if nothing changed. |
+| Task attempted / outcome unknown | An attempt was made, but no authoritative result is available. Do not mark the task successful. |
+| Task/action confirmed | The relevant authoritative result was verified and correlated to this NPC attempt. Proposal creation or approval alone is insufficient. |
+| Goal completed | The desired condition is supported by verified current evidence under the applicable rules; a narrated claim or one completed task is not enough by itself. |
+| Goal abandoned / superseded | The transition has an explicit reason and provenance. A failed plan alone does not automatically erase the underlying goal. |
+| Blocked / needs review | Required evidence, policy, causal dependency, or result correlation is unavailable, ambiguous, stale, or contradictory. Preserve that uncertainty. |
+
+The exact labels and transition graph remain open. Do not encode a state machine in runtime code until the owner, allowed transitions, and authoritative inputs have been reviewed.
+
+### 14.3 Replanning and priority conflicts
+
+A plan must be reconsidered when a material assumption or prerequisite changes. Reconsideration is not the same as deleting the goal or automatically selecting a replacement plan.
+
+- Preserve the goal when one strategy fails, unless an explicit authorized rule or decision changes the goal itself.
+- Do not assume a task's success from intent, proposal creation, approval, or model output.
+- Do not infer priority from list order, recency, personality traits, or model confidence unless an approved policy defines that rule.
+- If two goals or author constraints conflict and no authoritative priority rule resolves the conflict, return an unresolved/review-required outcome rather than inventing a universal ordering.
+- A commitment remains distinct from execution and completion; failed or cancelled execution must not rewrite history as if the promise never existed.
+
+### 14.4 Causal rollback and reconciliation boundary
+
+When a Core source event is invalidated or corrected, NPC-domain state may need reconciliation, but the NPC subsystem must not implement its own canonical undo.
+
+Before any reconciliation implementation, the contract must identify:
+1. the authoritative source/event identity and current validity signal;
+2. the exact NPC goal, plan, task, belief, relationship, or report effects that depend on it;
+3. whether each effect has another independent valid cause or support;
+4. the owner-approved way to recompute current NPC-domain state after rollback/correction;
+5. how retries and replay avoid duplicate transitions and survive restart;
+6. how the audit trail preserves the correction/rollback operation without silently erasing history.
+
+Required semantic behavior:
+- invalidate or recompute a dependent effect when its only valid support is removed;
+- preserve an effect when an independent valid cause still supports it;
+- do not erase all later activity merely because an earlier event was rolled back;
+- do not preserve a dependent effect solely because it appears later in the timeline;
+- do not treat an unchanged commit sequence as proof that source validity is unchanged;
+- if causality is incomplete or support cannot be established, stop at unresolved/needs-review rather than guess.
+
+The current documentation/source inventory does not establish a production NPC goal/plan reconciliation consumer. The generic Core rollback and proposal mechanisms are dependencies, not proof that this NPC-domain lifecycle exists.
+
+### 14.5 Acceptance matrix for the next design review
+
+| ID | Scenario | Required result |
+|---|---|---|
+| GOAL-LC-01 | One attempted plan fails while the goal remains admissible | Mark the plan for reconsideration; preserve the goal unless a separate authorized transition changes it. |
+| GOAL-LC-02 | A required prerequisite is missing or unknown | Do not treat it as false or satisfied; block/review the plan. |
+| GOAL-LC-03 | Two goals conflict and no approved priority rule applies | Preserve the conflict as unresolved; do not invent an ordering. |
+| GOAL-LC-04 | Model says an action succeeded, but no authoritative Core result is correlated | Task/action outcome remains unknown; no completion transition based on narration. |
+| GOAL-LC-05 | Proposal is pending or approved but not committed | Do not mark the action/task successful or reconcile plan progress as committed. |
+| GOAL-LC-06 | A supporting event is invalidated and no independent valid support remains | Reconcile affected NPC-domain state according to the approved causal contract; do not silently retain dependent progress. |
+| GOAL-LC-07 | A supporting event is invalidated but an independent valid cause remains | Preserve the independently supported effect. |
+| GOAL-LC-08 | Rollback affects one branch of later activity | Reconcile dependent effects only; preserve independent later activity. |
+| GOAL-LC-09 | Reconciliation is retried or replayed after restart | No duplicate transition or false success; exact idempotency/recovery behavior must be defined and tested before implementation. |
+| GOAL-LC-10 | The causal chain is incomplete or current source validity cannot be verified | Return unresolved/needs-review; do not fabricate a causal explanation or claim currentness. |
+| GOAL-LC-11 | A commitment exists but the action has not been confirmed | Preserve the obligation separately from execution/completion status. |
+| GOAL-LC-12 | Chat turns occur without canonical game-time advancement | Do not advance time-dependent tasks, deadlines, or off-screen processes solely because another chat turn occurred. |
+
+These cases are design acceptance requirements, not tests claimed to have run. They complement the broader semantic cases in `docs/31-npc-subsystem-contract.md`, `docs/32-npc-semantic-acceptance-matrix.md`, and the readiness limitations in `docs/33-npc-runtime-readiness-audit.md`.
+
+### 14.6 Gate status
+
+- Goal/plan/task/commitment distinctions: **DOCUMENTED SEMANTIC BASELINE**.
+- Goal admissibility owner and conflict policy: **UNCONFIRMED / BLOCKED**.
+- Trusted NPC caller, actor-purpose authorization, and action-result correlation: **BLOCKED**.
+- Production NPC goal/plan persistence and reconciliation: **NOT VERIFIED**.
+- Runtime, API, schema, storage, dispatcher, scheduler, worker, and plan-reconciliation implementation: **NOT AUTHORIZED**.
+- `Memory → NPC`: **DISABLED / FAIL-CLOSED**; Host: **NON_READY**.
+
+This section is an independent design clarification. It does not resolve or bypass the coordinator's pending review of the Core-owned initial-knowledge acquisition contract.
