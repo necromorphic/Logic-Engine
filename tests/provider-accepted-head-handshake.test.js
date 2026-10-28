@@ -59,6 +59,11 @@ function setEnv(name, value, previous) {
   else process.env[name] = value;
 }
 
+function readProviderDb(path, work) {
+  const db = new DatabaseSync(path);
+  try { return work(db); } finally { db.close(); }
+}
+
 const providerOptions = (path, coordinatorPath) => ({
   path,
   coordinatorPath,
@@ -112,18 +117,18 @@ test('Provider mutations advance accepted head before commit and fail closed whe
 
     provider.grantQuery(scope, true);
     assert.equal(provider.authorizeQuery(scope), true);
-    const firstOperation = provider.db.prepare(
+    const firstOperation = readProviderDb(providerPath, db => db.prepare(
       'SELECT head,enrolled,last_operation_id,last_operation_digest FROM accepted_head_state WHERE singleton=1',
-    ).get();
+    ).get());
     assert.equal(firstOperation.head, 2);
     assert.equal(firstOperation.enrolled, 1);
     assert.match(firstOperation.last_operation_digest, /^[a-f0-9]{64}$/);
     assert.equal(firstOperation.last_operation_id, 'provider-' + firstOperation.last_operation_digest);
 
     provider.grantQuery({ world_id: 'world-1', subject_id: 'npc-2', purpose: 'recall' }, true);
-    const secondOperation = provider.db.prepare(
+    const secondOperation = readProviderDb(providerPath, db => db.prepare(
       'SELECT head,enrolled,last_operation_id,last_operation_digest FROM accepted_head_state WHERE singleton=1',
-    ).get();
+    ).get());
     assert.equal(secondOperation.head, 3);
     assert.equal(secondOperation.last_operation_id, 'provider-' + secondOperation.last_operation_digest);
     assert.notEqual(secondOperation.last_operation_digest, firstOperation.last_operation_digest);
@@ -155,9 +160,9 @@ test('Provider mutations advance accepted head before commit and fail closed whe
     // Verify the accepted-head wrapper covers each currently usable Provider
     // mutation family, not only query grants. Each visible state transition must
     // advance the external head and persist the same local head before returning.
-    const currentProviderHead = () => provider.db.prepare(
+    const currentProviderHead = () => readProviderDb(providerPath, db => db.prepare(
       'SELECT head FROM accepted_head_state WHERE singleton=1',
-    ).get().head;
+    ).get().head);
     const assertHeadAdvanced = async (work) => {
       const before = currentProviderHead();
       await work();
@@ -302,9 +307,9 @@ test('Provider fails closed when authority advances but the local checkpoint tra
     setEnv('LOGIC_ENGINE_ACCEPTED_HEAD_PROVIDER_TOKEN', providerToken, previousEnv);
     setEnv('LOGIC_ENGINE_ACCEPTED_HEAD_REQUIRED', '1', previousEnv);
     provider = new SQLiteMemoryProvider(providerOptions(providerPath, coordinatorPath));
-    provider.db.exec(`CREATE TRIGGER fail_accepted_head_checkpoint
+    readProviderDb(providerPath, db => db.exec(`CREATE TRIGGER fail_accepted_head_checkpoint
       BEFORE UPDATE ON accepted_head_state
-      BEGIN SELECT RAISE(ABORT, 'injected checkpoint failure'); END;`);
+      BEGIN SELECT RAISE(ABORT, 'injected checkpoint failure'); END;`));
 
     assert.throws(() => provider.grantQuery({
       world_id: 'world-orphaned', subject_id: 'npc-orphaned', purpose: 'recall',
