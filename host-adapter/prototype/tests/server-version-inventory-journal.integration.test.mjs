@@ -39,7 +39,7 @@ function responseMock() {
   return response;
 }
 
-test('enforced server mutation journal records before/after persisted version inventories and active-pointer changes', async () => {
+test('enrolled chat save stays blocked until a request-bound lifecycle capability exists', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'host-version-inventory-journal-'));
   const directories = {
     chats: path.join(root, 'chats'), characters: path.join(root, 'characters'), groups: path.join(root, 'groups'),
@@ -59,7 +59,12 @@ test('enforced server mutation journal records before/after persisted version in
     ...messages.map(JSON.stringify),
   ].join('\n') + '\n');
   try {
-    await writeChat([makeMessage({ messageId, versions: [{ versionId: version1, text: 'private-before' }], activeVersionIndex: 0 })]);
+    const persisted = [
+      JSON.stringify({ chat_metadata: { logic_engine_conversation_id: conversationUuid } }),
+      JSON.stringify(makeMessage({ messageId, versions: [{ versionId: version1, text: 'private-before' }], activeVersionIndex: 0 })),
+      '',
+    ].join('\n');
+    await writeFile(chatPath, persisted);
     const conversationId = installationUuid + ':' + conversationUuid;
     await registerHostConversation(request, {
       conversationId,
@@ -69,8 +74,26 @@ test('enforced server mutation journal records before/after persisted version in
       conversation_id: conversationId, message_id: messageId, version_id: version1, parent_version_id: null,
       content_sha256: digest('private-before'), active: true, deleted: false,
     });
+
+    const before = await getHostConversationInventory(request);
+    assert.equal(before.complete, true);
+    assert.equal(before.currentVersionCount, 1);
+    request.body = {
+      avatar_url: 'character-a.png',
+      file_name: 'chat-a',
+      chat: [makeMessage({
+        messageId,
+        versions: [
+          { versionId: version1, text: 'private-before' },
+          { versionId: version2, text: 'private-after', parentVersionId: version1 },
+        ],
+        activeVersionIndex: 1,
+      })],
+    };
     const response = responseMock();
+    let reachedNativeSave = false;
     await createHostLifecycleMutationMiddleware({ requirePersistedInventory: true })(request, response, async () => {
+      reachedNativeSave = true;
       await writeChat([makeMessage({
         messageId,
         versions: [
@@ -82,68 +105,17 @@ test('enforced server mutation journal records before/after persisted version in
       response.json({ ok: true });
     });
     await response.finished;
-    assert.equal(response.statusCode, 200);
-    await recordHostCaptureAcknowledgement(request, {
-      conversation_id: conversationId, message_id: messageId, version_id: version1, parent_version_id: null,
-      content_sha256: digest('private-before'), active: false, deleted: false,
-    });
-    await recordHostCaptureAcknowledgement(request, {
-      conversation_id: conversationId, message_id: messageId, version_id: version2, parent_version_id: version1,
-      content_sha256: digest('private-after'), active: true, deleted: false,
-    });
-    const journal = await readFile(path.join(root, '.logic-engine-host', 'mutation-ledger.jsonl'), 'utf8');
-    const records = journal.trim().split('\n').map(line => JSON.parse(line));
-    const mutationRecords = records.filter(record => record.kind === 'intent' || record.kind === 'outcome');
-    assert.equal(mutationRecords.length, 2);
-    assert.equal(mutationRecords[0].beforeConversationInventories[0].versions.length, 1);
-    assert.equal(mutationRecords[1].afterConversationInventories[0].versions.length, 2);
-    assert.ok(mutationRecords[0].beforeConversationInventoryDigest);
-    assert.ok(mutationRecords[1].afterConversationInventoryDigest);
-    assert.ok(mutationRecords[1].versionChanges.some(change => change.change === 'ADDED' && change.version_id === version2));
-    assert.ok(mutationRecords[1].versionChanges.some(change => change.change === 'ACTIVE_CHANGED' && change.version_id === version1));
-    assert.doesNotMatch(journal, /private-before|private-after/);
 
-    const checkpoint = await getHostConversationInventory(request);
-    assert.equal(checkpoint.complete, true);
-    assert.equal(checkpoint.mutationJournal.snapshotConsistency, 'MATCHES_LAST_COMMITTED_LOCAL_CHECKPOINT');
+    assert.equal(reachedNativeSave, false, 'native overwrite must not run without the request-bound capability');
+    assert.equal(response.statusCode, 409);
+    assert.match(String(response.body), /HOST_ENROLLED_HISTORY_SAVE_CAPABILITY_REQUIRED/);
+    assert.equal(await readFile(chatPath, 'utf8'), persisted, 'blocked save must leave persisted source byte-for-byte unchanged');
 
-    // Remove a swipe through the guarded save path, then require an explicit
-    // Core-accepted tombstone before the observed inventory can stay complete.
-    const deleteResponse = responseMock();
-    await createHostLifecycleMutationMiddleware({ requirePersistedInventory: true })(request, deleteResponse, async () => {
-      await writeChat([makeMessage({
-        messageId,
-        versions: [{ versionId: version2, text: 'private-after', parentVersionId: version1 }],
-        activeVersionIndex: 0,
-      })]);
-      deleteResponse.json({ ok: true });
-    });
-    await deleteResponse.finished;
-    assert.equal(deleteResponse.statusCode, 200);
-    await recordHostCaptureAcknowledgement(request, {
-      conversation_id: conversationId, message_id: messageId, version_id: version1, parent_version_id: null,
-      content_sha256: digest('private-before'), active: false, deleted: true,
-    });
-    const tombstoneSnapshot = await getHostConversationInventory(request);
-    assert.equal(tombstoneSnapshot.complete, true);
-    assert.equal(tombstoneSnapshot.historicalCompleteness, 'ENROLLMENT_FORWARD_ONLY');
-    assert.equal(tombstoneSnapshot.currentVersionCount, 1);
-    assert.equal(tombstoneSnapshot.versionCount, 2);
-    assert.equal(tombstoneSnapshot.inventories[0].versions.find(v => v.version_id === version1).deleted, true);
-    assert.equal(tombstoneSnapshot.inventories[0].versions.find(v => v.version_id === version2).active, true);
-
-    // A locally restored older chat file must diverge from the last committed
-    // version inventory and fail closed. The local journal itself still shares
-    // the Host restore domain, so this is detection evidence, not anti-rollback authority.
-    await writeChat([makeMessage({
-      messageId,
-      versions: [{ versionId: version1, text: 'private-before' }],
-      activeVersionIndex: 0,
-    })]);
-    const rollback = await getHostConversationInventory(request);
-    assert.equal(rollback.complete, false);
-    assert.ok(rollback.errors.includes('CURRENT_SNAPSHOT_DIVERGES_FROM_LAST_COMMITTED_JOURNAL_SNAPSHOT'));
-    assert.equal(rollback.mutationJournal.snapshotConsistency, 'DIVERGES_FROM_LAST_LOCAL_CHECKPOINT');
+    const after = await getHostConversationInventory(request);
+    assert.equal(after.complete, true);
+    assert.equal(after.currentVersionCount, 1);
+    assert.equal(after.versionCount, 1);
+    assert.doesNotMatch(await readFile(chatPath, 'utf8'), /private-after/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
