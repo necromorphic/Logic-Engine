@@ -124,7 +124,7 @@ test('server-side Host mutation middleware covers pinned direct API routes for e
   assert.match(hostJournal, /targetUserHasEnrolledState/);
   assert.match(hostJournal, /HOST_ENROLLED_HISTORY_PATH_MUTATION_UNSUPPORTED/);
   assert.match(hostJournal, /routeKey === 'POST \/api\/users\/delete'/);
-  assert.match(hostJournal, /request\.body\?\.purge/);
+  assert.match(hostJournal, /if \(operation === 'user-root-reset'\)/);\n  assert.match(hostJournal, /return registry\.conversations\.length > 0/);
   assert.match(startup, /getUserDirectories/);
   assert.match(startup, /createHostLifecycleMutationMiddleware\(\{\s*requirePersistedInventory:\s*true,\s*getUserDirectories\s*\}\)/);
   assert.match(hostJournal, /beforeArtifacts:/);
