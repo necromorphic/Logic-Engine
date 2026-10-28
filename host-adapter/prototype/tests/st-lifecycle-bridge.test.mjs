@@ -811,3 +811,27 @@ test('post-delete checkpoint rejects an unrelated reorder of surviving message i
   );
   assert.deepEqual(originalIds.slice(0, 2).sort(), f.chat.map(message => message._logicEngineLifecycle.messageId).sort());
 });
+
+
+test('post-delete checkpoint rejects non-contiguous deletion of prior message identities', async () => {
+  const f = makeFixture([
+    { is_user: true, mes: 'first' },
+    { is_user: false, mes: 'second' },
+    { is_user: true, mes: 'third' },
+    { is_user: false, mes: 'fourth' },
+  ]);
+  await f.bridge.enrollCurrentConversation();
+  await f.bridge.beforeMutation('delete-message', [1, 3]);
+  f.chat.splice(3, 1);
+  f.chat.splice(1, 1);
+
+  await assert.rejects(
+    f.bridge.afterMutation('delete-message'),
+    /message deletion checkpoint removed non-contiguous prior message identities/,
+  );
+  const ledger = await f.journal.exportCaptureLedger('chat-1');
+  assert.equal(
+    ledger.records.some(record => record.operation === 'after:delete-message'),
+    false,
+  );
+});
