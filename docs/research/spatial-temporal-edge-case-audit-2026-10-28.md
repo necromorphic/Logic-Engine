@@ -115,3 +115,26 @@ Research-only test work on this branch:
 - Added a negative test proving an invalidated boundary is rejected instead of being treated as confirmed.
 - The first full CI run for the equal-time test failed because the query also included a separate event at the same coordinate (3 rows, while the test expected the 2 planned trigger events). The test query was narrowed to the exact planned event IDs in commit `fdca75abf06aefb6f62e543ea78e877d6cd58759`. This corrects the test's selection, not production behavior.
 - The corrected commit's workflow result has not yet been observed. Do not treat this test slice as green until CI completes successfully.
+
+## Geometry/perception feasibility progress — 2026-10-28
+
+A synthetic test-only harness now exists at `tests/spatial-reasoning-feasibility.test.js`. It exercises:
+- strict finite XYZ and position-v1 frame/unit handling;
+- same-world/same-boundary distance and relative delta;
+- fail-closed cross-world/cross-boundary/missing-axis cases;
+- tie-preserving nearest results and bounded candidate-set labeling;
+- the current Core gap: generic position-shaped attributes, including malformed values, can be accepted without typed spatial schema provenance;
+- synthetic 3D line-vs-AABB occlusion, observer direction/FOV, distance threshold, explicit lighting policy, and stale-boundary handling;
+- the rule that a visibility result does not create NPC knowledge or Memory permission.
+
+**Evidence limit:** these are synthetic/test-fixture algorithms and characterization tests. They do not establish production spatial queries, a typed schema loader, real-world geometry, or NPC perception integration. The harness must be executed on the exact branch head before any pass is claimed.
+
+### Compatibility clarification: position-v1 versus nested frames
+
+The existing World Pack typed spatial contract explicitly selects one world-scoped `world-enu-logical-v1` frame and prohibits local frames, transforms, implicit scale, interpolation, and extrapolation in v1. Therefore, nested object/room/building transforms are **not** part of the current position-v1 stage and must not be implemented by inference. They remain a possible future contract revision requiring separate review and acceptance tests. For current v1, parent/child hierarchy may be descriptive metadata only; it cannot transform coordinates or make cross-frame comparisons valid.
+
+### Stage gate interpretation
+
+- **S1 temporal evidence:** test-source coverage has been extended for restart mapping, rollback invalidation, intervening writes, equal-time identity/order, and invalid boundary rejection. Full exact-head CI and crash/coordinated-restore evidence are still required.
+- **S2 position-v1 geometry:** synthetic arithmetic is covered in test source; real spatial support remains blocked on immutable World Pack schema identity, full canonical post-state validation, writer-path coverage, and confirmed temporal mapping. No runtime spatial query is authorized.
+- **S3 observer-relative visibility:** synthetic math tests cover explicit FOV/range/occlusion/lighting/staleness inputs. Production perception remains unsupported until typed orientation, geometry/occluder source, and relevant-state invalidation contracts are independently approved and implemented. It must never imply knowledge or memory permission.
