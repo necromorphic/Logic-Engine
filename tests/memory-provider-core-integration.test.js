@@ -108,6 +108,7 @@ function setup(t, { twoRecords = false, providerPath = null } = {}) {
     triggerQueryRevocation() { triggerQueryRevocation = true; },
     setSourceValidator(fn) { sourceValidatorOverride = fn; },
     setInventoryValidator(fn) { inventoryValidatorOverride = fn; },
+    validateCanonicalInventory(...args) { return canonicalInventoryValidator(...args); },
     reopenProvider() {
       provider.close();
       provider = new SQLiteMemoryProvider({ path: effectiveProviderPath, coordinatorPath: `${effectiveProviderPath}.coordinator.sqlite`, getSnapshot: snapshotReader,
@@ -471,4 +472,68 @@ test('real Core entity revision change makes Provider reconciliation stale throu
   assert.equal(result.status, 'non_ready');
   assert.deepEqual(result.candidates, []);
   assert.equal(JSON.stringify(result).includes('changed after indexing'), false);
+});
+
+
+test('reconciliation recovers after an interrupted inventory check and remains idempotent', async (t) => {
+  const s = setup(t);
+  s.setInventoryValidator(async () => { throw new Error('simulated inventory interruption'); });
+
+  assert.equal((await s.provider.reconcile(s.scope.world_id)).status, 'stale');
+  await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_INDEX_NOT_READY/);
+
+  s.setInventoryValidator(null);
+  const recovered = await s.provider.reconcile(s.scope.world_id);
+  assert.equal(recovered.status, 'current');
+  assert.equal(recovered.records_checked, 1);
+  const beforeRetry = s.db.prepare('SELECT COUNT(*) AS count FROM memory_index_entries WHERE world_id=?')
+    .get(s.scope.world_id).count;
+  assert.equal((await s.provider.reconcile(s.scope.world_id)).status, 'current');
+  assert.equal(
+    s.db.prepare('SELECT COUNT(*) AS count FROM memory_index_entries WHERE world_id=?').get(s.scope.world_id).count,
+    beforeRetry,
+  );
+});
+
+test('reconciliation rejects a Core mutation that occurs during complete inventory validation', async (t) => {
+  const s = setup(t);
+  assert.equal((await s.prepare()).status, 'current');
+
+  let mutateOnce = true;
+  s.setInventoryValidator(async (worldId, records) => {
+    const result = await s.validateCanonicalInventory(worldId, records);
+    if (mutateOnce) {
+      mutateOnce = false;
+      const before = s.engine.getSnapshot(worldId);
+      const changed = s.engine.commitEvent(worldId, {
+        event_id: 'provider-e2e-inventory-race',
+        idempotency_key: 'provider-e2e-inventory-race',
+        turn_id: 'provider-e2e-inventory-race',
+        event_type: 'action.completed',
+        expected_revision: before.world_revision,
+        causal_links: [{ relation: 'REQUIRES', predicate: { kind: 'entity_exists', entity_id: 'source-a' } }],
+        effects: [{ kind: 'entity.update', entity_id: 'source-a', attributes: { public_note: 'changed during inventory' } }],
+      });
+      assert.equal(changed.accepted, true);
+    }
+    return result;
+  });
+
+  assert.equal((await s.provider.reconcile(s.scope.world_id)).status, 'stale');
+  await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_INDEX_NOT_READY/);
+});
+
+test('file-backed Provider restart requires reconciliation before retrieval resumes', async (t) => {
+  const s = setup(t);
+  assert.equal((await s.prepare()).status, 'current');
+  assert.equal((await s.provider.retrieveCandidates(s.scope)).completeness, 'complete');
+
+  const reopened = s.reopenProvider();
+  assert.equal(reopened.getIndexStatusForDiagnostics(s.scope.world_id).source_reconciliation, 'stale');
+  await assert.rejects(() => reopened.retrieveCandidates(s.scope), /MEMORY_INDEX_NOT_READY/);
+
+  const recovered = await reopened.reconcile(s.scope.world_id);
+  assert.equal(recovered.status, 'current');
+  assert.equal(recovered.records_checked, 1);
+  assert.equal((await reopened.retrieveCandidates(s.scope)).completeness, 'complete');
 });
