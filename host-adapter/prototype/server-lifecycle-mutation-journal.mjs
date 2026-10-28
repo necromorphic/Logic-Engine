@@ -295,6 +295,11 @@ export function createHostLifecycleMutationMiddleware({ enforce = process.env.LO
                 if (enforce) return fail(response, 'HOST_ENROLLMENT_REQUIRED', 503);
                 return next();
             }
+            const deletesEnrolledChats = operation === 'character-rename'
+                || (operation === 'character-delete' && request.body?.delete_chats === true);
+            if (deletesEnrolledChats && hasEnrolledChatUnderCharacter(registry, request.body?.avatar_url)) {
+                return fail(response, 'HOST_ENROLLED_HISTORY_PATH_MUTATION_UNSUPPORTED', 409);
+            }
             paths = await statePaths(request);
         } catch {
             return fail(response, 'HOST_JOURNAL_UNAVAILABLE');
