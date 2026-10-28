@@ -255,28 +255,23 @@ For patch-style updates, construct the complete resulting attribute state first 
 
 **Trade-off:** this is the most important runtime boundary, but it must not be implemented until R2 defines what schema is authoritative and every canonical write path is enumerated.
 
-### Decision R4 — Persist a two-phase TimeEngine/Core boundary receipt
+### Decision R4 — Reconstruct each boundary from the existing atomic segment record first
 
-**Recommendation:** do not infer a TimeEngine boundary from its timestamp or from the Core's current head. Store an explicit receipt for every confirmed boundary with:
-- operation ID and segment ID;
-- canonical game-time coordinate and TimeEngine operation version;
-- Core world ID;
-- Core `world_revision` and `commit_sequence` observed for the boundary;
-- exact boundary event IDs / idempotency keys;
-- schema identity digest;
-- receipt state: `PENDING`, `CONFIRMED`, or `INVALIDATED`.
+**Correction after reviewing the actual current seam:** the current SQLite implementation updates the TimeEngine operation checkpoint/result and commits the segment in the same store transaction. The existing research test also reconstructs each segment boundary after restart from persisted `segments_json` event IDs and canonical `world_events`. Therefore, a new two-phase cross-store receipt is **not justified by the currently inspected path** and should not be the default proposal.
 
-Because TimeEngine and Core may have separate transactions, use an explicit handshake:
-1. TimeEngine persists the segment as pending with stable IDs before Core mutation.
-2. Core commits the segment idempotently and returns its composite cursor plus the accepted event identities.
-3. TimeEngine persists the returned receipt as confirmed.
-4. On restart, reconcile pending records by querying Core with the same idempotency/event identities; never synthesize a cursor from current head.
-5. Rollback/retraction invalidates receipts whose source events are invalidated and recomputes dependent spatial state.
-6. If either side cannot resolve the exact result, boundary is unconfirmed and spatial reads are `UNKNOWN`/world `NON_READY`.
+**Recommendation:** first reuse the existing atomic record and derive a boundary cursor without adding a new table, event field, or public API:
+1. Read each persisted segment's coordinate and stable event IDs from `time_advance_operations.segments_json`.
+2. Resolve the segment's final event by exact `(world_id, event_id)` in canonical `world_events`.
+3. Require the event to exist, be valid, and have `game_time_coordinate === segment.coordinate`.
+4. Derive the Core cursor from the canonical event's `committed_revision` and `commit_sequence`; verify the derived values agree with the segment commit result / world markers where those are persisted.
+5. If any event is missing, invalidated, mismatched, or cannot be resolved, do not treat that segment boundary as confirmed. Rebuild/re-evaluate from valid canonical history or return UNKNOWN/NON_READY.
+6. After rollback, re-check event validity and compare the operation checkpoint to the current world marker; a completed historical operation record is not automatically the current world state.
 
-**Important limit:** a two-phase receipt solves ambiguous partial completion across ordinary restart, but it does not by itself detect coordinated restoration of both stores. R1 still applies.
+**Evidence already present:** `tests/spatial-temporal-cursor-feasibility.test.js:42–113` characterizes reconstruction after restart; lines 116–176 characterize rollback invalidation and stale checkpoint detection. This is test-source evidence; the tests were not run during this pass.
 
-**Trade-off:** this adds an explicit protocol and persisted receipt, so the exact owner/storage location and recovery state machine need independent review before implementation.
+**Remaining gap:** this bounded test does not cover equal-time ordering across non-TimeEngine canonical writes, all intervening-write interleavings, every interruption/recovery path, or coordinated old-backup restore. Those are explicit follow-up evidence gaps, not grounds to invent a second cursor mechanism.
+
+**Fallback only if independent review finds the existing atomic seam insufficient:** define the smallest additional receipt or contract change with Core/Time owners. Any new cursor field/API/schema remains unapproved and out of scope until that review.
 
 ### Smallest safe implementation slice after review
 
@@ -284,7 +279,7 @@ Do not start with a spatial projection. After the owner accepts R1–R4 and expl
 1. Validator + immutable World Pack artifact identity.
 2. Pin identity during world creation and reject unresolved legacy packs for spatial use.
 3. Canonical commit gate for typed spatial post-state.
-4. TimeEngine/Core boundary receipt and pending-state recovery.
+4. Validate the existing persisted segment-event → canonical event → Core composite-cursor reconstruction; add a new receipt only if independent review proves the existing atomic seam insufficient.
 5. Fail-closed restore/recovery gate.
 6. Only then a read-only exact-position query with provenance.
 
