@@ -141,6 +141,20 @@ test('reader rejects unsupported purpose, unknown actor, and malformed limits', 
   });
 });
 
+
+test('reader stops returning an acquisition after its canonical source is rolled back', (t) => {
+  const { store, engine } = setup(t);
+  assert.equal(engine.readNpcKnowledge(request(store)).items.length, 1);
+  const rollback = engine.rollbackEvent('world-a', {
+    root_event_id: 'author-seed',
+    idempotency_key: 'rollback-author-seed',
+  });
+  assert.equal(rollback.accepted, true);
+  const result = engine.readNpcKnowledge(request(store));
+  assert.equal(result.status, 'ready');
+  assert.deepEqual(result.items, []);
+});
+
 test('pure read contract rejects extra keys and authorization from another snapshot', (t) => {
   const { store } = setup(t);
   const world = store.world('world-a');
