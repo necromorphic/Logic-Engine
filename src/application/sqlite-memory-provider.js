@@ -281,6 +281,16 @@ export class SQLiteMemoryProvider {
     `);
       const stateColumns = this.#db.prepare('PRAGMA table_info(memory_index_state)').all();
       if (!stateColumns.some((column) => column.name === 'failure_code')) this.#db.exec('ALTER TABLE memory_index_state ADD COLUMN failure_code TEXT');
+      // Readiness is process-local evidence. After restart, force a complete
+      // reconciliation before retrieval can become available again.
+      this.#db.prepare(`
+        UPDATE memory_index_state
+        SET index_health='stale', source_reconciliation='stale',
+            snapshot_revision=NULL, snapshot_sequence=NULL,
+            failure_code='PROCESS_RESTART_RECONCILIATION_REQUIRED',
+            updated_at=?
+        WHERE index_health='ready' AND source_reconciliation='current'
+      `).run(new Date().toISOString());
     } catch (error) {
       startupError = error;
     } finally {
@@ -949,6 +959,7 @@ export class SQLiteMemoryProvider {
     let inventoryComplete = false;
     try {
       inventoryComplete = await this.#validateInventory(worldId, Object.freeze(records.map((row) => Object.freeze({
+        world_id: row.world_id,
         record_ref: row.record_ref, record_version: row.record_version,
         source_kind: row.source_kind, source_entity_id: row.source_entity_id,
         source_version: row.source_version,
@@ -962,6 +973,31 @@ export class SQLiteMemoryProvider {
     if (!inventoryComplete) {
       this.#setState(worldId, 'stale', 'stale', null, 'INVENTORY_INCOMPLETE_OR_UNAVAILABLE');
       return { status: 'stale', reason: 'INVENTORY_INCOMPLETE_OR_UNAVAILABLE' };
+    }
+
+    // Inventory validation is awaited. Recheck each exact persisted source token
+    // after it returns, so a Core mutation during inventory validation cannot
+    // publish a current marker for stale source records.
+    for (const row of records) {
+      let lineage;
+      try { lineage = decode(row.lineage_json); } catch {
+        this.#setState(worldId, 'stale', 'stale', null, 'LINEAGE_INVALID');
+        return { status: 'stale', reason: 'LINEAGE_INVALID' };
+      }
+      let valid = false;
+      try {
+        valid = await this.#validateSourceVersion(Object.freeze({
+          world_id: row.world_id, subject_id: row.subject_id, purpose: row.purpose,
+          record_ref: row.record_ref, record_version: row.record_version,
+          source_kind: row.source_kind, source_entity_id: row.source_entity_id,
+          source_version: row.source_version, lineage: Object.freeze(lineage),
+        })) === true;
+      } catch { valid = false; }
+      if (superseded()) return { status: 'stale', reason: 'RECONCILIATION_SUPERSEDED' };
+      if (!valid) {
+        this.#setState(worldId, 'stale', 'stale', null, 'SOURCE_VALIDATION_FAILED_AFTER_INVENTORY');
+        return { status: 'stale', reason: 'SOURCE_VALIDATION_FAILED_AFTER_INVENTORY' };
+      }
     }
 
     // Provider-local writes can occur while source validation/inventory callbacks
