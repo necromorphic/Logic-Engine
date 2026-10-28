@@ -533,11 +533,12 @@ test('real Provider revokeRecord committed before dispatch-start produces zero u
       operationDigest: digestA, token: coreToken, port: service.port,
     });
 
+    let allowSourceVersion = true;
     const providerOptions = {
       path: providerPath,
       coordinatorPath,
       getSnapshot: async () => ({ world_revision: 1, commit_sequence: 1 }),
-      validateSourceVersion: async (record) => record.source_version === 'version-7',
+      validateSourceVersion: async (record) => allowSourceVersion && record.source_version === 'version-7',
       validateInventory: async () => true,
     };
     const bootstrap = new SQLiteMemoryProvider(providerOptions);
@@ -650,17 +651,32 @@ test('real Provider revokeRecord committed before dispatch-start produces zero u
     assert.ok(providerHead() > beforePurge, 'purge must advance the accepted Provider head');
     assert.equal(getAcceptedHeadsSync({ port: service.port, token: providerToken }).provider, providerHead());
 
-    // The real Provider revoke writer wins before dispatch-start; Gateway must see the committed denial.
+    const assertNoDispatch = async (reason) => {
+      await assert.rejects(gateway.dispatchProtectedRequest(request), /MEMORY_DISPATCH_NOT_READY/);
+      assert.equal(calls.length, 0, reason + ': zero upstream calls');
+      const ledger = new DatabaseSync(ledgerPath);
+      try {
+        assert.equal(ledger.prepare('SELECT COUNT(*) AS n FROM dispatch_ledger').get().n, 0,
+          reason + ': no DISPATCH_STARTED row');
+      } finally { ledger.close(); }
+    };
+
+    // Real reconciliation detects source-version loss and makes the Provider non-ready.
+    allowSourceVersion = false;
+    const stale = await provider.reconcile(scope.world_id);
+    assert.notEqual(stale.status, 'current', 'invalid source version must prevent current reconciliation');
+    await assertNoDispatch('readiness loss before dispatch-start');
+    allowSourceVersion = true;
+    assert.equal((await provider.reconcile(scope.world_id)).status, 'current');
+
+    // Query-level revocation must block every candidate in this scope.
+    provider.revokeQuery(scope);
+    await assertNoDispatch('query revoke before dispatch-start');
+    provider.grantQuery(scope, true);
+
+    // Record-level revocation must block this exact candidate.
     provider.revokeRecord(scope, record.record_ref, record.record_version);
-    await assert.rejects(gateway.dispatchProtectedRequest(request), /MEMORY_DISPATCH_NOT_READY/);
-    assert.equal(calls.length, 0, 'revocation before dispatch-start must cause zero upstream calls');
-    const ledger = new DatabaseSync(ledgerPath);
-    try {
-      assert.equal(ledger.prepare('SELECT COUNT(*) AS n FROM dispatch_ledger').get().n, 0,
-        'denied pre-start request must not create DISPATCH_STARTED');
-    } finally {
-      ledger.close();
-    }
+    await assertNoDispatch('record revoke before dispatch-start');
 
     // Reverse-order control: durable dispatch-start wins first. A later revoke
     // cannot recall the in-flight request; exactly one transport call is allowed.
