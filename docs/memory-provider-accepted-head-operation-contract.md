@@ -37,7 +37,7 @@ Raw capture, raw disclosure, active-version selection, and raw-derived-copy regi
 On startup with accepted-head enforcement enabled, Provider does not create or repair a missing enrolled schema. It checks required schema objects and columns, then compares local and authority state.
 
 - No pending operation and exact matching enrolled heads: startup may proceed.
-- Authority has a pending Provider operation and local head, operation ID, and digest match exactly: startup finalizes that operation, then rechecks authority state.
+- Authority status exposes only a pending bit, not the pending operation metadata. If a Provider operation is pending and the local head, operation ID, and digest form a valid checkpoint at the authority head, startup/recovery submits that local identity for authority-side exact-match validation, finalizes it, then rechecks authority state.
 - Pending operation does not exactly match local checkpoint, Core has a pending operation, authority is unavailable, or heads disagree: startup fails closed.
 - A failed finalization after a successful local commit leaves the authority pending. Protected reads, further mutations, and Gateway dispatch remain blocked until recovery resolves that exact operation.
 
