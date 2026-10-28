@@ -116,7 +116,7 @@ export function createRemoteAnchorServer({
   async function readCurrentHead(installationId) {
     const envelope = await store.getHead(installationId);
     if (envelope === null) return null;
-    const verified = verifyRemoteAnchorEnvelope({ envelope, installationId, publicKey: publicPem });
+    const verified = verifyRemoteAnchorEnvelope({ envelope, installationId, expectedKeyId: keyId, publicKey: publicPem });
     if (envelope.record.sequence < 1 || verified.recordDigest !== createHash('sha256')
       .update(serializeRemoteAnchorRecord(envelope.record), 'utf8').digest('hex')) {
       fail(503, 'ANCHOR_STORE_INVALID');
