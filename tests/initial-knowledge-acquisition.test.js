@@ -155,9 +155,18 @@ test('assignment rejects unknown subject, cross-world source and malformed prove
   assert.equal(missingSubject.status, 409);
   assert.equal((await missingSubject.json()).error.code, 'KNOWLEDGE_SUBJECT_NOT_ELIGIBLE');
 
+  engine.createWorld({
+    world_id: 'other-knowledge-world', world_pack_id: 'test.world',
+    world_pack_version: '1', game_time: '2026-01-01T00:00:00Z',
+  });
+  engine.commitEvent('other-knowledge-world', {
+    idempotency_key: 'seed-other-world-fact', turn_id: 'other-seed', event_type: 'action.completed',
+    expected_revision: 0,
+    effects: [{ kind: 'fact.set', fact_id: 'fact-only-in-other-world', predicate: 'imported_claim', value: true }],
+  });
   const missingFact = await fetch(url, {
     method: 'POST', headers: { ...headers, 'x-admin-token': ADMIN },
-    body: json({ ...good, idempotency_key: 'bad-fact', subject_id: 'npc-a', fact_id: 'not-in-this-world' }),
+    body: json({ ...good, idempotency_key: 'bad-fact', subject_id: 'npc-a', fact_id: 'fact-only-in-other-world' }),
   });
   assert.equal(missingFact.status, 404);
   assert.equal((await missingFact.json()).error.code, 'KNOWLEDGE_SOURCE_NOT_FOUND');
