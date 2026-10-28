@@ -13,7 +13,7 @@ import {
   finalizeAcceptedHeadSync,
   getAcceptedHeadsSync,
 } from '../src/security/accepted-head-client-sync.js';
-import { createDispatchRequestSignature, verifyDispatchRequestSignature, MemoryDispatchGateway, openReadOnlySqliteDatabase } from '../src/security/memory-dispatch-gateway.js';
+import { createDispatchRequestSignature, verifyDispatchRequestSignature, MemoryDispatchGateway, openReadOnlySqliteDatabase, SUPPORTED_PROTECTED_MEMORY_ROUTES } from '../src/security/memory-dispatch-gateway.js';
 import { createMemoryDispatchGatewayServer } from '../src/security/memory-dispatch-gateway-server.js';
 import { SQLiteMemoryProvider } from '../src/application/sqlite-memory-provider.js';
 import { enrollAcceptedHeadDomain } from '../src/security/enroll-accepted-head-domain.js';
@@ -137,6 +137,10 @@ async function createFixture({ sendUpstream, coreHead = 1, providerHead = 1, ini
     },
   };
 }
+
+test('protected dispatch keeps the current Host-selected route label only', () => {
+  assert.deepEqual(SUPPORTED_PROTECTED_MEMORY_ROUTES, ['host-selected-chat-generation']);
+});
 
 const validRequest = (requestId = 'request-001', overrides = {}) => ({
   requestId,
