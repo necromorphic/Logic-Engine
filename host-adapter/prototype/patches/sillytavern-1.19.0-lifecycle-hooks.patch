@@ -267,7 +267,7 @@ diff --git a/public/script.js b/public/script.js
 +    });
      statMesProcess(item, type, characters, this_chid, oldMessage);
      return { type, getMessage };
-@@ -7434,15 +7591,18 @@
+@@ -7434,15 +7591,19 @@
      try {
 -        const saveChatRequest = await compressRequest({
 -            method: 'POST',
