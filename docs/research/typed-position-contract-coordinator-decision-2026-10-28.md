@@ -110,24 +110,24 @@ The current GitHub access does not expose a verified named Core/TimeEngine owner
 **Next coordinator action:** publish this candidate contract/report as a documentation-only draft PR, request the separate scoped Core and TimeEngine reviews once named owners can be verified, then reconcile their findings without reopening the now-decided v1 axis convention absent new evidence.
 
 
-## 8. Exact-head refresh — 2026-10-28 09:05 UTC
+## 8. Exact-head refresh — 2026-10-28 09:50 UTC
 
 This refresh records new evidence without upgrading any unverified claim.
 
-- Current `main` at refresh: `09a1a696fd7c5591f537b13df50793fab4ba36db` (commit message: `test(time): cover high fan-in dependency planning`). The earlier `da7fe72...` baseline is stale.
-- Current spatial contract candidate remains documentation-only; no spatial runtime gate, immutable World Pack schema digest/history, or durable TimeEngine-boundary-to-Core-cursor mapping was added by this refresh.
-- A separate Core transaction regression test was added in [PR #573](https://github.com/necromorphic/Logic-Engine/pull/573), head `ddc256fa8e85767d77d44463582e42bbd25e2baf`. It injects a failure after `rebuild()` has run during `commitSegment()` and asserts rollback of the segment's events, entity projection, revision, commit sequence, game-time coordinate, and idempotency rows.
+- Latest observed `main` commit: `d4d880cef46e005f684ca16d66ba9a8872660e8a` (`test(memory): cover cross-connection query grant ABA`). The preceding `09a1a696...` commit is no longer the latest main head.
+- Spatial contract and this report remain documentation-only. No spatial runtime gate, immutable World Pack schema digest/history, or durable TimeEngine-boundary-to-Core-cursor mapping was added.
+- [PR #573](https://github.com/necromorphic/Logic-Engine/pull/573) is now **MERGED**; merge commit `8d48021399824e96907541832cde4ce2a5012224`. Its test-only change injects a failure after `rebuild()` during `commitSegment()` and asserts rollback of segment events, entity projection, revision, commit sequence, game-time coordinate, and idempotency rows.
 - Actions run [#40661437871](https://github.com/necromorphic/Logic-Engine/actions/runs/40661437871) completed successfully on the exact test head `ddc256fa8e85767d77d44463582e42bbd25e2baf`.
-- The Windows self-hosted `test` job passed: `npm test` reported **930 passed, 0 failed, 0 skipped**; `node --test experiments/recalculation-oracle/harness.test.mjs` reported **8 passed, 0 failed**.
-- The new regression is present in the log as subtest **891**: `segment rolls back all canonical writes when projection rebuild fails` — **PASS**.
-- The separate hosted `npc-boundary` job also passed, but it is not counted as evidence for the spatial contract itself.
-- Combined status for current `main` SHA `09a1a696fd7c5591f537b13df50793fab4ba36db` returned no status checks in the inspected response. The successful run above applies to PR #573's exact head, not to `main`.
+- The Windows self-hosted `test` job passed: `npm test` reported **930 passed, 0 failed, 0 skipped**; the recalculation oracle harness reported **8 passed, 0 failed**.
+- The new regression was subtest **891**: `segment rolls back all canonical writes when projection rebuild fails` — **PASS**. The merge adds test evidence, not spatial behavior.
+- A separate hosted `npc-boundary` job also passed, but it is not evidence for the spatial contract.
+- The latest-main status query returned no status checks in the inspected response. This is absence of reported checks, not a pass or failure verdict.
 
 ### Updated gate
 
-The segment rollback-on-rebuild-failure test is now **TEST-VERIFIED on PR #573 head**. This closes only that narrow test-evidence gap; it does not prove every canonical writer path or any spatial-specific behavior. The spatial contract remains **BLOCKED** independently by: (1) no runtime spatial validation gate, (2) no proven immutable/historical schema identity, (3) no proven complete entity incarnation guarantee across every path, (4) no confirmed TimeEngine-boundary ↔ Core composite cursor mapping, and (5) no independent owner-authored Core and TimeEngine reviews.
+The segment rollback-on-rebuild-failure test is now **MERGED and TEST-VERIFIED**. It closes only that narrow test-evidence gap; it does not prove every canonical writer path or any spatial-specific behavior. The spatial contract remains **BLOCKED by technical evidence**: (1) no runtime spatial validation gate, (2) no proven immutable/historical schema identity, (3) no proven complete entity incarnation/write-path coverage, and (4) no confirmed TimeEngine-boundary ↔ Core composite cursor mapping.
 
-**Remaining external blocker:** separate authorized Core and TimeEngine owner conclusions are still absent. Do not merge the spatial contract or authorize production spatial runtime work based only on this passing transaction regression test.
+The missing named reviewer roster is no longer an administrative blocker under the delegated coordinator decision in Section 9. This coordinator review is not represented as two independent owner sign-offs. Do not merge the spatial contract or authorize production spatial runtime work based only on the passing transaction regression test.
 
 
 ## 9. Delegated decision authority — 2026-10-28
