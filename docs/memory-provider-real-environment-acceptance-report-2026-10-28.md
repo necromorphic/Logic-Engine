@@ -42,16 +42,17 @@ Open candidates are not counted as mainline implementation:
 
 | Required behavior | Evidence currently available | Classification | Status |
 |---|---|---|---|
-| Persist a new message version and read that exact version | Provider file-backed tests and acceptance slice | Automated integration/test harness | PASS within tested Provider boundary |
-| Duplicate delivery is idempotent | Raw archive/provider lifecycle tests cover idempotent retry vs identity conflict | Automated integration/test harness | PASS within tested Provider boundary |
-| Same version identity with different content fails closed | Raw archive lifecycle regression | Automated integration/test harness | PASS within tested Provider boundary |
-| Switching active version preserves prior version | Raw archive lifecycle regression | Automated integration/test harness | PASS within tested Provider boundary |
-| Deletion/revocation excludes version from active reads | Provider lifecycle and revoke tests | Automated integration/test harness | PASS within tested Provider boundary |
+| Persist/read an approved Provider record identity and version | `sqlite-memory-provider.test.js`: “persists raw record identity/version and rebuilds its derived index after restart” | Automated file-backed Provider harness | PASS for Provider records; **not Host raw-message capture** |
+| Capture/read a raw Host/SillyTavern message version | `captureRawMessage()` throws `MEMORY_RAW_CAPTURE_NOT_APPROVED`; raw read APIs throw `MEMORY_RAW_DISCLOSURE_NOT_APPROVED` | Explicit policy-denial test | **BLOCKED by unapproved retention/disclosure contract** |
+| Duplicate Provider record ingest is idempotent | Provider record ingestion regression tests | Automated file-backed Provider harness | PASS for Provider records; raw Host capture retry is **NOT TESTED** because capture is denied |
+| Same Provider record identity with conflicting content fails closed | Provider record ingestion conflict regression | Automated file-backed Provider harness | PASS for Provider records; raw Host identity/content conflict is **NOT TESTED** because capture is denied |
+| Switch active raw Host message version | `selectActiveRawVersion()` throws `MEMORY_RAW_SOURCE_NOT_APPROVED`; legacy-row tombstone test preserves an already-selected alternate version | Explicit policy-denial + legacy-row fixture | **BLOCKED / NOT TESTED as a live Host lifecycle** |
+| Provider record revocation excludes the record from authorized reads | Provider lifecycle and revoke tests | Automated file-backed Provider harness | PASS for Provider records; raw Host reads remain policy-denied |
 | Restart/replay does not revive revoked data | Provider restart/deletion tests and accepted-head recovery tests | Automated integration/test harness | PASS within tested Provider boundary |
 | Interrupted reconciliation cannot report ready | Interruption test closes/reopens the same SQLite database and requires successful full reconciliation before retrieval resumes | Automated integration/test harness | PASS within tested Provider boundary |
 | Independent operator repeats all scenarios in a real standalone Provider process and preserves before/after DB snapshots plus logs | No complete reproducible evidence bundle from a separately launched real Provider process was found | Real-process execution | **NOT TESTED** |
 
-Relevant current-main tests include `tests/sqlite-memory-provider.test.js`, `tests/memory-provider-typed-failures.test.js`, `tests/memory-provider-reconcile-interruption.test.js`, and `tests/memory-provider-raw-archive.test.js`. The existing tests use temporary file-backed SQLite databases, but still run as test harnesses rather than an independently deployed Provider service.
+Relevant current-main tests include `tests/sqlite-memory-provider.test.js`, `tests/memory-provider-typed-failures.test.js`, `tests/memory-provider-reconcile-interruption.test.js`, and `tests/memory-provider-raw-archive.test.js`. Important boundary: `captureRawMessage()` and raw disclosure/active-selection APIs are deliberately closed until Core approves raw-text retention and disclosure. The raw-archive suite mostly proves denial and cleanup behavior for legacy fixture rows; it does **not** prove live ingestion of SillyTavern message text. Other Provider tests exercise approved Provider records using temporary file-backed SQLite, but remain test harnesses rather than an independently deployed Provider service.
 
 ## 4. Stage C — real Host → Provider lifecycle
 
@@ -116,3 +117,8 @@ The Provider-owned implementation/test slice is present in main and has strong a
 - Evidence: [GitHub Actions run 40728771597](https://github.com/necromorphic/Logic-Engine/actions/runs/40728771597).
 - Exact Windows OS build and embedded SQLite version were not printed in that run. A focused Provider acceptance suite plus environment-version capture has been added to the workflow in this PR. Run [40730496450](https://github.com/necromorphic/Logic-Engine/actions/runs/40730496450) was queued when this addendum was written; it is not counted as a pass until its Windows job completes.
 - **Still NOT TESTED:** separately launched Provider process with retained DB snapshots/logs; installed pinned SillyTavern lifecycle; target-PC ACL/restore/anti-rollback; complete sole-egress proof. The new workflow does not close these gaps.
+
+
+### Clarification — raw Host text is not currently ingestible
+
+The current Provider source explicitly rejects raw Host capture with `MEMORY_RAW_CAPTURE_NOT_APPROVED`, raw reads with `MEMORY_RAW_DISCLOSURE_NOT_APPROVED`, and active raw-version selection with `MEMORY_RAW_SOURCE_NOT_APPROVED`. Therefore the PASS results above apply only to the existing Provider record lifecycle and to fail-closed behavior. They must not be presented as proof that raw SillyTavern messages can currently be captured, switched, read, or disclosed. Enabling that path requires the separate Core retention/disclosure decision; this acceptance task does not grant it.
