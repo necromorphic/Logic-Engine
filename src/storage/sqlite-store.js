@@ -1447,6 +1447,7 @@ export class SQLiteStore {
             const sourceEventId = effect.source_ref.slice('event:'.length);
             const source = this.db.prepare("SELECT validity,commit_sequence FROM world_events WHERE world_id=? AND event_id=?").get(id, sourceEventId);
             if (!source || source.validity !== 'valid' || source.commit_sequence >= this.currentCommitSequence(id) + 1
+              || effect.source_version !== String(source.commit_sequence)
               || !x.caused_by.includes(sourceEventId)
               || !(x.causal_links ?? []).some((link) => link.relation === 'READS_SOURCE' && link.target_id === sourceEventId)) {
               throw new EngineError('KNOWLEDGE_SOURCE_NOT_ELIGIBLE', 'Event-backed knowledge assignments require a prior valid source event in caused_by and READS_SOURCE.', 409, { source_ref: effect.source_ref });
