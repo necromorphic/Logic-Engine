@@ -380,6 +380,9 @@ export function createHostLifecycleMutationMiddleware({ enforce = process.env.LO
             }
             const registryPath = path.join(stateDirectory, 'enrollments.json');
             registry = await readRegistry(registryPath);
+            // A surviving marker means this state was previously enrolled.
+            // Validate it before treating an empty registry as a legacy install.
+            await assertEnrollmentStateNotLost(request);
             if (registry.conversations.length === 0) {
                 if (enforce) return fail(response, 'HOST_ENROLLMENT_REQUIRED', 503);
                 return next();
@@ -694,8 +697,11 @@ async function assertEnrollmentStateNotLost(request) {
         throw error;
     }
     try {
-        const registryStat = await lstat(path.join(stateDirectory, 'enrollments.json'));
+        const registryPath = path.join(stateDirectory, 'enrollments.json');
+        const registryStat = await lstat(registryPath);
         if (!registryStat.isFile() || registryStat.isSymbolicLink()) throw new Error('HOST_REGISTRY_UNSAFE');
+        const registry = await readRegistry(registryPath);
+        if (registry.conversations.length === 0) throw new Error('HOST_ENROLLMENT_STATE_LOST');
     } catch (error) {
         if (error?.code === 'ENOENT') throw new Error('HOST_ENROLLMENT_STATE_LOST');
         throw error;
