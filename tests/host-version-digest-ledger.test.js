@@ -60,7 +60,7 @@ test('bound capture resolves canonical scope while holding the shared coordinato
 
   const result = ledger.captureBoundVersion({
     adapterId: 'adapter-a', conversationId: 'chat-a',
-    message_id: 'message-a', version_id: 'version-a',
+    message_id: 'message-a', version_id: 'version-a', parent_version_id: null,
     content_sha256: digest('bound capture'), active: true, deleted: false,
     resolveBinding: ({ adapterId, conversationId }) => {
       assert.equal(adapterId, 'adapter-a');
@@ -96,7 +96,7 @@ test('Provider mutation entry points reject Proxy and accessor-backed records be
   let resolverCalls = 0;
   const boundEntry = {
     adapterId: 'adapter-a', conversationId: 'chat-a', message_id: 'message-a', version_id: 'version-a',
-    content_sha256: digest('bound'), active: true, deleted: false,
+    content_sha256: digest('bound'), parent_version_id: null, active: true, deleted: false,
     resolveBinding: () => { resolverCalls += 1; return { world_id: 'world-a', conversation_id: 'chat-a' }; }
   };
   assert.throws(() => ledger.captureBoundVersion(new Proxy(boundEntry, {
@@ -171,7 +171,7 @@ test('reconciliation rejects metadata outside the current Provider snapshot shap
     status: 'non_ready', code: 'HOST_INVENTORY_INVALID'
   });
   assert.deepEqual(await ledger.reconcileConversation({
-    ...base, versions: [entry({ parent_version_id: 'unapproved-parent-field' })]
+    ...base, versions: [entry({ unsupported_parent_field: 'unapproved-parent-field' })]
   }), { status: 'non_ready', code: 'HOST_INVENTORY_INVALID' });
 
   assert.equal(verifierCalls, 0);
