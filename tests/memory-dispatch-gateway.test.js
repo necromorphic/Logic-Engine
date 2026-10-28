@@ -141,7 +141,7 @@ async function createFixture({ sendUpstream, coreHead = 1, providerHead = 1, ini
 const validRequest = (requestId = 'request-001', overrides = {}) => ({
   requestId,
   route: 'host-selected-chat-generation',
-  model: 'gemini-2.5-flash-lite',
+  model: 'selected-model',
   stream: false,
   body: JSON.stringify({ messages: [{ role: 'user', content: 'SECRET_MEMORY_TEXT_DO_NOT_PERSIST' }] }),
   worldId: 'world-1',
@@ -250,7 +250,7 @@ test('dispatch validates current heads and grants, records one content-free star
       const row = db.prepare('SELECT status,request_digest,model,sources_json FROM dispatch_ledger WHERE request_id=?')
         .get('request-001');
       assert.equal(row.status, 'COMPLETED');
-      assert.equal(row.model, 'gemini-2.5-flash-lite');
+      assert.equal(row.model, 'selected-model');
       assert.match(row.request_digest, /^[a-f0-9]{64}$/);
       assert.equal(JSON.stringify(row).includes('SECRET_MEMORY_TEXT_DO_NOT_PERSIST'), false);
     } finally {
