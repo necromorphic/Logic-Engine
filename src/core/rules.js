@@ -4,80 +4,92 @@ export const SUPPORTED_RULE_OPERATORS = Object.freeze(['eq', 'neq', 'exists', 'g
 const OPS = new Set(SUPPORTED_RULE_OPERATORS);
 const UNSAFE_PATH_SEGMENTS = new Set(['__proto__', 'constructor', 'prototype']);
 
+function assertPlainDataObject(value, code = 'INVALID_RULE', label = 'Rule') {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new EngineError(code, label + ' must be an object.');
+  }
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) {
+    throw new EngineError(code, label + ' must be a plain data object.');
+  }
+  const keys = Reflect.ownKeys(value);
+  if (keys.length > 1000) throw new EngineError(code, label + ' contains too many fields.');
+  for (const key of keys) {
+    if (typeof key !== 'string') throw new EngineError(code, label + ' must not contain symbol keys.');
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) {
+      throw new EngineError(code, label + ' must contain only enumerable data properties.');
+    }
+  }
+}
+
+function assertDenseDataArray(value, maxLength, code, label) {
+  if (!Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype || value.length > maxLength) {
+    throw new EngineError(code, label + ' must be a standard array of at most ' + maxLength + ' items.');
+  }
+  const keys = Reflect.ownKeys(value);
+  if (keys.length !== value.length + 1) throw new EngineError(code, label + ' must be dense and contain no extra properties.');
+  for (let index = 0; index < value.length; index += 1) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+    if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) {
+      throw new EngineError(code, label + ' must contain only dense data items.');
+    }
+  }
+}
+
 function readPath(root, path) {
-  if (typeof path !== 'string' || !path || path.split('.').some((key) => !key || UNSAFE_PATH_SEGMENTS.has(key))) {
-    throw new EngineError('INVALID_RULE_PATH', 'Unsafe or empty rule path.');
+  if (typeof path !== 'string' || !path || path.length > 256
+    || path.split('.').some((key) => !key || UNSAFE_PATH_SEGMENTS.has(key))) {
+    throw new EngineError('INVALID_RULE_PATH', 'Unsafe or empty rule path; paths may not exceed 256 characters.');
   }
 
   let value = root;
   for (const key of path.split('.')) {
     if (value === null || typeof value !== 'object' || !Object.hasOwn(value, key)) return { exists: false };
-    value = value[key];
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) {
+      throw new EngineError('INVALID_RULE_CONTEXT', 'Rule context paths must resolve through enumerable own data properties.');
+    }
+    value = descriptor.value;
   }
   return { exists: true, value };
 }
 
-// Rule values and context values are JSON data. Reject non-JSON JavaScript
-// values instead of allowing JSON.stringify coercions (for example, NaN -> null)
-// to turn malformed state into a successful neq condition.
-function isJsonValue(value, active = new WeakSet(), depth = 0, budget = { nodes: 0 }) {
-  budget.nodes += 1;
-  if (depth > 64 || budget.nodes > 10000) return false;
-  if (value === null || typeof value === 'string' || typeof value === 'boolean') return true;
-  if (typeof value === 'number') return Number.isFinite(value);
-  if (typeof value !== 'object') return false;
-
-  const isArray = Array.isArray(value);
-  if (isArray) {
-    if (Object.getPrototypeOf(value) !== Array.prototype) return false;
-  } else {
-    const prototype = Object.getPrototypeOf(value);
-    if (prototype !== Object.prototype && prototype !== null) return false;
-  }
-  if (Object.getOwnPropertySymbols(value).length > 0 || active.has(value)) return false;
-
-  active.add(value);
-  try {
-    if (isArray) {
-      for (let index = 0; index < value.length; index += 1) {
-        const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
-        if (!descriptor || !Object.hasOwn(descriptor, 'value') || !isJsonValue(descriptor.value, active, depth + 1, budget)) return false;
-      }
-      const keys = Object.keys(value);
-      const ownKeys = Reflect.ownKeys(value);
-      return ownKeys.length === value.length + 1 && ownKeys.includes('length')
-        && keys.length === value.length
-        && keys.every((key) => Number.isInteger(Number(key)) && Number(key) >= 0
-          && Number(key) < value.length && String(Number(key)) === key);
-    }
-
-    const keys = Object.keys(value);
-    if (Reflect.ownKeys(value).length !== keys.length) return false;
-    return keys.every((key) => {
-      const descriptor = Object.getOwnPropertyDescriptor(value, key);
-      return descriptor && descriptor.enumerable && Object.hasOwn(descriptor, 'value')
-        && isJsonValue(descriptor.value, active, depth + 1, budget);
-    });
-  } finally {
-    active.delete(value);
-  }
-}
-
 // JSON object member order is not semantically meaningful; array order is.
-function canonicalJson(value) {
-  if (Array.isArray(value)) return value.map(canonicalJson);
-  if (value && typeof value === 'object') {
-    return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonicalJson(value[key])]));
+// Accept only bounded JSON data so equality never executes getters or recurses forever.
+function canonicalJson(value, state = { depth: 0, nodes: 0, ancestors: new WeakSet() }) {
+  state.nodes += 1;
+  if (state.nodes > 10000 || state.depth > 32) {
+    throw new EngineError('INVALID_RULE_VALUE', 'Rule comparison values exceed the supported JSON complexity limit.');
   }
-  return value;
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return value;
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (!value || typeof value !== 'object') {
+    throw new EngineError('INVALID_RULE_VALUE', 'Rule comparison values must be JSON data.');
+  }
+  if (state.ancestors.has(value)) {
+    throw new EngineError('INVALID_RULE_VALUE', 'Rule comparison values must not contain cycles.');
+  }
+
+  state.ancestors.add(value);
+  state.depth += 1;
+  try {
+    if (Array.isArray(value)) {
+      assertDenseDataArray(value, 10000, 'INVALID_RULE_VALUE', 'Comparison array');
+      return value.map((item) => canonicalJson(item, state));
+    }
+    assertPlainDataObject(value, 'INVALID_RULE_VALUE', 'Comparison object');
+    return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonicalJson(value[key], state)]));
+  } finally {
+    state.depth -= 1;
+    state.ancestors.delete(value);
+  }
 }
 
 function jsonEqual(left, right) {
-  if (!isJsonValue(left) || !isJsonValue(right)) {
-    throw new EngineError('RULE_TYPE_MISMATCH', 'Equality comparisons require JSON-compatible values.');
-  }
   return JSON.stringify(canonicalJson(left)) === JSON.stringify(canonicalJson(right));
 }
+
 function nestedRules(rule, op) {
   // "rules" is the canonical schema form. The legacy aliases keep existing callers working.
   const hasRules = Object.hasOwn(rule, 'rules');
@@ -88,12 +100,12 @@ function nestedRules(rule, op) {
   }
 
   if (hasRules) {
-    if (!Array.isArray(rule.rules)) throw new EngineError('INVALID_RULE', op + ' requires a rules array.');
+    assertDenseDataArray(rule.rules, 64, 'INVALID_RULE', op + ' rules');
     return rule.rules;
   }
   if (op === 'not' && hasLegacy) return [rule.condition];
   if (op !== 'not' && hasLegacy) {
-    if (!Array.isArray(rule.conditions)) throw new EngineError('INVALID_RULE', op + ' requires a conditions array.');
+    assertDenseDataArray(rule.conditions, 64, 'INVALID_RULE', op + ' conditions');
     return rule.conditions;
   }
   throw new EngineError('INVALID_RULE', op === 'not' ? 'not requires exactly one nested rule.' : op + ' requires a rules array.');
@@ -101,9 +113,7 @@ function nestedRules(rule, op) {
 
 export function evaluateCondition(rule, context, depth = 0) {
   if (depth > 24) throw new EngineError('RULE_DEPTH_EXCEEDED', 'Rule nesting exceeds 24 levels.');
-  if (!rule || typeof rule !== 'object' || Array.isArray(rule)) {
-    throw new EngineError('INVALID_RULE', 'Condition must be an object.');
-  }
+  assertPlainDataObject(rule, 'INVALID_RULE', 'Condition');
 
   const op = rule.op;
   if (!OPS.has(op)) throw new EngineError('UNSUPPORTED_RULE_OPERATOR', 'Unsupported operator: ' + String(op));
@@ -144,9 +154,13 @@ export function evaluateCondition(rule, context, depth = 0) {
   if (op === 'exists' && rule.value !== undefined && typeof rule.value !== 'boolean') {
     throw new EngineError('INVALID_RULE', 'exists value must be boolean when provided.');
   }
-  if (op === 'in' && (!Array.isArray(rule.values) || rule.values.length > 128)) {
-    throw new EngineError('INVALID_RULE', 'in requires at most 128 values.');
+  if (op === 'in') {
+    assertDenseDataArray(rule.values, 128, 'INVALID_RULE', 'in values');
+    for (const value of rule.values) canonicalJson(value);
   }
+  // Validate comparison data even when the context path is missing. Invalid
+  // rule payloads must not become conditionally acceptable based on world state.
+  if (op === 'eq' || op === 'neq') canonicalJson(rule.value);
 
   const found = readPath(context, rule.path);
   if (op === 'exists') return found.exists === (rule.value ?? true);
@@ -188,17 +202,15 @@ export function evaluateCondition(rule, context, depth = 0) {
  * never populate it directly from model- or user-supplied claims.
  */
 export function evaluateConditionResult(rule, context, options = {}) {
-  if (!options || typeof options !== 'object' || Array.isArray(options)) {
-    throw new EngineError('INVALID_RULE_RESULT_OPTIONS', 'Condition result options must be an object.');
-  }
+  assertPlainDataObject(options, 'INVALID_RULE_RESULT_OPTIONS', 'Condition result options');
   const allowedOptionKeys = new Set(['knownAbsentPaths']);
   if (Object.keys(options).some((key) => !allowedOptionKeys.has(key))) {
     throw new EngineError('INVALID_RULE_RESULT_OPTIONS', 'Condition result options contain an unsupported field.');
   }
   const rawKnownAbsent = options.knownAbsentPaths ?? [];
-  if (!Array.isArray(rawKnownAbsent) || rawKnownAbsent.length > 1000
-    || !rawKnownAbsent.every((path) => typeof path === 'string' && path.trim())) {
-    throw new EngineError('INVALID_RULE_RESULT_OPTIONS', 'knownAbsentPaths must be an array of at most 1000 non-empty paths.');
+  assertDenseDataArray(rawKnownAbsent, 1000, 'INVALID_RULE_RESULT_OPTIONS', 'knownAbsentPaths');
+  if (!rawKnownAbsent.every((path) => typeof path === 'string' && path.trim())) {
+    throw new EngineError('INVALID_RULE_RESULT_OPTIONS', 'knownAbsentPaths must contain only non-empty paths.');
   }
   const knownAbsentPaths = new Set(rawKnownAbsent);
   for (const path of knownAbsentPaths) {
@@ -250,14 +262,34 @@ export function evaluateConditionResult(rule, context, options = {}) {
   };
 }
 
+function validateEffectJson(value, label) {
+  try {
+    canonicalJson(value);
+  } catch (error) {
+    throw new EngineError('INVALID_EFFECT', label + ' must contain bounded, accessor-free JSON data.', 400, {
+      cause: error?.code ?? 'INVALID_JSON_DATA',
+    });
+  }
+}
+
 export function validateEffects(effects, options = {}) {
-  if (!Array.isArray(effects) || effects.length > 200) {
-    throw new EngineError('INVALID_EFFECTS', 'effects must contain at most 200 entries.');
+  assertDenseDataArray(effects, 200, 'INVALID_EFFECTS', 'effects');
+  assertPlainDataObject(options, 'INVALID_EFFECT_OPTIONS', 'Effect validation options');
+  if (Object.keys(options).some((key) => key !== 'allowRelationshipTransition')) {
+    throw new EngineError('INVALID_EFFECT_OPTIONS', 'Effect validation options contain an unsupported field.');
+  }
+  if (options.allowRelationshipTransition !== undefined && typeof options.allowRelationshipTransition !== 'boolean') {
+    throw new EngineError('INVALID_EFFECT_OPTIONS', 'allowRelationshipTransition must be boolean.');
   }
 
   for (const effect of effects) {
-    if (!effect || typeof effect !== 'object' || Array.isArray(effect)) {
-      throw new EngineError('INVALID_EFFECT', 'Each effect must be an object.');
+    assertPlainDataObject(effect, 'INVALID_EFFECT', 'Effect');
+    // Validate arrays before any .every(), iterator, or indexed read can execute an accessor.
+    if (effect.kind === 'entity.update' && Object.hasOwn(effect, 'remove_attributes')) {
+      assertDenseDataArray(effect.remove_attributes, 200, 'INVALID_EFFECT', 'remove_attributes');
+    }
+    if (effect.kind === 'relationship.transition' && Object.hasOwn(effect, 'evidence_refs')) {
+      assertDenseDataArray(effect.evidence_refs, 128, 'INVALID_RELATIONSHIP_TRANSITION', 'evidence_refs');
     }
 
     const allowedFields = {
@@ -359,6 +391,19 @@ export function validateEffects(effects, options = {}) {
     } else {
       throw new EngineError('UNSUPPORTED_EFFECT', 'Unsupported effect kind: ' + String(effect.kind));
     }
+
+    for (const key of ['attributes', 'patch', 'parameters', 'state']) {
+      if (Object.hasOwn(effect, key)) validateEffectJson(effect[key], effect.kind + '.' + key);
+    }
+    if (effect.kind === 'fact.set' && Object.hasOwn(effect, 'value')) {
+      validateEffectJson(effect.value, 'fact.set.value');
+    }
+    if (effect.kind === 'relationship.transition') {
+      assertDenseDataArray(effect.evidence_refs, 128, 'INVALID_RELATIONSHIP_TRANSITION', 'evidence_refs');
+    }
+    if (effect.kind === 'entity.update' && effect.remove_attributes !== undefined) {
+      assertDenseDataArray(effect.remove_attributes, 200, 'INVALID_EFFECT', 'remove_attributes');
+    }
   }
 }
 
@@ -376,9 +421,7 @@ export function collectConditionDependencies(rule) {
   const paths = new Set();
   const visit = (current, depth = 0) => {
     if (depth > 24) throw new EngineError('RULE_DEPTH_EXCEEDED', 'Rule nesting exceeds 24 levels.');
-    if (!current || typeof current !== 'object' || Array.isArray(current)) {
-      throw new EngineError('INVALID_RULE', 'Condition must be an object.');
-    }
+    assertPlainDataObject(current, 'INVALID_RULE', 'Condition');
 
     const op = current.op;
     if (!OPS.has(op)) throw new EngineError('UNSUPPORTED_RULE_OPERATOR', 'Unsupported operator: ' + String(op));
@@ -420,9 +463,11 @@ export function collectConditionDependencies(rule) {
     if (op === 'exists' && current.value !== undefined && typeof current.value !== 'boolean') {
       throw new EngineError('INVALID_RULE', 'exists value must be boolean when provided.');
     }
-    if (op === 'in' && (!Array.isArray(current.values) || current.values.length > 128)) {
-      throw new EngineError('INVALID_RULE', 'in requires at most 128 values.');
+    if (op === 'in') {
+      assertDenseDataArray(current.values, 128, 'INVALID_RULE', 'in values');
+      for (const value of current.values) canonicalJson(value);
     }
+    if (op === 'eq' || op === 'neq') canonicalJson(current.value);
     paths.add(current.path);
   };
 
