@@ -1110,3 +1110,36 @@ test('admin purge preserves normal behavior for a target with no Host enrollment
         await rm(target.root, { recursive: true, force: true });
     }
 });
+
+
+test('admin purge fails closed when target chat-root path is a symlink', async () => {
+    const target = await fixture();
+    const outside = await fsMkdtemp();
+    try {
+        await rm(target.directories.chats, { recursive: true, force: true });
+        await symlink(outside, target.directories.chats, 'dir');
+        const request = {
+            method: 'POST',
+            baseUrl: '/api/users',
+            path: '/delete',
+            originalUrl: '/api/users/delete',
+            body: { handle: 'target-user', purge: true },
+            user: { profile: { handle: 'admin-user' }, directories: target.directories },
+        };
+        const response = responseMock();
+        let reachedHandler = false;
+        await createHostLifecycleMutationMiddleware({
+            getUserDirectories: () => target.directories,
+        })(request, response, async () => {
+            reachedHandler = true;
+            response.end();
+        });
+        await response.finished;
+        assert.equal(reachedHandler, false);
+        assert.equal(response.statusCode, 503);
+        assert.match(String(response.body), /HOST_TARGET_USER_SCOPE_UNAVAILABLE/);
+    } finally {
+        await rm(target.root, { recursive: true, force: true });
+        await rm(outside, { recursive: true, force: true });
+    }
+});
