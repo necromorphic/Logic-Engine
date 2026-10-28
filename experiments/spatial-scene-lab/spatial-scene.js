@@ -313,6 +313,70 @@ export function moveEntityInSyntheticScene(scene, entityId, nextPosition, nextBo
 
 
 /**
+ * Detect synchronized swept-body collisions over a bounded synthetic horizon.
+ * Unlike comparing geometric path segments alone, this checks relative motion
+ * at matching times, so two paths crossing at different times are not a collision.
+ * It reports possible AABB overlap, not a physics response or production fact.
+ */
+export function detectSimultaneousTrajectoryCollisions(scene, horizonSeconds) {
+  if (!validScene(scene) || !Number.isFinite(horizonSeconds) ||
+      horizonSeconds < 0 || horizonSeconds > 60) {
+    return { status: 'UNKNOWN', reason: 'INVALID_COLLISION_PREDICTION_REQUEST' };
+  }
+  if (scene.entities.some((entity) => !entity.motion || !finiteVector(entity.motion.velocity))) {
+    return { status: 'UNKNOWN', reason: 'MOTION_DATA_INCOMPLETE' };
+  }
+
+  const collisions = [];
+  for (let i = 0; i < scene.entities.length; i += 1) {
+    for (let j = i + 1; j < scene.entities.length; j += 1) {
+      const a = scene.entities[i];
+      const b = scene.entities[j];
+      const aBody = bodyOffsets(a);
+      const bBody = bodyOffsets(b);
+      const relativeStart = {
+        x: a.position.x - b.position.x,
+        y: a.position.y - b.position.y,
+        z: a.position.z - b.position.z,
+      };
+      const relativeEnd = {
+        x: relativeStart.x + (a.motion.velocity.x - b.motion.velocity.x) * horizonSeconds,
+        y: relativeStart.y + (a.motion.velocity.y - b.motion.velocity.y) * horizonSeconds,
+        z: relativeStart.z + (a.motion.velocity.z - b.motion.velocity.z) * horizonSeconds,
+      };
+      const combined = {
+        min: {
+          x: bBody.minOffset.x - aBody.maxOffset.x,
+          y: bBody.minOffset.y - aBody.maxOffset.y,
+          z: bBody.minOffset.z - aBody.maxOffset.z,
+        },
+        max: {
+          x: bBody.maxOffset.x - aBody.minOffset.x,
+          y: bBody.maxOffset.y - aBody.minOffset.y,
+          z: bBody.maxOffset.z - aBody.minOffset.z,
+        },
+      };
+      if (segmentIntersectsAabb(relativeStart, relativeEnd, combined)) {
+        collisions.push({
+          entityA: a.id,
+          entityB: b.id,
+          status: 'POSSIBLE',
+          reason: 'SYNCHRONIZED_SWEPT_AABB_OVERLAP',
+          horizonSeconds,
+        });
+      }
+    }
+  }
+  return {
+    status: 'CONFIRMED',
+    model: SPATIAL_SCENE_MODEL,
+    horizonSeconds,
+    assumption: 'CONSTANT_VELOCITY_SYNCHRONIZED_AABB_SWEEP',
+    collisions,
+  };
+}
+
+/**
  * Predict a synthetic scene under constant-velocity motion only.
  * Every entity must explicitly provide motion.velocity (zero for stationary
  * entities). This is straight-line extrapolation, not collision/physics solving.
