@@ -2475,8 +2475,10 @@ new file mode 100644
 +import path from 'node:path';
 +
 +const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
-+const sameStat = (a, b) => a.dev === b.dev && a.ino === b.ino
-+  && a.size === b.size && a.mtimeMs === b.mtimeMs && a.ctimeMs === b.ctimeMs;
++const sameFileIdentity = (a, b) => a.dev === b.dev
++  && (a.ino === b.ino || (process.platform === 'win32' && (!a.ino || !b.ino)));
++const sameStat = (a, b) => sameFileIdentity(a, b)
++  && a.size === b.size && a.mtimeMs === b.mtimeMs;
 +
 +/**
 + * Enumerate persisted Host artifacts beneath explicitly supplied storage roots.
