@@ -4,7 +4,7 @@ Status: documentation-only audit on 2026-10-24. Original audit baseline: Core `3
 
 ## 1. Decision summary
 
-**Stage B acquisition recording now has an implementation candidate; Stage C safe reads remain blocked.** Core has a typed `knowledge.acquire` event effect and a rebuildable `knowledge_acquisitions` projection on the dedicated Stage B branch. The projection is not a reader or permission grant. Until the exact PR-head suite passes and Stage C implements actor/purpose/snapshot-bound safe context projection, production NPC knowledge reads remain blocked.
+**Stage B acquisition recording now has an implementation candidate; Stage C safe reads remain blocked.** Core has a typed `knowledge.acquire` event effect and a rebuildable `knowledge_acquisitions` projection on the dedicated Stage B branch. The projection is not a reader or permission grant. The exact PR-head Runtime, recalculation-oracle, Provider acceptance, and NPC-boundary checks passed for Stage B; production NPC knowledge reads remain blocked until Stage C implements actor/purpose/snapshot-bound safe context projection.
 
 Do not implement a parallel NPC-local knowledge store, belief store, authorization layer, event/causality system, revision cursor, or rollback path. Keep NPC work to contract alignment and test-boundary definition until the real Core production boundary exists.
 
