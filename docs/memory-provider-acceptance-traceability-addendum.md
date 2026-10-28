@@ -103,3 +103,16 @@ Code/test evidence is tracked separately from cross-block production gates. Exac
 - The same regression test supplies a permissive `authorizeRawRead` callback and verifies it is never called (call count remains zero): a caller callback cannot override the unconditional raw-disclosure policy gate.
 - This is test-only evidence for existing fail-closed behavior. No production code, schema, raw-text policy, or runtime wiring changed. It does not approve raw-text retention or disclosure.
 - **Disposition:** Provider-local regression coverage **PASS** on exact HEAD. Host inventory, final dispatch-time revocation enforcement, coordinated-restore anti-rollback, and explicit raw-text policy approval remain **BLOCKED**. Memory→NPC remains **DISABLED / FAIL-CLOSED**.
+
+## Core inventory cursor handoff — 28 October 2026
+
+Core's public inventory continuation authenticity gap was addressed on Core base commit `716e4d217bb1a3063ee7df625f7c0deeaf3798ce`; exact-head Runtime, recalculation-oracle, and NPC-boundary CI passed in [run #40668613528](https://github.com/necromorphic/Logic-Engine/actions/runs/40668613528). Core continuation tokens use an instance-local HMAC secret, reject caller-recomputed public digests, and become invalid when the Core store instance restarts.
+
+Provider contract:
+- `createCanonicalEntityInventoryValidator()` always starts each reconciliation at `cursor = null` and follows only `next_cursor` returned by the trusted in-process Core engine.
+- Provider does not construct, persist, authenticate, or accept caller-supplied continuation tokens. A Core cursor error or malformed continuation makes inventory validation fail closed.
+- After Core restart, reconciliation begins again from page one; no prior continuation is resumed.
+- The Provider exact-head CI run `#40667458691` predates the Core-base change and is not evidence for the combined tree. The updated Core+Provider integration must pass exact-head CI before this cross-block slice is treated as verified.
+
+This closes only cursor authenticity for the trusted in-process inventory path. Coordinated Core+Provider backup restoration, complete Host lifecycle inventory, journal replay proof, and actual Host final-send enforcement remain separate blockers. Memory→NPC stays **DISABLED / FAIL-CLOSED**.
+
