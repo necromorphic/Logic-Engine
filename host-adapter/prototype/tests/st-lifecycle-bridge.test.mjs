@@ -79,19 +79,15 @@ function makeFixture(chat = [{ is_user: true, mes: 'hello' }, { is_user: false, 
   return { db, journal, chat, bridge, setLocator(value) { sourceLocator = value; }, setSourceLineage(value) { sourceLineage = value; }, setFailSave(value) { failSave = value; }, get saveCount() { return saveCount; } };
 }
 
-test('configured Core publisher receives digest-only baseline, replacement tombstone, and active version in order', async () => {
+test('unproven legacy root lineage blocks baseline and replacement publication', async () => {
   const published = [];
   const f = makeFixture([{ is_user: false, mes: 'swipe A', swipes: ['swipe A'], swipe_id: 0 }], {
     publishDigest: async entry => { published.push(structuredClone(entry)); },
   });
   await f.bridge.enrollCurrentConversation();
-  assert.equal(published.length, 1);
-  assert.equal(published[0].parent_version_id, null);
-  assert.equal(published[0].active, true);
-  assert.ok(published.every(entry => entry.conversation_id === 'chat-1'
-    && /^[a-f0-9]{64}$/.test(entry.content_sha256)
-    && !Object.keys(entry).some(key => /raw|text_body|content_text|message_body/i.test(key))));
-  published.length = 0;
+  assert.equal(published.length, 0, 'unproven legacy roots must not be sent to Core');
+  assert.equal((await f.bridge.getCoreCaptureStatus?.())?.status, 'NON_READY');
+
 
   const oldVersionIds = f.chat[0]._logicEngineLifecycle.versions.map(version => version.versionId);
   await f.bridge.beforeMutation('edit-message', [0]);
@@ -100,20 +96,11 @@ test('configured Core publisher receives digest-only baseline, replacement tombs
   f.chat[0].swipe_id = 0;
   await f.bridge.afterMutation('edit-message');
 
-  assert.equal(published.length, 2);
-  const current = published.find(entry => entry.deleted === false);
-  const tombstone = published.find(entry => entry.deleted === true);
-  assert.ok(current);
-  assert.equal(current.active, true);
-  assert.equal(current.parent_version_id, oldVersionIds[0]);
-  assert.ok(tombstone);
-  assert.equal(tombstone.active, false);
-  assert.equal(tombstone.parent_version_id, null);
-  assert.deepEqual(new Set([tombstone.version_id]), new Set(oldVersionIds));
-  assert.ok(published.every(entry => !JSON.stringify(entry).includes('edited answer')));
+  assert.equal(published.length, 0, 'unproven baseline lineage must keep Core publication fail-closed');
+  assert.equal(f.chat[0]._logicEngineLifecycle.versions[0].parentVersionId, oldVersionIds[0]);
 });
 
-test('digest sync retry replays durable tombstones after a partial failed publication', async () => {
+test('digest sync remains fail-closed when tombstone lineage is unproven', async () => {
   let fail = false;
   const published = [];
   const f = makeFixture([{ is_user: false, mes: 'swipe A', swipes: ['swipe A'], swipe_id: 0 }], {
