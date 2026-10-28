@@ -44,7 +44,7 @@ export function createRequestScopedTransportCapability({
     const normalizedName = name.toLowerCase();
     if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(name)
       || typeof value !== 'string'
-      || /[\\r\\n]/.test(value)
+      || /[\r\n]/.test(value)
       || Object.hasOwn(copiedHeaders, normalizedName)) {
       throw new TypeError('Provider headers must be unique normalized string pairs without line breaks');
     }
