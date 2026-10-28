@@ -37,6 +37,8 @@ function isDenseArray(value) {
   if (!Array.isArray(value) || utilTypes.isProxy(value)) return false;
   for (let index = 0; index < value.length; index += 1) {
     if (!Object.hasOwn(value, index)) return false;
+    const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+    if (descriptor == null || !Object.hasOwn(descriptor, "value")) return false;
   }
   return true;
 }
