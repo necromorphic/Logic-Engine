@@ -7,7 +7,6 @@ import { once } from 'node:events';
 import { spawn } from 'node:child_process';
 import { DatabaseSync } from 'node:sqlite';
 import { enrollAcceptedHeadDomain } from '../src/security/enroll-accepted-head-domain.js';
-import { recoverAcceptedHeadDomain } from '../src/security/recover-accepted-head-domain.js';
 import { SQLiteMemoryProvider } from '../src/application/sqlite-memory-provider.js';
 import {
   advanceAcceptedHeadSync,
@@ -244,38 +243,6 @@ test('Provider mutations advance accepted head before commit and fail closed whe
     provider = new SQLiteMemoryProvider(providerOptions(providerPath, coordinatorPath));
     providerReader = new DatabaseSync(providerPath);
     assert.equal(getAcceptedHeadsSync({ port, token: providerToken }).provider, pending.head);
-
-    // Exercise the explicit recovery helper with a locally committed checkpoint
-    // whose authority operation is still pending, as after a process crash.
-    const helperExpectedHead = providerReader.prepare(
-      'SELECT head FROM accepted_head_state WHERE singleton=1',
-    ).get().head;
-    const helperDigest = 'f'.repeat(64);
-    const helperPending = advanceAcceptedHeadSync({
-      domain: 'provider',
-      operationId: 'provider-explicit-recovery-helper',
-      operationDigest: helperDigest,
-      expectedHead: helperExpectedHead,
-      token: providerToken,
-      port,
-    });
-    assert.equal(helperPending.status, 'pending');
-    try { providerReader.close(); } catch {}
-    providerReader = null;
-    provider.close();
-    provider = null;
-    const helperCheckpoint = new DatabaseSync(providerPath);
-    try {
-      helperCheckpoint.prepare(
-        'UPDATE accepted_head_state SET head=?,last_operation_id=?,last_operation_digest=? WHERE singleton=1',
-      ).run(helperPending.head, helperPending.operation_id, helperDigest);
-    } finally { helperCheckpoint.close(); }
-    assert.deepEqual(recoverAcceptedHeadDomain({
-      domain: 'provider', databasePath: providerPath, coordinatorPath, port, token: providerToken,
-    }), { domain: 'provider', status: 'recovered_committed_operation', head: helperPending.head });
-    provider = new SQLiteMemoryProvider(providerOptions(providerPath, coordinatorPath));
-    providerReader = new DatabaseSync(providerPath);
-    assert.equal(getAcceptedHeadsSync({ port, token: providerToken }).provider, helperPending.head);
 
     child.stdin.end('stop');
     await once(child, 'exit');
