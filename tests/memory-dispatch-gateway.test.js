@@ -144,6 +144,8 @@ const validRequest = (requestId = 'request-001', overrides = {}) => ({
   model: 'selected-model',
   stream: false,
   body: JSON.stringify({ messages: [{ role: 'user', content: 'SECRET_MEMORY_TEXT_DO_NOT_PERSIST' }] }),
+  adapterId: 'adapter-1',
+  conversationId: 'conversation-1',
   worldId: 'world-1',
   actorId: 'npc-1',
   purpose: 'recall',
@@ -352,15 +354,17 @@ test('loopback Gateway endpoint requires Host authentication and a body-bound si
   let upstreamCalls = 0;
   let observedRoute;
   let observedBody;
-  const transport = async ({ route, model, body, forwardResponse }) => {
+  const transport = ({ route, model, body, forwardResponse }) => {
     upstreamCalls += 1;
     observedRoute = route;
     observedBody = body;
-    await forwardResponse(new Response('selected-backend-response', {
-      status: 200,
-      headers: { 'content-type': 'text/plain' },
-    }));
-    return { status: 200 };
+    return { started: true, response: (async () => {
+      await forwardResponse(new Response('selected-backend-response', {
+        status: 200,
+        headers: { 'content-type': 'text/plain' },
+      }));
+      return { status: 200 };
+    })() };
   };
   const fixture = await createFixture({ sendUpstream: transport });
   const server = await createMemoryDispatchGatewayServer({
@@ -656,11 +660,13 @@ test('real Provider revokeRecord committed before dispatch-start produces zero u
           candidates: stored ? [{ record_ref: stored.record_ref, record_version: stored.record_version, source_kind: stored.source_kind, source_entity_id: stored.source_entity_id, source_version: stored.source_version }] : [],
         };
       },
-      sendUpstream: async (outgoing) => {
+      sendUpstream: (outgoing) => {
         calls.push(outgoing);
         signalTransportStart();
-        await transportGate;
-        return { status: 200, body: 'accepted' };
+        return { started: true, response: (async () => {
+          await transportGate;
+          return { status: 200, body: 'accepted' };
+        })() };
       },
     });
 
