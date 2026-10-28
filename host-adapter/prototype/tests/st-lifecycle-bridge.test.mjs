@@ -827,7 +827,7 @@ test('post-delete checkpoint rejects non-contiguous deletion of prior message id
 
   await assert.rejects(
     f.bridge.afterMutation('delete-message'),
-    /message deletion checkpoint removed non-contiguous prior message identities/,
+    /delete-message checkpoint removed non-contiguous prior message identities/,
   );
   const ledger = await f.journal.exportCaptureLedger('chat-1');
   assert.equal(
