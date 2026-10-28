@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createGoogleAiStudioDispatchHook } from './google-ai-studio-dispatch-hook.mjs';
+import { createGoogleAiStudioDispatchHook } from '../google-ai-studio-dispatch-hook.mjs';
 
 function fakeResponse() {
   return {
