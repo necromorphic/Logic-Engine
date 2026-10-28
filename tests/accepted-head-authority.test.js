@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { once } from 'node:events';
 import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { AcceptedHeadAuthority } from '../src/security/accepted-head-authority.js';
 import {
@@ -315,7 +316,7 @@ test('accepted-head authority service entrypoint starts authenticated loopback s
     portProbe = null;
 
     const scriptUrl = new URL('../scripts/security/run-accepted-head-authority.js', import.meta.url);
-    child = spawn(process.execPath, [scriptUrl.pathname], {
+    child = spawn(process.execPath, [fileURLToPath(scriptUrl)], {
       env: {
         ...previousEnv,
         LOGIC_ENGINE_ACCEPTED_HEAD_AUTHORITY_DB_PATH: authorityPath,
