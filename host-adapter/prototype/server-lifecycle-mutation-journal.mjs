@@ -680,6 +680,8 @@ export async function recordHostCaptureConflict(request, capture, upstreamStatus
         || typeof capture.conversation_id !== 'string'
         || typeof capture.message_id !== 'string' || !uuidPattern.test(capture.message_id)
         || typeof capture.version_id !== 'string' || !uuidPattern.test(capture.version_id)
+        || !Object.hasOwn(capture, 'parent_version_id')
+        || !(capture.parent_version_id === null || (typeof capture.parent_version_id === 'string' && uuidPattern.test(capture.parent_version_id)))
         || typeof capture.content_sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(capture.content_sha256)
         || typeof capture.active !== 'boolean' || typeof capture.deleted !== 'boolean'
         || (capture.deleted && capture.active)) throw new Error('HOST_CAPTURE_CONFLICT_INVALID');
@@ -693,12 +695,14 @@ export async function recordHostCaptureConflict(request, capture, upstreamStatus
         if (chain.unresolved || chain.degraded) throw new Error('HOST_CAPTURE_CONFLICT_JOURNAL_UNRESOLVED');
         const prior = chain.records.find(record => record.kind === 'capture_conflict'
             && record.conversation_id === capture.conversation_id && record.message_id === capture.message_id
-            && record.version_id === capture.version_id && record.content_sha256 === capture.content_sha256);
+            && record.version_id === capture.version_id && record.content_sha256 === capture.content_sha256
+            && record.parent_version_id === capture.parent_version_id);
         if (prior) return { status: 'ALREADY_RECORDED' };
         await appendRecord(paths.journalPath, chain.lastHash, {
             version: 1, kind: 'capture_conflict', operationId: randomUUID(),
             conversation_id: capture.conversation_id, message_id: capture.message_id,
-            version_id: capture.version_id, content_sha256: capture.content_sha256,
+            version_id: capture.version_id, parent_version_id: capture.parent_version_id,
+            content_sha256: capture.content_sha256,
             active: capture.active, deleted: capture.deleted, upstreamStatus: 409,
             recordedAt: new Date().toISOString(),
         });
