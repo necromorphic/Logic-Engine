@@ -62,7 +62,7 @@ async function startAuthorityProcess(path) {
   return { child, port: Number(match[1]) };
 }
 
-async function createFixture({ sendUpstream, startUpstreamOverride, coreHead = 1, providerHead = 1, initialProviderGrant = true, providerCandidatesOverride } = {}) {
+async function createFixture({ sendUpstream, prepareUpstreamOverride, coreHead = 1, providerHead = 1, initialProviderGrant = true, providerCandidatesOverride } = {}) {
   const directory = mkdtempSync(join(tmpdir(), 'logic-memory-dispatch-gateway-'));
   const authorityPath = join(directory, 'authority.sqlite');
   const coordinatorPath = join(directory, 'coordinator.sqlite');
@@ -108,11 +108,14 @@ async function createFixture({ sendUpstream, startUpstreamOverride, coreHead = 1
       sources,
       candidates: providerCandidatesOverride ?? candidates,
     }),
-    startUpstream: startUpstreamOverride ?? ((request) => {
-      calls.push(request);
-      const response = sendUpstream ? sendUpstream(request) : Promise.resolve({ status: 200, body: 'accepted' });
-      return { started: true, response: Promise.resolve(response) };
-    }),
+    prepareUpstream: prepareUpstreamOverride ?? ((request) => ({
+      target: transportTargetFor(request),
+      start: () => {
+        calls.push(request);
+        const response = sendUpstream ? sendUpstream(request) : Promise.resolve({ status: 200, body: 'accepted' });
+        return { started: true, response: Promise.resolve(response) };
+      },
+    })),
   });
   gateway = makeGateway();
 
@@ -158,6 +161,14 @@ const validRequest = (requestId = 'request-001', overrides = {}) => ({
   }],
   ...overrides,
 });
+
+function transportTargetFor(request) {
+  const action = request.stream ? 'streamGenerateContent' : 'generateContent';
+  const url = new URL('https://generativelanguage.googleapis.com/v1beta/models/'
+    + encodeURIComponent(request.model) + ':' + action);
+  if (request.stream) url.searchParams.set('alt', 'sse');
+  return url.href;
+}
 
 test('Host dispatch signature binds the exact body, route, model, identity, and source versions with locale-independent source ordering', () => {
   const request = validRequest('signed-request');
@@ -306,9 +317,12 @@ test('unsupported route, denied Provider grant, and pending authority all produc
   }
 });
 
-test('async transport capability is rejected and unresolved dispatch is marked UNKNOWN', async () => {
+test('async transport start is rejected and unresolved dispatch is marked UNKNOWN', async () => {
   const fixture = await createFixture({
-    startUpstreamOverride: async () => ({ started: true, response: Promise.resolve({ status: 200 }) }),
+    prepareUpstreamOverride: (request) => ({
+      target: transportTargetFor(request),
+      start: async () => ({ started: true, response: Promise.resolve({ status: 200 }) }),
+    }),
   });
   try {
     await assert.rejects(
@@ -379,7 +393,7 @@ test('Google transport invokes fetch synchronously and returns a response promis
       return Promise.resolve(new Response('ok', { status: 200 }));
     },
   });
-  const handoff = transport({
+  const prepared = transport({
     route: 'google-ai-studio-chat-completions',
     model: 'gemini-test-model',
     stream: false,
@@ -387,7 +401,10 @@ test('Google transport invokes fetch synchronously and returns a response promis
     signal: undefined,
     forwardResponse: async () => { responseForwarded = true; },
   });
-  assert.equal(upstreamCalls, 1, 'upstream fetch must be initiated before the capability returns');
+  assert.equal(upstreamCalls, 0, 'preparing the capability must not perform network I/O');
+  assert.equal(prepared.target, 'https://generativelanguage.googleapis.com/v1beta/models/gemini-test-model:generateContent');
+  const handoff = prepared.start();
+  assert.equal(upstreamCalls, 1, 'upstream fetch must be initiated synchronously by start()');
   assert.equal(handoff.started, true);
   assert.equal(typeof handoff.response?.then, 'function');
   await handoff.response;
@@ -415,7 +432,7 @@ test('loopback Gateway endpoint requires Host authentication and a body-bound si
       });
     },
   });
-  const fixture = await createFixture({ startUpstreamOverride: transport });
+  const fixture = await createFixture({ prepareUpstreamOverride: transport });
   const server = await createMemoryDispatchGatewayServer({
     gateway: fixture.gateway,
     hostToken,
@@ -531,7 +548,7 @@ test('existing dispatch ledger with missing schema fails closed without auto-rep
       readToken,
       readCoreEvidence: () => ({}),
       readProviderEvidence: () => ({}),
-      startUpstream: () => ({ started: true, response: Promise.resolve({ status: 200 }) }),
+      prepareUpstream: () => ({ target: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent', start: () => ({ started: true, response: Promise.resolve({ status: 200 }) }) }),
     }), /DISPATCH_LEDGER_SCHEMA_INCOMPLETE/);
     const verify = new DatabaseSync(ledgerPath);
     try {
@@ -671,15 +688,18 @@ test('real Provider revokeRecord committed before dispatch-start produces zero u
           candidates: stored ? [{ record_ref: stored.record_ref, record_version: stored.record_version, source_kind: stored.source_kind, source_entity_id: stored.source_entity_id, source_version: stored.source_version }] : [],
         };
       },
-      startUpstream: (outgoing) => {
-        calls.push(outgoing);
-        signalTransportStart();
-        const response = (async () => {
-          await transportGate;
-          return { status: 200, body: 'accepted' };
-        })();
-        return { started: true, response };
-      },
+      prepareUpstream: (outgoing) => ({
+        target: transportTargetFor(outgoing),
+        start: () => {
+          calls.push(outgoing);
+          signalTransportStart();
+          const response = (async () => {
+            await transportGate;
+            return { status: 200, body: 'accepted' };
+          })();
+          return { started: true, response };
+        },
+      }),
     });
 
     // Tombstone and purge are real Provider mutation APIs too; the legacy row
