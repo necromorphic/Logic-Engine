@@ -110,7 +110,15 @@ async function createFixture({ sendUpstream, prepareUpstreamOverride, coreHead =
     }),
     prepareUpstream: prepareUpstreamOverride ?? ((request) => ({
       target: transportTargetFor(request),
-      start: () => {
+      start: ({ requestId }) => {
+        const ledger = new DatabaseSync(ledgerPath);
+        let status;
+        try {
+          status = ledger.prepare('SELECT status FROM dispatch_ledger WHERE request_id=?').get(requestId)?.status;
+        } finally {
+          ledger.close();
+        }
+        if (status !== 'DISPATCH_STARTED') throw new Error('transport invoked before durable dispatch-start');
         calls.push(request);
         const response = sendUpstream ? sendUpstream(request) : Promise.resolve({ status: 200, body: 'accepted' });
         return { started: true, response: Promise.resolve(response) };
