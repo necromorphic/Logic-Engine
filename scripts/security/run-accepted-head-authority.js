@@ -62,7 +62,7 @@ if (!requiredText(databasePath) || !requiredText(installationId)
         controlBuffer = '';
         return;
       }
-      const lines = controlBuffer.split(/\\r?\\n/);
+      const lines = controlBuffer.split(/\r?\n/);
       controlBuffer = lines.pop() ?? '';
       if (lines.some((line) => line.trim() === 'stop')) {
         void stop().finally(() => process.exit());
