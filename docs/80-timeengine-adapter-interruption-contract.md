@@ -75,3 +75,10 @@ Evidence: `docs/27-host-adapter-lifecycle-evidence.md`, `docs/13-sillytavern-ada
 
 
 The proposal route is not a drop-in substitute for timed-action execution for a second reason: the current Stage 1 proposal contract places every new proposal in `pending` and requires a separate approval step before commit. Its purpose is durable event-proposal review, while the timed-action operation owns duration resolution, due-trigger processing, interruption state, and resumable operation checkpoints. Routing a retried action through proposals would therefore change the workflow semantics rather than solve the authorization mismatch.
+
+
+### Clarification from adjacent execution-authority contracts
+
+`docs/54-core-proposal-execution-authority-contract.md` documents a trusted internal path specifically for committing an **already-approved proposal** through the internal `/events` route. It does not establish that this same orchestrator exists as a deployed service, nor that it is authorized or implemented to create, resume, or resubmit `time-actions` / `time-advances` operations. `docs/11-operations-and-recovery.md` also classifies the internal credential as a trusted host-only capability and keeps it distinct from adapter credentials.
+
+This narrows the evidence: the repository documents a trusted execution path for one proposal workflow, but the reviewed sources do not demonstrate a reusable timed-action orchestration path. Do not infer one from the phrase “trusted orchestration” in proposal documentation. The open integration decision above therefore remains valid.
