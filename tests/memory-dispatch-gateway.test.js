@@ -504,27 +504,22 @@ test('gateway startup converts stale DISPATCH_STARTED rows to UNKNOWN and blocks
   }
 });
 
-test('gateway rejects an async transport callback before invoking any transport code', () => {
-  const directory = mkdtempSync(join(tmpdir(), 'logic-dispatch-async-transport-reject-'));
+test('gateway rejects a missing request-scoped transport before ledger mutation', async () => {
+  const fixture = await createFixture();
   try {
-    const fixture = await createFixture();
+    await assert.rejects(
+      fixture.gateway.dispatchProtectedRequest(validRequest('missing-transport')),
+      /MEMORY_DISPATCH_NOT_READY/,
+    );
+    assert.equal(fixture.calls.length, 0);
+    const db = new DatabaseSync(fixture.ledgerPath);
     try {
-      await assert.rejects(
-        fixture.gateway.dispatchProtectedRequest(validRequest('missing-transport')),
-        /MEMORY_DISPATCH_NOT_READY/,
-      );
-      assert.equal(fixture.calls.length, 0);
-      const db = new DatabaseSync(fixture.ledgerPath);
-      try {
-        assert.equal(db.prepare('SELECT COUNT(*) AS count FROM dispatch_ledger').get().count, 0);
-      } finally {
-        db.close();
-      }
+      assert.equal(db.prepare('SELECT COUNT(*) AS count FROM dispatch_ledger').get().count, 0);
     } finally {
-      await fixture.close();
+      db.close();
     }
   } finally {
-    rmSync(directory, { recursive: true, force: true });
+    await fixture.close();
   }
 });
 
