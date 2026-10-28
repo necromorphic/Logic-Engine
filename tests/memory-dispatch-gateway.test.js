@@ -62,7 +62,7 @@ async function startAuthorityProcess(path) {
   return { child, port: Number(match[1]) };
 }
 
-async function createFixture({ sendUpstream, coreHead = 1, providerHead = 1, initialProviderGrant = true, providerCandidatesOverride } = {}) {
+async function createFixture({ sendUpstream, prepareUpstreamOverride, coreHead = 1, providerHead = 1, initialProviderGrant = true, providerCandidatesOverride } = {}) {
   const directory = mkdtempSync(join(tmpdir(), 'logic-memory-dispatch-gateway-'));
   const authorityPath = join(directory, 'authority.sqlite');
   const coordinatorPath = join(directory, 'coordinator.sqlite');
@@ -108,11 +108,22 @@ async function createFixture({ sendUpstream, coreHead = 1, providerHead = 1, ini
       sources,
       candidates: providerCandidatesOverride ?? candidates,
     }),
-    sendUpstream: async (request) => {
-      calls.push(request);
-      if (sendUpstream) return sendUpstream(request);
-      return { status: 200, body: 'accepted' };
-    },
+    prepareUpstream: prepareUpstreamOverride ?? ((request) => ({
+      target: transportTargetFor(request),
+      start: ({ requestId }) => {
+        const ledger = new DatabaseSync(ledgerPath);
+        let status;
+        try {
+          status = ledger.prepare('SELECT status FROM dispatch_ledger WHERE request_id=?').get(requestId)?.status;
+        } finally {
+          ledger.close();
+        }
+        if (status !== 'DISPATCH_STARTED') throw new Error('transport invoked before durable dispatch-start');
+        calls.push(request);
+        const response = sendUpstream ? sendUpstream(request) : Promise.resolve({ status: 200, body: 'accepted' });
+        return { started: true, response: Promise.resolve(response) };
+      },
+    })),
   });
   gateway = makeGateway();
 
@@ -158,6 +169,14 @@ const validRequest = (requestId = 'request-001', overrides = {}) => ({
   }],
   ...overrides,
 });
+
+function transportTargetFor(request) {
+  const action = request.stream ? 'streamGenerateContent' : 'generateContent';
+  const url = new URL('https://generativelanguage.googleapis.com/v1beta/models/'
+    + encodeURIComponent(request.model) + ':' + action);
+  if (request.stream) url.searchParams.set('alt', 'sse');
+  return url.href;
+}
 
 test('Host dispatch signature binds the exact body, route, model, identity, and source versions with locale-independent source ordering', () => {
   const request = validRequest('signed-request');
@@ -253,12 +272,89 @@ test('dispatch validates current heads and grants, records one content-free star
       assert.equal(row.status, 'COMPLETED');
       assert.equal(row.model, 'gemini-2.5-flash-lite');
       assert.match(row.request_digest, /^[a-f0-9]{64}$/);
+      const request = validRequest();
+      const expectedDigest = createHash('sha256').update(JSON.stringify({
+        route: request.route,
+        model: request.model,
+        stream: request.stream,
+        transport_target: transportTargetFor(request),
+        body_digest: createHash('sha256').update(request.body, 'utf8').digest('hex'),
+        world_id: request.worldId,
+        actor_id: request.actorId,
+        purpose: request.purpose,
+        sources: request.sources,
+        candidates: request.candidates,
+      }), 'utf8').digest('hex');
+      assert.equal(row.request_digest, expectedDigest, 'dispatch digest must bind the resolved endpoint as well as the exact body');
       assert.equal(JSON.stringify(row).includes('SECRET_MEMORY_TEXT_DO_NOT_PERSIST'), false);
     } finally {
       db.close();
     }
   } finally {
     await fixture.close();
+  }
+});
+
+test('invalid or untrusted transport target fails closed before dispatch-start', async () => {
+  const fixture = await createFixture({
+    prepareUpstreamOverride: (request) => ({
+      target: 'https://attacker.example/collect/' + encodeURIComponent(request.model),
+      start: () => {
+        throw new Error('must never start an invalid target');
+      },
+    }),
+  });
+  try {
+    await assert.rejects(
+      fixture.gateway.dispatchProtectedRequest(validRequest('invalid-target')),
+      /MEMORY_DISPATCH_NOT_READY/,
+    );
+    assert.equal(fixture.calls.length, 0);
+    const db = new DatabaseSync(fixture.ledgerPath);
+    try {
+      assert.equal(db.prepare('SELECT COUNT(*) AS n FROM dispatch_ledger').get().n, 0,
+        'invalid endpoint must be rejected before DISPATCH_STARTED');
+    } finally {
+      db.close();
+    }
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('transport target rejects protocol, port, model substitution, extra query, and path variants', async () => {
+  const request = validRequest();
+  const good = transportTargetFor(request);
+  const invalidTargets = [
+    good.replace('https:', 'http:'),
+    good.replace('generativelanguage.googleapis.com', 'generativelanguage.googleapis.com:8443'),
+    good.replace(request.model, 'different-model'),
+    good + '?alt=sse',
+    good.replace('/v1beta/', '/v1beta/extra/'),
+    good + '#fragment',
+    good.replace('https://', 'https://user@'),
+  ];
+  for (const target of invalidTargets) {
+    const fixture = await createFixture({
+      prepareUpstreamOverride: () => ({ target, start: () => {
+        throw new Error('invalid target must not reach transport');
+      } }),
+    });
+    try {
+      await assert.rejects(
+        fixture.gateway.dispatchProtectedRequest(validRequest('invalid-target-' + invalidTargets.indexOf(target))),
+        /MEMORY_DISPATCH_NOT_READY/,
+      );
+      assert.equal(fixture.calls.length, 0);
+      const db = new DatabaseSync(fixture.ledgerPath);
+      try {
+        assert.equal(db.prepare('SELECT COUNT(*) AS n FROM dispatch_ledger').get().n, 0);
+      } finally {
+        db.close();
+      }
+    } finally {
+      await fixture.close();
+    }
   }
 });
 
@@ -306,6 +402,61 @@ test('unsupported route, denied Provider grant, and pending authority all produc
   }
 });
 
+test('async transport start is rejected and unresolved dispatch is marked UNKNOWN', async () => {
+  const fixture = await createFixture({
+    prepareUpstreamOverride: (request) => ({
+      target: transportTargetFor(request),
+      start: async () => ({ started: true, response: Promise.resolve({ status: 200 }) }),
+    }),
+  });
+  try {
+    await assert.rejects(
+      fixture.gateway.dispatchProtectedRequest(validRequest('async-handoff-rejected')),
+      /MEMORY_DISPATCH_OUTCOME_UNKNOWN/,
+    );
+    assert.equal(fixture.calls.length, 0, 'an invalid async capability must not fall back to a transport');
+    const db = new DatabaseSync(fixture.ledgerPath);
+    try {
+      assert.equal(db.prepare('SELECT status FROM dispatch_ledger WHERE request_id=?')
+        .get('async-handoff-rejected').status, 'UNKNOWN');
+    } finally {
+      db.close();
+    }
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('async start that initiates before returning is marked UNKNOWN and never retried', async () => {
+  const fixture = await createFixture({
+    prepareUpstreamOverride: (request) => ({
+      target: transportTargetFor(request),
+      start: async () => {
+        fixtureCalls.push(request);
+        await Promise.resolve();
+        return { started: true, response: Promise.resolve({ status: 200 }) };
+      },
+    }),
+  });
+  const fixtureCalls = [];
+  try {
+    await assert.rejects(
+      fixture.gateway.dispatchProtectedRequest(validRequest('async-started-before-rejection')),
+      /MEMORY_DISPATCH_OUTCOME_UNKNOWN/,
+    );
+    assert.equal(fixtureCalls.length, 1, 'the pre-await initiation occurs once and must not be retried');
+    const db = new DatabaseSync(fixture.ledgerPath);
+    try {
+      assert.equal(db.prepare('SELECT status FROM dispatch_ledger WHERE request_id=?')
+        .get('async-started-before-rejection').status, 'UNKNOWN');
+    } finally {
+      db.close();
+    }
+  } finally {
+    await fixture.close();
+  }
+});
+
 test('ambiguous transport outcome is recorded UNKNOWN and the request identity cannot be replayed', async () => {
   let sends = 0;
   const fixture = await createFixture({
@@ -347,6 +498,44 @@ test('ambiguous transport outcome is recorded UNKNOWN and the request identity c
   }
 });
 
+test('Google transport invokes fetch synchronously and returns a response promise', async () => {
+  let upstreamCalls = 0;
+  let responseForwarded = false;
+  let observedUrl;
+  let observedInit;
+  const exactSerializedBody = '{"contents":[]}';
+  const transport = createGoogleAiStudioTransport({
+    apiKey: 'google-ai-studio-test-key-not-real',
+    fetchImpl: (url, init) => {
+      upstreamCalls += 1;
+      observedUrl = String(url);
+      observedInit = init;
+      return Promise.resolve(new Response('ok', { status: 200 }));
+    },
+  });
+  const prepared = transport({
+    route: 'google-ai-studio-chat-completions',
+    model: 'gemini-test-model',
+    stream: false,
+    body: exactSerializedBody,
+    signal: undefined,
+    forwardResponse: async () => { responseForwarded = true; },
+  });
+  assert.equal(upstreamCalls, 0, 'preparing the capability must not perform network I/O');
+  assert.equal(prepared.target, 'https://generativelanguage.googleapis.com/v1beta/models/gemini-test-model:generateContent');
+  const handoff = prepared.start();
+  assert.equal(upstreamCalls, 1, 'upstream fetch must be initiated synchronously by start()');
+  assert.equal(observedUrl, prepared.target, 'the actual fetch URL must equal the validated target');
+  assert.equal(observedInit.method, 'POST');
+  assert.equal(observedInit.body, exactSerializedBody, 'transport must send the exact serialized body without reserialization');
+  assert.equal(observedInit.headers['x-goog-api-key'], 'google-ai-studio-test-key-not-real');
+  assert.equal(observedInit.headers['content-type'], 'application/json');
+  assert.equal(handoff.started, true);
+  assert.equal(typeof handoff.response?.then, 'function');
+  await handoff.response;
+  assert.equal(responseForwarded, true);
+});
+
 test('loopback Gateway endpoint requires Host authentication and a body-bound signature before Google egress', async () => {
   const apiKey = 'google-ai-studio-test-key-not-real';
   const hostToken = 'host-dispatch-token-for-gateway-tests-00000000000000000000000000000004';
@@ -368,7 +557,7 @@ test('loopback Gateway endpoint requires Host authentication and a body-bound si
       });
     },
   });
-  const fixture = await createFixture({ sendUpstream: transport });
+  const fixture = await createFixture({ prepareUpstreamOverride: transport });
   const server = await createMemoryDispatchGatewayServer({
     gateway: fixture.gateway,
     hostToken,
@@ -484,7 +673,7 @@ test('existing dispatch ledger with missing schema fails closed without auto-rep
       readToken,
       readCoreEvidence: () => ({}),
       readProviderEvidence: () => ({}),
-      sendUpstream: async () => ({ status: 200 }),
+      prepareUpstream: () => ({ target: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent', start: () => ({ started: true, response: Promise.resolve({ status: 200 }) }) }),
     }), /DISPATCH_LEDGER_SCHEMA_INCOMPLETE/);
     const verify = new DatabaseSync(ledgerPath);
     try {
@@ -541,7 +730,6 @@ test('real Provider revokeRecord committed before dispatch-start produces zero u
       validateInventory: async () => true,
     };
     const bootstrap = new SQLiteMemoryProvider(providerOptions);
-    bootstrap.close();
     // Seed a legacy raw row before enrollment; direct SQL is fixture setup only.
     const rawSource = {
       world_id: 'legacy-world',
@@ -550,13 +738,11 @@ test('real Provider revokeRecord committed before dispatch-start produces zero u
       version_id: 'legacy-version',
     };
     const rawText = 'legacy fixture only';
-    const seedDb = new DatabaseSync(providerPath);
-    try {
-      seedDb.prepare('INSERT INTO memory_raw_captures (world_id,conversation_id,message_id,version_id,role,content_text,content_sha256,metadata_json,captured_at,deleted_at) VALUES(?,?,?,?,?,?,?,?,?,NULL)')
-        .run(rawSource.world_id, rawSource.conversation_id, rawSource.message_id, rawSource.version_id,
-          'assistant', rawText, createHash('sha256').update(rawText, 'utf8').digest('hex'), '{}',
-          '2026-01-01T00:00:00.000Z');
-    } finally { seedDb.close(); }
+    bootstrap.db.prepare('INSERT INTO memory_raw_captures (world_id,conversation_id,message_id,version_id,role,content_text,content_sha256,metadata_json,captured_at,deleted_at) VALUES(?,?,?,?,?,?,?,?,?,NULL)')
+      .run(rawSource.world_id, rawSource.conversation_id, rawSource.message_id, rawSource.version_id,
+        'assistant', rawText, createHash('sha256').update(rawText, 'utf8').digest('hex'), '{}',
+        '2026-01-01T00:00:00.000Z');
+    bootstrap.close();
     enrollAcceptedHeadDomain({
       domain: 'provider',
       databasePath: providerPath,
@@ -603,11 +789,6 @@ test('real Provider revokeRecord committed before dispatch-start produces zero u
     const transportStarted = new Promise((resolve) => { signalTransportStart = resolve; });
     let releaseTransport;
     const transportGate = new Promise((resolve) => { releaseTransport = resolve; });
-    let signalBeforeCoordinatorLock;
-    const beforeCoordinatorLockReached = new Promise((resolve) => { signalBeforeCoordinatorLock = resolve; });
-    let releaseBeforeCoordinatorLock;
-    const beforeCoordinatorLockGate = new Promise((resolve) => { releaseBeforeCoordinatorLock = resolve; });
-    let holdFirstDispatch = true;
     gateway = new MemoryDispatchGateway({
       ledgerPath,
       coordinatorPath,
@@ -632,23 +813,23 @@ test('real Provider revokeRecord committed before dispatch-start produces zero u
           candidates: stored ? [{ record_ref: stored.record_ref, record_version: stored.record_version, source_kind: stored.source_kind, source_entity_id: stored.source_entity_id, source_version: stored.source_version }] : [],
         };
       },
-      beforeCoordinatorLock: async () => {
-        if (!holdFirstDispatch) return;
-        holdFirstDispatch = false;
-        signalBeforeCoordinatorLock();
-        await beforeCoordinatorLockGate;
-      },
-      sendUpstream: async (outgoing) => {
-        calls.push(outgoing);
-        signalTransportStart();
-        await transportGate;
-        return { status: 200, body: 'accepted' };
-      },
+      prepareUpstream: (outgoing) => ({
+        target: transportTargetFor(outgoing),
+        start: () => {
+          calls.push(outgoing);
+          signalTransportStart();
+          const response = (async () => {
+            await transportGate;
+            return { status: 200, body: 'accepted' };
+          })();
+          return { started: true, response };
+        },
+      }),
     });
 
     // Tombstone and purge are real Provider mutation APIs too; the legacy row
     // was seeded before enrollment, so no enrolled write bypasses the head guard.
-    const providerHead = () => providerReader.prepare(
+    const providerHead = () => provider.db.prepare(
       'SELECT head FROM accepted_head_state WHERE singleton=1',
     ).get().head;
     const beforeTombstone = providerHead();
@@ -660,14 +841,9 @@ test('real Provider revokeRecord committed before dispatch-start produces zero u
     assert.ok(providerHead() > beforePurge, 'purge must advance the accepted Provider head');
     assert.equal(getAcceptedHeadsSync({ port: service.port, token: providerToken }).provider, providerHead());
 
-    // Pause after request validation but before the Gateway acquires the shared
-    // coordinator lock. Commit the real Provider revocation, then let Gateway
-    // proceed: this proves the writer wins the ordering race, not just a stale read.
-    const blockedDispatch = gateway.dispatchProtectedRequest(request);
-    await beforeCoordinatorLockReached;
+    // The real Provider revoke writer wins before dispatch-start; Gateway must see the committed denial.
     provider.revokeRecord(scope, record.record_ref, record.record_version);
-    releaseBeforeCoordinatorLock();
-    await assert.rejects(blockedDispatch, /MEMORY_DISPATCH_NOT_READY/);
+    await assert.rejects(gateway.dispatchProtectedRequest(request), /MEMORY_DISPATCH_NOT_READY/);
     assert.equal(calls.length, 0, 'revocation before dispatch-start must cause zero upstream calls');
     const ledger = new DatabaseSync(ledgerPath);
     try {
@@ -694,7 +870,6 @@ test('real Provider revokeRecord committed before dispatch-start produces zero u
       completedLedger.close();
     }
   } finally {
-    try { releaseBeforeCoordinatorLock?.(); } catch {}
     try { releaseTransport?.(); } catch {}
     try { gateway?.close(); } catch {}
     try { providerReader?.close(); } catch {}
