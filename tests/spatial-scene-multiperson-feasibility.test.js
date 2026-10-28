@@ -293,9 +293,27 @@ test('synchronized trajectory sweep detects collision at matching times', () => 
   assert.equal(report.assumption, 'CONSTANT_VELOCITY_SYNCHRONIZED_AABB_SWEEP');
   assert.deepEqual(report.collisions, [{
     entityA: 'alice', entityB: 'bob', status: 'POSSIBLE',
-    reason: 'SYNCHRONIZED_SWEPT_AABB_OVERLAP', horizonSeconds: 2,
+    reason: 'SYNCHRONIZED_SWEPT_AABB_OVERLAP',
+    timeStartSeconds: 1, timeEndSeconds: 1, horizonSeconds: 2,
   }]);
   assert.equal(initial.entities[0].position.x, 0);
+});
+
+test('collision interval includes declared body extents', () => {
+  const initial = scene({
+    entities: [
+      { ...entity('alice', { x: 0, y: 0, z: 0 }), body: {
+        minOffset: { x: -0.5, y: -0.5, z: -0.5 }, maxOffset: { x: 0.5, y: 0.5, z: 0.5 },
+      }, motion: { velocity: { x: 2, y: 0, z: 0 } } },
+      { ...entity('bob', { x: 4, y: 0, z: 0 }), body: {
+        minOffset: { x: -0.5, y: -0.5, z: -0.5 }, maxOffset: { x: 0.5, y: 0.5, z: 0.5 },
+      }, motion: { velocity: { x: 0, y: 0, z: 0 } } },
+    ],
+  });
+  const report = detectSimultaneousTrajectoryCollisions(initial, 3);
+  assert.equal(report.collisions.length, 1);
+  assert.equal(report.collisions[0].timeStartSeconds, 1.5);
+  assert.equal(report.collisions[0].timeEndSeconds, 2.5);
 });
 
 test('crossing geometric paths at different times are not reported as synchronized collision', () => {
