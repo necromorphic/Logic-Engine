@@ -126,7 +126,7 @@ test('body-volume sampling distinguishes partial visibility from total occlusion
     blockers: [{
       id: 'low-cover',
       min: { x: 3, y: -2, z: -1 },
-      max: { x: 4, y: 2, z: 1.1 },
+      max: { x: 4, y: 2, z: 0.6 },
     }],
   }));
   const visible = pair(partial, 'observer', 'target');
