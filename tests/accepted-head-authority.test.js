@@ -15,6 +15,13 @@ import {
   getAcceptedHeadsSync,
 } from '../src/security/accepted-head-client-sync.js';
 
+async function stopAuthorityChild(child) {
+  if (!child || child.exitCode !== null || child.signalCode !== null) return;
+  try { child.kill(); } catch {}
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  await once(child, 'exit');
+}
+
 const coreToken = 'core-token-for-accepted-head-tests-00000000000000000000000000000001';
 const providerToken = 'provider-token-for-accepted-head-tests-00000000000000000000000000000002';
 const digestA = 'a'.repeat(64);
@@ -243,8 +250,7 @@ test('authority IPC requires explicit enrollment, enforces domain tokens, and fa
     }), /Invalid accepted-head client configuration/);
     assert.deepEqual(getAcceptedHeadsSync({ port, token: coreToken }), { core: 2, provider: 2 });
   } finally {
-    child.kill();
-    await once(child, 'exit');
+    await stopAuthorityChild(child);
     rmSync(dir, { recursive: true, force: true });
   }
 });
