@@ -52,6 +52,13 @@ async function startAuthorityProcess(path) {
   return { child, port: Number(match[1]) };
 }
 
+async function stopAuthorityChild(child) {
+  if (!child || child.exitCode !== null || child.signalCode !== null) return;
+  try { child.kill(); } catch {}
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  await once(child, 'exit');
+}
+
 function setEnv(name, value, previous) {
   previous[name] = process.env[name];
   if (value === undefined) delete process.env[name];
@@ -191,8 +198,7 @@ test('Core commits only when accepted-head authority is current and aborts mutat
     } finally { migrationRepair.close(); }
     store = new SQLiteStore(corePath);
 
-    child.kill();
-    await once(child, 'exit');
+    await stopAuthorityChild(child);
     child = null;
 
     assert.throws(() => store.createWorld({
@@ -224,8 +230,7 @@ test('Core commits only when accepted-head authority is current and aborts mutat
   } finally {
     try { store?.close(); } catch {}
     if (child) {
-      child.kill();
-      await once(child, 'exit');
+      await stopAuthorityChild(child);
     }
     for (const [name, value] of Object.entries(previousEnv)) {
       if (value === undefined) delete process.env[name];
