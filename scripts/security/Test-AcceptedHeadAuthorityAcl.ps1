@@ -199,6 +199,26 @@ try {
   } catch { $adsDatabaseRefused = $_.Exception.Message -match 'NTFS alternate data stream' }
   if (-not $adsDatabaseRefused) { throw 'An ADS-shaped authority database path was not rejected before normalization.' }
 
+# Regression: a backup root overlapping a live Core store is not an isolated restore domain.
+  $overlapBackupRefused = $false
+  try {
+    & .\\scripts\\security\\Set-AcceptedHeadAuthorityAcl.ps1 -AuthorityServiceName $testServices[0] -CoreServiceName $testServices[1] -ProviderServiceName $testServices[2] -GatewayServiceName $testServices[3] -AuthorityDbPath $db -CoreDbPath $coreDb -ProviderDbPath $providerDb -CoordinatorDbPath $coordinatorDb -BackupRoots @((Split-Path -Parent $coreDb)) -EvidencePath ($evidence + '.overlap')
+  } catch { $overlapBackupRefused = $_.Exception.Message -match 'Backup/restore root overlaps live' }
+  if (-not $overlapBackupRefused) {
+    throw 'A backup root overlapping the live Core database directory was not refused.'
+  }
+
+# Regression: nested backup roots do not establish independent restore domains.
+  $nestedBackupRoot = Join-Path $backupRoot 'nested'
+  New-Item -ItemType Directory -Path $nestedBackupRoot -Force | Out-Null
+  $nestedBackupRefused = $false
+  try {
+    & .\\scripts\\security\\Set-AcceptedHeadAuthorityAcl.ps1 -AuthorityServiceName $testServices[0] -CoreServiceName $testServices[1] -ProviderServiceName $testServices[2] -GatewayServiceName $testServices[3] -AuthorityDbPath $db -CoreDbPath $coreDb -ProviderDbPath $providerDb -CoordinatorDbPath $coordinatorDb -BackupRoots @($backupRoot, $nestedBackupRoot) -EvidencePath ($evidence + '.nested')
+  } catch { $nestedBackupRefused = $_.Exception.Message -match 'Backup/restore roots overlap each other' }
+  if (-not $nestedBackupRefused) {
+    throw 'Nested backup roots were incorrectly accepted as independent restore domains.'
+  }
+
 # Regression: evidence output must not contaminate a supplied backup/restore root.
   $backupEvidencePath = Join-Path $backupRoot 'acl-evidence-must-not-be-written.json'
   $backupEvidenceRefused = $false
