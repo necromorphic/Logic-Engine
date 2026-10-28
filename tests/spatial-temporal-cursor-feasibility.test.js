@@ -44,7 +44,7 @@ function assertSegmentCursorMapping(store, worldId, segments) {
     assert.ok(Array.isArray(segment.events) && segment.events.length > 0);
     const boundaryEventId = segment.events.at(-1).event_id;
     const event = store.db.prepare(
-      'SELECT event_id,game_time_coordinate,commit_sequence,validity FROM world_events WHERE world_id=? AND event_id=?',
+      'SELECT event_id,game_time_coordinate,committed_revision,commit_sequence,validity FROM world_events WHERE world_id=? AND event_id=?',
     ).get(worldId, boundaryEventId);
     assert.ok(event, `segment boundary event ${boundaryEventId} must exist`);
     assert.equal(event.game_time_coordinate, segment.coordinate);
@@ -53,6 +53,7 @@ function assertSegmentCursorMapping(store, worldId, segments) {
     segment.boundaryCursor = {
       event_id: event.event_id,
       game_time_coordinate: event.game_time_coordinate,
+      committed_revision: event.committed_revision,
       commit_sequence: event.commit_sequence,
     };
   }
