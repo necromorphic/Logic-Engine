@@ -25,7 +25,14 @@ function validScene(scene) {
       if (!entity.body || !finiteVector(entity.body.minOffset) || !finiteVector(entity.body.maxOffset)) return false;
       for (const axis of ['x', 'y', 'z']) if (entity.body.minOffset[axis] > entity.body.maxOffset[axis]) return false;
     }
-    if (entity.motion !== undefined && (!entity.motion || !finiteVector(entity.motion.velocity))) return false;
+    if (entity.motion !== undefined) {
+      if (!entity.motion || !finiteVector(entity.motion.velocity)) return false;
+      if (entity.motion.maxSpeed !== undefined &&
+          (!Number.isFinite(entity.motion.maxSpeed) || entity.motion.maxSpeed < 0)) return false;
+      if (entity.motion.maxTurnRateRadiansPerSecond !== undefined &&
+          (!Number.isFinite(entity.motion.maxTurnRateRadiansPerSecond) ||
+           entity.motion.maxTurnRateRadiansPerSecond < 0)) return false;
+    }
     if (!entity.perception ||
         !Number.isFinite(entity.perception.halfAngleRadians) ||
         entity.perception.halfAngleRadians < 0 ||
@@ -58,6 +65,48 @@ function segmentIntersectsAabb(start, end, box) {
     if (tMin > tMax) return false;
   }
   return tMax >= 0 && tMin <= 1;
+}
+
+function bodyOffsets(entity) {
+  return entity.body ?? {
+    minOffset: { x: 0, y: 0, z: 0 },
+    maxOffset: { x: 0, y: 0, z: 0 },
+  };
+}
+
+// Minkowski expansion converts a moving axis-aligned body into a moving origin
+// tested against an expanded blocker. Conservative for this AABB-only model.
+function sweptBodyIntersectsAabb(start, end, body, box) {
+  const expanded = {
+    min: {
+      x: box.min.x - body.maxOffset.x,
+      y: box.min.y - body.maxOffset.y,
+      z: box.min.z - body.maxOffset.z,
+    },
+    max: {
+      x: box.max.x - body.minOffset.x,
+      y: box.max.y - body.minOffset.y,
+      z: box.max.z - body.minOffset.z,
+    },
+  };
+  return segmentIntersectsAabb(start, end, expanded);
+}
+
+function bodyIntersectsBodyPath(start, end, movingBody, other) {
+  const otherBody = bodyOffsets(other);
+  const relativeBox = {
+    min: {
+      x: other.position.x + otherBody.minOffset.x - movingBody.maxOffset.x,
+      y: other.position.y + otherBody.minOffset.y - movingBody.maxOffset.y,
+      z: other.position.z + otherBody.minOffset.z - movingBody.maxOffset.z,
+    },
+    max: {
+      x: other.position.x + otherBody.maxOffset.x - movingBody.minOffset.x,
+      y: other.position.y + otherBody.maxOffset.y - movingBody.minOffset.y,
+      z: other.position.z + otherBody.maxOffset.z - movingBody.minOffset.z,
+    },
+  };
+  return segmentIntersectsAabb(start, end, relativeBox);
 }
 
 function pointVisibility(observer, point, scene) {
@@ -190,23 +239,66 @@ export function evaluateSpatialScene(scene) {
  * The caller supplies a new boundary label and is responsible for declaring
  * all unchanged entities/blockers as valid at that new synthetic boundary.
  */
-export function moveEntityInSyntheticScene(scene, entityId, nextPosition, nextBoundary) {
+export function moveEntityInSyntheticScene(scene, entityId, nextPosition, nextBoundary, options = {}) {
   if (!validScene(scene) || !finiteVector(nextPosition) ||
-      typeof nextBoundary !== 'string' || !nextBoundary || nextBoundary === scene.boundary) {
+      typeof nextBoundary !== 'string' || !nextBoundary || nextBoundary === scene.boundary ||
+      !options || typeof options !== 'object') {
     return { status: 'UNKNOWN', reason: 'INVALID_MOVE_OR_BOUNDARY' };
   }
   const movingEntity = scene.entities.find((entity) => entity.id === entityId);
-  if (!movingEntity) {
-    return { status: 'UNKNOWN', reason: 'ENTITY_NOT_FOUND' };
+  if (!movingEntity) return { status: 'UNKNOWN', reason: 'ENTITY_NOT_FOUND' };
+
+  const distance = magnitude({
+    x: nextPosition.x - movingEntity.position.x,
+    y: nextPosition.y - movingEntity.position.y,
+    z: nextPosition.z - movingEntity.position.z,
+  });
+  const duration = options.durationSeconds;
+  if (movingEntity.motion?.maxSpeed !== undefined) {
+    if (!Number.isFinite(duration) || duration <= 0) {
+      return { status: 'UNKNOWN', reason: 'DURATION_REQUIRED_FOR_SPEED_LIMIT' };
+    }
+    if (distance / duration > movingEntity.motion.maxSpeed) {
+      return { status: 'BLOCKED', reason: 'MAX_SPEED_EXCEEDED' };
+    }
+  } else if (duration !== undefined && (!Number.isFinite(duration) || duration <= 0)) {
+    return { status: 'UNKNOWN', reason: 'INVALID_DURATION' };
   }
-  if (scene.blockers.some((blocker) => segmentIntersectsAabb(movingEntity.position, nextPosition, blocker))) {
-    return { status: 'BLOCKED', reason: 'PATH_INTERSECTS_BLOCKER' };
+
+  let nextForward = movingEntity.forward;
+  if (options.nextForward !== undefined) {
+    if (!finiteVector(options.nextForward) || magnitude(options.nextForward) === 0) {
+      return { status: 'UNKNOWN', reason: 'INVALID_NEXT_FORWARD' };
+    }
+    const turnLimit = movingEntity.motion?.maxTurnRateRadiansPerSecond;
+    if (turnLimit !== undefined) {
+      if (!Number.isFinite(duration) || duration <= 0) {
+        return { status: 'UNKNOWN', reason: 'DURATION_REQUIRED_FOR_TURN_LIMIT' };
+      }
+      const cosine = Math.max(-1, Math.min(1,
+        dot(movingEntity.forward, options.nextForward) /
+        (magnitude(movingEntity.forward) * magnitude(options.nextForward))));
+      if (Math.acos(cosine) > turnLimit * duration + 1e-12) {
+        return { status: 'BLOCKED', reason: 'MAX_TURN_RATE_EXCEEDED' };
+      }
+    }
+    nextForward = { ...options.nextForward };
+  }
+
+  const movingBody = bodyOffsets(movingEntity);
+  if (scene.blockers.some((blocker) =>
+    sweptBodyIntersectsAabb(movingEntity.position, nextPosition, movingBody, blocker))) {
+    return { status: 'BLOCKED', reason: 'BODY_PATH_INTERSECTS_BLOCKER' };
+  }
+  if (scene.entities.some((other) => other.id !== entityId &&
+      bodyIntersectsBodyPath(movingEntity.position, nextPosition, movingBody, other))) {
+    return { status: 'BLOCKED', reason: 'BODY_PATH_INTERSECTS_ENTITY' };
   }
   const nextScene = {
     ...scene,
     boundary: nextBoundary,
     entities: scene.entities.map((entity) => entity.id === entityId
-      ? { ...entity, position: { ...nextPosition } }
+      ? { ...entity, position: { ...nextPosition }, forward: { ...nextForward } }
       : { ...entity, position: { ...entity.position }, forward: { ...entity.forward },
           perception: { ...entity.perception } }),
     blockers: scene.blockers.map((blocker) => ({
@@ -251,7 +343,7 @@ export function predictSceneAtHorizon(scene, horizonSeconds, nextBoundary) {
         minOffset: { ...entity.body.minOffset },
         maxOffset: { ...entity.body.maxOffset },
       } : undefined,
-      motion: { velocity: { ...entity.motion.velocity } },
+      motion: { ...entity.motion, velocity: { ...entity.motion.velocity } },
     })),
     blockers: scene.blockers.map((blocker) => ({
       ...blocker, min: { ...blocker.min }, max: { ...blocker.max },
