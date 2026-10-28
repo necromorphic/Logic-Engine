@@ -244,7 +244,7 @@ test('Provider mutations advance accepted head before commit and fail closed whe
     providerReader = new DatabaseSync(providerPath);
     assert.equal(getAcceptedHeadsSync({ port, token: providerToken }).provider, pending.head);
 
-    child.stdin.end('stop');
+    child.kill();
     await once(child, 'exit');
     child = null;
 
@@ -264,7 +264,7 @@ test('Provider mutations advance accepted head before commit and fail closed whe
     try { providerReader?.close(); } catch {}
     try { provider?.close(); } catch {}
     if (child) {
-      child.stdin.end('stop');
+      child.kill();
       await once(child, 'exit');
     }
     for (const [name, value] of Object.entries(previousEnv)) {
@@ -338,7 +338,7 @@ test('Provider fails closed when authority advances but the local checkpoint tra
   } finally {
     try { provider?.close(); } catch {}
     if (child) {
-      child.stdin.end('stop');
+      child.kill();
       await once(child, 'exit');
     }
     for (const [name, value] of Object.entries(previousEnv)) {
