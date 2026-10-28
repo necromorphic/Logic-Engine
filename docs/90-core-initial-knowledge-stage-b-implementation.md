@@ -1,6 +1,6 @@
 # Core Initial Knowledge Acquisition — Stage B Implementation Report
 
-Status: implementation candidate in draft PR #641; Memory → NPC remains DISABLED / FAIL-CLOSED.
+Status: implementation candidate in draft PR #644; Memory → NPC remains DISABLED / FAIL-CLOSED.
 
 ## Scope delivered
 
