@@ -69,6 +69,8 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 Include the actual Core, Provider, and coordinator database files, all actual backup roots, and verified process IDs. If a database does not exist in this installation, do not invent a path to make the report look complete; record the missing mechanism as unresolved.
 
+The collector marks the report `INCOMPLETE` if no data database paths or no backup roots are supplied. It also marks `INCOMPLETE` when a supplied database path is missing, inaccessible, invalid, or points to a directory instead of a file. A missing expected database must be recorded as an unresolved deployment mechanism; do not interpret `COLLECTED_NO_QUERY_ERRORS` as a security pass.
+
 The report is written only if the output filename does not already exist. Choose a different name for a repeat run.
 
 ## 4. Check the collection result
