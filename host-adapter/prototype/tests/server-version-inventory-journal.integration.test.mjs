@@ -56,10 +56,6 @@ test('enrolled chat save stays blocked until a request-bound lifecycle capabilit
   const chatDirectory = path.join(directories.chats, 'character-a');
   await mkdir(chatDirectory, { recursive: true });
   const chatPath = path.join(chatDirectory, 'chat-a.jsonl');
-  const writeChat = messages => writeFile(chatPath, [
-    JSON.stringify({ chat_metadata: { logic_engine_conversation_id: conversationUuid } }),
-    ...messages.map(JSON.stringify),
-  ].join('\n') + '\n');
   try {
     const persisted = [
       JSON.stringify({ chat_metadata: { logic_engine_conversation_id: conversationUuid } }),
