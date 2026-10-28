@@ -485,6 +485,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
     const changes = chat.map((message, messageIndex) => ({
       messageId: message._logicEngineLifecycle.messageId,
       messageIndex,
+      role: roleOf(message),
       activeVersionIndex: message._logicEngineLifecycle.activeVersionIndex,
       versions: message._logicEngineLifecycle.versions,
     }));
