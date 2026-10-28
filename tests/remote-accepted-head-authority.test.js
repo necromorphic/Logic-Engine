@@ -122,6 +122,13 @@ test('sequence exhaustion fails closed without mutating the anchor store', async
     async appendIfHead() { appendCalls += 1; return true; },
   };
   const { base } = await withServer(t, { store });
+  const stale = await append(base, requestBody({
+    expected_sequence: Number.MAX_SAFE_INTEGER - 1,
+    expected_digest: 'e'.repeat(64),
+  }));
+  assert.equal(stale.status, 409);
+  assert.deepEqual(await stale.json(), { error: 'HEAD_CONFLICT' });
+
   const response = await append(base, requestBody({
     expected_sequence: Number.MAX_SAFE_INTEGER,
     expected_digest: recordDigest(envelope),
