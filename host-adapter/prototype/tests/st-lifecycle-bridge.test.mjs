@@ -424,6 +424,22 @@ test('restart reconciliation rejects a corrupted journal even when chat fingerpr
   assert.match(result.reason, /digest mismatch/);
 });
 
+test('alternate generation is refused before native mutation when parent lineage is unproven', async () => {
+  const f = makeFixture();
+  await f.bridge.enrollCurrentConversation();
+  const before = await f.journal.verifyIntegrity('chat-1');
+  const originalSwipes = structuredClone(f.chat[1].swipes ?? [f.chat[1].mes]);
+
+  await assert.rejects(
+    f.bridge.beforeMutation('create-swipe', [1]),
+    /alternate generation has no source-backed parent lineage/,
+  );
+
+  assert.deepEqual(f.chat[1].swipes ?? [f.chat[1].mes], originalSwipes);
+  const after = await f.journal.verifyIntegrity('chat-1');
+  assert.equal(after.sequence, before.sequence);
+});
+
 test('unhooked clear-chat fails closed before source mutation', async () => {
   const f = makeFixture();
   await f.bridge.enrollCurrentConversation();
