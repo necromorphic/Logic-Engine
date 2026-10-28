@@ -246,17 +246,6 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
       const worldId = decodeURIComponent(parts[2]);
       const action = parts[3] || 'state';
 
-      if (action === 'initial-knowledge') {
-        if (req.method !== 'POST') {
-          return send(res, 405, { error: { code: 'METHOD_NOT_ALLOWED', message: 'Initial knowledge assignment supports POST only.' } });
-        }
-        if (!secretMatches(req.headers['x-admin-token'], adminToken)) {
-          return send(res, 403, { error: { code: 'ADMIN_REQUIRED', message: 'Initial knowledge assignment requires the separate administrative credential.' } });
-        }
-        const result = engine.assignInitialKnowledge(worldId, await readBody(req));
-        return send(res, result.idempotent_replay ? 200 : 201, result);
-      }
-
       if (action === 'processes') {
         if (!secretMatches(req.headers['x-engine-internal-token'], internalToken)) {
           return send(res, 403, { error: { code: 'INTERNAL_REQUIRED', message: 'Process lifecycle management requires the separately configured internal credential.' } });
