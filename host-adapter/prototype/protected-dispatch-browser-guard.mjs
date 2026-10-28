@@ -53,6 +53,10 @@ export function installProtectedEgressBrowserFence({
   const nativeFetch = globalObject.fetch;
   const xhrPrototype = globalObject.XMLHttpRequest?.prototype;
   const nativeXhrOpen = xhrPrototype?.open;
+  const nativeWebSocket = globalObject.WebSocket;
+  const nativeEventSource = globalObject.EventSource;
+  const navigatorObject = globalObject.navigator;
+  const nativeSendBeacon = navigatorObject?.sendBeacon;
   if (typeof nativeFetch !== 'function') throw new TypeError('Browser fetch is unavailable');
 
   const assertExternalEgressAllowed = (rawUrl) => {
@@ -87,8 +91,42 @@ export function installProtectedEgressBrowserFence({
     };
   }
 
+  const wrapUrlConstructor = (name, NativeConstructor) => {
+    if (typeof NativeConstructor !== 'function') return null;
+    function ProtectedUrlConstructor(url, ...args) {
+      if (!new.target) throw new TypeError(`${name} constructor must be called with new`);
+      assertExternalEgressAllowed(url);
+      return Reflect.construct(NativeConstructor, [url, ...args], new.target);
+    }
+    ProtectedUrlConstructor.prototype = NativeConstructor.prototype;
+    Object.setPrototypeOf(ProtectedUrlConstructor, NativeConstructor);
+    globalObject[name] = ProtectedUrlConstructor;
+    return () => { globalObject[name] = NativeConstructor; };
+  };
+  const restoreWebSocket = wrapUrlConstructor('WebSocket', nativeWebSocket);
+  const restoreEventSource = wrapUrlConstructor('EventSource', nativeEventSource);
+
+  let restoreSendBeacon = null;
+  if (navigatorObject && typeof nativeSendBeacon === 'function') {
+    const guardedSendBeacon = function protectedEgressSendBeacon(url, data) {
+      assertExternalEgressAllowed(url);
+      return nativeSendBeacon.call(navigatorObject, url, data);
+    };
+    try {
+      navigatorObject.sendBeacon = guardedSendBeacon;
+      if (navigatorObject.sendBeacon === guardedSendBeacon) {
+        restoreSendBeacon = () => { navigatorObject.sendBeacon = nativeSendBeacon; };
+      }
+    } catch {
+      // Do not claim this primitive is guarded when the browser forbids wrapping it.
+    }
+  }
+
   return function uninstallProtectedEgressBrowserFence() {
     globalObject.fetch = nativeFetch;
     if (xhrPrototype && typeof nativeXhrOpen === 'function') xhrPrototype.open = nativeXhrOpen;
+    restoreWebSocket?.();
+    restoreEventSource?.();
+    restoreSendBeacon?.();
   };
 }
