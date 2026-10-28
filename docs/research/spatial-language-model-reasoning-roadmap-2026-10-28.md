@@ -29,7 +29,7 @@ The spatial layer should help a language model narrate physically and causally c
 | S5 | Compact language-model scene context | Translates structured results into useful prompt facts | **Implemented in isolated synthetic research module** | Synthetic-only marker; does not assert visibility or knowledge |
 | S6 | Geometry/obstacles and body-volume movement | Prevents impossible movement through walls or other bodies | Existing synthetic prototype; conservative AABB approximation | No full physics, body rotation, sliding, or collision response |
 | S7 | Field of view and line-of-sight approximation | Helps distinguish physically visible from occluded | Existing synthetic prototype | Requires explicit lighting and complete blocker inventory; not actual noticing |
-| S8 | Auditory perception | Allows sound to cross some spaces while walls/doors attenuate it | **Planned, not implemented** | Needs explicit sound source, sound profile, barrier attenuation, and uncertainty rules |
+| S8 | Auditory perception | Allows sound to cross some spaces while walls/doors attenuate it | **Implemented in isolated synthetic research module** | Requires explicit source level, listener threshold, and per-door open/closed attenuation; estimates audibility only, not actual hearing or noticing |
 | S9 | Actual noticing, recognition, and knowledge acquisition | Separates objective world facts from what each NPC believes | **Planned, separate workstream** | Requires dedicated observer/knowledge contract; no Memory/NPC integration implied |
 | S10 | Scene changes and stale prediction invalidation | A changed door/obstacle/action should invalidate affected forecasts | **Planned** | First implement pure immutable scene revisions and dependency checks |
 | S11 | Dynamic movement and synchronized trajectory collision | Supports interceptions, missed encounters, and timing | Existing synthetic prototype | Constant velocity and conservative AABB intervals only |
@@ -66,7 +66,7 @@ The context text is an adapter output for the LLM, not a canonical record and no
 - [x] Compact text context with explicit unknowns and epistemic limits.
 - [ ] Add scenario traces across two immutable scene boundaries.
 - [ ] Add revision/dependency tracking so changes invalidate stale predictions.
-- [ ] Add auditory propagation as a separate result from visibility.
+- [x] Add auditory propagation as a separate result from visibility, using explicit sound levels and door attenuation.
 - [ ] Add deterministic route costs and explicit traversal constraints.
 - [ ] Add scenario-based evaluation for multi-NPC scenes (ambush, doorway, sound behind a wall, out-of-room NPC).
 
@@ -97,3 +97,7 @@ The tests cover unique containment, unmapped areas, overlapping zones, invalid z
 - Do not count a draft PR or passing synthetic test as production integration.
 - Production spatial reasoning remains NO-GO pending required owner reviews and source/temporal evidence.
 - Memory → NPC remains DISABLED / FAIL-CLOSED.
+
+### Second research increment: sound propagation
+
+New module: `experiments/spatial-scene-lab/spatial-sound.js`. It estimates whether a sound could exceed a listener's explicit hearing threshold, using explicitly supplied source sound level and open/closed door attenuation. Unknown door states return UNKNOWN if they could change audibility. This does not establish that an NPC actually heard, noticed, understood, recognized, or remembers the sound. The attenuation values are synthetic inputs, not universal physical constants.
