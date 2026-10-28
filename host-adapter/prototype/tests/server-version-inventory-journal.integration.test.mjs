@@ -207,7 +207,7 @@ test('request-bound capability permits only append/select transitions and reject
     assert.equal(rollback.complete, false);
     assert.ok(rollback.errors.includes('CURRENT_SNAPSHOT_DIVERGES_FROM_LAST_COMMITTED_JOURNAL_SNAPSHOT'));
     assert.equal(rollback.mutationJournal.snapshotConsistency, 'DIVERGES_FROM_LAST_LOCAL_CHECKPOINT');
-    assert.notEqual(persistedBefore, await readFile(chatPath, 'utf8'));
+    assert.equal(persistedBefore, await readFile(chatPath, 'utf8'));
   } finally {
     await rm(root, { recursive: true, force: true });
   }
