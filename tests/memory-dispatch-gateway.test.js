@@ -13,6 +13,8 @@ import {
 } from '../src/security/accepted-head-client-sync.js';
 import { createDispatchRequestSignature, verifyDispatchRequestSignature, MemoryDispatchGateway, openReadOnlySqliteDatabase } from '../src/security/memory-dispatch-gateway.js';
 import { createMemoryDispatchGatewayServer } from '../src/security/memory-dispatch-gateway-server.js';
+import { SQLiteMemoryProvider } from '../src/application/sqlite-memory-provider.js';
+import { enrollAcceptedHeadDomain } from '../src/security/enroll-accepted-head-domain.js';
 import { createGoogleAiStudioTransport } from '../src/security/memory-dispatch-google-transport.js';
 
 const coreToken = 'core-token-for-dispatch-gateway-tests-00000000000000000000000000000001';
@@ -492,6 +494,147 @@ test('existing dispatch ledger with missing schema fails closed without auto-rep
       verify.close();
     }
   } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+
+test('real Provider revokeRecord committed before dispatch-start produces zero upstream calls', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-provider-revoke-dispatch-race-'));
+  const authorityPath = join(directory, 'authority.sqlite');
+  const coordinatorPath = join(directory, 'coordinator.sqlite');
+  const providerPath = join(directory, 'provider.sqlite');
+  const ledgerPath = join(directory, 'dispatch-ledger.sqlite');
+  const previousEnv = {};
+  let service;
+  let provider;
+  let providerReader;
+  let gateway;
+  const rememberEnv = (name, value) => {
+    previousEnv[name] = process.env[name];
+    if (value === undefined) delete process.env[name];
+    else process.env[name] = value;
+  };
+  try {
+    rememberEnv('LOGIC_ENGINE_COORDINATOR_DB_PATH', coordinatorPath);
+    rememberEnv('LOGIC_ENGINE_ACCEPTED_HEAD_REQUIRED', undefined);
+    rememberEnv('LOGIC_ENGINE_ACCEPTED_HEAD_PORT', undefined);
+    rememberEnv('LOGIC_ENGINE_ACCEPTED_HEAD_PROVIDER_TOKEN', undefined);
+
+    service = await startAuthorityProcess(authorityPath);
+    const coreEnrollment = enrollAcceptedHeadSync({
+      domain: 'core', operationId: 'core-provider-revoke-test-baseline',
+      operationDigest: digestA, token: coreToken, port: service.port,
+    });
+    finalizeAcceptedHeadSync({
+      domain: 'core', operationId: coreEnrollment.operation_id,
+      operationDigest: digestA, token: coreToken, port: service.port,
+    });
+
+    const providerOptions = {
+      path: providerPath,
+      coordinatorPath,
+      getSnapshot: async () => ({ world_revision: 1, commit_sequence: 1 }),
+      validateSourceVersion: async (record) => record.source_version === 'version-7',
+      validateInventory: async () => true,
+    };
+    const bootstrap = new SQLiteMemoryProvider(providerOptions);
+    bootstrap.close();
+    enrollAcceptedHeadDomain({
+      domain: 'provider',
+      databasePath: providerPath,
+      coordinatorPath,
+      port: service.port,
+      token: providerToken,
+      approvalId: 'provider-revoke-dispatch-test',
+      baselineDigest: digestC,
+    });
+    rememberEnv('LOGIC_ENGINE_ACCEPTED_HEAD_PORT', String(service.port));
+    rememberEnv('LOGIC_ENGINE_ACCEPTED_HEAD_PROVIDER_TOKEN', providerToken);
+    rememberEnv('LOGIC_ENGINE_ACCEPTED_HEAD_REQUIRED', '1');
+
+    provider = new SQLiteMemoryProvider(providerOptions);
+    const request = validRequest('provider-revoked-before-start');
+    const scope = { world_id: request.worldId, subject_id: request.actorId, purpose: request.purpose };
+    const record = {
+      ...scope,
+      record_ref: request.candidates[0].record_ref,
+      record_version: request.candidates[0].record_version,
+      source_kind: 'canonical_entity',
+      source_entity_id: request.candidates[0].source_entity_id,
+      source_version: request.candidates[0].source_version,
+      content_kind: 'claim',
+      epistemic_kind: 'acquired_report',
+      producer_kind: 'memory-index',
+      content_disposition: 'usable',
+      evidence_assessment: 'unassessed',
+      lineage: [{
+        source_kind: 'canonical_entity',
+        entity_id: request.candidates[0].source_entity_id,
+        source_version: request.candidates[0].source_version,
+      }],
+    };
+    provider.grantQuery(scope, true);
+    provider.putRecord(record);
+    provider.grantRecord(scope, record.record_ref, record.record_version, true);
+    await provider.rebuildIndex(scope.world_id);
+    assert.equal((await provider.reconcile(scope.world_id)).status, 'current');
+
+    providerReader = openReadOnlySqliteDatabase(providerPath);
+    const calls = [];
+    gateway = new MemoryDispatchGateway({
+      ledgerPath,
+      coordinatorPath,
+      authorityPort: service.port,
+      readToken,
+      readCoreEvidence: ({ worldId, actorId, sources }) => ({
+        head: 1, world_id: worldId, actor_id: actorId,
+        readiness: 'READY', inventory_status: 'READY', sources,
+      }),
+      readProviderEvidence: ({ worldId, actorId, purpose }) => {
+        const head = providerReader.prepare('SELECT head FROM accepted_head_state WHERE singleton=1').get();
+        const queryGrant = providerReader.prepare('SELECT allowed FROM memory_query_grants WHERE world_id=? AND subject_id=? AND purpose=?').get(worldId, actorId, purpose);
+        const recordGrant = providerReader.prepare('SELECT allowed FROM memory_record_grants WHERE world_id=? AND subject_id=? AND purpose=? AND record_ref=? AND record_version=?').get(worldId, actorId, purpose, record.record_ref, record.record_version);
+        const stored = providerReader.prepare('SELECT * FROM memory_records WHERE world_id=? AND record_ref=? AND record_version=?').get(worldId, record.record_ref, record.record_version);
+        const index = providerReader.prepare('SELECT index_health,source_reconciliation FROM memory_index_state WHERE world_id=?').get(worldId);
+        return {
+          head: head?.head,
+          world_id: worldId, actor_id: actorId, purpose,
+          granted: queryGrant?.allowed === 1 && recordGrant?.allowed === 1,
+          readiness: index?.index_health === 'ready' && index?.source_reconciliation === 'current' ? 'READY' : 'NOT_READY',
+          sources: stored ? [{ source_kind: stored.source_kind, source_entity_id: stored.source_entity_id, source_version: stored.source_version }] : [],
+          candidates: stored ? [{ record_ref: stored.record_ref, record_version: stored.record_version, source_kind: stored.source_kind, source_entity_id: stored.source_entity_id, source_version: stored.source_version }] : [],
+        };
+      },
+      sendUpstream: async (outgoing) => {
+        calls.push(outgoing);
+        return { status: 200, body: 'accepted' };
+      },
+    });
+
+    // The real Provider writer wins before dispatch-start; Gateway must see the committed denial.
+    provider.revokeRecord(scope, record.record_ref, record.record_version);
+    await assert.rejects(gateway.dispatchProtectedRequest(request), /MEMORY_DISPATCH_NOT_READY/);
+    assert.equal(calls.length, 0, 'revocation before dispatch-start must cause zero upstream calls');
+    const ledger = new DatabaseSync(ledgerPath);
+    try {
+      assert.equal(ledger.prepare('SELECT COUNT(*) AS n FROM dispatch_ledger').get().n, 0,
+        'denied pre-start request must not create DISPATCH_STARTED');
+    } finally {
+      ledger.close();
+    }
+  } finally {
+    try { gateway?.close(); } catch {}
+    try { providerReader?.close(); } catch {}
+    try { provider?.close(); } catch {}
+    if (service?.child && service.child.exitCode === null && service.child.signalCode === null) {
+      service.child.stdin.end('stop');
+      await once(service.child, 'exit');
+    }
+    for (const [name, value] of Object.entries(previousEnv)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
     rmSync(directory, { recursive: true, force: true });
   }
 });
