@@ -61,8 +61,8 @@ jobs:
       - name: Apply-check and apply protected dispatch patch
         run: |
           cd sillytavern-host-checkout
-          git apply --check ../host-adapter/prototype/patches/sillytavern-1.19.0-protected-dispatch-deny.patch
-          git apply ../host-adapter/prototype/patches/sillytavern-1.19.0-protected-dispatch-deny.patch
+          git apply --unidiff-zero --check ../host-adapter/prototype/patches/sillytavern-1.19.0-protected-dispatch-deny.patch
+          git apply --unidiff-zero ../host-adapter/prototype/patches/sillytavern-1.19.0-protected-dispatch-deny.patch
           git diff --check
           node --check src/endpoints/logic-engine-protected-dispatch-guard.mjs
           node --check public/scripts/logic-engine-lifecycle/protected-dispatch-browser-guard.mjs
