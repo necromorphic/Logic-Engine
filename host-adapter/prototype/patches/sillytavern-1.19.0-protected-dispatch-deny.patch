@@ -1,8 +1,8 @@
 diff --git a/public/script.js b/public/script.js
 --- a/public/script.js
 +++ b/public/script.js
-@@ -11,1 +11,2 @@
- } from './lib.js';
+@@ -13,1 +13,2 @@
+ import { humanizedDateTime, favsToHotswap, getMessageTimeStamp, dragElement, isMobile, initRossMods } from './scripts/RossAscends-mods.js';
 +import { assertProtectedDispatchAllowed } from './scripts/logic-engine-lifecycle/protected-dispatch-browser-guard.mjs';
 @@ -4290,1 +4291,2 @@
  export async function Generate(type, { automatic_trigger, force_name2, quiet_prompt, quietToLoud, skipWIAN, force_chid, signal, quietImage, quietName, jsonSchema = null, depth = 0 } = {}, dryRun = false) {
@@ -10,20 +10,9 @@ diff --git a/public/script.js b/public/script.js
 diff --git a/src/server-startup.js b/src/server-startup.js
 --- a/src/server-startup.js
 +++ b/src/server-startup.js
-@@ -1,7 +1,8 @@
- import https from 'node:https';
- import http from 'node:http';
- import fs from 'node:fs';
+@@ -4,1 +4,2 @@
  import { color, urlHostnameToIPv6, getHasIP } from './util.js';
 +import { createProtectedDispatchDenyMiddleware } from './endpoints/logic-engine-protected-dispatch-guard.mjs';
- 
- // Express routers
- import { router as userDataRouter } from './users.js';
-@@ -129,6 +130,7 @@
-  * @param {import('express').Express} app The Express app to use
-  */
+@@ -129,1 +130,2 @@
  export function setupPrivateEndpoints(app) {
 +    app.use(createProtectedDispatchDenyMiddleware());
-     app.use('/', userDataRouter);
-     app.use('/api/users', usersPrivateRouter);
-     app.use('/api/users', usersAdminRouter);
