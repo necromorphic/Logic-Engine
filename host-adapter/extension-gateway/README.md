@@ -13,8 +13,8 @@ The extension gateway is therefore the intended **SillyTavern extension boundary
 - Leaves ordinary SillyTavern generation unchanged when no protected request has been explicitly armed.
 - For an explicitly armed protected request, aborts native SillyTavern generation before any provider-specific send.
 - While that protected callback is in flight, aborts a concurrent generation rather than allowing it to enter the native provider path.
+- If the callback is absent or fails, locks this extension instance against later native-generation fallback until reload; there is no in-process reset shortcut.
 - Hands the captured generation context to an injected dispatch callback.
-- If the callback is absent or fails, remains fail-closed: the native provider send stays aborted.
 - Does not log chat text or dispatch payloads.
 - Registers only the global interceptor name required by SillyTavern's manifest. The arm/cancel/status helpers are module exports, not extra global functions.
 
