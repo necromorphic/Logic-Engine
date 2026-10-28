@@ -541,9 +541,15 @@ export class LogicEngine {
       event_type: 'knowledge.initial_assigned',
       expected_revision: expectedRevision,
       expected_commit_sequence: expectedSequence,
+      read_set: ['entity:' + input.subject_id, 'fact:' + input.fact_id],
+      causal_links: [
+        { relation: 'READS_ENTITY', target_id: input.subject_id },
+        { relation: 'READS_CLAIM', target_id: input.fact_id },
+      ],
       effects: [effect],
     }, { allowKnowledgeAcquisition: true });
     return {
+      idempotent_replay: result.idempotent_replay === true,
       acquisition: {
         world_id: id,
         subject_id: effect.subject_id,
@@ -553,7 +559,7 @@ export class LogicEngine {
         source_sha256: effect.source_sha256,
         authority: effect.authority,
         event_id: result.event_id,
-        assigned_revision: result.committed_revision,
+        assigned_revision: result.world_revision,
         validity: 'valid',
       },
       event: result,
