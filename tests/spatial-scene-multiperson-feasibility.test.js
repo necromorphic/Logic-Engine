@@ -188,3 +188,93 @@ test('prediction fails closed when any entity has no explicit velocity', () => {
     { status: 'UNKNOWN', reason: 'INVALID_PREDICTION_REQUEST' },
   );
 });
+
+
+test('body extents prevent a character from clipping through a wall', () => {
+  const initial = scene({
+    entities: [
+      { ...entity('alice', { x: 0, y: 0, z: 0 }), body: {
+        minOffset: { x: -0.75, y: -0.5, z: 0 }, maxOffset: { x: 0.75, y: 0.5, z: 1.8 },
+      } },
+      entity('bob', { x: 8, y: 4, z: 0 }),
+    ],
+    blockers: [{
+      id: 'narrow-wall',
+      min: { x: 3, y: -0.2, z: -1 },
+      max: { x: 3.2, y: 0.2, z: 2 },
+    }],
+  });
+  const moved = moveEntityInSyntheticScene(initial, 'alice', { x: 6, y: 0, z: 0 }, 'scene-2');
+  assert.deepEqual(moved, { status: 'BLOCKED', reason: 'BODY_PATH_INTERSECTS_BLOCKER' });
+  assert.deepEqual(initial.entities[0].position, { x: 0, y: 0, z: 0 });
+});
+
+test('body-volume movement rejects overlap with another entity', () => {
+  const initial = scene({
+    entities: [
+      { ...entity('alice', { x: 0, y: 0, z: 0 }), body: {
+        minOffset: { x: -0.5, y: -0.5, z: 0 }, maxOffset: { x: 0.5, y: 0.5, z: 1.8 },
+      } },
+      { ...entity('bob', { x: 4, y: 0, z: 0 }), body: {
+        minOffset: { x: -0.5, y: -0.5, z: 0 }, maxOffset: { x: 0.5, y: 0.5, z: 1.8 },
+      } },
+    ],
+  });
+  const moved = moveEntityInSyntheticScene(initial, 'alice', { x: 3.5, y: 0, z: 0 }, 'scene-2');
+  assert.deepEqual(moved, { status: 'BLOCKED', reason: 'BODY_PATH_INTERSECTS_ENTITY' });
+});
+
+test('explicit speed and turn-rate limits reject physically unsupported movement', () => {
+  const initial = scene({
+    entities: [
+      { ...entity('alice', { x: 0, y: 0, z: 0 }), motion: {
+        velocity: { x: 1, y: 0, z: 0 },
+        maxSpeed: 2,
+        maxTurnRateRadiansPerSecond: Math.PI / 4,
+      } },
+      entity('bob', { x: 8, y: 5, z: 0 }),
+    ],
+  });
+  assert.deepEqual(
+    moveEntityInSyntheticScene(initial, 'alice', { x: 5, y: 0, z: 0 }, 'scene-fast', { durationSeconds: 1 }),
+    { status: 'BLOCKED', reason: 'MAX_SPEED_EXCEEDED' },
+  );
+  assert.deepEqual(
+    moveEntityInSyntheticScene(initial, 'alice', { x: 1, y: 0, z: 0 }, 'scene-turn', {
+      durationSeconds: 1, nextForward: { x: 0, y: 1, z: 0 },
+    }),
+    { status: 'BLOCKED', reason: 'MAX_TURN_RATE_EXCEEDED' },
+  );
+  assert.deepEqual(
+    moveEntityInSyntheticScene(initial, 'alice', { x: 1, y: 0, z: 0 }, 'scene-no-duration'),
+    { status: 'UNKNOWN', reason: 'DURATION_REQUIRED_FOR_SPEED_LIMIT' },
+  );
+});
+
+test('multi-person trace records visibility loss and rediscovery with explicit reasons', () => {
+  const initial = scene({
+    entities: [
+      entity('observer', { x: 0, y: 0, z: 0 }),
+      entity('runner', { x: 8, y: 0, z: 0 }, { x: -1, y: 0, z: 0 }),
+      entity('ally', { x: 0, y: 5, z: 0 }),
+    ],
+    blockers: [{
+      id: 'pillar',
+      min: { x: 3, y: -1, z: -1 },
+      max: { x: 4, y: 1, z: 2 },
+    }],
+  });
+  const first = evaluateSpatialScene(initial);
+  assert.equal(pair(first, 'observer', 'runner').reason, 'OCCLUDED');
+
+  const runnerMoves = moveEntityInSyntheticScene(initial, 'runner', { x: 8, y: 4, z: 0 }, 'scene-runner-moved');
+  assert.equal(runnerMoves.status, 'CONFIRMED');
+  assert.equal(pair(runnerMoves.evaluation, 'observer', 'runner').visible, true);
+  assert.equal(pair(runnerMoves.evaluation, 'observer', 'runner').reason, 'CLEAR_LINE_OF_SIGHT');
+
+  const observerMoves = moveEntityInSyntheticScene(runnerMoves.scene, 'observer', { x: 0, y: 4, z: 0 }, 'scene-observer-moved');
+  assert.equal(observerMoves.status, 'CONFIRMED');
+  assert.equal(observerMoves.evaluation.boundary, 'scene-observer-moved');
+  assert.equal(pair(observerMoves.evaluation, 'observer', 'runner').visible, true);
+  assert.equal(initial.boundary, 'scene-1');
+});
