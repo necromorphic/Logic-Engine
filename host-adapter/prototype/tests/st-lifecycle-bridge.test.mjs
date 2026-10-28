@@ -526,6 +526,22 @@ test('create-message checkpoint refuses to absorb an unhooked edit in earlier me
   assert.equal(after.sequence, before.sequence);
 });
 
+test('new multi-swipe generation is rejected before sidecar identity or journal checkpoint advances', async () => {
+  const f = makeFixture();
+  await f.bridge.enrollCurrentConversation();
+  await f.bridge.beforeMutation('message-receive', []);
+  const before = await f.journal.verifyIntegrity('chat-1');
+  f.chat.push({ is_user: false, mes: 'reply A', swipes: ['reply A', 'reply B'], swipe_id: 0 });
+
+  await assert.rejects(
+    f.bridge.afterMutation('message-receive', { createdMessageIndex: 2 }),
+    /newly created multi-swipe message has no source-backed parent lineage/,
+  );
+  const after = await f.journal.verifyIntegrity('chat-1');
+  assert.equal(after.sequence, before.sequence);
+  assert.equal(f.chat[2]._logicEngineLifecycle, undefined);
+});
+
 test('create-message assigns identity only to the explicitly appended tail message', async () => {
   const f = makeFixture();
   await f.bridge.enrollCurrentConversation();
