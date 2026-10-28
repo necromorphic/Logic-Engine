@@ -90,6 +90,30 @@ test('unknown/unbound subject, cross-world source, and unsupported acquisition k
   } finally { store.close(); }
 });
 
+test('identical acquisition retry is idempotent; changed payload under the same key conflicts', () => {
+  const { store, engine } = seed();
+  try {
+    const first = engine.recordInitialAcquisition(input());
+    const replay = engine.recordInitialAcquisition(input());
+    assert.equal(first.accepted, true);
+    assert.equal(replay.idempotent_replay, true);
+    assert.equal(store.db.prepare("SELECT COUNT(*) AS n FROM world_events WHERE event_type='knowledge.acquisition.initial'").get().n, 1);
+    assert.throws(() => engine.recordInitialAcquisition(input({ acquisition_kind: 'imported' })), { code: 'IDEMPOTENCY_CONFLICT' });
+    assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM knowledge_acquisitions').get().n, 1);
+  } finally { store.close(); }
+});
+
+test('destroying the subject removes its acquisition from the active projection', () => {
+  const { store, engine } = seed();
+  try {
+    engine.recordInitialAcquisition(input());
+    assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM knowledge_acquisitions').get().n, 1);
+    engine.commitEvent('w1', { idempotency_key: 'destroy-subject', turn_id: 'destroy', event_type: 'action.completed', expected_revision: 2,
+      effects: [{ kind: 'entity.update', entity_id: 'npc-a', status: 'destroyed' }] });
+    assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM knowledge_acquisitions').get().n, 0);
+  } finally { store.close(); }
+});
+
 test('rollback of source support removes the acquisition projection and rebuild does not restore it', () => {
   const { store, engine } = seed();
   try {
