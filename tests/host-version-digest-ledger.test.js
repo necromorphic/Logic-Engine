@@ -176,7 +176,7 @@ test('reconciliation rejects metadata outside the current Provider snapshot shap
   const { parent_version_id: omittedParent, ...missingParent } = entry();
   assert.equal(omittedParent, null);
   assert.deepEqual(await ledger.reconcileConversation({ ...base, versions: [missingParent] }), {
-    status: 'non_ready', code: 'HOST_INVENTORY_INVALID'
+    status: 'non_ready', code: 'HOST_VERSION_PARENT_UNKNOWN_OR_HISTORY_INCOMPLETE'
   });
 
   assert.equal(verifierCalls, 0);
