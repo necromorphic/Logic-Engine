@@ -128,3 +128,16 @@ This refresh records new evidence without upgrading any unverified claim.
 The segment rollback-on-rebuild-failure test is now **TEST-VERIFIED on PR #573 head**. This closes only that narrow test-evidence gap; it does not prove every canonical writer path or any spatial-specific behavior. The spatial contract remains **BLOCKED** independently by: (1) no runtime spatial validation gate, (2) no proven immutable/historical schema identity, (3) no proven complete entity incarnation guarantee across every path, (4) no confirmed TimeEngine-boundary ↔ Core composite cursor mapping, and (5) no independent owner-authored Core and TimeEngine reviews.
 
 **Remaining external blocker:** separate authorized Core and TimeEngine owner conclusions are still absent. Do not merge the spatial contract or authorize production spatial runtime work based only on this passing transaction regression test.
+
+
+## 9. Delegated decision authority — 2026-10-28
+
+The project coordinator has explicitly delegated authority to this reviewer to make the pending coordinator-level process decision without waiting for a named human owner roster. I therefore decide:
+
+1. **No invented named owners and no fabricated approvals.** Core and TimeEngine remain separate technical scopes; conclusions must identify the evidence for each.
+2. **The missing reviewer roster is no longer treated as an administrative blocker.** The coordinator can maintain and update the scoped evidence disposition under this delegated authority.
+3. **This does not convert one review into two independent owner reviews.** The present conclusions are coordinator-level source/evidence reviews, not independent sign-offs. That distinction remains explicit in the record.
+4. **Technical approval remains blocked only by unproven runtime guarantees**, not by the absence of names: canonical spatial commit validation; immutable schema digest and historical schema resolution; complete entity-incarnation/write-path coverage; and a durable TimeEngine boundary to Core composite-cursor association, plus tests for the claimed guarantees.
+5. **No production implementation or enablement is authorized by this delegation.** The correct next action is to close those technical evidence gaps in narrow, testable changes, then reassess the gate against exact-head CI. Until then, spatial results must fail closed where provenance cannot be established and Memory → NPC remains DISABLED / FAIL-CLOSED.
+
+This is the coordinator's process decision, not a claim that the technical blockers have been solved.
