@@ -202,9 +202,10 @@ function assertSyncResult(value) {
  *
  * The caller must provide trusted synchronous Core/Provider readers that open
  * their databases read-only and validate the exact current source/grant state.
- * The module intentionally has no fallback reader or transport. Only the explicitly allowlisted Host-owned route is supported. This module
- * does not implement or select any external model-provider API; sendUpstream
- * must be an existing trusted Host transport supplied by the integration.
+ * The module intentionally has no fallback reader or transport implementation.
+ * Only the explicitly allowlisted Host-owned route is supported. A trusted
+ * request-scoped capability is supplied per dispatch and invoked directly by
+ * this Gateway after durable DISPATCH_STARTED.
  */
 export class MemoryDispatchGateway {
   constructor({
