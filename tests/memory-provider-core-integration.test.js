@@ -249,11 +249,11 @@ test('direct Core source validator rejects unknown status and negative revisions
   ]) {
     const s = setup(t);
     assert.equal((await s.prepare()).status, 'current');
-    const originalGetSnapshot = s.engine.getSnapshot.bind(s.engine);
-    s.engine.getSnapshot = (worldId, options) => {
-      const snapshot = originalGetSnapshot(worldId, options);
-      if (worldId !== s.scope.world_id || !options?.entityIds?.includes('source-a')) return snapshot;
-      return { ...snapshot, entities: snapshot.entities.map(mutate) };
+    const originalGetSourceState = s.engine.getCanonicalEntitySourceState.bind(s.engine);
+    s.engine.getCanonicalEntitySourceState = (worldId, entityId) => {
+      const state = originalGetSourceState(worldId, entityId);
+      if (worldId !== s.scope.world_id || entityId !== 'source-a') return state;
+      return mutate(state);
     };
     assert.equal((await s.provider.reconcile(s.scope.world_id)).status, 'stale', label);
     await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_INDEX_NOT_READY/);
