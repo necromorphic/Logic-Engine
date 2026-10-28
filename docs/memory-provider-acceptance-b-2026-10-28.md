@@ -37,3 +37,13 @@
 **Production Memory→NPC: DISABLED / FAIL-CLOSED.**
 
 Следующий необходимый шаг для полного B — отдельное решение Core по raw-text retention/disclosure. До этого безопасная реализация обязана оставаться закрытой; обходить gate только ради тестов нельзя.
+
+## CI evidence for this revision
+
+The acceptance change was tested in GitHub Actions on the exact branch head `fbe41bf7b07ff31ac1b6c09974cc17e756ecc397`:
+- Provider accepted-head + raw lifecycle focused suite: **30/30 passed**.
+- Full Runtime suite: **1054/1054 passed**.
+- Recalculation oracle: **20/20 passed**.
+- Run: [#40749235166](https://github.com/necromorphic/Logic-Engine/actions/runs/40749235166).
+
+Environment captured in that run: Ubuntu 24.04.5 LTS, Node.js 22.13.0, npm 10.9.2, Node built-in SQLite 3.47.2. This is CI evidence, not a fresh test on the user's Windows/Termux deployment.
