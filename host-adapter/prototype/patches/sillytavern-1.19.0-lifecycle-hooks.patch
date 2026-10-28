@@ -734,7 +734,7 @@ diff --git a/src/endpoints/logic-engine-host-journal.mjs b/src/endpoints/logic-e
 new file mode 100644
 --- /dev/null
 +++ b/src/endpoints/logic-engine-host-journal.mjs
-@@ -0,0 +1,1659 @@
+@@ -0,0 +1,1663 @@
 +import { createHash, randomBytes, randomUUID } from 'node:crypto';
 +import { constants } from 'node:fs';
 +import { mkdir, open, readFile, lstat, realpath, rename, writeFile } from 'node:fs/promises';
@@ -1388,7 +1388,7 @@ new file mode 100644
 + * A successful pre-snapshot and fsynced intent are required before the handler.
 + * The response is held until a post-snapshot and fsynced outcome are recorded.
 + */
-+export function createHostLifecycleMutationMiddleware({ enforce = process.env.LOGIC_ENGINE_HOST_LIFECYCLE_ENFORCE === 'true', requirePersistedInventory = false, getUserDirectories } = {}) {
++export function createHostLifecycleMutationMiddleware({ enforce = process.env.LOGIC_ENGINE_HOST_LIFECYCLE_ENFORCE === 'true', requirePersistedInventory = false, getUserDirectories, beforeSavePrestateRecheck = null } = {}) {
 +    return async function hostLifecycleMutationMiddleware(request, response, next) {
 +        const routeKey = request.method + ' ' + request.baseUrl + request.path;
 +        const originalRouteKey = request.method + ' ' + request.originalUrl?.split('?')[0];
@@ -1575,6 +1575,10 @@ new file mode 100644
 +            let immediateSnapshot = null;
 +            let preStateStillCurrent = false;
 +            try {
++                // Internal deterministic test seam; production callers leave this unset.
++                if (typeof beforeSavePrestateRecheck === 'function') {
++                    await beforeSavePrestateRecheck({ request, target: saveTarget, operationId });
++                }
 +                const root = paths.roots.find(item => item.domain === saveTarget.domain)?.path;
 +                if (!root) throw new Error('HOST_SAVE_CAPABILITY_ROOT_UNAVAILABLE');
 +                const sourceFilePath = path.resolve(root, ...saveTarget.sourcePath.split('/'));
