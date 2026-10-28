@@ -46,8 +46,8 @@ test('server inventory reads registered persisted chat and returns only version 
       sourcePath: 'chat-a.jsonl',
       domain: 'chats',
     });
-    await recordHostCaptureAcknowledgement(request, { conversation_id: conversationId, message_id: messageId, version_id: oldVersionId, content_sha256: digest('old secret'), active: false, deleted: false });
-    await recordHostCaptureAcknowledgement(request, { conversation_id: conversationId, message_id: messageId, version_id: activeVersionId, content_sha256: digest('active secret'), active: true, deleted: false });
+    await recordHostCaptureAcknowledgement(request, { conversation_id: conversationId, message_id: messageId, version_id: oldVersionId, parent_version_id: null, content_sha256: digest('old secret'), active: false, deleted: false });
+    await recordHostCaptureAcknowledgement(request, { conversation_id: conversationId, message_id: messageId, version_id: activeVersionId, parent_version_id: oldVersionId, content_sha256: digest('active secret'), active: true, deleted: false });
     const result = await getHostConversationInventory(request);
     assert.equal(result.status, 'ENROLLMENT_FORWARD_ONLY_OBSERVED_INVENTORY_NON_AUTHORITATIVE');
     assert.equal(result.complete, true);
