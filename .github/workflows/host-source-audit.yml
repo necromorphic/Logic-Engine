@@ -1,0 +1,37 @@
+name: Pinned SillyTavern Host source audit
+
+on:
+  pull_request:
+    paths:
+      - "host-adapter/tests/pinned-st-source-audit.mjs"
+      - ".github/workflows/host-source-audit.yml"
+  push:
+    branches:
+      - main
+      - "host/**"
+    paths:
+      - "host-adapter/tests/pinned-st-source-audit.mjs"
+      - ".github/workflows/host-source-audit.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  pinned-source-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22.13.0"
+      - name: Check out exact pinned SillyTavern source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: SillyTavern/SillyTavern
+          ref: 06bde939fb1e9c4c8d8641d810f0a916b5bce127
+          path: SillyTavern
+      - name: Verify exact source revision
+        run: test "$(git -C SillyTavern rev-parse HEAD)" = "06bde939fb1e9c4c8d8641d810f0a916b5bce127"
+      - name: Audit lifecycle and persistence source semantics
+        run: node host-adapter/tests/pinned-st-source-audit.mjs SillyTavern
