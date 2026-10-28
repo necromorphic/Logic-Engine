@@ -32,19 +32,18 @@ function setup(t, authorizer = (scope) => ({
   world_revision: scope.world_revision,
   commit_sequence: scope.commit_sequence,
   authorization_ref: 'rule:npc-read-v1',
+}), visibilityAuthorizer = (scope) => ({
+  status: 'allowed',
+  world_id: scope.world_id,
+  actor_id: scope.actor_id,
+  purpose: scope.purpose,
+  world_revision: scope.world_revision,
+  commit_sequence: scope.commit_sequence,
+  acquisition_id: scope.acquisition_id,
+  authorization_ref: 'rule:npc-visibility-v1',
 })) {
   const store = new SQLiteStore(':memory:');
   t.after(() => store.close());
-  const visibilityAuthorizer = (scope) => ({
-    status: 'allowed',
-    world_id: scope.world_id,
-    actor_id: scope.actor_id,
-    purpose: scope.purpose,
-    world_revision: scope.world_revision,
-    commit_sequence: scope.commit_sequence,
-    acquisition_id: scope.acquisition_id,
-    authorization_ref: 'rule:npc-visibility-v1',
-  });
   const engine = new LogicEngine(store, {
     trustedInitialKnowledgeSources: trustedRegistry,
     npcKnowledgeReadAuthorizer: authorizer,
@@ -318,6 +317,31 @@ test('Core omits denied acquisitions from the belief context and rejects proposa
   assert.throws(() => engine.prepareNpcBeliefContext(readRequest, proposal), {
     code: 'NPC_BELIEF_TRANSITION_NOT_READY',
   });
+});
+
+test('Core rejects accessor-backed visibility decisions without invoking getters', (t) => {
+  let getterInvoked = false;
+  const maliciousVisibilityAuthorizer = (scope) => {
+    const decision = {
+      world_id: scope.world_id,
+      actor_id: scope.actor_id,
+      purpose: scope.purpose,
+      world_revision: scope.world_revision,
+      commit_sequence: scope.commit_sequence,
+      acquisition_id: scope.acquisition_id,
+      authorization_ref: 'rule:npc-visibility-v1',
+    };
+    Object.defineProperty(decision, 'status', {
+      enumerable: true,
+      get() { getterInvoked = true; return 'allowed'; },
+    });
+    return decision;
+  };
+  const { store, engine } = setup(t, undefined, maliciousVisibilityAuthorizer);
+  assert.throws(() => engine.prepareNpcBeliefContext(request(store), {}), {
+    code: 'NPC_KNOWLEDGE_VISIBILITY_NOT_AUTHORIZED',
+  });
+  assert.equal(getterInvoked, false);
 });
 
 test('Core requires a trusted visibility authorizer before preparing model context', (t) => {
