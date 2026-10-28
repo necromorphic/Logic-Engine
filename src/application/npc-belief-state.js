@@ -29,6 +29,15 @@ const sameSnapshot = (left, right) => isPlainObject(left)
   && isPlainObject(right)
   && left.world_revision === right.world_revision
   && left.commit_sequence === right.commit_sequence;
+const stableJson = (value) => {
+  if (Array.isArray(value)) return '[' + value.map(stableJson).join(',') + ']';
+  if (isPlainObject(value)) return '{' + Object.keys(value).sort().map((key) =>
+    JSON.stringify(key) + ':' + stableJson(value[key])).join(',') + '}';
+  return JSON.stringify(value);
+};
+const propositionRefFor = (item) => validRef(item?.subject_ref) && validRef(item?.predicate)
+  ? 'proposition:' + encodeURIComponent(item.subject_ref) + '/' + encodeURIComponent(item.predicate)
+  : null;
 
 /**
  * Validate a model-proposed belief transition against Core-authorized evidence.
@@ -92,12 +101,32 @@ export function reduceNpcBeliefTransition({ knowledgeRead, currentBelief = null,
     return Object.freeze({ status: 'non_ready', reason: 'belief_transition_requires_evidence', transition: null });
   }
 
-  const hasConflict = supporting.length > 0 && contradicting.length > 0;
-  if (hasConflict && proposal.stance !== 'unresolved_conflict') {
+  const propositionItems = knowledgeRead.items.filter((item) =>
+    propositionRefFor(item) === proposal.proposition_ref);
+  if (propositionItems.length === 0) {
+    return Object.freeze({ status: 'non_ready', reason: 'proposition_has_no_matching_core_evidence', transition: null });
+  }
+  const cited = new Set(allRefs);
+  if (propositionItems.some((item) => !cited.has(item.acquisition_id))) {
+    return Object.freeze({ status: 'non_ready', reason: 'all_current_proposition_evidence_must_be_accounted_for', transition: null });
+  }
+  if (allRefs.some((ref) => propositionRefFor(active.get(ref)) !== proposal.proposition_ref)) {
+    return Object.freeze({ status: 'non_ready', reason: 'evidence_does_not_match_proposition', transition: null });
+  }
+  const valuesBySide = (refs) => new Set(refs.map((ref) => stableJson(active.get(ref).value)));
+  const supportValues = valuesBySide(supporting);
+  const contradictValues = valuesBySide(contradicting);
+  if ([...supportValues].some((value) => contradictValues.has(value))) {
+    return Object.freeze({ status: 'non_ready', reason: 'same_value_cannot_support_and_contradict', transition: null });
+  }
+  const propositionValues = new Set(propositionItems.map((item) => stableJson(item.value)));
+  const hasConflict = propositionValues.size > 1;
+  if (hasConflict && (proposal.stance !== 'unresolved_conflict'
+    || supportValues.size === 0 || contradictValues.size === 0)) {
     return Object.freeze({ status: 'non_ready', reason: 'conflicting_evidence_must_remain_unresolved', transition: null });
   }
-  if (!hasConflict && proposal.stance === 'unresolved_conflict') {
-    return Object.freeze({ status: 'non_ready', reason: 'conflict_requires_both_evidence_sides', transition: null });
+  if (!hasConflict && (proposal.stance === 'unresolved_conflict' || contradictValues.size > 0)) {
+    return Object.freeze({ status: 'non_ready', reason: 'conflict_requires_distinct_core_values', transition: null });
   }
 
   let prior = null;
