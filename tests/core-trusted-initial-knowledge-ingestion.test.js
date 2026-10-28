@@ -155,3 +155,70 @@ test('ordinary event commits cannot forge acquisition effects', (t) => {
   }), { code: 'UNSUPPORTED_EFFECT' });
   assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM knowledge_acquisitions').get().n, 0);
 });
+
+
+test('rolling back the acquisition event itself removes it from the rebuilt projection', (t) => {
+  const { store, engine, bytes } = setup(t);
+  const acquired = engine.recordTrustedInitialKnowledgeSource({
+    world_id: 'world-a',
+    source_bytes: bytes,
+    idempotency_key: 'rollback-acquisition-event',
+    expected_revision: 1,
+    expected_commit_sequence: 1,
+  });
+  assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM knowledge_acquisitions WHERE world_id=?').get('world-a').n, 1);
+
+  const rollback = engine.rollbackEvent('world-a', {
+    root_event_id: acquired.event_id,
+    idempotency_key: 'rollback-acquisition-event-root',
+  });
+  assert.equal(rollback.accepted, true);
+  assert.ok(rollback.invalidated_event_ids.includes(acquired.event_id));
+  assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM knowledge_acquisitions WHERE world_id=?').get('world-a').n, 0);
+
+  store.rebuild('world-a', store.world('world-a').world_revision);
+  assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM knowledge_acquisitions WHERE world_id=?').get('world-a').n, 0);
+});
+
+test('rolling back one of two independent acquisitions preserves the other source', (t) => {
+  const { store } = setup(t);
+  const sourceA = sourceBytes().replace('authoring:test.world@1.0.0', 'authoring:test.world@source-a')
+    .replace('rule:initial-knowledge-v1', 'rule:initial-knowledge-source-a');
+  const sourceB = sourceBytes().replace('authoring:test.world@1.0.0', 'authoring:test.world@source-b')
+    .replace('rule:initial-knowledge-v1', 'rule:initial-knowledge-source-b');
+  const engine = new LogicEngine(store, {
+    trustedInitialKnowledgeSources: [...trustedRegistry(sourceA), ...trustedRegistry(sourceB)],
+  });
+
+  const first = engine.recordTrustedInitialKnowledgeSource({
+    world_id: 'world-a', source_bytes: sourceA, idempotency_key: 'independent-source-a',
+    expected_revision: 1, expected_commit_sequence: 1,
+  });
+  const cursor = engine.getSnapshot('world-a');
+  const second = engine.recordTrustedInitialKnowledgeSource({
+    world_id: 'world-a', source_bytes: sourceB, idempotency_key: 'independent-source-b',
+    expected_revision: cursor.world_revision, expected_commit_sequence: cursor.commit_sequence,
+  });
+  assert.notEqual(first.event_id, second.event_id);
+  assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM knowledge_acquisitions WHERE world_id=? AND subject_id=? AND fact_id=?')
+    .get('world-a', 'npc-a', 'fact-a').n, 2);
+
+  const rollback = engine.rollbackEvent('world-a', {
+    root_event_id: first.event_id,
+    idempotency_key: 'rollback-only-source-a',
+  });
+  assert.equal(rollback.accepted, true);
+  assert.ok(rollback.invalidated_event_ids.includes(first.event_id));
+  assert.ok(!rollback.invalidated_event_ids.includes(second.event_id));
+
+  const remaining = store.db.prepare('SELECT acquisition_id,event_id,provenance_ref FROM knowledge_acquisitions WHERE world_id=? AND subject_id=? AND fact_id=?')
+    .all('world-a', 'npc-a', 'fact-a');
+  assert.equal(remaining.length, 1);
+  assert.equal(remaining[0].event_id, second.event_id);
+  assert.equal(remaining[0].provenance_ref, 'authoring:test.world@source-b');
+
+  store.rebuild('world-a', store.world('world-a').world_revision);
+  const recovered = store.db.prepare('SELECT acquisition_id,event_id,provenance_ref FROM knowledge_acquisitions WHERE world_id=? AND subject_id=? AND fact_id=?')
+    .all('world-a', 'npc-a', 'fact-a');
+  assert.deepEqual(recovered, remaining);
+});
