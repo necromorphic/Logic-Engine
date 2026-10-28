@@ -70,25 +70,28 @@ jobs:
           git diff --check
           node --check src/endpoints/logic-engine-protected-dispatch-guard.mjs
           node --check public/scripts/logic-engine-lifecycle/protected-dispatch-browser-guard.mjs
-          node --check src/server-startup.js
+          node --check src/server-main.js
           node --check public/script.js
       - name: Ensure guard is installed before native endpoint routers
         shell: bash
         run: |
           node --input-type=module <<'NODE'
           import { readFileSync } from 'node:fs';
-          const startup = readFileSync('sillytavern-host-checkout/src/server-startup.js', 'utf8');
+          const serverMain = readFileSync('sillytavern-host-checkout/src/server-main.js', 'utf8');
           const script = readFileSync('sillytavern-host-checkout/public/script.js', 'utf8');
 
-          const serverGuard = startup.indexOf('app.use(createProtectedDispatchDenyMiddleware())');
-          const apiRouterMounts = [...startup.matchAll(/app\.use\(\s*['"]\/api\//g)].map(match => match.index);
+          const loginGuard = serverMain.indexOf('app.use(requireLoginMiddleware);');
+          const serverGuard = serverMain.indexOf('app.use(createProtectedDispatchDenyMiddleware());');
+          const proxyMount = serverMain.indexOf("app.use('/proxy/:url(*)'");
+          const privateRouters = serverMain.indexOf('setupPrivateEndpoints(app);');
           const generate = script.indexOf('export async function Generate(type,');
           const browserGuard = script.indexOf('assertProtectedDispatchAllowed({ locator: getCurrentChatId(), messages: chat, storage: localStorage })', generate);
 
-          if (serverGuard < 0 || apiRouterMounts.length === 0 ||
-              apiRouterMounts.some(routerIndex => serverGuard > routerIndex) ||
+          if (loginGuard < 0 || serverGuard <= loginGuard ||
+              proxyMount < 0 || serverGuard > proxyMount ||
+              privateRouters < 0 || serverGuard > privateRouters ||
               generate < 0 || browserGuard < generate) {
-            console.error({ serverGuard, apiRouterMounts, generate, browserGuard });
+            console.error({ loginGuard, serverGuard, proxyMount, privateRouters, generate, browserGuard });
             process.exit(1);
           }
           NODE
