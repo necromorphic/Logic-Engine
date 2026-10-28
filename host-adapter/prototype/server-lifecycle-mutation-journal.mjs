@@ -379,6 +379,8 @@ export function createHostLifecycleMutationMiddleware({ enforce = process.env.LO
                 if (enforce) return fail(response, 'HOST_ENROLLMENT_REQUIRED', 503);
                 return next();
             }
+            // Migrate pre-marker enrollments before any covered mutation can proceed.
+            await ensureEnrollmentMarker({ roots: safeUserDirectories(request) });
             if (operationTargetsEnrolledHistory(operation, request, registry)) {
                 return fail(response, ['chat-save', 'group-chat-save'].includes(operation)
                     ? 'HOST_ENROLLED_HISTORY_SAVE_CAPABILITY_REQUIRED'
