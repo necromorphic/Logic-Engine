@@ -512,6 +512,7 @@ test('real Provider revokeRecord committed before dispatch-start produces zero u
   let provider;
   let providerReader;
   let gateway;
+  let snapshotUnavailable = false;
   const rememberEnv = (name, value) => {
     previousEnv[name] = process.env[name];
     if (value === undefined) delete process.env[name];
@@ -536,7 +537,10 @@ test('real Provider revokeRecord committed before dispatch-start produces zero u
     const providerOptions = {
       path: providerPath,
       coordinatorPath,
-      getSnapshot: async () => ({ world_revision: 1, commit_sequence: 1 }),
+      getSnapshot: async () => {
+        if (snapshotUnavailable) throw new Error('injected snapshot outage');
+        return { world_revision: 1, commit_sequence: 1 };
+      },
       validateSourceVersion: async (record) => record.source_version === 'version-7',
       validateInventory: async () => true,
     };
@@ -659,6 +663,43 @@ test('real Provider revokeRecord committed before dispatch-start produces zero u
     } finally {
       ledger.close();
     }
+
+    // Query-grant revocation through the real Provider API must also deny
+    // before dispatch-start, independently of the record-level grant.
+    provider.grantRecord(scope, record.record_ref, record.record_version, true);
+    provider.grantQuery(scope, false);
+    await assert.rejects(
+      gateway.dispatchProtectedRequest(validRequest('provider-query-revoked-before-start')),
+      /MEMORY_DISPATCH_NOT_READY/,
+    );
+    assert.equal(calls.length, 0, 'query revocation before dispatch-start must cause zero upstream calls');
+    const queryRevocationLedger = new DatabaseSync(ledgerPath);
+    try {
+      assert.equal(queryRevocationLedger.prepare('SELECT COUNT(*) AS n FROM dispatch_ledger').get().n, 0,
+        'query-revoked request must not create DISPATCH_STARTED');
+    } finally {
+      queryRevocationLedger.close();
+    }
+
+    // Readiness loss is a real reconciliation failure, not a fixture update.
+    provider.grantQuery(scope, true);
+    snapshotUnavailable = true;
+    await assert.rejects(provider.reconcile(scope.world_id), /MEMORY_SNAPSHOT_UNAVAILABLE/);
+    await assert.rejects(
+      gateway.dispatchProtectedRequest(validRequest('provider-readiness-lost-before-start')),
+      /MEMORY_DISPATCH_NOT_READY/,
+    );
+    assert.equal(calls.length, 0, 'Provider readiness loss before dispatch-start must cause zero upstream calls');
+    const readinessLedger = new DatabaseSync(ledgerPath);
+    try {
+      assert.equal(readinessLedger.prepare('SELECT COUNT(*) AS n FROM dispatch_ledger').get().n, 0,
+        'not-ready request must not create DISPATCH_STARTED');
+    } finally {
+      readinessLedger.close();
+    }
+    snapshotUnavailable = false;
+    await provider.rebuildIndex(scope.world_id);
+    assert.equal((await provider.reconcile(scope.world_id)).status, 'current');
 
     // Reverse-order control: durable dispatch-start wins first. A later revoke
     // cannot recall the in-flight request; exactly one transport call is allowed.
