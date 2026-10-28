@@ -308,9 +308,16 @@ This is a bounded source check against Core `main`, not a runtime change or exha
 - `src/api/server.js` — `POST /v1/worlds` is admin-gated and forwards the request to `engine.createWorld`. This route creates the world record; it is not an author/import knowledge-assignment route.
 - `LogicEngine.registerContextManifest(...)` stores generation/cursor/item references. It does not create subject-specific acquisition records and must not be repurposed as their source.
 
+### Additional source checks: World Pack and authoring boundary
+
+- `schemas/world-pack-manifest.schema.json` defines `knowledge_channels[]` entries with `channel_id`, `source_kind`, and `validation_policy` (including `author_seeded`). This is channel/validation metadata; the inspected schema does not define a subject-to-proposition initial-knowledge assignment.
+- `docs/04-world-pack-format.md` explicitly labels the full World Pack contract as proposed/partial and states that the existing schema does not establish a production loader or complete conformance path.
+- Repository search for `importWorld`, `loadWorldPack`, `author_initial`, `imported`, `world_pack_id`, and `author_seeded` found semantic contracts, candidate-consumer metadata, tests/fixtures, and the world-creation pinning path, but no verified production author/import assignment loader. Search results are supporting evidence, not a proof of global absence.
+- `src/application/memory-npc-consumer.js` and `src/npc/memory-candidate-eligibility.js` contain candidate admission/filter logic for Memory records. They do not constitute the author/import source: their metadata labels cannot authenticate an initial assignment or create a Core-owned acquisition record.
+
 ### Gate result
 
-**The authoritative author/import assignment source and its lifecycle are not verified in the inspected production entry points.** The current evidence supports a narrow conclusion: the visible world-creation path records a world-pack identifier/version, not an imported pack's subject-level knowledge assignments. It does not prove that no other loader exists elsewhere in the repository or deployment.
+**Finding: no authoritative production `author_initial` / `imported` assignment source was identified in the inspected Core `main` paths and repository search.** This is stronger than the earlier world-creation-only check, but remains a bounded audit—not proof that no deployment-specific or unsearched loader exists. The current visible World Pack manifest metadata does not bind an initial assignment to a canonical subject and proposition.
 
 Before implementation, Core must identify the actual author/import entry point (or explicitly confirm that one does not exist), show how it binds a source item to a canonical subject and world, and establish how that assignment is versioned, replayed, replaced, invalidated, and audited. If no such path exists, Core must approve a minimal Core-owned representation and lifecycle before code is written. Do not infer assignment from `fact.set`, `world.created`, canonical facts, context manifests, or prompt content.
 
