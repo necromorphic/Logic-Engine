@@ -6,12 +6,13 @@ Status: current-main Provider-local implementation evidence at `9ca95312b35d6431
 
 ## Current executable path
 
-- Provider implementation: [`src/application/sqlite-memory-provider.js`](../src/application/sqlite-memory-provider.js), `SQLiteMemoryProvider.captureRawMessage(input)`.
-- It writes to the existing Provider-owned SQLite table `memory_raw_captures`, keyed by `(world_id, conversation_id, message_id, version_id)`. It stores `role`, exact JavaScript string content encoded as UTF-8 for SHA-256, JSON metadata, capture time, and a provider-local deletion marker. A duplicate key with different role/content/digest/serialized metadata throws `MEMORY_RAW_CAPTURE_CONFLICT`; identical payload returns `duplicate`.
-- `selectActiveRawVersion(input)` changes the pointer in `memory_raw_active_versions` and retains alternate rows.
-- `markRawSourceDeleted(input)` marks one exact version deleted, removes the active pointer only if it points at that version, and invalidates registered dependent copies in `memory_raw_derived_copies`. `purgeRawSource(input)` permanently deletes that exact version and its Provider-local dependent copies.
-- These are callable Provider methods, not a Host/Adapter event listener or production ingest API. The repository's `docs/13-sillytavern-adapter-contract.md` is requirements-only. PR #295 documents the pinned host evidence; it does not add a listener.
-- `memory-provider-import-internal.js` is an internal test/import seam, not a production host transport. Raw archive rows are separate from `memory_records` / derived index entries; capture alone does not make a raw message an NPC retrieval candidate.
+- Provider implementation: [`src/application/sqlite-memory-provider.js`](../src/application/sqlite-memory-provider.js). The raw archive schema and lifecycle code exist, but **raw capture, raw reads, active-version selection, and derived-copy registration are currently hard-disabled at their public method entrypoints** pending explicit policy approval.
+- `captureRawMessage(input)` immediately throws `MEMORY_RAW_CAPTURE_NOT_APPROVED`; its persistence implementation below that guard is unreachable in normal method invocation.
+- `readRawMessageVersion(input)` and `readActiveRawMessages(input)` immediately throw `MEMORY_RAW_DISCLOSURE_NOT_APPROVED`. A supplied `authorizeRawRead` callback cannot override these policy gates.
+- `selectActiveRawVersion(input)` immediately throws `MEMORY_RAW_SOURCE_NOT_APPROVED`; `registerRawDerivedCopy(input)` immediately throws `MEMORY_RAW_DERIVED_COPY_NOT_APPROVED`.
+- `markRawSourceDeleted(input)` and `purgeRawSource(input)` remain callable lifecycle-cleanup operations for exact, already-known tuples. They do not prove the source inventory is complete and do not reach external stores or indexes.
+- The raw archive schema and implementation describe Provider-local capabilities, **not currently enabled raw-text functionality**. These methods are not a Host/Adapter event listener or production ingest API. The repository's `docs/13-sillytavern-adapter-contract.md` is requirements-only. PR #295 documents pinned host evidence; it does not add a listener.
+- `memory-provider-import-internal.js` is an internal test/import seam, not a production host transport. Raw archive rows are separate from `memory_records` / derived index entries; no raw message becomes an NPC retrieval candidate through the disabled raw APIs.
 
 ## Capability matrix
 
