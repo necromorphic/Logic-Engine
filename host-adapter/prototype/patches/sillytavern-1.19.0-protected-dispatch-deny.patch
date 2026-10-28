@@ -4,7 +4,8 @@ diff --git a/public/script.js b/public/script.js
 @@ -11,1 +11,2 @@
  } from './lib.js';
 +import { assertProtectedDispatchAllowed } from './scripts/logic-engine-lifecycle/protected-dispatch-browser-guard.mjs';
-@@ -4290,1 +4291,2 @@ export async function Generate(type, { automatic_trigger, force_name2, quiet_prompt, quietToLoud, skipWIAN, force_chid, signal, quietImage, quietName, jsonSchema = null, depth = 0 } = {}, dryRun = false) {
+@@ -4290,1 +4291,2 @@
+ export async function Generate(type, { automatic_trigger, force_name2, quiet_prompt, quietToLoud, skipWIAN, force_chid, signal, quietImage, quietName, jsonSchema = null, depth = 0 } = {}, dryRun = false) {
 +    assertProtectedDispatchAllowed({ locator: getCurrentChatId(), storage: localStorage });
 diff --git a/src/server-startup.js b/src/server-startup.js
 --- a/src/server-startup.js
