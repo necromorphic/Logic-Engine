@@ -280,7 +280,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
     });
   }
 
-  async function afterMutation(operation, { removedSwipeIndex = null, selectedMessageIndex = null, createdMessageIndex = null } = {}) {
+  async function afterMutation(operation, { removedSwipeIndex = null, selectedMessageIndex = null, createdMessageIndex = null, sourceAlreadyPersisted = false } = {}) {
     const conversationId = await getConversationId();
     if (!conversationId || !(await enrolledOrFailClosed(conversationId))) return { status: 'NOT_ENROLLED' };
     const chat = getChat();
@@ -481,7 +481,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
     // Save native state before advancing the journal checkpoint. If save or the
     // subsequent append fails, the journal remains behind and the next pre-hook
     // rejects the fingerprint mismatch instead of silently claiming completeness.
-    await saveChat();
+    if (!sourceAlreadyPersisted) await saveChat();
     const changes = chat.map((message, messageIndex) => ({
       messageId: message._logicEngineLifecycle.messageId,
       messageIndex,
