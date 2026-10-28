@@ -20,7 +20,8 @@ const PROTECTED_MODEL_ROUTE_PREFIXES = Object.freeze([
 ]);
 
 function isWithinPrefix(path, prefix) {
-  return path === prefix || path.startsWith(prefix + '/');
+  const normalizedPath = path.toLowerCase();
+  return normalizedPath === prefix || normalizedPath.startsWith(prefix + '/');
 }
 
 /**
