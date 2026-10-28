@@ -369,6 +369,31 @@ test('ambiguous transport outcome is recorded UNKNOWN and the request identity c
   }
 });
 
+test('Google transport invokes fetch synchronously and returns a response promise', async () => {
+  let upstreamCalls = 0;
+  let responseForwarded = false;
+  const transport = createGoogleAiStudioTransport({
+    apiKey: 'google-ai-studio-test-key-not-real',
+    fetchImpl: () => {
+      upstreamCalls += 1;
+      return Promise.resolve(new Response('ok', { status: 200 }));
+    },
+  });
+  const handoff = transport({
+    route: 'google-ai-studio-chat-completions',
+    model: 'gemini-test-model',
+    stream: false,
+    body: '{"contents":[]}',
+    signal: undefined,
+    forwardResponse: async () => { responseForwarded = true; },
+  });
+  assert.equal(upstreamCalls, 1, 'upstream fetch must be initiated before the capability returns');
+  assert.equal(handoff.started, true);
+  assert.equal(typeof handoff.response?.then, 'function');
+  await handoff.response;
+  assert.equal(responseForwarded, true);
+});
+
 test('loopback Gateway endpoint requires Host authentication and a body-bound signature before Google egress', async () => {
   const apiKey = 'google-ai-studio-test-key-not-real';
   const hostToken = 'host-dispatch-token-for-gateway-tests-00000000000000000000000000000004';
@@ -390,7 +415,7 @@ test('loopback Gateway endpoint requires Host authentication and a body-bound si
       });
     },
   });
-  const fixture = await createFixture({ sendUpstream: transport });
+  const fixture = await createFixture({ startUpstreamOverride: transport });
   const server = await createMemoryDispatchGatewayServer({
     gateway: fixture.gateway,
     hostToken,
