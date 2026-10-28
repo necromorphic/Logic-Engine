@@ -190,3 +190,26 @@ Result: **31 tests passed, 0 failed** (14 Process Manager integration tests + 17
 ### Revised conclusion
 
 The evidence does **not** support adding a new generic composite-action/progress subsystem to TimeEngine. The safer next step is to document the mapping boundary between an authored action and existing `time-actions` / Process Manager APIs, then identify a concrete unsupported scenario before proposing runtime changes. The PR remains documentation-only and the invariants remain proposals pending review.
+
+
+## 13. Practical mapping to existing runtime APIs
+
+The current code already exposes three distinct operations. Keep their meanings separate:
+
+| Needed behavior | Existing route / owner | Contract boundary |
+|---|---|---|
+| One action with a TimePolicy-resolved duration; action event commits only after due work is handled | `POST /v1/worlds/:id/time-actions` → `startTimedAction` | Caller submits event proposal and idempotency/revision fields, not duration, event identity, or target time. Ambiguous duration fails before trigger claims. If due work interrupts, final action event is not committed. |
+| Advance canonical game time to a target coordinate, processing registered due triggers | `POST /v1/worlds/:id/time-advances` → `startTimeAdvance` | Core derives current coordinate, validates revision and interval, plans due work, and commits through durable segments/checkpoints. |
+| Durable multi-milestone workflow with prerequisites and pause/resume/cancel | `POST /v1/worlds/:id/processes` plus process lifecycle routes | Process Manager owns milestone definitions/progress and lifecycle. Milestones reuse the registered-trigger and time-advance pipeline; TimeEngine must not duplicate this lifecycle. |
+
+All these management routes require the separately configured internal credential in addition to the API's normal authorization. The API details above are from `src/api/server.js`, `src/application/engine.js`, and the current runtime docs.
+
+### Mapping rule for an adapter or authoring layer
+
+1. If the request describes **one bounded action**, submit it through `time-actions`; do not calculate or send a duration from the adapter.
+2. If the request means **only that time should pass** to a known target, use `time-advances`.
+3. If the request defines **multiple durable milestones with prerequisites and lifecycle**, use Process Manager.
+4. If the request's next step depends on an outcome not yet known, do not pre-author a fictitious fixed future milestone. Wait for the committed outcome, then create/advance the next approved step using the existing contract.
+5. If a scenario does not fit these three contracts, record the concrete missing behavior and expected invariant first. Do not introduce a generic action DSL, a second scheduler, or a parallel progress ledger without a demonstrated requirement.
+
+This is a proposed adapter mapping, not a new approved API contract. It does not authorize a Host/Adapter to call internal routes unless its trust model explicitly permits that access.
