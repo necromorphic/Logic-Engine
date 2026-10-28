@@ -36,29 +36,36 @@ export function recoverAcceptedHeadDomain({ domain, databasePath, coordinatorPat
     const local = db.prepare('SELECT head,enrolled,last_operation_id,last_operation_digest FROM accepted_head_state WHERE singleton=1').get();
     if (!local || local.enrolled !== 1) throw new Error('ACCEPTED_HEAD_RECOVERY_LOCAL_STATE_INVALID');
 
-    const pending = status.operations[domain];
-    if (!pending) {
-      if (!status.pending[domain] && status.enrolled[domain] && status.heads[domain] === local.head) {
+    const otherDomain = domain === 'core' ? 'provider' : 'core';
+    if (status.pending[otherDomain]) throw new Error('ACCEPTED_HEAD_RECOVERY_REQUIRES_RECONCILIATION');
+    if (!status.pending[domain]) {
+      if (status.enrolled[domain] && status.heads[domain] === local.head) {
         return Object.freeze({ domain, status: 'already_current', head: local.head });
       }
       throw new Error('ACCEPTED_HEAD_RECOVERY_REQUIRES_RECONCILIATION');
     }
 
-    // Only finalize when the local DB proves the exact operation committed in
-    // the same transaction as its accepted head. Never auto-repair a lower local
-    // head: it may be a restored backup with stale/revoked authorization state.
-    if (local.head !== pending.head
-      || local.last_operation_id !== pending.operation_id
-      || local.last_operation_digest !== pending.operation_digest) {
+    // Status readers intentionally receive only a pending bit, not operation
+    // metadata. Finalize using the local checkpoint identity; the authority
+    // validates the exact operation ID and digest without disclosing them.
+    // Never repair a lower local head: it may be a restored stale backup.
+    if (local.head !== status.heads[domain]
+      || typeof local.last_operation_id !== 'string' || !local.last_operation_id
+      || !/^[a-f0-9]{64}$/.test(local.last_operation_digest || '')) {
       throw new Error('ACCEPTED_HEAD_RECOVERY_REQUIRES_RECONCILIATION');
     }
     finalizeAcceptedHeadSync({
       domain,
-      operationId: pending.operation_id,
-      operationDigest: pending.operation_digest,
+      operationId: local.last_operation_id,
+      operationDigest: local.last_operation_digest,
       token,
       port,
     });
+    const after = getAcceptedHeadStatusSync({ port, token });
+    if (after.pending.core || after.pending.provider
+      || after.heads[domain] !== local.head || !after.enrolled[domain]) {
+      throw new Error('ACCEPTED_HEAD_RECOVERY_REQUIRES_RECONCILIATION');
+    }
     return Object.freeze({ domain, status: 'recovered_committed_operation', head: local.head });
   } finally {
     try { db?.close(); } finally {
