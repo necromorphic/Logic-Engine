@@ -195,7 +195,7 @@ function validateTransportTarget(target, model, stream) {
     throw new Error('MEMORY_DISPATCH_TRANSPORT_TARGET_INVALID');
   }
   const expectedActions = stream ? ['streamGenerateContent'] : ['generateContent'];
-  const match = url.pathname.match(/^\\/(v1|v1beta)\\/models\\/([A-Za-z0-9._-]{1,128}):(generateContent|streamGenerateContent)$/);
+  const match = url.pathname.match(/^\/(v1|v1beta)\/models\/([A-Za-z0-9._-]{1,128}):(generateContent|streamGenerateContent)$/);
   if (!match || decodeURIComponent(match[2]) !== model || !expectedActions.includes(match[3])) {
     throw new Error('MEMORY_DISPATCH_TRANSPORT_TARGET_INVALID');
   }
