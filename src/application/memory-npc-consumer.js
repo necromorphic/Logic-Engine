@@ -206,6 +206,10 @@ export class MemoryNpcConsumer {
       if (!sameSnapshot(candidate.snapshot, memoryResult.snapshot)) {
         return nonReady('memory_snapshot_stale');
       }
+      if (candidate.source?.kind === 'canonical_entity'
+        && (!validId(candidate.source?.entity_id) || !validId(candidate.source?.source_version))) {
+        return nonReady('memory_candidate_source_identity_invalid');
+      }
       if (candidate.content_kind === 'summary'
         || candidate.source?.kind !== 'canonical_entity'
         || !validId(candidate.source?.entity_id)) {
@@ -221,6 +225,7 @@ export class MemoryNpcConsumer {
           record_version: candidate.record.version,
           source_kind: candidate.source.kind,
           source_entity_id: candidate.source.entity_id,
+          source_version: candidate.source.source_version,
         }) === true;
       } catch {
         // A denial is an ordinary filtered record; an authorization failure is
@@ -269,6 +274,7 @@ export class MemoryNpcConsumer {
           record_version: candidate.record.version,
           source_kind: candidate.source.kind,
           source_entity_id: candidate.source.entity_id,
+          source_version: candidate.source.source_version,
         }) === true;
       } catch {
         return nonReady('memory_record_authorization_unavailable');
@@ -369,7 +375,7 @@ export class MemoryNpcConsumer {
         recipient: 'model',
         purpose: 'npc_decision',
         entityIds,
-        fields: ['entity_id', ...this.contentFields],
+        fields: ['entity_id', 'source_version', ...this.contentFields],
       });
     } catch {
       // Missing, denied, or unavailable source reads have one safe outcome.
@@ -392,7 +398,7 @@ export class MemoryNpcConsumer {
 
     const sourceById = new Map();
     for (const entity of sourceRead.entities) {
-      if (!object(entity) || !validId(entity.entity_id) || sourceById.has(entity.entity_id)) {
+      if (!object(entity) || !validId(entity.entity_id) || !validId(entity.source_version) || sourceById.has(entity.entity_id)) {
         // The authorized read boundary must not return ambiguous canonical
         // identities. Never silently choose the last row for a duplicate ID.
         return nonReady('authorized_source_read_invalid');
@@ -422,6 +428,7 @@ export class MemoryNpcConsumer {
       // failure. Fail closed. A present source with a denied field may still be
       // safely excluded without disclosing which field policy denied it.
       if (!source) return nonReady('authorized_source_missing');
+      if (source.source_version !== candidate.source.source_version) return nonReady('memory_source_version_stale');
       if (this.contentFields.some((field) => !Object.hasOwn(source, field))) continue;
 
       const trustedCandidate = {
@@ -444,6 +451,7 @@ export class MemoryNpcConsumer {
         record_ref: candidate.record.ref,
         record_version: candidate.record.version,
         source_entity_id: candidate.source.entity_id,
+        source_version: candidate.source.source_version,
         epistemic_kind: candidate.epistemic_kind,
         evidence_assessment: candidate.lifecycle?.evidence_assessment,
         content: Object.fromEntries(this.contentFields.map((field) => [field, source[field]])),

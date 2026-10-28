@@ -162,12 +162,16 @@ test('denies by default and immediately honors record revocation', async (t) => 
   assert.equal((await s.provider.reconcile('world-a')).status, 'current');
   assert.equal(await s.provider.authorizeCandidate({
     ...s.scope, record_ref: s.record.record_ref, record_version: s.record.record_version,
-    source_kind: 'canonical_entity', source_entity_id: 'entity-source-a',
+    source_kind: 'canonical_entity', source_entity_id: 'entity-source-a', source_version: 'source-v1',
   }), true);
+  assert.equal(await s.provider.authorizeCandidate({
+    ...s.scope, record_ref: s.record.record_ref, record_version: s.record.record_version,
+    source_kind: 'canonical_entity', source_entity_id: 'entity-source-a', source_version: 'source-v2',
+  }), false, 'a caller cannot rebind the same Memory record to a different canonical source version');
   s.provider.revokeRecord(s.scope, s.record.record_ref, s.record.record_version);
   assert.equal(await s.provider.authorizeCandidate({
     ...s.scope, record_ref: s.record.record_ref, record_version: s.record.record_version,
-    source_kind: 'canonical_entity', source_entity_id: 'entity-source-a',
+    source_kind: 'canonical_entity', source_entity_id: 'entity-source-a', source_version: 'source-v1',
   }), false);
   await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_RECORDS_WITHHELD/);
 });
@@ -247,7 +251,7 @@ test('rechecks provider grants after asynchronous source validation', async (t) 
 
   const authorization = s.provider.authorizeCandidate({
     ...s.scope, record_ref: s.record.record_ref, record_version: s.record.record_version,
-    source_kind: 'canonical_entity', source_entity_id: 'entity-source-a',
+    source_kind: 'canonical_entity', source_entity_id: 'entity-source-a', source_version: 'source-v1',
   });
   await started;
   s.provider.revokeRecord(s.scope, s.record.record_ref, s.record.record_version);
@@ -279,7 +283,7 @@ test('rejects authorization when another Provider connection changes readiness d
 
   const authorization = s.provider.authorizeCandidate({
     ...s.scope, record_ref: s.record.record_ref, record_version: s.record.record_version,
-    source_kind: 'canonical_entity', source_entity_id: 'entity-source-a',
+    source_kind: 'canonical_entity', source_entity_id: 'entity-source-a', source_version: 'source-v1',
   });
   await started;
 
@@ -324,7 +328,7 @@ test('rejects cross-connection query-grant revoke/re-grant ABA during source val
 
   const authorization = s.provider.authorizeCandidate({
     ...s.scope, record_ref: s.record.record_ref, record_version: s.record.record_version,
-    source_kind: 'canonical_entity', source_entity_id: 'entity-source-a',
+    source_kind: 'canonical_entity', source_entity_id: 'entity-source-a', source_version: 'source-v1',
   });
   await started;
 
@@ -370,7 +374,7 @@ test('rejects cross-connection revoke/re-grant ABA during source validation', as
 
   const authorization = s.provider.authorizeCandidate({
     ...s.scope, record_ref: s.record.record_ref, record_version: s.record.record_version,
-    source_kind: 'canonical_entity', source_entity_id: 'entity-source-a',
+    source_kind: 'canonical_entity', source_entity_id: 'entity-source-a', source_version: 'source-v1',
   });
   await started;
 
@@ -517,7 +521,7 @@ test('source validator outage is not collapsed into ordinary record denial', asy
   await assert.rejects(
     () => s.provider.authorizeCandidate({
       ...s.scope, record_ref: s.record.record_ref, record_version: s.record.record_version,
-      source_kind: 'canonical_entity', source_entity_id: 'entity-source-a',
+      source_kind: 'canonical_entity', source_entity_id: 'entity-source-a', source_version: 'source-v1',
     }),
     (error) => error.message === 'MEMORY_SOURCE_VALIDATION_UNAVAILABLE'
       && !error.message.includes('private host'),
@@ -557,7 +561,7 @@ test('source version becoming unverifiable at candidate authorization is not fil
   await assert.rejects(
     () => s.provider.authorizeCandidate({
       ...s.scope, record_ref: s.record.record_ref, record_version: s.record.record_version,
-      source_kind: 'canonical_entity', source_entity_id: 'entity-source-a',
+      source_kind: 'canonical_entity', source_entity_id: 'entity-source-a', source_version: 'source-v1',
     }),
     (error) => error.message === 'MEMORY_SOURCE_VERSION_UNVERIFIABLE',
   );

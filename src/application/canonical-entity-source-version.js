@@ -7,6 +7,12 @@ const validId = (value) => typeof value === 'string' && value === value.trim()
   });
 const canonicalDecimal = (value) => typeof value === 'string' && /^(0|[1-9][0-9]*)$/.test(value);
 
+/** Canonical decimal revision token for one active Core entity. */
+export function canonicalEntitySourceVersion(entity) {
+  if (!object(entity) || !Number.isSafeInteger(entity.updated_revision) || entity.updated_revision < 0) return null;
+  return String(entity.updated_revision);
+}
+
 /**
  * Core-owned source-version validation for direct canonical_entity Memory
  * records. This factory returns a trusted Provider callback; it is not a public
@@ -76,7 +82,7 @@ export function createCanonicalEntitySourceVersionValidator(engine) {
 
       // The version is the canonical decimal encoding of this exact entity's
       // current updated_revision, not the Provider record version or world cursor.
-      return sourceVersion === String(entity.updated_revision);
+      return sourceVersion === canonicalEntitySourceVersion(entity);
     } catch {
       return false;
     }
