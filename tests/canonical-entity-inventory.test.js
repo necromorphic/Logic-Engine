@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { SQLiteStore } from '../src/storage/sqlite-store.js';
 import { LogicEngine } from '../src/application/engine.js';
+import { hashRequest } from '../src/core/request-hash.js';
 
 function setup(t) {
   const store = new SQLiteStore(':memory:');
@@ -93,6 +94,23 @@ test('canonical inventory cursor rejects altered continuation state', (t) => {
   const altered = { ...first.next_cursor, after_entity_id: 'entity-z' };
   assert.throws(
     () => s.engine.getCanonicalEntityInventory(s.worldId, { limit: 1, cursor: altered }),
+    (error) => error.code === 'INVALID_ENTITY_INVENTORY_CURSOR',
+  );
+});
+
+test('canonical inventory cursor rejects caller-recomputed public digest', (t) => {
+  const s = setup(t);
+  s.createEntities(['entity-a', 'entity-b', 'entity-c']);
+  const first = s.engine.getCanonicalEntityInventory(s.worldId, { limit: 1 });
+  const unsigned = {
+    world_id: first.next_cursor.world_id,
+    world_revision: first.next_cursor.world_revision,
+    commit_sequence: first.next_cursor.commit_sequence,
+    after_entity_id: 'entity-z',
+  };
+  const forged = { ...unsigned, cursor_digest: hashRequest(unsigned) };
+  assert.throws(
+    () => s.engine.getCanonicalEntityInventory(s.worldId, { limit: 1, cursor: forged }),
     (error) => error.code === 'INVALID_ENTITY_INVENTORY_CURSOR',
   );
 });

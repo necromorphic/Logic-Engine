@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, realpathSync, statSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { beginCoordinatorLock, openCoordinatorDatabase } from './coordinator-lock.js';
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto';
 import {
   advanceAcceptedHeadSync,
   finalizeAcceptedHeadSync,
@@ -43,6 +43,13 @@ const acceptedHeadConfigFromEnv = () => {
   }
   return Object.freeze({ port, token });
 };
+// Inventory continuation tokens are authenticated with a process-local secret.
+// They are intentionally invalid after Core restarts; consumers must restart
+// enumeration from page one rather than trust a caller-recomputed public digest.
+function inventoryCursorDigest(key, value) {
+  return createHmac('sha256', key).update(hashRequest(value)).digest('hex');
+}
+
 const enc = (x) => JSON.stringify(x);
 const dec = (x) => x == null ? null : JSON.parse(x);
 const timeAdvanceOperation = (row) => row && ({
@@ -217,6 +224,7 @@ function aliasesSameFile(left, right) {
 
 export class SQLiteStore {
   constructor(path = ':memory:') {
+    this.inventoryCursorKey = randomBytes(32);
     const corePath = path === ':memory:' ? ':memory:' : resolve(path);
     const configuredCoordinatorPath = process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH;
     const coordinatorPath = corePath === ':memory:' ? null
@@ -1275,7 +1283,7 @@ export class SQLiteStore {
         commit_sequence: cursorPayload.commit_sequence,
         after_entity_id: cursorPayload.after_entity_id,
       };
-      if (cursorPayload.cursor_digest !== hashRequest(unsigned)) {
+      if (cursorPayload.cursor_digest !== inventoryCursorDigest(this.inventoryCursorKey, unsigned)) {
         throw new EngineError('INVALID_ENTITY_INVENTORY_CURSOR', 'Inventory cursor integrity check failed.', 400);
       }
       afterEntityId = cursorPayload.after_entity_id;
@@ -1328,7 +1336,7 @@ export class SQLiteStore {
         };
         return {
           ...unsigned,
-          cursor_digest: hashRequest(unsigned),
+          cursor_digest: inventoryCursorDigest(this.inventoryCursorKey, unsigned),
         };
       })() : null;
       this.db.exec('COMMIT');
