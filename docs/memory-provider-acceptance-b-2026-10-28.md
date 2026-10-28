@@ -40,10 +40,10 @@
 
 ## CI evidence for this revision
 
-The acceptance change was tested in GitHub Actions on the exact branch head `fbe41bf7b07ff31ac1b6c09974cc17e756ecc397`:
+The acceptance change was tested in GitHub Actions on the exact branch head `39b6fa27465049b61657ef77475b2c45a629f61e`:
 - Provider accepted-head + raw lifecycle focused suite: **30/30 passed**.
 - Full Runtime suite: **1054/1054 passed**.
 - Recalculation oracle: **20/20 passed**.
-- Run: [#40749235166](https://github.com/necromorphic/Logic-Engine/actions/runs/40749235166).
+- Run: [#40749394006](https://github.com/necromorphic/Logic-Engine/actions/runs/40749394006).
 
 Environment captured in that run: Ubuntu 24.04.5 LTS, Node.js 22.13.0, npm 10.9.2, Node built-in SQLite 3.47.2. This is CI evidence, not a fresh test on the user's Windows/Termux deployment.
