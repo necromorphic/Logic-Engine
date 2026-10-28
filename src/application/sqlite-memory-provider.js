@@ -162,6 +162,7 @@ export class SQLiteMemoryProvider {
   #stateGeneration;
   #queryAuthorizationGeneration;
   #recordAuthorizationGeneration;
+  #scopeAuthorizationGeneration;
 
   constructor(options = {}) {
     if (!isPlainDataRecord(options)) throw new TypeError('SQLiteMemoryProvider requires plain data options');
@@ -210,6 +211,7 @@ export class SQLiteMemoryProvider {
     this.#stateGeneration = new Map();
     this.#queryAuthorizationGeneration = new Map();
     this.#recordAuthorizationGeneration = new Map();
+    this.#scopeAuthorizationGeneration = new Map();
     // Open the coordinator first so a failed coordinator open cannot leak a Provider DB handle.
     this.#coordinatorDb = sharedCoordinatorPath ? openCoordinatorDatabase(sharedCoordinatorPath) : null;
     this.#db = null;
@@ -630,6 +632,7 @@ export class SQLiteMemoryProvider {
     });
     const key = JSON.stringify([scope.world_id, scope.subject_id, scope.purpose]);
     this.#queryAuthorizationGeneration.set(key, (this.#queryAuthorizationGeneration.get(key) ?? 0) + 1);
+    this.#scopeAuthorizationGeneration.set(key, (this.#scopeAuthorizationGeneration.get(key) ?? 0) + 1);
   }
 
   grantRecord(scope, recordRef, recordVersion, allowed) {
@@ -649,6 +652,8 @@ export class SQLiteMemoryProvider {
     });
     const key = JSON.stringify([scope.world_id, scope.subject_id, scope.purpose, recordRef, recordVersion]);
     this.#recordAuthorizationGeneration.set(key, (this.#recordAuthorizationGeneration.get(key) ?? 0) + 1);
+    const scopeKey = JSON.stringify([scope.world_id, scope.subject_id, scope.purpose]);
+    this.#scopeAuthorizationGeneration.set(scopeKey, (this.#scopeAuthorizationGeneration.get(scopeKey) ?? 0) + 1);
   }
 
   revokeRecord(scope, recordRef, recordVersion) {
@@ -722,6 +727,7 @@ export class SQLiteMemoryProvider {
     ]);
     const queryAuthorizationGeneration = this.#queryAuthorizationGeneration.get(queryGrantKey) ?? 0;
     const recordAuthorizationGeneration = this.#recordAuthorizationGeneration.get(recordGrantKey) ?? 0;
+    const scopeAuthorizationGeneration = this.#scopeAuthorizationGeneration.get(queryGrantKey) ?? 0;
     const providerDataVersion = requestDataVersion;
 
     let sourceValid = false;
@@ -764,6 +770,7 @@ export class SQLiteMemoryProvider {
     // a later request can use the new grant after a fresh retrieval.
     if ((this.#queryAuthorizationGeneration.get(queryGrantKey) ?? 0) !== queryAuthorizationGeneration
       || (this.#recordAuthorizationGeneration.get(recordGrantKey) ?? 0) !== recordAuthorizationGeneration
+      || (this.#scopeAuthorizationGeneration.get(queryGrantKey) ?? 0) !== scopeAuthorizationGeneration
       || this.#dataVersion() !== providerDataVersion) {
       // PRAGMA data_version detects commits from other SQLite connections, whose
       // in-memory grant generations are not shared with this Provider instance.
