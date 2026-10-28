@@ -58,7 +58,7 @@ function invalidDecision() {
  * is retained unless an eligible action belongs to a strictly higher-priority
  * goal. Otherwise higher goal priority wins; then lower cost; then lexical IDs.
  */
-export function selectNpcIntention(input) {
+function selectNpcIntentionUnsafe(input) {
   if (!isPlainDataObject(input)) return invalidDecision();
   const { goals, actions } = input;
   if (!isDenseArray(goals) || !isDenseArray(actions)) return invalidDecision();
@@ -136,4 +136,16 @@ export function selectNpcIntention(input) {
       action_id: winner.action_id,
     }),
   });
+}
+
+/**
+ * Treat exceptions from hostile or malformed object traps as invalid input.
+ * JSON-like inputs are expected; a Proxy can throw from reflection operations.
+ */
+export function selectNpcIntention(input) {
+  try {
+    return selectNpcIntentionUnsafe(input);
+  } catch {
+    return invalidDecision();
+  }
 }
