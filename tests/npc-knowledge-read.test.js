@@ -315,7 +315,7 @@ test('Core omits denied acquisitions from the belief context and rejects proposa
     world_id: read.world_id,
     actor_id: read.actor_id,
     snapshot: read.snapshot,
-    proposition_ref: 'proposition:secret',
+    proposition_ref: propositionRefFor(read.items[0]),
     stance: 'believes_true',
     supporting_acquisition_ids: [read.items[0].acquisition_id],
     contradicting_acquisition_ids: [],
@@ -462,7 +462,7 @@ test('rollback of an acquisition invalidates its belief support but preserves th
   const read = engine.readNpcKnowledge(current);
   engine.recordNpcBeliefTransition({
     ...current,
-    proposition_ref: 'proposition:npc-a-secret',
+    proposition_ref: propositionRefFor(read.items[0]),
     stance: 'believes_true',
     supporting_acquisition_ids: [read.items[0].acquisition_id],
     contradicting_acquisition_ids: [],
@@ -483,7 +483,7 @@ test('rollback of an acquisition invalidates its belief support but preserves th
   assert.equal(state.evidence_status, 'unsupported');
   assert.deepEqual(state.surviving_evidence_acquisition_ids, []);
   assert.equal(store.db.prepare(
-    "SELECT COUNT(*) AS count FROM npc_belief_transitions WHERE proposition_ref='proposition:npc-a-secret'"
+    "SELECT COUNT(*) AS count FROM npc_belief_transitions WHERE proposition_ref='proposition:fact/fact-a'"
   ).get().count, 1);
 });
 
