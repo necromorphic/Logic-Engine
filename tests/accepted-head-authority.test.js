@@ -350,7 +350,7 @@ test('accepted-head authority service entrypoint starts authenticated loopback s
     assert.deepEqual(body.heads, { core: 0, provider: 0 });
     assert.deepEqual(body.enrolled, { core: false, provider: false });
     const childExited = once(child, 'exit');
-    child.stdin.write('stop\\n');
+    child.stdin.write('stop\n');
     const [code] = await childExited;
     assert.equal(code, 0);
     child = null;
@@ -358,7 +358,7 @@ test('accepted-head authority service entrypoint starts authenticated loopback s
     try { portProbe?.close(); } catch {}
     if (child) {
       const childExited = once(child, 'exit');
-      try { child.stdin.write('stop\\n'); } catch { child.kill('SIGTERM'); }
+      try { child.stdin.write('stop\n'); } catch { child.kill('SIGTERM'); }
       await childExited;
     }
     rmSync(directory, { recursive: true, force: true });
