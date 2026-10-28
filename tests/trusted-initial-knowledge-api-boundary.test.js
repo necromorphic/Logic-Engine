@@ -51,7 +51,7 @@ test('public event API cannot commit a forged knowledge acquisition', async (t) 
     },
   );
 
-  assert.equal(response.status, 400);
+  assert.equal(response.status, 403);
   assert.equal((await response.json()).error.code, 'UNSUPPORTED_EFFECT');
   assert.equal(engine.getState('api-acquisition-world').world_revision, 0);
   assert.equal(
