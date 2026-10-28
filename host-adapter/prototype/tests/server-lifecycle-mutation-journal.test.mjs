@@ -1047,7 +1047,7 @@ test('user-root reset is denied before deleting enrolled histories', async () =>
     }
 });
 
-test('admin purge is denied when the target user has enrolled history, even with a truthy string flag', async () => {
+test('admin user deletion is denied when the target user has enrolled history', async () => {
     const target = await fixture();
     try {
         await registerHostConversation(target.request, {
@@ -1060,7 +1060,7 @@ test('admin purge is denied when the target user has enrolled history, even with
             baseUrl: '/api/users',
             path: '/delete',
             originalUrl: '/api/users/delete',
-            body: { handle: 'target-user', purge: 'false' },
+            body: { handle: 'target-user', purge: false },
             user: { profile: { handle: 'admin-user' }, directories: target.directories },
         };
         const response = responseMock();
@@ -1077,7 +1077,7 @@ test('admin purge is denied when the target user has enrolled history, even with
         await response.finished;
         assert.equal(reachedHandler, false);
         assert.equal(response.statusCode, 409);
-        assert.match(String(response.body), /HOST_ENROLLED_USER_PURGE_UNSUPPORTED/);
+        assert.match(String(response.body), /HOST_ENROLLED_HISTORY_PATH_MUTATION_UNSUPPORTED/);
         assert.ok(await readFile(path.join(target.root, '.logic-engine-host-enrollment-marker'), 'utf8'));
     } finally {
         await rm(target.root, { recursive: true, force: true });
@@ -1137,7 +1137,7 @@ test('admin purge fails closed when target chat-root path is a symlink', async (
         await response.finished;
         assert.equal(reachedHandler, false);
         assert.equal(response.statusCode, 503);
-        assert.match(String(response.body), /HOST_TARGET_USER_SCOPE_UNAVAILABLE/);
+        assert.match(String(response.body), /HOST_JOURNAL_UNAVAILABLE/);
     } finally {
         await rm(target.root, { recursive: true, force: true });
         await rm(outside, { recursive: true, force: true });
@@ -1172,7 +1172,7 @@ test('admin purge rejects path-like target handles before resolving user directo
         assert.equal(resolverCalled, false);
         assert.equal(reachedHandler, false);
         assert.equal(response.statusCode, 503);
-        assert.match(String(response.body), /HOST_TARGET_USER_SCOPE_UNAVAILABLE/);
+        assert.match(String(response.body), /HOST_JOURNAL_UNAVAILABLE/);
     } finally {
         await rm(target.root, { recursive: true, force: true });
     }
@@ -1211,7 +1211,7 @@ test('admin purge fails closed when the target registry is empty even if the mar
         await response.finished;
         assert.equal(reachedHandler, false);
         assert.equal(response.statusCode, 503);
-        assert.match(String(response.body), /HOST_TARGET_USER_SCOPE_UNAVAILABLE/);
+        assert.match(String(response.body), /HOST_JOURNAL_UNAVAILABLE/);
     } finally {
         await rm(target.root, { recursive: true, force: true });
     }
