@@ -145,7 +145,12 @@ async function statePaths(request) {
         if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error('HOST_STATE_DIRECTORY_UNSAFE');
     } catch (error) {
         if (error?.code !== 'ENOENT') throw error;
-        await mkdir(stateDirectory, { mode: 0o700 });
+        try {
+            await mkdir(stateDirectory, { mode: 0o700 });
+        } catch (createError) {
+            // Concurrent first-time requests may race to create the same state directory.
+            if (createError?.code !== 'EEXIST') throw createError;
+        }
         const stat = await lstat(stateDirectory);
         if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error('HOST_STATE_DIRECTORY_UNSAFE');
     }
