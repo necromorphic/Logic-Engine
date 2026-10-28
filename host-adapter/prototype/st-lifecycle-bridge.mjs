@@ -243,7 +243,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
           || current.versionIndex !== versionIndex || expected.versionIndex !== versionIndex
           || current.payloadDigest !== expected.payloadDigest
           || current.payloadDigest !== await contentDigest(versions[versionIndex])
-          || (current.parentVersionId ?? null) !== (expected.parentVersionId ?? null)) {
+          || current.parentVersionId !== expected.parentVersionId) {
           throw Error('NON_READY: version identity or digest differs from journal; abort mutation');
         }
         versionIds.add(current.versionId);
@@ -375,7 +375,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
           versionId: removed.versionId,
           versionIndex: removed.versionIndex ?? removedSwipeIndex,
           payloadDigest: removed.payloadDigest,
-          parentVersionId: removed.parentVersionId ?? null,
+          parentVersionId: removed.parentVersionId,
           deleted: true,
           active: false,
           reason: 'swipe-deleted',
@@ -571,7 +571,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
           || currentVersion.versionIndex !== versionIndex
           || recordedVersion.versionIndex !== versionIndex
           || currentVersion.payloadDigest !== recordedVersion.payloadDigest
-          || (currentVersion.parentVersionId ?? null) !== (recordedVersion.parentVersionId ?? null)) {
+          || currentVersion.parentVersionId !== recordedVersion.parentVersionId) {
           return { status: 'NON_READY', reason: 'native version identity differs from the last journaled version snapshot' };
         }
       }
