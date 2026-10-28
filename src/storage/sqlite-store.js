@@ -346,7 +346,7 @@ export class SQLiteStore {
       `;
       if (this.acceptedHeadConfig) {
         const existing = new Set(this.db.prepare("SELECT type || ':' || name AS object_name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'").all().map(row=>row.object_name));
-        const requiredObjects = [...schemaSql.matchAll(/CREATE\\s+(?:UNIQUE\\s+)?(TABLE|INDEX)\\s+IF\\s+NOT\\s+EXISTS\\s+([A-Za-z_][A-Za-z0-9_]*)/gi)]
+        const requiredObjects = [...schemaSql.matchAll(/CREATE\s+(?:UNIQUE\s+)?(TABLE|INDEX)\s+IF\s+NOT\s+EXISTS\s+([A-Za-z_][A-Za-z0-9_]*)/gi)]
           .map(match => match[1].toLowerCase()+':'+match[2]);
         if (requiredObjects.some(name=>!existing.has(name))) throw new Error('CORE_SCHEMA_INCOMPLETE');
         const local = this.db.prepare('SELECT head,enrolled FROM accepted_head_state WHERE singleton=1').get();
