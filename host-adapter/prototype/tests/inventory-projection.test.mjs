@@ -270,3 +270,22 @@ test('tombstone must repeat the immutable parent exactly', () => {
     assert.equal(rejected.status, 'NON_READY');
   }
 });
+
+test('Host snapshot projection rejects missing parent metadata instead of coercing it to root', () => {
+  const missing = message({ id: 'msg-missing-parent', versions: ['root'] });
+  delete missing._logicEngineLifecycle.versions[0].parentVersionId;
+  const result = projectHostInventoryForComparison([missing]);
+  assert.equal(result.status, 'NON_READY');
+});
+
+test('capture-ledger projection rejects a parent from another message', () => {
+  const parent = ledgerVersion('version-parent', 'other message root');
+  const child = ledgerVersion('version-child', 'child text', 0, 'version-parent');
+  const result = projectHostCaptureLedgerForComparison(captureLedger([
+    { operation: 'baseline', payload: { messages: [
+      ledgerMessage('message-a', [parent]),
+      ledgerMessage('message-b', [child]),
+    ] } },
+  ]));
+  assert.equal(result.status, 'NON_READY');
+});
