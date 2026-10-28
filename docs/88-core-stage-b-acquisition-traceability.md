@@ -26,7 +26,7 @@ This preserves the existing world scope, revision/commit sequence, transaction, 
 | Permit only initial/imported kinds | `src/core/rules.js` and `recordInitialAcquisition` | `tests/initial-acquisition.test.js`: both supported kinds; unsupported kind denied |
 | Prevent caller-supplied provenance | policy is constructor configuration; input rejects extra fields | `tests/initial-acquisition.test.js`: denied/malformed policy output; generic HTTP event spoof denied |
 | Bind to canonical source | writer requires an active, supported same-world fact; event declares `READS_CLAIM` and `READS_ENTITY` | `tests/initial-acquisition.test.js`: unknown source denied |
-| Persist with Core lifecycle | `knowledge.acquire` is stored in `world_events.effects_json`; migration 13 adds derived projection | rollback and restart/rebuild tests in `tests/initial-acquisition.test.js` |
+| Persist with Core lifecycle and reject stale cursors | `knowledge.acquire` is stored in `world_events.effects_json`; migration 13 adds derived projection; commit checks both expected world revision and commit sequence | rollback, restart/rebuild, and stale revision/commit-sequence tests in `tests/initial-acquisition.test.js` |
 | Source invalidation removes unsupported acquisition | causal `READS_CLAIM` plus rebuild omits records whose fact is no longer active | source rollback/rebuild test in `tests/initial-acquisition.test.js` |
 | Reject unauthorized read | no acquisition HTTP reader; public API cannot return projection rows | `tests/initial-acquisition.test.js`: route is non-200 |
 | Keep Memory → NPC disabled | no consumer wiring, no prompt serialization, no Gateway changes | scope review; existing integration remains fail-closed |
