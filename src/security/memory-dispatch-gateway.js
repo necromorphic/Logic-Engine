@@ -210,6 +210,7 @@ export class MemoryDispatchGateway {
     readCoreEvidence,
     readProviderEvidence,
     sendUpstream,
+    beforeCoordinatorLock = null,
   }) {
     if (typeof ledgerPath !== 'string' || !isAbsolute(ledgerPath)
       || typeof coordinatorPath !== 'string' || !isAbsolute(coordinatorPath)
@@ -217,7 +218,8 @@ export class MemoryDispatchGateway {
       || typeof readToken !== 'string' || readToken.length < 32
       || typeof readCoreEvidence !== 'function'
       || typeof readProviderEvidence !== 'function'
-      || typeof sendUpstream !== 'function') {
+      || typeof sendUpstream !== 'function'
+      || (beforeCoordinatorLock !== null && typeof beforeCoordinatorLock !== 'function')) {
       throw new TypeError('MemoryDispatchGateway requires file-backed stores, a read-only authority token, trusted synchronous readers, and a transport.');
     }
     if (sameFile(ledgerPath, coordinatorPath)) {
@@ -231,6 +233,7 @@ export class MemoryDispatchGateway {
     this.readCoreEvidence = readCoreEvidence;
     this.readProviderEvidence = readProviderEvidence;
     this.sendUpstream = sendUpstream;
+    this.beforeCoordinatorLock = beforeCoordinatorLock;
 
     this.coordinatorDb = openCoordinatorDatabase(this.coordinatorPath);
     this.db = null;
@@ -327,6 +330,9 @@ export class MemoryDispatchGateway {
     let release = null;
 
     try {
+      // Optional trusted coordination seam for deterministic ordering tests.
+      // Production callers omit it; it never authorizes or bypasses the lock.
+      if (this.beforeCoordinatorLock) await this.beforeCoordinatorLock();
       release = beginCoordinatorLock(this.coordinatorDb);
       const authority = getAcceptedHeadStatusSync({
         port: this.authorityPort,
