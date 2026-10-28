@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { assert, EngineError } from '../core/errors.js';
 import { hashRequest } from '../core/request-hash.js';
 import { validateEffects } from '../core/rules.js';
@@ -496,7 +496,7 @@ export class LogicEngine {
     assert(obj(input), 'INVALID_KNOWLEDGE_ACQUISITION', 'Initial knowledge assignment must be an object.');
     const allowed = [
       'idempotency_key', 'expected_revision', 'expected_commit_sequence',
-      'subject_id', 'fact_id', 'acquisition_kind', 'source_ref', 'source_sha256',
+      'subject_id', 'fact_id', 'acquisition_kind', 'source_ref', 'source_content', 'source_sha256',
     ];
     assert(Object.keys(input).every((key) => allowed.includes(key)),
       'UNSUPPORTED_KNOWLEDGE_ACQUISITION_FIELD', 'Initial knowledge assignment contains an unsupported field.');
@@ -508,8 +508,15 @@ export class LogicEngine {
     }
     assert(['author_initial', 'imported'].includes(input.acquisition_kind),
       'UNSUPPORTED_ACQUISITION_KIND', 'Only author_initial and imported acquisitions are supported.', 400);
-    assert(typeof input.source_sha256 === 'string' && /^[a-f0-9]{64}$/.test(input.source_sha256),
-      'INVALID_KNOWLEDGE_PROVENANCE', 'source_sha256 must be a lowercase SHA-256 digest.', 400);
+    assert(typeof input.source_content === 'string' && Buffer.byteLength(input.source_content, 'utf8') <= 524288,
+      'INVALID_KNOWLEDGE_PROVENANCE', 'source_content must contain the source bytes as UTF-8 text and be no larger than 512 KiB.', 400);
+    const computedSourceSha256 = createHash('sha256').update(input.source_content, 'utf8').digest('hex');
+    if (input.source_sha256 !== undefined) {
+      assert(typeof input.source_sha256 === 'string' && /^[a-f0-9]{64}$/.test(input.source_sha256),
+        'INVALID_KNOWLEDGE_PROVENANCE', 'source_sha256, when supplied, must be a lowercase SHA-256 digest.', 400);
+      assert(input.source_sha256 === computedSourceSha256,
+        'KNOWLEDGE_PROVENANCE_DIGEST_MISMATCH', 'source_sha256 does not match the source_content supplied to Core.', 409);
+    }
     assert(typeof input.idempotency_key === 'string' && input.idempotency_key.trim()
       && input.idempotency_key.length <= 200, 'IDEMPOTENCY_KEY_REQUIRED', 'idempotency_key is required.');
     let snapshot;
@@ -541,7 +548,7 @@ export class LogicEngine {
       fact_id: input.fact_id,
       acquisition_kind: input.acquisition_kind,
       source_ref: input.source_ref,
-      source_sha256: input.source_sha256,
+      source_sha256: computedSourceSha256,
       authority: 'admin_credential',
     };
     const result = this.commitEvent(id, {
