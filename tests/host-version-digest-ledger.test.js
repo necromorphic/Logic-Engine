@@ -784,7 +784,7 @@ test('old consistent inventory cannot roll back after a newer descendant is acce
   assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).status, 'NON_READY');
 });
 
-test('revoked inventory authority does not authorize a previously consistent snapshot', async (t) => {
+test('revoked verifier blocks reconciliation but ledger READY is not a dispatch authorization', async (t) => {
   let authorized = true;
   const ledger = setup(t, async () => authorized);
   const root = entry();
