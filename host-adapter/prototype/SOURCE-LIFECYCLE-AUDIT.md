@@ -266,9 +266,9 @@ This is a route-family inventory, not an assertion that every direct `fetch` bel
 | `src/endpoints/volcengine.js` | `/generate-voice` | Direct fetch at line 34 | Separate voice-generation path |
 | `src/endpoints/nanogpt.js` | credits and model-provider discovery | Direct fetches at lines 52, 53, 113 | Account/model discovery traffic; not ordinary user-turn generation based on the inspected route names |
 | `src/endpoints/translate.js` | Translation endpoints | Direct fetches at lines 47, 133, 186, 238, 301, 348 | Separate translation calls; whether protected Memory→NPC content may enter these paths must be explicitly decided |
-| `src/endpoints/caption.js` | Caption route wrapper | No direct fetch found in this file | Delegates elsewhere; the wrapper alone is not evidence of the final outbound boundary |
-| `src/endpoints/classify.js` | Classification route wrapper | No direct fetch found in this file | Delegates elsewhere; trace the called service before classifying |
-| `src/endpoints/vectors.js` | Vector operations | No direct fetch found in this file | Delegates elsewhere or uses another transport; inspect callees before claiming coverage |
+| `src/endpoints/caption.js` | Caption route wrapper | No direct fetch found; calls local image-to-text transformer pipeline | Local inference; no remote egress shown in this call path |
+| `src/endpoints/classify.js` | Classification route wrapper | No direct fetch found; calls local text-classification transformer pipeline | Local inference; input is logged, so privacy/logging controls still apply |
+| `src/endpoints/vectors.js` | Vector operations | No direct fetch in wrapper; delegates to local and remote vector implementations | Source-dependent: inspect selected adapter; remote adapters have separate final-send boundaries |
 
 ### Implications for the boundary design
 
@@ -304,11 +304,27 @@ The list is bounded to route mounts directly evidenced in the inspected startup 
 
 ### Delegation findings
 
-- `src/endpoints/caption.js` calls a captioning function but contains no direct `fetch`; the final outbound call must be found in its callee chain.
-- `src/endpoints/classify.js` calls a classification service and logs the classification input at line 46. The callee must be traced to establish whether it makes an external model call and where.
-- `src/endpoints/vectors.js` dispatches to multiple vector implementations. Its route handler is not itself the final network boundary for implementations that call external services.
-- `src/endpoints/backends/kobold.js` has separate `/generate`, `/transcribe-audio`, and `/embed` routes. The generation boundary cannot be assumed to cover the other two.
+- `src/endpoints/caption.js` uses `getPipeline('image-to-text')` from `src/transformers.js` and runs the pipeline locally; this wrapper has no direct outbound `fetch` in the inspected path. It is a separate local inference route, not evidence of a remote egress boundary.
+- `src/endpoints/classify.js` uses `getPipeline('text-classification')` from `src/transformers.js` and runs the pipeline locally. It logs the input text at line 46, so local log disclosure still matters even though this path is not an external model send in the inspected implementation.
+- `src/endpoints/vectors.js` dispatches to multiple vector implementations. Some are local (`src/vectors/embedding.js` uses a local transformer pipeline); others call remote endpoints, including `src/vectors/openai-vectors.js` line 113, `src/vectors/nomicai-vectors.js` line 36, `src/vectors/extras-vectors.js` line 54, and `src/vectors/cohere-vectors.js` line 20. The final boundary therefore depends on the selected vector source.
+- `src/endpoints/backends/kobold.js` has separate `/generate`, `/transcribe-audio`, and `/embed` routes, with direct send calls at lines 98, 215 and 256 respectively, plus an abort call at line 26 and status probes at lines 163, 169 and 175. The generation boundary cannot be assumed to cover the other routes.
 - `src/endpoints/anthropic.js` logs the captioning request body at line 34. Combined with the text-generation and image-caption logging findings above, prompt/input logging must be included in the privacy review separately from outbound authorization.
+
+### Kobold and vector adapter call-site notes
+
+| Call-site ID | Source line(s) | Route/adapter | Classification |
+|---|---:|---|---|
+| K01 | 98 | Kobold generation | User-turn generation send; body/config is prepared before fetch |
+| K02 | 215 | Kobold transcription | Separate audio inference path |
+| K03 | 256 | Kobold embedding | Separate embedding path |
+| K-AUX01 | 26 | Kobold abort | Cancellation/control request |
+| K-AUX02 | 163, 169, 175 | Kobold status | Status/version/model probes |
+| V01 | `src/vectors/openai-vectors.js:113` | Remote embedding adapter | Remote vector send |
+| V02 | `src/vectors/nomicai-vectors.js:36` | Remote embedding adapter | Remote vector send |
+| V03 | `src/vectors/extras-vectors.js:54` | Remote embedding adapter | Remote vector send |
+| V04 | `src/vectors/cohere-vectors.js:20` | Remote embedding adapter | Remote vector send |
+| V05 | `src/vectors/ollama-vectors.js:21` | Configured local/service embedding adapter | Network send to configured endpoint |
+| V06 | `src/vectors/embedding.js:9–25` | Transformer embedding adapter | Local pipeline; no outbound fetch in this adapter |
 
 ### Coverage decision
 
