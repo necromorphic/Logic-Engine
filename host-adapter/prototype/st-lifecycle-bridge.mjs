@@ -178,10 +178,10 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
         const identity = result.mapping[i];
         chat[i]._logicEngineLifecycle = {
           messageId: identity.messageId,
-          // Multi-swipe legacy messages were rejected above because their
-          // ancestry is ambiguous. A single observed version is the only
-          // baseline shape this Host prototype can currently represent as a root.
-          versions: identity.versions.map(version => ({ ...version, parentVersionId: null })),
+          // ST's current native message projection does not prove that this
+          // observed version is a root. Preserve that uncertainty; undefined is
+          // intentionally rejected by Core inventory publication.
+          versions: identity.versions.map(version => ({ ...version, parentVersionId: undefined })),
           activeVersionIndex: identity.activeVersionIndex,
         };
       }
@@ -191,7 +191,15 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
       // fingerprint/identity validation must fail closed; enrollment cannot be retried.
       throw Error('NON_READY: baseline persisted but native identity metadata could not be saved; ' + (error?.message || error));
     }
-    const coreCapture = await publishCurrentDigestInventory(conversationId, chat);
+    const hasUnprovenLineage = chat.some(message =>
+      message?._logicEngineLifecycle?.versions?.some(version =>
+        !Object.hasOwn(version, 'parentVersionId') || version.parentVersionId === undefined));
+    const coreCapture = hasUnprovenLineage
+      ? (coreCaptureStates.set(conversationId, {
+          status: 'NON_READY', published: false, versionCount: 0,
+          reason: 'source-backed parent lineage is unavailable for legacy baseline',
+        }), { status: 'NON_READY', published: false, versionCount: 0 })
+      : await publishCurrentDigestInventory(conversationId, chat);
     return {
       conversationId,
       baselineSequence: result.baselineSequence,
