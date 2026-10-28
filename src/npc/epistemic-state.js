@@ -47,7 +47,9 @@ function isPlainDataObject(value) {
 }
 
 function isSafeDataTree(value, active = new Set()) {
-  if (value === null || typeof value !== "object") return true;
+  if (value === null || typeof value === "string" || typeof value === "boolean") return true;
+  if (typeof value === "number") return Number.isFinite(value);
+  if (typeof value !== "object") return false;
   if (utilTypes.isProxy(value) || active.has(value)) return false;
   try {
     const array = Array.isArray(value);
