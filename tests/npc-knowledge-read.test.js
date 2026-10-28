@@ -394,3 +394,113 @@ test('Core refuses a belief context if the snapshot changes during visibility ev
   });
 });
 
+test('Core persists an explicit belief transition, supports idempotent replay, and reports current evidence status', (t) => {
+  const { store, engine } = setup(t);
+  const current = request(store);
+  const read = engine.readNpcKnowledge(current);
+  const input = {
+    ...current,
+    proposition_ref: 'proposition:npc-a-secret',
+    stance: 'believes_true',
+    supporting_acquisition_ids: [read.items[0].acquisition_id],
+    contradicting_acquisition_ids: [],
+    reason_rule_ref: 'rule:belief-update-v1',
+    idempotency_key: 'belief-transition-1',
+  };
+  const first = engine.recordNpcBeliefTransition(input);
+  assert.equal(first.status, 'ready');
+  assert.equal(first.idempotent_replay, false);
+  assert.equal(first.transition.stance, 'believes_true');
+  assert.equal(first.transition.committed_revision, current.expected_revision + 1);
+
+  const replay = engine.recordNpcBeliefTransition(input);
+  assert.equal(replay.status, 'ready');
+  assert.equal(replay.idempotent_replay, true);
+  assert.equal(replay.transition.event_id, first.transition.event_id);
+  assert.equal(store.db.prepare('SELECT COUNT(*) AS count FROM npc_belief_transitions').get().count, 1);
+
+  const after = request(store);
+  const state = engine.getNpcBeliefState({
+    ...after,
+    proposition_ref: 'proposition:npc-a-secret',
+  });
+  assert.equal(state.status, 'ready');
+  assert.equal(state.stance, 'believes_true');
+  assert.equal(state.evidence_status, 'supported');
+  assert.deepEqual(state.surviving_evidence_acquisition_ids, [read.items[0].acquisition_id]);
+});
+
+test('belief transition idempotency key cannot be reused for a different stance', (t) => {
+  const { store, engine } = setup(t);
+  const current = request(store);
+  const read = engine.readNpcKnowledge(current);
+  const input = {
+    ...current,
+    proposition_ref: 'proposition:npc-a-secret',
+    stance: 'believes_true',
+    supporting_acquisition_ids: [read.items[0].acquisition_id],
+    contradicting_acquisition_ids: [],
+    reason_rule_ref: 'rule:belief-update-v1',
+    idempotency_key: 'belief-transition-reused-key',
+  };
+  engine.recordNpcBeliefTransition(input);
+  assert.throws(() => engine.recordNpcBeliefTransition({
+    ...input,
+    stance: 'suspects_true',
+  }), { code: 'IDEMPOTENCY_KEY_REUSED' });
+});
+
+test('rollback of an acquisition invalidates its belief support but preserves the belief transition for reconciliation', (t) => {
+  const { store, engine } = setup(t);
+  const current = request(store);
+  const read = engine.readNpcKnowledge(current);
+  engine.recordNpcBeliefTransition({
+    ...current,
+    proposition_ref: 'proposition:npc-a-secret',
+    stance: 'believes_true',
+    supporting_acquisition_ids: [read.items[0].acquisition_id],
+    contradicting_acquisition_ids: [],
+    reason_rule_ref: 'rule:belief-update-v1',
+    idempotency_key: 'belief-transition-before-source-rollback',
+  });
+  engine.rollbackEvent('world-a', {
+    root_event_id: 'author-seed',
+    idempotency_key: 'rollback-author-seed-after-belief',
+  });
+  const fresh = request(store);
+  const state = engine.getNpcBeliefState({
+    ...fresh,
+    proposition_ref: 'proposition:npc-a-secret',
+  });
+  assert.equal(state.status, 'ready');
+  assert.equal(state.stance, 'believes_true');
+  assert.equal(state.evidence_status, 'unsupported');
+  assert.deepEqual(state.surviving_evidence_acquisition_ids, []);
+  assert.equal(store.db.prepare(
+    "SELECT COUNT(*) AS count FROM npc_belief_transitions WHERE proposition_ref='proposition:npc-a-secret'"
+  ).get().count, 1);
+});
+
+test('belief transition refuses a stale snapshot and does not write a projection row', (t) => {
+  const { store, engine } = setup(t);
+  const stale = request(store);
+  engine.commitEvent('world-a', {
+    event_id: 'advance-before-belief-transition',
+    idempotency_key: 'advance-before-belief-transition-key',
+    turn_id: 'advance-before-belief-transition',
+    event_type: 'action.completed',
+    expected_revision: stale.expected_revision,
+    effects: [],
+  });
+  assert.throws(() => engine.recordNpcBeliefTransition({
+    ...stale,
+    proposition_ref: 'proposition:npc-a-secret',
+    stance: 'believes_true',
+    supporting_acquisition_ids: ['some-acquisition'],
+    contradicting_acquisition_ids: [],
+    reason_rule_ref: 'rule:belief-update-v1',
+    idempotency_key: 'belief-transition-stale-snapshot',
+  }), { code: 'NPC_KNOWLEDGE_READ_NOT_READY' });
+  assert.equal(store.db.prepare('SELECT COUNT(*) AS count FROM npc_belief_transitions').get().count, 0);
+});
+
