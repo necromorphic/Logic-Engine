@@ -48,6 +48,34 @@ const proposal = (overrides = {}) => ({
   ...overrides,
 });
 
+test('rejects accessor-backed model proposals without invoking getters', () => {
+  let getterInvoked = false;
+  const unsafeProposal = proposal();
+  Object.defineProperty(unsafeProposal, 'stance', {
+    enumerable: true,
+    get() { getterInvoked = true; return 'believes_true'; },
+  });
+  const result = reduceNpcBeliefTransition({ knowledgeRead: knowledgeRead(), proposal: unsafeProposal });
+  assert.equal(result.status, 'non_ready');
+  assert.equal(getterInvoked, false);
+});
+
+test('rejects proxy-backed Core evidence arrays without invoking traps', () => {
+  let trapInvoked = false;
+  const unsafeItems = new Proxy([evidenceItems[0]], {
+    get(target, key, receiver) {
+      trapInvoked = true;
+      return Reflect.get(target, key, receiver);
+    },
+  });
+  const result = reduceNpcBeliefTransition({
+    knowledgeRead: knowledgeRead({ items: unsafeItems }),
+    proposal: proposal(),
+  });
+  assert.equal(result.status, 'non_ready');
+  assert.equal(trapInvoked, false);
+});
+
 test('accepts a belief proposal only when evidence belongs to the current Core read', () => {
   const result = reduceNpcBeliefTransition({ knowledgeRead: knowledgeRead(), proposal: proposal() });
   assert.equal(result.status, 'ready');
