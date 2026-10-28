@@ -136,7 +136,7 @@ test('real Host → Core → Provider path preserves digest-only capture and fai
     active: true,
     deleted: false,
   });
-  assert.equal(capture.statusCode, 201);
+  assert.equal(capture.statusCode, 201, JSON.stringify(capture.body));
   assert.deepEqual(capture.body, { ok: true, inventory_status: 'NON_READY' });
   assert.equal(acceptedCaptures.length, 1, 'local journal acknowledgement follows accepted Core capture');
   assert.equal(acceptedCaptures[0].message_id, messageId);
