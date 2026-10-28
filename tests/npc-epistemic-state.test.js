@@ -153,7 +153,10 @@ test("forgetting is explicit and traceable; it does not delete evidence history"
   });
   assert.equal(result.status, "updated");
   assert.equal(result.state.beliefs[0].stance, "unknown");
+  assert.deepEqual(result.state.beliefs[0].supporting_evidence_refs, []);
+  assert.deepEqual(result.state.beliefs[0].conflicting_evidence_refs, []);
   assert.equal(result.state.beliefs[0].history.length, 1);
+  assert.deepEqual(result.state.beliefs[0].history[0].evidence_refs, ["evidence-1"]);
   assert.equal(result.state.evidence.length, 1);
 });
 
