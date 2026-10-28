@@ -4,14 +4,20 @@ on:
   pull_request:
     paths:
       - "host-adapter/prototype/protected-dispatch-deny-guard.mjs"
+      - "host-adapter/prototype/protected-dispatch-browser-guard.mjs"
       - "host-adapter/prototype/tests/protected-dispatch-deny-guard.test.mjs"
+      - "host-adapter/prototype/tests/protected-dispatch-browser-guard.test.mjs"
       - "host-adapter/prototype/patches/sillytavern-1.19.0-protected-dispatch-deny.patch"
+      - "host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch"
       - ".github/workflows/host-protected-dispatch-deny-check.yml"
   push:
     paths:
       - "host-adapter/prototype/protected-dispatch-deny-guard.mjs"
+      - "host-adapter/prototype/protected-dispatch-browser-guard.mjs"
       - "host-adapter/prototype/tests/protected-dispatch-deny-guard.test.mjs"
+      - "host-adapter/prototype/tests/protected-dispatch-browser-guard.test.mjs"
       - "host-adapter/prototype/patches/sillytavern-1.19.0-protected-dispatch-deny.patch"
+      - "host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch"
       - ".github/workflows/host-protected-dispatch-deny-check.yml"
   workflow_dispatch:
 
@@ -30,7 +36,7 @@ jobs:
         with:
           node-version: 22
       - name: Run deny-guard tests
-        run: node --test host-adapter/prototype/tests/protected-dispatch-deny-guard.test.mjs
+        run: node --test host-adapter/prototype/tests/protected-dispatch-deny-guard.test.mjs host-adapter/prototype/tests/protected-dispatch-browser-guard.test.mjs
       - name: Checkout pinned SillyTavern
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -38,21 +44,39 @@ jobs:
           ref: 06bde939fb1e9c4c8d8641d810f0a916b5bce127
           path: sillytavern-host-checkout
           persist-credentials: false
-      - name: Stage guard and validate patch
+      - name: Stage Host modules
         run: |
+          mkdir -p sillytavern-host-checkout/public/scripts/logic-engine-lifecycle
+          cp host-adapter/prototype/lifecycle-journal.mjs sillytavern-host-checkout/public/scripts/logic-engine-lifecycle/lifecycle-journal.mjs
+          cp host-adapter/prototype/st-lifecycle-bridge.mjs sillytavern-host-checkout/public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs
+          cp host-adapter/prototype/conversation-identity.mjs sillytavern-host-checkout/public/scripts/logic-engine-lifecycle/conversation-identity.mjs
+          cp host-adapter/prototype/protected-dispatch-browser-guard.mjs sillytavern-host-checkout/public/scripts/logic-engine-lifecycle/protected-dispatch-browser-guard.mjs
+          cp host-adapter/prototype/st-server-digest-proxy.mjs sillytavern-host-checkout/src/endpoints/logic-engine-lifecycle-proxy.mjs
           cp host-adapter/prototype/protected-dispatch-deny-guard.mjs sillytavern-host-checkout/src/endpoints/logic-engine-protected-dispatch-guard.mjs
+      - name: Apply-check and apply Host lifecycle patch
+        run: |
+          cd sillytavern-host-checkout
+          git apply --check ../host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch
+          git apply ../host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch
+      - name: Apply-check and apply protected dispatch patch
+        run: |
           cd sillytavern-host-checkout
           git apply --check ../host-adapter/prototype/patches/sillytavern-1.19.0-protected-dispatch-deny.patch
           git apply ../host-adapter/prototype/patches/sillytavern-1.19.0-protected-dispatch-deny.patch
           git diff --check
           node --check src/endpoints/logic-engine-protected-dispatch-guard.mjs
+          node --check public/scripts/logic-engine-lifecycle/protected-dispatch-browser-guard.mjs
           node --check src/server-startup.js
-      - name: Ensure guard is installed before native endpoint routers
+          node --check public/script.js
+      - name: Ensure guard precedes generation and endpoint dispatch
         run: |
           node --input-type=module <<'NODE'
           import { readFileSync } from 'node:fs';
-          const source = readFileSync('sillytavern-host-checkout/src/server-startup.js', 'utf8');
-          const guard = source.indexOf('app.use(createProtectedDispatchDenyMiddleware())');
-          const router = source.indexOf("app.use('/api/backends/chat-completions', chatCompletionsRouter)");
-          if (guard < 0 || router < 0 || guard > router) process.exit(1);
+          const startup = readFileSync('sillytavern-host-checkout/src/server-startup.js', 'utf8');
+          const script = readFileSync('sillytavern-host-checkout/public/script.js', 'utf8');
+          const serverGuard = startup.indexOf('app.use(createProtectedDispatchDenyMiddleware())');
+          const chatRouter = startup.indexOf("app.use('/api/backends/chat-completions', chatCompletionsRouter)");
+          const generate = script.indexOf('export async function Generate(type,');
+          const browserGuard = script.indexOf('assertProtectedDispatchAllowed({ locator: getCurrentChatId(), storage: localStorage })', generate);
+          if (serverGuard < 0 || chatRouter < 0 || serverGuard > chatRouter || generate < 0 || browserGuard < generate) process.exit(1);
           NODE
