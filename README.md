@@ -43,7 +43,7 @@
 - [PR #632](https://github.com/necromorphic/Logic-Engine/pull/632) — Host lifecycle inventory candidate для проверки на актуальном `main`; сам по себе не доказывает полноту inventory.
 - [PR #636](https://github.com/necromorphic/Logic-Engine/pull/636) — Windows Memory Provider acceptance evidence.
 - [PR #646](https://github.com/necromorphic/Logic-Engine/pull/646) — сериализация старта Host dispatch относительно отзыва; нужен доказанный путь от этого gate до реального final-send.
-- [PR #670](https://github.com/necromorphic/Logic-Engine/pull/670) — Core-owned actor-scoped knowledge reader и belief-transition boundary поверх слитой основы #665. Draft; на последней проверке exact-head CI ещё выполнялся, независимого review нет. Не production Memory → NPC и не полный WP-3 acceptance.
+- [PR #670](https://github.com/necromorphic/Logic-Engine/pull/670) — Core-owned actor-scoped knowledge reader и belief-transition boundary поверх слитой основы #665. Текущий проверенный кандидат `6afc1839a9e13a86cce690fe464960c500ac1392`: Provider blocker-3 PASS (30/30), Linux Runtime PASS (1105/1105), recalculation oracle PASS (20/20); full Windows Runtime run был CANCELLED и не засчитывается как PASS. Добавлены атомарные cursor rechecks и rollback-race regressions. Остался Core-вопрос: acquisition не закрепляет версию/значение факта, а reader берёт текущее значение по `fact_id` ([обсуждение #140](https://github.com/necromorphic/Logic-Engine/issues/140#issuecomment-6480878131)). Draft; независимого review нет, не production Memory → NPC и не полный WP-3 acceptance.
 
 **Обязательные блокеры включения:**
 1. Доказать полный Host inventory активных, исторических и удалённых версий переписки, включая пропущенные изменения, импорт, ветвление и восстановление.
