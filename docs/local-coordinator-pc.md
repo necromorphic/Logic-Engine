@@ -32,3 +32,26 @@ The queue generator reads current open issues directly through the authenticated
 ## Next increment
 
 Generate structured task packets from the selected issue (objective, dependencies, allowed/forbidden scope, acceptance criteria, evidence links, stop conditions), then add an explicit approval step before publishing a task to a supported external channel. Full dispatch to separate ChatGPT chats requires an available, authorized agent interface; do not simulate this with comments or claim dispatch occurred.
+
+
+## Evidence-gated automatic stage closure
+
+The monitor can optionally close a tracking issue when its declared acceptance evidence is complete. This is not automatic code merging or production enablement.
+
+Run with the explicit opt-in flag:
+
+```powershell
+python .\\scripts\\local-coordinator.py 300 --auto-close-stages
+```
+
+A stage is eligible only when **all** conditions hold:
+
+1. The issue has the explicit `stage:auto-close` label.
+2. Its body contains `<!-- stage-status: READY_TO_CLOSE -->`.
+3. It has at least one checked checklist item and no unchecked checklist items.
+4. It contains exact links to every PR whose evidence is required.
+5. Every linked PR is merged and every reported exact-head check is `SUCCESS`.
+
+Missing PR links, missing checks, pending/failing/skipped checks, unmerged PRs, or incomplete checklists keep the issue open. The script adds a closure comment naming the PR head commits and explicitly states that issue closure does not enable Memory→NPC. It never merges code, edits source, or changes production gates. The default monitor command remains read-only; automatic closure is off unless the flag is supplied.
+
+Unit tests: `python -m unittest tests.test_coordinator_stage_closer`.
