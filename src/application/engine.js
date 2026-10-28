@@ -4,7 +4,7 @@ import { hashRequest } from '../core/request-hash.js';
 import { validateEffects } from '../core/rules.js';
 import { validateTrustedInitialKnowledgeSource } from './trusted-initial-knowledge-source.js';
 import { validateNpcKnowledgeRead, validateNpcKnowledgeReadInput } from './npc-knowledge-read.js';
-import { buildNpcBeliefContext, reduceNpcBeliefTransition } from './npc-belief-state.js';
+import { buildNpcBeliefContext, npcPropositionRefFor, reduceNpcBeliefTransition } from './npc-belief-state.js';
 import { validateMechanicTemplate, validateRuleModuleManifest } from '../core/mechanics.js';
 import { normalizeTimeTrigger, planDueWork } from '../time/scheduler.js';
 import { normalizeProcessDefinition, validateProcessTransition } from '../process/contract.js';
@@ -674,6 +674,7 @@ export class LogicEngine {
       'A trusted deployment-owned per-acquisition visibility authorizer is required.', 403);
     const read = this.readNpcKnowledge(input);
     const visibleItems = [];
+    const withheldPropositionRefs = new Set();
     for (const item of read.items) {
       let decision;
       try {
@@ -718,6 +719,8 @@ export class LogicEngine {
           throw new EngineError('NPC_KNOWLEDGE_VISIBILITY_NOT_AUTHORIZED',
             'The visibility denial was not bound to this actor and snapshot.', 403);
         }
+        const withheldRef = npcPropositionRefFor(item);
+        if (withheldRef) withheldPropositionRefs.add(withheldRef);
         continue;
       }
       if (decision.status !== 'allowed'
@@ -733,7 +736,11 @@ export class LogicEngine {
       visibleItems.push(item);
     }
 
-    const visibleRead = Object.freeze({ ...read, items: Object.freeze(visibleItems) });
+    const visibleRead = Object.freeze({
+      ...read,
+      items: Object.freeze(visibleItems),
+      withheld_proposition_refs: Object.freeze([...withheldPropositionRefs]),
+    });
     const reduced = reduceNpcBeliefTransition({
       knowledgeRead: visibleRead,
       currentBelief,
