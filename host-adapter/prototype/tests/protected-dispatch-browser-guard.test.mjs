@@ -109,7 +109,7 @@ test('browser egress fence blocks cross-origin fetch before transport for enroll
     getMessages: () => [],
   });
   try {
-    await assert.rejects(() => browser.fetch('http://127.0.0.1:7851/tts', { method: 'POST' }), /PROTECTED_EGRESS_GATEWAY_REQUIRED/);
+    assert.throws(() => browser.fetch('http://127.0.0.1:7851/tts', { method: 'POST' }), /PROTECTED_EGRESS_GATEWAY_REQUIRED/);
     assert.equal(calls.length, 0, 'no direct external request may reach fetch');
   } finally {
     uninstall();
