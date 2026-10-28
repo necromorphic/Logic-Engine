@@ -92,3 +92,16 @@ test('pinned ST patch journals Core-accepted captures and requires tombstone evi
   assert.match(patch, /VERSION_DISAPPEARED_WITHOUT_ACCEPTED_TOMBSTONE/);
   assert.match(patch, /ENROLLMENT_FORWARD_ONLY_OBSERVED_INVENTORY_NON_AUTHORITATIVE/);
 });
+
+test('enrollment loss-detection marker is persisted before the registry entry', async () => {
+  const journalPath = fileURLToPath(new URL('../server-lifecycle-mutation-journal.mjs', import.meta.url));
+  const journal = await readFile(journalPath, 'utf8');
+  const start = journal.indexOf('export async function registerHostConversation(');
+  const end = journal.indexOf('export async function recordHostCaptureAcknowledgement(', start + 1);
+  assert.ok(start >= 0 && end > start, 'registration function exists');
+  const registration = journal.slice(start, end);
+  const markerWrite = registration.indexOf('await ensureEnrollmentMarker(paths);');
+  const registryWrite = registration.indexOf('await atomicWriteJson(paths.registryPath, registry);');
+  assert.ok(markerWrite >= 0 && registryWrite > markerWrite,
+    'loss-detection marker must be persisted before the enrollment registry can become durable');
+});
