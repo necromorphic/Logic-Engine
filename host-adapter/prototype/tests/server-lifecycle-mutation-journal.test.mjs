@@ -296,7 +296,7 @@ test('rejected 4xx that changed an artifact remains unresolved', async () => {
 test('5xx response with no persisted changes remains unresolved', async () => {
     const { root, directories, request } = await fixture();
     try {
-        await writeFile(path.join(directories.chats, 'chat-1.jsonl'), '{"mes":"before"}\\n');
+        await writeFile(path.join(directories.chats, 'chat-1.jsonl'), '{"mes":"before"}\n');
         await registerHostConversation(request, {
             conversationId: 'conversation-1',
             sourceLocator: 'chat-1',
@@ -311,7 +311,7 @@ test('5xx response with no persisted changes remains unresolved', async () => {
         await response.finished;
 
         const ledger = await readFile(path.join(root, '.logic-engine-host', 'mutation-ledger.jsonl'), 'utf8');
-        const records = ledger.trim().split('\\n').map(record => JSON.parse(record));
+        const records = ledger.trim().split('\n').map(record => JSON.parse(record));
         assert.equal(records.at(-1).status, 'UNRESOLVED');
         assert.equal(records.at(-1).httpStatus, 500);
 
