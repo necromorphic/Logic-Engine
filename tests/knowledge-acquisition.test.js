@@ -106,7 +106,7 @@ test('source-event rollback invalidates only assignments supported by that sourc
     item_id: 'rumor-about-haruka',
     source_kind: 'imported',
     source_ref: 'event:import-source',
-    source_version: 'import-v1',
+    source_version: '3',
     authorization_ref: 'import-approval-1',
     expected_revision: 3,
   }));
