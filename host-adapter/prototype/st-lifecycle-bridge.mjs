@@ -50,13 +50,17 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
       }
       for (let index = 0; index < identity.versions.length; index++) {
         const version = identity.versions[index];
-        if (!version?.versionId || !/^[a-f0-9]{64}$/.test(version.payloadDigest)) {
-          throw Error('NON_READY: cannot publish Host version inventory with invalid digest identity');
+        if (!version?.versionId || !/^[a-f0-9]{64}$/.test(version.payloadDigest)
+          || !Object.hasOwn(version, 'parentVersionId')
+          || (version.parentVersionId !== null
+            && (typeof version.parentVersionId !== 'string' || !version.parentVersionId))) {
+          throw Error('NON_READY: cannot publish Host version inventory with invalid or missing parent lineage');
         }
         entries.push({
           conversation_id: conversationId,
           message_id: identity.messageId,
           version_id: version.versionId,
+          parent_version_id: version.parentVersionId,
           content_sha256: version.payloadDigest,
           active: index === identity.activeVersionIndex,
           deleted: false,
@@ -69,13 +73,17 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
       || a.message_id.localeCompare(b.message_id) || a.version_id.localeCompare(b.version_id));
     for (const tombstone of tombstones) {
       if (!tombstone || typeof tombstone.messageId !== 'string' || typeof tombstone.versionId !== 'string'
-        || !/^[a-f0-9]{64}$/.test(tombstone.payloadDigest)) {
-        throw Error('NON_READY: cannot publish malformed Host tombstone');
+        || !/^[a-f0-9]{64}$/.test(tombstone.payloadDigest)
+        || !Object.hasOwn(tombstone, 'parentVersionId')
+        || (tombstone.parentVersionId !== null
+          && (typeof tombstone.parentVersionId !== 'string' || !tombstone.parentVersionId))) {
+        throw Error('NON_READY: cannot publish malformed Host tombstone or missing parent lineage');
       }
       entries.push({
         conversation_id: conversationId,
         message_id: tombstone.messageId,
         version_id: tombstone.versionId,
+        parent_version_id: tombstone.parentVersionId,
         content_sha256: tombstone.payloadDigest,
         active: false,
         deleted: true,
@@ -152,6 +160,12 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
   async function enrollCurrentConversation() {
     const conversationId = await getConversationId(), chat = getChat();
     if (!conversationId || !Array.isArray(chat)) throw Error('No active conversation; enrollment refused');
+    // Legacy ST swipes do not expose authoritative parent links. Never fabricate
+    // a root for each existing alternative: require a fresh, single-version
+    // baseline until the source provides verifiable lineage metadata.
+    if (chat.some(message => rawVersions(message).length > 1)) {
+      throw Error('NON_READY: legacy multi-swipe message has no source-backed parent lineage; enrollment refused');
+    }
     const fingerprint = await currentFingerprint(chat);
     const descriptors = chat.map(message => ({
       role: roleOf(message),
@@ -164,7 +178,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
         const identity = result.mapping[i];
         chat[i]._logicEngineLifecycle = {
           messageId: identity.messageId,
-          versions: identity.versions.map(version => ({ ...version, parentVersionId: null })),
+          versions: identity.versions.map(version => ({ ...version })),
           activeVersionIndex: identity.activeVersionIndex,
         };
       }
