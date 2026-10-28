@@ -2468,7 +2468,7 @@ diff --git a/src/endpoints/logic-engine-host-inventory.mjs b/src/endpoints/logic
 new file mode 100644
 --- /dev/null
 +++ b/src/endpoints/logic-engine-host-inventory.mjs
-@@ -0,0 +1,134 @@
+@@ -0,0 +1,136 @@
 +import { createHash } from 'node:crypto';
 +import { constants } from 'node:fs';
 +import { lstat, open, readdir, realpath } from 'node:fs/promises';
