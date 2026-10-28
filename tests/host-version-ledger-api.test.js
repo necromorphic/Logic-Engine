@@ -56,21 +56,21 @@ test('digest-only Host capture requires configured ledger, authenticated adapter
   const unavailable = await setup(t, { withLedger: false });
   const unavailableResponse = await fetch(unavailable.base + '/v1/host-version-ledger/capture', {
     method: 'POST', headers: { ...headers, 'x-adapter-id': 'adapter-a', 'x-adapter-token': ADAPTER },
-    body: json({ conversation_id: 'stable-host-chat', message_id: 'message-1', version_id: 'version-1', content_sha256: 'a'.repeat(64), active: true, deleted: false }),
+    body: json({ conversation_id: 'stable-host-chat', message_id: 'message-1', version_id: 'version-1', content_sha256: 'a'.repeat(64), parent_version_id: null, active: true, deleted: false }),
   });
   assert.equal(unavailableResponse.status, 503);
   assert.equal((await unavailableResponse.json()).error.code, 'HOST_VERSION_LEDGER_UNAVAILABLE');
 
   const { base } = await setup(t);
   const noAdapter = await fetch(base + '/v1/host-version-ledger/capture', {
-    method: 'POST', headers, body: json({ conversation_id: 'stable-host-chat', message_id: 'message-1', version_id: 'version-1', content_sha256: 'a'.repeat(64), active: true, deleted: false }),
+    method: 'POST', headers, body: json({ conversation_id: 'stable-host-chat', message_id: 'message-1', version_id: 'version-1', content_sha256: 'a'.repeat(64), parent_version_id: null, active: true, deleted: false }),
   });
   assert.equal(noAdapter.status, 403);
   assert.equal((await noAdapter.json()).error.code, 'ADAPTER_REQUIRED');
 
   const unbound = await fetch(base + '/v1/host-version-ledger/capture', {
     method: 'POST', headers: { ...headers, 'x-adapter-id': 'adapter-a', 'x-adapter-token': ADAPTER },
-    body: json({ conversation_id: 'stable-host-chat', message_id: 'message-1', version_id: 'version-1', content_sha256: 'a'.repeat(64), active: true, deleted: false }),
+    body: json({ conversation_id: 'stable-host-chat', message_id: 'message-1', version_id: 'version-1', content_sha256: 'a'.repeat(64), parent_version_id: null, active: true, deleted: false }),
   });
   assert.equal(unbound.status, 403);
   assert.equal((await unbound.json()).error.code, 'HOST_CONVERSATION_NOT_AUTHORIZED');
@@ -78,7 +78,7 @@ test('digest-only Host capture requires configured ledger, authenticated adapter
   assert.equal((await bind(base)).status, 201);
   const wrongAdapter = await fetch(base + '/v1/host-version-ledger/capture', {
     method: 'POST', headers: { ...headers, 'x-adapter-id': 'adapter-b', 'x-adapter-token': OTHER_ADAPTER },
-    body: json({ conversation_id: 'stable-host-chat', message_id: 'message-1', version_id: 'version-1', content_sha256: 'a'.repeat(64), active: true, deleted: false }),
+    body: json({ conversation_id: 'stable-host-chat', message_id: 'message-1', version_id: 'version-1', content_sha256: 'a'.repeat(64), parent_version_id: null, active: true, deleted: false }),
   });
   assert.equal(wrongAdapter.status, 403);
   assert.equal((await wrongAdapter.json()).error.code, 'HOST_CONVERSATION_NOT_AUTHORIZED');
@@ -97,7 +97,7 @@ test('digest-only Host capture forbids caller world and raw text, then records o
 
   const captured = await fetch(base + '/v1/host-version-ledger/capture', {
     method: 'POST', headers: adapterHeaders,
-    body: json({ conversation_id: 'stable-host-chat', message_id: 'message-1', version_id: 'version-1', content_sha256: 'a'.repeat(64), active: true, deleted: false }),
+    body: json({ conversation_id: 'stable-host-chat', message_id: 'message-1', version_id: 'version-1', content_sha256: 'a'.repeat(64), parent_version_id: null, active: true, deleted: false }),
   });
   assert.equal(captured.status, 201);
   assert.equal((await captured.json()).capture.status, 'captured');
@@ -117,7 +117,7 @@ test('digest conflict is surfaced as 409 and cannot be hidden by the HTTP layer'
   const adapterHeaders = { ...headers, 'x-adapter-id': 'adapter-a', 'x-adapter-token': ADAPTER };
   const capture = (sha) => fetch(base + '/v1/host-version-ledger/capture', {
     method: 'POST', headers: adapterHeaders,
-    body: json({ conversation_id: 'stable-host-chat', message_id: 'message-1', version_id: 'version-1', content_sha256: sha, active: true, deleted: false }),
+    body: json({ conversation_id: 'stable-host-chat', message_id: 'message-1', version_id: 'version-1', content_sha256: sha, parent_version_id: null, active: true, deleted: false }),
   });
   assert.equal((await capture('a'.repeat(64))).status, 201);
   const conflict = await capture('b'.repeat(64));
