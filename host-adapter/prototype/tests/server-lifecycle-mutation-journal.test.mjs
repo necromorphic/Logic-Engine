@@ -712,7 +712,7 @@ test('chat and group-chat imports are rejected while their respective Host histo
             const persisted = [
                 JSON.stringify({ chat_metadata: { logic_engine_conversation_id: item.identity } }),
                 JSON.stringify({ mes: item.message }),
-            ].join('\\n') + '\\n';
+            ].join('\n') + '\n';
             await writeFile(chatPath, persisted);
             await registerHostConversation(request, {
                 conversationId: '00000000-0000-4000-8000-000000000001:' + item.identity,
@@ -728,7 +728,7 @@ test('chat and group-chat imports are rejected while their respective Host histo
             let reachedHandler = false;
             await createHostLifecycleMutationMiddleware()(request, response, async () => {
                 reachedHandler = true;
-                await writeFile(chatPath, JSON.stringify({ mes: 'imported replacement' }) + '\\n');
+                await writeFile(chatPath, JSON.stringify({ mes: 'imported replacement' }) + '\n');
                 response.json({ ok: true });
             });
             await response.finished;
