@@ -53,42 +53,66 @@ export class AcceptedHeadAuthority {
     this.#installationId = installationId;
     const absolutePath = canonicalPath(path);
     mkdirSync(dirname(absolutePath), { recursive: true });
+    const databaseExisted = existsSync(absolutePath);
     this.#db = new DatabaseSync(absolutePath);
     try {
       this.#db.exec('PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;');
-      this.#db.exec(`
-        CREATE TABLE IF NOT EXISTS authority_installation (
-          singleton INTEGER PRIMARY KEY CHECK (singleton=1),
-          installation_id TEXT NOT NULL
-        );
-        CREATE TABLE IF NOT EXISTS authority_domain_heads (
-          domain TEXT PRIMARY KEY CHECK (domain IN ('core','provider')),
-          head INTEGER NOT NULL CHECK (head >= 0),
-          enrolled INTEGER NOT NULL DEFAULT 0 CHECK (enrolled IN (0,1))
-        );
-        CREATE TABLE IF NOT EXISTS authority_operations (
-          operation_id TEXT PRIMARY KEY,
-          domain TEXT NOT NULL CHECK (domain IN ('core','provider')),
-          resulting_head INTEGER NOT NULL CHECK (resulting_head > 0),
-          operation_digest TEXT NOT NULL,
-          operation_kind TEXT NOT NULL CHECK (operation_kind IN ('enroll','mutation')),
-          status TEXT NOT NULL CHECK (status IN ('pending','committed')),
-          created_at TEXT NOT NULL
-        );
-      `);
-      this.#db.exec('BEGIN IMMEDIATE;');
-      try {
-        this.#db.prepare('INSERT OR IGNORE INTO authority_installation(singleton, installation_id) VALUES(1, ?)').run(installationId);
-        const stored = this.#db.prepare('SELECT installation_id FROM authority_installation WHERE singleton=1').get();
-        if (!stored || stored.installation_id !== installationId) {
+      if (!databaseExisted) {
+        this.#db.exec(`
+          CREATE TABLE authority_installation (
+            singleton INTEGER PRIMARY KEY CHECK (singleton=1),
+            installation_id TEXT NOT NULL
+          );
+          CREATE TABLE authority_domain_heads (
+            domain TEXT PRIMARY KEY CHECK (domain IN ('core','provider')),
+            head INTEGER NOT NULL CHECK (head >= 0),
+            enrolled INTEGER NOT NULL DEFAULT 0 CHECK (enrolled IN (0,1))
+          );
+          CREATE TABLE authority_operations (
+            operation_id TEXT PRIMARY KEY,
+            domain TEXT NOT NULL CHECK (domain IN ('core','provider')),
+            resulting_head INTEGER NOT NULL CHECK (resulting_head > 0),
+            operation_digest TEXT NOT NULL,
+            operation_kind TEXT NOT NULL CHECK (operation_kind IN ('enroll','mutation')),
+            status TEXT NOT NULL CHECK (status IN ('pending','committed')),
+            created_at TEXT NOT NULL
+          );
+        `);
+        this.#db.exec('BEGIN IMMEDIATE;');
+        try {
+          this.#db.prepare('INSERT INTO authority_installation(singleton, installation_id) VALUES(1, ?)').run(installationId);
+          this.#db.prepare('INSERT INTO authority_domain_heads(domain, head, enrolled) VALUES(?, 0, 0)').run('core');
+          this.#db.prepare('INSERT INTO authority_domain_heads(domain, head, enrolled) VALUES(?, 0, 0)').run('provider');
+          this.#db.exec('COMMIT;');
+        } catch (error) {
+          try { this.#db.exec('ROLLBACK;'); } catch {}
+          throw error;
+        }
+      } else {
+        // Existing authority state is authoritative. Never recreate missing schema
+        // or rows on restart: damage/restore must fail closed for operator recovery.
+        const tables = new Set(this.#db.prepare(
+          "SELECT name FROM sqlite_master WHERE type='table'",
+        ).all().map((row) => row.name));
+        for (const table of ['authority_installation', 'authority_domain_heads', 'authority_operations']) {
+          if (!tables.has(table)) throw new Error('ACCEPTED_HEAD_SCHEMA_INVALID');
+        }
+        this.#db.prepare('SELECT status FROM authority_operations LIMIT 0').all();
+        const installations = this.#db.prepare(
+          'SELECT singleton, installation_id FROM authority_installation',
+        ).all();
+        if (installations.length !== 1 || installations[0].singleton !== 1
+          || installations[0].installation_id !== installationId) {
           throw new Error('ACCEPTED_HEAD_INSTALLATION_MISMATCH');
         }
-        this.#db.prepare('INSERT OR IGNORE INTO authority_domain_heads(domain, head, enrolled) VALUES(?, 0, 0)').run('core');
-        this.#db.prepare('INSERT OR IGNORE INTO authority_domain_heads(domain, head, enrolled) VALUES(?, 0, 0)').run('provider');
-        this.#db.exec('COMMIT;');
-      } catch (error) {
-        try { this.#db.exec('ROLLBACK;'); } catch {}
-        throw error;
+        const domains = this.#db.prepare(
+          'SELECT domain, head, enrolled FROM authority_domain_heads ORDER BY domain',
+        ).all();
+        if (domains.length !== 2 || domains[0].domain !== 'core' || domains[1].domain !== 'provider'
+          || domains.some((row) => !Number.isSafeInteger(row.head) || row.head < 0
+            || ![0, 1].includes(row.enrolled))) {
+          throw new Error('ACCEPTED_HEAD_STATE_INVALID');
+        }
       }
     } catch (error) {
       try { this.#db.close(); } catch {}
@@ -273,6 +297,15 @@ export function createAcceptedHeadAuthorityServer({
   return createServer((request, response) => {
     response.setTimeout(2000, () => response.destroy());
     if (request.method === 'GET' && request.url === '/v1/heads') {
+      const token = request.headers.authorization?.startsWith('Bearer ')
+        ? request.headers.authorization.slice(7) : '';
+      // Status is read-only, but must not disclose cross-domain authority state to
+      // unauthenticated local processes. Either enrolled service credential may read;
+      // mutation endpoints still require the matching domain-specific credential.
+      if (!safeTokenEqual(tokens.core, token) && !safeTokenEqual(tokens.provider, token)) {
+        reply(response, 403, { error: 'DENIED' });
+        return;
+      }
       try {
         reply(response, 200, { heads: authority.getHeads(), pending: authority.getPendingDomains(), enrolled: authority.getEnrollmentStatus() });
       } catch {
