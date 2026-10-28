@@ -1,6 +1,6 @@
 # NPC Epistemic Model — Stage 1 Contract Proposal
 
-Status: semantic design proposal; not an implementation or authorization to enable Memory → NPC.
+Status: Stage 1 semantic contract COMPLETE (documentation and owner-decision reconciliation only); not an implementation or authorization to enable Memory → NPC.
 
 ## 1. Purpose
 Define the minimum distinctions an NPC cognition system must preserve between world truth, information available to a subject, the subject's beliefs, and unresolved evidence. This contract is intended for later acquisition, belief-revision, decision-context, planning, and social-reasoning stages.
@@ -95,12 +95,26 @@ The context must identify stale, incomplete, or invalidated evidence when safe a
 - No runtime schema/API/store is introduced by the semantic proposal alone.
 - Memory → NPC remains DISABLED / FAIL-CLOSED.
 
-## 10. Open decisions that must not be guessed
-1. Is authorized acquisition sufficient to label a proposition known_true/known_false, or is a separate belief-acceptance transition required?
-2. Does stale evidence automatically downgrade a belief, merely mark it stale, or trigger reconsideration only at the next decision?
-3. Can beliefs be forgotten/expire? No time-based forgetting is assumed.
-4. Does source revocation invalidate a derived belief completely or mark it unsupported/contested when independent evidence remains?
-5. Is confidence needed? No numeric probability semantics are introduced here.
-6. Which existing Core representation best supports subject-relative acquisition and belief transitions without a parallel store?
+## 10. Contract reconciliation and Stage 1 decisions
 
-Resolve these by checking existing contracts and recording explicit owner decisions. Do not silently choose a schema or alter existing contracts during implementation.
+Reviewed against the current Core contracts and the recorded author/core-owner decisions in:
+- `docs/07-knowledge-and-narrative-boundaries.md` — truth, subject-relative knowledge, narrative delivery and retrieval are separate; missing/withheld are not false; source invalidation must preserve independent support.
+- `docs/31-npc-subsystem-contract.md` and `docs/38-npc-author-decisions-and-semantic-delta.md` — NPCs may retain false beliefs, reason differently from the same evidence, forget or doubt, and act on mistaken beliefs only through normal Core validation/commit.
+- `docs/39-npc-core-knowledge-contract-proposal.md` §10 and §§13–16 — Core owns acquisition/provenance, delivery status, reconciliation and persistent subject-relative belief; acquisition does not force belief; belief does not establish acquisition or truth.
+- `docs/43-core-npc-knowledge-runtime-implementation-plan.md`, `docs/49-npc-core-knowledge-live-audit.md`, `docs/50-npc-initial-knowledge-acquisition-contract.md`, and `docs/51-npc-acquisition-source-reconciliation.md` — the real acquisition and actor/purpose/snapshot-filter interfaces remain absent or unverified; the first supported acquisition kinds are only `author_initial` and `imported`.
+- `docs/32-npc-semantic-acceptance-matrix.md` and `docs/35-npc-test-boundary-map.md` — semantic scenarios already have a repository acceptance/test-traceability home; actual production-boundary tests remain dependent on missing Core interfaces.
+
+### Decisions resolved for the semantic model
+
+1. **Acquisition is not belief and does not prove objective truth.** An authorized acquisition establishes only that a subject was assigned/acquired a claim or source through an approved path. It must not automatically become `known_true`, `known_false`, or an accepted belief. Keep “acquired claim/source”, current belief stance, and canonical truth separate. The first Core acquisition slice does not implement persistent belief transitions.
+2. **Stale evidence does not silently rewrite belief.** Mark the evidence/acquisition stale or unusable under its governing Core rule. Preserve the subject's existing belief as a separate state; a later revision/reconsideration requires an explicit policy and traceable evidence. Do not auto-downgrade or auto-correct a belief merely because canonical truth changed.
+3. **Forgetting is allowed, but no implicit expiry exists.** The author-confirmed semantic target permits forgetting/loss of detail and changing beliefs. There is no default time-to-live, wall-clock expiry, or automatic forgetting rule. Any forgetting/expiry mechanism requires an explicit policy, causal/audit treatment, and later-stage acceptance tests.
+4. **Revocation invalidates evidence support, not history by fiat.** Stop using the revoked source. Reconcile acquisition support against remaining independently valid sources. Preserve independent valid support. If no valid support remains, mark the derived support invalid/unsupported or contested according to the applicable record semantics; do not silently delete acquisition history or force the character's belief to change without a separate belief-revision transition.
+5. **No numeric confidence scale in Stage 1.** Preserve qualitative states, provenance and conflicting evidence. Numeric confidence is deferred until its scale, meaning, owner, calibration and update rules are explicitly approved. Personality and relationships may affect interpretation and priorities, not evidence admissibility or canonical truth.
+6. **The concrete Core representation remains a later implementation decision.** Reuse existing Core identity, snapshot and lifecycle contracts; do not introduce an NPC-local store, event log, revision counter, causal graph or rollback path. Current source audits do not establish a complete acquisition/belief record or actor/purpose/snapshot-bound safe read. This is an implementation blocker for later stages, not a reason to leave Stage 1 semantics undefined.
+
+### Acceptance mapping and scope boundary
+
+The twelve scenarios in §8 are semantic acceptance requirements. Their existing repository traceability is through the NPC semantic acceptance matrix and test-boundary map; production-path execution is blocked wherever the required Core interface is absent. In particular, actor isolation, acquisition provenance, revocation/replay, safe pre-model filtering, and persistent belief transitions must not be marked as runtime-tested on the strength of documentation or mocks.
+
+Stage 1 is complete as a **semantic contract and decision record only**. It does not claim that acquisition, persistent beliefs, Memory retrieval, actor-relative reads, or NPC dispatch are implemented. Memory → NPC remains **DISABLED / FAIL-CLOSED**. No runtime schema, API, storage, prompt, vectorization or dispatch changes are authorized by this document.
