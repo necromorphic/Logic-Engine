@@ -1170,11 +1170,14 @@ export class LogicEngine {
     // Visibility callbacks can race a canonical commit/revocation after the raw
     // read's own cursor check. Revalidate before returning either unavailable
     // or ready so the belief response is bound to the same current snapshot.
-    const worldNow = this.store.world(input.world_id);
-    const sequenceNow = this.store.currentCommitSequence(input.world_id);
-    assert(worldNow && worldNow.status === 'active'
-      && worldNow.world_revision === read.snapshot.world_revision
-      && sequenceNow === read.snapshot.commit_sequence,
+    // Keep revision and event sequence from one read transaction. Rollback
+    // advances world_revision without advancing commit_sequence, so separate
+    // reads can accidentally combine values from opposite sides of a rollback.
+    let snapshotNow;
+    try { snapshotNow = this.getSnapshot(input.world_id); } catch { snapshotNow = null; }
+    assert(snapshotNow && snapshotNow.status === 'active'
+      && snapshotNow.world_revision === read.snapshot.world_revision
+      && snapshotNow.commit_sequence === read.snapshot.commit_sequence,
     'NPC_KNOWLEDGE_READ_NOT_READY',
     'World snapshot changed while reconciling NPC belief state; retry from a fresh snapshot.', 409);
 
