@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
-import { mkdir, readFile, writeFile, rm } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, rm, symlink } from 'node:fs/promises';
 import { createHostLifecycleMutationMiddleware, getHostMutationJournalStatus, reconcileHostMutation, registerHostConversation } from '../server-lifecycle-mutation-journal.mjs';
 
 async function fixture() {
@@ -863,3 +863,29 @@ test('enrolled group-chat save without a request-bound lifecycle capability is r
     }
 });
 
+
+
+test('enrollment marker follows the canonical chat root when the configured chat path is a symlink', async () => {
+    const { root, directories, request } = await fixture();
+    const aliasParent = path.join(root, 'alternate-parent');
+    const aliasedChats = path.join(aliasParent, 'chats');
+    try {
+        await mkdir(aliasParent, { recursive: true });
+        await symlink(directories.chats, aliasedChats, 'dir');
+        request.user.directories.chats = aliasedChats;
+
+        await registerHostConversation(request, {
+            conversationId: 'conversation-1',
+            sourceLocator: 'chat-1',
+            domain: 'chats',
+        });
+
+        const markerPath = path.join(root, '.logic-engine-host-enrollment-marker');
+        const marker = JSON.parse(await readFile(markerPath, 'utf8'));
+        assert.equal(marker.version, 1);
+        assert.equal(marker.purpose, 'host-enrollment-present');
+        await assert.rejects(readFile(path.join(aliasParent, '.logic-engine-host-enrollment-marker'), 'utf8'), { code: 'ENOENT' });
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
