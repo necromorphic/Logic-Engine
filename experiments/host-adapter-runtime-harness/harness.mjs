@@ -239,7 +239,12 @@ test('real pinned regular and group save routes consume one-shot capabilities be
   await acknowledge(regularConversationId, regularMessageId, regularV2, regularV2Text, { parentVersionId: regularV1, active: false });
   await acknowledge(groupConversationId, groupMessageId, groupV1, groupV1Text, { active: false });
   await acknowledge(groupConversationId, groupMessageId, groupV2, groupV2Text, { parentVersionId: groupV1, active: true });
-  assert.equal((await getHostConversationInventory(enrollmentRequest)).complete, true);
+  const initialInventory = await getHostConversationInventory(enrollmentRequest);
+  assert.equal(initialInventory.complete, true, JSON.stringify({
+    status: initialInventory.status,
+    errors: initialInventory.errors,
+    mutationJournal: initialInventory.mutationJournal,
+  }));
 
   const app = express();
   app.use(express.json({ limit: '2mb' }));
