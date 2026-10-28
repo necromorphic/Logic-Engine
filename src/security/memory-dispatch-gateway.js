@@ -325,7 +325,7 @@ export class MemoryDispatchGateway {
       || typeof model !== 'string' || !/^[A-Za-z0-9._-]{1,128}$/.test(model)
       || typeof stream !== 'boolean'
       || typeof body !== 'string' || body.length === 0 || body.length > 4_000_000
-      || typeof transport !== 'function'
+      || typeof transport !== 'function' || transport.constructor?.name === 'AsyncFunction'
       || !validText(adapterId, 200) || !validText(conversationId, 200)
       || !validText(worldId, 200) || !validText(actorId, 200) || !validText(purpose, 200)) {
       throw new Error('MEMORY_DISPATCH_NOT_READY');
