@@ -158,3 +158,10 @@ The following require real production boundaries and remain blocked as integrati
 - NPC-state rollback and recovery after restart.
 
 This specification does not select an `observe` evidence source, decide the trusted NPC caller/purpose owner, resolve the Core acquisition contract review, or authorize runtime/API/schema/storage/dispatcher/scheduler/worker changes. `Memory → NPC` remains **DISABLED / FAIL-CLOSED**; Host remains **NON_READY**.
+
+
+## 5. Current seam audit
+
+The initial seven cases are **specified**, not all currently executable as pure tests. See `docs/87-npc-semantic-test-seam-audit.md` for the source-checked mapping to existing functions and tests. In particular, the goal/plan reducer, report lifecycle, actor-relative awareness, player-agency output gate, and NPC action-result correlation seams were not identified. Adjacent Core tests must not be relabelled as passing those NPC cases.
+
+Implementation rule: only add an executable test when it calls a real existing, owner-approved function or production boundary. For a blocked case, retain the specification and request the missing owner/boundary decision; do not add a mock implementation or a new runtime seam to make the test pass.
