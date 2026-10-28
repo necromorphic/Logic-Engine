@@ -10,7 +10,45 @@ const PLAN_STATUSES = ["active", "blocked", "completed", "abandoned"];
 const STEP_STATUSES = ["pending", "active", "blocked", "completed"];
 const TERMINAL_PLANS = new Set(["completed", "abandoned"]);
 
+const INTRINSIC_OBJECT_PROTOTYPE_KEYS = new Set([
+  "constructor", "__defineGetter__", "__defineSetter__", "hasOwnProperty",
+  "__lookupGetter__", "__lookupSetter__", "isPrototypeOf", "propertyIsEnumerable",
+  "toString", "valueOf", "__proto__", "toLocaleString",
+]);
+const INTRINSIC_ARRAY_ITERATOR = Array.prototype[Symbol.iterator];
+
+function hasSafeObjectPrototype() {
+  try {
+    const keys = Reflect.ownKeys(Object.prototype);
+    for (const key of keys) {
+      if (typeof key !== "string" || !INTRINSIC_OBJECT_PROTOTYPE_KEYS.has(key)) return false;
+      const descriptor = Object.getOwnPropertyDescriptor(Object.prototype, key);
+      if (!descriptor) return false;
+      if (key === "__proto__") {
+        if (!Object.hasOwn(descriptor, "get") || !Object.hasOwn(descriptor, "set")) return false;
+      } else if (!Object.hasOwn(descriptor, "value")) {
+        return false;
+      }
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function hasSafeArrayIterator() {
+  try {
+    const descriptor = Object.getOwnPropertyDescriptor(Array.prototype, Symbol.iterator);
+    return descriptor != null
+      && Object.hasOwn(descriptor, "value")
+      && descriptor.value === INTRINSIC_ARRAY_ITERATOR;
+  } catch {
+    return false;
+  }
+}
+
 function isPlainDataObject(value) {
+  if (!hasSafeObjectPrototype()) return false;
   if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
   const prototype = Object.getPrototypeOf(value);
   if (prototype !== Object.prototype && prototype !== null) return false;
@@ -25,7 +63,7 @@ function nonEmptyString(value) {
 }
 
 function denseArray(value) {
-  if (!Array.isArray(value)) return false;
+  if (!hasSafeArrayIterator() || !Array.isArray(value)) return false;
   for (let i = 0; i < value.length; i += 1) {
     const descriptor = Object.getOwnPropertyDescriptor(value, String(i));
     if (descriptor == null || !Object.hasOwn(descriptor, "value")) return false;
