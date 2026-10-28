@@ -584,3 +584,58 @@ test('paused lifecycle state and trigger cancellation survive restart before res
   assert.equal(process.progress.completed, 1);
   assert.equal(process.milestones.find((milestone) => milestone.milestone_id === 'depart').status, 'completed');
 }));
+
+
+test('rollback quarantines future triggers while preserving pending milestone checkpoints', (t) => withDatabase(t, ({ engine, store }) => {
+  store.createWorld(worldInput());
+  engine.createProcess('world-a', processInput());
+
+  const before = engine.getState('world-a');
+  const firstAdvance = engine.startTimeAdvance('world-a', {
+    idempotency_key: 'advance-depart-before-rollback',
+    expected_revision: before.world_revision,
+    to_coordinate: 1000,
+  });
+  assert.equal(firstAdvance.status, 'completed');
+
+  let process = engine.getProcess('world-a', 'journey-1');
+  const depart = process.milestones.find((milestone) => milestone.milestone_id === 'depart');
+  const arrive = process.milestones.find((milestone) => milestone.milestone_id === 'arrive');
+  assert.equal(depart.status, 'completed');
+  assert.equal(arrive.status, 'pending');
+  const invalidatedEventId = depart.completed_event_ids[0];
+  assert.ok(invalidatedEventId);
+
+  const rollback = engine.rollbackEvent('world-a', {
+    root_event_id: invalidatedEventId,
+    idempotency_key: 'rollback-depart-with-pending-arrival',
+  });
+  assert.equal(rollback.accepted, true);
+  assert.equal(rollback.rollback_outcome, 'resolved');
+
+  process = engine.getProcess('world-a', 'journey-1');
+  assert.equal(process.status, 'needs_review');
+  assert.equal(process.milestones.find((milestone) => milestone.milestone_id === 'depart').status, 'needs_review');
+  // The checkpoint remains pending for explicit reconciliation, but its trigger
+  // must no longer be eligible for the shared scheduler.
+  assert.equal(process.milestones.find((milestone) => milestone.milestone_id === 'arrive').status, 'pending');
+  const arrivalTrigger = engine.getTimeTrigger('world-a', 'journey-arrive');
+  assert.equal(arrivalTrigger.status, 'cancelled');
+  assert.equal(arrivalTrigger.cancellation_reason, 'process_rollback_needs_review');
+
+  const afterRollback = engine.getState('world-a');
+  const laterAdvance = engine.startTimeAdvance('world-a', {
+    idempotency_key: 'advance-after-rollback-with-pending-trigger',
+    expected_revision: afterRollback.world_revision,
+    to_coordinate: 2000,
+  });
+  assert.equal(laterAdvance.status, 'completed');
+  process = engine.getProcess('world-a', 'journey-1');
+  assert.equal(process.status, 'needs_review');
+  assert.equal(process.milestones.find((milestone) => milestone.milestone_id === 'arrive').status, 'pending');
+
+  const triggerAudit = engine.getAudit('world-a').filter((entry) => entry.action === 'time.trigger.cancelled'
+    && entry.target_id === 'journey-arrive');
+  assert.equal(triggerAudit.length, 1);
+  assert.equal(triggerAudit[0].payload.reason, 'process_rollback_needs_review');
+}));
