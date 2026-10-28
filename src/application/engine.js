@@ -163,8 +163,12 @@ function validateIndependentSegment(events) {
 }
 
 export class LogicEngine {
-  constructor(store) {
+  constructor(store, { initialAcquisitionPolicy = null } = {}) {
+    if (initialAcquisitionPolicy !== null && typeof initialAcquisitionPolicy !== 'function') {
+      throw new TypeError('initialAcquisitionPolicy must be trusted deployment-owned configuration');
+    }
     this.store = store;
+    this.initialAcquisitionPolicy = initialAcquisitionPolicy;
     this.processStore = new ProcessStore(store);
     this.store.processStore = this.processStore;
   }
@@ -545,7 +549,10 @@ export class LogicEngine {
     if (seconds > 0) assert(options.durationDecision?.status === 'resolved' || ['time.advance', 'action.completed'].includes(x.event_type), 'INVALID_TIME_ADVANCE', 'Positive duration requires a supported time event or an active TimePolicy decision.');
 
     const effects = x.effects ?? [];
-    validateEffects(effects, { allowRelationshipTransition: options.allowRelationshipTransition === true });
+    validateEffects(effects, {
+      allowRelationshipTransition: options.allowRelationshipTransition === true,
+      allowKnowledgeAcquisition: options.allowKnowledgeAcquisition === true,
+    });
     const request = {
       operation: 'event.commit',
       event_id: x.event_id ?? null,
@@ -599,6 +606,59 @@ export class LogicEngine {
         'A direct timed commit cannot cross registered scheduled work; use the Core timed-action or time-advance operation.',
         409, { trigger_ids: due, from_coordinate: world.game_time_coordinate, to_coordinate: targetCoordinate });
     }
+  }
+
+  /**
+   * Core-internal trusted acquisition writer. No HTTP route exposes this method.
+   * Provenance and authorization are derived only by deployment-owned policy,
+   * never by fields supplied by NPC, Memory, or Host request payloads.
+   */
+  recordInitialAcquisition(input) {
+    assert(obj(input), 'INVALID_KNOWLEDGE_ACQUISITION', 'Acquisition request must be an object.');
+    const authorizeAssignment = this.initialAcquisitionPolicy;
+    assert(typeof authorizeAssignment === 'function', 'KNOWLEDGE_AUTHORITY_REQUIRED', 'No trusted Core authoring/import policy is configured.', 403);
+    const allowed = ['world_id', 'adapter_id', 'subject_id', 'fact_id', 'acquisition_kind', 'idempotency_key', 'expected_revision', 'expected_commit_sequence', 'turn_id'];
+    assert(Object.keys(input).every((key) => allowed.includes(key)), 'UNSUPPORTED_KNOWLEDGE_ACQUISITION_FIELD', 'Acquisition request contains unsupported fields.');
+    for (const key of ['world_id', 'adapter_id', 'subject_id', 'fact_id', 'idempotency_key']) {
+      assert(typeof input[key] === 'string' && input[key].trim() && input[key] === input[key].trim() && input[key].length <= 200, 'INVALID_KNOWLEDGE_ACQUISITION', key + ' is required.');
+    }
+    assert(['author_initial', 'imported'].includes(input.acquisition_kind), 'UNSUPPORTED_ACQUISITION_KIND', 'Only author_initial and imported are supported.', 400);
+    assert(Number.isSafeInteger(input.expected_revision) && input.expected_revision >= 0, 'INVALID_REVISION', 'expected_revision is required.');
+    assert(Number.isSafeInteger(input.expected_commit_sequence) && input.expected_commit_sequence >= 0, 'INVALID_COMMIT_SEQUENCE', 'expected_commit_sequence is required.');
+    const world = this.store.world(input.world_id);
+    assert(world, 'WORLD_NOT_FOUND', 'World not found.', 404);
+    let binding = null;
+    try {
+      binding = this.store.db.prepare('SELECT active FROM actor_bindings WHERE world_id=? AND adapter_id=? AND entity_id=?')
+        .get(input.world_id, input.adapter_id, input.subject_id);
+    } catch { /* Missing binding infrastructure fails closed below. */ }
+    assert(binding?.active === 1, 'ACTOR_NOT_AUTHORIZED', 'The authenticated adapter must be actively bound to this subject in this world.', 403);
+    const actor = this.store.db.prepare('SELECT entity_id,status FROM entities WHERE world_id=? AND entity_id=?').get(input.world_id, input.subject_id);
+    assert(actor && actor.status !== 'destroyed', 'ACQUISITION_SUBJECT_NOT_ELIGIBLE', 'Subject must be an existing non-destroyed entity in the target world.', 409);
+    const fact = this.store.db.prepare('SELECT status,source_event_ids_json FROM facts WHERE world_id=? AND fact_id=?').get(input.world_id, input.fact_id);
+    assert(fact && fact.status === 'active' && JSON.parse(fact.source_event_ids_json).length > 0, 'ACQUISITION_SOURCE_NOT_ELIGIBLE', 'Source fact must be active and have valid canonical support in this world.', 409);
+    const trusted = authorizeAssignment(Object.freeze({
+      world_id: input.world_id, adapter_id: input.adapter_id, subject_id: input.subject_id, fact_id: input.fact_id,
+      acquisition_kind: input.acquisition_kind, world_pack_id: world.world_pack_id,
+      world_pack_version: world.world_pack_version,
+    }));
+    assert(obj(trusted) && trusted.authorized === true
+      && typeof trusted.provenance_ref === 'string' && trusted.provenance_ref.trim() && trusted.provenance_ref.length <= 200
+      && typeof trusted.provenance_digest === 'string' && /^[a-f0-9]{64}$/.test(trusted.provenance_digest)
+      && typeof trusted.authorization_ref === 'string' && trusted.authorization_ref.trim() && trusted.authorization_ref.length <= 200,
+    'KNOWLEDGE_AUTHORITY_DENIED', 'Trusted authoring/import policy did not authorize a fully identified source assignment.', 403);
+    const acquisitionId = 'acq:' + hashRequest([input.world_id, input.subject_id, input.fact_id, input.acquisition_kind, trusted.provenance_ref]);
+    return this.commitEvent(input.world_id, {
+      idempotency_key: input.idempotency_key, turn_id: input.turn_id || 'core-initial-acquisition',
+      event_type: 'knowledge.acquisition.initial', expected_revision: input.expected_revision,
+      expected_commit_sequence: input.expected_commit_sequence, time_advance_seconds: 0,
+      caused_by: [], depends_on: ['fact:' + input.fact_id, 'entity:' + input.subject_id],
+      read_set: ['fact:' + input.fact_id, 'entity:' + input.subject_id],
+      causal_links: [{ relation: 'READS_CLAIM', target_id: input.fact_id }, { relation: 'READS_ENTITY', target_id: input.subject_id }],
+      effects: [{ kind: 'knowledge.acquire', acquisition_id: acquisitionId, subject_id: input.subject_id,
+        fact_id: input.fact_id, acquisition_kind: input.acquisition_kind, provenance_ref: trusted.provenance_ref,
+        provenance_digest: trusted.provenance_digest, authorization_ref: trusted.authorization_ref }],
+    }, { allowKnowledgeAcquisition: true });
   }
 
   commitEvent(id, x, options = {}) {
