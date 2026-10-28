@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { once } from 'node:events';
+import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
 import { DatabaseSync } from 'node:sqlite';
 import { AcceptedHeadAuthority } from '../src/security/accepted-head-authority.js';
@@ -292,5 +293,71 @@ test('authority refuses to seed a missing domain row after initialization', () =
   } finally {
     verify.close();
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+
+test('accepted-head authority service entrypoint starts authenticated loopback service', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-accepted-head-service-'));
+  const authorityPath = join(directory, 'authority.sqlite');
+  const previousEnv = process.env;
+  const coreServiceToken = 'core-service-entrypoint-token-00000000000000000000000000000001';
+  const providerServiceToken = 'provider-service-entrypoint-token-00000000000000000000000000000002';
+  const readServiceToken = 'read-service-entrypoint-token-00000000000000000000000000000003';
+  let child;
+  let portProbe;
+  try {
+    portProbe = createServer();
+    portProbe.listen(0, '127.0.0.1');
+    await once(portProbe, 'listening');
+    const port = portProbe.address().port;
+    await new Promise((resolve, reject) => portProbe.close((error) => error ? reject(error) : resolve()));
+    portProbe = null;
+
+    const scriptUrl = new URL('../scripts/security/run-accepted-head-authority.js', import.meta.url);
+    child = spawn(process.execPath, [scriptUrl.pathname], {
+      env: {
+        ...previousEnv,
+        LOGIC_ENGINE_ACCEPTED_HEAD_AUTHORITY_DB_PATH: authorityPath,
+        LOGIC_ENGINE_ACCEPTED_HEAD_INSTALLATION_ID: 'test-installation-service-entrypoint',
+        LOGIC_ENGINE_ACCEPTED_HEAD_CORE_TOKEN: coreServiceToken,
+        LOGIC_ENGINE_ACCEPTED_HEAD_PROVIDER_TOKEN: providerServiceToken,
+        LOGIC_ENGINE_ACCEPTED_HEAD_READ_TOKEN: readServiceToken,
+        LOGIC_ENGINE_ACCEPTED_HEAD_PORT: String(port),
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let output = '';
+    const ready = new Promise((resolve, reject) => {
+      child.stdout.setEncoding('utf8');
+      child.stdout.on('data', (chunk) => {
+        output += chunk;
+        const line = output.split('\n').find((entry) => entry.includes('"status":"listening"'));
+        if (line) resolve(JSON.parse(line));
+      });
+      child.stderr.setEncoding('utf8');
+      child.stderr.on('data', (chunk) => output += chunk);
+      child.once('error', reject);
+      child.once('exit', (code) => reject(new Error('Authority service exited before readiness: ' + code + ' ' + output)));
+    });
+    assert.deepEqual(await ready, { status: 'listening', host: '127.0.0.1', port });
+    const response = await fetch('http://127.0.0.1:' + port + '/v1/heads', {
+      headers: { authorization: 'Bearer ' + readServiceToken },
+    });
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.deepEqual(body.heads, { core: 0, provider: 0 });
+    assert.deepEqual(body.enrolled, { core: false, provider: false });
+    child.kill('SIGTERM');
+    const [code] = await once(child, 'exit');
+    assert.equal(code, 0);
+    child = null;
+  } finally {
+    try { portProbe?.close(); } catch {}
+    if (child) {
+      child.kill('SIGTERM');
+      await once(child, 'exit');
+    }
+    rmSync(directory, { recursive: true, force: true });
   }
 });
