@@ -97,3 +97,26 @@ These are repository-documented contracts; they are not a claim that every integ
 3. Map each invariant to an existing test; mark uncovered invariants and add only targeted tests.
 4. Resolve action-progress semantics before designing a generic interrupted/composite action mechanism.
 5. Update the project README/Notion registry only after the contract is reviewed, so a draft is not misrepresented as an approved requirement.
+
+
+## 8. Source-level verification notes (2026-10-28)
+
+The current repository sources provide stronger evidence for several cases than the initial gap table implied:
+
+- `tests/time-advance-operation.test.js` includes coverage for scheduled effects committed at their due coordinates, idempotent replay after world revision changes, rejection of idempotency-key reuse with changed request content, and blocked due work without advancing time.
+- `docs/63-time-advance-operation-runtime-slice.md` states that a running operation can resume after restart only when the canonical world still matches its last confirmed coordinate/revision; otherwise it becomes `needs_review`. Reusing the same key/request returns or resumes the existing operation; changing the request under the same key is rejected.
+- `docs/17-time-process-state-machine-proposal.md` explicitly warns that the Time-side tests in PR #284 are pure scheduler tests with a fixture adapter, not end-to-end runtime tests of persistence, API routing, lifecycle transitions, or the Core transaction.
+- `docs/78-time-trigger-registry-runtime-slice.md` documents that trigger identity is immutable, declared conflict sets are combined with event read/write effects, and dependency-unknown due work is blocked.
+
+### Revised verification status
+
+| Area | Evidence found | Remaining work |
+|---|---|---|
+| Due-coordinate order and time-advance target | Runtime test exists | Verify edge boundaries and all trigger-source modes |
+| Idempotency replay and changed-request rejection | Runtime tests exist | Add failure injection around every commit/response boundary if not already covered elsewhere |
+| Blocked due work | Runtime test exists | Verify registered-trigger mode and request-scoped compatibility mode separately |
+| Restart/recovery and revision mismatch | Runtime contract documented | Map each documented case to an explicit test name |
+| Pure scheduler semantics vs full runtime | Limitation explicitly documented | Do not use pure scheduler tests as evidence of transaction/API correctness |
+| Action-level partial progress | No general contract established by these sources | Resolve separately; do not infer it from time-advance segment checkpoints |
+
+**Correction to the earlier gap assessment:** idempotency and some blocked-work behavior are not merely undocumented; targeted runtime tests are present. The remaining question is breadth of coverage, especially crash points and end-to-end recovery—not absence of all tests.
