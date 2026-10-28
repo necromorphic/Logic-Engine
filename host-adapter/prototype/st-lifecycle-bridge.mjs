@@ -257,6 +257,11 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
     if (!CURRENTLY_HOOKED_PATHS.includes(operation)) {
       throw Error('NON_READY: unsupported/uninstrumented Host lifecycle operation ' + String(operation) + '; abort mutation before source change');
     }
+    // The adapter has no source-backed parent token for ST alternate generation.
+    // Reject before native mutation rather than guessing a parent from swipe slot order.
+    if (operation === 'create-swipe') {
+      throw Error('NON_READY: alternate generation has no source-backed parent lineage; abort mutation before source change');
+    }
     const chat = getChat(), fingerprint = await currentFingerprint(chat);
     const latestFingerprint = await journal.latestSourceFingerprint(conversationId);
     if (latestFingerprint !== fingerprint) {
