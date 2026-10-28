@@ -75,7 +75,7 @@ These are source-confirmed bypasses, not solved hooks. Adding client events alon
 
 ## Remaining uninstrumented or unproven paths
 
-The readiness contract explicitly enumerates lifecycle coverage paths including message create/send/receive, swipe create/select/delete, message delete/edit, regeneration, generation start/end/stop/cancel/partial-finalization, persistence ordering, clear, import/export, copy/branch, restore, chat switch, external edits, rollback, restart, and replay. This is a fail-closed coverage checklist, not a claim that those paths are currently hooked.
+The readiness contract explicitly enumerates lifecycle coverage paths including message create/send/receive, swipe create/select/delete, message delete/edit, regeneration, generation start/end/stop/cancel/partial-finalization, persistence ordering, persisted chat-file deletion, import/export, copy/branch, restore, chat switch, external edits, rollback, restart, and replay. This is a fail-closed coverage checklist, not a claim that those paths are currently hooked.
 
 - Explicit generation cancellation / partial-output finalization semantics.
 - Chat switching, and all import/export, copy/branch/restore paths.
@@ -118,7 +118,7 @@ Because the journal stores digests rather than source bytes, it cannot itself re
 
 The candidate patch must not treat `clearChat({ clearData: true })` as persisted deletion: SillyTavern uses it while switching or reloading chats. The guard has been removed from this UI-unload path, and `clear-chat` is no longer a required persisted-mutation coverage item. The actual server-side chat-file deletion route remains a separate interception requirement.
 
-Source review found that pinned ST `clearChat({ clearData: true })` is used for chat switching/reload and other UI transitions. Treating that array clear as source deletion would incorrectly record the old chat as empty and could poison identity/reconciliation. The candidate patch therefore does **not** hook `clearChat` as deletion. The actual complete chat-file deletion path is still uncovered, especially when the target chat is not the currently loaded chat. `clear-chat` remains a required-but-missing coverage path, so readiness stays NON_READY.
+Source review found that pinned ST `clearChat({ clearData: true })` is used for chat switching/reload and other UI transitions. Treating that array clear as source deletion would incorrectly record the old chat as empty and could poison identity/reconciliation. The candidate patch therefore does **not** hook `clearChat` as deletion. The actual server-side chat-file deletion path is separately journaled at the API layer, but complete deletion coverage—especially for non-current chats and all alternate routes—has not been established, so readiness stays NON_READY.
 
 ## Exact-head follow-up — raw-content sentinel regression (26 Oct 2026)
 
