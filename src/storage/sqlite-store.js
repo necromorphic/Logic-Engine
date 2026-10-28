@@ -2504,5 +2504,48 @@ export class SQLiteStore {
       insertFact.run(id, factId, last.subject_ref, last.predicate, conflict ? 'conflicted' : 'active',
         conflict ? null : last.value_json, enc([...values.values()]), enc(group.map((claim) => claim.event_id)), revision);
     }
+    this.ensureMissingEntitySourceVersions(id);
+  }
+
+  ensureMissingEntitySourceVersions(worldId) {
+    const missing = this.db.prepare(`
+      SELECT entities.entity_id,entities.updated_revision
+      FROM entities
+      LEFT JOIN entity_source_versions
+        ON entity_source_versions.world_id=entities.world_id
+        AND entity_source_versions.entity_id=entities.entity_id
+      WHERE entities.world_id=? AND entity_source_versions.entity_id IS NULL
+    `).all(worldId);
+    if (missing.length === 0) return;
+
+    // Rebuild can be used when replaying/importing an event history that predates
+    // the source-version ledger. Seed missing rows above both the current
+    // projection revision and the count of historical source touches. Existing
+    // rows are never reset by rebuild.
+    const historicalTouches = new Map();
+    for (const event of this.db.prepare(
+      'SELECT effects_json FROM world_events WHERE world_id=?',
+    ).all(worldId)) {
+      const effects = dec(event.effects_json);
+      if (!Array.isArray(effects)) {
+        throw new EngineError('ENTITY_SOURCE_VERSION_MIGRATION_UNVERIFIABLE', 'Cannot seed source versions from malformed event history.', 500);
+      }
+      for (const effect of effects) {
+        if (!effect || !['entity.create', 'entity.update', 'entity.upsert', 'entity.delete'].includes(effect.kind)
+          || typeof effect.entity_id !== 'string') continue;
+        historicalTouches.set(effect.entity_id, (historicalTouches.get(effect.entity_id) ?? 0) + 1);
+      }
+    }
+    const insert = this.db.prepare(`INSERT OR IGNORE INTO entity_source_versions
+      (world_id,entity_id,source_version,updated_at) VALUES(?,?,?,?)`);
+    const stamp = now();
+    for (const entity of missing) {
+      const touched = historicalTouches.get(entity.entity_id) ?? 0;
+      const baseline = Math.max(0, Number(entity.updated_revision) || 0, touched) + 1;
+      if (!Number.isSafeInteger(baseline)) {
+        throw new EngineError('ENTITY_SOURCE_VERSION_OVERFLOW', 'Cannot initialize a safe canonical source version.', 500);
+      }
+      insert.run(worldId, entity.entity_id, baseline, stamp);
+    }
   }
 }
