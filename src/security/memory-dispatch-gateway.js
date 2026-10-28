@@ -262,6 +262,8 @@ export class MemoryDispatchGateway {
             route TEXT NOT NULL CHECK(route='host-selected-chat-generation'),
             model TEXT NOT NULL,
             stream INTEGER NOT NULL CHECK(stream IN (0,1)),
+            adapter_id TEXT NOT NULL,
+            conversation_id TEXT NOT NULL,
             world_id TEXT NOT NULL,
             actor_id TEXT NOT NULL,
             purpose TEXT NOT NULL,
@@ -298,7 +300,7 @@ export class MemoryDispatchGateway {
         const ledgerSql = this.db.prepare(
           "SELECT sql FROM sqlite_master WHERE type='table' AND name='dispatch_ledger'",
         ).get()?.sql ?? '';
-        if (!/CHECK\s*\(\s*route\s*=\s*'host-managed-chat-completions'\s*\)/i.test(ledgerSql)) {
+        if (!/CHECK\s*\(\s*route\s*=\s*'host-selected-chat-generation'\s*\)/i.test(ledgerSql)) {
           throw new Error('DISPATCH_LEDGER_SCHEMA_INCOMPATIBLE');
         }
       }
