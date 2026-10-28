@@ -82,9 +82,13 @@ function request(store, overrides = {}) {
 
 test('untrusted reader requests with getters and proxies fail before access', () => {
   let invoked = false;
-  const unsafe = request({
-    world: () => ({ world_revision: 1 }),
-  });
+  const unsafe = {
+    actor_id: 'npc-a',
+    purpose: 'npc_turn_context',
+    expected_revision: 1,
+    expected_commit_sequence: 1,
+    limit: 20,
+  };
   Object.defineProperty(unsafe, 'world_id', {
     enumerable: true,
     get() { invoked = true; return 'world-a'; },
