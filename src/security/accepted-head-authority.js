@@ -56,8 +56,10 @@ export class AcceptedHeadAuthority {
     const databaseExisted = existsSync(absolutePath);
     this.#db = new DatabaseSync(absolutePath);
     try {
-      this.#db.exec('PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;');
+      this.#db.exec('PRAGMA busy_timeout=5000; PRAGMA synchronous=FULL;');
       if (!databaseExisted) {
+        const journalMode = this.#db.prepare('PRAGMA journal_mode=WAL').get()?.journal_mode;
+        if (journalMode !== 'wal') throw new Error('ACCEPTED_HEAD_JOURNAL_MODE_INVALID');
         this.#db.exec(`
           CREATE TABLE authority_installation (
             singleton INTEGER PRIMARY KEY CHECK (singleton=1),
@@ -89,6 +91,10 @@ export class AcceptedHeadAuthority {
           throw error;
         }
       } else {
+        // Opening an existing store must not silently change its persistent journal
+        // mode before validating state. A non-WAL store requires explicit operator recovery.
+        const journalMode = this.#db.prepare('PRAGMA journal_mode').get()?.journal_mode;
+        if (journalMode !== 'wal') throw new Error('ACCEPTED_HEAD_JOURNAL_MODE_INVALID');
         // Existing authority state is authoritative. Never recreate missing schema
         // or rows on restart: damage/restore must fail closed for operator recovery.
         const tables = new Set(this.#db.prepare(
