@@ -249,7 +249,7 @@ export class SQLiteMemoryProvider {
     try {
       releaseStartupLock = this.#acquireCoordinatorLock();
       this.#db = new DatabaseSync(path);
-      this.#db.exec(`
+      const schemaSql = `
       PRAGMA foreign_keys = ON;
       CREATE TABLE IF NOT EXISTS memory_records (
         world_id TEXT NOT NULL, subject_id TEXT NOT NULL, purpose TEXT NOT NULL,
@@ -325,7 +325,13 @@ export class SQLiteMemoryProvider {
           REFERENCES memory_raw_captures(world_id, conversation_id, message_id, version_id)
           ON DELETE CASCADE
       );
-    `);
+    `;
+      if (this.#acceptedHeadConfig) {
+        const existing = new Set(this.#db.prepare("SELECT type || ':' || name AS object_name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'").all().map(row=>row.object_name));
+        const requiredObjects = [...schemaSql.matchAll(/CREATE\\s+(?:UNIQUE\\s+)?(TABLE|INDEX)\\s+IF\\s+NOT\\s+EXISTS\\s+([A-Za-z_][A-Za-z0-9_]*)/gi)].map(match=>match[1].toLowerCase()+':'+match[2]);
+        if (requiredObjects.some(name=>!existing.has(name))) throw new Error('PROVIDER_SCHEMA_INCOMPLETE');
+      }
+      this.#db.exec(schemaSql);
       if (this.#acceptedHeadConfig) {
         const requiredObjects = [...this.#db.prepare("SELECT type || ':' || name AS object_name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'").all()]
           .map((row) => row.object_name);
