@@ -844,15 +844,19 @@ test('post-edit checkpoint rejects an untracked role change on a pre-existing me
   ]);
   await f.bridge.enrollCurrentConversation();
   await f.bridge.beforeMutation('edit-message', [0]);
-  f.chat[0].is_user = false;
+  f.chat[0].mes = 'user message revised';
+  await f.bridge.afterMutation('edit-message');
 
+  await f.bridge.beforeMutation('edit-message', [0]);
+  f.chat[0].is_user = false;
   await assert.rejects(
     f.bridge.afterMutation('edit-message'),
     /lifecycle mutation changed the role of a pre-existing message/,
   );
   const ledger = await f.journal.exportCaptureLedger('chat-1');
   assert.equal(
-    ledger.records.some(record => record.operation === 'after:edit-message'),
-    false,
+    ledger.records.filter(record => record.operation === 'after:edit-message').length,
+    1,
+    'the role-changing mutation must not advance the identity snapshot',
   );
 });
