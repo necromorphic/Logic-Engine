@@ -35,6 +35,7 @@ export function assertProtectedDispatchAllowed({ locator, messages, storage = gl
   return Object.freeze({ status: 'NOT_ENROLLED' });
 }
 
+
 /**
  * Deny direct browser egress while any Host conversation is enrolled.
  * Same-origin requests remain subject to the server-side deny middleware;
