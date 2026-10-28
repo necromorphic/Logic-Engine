@@ -95,3 +95,23 @@ test('persisted snapshot rejects a missing enrolled file and invalid root covera
     assert.ok(noGroups.errors.includes('BOTH_CHAT_DOMAINS_REQUIRED'));
   } finally { await rm(f.root, { recursive: true, force: true }); }
 });
+
+test('persisted Host identity without a matching enrollment makes registry completeness fail closed', async () => {
+  const f = await fixture();
+  try {
+    const enrolledUuid = randomUUID();
+    const orphanUuid = randomUUID();
+    await writeChat(f.chats, 'chat-enrolled', enrolledUuid, [makeMessage('known chat')]);
+    await writeChat(f.chats, 'chat-orphan', orphanUuid, [makeMessage('unregistered Host-marked chat')]);
+    const result = await scanPersistedConversationInventories(f.roots, [{
+      conversationId: randomUUID() + ':' + enrolledUuid,
+      sourceLocator: 'chat-enrolled',
+      sourcePath: 'chat-enrolled.jsonl',
+      domain: 'chats',
+    }]);
+    assert.equal(result.status, 'INVENTORY_INCOMPLETE');
+    assert.equal(result.complete, false);
+    assert.deepEqual(result.inventories, []);
+    assert.ok(result.errors.includes('HOST_CONVERSATION_ID_WITHOUT_ENROLLMENT'));
+  } finally { await rm(f.root, { recursive: true, force: true }); }
+});
