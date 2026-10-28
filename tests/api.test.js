@@ -104,6 +104,8 @@ test('time-trigger lifecycle is internal-only and registered triggers drive dura
   });
   assert.equal(denied.status, 403);
 
+  const deniedList = await fetch(base + '/v1/worlds/api-time-trigger-world/time-triggers', { headers });
+  assert.equal(deniedList.status, 403);
   const internalHeaders = { ...headers, 'x-engine-internal-token': INTERNAL };
   const registered = await fetch(base + '/v1/worlds/api-time-trigger-world/time-triggers', {
     method: 'POST', headers: internalHeaders, body: json(trigger),
@@ -125,6 +127,8 @@ test('time-trigger lifecycle is internal-only and registered triggers drive dura
   assert.equal(started.status, 200);
   assert.equal((await started.json()).operation.status, 'completed');
 
+  const deniedFetched = await fetch(base + '/v1/worlds/api-time-trigger-world/time-triggers/api-trigger', { headers });
+  assert.equal(deniedFetched.status, 403);
   const fetched = await fetch(base + '/v1/worlds/api-time-trigger-world/time-triggers/api-trigger', { headers: internalHeaders });
   assert.equal(fetched.status, 200);
   assert.equal((await fetched.json()).trigger.status, 'completed');
@@ -276,6 +280,11 @@ test('time configuration authoring requires admin and calendar projection requir
     method: 'POST', headers, body: json(configuration),
   });
   assert.equal(denied.status, 403);
+
+  const deniedCurrent = await fetch(base + '/v1/worlds/api-time-config-world/time-configurations/current', { headers });
+  assert.equal(deniedCurrent.status, 403);
+  const deniedProjection = await fetch(base + '/v1/worlds/api-time-config-world/time', { headers });
+  assert.equal(deniedProjection.status, 403);
 
   const adminHeaders = { ...headers, 'x-admin-token': ADMIN };
   const registered = await fetch(base + '/v1/worlds/api-time-config-world/time-configurations', {
