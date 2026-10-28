@@ -86,8 +86,7 @@ test('unproven legacy root lineage blocks baseline and replacement publication',
   });
   await f.bridge.enrollCurrentConversation();
   assert.equal(published.length, 0, 'unproven legacy roots must not be sent to Core');
-  assert.equal((await f.bridge.getCoreCaptureStatus?.())?.status, 'NON_READY');
-
+  assert.equal((await f.bridge.getCoreCaptureStatus()).status, 'NON_READY');
 
   const oldVersionIds = f.chat[0]._logicEngineLifecycle.versions.map(version => version.versionId);
   await f.bridge.beforeMutation('edit-message', [0]);
@@ -124,12 +123,11 @@ test('digest sync remains fail-closed when tombstone lineage is unproven', async
   fail = false;
   published.length = 0;
   const retry = await f.bridge.syncCurrentDigestInventory();
-  assert.equal(retry.status, 'CAPTURED_REVIEW_ONLY');
-  assert.ok(published.some(entry => entry.version_id === removedVersionId
-    && entry.deleted === true && entry.active === false));
+  assert.equal(retry.status, 'NON_READY');
+  assert.equal(published.length, 0, 'unknown legacy parent lineage must not be replayed to Core');
 });
 
-test('Core publisher failure stays NON_READY and can be retried without re-enrolling', async () => {
+test('unproven legacy root stays NON_READY and cannot be retried into Core publication', async () => {
   let fail = true;
   const f = makeFixture([{ is_user: false, mes: 'hello' }], {
     publishDigest: async () => {
@@ -143,9 +141,9 @@ test('Core publisher failure stays NON_READY and can be retried without re-enrol
 
   fail = false;
   const retry = await f.bridge.syncCurrentDigestInventory();
-  assert.equal(retry.status, 'CAPTURED_REVIEW_ONLY');
-  assert.equal(retry.published, true);
-  assert.equal((await f.bridge.getCoreCaptureStatus()).status, 'CAPTURED_REVIEW_ONLY');
+  assert.equal(retry.status, 'NON_READY');
+  assert.equal(retry.published, false);
+  assert.equal((await f.bridge.getCoreCaptureStatus()).status, 'NON_READY');
 });
 
 
