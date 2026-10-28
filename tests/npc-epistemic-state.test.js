@@ -1,0 +1,395 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { applyNpcEpistemicEvent, createNpcEpistemicState } from "../src/npc/epistemic-state.js";
+
+function apply(state, event) {
+  return applyNpcEpistemicEvent(state, {
+    world_id: "world-a",
+    subject_id: "npc-1",
+    ...event,
+  });
+}
+
+function emptyState() {
+  const result = createNpcEpistemicState({ world_id: "world-a", subject_id: "npc-1" });
+  assert.equal(result.status, "ready");
+  return result.state;
+}
+
+function admit(state, overrides = {}) {
+  return apply(state, {
+    type: "evidence_admitted",
+    acquisition_ref: "acq-1",
+    proposition_ref: "prop-secret-location",
+    evidence_ref: "evidence-1",
+    evidence_version: "v1",
+    source_ref: "source-1",
+    source_version: "v1",
+    polarity: "supports_true",
+    ...overrides,
+  });
+}
+
+test("receiving information does not create evidence or belief", () => {
+  const result = apply(emptyState(), {
+    type: "information_received",
+    event_ref: "receipt-1",
+    source_ref: "message-1",
+    source_version: "v1",
+  });
+  assert.equal(result.status, "updated");
+  assert.equal(result.state.received.length, 1);
+  assert.deepEqual(result.state.evidence, []);
+  assert.deepEqual(result.state.beliefs, []);
+});
+
+test("receipt replay is idempotent and conflicting identity reuse fails closed", () => {
+  const state = emptyState();
+  const event = { type: "information_received", event_ref: "receipt-1", source_ref: "message-1", source_version: "v1" };
+  const first = apply(state, event);
+  assert.equal(apply(first.state, event).status, "unchanged");
+  assert.equal(apply(first.state, { ...event, source_version: "v2" }).status, "non_ready");
+});
+
+test("admitted evidence does not automatically become belief", () => {
+  const result = admit(emptyState());
+  assert.equal(result.status, "updated");
+  assert.equal(result.state.evidence.length, 1);
+  assert.deepEqual(result.state.beliefs, []);
+});
+
+test("same evidence identity is idempotent; conflicting reuse is rejected", () => {
+  const first = admit(emptyState()).state;
+  assert.equal(admit(first).status, "unchanged");
+  assert.equal(admit(first, { polarity: "supports_false" }).status, "non_ready");
+});
+
+test("belief revision requires valid evidence for the same proposition and a rule reference", () => {
+  const state = admit(emptyState()).state;
+  const event = {
+    type: "belief_updated",
+    proposition_ref: "prop-secret-location",
+    stance: "believes_true",
+    revision_rule_ref: "rule-evaluate-source",
+    evidence_refs: ["evidence-1"],
+  };
+  const result = apply(state, event);
+  assert.equal(result.status, "updated");
+  assert.equal(result.state.beliefs[0].stance, "believes_true");
+  assert.deepEqual(result.state.beliefs[0].supporting_evidence_refs, ["evidence-1"]);
+  assert.deepEqual(result.state.beliefs[0].conflicting_evidence_refs, []);
+  const replay = apply(result.state, event);
+  assert.equal(replay.status, "unchanged");
+  assert.equal(replay.state, result.state);
+  assert.equal(apply(state, { ...event, evidence_refs: ["missing"] }).status, "non_ready");
+  assert.equal(apply(state, { ...event, revision_rule_ref: "" }).status, "non_ready");
+});
+
+test("conflicting admissible evidence remains explicit rather than choosing a winner", () => {
+  let state = admit(emptyState()).state;
+  const second = admit(state, {
+    evidence_ref: "evidence-2",
+    acquisition_ref: "acq-2",
+    source_ref: "source-2",
+    polarity: "supports_false",
+  });
+  assert.equal(second.status, "updated");
+  state = second.state;
+  const result = apply(state, {
+    type: "belief_updated",
+    proposition_ref: "prop-secret-location",
+    stance: "believes_true",
+    revision_rule_ref: "rule-preserve-prior-belief",
+    evidence_refs: ["evidence-1", "evidence-2"],
+  });
+  assert.equal(result.status, "updated");
+  assert.deepEqual(result.state.beliefs[0].supporting_evidence_refs, ["evidence-1"]);
+  assert.deepEqual(result.state.beliefs[0].conflicting_evidence_refs, ["evidence-2"]);
+});
+
+test("invalidating evidence preserves the belief but marks it for review", () => {
+  let state = admit(emptyState()).state;
+  state = apply(state, {
+    type: "belief_updated",
+    proposition_ref: "prop-secret-location",
+    stance: "believes_true",
+    revision_rule_ref: "rule-initial",
+    evidence_refs: ["evidence-1"],
+  }).state;
+  const result = apply(state, {
+    type: "evidence_invalidated",
+    evidence_ref: "evidence-1",
+    evidence_version: "v1",
+    invalidation_rule_ref: "rule-source-revoked",
+  });
+  assert.equal(result.status, "updated");
+  assert.equal(result.state.beliefs[0].stance, "believes_true");
+  assert.equal(result.state.beliefs[0].review_required, true);
+  assert.equal(result.state.evidence[0].status, "invalidated");
+  assert.equal(result.state.evidence[0].invalidation_rule_ref, "rule-source-revoked");
+  assert.equal(apply(result.state, {
+    type: "evidence_invalidated",
+    evidence_ref: "evidence-1",
+    evidence_version: "v1",
+    invalidation_rule_ref: "rule-source-revoked",
+  }).status, "unchanged");
+  assert.equal(apply(result.state, {
+    type: "evidence_invalidated",
+    evidence_ref: "evidence-1",
+    evidence_version: "v1",
+    invalidation_rule_ref: "rule-different-cause",
+  }).status, "non_ready");
+  assert.equal(apply(result.state, {
+    type: "belief_updated",
+    proposition_ref: "prop-secret-location",
+    stance: "believes_true",
+    revision_rule_ref: "rule-invalid-source",
+    evidence_refs: ["evidence-1"],
+  }).status, "non_ready");
+});
+
+test("forgetting is explicit and traceable; it does not delete evidence history", () => {
+  let state = admit(emptyState()).state;
+  state = apply(state, {
+    type: "belief_updated",
+    proposition_ref: "prop-secret-location",
+    stance: "believes_true",
+    revision_rule_ref: "rule-initial",
+    evidence_refs: ["evidence-1"],
+  }).state;
+  const result = apply(state, {
+    type: "belief_forgotten",
+    proposition_ref: "prop-secret-location",
+    forgetting_rule_ref: "rule-memory-decay",
+  });
+  assert.equal(result.status, "updated");
+  assert.equal(result.state.beliefs[0].stance, "unknown");
+  assert.deepEqual(result.state.beliefs[0].supporting_evidence_refs, []);
+  assert.deepEqual(result.state.beliefs[0].conflicting_evidence_refs, []);
+  assert.equal(result.state.beliefs[0].history.length, 1);
+  assert.deepEqual(result.state.beliefs[0].history[0].evidence_refs, ["evidence-1"]);
+  assert.equal(result.state.evidence.length, 1);
+  const replay = apply(result.state, {
+    type: "belief_forgotten",
+    proposition_ref: "prop-secret-location",
+    forgetting_rule_ref: "rule-memory-decay",
+  });
+  assert.equal(replay.status, "unchanged");
+  assert.equal(replay.state, result.state);
+});
+
+test("canonical truth changes do not silently correct NPC beliefs", () => {
+  let state = admit(emptyState()).state;
+  state = apply(state, {
+    type: "belief_updated",
+    proposition_ref: "prop-secret-location",
+    stance: "believes_true",
+    revision_rule_ref: "rule-initial",
+    evidence_refs: ["evidence-1"],
+  }).state;
+  const result = apply(state, { type: "canonical_truth_changed" });
+  assert.equal(result.status, "unchanged");
+  assert.equal(result.state, state);
+  assert.equal(result.state.beliefs[0].stance, "believes_true");
+});
+
+test("unknown events, malformed scope, and sparse evidence lists fail closed", () => {
+  assert.equal(createNpcEpistemicState({ world_id: "", subject_id: "npc-1" }).status, "non_ready");
+  assert.equal(apply(emptyState(), { type: "unrecognized_event" }).status, "non_ready");
+  const state = admit(emptyState()).state;
+  const sparse = [];
+  sparse.length = 1;
+  assert.equal(apply(state, {
+    type: "belief_updated",
+    proposition_ref: "prop-secret-location",
+    stance: "believes_true",
+    revision_rule_ref: "rule-x",
+    evidence_refs: sparse,
+  }).status, "non_ready");
+});
+
+test("reducer does not mutate input state or event", () => {
+  const state = emptyState();
+  const event = { type: "information_received", event_ref: "receipt-1", source_ref: "message-1", source_version: "v1" };
+  const stateBefore = structuredClone(state);
+  const eventBefore = structuredClone(event);
+  apply(state, event);
+  assert.deepEqual(state, stateBefore);
+  assert.deepEqual(event, eventBefore);
+});
+
+test("nested getters and proxy inputs fail closed without executing getters", () => {
+  let invoked = false;
+  const event = {
+    world_id: "world-a",
+    subject_id: "npc-1",
+    type: "information_received",
+    event_ref: "receipt-1",
+    source_ref: "message-1",
+    source_version: "v1",
+  };
+  Object.defineProperty(event, "extra", {
+    enumerable: true,
+    get() { invoked = true; return "unsafe"; },
+  });
+  assert.equal(applyNpcEpistemicEvent(emptyState(), event).status, "non_ready");
+  assert.equal(invoked, false);
+  assert.equal(applyNpcEpistemicEvent(new Proxy(emptyState(), {}), {
+    world_id: "world-a",
+    subject_id: "npc-1",
+    type: "information_received",
+    event_ref: "receipt-1",
+    source_ref: "message-1",
+    source_version: "v1",
+  }).status, "non_ready");
+});
+
+test("a stable evidence reference cannot ambiguously identify two versions", () => {
+  const first = admit(emptyState()).state;
+  const result = admit(first, { evidence_version: "v2", source_version: "v2" });
+  assert.equal(result.status, "non_ready");
+});
+
+test("events from another world or subject cannot alter this NPC state", () => {
+  const state = emptyState();
+  const event = {
+    type: "evidence_admitted",
+    acquisition_ref: "acq-1",
+    proposition_ref: "prop-secret-location",
+    evidence_ref: "evidence-1",
+    evidence_version: "v1",
+    source_ref: "source-1",
+    source_version: "v1",
+    polarity: "supports_true",
+  };
+  assert.equal(apply(state, { ...event, world_id: "world-other" }).status, "non_ready");
+  assert.equal(apply(state, { ...event, subject_id: "npc-other" }).status, "non_ready");
+  assert.deepEqual(state.evidence, []);
+});
+
+test("history cannot reference evidence for another proposition", () => {
+  const state = admit(emptyState()).state;
+  const second = admit(state, {
+    evidence_ref: "evidence-2",
+    proposition_ref: "prop-another-fact",
+    acquisition_ref: "acq-2",
+    source_ref: "source-2",
+  }).state;
+  const malformed = structuredClone(second);
+  malformed.beliefs = [{
+    proposition_ref: "prop-secret-location",
+    stance: "unknown",
+    supporting_evidence_refs: [],
+    conflicting_evidence_refs: [],
+    revision_rule_ref: "rule-initial",
+    review_required: false,
+    history: [{
+      stance: "believes_true",
+      revision_rule_ref: "rule-initial",
+      evidence_refs: ["evidence-2"],
+    }],
+  }];
+  assert.equal(applyNpcEpistemicEvent(malformed, {
+    world_id: "world-a",
+    subject_id: "npc-1",
+    type: "canonical_truth_changed",
+  }).status, "non_ready");
+});
+
+test("state validation rejects unknown beliefs with active evidence and unreviewed invalidation", () => {
+  let state = admit(emptyState()).state;
+  state = apply(state, {
+    type: "belief_updated",
+    proposition_ref: "prop-secret-location",
+    stance: "believes_true",
+    revision_rule_ref: "rule-initial",
+    evidence_refs: ["evidence-1"],
+  }).state;
+
+  const unknownWithEvidence = structuredClone(state);
+  unknownWithEvidence.beliefs[0].stance = "unknown";
+  assert.equal(applyNpcEpistemicEvent(unknownWithEvidence, {
+    world_id: "world-a",
+    subject_id: "npc-1",
+    type: "canonical_truth_changed",
+  }).status, "non_ready");
+
+  const invalidatedWithoutReview = structuredClone(state);
+  invalidatedWithoutReview.evidence[0].status = "invalidated";
+  invalidatedWithoutReview.evidence[0].invalidation_rule_ref = "rule-source-revoked";
+  assert.equal(applyNpcEpistemicEvent(invalidatedWithoutReview, {
+    world_id: "world-a",
+    subject_id: "npc-1",
+    type: "canonical_truth_changed",
+  }).status, "non_ready");
+});
+
+test("unsupported primitive values fail closed in event metadata", () => {
+  const base = {
+    world_id: "world-a",
+    subject_id: "npc-1",
+    type: "information_received",
+    event_ref: "receipt-unsafe",
+    source_ref: "source-1",
+    source_version: "v1",
+  };
+  assert.equal(applyNpcEpistemicEvent(emptyState(), { ...base, extra: () => "not data" }).status, "non_ready");
+  assert.equal(applyNpcEpistemicEvent(emptyState(), { ...base, extra: Number.NaN }).status, "non_ready");
+  assert.equal(applyNpcEpistemicEvent(emptyState(), { ...base, extra: undefined }).status, "non_ready");
+});
+
+test("state validation rejects unknown fields that could bypass shallow freezing", () => {
+  const state = admit(emptyState()).state;
+
+  const withNestedEvidenceExtension = structuredClone(state);
+  withNestedEvidenceExtension.evidence[0].extension = { nested: { mutable: true } };
+  assert.equal(applyNpcEpistemicEvent(withNestedEvidenceExtension, {
+    world_id: "world-a",
+    subject_id: "npc-1",
+    type: "canonical_truth_changed",
+  }).status, "non_ready");
+
+  const withTopLevelExtension = structuredClone(state);
+  withTopLevelExtension.extension = { mutable: true };
+  assert.equal(applyNpcEpistemicEvent(withTopLevelExtension, {
+    world_id: "world-a",
+    subject_id: "npc-1",
+    type: "canonical_truth_changed",
+  }).status, "non_ready");
+});
+
+test("state validation rejects unknown fields in receipt, belief, and history records", () => {
+  const received = apply(emptyState(), {
+    type: "information_received",
+    event_ref: "receipt-shape",
+    source_ref: "message-shape",
+    source_version: "v1",
+  }).state;
+  const withReceiptExtension = structuredClone(received);
+  withReceiptExtension.received[0].extension = { mutable: true };
+  assert.equal(apply(withReceiptExtension, { type: "canonical_truth_changed" }).status, "non_ready");
+
+  let withBelief = admit(emptyState()).state;
+  withBelief = apply(withBelief, {
+    type: "belief_updated",
+    proposition_ref: "prop-secret-location",
+    stance: "believes_true",
+    revision_rule_ref: "rule-first",
+    evidence_refs: ["evidence-1"],
+  }).state;
+
+  const withBeliefExtension = structuredClone(withBelief);
+  withBeliefExtension.beliefs[0].extension = { mutable: true };
+  assert.equal(apply(withBeliefExtension, { type: "canonical_truth_changed" }).status, "non_ready");
+
+  const withHistory = apply(withBelief, {
+    type: "belief_updated",
+    proposition_ref: "prop-secret-location",
+    stance: "suspects_true",
+    revision_rule_ref: "rule-second",
+    evidence_refs: ["evidence-1"],
+  }).state;
+  const withHistoryExtension = structuredClone(withHistory);
+  withHistoryExtension.beliefs[0].history[0].extension = { mutable: true };
+  assert.equal(apply(withHistoryExtension, { type: "canonical_truth_changed" }).status, "non_ready");
+});
