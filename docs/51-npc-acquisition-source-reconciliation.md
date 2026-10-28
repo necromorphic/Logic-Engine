@@ -133,3 +133,9 @@ Typed Relationship write/replay is implemented in Core for admin-authored transi
 ## Additional Core boundary status (2026-10-24)
 
 Core PR #101 adds a trusted host field-policy hook but no configured visibility policy; PR #102 verifies default non-self denial. PR #103 secures public proposal commit ownership. PR #106 restricts context-manifest registration to the internal host credential but does not prove generation/context binding. PR #114 now makes the privileged operational state snapshot transaction-bound and exposes both `world_revision` and `commit_sequence`, so a trusted host can observe rollback-only revision changes. This is a freshness marker, not a source-specific invalidation feed and not an authorization policy. These are prerequisites, not acquisition records or source-reconciliation signals. The Memory/NPC source lifecycle remains blocked until a trusted source-validity observation and owner-approved reconciliation path are implemented and tested.
+
+## Core Stage B implementation-branch follow-up (2026-10-28)
+
+The branch `feat/npc-initial-acquisition-stage-b-20261028` adds an event-sourced `author_initial` acquisition primitive, a projection rebuilt from valid Core events, source-event rollback dependency, and focused tests. It does not change this document's unresolved import-source requirement: `imported` is rejected until a trusted Core import-source resolver/manifest contract exists. The branch also has no production authoring caller, no actor/purpose/snapshot read/filter, and no visibility policy; `visibility_status` is fixed to `unclassified`.
+
+This is a source-level implementation candidate, not a complete acquisition path or Memory → NPC enablement. Evidence and exact remaining blocker are recorded in `docs/90-core-initial-knowledge-acquisition-stage-b-implementation.md`.
