@@ -14,5 +14,5 @@ diff --git a/src/server-main.js b/src/server-main.js
 +++ b/src/server-main.js
 @@ -73,0 +74,1 @@
 +import { createProtectedDispatchDenyMiddleware } from './endpoints/logic-engine-protected-dispatch-guard.mjs';
-@@ -248,0 +249,1 @@
+@@ -249,0 +250,1 @@
 +app.use(createProtectedDispatchDenyMiddleware());
