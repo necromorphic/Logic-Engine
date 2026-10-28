@@ -262,3 +262,24 @@ A source-level check of current `main` confirms a sharper boundary than “the t
 Before any implementation request, the coordinator/core owner must explicitly reconcile whether `observe` is a later semantic slice or a revision to the existing `author_initial`/imported first-slice decision. The owner must also identify the real authoritative observation source, the supported knowledge-proposal mapping, and the trusted actor/purpose/source filter. Until then these are separate design tracks, not a single executable route.
 
 **Implementation entry gate:** provide source references to a real enabled instance and exact pinned template/action, the authoritative source and evidence type, the explicit authorization owner/decision, the supported effect/proposal mapping, the snapshot/provenance correlation, and production-path negative tests. If any item is absent, stop at `unknown/denied/needs_review`; do not add a substitute NPC-local store, permission system, or effect mapping in this PR.
+
+### 11.8 Source-level commit-result correlation audit
+
+The inspected Core source/docs identify a candidate authoritative result path, but only for the existing bounded mechanic-evaluation slice:
+
+- `ProposalService.createFromMechanicEvaluation(...)` rechecks the evaluated world revision and commit sequence transactionally before creating a normal proposal.
+- The proposal stores the evaluation identity, context/evaluation fingerprints, policy version, and effect provenance; `proposal.created` audit carries related provenance.
+- On a successful commit through the existing `LogicEngine.commitEvent` / SQLite persistence path, the corresponding `world_events` row stores the mechanic-execution metadata; `getEvents(...)` returns it, and the `proposal.committed` audit entry carries the committed `event_id` and provenance.
+- The proposal path remains pending → separately approved → separately committed. Proposal creation, approval, or a `pending`/`approved` status is not proof of a committed effect.
+
+**Scope limitation:** this source trace does not provide an executable `observe`/knowledge-acquisition path because `propose_knowledge` is not in the translator's executable allowlist, and the Core-owned acquisition record/source/filter contract remains unimplemented or unverified. Do not treat the mechanic metadata or `event_id` as proof that an NPC acquired knowledge. A future consumer would need a separately approved contract to bind the exact NPC, observation attempt, evidence/provenance, proposal, and committed event; define duplicate/replay behavior; and verify that the committed event represents the intended knowledge effect. No such consumer or plan-reconciliation contract is established here.
+
+### 11.9 Required coordinator/Core-owner reconciliation decision
+
+Before an implementation proposal can be prepared, the coordinator/Core owner must explicitly decide the relationship between these two design directions:
+
+- Existing Core knowledge-contract direction in `docs/34-npc-decision-context-and-proposal.md` and `docs/39-npc-core-knowledge-contract-proposal.md`: first candidate runtime acquisition path is explicitly authorized `author_initial`/imported knowledge with provenance; its executable source/record/filter contract is still not verified.
+- Newer decision in this document: `observe` is the first semantic NPC action approved for **design only**, requiring an authoritative observation source, access/visibility rules, and a knowledge-proposal mapping.
+
+The required decision is whether (A) `observe` is a later slice after the `author_initial`/imported path, or (B) the earlier first-slice direction is being revised. Until the owner records that decision and names the relevant Core-owned source/record/filter contract, both tracks remain design-only and no implementation order should be inferred.
+
