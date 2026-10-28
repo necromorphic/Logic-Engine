@@ -117,3 +117,276 @@ test('calendar validation rejects invalid epoch, dates, duplicate holidays, and 
     (error) => error.code === 'INVALID_INTEGER',
   );
 });
+
+
+test('interval membership rejects unsafe interval records without invoking getters', () => {
+  let getterCalled = false;
+  const accessor = { to: 20 };
+  Object.defineProperty(accessor, 'from', {
+    enumerable: true,
+    get() { getterCalled = true; return 10; },
+  });
+  assert.throws(
+    () => intervalContainsTime(accessor, 15),
+    (error) => error.code === 'INVALID_INTERVAL',
+  );
+  assert.equal(getterCalled, false);
+
+  assert.throws(
+    () => intervalContainsTime({ from: 10, to: 20, unexpected: true }, 15),
+    (error) => error.code === 'INVALID_INTERVAL',
+  );
+  assert.throws(
+    () => intervalContainsTime({ from: 10, to: 20, boundary: '[from, to)' }, 15),
+    (error) => error.code === 'INVALID_INTERVAL',
+  );
+});
+
+test('interval coordinates must be own properties even if Object.prototype is polluted', () => {
+  const previous = Object.getOwnPropertyDescriptor(Object.prototype, 'from');
+  Object.defineProperty(Object.prototype, 'from', {
+    configurable: true, enumerable: true, writable: true, value: 10,
+  });
+  try {
+    assert.throws(
+      () => intervalContainsTime({ to: 20 }, 15),
+      (error) => error.code === 'INVALID_INTERVAL',
+    );
+  } finally {
+    if (previous) Object.defineProperty(Object.prototype, 'from', previous);
+    else delete Object.prototype.from;
+  }
+});
+
+
+test('calendar definitions reject unknown, symbol, hidden, and accessor fields without invoking getters', () => {
+  const unknown = calendar();
+  unknown.unexpected = true;
+  assert.throws(() => createCalendarDefinition(unknown), (error) => error.code === 'INVALID_CALENDAR');
+
+  const symbolField = calendar();
+  symbolField[Symbol('hidden')] = true;
+  assert.throws(() => createCalendarDefinition(symbolField), (error) => error.code === 'INVALID_CALENDAR');
+
+  const accessor = calendar();
+  let getterCalled = false;
+  Object.defineProperty(accessor, 'version', {
+    enumerable: true,
+    configurable: true,
+    get() { getterCalled = true; return '1.0.0'; },
+  });
+  assert.throws(() => createCalendarDefinition(accessor), (error) => error.code === 'INVALID_CALENDAR');
+  assert.equal(getterCalled, false);
+
+  const hidden = calendar();
+  Object.defineProperty(hidden, 'hidden', { value: true, enumerable: false });
+  assert.throws(() => createCalendarDefinition(hidden), (error) => error.code === 'INVALID_CALENDAR');
+});
+
+test('calendar definition arrays reject holes, accessor entries, and extra properties', () => {
+  const sparseWeekdays = ['Ashday', 'Brightday'];
+  sparseWeekdays.length = 3;
+  assert.throws(
+    () => createCalendarDefinition({ ...calendar(), weekdays: sparseWeekdays }),
+    (error) => error.code === 'INVALID_WEEKDAYS',
+  );
+
+  const accessorWeekdays = ['Ashday'];
+  let getterCalled = false;
+  Object.defineProperty(accessorWeekdays, '0', {
+    enumerable: true,
+    configurable: true,
+    get() { getterCalled = true; return 'Ashday'; },
+  });
+  assert.throws(
+    () => createCalendarDefinition({ ...calendar(), weekdays: accessorWeekdays }),
+    (error) => error.code === 'INVALID_WEEKDAYS',
+  );
+  assert.equal(getterCalled, false);
+
+  const extraYearCycle = calendar().year_cycle;
+  extraYearCycle.unexpected = true;
+  assert.throws(
+    () => createCalendarDefinition({ ...calendar(), year_cycle: extraYearCycle }),
+    (error) => error.code === 'INVALID_YEAR_CYCLE',
+  );
+
+  const sparseHolidays = [];
+  sparseHolidays.length = 1;
+  assert.throws(
+    () => createCalendarDefinition({ ...calendar(), holidays: sparseHolidays }),
+    (error) => error.code === 'INVALID_HOLIDAYS',
+  );
+});
+
+test('nested calendar records reject custom prototypes and explicitly undefined fields', () => {
+  const customMonth = Object.create({ inherited: true });
+  customMonth.id = 'first';
+  customMonth.name = 'First';
+  customMonth.days = 2;
+  const value = calendar();
+  value.year_cycle[0].months[0] = customMonth;
+  assert.throws(
+    () => createCalendarDefinition(value),
+    (error) => error.code === 'INVALID_CALENDAR_MONTH',
+  );
+
+  const explicitUndefined = calendar();
+  explicitUndefined.epoch.time_of_day_ms = undefined;
+  assert.throws(
+    () => createCalendarDefinition(explicitUndefined),
+    (error) => error.code === 'INVALID_CALENDAR_EPOCH',
+  );
+
+  const unknownHolidayField = calendar();
+  unknownHolidayField.holidays[0].unexpected = true;
+  assert.throws(
+    () => createCalendarDefinition(unknownHolidayField),
+    (error) => error.code === 'INVALID_HOLIDAY',
+  );
+});
+
+
+test('normalized calendar definitions can be revalidated without trusting derived year lengths', () => {
+  const normalized = createCalendarDefinition(calendar());
+  assert.deepEqual(createCalendarDefinition(normalized), normalized);
+
+  const tampered = structuredClone(normalized);
+  tampered.year_cycle[0].days += 1;
+  assert.throws(
+    () => createCalendarDefinition(tampered),
+    (error) => error.code === 'INVALID_CALENDAR_YEAR',
+  );
+});
+
+
+test('calendar required fields must be own properties even if Object.prototype is polluted', () => {
+  const previous = Object.getOwnPropertyDescriptor(Object.prototype, 'calendar_id');
+  Object.defineProperty(Object.prototype, 'calendar_id', {
+    configurable: true, enumerable: true, writable: true, value: 'inherited-calendar',
+  });
+  try {
+    const input = calendar();
+    delete input.calendar_id;
+    assert.throws(
+      () => createCalendarDefinition(input),
+      (error) => error.code === 'INVALID_CALENDAR',
+    );
+  } finally {
+    if (previous) Object.defineProperty(Object.prototype, 'calendar_id', previous);
+    else delete Object.prototype.calendar_id;
+  }
+});
+
+
+test('calendar date inputs reject unknown fields, accessors, and explicit undefined values', () => {
+  const accessorDate = { month_id: 'first', day_of_month: 1 };
+  let getterCalled = false;
+  Object.defineProperty(accessorDate, 'year_number', {
+    enumerable: true,
+    get() { getterCalled = true; return 10; },
+  });
+  assert.throws(
+    () => calendarDateToCoordinate(calendar(), accessorDate),
+    (error) => error.code === 'INVALID_CALENDAR_DATE',
+  );
+  assert.equal(getterCalled, false);
+
+  assert.throws(
+    () => calendarDateToCoordinate(calendar(), {
+      year_number: 10, month_id: 'first', day_of_month: 1, unexpected: true,
+    }),
+    (error) => error.code === 'INVALID_CALENDAR_DATE',
+  );
+
+  assert.throws(
+    () => calendarDateToCoordinate(calendar(), {
+      year_number: 10, month_id: 'first', day_of_month: 1, time_of_day_ms: undefined,
+    }),
+    (error) => error.code === 'INVALID_CALENDAR_DATE',
+  );
+});
+
+test('calendar date required fields must be own properties even if Object.prototype is polluted', () => {
+  const previous = Object.getOwnPropertyDescriptor(Object.prototype, 'year_number');
+  Object.defineProperty(Object.prototype, 'year_number', {
+    configurable: true, enumerable: true, writable: true, value: 10,
+  });
+  try {
+    assert.throws(
+      () => calendarDateToCoordinate(calendar(), { month_id: 'first', day_of_month: 1 }),
+      (error) => error.code === 'INVALID_CALENDAR_DATE',
+    );
+  } finally {
+    if (previous) Object.defineProperty(Object.prototype, 'year_number', previous);
+    else delete Object.prototype.year_number;
+  }
+});
+
+
+test('optional calendar fields ignore polluted Object.prototype values', () => {
+  const previous = new Map();
+  const polluted = {
+    holidays: [{ id: 'inherited', name: 'Inherited', month_id: 'first', day_of_month: 1 }],
+    time_of_day_ms: 500,
+    year_number: 11,
+    days: 999,
+  };
+  try {
+    for (const [key, value] of Object.entries(polluted)) {
+      previous.set(key, Object.getOwnPropertyDescriptor(Object.prototype, key));
+      Object.defineProperty(Object.prototype, key, {
+        configurable: true, enumerable: true, writable: true, value,
+      });
+    }
+
+    const definition = calendar();
+    delete definition.holidays;
+    delete definition.epoch.time_of_day_ms;
+    delete definition.holidays;
+    const normalized = createCalendarDefinition(definition);
+    assert.deepEqual(normalized.holidays, []);
+    assert.equal(normalized.epoch.time_of_day_ms, 0);
+
+    const rawWithoutDerivedDays = calendar();
+    assert.doesNotThrow(() => createCalendarDefinition(rawWithoutDerivedDays));
+
+    const date = { year_number: 10, month_id: 'first', day_of_month: 1 };
+    assert.equal(calendarDateToCoordinate(calendar(), date), 0);
+
+    const recurringDefinition = createCalendarDefinition(calendar());
+    const projection = projectCalendarDate(recurringDefinition, 12000);
+    assert.deepEqual(projection.holidays.map((holiday) => holiday.id), ['annual']);
+  } finally {
+    for (const [key, descriptor] of previous) {
+      if (descriptor) Object.defineProperty(Object.prototype, key, descriptor);
+      else delete Object.prototype[key];
+    }
+  }
+});
+
+
+test('calendar inverse mapping rejects projection metadata from another version or coordinate', () => {
+  const definition = calendar();
+  const projected = projectCalendarDate(definition, 5000);
+
+  assert.throws(
+    () => calendarDateToCoordinate(definition, { ...projected, calendar_version: '2.0.0' }),
+    (error) => error.code === 'CALENDAR_VERSION_MISMATCH',
+  );
+  assert.throws(
+    () => calendarDateToCoordinate(definition, { ...projected, calendar_id: 'other.calendar' }),
+    (error) => error.code === 'CALENDAR_ID_MISMATCH',
+  );
+  assert.throws(
+    () => calendarDateToCoordinate(definition, { ...projected, coordinate: projected.coordinate + 1 }),
+    (error) => error.code === 'CALENDAR_DATE_COORDINATE_MISMATCH',
+  );
+  assert.throws(
+    () => calendarDateToCoordinate(definition, {
+      ...projected,
+      year_cycle_index: (projected.year_cycle_index + 1) % definition.year_cycle.length,
+    }),
+    (error) => error.code === 'CALENDAR_YEAR_CYCLE_INDEX_MISMATCH',
+  );
+});
