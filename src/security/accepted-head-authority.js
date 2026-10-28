@@ -267,6 +267,7 @@ export function createAcceptedHeadAuthorityServer({
   authority,
   coreToken,
   providerToken,
+  readToken,
   host = '127.0.0.1',
   port = 0,
   maxBodyBytes = 4096,
@@ -279,10 +280,12 @@ export function createAcceptedHeadAuthorityServer({
   }
   if (typeof coreToken !== 'string' || coreToken.length < 32
     || typeof providerToken !== 'string' || providerToken.length < 32
-    || coreToken === providerToken) {
-    throw new TypeError('Distinct strong Core and Provider authority tokens are required.');
+    || coreToken === providerToken
+    || (readToken !== undefined && (typeof readToken !== 'string' || readToken.length < 32
+      || readToken === coreToken || readToken === providerToken))) {
+    throw new TypeError('Distinct strong Core and Provider tokens, plus an optional distinct read-only token, are required.');
   }
-  const tokens = { core: coreToken, provider: providerToken };
+  const tokens = { core: coreToken, provider: providerToken, read: readToken };
 
   const reply = (response, status, payload) => {
     response.writeHead(status, {
@@ -302,7 +305,8 @@ export function createAcceptedHeadAuthorityServer({
       // Status is read-only, but must not disclose cross-domain authority state to
       // unauthenticated local processes. Either enrolled service credential may read;
       // mutation endpoints still require the matching domain-specific credential.
-      if (!safeTokenEqual(tokens.core, token) && !safeTokenEqual(tokens.provider, token)) {
+      if (!safeTokenEqual(tokens.core, token) && !safeTokenEqual(tokens.provider, token)
+        && !(typeof tokens.read === 'string' && safeTokenEqual(tokens.read, token))) {
         reply(response, 403, { error: 'DENIED' });
         return;
       }
