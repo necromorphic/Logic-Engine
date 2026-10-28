@@ -1,10 +1,12 @@
 name: Spatial research tests
 on:
   push:
-    branches: [ 'work/spatial-3d-research-validation-2026-10-28' ]
+    branches: [ 'research/spatial-scene-multiperson-2026-10-28' ]
     paths:
       - 'tests/spatial-temporal-cursor-feasibility.test.js'
       - 'tests/spatial-reasoning-feasibility.test.js'
+      - 'tests/spatial-scene-multiperson-feasibility.test.js'
+      - 'experiments/spatial-scene-lab/**'
       - 'src/**'
       - 'schemas/**'
       - 'package.json'
@@ -27,8 +29,8 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '22.18.0'
-      - name: Run spatial temporal and synthetic geometry tests
-        run: node --import ./tests/configure-test-env.js --test tests/spatial-temporal-cursor-feasibility.test.js tests/spatial-reasoning-feasibility.test.js
+      - name: Run temporal, geometry and multi-person scene tests
+        run: node --import ./tests/configure-test-env.js --test tests/spatial-temporal-cursor-feasibility.test.js tests/spatial-reasoning-feasibility.test.js tests/spatial-scene-multiperson-feasibility.test.js
       - name: Run complete project test suite on hosted Linux
         run: npm test
       - name: Run recalculation oracle harness
