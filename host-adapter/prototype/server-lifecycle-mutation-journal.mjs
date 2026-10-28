@@ -27,6 +27,7 @@ const MUTATIONS = new Map([
     ['POST /api/groups/delete', 'group-delete'],
     ['POST /api/backups/chat/delete', 'backup-delete'],
     ['POST /api/data-maid/delete', 'data-maid-delete'],
+    ['POST /api/users/reset-step2', 'user-root-reset'],
 ]);
 
 const ENROLLMENT_MARKER_NAME = '.logic-engine-host-enrollment-marker';
@@ -47,6 +48,57 @@ function hasEnrolledChatUnderCharacter(registry, avatarUrl) {
     return registry.conversations.some(conversation => conversation.domain === 'chats'
         && typeof conversation.sourcePath === 'string'
         && conversation.sourcePath.startsWith(prefix));
+}
+
+async function targetUserHasEnrolledState(directories) {
+    const rootPath = directories?.root;
+    const chatRootPath = directories?.chats;
+    if (typeof rootPath !== 'string' || !path.isAbsolute(rootPath)
+        || typeof chatRootPath !== 'string' || !path.isAbsolute(chatRootPath)) {
+        throw new Error('HOST_TARGET_USER_SCOPE_UNAVAILABLE');
+    }
+    try {
+        const rootStat = await lstat(rootPath);
+        if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) throw new Error('HOST_TARGET_USER_ROOT_UNSAFE');
+    } catch (error) {
+        if (error?.code === 'ENOENT') return false;
+        throw error;
+    }
+    const canonicalChatRoot = await realpath(chatRootPath);
+    const chatStat = await lstat(canonicalChatRoot);
+    if (!chatStat.isDirectory() || chatStat.isSymbolicLink()) throw new Error('HOST_TARGET_USER_CHAT_ROOT_UNSAFE');
+    const userRoot = path.dirname(canonicalChatRoot);
+    const markerPath = path.join(userRoot, ENROLLMENT_MARKER_NAME);
+    const stateDirectory = path.join(userRoot, '.logic-engine-host');
+    let markerExists = false;
+    try {
+        const markerStat = await lstat(markerPath);
+        if (!markerStat.isFile() || markerStat.isSymbolicLink()) throw new Error('HOST_TARGET_USER_MARKER_UNSAFE');
+        markerExists = true;
+    } catch (error) {
+        if (error?.code !== 'ENOENT') throw error;
+    }
+    let stateExists = false;
+    try {
+        const stateStat = await lstat(stateDirectory);
+        if (!stateStat.isDirectory() || stateStat.isSymbolicLink()) throw new Error('HOST_TARGET_USER_STATE_UNSAFE');
+        stateExists = true;
+    } catch (error) {
+        if (error?.code !== 'ENOENT') throw error;
+    }
+    if (!stateExists) {
+        if (markerExists) throw new Error('HOST_TARGET_USER_ENROLLMENT_STATE_LOST');
+        return false;
+    }
+    let registry;
+    try {
+        registry = await readRegistry(path.join(stateDirectory, 'enrollments.json'), { allowMissing: !markerExists });
+    } catch {
+        throw new Error('HOST_TARGET_USER_REGISTRY_UNAVAILABLE');
+    }
+    if (registry.conversations.length > 0) return true;
+    if (markerExists) throw new Error('HOST_TARGET_USER_ENROLLMENT_STATE_LOST');
+    return false;
 }
 
 function operationTargetsEnrolledHistory(operation, request, registry) {
@@ -75,6 +127,11 @@ function operationTargetsEnrolledHistory(operation, request, registry) {
     }
     if (operation === 'group-chat-import') {
         return registry.conversations.some(conversation => conversation.domain === 'group_chats');
+    }
+    if (operation === 'user-root-reset') {
+        // This route deletes the entire current user's data root, including the
+        // enrollment marker and journal. It is denied while any history is enrolled.
+        return registry.conversations.length > 0;
     }
     if (operation === 'data-maid-delete' || operation === 'backup-delete') {
         // Backup deletion can destroy the only remaining copy of an enrolled
@@ -332,10 +389,32 @@ function fail(response, code, status = 503) {
  * A successful pre-snapshot and fsynced intent are required before the handler.
  * The response is held until a post-snapshot and fsynced outcome are recorded.
  */
-export function createHostLifecycleMutationMiddleware({ enforce = process.env.LOGIC_ENGINE_HOST_LIFECYCLE_ENFORCE === 'true', requirePersistedInventory = false } = {}) {
+export function createHostLifecycleMutationMiddleware({ enforce = process.env.LOGIC_ENGINE_HOST_LIFECYCLE_ENFORCE === 'true', requirePersistedInventory = false, getUserDirectories } = {}) {
     return async function hostLifecycleMutationMiddleware(request, response, next) {
-        const operation = MUTATIONS.get(request.method + ' ' + request.baseUrl + request.path)
-            ?? MUTATIONS.get(request.method + ' ' + request.originalUrl?.split('?')[0]);
+        const routeKey = request.method + ' ' + request.baseUrl + request.path;
+        const originalRouteKey = request.method + ' ' + request.originalUrl?.split('?')[0];
+        if (request.method === 'POST'
+            && (routeKey === 'POST /api/users/delete' || originalRouteKey === 'POST /api/users/delete')
+            && request.body?.purge === true) {
+            // Admin purge targets another user's root; the current request.user
+            // registry is not the target's authority. Resolve the target using
+            // SillyTavern's own server-side directory resolver and fail closed if
+            // its enrollment state cannot be verified.
+            if (typeof request.body?.handle !== 'string' || !request.body.handle || typeof getUserDirectories !== 'function') {
+                return fail(response, 'HOST_TARGET_USER_SCOPE_UNAVAILABLE', 503);
+            }
+            try {
+                const targetDirectories = getUserDirectories(request.body.handle);
+                if (await targetUserHasEnrolledState(targetDirectories)) {
+                    return fail(response, 'HOST_ENROLLED_USER_PURGE_UNSUPPORTED', 409);
+                }
+            } catch {
+                return fail(response, 'HOST_TARGET_USER_SCOPE_UNAVAILABLE', 503);
+            }
+            return next();
+        }
+        const operation = MUTATIONS.get(routeKey)
+            ?? MUTATIONS.get(originalRouteKey);
         if (!operation || !request.user) return next();
 
         let paths;
