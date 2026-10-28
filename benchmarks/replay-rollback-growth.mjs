@@ -86,6 +86,17 @@ function seed(store, eventCount, operation) {
     store.db.prepare('UPDATE worlds SET world_revision=? WHERE world_id=?').run(eventCount, 'bench-world');
   });
   store.tx(() => store.rebuild('bench-world', eventCount));
+  // This benchmark seeds raw event rows instead of using canonical writes.
+  // Seed the source-version ledger to match the historical entity projection
+  // so rollback exercises normal version advancement rather than an invalid
+  // legacy fixture with missing authority rows.
+  store.tx(() => {
+    store.db.prepare(`INSERT OR IGNORE INTO entity_source_versions
+      (world_id,entity_id,source_version,updated_at)
+      SELECT world_id,entity_id,MAX(1,updated_revision + 1),?
+      FROM entities WHERE world_id=?`)
+      .run(new Date().toISOString(), 'bench-world');
+  });
 }
 
 function projectionCounts(store) {
