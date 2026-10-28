@@ -5,42 +5,44 @@ import {
   reduceNpcBeliefTransition,
 } from '../src/application/npc-belief-state.js';
 
+const evidenceItems = [
+  {
+    acquisition_id: 'acq-support',
+    fact_id: 'fact-location',
+    subject_ref: 'character:target',
+    predicate: 'location',
+    value: 'Kamurocho',
+    provenance_ref: 'authoring:source-a',
+    provenance_digest: 'a'.repeat(64),
+    source_event_ids: ['event-a'],
+  },
+  {
+    acquisition_id: 'acq-contradict',
+    fact_id: 'fact-location-alt',
+    subject_ref: 'character:target',
+    predicate: 'location',
+    value: 'Sotenbori',
+    provenance_ref: 'authoring:source-b',
+    provenance_digest: 'b'.repeat(64),
+    source_event_ids: ['event-b'],
+  },
+];
 const knowledgeRead = (overrides = {}) => ({
   status: 'ready',
   world_id: 'world-a',
   actor_id: 'npc-a',
   purpose: 'npc_turn_context',
   snapshot: { world_revision: 7, commit_sequence: 12 },
-  items: [
-    {
-      acquisition_id: 'acq-support',
-      fact_id: 'fact-location',
-      subject_ref: 'character:target',
-      predicate: 'location',
-      value: 'Kamurocho',
-      provenance_ref: 'authoring:source-a',
-      provenance_digest: 'a'.repeat(64),
-      source_event_ids: ['event-a'],
-    },
-    {
-      acquisition_id: 'acq-contradict',
-      fact_id: 'fact-location-alt',
-      subject_ref: 'character:target',
-      predicate: 'location',
-      value: 'Sotenbori',
-      provenance_ref: 'authoring:source-b',
-      provenance_digest: 'b'.repeat(64),
-      source_event_ids: ['event-b'],
-    },
-  ],
+  items: [evidenceItems[0]],
   ...overrides,
 });
+const propositionRef = 'proposition:character%3Atarget/location';
 
 const proposal = (overrides = {}) => ({
   world_id: 'world-a',
   actor_id: 'npc-a',
   snapshot: { world_revision: 7, commit_sequence: 12 },
-  proposition_ref: 'proposition:target-location',
+  proposition_ref: propositionRef,
   stance: 'believes_true',
   supporting_acquisition_ids: ['acq-support'],
   contradicting_acquisition_ids: [],
@@ -58,7 +60,7 @@ test('accepts a belief proposal only when evidence belongs to the current Core r
 
 test('keeps contradictory admissible evidence unresolved instead of picking a winner', () => {
   const result = reduceNpcBeliefTransition({
-    knowledgeRead: knowledgeRead(),
+    knowledgeRead: knowledgeRead({ items: evidenceItems }),
     proposal: proposal({
       stance: 'unresolved_conflict',
       supporting_acquisition_ids: ['acq-support'],
@@ -70,7 +72,7 @@ test('keeps contradictory admissible evidence unresolved instead of picking a wi
   assert.equal(result.transition.supporting_acquisition_ids.length, 1);
   assert.equal(result.transition.contradicting_acquisition_ids.length, 1);
   assert.equal(reduceNpcBeliefTransition({
-    knowledgeRead: knowledgeRead(),
+    knowledgeRead: knowledgeRead({ items: evidenceItems }),
     proposal: proposal({
       stance: 'believes_true',
       supporting_acquisition_ids: ['acq-support'],
@@ -123,7 +125,7 @@ test('preserves prior belief stance when its evidence was revoked or is no longe
     currentBelief: {
       world_id: 'world-a',
       actor_id: 'npc-a',
-      proposition_ref: 'proposition:target-location',
+      proposition_ref: propositionRef,
       stance: 'believes_true',
       evidence_acquisition_ids: ['acq-support'],
     },
