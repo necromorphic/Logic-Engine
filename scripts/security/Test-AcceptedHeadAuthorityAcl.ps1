@@ -138,6 +138,10 @@ try {
     Remove-LocalGroupMember -Group $nestedGroupName -Member "$env:COMPUTERNAME\$($testAccounts[2])" -ErrorAction SilentlyContinue
     Remove-LocalGroup -Name $nestedGroupName -ErrorAction SilentlyContinue
   }
+  $remainingAdminGroup = @(Get-LocalGroupMember -Group $administratorsGroupName -ErrorAction Stop | Where-Object { $_.Name -eq $nestedGroupName })
+  if ($remainingAdminGroup.Count -gt 0 -or (Get-LocalGroup -Name $nestedGroupName -ErrorAction SilentlyContinue)) {
+    throw 'Nested Administrators regression fixture was not fully cleaned up.'
+  }
 
   $root = Join-Path $env:RUNNER_TEMP ('accepted-head-acl-smoke-' + [guid]::NewGuid().ToString('N'))
   New-Item -ItemType Directory -Path $root | Out-Null
