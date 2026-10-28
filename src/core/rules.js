@@ -302,9 +302,13 @@ export function validateEffects(effects, options = {}) {
       'mechanic.instance.enable': ['kind', 'instance_id'],
       'mechanic.instance.disable': ['kind', 'instance_id'],
       'relationship.transition': ['kind', 'subject_id', 'target_id', 'rule_module_id', 'rule_module_version', 'patch', 'evidence_refs', 'executor_type'],
+      'knowledge.acquire': ['kind', 'acquisition_id', 'subject_entity_id', 'source_fact_id', 'source_event_id', 'source_predicate', 'source_value', 'acquisition_kind', 'provenance', 'observed_world_revision', 'observed_commit_sequence', 'visibility_status'],
     }[effect.kind];
     if (effect.kind === 'relationship.transition' && options.allowRelationshipTransition !== true) {
       throw new EngineError('UNSUPPORTED_EFFECT', 'Relationship transitions must use the trusted Core transition operation.', 403);
+    }
+    if (effect.kind === 'knowledge.acquire' && options.allowKnowledgeAcquisition !== true) {
+      throw new EngineError('UNSUPPORTED_EFFECT', 'Knowledge acquisition must use the trusted Core author/import operation.', 403);
     }
     if (allowedFields && Object.keys(effect).some((key) => !allowedFields.includes(key))) {
       throw new EngineError('UNSUPPORTED_EFFECT_FIELD', 'Effect contains a field not supported by its kind: ' + effect.kind, 400, { kind: effect.kind });
@@ -362,6 +366,51 @@ export function validateEffects(effects, options = {}) {
         && (typeof effect.subject_ref !== 'string' || !effect.subject_ref.trim()
           || effect.subject_ref !== effect.subject_ref.trim())) {
         throw new EngineError('INVALID_EFFECT', 'subject_ref must be a non-empty string or null without surrounding whitespace.');
+      }
+    } else if (effect.kind === 'knowledge.acquire') {
+      for (const key of ['acquisition_id', 'subject_entity_id', 'source_fact_id', 'source_event_id', 'source_predicate']) {
+        if (typeof effect[key] !== 'string' || !effect[key].trim() || effect[key] !== effect[key].trim() || effect[key].length > 200) {
+          throw new EngineError('INVALID_INITIAL_ACQUISITION', 'knowledge.acquire requires valid ' + key + '.', 400);
+        }
+      }
+      if (!/^acq_[a-f0-9]{64}$/.test(effect.acquisition_id)) {
+        throw new EngineError('INVALID_INITIAL_ACQUISITION', 'acquisition_id must be a Core-derived acq_ SHA-256 identifier.', 400);
+      }
+      if (!['author_initial', 'imported'].includes(effect.acquisition_kind)) {
+        throw new EngineError('UNSUPPORTED_ACQUISITION_KIND', 'Only author_initial and imported are supported.', 400);
+      }
+      if (!Object.hasOwn(effect, 'source_value') || !Number.isSafeInteger(effect.observed_world_revision) || effect.observed_world_revision < 0
+        || !Number.isSafeInteger(effect.observed_commit_sequence) || effect.observed_commit_sequence < 0) {
+        throw new EngineError('INVALID_INITIAL_ACQUISITION', 'knowledge.acquire requires a source value and non-negative observed snapshot cursor.', 400);
+      }
+      if (effect.visibility_status !== 'unclassified') {
+        throw new EngineError('INVALID_INITIAL_ACQUISITION_VISIBILITY', 'Initial acquisitions remain unclassified until a separately approved visibility policy exists.', 403);
+      }
+      if (!effect.provenance || typeof effect.provenance !== 'object' || Array.isArray(effect.provenance)) {
+        throw new EngineError('INVALID_INITIAL_ACQUISITION_PROVENANCE', 'Core-generated provenance is required.', 400);
+      }
+      const baseProvenance = ['issuer', 'acquisition_kind', 'source_fact_id', 'source_event_id', 'source_claim_sha256'];
+      const provenanceFields = effect.acquisition_kind === 'imported' ? [...baseProvenance, 'import'] : baseProvenance;
+      if (Object.keys(effect.provenance).some((key) => !provenanceFields.includes(key))
+        || effect.provenance.issuer !== 'core_trusted_authoring'
+        || effect.provenance.acquisition_kind !== effect.acquisition_kind
+        || effect.provenance.source_fact_id !== effect.source_fact_id
+        || effect.provenance.source_event_id !== effect.source_event_id
+        || typeof effect.provenance.source_claim_sha256 !== 'string'
+        || !/^[a-f0-9]{64}$/.test(effect.provenance.source_claim_sha256)) {
+        throw new EngineError('INVALID_INITIAL_ACQUISITION_PROVENANCE', 'Provenance does not match the Core acquisition fields.', 400);
+      }
+      if (effect.acquisition_kind === 'imported') {
+        const imported = effect.provenance.import;
+        if (!imported || typeof imported !== 'object' || Array.isArray(imported)
+          || Object.keys(imported).some((key) => !['import_id', 'import_version', 'import_sha256'].includes(key))
+          || typeof imported.import_id !== 'string' || !imported.import_id.trim()
+          || typeof imported.import_version !== 'string' || !imported.import_version.trim()
+          || typeof imported.import_sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(imported.import_sha256)) {
+          throw new EngineError('INVALID_INITIAL_ACQUISITION_PROVENANCE', 'Imported provenance requires import identity, version and SHA-256 digest.', 400);
+        }
+      } else if (Object.hasOwn(effect.provenance, 'import')) {
+        throw new EngineError('INVALID_INITIAL_ACQUISITION_PROVENANCE', 'author_initial provenance cannot include import metadata.', 400);
       }
     } else if (effect.kind === 'relationship.transition') {
       for (const key of ['subject_id', 'target_id', 'rule_module_id', 'rule_module_version']) {
