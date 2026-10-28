@@ -328,6 +328,24 @@ test('crossing geometric paths at different times are not reported as synchroniz
   assert.deepEqual(report.collisions, []);
 });
 
+test('collision reports are ordered by earliest estimated contact time', () => {
+  const initial = scene({
+    entities: [
+      { ...entity('alice', { x: 0, y: 0, z: 0 }), motion: { velocity: { x: 1, y: 0, z: 0 } } },
+      { ...entity('bob', { x: 5, y: 0, z: 0 }), motion: { velocity: { x: 0, y: 0, z: 0 } } },
+      { ...entity('cara', { x: 10, y: 0, z: 0 }), motion: { velocity: { x: -2, y: 0, z: 0 } } },
+    ],
+  });
+  const report = detectSimultaneousTrajectoryCollisions(initial, 6);
+  assert.deepEqual(report.collisions.map(({ entityA, entityB }) => [entityA, entityB]), [
+    ['bob', 'cara'],
+    ['alice', 'cara'],
+    ['alice', 'bob'],
+  ]);
+  assert.ok(report.collisions[0].timeStartSeconds < report.collisions[1].timeStartSeconds);
+  assert.ok(report.collisions[1].timeStartSeconds < report.collisions[2].timeStartSeconds);
+});
+
 test('trajectory collision prediction fails closed without explicit motion for every entity', () => {
   assert.deepEqual(
     detectSimultaneousTrajectoryCollisions(scene(), 2),
