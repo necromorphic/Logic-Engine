@@ -266,3 +266,69 @@ GO for implementation planning only after Core review accepts:
 - the migration and failure-state behavior.
 
 NO-GO for acquisition writes or Memory → NPC until exact-head tests prove the matrix above to the extent implemented, and separate disclosure approval is recorded. Catalog validation alone is not evidence that a subject has permission to receive a fact. The imported kind remains unsupported in this slice.
+
+## 12. Current-main bootstrap boundary: concrete code-mapped plan
+
+**Purpose:** turn the catalog recommendation into a reviewable implementation sequence grounded in existing code. This is still a proposal; it does not authorize runtime changes.
+
+### 12.1 Existing path and exact limit
+
+- `src/api/server.js`: the admin-gated `POST /v1/worlds` route delegates to `engine.createWorld(...)`. Admin authentication protects the operation but does not establish that the caller's arbitrary pack ID/version corresponds to trusted installed pack bytes.
+- `src/application/engine.js`: `LogicEngine.createWorld(x)` validates the request's world identity, pack ID/version and game time, then delegates to `store.createWorld(...)`. It does not resolve a pack, validate a complete pack payload, or prepare subject-specific initial assignments.
+- `src/storage/sqlite-store.js`: `SQLiteStore.createWorld(w)` owns the current world-row creation and audit entry inside `store.tx(...)`. The `worlds` schema records `world_pack_id` and `world_pack_version`; it does not record a trusted catalog digest or immutable artifact reference.
+- `docs/04-world-pack-format.md`: explicitly labels the format proposed/partial and says there is no complete production loader or full conformance-validation path.
+
+Implication: do not place catalog resolution only in the HTTP handler; callers can also reach application/storage code in tests or other internal paths. The application boundary must receive a trusted catalog dependency, and storage must persist the pin atomically with world creation. Conversely, storage should not parse pack files or independently decide source trust.
+
+### 12.2 Proposed ownership split
+
+1. **Deployment/catalog loader (outside request data):** reads only deployment-configured local artifacts; validates duplicate `(world_pack_id, version)` entries, immutable version identity, canonical bytes and digest. No catalog mutation route in the first slice.
+2. **Application bootstrap planner:** resolves the requested ID/version from that loaded catalog, validates the complete supported contract, maps stable pack-local references, and creates a side-effect-free bootstrap plan. The planner must not accept a caller-provided replacement manifest or assignment list.
+3. **Core persistence transaction:** rechecks world ID uniqueness and any required revision/idempotency conditions, then commits the world pin and the complete approved bootstrap effects under the existing Core-owned transaction/event lifecycle. If the current event API cannot express the bootstrap effects in that transaction, stop and submit the smallest transaction/effect extension for review.
+4. **Readiness/activation:** a world becomes usable only after the entire bootstrap commit succeeds. Do not return an active world after writing only its world row. If staging is required, staging must be an explicit persisted non-ready state that every read/dispatch path rejects until activation.
+5. **Future assignment projection:** derive subject-specific acquisition from approved valid Core effects. Do not infer assignment from a pack fact, channel declaration, manifest entry, or the existence of a canonical fact.
+
+### 12.3 Transaction design constraint
+
+`SQLiteStore.tx(...)` is a reusable local SQLite transaction primitive, and `createWorld` already uses it for world creation. That is useful groundwork, but it does not prove that a multi-record pack bootstrap can currently be committed through one supported Core event/effect path. The implementation review must identify the exact existing transaction and canonical event-commit methods that would accept the full plan. If the only way to populate the pack is multiple public API calls after world creation, that path does not satisfy atomic bootstrap and must not be used as a substitute.
+
+Do not add an independent acquisition table as an authority, a parallel event log, or a second revision counter. A derived projection is acceptable only after the event/effect representation and rebuild semantics are reviewed and implemented against Core's existing event validity lifecycle.
+
+### 12.4 Proposed catalog and pin contract
+
+Deployment catalog entry, conceptual shape only:
+
+```text
+CatalogEntry
+  world_pack_id: stable namespaced ID
+  version: immutable exact version string
+  schema_version: explicitly supported contract version
+  content_digest: Core-computed SHA-256 over canonical pack bytes
+  artifact: validated immutable bytes or a deployment-controlled immutable reference
+```
+
+The catalog location/configuration is the trust root; SHA-256 alone is not authenticity. If deployment supports signed artifacts later, signature verification is a separate trust mechanism and must define the trusted key source, rotation/revocation and exact signed bytes.
+
+The world record must pin `(world_pack_id, version, content_digest)` as part of the creation transaction. A request can select a catalog entry but cannot supply its digest as authority. Existing worlds must never silently resolve against a newer version. If the pinned artifact is missing, report the world as unavailable/non-ready rather than substituting the latest entry.
+
+### 12.5 Assignment payload and canonical references
+
+World Pack assignment declarations should use stable local references, for example `subject_ref`, `item_ref`, `assignment_id`, and `assignment_rule_id + assignment_rule_version`. These names are illustrative, not an approved schema. The final schema must specify strict field allowlists, size/depth bounds, duplicate rules, reference semantics and compatibility version.
+
+Before any write, the planner must resolve every local reference exactly once and verify that both subject and source item belong to the intended target-world bootstrap plan. Display names are never keys. An assignment references a source proposition/item; it does not assert that the proposition is true, and it does not grant unrestricted disclosure.
+
+### 12.6 Implementation gates and evidence
+
+Gate A — design approval: agree catalog trust root, immutable artifact retention, complete World Pack schema and assignment reference semantics.
+
+Gate B — persistence proof: point to the exact Core commit/event transaction that can atomically create the world pin and all required canonical records; demonstrate rollback on injected failure and deterministic replay. If unavailable, implement and review the minimal Core-owned extension before assignment writes.
+
+Gate C — runtime slice: add catalog loading/resolution and strict validation behind a non-production default; no generic client-supplied assignment endpoint. `imported` remains rejected.
+
+Gate D — tests: unknown ID/version; duplicate catalog identity; digest mismatch; request override; invalid schema; unresolved/ambiguous/cross-world refs; duplicate IDs; transaction failure after each planned write; exact replay; conflicting replay; catalog replacement; missing historical artifact; no implicit subject assignment from a fact; rollback/replay; disclosure-gate isolation.
+
+Gate E — readiness: only after exact-head CI and the existing #140/#264/#356 gates pass may anyone separately consider production wiring. Passing catalog tests alone does not authorize Memory → NPC.
+
+### 12.7 Current recommendation
+
+Do not begin the runtime implementation yet. The next review should decide Gate A and name the owner for the World Pack schema/conformance contract. Once that is approved, the first coding PR should implement catalog resolution plus world pinning only, with no acquisition writes; the subsequent PR can add `author_initial` assignments after the atomic Core effect/event representation is approved. Keep `imported` and Memory → NPC disabled.
