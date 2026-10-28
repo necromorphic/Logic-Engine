@@ -173,7 +173,8 @@ $gateway = Get-ServiceIdentity -Name $GatewayServiceName
 function Assert-ServiceIdentitiesNotLocalAdministrators {
     param([Parameter(Mandatory = $true)][object[]]$Services)
     try {
-        $members = @(Get-LocalGroupMember -SID 'S-1-5-32-544' -ErrorAction Stop)
+        $administratorsGroup = Get-LocalGroup -SID 'S-1-5-32-544' -ErrorAction Stop
+        $members = @(Get-LocalGroupMember -Group $administratorsGroup.Name -ErrorAction Stop)
         $memberSids = @($members | ForEach-Object {
             if (-not $_.SID -or -not $_.SID.Value) {
                 throw 'Local Administrators membership returned an entry without a resolvable SID.'
