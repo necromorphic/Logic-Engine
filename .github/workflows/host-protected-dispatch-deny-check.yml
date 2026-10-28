@@ -72,7 +72,7 @@ jobs:
           node --check public/scripts/logic-engine-lifecycle/protected-dispatch-browser-guard.mjs
           node --check src/server-main.js
           node --check public/script.js
-      - name: Ensure guard is installed before native endpoint routers
+      - name: Ensure guard is installed before generic proxy and private endpoint routers
         shell: bash
         run: |
           node --input-type=module <<'NODE'
