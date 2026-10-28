@@ -1151,7 +1151,7 @@ export class LogicEngine {
       stance: row.stance,
       evidence_status: surviving.length === evidence.length ? 'supported'
         : surviving.length > 0 ? 'partially_supported' : 'unsupported',
-      evidence_acquisition_ids: Object.freeze(evidence),
+      evidence_acquisition_ids: Object.freeze(surviving),
       surviving_evidence_acquisition_ids: Object.freeze(surviving),
       reason_rule_ref: row.reason_rule_ref,
       snapshot: Object.freeze({
