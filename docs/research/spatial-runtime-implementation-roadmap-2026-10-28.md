@@ -210,23 +210,23 @@ The remaining blockers require new, verifiable technical evidence and explicit i
 
 This section proposes a concrete resolution rather than leaving the blockers as an unranked list. It is still a proposal and is not authorization to implement.
 
-### Decision R1 — Fail closed on unverifiable restore for v1
+### Decision R1 — Complete and verify the existing accepted-head authority path; fail closed meanwhile
 
-**Recommendation:** do not build a distributed anti-rollback ledger as part of the first spatial slice. Require an explicit recovery attestation whenever the active Core database cannot prove continuity with the last accepted head. Until that attestation is supplied, the world is `NON_READY` for spatial reads and downstream consumers.
+**Correction after inspecting the current main source and related PRs:** do not describe accepted-head authority as wholly absent. The current `main` version of `src/storage/sqlite-store.js` already has an optional Core client integration using `src/security/accepted-head-client-sync.js`, including enrollment checks, monotonic head comparison, pending-operation recovery, schema/change-set digesting, and fail-closed errors. The integration is gated by `LOGIC_ENGINE_ACCEPTED_HEAD_REQUIRED` and authority connection configuration.
 
-Why:
-- The coordinator database currently provides locking, not an independently committed accepted-head record.
-- A second ledger introduces a new authority, recovery protocol, and cross-store failure modes.
-- A ledger restored from the same backup does not help; a ledger outside the restore domain can help only if operations reliably compare it and handle outages.
-- A fail-closed recovery gate is smaller and more honest than claiming anti-rollback from a digest or revision stored inside the same database.
+However, the authority service/store is still in draft [PR #480](https://github.com/necromorphic/Logic-Engine/pull/480), and the separate authority storage ACL candidate remains draft [PR #469](https://github.com/necromorphic/Logic-Engine/pull/469). The PR #480 description explicitly excludes service installation, secret provisioning, OS ACL deployment, and production configuration. Therefore the mechanism is **partially wired in source, not proven deployed or restore-resistant on the target machine**.
 
-Minimum future acceptance conditions:
-1. Define the restore boundary and who can attest recovery.
-2. Record the last accepted Core composite cursor and immutable schema identity in an authority outside the restored database, **or** require a documented operator recovery action when no such authority exists.
-3. Any missing, older, or contradictory evidence yields `NON_READY`; never auto-rewind the accepted head.
-4. Recovery action is audited and does not silently make old state current.
+**Recommendation:** reuse this existing design rather than inventing a parallel ledger. Keep production/non-ready gates closed until the existing authority path is completed and independently accepted.
 
-**Trade-off:** without an external accepted-head authority, automated detection of a fully coordinated old restore is impossible from the restored database alone. The proposal deliberately chooses manual/non-ready recovery over pretending otherwise.
+Minimum closure evidence:
+1. Confirm the authority service implementation and state machine are approved, integrated, and pinned to an exact reviewed commit.
+2. Prove the authority DB and its backups/sidecars are outside the Core/Provider restore domain, with effective OS ACLs and service identities validated on the target PC.
+3. Exercise Core and Provider enrollment, monotonic advance, pending-operation crash recovery, authority outage, token separation, and restore of Core alone, Provider alone, and both stores together.
+4. Show that a restored local DB whose head is behind or ahead of the independent authority becomes non-ready and cannot silently re-enroll or lower the accepted head.
+5. Define operator recovery for a genuinely lost or replaced authority DB; no automatic reset or re-enrollment without a reviewed approval record.
+6. Bind spatial readiness to successful accepted-head health **and** the spatial schema/cursor checks. Accepted-head continuity alone does not validate World Pack identity or typed position semantics.
+
+**Trade-off:** this is a smaller path than building a new authority, but it is not closed by the presence of client code or by hosted CI alone. Until service deployment, ACL, backup isolation, and adversarial restore evidence exist, treat anti-rollback as `NOT PROVEN` and spatial reads as `NON_READY` where continuity cannot be established.
 
 ### Decision R2 — Make schema identity immutable and resolvable before spatial validation
 
@@ -296,7 +296,7 @@ This sequence intentionally postpones NPC integration and any inference-heavy sp
 | No runtime validator dependency declared in package manifest | `package.json:1–17` | `c9d6652d87cf90ff3b945cfa32c1957d83428cbd` | code-verified, bounded | No validator dependency is declared; bounded searches did not locate an in-repo loader/validator path. External loaders are not ruled out |
 | Canonical read seams exist | `src/application/engine.js:486–488`; `src/storage/sqlite-store.js:814+` (`readSnapshot`), `1057+` (`state`), `1090+` (`events`) | engine `dcb8b84e54b29e8697f14eb7e709cc6e0cd65a13`; store `80cbc54fb174a8074088ee9234524e401b7dbb68` | code-verified | Existing state/snapshot/event reads can support a research projection, but do not define typed position semantics |
 | Segment commit and rollback are store-owned | `src/application/engine.js:670–705, 1224`; `src/storage/sqlite-store.js:1353+` (`commit`), `1580+` (`commitSegment`), `2078+` (`rollback`) | engine `dcb8b84e54b29e8697f14eb7e709cc6e0cd65a13`; store `80cbc54fb174a8074088ee9234524e401b7dbb68` | code-verified | Any future spatial acceptance must not bypass these canonical mutation/rebuild paths |
-| Coordinator database is not an accepted-head ledger | `src/storage/coordinator-lock.js:4–9, 52+` | `7df7121bdbbf71d8171759dbdcd2ca6626130014` | code-verified | A separate authority is not demonstrated by this file; local lock does not solve coordinated backup rollback |
+| Coordinator DB is a lock primitive; accepted-head client integration exists but external authority deployment is not established | `src/storage/coordinator-lock.js:4–9, 52+`; `src/storage/sqlite-store.js:20–25, 347–365, 688–710, 752–805`; `src/security/accepted-head-client-sync.js` | coordinator `7df7121bdbbf71d8171759dbdcd2ca6626130014`; store `0c45e73020d69726946a01e5c7e39ea4c4a7fdd4`; client `97b0352c0e0ad8a1a52701e0c1c6108b4600ba51` | code-verified, bounded; external service/ACL still draft | Do not build a parallel ledger. Verify draft authority service PR #480, ACL PR #469, target-PC deployment and coordinated restore behavior before claiming anti-rollback closure |
 | Segment commit and TimeEngine operation checkpoint update share the inspected transaction path | `src/storage/sqlite-store.js:1730–1860` (segment processing and operation checkpoint/result update) | `80cbc54fb174a8074088ee9234524e401b7dbb68` | code-verified, bounded | Prefer deriving the boundary cursor from existing segment event IDs and canonical events before proposing a new receipt/table |
 | Basic TimeEngine boundary mapping survives restart | `tests/spatial-temporal-cursor-feasibility.test.js:42–113` | `422b6dbc8dc132c27d285aa883eb9a45ef4727f6` | test-source verified; execution status not checked in this pass | Reconstructs each segment boundary from final segment event ID and canonical event row |
 | Rollback invalidates affected historical boundary; operation checkpoint becomes stale | `tests/spatial-temporal-cursor-feasibility.test.js:116–176` | `422b6dbc8dc132c27d285aa883eb9a45ef4727f6` | test-source verified; execution status not checked in this pass | Consumers must revalidate event validity and world markers; old completed operation data is not automatically current |
