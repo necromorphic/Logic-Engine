@@ -233,3 +233,32 @@ The following cases extend the end-to-end evidence checklist. They are design ac
 These cases are derived from the existing semantic boundaries in `docs/31-npc-subsystem-contract.md`, `docs/32-npc-semantic-acceptance-matrix.md`, `docs/38-npc-author-decisions-and-semantic-delta.md`, `docs/40-npc-social-identities-editor-contract.md`, and `docs/48-npc-delivery-acquisition-boundary-matrix.md`. They do not replace those source contracts or broaden the approved `observe` design-only scope.
 
 **Acceptance rule:** a unit test over fabricated dispatcher inputs may verify pure semantic decisions only. It cannot be reported as proof of access control, delivery, player-agency enforcement, time-trigger integration, identity persistence, canonical commit, or rollback/reconciliation. Such claims require the real production boundary and its authoritative records.
+
+
+### 7.2 Test-preparation classification — what can be tested before integration
+
+This classification applies the existing test-boundary rules in `docs/32-npc-semantic-acceptance-matrix.md` and `docs/35-npc-test-boundary-map.md`. It identifies possible **pure semantic tests** versus tests that must remain blocked. It does not add runtime behavior or assert that any new tests have been written or run.
+
+| Candidate | Suitable test boundary now | Minimum assertion | What the result must not claim |
+|---|---|---|---|
+| Goal survives a failed plan | Pure reducer/contract test with explicit trusted input | A failed prerequisite invalidates/revises that plan; the goal is not erased solely for that reason. | No proof of persistent goal state, authoritative task outcome, or runtime replanning. |
+| Missing/ambiguous evidence | Pure semantic decision test | Return an unresolved/unknown/denied result as defined by the supplied contract; do not invent a fact or rationale. | No proof of production access control or completeness. |
+| Pending report versus awareness | Pure lifecycle distinction test using explicit status inputs | Pending/sent/received/acknowledged/understood/player-aware are not interchangeable. | No proof that any real send, receipt, or acknowledgement signal exists. |
+| Off-screen event versus player knowledge | Pure viewpoint/semantic test | An event does not itself imply NPC knowledge or player awareness. | No proof of actual communication, visibility, or knowledge persistence. |
+| Player-controlled character agency | Pure output/intent validator test with an explicit policy fixture | Reject an NPC result that asserts the player's voluntary action, thought, dialogue, consent, or decision as already chosen. | No proof of enforcement at the production narration/Host/commit boundary. |
+| Chat turn versus game time | Pure trigger eligibility test with explicit time coordinates | A chat turn without a canonical time-advance input does not advance deadlines or fire time-dependent work. | No proof of scheduler or dispatcher integration. |
+| Action-result truth | Pure result-correlation contract test with synthetic labelled records | Model text or a pending proposal alone is not a confirmed committed outcome; mismatched/missing correlation remains unresolved. | No proof of a real NPC attempt-to-Core-event correlation path. |
+| Secret exclusion | Not sufficient as a pure semantic test for the security claim | A synthetic test may check expected decisions for known access labels. | Must remain BLOCKED as an access-control claim until a real trusted filter proves omission at the exact model-input serialization boundary. |
+| Initial acquisition, belief and source invalidation | Not sufficient as a pure semantic test for persistence/reconciliation | Pure tests may assert distinctions over explicit input records. | Must remain BLOCKED for Core-owned writes, provenance, actor isolation, restart, replay and rollback until real Core boundaries exist. |
+| Proposal rejection and canonical non-mutation | Existing Core regression tests can cover generic proposal behavior; NPC contract needs its own caller path | Rejected generic proposals do not commit supported canonical effects under existing Core tests. | Do not claim NPC-originated end-to-end behavior without the real NPC caller and correlated result. |
+| Identity/document lifecycle | Pure semantic tests may check distinctions among profile claims, identities, documents and disclosure | An identity declaration does not itself issue a canonical document or disclose private fields. | No proof of identity persistence, document issuance, or observer-specific disclosure. |
+| Causal rollback and independent support | Existing Core rollback tests can cover their documented world-effect semantics | Only assert the dependencies the existing Core contract actually defines. | Do not claim NPC goal, belief, report, relationship or OR-style alternative-support reconciliation. |
+
+#### Order for preparing future tests
+
+1. **First:** prepare only pure, deterministic semantic tests for goal-versus-plan distinction, unknown/missing evidence, report-state distinction, off-screen awareness, player-agency output checks, and chat-turn/game-time separation. Inputs and expected outputs must be explicit; no model call, fake persistence, or hidden side effect is needed.
+2. **Separately:** reuse existing Core tests as evidence only for the exact generic behavior they exercise. Keep generic proposal/rollback coverage separate from NPC integration claims.
+3. **Blocked until real boundaries exist:** secret omission before model input; acquisition/provenance and belief persistence; delivery/receipt; NPC-originated proposal authorization; committed-result correlation and plan reconciliation; identity/document persistence; NPC state after rollback/restart.
+4. **Report status precisely:** “pure semantic test passed” is not “NPC integration passed.” A mock or fixture can validate a contract decision but cannot stand in for missing production authorization, storage, serialization, delivery, or canonical state.
+
+No implementation owner is inferred here. This classification does not select the concrete `observe` evidence source, resolve the trusted NPC caller/purpose policy, or change the coordinator's sequencing decision that `author_initial` / `imported` acquisition comes first.
