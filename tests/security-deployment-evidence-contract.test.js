@@ -10,6 +10,7 @@ test('deployment evidence collector fails closed when required path inputs are a
   assert.match(source, /\$requestedDataPaths\.Count -eq 0/);
   assert.match(source, /\$requestedBackupPaths\.Count -eq 0/);
   assert.match(source, /A supplied data database path is missing, inaccessible, invalid, or not a file\./);
+  assert.match(source, /PSObject\\.Properties\\.Name -contains \"path\"/);
   assert.match(source, /collectionStatus = if \(\$incompleteReasons\.Count -gt 0\) \{ "INCOMPLETE" \}/);
 });
 
