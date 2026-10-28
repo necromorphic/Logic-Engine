@@ -12,7 +12,7 @@ test('pinned ST patch mounts lifecycle middleware before user-data route handler
   assert.ok(start >= 0 && end > start, 'server-startup patch section exists');
   const section = patch.slice(start, end);
   const userBinding = section.indexOf(" app.use('/', userDataRouter);");
-  const lifecycleGuard = section.indexOf('+    app.use(createHostLifecycleMutationMiddleware({ requirePersistedInventory: true }));');
+  const lifecycleGuard = section.indexOf('+    app.use(createHostLifecycleMutationMiddleware({ requirePersistedInventory: true, getUserDirectories }));');
   assert.ok(userBinding >= 0, 'authenticated user-data middleware is mounted');
   assert.ok(lifecycleGuard >= 0 && userBinding >= 0 && lifecycleGuard < userBinding, 'lifecycle guard precedes user-data route handlers; global user binding is installed in server-main.js');
 });
@@ -42,6 +42,7 @@ test('server mutation journal covers character routes that can alter chat identi
     'POST /api/groups/delete',
     'POST /api/backups/chat/delete',
     'POST /api/data-maid/delete',
+    'POST /api/users/reset-step2',
     'POST /api/characters/create',
     'POST /api/characters/rename',
     'POST /api/characters/edit-avatar',
@@ -68,7 +69,7 @@ test('production middleware requires persisted version inventory and journals ve
   const patch = await readFile(patchPath, 'utf8');
   const journalPath = fileURLToPath(new URL('../server-lifecycle-mutation-journal.mjs', import.meta.url));
   const journal = await readFile(journalPath, 'utf8');
-  assert.match(patch, /createHostLifecycleMutationMiddleware\(\{ requirePersistedInventory: true \}\)/);
+  assert.match(patch, /createHostLifecycleMutationMiddleware\(\{ requirePersistedInventory: true, getUserDirectories \}\)/);
   assert.match(journal, /beforeConversationInventories/);
   assert.match(journal, /afterConversationInventories/);
   assert.match(journal, /const versionChanges = diffConversationInventories\(before, after\)/);
