@@ -249,3 +249,25 @@ test('rolling back an assignment event revokes that acquisition without deleting
   assert.ok(historical);
   assert.notEqual(historical.validity, 'valid');
 });
+
+test('assignment refuses a stale world revision and commit sequence', async (t) => {
+  const { base, engine } = await setup(t);
+  const response = await fetch(base + '/v1/worlds/knowledge-world/initial-knowledge', {
+    method: 'POST',
+    headers: { ...headers, 'x-admin-token': ADMIN },
+    body: json({
+      idempotency_key: 'initial-with-stale-cursor',
+      expected_revision: 0,
+      expected_commit_sequence: 0,
+      subject_id: 'npc-a',
+      fact_id: 'fact-secret',
+      acquisition_kind: 'author_initial',
+      source_ref: 'world-pack:characters/npc-a/initial-knowledge',
+      source_content: SOURCE_A,
+    }),
+  });
+  assert.equal(response.status, 409);
+  assert.equal((await response.json()).error.code, 'REVISION_CONFLICT');
+  assert.equal(engine.getEvents('knowledge-world', true).every((event) =>
+    !event.effects.some((effect) => effect.kind === 'knowledge.acquire')), true);
+});
