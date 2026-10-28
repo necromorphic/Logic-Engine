@@ -50,6 +50,7 @@ test('enforcement denies reads and writes under model route families to avoid al
     ['/api/backends/text-completions/generate', 'PUT'],
     ['/proxy/http://provider.example/generate', 'POST'],
     ['/api/extensions/custom-route', 'POST'],
+    ['/api/plugins/edge-tts/synthesize', 'POST'],
     ['/api/search/serpapi', 'POST'],
   ]) {
     const result = invoke(middleware, path, method);
