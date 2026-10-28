@@ -86,8 +86,9 @@ const parseRelationshipRef = (value) => {
 };
 const refs = (effects) => effects.map((e) => e.kind === 'relationship.transition'
   ? relationshipRef(e.subject_id, e.target_id)
-  : e.kind.startsWith('entity.') ? 'entity:' + e.entity_id
-    : e.kind.startsWith('mechanic.instance.') ? 'mechanic:' + e.instance_id : 'fact:' + e.fact_id);
+  : e.kind === 'knowledge.acquire' ? 'knowledge:' + e.acquisition_id
+    : e.kind.startsWith('entity.') ? 'entity:' + e.entity_id
+      : e.kind.startsWith('mechanic.instance.') ? 'mechanic:' + e.instance_id : 'fact:' + e.fact_id);
 const applyEntityEffects = (entities, effects) => {
   for (const effect of effects) {
     if (effect.kind === 'entity.create' || effect.kind === 'entity.upsert') {
@@ -661,6 +662,34 @@ export class SQLiteStore {
           if (violations.length) {
             throw new Error('WORLD_EVENT_IDENTITY_MIGRATION_FOREIGN_KEY_CHECK_FAILED: ' + JSON.stringify(violations));
           }
+        },
+      },
+      {
+        version: 13,
+        apply: () => {
+          this.db.exec(`CREATE TABLE IF NOT EXISTS knowledge_acquisitions(
+            world_id TEXT NOT NULL REFERENCES worlds(world_id),
+            acquisition_id TEXT NOT NULL,
+            subject_entity_id TEXT NOT NULL,
+            source_fact_id TEXT NOT NULL,
+            source_event_id TEXT NOT NULL,
+            source_predicate TEXT NOT NULL,
+            source_value_json TEXT NOT NULL,
+            acquisition_kind TEXT NOT NULL CHECK(acquisition_kind IN ('author_initial','imported')),
+            provenance_json TEXT NOT NULL,
+            observed_world_revision INTEGER NOT NULL,
+            observed_commit_sequence INTEGER NOT NULL,
+            acquisition_event_id TEXT NOT NULL,
+            created_revision INTEGER NOT NULL,
+            visibility_status TEXT NOT NULL CHECK(visibility_status IN ('unclassified')),
+            status TEXT NOT NULL CHECK(status IN ('active','subject_unavailable')),
+            PRIMARY KEY(world_id,acquisition_id),
+            UNIQUE(world_id,acquisition_event_id)
+          );
+          CREATE INDEX IF NOT EXISTS knowledge_acquisitions_subject
+            ON knowledge_acquisitions(world_id,subject_entity_id,status);
+          CREATE INDEX IF NOT EXISTS knowledge_acquisitions_source
+            ON knowledge_acquisitions(world_id,source_fact_id,source_event_id,status);`);
         },
       },
     ];
@@ -1526,6 +1555,56 @@ export class SQLiteStore {
       const mechanicEffectIds = new Set();
       const factEffectIds = new Set();
       for (const effect of x.effects) {
+        if (effect.kind === 'knowledge.acquire') {
+          if (options.allowKnowledgeAcquisition !== true) {
+            throw new EngineError('UNSUPPORTED_EFFECT', 'Knowledge acquisition must use the trusted Core author/import operation.', 403);
+          }
+          if (x.effects.length !== 1 || x.event_type !== 'knowledge.initial_acquisition') {
+            throw new EngineError('INVALID_INITIAL_ACQUISITION_EVENT', 'An initial acquisition must be the sole effect in a knowledge.initial_acquisition event.', 400);
+          }
+          const subject = currentEntities.get(effect.subject_entity_id);
+          if (!subject || subject.status === 'destroyed') {
+            throw new EngineError('INITIAL_ACQUISITION_SUBJECT_NOT_ELIGIBLE', 'Subject must be an existing non-destroyed canonical entity in this world.', 409);
+          }
+          const sourceEvent = this.db.prepare('SELECT commit_sequence,validity FROM world_events WHERE world_id=? AND event_id=?')
+            .get(id, effect.source_event_id);
+          if (!sourceEvent || sourceEvent.validity !== 'valid' || sourceEvent.commit_sequence > this.currentCommitSequence(id)) {
+            throw new EngineError('INITIAL_ACQUISITION_SOURCE_NOT_ELIGIBLE', 'Source event must be valid and precede the acquisition in this world.', 409);
+          }
+          const sourceClaim = this.db.prepare('SELECT predicate,value_json FROM fact_claims WHERE world_id=? AND fact_id=? AND event_id=?')
+            .get(id, effect.source_fact_id, effect.source_event_id);
+          if (!sourceClaim || sourceClaim.predicate !== effect.source_predicate
+            || !isDeepStrictEqual(dec(sourceClaim.value_json), effect.source_value)) {
+            throw new EngineError('INITIAL_ACQUISITION_SOURCE_NOT_ELIGIBLE', 'The exact source event must contain the referenced fact claim and matching value.', 409);
+          }
+          const sourceClaimHash = createHash('sha256').update(JSON.stringify({
+            predicate: sourceClaim.predicate,
+            value: dec(sourceClaim.value_json),
+          }), 'utf8').digest('hex');
+          if (effect.provenance.source_claim_sha256 !== sourceClaimHash
+            || !x.caused_by.includes(effect.source_event_id)
+            || !x.depends_on.includes(effect.source_event_id)
+            || !(x.causal_links ?? []).some((link) => link.relation === 'READS_CLAIM' && link.target_id === effect.source_fact_id)
+            || !(x.causal_links ?? []).some((link) => link.relation === 'READS_ENTITY' && link.target_id === effect.subject_entity_id)) {
+            throw new EngineError('INVALID_INITIAL_ACQUISITION_PROVENANCE', 'Source digest and causal references must be Core-verified and bound to the exact source and subject.', 400);
+          }
+          if (effect.observed_world_revision !== w.world_revision
+            || effect.observed_commit_sequence !== this.currentCommitSequence(id)) {
+            throw new EngineError('INITIAL_ACQUISITION_SNAPSHOT_STALE', 'Acquisition must bind the exact current world revision and commit sequence.', 409);
+          }
+          if (effect.visibility_status !== 'unclassified') {
+            throw new EngineError('INVALID_INITIAL_ACQUISITION_VISIBILITY', 'Initial acquisition cannot grant disclosure permission.', 403);
+          }
+          const existingAcquisition = this.db.prepare('SELECT acquisition_event_id FROM knowledge_acquisitions WHERE world_id=? AND acquisition_id=? AND status=\'active\'')
+            .get(id, effect.acquisition_id);
+          if (existingAcquisition) {
+            throw new EngineError('INITIAL_ACQUISITION_ALREADY_EXISTS', 'This exact initial acquisition is already active.', 409, {
+              acquisition_id: effect.acquisition_id,
+              acquisition_event_id: existingAcquisition.acquisition_event_id,
+            });
+          }
+          continue;
+        }
         if (effect.kind === 'relationship.transition') {
           if (x.effects.length !== 1) throw new EngineError('MIXED_RELATIONSHIP_EFFECTS_UNSUPPORTED', 'A Relationship transition must be the only effect in its canonical event.', 400);
           const pairKey = JSON.stringify([effect.subject_id, effect.target_id]);
@@ -2479,18 +2558,36 @@ export class SQLiteStore {
     this.db.prepare('DELETE FROM facts WHERE world_id=?').run(id);
     this.db.prepare('DELETE FROM fact_claims WHERE world_id=?').run(id);
     this.db.prepare('DELETE FROM relationships WHERE world_id=?').run(id);
+    this.db.prepare('DELETE FROM knowledge_acquisitions WHERE world_id=?').run(id);
     const upsertEntity = this.db.prepare(`INSERT INTO entities(
       world_id,entity_id,entity_type,status,attributes_json,created_by_event_id,updated_revision
     ) VALUES(?,?,?,?,?,?,?) ON CONFLICT(world_id,entity_id) DO UPDATE SET
       entity_type=excluded.entity_type,status=excluded.status,attributes_json=excluded.attributes_json,
       created_by_event_id=excluded.created_by_event_id,updated_revision=excluded.updated_revision`);
     const insertClaim = this.db.prepare('INSERT INTO fact_claims(world_id,fact_id,event_id,subject_ref,predicate,value_json,committed_revision) VALUES(?,?,?,?,?,?,?)');
+    const insertAcquisition = this.db.prepare(`INSERT INTO knowledge_acquisitions(
+      world_id,acquisition_id,subject_entity_id,source_fact_id,source_event_id,source_predicate,source_value_json,
+      acquisition_kind,provenance_json,observed_world_revision,observed_commit_sequence,acquisition_event_id,created_revision,visibility_status,status
+    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,'active')`);
     const insertMechanic = this.db.prepare(`INSERT INTO mechanic_instances(
       world_id,instance_id,template_id,template_version,status,parameters_json,state_json,created_by_event_id,created_revision,updated_revision,disabled_at_revision,needs_review_reason,last_event_id
     ) VALUES(?,?,?,?,?,?,?,?,?,?,?,NULL,?)`);
     for (const event of events) {
       for (const effect of dec(event.effects_json)) {
-        if (effect.kind === 'relationship.transition') {
+        if (effect.kind === 'knowledge.acquire') {
+          const claim = this.db.prepare('SELECT predicate,value_json FROM fact_claims WHERE world_id=? AND fact_id=? AND event_id=?')
+            .get(id, effect.source_fact_id, effect.source_event_id);
+          if (!claim || claim.predicate !== effect.source_predicate
+            || !isDeepStrictEqual(dec(claim.value_json), effect.source_value)) {
+            throw new EngineError('INITIAL_ACQUISITION_PROJECTION_REBUILD_FAILED', 'A valid acquisition event has no matching valid source claim.', 500, {
+              acquisition_id: effect.acquisition_id,
+              source_event_id: effect.source_event_id,
+            });
+          }
+          insertAcquisition.run(id, effect.acquisition_id, effect.subject_entity_id, effect.source_fact_id, effect.source_event_id,
+            effect.source_predicate, enc(effect.source_value), effect.acquisition_kind, enc(effect.provenance),
+            effect.observed_world_revision, effect.observed_commit_sequence, event.event_id, event.committed_revision, effect.visibility_status);
+        } else if (effect.kind === 'relationship.transition') {
           const upsertRelationship = this.db.prepare(`INSERT INTO relationships(
             world_id,subject_id,target_id,dimension,status,value_json,rule_module_id,rule_module_version,last_event_id,updated_revision
           ) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(world_id,subject_id,target_id,dimension) DO UPDATE SET
@@ -2527,6 +2624,13 @@ export class SQLiteStore {
         }
       }
     }
+    this.db.prepare(`UPDATE knowledge_acquisitions SET status='subject_unavailable'
+      WHERE world_id=? AND NOT EXISTS (
+        SELECT 1 FROM entities e
+        WHERE e.world_id=knowledge_acquisitions.world_id
+          AND e.entity_id=knowledge_acquisitions.subject_entity_id
+          AND e.status<>'destroyed'
+      )`).run(id);
     const claims = this.db.prepare('SELECT * FROM fact_claims WHERE world_id=? ORDER BY committed_revision,event_id').all(id);
     const groups = new Map();
     for (const claim of claims) {
