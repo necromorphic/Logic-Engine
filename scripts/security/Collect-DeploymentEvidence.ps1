@@ -402,6 +402,27 @@ $parentDir = [System.IO.Path]::GetDirectoryName($fullOutputPath)
 if ($parentDir -and -not (Test-Path -LiteralPath $parentDir)) {
     throw "Output directory does not exist: $parentDir"
 }
-Set-Content -LiteralPath $fullOutputPath -Value $json -Encoding UTF8
+$encoding = New-Object System.Text.UTF8Encoding($false)
+$outputBytes = $encoding.GetBytes($json + [Environment]::NewLine)
+$outputStream = $null
+try {
+    # CreateNew closes the check/write race and never truncates a file created by another process.
+    $outputStream = [System.IO.File]::Open(
+        $fullOutputPath,
+        [System.IO.FileMode]::CreateNew,
+        [System.IO.FileAccess]::Write,
+        [System.IO.FileShare]::None
+    )
+    $outputStream.Write($outputBytes, 0, $outputBytes.Length)
+    $outputStream.Flush($true)
+} catch {
+    if ($outputStream) { $outputStream.Dispose(); $outputStream = $null }
+    if (Test-Path -LiteralPath $fullOutputPath -PathType Leaf) {
+        try { Remove-Item -LiteralPath $fullOutputPath -Force -ErrorAction Stop } catch {}
+    }
+    throw
+} finally {
+    if ($outputStream) { $outputStream.Dispose() }
+}
 Write-Output ("Evidence report written to: " + $fullOutputPath)
 Write-Output "No system configuration was changed."
