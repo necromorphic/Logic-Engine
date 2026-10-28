@@ -122,6 +122,23 @@ try {
     Remove-LocalGroupMember -Group $administratorsGroupName -Member "$env:COMPUTERNAME\$($testAccounts[2])" -ErrorAction SilentlyContinue
   }
 
+  # Regression: refuse an Administrators group entry because nested/effective membership cannot be proven.
+  $nestedGroupName = "LEHeadNested$suffix"
+  New-LocalGroup -Name $nestedGroupName -Description 'Disposable ACL nested-membership regression fixture' | Out-Null
+  Add-LocalGroupMember -Group $nestedGroupName -Member "$env:COMPUTERNAME\$($testAccounts[2])"
+  Add-LocalGroupMember -Group $administratorsGroupName -Member $nestedGroupName
+  try {
+    $nestedAdminRejected = $false
+    try { Assert-ServiceIdentitiesNotLocalAdministrators -Services $serviceObjects } catch {
+      $nestedAdminRejected = $_.Exception.Message -match 'nested/effective membership cannot be proven'
+    }
+    if (-not $nestedAdminRejected) { throw 'A local Administrators group member with nested service membership was not refused.' }
+  } finally {
+    Remove-LocalGroupMember -Group $administratorsGroupName -Member $nestedGroupName -ErrorAction SilentlyContinue
+    Remove-LocalGroupMember -Group $nestedGroupName -Member "$env:COMPUTERNAME\$($testAccounts[2])" -ErrorAction SilentlyContinue
+    Remove-LocalGroup -Name $nestedGroupName -ErrorAction SilentlyContinue
+  }
+
   $root = Join-Path $env:RUNNER_TEMP ('accepted-head-acl-smoke-' + [guid]::NewGuid().ToString('N'))
   New-Item -ItemType Directory -Path $root | Out-Null
   $authorityDir = Join-Path $root 'authority'
