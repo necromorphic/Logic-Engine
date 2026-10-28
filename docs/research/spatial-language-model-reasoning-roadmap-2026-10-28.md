@@ -135,3 +135,8 @@ Target-body visibility uses nine sample rays (center plus corners). Result exten
 ## 2026-10-29 — trajectory versus static blockers
 
 The isolated scene lab now exposes `detectTrajectoryBlockerIntersections`. It sweeps each entity's declared AABB body along its explicit constant-velocity path for a bounded horizon and reports possible time intervals against static blockers. The sweep expands blocker bounds by the entity body extents, sorts results deterministically, and fails closed when any entity lacks explicit velocity or the horizon is invalid. It does not model moving blockers, acceleration, turning, collision response, or production state. Tests cover a direct wall intersection, vertical separation, body extents, missing motion, and invalid horizon.
+
+
+## 2026-10-29 — entity revision dependency coverage
+
+Revision diffing now includes the spatial fields used by the synthetic scene evaluator: body extents, motion velocity and limits, facing direction, and perception range/angle. Previously, a change to one of these fields could be missed if position remained unchanged, allowing a prediction that declared only the entity dependency to appear fresh. A regression test now changes these fields without moving the entity and verifies that the entity dependency changes and the prediction becomes STALE. This remains a synthetic diff; it does not prove that callers declare every dependency.
