@@ -109,14 +109,14 @@ test('pinned patch explicitly hooks core mutations but does not pretend uncovere
 });
 
 
-test('pinned patch journals edit and swipe deletion only after awaited native save', async () => {
+test('pinned patch finalizes enrolled identities before its single native save', async () => {
   const here = dirname(fileURLToPath(import.meta.url));
   const patch = await readFile(resolve(here, '../patches/sillytavern-1.19.0-lifecycle-hooks.patch'), 'utf8');
 
   const findNativeSaveAfter = start => {
     if (start < 0) return -1;
     const candidates = [
-      patch.indexOf('await saveChatConditional(', start),
+      patch.indexOf("if (lifecycleBefore.status === 'NOT_ENROLLED') await saveChatConditional();", start),
     ].filter(index => index >= start);
     return candidates.length ? Math.min(...candidates) : -1;
   };
@@ -146,6 +146,9 @@ test('pinned patch journals edit and swipe deletion only after awaited native sa
   assert.ok(bulkDeleteHook >= 0 && bulkDeleteDebounce > bulkDeleteHook
     && bulkDeleteSave > bulkDeleteDebounce && bulkDeleteCheckpoint > bulkDeleteSave,
     'bulk-delete checkpoint must follow the awaited native save');
+
+  assert.doesNotMatch(patch, /afterMutation\('(message-send|edit-message|delete-message|delete-swipe)'[^\n]*sourceAlreadyPersisted/,
+    'enrolled handlers must let afterMutation finalize identities before its one native save');
 });
 
 
