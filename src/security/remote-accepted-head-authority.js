@@ -147,11 +147,10 @@ export function createRemoteAnchorServer({
       || typeof body.core_head_digest !== 'string' || !DIGEST.test(body.core_head_digest)
       || typeof body.provider_readiness_digest !== 'string' || !DIGEST.test(body.provider_readiness_digest)
       || !Number.isSafeInteger(body.contract_version) || body.contract_version !== contractVersion
-      || !['ADVANCE', 'RECOVERY', 'REENROLL'].includes(body.record_type)) {
+      || !['ADVANCE', 'RECOVERY'].includes(body.record_type)) {
       fail(400, 'REQUEST_INVALID');
     }
     if (body.record_type === 'RECOVERY' && credential.allowRecovery !== true) fail(403, 'DENIED');
-    if (body.record_type === 'REENROLL' && credential.allowReenroll !== true) fail(403, 'DENIED');
     if (body.record_type === 'RECOVERY') {
       if (typeof body.recovery_reason !== 'string' || body.recovery_reason.trim().length < 1
         || body.recovery_reason.length > 256 || /[\x00-\x1f\x7f]/.test(body.recovery_reason)) {
