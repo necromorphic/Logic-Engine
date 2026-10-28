@@ -17,6 +17,52 @@ function readPath(root, path) {
   return { exists: true, value };
 }
 
+// Rule values and context values are JSON data. Reject non-JSON JavaScript
+// values instead of allowing JSON.stringify coercions (for example, NaN -> null)
+// to turn malformed state into a successful neq condition.
+function isJsonValue(value, active = new WeakSet(), depth = 0, budget = { nodes: 0 }) {
+  budget.nodes += 1;
+  if (depth > 64 || budget.nodes > 10000) return false;
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return true;
+  if (typeof value === 'number') return Number.isFinite(value);
+  if (typeof value !== 'object') return false;
+
+  const isArray = Array.isArray(value);
+  if (isArray) {
+    if (Object.getPrototypeOf(value) !== Array.prototype) return false;
+  } else {
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) return false;
+  }
+  if (Object.getOwnPropertySymbols(value).length > 0 || active.has(value)) return false;
+
+  active.add(value);
+  try {
+    if (isArray) {
+      for (let index = 0; index < value.length; index += 1) {
+        const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+        if (!descriptor || !Object.hasOwn(descriptor, 'value') || !isJsonValue(descriptor.value, active, depth + 1, budget)) return false;
+      }
+      const keys = Object.keys(value);
+      const ownKeys = Reflect.ownKeys(value);
+      return ownKeys.length === value.length + 1 && ownKeys.includes('length')
+        && keys.length === value.length
+        && keys.every((key) => Number.isInteger(Number(key)) && Number(key) >= 0
+          && Number(key) < value.length && String(Number(key)) === key);
+    }
+
+    const keys = Object.keys(value);
+    if (Reflect.ownKeys(value).length !== keys.length) return false;
+    return keys.every((key) => {
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      return descriptor && descriptor.enumerable && Object.hasOwn(descriptor, 'value')
+        && isJsonValue(descriptor.value, active, depth + 1, budget);
+    });
+  } finally {
+    active.delete(value);
+  }
+}
+
 // JSON object member order is not semantically meaningful; array order is.
 function canonicalJson(value) {
   if (Array.isArray(value)) return value.map(canonicalJson);
@@ -27,9 +73,11 @@ function canonicalJson(value) {
 }
 
 function jsonEqual(left, right) {
+  if (!isJsonValue(left) || !isJsonValue(right)) {
+    throw new EngineError('RULE_TYPE_MISMATCH', 'Equality comparisons require JSON-compatible values.');
+  }
   return JSON.stringify(canonicalJson(left)) === JSON.stringify(canonicalJson(right));
 }
-
 function nestedRules(rule, op) {
   // "rules" is the canonical schema form. The legacy aliases keep existing callers working.
   const hasRules = Object.hasOwn(rule, 'rules');
