@@ -682,9 +682,13 @@ export class LogicEngine {
     const request = inputCheck.request;
     assert(typeof this.npcKnowledgeReadAuthorizer === 'function',
       'NPC_KNOWLEDGE_READ_NOT_CONFIGURED', 'A trusted deployment-owned NPC knowledge read authorizer is required.', 403);
-    const world = this.store.world(request.world_id);
+    // Read the authorization cursor from one Core snapshot transaction. Separate
+    // world/current-sequence reads can straddle a rollback because rollback advances
+    // world_revision without advancing the event commit_sequence.
+    const snapshot = this.getSnapshot(request.world_id);
+    const world = snapshot;
     assert(world, 'WORLD_NOT_FOUND', 'World not found.', 404);
-    const commitSequence = this.store.currentCommitSequence(request.world_id);
+    const commitSequence = snapshot.commit_sequence;
     const actor = this.store.db.prepare(
       "SELECT entity_id,status FROM entities WHERE world_id=? AND entity_id=?"
     ).get(request.world_id, request.actor_id);
@@ -761,11 +765,14 @@ export class LogicEngine {
     // The authorizer and SQL read happen after the initial cursor capture. Re-read
     // the canonical cursor before returning so a concurrent commit cannot make
     // this ready response combine newer acquisition rows with an older snapshot.
-    const worldNow = this.store.world(request.world_id);
-    const sequenceNow = this.store.currentCommitSequence(request.world_id);
-    assert(worldNow && worldNow.status === 'active'
-      && worldNow.world_revision === checked.request.world_revision
-      && sequenceNow === checked.request.commit_sequence,
+    // Re-read the cursor atomically. A rollback changes world_revision but not
+    // commit_sequence, so two separate reads could observe the pre-rollback world
+    // row and post-rollback sequence and incorrectly accept a stale result.
+    let snapshotNow;
+    try { snapshotNow = this.getSnapshot(request.world_id); } catch { snapshotNow = null; }
+    assert(snapshotNow && snapshotNow.status === 'active'
+      && snapshotNow.world_revision === checked.request.world_revision
+      && snapshotNow.commit_sequence === checked.request.commit_sequence,
     'NPC_KNOWLEDGE_READ_NOT_READY',
     'World snapshot changed while reading NPC knowledge; retry from a fresh snapshot.', 409);
 
