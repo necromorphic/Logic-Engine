@@ -82,6 +82,45 @@ test('entity.upsert cannot revive a destroyed entity identity', (t) => {
   assert.equal(h.engine.getState('w').entities.find((entity) => entity.entity_id === 'dead-id').status, 'destroyed');
 });
 
+test('event IDs are scoped to worlds and same-ID events remain isolated', (t) => {
+  const h = setup();
+  t.after(() => h.store.close());
+  h.engine.createWorld({ world_id: 'other-world', world_pack_id: 'test.world', world_pack_version: '1.0.0', game_time: '2005-12-29T10:00:00Z' });
+
+  const local = h.engine.commitEvent('w', cmd({
+    event_id: 'shared-event-id',
+    idempotency_key: 'local-shared-event',
+    effects: [{ kind: 'entity.upsert', entity_id: 'local-only', entity_type: 'object', attributes: { world: 'w' } }],
+  }));
+  const foreign = h.engine.commitEvent('other-world', cmd({
+    event_id: 'shared-event-id',
+    idempotency_key: 'foreign-shared-event',
+    effects: [{ kind: 'entity.upsert', entity_id: 'foreign-only', entity_type: 'object', attributes: { world: 'other-world' } }],
+  }));
+
+  assert.equal(local.event_id, 'shared-event-id');
+  assert.equal(foreign.event_id, 'shared-event-id');
+  assert.deepEqual(h.engine.getEvents('w').map((event) => event.event_id), ['shared-event-id']);
+  assert.deepEqual(h.engine.getEvents('other-world').map((event) => event.event_id), ['shared-event-id']);
+  assert.equal(h.engine.getState('w').entities[0].entity_id, 'local-only');
+  assert.equal(h.engine.getState('other-world').entities[0].entity_id, 'foreign-only');
+
+  const linked = h.engine.commitEvent('w', cmd({
+    idempotency_key: 'local-reference-to-shared-id',
+    expected_revision: 1,
+    caused_by: ['shared-event-id'],
+  }));
+  assert.equal(linked.accepted, true);
+  assert.equal(h.engine.getEvents('w').length, 2);
+  assert.equal(h.engine.getEvents('other-world').length, 1);
+
+  const primaryKey = h.store.db.prepare('PRAGMA table_info(world_events)').all()
+    .filter((column) => column.pk > 0)
+    .sort((a, b) => a.pk - b.pk)
+    .map((column) => column.name);
+  assert.deepEqual(primaryKey, ['world_id', 'event_id']);
+});
+
 test('causal references must resolve to valid prior events in the same world', (t) => {
   const h = setup();
   t.after(() => h.store.close());
@@ -103,7 +142,7 @@ test('causal references must resolve to valid prior events in the same world', (
   assert.equal(foreign.accepted, true);
   assert.throws(
     () => h.engine.commitEvent('w', cmd({ idempotency_key: 'cross-world', caused_by: ['foreign-event'] })),
-    (error) => error.code === 'CROSS_WORLD_REFERENCE',
+    (error) => error.code === 'INVALID_CAUSAL_REFERENCE',
   );
 });
 
