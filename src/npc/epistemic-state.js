@@ -251,10 +251,11 @@ function applyEventUnsafe(state, event) {
     if (evidence.some((item) => !item || item.proposition_ref !== event.proposition_ref)) {
       return nonReady("belief_revision_evidence_unavailable");
     }
-    const supportsTrue = event.stance === "believes_true" || event.stance === "suspects_true";
-    const supportsFalse = event.stance === "believes_false" || event.stance === "suspects_false";
-    const supporting = evidence.filter((item) => supportsTrue ? item.polarity === "supports_true" : supportsFalse ? item.polarity === "supports_false" : true).map((item) => item.ref);
-    const conflicting = evidence.filter((item) => supportsTrue ? item.polarity === "supports_false" : supportsFalse ? item.polarity === "supports_true" : true).map((item) => item.ref);
+    const negativeStance = event.stance === "believes_false" || event.stance === "suspects_false";
+    // "unresolved" retains both sides distinctly rather than placing every
+    // evidence item in both lists.
+    const supporting = evidence.filter((item) => item.polarity === (negativeStance ? "supports_false" : "supports_true")).map((item) => item.ref);
+    const conflicting = evidence.filter((item) => item.polarity === (negativeStance ? "supports_true" : "supports_false")).map((item) => item.ref);
     const current = state.beliefs.find((item) => item.proposition_ref === event.proposition_ref);
     const history = current ? [...current.history, {
       stance: current.stance,
