@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { SQLiteStore } from '../src/storage/sqlite-store.js';
 import { LogicEngine } from '../src/application/engine.js';
-import { validateNpcKnowledgeRead } from '../src/application/npc-knowledge-read.js';
+import { validateNpcKnowledgeRead, validateNpcKnowledgeReadInput } from '../src/application/npc-knowledge-read.js';
 
 const sourceBytes = JSON.stringify({
   schema_version: 1,
