@@ -21,6 +21,7 @@ const scene = (revision, doorState) => ({
     { id: 'office-zone', name: 'Office area', roomId: 'office', bounds: { min: { x: 0, y: 0, z: 0 }, max: { x: 10, y: 10, z: 3 } } },
     { id: 'hall-zone', name: 'Hall area', roomId: 'hall', bounds: { min: { x: 10, y: 0, z: 0 }, max: { x: 20, y: 10, z: 3 } } },
   ],
+  blockers: [],
   doors: [{
     id: 'office-door',
     name: 'Office door',
