@@ -13,6 +13,8 @@ on:
       - 'tests/core-accepted-head-handshake.test.js'
       - 'tests/provider-accepted-head-handshake.test.js'
       - 'tests/memory-dispatch-gateway.test.js'
+      - 'tests/memory-provider-raw-archive.test.js'
+      - 'tests/memory-provider-reconcile-interruption.test.js'
   workflow_dispatch:
 
 permissions:
@@ -42,7 +44,7 @@ jobs:
       - name: Install dependencies
         run: npm install --no-package-lock --no-audit --no-fund
       - name: Accepted-head, Provider, and protected-dispatch acceptance tests
-        run: node --test tests/accepted-head-authority.test.js tests/core-accepted-head-handshake.test.js tests/provider-accepted-head-handshake.test.js tests/memory-dispatch-gateway.test.js
+        run: node --test tests/accepted-head-authority.test.js tests/core-accepted-head-handshake.test.js tests/provider-accepted-head-handshake.test.js tests/memory-dispatch-gateway.test.js tests/memory-provider-raw-archive.test.js tests/memory-provider-reconcile-interruption.test.js
 
   runtime-linux:
     runs-on: ubuntu-latest
