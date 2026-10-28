@@ -61,6 +61,23 @@ test('proxy forwards only allowlisted digest fields including explicit parent li
   assert.equal(observed.options.body.includes('raw'), false);
 });
 
+
+test('proxy preserves a non-root parent ID byte-for-byte in the Core capture payload', async () => {
+  let forwarded;
+  const child = { ...capture, version_id: 'version-2', parent_version_id: 'version-1', active: false };
+  const response = responseRecorder();
+  await createHostDigestProxyHandler({
+    env: CONFIG,
+    fetchImpl: async (_url, options) => {
+      forwarded = JSON.parse(options.body);
+      return { status: 201, ok: true };
+    },
+  })({ body: child }, response);
+  assert.equal(response.statusCode, 201);
+  assert.equal(forwarded.parent_version_id, 'version-1');
+  assert.deepEqual(forwarded, child);
+});
+
 test('proxy rejects missing, undefined, self-referential, or malformed parent lineage before upstream I/O', async () => {
   let calls = 0;
   const handler = createHostDigestProxyHandler({ env: CONFIG, fetchImpl: async () => { calls++; } });
