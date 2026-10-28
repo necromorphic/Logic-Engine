@@ -412,6 +412,11 @@ test('Core persists an explicit belief transition, supports idempotent replay, a
   assert.equal(first.idempotent_replay, false);
   assert.equal(first.transition.stance, 'believes_true');
   assert.equal(first.transition.committed_revision, current.expected_revision + 1);
+  const canonicalEvent = store.events('world-a').find((event) => event.event_id === first.transition.event_id);
+  assert.equal(canonicalEvent.event_type, 'npc.belief.transitioned');
+  assert.equal(canonicalEvent.effects.length, 1);
+  assert.equal(canonicalEvent.effects[0].kind, 'npc.belief.transition');
+  assert.deepEqual(canonicalEvent.effects[0].evidence_acquisition_ids, [read.items[0].acquisition_id]);
 
   const replay = engine.recordNpcBeliefTransition(input);
   assert.equal(replay.status, 'ready');
