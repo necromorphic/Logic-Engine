@@ -4,6 +4,7 @@ import { hashRequest } from '../core/request-hash.js';
 import { validateEffects } from '../core/rules.js';
 import { validateTrustedInitialKnowledgeSource } from './trusted-initial-knowledge-source.js';
 import { validateNpcKnowledgeRead, validateNpcKnowledgeReadInput } from './npc-knowledge-read.js';
+import { normalizeNpcEpistemicAdmissionRules, prepareNpcEpistemicEventsFromCoreRead } from './npc-epistemic-adapter.js';
 import { validateMechanicTemplate, validateRuleModuleManifest } from '../core/mechanics.js';
 import { normalizeTimeTrigger, planDueWork } from '../time/scheduler.js';
 import { normalizeProcessDefinition, validateProcessTransition } from '../process/contract.js';
@@ -167,7 +168,11 @@ function validateIndependentSegment(events) {
 }
 
 export class LogicEngine {
-  constructor(store, { trustedInitialKnowledgeSources = [], npcKnowledgeReadAuthorizer = null } = {}) {
+  constructor(store, {
+    trustedInitialKnowledgeSources = [],
+    npcKnowledgeReadAuthorizer = null,
+    npcEpistemicAdmissionRules = [],
+  } = {}) {
     if (!Array.isArray(trustedInitialKnowledgeSources)) throw new TypeError('trustedInitialKnowledgeSources must be a deployment-owned array');
     if (npcKnowledgeReadAuthorizer !== null
       && (typeof npcKnowledgeReadAuthorizer !== 'function' || npcKnowledgeReadAuthorizer.constructor?.name === 'AsyncFunction')) {
@@ -175,6 +180,7 @@ export class LogicEngine {
     }
     this.trustedInitialKnowledgeSources = trustedInitialKnowledgeSources.map((entry) => Object.freeze({ ...entry }));
     this.npcKnowledgeReadAuthorizer = npcKnowledgeReadAuthorizer;
+    this.npcEpistemicAdmissionRules = normalizeNpcEpistemicAdmissionRules(npcEpistemicAdmissionRules);
     this.store = store;
     this.processStore = new ProcessStore(store);
     this.store.processStore = this.processStore;
@@ -504,6 +510,16 @@ export class LogicEngine {
    * The deployment-injected authorizer must bind actor, purpose, and exact
    * current world snapshot before any acquired fact value is returned.
    */
+  /**
+   * Build NPC-local receipt/evidence events from an authorized Core read.
+   * No belief update is inferred here; the NPC reducer remains responsible for
+   * explicit, rule-governed belief revision.
+   */
+  prepareNpcEpistemicEvents(input) {
+    const readResult = this.readNpcKnowledge(input);
+    return prepareNpcEpistemicEventsFromCoreRead(readResult, this.npcEpistemicAdmissionRules);
+  }
+
   readNpcKnowledge(input) {
     const inputCheck = validateNpcKnowledgeReadInput(input);
     assert(inputCheck.status === 'ready', 'INVALID_NPC_KNOWLEDGE_READ',
