@@ -322,10 +322,21 @@ export function moveEntityInSyntheticScene(scene, entityId, nextPosition, nextBo
   const nextScene = {
     ...scene,
     boundary: nextBoundary,
-    entities: scene.entities.map((entity) => entity.id === entityId
-      ? { ...entity, position: { ...nextPosition }, forward: { ...nextForward } }
-      : { ...entity, position: { ...entity.position }, forward: { ...entity.forward },
-          perception: { ...entity.perception } }),
+    entities: scene.entities.map((entity) => ({
+      ...entity,
+      position: entity.id === entityId ? { ...nextPosition } : { ...entity.position },
+      forward: entity.id === entityId ? { ...nextForward } : { ...entity.forward },
+      perception: { ...entity.perception },
+      ...(entity.body ? {
+        body: {
+          minOffset: { ...entity.body.minOffset },
+          maxOffset: { ...entity.body.maxOffset },
+        },
+      } : {}),
+      ...(entity.motion ? {
+        motion: { ...entity.motion, velocity: { ...entity.motion.velocity } },
+      } : {}),
+    })),
     blockers: scene.blockers.map((blocker) => ({
       ...blocker, min: { ...blocker.min }, max: { ...blocker.max },
     })),
