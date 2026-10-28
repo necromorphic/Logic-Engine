@@ -45,7 +45,7 @@ function responseMock() {
   return response;
 }
 
-test('request-bound capability permits a verified swipe-select and swipe-delete transition only once', async () => {
+test('request-bound capability allows create/edit/swipe-select/swipe-delete/message-delete once and rejects reorder', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'host-version-inventory-journal-'));
   const directories = {
     chats: path.join(root, 'chats'), characters: path.join(root, 'characters'), groups: path.join(root, 'groups'),
@@ -65,6 +65,9 @@ test('request-bound capability permits a verified swipe-select and swipe-delete 
   const messageId = randomUUID();
   const version1 = randomUUID();
   const version2 = randomUUID();
+  const version3 = randomUUID();
+  const messageId2 = randomUUID();
+  const version4 = randomUUID();
   const conversationId = installationUuid + ':' + conversationUuid;
   const chatPath = path.join(chatDirectory, 'chat-a.jsonl');
   const header = {
@@ -73,6 +76,13 @@ test('request-bound capability permits a verified swipe-select and swipe-delete 
     character_name: 'unused',
   };
   const writeChat = records => writeFile(chatPath, records.map(record => JSON.stringify(record)).join('\n'));
+  const payload = messages => ({
+    ch_name: 'Character A',
+    file_name: 'chat-a',
+    chat: [header, ...messages],
+    avatar_url: 'character-a.png',
+    force: false,
+  });
   const initialMessage = makeMessage({
     messageId,
     versions: [
@@ -94,24 +104,50 @@ test('request-bound capability permits a verified swipe-select and swipe-delete 
     versions: [{ versionId: version2, text: 'private-after', parentVersionId: version1 }],
     activeVersionIndex: 0,
   });
-  const initialRecords = [header, initialMessage];
-  const selectPayload = {
-    ch_name: 'Character A',
-    file_name: 'chat-a',
-    chat: [header, selectedMessage],
-    avatar_url: 'character-a.png',
-    force: false,
+  const editedMessage = makeMessage({
+    messageId,
+    versions: [{ versionId: version3, text: 'edited text', parentVersionId: version2 }],
+    activeVersionIndex: 0,
+  });
+  const newMessage = makeMessage({
+    messageId: messageId2,
+    versions: [{ versionId: version4, text: 'new message', parentVersionId: null }],
+    activeVersionIndex: 0,
+  });
+
+  const invokeSave = async (savePayload, token) => {
+    const saveRequest = {
+      ...request,
+      body: savePayload,
+      headers: { 'x-logic-engine-save-capability': token },
+    };
+    const response = responseMock();
+    let reachedNativeSave = false;
+    await createHostLifecycleMutationMiddleware({ requirePersistedInventory: true })(saveRequest, response, async () => {
+      reachedNativeSave = true;
+      await writeChat(savePayload.chat);
+      response.json({ ok: true });
+    });
+    await response.finished;
+    return { response, reachedNativeSave };
   };
-  const deletePayload = {
-    ch_name: 'Character A',
-    file_name: 'chat-a',
-    chat: [header, deletedSwipeMessage],
-    avatar_url: 'character-a.png',
-    force: false,
-  };
+  const prepare = savePayload => prepareHostSaveCapability(request, {
+    route: '/api/chats/save',
+    payload: savePayload,
+  });
+  const acknowledge = async (versionId, text, { parentVersionId = null, active, deleted = false }) =>
+    recordHostCaptureAcknowledgement(request, {
+      conversation_id: conversationId,
+      message_id: messageId,
+      version_id: versionId,
+      parent_version_id: parentVersionId,
+      content_sha256: digest(text),
+      active,
+      deleted,
+    });
 
   try {
-    await writeChat(initialRecords);
+    await writeChat([header, initialMessage]);
     const persistedBefore = await readFile(chatPath, 'utf8');
     await registerHostConversation(request, {
       conversationId,
@@ -119,103 +155,103 @@ test('request-bound capability permits a verified swipe-select and swipe-delete 
       sourcePath: 'character-a/chat-a.jsonl',
       domain: 'chats',
     });
-    await recordHostCaptureAcknowledgement(request, {
-      conversation_id: conversationId, message_id: messageId, version_id: version1, parent_version_id: null,
-      content_sha256: digest('private-before'), active: true, deleted: false,
-    });
-    await recordHostCaptureAcknowledgement(request, {
-      conversation_id: conversationId, message_id: messageId, version_id: version2, parent_version_id: version1,
-      content_sha256: digest('private-after'), active: false, deleted: false,
-    });
+    await acknowledge(version1, 'private-before', { active: true });
+    await acknowledge(version2, 'private-after', { parentVersionId: version1, active: false });
     const before = await getHostConversationInventory(request);
     assert.equal(before.complete, true);
     assert.equal(before.currentVersionCount, 2);
 
-    const selectCapability = await prepareHostSaveCapability(request, {
-      route: '/api/chats/save',
-      payload: selectPayload,
-    });
+    // A one-shot capability can be consumed by only one of two concurrent saves.
+    const selectPayload = payload([selectedMessage]);
+    const selectCapability = await prepare(selectPayload);
     assert.equal(selectCapability.status, 'CAPABILITY_ISSUED');
-    request.body = selectPayload;
-    request.headers = { 'x-logic-engine-save-capability': selectCapability.token };
-    const selectResponse = responseMock();
-    let selectReachedNativeSave = false;
-    await createHostLifecycleMutationMiddleware({ requirePersistedInventory: true })(request, selectResponse, async () => {
-      selectReachedNativeSave = true;
-      await writeChat(selectPayload.chat);
-      selectResponse.json({ ok: true });
-    });
-    await selectResponse.finished;
-    assert.equal(selectReachedNativeSave, true);
-    assert.equal(selectResponse.statusCode, 200);
-    assert.equal(await readFile(chatPath, 'utf8'), selectPayload.chat.map(JSON.stringify).join('\n'));
+    const [concurrentA, concurrentB] = await Promise.all([
+      invokeSave(selectPayload, selectCapability.token),
+      invokeSave(selectPayload, selectCapability.token),
+    ]);
+    const concurrentResults = [concurrentA, concurrentB];
+    assert.equal(concurrentResults.filter(item => item.reachedNativeSave).length, 1);
+    assert.equal(concurrentResults.filter(item => item.response.statusCode === 200).length, 1);
+    assert.equal(concurrentResults.filter(item => item.response.statusCode !== 200).length, 1);
+    assert.equal(await readFile(chatPath, 'utf8'), selectPayload.chat.map(record => JSON.stringify(record)).join('\n'));
 
-    // A replay of the same one-shot token is rejected before the native handler.
-    const replayResponse = responseMock();
-    let replayReachedNativeSave = false;
-    await createHostLifecycleMutationMiddleware({ requirePersistedInventory: true })(request, replayResponse, async () => {
-      replayReachedNativeSave = true;
-      await writeChat(selectPayload.chat);
-      replayResponse.json({ ok: true });
-    });
-    await replayResponse.finished;
-    assert.equal(replayReachedNativeSave, false);
-    assert.equal(replayResponse.statusCode, 409);
-    assert.match(String(replayResponse.body), /HOST_SAVE_CAPABILITY_INVALID/);
-
-    await recordHostCaptureAcknowledgement(request, {
-      conversation_id: conversationId, message_id: messageId, version_id: version1, parent_version_id: null,
-      content_sha256: digest('private-before'), active: false, deleted: false,
-    });
-    await recordHostCaptureAcknowledgement(request, {
-      conversation_id: conversationId, message_id: messageId, version_id: version2, parent_version_id: version1,
-      content_sha256: digest('private-after'), active: true, deleted: false,
-    });
+    await acknowledge(version1, 'private-before', { active: false });
+    await acknowledge(version2, 'private-after', { parentVersionId: version1, active: true });
     const selectedInventory = await getHostConversationInventory(request);
     assert.equal(selectedInventory.complete, true);
     assert.equal(selectedInventory.currentVersionCount, 2);
-    const journal = await readFile(path.join(root, '.logic-engine-host', 'mutation-ledger.jsonl'), 'utf8');
-    const records = journal.trim().split('\n').map(line => JSON.parse(line));
-    const committed = records.filter(record => record.kind === 'outcome' && record.status === 'COMMITTED');
+    const journalPath = path.join(root, '.logic-engine-host', 'mutation-ledger.jsonl');
+    let journal = await readFile(journalPath, 'utf8');
+    let records = journal.trim().split('\n').map(line => JSON.parse(line));
+    let committed = records.filter(record => record.kind === 'outcome' && record.status === 'COMMITTED');
     assert.equal(committed.length, 1);
     assert.ok(committed[0].versionChanges.some(change => change.change === 'ACTIVE_CHANGED' && change.version_id === version1));
     assert.doesNotMatch(journal, /private-before|private-after/);
 
-    const deleteCapability = await prepareHostSaveCapability(request, {
-      route: '/api/chats/save',
-      payload: deletePayload,
-    });
-    assert.equal(deleteCapability.status, 'CAPABILITY_ISSUED');
-    request.body = deletePayload;
-    request.headers = { 'x-logic-engine-save-capability': deleteCapability.token };
-    const deleteResponse = responseMock();
-    let deleteReachedNativeSave = false;
-    await createHostLifecycleMutationMiddleware({ requirePersistedInventory: true })(request, deleteResponse, async () => {
-      deleteReachedNativeSave = true;
-      await writeChat(deletePayload.chat);
-      deleteResponse.json({ ok: true });
-    });
-    await deleteResponse.finished;
-    assert.equal(deleteReachedNativeSave, true);
-    assert.equal(deleteResponse.statusCode, 200);
+    // Replaying the consumed token must fail before another native write.
+    const replay = await invokeSave(selectPayload, selectCapability.token);
+    assert.equal(replay.reachedNativeSave, false);
+    assert.notEqual(replay.response.statusCode, 200);
+    assert.equal(await readFile(chatPath, 'utf8'), selectPayload.chat.map(record => JSON.stringify(record)).join('\n'));
 
+    const deleteSwipePayload = payload([deletedSwipeMessage]);
+    const deleteSwipeCapability = await prepare(deleteSwipePayload);
+    assert.equal(deleteSwipeCapability.status, 'CAPABILITY_ISSUED');
+    const deleteSwipe = await invokeSave(deleteSwipePayload, deleteSwipeCapability.token);
+    assert.equal(deleteSwipe.reachedNativeSave, true);
+    assert.equal(deleteSwipe.response.statusCode, 200);
+    await acknowledge(version1, 'private-before', { active: false, deleted: true });
+    const afterSwipeDelete = await getHostConversationInventory(request);
+    assert.equal(afterSwipeDelete.complete, true);
+    assert.equal(afterSwipeDelete.currentVersionCount, 1);
+    assert.equal(afterSwipeDelete.versionCount, 2);
+
+    const editPayload = payload([editedMessage]);
+    const editCapability = await prepare(editPayload);
+    assert.equal(editCapability.status, 'CAPABILITY_ISSUED');
+    assert.equal((await invokeSave(editPayload, editCapability.token)).response.statusCode, 200);
+    await acknowledge(version2, 'private-after', { parentVersionId: version1, active: false, deleted: true });
     await recordHostCaptureAcknowledgement(request, {
-      conversation_id: conversationId, message_id: messageId, version_id: version1, parent_version_id: null,
-      content_sha256: digest('private-before'), active: false, deleted: true,
+      conversation_id: conversationId, message_id: messageId, version_id: version3, parent_version_id: version2,
+      content_sha256: digest('edited text'), active: true, deleted: false,
     });
-    const tombstoneSnapshot = await getHostConversationInventory(request);
-    assert.equal(tombstoneSnapshot.complete, true);
-    assert.equal(tombstoneSnapshot.historicalCompleteness, 'ENROLLMENT_FORWARD_ONLY');
-    assert.equal(tombstoneSnapshot.currentVersionCount, 1);
-    assert.equal(tombstoneSnapshot.versionCount, 2);
-    assert.equal(tombstoneSnapshot.inventories[0].versions.find(v => v.version_id === version1).deleted, true);
-    assert.equal(tombstoneSnapshot.inventories[0].versions.find(v => v.version_id === version2).active, true);
+    assert.equal((await getHostConversationInventory(request)).complete, true);
 
-    await writeChat([header, makeMessage({
-      messageId,
-      versions: [{ versionId: version1, text: 'private-before' }],
-      activeVersionIndex: 0,
-    })]);
+    const createPayload = payload([editedMessage, newMessage]);
+    const createCapability = await prepare(createPayload);
+    assert.equal(createCapability.status, 'CAPABILITY_ISSUED');
+    assert.equal((await invokeSave(createPayload, createCapability.token)).response.statusCode, 200);
+    await recordHostCaptureAcknowledgement(request, {
+      conversation_id: conversationId, message_id: messageId2, version_id: version4, parent_version_id: null,
+      content_sha256: digest('new message'), active: true, deleted: false,
+    });
+    assert.equal((await getHostConversationInventory(request)).complete, true);
+
+    const persistedBeforeRejectedReorder = await readFile(chatPath, 'utf8');
+    const reorderedPayload = payload([newMessage, editedMessage]);
+    await assert.rejects(
+      () => prepare(reorderedPayload),
+      error => error.message === 'HOST_SAVE_CAPABILITY_TRANSITION_UNSUPPORTED',
+    );
+    assert.equal(await readFile(chatPath, 'utf8'), persistedBeforeRejectedReorder);
+
+    const deleteMessagePayload = payload([editedMessage]);
+    const deleteMessageCapability = await prepare(deleteMessagePayload);
+    assert.equal(deleteMessageCapability.status, 'CAPABILITY_ISSUED');
+    assert.equal((await invokeSave(deleteMessagePayload, deleteMessageCapability.token)).response.statusCode, 200);
+    await recordHostCaptureAcknowledgement(request, {
+      conversation_id: conversationId, message_id: messageId2, version_id: version4, parent_version_id: null,
+      content_sha256: digest('new message'), active: false, deleted: true,
+    });
+    const finalInventory = await getHostConversationInventory(request);
+    assert.equal(finalInventory.complete, true);
+    assert.equal(finalInventory.currentVersionCount, 1);
+    assert.equal(finalInventory.versionCount, 4);
+    journal = await readFile(journalPath, 'utf8');
+    assert.doesNotMatch(journal, /private-before|private-after|edited text|new message/);
+
+    // Reintroducing a tombstoned version is still detected after successful saves.
+    await writeChat([header, initialMessage]);
     const rollback = await getHostConversationInventory(request);
     assert.equal(rollback.complete, false);
     assert.ok(rollback.errors.includes('CURRENT_SNAPSHOT_DIVERGES_FROM_LAST_COMMITTED_JOURNAL_SNAPSHOT'));
