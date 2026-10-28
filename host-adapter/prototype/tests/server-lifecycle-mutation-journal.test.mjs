@@ -1177,3 +1177,42 @@ test('admin purge rejects path-like target handles before resolving user directo
         await rm(target.root, { recursive: true, force: true });
     }
 });
+
+
+test('admin purge fails closed when the target registry is empty even if the marker is missing', async () => {
+    const target = await fixture();
+    try {
+        await registerHostConversation(target.request, {
+            conversationId: 'target-conversation',
+            sourceLocator: 'target-chat',
+            domain: 'chats',
+        });
+        await rm(path.join(target.root, '.logic-engine-host-enrollment-marker'));
+        await writeFile(path.join(target.root, '.logic-engine-host', 'enrollments.json'), JSON.stringify({
+            version: 1,
+            conversations: [],
+        }) + '\n');
+        const request = {
+            method: 'POST',
+            baseUrl: '/api/users',
+            path: '/delete',
+            originalUrl: '/api/users/delete',
+            body: { handle: 'target-user', purge: true },
+            user: { profile: { handle: 'admin-user' }, directories: target.directories },
+        };
+        const response = responseMock();
+        let reachedHandler = false;
+        await createHostLifecycleMutationMiddleware({
+            getUserDirectories: () => target.directories,
+        })(request, response, async () => {
+            reachedHandler = true;
+            response.end();
+        });
+        await response.finished;
+        assert.equal(reachedHandler, false);
+        assert.equal(response.statusCode, 503);
+        assert.match(String(response.body), /HOST_TARGET_USER_SCOPE_UNAVAILABLE/);
+    } finally {
+        await rm(target.root, { recursive: true, force: true });
+    }
+});
