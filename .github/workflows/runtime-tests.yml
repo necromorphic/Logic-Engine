@@ -32,7 +32,7 @@ jobs:
 
   test:
     runs-on: [self-hosted, Windows, X64]
-    timeout-minutes: 10
+    timeout-minutes: 15
     permissions:
       contents: read
     defaults:
@@ -41,9 +41,18 @@ jobs:
     steps:
       # Pin actions to reviewed immutable commit SHAs; comments retain release context.
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Record exact Windows test environment
+        run: |
+          git rev-parse HEAD
+          node --version
+          node scripts/record-test-environment.mjs
+          call npm --version
       - name: Verify installed Node.js
         run: |
-          node --version
           node -e "const [major, minor] = process.versions.node.split('.').map(Number); if (major < 22 || (major === 22 && minor < 13)) { console.error('Node.js 22.13.0 or newer is required; found ' + process.versions.node); process.exit(1); }"
-      - run: npm test
-      - run: node --test experiments/recalculation-oracle/harness.test.mjs
+      - name: Run focused Memory Provider acceptance tests
+        run: node --import ./tests/configure-test-env.js --test tests/sqlite-memory-provider.test.js tests/memory-provider-typed-failures.test.js tests/memory-provider-reconcile-interruption.test.js tests/memory-provider-raw-archive.test.js tests/memory-provider-query-revocation-race.test.js tests/memory-provider-cross-connection-revocation-race.test.js tests/memory-provider-coordinated-restore.characterization.test.js tests/memory-provider-file-backed-reconciliation.test.js tests/memory-dispatch-gateway.test.js tests/memory-provider-process-restart.test.js
+      - name: Run full Runtime suite
+        run: npm test
+      - name: Run recalculation oracle
+        run: node --test experiments/recalculation-oracle/harness.test.mjs
