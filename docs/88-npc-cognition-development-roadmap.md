@@ -1,6 +1,6 @@
 # NPC Cognition Development Roadmap
 
-Status: planning proposal; no runtime capability is enabled by this document.
+Status: active roadmap. Stage 1 semantic contract is complete; no runtime capability is enabled by this document.
 
 This roadmap tracks the intended sequence for developing NPC cognition in Logic-Engine. It is deliberately ordered so that later autonomy cannot bypass knowledge authority, Core validation, world-time control, or player agency.
 
@@ -19,7 +19,7 @@ This roadmap tracks the intended sequence for developing NPC cognition in Logic-
 | Stage | Scope | Exit gate | Status |
 |---|---|---|---|
 | 0. Baseline and ownership map | Reconcile current NPC helpers, Core knowledge contracts, actor binding, source/provenance, context manifest, proposal/commit, time/process manager, Personality and Relationships ownership. Record implementation versus proposal. | Traceability inventory links each claim to source and tests; blockers named. | Documentation work underway; see docs 86–87 and PR #631. |
-| 1. Epistemic model | Define distinct states: canonical truth, actor-known true/false, unknown/incomplete, withheld/inaccessible, belief, suspicion, contradiction, and retrieved candidate. Define provenance, confidence/uncertainty semantics, expiry/invalidity, and what can change each state. | Reviewed semantic contract with transition table and test scenarios; no runtime integration implied. | NEXT |
+| 1. Epistemic model | Define distinct states: canonical truth, actor-relative acquisition and belief, unknown/incomplete, withheld/inaccessible, suspicion, contradiction, and retrieved candidate. Define provenance, uncertainty, invalidation and state transitions. | Semantic contract reconciled with Core and author decisions; transition rules and 12 scenarios recorded. Runtime behavior explicitly not claimed. | COMPLETE — semantic contract only; see docs 89 and PR #635. |
 | 2. Information acquisition | Specify how information becomes available to a subject through author-initial/imported knowledge first; later observation, communication, documents, inference and rumor only as separately defined evidence paths. | Every acquisition type has trusted source, actor/world binding, provenance, authorization, invalidation and replay semantics. | BLOCKED on Core acquisition record implementation/verification (Stage B issue #634). |
 | 3. Belief revision and contradiction handling | Define how new evidence updates or fails to update beliefs; retain provenance and conflicting hypotheses; prevent silent overwrite and automatic correction by canonical truth. | Deterministic transition rules and adversarial tests for false beliefs, stale evidence, conflicting sources, retraction, and uncertainty. | NOT STARTED; depends on Stages 1–2. |
 | 4. Decision-context assembly | Build a snapshot-bound, actor-specific context with explicit completeness/access markers and purpose bounds. Omit unauthorized information before model input. | Tests prove actor binding, permitted context, unknown-vs-false distinction, and no hidden-content leakage. | BLOCKED on trusted acquisition/read contract and verified caller seam. |
@@ -30,7 +30,15 @@ This roadmap tracks the intended sequence for developing NPC cognition in Logic-
 | 9. Controlled off-screen continuity | Define eligible game-time/event triggers, bounded work, per-NPC limits, deduplication, cancellation, restart recovery, and player-visible reporting. Reuse Process Manager where appropriate; do not infer time from chat turns or wall clock. | Explicit trigger and time contract; integration tests for duplicate/restart/cancel; bounded deterministic advancement. | Generic Process Manager exists; NPC invocation/dispatcher is unverified. |
 | 10. End-to-end integration gate | Connect approved context → NPC proposal → Core validation/commit → authoritative outcome → authorized feedback. Verify final serialized context and sole authorized delivery path. | Exact-head integration tests, security tests, traceability, review approval, documented rollback. Only then consider changing any disabled integration flag through a separate approval. | BLOCKED; Memory → NPC stays DISABLED / FAIL-CLOSED. |
 
-## Current work item: Stage 1 — epistemic model
+## Completed work item: Stage 1 — epistemic model
+
+**Stage 1 is complete at the semantic/design level.** The decision record resolves acquisition vs belief, stale evidence, forgetting/expiry, source revocation, qualitative uncertainty, and Core ownership. The concrete Core representation and production-path tests remain later implementation dependencies; they do not reopen the Stage 1 semantic gate.
+
+## Next work item: Stage 2 — information acquisition
+
+Stage 2 begins with the existing Core-owned task in [Issue #634](https://github.com/necromorphic/Logic-Engine/issues/634): implement and prove the narrow `author_initial` / `imported` acquisition record and provenance path. Verify trusted actor binding, source/subject/world binding, lifecycle/replay/revocation, and production tests against real Core code. Do not implement Memory → NPC reads or enable dispatch as part of this stage. If the current Core cannot represent the required provenance safely, stop and document the exact blocker rather than adding a parallel store.
+
+The following Stage 1 notes are retained as the design checklist and acceptance basis:
 
 The first detailed specification should cover:
 
