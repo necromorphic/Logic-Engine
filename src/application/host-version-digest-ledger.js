@@ -382,7 +382,9 @@ export class HostVersionDigestLedger {
     if (Object.keys(input).some((key) => !snapshotInputKeys.has(key))
       || typeof input.complete !== 'boolean' || !isPlainDataArray(input.versions)
       || input.versions.some((v) => !isPlainDataRecord(v)
-        || Object.keys(v).some((key) => !versionInputKeys.has(key)))) {
+        || Object.keys(v).some((key) => !versionInputKeys.has(key))
+        || !Object.hasOwn(v, 'parent_version_id')
+        || (v.parent_version_id !== null && !validId(v.parent_version_id)))) {
       return { status: 'non_ready', code: 'HOST_INVENTORY_INVALID' };
     }
     // Snapshot caller input synchronously before the first await. Validation,
