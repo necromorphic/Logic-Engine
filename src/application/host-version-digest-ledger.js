@@ -506,8 +506,9 @@ export class HostVersionDigestLedger {
         if (prior && (prior.content_sha256 !== v.content_sha256 || prior.parent_version_id !== v.parent_version_id)) {
           this.db.prepare('INSERT INTO host_version_ledger_conflicts (world_id,conversation_id,message_id,version_id,persisted_digest,observed_digest,observed_at) VALUES(?,?,?,?,?,?,?)')
             .run(...tuple(v), prior.content_sha256, v.content_sha256, now);
-          this.#markNonReady(snapshot.world_id, snapshot.conversation_id, 'HOST_VERSION_DIGEST_CONFLICT', now, snapshotDigest);
-          return { status: 'non_ready', code: 'HOST_VERSION_DIGEST_CONFLICT' };
+          const conflictCode = prior.parent_version_id !== v.parent_version_id ? 'HOST_VERSION_PARENT_CONFLICT' : 'HOST_VERSION_DIGEST_CONFLICT';
+          this.#markNonReady(snapshot.world_id, snapshot.conversation_id, conflictCode, now, snapshotDigest);
+          return { status: 'non_ready', code: conflictCode };
         }
         if (prior?.lineage_status !== undefined && prior.lineage_status !== 'VERIFIED') {
           this.#markNonReady(snapshot.world_id, snapshot.conversation_id, 'HOST_LINEAGE_LEGACY_UNVERIFIED', now, snapshotDigest);
