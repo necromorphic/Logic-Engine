@@ -73,7 +73,7 @@ function validateRecord(record, expectedInstallationId) {
 }
 
 function decodeSignature(signature) {
-  if (typeof signature !== 'string' || !/^[A-Za-z0-9_-]{80,100}$/.test(signature)) {
+  if (typeof signature !== 'string' || !/^[A-Za-z0-9_-]{86}$/.test(signature)) {
     fail('REMOTE_ANCHOR_SIGNATURE_INVALID');
   }
   return Buffer.from(signature, 'base64url');
