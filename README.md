@@ -216,8 +216,13 @@
 
 - Комнаты/двери и LLM-контекст: [spatial-topology.js](experiments/spatial-scene-lab/spatial-topology.js)
 - Синтетическая оценка слышимости: [spatial-sound.js](experiments/spatial-scene-lab/spatial-sound.js)
+- Версии синтетической сцены и устаревшие прогнозы: [spatial-revisions.js](experiments/spatial-scene-lab/spatial-revisions.js)
 - Тесты топологии: [spatial-topology.test.js](tests/spatial-topology.test.js)
 - Тесты звука: [spatial-sound.test.js](tests/spatial-sound.test.js)
+- Тесты версий сцены: [spatial-revisions.test.js](tests/spatial-revisions.test.js)
 - План развития: [spatial-language-model-reasoning-roadmap-2026-10-28.md](docs/research/spatial-language-model-reasoning-roadmap-2026-10-28.md)
 
 Цель — не визуализировать мир, а передавать LLM краткие пространственные факты. Геометрическое расположение не означает видимость, слышимость, внимание, знание или память. Production spatial integration остаётся NO-GO; Memory → NPC остаётся DISABLED / FAIL-CLOSED.
+
+
+Дополнительный исследовательский шаг: версии синтетических сцен и проверки свежести прогнозов. Изменения сущностей, комнат, зон и дверей получают ключи зависимостей; прогноз объявляет, от каких ключей зависит. Изменение заявленной зависимости помечает прогноз как STALE. Это не подключено к событиям Core и не доказывает полноту списка зависимостей.
