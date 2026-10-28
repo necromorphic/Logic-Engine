@@ -1,6 +1,6 @@
 # Core-Owned NPC Belief Transition Runtime
 
-**Status:** implementation candidate in draft PR #670, with canonical-event persistence follow-up in PR #676. Not production-enabled. No prompt dispatch or HTTP route is added.
+**Status:** implementation candidate in draft PR #670, with canonical-event persistence follow-up in PR #679. Not production-enabled. No prompt dispatch or HTTP route is added.
 
 ## Ownership
 
