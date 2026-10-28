@@ -417,6 +417,60 @@ export class LogicEngine {
     }
   }
 
+  prepareEvent(x, options = {}) {
+    assert(obj(x), 'INVALID_BODY', 'Body must be an object.');
+    const allowedFields = ['idempotency_key', 'turn_id', 'event_type', 'event_id', 'expected_revision', 'expected_commit_sequence', 'context_manifest_id', 'generation_id', 'source_message_id', 'time_advance_seconds', 'time_mode', 'duration_proposal', 'caused_by', 'depends_on', 'read_set', 'causal_links', 'effects'];
+    assert(Object.keys(x).every((key) => allowedFields.includes(key)), 'UNSUPPORTED_EVENT_FIELD', 'Event proposal contains an unsupported top-level field.');
+    assert(typeof x.idempotency_key === 'string' && x.idempotency_key.trim() && x.idempotency_key.length <= 200, 'IDEMPOTENCY_KEY_REQUIRED', 'idempotency_key required.');
+    assert(typeof x.turn_id === 'string' && x.turn_id.trim() && x.turn_id.length <= 200, 'TURN_ID_REQUIRED', 'turn_id required.');
+    assert(typeof x.event_type === 'string' && x.event_type.trim() && x.event_type.length <= 200, 'EVENT_TYPE_REQUIRED', 'event_type required.');
+    if (x.event_id !== undefined && x.event_id !== null) {
+      assert(typeof x.event_id === 'string' && x.event_id.trim() && x.event_id.length <= 200, 'INVALID_EVENT_ID', 'event_id must be a non-empty string of at most 200 characters.');
+      assert(!x.event_id.trim().startsWith('entity:') && !x.event_id.trim().startsWith('fact:'), 'INVALID_EVENT_ID', 'event_id cannot use the reserved entity: or fact: reference prefixes.');
+    }
+    if (x.expected_revision !== undefined) assert(Number.isSafeInteger(x.expected_revision) && x.expected_revision >= 0, 'INVALID_REVISION', 'expected_revision must be non-negative.');
+    if (x.expected_commit_sequence !== undefined) assert(Number.isSafeInteger(x.expected_commit_sequence) && x.expected_commit_sequence >= 0, 'INVALID_COMMIT_SEQUENCE', 'expected_commit_sequence must be non-negative.');
+    if (x.context_manifest_id !== undefined) assert(typeof x.context_manifest_id === 'string' && x.context_manifest_id.trim() && x.context_manifest_id.length <= 200, 'INVALID_CONTEXT_MANIFEST_ID', 'context_manifest_id must be a non-empty string of at most 200 characters.');
+    if (x.generation_id !== undefined && x.generation_id !== null) assert(typeof x.generation_id === 'string' && x.generation_id.trim() && x.generation_id.length <= 200, 'INVALID_GENERATION_ID', 'generation_id must be a non-empty string of at most 200 characters.');
+
+    const seconds = x.time_advance_seconds ?? 0;
+    const skip = x.time_mode === 'explicit_skip';
+    assert(Number.isSafeInteger(seconds) && seconds >= 0, 'INVALID_TIME_ADVANCE', 'time_advance_seconds must be non-negative.');
+    assert(x.time_mode === undefined || x.time_mode === 'action' || skip, 'INVALID_TIME_MODE', 'time_mode must be action or explicit_skip.');
+    const maxSeconds = skip ? (options.maxSkipDurationSeconds ?? 604800) : (options.maxActionDurationSeconds ?? 43200);
+    assert(seconds <= maxSeconds, 'TIME_ADVANCE_TOO_LARGE', 'Time advance exceeds the active duration limit.');
+    if (seconds > 0) assert(options.durationDecision?.status === 'resolved' || ['time.advance', 'action.completed'].includes(x.event_type), 'INVALID_TIME_ADVANCE', 'Positive duration requires a supported time event or an active TimePolicy decision.');
+
+    const effects = x.effects ?? [];
+    validateEffects(effects, { allowRelationshipTransition: options.allowRelationshipTransition === true });
+    const request = {
+      operation: 'event.commit',
+      event_id: x.event_id ?? null,
+      turn_id: x.turn_id.trim(),
+      generation_id: x.generation_id == null ? null : x.generation_id.trim(),
+      context_manifest_id: x.context_manifest_id == null ? null : x.context_manifest_id.trim(),
+      source_message_id: x.source_message_id ?? null,
+      event_type: x.event_type.trim(),
+      expected_revision: x.expected_revision ?? null,
+      expected_commit_sequence: x.expected_commit_sequence ?? null,
+      time_advance_seconds: seconds,
+      time_mode: x.time_mode ?? 'action',
+      ...(x.duration_proposal !== undefined ? { duration_proposal: x.duration_proposal } : {}),
+      ...(options.durationDecision ? { duration_decision: options.durationDecision } : {}),
+      caused_by: strings(x.caused_by, 'caused_by'),
+      depends_on: strings(x.depends_on, 'depends_on'),
+      read_set: strings(x.read_set, 'read_set'),
+      causal_links: causalLinks(x.causal_links),
+      effects,
+    };
+    return {
+      ...request,
+      request_hash: hashRequest(request),
+      idempotency_key: x.idempotency_key.trim(),
+    };
+  }
+
+
   prepareEventForWorld(id, x, options = {}) {
     const { authorApprovedDuration = false, ...prepareOptions } = options;
     const config = this.store.getTimeConfiguration(id);
