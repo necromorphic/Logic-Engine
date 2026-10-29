@@ -1924,7 +1924,15 @@ export class SQLiteStore {
       let segments;
       try {
         segments = dec(current.segments_json);
-        if (!Array.isArray(segments) || segments.length === 0) throw new Error('Persisted segments must be a non-empty array for a running operation.');
+        if (!Array.isArray(segments) || segments.length === 0 || segments.some((segment) => (
+          !segment
+          || !Number.isSafeInteger(segment.coordinate)
+          || !Array.isArray(segment.events)
+          || segment.events.length < 1
+          || segment.events.length > 32
+          || !Array.isArray(segment.trigger_ids)
+          || !Array.isArray(segment.registered_trigger_ids)
+        ))) throw new Error('Persisted segments must be a non-empty array of valid segment records for a running operation.');
       } catch (error) {
         // Persisted operation evidence is untrusted during recovery. Fail closed before
         // any segment is resumed, release only this operation's claims, and gate the
@@ -2094,11 +2102,13 @@ export class SQLiteStore {
             result = { ...result, final_action_status: 'not_committed_needs_review' };
           }
           const processCheckpointFailure = ['PROCESS_CROSS_RECORD_CHECKPOINT_MISMATCH', 'PROCESS_NOT_RUNNABLE'].includes(error?.code);
-          const processRows = processCheckpointFailure
+          const implicatedProcessId = error?.details?.process_id;
+          const processRows = processCheckpointFailure && typeof implicatedProcessId === 'string'
             ? this.db.prepare(`SELECT DISTINCT m.process_id
                 FROM world_process_milestones m
                 JOIN world_time_triggers t ON t.world_id=m.world_id AND t.trigger_id=m.trigger_id
-                WHERE t.world_id=? AND t.claimed_by_operation_id=?`).all(worldId, operationId)
+                WHERE t.world_id=? AND t.claimed_by_operation_id=? AND m.process_id=?`)
+              .all(worldId, operationId, implicatedProcessId)
             : [];
           this.db.prepare("UPDATE time_advance_operations SET status='needs_review',error_json=?,result_json=?,updated_at=? WHERE world_id=? AND operation_id=?")
             .run(enc(errorBody), result ? enc(result) : null, now(), worldId, operationId);
