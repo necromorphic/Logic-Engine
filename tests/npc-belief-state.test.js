@@ -171,6 +171,33 @@ test('context includes only the evidence explicitly admitted by the validated tr
   assert.equal(Object.isFrozen(built.context), true);
 });
 
+test('context ignores caller-injected evidence outside the validated belief transition', () => {
+  const unrelated = {
+    acquisition_id: 'acq-unrelated',
+    fact_id: 'fact-secret',
+    subject_ref: 'character:other',
+    predicate: 'secret',
+    value: 'classified',
+    provenance_ref: 'authoring:source-secret',
+    provenance_digest: 'c'.repeat(64),
+    source_event_ids: ['event-secret'],
+  };
+  const read = knowledgeRead({ items: [evidenceItems[0], unrelated] });
+  const reduced = reduceNpcBeliefTransition({ knowledgeRead: read, proposal: proposal() });
+  assert.equal(reduced.status, 'ready');
+
+  // Simulate a forged/mutated transition that tries to smuggle a second,
+  // unrelated acquisition into the NPC context after validation.
+  const forged = {
+    ...reduced.transition,
+    evidence_acquisition_ids: ['acq-support', 'acq-unrelated'],
+  };
+  const built = buildNpcBeliefContext(read, forged);
+  assert.equal(built.status, 'ready');
+  assert.deepEqual(built.context.evidence.map((item) => item.acquisition_id), ['acq-support']);
+  assert.equal(built.context.evidence.some((item) => item.value === 'classified'), false);
+});
+
 test('context refuses actor or snapshot mismatch and evidence removed after reduction', () => {
   const read = knowledgeRead();
   const reduced = reduceNpcBeliefTransition({ knowledgeRead: read, proposal: proposal() });
