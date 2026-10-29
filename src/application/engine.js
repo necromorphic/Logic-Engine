@@ -1198,8 +1198,17 @@ export class LogicEngine {
     let triggerSnapshot = [];
     let completedTriggerSnapshot = [];
     try {
+      const isReviewGatedProcessTrigger = (trigger) => {
+        const milestone = this.processStore.findMilestoneByTrigger(id, trigger.trigger_id);
+        if (!milestone) return false;
+        if (milestone.status === 'needs_review') return true;
+        const process = this.processStore.get(id, milestone.process_id);
+        return process.stored_status === 'needs_review';
+      };
       if (triggerSource === 'registered') {
-        triggerSnapshot = this.store.listTimeTriggers(id, true);
+        // A pending trigger owned by a process under reconciliation is not eligible
+        // for scheduling again. Leave its checkpoint untouched until explicit repair.
+        triggerSnapshot = this.store.listTimeTriggers(id, true).filter((trigger) => !isReviewGatedProcessTrigger(trigger));
         const overdue = triggerSnapshot
           .filter((trigger) => trigger.status === 'pending' && trigger.due_coordinate <= from)
           .map((trigger) => trigger.trigger_id);
@@ -1215,7 +1224,8 @@ export class LogicEngine {
         triggerSnapshot = x.triggers ?? [];
         completedTriggerSnapshot = x.completed_trigger_ids ?? [];
         const registeredDue = this.store.listTimeTriggers(id)
-          .filter((trigger) => trigger.status === 'pending' && trigger.due_coordinate <= x.to_coordinate)
+          .filter((trigger) => trigger.status === 'pending' && trigger.due_coordinate <= x.to_coordinate
+            && !isReviewGatedProcessTrigger(trigger))
           .map((trigger) => trigger.trigger_id);
         if (registeredDue.length) {
           throw new EngineError('TIME_TRIGGER_SOURCE_CONFLICT', 'Request-scoped planning cannot advance across registered pending triggers; use registered trigger mode or explicitly cancel/reconcile them.', 409, {
