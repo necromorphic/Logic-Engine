@@ -861,3 +861,133 @@ test('rolling back a belief revision restores the previous valid belief without 
   assert.equal(history[0].event_id, first.transition.event_id);
   assert.equal(history[1].event_id, second.transition.event_id);
 });
+
+test('NPC revises a belief from newly acquired independent evidence after the old acquisition is rolled back', (t) => {
+  const { store, engine, acquisition } = setup(t);
+  const initial = request(store);
+  const firstRead = engine.readNpcKnowledge(initial);
+  const proposition_ref = propositionRefFor(firstRead.items[0]);
+  const oldAcquisitionId = firstRead.items[0].acquisition_id;
+
+  const originalBelief = engine.recordNpcBeliefTransition({
+    ...initial,
+    proposition_ref,
+    proposition_value: firstRead.items[0].value,
+    stance: 'believes_true',
+    supporting_acquisition_ids: [oldAcquisitionId],
+    contradicting_acquisition_ids: [],
+    reason_rule_ref: 'rule:belief-update-v1',
+    idempotency_key: 'belief-before-independent-evidence',
+  });
+  assert.equal(originalBelief.status, 'ready');
+
+  engine.rollbackEvent('world-a', {
+    root_event_id: acquisition.event_id,
+    idempotency_key: 'rollback-old-npc-acquisition',
+  });
+
+  const afterRollback = request(store);
+  engine.commitEvent('world-a', {
+    event_id: 'independent-fact-b',
+    idempotency_key: 'independent-fact-b-key',
+    turn_id: 'independent-fact-b',
+    event_type: 'action.completed',
+    expected_revision: afterRollback.expected_revision,
+    expected_commit_sequence: afterRollback.expected_commit_sequence,
+    effects: [{
+      kind: 'fact.set',
+      fact_id: 'fact-b',
+      subject_ref: firstRead.items[0].subject_ref,
+      predicate: firstRead.items[0].predicate,
+      value: firstRead.items[0].value,
+    }],
+  });
+
+  const independentSourceBytes = JSON.stringify({
+    schema_version: 1,
+    world_pack_id: 'test.world',
+    world_pack_version: '1.0.0',
+    source_kind: 'author_initial',
+    source_ref: 'authoring:test.world/independent-fact-b',
+    authorization_ref: 'rule:independent-knowledge-v1',
+    assignments: [{ subject_id: 'npc-a', fact_id: 'fact-b' }],
+  });
+  const independentRegistry = [...trustedRegistry, {
+    world_pack_id: 'test.world',
+    world_pack_version: '1.0.0',
+    source_kind: 'author_initial',
+    source_ref: 'authoring:test.world/independent-fact-b',
+    authorization_ref: 'rule:independent-knowledge-v1',
+    sha256: createHash('sha256').update(independentSourceBytes).digest('hex'),
+  }];
+  const independentEngine = new LogicEngine(store, {
+    trustedInitialKnowledgeSources: independentRegistry,
+    npcKnowledgeReadAuthorizer: (scope) => ({
+      status: 'authorized',
+      world_id: scope.world_id,
+      actor_id: scope.actor_id,
+      purpose: scope.purpose,
+      world_revision: scope.world_revision,
+      commit_sequence: scope.commit_sequence,
+      authorization_ref: 'rule:npc-read-v1',
+    }),
+    npcKnowledgeVisibilityAuthorizer: (scope) => ({
+      status: 'allowed',
+      world_id: scope.world_id,
+      actor_id: scope.actor_id,
+      purpose: scope.purpose,
+      world_revision: scope.world_revision,
+      commit_sequence: scope.commit_sequence,
+      acquisition_id: scope.acquisition_id,
+      authorization_ref: 'rule:npc-visibility-v1',
+    }),
+  });
+
+  const beforeAcquisition = request(store);
+  const newAcquisition = independentEngine.recordTrustedInitialKnowledgeSource({
+    world_id: 'world-a',
+    source_bytes: independentSourceBytes,
+    idempotency_key: 'acquire-independent-fact-b',
+    expected_revision: beforeAcquisition.expected_revision,
+    expected_commit_sequence: beforeAcquisition.expected_commit_sequence,
+  });
+  assert.equal(newAcquisition.accepted, true);
+
+  const fresh = request(store);
+  const freshRead = independentEngine.readNpcKnowledge(fresh);
+  assert.equal(freshRead.items.length, 1);
+  assert.equal(freshRead.items[0].fact_id, 'fact-b');
+  assert.notEqual(freshRead.items[0].acquisition_id, oldAcquisitionId);
+  assert.equal(propositionRefFor(freshRead.items[0]), proposition_ref);
+
+  const revised = independentEngine.recordNpcBeliefTransition({
+    ...fresh,
+    proposition_ref,
+    proposition_value: freshRead.items[0].value,
+    stance: 'suspects_true',
+    supporting_acquisition_ids: [freshRead.items[0].acquisition_id],
+    contradicting_acquisition_ids: [],
+    reason_rule_ref: 'rule:belief-update-v1',
+    idempotency_key: 'belief-revised-from-independent-evidence',
+  });
+  assert.equal(revised.status, 'ready');
+  assert.equal(revised.transition.previous_stance, 'believes_true');
+  assert.equal(revised.transition.stance, 'suspects_true');
+
+  const latest = request(store);
+  const state = independentEngine.getNpcBeliefState({
+    ...latest,
+    proposition_ref,
+  });
+  assert.equal(state.status, 'ready');
+  assert.equal(state.stance, 'suspects_true');
+  assert.equal(state.evidence_status, 'supported');
+  assert.deepEqual(state.surviving_evidence_acquisition_ids, [freshRead.items[0].acquisition_id]);
+  assert.equal(state.surviving_evidence_acquisition_ids.includes(oldAcquisitionId), false);
+
+  const history = store.db.prepare(`
+    SELECT COUNT(*) AS count FROM npc_belief_transitions
+    WHERE world_id='world-a' AND actor_id='npc-a' AND proposition_ref=?
+  `).get(proposition_ref);
+  assert.equal(history.count, 2, 'the old belief must remain in history beside the revised belief');
+});
