@@ -699,6 +699,7 @@ export class SQLiteStore {
           }
         },
       },
+      {
         version: 15,
         apply: () => {
           this.db.exec(`CREATE TABLE IF NOT EXISTS entity_source_versions(
