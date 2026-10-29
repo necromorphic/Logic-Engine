@@ -1,13 +1,19 @@
-import { saveSettingsDebounced } from '../../../script.js';
+import { saveSettingsDebounced } from '../../../../script.js';
 import { extension_settings, renderExtensionTemplateAsync } from '../../../extensions.js';
-import { fetchHealth, normalizeEngineUrl } from './bridge-core.mjs';
+import {
+    CONNECTION_STATES,
+    describeHealthFailure,
+    describeHealthResult,
+    fetchHealth,
+    normalizeEngineUrl,
+} from './bridge-core.mjs';
 
 const MODULE_NAME = 'third-party/logic-engine';
 const DEFAULTS = Object.freeze({ engineUrl: 'http://127.0.0.1:8787' });
 let lifecycleController = null;
 let initPromise = null;
 
-function setStatus(element, text, state = 'neutral') {
+function setStatus(element, text, state = CONNECTION_STATES.idle) {
     if (!element?.isConnected) return;
     element.textContent = text;
     element.dataset.state = state;
@@ -23,18 +29,20 @@ function hostBridge() {
 
 export async function init() {
     if (initPromise) return initPromise;
-    initPromise = initialize();
+    const pending = initialize();
+    initPromise = pending;
     try {
-        await initPromise;
+        await pending;
     } catch (error) {
-        cleanup();
+        teardown();
+        initPromise = null;
         throw error;
     }
 }
 
 async function initialize() {
     // A reactivation must not leave duplicate panels or stale handlers.
-    cleanup();
+    teardown();
     lifecycleController = new AbortController();
     const signal = lifecycleController.signal;
 
@@ -43,8 +51,9 @@ async function initialize() {
 
     const html = await renderExtensionTemplateAsync(MODULE_NAME, 'settings');
     if (signal.aborted) return;
-    const settingsRoot = document.querySelector('#extensions_settings');
-    if (!settingsRoot) throw new Error('SillyTavern settings container #extensions_settings was not found.');
+    const settingsRoot = document.querySelector('#extensions_settings2')
+        || document.querySelector('#extensions_settings');
+    if (!settingsRoot) throw new Error('SillyTavern settings container #extensions_settings2 was not found.');
     settingsRoot.insertAdjacentHTML('beforeend', html);
 
     const root = document.querySelector('#logic_engine_extension');
@@ -65,30 +74,35 @@ async function initialize() {
         return normalized;
     };
 
-    checkButton.addEventListener('click', async () => {
+    const runCheck = async () => {
         checkButton.disabled = true;
-        setStatus(status, 'Проверка…');
+        setStatus(status, 'Проверка…', CONNECTION_STATES.checking);
         try {
             const body = await fetchHealth(saveUrl(), fetch, signal);
-            setStatus(status, `Связь есть: ${body.service}, протокол ${body.protocol_version}. Авторизация адаптера и Memory → NPC не проверены.`, 'ok');
+            const result = describeHealthResult(body);
+            setStatus(status, result.text, result.state);
         } catch (error) {
-            if (!signal.aborted) setStatus(status, `Связь не подтверждена: ${error?.message || 'неизвестная ошибка'}`, 'error');
+            if (signal.aborted) return;
+            const failure = describeHealthFailure(error);
+            setStatus(status, failure.text, failure.state);
         } finally {
             if (!signal.aborted) checkButton.disabled = false;
         }
-    }, { signal });
+    };
+
+    checkButton.addEventListener('click', runCheck, { signal });
 
     enrollButton.addEventListener('click', async () => {
         enrollButton.disabled = true;
-        setStatus(hostStatus, 'Подключение чата…');
+        setStatus(hostStatus, 'Подключение чата…', CONNECTION_STATES.checking);
         try {
             const bridge = hostBridge();
             if (!bridge) throw new Error('Host lifecycle bridge не установлен или не совместим.');
             const result = await bridge.enrollCurrentConversation();
             const capture = await bridge.getCoreCaptureStatus();
-            setStatus(hostStatus, `Журнал подключён: ${result?.status || 'состояние не указано'}. Core capture: ${capture?.status || 'не подтверждён'}.`, 'neutral');
+            setStatus(hostStatus, `Журнал подключён: ${result?.status || 'состояние не указано'}. Core capture: ${capture?.status || 'не подтверждён'}.`, CONNECTION_STATES.idle);
         } catch (error) {
-            if (!signal.aborted) setStatus(hostStatus, `Не готово: ${error?.message || 'неизвестная ошибка'}`, 'error');
+            if (!signal.aborted) setStatus(hostStatus, `Не готово: ${error?.message || 'неизвестная ошибка'}`, CONNECTION_STATES.error);
         } finally {
             if (!signal.aborted) enrollButton.disabled = !hostBridge();
         }
@@ -96,15 +110,15 @@ async function initialize() {
 
     syncButton.addEventListener('click', async () => {
         syncButton.disabled = true;
-        setStatus(hostStatus, 'Сверка дайджестов…');
+        setStatus(hostStatus, 'Сверка дайджестов…', CONNECTION_STATES.checking);
         try {
             const bridge = hostBridge();
             if (!bridge) throw new Error('Host lifecycle bridge не установлен или не совместим.');
             const result = await bridge.syncCurrentDigestInventory();
             const capture = await bridge.getCoreCaptureStatus();
-            setStatus(hostStatus, `Сверка: ${result?.status || 'статус не указан'}. Core capture: ${capture?.status || 'не подтверждён'}. Полнота истории не подтверждена.`, 'neutral');
+            setStatus(hostStatus, `Сверка: ${result?.status || 'статус не указан'}. Core capture: ${capture?.status || 'не подтверждён'}. Полнота истории не подтверждена.`, CONNECTION_STATES.idle);
         } catch (error) {
-            if (!signal.aborted) setStatus(hostStatus, `Сверка не готова: ${error?.message || 'неизвестная ошибка'}`, 'error');
+            if (!signal.aborted) setStatus(hostStatus, `Сверка не готова: ${error?.message || 'неизвестная ошибка'}`, CONNECTION_STATES.error);
         } finally {
             if (!signal.aborted) syncButton.disabled = !hostBridge();
         }
@@ -115,12 +129,20 @@ async function initialize() {
     syncButton.disabled = !bridgeAvailable;
     setStatus(hostStatus, bridgeAvailable
         ? 'Host lifecycle bridge найден. Полнота источника и готовность Memory → NPC не подтверждены.'
-        : 'Host lifecycle bridge не найден. Доступна только диагностическая проверка /health.', 'neutral');
+        : 'Host lifecycle bridge не найден. Доступна только диагностическая проверка /health.', CONNECTION_STATES.idle);
+
+    // Activation performs one read-only health check so a page reload shows the
+    // current state without a click. Later checks are always user-initiated.
+    void runCheck();
 }
 
 export function cleanup() {
+    teardown();
+    initPromise = null;
+}
+
+function teardown() {
     lifecycleController?.abort();
     lifecycleController = null;
     document.querySelector('#logic_engine_extension')?.remove();
-    initPromise = null;
 }
