@@ -108,6 +108,10 @@ function evaluateUnsafe(input) {
   for (let i = 0; i < input.resolutions.length; i += 1) {
     const item = input.resolutions[i];
     if (!isPlainDataObject(item)
+      || !Object.hasOwn(item, "motive_a_id")
+      || !Object.hasOwn(item, "motive_b_id")
+      || !Object.hasOwn(item, "preferred_motive_id")
+      || !Object.hasOwn(item, "rule_ref")
       || !nonEmptyString(item.motive_a_id)
       || !nonEmptyString(item.motive_b_id)
       || item.motive_a_id === item.motive_b_id
