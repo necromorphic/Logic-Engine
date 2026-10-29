@@ -243,7 +243,7 @@ export function buildNpcBeliefContext(knowledgeRead, transition) {
     }
     byId.set(item.acquisition_id, item);
   }
-  const evidence = transition.evidence_acquisition_ids;
+  let evidence = transition.evidence_acquisition_ids;
   if (!Array.isArray(evidence) || evidence.some((id) => !byId.has(id))) {
     return Object.freeze({ status: 'non_ready', reason: 'context_evidence_no_longer_authorized', context: null });
   }
@@ -282,6 +282,9 @@ export function buildNpcBeliefContext(knowledgeRead, transition) {
     return Object.freeze({ status: 'non_ready', reason: 'context_transition_not_validated', context: null });
   }
   transition = revalidated.transition;
+  // The model/caller-supplied evidence list is untrusted. Only use the exact
+  // evidence set reconstructed by the reducer from validated support/contradiction refs.
+  evidence = transition.evidence_acquisition_ids;
   const safeEvidence = evidence.map((id) => {
     const item = byId.get(id);
     return Object.freeze({
