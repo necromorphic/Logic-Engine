@@ -67,6 +67,8 @@ const { router: chatsRouter } = await import(pathToFileURL(resolve(stRoot, 'src/
 const { router: groupsRouter } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/groups.js')).href);
 const { router: charactersRouter } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/characters.js')).href);
 const { router: backupsRouter } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/backups.js')).href);
+const { router: dataMaidRouter } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/data-maid.js')).href);
+const { router: backupsRouter } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/backups.js')).href);
 const { createHostLifecycleMutationMiddleware, getHostConversationInventory, recordHostCaptureAcknowledgement, registerHostConversation } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/logic-engine-host-journal.mjs')).href);
 const { router: logicEngineLifecycleRouter } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/logic-engine-lifecycle.js')).href);
 
@@ -723,4 +725,66 @@ test('real pinned direct import routes fail closed when enrolled source historie
 
   assert.equal(await readFile(regularPath, 'utf8'), regularBytes, 'regular enrolled history must remain unchanged');
   assert.equal(await readFile(groupPath, 'utf8'), groupBytes, 'group enrolled history must remain unchanged');
+});
+
+
+test('real pinned backup and data-maid destructive routes fail closed for enrolled histories', async (t) => {
+  const { execFileSync } = await import('node:child_process');
+  const actualSha = execFileSync('git', ['-C', stRoot, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+  assert.equal(actualSha, expectedSha, 'test must run against the exact pinned SillyTavern checkout');
+
+  const root = await mkdtemp(join(os.tmpdir(), 'st-host-bulk-delete-routes-'));
+  const directories = {
+    chats: join(root, 'chats'),
+    characters: join(root, 'characters'),
+    groups: join(root, 'groups'),
+    groupChats: join(root, 'group_chats'),
+    backups: join(root, 'backups'),
+  };
+  await Promise.all(Object.values(directories).map(directory => mkdir(directory, { recursive: true })));
+
+  const conversationUuid = randomUUID();
+  const conversationId = randomUUID() + ':' + conversationUuid;
+  const chatPath = join(directories.chats, 'enrolled.jsonl');
+  const chatBytes = JSON.stringify({ chat_metadata: { logic_engine_conversation_id: conversationUuid } }) + '\n';
+  await writeFile(chatPath, chatBytes);
+  const user = { profile: { handle: 'runtime-bulk-delete-route-test' }, directories };
+  await registerHostConversation({ user }, {
+    conversationId,
+    sourceLocator: 'enrolled',
+    sourcePath: 'enrolled.jsonl',
+    domain: 'chats',
+  });
+
+  const app = express();
+  app.use(express.json({ limit: '1mb' }));
+  app.use((req, _res, next) => {
+    req.user = user;
+    next();
+  });
+  app.use(createHostLifecycleMutationMiddleware({ requirePersistedInventory: true }));
+  app.use('/api/backups', backupsRouter);
+  app.use('/api/data-maid', dataMaidRouter);
+  const server = app.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  const address = server.address();
+  assert.ok(address && typeof address === 'object');
+
+  t.after(async () => {
+    await new Promise(resolveClose => server.close(resolveClose));
+    await rm(root, { recursive: true, force: true });
+  });
+
+  for (const route of ['/api/backups/chat/delete', '/api/data-maid/delete']) {
+    const response = await fetch('http://127.0.0.1:' + address.port + route, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    assert.equal(response.status, 409, route + ' must be rejected before the native destructive handler');
+    assert.deepEqual(await response.json(), {
+      error: { code: 'HOST_ENROLLED_HISTORY_PATH_MUTATION_UNSUPPORTED' },
+    });
+    assert.equal(await readFile(chatPath, 'utf8'), chatBytes, 'enrolled chat must remain byte-identical after rejection');
+  }
 });
