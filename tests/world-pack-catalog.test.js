@@ -61,6 +61,16 @@ test('trusted World Pack catalog rejects modified artifact bytes', (t) => {
   assert.throws(() => loadTrustedWorldPackCatalog(catalogPath), (error) => error.message === 'WORLD_PACK_ARTIFACT_DIGEST_MISMATCH');
 });
 
+test('trusted World Pack catalog rejects an artifact changed after startup validation', (t) => {
+  const { catalogPath, artifactPath } = fixture(t);
+  const catalog = loadTrustedWorldPackCatalog(catalogPath);
+  writeFileSync(artifactPath, readFileSync(artifactPath, 'utf8').replace('catalog-pin-test', 'modified'));
+  assert.throws(
+    () => catalog.resolve('test.world', '1.0.0'),
+    (error) => error.code === 'WORLD_PACK_ARTIFACT_DIGEST_MISMATCH',
+  );
+});
+
 test('trusted World Pack catalog rejects path traversal and duplicate identities', (t) => {
   const { catalogPath, directory, artifactBytes } = fixture(t);
   const valid = JSON.parse(readFileSync(catalogPath, 'utf8'));
