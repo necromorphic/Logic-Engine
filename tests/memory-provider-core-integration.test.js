@@ -147,7 +147,7 @@ test('real Provider preserves immutable versions and duplicate/conflict semantic
   assert.throws(() => s.provider.putRecord({ ...v1, content_disposition: 'withheld' }), /MEMORY_IDENTITY_CONFLICT/);
 
   const v2 = { ...v1, record_version: 'record-v2' };
-  assert.equal(s.provider.putRecord(v2).status, 'inserted');
+  assert.equal(s.provider.putRecord(v2).status, 'stored');
   s.provider.grantRecord(s.scope, v2.record_ref, v2.record_version, true);
   assert.equal((await s.prepare()).status, 'current');
   const beforeRestart = await s.consumer.retrieveForNpc({
