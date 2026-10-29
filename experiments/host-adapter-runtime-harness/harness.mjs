@@ -267,6 +267,26 @@ test('real pinned regular and group save routes consume one-shot capabilities be
     await rm(root, { recursive: true, force: true });
   });
 
+  // Import APIs are separate direct-server mutation paths. Prove the real pinned routers
+  // reject both before they can replace an enrolled regular or group-chat history.
+  const regularBytesBeforeImport = await readFile(regularPath, 'utf8');
+  const groupBytesBeforeImport = await readFile(groupPath, 'utf8');
+  for (const route of ['/api/chats/import', '/api/chats/group/import']) {
+    const importResponse = await fetch('http://127.0.0.1:' + address.port + route, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    assert.equal(importResponse.status, 409, route + ' must fail closed before the native import handler');
+    assert.deepEqual(await importResponse.json(), {
+      error: { code: 'HOST_ENROLLED_HISTORY_PATH_MUTATION_UNSUPPORTED' },
+    });
+    assert.equal(await readFile(regularPath, 'utf8'), regularBytesBeforeImport,
+      route + ' must not change enrolled regular-chat bytes');
+    assert.equal(await readFile(groupPath, 'utf8'), groupBytesBeforeImport,
+      route + ' must not change enrolled group-chat bytes');
+  }
+
   const regularPayload = {
     ch_name: 'Character A', file_name: 'chat-a', chat: regularSelected,
     avatar_url: 'character-a.png', force: false,
