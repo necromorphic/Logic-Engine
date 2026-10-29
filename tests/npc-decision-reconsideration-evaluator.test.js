@@ -83,6 +83,8 @@ test("unknown change relevance requires review rather than guessing", () => {
   assert.equal(result.status, "needs_review");
   assert.equal(result.reason, "change_relevance_unknown");
   assert.equal(result.review_required, true);
+  assert.deepEqual(result.history_event_proposal.trigger_change_ids, []);
+  assert.deepEqual(result.history_event_proposal.review_change_ids, ["change-1"]);
 });
 
 test("incomplete current assessment requires review even without a known relevant change", () => {
@@ -166,7 +168,9 @@ test("fails closed when the prior decision has no identifier or no basis referen
 
   const noReasons = base();
   noReasons.prior_decision.reason_refs = ["reason:a", "reason:a"];
-  assert.equal(evaluateNpcDecisionReconsideration(noReasons).status, "non_ready");
+  const noReasonsResult = evaluateNpcDecisionReconsideration(noReasons);
+  assert.equal(noReasonsResult.status, "non_ready");
+  assert.equal(noReasonsResult.review_required, true);
 });
 
 

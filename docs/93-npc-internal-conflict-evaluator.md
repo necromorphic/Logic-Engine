@@ -26,7 +26,7 @@ The input contains three arrays:
 - options: objects with id, supported motive IDs, frustrated motive IDs, a motive-assessment completeness flag, feasibility, a hard-constraint coverage flag, and hard-constraint assessments;
 - resolutions: objects identifying a conflicting pair, the preferred motive, and a reference to the applicable rule.
 
-Motive kind is one of goal, obligation, value, need, fear, or commitment. Every motive and option ID is unique. Motive references must resolve within the supplied active-motive set. A resolution covers one unordered pair, explicitly prefers one of its two motives, and cites an applicable author or World Pack rule. Duplicate pair resolutions are invalid.
+Motive kind is one of goal, obligation, value, need, fear, or commitment. Every motive and option ID is unique. Each option must support at least one active motive; an empty supports array is invalid, even if frustrations are listed. Motive references must resolve within the supplied active-motive set. A resolution covers one unordered pair, explicitly prefers one of its two motives, and cites an applicable author or World Pack rule. Duplicate pair resolutions are invalid.
 
 Both completeness flags are required. A caller must not omit an unassessed motive or applicable hard constraint and let an empty or partial list look complete. Incomplete coverage produces needs_review, unless a known hard-constraint violation, explicit infeasibility, or explicit conflict resolution against the option already makes it ineligible. The helper does not authenticate the caller's completeness assertion.
 

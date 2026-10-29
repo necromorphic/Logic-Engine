@@ -54,7 +54,8 @@ function isDenseDataArray(value, maxLength) {
 }
 
 function nonReady() {
-  return Object.freeze({ status: "non_ready", review_required: false });
+  // Invalid input must never look like a safe "no review needed" result.
+  return Object.freeze({ status: "non_ready", review_required: true });
 }
 
 function uniqueRefs(value) {
@@ -174,9 +175,8 @@ function evaluateUnsafe(input) {
       prior_context_ref: prior.context_ref,
       current_context_ref: current.snapshot_ref,
       reason,
-      trigger_change_ids: Object.freeze(
-        relevant.concat(unknown).map((change) => change.id),
-      ),
+      trigger_change_ids: Object.freeze(relevant.map((change) => change.id)),
+      review_change_ids: Object.freeze(unknown.map((change) => change.id)),
       preserved_reason_refs: Object.freeze(reasonRefs),
       preserved_conflict_refs: Object.freeze(conflictRefs),
     });
