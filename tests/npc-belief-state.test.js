@@ -203,7 +203,8 @@ test('classifies qualitative stance changes without inventing numeric confidence
   assert.equal(reduce('believes_true', 'suspects_true').transition.stance_change, 'weakened');
   assert.equal(reduce('believes_true', 'believes_false').transition.stance_change, 'reversal');
   assert.equal(reduce('believes_true', 'unresolved_conflict').transition.stance_change, 'conflict_opened');
-  assert.equal(reduce('unresolved_conflict', 'believes_true').transition.stance_change, 'conflict_resolved');
+  assert.equal(reduce('unresolved_conflict', 'believes_true', ['acq-support', 'revoked-acquisition'])
+    .transition.stance_change, 'evidence_lineage_changed');
   assert.equal(reduce('believes_true', 'believes_true', ['revoked-acquisition'])
     .transition.stance_change, 'evidence_invalidated_stance_preserved');
   assert.equal('confidence' in reduce(null, 'believes_true').transition, false);
