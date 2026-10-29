@@ -299,9 +299,9 @@ async function readStableHostChatFile(filePath, expectedDigest = null) {
 }
 
 function payloadFileDigest(payload) {
-    // SillyTavern persists JSONL with a final line terminator; the receipt must
-    // bind the exact bytes the native save writes, not just the joined records.
-    return digest(payload.chat.map(record => JSON.stringify(record)).join('\n') + '\n');
+    // SillyTavern serializes chat records as JSONL joined by newlines, without
+    // a trailing line terminator; bind the exact bytes written by the native route.
+    return digest(payload.chat.map(record => JSON.stringify(record)).join('\n'));
 }
 
 function targetArtifactDigest(snapshot, target) {
