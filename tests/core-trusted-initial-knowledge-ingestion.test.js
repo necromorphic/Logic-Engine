@@ -12,7 +12,7 @@ const sourceBytes = (assignments = [{ subject_id: 'npc-a', fact_id: 'fact-a' }])
   world_pack_id: 'test.world',
   world_pack_version: '1.0.0',
   source_kind: 'author_initial',
-  source_ref: 'import:test.world@1.0.0',
+  source_ref: 'authoring:test.world@1.0.0',
   authorization_ref: 'rule:initial-knowledge-v1',
   assignments,
 });
