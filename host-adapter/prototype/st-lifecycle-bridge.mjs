@@ -77,12 +77,13 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
         });
       }
     }
+    const tombstoneEntries = [];
     for (const tombstone of tombstones) {
       if (!tombstone || typeof tombstone.messageId !== 'string' || typeof tombstone.versionId !== 'string'
         || !/^[a-f0-9]{64}$/.test(tombstone.payloadDigest)) {
         throw Error('NON_READY: cannot publish malformed Host tombstone');
       }
-      entries.push({
+      tombstoneEntries.push({
         conversation_id: conversationId,
         message_id: tombstone.messageId,
         version_id: tombstone.versionId,
@@ -92,9 +93,10 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
         deleted: true,
       });
     }
-    // Core requires a declared parent to exist before a child is captured.
-    // Order all live versions and tombstones by ancestry; prefer inactive entries among ready siblings.
-    const orderedEntries = sortParentFirst(entries);
+    // Core requires a declared parent to exist before a newly observed child.
+    // Current versions are parent-first; tombstones follow because their live rows
+    // must already exist in Core and deletion must not precede the last child capture.
+    const orderedEntries = [...sortParentFirst(entries), ...tombstoneEntries];
     const previous = publishQueues.get(conversationId) ?? Promise.resolve();
     const current = previous.catch(() => {}).then(async () => {
       for (const entry of orderedEntries) {
