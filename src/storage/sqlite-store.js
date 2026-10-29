@@ -2093,7 +2093,8 @@ export class SQLiteStore {
           if (plan.final_action_status === 'pending' && result) {
             result = { ...result, final_action_status: 'not_committed_needs_review' };
           }
-          const processRows = error?.code === 'PROCESS_CROSS_RECORD_CHECKPOINT_MISMATCH'
+          const processCheckpointFailure = ['PROCESS_CROSS_RECORD_CHECKPOINT_MISMATCH', 'PROCESS_NOT_RUNNABLE'].includes(error?.code);
+          const processRows = processCheckpointFailure
             ? this.db.prepare(`SELECT DISTINCT m.process_id
                 FROM world_process_milestones m
                 JOIN world_time_triggers t ON t.world_id=m.world_id AND t.trigger_id=m.trigger_id
@@ -2101,15 +2102,16 @@ export class SQLiteStore {
             : [];
           this.db.prepare("UPDATE time_advance_operations SET status='needs_review',error_json=?,result_json=?,updated_at=? WHERE world_id=? AND operation_id=?")
             .run(enc(errorBody), result ? enc(result) : null, now(), worldId, operationId);
-          // Once an operation is terminal, none of its claims may remain owned.
-          // Preserve trigger checkpoint timestamps: only transient claim metadata changes.
-          this.db.prepare('UPDATE world_time_triggers SET claimed_by_operation_id=NULL WHERE world_id=? AND claimed_by_operation_id=?')
-            .run(worldId, operationId);
-          // The segment transaction already rolled back. Gate every process whose
-          // trigger belonged to the failed operation atomically with its needs_review
-          // operation record, so no sibling process can be replayed after the rollback.
-          for (const row of processRows) {
-            this.processStore?.markNeedsReview(worldId, row.process_id, error.code, error.message);
+          if (processCheckpointFailure) {
+            // A checkpoint contradiction or non-runnable process must not leave any
+            // trigger from the rolled-back segment claimed. Preserve checkpoint timestamps.
+            this.db.prepare('UPDATE world_time_triggers SET claimed_by_operation_id=NULL WHERE world_id=? AND claimed_by_operation_id=?')
+              .run(worldId, operationId);
+            // Gate every process whose trigger belonged to the failed operation atomically
+            // with its needs_review operation record.
+            for (const row of processRows) {
+              this.processStore?.markNeedsReview(worldId, row.process_id, error.code, error.message);
+            }
           }
         });
       }
