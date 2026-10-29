@@ -691,7 +691,6 @@ export class SQLiteStore {
         },
       },
       {
-      {
         version: 14,
         apply: () => {
           const columns = this.db.prepare('PRAGMA table_info(worlds)').all();
