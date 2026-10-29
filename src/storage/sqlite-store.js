@@ -1883,8 +1883,8 @@ export class SQLiteStore {
         input.error ? enc(input.error) : null, stamp, stamp,
       );
       for (const triggerId of triggerIds) {
-        this.db.prepare('UPDATE world_time_triggers SET claimed_by_operation_id=?,updated_at=? WHERE world_id=? AND trigger_id=?')
-          .run(input.operation_id, stamp, input.world_id, triggerId);
+        this.db.prepare('UPDATE world_time_triggers SET claimed_by_operation_id=? WHERE world_id=? AND trigger_id=?')
+          .run(input.operation_id, input.world_id, triggerId);
       }
       return timeAdvanceOperation(this.db.prepare('SELECT * FROM time_advance_operations WHERE world_id=? AND operation_id=?')
         .get(input.world_id, input.operation_id));
@@ -2051,6 +2051,13 @@ export class SQLiteStore {
           }
           this.db.prepare("UPDATE time_advance_operations SET status='needs_review',error_json=?,result_json=?,updated_at=? WHERE world_id=? AND operation_id=?")
             .run(enc(errorBody), result ? enc(result) : null, now(), worldId, operationId);
+          if (error?.code === 'PROCESS_CROSS_RECORD_CHECKPOINT_MISMATCH') {
+            // A failed segment must not leave its pending triggers claimed. Claim
+            // metadata is operational, not a checkpoint update, so preserve each
+            // trigger's updated_at timestamp while releasing this operation's claims.
+            this.db.prepare('UPDATE world_time_triggers SET claimed_by_operation_id=NULL WHERE world_id=? AND claimed_by_operation_id=?')
+              .run(worldId, operationId);
+          }
         });
         if (error?.code === 'PROCESS_CROSS_RECORD_CHECKPOINT_MISMATCH'
           && typeof error.details?.process_id === 'string' && this.processStore) {
