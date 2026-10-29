@@ -1,6 +1,6 @@
 # Memory Provider issue #181 — real adapter lifecycle evidence
 
-**Status:** implementation candidate; an initial CI attempt exposed one test assertion mismatch and a missing focused-test environment preload; both were corrected, and exact-head CI is pending on the updated commit.  
+**Status:** implementation candidate; the final code/test commit `f17ac61024d3098866bbd88a1393941cfe8a5080` passed exact-head CI. A report-only update follows that tested commit; the new PR head is rechecked by the linked workflows.  
 **Base main:** `b5fc27506ffda4fd6bc2e236c0463231f6c6c321`  
 **Candidate branch:** `provider/issue-181-real-adapter-lifecycle-2026-10-29`  
 **Candidate head:** use the exact SHA shown on [PR #686](https://github.com/necromorphic/Logic-Engine/pull/686) and its linked checks; a report-only edit also advances the branch head.  
@@ -48,7 +48,7 @@ The existing Provider suite additionally covers durable record persistence when 
 | SillyTavern save/edit/swipe/delete/reload/restore inventory completeness | Host/Adapter (#258) | Not exercised by this Provider test | **NOT TESTED HERE** |
 | Production Memory→NPC traffic/default route | Core + NPC + Coordinator | No production default or public route added | **DISABLED / FAIL-CLOSED** |
 
-## Exact test commands
+## Exact-head CI evidence\n\nTested implementation commit: [`f17ac61024d3098866bbd88a1393941cfe8a5080`](https://github.com/necromorphic/Logic-Engine/commit/f17ac61024d3098866bbd88a1393941cfe8a5080).\n\n- [Provider blocker 3 workflow](https://github.com/necromorphic/Logic-Engine/actions/runs/40821857355): PASS. Focused Provider acceptance: **108/108**; Runtime suite in the same workflow: **1070/1070**; recalculation oracle: **20/20**.\n- [Runtime tests workflow](https://github.com/necromorphic/Logic-Engine/actions/runs/40821857439): PASS. Full Runtime test job: **1070/1070**; Core trusted-acquisition and NPC-boundary jobs also passed.\n- CI environment fingerprint and exact SHA are recorded by those workflow runs. This is GitHub Linux CI evidence, not a local Windows/Termux run.\n\n## Exact test commands
 
 Focused Provider/Core lifecycle acceptance:
 
