@@ -719,8 +719,8 @@ export class LogicEngine {
 
     const rows = this.store.db.prepare(`
       SELECT a.acquisition_id, a.fact_id, a.acquisition_kind, a.provenance_ref,
-        a.provenance_digest, a.authorization_ref, f.subject_ref, f.predicate,
-        f.value_json, f.source_event_ids_json
+        a.provenance_digest, a.authorization_ref, a.acquired_value_json, a.acquired_source_event_ids_json,
+        f.subject_ref, f.predicate, f.value_json, f.source_event_ids_json
       FROM knowledge_acquisitions AS a
       JOIN facts AS f ON f.world_id=a.world_id AND f.fact_id=a.fact_id
       WHERE a.world_id=? AND a.subject_id=? AND f.status='active'
@@ -732,8 +732,15 @@ export class LogicEngine {
       let value;
       let sourceEventIds;
       try {
-        value = JSON.parse(row.value_json);
-        sourceEventIds = JSON.parse(row.source_event_ids_json);
+        value = JSON.parse(row.acquired_value_json);
+        sourceEventIds = JSON.parse(row.acquired_source_event_ids_json);
+        const currentValue = JSON.parse(row.value_json);
+        const currentSourceEventIds = JSON.parse(row.source_event_ids_json);
+        if (hashRequest(value) !== hashRequest(currentValue)
+          || hashRequest([...sourceEventIds].sort()) !== hashRequest([...currentSourceEventIds].sort())) {
+          throw new EngineError('NPC_KNOWLEDGE_ACQUISITION_VERSION_MISMATCH',
+            'The active fact no longer matches the version conveyed by this acquisition; reacquisition is required.', 409);
+        }
       } catch {
         throw new EngineError('NPC_KNOWLEDGE_PROJECTION_INVALID',
           'The knowledge projection contains invalid canonical JSON.', 409);
@@ -1249,7 +1256,7 @@ export class LogicEngine {
         .get(input.world_id, assignment.subject_id);
       assert(subject && subject.status !== 'destroyed', 'ACQUISITION_SUBJECT_NOT_ELIGIBLE',
         'Every assigned subject must be an existing non-destroyed entity in the target world.', 409);
-      const fact = this.store.db.prepare('SELECT status,source_event_ids_json FROM facts WHERE world_id=? AND fact_id=?')
+      const fact = this.store.db.prepare('SELECT status,subject_ref,predicate,value_json,source_event_ids_json FROM facts WHERE world_id=? AND fact_id=?')
         .get(input.world_id, assignment.fact_id);
       assert(fact && fact.status === 'active', 'ACQUISITION_SOURCE_NOT_ELIGIBLE',
         'Every assigned item must be an active canonical fact in the target world.', 409);
@@ -1280,6 +1287,8 @@ export class LogicEngine {
         provenance_ref: source.source_ref,
         provenance_digest: source.source_digest,
         authorization_ref: source.authorization_ref,
+        acquired_value: JSON.parse(fact.value_json),
+        acquired_source_event_ids: [...factSources].sort(),
       });
     }
     assert(sourceEventIds.size <= 500, 'TRUSTED_SOURCE_TOO_MANY_SUPPORT_EVENTS',
