@@ -1,10 +1,22 @@
 # Minimal executable runtime (prototype)
 
-The first executable slice is host-independent. SillyTavern is a future client adapter, not a dependency of the core. A first-party UI can use the same versioned HTTP API.
+The Core executable is host-independent, but the current `main` already includes a digest-only Host version-ledger API used by a SillyTavern adapter prototype. This is a partial integration surface, not a complete Host lifecycle contract or production-ready Memory → NPC path. The API can accept digest/version identities and conversation bindings; the default inventory verifier is deliberately deny-only, so capture does not establish inventory completeness or `READY`. See [Host/Core contract and PC acceptance gate](94-host-core-contract-and-pc-acceptance.md).
 
 ## Requirements and startup
 
 Node.js 22.13+ (uses the built-in `node:sqlite` API, which is experimental in supported Node releases). Set `ENGINE_API_TOKEN` to a secret at least 16 characters long. Configure `ENGINE_ADAPTER_TOKENS` as a JSON object of adapter IDs to distinct secrets for proposal creation/cancellation. Set a separate `ENGINE_APPROVAL_TOKEN` for approvals, `ENGINE_ADMIN_TOKEN` for world creation, global registry reads/writes/audit, and `ENGINE_INTERNAL_TOKEN` only if the restricted internal proposal-commit route is required. Optionally set `ENGINE_DB_PATH`, then run `npm start`. See `.env.example`; run `npm test` for contract tests.
+
+## Host/Adapter digest ledger (partial; fail-closed)
+
+The following routes exist in the current Core runtime:
+
+- `POST /v1/host-conversation-bindings` — administrator binds a configured adapter ID and stable Host conversation ID to a canonical Core world. Requires `x-admin-token`.
+- `POST /v1/host-conversation-bindings/resolve` — resolves a binding for the authenticated adapter identity.
+- `POST /v1/host-version-ledger/capture` — accepts `conversation_id`, `message_id`, `version_id`, explicit `parent_version_id`, lowercase SHA-256 `content_sha256`, and boolean `active`/`deleted`. Requires authenticated adapter credentials and a prior binding. Raw message text and caller-supplied `world_id` are rejected.
+
+Configure the separate digest-ledger file with `ENGINE_HOST_VERSION_LEDGER_DB_PATH`; it must not alias `ENGINE_DB_PATH` or `LOGIC_ENGINE_COORDINATOR_DB_PATH`. The ledger records identities, digests, active/deleted flags and lineage metadata, not raw message content.
+
+**Critical limitation:** `src/index.js` currently supplies `verifyInventorySnapshot: async () => false`. Consequently, successful capture or binding is not proof of a complete Host inventory and must not be interpreted as `READY`. The browser-side SillyTavern patch is maintained as a separate review-only candidate; it is not automatically installed by Core. Do not enable production Memory → NPC or outbound dispatch on the strength of these endpoints.
 
 ## Trusted initial/imported knowledge sources
 
