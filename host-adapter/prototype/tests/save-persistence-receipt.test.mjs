@@ -81,7 +81,7 @@ test('enrolled chat save without matching persisted payload fails closed', async
   const chatPath = path.join(chatDirectory, 'chat-a.jsonl');
   const header = { chat_metadata: { logic_engine_conversation_id: conversationUuid } };
   const before = message({ messageId, versions: [{ versionId: version1, text: 'persisted-before' }], activeVersionIndex: 0 });
-  await writeFile(chatPath, [JSON.stringify(header), JSON.stringify(before)].join('\n')
+  await writeFile(chatPath, [JSON.stringify(header), JSON.stringify(before)].join('\n'));
 
   const request = {
     method: 'POST', baseUrl: '/api/chats', path: '/save', originalUrl: '/api/chats/save',
@@ -162,7 +162,7 @@ test('matching persisted enrolled chat receives success only after the version i
     ],
     activeVersionIndex: 1,
   });
-  await writeFile(chatPath, [JSON.stringify(header), JSON.stringify(before)].join('\n')
+  await writeFile(chatPath, [JSON.stringify(header), JSON.stringify(before)].join('\n'));
 
   const request = {
     method: 'POST', baseUrl: '/api/chats', path: '/save', originalUrl: '/api/chats/save',
@@ -176,7 +176,7 @@ test('matching persisted enrolled chat receives success only after the version i
     await authorizeSave(request, conversationId, messageId, version1, 'before');
     const response = responseMock();
     await createHostLifecycleMutationMiddleware({ requirePersistedInventory: true })(request, response, async () => {
-      await writeFile(chatPath, request.body.chat.map(JSON.stringify).join('\n')
+      await writeFile(chatPath, request.body.chat.map(JSON.stringify).join('\n'));
       response.json({ ok: true });
     });
     await response.finished;
