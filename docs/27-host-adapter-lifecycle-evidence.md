@@ -43,7 +43,7 @@ Earlier CI on head `a4e8cf3c1f4f54e9d1947634e0ff2204d56ecbe7` passed the pinned-
 - [Pinned-source patch validation](https://github.com/necromorphic/Logic-Engine/actions/runs/40217058981): SUCCESS — patched entry-point ESLint and module syntax checks.
 - [Repository runtime tests](https://github.com/necromorphic/Logic-Engine/actions/runs/40217059353): SUCCESS.
 
-During this follow-up, exact-head patch validation exposed a hunk-order/count defect; the candidate was corrected and re-run. The patch now checkpoints edit, swipe deletion, and enrolled whole-message deletion after the relevant awaited native save where that path supports one, and regression assertions enforce this ordering. The successful runs above apply to the corrected exact HEAD. They do **not** establish real Android/Termux execution, complete inventory, restore/import/copy coverage, or production integration.
+During this follow-up, exact-head patch validation exposed a hunk-order/count defect; the candidate was corrected and re-run. The patch now checkpoints edit, swipe deletion, and enrolled whole-message deletion after the relevant awaited native save where that path supports one, and regression assertions enforce this ordering. Those three successful runs apply only to the historical initial candidate SHA `504057e4103452442dd3cb1256ba06ff5afbeeaa`, not the corrected exact HEAD. Later corrected-head validation is recorded separately in the prototype README. These historical runs do **not** establish real Android/Termux execution, complete inventory, restore/import/copy coverage, or production integration.
 
 The prototype is not installed on the user's Android/Termux instance. It does not prove the real host's current complete inventory, pre-enrollment/deleted history, all import/copy/restore paths, or end-to-end Provider/Core authorization/revocation. No production Host→Provider listener is enabled.
 
@@ -93,7 +93,7 @@ The pinned source contains deletion paths outside the currently loaded message a
 
 - Pinned source inspected: `06bde939fb1e9c4c8d8641d810f0a916b5bce127`.
 - Existing redacted runtime samples: issue #258; not re-requested and not reinterpreted as proof of ordering.
-- Prototype CI: current-head checks for PR #323 HEAD `504057e4103452442dd3cb1256ba06ff5afbeeaa` pass (links above); scope remains CI patch/prototype only.
+- Prototype CI: the checks for PR #323 HEAD `504057e4103452442dd3cb1256ba06ff5afbeeaa` are historical evidence for the initial candidate only (links above); they are not current-head validation. Later corrected-head checks are documented separately above and in `host-adapter/prototype/README.md`; scope remains CI patch/prototype only.
 - Real Android/Termux restart/replay and end-to-end Provider/Core integration: **not run / not proven**.
 
 
