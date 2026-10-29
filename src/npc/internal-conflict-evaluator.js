@@ -167,6 +167,8 @@ function evaluateUnsafe(input) {
     for (let j = 0; j < option.hard_constraints.length; j += 1) {
       const constraint = option.hard_constraints[j];
       if (!isPlainDataObject(constraint)
+        || !Object.hasOwn(constraint, "id")
+        || !Object.hasOwn(constraint, "status")
         || !nonEmptyString(constraint.id)
         || constraintIds.has(constraint.id)
         || !CONSTRAINT_STATUS.has(constraint.status)) return nonReady();
