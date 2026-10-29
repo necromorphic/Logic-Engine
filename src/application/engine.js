@@ -1107,25 +1107,13 @@ export class LogicEngine {
     });
     assert(read.truncated !== true, 'NPC_KNOWLEDGE_READ_INCOMPLETE',
       'The actor knowledge read exceeded its bounded limit; belief support cannot be reconciled from a partial window.', 409);
-    const row = this.store.db.prepare(`
-      SELECT b.transition_id, b.proposition_ref, b.proposition_value_json, b.stance,
-        b.supporting_acquisition_ids_json, b.contradicting_acquisition_ids_json,
-        b.evidence_acquisition_ids_json, b.reason_rule_ref, b.snapshot_revision,
-        b.snapshot_commit_sequence, b.event_id, b.committed_revision
-      FROM npc_belief_transitions AS b
-      JOIN world_events AS e ON e.world_id=b.world_id AND e.event_id=b.event_id
-      WHERE b.world_id=? AND b.actor_id=? AND b.proposition_ref=? AND e.validity='valid'
-      ORDER BY e.commit_sequence DESC LIMIT 1
-    `).get(input.world_id, input.actor_id, input.proposition_ref);
-    if (!row) return Object.freeze({ status: 'unknown', actor_id: input.actor_id, proposition_ref: input.proposition_ref });
     assert(typeof this.npcKnowledgeVisibilityAuthorizer === 'function',
       'NPC_KNOWLEDGE_VISIBILITY_NOT_CONFIGURED',
       'A trusted deployment-owned visibility authorizer is required for belief-state reads.', 403);
-    const evidence = JSON.parse(row.evidence_acquisition_ids_json);
     const visibleAcquisitionIds = new Set();
     let propositionWithheld = false;
     for (const item of read.items) {
-      if (npcPropositionRefFor(item) !== row.proposition_ref) continue;
+      if (npcPropositionRefFor(item) !== input.proposition_ref) continue;
       let decision;
       try {
         decision = this.npcKnowledgeVisibilityAuthorizer(Object.freeze({
@@ -1183,10 +1171,23 @@ export class LogicEngine {
     'NPC_KNOWLEDGE_READ_NOT_READY',
     'World snapshot changed while reconciling NPC belief state; retry from a fresh snapshot.', 409);
 
-    // Do not reveal whether a hidden proposition or its evidence exists.
+    // Check visibility before querying belief history. Otherwise, unknown vs.
+    // unavailable could reveal whether a hidden proposition has a stored belief.
     if (propositionWithheld) {
       return Object.freeze({ status: 'unavailable', actor_id: input.actor_id, proposition_ref: input.proposition_ref });
     }
+    const row = this.store.db.prepare(`
+      SELECT b.transition_id, b.proposition_ref, b.proposition_value_json, b.stance,
+        b.supporting_acquisition_ids_json, b.contradicting_acquisition_ids_json,
+        b.evidence_acquisition_ids_json, b.reason_rule_ref, b.snapshot_revision,
+        b.snapshot_commit_sequence, b.event_id, b.committed_revision
+      FROM npc_belief_transitions AS b
+      JOIN world_events AS e ON e.world_id=b.world_id AND e.event_id=b.event_id
+      WHERE b.world_id=? AND b.actor_id=? AND b.proposition_ref=? AND e.validity='valid'
+      ORDER BY e.commit_sequence DESC LIMIT 1
+    `).get(input.world_id, input.actor_id, input.proposition_ref);
+    if (!row) return Object.freeze({ status: 'unknown', actor_id: input.actor_id, proposition_ref: input.proposition_ref });
+    const evidence = JSON.parse(row.evidence_acquisition_ids_json);
     const surviving = evidence.filter((ref) => visibleAcquisitionIds.has(ref));
     return Object.freeze({
       status: 'ready',
