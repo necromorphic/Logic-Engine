@@ -185,6 +185,35 @@ export class ProcessStore {
           process_id: milestone.process_id, milestone_id: milestone.milestone_id, status: milestone.status,
         });
       }
+      // Validate the process checkpoint against the exact canonical segment evidence
+      // before advancing the milestone. This runs inside the existing Core segment
+      // transaction, so a mismatch rolls back the whole segment.
+      const operation = this.db.prepare('SELECT * FROM time_advance_operations WHERE world_id=? AND operation_id=?')
+        .get(worldId, operationId);
+      const ids = [...new Set(eventIds)];
+      const matchingSegment = operation
+        ? dec(operation.segments_json).find((segment) => {
+          const triggerIds = segment.registered_trigger_ids ?? [];
+          if (!triggerIds.includes(triggerId)) return false;
+          const triggerIndex = (segment.trigger_ids ?? []).indexOf(triggerId);
+          const eventOffset = segment.events.length - (segment.trigger_ids ?? []).length;
+          const expectedEventId = triggerIndex >= 0 ? segment.events[eventOffset + triggerIndex]?.event_id : null;
+          return expectedEventId && ids.length === 1 && ids[0] === expectedEventId;
+        })
+        : null;
+      const triggerRow = this.db.prepare('SELECT status,completed_operation_id FROM world_time_triggers WHERE world_id=? AND trigger_id=?')
+        .get(worldId, triggerId);
+      const validEvents = ids.length === 1 && this.db.prepare(
+        "SELECT COUNT(*) AS count FROM world_events WHERE world_id=? AND event_id=? AND validity='valid'",
+      ).get(worldId, ids[0]).count === 1;
+      if (!operation || !matchingSegment || !triggerRow || triggerRow.status !== 'completed'
+        || triggerRow.completed_operation_id !== operationId || !validEvents) {
+        throw new EngineError('PROCESS_CROSS_RECORD_CHECKPOINT_MISMATCH',
+          'Process milestone checkpoint does not match its trigger, operation segment, and valid canonical event evidence.', 409, {
+            process_id: milestone.process_id, milestone_id: milestone.milestone_id, trigger_id: triggerId,
+            operation_id: operationId, event_ids: ids,
+          });
+      }
       const processRow = this.db.prepare('SELECT * FROM world_processes WHERE world_id=? AND process_id=?')
         .get(worldId, milestone.process_id);
       if (!processRow || !['scheduled','running'].includes(processRow.status)) {
@@ -193,7 +222,6 @@ export class ProcessStore {
         });
       }
       const stamp = now();
-      const ids = [...new Set(eventIds)];
       this.db.prepare(`UPDATE world_process_milestones SET status='completed',completed_event_ids_json=?,
         checkpoint_version=checkpoint_version+1,updated_at=? WHERE world_id=? AND process_id=? AND milestone_id=? AND status='pending'`)
         .run(enc(ids), stamp, worldId, milestone.process_id, milestone.milestone_id);
