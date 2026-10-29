@@ -260,3 +260,23 @@ test('context builder fails closed for malformed Core reads instead of throwing 
 
   assert.equal(buildNpcBeliefContext(read, reduced.transition).status, 'ready');
 });
+
+test('context evidence owns an immutable copy of source event IDs', () => {
+  const sourceEventIds = ['event-a'];
+  const read = knowledgeRead({ items: [{ ...evidenceItems[0], source_event_ids: sourceEventIds }] });
+  const reduced = reduceNpcBeliefTransition({ knowledgeRead: read, proposal: proposal() });
+  const built = buildNpcBeliefContext(read, reduced.transition);
+
+  assert.equal(built.status, 'ready');
+  assert.equal(Object.isFrozen(built.context.evidence[0].source_event_ids), true);
+  sourceEventIds.push('event-added-after-context-build');
+  assert.deepEqual(built.context.evidence[0].source_event_ids, ['event-a']);
+  assert.throws(() => built.context.evidence[0].source_event_ids.push('event-forged'));
+
+  const malformed = knowledgeRead({
+    items: [{ ...evidenceItems[0], source_event_ids: ['event-a', 'event-a'] }],
+  });
+  const malformedTransition = reduceNpcBeliefTransition({ knowledgeRead: malformed, proposal: proposal() });
+  assert.equal(buildNpcBeliefContext(malformed, malformedTransition.transition).reason,
+    'context_core_evidence_invalid');
+});
