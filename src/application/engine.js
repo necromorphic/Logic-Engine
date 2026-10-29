@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { readFileSync, lstatSync } from 'node:fs';
+import { constants as fsConstants, openSync, fstatSync, readFileSync, closeSync } from 'node:fs';
 import { isAbsolute } from 'node:path';
 import { assert, EngineError } from '../core/errors.js';
 import { hashRequest } from '../core/request-hash.js';
@@ -691,17 +691,34 @@ export class LogicEngine {
       'Exactly one deployment-approved imported source file must match this source_ref and world pack.', 403);
     const configured = candidates[0];
     let sourceBytes;
+    let fd;
     try {
-      const stat = lstatSync(configured.source_path);
-      assert(stat.isFile() && !stat.isSymbolicLink() && stat.size > 0 && stat.size <= MAX_TRUSTED_IMPORT_BYTES,
-        'INVALID_TRUSTED_IMPORT_FILE', 'Trusted import path must be an absolute non-symlink regular file within the 1 MiB limit.');
-      sourceBytes = readFileSync(configured.source_path);
+      const noFollow = fsConstants.O_NOFOLLOW;
+      assert(Number.isInteger(noFollow) && noFollow !== 0,
+        'TRUSTED_IMPORT_NOFOLLOW_UNAVAILABLE', 'This platform cannot enforce no-follow file opening for trusted imports.', 503);
+      fd = openSync(configured.source_path, fsConstants.O_RDONLY | noFollow);
+      const stat = fstatSync(fd);
+      assert(stat.isFile() && stat.size > 0 && stat.size <= MAX_TRUSTED_IMPORT_BYTES,
+        'INVALID_TRUSTED_IMPORT_FILE', 'Trusted import must be a regular file within the 1 MiB limit.');
+      sourceBytes = readFileSync(fd);
       assert(sourceBytes.length > 0 && sourceBytes.length <= MAX_TRUSTED_IMPORT_BYTES,
         'INVALID_TRUSTED_IMPORT_FILE', 'Trusted import bytes must remain within the 1 MiB limit when read.');
     } catch (error) {
       if (error instanceof EngineError) throw error;
-      throw new EngineError('TRUSTED_IMPORT_FILE_UNAVAILABLE', 'Deployment-approved import file could not be read.', 503);
+      throw new EngineError('TRUSTED_IMPORT_FILE_UNAVAILABLE', 'Deployment-approved import file could not be read safely.', 503);
+    } finally {
+      if (fd !== undefined) {
+        try { closeSync(fd); } catch { /* preserve the original read result */ }
+      }
     }
+    const validatedSource = validateTrustedInitialKnowledgeSource(sourceBytes, this.trustedInitialKnowledgeSources);
+    assert(validatedSource.source_kind === configured.source_kind
+      && validatedSource.source_ref === configured.source_ref
+      && validatedSource.world_pack_id === configured.world_pack_id
+      && validatedSource.world_pack_version === configured.world_pack_version
+      && validatedSource.authorization_ref === configured.authorization_ref
+      && validatedSource.source_digest === configured.sha256,
+    'UNSUPPORTED_TRUSTED_SOURCE_KIND', 'Imported file content must match the selected registry entry exactly.', 403);
     return this.recordTrustedInitialKnowledgeSource({
       world_id: input.world_id,
       source_bytes: sourceBytes,
