@@ -79,15 +79,19 @@ function evaluateUnsafe(input) {
 
   const prior = input.prior_decision;
   const current = input.current_context;
-  if (!nonEmptyString(prior.id)
-    || !nonEmptyString(prior.option_id)
-    || !nonEmptyString(prior.context_ref)
+  if (!Object.hasOwn(prior, "id")
+    || !Object.hasOwn(prior, "option_id")
+    || !Object.hasOwn(prior, "context_ref")
     || !Object.hasOwn(prior, "reason_refs")
     || !Object.hasOwn(prior, "conflict_refs")
-    || !nonEmptyString(current.snapshot_ref)
+    || !Object.hasOwn(current, "snapshot_ref")
     || !Object.hasOwn(current, "assessment_complete")
-    || typeof current.assessment_complete !== "boolean"
-    || !Object.hasOwn(current, "changes")) return nonReady();
+    || !Object.hasOwn(current, "changes")
+    || !nonEmptyString(prior.id)
+    || !nonEmptyString(prior.option_id)
+    || !nonEmptyString(prior.context_ref)
+    || !nonEmptyString(current.snapshot_ref)
+    || typeof current.assessment_complete !== "boolean") return nonReady();
 
   const reasonRefs = uniqueRefs(prior.reason_refs);
   const conflictRefs = uniqueRefs(prior.conflict_refs);
@@ -102,6 +106,10 @@ function evaluateUnsafe(input) {
   for (let i = 0; i < current.changes.length; i += 1) {
     const change = current.changes[i];
     if (!isPlainDataObject(change)
+      || !Object.hasOwn(change, "id")
+      || !Object.hasOwn(change, "kind")
+      || !Object.hasOwn(change, "relevance")
+      || !Object.hasOwn(change, "source_ref")
       || !nonEmptyString(change.id)
       || seenChangeIds.has(change.id)
       || !CHANGE_KINDS.has(change.kind)
