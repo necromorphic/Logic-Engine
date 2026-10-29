@@ -14,9 +14,21 @@ import { ProcessStore } from '../storage/process-store.js';
 import { addTimeDuration, createCalendarDefinition, projectCalendarDate } from '../time/model.js';
 import { createTimePolicy, resolveDurationDecision } from '../time/policy.js';
 
+const INTERNAL_CORE_EFFECTS = Symbol('INTERNAL_CORE_EFFECTS');
 const TRUSTED_IMPORT_CAPABILITY = Symbol('trusted-import-loader');
 const MAX_TRUSTED_IMPORT_BYTES = 1_000_000;
 const obj = (x) => x !== null && typeof x === 'object' && !Array.isArray(x);
+const exactDataRecord = (value, keys) => {
+  if (!obj(value)) return false;
+  try {
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) return false;
+    const ownKeys = Reflect.ownKeys(value);
+    if (ownKeys.length !== keys.length || !keys.every((key) => Object.hasOwn(value, key))
+      || !ownKeys.every((key) => typeof key === 'string' && keys.includes(key))) return false;
+    return ownKeys.every((key) => { const descriptor = Object.getOwnPropertyDescriptor(value, key); return descriptor && descriptor.enumerable && Object.hasOwn(descriptor, 'value'); });
+  } catch { return false; }
+};
 const strings = (x, name) => {
   x = x ?? [];
   assert(Array.isArray(x) && x.length <= 500 && x.every((v) => typeof v === 'string' && v.trim()), 'INVALID_FIELD', name + ' must be an array of non-empty strings.');
@@ -417,59 +429,6 @@ export class LogicEngine {
     }
   }
 
-  prepareEvent(x, options = {}) {
-    assert(obj(x), 'INVALID_BODY', 'Body must be an object.');
-    const allowedFields = ['idempotency_key', 'turn_id', 'event_type', 'event_id', 'expected_revision', 'expected_commit_sequence', 'context_manifest_id', 'generation_id', 'source_message_id', 'time_advance_seconds', 'time_mode', 'duration_proposal', 'caused_by', 'depends_on', 'read_set', 'causal_links', 'effects'];
-    assert(Object.keys(x).every((key) => allowedFields.includes(key)), 'UNSUPPORTED_EVENT_FIELD', 'Event proposal contains an unsupported top-level field.');
-    assert(typeof x.idempotency_key === 'string' && x.idempotency_key.trim() && x.idempotency_key.length <= 200, 'IDEMPOTENCY_KEY_REQUIRED', 'idempotency_key required.');
-    assert(typeof x.turn_id === 'string' && x.turn_id.trim() && x.turn_id.length <= 200, 'TURN_ID_REQUIRED', 'turn_id required.');
-    assert(typeof x.event_type === 'string' && x.event_type.trim() && x.event_type.length <= 200, 'EVENT_TYPE_REQUIRED', 'event_type required.');
-    if (x.event_id !== undefined && x.event_id !== null) {
-      assert(typeof x.event_id === 'string' && x.event_id.trim() && x.event_id.length <= 200, 'INVALID_EVENT_ID', 'event_id must be a non-empty string of at most 200 characters.');
-      assert(!x.event_id.trim().startsWith('entity:') && !x.event_id.trim().startsWith('fact:'), 'INVALID_EVENT_ID', 'event_id cannot use the reserved entity: or fact: reference prefixes.');
-    }
-    if (x.expected_revision !== undefined) assert(Number.isSafeInteger(x.expected_revision) && x.expected_revision >= 0, 'INVALID_REVISION', 'expected_revision must be non-negative.');
-    if (x.expected_commit_sequence !== undefined) assert(Number.isSafeInteger(x.expected_commit_sequence) && x.expected_commit_sequence >= 0, 'INVALID_COMMIT_SEQUENCE', 'expected_commit_sequence must be non-negative.');
-    if (x.context_manifest_id !== undefined) assert(typeof x.context_manifest_id === 'string' && x.context_manifest_id.trim() && x.context_manifest_id.length <= 200, 'INVALID_CONTEXT_MANIFEST_ID', 'context_manifest_id must be a non-empty string of at most 200 characters.');
-    if (x.generation_id !== undefined && x.generation_id !== null) assert(typeof x.generation_id === 'string' && x.generation_id.trim() && x.generation_id.length <= 200, 'INVALID_GENERATION_ID', 'generation_id must be a non-empty string of at most 200 characters.');
-
-    const seconds = x.time_advance_seconds ?? 0;
-    const skip = x.time_mode === 'explicit_skip';
-    assert(Number.isSafeInteger(seconds) && seconds >= 0, 'INVALID_TIME_ADVANCE', 'time_advance_seconds must be non-negative.');
-    assert(x.time_mode === undefined || x.time_mode === 'action' || skip, 'INVALID_TIME_MODE', 'time_mode must be action or explicit_skip.');
-    const maxSeconds = skip ? (options.maxSkipDurationSeconds ?? 604800) : (options.maxActionDurationSeconds ?? 43200);
-    assert(seconds <= maxSeconds, 'TIME_ADVANCE_TOO_LARGE', 'Time advance exceeds the active duration limit.');
-    if (seconds > 0) assert(options.durationDecision?.status === 'resolved' || ['time.advance', 'action.completed'].includes(x.event_type), 'INVALID_TIME_ADVANCE', 'Positive duration requires a supported time event or an active TimePolicy decision.');
-
-    const effects = x.effects ?? [];
-    validateEffects(effects, { allowRelationshipTransition: options.allowRelationshipTransition === true });
-    const request = {
-      operation: 'event.commit',
-      event_id: x.event_id ?? null,
-      turn_id: x.turn_id.trim(),
-      generation_id: x.generation_id == null ? null : x.generation_id.trim(),
-      context_manifest_id: x.context_manifest_id == null ? null : x.context_manifest_id.trim(),
-      source_message_id: x.source_message_id ?? null,
-      event_type: x.event_type.trim(),
-      expected_revision: x.expected_revision ?? null,
-      expected_commit_sequence: x.expected_commit_sequence ?? null,
-      time_advance_seconds: seconds,
-      time_mode: x.time_mode ?? 'action',
-      ...(x.duration_proposal !== undefined ? { duration_proposal: x.duration_proposal } : {}),
-      ...(options.durationDecision ? { duration_decision: options.durationDecision } : {}),
-      caused_by: strings(x.caused_by, 'caused_by'),
-      depends_on: strings(x.depends_on, 'depends_on'),
-      read_set: strings(x.read_set, 'read_set'),
-      causal_links: causalLinks(x.causal_links),
-      effects,
-    };
-    return {
-      ...request,
-      request_hash: hashRequest(request),
-      idempotency_key: x.idempotency_key.trim(),
-    };
-  }
-
   prepareEventForWorld(id, x, options = {}) {
     const { authorApprovedDuration = false, ...prepareOptions } = options;
     const config = this.store.getTimeConfiguration(id);
@@ -623,7 +582,8 @@ export class LogicEngine {
     const effects = x.effects ?? [];
     validateEffects(effects, {
       allowRelationshipTransition: options.allowRelationshipTransition === true,
-      allowKnowledgeAcquisition: options.allowKnowledgeAcquisition === true,
+      allowKnowledgeAcquisition: options[INTERNAL_CORE_EFFECTS] === true && options.allowKnowledgeAcquisition === true,
+      allowNpcBeliefTransition: options[INTERNAL_CORE_EFFECTS] === true && options.allowNpcBeliefTransition === true,
     });
     const request = {
       operation: 'event.commit',
@@ -849,12 +809,7 @@ export class LogicEngine {
         'status', 'world_id', 'actor_id', 'purpose', 'world_revision',
         'commit_sequence', 'acquisition_id', 'authorization_ref',
       ];
-      const exactDecision = decision && typeof decision === 'object'
-        && !Array.isArray(decision)
-        && Object.getPrototypeOf(decision) === Object.prototype
-        && Reflect.ownKeys(decision).length === allowedKeys.length
-        && allowedKeys.every((key) => Object.hasOwn(decision, key))
-        && Reflect.ownKeys(decision).every((key) => typeof key === 'string' && allowedKeys.includes(key));
+      const exactDecision = exactDataRecord(decision, allowedKeys);
       if (!exactDecision) {
         throw new EngineError('NPC_KNOWLEDGE_VISIBILITY_NOT_AUTHORIZED',
           'The visibility authorizer returned a malformed decision.', 403);
@@ -1067,26 +1022,30 @@ export class LogicEngine {
         event_type: 'npc.belief.transitioned',
         expected_revision: input.expected_revision,
         expected_commit_sequence: input.expected_commit_sequence,
-        effects: [],
-      });
+        effects: [{
+          kind: 'npc.belief.transition',
+          transition_id: transitionId,
+          actor_id: transition.actor_id,
+          purpose: transition.purpose,
+          proposition_ref: transition.proposition_ref,
+          proposition_value: transition.proposition_value,
+          stance: transition.stance,
+          supporting_acquisition_ids: [...transition.supporting_acquisition_ids],
+          contradicting_acquisition_ids: [...transition.contradicting_acquisition_ids],
+          evidence_acquisition_ids: [...transition.evidence_acquisition_ids],
+          reason_rule_ref: transition.reason_rule_ref,
+          idempotency_key: input.idempotency_key,
+          request_hash: requestHash,
+          snapshot_revision: transition.snapshot.world_revision,
+          snapshot_commit_sequence: transition.snapshot.commit_sequence,
+          previous_stance: transition.previous_stance,
+          surviving_prior_evidence: [...transition.surviving_prior_evidence],
+          invalidated_prior_evidence: [...transition.invalidated_prior_evidence],
+          prior_stance_preserved_despite_invalidation: transition.prior_stance_preserved_despite_invalidation,
+        }],
+      }, { [INTERNAL_CORE_EFFECTS]: true, allowNpcBeliefTransition: true });
       assert(event.idempotent_replay !== true, 'NPC_BELIEF_PROJECTION_MISSING',
         'A committed belief event exists without its Core belief projection; manual reconciliation is required.', 409);
-      this.store.db.prepare(`
-        INSERT INTO npc_belief_transitions(
-          world_id, transition_id, actor_id, proposition_ref, proposition_value_json, stance,
-          supporting_acquisition_ids_json, contradicting_acquisition_ids_json,
-          evidence_acquisition_ids_json, reason_rule_ref, idempotency_key, request_hash,
-          snapshot_revision, snapshot_commit_sequence, event_id, committed_revision
-        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-      `).run(
-        input.world_id, transitionId, input.actor_id, input.proposition_ref, JSON.stringify(transition.proposition_value), transition.stance,
-        JSON.stringify(transition.supporting_acquisition_ids),
-        JSON.stringify(transition.contradicting_acquisition_ids),
-        JSON.stringify(transition.evidence_acquisition_ids),
-        transition.reason_rule_ref, input.idempotency_key, requestHash,
-        transition.snapshot.world_revision, transition.snapshot.commit_sequence,
-        event.event_id, event.world_revision,
-      );
       return {
         status: 'ready',
         idempotent_replay: false,
@@ -1155,12 +1114,7 @@ export class LogicEngine {
         'status', 'world_id', 'actor_id', 'purpose', 'world_revision',
         'commit_sequence', 'acquisition_id', 'authorization_ref',
       ];
-      const exactDecision = decision && typeof decision === 'object'
-        && !Array.isArray(decision)
-        && Object.getPrototypeOf(decision) === Object.prototype
-        && Reflect.ownKeys(decision).length === allowedKeys.length
-        && allowedKeys.every((key) => Object.hasOwn(decision, key))
-        && Reflect.ownKeys(decision).every((key) => typeof key === 'string' && allowedKeys.includes(key));
+      const exactDecision = exactDataRecord(decision, allowedKeys);
       if (!exactDecision || !['allowed', 'denied'].includes(decision.status)
         || decision.world_id !== read.world_id || decision.actor_id !== read.actor_id
         || decision.purpose !== read.purpose
@@ -1404,7 +1358,7 @@ export class LogicEngine {
       read_set: [...readSet].sort(),
       causal_links: causalLinks,
       effects: assignments,
-    }, { allowKnowledgeAcquisition: true });
+    }, { [INTERNAL_CORE_EFFECTS]: true, allowKnowledgeAcquisition: true });
   }
 
   commitEvent(id, x, options = {}) {

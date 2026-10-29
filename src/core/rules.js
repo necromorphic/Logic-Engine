@@ -275,7 +275,7 @@ function validateEffectJson(value, label) {
 export function validateEffects(effects, options = {}) {
   assertDenseDataArray(effects, 200, 'INVALID_EFFECTS', 'effects');
   assertPlainDataObject(options, 'INVALID_EFFECT_OPTIONS', 'Effect validation options');
-  if (Object.keys(options).some((key) => !['allowRelationshipTransition', 'allowKnowledgeAcquisition'].includes(key))) {
+  if (Object.keys(options).some((key) => !['allowRelationshipTransition', 'allowKnowledgeAcquisition', 'allowNpcBeliefTransition'].includes(key))) {
     throw new EngineError('INVALID_EFFECT_OPTIONS', 'Effect validation options contain an unsupported field.');
   }
   if (options.allowRelationshipTransition !== undefined && typeof options.allowRelationshipTransition !== 'boolean') {
@@ -283,6 +283,9 @@ export function validateEffects(effects, options = {}) {
   }
   if (options.allowKnowledgeAcquisition !== undefined && typeof options.allowKnowledgeAcquisition !== 'boolean') {
     throw new EngineError('INVALID_EFFECT_OPTIONS', 'allowKnowledgeAcquisition must be boolean.');
+  }
+  if (options.allowNpcBeliefTransition !== undefined && typeof options.allowNpcBeliefTransition !== 'boolean') {
+    throw new EngineError('INVALID_EFFECT_OPTIONS', 'allowNpcBeliefTransition must be boolean.');
   }
 
   for (const effect of effects) {
@@ -302,6 +305,7 @@ export function validateEffects(effects, options = {}) {
       'entity.delete': ['kind', 'entity_id'],
       'fact.set': ['kind', 'fact_id', 'subject_ref', 'predicate', 'value'],
       'knowledge.acquire': ['kind', 'acquisition_id', 'subject_id', 'fact_id', 'acquisition_kind', 'provenance_ref', 'provenance_digest', 'authorization_ref', 'acquired_value', 'acquired_source_event_ids'],
+      'npc.belief.transition': ['kind', 'transition_id', 'actor_id', 'purpose', 'proposition_ref', 'proposition_value', 'stance', 'supporting_acquisition_ids', 'contradicting_acquisition_ids', 'evidence_acquisition_ids', 'reason_rule_ref', 'idempotency_key', 'request_hash', 'snapshot_revision', 'snapshot_commit_sequence', 'previous_stance', 'surviving_prior_evidence', 'invalidated_prior_evidence', 'prior_stance_preserved_despite_invalidation'],
       'mechanic.instance.create': ['kind', 'instance_id', 'template_id', 'template_version', 'parameters', 'state'],
       'mechanic.instance.enable': ['kind', 'instance_id'],
       'mechanic.instance.disable': ['kind', 'instance_id'],
@@ -312,6 +316,9 @@ export function validateEffects(effects, options = {}) {
     }
     if (effect.kind === 'knowledge.acquire' && options.allowKnowledgeAcquisition !== true) {
       throw new EngineError('UNSUPPORTED_EFFECT', 'Knowledge acquisition must use the trusted Core source ingestion operation.', 403);
+    }
+    if (effect.kind === 'npc.belief.transition' && options.allowNpcBeliefTransition !== true) {
+      throw new EngineError('UNSUPPORTED_EFFECT', 'NPC belief transitions must use the trusted Core belief-transition operation.', 403);
     }
     if (allowedFields && Object.keys(effect).some((key) => !allowedFields.includes(key))) {
       throw new EngineError('UNSUPPORTED_EFFECT_FIELD', 'Effect contains a field not supported by its kind: ' + effect.kind, 400, { kind: effect.kind });
@@ -393,6 +400,40 @@ export function validateEffects(effects, options = {}) {
         || new Set(effect.acquired_source_event_ids).size !== effect.acquired_source_event_ids.length) {
         throw new EngineError('INVALID_KNOWLEDGE_ACQUISITION_VERSION', 'Acquisition source-event identities must be 1–500 unique canonical IDs.');
       }
+    } else if (effect.kind === 'npc.belief.transition') {
+      for (const key of ['transition_id', 'actor_id', 'proposition_ref', 'reason_rule_ref', 'idempotency_key']) {
+        if (typeof effect[key] !== 'string' || !effect[key].trim()
+          || effect[key] !== effect[key].trim() || effect[key].length > 200) {
+          throw new EngineError('INVALID_NPC_BELIEF_TRANSITION', key + ' must be a non-empty canonical reference of at most 200 characters.');
+        }
+      }
+      if (!['npc_turn_context', 'npc_action_evaluation'].includes(effect.purpose)) {
+        throw new EngineError('INVALID_NPC_BELIEF_TRANSITION', 'Unsupported NPC belief transition purpose.');
+      }
+      if (!['believes_true', 'believes_false', 'suspects_true', 'suspects_false', 'unresolved_conflict'].includes(effect.stance)) {
+        throw new EngineError('INVALID_NPC_BELIEF_TRANSITION', 'Unsupported NPC belief stance.');
+      }
+      if (!Object.hasOwn(effect, 'proposition_value')
+        || !/^[a-f0-9]{64}$/.test(effect.request_hash)
+        || !Number.isSafeInteger(effect.snapshot_revision) || effect.snapshot_revision < 0
+        || !Number.isSafeInteger(effect.snapshot_commit_sequence) || effect.snapshot_commit_sequence < 0
+        || typeof effect.prior_stance_preserved_despite_invalidation !== 'boolean'
+        || !(effect.previous_stance === null || ['believes_true', 'believes_false', 'suspects_true', 'suspects_false', 'unresolved_conflict'].includes(effect.previous_stance))) {
+        throw new EngineError('INVALID_NPC_BELIEF_TRANSITION', 'Transition value, hash, snapshot, or prior-state metadata is invalid.');
+      }
+      for (const key of ['supporting_acquisition_ids', 'contradicting_acquisition_ids', 'evidence_acquisition_ids', 'surviving_prior_evidence', 'invalidated_prior_evidence']) {
+        assertDenseDataArray(effect[key], 200, 'INVALID_NPC_BELIEF_TRANSITION', key);
+        if (!effect[key].every((ref) => typeof ref === 'string' && ref.trim() && ref === ref.trim() && ref.length <= 200)
+          || new Set(effect[key]).size !== effect[key].length) {
+          throw new EngineError('INVALID_NPC_BELIEF_TRANSITION', key + ' must contain unique canonical references.');
+        }
+      }
+      const expectedEvidence = [...effect.supporting_acquisition_ids, ...effect.contradicting_acquisition_ids];
+      if (expectedEvidence.length !== effect.evidence_acquisition_ids.length
+        || expectedEvidence.some((ref) => !effect.evidence_acquisition_ids.includes(ref))
+        || effect.supporting_acquisition_ids.some((ref) => effect.contradicting_acquisition_ids.includes(ref))) {
+        throw new EngineError('INVALID_NPC_BELIEF_TRANSITION', 'Evidence references must be the disjoint union of supporting and contradicting acquisitions.');
+      }
     } else if (effect.kind === 'relationship.transition') {
       for (const key of ['subject_id', 'target_id', 'rule_module_id', 'rule_module_version']) {
         if (typeof effect[key] !== 'string' || !effect[key].trim() || effect[key].length > 200) {
@@ -422,7 +463,7 @@ export function validateEffects(effects, options = {}) {
       throw new EngineError('UNSUPPORTED_EFFECT', 'Unsupported effect kind: ' + String(effect.kind));
     }
 
-    for (const key of ['attributes', 'patch', 'parameters', 'state']) {
+    for (const key of ['attributes', 'patch', 'parameters', 'state', 'proposition_value']) {
       if (Object.hasOwn(effect, key)) validateEffectJson(effect[key], effect.kind + '.' + key);
     }
     if (effect.kind === 'fact.set' && Object.hasOwn(effect, 'value')) {

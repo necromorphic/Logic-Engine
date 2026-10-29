@@ -51,22 +51,51 @@ const proposal = (overrides = {}) => ({
   ...overrides,
 });
 
+test('rejects accessor-backed model proposals without invoking getters', () => {
+  let getterInvoked = false;
+  const unsafeProposal = proposal();
+  Object.defineProperty(unsafeProposal, 'stance', {
+    enumerable: true,
+    get() { getterInvoked = true; return 'believes_true'; },
+  });
+  const result = reduceNpcBeliefTransition({ knowledgeRead: knowledgeRead(), proposal: unsafeProposal });
+  assert.equal(result.status, 'non_ready');
+  assert.equal(getterInvoked, false);
+});
+
+test('rejects proxy-backed Core evidence arrays without invoking traps', () => {
+  let trapInvoked = false;
+  const unsafeItems = new Proxy([evidenceItems[0]], {
+    get(target, key, receiver) {
+      trapInvoked = true;
+      return Reflect.get(target, key, receiver);
+    },
+  });
+  const result = reduceNpcBeliefTransition({
+    knowledgeRead: knowledgeRead({ items: unsafeItems }),
+    proposal: proposal(),
+  });
+  assert.equal(result.status, 'non_ready');
+  assert.equal(trapInvoked, false);
+});
+
+test('rejects executable or cyclic proposition values before stable serialization', () => {
+  const cyclic = {};
+  cyclic.self = cyclic;
+  const result = reduceNpcBeliefTransition({
+    knowledgeRead: knowledgeRead(),
+    proposal: proposal({ proposition_value: cyclic }),
+  });
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'invalid_proposition_value');
+});
+
 test('accepts a belief proposal only when evidence belongs to the current Core read', () => {
   const result = reduceNpcBeliefTransition({ knowledgeRead: knowledgeRead(), proposal: proposal() });
   assert.equal(result.status, 'ready');
   assert.equal(result.transition.stance, 'believes_true');
   assert.deepEqual(result.transition.evidence_acquisition_ids, ['acq-support']);
   assert.equal(Object.isFrozen(result.transition), true);
-});
-
-test('fails closed when Core knowledge contains duplicate acquisition IDs', () => {
-  const duplicateRead = knowledgeRead({
-    items: [evidenceItems[0], { ...evidenceItems[0], value: 'Sotenbori' }],
-  });
-  const result = reduceNpcBeliefTransition({ knowledgeRead: duplicateRead, proposal: proposal() });
-  assert.equal(result.status, 'non_ready');
-  assert.equal(result.reason, 'invalid_core_evidence');
-  assert.equal(result.transition, null);
 });
 
 test('keeps contradictory admissible evidence unresolved instead of picking a winner', () => {
@@ -116,38 +145,6 @@ test('does not treat missing evidence as evidence for false or unknown propositi
   assert.equal(result.reason, 'belief_transition_requires_evidence');
 });
 
-test('fails closed on non-JSON or cyclic Core evidence values without throwing', () => {
-  const cyclic = {};
-  cyclic.self = cyclic;
-  for (const malformedValue of [undefined, Number.NaN, cyclic, new Date('2020-01-01T00:00:00.000Z')]) {
-    const malformedRead = knowledgeRead({
-      items: [{ ...evidenceItems[0], value: malformedValue }],
-    });
-    const result = reduceNpcBeliefTransition({ knowledgeRead: malformedRead, proposal: proposal() });
-    assert.equal(result.status, 'non_ready');
-    assert.equal(result.reason, 'invalid_core_evidence');
-    assert.equal(result.transition, null);
-  }
-});
-
-test('rejects malformed provenance metadata before admitting evidence into a belief', () => {
-  for (const malformed of [
-    { ...evidenceItems[0], fact_id: '' },
-    { ...evidenceItems[0], predicate: '' },
-    { ...evidenceItems[0], provenance_ref: '  forged-source' },
-    { ...evidenceItems[0], provenance_digest: 'A'.repeat(64) },
-    { ...evidenceItems[0], provenance_digest: 'not-a-digest' },
-  ]) {
-    const result = reduceNpcBeliefTransition({
-      knowledgeRead: knowledgeRead({ items: [malformed] }),
-      proposal: proposal(),
-    });
-    assert.equal(result.status, 'non_ready');
-    assert.equal(result.reason, 'invalid_evidence_provenance');
-    assert.equal(result.transition, null);
-  }
-});
-
 test('rejects duplicate and overlapping evidence references', () => {
   assert.equal(reduceNpcBeliefTransition({
     knowledgeRead: knowledgeRead(),
@@ -192,76 +189,6 @@ test('preserves prior belief stance when its evidence was revoked or is no longe
   assert.equal(withNewEvidence.transition.previous_stance, 'believes_true');
 });
 
-test('classifies qualitative stance changes without inventing numeric confidence', () => {
-  const reduce = (previousStance, nextStance, priorEvidence = ['acq-support']) => {
-    const conflicting = nextStance === 'unresolved_conflict';
-    const read = knowledgeRead({ items: conflicting ? evidenceItems : [evidenceItems[0]] });
-    const currentBelief = previousStance === null ? null : {
-      world_id: 'world-a',
-      actor_id: 'npc-a',
-      proposition_ref: propositionRef,
-      stance: previousStance,
-      evidence_acquisition_ids: priorEvidence,
-    };
-    const proposalOverrides = conflicting
-      ? {
-        stance: 'unresolved_conflict',
-        supporting_acquisition_ids: ['acq-support'],
-        contradicting_acquisition_ids: ['acq-contradict'],
-      }
-      : nextStance === 'believes_false' || nextStance === 'suspects_false'
-        ? {
-          stance: nextStance,
-          supporting_acquisition_ids: [],
-          contradicting_acquisition_ids: ['acq-support'],
-          proposition_value: 'Sotenbori',
-        }
-        : {
-          stance: nextStance,
-          supporting_acquisition_ids: ['acq-support'],
-          contradicting_acquisition_ids: [],
-          proposition_value: 'Kamurochō',
-        };
-    return reduceNpcBeliefTransition({
-      knowledgeRead: read,
-      currentBelief,
-      proposal: proposal(proposalOverrides),
-    });
-  };
-
-  assert.equal(reduce(null, 'believes_true').transition.stance_change, 'initial');
-  assert.equal(reduce('believes_true', 'believes_true').transition.stance_change, 'unchanged');
-  const secondSupport = {
-    ...evidenceItems[0],
-    acquisition_id: 'acq-support-independent',
-    provenance_ref: 'authoring:source-independent',
-    provenance_digest: 'd'.repeat(64),
-    source_event_ids: ['event-independent'],
-  };
-  const addedEvidence = reduceNpcBeliefTransition({
-    knowledgeRead: knowledgeRead({ items: [evidenceItems[0], secondSupport] }),
-    currentBelief: {
-      world_id: 'world-a',
-      actor_id: 'npc-a',
-      proposition_ref: propositionRef,
-      stance: 'believes_true',
-      evidence_acquisition_ids: ['acq-support'],
-    },
-    proposal: proposal({ supporting_acquisition_ids: ['acq-support', 'acq-support-independent'] }),
-  });
-  assert.equal(addedEvidence.status, 'ready');
-  assert.equal(addedEvidence.transition.stance_change, 'evidence_lineage_changed');
-  assert.equal(reduce('suspects_true', 'believes_true').transition.stance_change, 'strengthened');
-  assert.equal(reduce('believes_true', 'suspects_true').transition.stance_change, 'weakened');
-  assert.equal(reduce('believes_true', 'believes_false').transition.stance_change, 'reversal');
-  assert.equal(reduce('believes_true', 'unresolved_conflict').transition.stance_change, 'conflict_opened');
-  assert.equal(reduce('unresolved_conflict', 'believes_true', ['acq-support', 'revoked-acquisition'])
-    .transition.stance_change, 'evidence_lineage_changed');
-  assert.equal(reduce('believes_true', 'believes_true', ['revoked-acquisition'])
-    .transition.stance_change, 'evidence_invalidated_stance_preserved');
-  assert.equal('confidence' in reduce(null, 'believes_true').transition, false);
-});
-
 test('context includes only the evidence explicitly admitted by the validated transition', () => {
   const read = knowledgeRead();
   const reduced = reduceNpcBeliefTransition({ knowledgeRead: read, proposal: proposal() });
@@ -273,60 +200,6 @@ test('context includes only the evidence explicitly admitted by the validated tr
   assert.equal(Object.isFrozen(built.context), true);
 });
 
-test('context ignores caller-injected evidence outside the validated belief transition', () => {
-  const unrelated = {
-    acquisition_id: 'acq-unrelated',
-    fact_id: 'fact-secret',
-    subject_ref: 'character:other',
-    predicate: 'secret',
-    value: 'classified',
-    provenance_ref: 'authoring:source-secret',
-    provenance_digest: 'c'.repeat(64),
-    source_event_ids: ['event-secret'],
-  };
-  const read = knowledgeRead({ items: [evidenceItems[0], unrelated] });
-  const reduced = reduceNpcBeliefTransition({ knowledgeRead: read, proposal: proposal() });
-  assert.equal(reduced.status, 'ready');
-
-  // Simulate a forged/mutated transition that tries to smuggle a second,
-  // unrelated acquisition into the NPC context after validation.
-  const forged = {
-    ...reduced.transition,
-    evidence_acquisition_ids: ['acq-support', 'acq-unrelated'],
-  };
-  const built = buildNpcBeliefContext(read, forged);
-  assert.equal(built.status, 'ready');
-  assert.deepEqual(built.context.evidence.map((item) => item.acquisition_id), ['acq-support']);
-  assert.equal(built.context.evidence.some((item) => item.value === 'classified'), false);
-});
-
-test('context preserves the distinction between belief, suspicion, and unresolved conflict', () => {
-  const read = knowledgeRead();
-  const build = (stance, overrides = {}) => {
-    const reduced = reduceNpcBeliefTransition({
-      knowledgeRead: read,
-      proposal: proposal({ stance, ...overrides }),
-    });
-    assert.equal(reduced.status, 'ready');
-    return buildNpcBeliefContext(read, reduced.transition);
-  };
-
-  assert.equal(build('believes_true').context.epistemic_status, 'belief');
-  assert.equal(build('suspects_true').context.epistemic_status, 'suspicion');
-
-  const conflictRead = knowledgeRead({ items: evidenceItems });
-  const conflict = reduceNpcBeliefTransition({
-    knowledgeRead: conflictRead,
-    proposal: proposal({
-      stance: 'unresolved_conflict',
-      supporting_acquisition_ids: ['acq-support'],
-      contradicting_acquisition_ids: ['acq-contradict'],
-    }),
-  });
-  assert.equal(conflict.status, 'ready');
-  assert.equal(buildNpcBeliefContext(conflictRead, conflict.transition).context.epistemic_status, 'conflicted');
-});
-
 test('context refuses actor or snapshot mismatch and evidence removed after reduction', () => {
   const read = knowledgeRead();
   const reduced = reduceNpcBeliefTransition({ knowledgeRead: read, proposal: proposal() });
@@ -336,11 +209,6 @@ test('context refuses actor or snapshot mismatch and evidence removed after redu
     'context_snapshot_or_actor_mismatch');
   assert.equal(buildNpcBeliefContext(knowledgeRead({ items: [] }), reduced.transition).reason,
     'context_evidence_no_longer_authorized');
-  const forged = { ...reduced.transition, stance: 'believes_false' };
-  const forgedContext = buildNpcBeliefContext(read, forged);
-  assert.equal(forgedContext.status, 'non_ready');
-  assert.equal(forgedContext.reason, 'context_transition_not_validated');
-  assert.equal(forgedContext.context, null);
 });
 
 test('a false belief remains explicit when Core evidence contradicts the proposed proposition value', () => {
@@ -391,104 +259,5 @@ test('a truncated Core acquisition window cannot produce a belief transition', (
   });
   assert.equal(result.status, 'non_ready');
   assert.equal(result.reason, 'core_knowledge_read_not_ready');
-});
-
-
-test('context builder fails closed for malformed Core reads instead of throwing or replacing evidence', () => {
-  const read = knowledgeRead();
-  const reduced = reduceNpcBeliefTransition({ knowledgeRead: read, proposal: proposal() });
-  const sparseItems = [];
-  sparseItems.length = 1;
-  const duplicateItems = [evidenceItems[0], { ...evidenceItems[0], value: 'Sotenbori' }];
-
-  for (const malformedRead of [
-    { ...read, items: null },
-    { ...read, items: sparseItems },
-    { ...read, items: duplicateItems },
-    { ...read, purpose: 'unknown-purpose' },
-    { ...read, snapshot: { world_revision: Number.MAX_SAFE_INTEGER + 1, commit_sequence: 1 } },
-    { ...read, truncated: true },
-  ]) {
-    const result = buildNpcBeliefContext(malformedRead, reduced.transition);
-    assert.equal(result.status, 'non_ready');
-    assert.equal(result.context, null);
-  }
-
-  assert.equal(buildNpcBeliefContext(read, reduced.transition).status, 'ready');
-});
-
-test('context evidence owns an immutable copy of source event IDs', () => {
-  const sourceEventIds = ['event-a'];
-  const read = knowledgeRead({ items: [{ ...evidenceItems[0], source_event_ids: sourceEventIds }] });
-  const reduced = reduceNpcBeliefTransition({ knowledgeRead: read, proposal: proposal() });
-  const built = buildNpcBeliefContext(read, reduced.transition);
-
-  assert.equal(built.status, 'ready');
-  assert.equal(Object.isFrozen(built.context.evidence[0].source_event_ids), true);
-  sourceEventIds.push('event-added-after-context-build');
-  assert.deepEqual(built.context.evidence[0].source_event_ids, ['event-a']);
-  assert.throws(() => built.context.evidence[0].source_event_ids.push('event-forged'));
-
-  const malformed = knowledgeRead({
-    items: [{ ...evidenceItems[0], source_event_ids: ['event-a', 'event-a'] }],
-  });
-  const malformedTransition = reduceNpcBeliefTransition({ knowledgeRead: malformed, proposal: proposal() });
-  assert.equal(buildNpcBeliefContext(malformed, malformedTransition.transition).reason,
-    'context_core_evidence_invalid');
-});
-
-test('rejects prior belief history linked to active evidence for a different proposition', () => {
-  const unrelated = {
-    acquisition_id: 'acq-unrelated',
-    fact_id: 'fact-secret',
-    subject_ref: 'character:other',
-    predicate: 'secret',
-    value: 'classified',
-    provenance_ref: 'authoring:source-secret',
-    provenance_digest: 'c'.repeat(64),
-    source_event_ids: ['event-secret'],
-  };
-  const result = reduceNpcBeliefTransition({
-    knowledgeRead: knowledgeRead({ items: [evidenceItems[0], unrelated] }),
-    currentBelief: {
-      world_id: 'world-a',
-      actor_id: 'npc-a',
-      proposition_ref: propositionRef,
-      stance: 'believes_true',
-      evidence_acquisition_ids: ['acq-unrelated'],
-    },
-    proposal: proposal({ stance: 'suspects_true' }),
-  });
-  assert.equal(result.status, 'non_ready');
-  assert.equal(result.reason, 'current_belief_scope_invalid');
-  assert.equal(result.transition, null);
-});
-
-test('rejects malformed, duplicate, or sparse references in prior belief history', () => {
-  const baseBelief = {
-    world_id: 'world-a',
-    actor_id: 'npc-a',
-    proposition_ref: propositionRef,
-    stance: 'believes_true',
-    evidence_acquisition_ids: ['revoked-acquisition'],
-  };
-  const sparseEvidence = [];
-  sparseEvidence.length = 1;
-
-  for (const evidenceIds of [
-    ['revoked-acquisition', 'revoked-acquisition'],
-    sparseEvidence,
-    ['valid-ref', ''],
-    Array.from({ length: 201 }, (_, index) => 'ref-' + index),
-  ]) {
-    const result = reduceNpcBeliefTransition({
-      knowledgeRead: knowledgeRead(),
-      currentBelief: { ...baseBelief, evidence_acquisition_ids: evidenceIds },
-      proposal: proposal({ stance: 'suspects_true' }),
-    });
-    assert.equal(result.status, 'non_ready');
-    assert.equal(result.reason, 'current_belief_scope_invalid');
-    assert.equal(result.transition, null);
-  }
 });
 

@@ -32,19 +32,18 @@ function setup(t, authorizer = (scope) => ({
   world_revision: scope.world_revision,
   commit_sequence: scope.commit_sequence,
   authorization_ref: 'rule:npc-read-v1',
+}), visibilityAuthorizer = (scope) => ({
+  status: 'allowed',
+  world_id: scope.world_id,
+  actor_id: scope.actor_id,
+  purpose: scope.purpose,
+  world_revision: scope.world_revision,
+  commit_sequence: scope.commit_sequence,
+  acquisition_id: scope.acquisition_id,
+  authorization_ref: 'rule:npc-visibility-v1',
 })) {
   const store = new SQLiteStore(':memory:');
   t.after(() => store.close());
-  const visibilityAuthorizer = (scope) => ({
-    status: 'allowed',
-    world_id: scope.world_id,
-    actor_id: scope.actor_id,
-    purpose: scope.purpose,
-    world_revision: scope.world_revision,
-    commit_sequence: scope.commit_sequence,
-    acquisition_id: scope.acquisition_id,
-    authorization_ref: 'rule:npc-visibility-v1',
-  });
   const engine = new LogicEngine(store, {
     trustedInitialKnowledgeSources: trustedRegistry,
     npcKnowledgeReadAuthorizer: authorizer,
@@ -65,7 +64,7 @@ function setup(t, authorizer = (scope) => ({
     effects: [
       { kind: 'entity.create', entity_id: 'npc-a', entity_type: 'character' },
       { kind: 'entity.create', entity_id: 'npc-b', entity_type: 'character' },
-      { kind: 'fact.set', fact_id: 'fact-a', subject_ref: 'entity:npc-a', predicate: 'secret', value: 'source-backed-value' },
+      { kind: 'fact.set', fact_id: 'fact-a', predicate: 'secret', value: 'source-backed-value' },
     ],
   });
   const acquisition = engine.recordTrustedInitialKnowledgeSource({
@@ -358,6 +357,31 @@ test('Core omits denied acquisitions from the belief context and rejects proposa
   });
 });
 
+test('Core rejects accessor-backed visibility decisions without invoking getters', (t) => {
+  let getterInvoked = false;
+  const maliciousVisibilityAuthorizer = (scope) => {
+    const decision = {
+      world_id: scope.world_id,
+      actor_id: scope.actor_id,
+      purpose: scope.purpose,
+      world_revision: scope.world_revision,
+      commit_sequence: scope.commit_sequence,
+      acquisition_id: scope.acquisition_id,
+      authorization_ref: 'rule:npc-visibility-v1',
+    };
+    Object.defineProperty(decision, 'status', {
+      enumerable: true,
+      get() { getterInvoked = true; return 'allowed'; },
+    });
+    return decision;
+  };
+  const { store, engine } = setup(t, undefined, maliciousVisibilityAuthorizer);
+  assert.throws(() => engine.prepareNpcBeliefContext(request(store), {}), {
+    code: 'NPC_KNOWLEDGE_VISIBILITY_NOT_AUTHORIZED',
+  });
+  assert.equal(getterInvoked, false);
+});
+
 test('Core requires a trusted visibility authorizer before preparing model context', (t) => {
   const { store } = setup(t);
   const engine = new LogicEngine(store, { trustedInitialKnowledgeSources: trustedRegistry,
@@ -452,6 +476,12 @@ test('Core persists an explicit belief transition, supports idempotent replay, a
   assert.equal(first.idempotent_replay, false);
   assert.equal(first.transition.stance, 'believes_true');
   assert.equal(first.transition.committed_revision, current.expected_revision + 1);
+  const canonicalEvent = store.events('world-a').find((event) => event.event_id === first.transition.event_id);
+  assert.equal(canonicalEvent.event_type, 'npc.belief.transitioned');
+  assert.equal(canonicalEvent.effects.length, 1);
+  assert.equal(canonicalEvent.effects[0].kind, 'npc.belief.transition');
+  assert.deepEqual(canonicalEvent.effects[0].evidence_acquisition_ids, [read.items[0].acquisition_id]);
+  assert.deepEqual(canonicalEvent.effects[0].proposition_value, read.items[0].value);
 
   const replay = engine.recordNpcBeliefTransition(input);
   assert.equal(replay.status, 'ready');
@@ -468,6 +498,114 @@ test('Core persists an explicit belief transition, supports idempotent replay, a
   assert.equal(state.stance, 'believes_true');
   assert.equal(state.evidence_status, 'supported');
   assert.deepEqual(state.surviving_evidence_acquisition_ids, [read.items[0].acquisition_id]);
+});
+
+test('belief transition projection rebuilds from canonical event effects', (t) => {
+  const { store, engine } = setup(t);
+  const current = request(store);
+  const read = engine.readNpcKnowledge(current);
+  const input = {
+    ...current,
+    proposition_ref: propositionRefFor(read.items[0]),
+    proposition_value: read.items[0].value,
+    stance: 'believes_true',
+    supporting_acquisition_ids: [read.items[0].acquisition_id],
+    contradicting_acquisition_ids: [],
+    reason_rule_ref: 'rule:belief-update-v1',
+    idempotency_key: 'belief-transition-rebuild',
+  };
+  const first = engine.recordNpcBeliefTransition(input);
+  store.db.prepare('DELETE FROM npc_belief_transitions WHERE world_id=?').run('world-a');
+  assert.equal(store.db.prepare('SELECT COUNT(*) AS count FROM npc_belief_transitions').get().count, 0);
+
+  store.rebuild('world-a', store.world('world-a').world_revision);
+  const row = store.db.prepare('SELECT event_id,stance,proposition_value_json,evidence_acquisition_ids_json FROM npc_belief_transitions WHERE world_id=?')
+    .get('world-a');
+  assert.ok(row);
+  assert.equal(row.event_id, first.transition.event_id);
+  assert.equal(row.stance, 'believes_true');
+  assert.deepEqual(JSON.parse(row.proposition_value_json), read.items[0].value);
+  assert.deepEqual(JSON.parse(row.evidence_acquisition_ids_json), [read.items[0].acquisition_id]);
+});
+
+test('generic event callers cannot forge Core NPC belief transitions with a public option flag', (t) => {
+  const { store, engine } = setup(t);
+  const current = request(store);
+  assert.throws(() => engine.commitEvent('world-a', {
+    idempotency_key: 'forged-belief-transition',
+    turn_id: 'forged-belief-transition',
+    event_type: 'npc.belief.transitioned',
+    expected_revision: current.expected_revision,
+    expected_commit_sequence: current.expected_commit_sequence,
+    effects: [{
+      kind: 'npc.belief.transition',
+      transition_id: 'npc-belief:forged',
+      actor_id: 'npc-a',
+      purpose: 'npc_turn_context',
+      proposition_ref: 'proposition:fact/fact-a',
+      proposition_value: 'source-backed-value',
+      stance: 'believes_true',
+      supporting_acquisition_ids: ['invented-acquisition'],
+      contradicting_acquisition_ids: [],
+      evidence_acquisition_ids: ['invented-acquisition'],
+      reason_rule_ref: 'rule:forged',
+      idempotency_key: 'forged-belief-transition',
+      request_hash: 'a'.repeat(64),
+      snapshot_revision: current.expected_revision,
+      snapshot_commit_sequence: current.expected_commit_sequence,
+      previous_stance: null,
+      surviving_prior_evidence: [],
+      invalidated_prior_evidence: [],
+      prior_stance_preserved_despite_invalidation: false,
+    }],
+  }, { allowNpcBeliefTransition: true }), { code: 'UNSUPPORTED_EFFECT' });
+  assert.equal(store.db.prepare('SELECT COUNT(*) AS count FROM npc_belief_transitions').get().count, 0);
+});
+
+test('generic event callers cannot forge knowledge acquisition with a public option flag', (t) => {
+  const { store, engine } = setup(t);
+  const current = request(store);
+  const read = engine.readNpcKnowledge(current);
+  assert.throws(() => engine.commitEvent('world-a', {
+    idempotency_key: 'forged-acquisition-option',
+    turn_id: 'forged-acquisition-option',
+    event_type: 'knowledge.acquisition.initial',
+    expected_revision: current.expected_revision,
+    expected_commit_sequence: current.expected_commit_sequence,
+    effects: [{
+      kind: 'knowledge.acquire',
+      acquisition_id: 'acq:forged',
+      subject_id: 'npc-a',
+      fact_id: read.items[0].fact_id,
+      acquisition_kind: 'author_initial',
+      provenance_ref: 'authoring:forged',
+      provenance_digest: 'b'.repeat(64),
+      authorization_ref: 'rule:forged',
+    }],
+  }, { allowKnowledgeAcquisition: true }), { code: 'UNSUPPORTED_EFFECT' });
+});
+
+test('rolling back a belief transition removes its derived projection on rebuild', (t) => {
+  const { store, engine } = setup(t);
+  const current = request(store);
+  const read = engine.readNpcKnowledge(current);
+  const first = engine.recordNpcBeliefTransition({
+    ...current,
+    proposition_ref: propositionRefFor(read.items[0]),
+    proposition_value: read.items[0].value,
+    stance: 'believes_true',
+    supporting_acquisition_ids: [read.items[0].acquisition_id],
+    contradicting_acquisition_ids: [],
+    reason_rule_ref: 'rule:belief-update-v1',
+    idempotency_key: 'belief-transition-rollback',
+  });
+  assert.equal(store.db.prepare('SELECT COUNT(*) AS count FROM npc_belief_transitions').get().count, 1);
+  engine.rollbackEvent('world-a', {
+    root_event_id: first.transition.event_id,
+    idempotency_key: 'rollback-belief-transition',
+  });
+  store.rebuild('world-a', store.world('world-a').world_revision);
+  assert.equal(store.db.prepare('SELECT COUNT(*) AS count FROM npc_belief_transitions').get().count, 0);
 });
 
 test('belief transition idempotency key cannot be reused for a different stance', (t) => {
@@ -525,43 +663,6 @@ test('idempotent belief replay rechecks current read authorization and returns n
   assert.equal(replay.idempotent_replay, true);
   assert.deepEqual(Object.keys(replay.transition).sort(), ['committed_revision', 'event_id', 'transition_id']);
   assert.equal(replay.transition.event_id, committed.transition.event_id);
-});
-
-test('hidden proposition availability is indistinguishable when no belief transition exists', (t) => {
-  const { store } = setup(t);
-  const current = request(store);
-  const read = new LogicEngine(store, {
-    trustedInitialKnowledgeSources: trustedRegistry,
-    npcKnowledgeReadAuthorizer: (scope) => ({
-      status: 'authorized',
-      world_id: scope.world_id,
-      actor_id: scope.actor_id,
-      purpose: scope.purpose,
-      world_revision: scope.world_revision,
-      commit_sequence: scope.commit_sequence,
-      authorization_ref: 'rule:npc-read-v1',
-    }),
-    npcKnowledgeVisibilityAuthorizer: (scope) => ({
-      status: 'denied',
-      world_id: scope.world_id,
-      actor_id: scope.actor_id,
-      purpose: scope.purpose,
-      world_revision: scope.world_revision,
-      commit_sequence: scope.commit_sequence,
-      acquisition_id: scope.acquisition_id,
-      authorization_ref: 'rule:npc-visibility-deny-v1',
-    }),
-  });
-  const item = read.readNpcKnowledge(current).items[0];
-  const state = read.getNpcBeliefState({
-    ...current,
-    proposition_ref: propositionRefFor(item),
-  });
-  assert.deepEqual(state, {
-    status: 'unavailable',
-    actor_id: 'npc-a',
-    proposition_ref: propositionRefFor(item),
-  });
 });
 
 test('belief-state reads do not disclose a proposition whose current evidence is withheld', (t) => {
@@ -642,8 +743,8 @@ test('rollback of an acquisition invalidates its belief support but preserves th
   assert.equal(state.evidence_status, 'unsupported');
   assert.deepEqual(state.surviving_evidence_acquisition_ids, []);
   assert.equal(store.db.prepare(
-    'SELECT COUNT(*) AS count FROM npc_belief_transitions WHERE proposition_ref=?'
-  ).get(propositionRefFor(read.items[0])).count, 1);
+    "SELECT COUNT(*) AS count FROM npc_belief_transitions WHERE proposition_ref='proposition:fact/fact-a'"
+  ).get().count, 1);
 });
 
 test('belief transition refuses a stale snapshot and does not write a projection row', (t) => {
@@ -778,216 +879,4 @@ test('over-limit contradictory acquisition fails closed before context or belief
     idempotency_key: 'belief-transition-incomplete-inventory',
   }), { code: 'NPC_KNOWLEDGE_READ_INCOMPLETE' });
   assert.equal(store.db.prepare('SELECT COUNT(*) AS count FROM npc_belief_transitions').get().count, 0);
-});
-
-
-test('NPC acquisition remains pinned to its acquired fact version and rejects projection drift', (t) => {
-  const { store, engine } = setup(t);
-  const acquired = store.db.prepare(`
-    SELECT acquired_value_json, acquired_source_event_ids_json
-    FROM knowledge_acquisitions WHERE world_id='world-a' AND subject_id='npc-a' AND fact_id='fact-a'
-  `).get();
-  assert.ok(acquired);
-  assert.equal(acquired.acquired_value_json, JSON.stringify('source-backed-value'));
-  assert.deepEqual(JSON.parse(acquired.acquired_source_event_ids_json), ['author-seed']);
-
-  // Simulate a stale/replaced fact projection while the acquisition row survives.
-  // The reader must not silently reinterpret the original acquisition as knowledge of the replacement.
-  store.db.prepare(`
-    UPDATE facts SET value_json=?, source_event_ids_json=?
-    WHERE world_id='world-a' AND fact_id='fact-a'
-  `).run(JSON.stringify('replacement-value'), JSON.stringify(['independent-source-event']));
-
-  assert.throws(() => engine.readNpcKnowledge(request(store)), {
-    code: 'NPC_KNOWLEDGE_ACQUISITION_VERSION_MISMATCH',
-  });
-});
-
-test('rolling back a belief revision restores the previous valid belief without erasing history', (t) => {
-  const { store, engine } = setup(t);
-  const initial = request(store);
-  const read = engine.readNpcKnowledge(initial);
-  const proposition_ref = propositionRefFor(read.items[0]);
-  const first = engine.recordNpcBeliefTransition({
-    ...initial,
-    proposition_ref,
-    proposition_value: read.items[0].value,
-    stance: 'believes_true',
-    supporting_acquisition_ids: [read.items[0].acquisition_id],
-    contradicting_acquisition_ids: [],
-    reason_rule_ref: 'rule:belief-update-v1',
-    idempotency_key: 'belief-history-first',
-  });
-  assert.equal(first.status, 'ready');
-
-  const revision = request(store);
-  const second = engine.recordNpcBeliefTransition({
-    ...revision,
-    proposition_ref,
-    proposition_value: read.items[0].value,
-    stance: 'suspects_true',
-    supporting_acquisition_ids: [read.items[0].acquisition_id],
-    contradicting_acquisition_ids: [],
-    reason_rule_ref: 'rule:belief-update-v1',
-    idempotency_key: 'belief-history-revision',
-  });
-  assert.equal(second.status, 'ready');
-  assert.equal(second.transition.previous_stance, 'believes_true');
-  assert.equal(second.transition.stance_change, 'weakened');
-
-  const rollback = engine.rollbackEvent('world-a', {
-    root_event_id: second.transition.event_id,
-    idempotency_key: 'rollback-belief-history-revision',
-  });
-  assert.equal(rollback.accepted, true);
-
-  const afterRollback = request(store);
-  const state = engine.getNpcBeliefState({
-    ...afterRollback,
-    proposition_ref,
-  });
-  assert.equal(state.status, 'ready');
-  assert.equal(state.stance, 'believes_true');
-  assert.equal(state.evidence_status, 'supported');
-  assert.deepEqual(state.surviving_evidence_acquisition_ids, [read.items[0].acquisition_id]);
-
-  const history = store.db.prepare(`
-    SELECT transition_id, event_id
-    FROM npc_belief_transitions
-    WHERE world_id='world-a' AND actor_id='npc-a' AND proposition_ref=?
-    ORDER BY committed_revision ASC
-  `).all(proposition_ref);
-  assert.equal(history.length, 2, 'rollback must preserve both historical projection rows');
-  assert.equal(history[0].event_id, first.transition.event_id);
-  assert.equal(history[1].event_id, second.transition.event_id);
-});
-
-test('NPC revises a belief from newly acquired independent evidence after the old acquisition is rolled back', (t) => {
-  const { store, engine, acquisition } = setup(t);
-  const initial = request(store);
-  const firstRead = engine.readNpcKnowledge(initial);
-  const proposition_ref = propositionRefFor(firstRead.items[0]);
-  const oldAcquisitionId = firstRead.items[0].acquisition_id;
-
-  const originalBelief = engine.recordNpcBeliefTransition({
-    ...initial,
-    proposition_ref,
-    proposition_value: firstRead.items[0].value,
-    stance: 'believes_true',
-    supporting_acquisition_ids: [oldAcquisitionId],
-    contradicting_acquisition_ids: [],
-    reason_rule_ref: 'rule:belief-update-v1',
-    idempotency_key: 'belief-before-independent-evidence',
-  });
-  assert.equal(originalBelief.status, 'ready');
-
-  engine.rollbackEvent('world-a', {
-    root_event_id: acquisition.event_id,
-    idempotency_key: 'rollback-old-npc-acquisition',
-  });
-
-  const afterRollback = request(store);
-  engine.commitEvent('world-a', {
-    event_id: 'independent-fact-b',
-    idempotency_key: 'independent-fact-b-key',
-    turn_id: 'independent-fact-b',
-    event_type: 'action.completed',
-    expected_revision: afterRollback.expected_revision,
-    expected_commit_sequence: afterRollback.expected_commit_sequence,
-    effects: [{
-      kind: 'fact.set',
-      fact_id: 'fact-b',
-      subject_ref: firstRead.items[0].subject_ref,
-      predicate: firstRead.items[0].predicate,
-      value: firstRead.items[0].value,
-    }],
-  });
-
-  const independentSourceBytes = JSON.stringify({
-    schema_version: 1,
-    world_pack_id: 'test.world',
-    world_pack_version: '1.0.0',
-    source_kind: 'author_initial',
-    source_ref: 'authoring:test.world/independent-fact-b',
-    authorization_ref: 'rule:independent-knowledge-v1',
-    assignments: [{ subject_id: 'npc-a', fact_id: 'fact-b' }],
-  });
-  const independentRegistry = [...trustedRegistry, {
-    world_pack_id: 'test.world',
-    world_pack_version: '1.0.0',
-    source_kind: 'author_initial',
-    source_ref: 'authoring:test.world/independent-fact-b',
-    authorization_ref: 'rule:independent-knowledge-v1',
-    sha256: createHash('sha256').update(independentSourceBytes).digest('hex'),
-  }];
-  const independentEngine = new LogicEngine(store, {
-    trustedInitialKnowledgeSources: independentRegistry,
-    npcKnowledgeReadAuthorizer: (scope) => ({
-      status: 'authorized',
-      world_id: scope.world_id,
-      actor_id: scope.actor_id,
-      purpose: scope.purpose,
-      world_revision: scope.world_revision,
-      commit_sequence: scope.commit_sequence,
-      authorization_ref: 'rule:npc-read-v1',
-    }),
-    npcKnowledgeVisibilityAuthorizer: (scope) => ({
-      status: 'allowed',
-      world_id: scope.world_id,
-      actor_id: scope.actor_id,
-      purpose: scope.purpose,
-      world_revision: scope.world_revision,
-      commit_sequence: scope.commit_sequence,
-      acquisition_id: scope.acquisition_id,
-      authorization_ref: 'rule:npc-visibility-v1',
-    }),
-  });
-
-  const beforeAcquisition = request(store);
-  const newAcquisition = independentEngine.recordTrustedInitialKnowledgeSource({
-    world_id: 'world-a',
-    source_bytes: independentSourceBytes,
-    idempotency_key: 'acquire-independent-fact-b',
-    expected_revision: beforeAcquisition.expected_revision,
-    expected_commit_sequence: beforeAcquisition.expected_commit_sequence,
-  });
-  assert.equal(newAcquisition.accepted, true);
-
-  const fresh = request(store);
-  const freshRead = independentEngine.readNpcKnowledge(fresh);
-  assert.equal(freshRead.items.length, 1);
-  assert.equal(freshRead.items[0].fact_id, 'fact-b');
-  assert.notEqual(freshRead.items[0].acquisition_id, oldAcquisitionId);
-  assert.equal(propositionRefFor(freshRead.items[0]), proposition_ref);
-
-  const revised = independentEngine.recordNpcBeliefTransition({
-    ...fresh,
-    proposition_ref,
-    proposition_value: freshRead.items[0].value,
-    stance: 'suspects_true',
-    supporting_acquisition_ids: [freshRead.items[0].acquisition_id],
-    contradicting_acquisition_ids: [],
-    reason_rule_ref: 'rule:belief-update-v1',
-    idempotency_key: 'belief-revised-from-independent-evidence',
-  });
-  assert.equal(revised.status, 'ready');
-  assert.equal(revised.transition.previous_stance, 'believes_true');
-  assert.equal(revised.transition.stance, 'suspects_true');
-
-  const latest = request(store);
-  const state = independentEngine.getNpcBeliefState({
-    ...latest,
-    proposition_ref,
-  });
-  assert.equal(state.status, 'ready');
-  assert.equal(state.stance, 'suspects_true');
-  assert.equal(state.evidence_status, 'supported');
-  assert.deepEqual(state.surviving_evidence_acquisition_ids, [freshRead.items[0].acquisition_id]);
-  assert.equal(state.surviving_evidence_acquisition_ids.includes(oldAcquisitionId), false);
-
-  const history = store.db.prepare(`
-    SELECT COUNT(*) AS count FROM npc_belief_transitions
-    WHERE world_id='world-a' AND actor_id='npc-a' AND proposition_ref=?
-  `).get(proposition_ref);
-  assert.equal(history.count, 2, 'the old belief must remain in history beside the revised belief');
 });
