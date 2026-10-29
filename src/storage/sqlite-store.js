@@ -1912,7 +1912,38 @@ export class SQLiteStore {
         .get(worldId, operationId);
       if (!current) throw new EngineError('TIME_ADVANCE_OPERATION_NOT_FOUND', 'Time-advance operation not found.', 404);
       if (current.status !== 'running') return timeAdvanceOperation(current);
-      const segments = dec(current.segments_json);
+      let segments;
+      try {
+        segments = dec(current.segments_json);
+        if (!Array.isArray(segments)) throw new Error('Persisted segments must be an array.');
+      } catch (error) {
+        // Persisted operation evidence is untrusted during recovery. Fail closed before
+        // any segment is resumed, release only this operation's claims, and gate the
+        // processes whose pending triggers were owned by this operation.
+        const affectedProcessIds = this.tx(() => {
+          const fresh = this.db.prepare('SELECT status FROM time_advance_operations WHERE world_id=? AND operation_id=?')
+            .get(worldId, operationId);
+          if (!fresh || fresh.status !== 'running') return [];
+          const processRows = this.db.prepare(`SELECT DISTINCT m.process_id
+            FROM world_process_milestones m
+            JOIN world_time_triggers t ON t.world_id=m.world_id AND t.trigger_id=m.trigger_id
+            WHERE t.world_id=? AND t.claimed_by_operation_id=?`).all(worldId, operationId);
+          this.db.prepare("UPDATE time_advance_operations SET status='needs_review',error_json=?,updated_at=? WHERE world_id=? AND operation_id=? AND status='running'")
+            .run(enc({
+              code: 'TIME_ADVANCE_SEGMENTS_MALFORMED',
+              message: 'Persisted time-advance segments are malformed; recovery was stopped without replaying effects.',
+              cause: error?.message || 'Invalid persisted segment evidence.',
+            }), now(), worldId, operationId);
+          this.db.prepare('UPDATE world_time_triggers SET claimed_by_operation_id=NULL WHERE world_id=? AND claimed_by_operation_id=?')
+            .run(worldId, operationId);
+          return processRows.map((row) => row.process_id);
+        });
+        for (const processId of affectedProcessIds) {
+          this.processStore?.markNeedsReview(worldId, processId, 'TIME_ADVANCE_SEGMENTS_MALFORMED',
+            'Persisted time-advance segments are malformed; recovery was stopped without replaying effects.');
+        }
+        continue;
+      }
       const expectedConfirmedCoordinate = current.next_segment_index === 0
         ? current.from_coordinate
         : current.next_segment_index > 0 && current.next_segment_index <= segments.length

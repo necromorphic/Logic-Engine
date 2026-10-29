@@ -180,10 +180,23 @@ export class ProcessStore {
         .get(worldId, triggerId);
       if (!milestone) return null;
       if (milestone.status === 'completed') {
+        let completedEventIds = null;
+        try {
+          completedEventIds = dec(milestone.completed_event_ids_json);
+          if (!Array.isArray(completedEventIds) || completedEventIds.some((id) => typeof id !== 'string')) {
+            throw new Error('Malformed completed event IDs.');
+          }
+        } catch {
+          throw new EngineError('PROCESS_CROSS_RECORD_CHECKPOINT_MISMATCH',
+            'Completed process milestone has malformed supporting-event evidence.', 409, {
+              process_id: milestone.process_id, milestone_id: milestone.milestone_id, trigger_id: triggerId,
+              operation_id: operationId,
+            });
+        }
         throw new EngineError('PROCESS_CROSS_RECORD_CHECKPOINT_MISMATCH',
           'A completed process milestone was reached again by a registered trigger; process and trigger checkpoints disagree.', 409, {
             process_id: milestone.process_id, milestone_id: milestone.milestone_id, trigger_id: triggerId,
-            operation_id: operationId, completed_event_ids: dec(milestone.completed_event_ids_json),
+            operation_id: operationId, completed_event_ids: completedEventIds,
           });
       }
       if (milestone.status !== 'pending') {

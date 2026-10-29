@@ -1048,3 +1048,72 @@ test('malformed persisted operation segments fail closed at the process checkpoi
   assert.equal(Array.isArray(JSON.parse(store.db.prepare('SELECT segments_json FROM time_advance_operations WHERE world_id=? AND operation_id=?')
     .get('world-a', persisted.operation_id).segments_json)), true);
 }));
+
+test('malformed completed milestone event evidence fails closed and gates the process for review', (t) => withDatabase(t, ({ engine, store }) => {
+  store.createWorld(worldInput());
+  engine.createProcess('world-a', processInput());
+  store.db.prepare("UPDATE world_process_milestones SET status='completed',completed_event_ids_json=? WHERE world_id=? AND process_id=? AND milestone_id=?")
+    .run('{malformed-json', 'world-a', 'journey-1', 'depart');
+  const beforeState = engine.getState('world-a');
+  const beforeEvents = engine.getEvents('world-a', true);
+  const beforeCommitSequence = store.currentCommitSequence('world-a');
+  const beforeTrigger = engine.getTimeTrigger('world-a', 'journey-depart');
+  const beforeAudit = engine.getAudit('world-a');
+
+  const result = engine.startTimeAdvance('world-a', {
+    idempotency_key: 'malformed-completed-event-evidence',
+    expected_revision: beforeState.world_revision,
+    to_coordinate: 1000,
+  });
+
+  assert.equal(result.status, 'needs_review');
+  assert.equal(engine.getProcess('world-a', 'journey-1').status, 'needs_review');
+  assert.equal(engine.getState('world-a').game_time_coordinate, beforeState.game_time_coordinate);
+  assert.equal(engine.getState('world-a').world_revision, beforeState.world_revision);
+  assert.equal(store.currentCommitSequence('world-a'), beforeCommitSequence);
+  assert.deepEqual(engine.getEvents('world-a', true), beforeEvents);
+  assert.deepEqual(engine.getTimeTrigger('world-a', 'journey-depart'), beforeTrigger);
+  assert.equal(engine.getAudit('world-a').length, beforeAudit.length + 1);
+  assert.equal(engine.getAudit('world-a').at(-1).action, 'process.needs_review');
+}));
+
+test('malformed persisted segments are gated before resume and remain gated after SQLite reopen', (t) => withDatabase(t, ({ engine, store, reopen }) => {
+  store.createWorld(worldInput());
+  engine.createProcess('world-a', processInput());
+  const beforeState = engine.getState('world-a');
+  const beforeEvents = engine.getEvents('world-a', true);
+  const beforeCommitSequence = store.currentCommitSequence('world-a');
+  const beforeAudit = engine.getAudit('world-a');
+  const originalResume = store.resumeTimeAdvanceOperation.bind(store);
+  store.resumeTimeAdvanceOperation = (worldId, operationId) => {
+    store.db.prepare('UPDATE time_advance_operations SET segments_json=? WHERE world_id=? AND operation_id=?')
+      .run('{malformed-json', worldId, operationId);
+    return originalResume(worldId, operationId);
+  };
+
+  const result = engine.startTimeAdvance('world-a', {
+    idempotency_key: 'malformed-segments-before-resume',
+    expected_revision: beforeState.world_revision,
+    to_coordinate: 1000,
+  });
+
+  assert.equal(result.status, 'needs_review');
+  assert.equal(engine.getProcess('world-a', 'journey-1').status, 'needs_review');
+  assert.equal(engine.getState('world-a').game_time_coordinate, beforeState.game_time_coordinate);
+  assert.equal(engine.getState('world-a').world_revision, beforeState.world_revision);
+  assert.equal(store.currentCommitSequence('world-a'), beforeCommitSequence);
+  assert.deepEqual(engine.getEvents('world-a', true), beforeEvents);
+  assert.equal(engine.getAudit('world-a').length, beforeAudit.length + 1);
+  assert.equal(engine.getAudit('world-a').at(-1).action, 'process.needs_review');
+
+  const { engine: reopenedEngine } = reopen();
+  assert.equal(reopenedEngine.getProcess('world-a', 'journey-1').status, 'needs_review');
+  const replay = reopenedEngine.startTimeAdvance('world-a', {
+    idempotency_key: 'malformed-segments-before-resume',
+    expected_revision: beforeState.world_revision,
+    to_coordinate: 1000,
+  });
+  assert.equal(replay.status, 'needs_review');
+  assert.equal(reopenedEngine.getState('world-a').game_time_coordinate, beforeState.game_time_coordinate);
+  assert.equal(reopenedEngine.getState('world-a').world_revision, beforeState.world_revision);
+}));
