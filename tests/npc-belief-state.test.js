@@ -161,25 +161,41 @@ test('preserves prior belief stance when its evidence was revoked or is no longe
 });
 
 test('classifies qualitative stance changes without inventing numeric confidence', () => {
-  const reduce = (previousStance, nextStance, priorEvidence = ['acq-support']) => reduceNpcBeliefTransition({
-    knowledgeRead: knowledgeRead(),
-    currentBelief: previousStance === null ? null : {
+  const reduce = (previousStance, nextStance, priorEvidence = ['acq-support']) => {
+    const conflicting = nextStance === 'unresolved_conflict';
+    const read = knowledgeRead({ items: conflicting ? evidenceItems : [evidenceItems[0]] });
+    const currentBelief = previousStance === null ? null : {
       world_id: 'world-a',
       actor_id: 'npc-a',
       proposition_ref: propositionRef,
       stance: previousStance,
       evidence_acquisition_ids: priorEvidence,
-    },
-    proposal: proposal({
-      stance: nextStance,
-      supporting_acquisition_ids: nextStance === 'believes_false' || nextStance === 'suspects_false'
-        ? [] : ['acq-support'],
-      contradicting_acquisition_ids: nextStance === 'believes_false' || nextStance === 'suspects_false'
-        ? ['acq-support'] : [],
-      proposition_value: nextStance === 'believes_false' || nextStance === 'suspects_false'
-        ? 'Sotenbori' : 'Kamurochō',
-    }),
-  });
+    };
+    const proposalOverrides = conflicting
+      ? {
+        stance: 'unresolved_conflict',
+        supporting_acquisition_ids: ['acq-support'],
+        contradicting_acquisition_ids: ['acq-contradict'],
+      }
+      : nextStance === 'believes_false' || nextStance === 'suspects_false'
+        ? {
+          stance: nextStance,
+          supporting_acquisition_ids: [],
+          contradicting_acquisition_ids: ['acq-support'],
+          proposition_value: 'Sotenbori',
+        }
+        : {
+          stance: nextStance,
+          supporting_acquisition_ids: ['acq-support'],
+          contradicting_acquisition_ids: [],
+          proposition_value: 'Kamurochō',
+        };
+    return reduceNpcBeliefTransition({
+      knowledgeRead: read,
+      currentBelief,
+      proposal: proposal(proposalOverrides),
+    });
+  };
 
   assert.equal(reduce(null, 'believes_true').transition.stance_change, 'initial');
   assert.equal(reduce('believes_true', 'believes_true').transition.stance_change, 'unchanged');
