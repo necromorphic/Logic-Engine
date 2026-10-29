@@ -6,6 +6,7 @@ import { once } from 'node:events';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { writeTestWorldPackCatalog } from './world-pack-test-catalog.js';
 
 const API_TOKEN = 'remote-binding-test-token-123456';
 
@@ -19,10 +20,12 @@ async function unusedPort() {
 }
 
 function runtimeEnv(directory, port, allowRemote) {
+  const worldPackCatalogPath = writeTestWorldPackCatalog(directory);
   return {
     ...process.env,
     ENGINE_API_TOKEN: API_TOKEN,
     ENGINE_DB_PATH: join(directory, 'remote-mode.sqlite'),
+    LOGIC_ENGINE_WORLD_PACK_CATALOG_PATH: worldPackCatalogPath,
     ENGINE_HOST_VERSION_LEDGER_DB_PATH: join(directory, 'host-versions.sqlite'),
     ENGINE_PORT: String(port),
     ENGINE_HOST: '0.0.0.0',
