@@ -66,6 +66,7 @@ const { router } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/bac
 const { router: chatsRouter } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/chats.js')).href);
 const { router: groupsRouter } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/groups.js')).href);
 const { router: charactersRouter } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/characters.js')).href);
+const { router: backupsRouter } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/backups.js')).href);
 const { createHostLifecycleMutationMiddleware, getHostConversationInventory, recordHostCaptureAcknowledgement, registerHostConversation } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/logic-engine-host-journal.mjs')).href);
 const { router: logicEngineLifecycleRouter } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/logic-engine-lifecycle.js')).href);
 
@@ -106,6 +107,7 @@ test('real pinned chat deletion route refuses an enrolled file before mutation',
   });
   app.use(createHostLifecycleMutationMiddleware({ requirePersistedInventory: true }));
   app.use('/api/chats', chatsRouter);
+  app.use('/api/backups', backupsRouter);
   const server = app.listen(0, '127.0.0.1');
   await once(server, 'listening');
   const address = server.address();
@@ -271,7 +273,7 @@ test('real pinned regular and group save routes consume one-shot capabilities be
   // reject both before they can replace an enrolled regular or group-chat history.
   const regularBytesBeforeImport = await readFile(regularPath, 'utf8');
   const groupBytesBeforeImport = await readFile(groupPath, 'utf8');
-  for (const route of ['/api/chats/import', '/api/chats/group/import']) {
+  for (const route of ['/api/chats/import', '/api/chats/group/import', '/api/backups/chat/delete']) {
     const importResponse = await fetch('http://127.0.0.1:' + address.port + route, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
