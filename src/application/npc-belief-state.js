@@ -35,7 +35,7 @@ const stancePolarity = (stance) => {
   return null;
 };
 
-function classifyStanceChange(previousStance, nextStance, invalidatedCount, survivingCount) {
+function classifyStanceChange(previousStance, nextStance, invalidatedCount, survivingCount, priorEvidenceRefs, nextEvidenceRefs) {
   if (previousStance === null) return 'initial';
   // Missing prior evidence takes precedence over a semantic label such as
   // "conflict_resolved": disappearance from this read does not prove the
@@ -46,7 +46,16 @@ function classifyStanceChange(previousStance, nextStance, invalidatedCount, surv
     }
     return 'evidence_lineage_changed';
   }
-  if (previousStance === nextStance) return 'unchanged';
+  // A stable stance can still be materially updated when its evidence basis
+  // changes (for example, a new independent source supports the same claim).
+  // Do not report that as fully unchanged.
+  const priorEvidence = [...priorEvidenceRefs].sort();
+  const nextEvidence = [...nextEvidenceRefs].sort();
+  const evidenceLineageChanged = priorEvidence.length !== nextEvidence.length
+    || priorEvidence.some((ref, index) => ref !== nextEvidence[index]);
+  if (previousStance === nextStance) {
+    return evidenceLineageChanged ? 'evidence_lineage_changed' : 'unchanged';
+  }
   if (nextStance === 'unresolved_conflict') return 'conflict_opened';
   if (previousStance === 'unresolved_conflict') return 'conflict_resolved';
   if (stancePolarity(previousStance) !== stancePolarity(nextStance)) return 'reversal';
@@ -234,7 +243,8 @@ export function reduceNpcBeliefTransition({ knowledgeRead, currentBelief = null,
     reason_rule_ref: proposal.reason_rule_ref,
     previous_stance: prior?.stance ?? null,
     stance_change: classifyStanceChange(prior?.stance ?? null, proposal.stance,
-      invalidatedPriorEvidence.length, survivingPriorEvidence.length),
+      invalidatedPriorEvidence.length, survivingPriorEvidence.length,
+      priorEvidenceRefs, allRefs),
     surviving_prior_evidence: Object.freeze(survivingPriorEvidence),
     invalidated_prior_evidence: Object.freeze(invalidatedPriorEvidence),
     prior_stance_preserved_despite_invalidation: invalidatedPriorEvidence.length > 0
