@@ -19,7 +19,7 @@ The caller must supply changes already assessed under its owning contracts. A so
 
 ## Input contract
 
-- `prior_decision`: stable decision ID, selected option ID, the context reference used for the decision, and references to the reasons and conflicts that informed it.
+- `prior_decision`: stable decision ID, selected option ID, the context reference used for the decision, and references to the reasons and conflicts that informed it. `reason_refs` and `conflict_refs` must be arrays of non-empty unique strings; duplicate references are invalid and return `non_ready`.
 - `current_context`: a current snapshot/context reference, a completeness flag, and a list of changes.
 - Each change has a unique ID, a supported change kind, a caller-assessed relevance (`relevant`, `irrelevant`, or `unknown`), and a source/reference identifier.
 
