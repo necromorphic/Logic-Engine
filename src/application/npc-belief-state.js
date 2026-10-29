@@ -211,6 +211,13 @@ export function reduceNpcBeliefTransition({ knowledgeRead, currentBelief = null,
  */
 export function buildNpcBeliefContext(knowledgeRead, transition) {
   if (!isPlainObject(knowledgeRead) || knowledgeRead.status !== 'ready'
+    || !validRef(knowledgeRead.world_id) || !validRef(knowledgeRead.actor_id)
+    || !['npc_turn_context', 'npc_action_evaluation'].includes(knowledgeRead.purpose)
+    || !isPlainObject(knowledgeRead.snapshot)
+    || !Number.isSafeInteger(knowledgeRead.snapshot.world_revision)
+    || !Number.isSafeInteger(knowledgeRead.snapshot.commit_sequence)
+    || knowledgeRead.truncated === true
+    || !Array.isArray(knowledgeRead.items)
     || !isPlainObject(transition)
     || transition.world_id !== knowledgeRead.world_id
     || transition.actor_id !== knowledgeRead.actor_id
@@ -218,7 +225,19 @@ export function buildNpcBeliefContext(knowledgeRead, transition) {
     return Object.freeze({ status: 'non_ready', reason: 'context_snapshot_or_actor_mismatch', context: null });
   }
 
-  const byId = new Map(knowledgeRead.items.map((item) => [item.acquisition_id, item]));
+  // This function is also a public module boundary: do not assume its caller
+  // already passed the read through the reducer. Reject sparse/malformed rows
+  // and duplicate IDs before constructing a map (which could otherwise throw
+  // or silently replace evidence).
+  const byId = new Map();
+  for (let index = 0; index < knowledgeRead.items.length; index += 1) {
+    const item = knowledgeRead.items[index];
+    if (!(index in knowledgeRead.items) || !isPlainObject(item)
+      || !validRef(item.acquisition_id) || byId.has(item.acquisition_id)) {
+      return Object.freeze({ status: 'non_ready', reason: 'context_core_evidence_invalid', context: null });
+    }
+    byId.set(item.acquisition_id, item);
+  }
   const evidence = transition.evidence_acquisition_ids;
   if (!Array.isArray(evidence) || evidence.some((id) => !byId.has(id))) {
     return Object.freeze({ status: 'non_ready', reason: 'context_evidence_no_longer_authorized', context: null });
