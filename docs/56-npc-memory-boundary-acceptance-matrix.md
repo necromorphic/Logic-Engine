@@ -414,3 +414,73 @@ The first connected path must read only the approved actor-specific initial-know
 ### Current work boundary
 
 The permitted NPC-side work while the owner decision is pending is contract alignment, field/ownership mapping, and acceptance criteria. Do not substitute additional fixture tests for missing integration work, and do not implement the blocked runtime path without separate approval. The next useful deliverable is the completed NPC-1/NPC-2 mapping; the next runtime dependency is the Core/Memory decision in NPC-3.
+
+
+## 9. Execution evidence snapshot — issues #317 and #149 (2026-10-29)
+
+**Baseline:** `main` at `af750f80f617e7ad944e4418c1cba8e345a23d1f`. This section records what is executable now versus what remains blocked. It does not authorize production Memory→NPC disclosure.
+
+### NPC-only scope reconciliation
+
+- Historical PR #138 was closed unmerged and superseded by clean NPC-only PR #157; its current-main diff was reported as only `tests/npc-memory-candidate-eligibility.test.js`.
+- Historical PR #139 was closed unmerged and superseded by clean NPC-only PR #159; its current-main diff was reported as only this NPC-owned matrix.
+- PR #279 is merged and contains the current pure `src/npc/memory-candidate-eligibility.js` helper plus its focused test file.
+- Open PR #670 is **not** an NPC-only change set: it includes Core/application/storage files and must remain under cross-block ownership review.
+- Open PR #673 is an isolated NPC epistemic reducer candidate; its Runtime CI passed at its recorded head `239c936cde3608d741ab27659a66f9ae8641829f`. That is branch evidence, not evidence that the reducer is present on `main`.
+- Open PR #679 targets `npc/knowledge-reader-mainline`, not `main`; it is not a clean replacement PR against current main and its recorded Runtime CI failed. Do not treat it as accepted integration evidence.
+
+No Personality, Core, Memory Provider, Relationships, or Host files are changed by this NPC-owned evidence update.
+
+### Admission boundary: executable helper evidence
+
+The current `tests/npc-memory-candidate-eligibility.test.js` includes cases for:
+- incomplete, unavailable, partial, rebuilding, malformed, and unknown retrieval results;
+- stale, retracted, unavailable, and unknown-freshness sources;
+- request/candidate scope mismatch, missing or denied access, invalid identity/version, and duplicate record/version pairs;
+- incomplete, sparse, duplicate, stale, or scope-mismatched summary lineage;
+- conflicting eligible claims remaining distinct rather than being adjudicated during admission;
+- non-disclosure of rejected record identifiers/reasons/counts in serialized oracle output;
+- input immutability and malformed/proxy/accessor-backed metadata;
+- no inference of delivery, receipt, acquisition, or belief from admission.
+
+**Evidence class:** executable pure-oracle tests over caller-supplied metadata. They do not prove that the metadata is authentic or that a real production disclosure path is authorized. The helper returns reference projections, not content.
+
+### Lifecycle states — never infer a later state
+
+| State | Evidence needed | Current NPC evidence |
+|---|---|---|
+| Found in Memory | Provider retrieval result for a bounded request | Internal consumer/test seam exists; not proof of authorization |
+| Admitted | Pure NPC eligibility decision over trusted/validated inputs | Executable helper tests; caller-supplied metadata alone is not authenticated authority |
+| Included in context | Exact model-bound serialized payload | No production Memory→NPC receiver/serializer path established on current `main` |
+| Delivered | Actual Host dispatch/transport evidence | **BLOCKED / NOT VERIFIED** for Memory→NPC |
+| Received by character | Supported receipt/observation evidence | **BLOCKED / NOT VERIFIED** |
+| Acquired as character knowledge | Core-owned, subject-relative acquisition event and provenance | **BLOCKED / NOT VERIFIED** for a real Memory→NPC disclosure path |
+| Believed true | Separate subject-relative belief state/transition | Not implied by retrieval, admission, context inclusion, delivery, or acquisition |
+
+A source changing or being revoked must not silently replace a character's acquired knowledge with a new fact. The NPC side must not infer an acquisition event from a current source value. The authoritative source-version/invalidation/reconciliation contract and any durable acquisition transition remain Core/Memory-owned gates.
+
+### Real-path handoff — current result
+
+Repository inspection identifies `MemoryNpcConsumer.retrieveForNpc()` as an in-process candidate retrieval/admission seam. It performs a Core-authorized canonical field read and revalidation, but it is not called by a production model-dispatch receiver. The current API server has no Memory→NPC model-dispatch route. The Core decision register also records that the final model-facing disclosure gateway is not yet wired as the sole egress path.
+
+Therefore the required end-to-end test **cannot truthfully pass yet**. Do not create a fake receiver or substitute a fixture-only test for it. Keep production Memory→NPC **DISABLED / FAIL-CLOSED**.
+
+### Concrete closure test for the remaining gate
+
+After Host/Core/Memory owners approve and wire the real receiver → serializer → sole outbound transport, add/run an exact-head test that:
+1. admits a source under an explicit world/subject/purpose and version;
+2. revokes or changes that source after initial admission but before dispatch starts;
+3. asserts the real final authorization/version check rejects the send;
+4. asserts zero upstream model calls and no source content, snippets, candidate IDs, or counts in serialized output or diagnostics;
+5. separately verifies that successful delivery does not itself create receipt, acquisition, or belief;
+6. verifies source-version change/rollback does not mutate an existing acquired fact without a new authoritative acquisition/reconciliation event;
+7. repeats after restart and tests both the revoke-before-dispatch and dispatch-start-before-revoke orderings under the approved Host/Core concurrency contract.
+
+**Owner gates:** Host/Adapter #258 and the sole-egress/gateway work; Core #140 and the knowledge/acquisition authority contract; Memory Provider #181 and authoritative version, inventory, lineage, revocation and reconciliation signals. NPC owns the admission semantics and these acceptance assertions, not the missing cross-block authority or transport.
+
+### Status for #317 / #149
+
+- **PASS:** NPC-only review path is clean for the historical scope-contamination concern, with replacements #157/#159 and merged helper PR #279.
+- **PASS (pure oracle only):** the admission helper's focused negative-case suite covers the metadata-level fail-closed boundary described above.
+- **BLOCKED:** authenticated real-path authorization, final-disclosure revalidation at the actual sole egress, revocation/rollback race proof, and verified delivery/receipt/acquisition/belief transitions.
+- **NOT VERIFIED:** production Memory→NPC delivery, receipt, acquisition, or belief. Missing evidence must not be reported as PASS.
