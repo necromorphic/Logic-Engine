@@ -267,54 +267,61 @@ Every remaining Core gate must be labeled one of: **current-stage required**, **
 
 ## 10. Core-owned Memory/NPC integration gate resolution
 
-**Decision refresh:** 2026-10-24. This section resolves what can be decided from current Core runtime evidence. It does not authorize production Memory→NPC wiring or invent a missing interface.
+**Decision refresh:** 2026-10-29. This section separates selected Core contracts from what is actually merged and tested on `main`. It does not authorize production Memory→NPC wiring.
 
-### Gate A — authorized read: resolved as fail-closed, policy remains unapproved
+### Gate A — authorized read: default remains self-only and fail-closed
 
-- The existing `AuthorizedReadService` requires trusted application-supplied `fieldPolicy`; its policy decision is evaluated for authenticated adapter binding, in-world actor, recipient, purpose, and requested fields. Missing/throwing decisions deny. The HTTP default remains limited to the bound actor's own non-attribute identity fields.
-- The concrete production policy for Memory/NPC, other actors, derived summaries, snippets, counts, and diagnostics is **not approved/configured**. No Memory/NPC consumer may infer access from actor identity, manifest membership, retrieval success, or caller-supplied labels.
-- Before enabling a consumer, exercise the real authorized-read/serialization path for unauthorized field, unauthorized target, withheld-versus-missing non-disclosure, cross-world target, policy absent/throwing, and derived-summary non-disclosure. The existing self-identity route tests do not satisfy these wider cases.
+- The existing `AuthorizedReadService` is the bounded read seam. A trusted application policy must evaluate the authenticated Host/adapter binding, world, actor/subject, recipient, purpose, and requested fields. Caller-supplied actor/generation labels and context-manifest membership are not authority.
+- Shipped default remains self-identity-only, limited to non-attribute identity fields. No general NPC visibility policy for other actors, derived summaries, snippets, counts, source names, or diagnostics is approved/configured.
+- Missing, ambiguous, withheld, throwing, or unavailable authorization denies. Denial must not disclose content or whether a protected entity/source exists; use the existing generic `READ_NOT_AVAILABLE` behavior. A stale authorized-read snapshot returns `STALE_AUTHORIZED_READ_SNAPSHOT` (409) and must not be silently retried against different data.
+- A successful Core read is not final permission to send data to a model. The selected target boundary is a single PC-side egress gateway immediately before the sole upstream transport. No production final-send route is currently wired on `main`; Memory→NPC remains disabled.
 
-### Gate B — source identity/version: no universal contract; source-specific fail-closed rule
+**Acceptance:** on the actual consuming route, deny cross-actor/cross-world and unauthorized fields; ensure withheld and missing targets are indistinguishable; prove no content, snippet, count, source metadata, or diagnostics leak; prove missing/throwing policy denies; and prove stale snapshot rejection before serialization and dispatch.
 
-- Core canonical entity, fact, event, and manifest references have structural identifiers. These are not interchangeable source-version tokens. A manifest item's optional `content_hash` identifies submitted content; it does not authenticate its producer or prove that the underlying source remains valid.
-- The verified state snapshot provides `world_revision` and `commit_sequence` from one transaction. Both are required for snapshot freshness because rollback can change revision without advancing the event sequence. Neither marker is a durable per-source change journal.
-- **Decision:** do not introduce a universal Memory source ID/version field. For any source kind without a verified authoritative version/validity check on its actual read path, Memory must classify source-dependent use as unverifiable and withhold/reject it rather than treating retrieval or a manifest reference as proof of freshness. A future source-kind contract must name its existing canonical identity, authoritative validity/version check, and real-path test.
+### Gate B — source identity/version: one eligible source class; all others fail closed
 
-### Gate C — rollback/reconciliation: design choice deliberately not guessed
+- **Selected Core contract for direct `canonical_entity` sources:** an opaque Core-issued `core-entity-v1:<positive safe integer>` backed by the Core-owned durable `entity_source_versions` ledger. It advances transactionally when the entity's canonical projection changes, including resolved rollback/retraction; unrelated entity changes do not advance it. The token must not be inferred from `updated_revision`, `world_revision`, or `commit_sequence`, and Provider must preserve it byte-for-byte.
+- **Implementation status is not equivalent to contract approval:** the current-main validator/checks for `updated_revision` cover a narrow update/rollback case but do not implement the selected rollback-resistant token contract. The current-main port is draft PR #681; it is not merged, must be rebased onto the current main, and has a migration-14 collision with draft PR #670. Do not treat either draft as shipped evidence.
+- **`canonical_entity` is the only source kind with a selected direct mapping.** Until the reviewed token implementation is merged and its exact-head tests pass, it remains NON_READY for production Memory→NPC source-dependent use.
+- Fact IDs, event IDs, relationship IDs, manifest references, and content hashes are structural identity/provenance pieces, not interchangeable source-version tokens. NPC acquisition has a separate approved **version-pinned** semantic contract: an acquisition must not silently follow a changed value for the same `fact_id`; implementation and migration coordination remain pending in draft PR #670.
+- Raw Host/SillyTavern message text capture, read, and active-version selection are **NOT AUTHORIZED — FAIL-CLOSED VERIFIED**. Metadata/digests/identity/lineage do not by themselves establish complete Host history or a trustworthy source version. External messages, generations, artifacts, derived summaries, and unproven lineages remain unverifiable unless a specific owner-approved authoritative identity/version and validity check is demonstrated.
+- Missing, malformed, unknown, destroyed, retracted, stale, or incompletely linked sources are NON_READY. No universal source ID/version field is approved.
 
-- Current evidence does not establish a durable source-change feed/outbox or a complete production Memory→NPC consumer. The composite snapshot marker alone cannot guarantee detection of all source validity changes.
-- Do not implement an outbox, cursor, polling API, schema, or parallel ledger in this pass. Before choosing journal, revision-triggered full reconciliation, or a hybrid, the Memory/NPC owners must identify the concrete consumer operation, maximum acceptable stale interval, source classes, retraction semantics, and recovery behavior. If those constraints are not agreed, production consumption remains disabled.
+**Acceptance:** token advances on entity change and rollback, remains stable for unrelated changes, survives restart/rebuild, never rewinds under ordinary rollback, rejects missing/destroyed/malformed sources and stale Provider tokens, and deterministically rejects a pinned NPC acquisition after its source is rolled back even if the same fact ID later becomes active with a different value.
 
-**Option comparison (decision support only; no option is approved or implemented):**
+### Gate C — rollback/reconciliation: hybrid recovery strategy selected; implementation incomplete
 
-| Option | What it could guarantee | Limits / cost | Current disposition |
-|---|---|---|---|
-| Durable Core change journal / outbox | A consumer can resume from durable canonical change records, including explicitly represented invalidation/rollback entries, if those records are committed atomically with the canonical change. | Requires an approved journal schema/API, event identity and retention rules, rollback/retraction representation, and a durable consumer checkpoint. A generic event list or maximum `commit_sequence` is not automatically such a contract; Memory-store atomicity still would not be implied. | Not selected; no approved contract or concrete consumer requirement yet. |
-| Revision-triggered full reconciliation | A consumer compares both `world_revision` and `commit_sequence` and revalidates its relevant sources when either marker changes. The revision catches the known rollback case where the commit sequence does not advance. | Requires a defined polling/trigger interval and a complete source inventory. It may be expensive, and it does not by itself detect Memory-only revocation or a source change that does not alter the Core snapshot markers. Staleness lasts until the next reconciliation. | Candidate only; Memory/NPC must state volume and maximum stale interval. |
-| Hybrid journal plus periodic/full reconciliation | A journal provides low-latency incremental invalidation; reconciliation repairs missed notifications, restarts, cursor loss, or journal retention gaps. | Highest implementation and operational complexity; still needs an approved journal, checkpoint semantics, reconciliation authority, retention, and conflict/retraction rules. | Candidate only; not justified until the actual consumer and failure/recovery requirements are agreed. |
+- **Selected target strategy:** full authoritative reconciliation on startup/restart, cursor or inventory gaps, and recovery, plus exact source-token and authorization checks at point of use. This is a decision, not proof of a shipped reconciliation runtime.
+- Do not rely on `commit_sequence` alone: rollback can change `world_revision` without increasing `commit_sequence`. Neither cursor is a per-source version or a durable change journal.
+- Existing event/rollback tables are not approved as an incremental Memory feed until replay completeness, invalidation representation, retention, and cursor semantics are proven. No new outbox, cursor, polling API, schema, or parallel ledger is authorized by this documentation change.
+- The exact consumer operation, source classes, maximum acceptable stale interval, expected volume, Memory-only revocation semantics, and recovery expectations still require Memory/NPC owner confirmation. If these are unspecified, production consumption remains disabled.
 
-**Decision rule:** select only after Memory/NPC identify the exact consumer operation, source classes, maximum stale interval, expected volume, revocation/retraction semantics, and restart/recovery requirements. Until then the correct Core result is to keep the consumer disabled, not to guess a strategy.
-- Required real-path acceptance: a source becomes stale/retracted without an increased `commit_sequence`; consumer rejects/withholds it, reconciliation converges after rollback/revocation, and restart/retry does not resurrect invalid knowledge. Test both same-process and restart recovery where applicable.
+**Acceptance:** make a source stale/retracted without increasing `commit_sequence`; prove it is withheld; prove full reconciliation converges after rollback and Provider revocation; interrupt reconciliation and restart; prove no stale record or acquisition becomes ready again; prove retries are idempotent. Cite exact tested commits and runs.
 
-### Gate D — persistence and transaction ownership
+### Gate D — persistence, transaction ownership, and anti-rollback
 
-- Core canonical event, projection, rollback, audit, and idempotency behavior remains owned by the existing Core transaction path; reuse it rather than writing canonical state from Memory/NPC.
-- Memory may own archival/index records, but no atomic transaction across a Memory-owned store and Core canonical events/audit is established. Do not claim cross-store atomicity or place a duplicate delivery/acquisition/belief/causal ledger in Core.
-- A future integration contract must state the durable write owner for each semantic record, the retry/idempotency boundary, and how partial completion is reconciled. Acceptance must inject failure at each cross-boundary step and prove no false delivery/knowledge claim survives.
+- Core owns canonical events, projections, rollback, audit, idempotency, and the Core source-version ledger inside the existing Core write transaction. Memory/Provider owns its own index, grants, records, tombstones, and reconciliation/readiness state inside Provider transactions.
+- **No cross-store atomicity is claimed.** A Core transaction does not atomically commit Provider-owned state. Each future cross-boundary operation must name its semantic record owner, idempotency/retry boundary, and restart reconciliation behavior.
+- The shared coordinator is cooperative, not an OS access-control boundary; characterization tests demonstrate that a process with filesystem access can bypass it by writing SQLite directly. Deployment ACLs/identities must prevent unauthorized direct writers.
+- The Core-local token ledger protects ordinary mutations and resolved rollback, not restoration of an older complete Core database. The accepted-head authority must be independent of the joint Core/Provider backup set. Missing, unavailable, mismatched, or jointly restored authority means NON_READY.
+- Before dispatch-start, any denial, revocation, source invalidation, scope change, or readiness loss must result in zero outbound calls. If durable dispatch-start wins first, the request is in-flight; bytes already handed to transport cannot be recalled and ambiguous outcomes must not be automatically retried. Every relevant writer must participate in the same enforceable order.
+
+**Acceptance:** inject failures across Core/Provider boundaries and prove no false delivery/acquisition/belief survives; reject older-store restore against the independent accepted head; show direct DB bypass is prevented by deployment permissions; exercise both revocation-before-dispatch (zero calls) and dispatch-start-before-revocation (one in-flight request, no replay).
 
 ### Gate E — production enablement checklist
 
-Production Memory→NPC consumption stays **blocked** until all are true:
+Production Memory→NPC consumption stays **DISABLED / FAIL-CLOSED** until all are true:
 
-1. Core + Memory/NPC approve the trusted recipient/actor/purpose/field policy and its deployment configuration.
-2. Each consumed source kind has a verified authoritative identity and validity/version rule, or is rejected as unverifiable.
-3. A named change/reconciliation strategy covers rollback and revocation without relying on `commit_sequence` alone.
-4. Record ownership, persistence, retry/idempotency, and recovery boundaries are explicit; no unsupported cross-store atomicity claim.
-5. Real production-path tests pass for unauthorized-field non-disclosure, stale/retracted-source rejection, rollback with unchanged `commit_sequence`, revocation/reconciliation, and restart-safe recovery.
-6. Core matrix and Memory/NPC acceptance documents cite the exact test/run and exact tested commit.
+1. Core + Memory/NPC approve and configure recipient/subject, purpose, world, and field visibility; the deployed route proves non-disclosure on denial.
+2. Every consumed source kind has an authoritative identity and validity/version rule. Unsupported types are rejected as unverifiable.
+3. The selected hybrid reconciliation behavior is implemented with complete inventory, recovery, and revocation semantics; no freshness claim depends on `commit_sequence` alone.
+4. Persistence owners, idempotency, retry, and recovery are explicit without unsupported cross-store atomicity.
+5. The independent accepted-head/restore gate and OS writer boundary are proven.
+6. The actual pinned Host receiver → serializer → single PC-side gateway → sole upstream transport path is wired; no bypass exists.
+7. Real-path tests pass for unauthorized-field non-disclosure, stale/retracted-source rejection, rollback with unchanged `commit_sequence`, revocation ordering, duplicate/ambiguous dispatch, and restart-safe recovery.
+8. Each result cites the exact tested commit and run. Draft PRs and branch-only tests are not evidence of shipped main behavior.
 
-**Current outcome:** documentation/decision boundary is clarified; the production consumer is not enabled. This gate is independent of mechanics and isolated worlds, which remain deferred.
+**Current outcome:** selected contracts are recorded, but the implementation and deployment gates are not all satisfied. No production Memory→NPC enablement is authorized. Mechanics and isolated worlds remain deferred.
 
 
 ### Gate F — direct in-process read and serializer inventory (current-main source check)
