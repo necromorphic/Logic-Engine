@@ -779,3 +779,26 @@ test('over-limit contradictory acquisition fails closed before context or belief
   }), { code: 'NPC_KNOWLEDGE_READ_INCOMPLETE' });
   assert.equal(store.db.prepare('SELECT COUNT(*) AS count FROM npc_belief_transitions').get().count, 0);
 });
+
+
+test('NPC acquisition remains pinned to its acquired fact version and rejects projection drift', (t) => {
+  const { store, engine } = setup(t);
+  const acquired = store.db.prepare(`
+    SELECT acquired_value_json, acquired_source_event_ids_json
+    FROM knowledge_acquisitions WHERE world_id='world-a' AND subject_id='npc-a' AND fact_id='fact-a'
+  `).get();
+  assert.ok(acquired);
+  assert.equal(acquired.acquired_value_json, JSON.stringify('source-backed-value'));
+  assert.deepEqual(JSON.parse(acquired.acquired_source_event_ids_json), ['author-seed']);
+
+  // Simulate a stale/replaced fact projection while the acquisition row survives.
+  // The reader must not silently reinterpret the original acquisition as knowledge of the replacement.
+  store.db.prepare(`
+    UPDATE facts SET value_json=?, source_event_ids_json=?
+    WHERE world_id='world-a' AND fact_id='fact-a'
+  `).run(JSON.stringify('replacement-value'), JSON.stringify(['independent-source-event']));
+
+  assert.throws(() => engine.readNpcKnowledge(request(store)), {
+    code: 'NPC_KNOWLEDGE_ACQUISITION_VERSION_MISMATCH',
+  });
+});
