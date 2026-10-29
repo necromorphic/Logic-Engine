@@ -18,7 +18,7 @@ const validRef = (value) => typeof value === 'string'
   && !/[\u0000-\u001f\u007f]/u.test(value);
 
 const uniqueRefs = (value, label) => {
-  if (!Array.isArray(value) || value.length > 200 || value.some((item) => !validRef(item))) {
+  if (!Array.isArray(value) || value.length > 200 || [...value].some((item) => !validRef(item))) {
     throw new TypeError(label + ' must be an array of at most 200 valid references');
   }
   if (new Set(value).size !== value.length) throw new TypeError(label + ' must not contain duplicate references');
@@ -164,23 +164,28 @@ export function reduceNpcBeliefTransition({ knowledgeRead, currentBelief = null,
   }
 
   let prior = null;
+  let priorEvidenceRefs = [];
   if (currentBelief !== null) {
     if (!isPlainObject(currentBelief)
       || currentBelief.world_id !== knowledgeRead.world_id
       || currentBelief.actor_id !== knowledgeRead.actor_id
       || currentBelief.proposition_ref !== proposal.proposition_ref
-      || !STANCES.has(currentBelief.stance)
-      || !Array.isArray(currentBelief.evidence_acquisition_ids)) {
+      || !STANCES.has(currentBelief.stance)) {
+      return Object.freeze({ status: 'non_ready', reason: 'current_belief_scope_invalid', transition: null });
+    }
+    try {
+      priorEvidenceRefs = uniqueRefs(currentBelief.evidence_acquisition_ids, 'currentBelief.evidence_acquisition_ids');
+    } catch {
       return Object.freeze({ status: 'non_ready', reason: 'current_belief_scope_invalid', transition: null });
     }
     prior = currentBelief;
   }
 
   const survivingPriorEvidence = prior
-    ? prior.evidence_acquisition_ids.filter((ref) => active.has(ref))
+    ? priorEvidenceRefs.filter((ref) => active.has(ref))
     : [];
   const invalidatedPriorEvidence = prior
-    ? prior.evidence_acquisition_ids.filter((ref) => !active.has(ref))
+    ? priorEvidenceRefs.filter((ref) => !active.has(ref))
     : [];
 
   const transition = Object.freeze({
