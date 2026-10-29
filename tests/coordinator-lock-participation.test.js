@@ -57,8 +57,13 @@ test('separate Core stores serialize write transactions through one shared coord
     await waitForFile(secondEntered);
     await Promise.all([first.exited, second.exited]);
   } finally {
-    p1?.kill();
-    p2?.kill();
+    // Wait for child exit before deleting SQLite files; Windows may keep them locked.
+    const stopChild = (child) => new Promise((resolve) => {
+      if (!child || child.exitCode !== null || child.signalCode !== null) return resolve();
+      child.once('exit', resolve);
+      child.kill();
+    });
+    await Promise.all([stopChild(p1), stopChild(p2)]);
     rmSync(dir, { recursive: true, force: true });
   }
 });
