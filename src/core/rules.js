@@ -301,7 +301,7 @@ export function validateEffects(effects, options = {}) {
       'entity.upsert': ['kind', 'entity_id', 'entity_type', 'status', 'attributes'],
       'entity.delete': ['kind', 'entity_id'],
       'fact.set': ['kind', 'fact_id', 'subject_ref', 'predicate', 'value'],
-      'knowledge.acquire': ['kind', 'acquisition_id', 'subject_id', 'fact_id', 'acquisition_kind', 'provenance_ref', 'provenance_digest', 'authorization_ref'],
+      'knowledge.acquire': ['kind', 'acquisition_id', 'subject_id', 'fact_id', 'acquisition_kind', 'provenance_ref', 'provenance_digest', 'authorization_ref', 'acquired_value', 'acquired_source_event_ids'],
       'mechanic.instance.create': ['kind', 'instance_id', 'template_id', 'template_version', 'parameters', 'state'],
       'mechanic.instance.enable': ['kind', 'instance_id'],
       'mechanic.instance.disable': ['kind', 'instance_id'],
@@ -381,6 +381,17 @@ export function validateEffects(effects, options = {}) {
       }
       if (typeof effect.provenance_digest !== 'string' || !/^[a-f0-9]{64}$/.test(effect.provenance_digest)) {
         throw new EngineError('INVALID_KNOWLEDGE_PROVENANCE', 'provenance_digest must be a lowercase SHA-256 digest.');
+      }
+      if (!Object.hasOwn(effect, 'acquired_value')) {
+        throw new EngineError('INVALID_KNOWLEDGE_ACQUISITION_VERSION', 'Acquisition must pin the value active at its canonical commit.');
+      }
+      validateEffectJson(effect.acquired_value, 'acquired_value');
+      if (!Array.isArray(effect.acquired_source_event_ids) || effect.acquired_source_event_ids.length < 1
+        || effect.acquired_source_event_ids.length > 500
+        || effect.acquired_source_event_ids.some((eventId) => typeof eventId !== 'string'
+          || !eventId.trim() || eventId !== eventId.trim() || eventId.length > 200)
+        || new Set(effect.acquired_source_event_ids).size !== effect.acquired_source_event_ids.length) {
+        throw new EngineError('INVALID_KNOWLEDGE_ACQUISITION_VERSION', 'Acquisition source-event identities must be 1–500 unique canonical IDs.');
       }
     } else if (effect.kind === 'relationship.transition') {
       for (const key of ['subject_id', 'target_id', 'rule_module_id', 'rule_module_version']) {
