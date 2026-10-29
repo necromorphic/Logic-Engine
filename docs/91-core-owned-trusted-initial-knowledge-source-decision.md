@@ -1,7 +1,8 @@
 # Core-Owned Trusted Initial Knowledge Source — Implementation Decision
 
-**Status:** owner-authorized implementation contract, 2026-10-29.  
-**Implementation candidate:** PR #683 (`core/trusted-file-importer`).  
+**Status:** implemented and merged, 2026-10-29.  
+**Implementation:** PR #683, merge commit `baf6a3041a1d663f2b78c691d2cef526bcaf9395`; repository documentation synchronized afterward.  
+**Validation:** exact merge-commit checks `test`, `core-trusted-acquisition`, `npc-boundary`, and `benchmark` all passed. The importer review fixes cover same-descriptor reads, Windows path/handle identity checks, source identity mismatch rejection without mutation, symlink rejection, and retry after rollback with the same idempotency key.  
 **Scope:** Stage B source authority for `author_initial` and `imported` only. This does not enable Memory → NPC or add a reader/API endpoint.
 
 ## Decision
