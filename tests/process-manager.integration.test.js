@@ -866,6 +866,7 @@ test('cross-record process checkpoint mismatch fails closed and replays idempote
   const beforeState = engine.getState('world-a');
   const beforeEvents = engine.getEvents('world-a', true);
   const beforeCommitSequence = store.currentCommitSequence('world-a');
+  const beforeTrigger = engine.getTimeTrigger('world-a', 'journey-depart');
   const originalCompleteTrigger = engine.processStore.completeTrigger.bind(engine.processStore);
 
   // Simulate stale/corrupt process-side evidence at the existing Core boundary.
@@ -887,7 +888,7 @@ test('cross-record process checkpoint mismatch fails closed and replays idempote
   assert.deepEqual(engine.getEvents('world-a', true), beforeEvents);
   assert.equal(engine.getProcess('world-a', 'journey-1').status, 'needs_review');
   assert.equal(engine.getProcess('world-a', 'journey-1').milestones[0].status, 'pending');
-  assert.equal(engine.getTimeTrigger('world-a', 'journey-depart').status, 'pending');
+  assert.deepEqual(engine.getTimeTrigger('world-a', 'journey-depart'), beforeTrigger);
 
   const persisted = store.getTimeAdvanceOperationByKey('world-a', request.idempotency_key);
   assert.equal(persisted.status, 'needs_review');
