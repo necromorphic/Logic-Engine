@@ -1,6 +1,6 @@
 # Initial NPC Knowledge Acquisition — Coordinator Work Packages
 
-**Status:** ordered work plan; documentation only. Runtime implementation and readiness promotion remain gated by acceptance evidence.
+**Status:** mixed implementation state. The Core-owned `author_initial` / `imported` acquisition write path and lifecycle are implemented by PR #683; snapshot-consistent reads, disclosure/dispatch, and production readiness remain gated by their separate acceptance evidence.
 
 **Tracking issue:** https://github.com/necromorphic/Logic-Engine/issues/557  
 **Existing Core gate:** https://github.com/necromorphic/Logic-Engine/issues/140  
@@ -117,7 +117,7 @@ Inspected current `main` source paths (28 October 2026); these are source observ
 
 **Next implementation decision:** Core review must explicitly approve the minimal event-sourced acquisition effect and its source-validity lifecycle before runtime code is changed. Until then, no acquisition API, schema, storage projection, or partial read path is added. WP-2 remains blocked; Memory → NPC remains `DISABLED / FAIL-CLOSED`.
 
-### WP-2 lifecycle audit — current Core primitives are insufficient for acquisition semantics
+### WP-2 lifecycle audit — historical findings and current implementation status
 
 Inspected `src/storage/sqlite-store.js` on `main`:
 
