@@ -1205,10 +1205,20 @@ export class LogicEngine {
         const process = this.processStore.get(id, milestone.process_id);
         return process.stored_status === 'needs_review';
       };
+      const allRegisteredTriggers = this.store.listTimeTriggers(id, true);
+      const reviewGatedDue = allRegisteredTriggers.filter((trigger) =>
+        trigger.status === 'pending'
+        && trigger.due_coordinate <= x.to_coordinate
+        && isReviewGatedProcessTrigger(trigger));
+      if (reviewGatedDue.length) {
+        throw new EngineError('TIME_TRIGGER_PROCESS_NEEDS_REVIEW',
+          'Time advancement cannot cross pending triggers owned by a process that requires reconciliation.',
+          409, { trigger_ids: reviewGatedDue.map((trigger) => trigger.trigger_id), target_coordinate: x.to_coordinate });
+      }
       if (triggerSource === 'registered') {
         // A pending trigger owned by a process under reconciliation is not eligible
-        // for scheduling again. Leave its checkpoint untouched until explicit repair.
-        triggerSnapshot = this.store.listTimeTriggers(id, true).filter((trigger) => !isReviewGatedProcessTrigger(trigger));
+        // for replay; advancement stops before its due coordinate until explicit repair.
+        triggerSnapshot = allRegisteredTriggers.filter((trigger) => !isReviewGatedProcessTrigger(trigger));
         const overdue = triggerSnapshot
           .filter((trigger) => trigger.status === 'pending' && trigger.due_coordinate <= from)
           .map((trigger) => trigger.trigger_id);
@@ -1223,9 +1233,8 @@ export class LogicEngine {
       } else {
         triggerSnapshot = x.triggers ?? [];
         completedTriggerSnapshot = x.completed_trigger_ids ?? [];
-        const registeredDue = this.store.listTimeTriggers(id)
-          .filter((trigger) => trigger.status === 'pending' && trigger.due_coordinate <= x.to_coordinate
-            && !isReviewGatedProcessTrigger(trigger))
+        const registeredDue = allRegisteredTriggers
+          .filter((trigger) => trigger.status === 'pending' && trigger.due_coordinate <= x.to_coordinate)
           .map((trigger) => trigger.trigger_id);
         if (registeredDue.length) {
           throw new EngineError('TIME_TRIGGER_SOURCE_CONFLICT', 'Request-scoped planning cannot advance across registered pending triggers; use registered trigger mode or explicitly cancel/reconcile them.', 409, {
