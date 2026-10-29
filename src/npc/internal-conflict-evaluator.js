@@ -130,6 +130,7 @@ function evaluateUnsafe(input) {
   for (let i = 0; i < input.options.length; i += 1) {
     const option = input.options[i];
     if (!isPlainDataObject(option)
+      || !Object.hasOwn(option, "id")
       || !nonEmptyString(option.id)
       || optionIds.has(option.id)
       || !Object.hasOwn(option, "supports")
