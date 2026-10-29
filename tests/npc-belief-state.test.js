@@ -116,6 +116,24 @@ test('does not treat missing evidence as evidence for false or unknown propositi
   assert.equal(result.reason, 'belief_transition_requires_evidence');
 });
 
+test('rejects malformed provenance metadata before admitting evidence into a belief', () => {
+  for (const malformed of [
+    { ...evidenceItems[0], fact_id: '' },
+    { ...evidenceItems[0], predicate: '' },
+    { ...evidenceItems[0], provenance_ref: '  forged-source' },
+    { ...evidenceItems[0], provenance_digest: 'A'.repeat(64) },
+    { ...evidenceItems[0], provenance_digest: 'not-a-digest' },
+  ]) {
+    const result = reduceNpcBeliefTransition({
+      knowledgeRead: knowledgeRead({ items: [malformed] }),
+      proposal: proposal(),
+    });
+    assert.equal(result.status, 'non_ready');
+    assert.equal(result.reason, 'invalid_evidence_provenance');
+    assert.equal(result.transition, null);
+  }
+});
+
 test('rejects duplicate and overlapping evidence references', () => {
   assert.equal(reduceNpcBeliefTransition({
     knowledgeRead: knowledgeRead(),
