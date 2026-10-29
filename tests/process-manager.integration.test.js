@@ -915,3 +915,35 @@ test('cross-record process checkpoint mismatch fails closed and replays idempote
   assert.equal(engine.getState('world-a').world_revision, beforeState.world_revision);
   assert.deepEqual(engine.getEvents('world-a', true), beforeEvents);
 }));
+
+
+test('completed milestone reached by a still-pending trigger is gated for review without canonical writes', (t) => withDatabase(t, ({ engine, store }) => {
+  store.createWorld(worldInput());
+  engine.createProcess('world-a', processInput());
+  // Deliberately create a contradictory persisted checkpoint: the milestone says
+  // completed, but its registered trigger remains pending and has no valid event.
+  store.db.prepare(`UPDATE world_process_milestones
+    SET status='completed',completed_event_ids_json=?,checkpoint_version=checkpoint_version+1
+    WHERE world_id=? AND process_id=? AND milestone_id=?`)
+    .run(JSON.stringify(['missing-canonical-event']), 'world-a', 'journey-1', 'depart');
+
+  const beforeState = engine.getState('world-a');
+  const beforeEvents = engine.getEvents('world-a', true);
+  const beforeCommitSequence = store.currentCommitSequence('world-a');
+  const beforeTrigger = engine.getTimeTrigger('world-a', 'journey-depart');
+  const result = engine.startTimeAdvance('world-a', {
+    idempotency_key: 'completed-milestone-pending-trigger-mismatch',
+    expected_revision: beforeState.world_revision,
+    to_coordinate: 1000,
+  });
+
+  assert.equal(result.status, 'needs_review');
+  assert.equal(engine.getProcess('world-a', 'journey-1').status, 'needs_review');
+  assert.equal(engine.getProcess('world-a', 'journey-1').milestones[0].status, 'completed');
+  assert.equal(engine.getState('world-a').game_time_coordinate, beforeState.game_time_coordinate);
+  assert.equal(engine.getState('world-a').world_revision, beforeState.world_revision);
+  assert.equal(store.currentCommitSequence('world-a'), beforeCommitSequence);
+  assert.deepEqual(engine.getEvents('world-a', true), beforeEvents);
+  assert.deepEqual(engine.getTimeTrigger('world-a', 'journey-depart'), beforeTrigger);
+  assert.equal(store.getTimeAdvanceOperationByKey('world-a', 'completed-milestone-pending-trigger-mismatch').status, 'needs_review');
+}));
