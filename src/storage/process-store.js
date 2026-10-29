@@ -199,16 +199,23 @@ export class ProcessStore {
       const operation = this.db.prepare('SELECT * FROM time_advance_operations WHERE world_id=? AND operation_id=?')
         .get(worldId, operationId);
       const ids = [...new Set(eventIds)];
-      const matchingSegment = operation
-        ? dec(operation.segments_json).find((segment) => {
-          const triggerIds = segment.registered_trigger_ids ?? [];
-          if (!triggerIds.includes(triggerId)) return false;
-          const triggerIndex = (segment.trigger_ids ?? []).indexOf(triggerId);
-          const eventOffset = segment.events.length - (segment.trigger_ids ?? []).length;
-          const expectedEventId = triggerIndex >= 0 ? segment.events[eventOffset + triggerIndex]?.event_id : null;
-          return expectedEventId && ids.length === 1 && ids[0] === expectedEventId;
-        })
-        : null;
+      let operationSegments = null;
+      try {
+        const parsedSegments = operation ? dec(operation.segments_json) : null;
+        if (Array.isArray(parsedSegments)) operationSegments = parsedSegments;
+      } catch {
+        // Malformed persisted operation evidence is a mismatch, not authority to guess.
+      }
+      const matchingSegment = operationSegments?.find((segment) => {
+        if (!segment || !Array.isArray(segment.events)) return false;
+        const triggerIds = Array.isArray(segment.registered_trigger_ids) ? segment.registered_trigger_ids : [];
+        if (!triggerIds.includes(triggerId)) return false;
+        const segmentTriggerIds = Array.isArray(segment.trigger_ids) ? segment.trigger_ids : [];
+        const triggerIndex = segmentTriggerIds.indexOf(triggerId);
+        const eventOffset = segment.events.length - segmentTriggerIds.length;
+        const expectedEventId = triggerIndex >= 0 ? segment.events[eventOffset + triggerIndex]?.event_id : null;
+        return expectedEventId && ids.length === 1 && ids[0] === expectedEventId;
+      }) ?? null;
       const triggerRow = this.db.prepare('SELECT status,completed_operation_id FROM world_time_triggers WHERE world_id=? AND trigger_id=?')
         .get(worldId, triggerId);
       const validEvents = ids.length === 1 && this.db.prepare(
