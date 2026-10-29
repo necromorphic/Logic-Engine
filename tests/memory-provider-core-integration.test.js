@@ -91,13 +91,13 @@ function setup(t, { twoRecords = false, providerPath = null } = {}) {
   const authorizedReadService = new AuthorizedReadService(engine, bindings,
     (context, entity, field) => field === 'entity_id'
       || (field === 'attributes.public_note' && entity.entity_id.startsWith('source-')));
-  const consumer = new MemoryNpcConsumer({
+  let consumer = new MemoryNpcConsumer({
     authorizedReadService, actorBindingService: bindings, memoryProvider: provider,
     contentFields: ['attributes.public_note'],
   });
   t.after(() => { provider.close(); store.close(); testDb.close(); testDb.cleanup(); });
   return {
-    engine, provider, consumer, scope, records,
+    engine, get provider() { return provider; }, get consumer() { return consumer; }, scope, records,
     db: testDb.db,
     async prepare() {
       await provider.rebuildIndex(worldId);
@@ -112,6 +112,10 @@ function setup(t, { twoRecords = false, providerPath = null } = {}) {
       provider = new SQLiteMemoryProvider({ path: effectiveProviderPath, coordinatorPath: `${effectiveProviderPath}.coordinator.sqlite`, getSnapshot: snapshotReader,
         validateSourceVersion: sourceVersionValidator,
         validateInventory: inventoryValidator, // test-only; not Host completeness evidence
+      });
+      consumer = new MemoryNpcConsumer({
+        authorizedReadService, actorBindingService: bindings, memoryProvider: provider,
+        contentFields: ['attributes.public_note'],
       });
     },
   };
@@ -128,6 +132,42 @@ test('real SQLite provider flows through Core authorized read and NPC admission'
   assert.equal(result.candidates[0].record_ref, 'memory:record-a');
   assert.deepEqual(result.candidates[0].content, { 'attributes.public_note': 'visible source-a' });
   assert.equal(JSON.stringify(result).includes('never disclose'), false);
+});
+
+test('real Provider preserves immutable versions and duplicate/conflict semantics across restart, then revokes only the selected version', async (t) => {
+  const s = setup(t);
+  const v1 = s.records[0];
+  assert.equal((await s.prepare()).status, 'current');
+
+  // Exact identity/version replay is idempotent; changing payload under that same
+  // immutable identity is rejected instead of overwriting the stored record.
+  assert.deepEqual(s.provider.putRecord(v1), {
+    status: 'duplicate', record_ref: v1.record_ref, record_version: v1.record_version,
+  });
+  assert.throws(() => s.provider.putRecord({ ...v1, content_disposition: 'withheld' }), /MEMORY_IDENTITY_CONFLICT/);
+
+  const v2 = { ...v1, record_version: 'record-v2' };
+  assert.equal(s.provider.putRecord(v2).status, 'stored');
+  s.provider.grantRecord(s.scope, v2.record_ref, v2.record_version, true);
+  assert.equal((await s.prepare()).status, 'current');
+  const beforeRestart = await s.consumer.retrieveForNpc({
+    worldId: s.scope.world_id, adapterId: 'provider-e2e-adapter', actorEntityId: s.scope.subject_id,
+  });
+  assert.equal(beforeRestart.status, 'ready');
+  assert.deepEqual(beforeRestart.candidates.map((candidate) => candidate.record_version).sort(),
+    ['record-v1', 'record-v2']);
+
+  s.provider.revokeRecord(s.scope, v1.record_ref, v1.record_version);
+  s.reopenProvider();
+  assert.equal((await s.prepare()).status, 'current');
+
+  const afterRestart = await s.consumer.retrieveForNpc({
+    worldId: s.scope.world_id, adapterId: 'provider-e2e-adapter', actorEntityId: s.scope.subject_id,
+  });
+  assert.equal(afterRestart.status, 'ready');
+  assert.deepEqual(afterRestart.candidates.map((candidate) => candidate.record_version), ['record-v2']);
+  assert.equal(JSON.stringify(afterRestart).includes('visible source-a'), true,
+    'the independently authorized v2 remains readable after v1 revocation and restart');
 });
 
 test('real provider revocation during candidate B authorization excludes previously allowed A', async (t) => {
