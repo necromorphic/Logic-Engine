@@ -248,6 +248,33 @@ test('context ignores caller-injected evidence outside the validated belief tran
   assert.equal(built.context.evidence.some((item) => item.value === 'classified'), false);
 });
 
+test('context preserves the distinction between belief, suspicion, and unresolved conflict', () => {
+  const read = knowledgeRead();
+  const build = (stance, overrides = {}) => {
+    const reduced = reduceNpcBeliefTransition({
+      knowledgeRead: read,
+      proposal: proposal({ stance, ...overrides }),
+    });
+    assert.equal(reduced.status, 'ready');
+    return buildNpcBeliefContext(read, reduced.transition);
+  };
+
+  assert.equal(build('believes_true').context.epistemic_status, 'belief');
+  assert.equal(build('suspects_true').context.epistemic_status, 'suspicion');
+
+  const conflictRead = knowledgeRead({ items: evidenceItems });
+  const conflict = reduceNpcBeliefTransition({
+    knowledgeRead: conflictRead,
+    proposal: proposal({
+      stance: 'unresolved_conflict',
+      supporting_acquisition_ids: ['acq-support'],
+      contradicting_acquisition_ids: ['acq-contradict'],
+    }),
+  });
+  assert.equal(conflict.status, 'ready');
+  assert.equal(buildNpcBeliefContext(conflictRead, conflict.transition).context.epistemic_status, 'conflicted');
+});
+
 test('context refuses actor or snapshot mismatch and evidence removed after reduction', () => {
   const read = knowledgeRead();
   const reduced = reduceNpcBeliefTransition({ knowledgeRead: read, proposal: proposal() });
