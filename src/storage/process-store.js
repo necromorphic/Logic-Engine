@@ -6,13 +6,24 @@ const now = () => new Date().toISOString();
 const enc = (value) => JSON.stringify(value);
 const dec = (value) => value == null ? null : JSON.parse(value);
 
+function safeJsonArray(value) {
+  try {
+    const parsed = dec(value);
+    return Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 function publicProcess(row, milestoneRows) {
   if (!row) return null;
   const definition = dec(row.definition_json);
   const milestones = milestoneRows.map((milestone) => ({
     ...dec(milestone.definition_json),
     status: milestone.status,
-    completed_event_ids: dec(milestone.completed_event_ids_json),
+    // Corrupt checkpoint evidence must remain inspectable as null so the recovery
+    // path can persist needs_review instead of throwing while materializing the process.
+    completed_event_ids: safeJsonArray(milestone.completed_event_ids_json),
     checkpoint_version: milestone.checkpoint_version,
     updated_at: milestone.updated_at,
   }));
