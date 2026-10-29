@@ -179,7 +179,13 @@ export class ProcessStore {
       const milestone = this.db.prepare('SELECT * FROM world_process_milestones WHERE world_id=? AND trigger_id=?')
         .get(worldId, triggerId);
       if (!milestone) return null;
-      if (milestone.status === 'completed') return this.get(worldId, milestone.process_id);
+      if (milestone.status === 'completed') {
+        throw new EngineError('PROCESS_CROSS_RECORD_CHECKPOINT_MISMATCH',
+          'A completed process milestone was reached again by a registered trigger; process and trigger checkpoints disagree.', 409, {
+            process_id: milestone.process_id, milestone_id: milestone.milestone_id, trigger_id: triggerId,
+            operation_id: operationId, completed_event_ids: dec(milestone.completed_event_ids_json),
+          });
+      }
       if (milestone.status !== 'pending') {
         throw new EngineError('PROCESS_MILESTONE_CHECKPOINT_CONFLICT', 'Only a pending process milestone can be completed.', 409, {
           process_id: milestone.process_id, milestone_id: milestone.milestone_id, status: milestone.status,
