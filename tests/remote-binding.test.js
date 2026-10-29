@@ -2,11 +2,32 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:net';
+import { createHash } from 'node:crypto';
+function writeTestWorldPackCatalog(directory) {
+  const artifactPath = join(directory, 'test-world-pack.json');
+  const artifactBytes = Buffer.from(JSON.stringify({
+    world_pack_id: 'fixture.biological-world',
+    version: '0.1.0',
+    schema_version: 'runtime-startup-test',
+  }, null, 2) + '\\n');
+  writeFileSync(artifactPath, artifactBytes);
+  const catalogPath = join(directory, 'world-pack-catalog.json');
+  writeFileSync(catalogPath, JSON.stringify({
+    schema_version: 1,
+    entries: [{
+      world_pack_id: 'fixture.biological-world',
+      version: '0.1.0',
+      artifact_path: 'test-world-pack.json',
+      sha256: createHash('sha256').update(artifactBytes).digest('hex'),
+    }],
+  }, null, 2) + '\\n');
+  return catalogPath;
+}
+
 import { once } from 'node:events';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { writeTestWorldPackCatalog } from './world-pack-test-catalog.js';
 
 const API_TOKEN = 'remote-binding-test-token-123456';
 
