@@ -6,7 +6,7 @@
 
 ## Contract
 
-The reader returns canonical fact values only when the target NPC has a current, active knowledge-acquisitions projection row for that fact. It does not infer knowledge from mere fact existence, vector matches, prompts, display names, or chat metadata.
+The reader returns the value and canonical source-event set pinned by the acquisition event, and only while the active fact projection still matches that acquired version. It fails closed if the same fact ID now resolves to a different value or source-event set; a replacement value requires a new explicit acquisition event. It does not infer knowledge from mere fact existence, vector matches, prompts, display names, or chat metadata. Legacy acquisition events without a pinned version are not exposed.
 
 Each read requires:
 
@@ -30,6 +30,8 @@ The read result includes the snapshot cursor and source/acquisition provenance. 
 ## Acceptance checks
 
 - Only the actor's acquired facts are returned.
+- Acquisition-time value and source-event identities are persisted in the canonical acquisition effect and derived projection.
+- A changed current fact value/source-event set cannot silently replace the acquired version; version mismatch fails closed.
 - Current snapshot identity is bound into authorization and result.
 - Authorization from another actor, purpose, world, or snapshot is rejected.
 - Unsupported purpose, stale cursor, missing authorizer, destroyed/missing actor, malformed request, and missing source provenance fail closed.
