@@ -6,6 +6,7 @@ import { once } from 'node:events';
 import { linkSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { writeTestWorldPackCatalog } from './world-pack-test-catalog.js';
 
 async function unusedLoopbackPort() {
   const server = createServer();
@@ -27,12 +28,14 @@ async function waitForExit(child, timeoutMs = 3000) {
 test('runtime process starts with isolated credentials/database and serves health', { timeout: 15000 }, async () => {
   const directory = mkdtempSync(join(tmpdir(), 'logic-engine-startup-smoke-'));
   const port = await unusedLoopbackPort();
+  const worldPackCatalogPath = writeTestWorldPackCatalog(directory);
   const child = spawn(process.execPath, ['src/index.js'], {
     cwd: resolve('.'),
     env: {
       ...process.env,
       ENGINE_API_TOKEN: 'startup-smoke-api-token-123456',
       ENGINE_DB_PATH: join(directory, 'runtime.sqlite'),
+      LOGIC_ENGINE_WORLD_PACK_CATALOG_PATH: worldPackCatalogPath,
       ENGINE_HOST_VERSION_LEDGER_DB_PATH: join(directory, 'host-versions.sqlite'),
       ENGINE_PORT: String(port),
       ENGINE_HOST: '127.0.0.1',
@@ -84,12 +87,14 @@ test('runtime rejects coordinator database hard-link aliases', { timeout: 10000 
   const databaseAliasPath = join(directory, 'runtime-alias.sqlite');
   writeFileSync(coordinatorPath, '');
   linkSync(coordinatorPath, databaseAliasPath);
+  const worldPackCatalogPath = writeTestWorldPackCatalog(directory);
   const child = spawn(process.execPath, ['src/index.js'], {
     cwd: resolve('.'),
     env: {
       ...process.env,
       ENGINE_API_TOKEN: 'coordinator-alias-api-token-123456',
       ENGINE_DB_PATH: databaseAliasPath,
+      LOGIC_ENGINE_WORLD_PACK_CATALOG_PATH: worldPackCatalogPath,
       LOGIC_ENGINE_COORDINATOR_DB_PATH: coordinatorPath,
       ENGINE_HOST_VERSION_LEDGER_DB_PATH: join(directory, 'host-versions.sqlite'),
       ENGINE_PORT: '18787',
