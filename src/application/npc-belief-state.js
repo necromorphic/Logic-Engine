@@ -29,6 +29,14 @@ const sameSnapshot = (left, right) => isPlainObject(left)
   && isPlainObject(right)
   && left.world_revision === right.world_revision
   && left.commit_sequence === right.commit_sequence;
+
+const validEvidenceMetadata = (item) => isPlainObject(item)
+  && validRef(item.acquisition_id)
+  && validRef(item.fact_id)
+  && validRef(item.predicate)
+  && validRef(item.provenance_ref)
+  && typeof item.provenance_digest === 'string'
+  && /^[a-f0-9]{64}$/u.test(item.provenance_digest);
 const stancePolarity = (stance) => {
   if (stance === 'believes_true' || stance === 'suspects_true') return 'positive';
   if (stance === 'believes_false' || stance === 'suspects_false') return 'negative';
@@ -138,6 +146,9 @@ export function reduceNpcBeliefTransition({ knowledgeRead, currentBelief = null,
   const allRefs = [...supporting, ...contradicting];
   if (allRefs.some((ref) => !active.has(ref))) {
     return Object.freeze({ status: 'non_ready', reason: 'evidence_not_currently_acquired', transition: null });
+  }
+  if (allRefs.some((ref) => !validEvidenceMetadata(active.get(ref)))) {
+    return Object.freeze({ status: 'non_ready', reason: 'invalid_evidence_provenance', transition: null });
   }
   if (supporting.some((ref) => contradicting.includes(ref))) {
     return Object.freeze({ status: 'non_ready', reason: 'evidence_cannot_support_and_contradict', transition: null });
