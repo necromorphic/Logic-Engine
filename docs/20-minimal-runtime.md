@@ -6,6 +6,28 @@ The first executable slice is host-independent. SillyTavern is a future client a
 
 Node.js 22.13+ (uses the built-in `node:sqlite` API, which is experimental in supported Node releases). Set `ENGINE_API_TOKEN` to a secret at least 16 characters long. Configure `ENGINE_ADAPTER_TOKENS` as a JSON object of adapter IDs to distinct secrets for proposal creation/cancellation. Set a separate `ENGINE_APPROVAL_TOKEN` for approvals, `ENGINE_ADMIN_TOKEN` for world creation, global registry reads/writes/audit, and `ENGINE_INTERNAL_TOKEN` only if the restricted internal proposal-commit route is required. Optionally set `ENGINE_DB_PATH`, then run `npm start`. See `.env.example`; run `npm test` for contract tests.
 
+## Trusted initial/imported knowledge sources
+
+`ENGINE_TRUSTED_INITIAL_KNOWLEDGE_SOURCES` is an optional deployment-owned JSON array. The default `[]` approves no source. Each record requires `world_pack_id`, `world_pack_version`, `source_kind` (`author_initial` or `imported`), `source_ref`, `authorization_ref`, and the SHA-256 digest of the exact UTF-8 source file bytes. Imported entries additionally require an absolute local `source_path`; the path is deployment configuration, never request data. Author-initial entries must not set `source_path`.
+
+Example shape (replace all IDs and the digest with the exact values for your approved bundle):
+
+```json
+[
+  {
+    "world_pack_id": "example.world",
+    "world_pack_version": "1.0.0",
+    "source_kind": "imported",
+    "source_ref": "import:example.world@1.0.0",
+    "authorization_ref": "rule:import-approval-v1",
+    "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "source_path": "C:\\LogicEngine\\trusted-sources\\example-world.json"
+  }
+]
+```
+
+The importer accepts a `source_ref` only, reads the configured local file, rejects symlinks/non-regular files and files larger than 1 MiB, computes SHA-256 itself, and requires an exact allowlist match before validating every subject/fact assignment against the target world's canonical state. Direct caller-supplied bytes for `imported` sources remain rejected. No public HTTP import endpoint is exposed.
+
 ## Endpoints
 
 - `POST /v1/worlds` — create a world with a pinned World Pack ID/version and explicit in-world time (requires `x-admin-token`).
