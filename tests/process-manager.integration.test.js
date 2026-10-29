@@ -737,3 +737,69 @@ test('rolling back one process milestone preserves an independent completed proc
   assert.equal(engine.getProcess('world-a', 'process-beta').status, 'completed');
   assert.equal(engine.getProcess('world-a', 'process-beta').milestones[0].status, 'completed');
 }));
+
+
+test('rollback follows an explicit cross-process event cause and gates both affected processes', (t) => withDatabase(t, ({ engine, store }) => {
+  store.createWorld(worldInput());
+  engine.createProcess('world-a', processInput({
+    process_id: 'process-alpha',
+    idempotency_key: 'create-process-alpha',
+    milestones: [{
+      milestone_id: 'alpha-source',
+      trigger_id: 'alpha-source-trigger',
+      due_coordinate: 1000,
+      prerequisites: [],
+      read_set: [],
+      write_set: [],
+      event: { turn_id: 'alpha-source-event', event_type: 'process.alpha.source', effects: [] },
+    }],
+  }));
+  let state = engine.getState('world-a');
+  engine.startTimeAdvance('world-a', {
+    idempotency_key: 'advance-alpha-source',
+    expected_revision: state.world_revision,
+    to_coordinate: 1000,
+  });
+  const alpha = engine.getProcess('world-a', 'process-alpha');
+  const alphaEventId = alpha.milestones[0].completed_event_ids[0];
+  assert.ok(alphaEventId);
+
+  engine.createProcess('world-a', processInput({
+    process_id: 'process-beta',
+    idempotency_key: 'create-process-beta',
+    expected_revision: engine.getState('world-a').world_revision,
+    milestones: [{
+      milestone_id: 'beta-dependent',
+      trigger_id: 'beta-dependent-trigger',
+      due_coordinate: 2000,
+      prerequisites: [],
+      read_set: [],
+      write_set: [],
+      event: {
+        turn_id: 'beta-dependent-event',
+        event_type: 'process.beta.dependent',
+        caused_by: [alphaEventId],
+        effects: [],
+      },
+    }],
+  }));
+  state = engine.getState('world-a');
+  const advanced = engine.startTimeAdvance('world-a', {
+    idempotency_key: 'advance-beta-dependent',
+    expected_revision: state.world_revision,
+    to_coordinate: 2000,
+  });
+  assert.equal(advanced.status, 'completed');
+  const beta = engine.getProcess('world-a', 'process-beta');
+  const betaEventId = beta.milestones[0].completed_event_ids[0];
+  assert.ok(betaEventId);
+
+  const rollback = engine.rollbackEvent('world-a', {
+    root_event_id: alphaEventId,
+    idempotency_key: 'rollback-cross-process-source',
+  });
+  assert.equal(rollback.invalidated_event_ids.includes(alphaEventId), true);
+  assert.equal(rollback.invalidated_event_ids.includes(betaEventId), true);
+  assert.equal(engine.getProcess('world-a', 'process-alpha').status, 'needs_review');
+  assert.equal(engine.getProcess('world-a', 'process-beta').status, 'needs_review');
+}));
