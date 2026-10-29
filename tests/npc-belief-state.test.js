@@ -180,6 +180,11 @@ test('context refuses actor or snapshot mismatch and evidence removed after redu
     'context_snapshot_or_actor_mismatch');
   assert.equal(buildNpcBeliefContext(knowledgeRead({ items: [] }), reduced.transition).reason,
     'context_evidence_no_longer_authorized');
+  const forged = { ...reduced.transition, stance: 'believes_false' };
+  const forgedContext = buildNpcBeliefContext(read, forged);
+  assert.equal(forgedContext.status, 'non_ready');
+  assert.equal(forgedContext.reason, 'context_transition_not_validated');
+  assert.equal(forgedContext.context, null);
 });
 
 test('a false belief remains explicit when Core evidence contradicts the proposed proposition value', () => {
