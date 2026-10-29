@@ -9,7 +9,7 @@ function writeTestWorldPackCatalog(directory) {
     world_pack_id: 'fixture.biological-world',
     version: '0.1.0',
     schema_version: 'runtime-startup-test',
-  }, null, 2) + '\\n');
+  }, null, 2) + '\n');
   writeFileSync(artifactPath, artifactBytes);
   const catalogPath = join(directory, 'world-pack-catalog.json');
   writeFileSync(catalogPath, JSON.stringify({
@@ -20,7 +20,7 @@ function writeTestWorldPackCatalog(directory) {
       artifact_path: 'test-world-pack.json',
       sha256: createHash('sha256').update(artifactBytes).digest('hex'),
     }],
-  }, null, 2) + '\\n');
+  }, null, 2) + '\n');
   return catalogPath;
 }
 
