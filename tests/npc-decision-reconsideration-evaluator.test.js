@@ -168,3 +168,34 @@ test("fails closed when the prior decision has no identifier or no basis referen
   noReasons.prior_decision.reason_refs = ["reason:a", "reason:a"];
   assert.equal(evaluateNpcDecisionReconsideration(noReasons).status, "non_ready");
 });
+
+
+test("does not accept inherited required fields as supplied input", () => {
+  const input = base();
+  delete input.prior_decision.id;
+  Object.defineProperty(Object.prototype, "id", {
+    configurable: true,
+    value: "inherited-decision-id",
+  });
+  try {
+    assert.equal(evaluateNpcDecisionReconsideration(input).status, "non_ready");
+  } finally {
+    delete Object.prototype.id;
+  }
+
+  const changeInput = base();
+  changeInput.current_context.changes.push({
+    kind: "new_evidence",
+    relevance: "relevant",
+    source_ref: "evidence:door",
+  });
+  Object.defineProperty(Object.prototype, "id", {
+    configurable: true,
+    value: "inherited-change-id",
+  });
+  try {
+    assert.equal(evaluateNpcDecisionReconsideration(changeInput).status, "non_ready");
+  } finally {
+    delete Object.prototype.id;
+  }
+});
