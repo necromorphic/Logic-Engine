@@ -1,7 +1,7 @@
 # Core-Owned Trusted Initial Knowledge Source — Implementation Decision
 
 **Status:** owner-authorized implementation contract, 2026-10-29.  
-**Branch:** `core/trusted-initial-knowledge-source`.  
+**Implementation candidate:** PR #683 (`core/trusted-file-importer`).  
 **Scope:** Stage B source authority for `author_initial` and `imported` only. This does not enable Memory → NPC or add a reader/API endpoint.
 
 ## Decision
@@ -31,7 +31,7 @@ The source digest must be computed by Core from the exact bytes it validates. Do
 - Generic event preparation continues to reject acquisition effects. Only the Core-owned source ingestion operation may translate a validated assignment into a canonical event.
 - The source ingestion operation validates the bundle schema, digest, canonical subject/item existence, same-world scope, explicit assignment rule, and current expected `world_revision + commit_sequence`.
 - The loader must not infer assignments from ordinary fact presence, channel metadata, vectors, prompts, or display names.
-- `imported` remains fail-closed unless a real importer supplies the exact source bytes and explicit subject mapping. No placeholder importer may mark it supported.
+- `imported` is loaded only by `recordTrustedImportedKnowledgeSource`, which resolves `source_ref` against deployment-owned registry entries containing `source_path`, reads the local file server-side, enforces the 1 MiB regular-file limit, then validates the exact bytes against the same SHA-256 allowlist and explicit subject/fact assignments. The caller cannot supply a path or bytes to this operation. Direct byte ingestion remains rejected for `imported`.
 
 ## Lifecycle requirements
 
@@ -51,7 +51,7 @@ If an existing Core rollback primitive cannot express source support identity, a
 
 1. Define a strict versioned schema for the trusted source envelope and validate exact keys/types/size limits.
 2. Implement a Core-owned validator that computes the digest from source bytes and resolves assignments against one world snapshot.
-3. Implement the trusted ingestion operation that emits canonical acquisition events; do not expose it through the generic HTTP API.
+3. Implement the trusted ingestion operation that emits canonical acquisition events; do not expose it through the generic HTTP API. The imported-file entry point must resolve only a deployment-owned `source_ref` to a local `source_path` in the trusted registry.
 4. Add adversarial tests for caller-forged digests, source/world mismatch, unknown subjects/items, duplicate assignments, changed-content replay, independent supports, rollback, rebuild, and stale cursors.
 5. Run full native tests, recalculation oracle, NPC boundary, and security/API checks on the exact head.
 6. Keep Stage B blocked until steps 1–5 pass. Keep Memory → NPC DISABLED / FAIL-CLOSED until the separate safe-read/visibility contract is implemented and accepted.

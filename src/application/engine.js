@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import { constants as fsConstants, openSync, fstatSync, readFileSync, closeSync, lstatSync, realpathSync } from 'node:fs';
+import { isAbsolute, resolve } from 'node:path';
 import { assert, EngineError } from '../core/errors.js';
 import { hashRequest } from '../core/request-hash.js';
 import { validateEffects } from '../core/rules.js';
@@ -10,6 +12,8 @@ import { ProcessStore } from '../storage/process-store.js';
 import { addTimeDuration, createCalendarDefinition, projectCalendarDate } from '../time/model.js';
 import { createTimePolicy, resolveDurationDecision } from '../time/policy.js';
 
+const TRUSTED_IMPORT_CAPABILITY = Symbol('trusted-import-loader');
+const MAX_TRUSTED_IMPORT_BYTES = 1_000_000;
 const obj = (x) => x !== null && typeof x === 'object' && !Array.isArray(x);
 const strings = (x, name) => {
   x = x ?? [];
@@ -663,10 +667,92 @@ export class LogicEngine {
   }
 
   /**
-   * Ingests an immutable deployment-approved authoring source into the canonical
-   * event log. This method is intentionally not exposed by the HTTP API.
+   * Loads an imported source only from a deployment-owned, allowlisted local file.
+   * Callers provide a source_ref, never a path or bytes. This method is not exposed
+   * through the HTTP API.
    */
-  recordTrustedInitialKnowledgeSource(input) {
+  recordTrustedImportedKnowledgeSource(input) {
+    assert(obj(input), 'INVALID_TRUSTED_SOURCE_REQUEST', 'Imported source request must be an object.');
+    const allowed = ['world_id', 'source_ref', 'idempotency_key', 'expected_revision', 'expected_commit_sequence', 'turn_id'];
+    assert(Object.keys(input).every((key) => allowed.includes(key)), 'UNSUPPORTED_TRUSTED_SOURCE_REQUEST_FIELD', 'Imported source request contains an unsupported field.');
+    assert(typeof input.world_id === 'string' && input.world_id.trim() === input.world_id && input.world_id.length > 0 && input.world_id.length <= 200,
+      'INVALID_TRUSTED_SOURCE_REQUEST', 'world_id must be a canonical non-empty identifier.');
+    assert(typeof input.source_ref === 'string' && input.source_ref.trim() === input.source_ref && input.source_ref.length > 0 && input.source_ref.length <= 200,
+      'INVALID_TRUSTED_SOURCE_REQUEST', 'source_ref must be a canonical non-empty identifier.');
+    const world = this.store.world(input.world_id);
+    assert(world, 'WORLD_NOT_FOUND', 'World not found.', 404);
+    const candidates = this.trustedInitialKnowledgeSources.filter((entry) =>
+      entry && entry.source_kind === 'imported'
+      && entry.source_ref === input.source_ref
+      && entry.world_pack_id === world.world_pack_id
+      && entry.world_pack_version === world.world_pack_version
+      && typeof entry.source_path === 'string' && isAbsolute(entry.source_path));
+    assert(candidates.length === 1, 'TRUSTED_IMPORT_SOURCE_NOT_CONFIGURED',
+      'Exactly one deployment-approved imported source file must match this source_ref and world pack.', 403);
+    const configured = candidates[0];
+    let sourceBytes;
+    let fd;
+    try {
+      // POSIX platforms enforce no-follow atomically at open. Windows does not
+      // expose O_NOFOLLOW through Node, so validate the path before and after
+      // opening and compare the opened handle identity with both path snapshots.
+      const noFollow = fsConstants.O_NOFOLLOW;
+      let pathBefore;
+      let resolvedBefore;
+      if (!Number.isInteger(noFollow) || noFollow === 0) {
+        pathBefore = lstatSync(configured.source_path);
+        resolvedBefore = realpathSync(configured.source_path);
+        assert(pathBefore.isFile() && !pathBefore.isSymbolicLink()
+          && resolve(resolvedBefore) === resolve(configured.source_path),
+        'TRUSTED_IMPORT_FILE_UNAVAILABLE', 'Trusted import path must resolve directly to a regular, non-link file.', 503);
+      }
+      fd = openSync(configured.source_path, fsConstants.O_RDONLY | (Number.isInteger(noFollow) && noFollow !== 0 ? noFollow : 0));
+      const stat = fstatSync(fd);
+      assert(stat.isFile() && stat.size > 0 && stat.size <= MAX_TRUSTED_IMPORT_BYTES,
+        'INVALID_TRUSTED_IMPORT_FILE', 'Trusted import must be a regular file within the 1 MiB limit.');
+      if (pathBefore) {
+        const pathAfter = lstatSync(configured.source_path);
+        const resolvedAfter = realpathSync(configured.source_path);
+        assert(pathAfter.isFile() && !pathAfter.isSymbolicLink()
+          && resolve(resolvedBefore) === resolve(resolvedAfter)
+          && stat.dev === pathBefore.dev && stat.ino === pathBefore.ino
+          && stat.dev === pathAfter.dev && stat.ino === pathAfter.ino,
+        'TRUSTED_IMPORT_FILE_UNAVAILABLE', 'Trusted import path changed while it was being opened.', 503);
+      }
+      sourceBytes = readFileSync(fd);
+      assert(sourceBytes.length > 0 && sourceBytes.length <= MAX_TRUSTED_IMPORT_BYTES,
+        'INVALID_TRUSTED_IMPORT_FILE', 'Trusted import bytes must remain within the 1 MiB limit when read.');
+    } catch (error) {
+      if (error instanceof EngineError) throw error;
+      throw new EngineError('TRUSTED_IMPORT_FILE_UNAVAILABLE', 'Deployment-approved import file could not be read safely.', 503);
+    } finally {
+      if (fd !== undefined) {
+        try { closeSync(fd); } catch { /* preserve the original read result */ }
+      }
+    }
+    const validatedSource = validateTrustedInitialKnowledgeSource(sourceBytes, this.trustedInitialKnowledgeSources);
+    assert(validatedSource.source_kind === configured.source_kind
+      && validatedSource.source_ref === configured.source_ref
+      && validatedSource.world_pack_id === configured.world_pack_id
+      && validatedSource.world_pack_version === configured.world_pack_version
+      && validatedSource.authorization_ref === configured.authorization_ref
+      && validatedSource.source_digest === configured.sha256,
+    'UNSUPPORTED_TRUSTED_SOURCE_KIND', 'Imported file content must match the selected registry entry exactly.', 403);
+    return this.recordTrustedInitialKnowledgeSource({
+      world_id: input.world_id,
+      source_bytes: sourceBytes,
+      idempotency_key: input.idempotency_key,
+      expected_revision: input.expected_revision,
+      expected_commit_sequence: input.expected_commit_sequence,
+      ...(input.turn_id === undefined ? {} : { turn_id: input.turn_id }),
+    }, TRUSTED_IMPORT_CAPABILITY);
+  }
+
+  /**
+   * Ingests an immutable deployment-approved source into the canonical event log.
+   * This method is intentionally not exposed by the HTTP API.
+   */
+  recordTrustedInitialKnowledgeSource(input, importCapability = null) {
     assert(obj(input), 'INVALID_TRUSTED_SOURCE_REQUEST', 'Source ingestion request must be an object.');
     const allowed = ['world_id', 'source_bytes', 'idempotency_key', 'expected_revision', 'expected_commit_sequence', 'turn_id'];
     assert(Object.keys(input).every((key) => allowed.includes(key)), 'UNSUPPORTED_TRUSTED_SOURCE_REQUEST_FIELD', 'Source ingestion request contains an unsupported field.');
@@ -680,8 +766,10 @@ export class LogicEngine {
       'INVALID_COMMIT_SEQUENCE', 'expected_commit_sequence is required.');
 
     const source = validateTrustedInitialKnowledgeSource(input.source_bytes, this.trustedInitialKnowledgeSources);
-    assert(source.source_kind === 'author_initial', 'UNSUPPORTED_TRUSTED_SOURCE_KIND',
-      'The imported source kind remains unsupported until a trusted production importer is connected.', 403);
+    assert(source.source_kind === 'author_initial'
+      || (source.source_kind === 'imported' && importCapability === TRUSTED_IMPORT_CAPABILITY),
+    'UNSUPPORTED_TRUSTED_SOURCE_KIND',
+    'Imported sources must be loaded through the deployment-owned trusted file importer.', 403);
     const world = this.store.world(input.world_id);
     assert(world, 'WORLD_NOT_FOUND', 'World not found.', 404);
     assert(world.world_pack_id === source.world_pack_id && world.world_pack_version === source.world_pack_version,
