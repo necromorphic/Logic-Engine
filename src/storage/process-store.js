@@ -422,6 +422,8 @@ export class ProcessStore {
 
   markNeedsReview(worldId, processId, code, message) {
     return this.store.tx(() => {
+      // A checkpoint contradiction overrides even a terminal lifecycle label:
+      // retain milestone evidence as-is and gate the process for manual review.
       const stamp = now();
       this.db.prepare(`UPDATE world_processes SET status='needs_review',version=version+1,last_error_json=?,updated_at=?
         WHERE world_id=? AND process_id=? AND status IN ('scheduled','running','paused','completed','failed','cancelled','needs_review')`)
