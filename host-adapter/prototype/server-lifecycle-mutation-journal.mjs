@@ -662,41 +662,54 @@ function fail(response, code, status = 503) {
  * A successful pre-snapshot and fsynced intent are required before the handler.
  * The response is held until a post-snapshot and fsynced outcome are recorded.
  */
-function verifyEnrolledChatSavePersistence(request, registry, after) {
-    if (request.method !== 'POST'
-        || (request.baseUrl + request.path !== '/api/chats/save'
-            && request.originalUrl?.split('?')[0] !== '/api/chats/save')) return null;
+export function verifyEnrolledChatSavePersistence(request, registry, after) {
+    const route = request.baseUrl + request.path;
+    const originalRoute = request.originalUrl?.split('?')[0];
+    const isRegularChatSave = route === '/api/chats/save' || originalRoute === '/api/chats/save';
+    const isGroupChatSave = route === '/api/chats/group/save' || originalRoute === '/api/chats/group/save';
+    if (request.method !== 'POST' || (!isRegularChatSave && !isGroupChatSave)) return null;
 
     const body = request.body;
-    const cardName = String(body?.avatar_url ?? '').replace('.png', '');
-    // Mirror the native route's order: append .jsonl, then sanitize the full
-    // filename. This is only a conservative enrollment lookup; native route
-    // validation and the persisted scanner remain the actual path/state checks.
-    const rawFileName = String(body?.file_name ?? '') + '.jsonl';
-    const fileName = rawFileName
-        .replace(/[<>:"/\\|?*\u0000-\u001F\u0080-\u009F]/g, '')
-        .replace(/^\.+$/g, '')
-        .replace(/^(con|prn|aux|nul|com[0-9]|lpt[0-9])(?:\..*)?$/i, '')
-        .replace(/[. ]+$/g, '')
-        .slice(0, 255);
-    const sourcePath = cardName + '/' + fileName;
-    const headerUuid = body?.chat?.[0]?.chat_metadata?.logic_engine_conversation_id;
-    // Match both the requested target and the stable enrolled UUID. The native
-    // route sanitizes file_name before writing, so raw request fields alone are
-    // not a reliable target identity. The persisted scanner rejects duplicate
-    // UUIDs/copy paths and changed headers; this fallback prevents a sanitized
-    // filename alias from skipping the persistence receipt check.
-    const enrollment = registry.conversations.find(item =>
-        item.domain === 'chats' && item.sourcePath === sourcePath)
-        ?? (typeof headerUuid === 'string' && headerUuid.length > 0
-            ? registry.conversations.find(item =>
-                item.domain === 'chats' && item.conversationId.split(':')[1] === headerUuid)
-            : undefined);
-    if (!enrollment) return null;
-
     if (!Array.isArray(body?.chat) || body.chat.length < 2) {
         return { ok: false, code: 'HOST_SAVE_PAYLOAD_INVALID' };
     }
+    const domain = isGroupChatSave ? 'group_chats' : 'chats';
+    let sourcePath;
+    if (isGroupChatSave) {
+        // Group saves use the native group id as the JSONL basename.
+        // resolveSaveTarget applies the same path-safety contract as capability issuance.
+        try {
+            sourcePath = resolveSaveTarget('/api/chats/group/save', body).sourcePath;
+        } catch {
+            return { ok: false, code: 'HOST_SAVE_TARGET_INVALID' };
+        }
+    } else {
+        const cardName = String(body?.avatar_url ?? '').replace('.png', '');
+        // Mirror the native route's order: append .jsonl, then sanitize the full
+        // filename. This is only a conservative enrollment lookup; native route
+        // validation and the persisted scanner remain the actual path/state checks.
+        const rawFileName = String(body?.file_name ?? '') + '.jsonl';
+        const fileName = rawFileName
+            .replace(/[<>:"/\\|?*\u0000-\u001F\u0080-\u009F]/g, '')
+            .replace(/^\.+$/g, '')
+            .replace(/^(con|prn|aux|nul|com[0-9]|lpt[0-9])(?:\..*)?$/i, '')
+            .replace(/[. ]+$/g, '')
+            .slice(0, 255);
+        sourcePath = cardName + '/' + fileName;
+    }
+    const headerUuid = body?.chat?.[0]?.chat_metadata?.logic_engine_conversation_id;
+    // Match both the requested target and the stable enrolled UUID. The native
+    // route sanitizes regular-chat filenames, so raw request fields alone are not
+    // a reliable target identity. The persisted scanner rejects duplicate UUIDs
+    // and changed headers; the UUID fallback also catches sanitized aliases.
+    const enrollment = registry.conversations.find(item =>
+        item.domain === domain && item.sourcePath === sourcePath)
+        ?? (typeof headerUuid === 'string' && headerUuid.length > 0
+            ? registry.conversations.find(item =>
+                item.domain === domain && item.conversationId.split(':')[1] === headerUuid)
+            : undefined);
+    if (!enrollment) return null;
+
     const conversationUuid = enrollment.conversationId.split(':')[1];
     if (headerUuid !== conversationUuid) {
         return { ok: false, code: 'HOST_SAVE_IDENTITY_MISMATCH' };
