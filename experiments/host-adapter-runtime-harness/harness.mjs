@@ -647,3 +647,78 @@ test('real pinned character deletion cannot bypass the Host guard with string de
   assert.equal(await readFile(avatarPath, 'utf8'), avatarBytes, 'character file must remain unchanged');
   assert.equal(await readFile(chatPath, 'utf8'), persistedChat, 'enrolled chat bytes must remain unchanged');
 });
+
+
+test('real pinned direct import routes fail closed when enrolled source histories exist', async (t) => {
+  const { execFileSync } = await import('node:child_process');
+  const actualSha = execFileSync('git', ['-C', stRoot, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+  assert.equal(actualSha, expectedSha, 'test must run against the exact pinned SillyTavern checkout');
+
+  const root = await mkdtemp(join(os.tmpdir(), 'st-host-import-routes-'));
+  const directories = {
+    chats: join(root, 'chats'),
+    characters: join(root, 'characters'),
+    groups: join(root, 'groups'),
+    groupChats: join(root, 'group_chats'),
+    backups: join(root, 'backups'),
+  };
+  await Promise.all(Object.values(directories).map(directory => mkdir(directory, { recursive: true })));
+
+  const regularUuid = randomUUID();
+  const groupUuid = randomUUID();
+  const regularConversationId = randomUUID() + ':' + regularUuid;
+  const groupConversationId = randomUUID() + ':' + groupUuid;
+  const regularPath = join(directories.chats, 'regular-enrolled.jsonl');
+  const groupPath = join(directories.groupChats, 'group-enrolled.jsonl');
+  const regularBytes = JSON.stringify({ chat_metadata: { logic_engine_conversation_id: regularUuid } }) + '\n';
+  const groupBytes = JSON.stringify({ chat_metadata: { logic_engine_conversation_id: groupUuid } }) + '\n';
+  await writeFile(regularPath, regularBytes);
+  await writeFile(groupPath, groupBytes);
+
+  const user = { profile: { handle: 'runtime-import-route-test' }, directories };
+  await registerHostConversation({ user }, {
+    conversationId: regularConversationId,
+    sourceLocator: 'regular-enrolled',
+    sourcePath: 'regular-enrolled.jsonl',
+    domain: 'chats',
+  });
+  await registerHostConversation({ user }, {
+    conversationId: groupConversationId,
+    sourceLocator: 'group-enrolled',
+    sourcePath: 'group-enrolled.jsonl',
+    domain: 'group_chats',
+  });
+
+  const app = express();
+  app.use(express.json({ limit: '1mb' }));
+  app.use((req, _res, next) => {
+    req.user = user;
+    next();
+  });
+  app.use(createHostLifecycleMutationMiddleware({ requirePersistedInventory: true }));
+  app.use('/api/chats', chatsRouter);
+  const server = app.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  const address = server.address();
+  assert.ok(address && typeof address === 'object');
+
+  t.after(async () => {
+    await new Promise(resolveClose => server.close(resolveClose));
+    await rm(root, { recursive: true, force: true });
+  });
+
+  for (const route of ['/api/chats/import', '/api/chats/group/import']) {
+    const response = await fetch('http://127.0.0.1:' + address.port + route, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    assert.equal(response.status, 409, route + ' must be rejected by server middleware before the native import handler');
+    assert.deepEqual(await response.json(), {
+      error: { code: 'HOST_ENROLLED_HISTORY_PATH_MUTATION_UNSUPPORTED' },
+    });
+  }
+
+  assert.equal(await readFile(regularPath, 'utf8'), regularBytes, 'regular enrolled history must remain unchanged');
+  assert.equal(await readFile(groupPath, 'utf8'), groupBytes, 'group enrolled history must remain unchanged');
+});
