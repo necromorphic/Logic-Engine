@@ -219,3 +219,12 @@ test("explicit disqualification takes precedence over incomplete coverage", () =
   assert.equal(result.options[1].status, "ineligible");
   assert.equal(result.options[1].reason, "explicit_resolution_opposes_option");
 });
+
+test("known hard-constraint violation excludes an option even when coverage is incomplete", () => {
+  const input = base();
+  input.options[0].hard_constraints_complete = false;
+  input.options[0].hard_constraints[0].status = "violated";
+  const result = evaluateNpcInternalConflict(input);
+  assert.equal(result.options[0].status, "ineligible");
+  assert.equal(result.options[0].reason, "hard_constraint_violated");
+});
