@@ -1,9 +1,9 @@
 # Memory Provider issue #181 — real adapter lifecycle evidence
 
-**Status:** implementation candidate; exact-head CI pending until this branch is tested.  
+**Status:** implementation candidate; an initial CI attempt exposed one test assertion mismatch and a missing focused-test environment preload; both were corrected, and exact-head CI is pending on the updated commit.  
 **Base main:** `b5fc27506ffda4fd6bc2e236c0463231f6c6c321`  
 **Candidate branch:** `provider/issue-181-real-adapter-lifecycle-2026-10-29`  
-**Candidate head at report authoring:** `7032f817c86a459f71b6b3238047e8d9e86196d9`  
+**Candidate head for current validation attempt:** `c8a516c88d15d29007f420f5ddc858c341457771`  
 **Issue:** [#181](https://github.com/necromorphic/Logic-Engine/issues/181)
 
 ## Audit: current main and prior work
