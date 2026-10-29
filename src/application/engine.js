@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { constants as fsConstants, openSync, fstatSync, readFileSync, closeSync } from 'node:fs';
-import { isAbsolute } from 'node:path';
+import { constants as fsConstants, openSync, fstatSync, readFileSync, closeSync, lstatSync, realpathSync } from 'node:fs';
+import { isAbsolute, resolve } from 'node:path';
 import { assert, EngineError } from '../core/errors.js';
 import { hashRequest } from '../core/request-hash.js';
 import { validateEffects } from '../core/rules.js';
@@ -693,13 +693,32 @@ export class LogicEngine {
     let sourceBytes;
     let fd;
     try {
+      // POSIX platforms enforce no-follow atomically at open. Windows does not
+      // expose O_NOFOLLOW through Node, so validate the path before and after
+      // opening and compare the opened handle identity with both path snapshots.
       const noFollow = fsConstants.O_NOFOLLOW;
-      assert(Number.isInteger(noFollow) && noFollow !== 0,
-        'TRUSTED_IMPORT_NOFOLLOW_UNAVAILABLE', 'This platform cannot enforce no-follow file opening for trusted imports.', 503);
-      fd = openSync(configured.source_path, fsConstants.O_RDONLY | noFollow);
+      let pathBefore;
+      let resolvedBefore;
+      if (!Number.isInteger(noFollow) || noFollow === 0) {
+        pathBefore = lstatSync(configured.source_path);
+        resolvedBefore = realpathSync(configured.source_path);
+        assert(pathBefore.isFile() && !pathBefore.isSymbolicLink()
+          && resolve(resolvedBefore) === resolve(configured.source_path),
+        'TRUSTED_IMPORT_FILE_UNAVAILABLE', 'Trusted import path must resolve directly to a regular, non-link file.', 503);
+      }
+      fd = openSync(configured.source_path, fsConstants.O_RDONLY | (Number.isInteger(noFollow) && noFollow !== 0 ? noFollow : 0));
       const stat = fstatSync(fd);
       assert(stat.isFile() && stat.size > 0 && stat.size <= MAX_TRUSTED_IMPORT_BYTES,
         'INVALID_TRUSTED_IMPORT_FILE', 'Trusted import must be a regular file within the 1 MiB limit.');
+      if (pathBefore) {
+        const pathAfter = lstatSync(configured.source_path);
+        const resolvedAfter = realpathSync(configured.source_path);
+        assert(pathAfter.isFile() && !pathAfter.isSymbolicLink()
+          && resolve(resolvedBefore) === resolve(resolvedAfter)
+          && stat.dev === pathBefore.dev && stat.ino === pathBefore.ino
+          && stat.dev === pathAfter.dev && stat.ino === pathAfter.ino,
+        'TRUSTED_IMPORT_FILE_UNAVAILABLE', 'Trusted import path changed while it was being opened.', 503);
+      }
       sourceBytes = readFileSync(fd);
       assert(sourceBytes.length > 0 && sourceBytes.length <= MAX_TRUSTED_IMPORT_BYTES,
         'INVALID_TRUSTED_IMPORT_FILE', 'Trusted import bytes must remain within the 1 MiB limit when read.');
