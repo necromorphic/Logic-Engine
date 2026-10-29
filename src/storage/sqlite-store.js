@@ -1924,15 +1924,15 @@ export class SQLiteStore {
       let segments;
       try {
         segments = dec(current.segments_json);
-        if (!Array.isArray(segments)) throw new Error('Persisted segments must be an array.');
+        if (!Array.isArray(segments) || segments.length === 0) throw new Error('Persisted segments must be a non-empty array for a running operation.');
       } catch (error) {
         // Persisted operation evidence is untrusted during recovery. Fail closed before
         // any segment is resumed, release only this operation's claims, and gate the
         // processes whose pending triggers were owned by this operation.
-        const affectedProcessIds = this.tx(() => {
+        this.tx(() => {
           const fresh = this.db.prepare('SELECT status FROM time_advance_operations WHERE world_id=? AND operation_id=?')
             .get(worldId, operationId);
-          if (!fresh || fresh.status !== 'running') return [];
+          if (!fresh || fresh.status !== 'running') return;
           const processRows = this.db.prepare(`SELECT DISTINCT m.process_id
             FROM world_process_milestones m
             JOIN world_time_triggers t ON t.world_id=m.world_id AND t.trigger_id=m.trigger_id
@@ -1945,12 +1945,14 @@ export class SQLiteStore {
             }), now(), worldId, operationId);
           this.db.prepare('UPDATE world_time_triggers SET claimed_by_operation_id=NULL WHERE world_id=? AND claimed_by_operation_id=?')
             .run(worldId, operationId);
-          return processRows.map((row) => row.process_id);
+          // Gate processes in the same SQLite transaction as the terminal operation
+          // state. If any audit/gate write fails, the whole recovery decision rolls back
+          // and the operation remains retryable rather than leaving a runnable process.
+          for (const row of processRows) {
+            this.processStore?.markNeedsReview(worldId, row.process_id, 'TIME_ADVANCE_SEGMENTS_MALFORMED',
+              'Persisted time-advance segments are malformed; recovery was stopped without replaying effects.');
+          }
         });
-        for (const processId of affectedProcessIds) {
-          this.processStore?.markNeedsReview(worldId, processId, 'TIME_ADVANCE_SEGMENTS_MALFORMED',
-            'Persisted time-advance segments are malformed; recovery was stopped without replaying effects.');
-        }
         continue;
       }
       const expectedConfirmedCoordinate = current.next_segment_index === 0
@@ -2091,22 +2093,25 @@ export class SQLiteStore {
           if (plan.final_action_status === 'pending' && result) {
             result = { ...result, final_action_status: 'not_committed_needs_review' };
           }
+          const processRows = error?.code === 'PROCESS_CROSS_RECORD_CHECKPOINT_MISMATCH'
+            ? this.db.prepare(`SELECT DISTINCT m.process_id
+                FROM world_process_milestones m
+                JOIN world_time_triggers t ON t.world_id=m.world_id AND t.trigger_id=m.trigger_id
+                WHERE t.world_id=? AND t.claimed_by_operation_id=?`).all(worldId, operationId)
+            : [];
           this.db.prepare("UPDATE time_advance_operations SET status='needs_review',error_json=?,result_json=?,updated_at=? WHERE world_id=? AND operation_id=?")
             .run(enc(errorBody), result ? enc(result) : null, now(), worldId, operationId);
-          if (error?.code === 'PROCESS_CROSS_RECORD_CHECKPOINT_MISMATCH') {
-            // A failed segment must not leave its pending triggers claimed. Claim
-            // metadata is operational, not a checkpoint update, so preserve each
-            // trigger's updated_at timestamp while releasing this operation's claims.
-            this.db.prepare('UPDATE world_time_triggers SET claimed_by_operation_id=NULL WHERE world_id=? AND claimed_by_operation_id=?')
-              .run(worldId, operationId);
+          // Once an operation is terminal, none of its claims may remain owned.
+          // Preserve trigger checkpoint timestamps: only transient claim metadata changes.
+          this.db.prepare('UPDATE world_time_triggers SET claimed_by_operation_id=NULL WHERE world_id=? AND claimed_by_operation_id=?')
+            .run(worldId, operationId);
+          // The segment transaction already rolled back. Gate every process whose
+          // trigger belonged to the failed operation atomically with its needs_review
+          // operation record, so no sibling process can be replayed after the rollback.
+          for (const row of processRows) {
+            this.processStore?.markNeedsReview(worldId, row.process_id, error.code, error.message);
           }
         });
-        if (error?.code === 'PROCESS_CROSS_RECORD_CHECKPOINT_MISMATCH'
-          && typeof error.details?.process_id === 'string' && this.processStore) {
-          // The segment transaction has rolled back. Persist only the review gate;
-          // canonical world state, event history and trigger completion remain untouched.
-          this.processStore.markNeedsReview(worldId, error.details.process_id, error.code, error.message);
-        }
       }
     }
   }
