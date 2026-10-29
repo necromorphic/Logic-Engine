@@ -338,7 +338,7 @@ test('server persistence receipt rejects a modified inactive version digest', ()
 
 test('pinned browser bridge executes save and verifies regular/group persisted readback', async () => {
   const patchUrl = new URL('../patches/sillytavern-1.19.0-lifecycle-hooks.patch', import.meta.url);
-  const patch = await readFile(patchUrl, 'utf8');
+  const patch = (await readFile(patchUrl, 'utf8')).replace(/\r\n/g, '\n');
   const startMarker = 'saveChat: async () => {';
   const endMarker = '\n+            },\n+            publishDigest:';
   const start = patch.indexOf(startMarker);
