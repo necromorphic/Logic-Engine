@@ -335,7 +335,6 @@ export function buildNpcBeliefContext(knowledgeRead, transition) {
     proposition_ref: transition.proposition_ref,
     proposition_value: transition.proposition_value,
     belief_stance: transition.stance,
-    stance_change: transition.stance_change,
     epistemic_status: transition.stance === 'unresolved_conflict' ? 'conflicted' : 'belief_proposal',
     evidence: Object.freeze(safeEvidence),
     reason_rule_ref: transition.reason_rule_ref,
