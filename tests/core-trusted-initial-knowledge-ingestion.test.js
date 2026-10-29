@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { SQLiteStore } from '../src/storage/sqlite-store.js';
@@ -126,16 +126,49 @@ test('source rollback invalidates the acquisition and rebuild does not restore i
   assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM knowledge_acquisitions').get().n, 0);
 });
 
-test('imported assignments remain unsupported until a real importer is connected', (t) => {
-  const bytes = sourceBytes();
+test('imported assignments load only through the deployment-owned allowlisted file importer', (t) => {
+  const { store, bytes } = setup(t);
   const importedBytes = bytes.replace('"author_initial"', '"imported"');
-  const { store } = setup(t);
-  const engine = new LogicEngine(store, { trustedInitialKnowledgeSources: trustedRegistry(importedBytes) });
+  const dir = mkdtempSync(join(tmpdir(), 'logic-trusted-import-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const sourcePath = join(dir, 'approved-import.json');
+  writeFileSync(sourcePath, importedBytes);
+  const registry = trustedRegistry(importedBytes).map((entry) => ({ ...entry, source_path: sourcePath }));
+  const engine = new LogicEngine(store, { trustedInitialKnowledgeSources: registry });
+
   assert.throws(() => engine.recordTrustedInitialKnowledgeSource({
-    world_id: 'world-a', source_bytes: importedBytes, idempotency_key: 'imported-source',
+    world_id: 'world-a', source_bytes: importedBytes, idempotency_key: 'imported-direct-bytes',
     expected_revision: 1, expected_commit_sequence: 1,
   }), { code: 'UNSUPPORTED_TRUSTED_SOURCE_KIND' });
-  assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM knowledge_acquisitions').get().n, 0);
+  const result = engine.recordTrustedImportedKnowledgeSource({
+    world_id: 'world-a', source_ref: 'authoring:test.world@1.0.0', idempotency_key: 'imported-source',
+    expected_revision: 1, expected_commit_sequence: 1,
+  });
+  assert.equal(result.accepted, true);
+  const acquisition = store.db.prepare('SELECT acquisition_kind,provenance_ref FROM knowledge_acquisitions WHERE world_id=?').get('world-a');
+  assert.deepEqual(acquisition, { acquisition_kind: 'imported', provenance_ref: 'authoring:test.world@1.0.0' });
+});
+
+test('trusted file importer rejects tampered bytes and caller-selected paths without mutation', (t) => {
+  const { store, bytes } = setup(t);
+  const importedBytes = bytes.replace('"author_initial"', '"imported"');
+  const dir = mkdtempSync(join(tmpdir(), 'logic-trusted-import-tamper-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const sourcePath = join(dir, 'approved-import.json');
+  writeFileSync(sourcePath, importedBytes);
+  const registry = trustedRegistry(importedBytes).map((entry) => ({ ...entry, source_path: sourcePath }));
+  const engine = new LogicEngine(store, { trustedInitialKnowledgeSources: registry });
+
+  assert.throws(() => engine.recordTrustedImportedKnowledgeSource({
+    world_id: 'world-a', source_ref: '../approved-import.json', idempotency_key: 'import-path-traversal',
+    expected_revision: 1, expected_commit_sequence: 1,
+  }), { code: 'TRUSTED_IMPORT_SOURCE_NOT_CONFIGURED' });
+  writeFileSync(sourcePath, importedBytes.replace('fact-a', 'fact-b'));
+  assert.throws(() => engine.recordTrustedImportedKnowledgeSource({
+    world_id: 'world-a', source_ref: 'authoring:test.world@1.0.0', idempotency_key: 'import-tampered-bytes',
+    expected_revision: 1, expected_commit_sequence: 1,
+  }), { code: 'TRUSTED_SOURCE_NOT_APPROVED' });
+  assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM knowledge_acquisitions WHERE world_id=?').get('world-a').n, 0);
 });
 
 test('ordinary event commits cannot forge acquisition effects', (t) => {
