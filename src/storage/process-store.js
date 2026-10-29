@@ -187,9 +187,11 @@ export class ProcessStore {
           });
       }
       if (milestone.status !== 'pending') {
-        throw new EngineError('PROCESS_MILESTONE_CHECKPOINT_CONFLICT', 'Only a pending process milestone can be completed.', 409, {
-          process_id: milestone.process_id, milestone_id: milestone.milestone_id, status: milestone.status,
-        });
+        throw new EngineError('PROCESS_CROSS_RECORD_CHECKPOINT_MISMATCH',
+          'A registered trigger cannot complete a process milestone whose persisted status is not pending.', 409, {
+            process_id: milestone.process_id, milestone_id: milestone.milestone_id, trigger_id: triggerId,
+            operation_id: operationId, milestone_status: milestone.status,
+          });
       }
       // Validate the process checkpoint against the exact canonical segment evidence
       // before advancing the milestone. This runs inside the existing Core segment
