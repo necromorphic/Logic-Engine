@@ -13,6 +13,7 @@ The Core API exposes:
 |---|---|---|---|
 | `POST /v1/host-conversation-bindings` | Bind configured adapter + stable conversation ID to a canonical world | `x-admin-token`; adapter ID must already be configured | Binding was accepted; not that the Host inventory is complete |
 | `POST /v1/host-conversation-bindings/resolve` | Resolve the authenticated adapter's conversation binding | Authenticated adapter | A binding exists for that scope |
+| `DELETE /v1/host-conversation-bindings/:adapter_id/:conversation_id` | Revoke a conversation binding | `x-admin-token` (verify against the current route implementation) | The binding is revoked; subsequent resolve/capture must fail closed |
 | `POST /v1/host-version-ledger/capture` | Capture a digest-only message-version record | Authenticated adapter + existing binding | That one submitted record was accepted; not that all versions/events were captured |
 
 Capture requires `conversation_id`, `message_id`, `version_id`, explicit `parent_version_id` (string or null), lowercase 64-character SHA-256 `content_sha256`, and boolean `active` and `deleted`. It rejects raw text and caller-provided `world_id`. The Host ledger is stored separately from Core's world database and the shared coordinator.
@@ -42,7 +43,7 @@ Run against the isolated SillyTavern copy on port `8010` and its isolated data d
 
 1. Record actual Core process, listening port, Core revision, configured DB paths, and whether the Host ledger/coordinator files already exist. Do not start a second Core or initialize a guessed database.
 2. Verify the Host patch applies cleanly to the isolated SillyTavern checkout and confirm the exact target SHA before installing anything.
-3. Test Core health and the three Host routes with a disposable test world and test adapter credentials. Verify unauthenticated, unbound, malformed-digest, raw-text and caller-supplied-world requests fail closed.
+3. Test Core health and all four Host routes with a disposable test world and test adapter credentials. Create a binding, verify resolve and digest capture work only for the authenticated bound adapter, then call `DELETE /v1/host-conversation-bindings/:adapter_id/:conversation_id`; confirm resolve and capture both fail closed after revocation. Also verify unauthenticated, unbound, malformed-digest, raw-text and caller-supplied-world requests fail closed.
 4. In isolated SillyTavern, test create → edit → swipe/regenerate → delete → chat switch → reload/restart; compare persisted history and Host digest inventory after each operation.
 5. Test import, backup restore/delete, group/character deletion, duplicate replay, journal corruption, missing/partial inventory, and external file modification. Expected disposition remains `NON_READY` for unsupported or incomplete coverage.
 6. Verify Core reconciliation remains `NON_READY` while the deny-only verifier is active. Do not enable Memory → NPC or outbound dispatch.
