@@ -69,7 +69,6 @@ const { router: charactersRouter } = await import(pathToFileURL(resolve(stRoot, 
 const { router: backupsRouter } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/backups.js')).href);
 const { router: dataMaidRouter } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/data-maid.js')).href);
 const { router: usersPrivateRouter } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/users.js')).href);
-const { router: backupsRouter } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/backups.js')).href);
 const { createHostLifecycleMutationMiddleware, getHostConversationInventory, recordHostCaptureAcknowledgement, registerHostConversation } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/logic-engine-host-journal.mjs')).href);
 const { router: logicEngineLifecycleRouter } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/logic-engine-lifecycle.js')).href);
 
