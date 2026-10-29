@@ -228,3 +228,31 @@ test("known hard-constraint violation excludes an option even when coverage is i
   assert.equal(result.options[0].status, "ineligible");
   assert.equal(result.options[0].reason, "hard_constraint_violated");
 });
+
+
+test("rejects missing own fields and inherited-only assessment values", () => {
+  const missingOwnId = base();
+  delete missingOwnId.options[0].id;
+  assert.equal(evaluateNpcInternalConflict(missingOwnId).status, "non_ready");
+
+  const inheritedOption = Object.assign(Object.create({ id: "inherited-option-id" }), {
+    supports: ["protect-friend"],
+    frustrates: [],
+    motive_assessment_complete: true,
+    feasibility: "feasible",
+    hard_constraints_complete: true,
+    hard_constraints: [],
+  });
+  const inheritedInput = base();
+  inheritedInput.options[0] = inheritedOption;
+  assert.equal(evaluateNpcInternalConflict(inheritedInput).status, "non_ready");
+
+  const missingRule = base();
+  missingRule.options[1].frustrates = ["protect-friend"];
+  missingRule.resolutions = [{
+    motive_a_id: "meet-deadline",
+    motive_b_id: "protect-friend",
+    preferred_motive_id: "meet-deadline",
+  }];
+  assert.equal(evaluateNpcInternalConflict(missingRule).status, "non_ready");
+});
