@@ -237,3 +237,26 @@ test('a truncated Core acquisition window cannot produce a belief transition', (
   assert.equal(result.reason, 'core_knowledge_read_not_ready');
 });
 
+
+test('context builder fails closed for malformed Core reads instead of throwing or replacing evidence', () => {
+  const read = knowledgeRead();
+  const reduced = reduceNpcBeliefTransition({ knowledgeRead: read, proposal: proposal() });
+  const sparseItems = [];
+  sparseItems.length = 1;
+  const duplicateItems = [evidenceItems[0], { ...evidenceItems[0], value: 'Sotenbori' }];
+
+  for (const malformedRead of [
+    { ...read, items: null },
+    { ...read, items: sparseItems },
+    { ...read, items: duplicateItems },
+    { ...read, purpose: 'unknown-purpose' },
+    { ...read, snapshot: { world_revision: Number.MAX_SAFE_INTEGER + 1, commit_sequence: 1 } },
+    { ...read, truncated: true },
+  ]) {
+    const result = buildNpcBeliefContext(malformedRead, reduced.transition);
+    assert.equal(result.status, 'non_ready');
+    assert.equal(result.context, null);
+  }
+
+  assert.equal(buildNpcBeliefContext(read, reduced.transition).status, 'ready');
+});
