@@ -527,6 +527,43 @@ test('idempotent belief replay rechecks current read authorization and returns n
   assert.equal(replay.transition.event_id, committed.transition.event_id);
 });
 
+test('hidden proposition availability is indistinguishable when no belief transition exists', (t) => {
+  const { store } = setup(t);
+  const current = request(store);
+  const read = new LogicEngine(store, {
+    trustedInitialKnowledgeSources: trustedRegistry,
+    npcKnowledgeReadAuthorizer: (scope) => ({
+      status: 'authorized',
+      world_id: scope.world_id,
+      actor_id: scope.actor_id,
+      purpose: scope.purpose,
+      world_revision: scope.world_revision,
+      commit_sequence: scope.commit_sequence,
+      authorization_ref: 'rule:npc-read-v1',
+    }),
+    npcKnowledgeVisibilityAuthorizer: (scope) => ({
+      status: 'denied',
+      world_id: scope.world_id,
+      actor_id: scope.actor_id,
+      purpose: scope.purpose,
+      world_revision: scope.world_revision,
+      commit_sequence: scope.commit_sequence,
+      acquisition_id: scope.acquisition_id,
+      authorization_ref: 'rule:npc-visibility-deny-v1',
+    }),
+  });
+  const item = read.readNpcKnowledge(current).items[0];
+  const state = read.getNpcBeliefState({
+    ...current,
+    proposition_ref: propositionRefFor(item),
+  });
+  assert.deepEqual(state, {
+    status: 'unavailable',
+    actor_id: 'npc-a',
+    proposition_ref: propositionRefFor(item),
+  });
+});
+
 test('belief-state reads do not disclose a proposition whose current evidence is withheld', (t) => {
   const { store, engine } = setup(t);
   const current = request(store);
