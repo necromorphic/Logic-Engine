@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { createServer } from 'node:net';
 import { once } from 'node:events';
 import { linkSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -24,15 +25,26 @@ async function waitForExit(child, timeoutMs = 3000) {
   ]);
 }
 
+function writeTestWorldPackCatalog(directory) {
+  const artifactPath = join(directory, 'test-world-pack.json');
+  const artifactBytes = Buffer.from(JSON.stringify({ world_pack_id: 'fixture.biological-world', version: '0.1.0', schema_version: 'runtime-startup-test' }, null, 2) + '\n');
+  writeFileSync(artifactPath, artifactBytes);
+  const catalogPath = join(directory, 'world-pack-catalog.json');
+  writeFileSync(catalogPath, JSON.stringify({ schema_version: 1, entries: [{ world_pack_id: 'fixture.biological-world', version: '0.1.0', artifact_path: 'test-world-pack.json', sha256: createHash('sha256').update(artifactBytes).digest('hex') }] }, null, 2) + '\n');
+  return catalogPath;
+}
+
 test('runtime process starts with isolated credentials/database and serves health', { timeout: 15000 }, async () => {
   const directory = mkdtempSync(join(tmpdir(), 'logic-engine-startup-smoke-'));
   const port = await unusedLoopbackPort();
+  const worldPackCatalogPath = writeTestWorldPackCatalog(directory);
   const child = spawn(process.execPath, ['src/index.js'], {
     cwd: resolve('.'),
     env: {
       ...process.env,
       ENGINE_API_TOKEN: 'startup-smoke-api-token-123456',
       ENGINE_DB_PATH: join(directory, 'runtime.sqlite'),
+      LOGIC_ENGINE_WORLD_PACK_CATALOG_PATH: worldPackCatalogPath,
       ENGINE_HOST_VERSION_LEDGER_DB_PATH: join(directory, 'host-versions.sqlite'),
       ENGINE_PORT: String(port),
       ENGINE_HOST: '127.0.0.1',
@@ -84,12 +96,14 @@ test('runtime rejects coordinator database hard-link aliases', { timeout: 10000 
   const databaseAliasPath = join(directory, 'runtime-alias.sqlite');
   writeFileSync(coordinatorPath, '');
   linkSync(coordinatorPath, databaseAliasPath);
+  const worldPackCatalogPath = writeTestWorldPackCatalog(directory);
   const child = spawn(process.execPath, ['src/index.js'], {
     cwd: resolve('.'),
     env: {
       ...process.env,
       ENGINE_API_TOKEN: 'coordinator-alias-api-token-123456',
       ENGINE_DB_PATH: databaseAliasPath,
+      LOGIC_ENGINE_WORLD_PACK_CATALOG_PATH: worldPackCatalogPath,
       LOGIC_ENGINE_COORDINATOR_DB_PATH: coordinatorPath,
       ENGINE_HOST_VERSION_LEDGER_DB_PATH: join(directory, 'host-versions.sqlite'),
       ENGINE_PORT: '18787',
