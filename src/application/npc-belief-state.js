@@ -178,6 +178,13 @@ export function reduceNpcBeliefTransition({ knowledgeRead, currentBelief = null,
     } catch {
       return Object.freeze({ status: 'non_ready', reason: 'current_belief_scope_invalid', transition: null });
     }
+    // Active evidence attached to a prior belief must still refer to that
+    // proposition. A valid acquisition for some other proposition is not
+    // evidence lineage for this belief.
+    if (priorEvidenceRefs.some((ref) => active.has(ref)
+      && npcPropositionRefFor(active.get(ref)) !== currentBelief.proposition_ref)) {
+      return Object.freeze({ status: 'non_ready', reason: 'current_belief_scope_invalid', transition: null });
+    }
     prior = currentBelief;
   }
 
