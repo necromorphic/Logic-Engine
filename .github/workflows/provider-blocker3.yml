@@ -49,7 +49,7 @@ jobs:
       - name: Install dependencies
         run: npm install --no-package-lock --no-audit --no-fund
       - name: Accepted-head, Provider, and protected-dispatch acceptance tests
-        run: node --test tests/accepted-head-authority.test.js tests/core-accepted-head-handshake.test.js tests/provider-accepted-head-handshake.test.js tests/memory-dispatch-gateway.test.js tests/memory-provider-raw-archive.test.js tests/memory-provider-core-integration.test.js tests/memory-provider-ingest-index-failure.test.js tests/memory-provider-lifecycle-regressions.test.js tests/memory-provider-reconcile-interruption.test.js tests/memory-provider-typed-failures.test.js tests/sqlite-memory-provider.test.js
+        run: node --import ./tests/configure-test-env.js --test tests/accepted-head-authority.test.js tests/core-accepted-head-handshake.test.js tests/provider-accepted-head-handshake.test.js tests/memory-dispatch-gateway.test.js tests/memory-provider-raw-archive.test.js tests/memory-provider-core-integration.test.js tests/memory-provider-ingest-index-failure.test.js tests/memory-provider-lifecycle-regressions.test.js tests/memory-provider-reconcile-interruption.test.js tests/memory-provider-typed-failures.test.js tests/sqlite-memory-provider.test.js
 
   runtime-linux:
     runs-on: ubuntu-latest
