@@ -77,9 +77,6 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
         });
       }
     }
-    // Core requires a declared parent to exist before a child is captured.
-    // Order by ancestry first and prefer inactive versions among simultaneously ready entries.
-    const orderedEntries = sortParentFirst(entries);
     for (const tombstone of tombstones) {
       if (!tombstone || typeof tombstone.messageId !== 'string' || typeof tombstone.versionId !== 'string'
         || !/^[a-f0-9]{64}$/.test(tombstone.payloadDigest)) {
@@ -95,6 +92,9 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
         deleted: true,
       });
     }
+    // Core requires a declared parent to exist before a child is captured.
+    // Order all live versions and tombstones by ancestry; prefer inactive entries among ready siblings.
+    const orderedEntries = sortParentFirst(entries);
     const previous = publishQueues.get(conversationId) ?? Promise.resolve();
     const current = previous.catch(() => {}).then(async () => {
       for (const entry of orderedEntries) {
