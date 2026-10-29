@@ -867,6 +867,8 @@ test('cross-record process checkpoint mismatch fails closed and replays idempote
   const beforeEvents = engine.getEvents('world-a', true);
   const beforeCommitSequence = store.currentCommitSequence('world-a');
   const beforeTrigger = engine.getTimeTrigger('world-a', 'journey-depart');
+  const beforeProcess = engine.getProcess('world-a', 'journey-1');
+  const beforeAudit = engine.getAudit('world-a');
   const originalCompleteTrigger = engine.processStore.completeTrigger.bind(engine.processStore);
 
   // Simulate stale/corrupt process-side evidence at the existing Core boundary.
@@ -886,9 +888,15 @@ test('cross-record process checkpoint mismatch fails closed and replays idempote
   assert.equal(engine.getState('world-a').world_revision, beforeState.world_revision);
   assert.equal(store.currentCommitSequence('world-a'), beforeCommitSequence);
   assert.deepEqual(engine.getEvents('world-a', true), beforeEvents);
-  assert.equal(engine.getProcess('world-a', 'journey-1').status, 'needs_review');
-  assert.equal(engine.getProcess('world-a', 'journey-1').milestones[0].status, 'pending');
+  const processAfterFailure = engine.getProcess('world-a', 'journey-1');
+  assert.equal(processAfterFailure.status, 'needs_review');
+  assert.equal(processAfterFailure.version, beforeProcess.version + 1);
+  assert.equal(processAfterFailure.milestones[0].status, 'pending');
+  assert.equal(processAfterFailure.milestones[0].checkpoint_version, beforeProcess.milestones[0].checkpoint_version);
   assert.deepEqual(engine.getTimeTrigger('world-a', 'journey-depart'), beforeTrigger);
+  const auditAfterFailure = engine.getAudit('world-a');
+  assert.equal(auditAfterFailure.length, beforeAudit.length + 1);
+  assert.equal(auditAfterFailure.at(-1).action, 'process.needs_review');
 
   const persisted = store.getTimeAdvanceOperationByKey('world-a', request.idempotency_key);
   assert.equal(persisted.status, 'needs_review');
@@ -932,6 +940,8 @@ test('completed milestone reached by a still-pending trigger is gated for review
   const beforeEvents = engine.getEvents('world-a', true);
   const beforeCommitSequence = store.currentCommitSequence('world-a');
   const beforeTrigger = engine.getTimeTrigger('world-a', 'journey-depart');
+  const beforeProcess = engine.getProcess('world-a', 'journey-1');
+  const beforeAudit = engine.getAudit('world-a');
   const result = engine.startTimeAdvance('world-a', {
     idempotency_key: 'completed-milestone-pending-trigger-mismatch',
     expected_revision: beforeState.world_revision,
@@ -939,8 +949,14 @@ test('completed milestone reached by a still-pending trigger is gated for review
   });
 
   assert.equal(result.status, 'needs_review');
-  assert.equal(engine.getProcess('world-a', 'journey-1').status, 'needs_review');
-  assert.equal(engine.getProcess('world-a', 'journey-1').milestones[0].status, 'completed');
+  const processAfterFailure = engine.getProcess('world-a', 'journey-1');
+  assert.equal(processAfterFailure.status, 'needs_review');
+  assert.equal(processAfterFailure.version, beforeProcess.version + 1);
+  assert.equal(processAfterFailure.milestones[0].status, 'completed');
+  assert.equal(processAfterFailure.milestones[0].checkpoint_version, beforeProcess.milestones[0].checkpoint_version);
+  const auditAfterFailure = engine.getAudit('world-a');
+  assert.equal(auditAfterFailure.length, beforeAudit.length + 1);
+  assert.equal(auditAfterFailure.at(-1).action, 'process.needs_review');
   assert.equal(engine.getState('world-a').game_time_coordinate, beforeState.game_time_coordinate);
   assert.equal(engine.getState('world-a').world_revision, beforeState.world_revision);
   assert.equal(store.currentCommitSequence('world-a'), beforeCommitSequence);
@@ -963,6 +979,8 @@ test('terminal process with a non-pending milestone and pending trigger is gated
   const beforeEvents = engine.getEvents('world-a', true);
   const beforeCommitSequence = store.currentCommitSequence('world-a');
   const beforeTrigger = engine.getTimeTrigger('world-a', 'journey-depart');
+  const beforeProcess = engine.getProcess('world-a', 'journey-1');
+  const beforeAudit = engine.getAudit('world-a');
   const result = engine.startTimeAdvance('world-a', {
     idempotency_key: 'terminal-process-checkpoint-mismatch',
     expected_revision: beforeState.world_revision,
@@ -970,8 +988,14 @@ test('terminal process with a non-pending milestone and pending trigger is gated
   });
 
   assert.equal(result.status, 'needs_review');
-  assert.equal(engine.getProcess('world-a', 'journey-1').status, 'needs_review');
-  assert.equal(engine.getProcess('world-a', 'journey-1').milestones[0].status, 'cancelled');
+  const processAfterFailure = engine.getProcess('world-a', 'journey-1');
+  assert.equal(processAfterFailure.status, 'needs_review');
+  assert.equal(processAfterFailure.version, beforeProcess.version + 1);
+  assert.equal(processAfterFailure.milestones[0].status, 'cancelled');
+  assert.equal(processAfterFailure.milestones[0].checkpoint_version, beforeProcess.milestones[0].checkpoint_version);
+  const auditAfterFailure = engine.getAudit('world-a');
+  assert.equal(auditAfterFailure.length, beforeAudit.length + 1);
+  assert.equal(auditAfterFailure.at(-1).action, 'process.needs_review');
   assert.equal(engine.getState('world-a').game_time_coordinate, beforeState.game_time_coordinate);
   assert.equal(engine.getState('world-a').world_revision, beforeState.world_revision);
   assert.equal(store.currentCommitSequence('world-a'), beforeCommitSequence);
