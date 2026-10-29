@@ -12,7 +12,7 @@ const sourceBytes = (assignments = [{ subject_id: 'npc-a', fact_id: 'fact-a' }])
   world_pack_id: 'test.world',
   world_pack_version: '1.0.0',
   source_kind: 'author_initial',
-  source_ref: 'authoring:test.world@1.0.0',
+  source_ref: 'import:test.world@1.0.0',
   authorization_ref: 'rule:initial-knowledge-v1',
   assignments,
 });
@@ -128,7 +128,9 @@ test('source rollback invalidates the acquisition and rebuild does not restore i
 
 test('imported assignments load only through the deployment-owned allowlisted file importer', (t) => {
   const { store, bytes } = setup(t);
-  const importedBytes = bytes.replace('"author_initial"', '"imported"');
+  const importedBytes = bytes.replace('"author_initial"', '"imported"')
+    .replace('authoring:test.world@1.0.0', 'import:test.world@1.0.0')
+    .replace('rule:initial-knowledge-v1', 'rule:import-approval-v1');
   const dir = mkdtempSync(join(tmpdir(), 'logic-trusted-import-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const sourcePath = join(dir, 'approved-import.json');
@@ -141,18 +143,20 @@ test('imported assignments load only through the deployment-owned allowlisted fi
     expected_revision: 1, expected_commit_sequence: 1,
   }), { code: 'UNSUPPORTED_TRUSTED_SOURCE_KIND' });
   const result = engine.recordTrustedImportedKnowledgeSource({
-    world_id: 'world-a', source_ref: 'authoring:test.world@1.0.0', idempotency_key: 'imported-source',
+    world_id: 'world-a', source_ref: 'import:test.world@1.0.0', idempotency_key: 'imported-source',
     expected_revision: 1, expected_commit_sequence: 1,
   });
   assert.equal(result.accepted, true);
   const acquisition = store.db.prepare('SELECT acquisition_kind,provenance_ref FROM knowledge_acquisitions WHERE world_id=?').get('world-a');
   assert.equal(acquisition.acquisition_kind, 'imported');
-  assert.equal(acquisition.provenance_ref, 'authoring:test.world@1.0.0');
+  assert.equal(acquisition.provenance_ref, 'import:test.world@1.0.0');
 });
 
 test('trusted file importer rejects tampered bytes and caller-selected paths without mutation', (t) => {
   const { store, bytes } = setup(t);
-  const importedBytes = bytes.replace('"author_initial"', '"imported"');
+  const importedBytes = bytes.replace('"author_initial"', '"imported"')
+    .replace('authoring:test.world@1.0.0', 'import:test.world@1.0.0')
+    .replace('rule:initial-knowledge-v1', 'rule:import-approval-v1');
   const dir = mkdtempSync(join(tmpdir(), 'logic-trusted-import-tamper-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const sourcePath = join(dir, 'approved-import.json');
@@ -166,7 +170,7 @@ test('trusted file importer rejects tampered bytes and caller-selected paths wit
   }), { code: 'TRUSTED_IMPORT_SOURCE_NOT_CONFIGURED' });
   writeFileSync(sourcePath, importedBytes.replace('fact-a', 'fact-b'));
   assert.throws(() => engine.recordTrustedImportedKnowledgeSource({
-    world_id: 'world-a', source_ref: 'authoring:test.world@1.0.0', idempotency_key: 'import-tampered-bytes',
+    world_id: 'world-a', source_ref: 'import:test.world@1.0.0', idempotency_key: 'import-tampered-bytes',
     expected_revision: 1, expected_commit_sequence: 1,
   }), { code: 'TRUSTED_SOURCE_NOT_APPROVED' });
   assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM knowledge_acquisitions WHERE world_id=?').get('world-a').n, 0);
