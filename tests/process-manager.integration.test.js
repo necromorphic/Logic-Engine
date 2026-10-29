@@ -1077,6 +1077,45 @@ test('malformed completed milestone event evidence fails closed and gates the pr
   assert.equal(engine.getAudit('world-a').at(-1).action, 'process.needs_review');
 }));
 
+test('checkpoint failure gates only the implicated process and releases all operation claims', (t) => withDatabase(t, ({ engine, store }) => {
+  store.createWorld(worldInput());
+  const createSingleMilestoneProcess = (processId, triggerId, dueCoordinate) => engine.createProcess('world-a', {
+    process_id: processId,
+    definition_version: '1',
+    idempotency_key: `create-${processId}`,
+    expected_revision: 0,
+    milestones: [{
+      milestone_id: 'stage',
+      trigger_id: triggerId,
+      due_coordinate: dueCoordinate,
+      prerequisites: [],
+      read_set: [],
+      write_set: [],
+      event: { turn_id: `${processId}-event`, event_type: 'process.stage', effects: [] },
+    }],
+  });
+  createSingleMilestoneProcess('process-implicated', 'trigger-implicated', 1000);
+  createSingleMilestoneProcess('process-later', 'trigger-later', 2000);
+  const before = engine.getState('world-a');
+  const originalCompleteTrigger = engine.processStore.completeTrigger.bind(engine.processStore);
+  engine.processStore.completeTrigger = (worldId, triggerId, eventIds, operationId) =>
+    triggerId === 'trigger-implicated'
+      ? originalCompleteTrigger(worldId, triggerId, ['missing-canonical-event'], operationId)
+      : originalCompleteTrigger(worldId, triggerId, eventIds, operationId);
+
+  const result = engine.startTimeAdvance('world-a', {
+    idempotency_key: 'multi-process-checkpoint-failure',
+    expected_revision: before.world_revision,
+    to_coordinate: 2000,
+  });
+  assert.equal(result.status, 'needs_review');
+  assert.equal(engine.getProcess('world-a', 'process-implicated').status, 'needs_review');
+  assert.equal(engine.getProcess('world-a', 'process-later').status, 'scheduled');
+  assert.equal(engine.getProcess('world-a', 'process-later').milestones[0].status, 'pending');
+  assert.equal(engine.getTimeTrigger('world-a', 'trigger-implicated').claimed_by_operation_id, null);
+  assert.equal(engine.getTimeTrigger('world-a', 'trigger-later').claimed_by_operation_id, null);
+}));
+
 test('malformed persisted segments are gated before resume and remain gated after SQLite reopen', (t) => withDatabase(t, ({ engine, store, reopen }) => {
   store.createWorld(worldInput());
   engine.createProcess('world-a', processInput());
@@ -1087,7 +1126,7 @@ test('malformed persisted segments are gated before resume and remain gated afte
   const originalResume = store.resumeTimeAdvanceOperation.bind(store);
   store.resumeTimeAdvanceOperation = (worldId, operationId) => {
     store.db.prepare('UPDATE time_advance_operations SET segments_json=? WHERE world_id=? AND operation_id=?')
-      .run('{malformed-json', worldId, operationId);
+      .run('[{}]', worldId, operationId);
     return originalResume(worldId, operationId);
   };
 
