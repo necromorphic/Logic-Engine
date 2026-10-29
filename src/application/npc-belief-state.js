@@ -29,6 +29,26 @@ const sameSnapshot = (left, right) => isPlainObject(left)
   && isPlainObject(right)
   && left.world_revision === right.world_revision
   && left.commit_sequence === right.commit_sequence;
+const stancePolarity = (stance) => {
+  if (stance === 'believes_true' || stance === 'suspects_true') return 'positive';
+  if (stance === 'believes_false' || stance === 'suspects_false') return 'negative';
+  return null;
+};
+
+function classifyStanceChange(previousStance, nextStance, invalidatedCount, survivingCount) {
+  if (previousStance === null) return 'initial';
+  if (previousStance === nextStance) {
+    if (invalidatedCount > 0 && survivingCount === 0) return 'evidence_invalidated_stance_preserved';
+    if (invalidatedCount > 0) return 'evidence_lineage_changed';
+    return 'unchanged';
+  }
+  if (nextStance === 'unresolved_conflict') return 'conflict_opened';
+  if (previousStance === 'unresolved_conflict') return 'conflict_resolved';
+  if (stancePolarity(previousStance) !== stancePolarity(nextStance)) return 'reversal';
+  if (previousStance.startsWith('suspects_') && nextStance.startsWith('believes_')) return 'strengthened';
+  if (previousStance.startsWith('believes_') && nextStance.startsWith('suspects_')) return 'weakened';
+  return 'revised';
+}
 const stableJson = (value) => {
   if (Array.isArray(value)) return '[' + value.map(stableJson).join(',') + ']';
   if (isPlainObject(value)) return '{' + Object.keys(value).sort().map((key) =>
@@ -208,6 +228,8 @@ export function reduceNpcBeliefTransition({ knowledgeRead, currentBelief = null,
     evidence_acquisition_ids: Object.freeze(allRefs),
     reason_rule_ref: proposal.reason_rule_ref,
     previous_stance: prior?.stance ?? null,
+    stance_change: classifyStanceChange(prior?.stance ?? null, proposal.stance,
+      invalidatedPriorEvidence.length, survivingPriorEvidence.length),
     surviving_prior_evidence: Object.freeze(survivingPriorEvidence),
     invalidated_prior_evidence: Object.freeze(invalidatedPriorEvidence),
     prior_stance_preserved_despite_invalidation: invalidatedPriorEvidence.length > 0
@@ -313,6 +335,7 @@ export function buildNpcBeliefContext(knowledgeRead, transition) {
     proposition_ref: transition.proposition_ref,
     proposition_value: transition.proposition_value,
     belief_stance: transition.stance,
+    stance_change: transition.stance_change,
     epistemic_status: transition.stance === 'unresolved_conflict' ? 'conflicted' : 'belief_proposal',
     evidence: Object.freeze(safeEvidence),
     reason_rule_ref: transition.reason_rule_ref,
