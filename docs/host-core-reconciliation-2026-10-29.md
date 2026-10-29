@@ -9,7 +9,7 @@ Evidence collected in an isolated temporary checkout on 29 Oct 2026:
 - `npm test`: **800/800 passed**, 0 failed.
 - `node --test host-adapter/prototype/tests/*.test.mjs`: **71/71 passed**, 0 failed.
 - `git apply --check host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch` against the supplied SillyTavern archive: **PASS**.
-- No installed SillyTavern was modified. No real browser or Windows desktop-host test was performed by this local run.
+- No installed SillyTavern was modified. The local isolated run did not test the installed desktop host. Afterward, the PR checks ran on the self-hosted Windows runner and on an isolated Chromium process-restart harness, detailed below.
 
 ## Confirmed documentation discrepancies
 
@@ -36,6 +36,18 @@ The current tests and patch apply check prove code-level invariants and patch ap
 - final disclosure authorization/revocation immediately before provider dispatch;
 - Android/Termux behavior.
 
+## Additional CI evidence completed after the local run
+
+The documentation/CI PR ran all configured checks successfully:
+
+- [Runtime tests, self-hosted Windows](https://github.com/necromorphic/Logic-Engine/actions/runs/40916731851): Node.js `v22.18.0`; Core `npm test` **1080/1080 passed**; Host lifecycle prototype **71/71 passed**; recalculation oracle **20/20 passed**.
+- [Pinned Host source audit, self-hosted Windows](https://github.com/necromorphic/Logic-Engine/actions/runs/40916731876): pinned-source lifecycle assertions **7/7 passed** and bounded fake-provider harness **1/1 passed**.
+- [Host lifecycle patch check](https://github.com/necromorphic/Logic-Engine/actions/runs/40916731837): patch application and Host prototype tests **PASS**.
+- [Host lifecycle patch validation](https://github.com/necromorphic/Logic-Engine/actions/runs/40916731782): patch application, lint and syntax checks **PASS**.
+- [Chromium IndexedDB process-restart test](https://github.com/necromorphic/Logic-Engine/actions/runs/40916731780): **PASS**. This is a real Chromium process-restart test on the CI host, not a test of the installed SillyTavern profile or Android/Termux.
+
+These checks validate the repository, pinned source patch and bounded harnesses. They still do not establish full Host inventory, real installed-ST end-to-end behavior, or Memory→NPC production readiness.
+
 ## Required disposition
 
 - Keep Memory→NPC **DISABLED / FAIL-CLOSED**.
@@ -55,4 +67,4 @@ node --test host-adapter/prototype/tests/*.test.mjs
 node --test experiments/recalculation-oracle/harness.test.mjs
 ```
 
-For the Host source/transport checks, use the repository workflow that checks out the exact pinned SillyTavern SHA into a separate workspace and runs `experiments/host-adapter-source-audit/harness.mjs` plus `experiments/host-adapter-runtime-harness/harness.mjs`. Do not point this workflow at the installed SillyTavern directory. These are bounded source/fake-provider probes; they still do not replace the real browser persistence and lifecycle acceptance matrix.
+For the Host source/transport checks, use the repository workflow that checks out the exact pinned SillyTavern SHA into a separate workspace and runs `experiments/host-adapter-source-audit/harness.mjs` plus `experiments/host-adapter-runtime-harness/harness.mjs`; this also passed on the self-hosted Windows runner. Do not point this workflow at the installed SillyTavern directory. These are bounded source/fake-provider probes; they still do not replace the full lifecycle acceptance matrix.
