@@ -3,7 +3,7 @@
 **Status: DECISION APPROVED — fail closed on contradictory checkpoint evidence.**  
 **Scope:** Core-owned recovery boundary for issue #243 and the evaluation/recalculation boundary in #262.  
 **Decision owner:** Core owner approval recorded on 2026-10-29.  
-**This record approves the failure policy only; it does not claim that cross-record process reconciliation is already implemented.**
+**Runtime guard and regression are implemented on the PR branch; acceptance remains pending exact-head CI and review of the full matrix.**
 
 ## Approved rule
 
@@ -28,9 +28,12 @@ The `needs_review` status is a gate, not permission to auto-resume. The existing
 - `src/storage/process-store.js` persists process and milestone status, milestone supporting event IDs, checkpoint versions, and lifecycle idempotency records. Process milestone prerequisites are scoped to one process.
 - Rollback invalidation can mark a completed milestone and completed descendants within that same process `needs_review`. Explicit event-level causal links can be handled by Core rollback closure; this is not a general cross-process process-dependency/recalculation engine.
 
-### Remaining implementation gap
+### Cross-record guard added on the PR branch
 
-The existing TimeEngine guard establishes an operation-internal invariant. It does **not by itself prove** that every disagreement between a Process Manager milestone/process checkpoint and its related trigger, operation segment, and canonical event evidence is detected before continuation. That cross-record invariant requires a real-path regression test and implementation only through existing Core-owned seams.
+- `ProcessStore.completeTrigger` now checks that the process milestone's single supporting event ID matches the registered trigger in the persisted operation segment, that the trigger is completed by that same operation, and that the event exists in canonical history with `validity='valid'`.
+- A mismatch throws `PROCESS_CROSS_RECORD_CHECKPOINT_MISMATCH` inside the existing Core segment transaction. The segment transaction rolls back; the operation is persisted as `needs_review`; then the owning process is gated as `needs_review` through the existing ProcessStore path. Canonical world time/revision, commit sequence, event history, trigger completion and milestone progress are not committed.
+- `tests/process-manager.integration.test.js` adds a regression through `startTimeAdvance` that injects stale supporting-event evidence at the ProcessStore boundary and asserts fail-closed behavior, unchanged canonical state/event history, persisted `needs_review` after SQLite reopen, same-key idempotent replay, and changed-content idempotency conflict.
+- This test is a targeted cross-record failure-path regression, not proof that every conceivable corruption shape is covered. Full Runtime CI on the latest exact head and the remaining acceptance matrix are still required before #243 can close.
 
 ## Required regression matrix
 
