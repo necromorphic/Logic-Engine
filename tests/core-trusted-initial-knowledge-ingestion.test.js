@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { SQLiteStore } from '../src/storage/sqlite-store.js';
@@ -390,4 +390,49 @@ test('trusted acquisition rejects unknown subjects and facts without mutation', 
   assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM knowledge_acquisitions WHERE world_id=?')
     .get('world-a').n, 0);
   assert.equal(store.world('world-a').world_revision, 1);
+});
+
+
+test('trusted importer rejects symlinks at the file-open boundary', (t) => {
+  const { store, bytes } = setup(t);
+  const importedBytes = bytes.replace('"author_initial"', '"imported"')
+    .replace('authoring:test.world@1.0.0', 'import:test.world@1.0.0')
+    .replace('rule:initial-knowledge-v1', 'rule:import-approval-v1');
+  const dir = mkdtempSync(join(tmpdir(), 'logic-trusted-import-symlink-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const targetPath = join(dir, 'target.json');
+  const sourcePath = join(dir, 'approved-import.json');
+  writeFileSync(targetPath, importedBytes);
+  symlinkSync(targetPath, sourcePath);
+  const registry = trustedRegistry(importedBytes).map((entry) => ({ ...entry, source_path: sourcePath }));
+  const engine = new LogicEngine(store, { trustedInitialKnowledgeSources: registry });
+
+  assert.throws(() => engine.recordTrustedImportedKnowledgeSource({
+    world_id: 'world-a', source_ref: 'import:test.world@1.0.0', idempotency_key: 'symlink-import',
+    expected_revision: 1, expected_commit_sequence: 1,
+  }), { code: 'TRUSTED_IMPORT_FILE_UNAVAILABLE' });
+  assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM knowledge_acquisitions WHERE world_id=?').get('world-a').n, 0);
+});
+
+test('trusted importer rejects file source_kind mismatch before mutation', (t) => {
+  const { store, bytes } = setup(t);
+  const mismatchedBytes = bytes
+    .replace('authoring:test.world@1.0.0', 'import:test.world@1.0.0')
+    .replace('rule:initial-knowledge-v1', 'rule:import-approval-v1');
+  const importedBytes = mismatchedBytes.replace('"author_initial"', '"imported"');
+  const dir = mkdtempSync(join(tmpdir(), 'logic-trusted-import-kind-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const sourcePath = join(dir, 'approved-import.json');
+  writeFileSync(sourcePath, mismatchedBytes);
+  const registry = [
+    ...trustedRegistry(importedBytes).map((entry) => ({ ...entry, source_path: sourcePath })),
+    ...trustedRegistry(mismatchedBytes),
+  ];
+  const engine = new LogicEngine(store, { trustedInitialKnowledgeSources: registry });
+
+  assert.throws(() => engine.recordTrustedImportedKnowledgeSource({
+    world_id: 'world-a', source_ref: 'import:test.world@1.0.0', idempotency_key: 'kind-mismatch-import',
+    expected_revision: 1, expected_commit_sequence: 1,
+  }), { code: 'UNSUPPORTED_TRUSTED_SOURCE_KIND' });
+  assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM knowledge_acquisitions WHERE world_id=?').get('world-a').n, 0);
 });
