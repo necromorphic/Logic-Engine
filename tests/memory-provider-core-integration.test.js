@@ -154,7 +154,7 @@ test('real Provider preserves immutable versions and duplicate/conflict semantic
     worldId: s.scope.world_id, adapterId: 'provider-e2e-adapter', actorEntityId: s.scope.subject_id,
   });
   assert.equal(beforeRestart.status, 'ready');
-  assert.deepEqual(beforeRestart.candidates.map((candidate) => candidate.record?.version).sort(),
+  assert.deepEqual(beforeRestart.candidates.map((candidate) => candidate.record_version).sort(),
     ['record-v1', 'record-v2']);
 
   s.provider.revokeRecord(s.scope, v1.record_ref, v1.record_version);
