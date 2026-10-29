@@ -299,6 +299,8 @@ async function readStableHostChatFile(filePath, expectedDigest = null) {
 }
 
 function payloadFileDigest(payload) {
+    // SillyTavern serializes chat records as JSONL joined by newlines, without
+    // a trailing line terminator; bind the exact bytes written by the native route.
     return digest(payload.chat.map(record => JSON.stringify(record)).join('\n'));
 }
 
@@ -660,6 +662,116 @@ function fail(response, code, status = 503) {
  * A successful pre-snapshot and fsynced intent are required before the handler.
  * The response is held until a post-snapshot and fsynced outcome are recorded.
  */
+export function verifyEnrolledChatSavePersistence(request, registry, after) {
+    const route = request.baseUrl + request.path;
+    const originalRoute = request.originalUrl?.split('?')[0];
+    const isRegularChatSave = route === '/api/chats/save' || originalRoute === '/api/chats/save';
+    const isGroupChatSave = route === '/api/chats/group/save' || originalRoute === '/api/chats/group/save';
+    if (request.method !== 'POST' || (!isRegularChatSave && !isGroupChatSave)) return null;
+
+    const body = request.body;
+    if (!Array.isArray(body?.chat) || body.chat.length < 2) {
+        return { ok: false, code: 'HOST_SAVE_PAYLOAD_INVALID' };
+    }
+    const domain = isGroupChatSave ? 'group_chats' : 'chats';
+    let sourcePath;
+    if (isGroupChatSave) {
+        // Group saves use the native group id as the JSONL basename.
+        // resolveSaveTarget applies the same path-safety contract as capability issuance.
+        try {
+            sourcePath = resolveSaveTarget('/api/chats/group/save', body).sourcePath;
+        } catch {
+            return { ok: false, code: 'HOST_SAVE_TARGET_INVALID' };
+        }
+    } else {
+        const cardName = String(body?.avatar_url ?? '').replace('.png', '');
+        // Mirror the native route's order: append .jsonl, then sanitize the full
+        // filename. This is only a conservative enrollment lookup; native route
+        // validation and the persisted scanner remain the actual path/state checks.
+        const rawFileName = String(body?.file_name ?? '') + '.jsonl';
+        const fileName = rawFileName
+            .replace(/[<>:"/\\|?*\u0000-\u001F\u0080-\u009F]/g, '')
+            .replace(/^\.+$/g, '')
+            .replace(/^(con|prn|aux|nul|com[0-9]|lpt[0-9])(?:\..*)?$/i, '')
+            .replace(/[. ]+$/g, '')
+            .slice(0, 255);
+        sourcePath = cardName + '/' + fileName;
+    }
+    const headerUuid = body?.chat?.[0]?.chat_metadata?.logic_engine_conversation_id;
+    // Match both the requested target and the stable enrolled UUID. The native
+    // route sanitizes regular-chat filenames, so raw request fields alone are not
+    // a reliable target identity. The persisted scanner rejects duplicate UUIDs
+    // and changed headers; the UUID fallback also catches sanitized aliases.
+    const enrollment = registry.conversations.find(item =>
+        item.domain === domain && item.sourcePath === sourcePath)
+        ?? (typeof headerUuid === 'string' && headerUuid.length > 0
+            ? registry.conversations.find(item =>
+                item.domain === domain && item.conversationId.split(':')[1] === headerUuid)
+            : undefined);
+    if (!enrollment) return null;
+
+    const conversationUuid = enrollment.conversationId.split(':')[1];
+    if (headerUuid !== conversationUuid) {
+        return { ok: false, code: 'HOST_SAVE_IDENTITY_MISMATCH' };
+    }
+
+    const expected = [];
+    const seenMessages = new Set();
+    const seenVersions = new Set();
+    for (const message of body.chat.slice(1)) {
+        const identity = message?._logicEngineLifecycle;
+        const nativeVersions = Array.isArray(message?.swipes) && message.swipes.length
+            ? message.swipes : [message?.mes ?? ''];
+        const activeIndex = message?.swipe_id === undefined ? 0 : message.swipe_id;
+        if (!identity || typeof identity.messageId !== 'string'
+            || seenMessages.has(identity.messageId)
+            || !Array.isArray(identity.versions)
+            || identity.versions.length !== nativeVersions.length
+            || !Number.isInteger(activeIndex) || activeIndex < 0 || activeIndex >= nativeVersions.length
+            || identity.activeVersionIndex !== activeIndex
+            || typeof message.mes !== 'string' || message.mes !== nativeVersions[activeIndex]) {
+            return { ok: false, code: 'HOST_SAVE_IDENTITY_MISMATCH' };
+        }
+        seenMessages.add(identity.messageId);
+        for (let index = 0; index < nativeVersions.length; index++) {
+            const version = identity.versions[index];
+            if (!version || typeof version.versionId !== 'string'
+                || seenVersions.has(version.versionId)
+                || typeof version.payloadDigest !== 'string'
+                || version.payloadDigest !== digest(JSON.stringify(String(nativeVersions[index])))) {
+                return { ok: false, code: 'HOST_SAVE_VERSION_DIGEST_MISMATCH' };
+            }
+            seenVersions.add(version.versionId);
+            expected.push({
+                message_id: identity.messageId,
+                version_id: version.versionId,
+                payload_sha256: version.payloadDigest,
+                parent_version_id: version.parentVersionId ?? null,
+                active: index === activeIndex,
+            });
+        }
+    }
+
+    const persisted = after.conversationInventory?.inventories
+        ?.find(item => item.conversation_id === enrollment.conversationId);
+    if (!persisted) return { ok: false, code: 'HOST_SAVE_PERSISTED_INVENTORY_MISSING' };
+    const actual = (persisted.versions ?? []).map(version => ({
+        message_id: version.message_id,
+        version_id: version.version_id,
+        payload_sha256: version.payload_sha256,
+        parent_version_id: version.parent_version_id ?? null,
+        active: version.active,
+    }));
+    const normalize = values => values
+        .map(value => JSON.stringify(value))
+        .sort();
+    if (JSON.stringify(normalize(expected)) !== JSON.stringify(normalize(actual))) {
+        return { ok: false, code: 'HOST_SAVE_PERSISTENCE_MISMATCH' };
+    }
+    return { ok: true };
+}
+
+
 export function createHostLifecycleMutationMiddleware({ enforce = process.env.LOGIC_ENGINE_HOST_LIFECYCLE_ENFORCE === 'true', requirePersistedInventory = false, getUserDirectories, beforeSavePrestateRecheck = null, beforeSaveNativeHandoff = null } = {}) {
     return async function hostLifecycleMutationMiddleware(request, response, next) {
         const routeKey = request.method + ' ' + request.baseUrl + request.path;
@@ -978,6 +1090,29 @@ export function createHostLifecycleMutationMiddleware({ enforce = process.env.LO
                         return commitBufferedResponse(args, {
                             status: 503,
                             body: JSON.stringify({ error: { code: 'HOST_SAVE_CAPABILITY_POSTSTATE_MISMATCH' } }),
+                        });
+                    }
+                    const saveSucceeded = response.statusCode >= 200 && response.statusCode < 300;
+                    const persistence = saveSucceeded
+                        ? verifyEnrolledChatSavePersistence(request, registry, after)
+                        : null;
+                    if (persistence && !persistence.ok) {
+                        chain.lastHash = await appendRecord(paths.journalPath, chain.lastHash, {
+                            version: 1,
+                            kind: 'outcome',
+                            operationId,
+                            status: 'UNRESOLVED',
+                            completedAt: new Date().toISOString(),
+                            httpStatus: response.statusCode,
+                            persistenceVerification: persistence.code,
+                            afterSnapshotDigest: snapshotDigest(after),
+                            afterArtifactCount: after.artifactCount,
+                            afterConversationInventoryDigest: after.conversationInventory?.inventory_sha256 ?? null,
+                            afterConversationInventories: after.conversationInventory?.inventories ?? null,
+                        });
+                        return commitBufferedResponse(args, {
+                            status: 503,
+                            body: JSON.stringify({ error: { code: persistence.code } }),
                         });
                     }
                     const changes = diffSnapshots(before, after);

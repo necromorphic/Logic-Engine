@@ -155,3 +155,13 @@ The current branch is validated by Draft PR #632. Passing CI does not establish 
 Regression coverage now includes real pinned SillyTavern regular and group save routes, rejection of enrolled chat deletion before mutation, one-shot/replay protection, stale request-body and persisted-file rejection, a deterministic post-intent prewrite race, expired-capability cleanup during preparation, supported append/select transitions, and rejection of destructive/reordered transitions without overwriting the file. These tests exercise the candidate against pinned SillyTavern commit `06bde939fb1e9c4c8d8641d810f0a916b5bce127`.
 
 CI results must be checked against the exact current branch HEAD. A passing run on an earlier commit does not validate later changes; the Windows pinned-source job and any in-progress exact-head jobs are not PASS until completed successfully. This remains repository test evidence, not live deployment evidence. Independent Core/security review, route-complete lifecycle coverage, external anti-rollback/ACL-restore evidence, sole controlled Gateway egress and revocation-order proof, and live SillyTavern/Android-Termux validation remain required. Host readiness remains `NON_READY`; Memory→NPC remains `DISABLED / FAIL-CLOSED`.
+
+
+## Persisted-save receipt — candidate integration update (29 Oct 2026)
+
+The candidate now requires two independent checks before a lifecycle checkpoint can advance after an enrolled regular-chat save:
+
+- The browser bridge awaits SillyTavern's save helper with error propagation enabled, then re-reads the persisted chat through the authenticated native read route and compares the stable conversation UUID and complete message/version payload with the current in-memory chat.
+- The server mutation journal independently compares the submitted enrolled-chat identity and message/version inventory with the post-save persisted inventory. A mismatch records an `UNRESOLVED` outcome and replaces the apparent success with HTTP 503.
+
+Regression tests cover failed/stale persistence, sanitized filename aliases, identity/version mismatches, successful matching persistence, and the browser readback contract. These are repository fixture tests only. Host remains `NON_READY`; Stage 2 remains `NO-GO`; production Memory→NPC remains `DISABLED / FAIL-CLOSED`.
