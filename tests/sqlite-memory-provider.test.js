@@ -503,7 +503,7 @@ test('source validators receive immutable nested lineage during reconciliation a
     source_kind: s.record.source_kind,
     source_entity_id: s.record.source_entity_id,
   }), true);
-  assert.equal(checks, 2, 'both reconciliation and authorization receive the immutable callback snapshot');
+  assert.equal(checks, 3, 'reconciliation validates before and after inventory, then authorization validates again');
 });
 
 test('persists raw record identity/version and rebuilds its derived index after restart', async (t) => {
@@ -514,6 +514,10 @@ test('persists raw record identity/version and rebuilds its derived index after 
   assert.deepEqual(await s.provider.rebuildIndex('world-a'), { status: 'rebuilt', count: 1 });
   assert.equal((await s.provider.reconcile('world-a')).status, 'current');
   s.reopen();
+  assert.equal(s.provider.getIndexStatusForDiagnostics(s.scope.world_id).source_reconciliation, 'stale');
+  await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_INDEX_NOT_READY/);
+  await s.provider.rebuildIndex(s.scope.world_id);
+  assert.equal((await s.provider.reconcile(s.scope.world_id)).status, 'current');
   const result = await s.provider.retrieveCandidates(s.scope);
   assert.equal(result.completeness, 'complete');
   assert.equal(result.candidates.length, 1);
