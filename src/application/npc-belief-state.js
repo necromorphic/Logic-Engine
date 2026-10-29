@@ -217,6 +217,27 @@ export function buildNpcBeliefContext(knowledgeRead, transition) {
     || !sameSnapshot(transition.snapshot, knowledgeRead.snapshot)) {
     return Object.freeze({ status: 'non_ready', reason: 'context_snapshot_or_actor_mismatch', context: null });
   }
+
+  // Re-run the pure reducer at the context boundary. This prevents a caller
+  // from forging or mutating a transition between validation and context build.
+  const revalidated = reduceNpcBeliefTransition({
+    knowledgeRead,
+    proposal: {
+      world_id: transition.world_id,
+      actor_id: transition.actor_id,
+      snapshot: transition.snapshot,
+      proposition_ref: transition.proposition_ref,
+      proposition_value: transition.proposition_value,
+      stance: transition.stance,
+      supporting_acquisition_ids: transition.supporting_acquisition_ids,
+      contradicting_acquisition_ids: transition.contradicting_acquisition_ids,
+      reason_rule_ref: transition.reason_rule_ref,
+    },
+  });
+  if (revalidated.status !== 'ready') {
+    return Object.freeze({ status: 'non_ready', reason: 'context_transition_not_validated', context: null });
+  }
+  transition = revalidated.transition;
   const byId = new Map(knowledgeRead.items.map((item) => [item.acquisition_id, item]));
   const evidence = transition.evidence_acquisition_ids;
   if (!Array.isArray(evidence) || evidence.some((id) => !byId.has(id))) {
