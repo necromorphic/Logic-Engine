@@ -166,9 +166,11 @@ function validateIndependentSegment(events) {
 }
 
 export class LogicEngine {
-  constructor(store, { trustedInitialKnowledgeSources = [] } = {}) {
+  constructor(store, { trustedInitialKnowledgeSources = [], worldPackCatalog = null } = {}) {
     if (!Array.isArray(trustedInitialKnowledgeSources)) throw new TypeError('trustedInitialKnowledgeSources must be a deployment-owned array');
     this.trustedInitialKnowledgeSources = trustedInitialKnowledgeSources.map((entry) => Object.freeze({ ...entry }));
+    if (worldPackCatalog !== null && typeof worldPackCatalog.resolve !== 'function') throw new TypeError('worldPackCatalog must provide resolve(worldPackId, version)');
+    this.worldPackCatalog = worldPackCatalog;
     this.store = store;
     this.processStore = new ProcessStore(store);
     this.store.processStore = this.processStore;
