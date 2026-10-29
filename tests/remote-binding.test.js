@@ -34,6 +34,7 @@ function runtimeEnv(directory, port, allowRemote) {
     ...process.env,
     ENGINE_API_TOKEN: API_TOKEN,
     ENGINE_DB_PATH: join(directory, 'remote-mode.sqlite'),
+    LOGIC_ENGINE_COORDINATOR_DB_PATH: join(directory, 'coordinator.sqlite'),
     LOGIC_ENGINE_WORLD_PACK_CATALOG_PATH: worldPackCatalogPath,
     ENGINE_HOST_VERSION_LEDGER_DB_PATH: join(directory, 'host-versions.sqlite'),
     ENGINE_PORT: String(port),

@@ -44,6 +44,7 @@ test('runtime process starts with isolated credentials/database and serves healt
       ...process.env,
       ENGINE_API_TOKEN: 'startup-smoke-api-token-123456',
       ENGINE_DB_PATH: join(directory, 'runtime.sqlite'),
+      LOGIC_ENGINE_COORDINATOR_DB_PATH: join(directory, 'coordinator.sqlite'),
       LOGIC_ENGINE_WORLD_PACK_CATALOG_PATH: worldPackCatalogPath,
       ENGINE_HOST_VERSION_LEDGER_DB_PATH: join(directory, 'host-versions.sqlite'),
       ENGINE_PORT: String(port),
