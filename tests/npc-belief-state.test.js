@@ -59,6 +59,16 @@ test('accepts a belief proposal only when evidence belongs to the current Core r
   assert.equal(Object.isFrozen(result.transition), true);
 });
 
+test('fails closed when Core knowledge contains duplicate acquisition IDs', () => {
+  const duplicateRead = knowledgeRead({
+    items: [evidenceItems[0], { ...evidenceItems[0], value: 'Sotenbori' }],
+  });
+  const result = reduceNpcBeliefTransition({ knowledgeRead: duplicateRead, proposal: proposal() });
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'invalid_core_evidence');
+  assert.equal(result.transition, null);
+});
+
 test('keeps contradictory admissible evidence unresolved instead of picking a winner', () => {
   const result = reduceNpcBeliefTransition({
     knowledgeRead: knowledgeRead({ items: evidenceItems }),
