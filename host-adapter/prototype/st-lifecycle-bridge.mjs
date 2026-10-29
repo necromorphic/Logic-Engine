@@ -19,6 +19,34 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
   const publishQueues = new Map();
   const coreCaptureStates = new Map();
 
+  function sortParentFirst(entries) {
+    const groups = new Map();
+    for (const entry of entries) {
+      const group = groups.get(entry.message_id) ?? [];
+      group.push(entry);
+      groups.set(entry.message_id, group);
+    }
+    const ordered = [];
+    for (const [messageId, group] of groups) {
+      const pending = [...group];
+      const pendingIds = new Set(pending.map(entry => entry.version_id));
+      const emitted = new Set();
+      while (pending.length) {
+        const ready = pending.map((entry, index) => ({ entry, index }))
+          .filter(({ entry }) => entry.parent_version_id === null
+            || !pendingIds.has(entry.parent_version_id) || emitted.has(entry.parent_version_id));
+        if (!ready.length) throw Error('NON_READY: cyclic Host version lineage for message ' + messageId);
+        ready.sort((a, b) => Number(a.entry.active) - Number(b.entry.active)
+          || a.entry.version_id.localeCompare(b.entry.version_id));
+        const { entry, index } = ready[0];
+        pending.splice(index, 1);
+        ordered.push(entry);
+        emitted.add(entry.version_id);
+      }
+    }
+    return ordered;
+  }
+
   async function publishCurrentDigestInventory(conversationId, chat, tombstones = []) {
     if (!publishDigest) {
       const state = { status: 'NOT_CONFIGURED', published: false, versionCount: 0 };
@@ -42,16 +70,16 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
           conversation_id: conversationId,
           message_id: identity.messageId,
           version_id: version.versionId,
+          parent_version_id: version.parentVersionId ?? null,
           content_sha256: version.payloadDigest,
           active: index === identity.activeVersionIndex,
           deleted: false,
         });
       }
     }
-    // Inactive versions go first; the selected version is the final pointer
-    // update for each message. This is transport ordering, not inventory proof.
-    entries.sort((a, b) => Number(a.active) - Number(b.active)
-      || a.message_id.localeCompare(b.message_id) || a.version_id.localeCompare(b.version_id));
+    // Core requires a declared parent to exist before a child is captured.
+    // Order by ancestry first and prefer inactive versions among simultaneously ready entries.
+    const orderedEntries = sortParentFirst(entries);
     for (const tombstone of tombstones) {
       if (!tombstone || typeof tombstone.messageId !== 'string' || typeof tombstone.versionId !== 'string'
         || !/^[a-f0-9]{64}$/.test(tombstone.payloadDigest)) {
@@ -61,6 +89,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
         conversation_id: conversationId,
         message_id: tombstone.messageId,
         version_id: tombstone.versionId,
+        parent_version_id: tombstone.parentVersionId ?? null,
         content_sha256: tombstone.payloadDigest,
         active: false,
         deleted: true,
@@ -68,14 +97,14 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
     }
     const previous = publishQueues.get(conversationId) ?? Promise.resolve();
     const current = previous.catch(() => {}).then(async () => {
-      for (const entry of entries) {
+      for (const entry of orderedEntries) {
         try { await publishDigest(entry); } catch {
-          const state = { status: 'NON_READY', published: false, versionCount: entries.length };
+          const state = { status: 'NON_READY', published: false, versionCount: orderedEntries.length };
           coreCaptureStates.set(conversationId, state);
           return state;
         }
       }
-      const state = { status: 'CAPTURED_REVIEW_ONLY', published: true, versionCount: entries.length };
+      const state = { status: 'CAPTURED_REVIEW_ONLY', published: true, versionCount: orderedEntries.length };
       coreCaptureStates.set(conversationId, state);
       return state;
     });

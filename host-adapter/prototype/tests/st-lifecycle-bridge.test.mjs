@@ -86,6 +86,8 @@ test('configured Core publisher receives digest-only baseline, replacement tombs
   assert.equal(published.length, 2);
   assert.deepEqual(published.map(entry => entry.active), [false, true]);
   assert.ok(published.every(entry => entry.conversation_id === 'chat-1'
+    && Object.hasOwn(entry, 'parent_version_id')
+    && (entry.parent_version_id === null || typeof entry.parent_version_id === 'string')
     && /^[a-f0-9]{64}$/.test(entry.content_sha256)
     && !Object.keys(entry).some(key => /raw|text_body|content_text|message_body/i.test(key))));
   published.length = 0;

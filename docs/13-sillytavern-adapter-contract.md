@@ -1,6 +1,6 @@
 # 13. SillyTavern adapter contract
 
-Status: requirements only. Exact hook names and availability must be verified on the target installation.
+Status: requirements only. Exact hook names and availability must be verified on the target installation. Current Host/Core wire-contract findings are tracked in [the reconciliation matrix](./94-host-core-contract-reconciliation.md).
 
 ## 1. Responsibilities
 

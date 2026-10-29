@@ -2,7 +2,7 @@ const validId = (value) => typeof value === 'string' && value === value.trim()
   && value.length > 0 && value.length <= 200
   && ![...value].some((character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127);
 const ALLOWED_FIELDS = new Set([
-  'conversation_id', 'message_id', 'version_id', 'content_sha256', 'active', 'deleted',
+  'conversation_id', 'message_id', 'version_id', 'parent_version_id', 'content_sha256', 'active', 'deleted',
 ]);
 
 function configuredTarget(env) {
@@ -28,6 +28,8 @@ function validCapture(body) {
   return body && typeof body === 'object' && !Array.isArray(body)
     && Object.keys(body).every((key) => ALLOWED_FIELDS.has(key))
     && ['conversation_id', 'message_id', 'version_id'].every((key) => validId(body[key]))
+    && Object.hasOwn(body, 'parent_version_id')
+    && (body.parent_version_id === null || validId(body.parent_version_id))
     && typeof body.content_sha256 === 'string' && /^[a-f0-9]{64}$/.test(body.content_sha256)
     && typeof body.active === 'boolean' && typeof body.deleted === 'boolean'
     && !(body.deleted && body.active);
@@ -64,6 +66,7 @@ export function createHostDigestProxyHandler({
       conversation_id: request.body.conversation_id,
       message_id: request.body.message_id,
       version_id: request.body.version_id,
+      parent_version_id: request.body.parent_version_id,
       content_sha256: request.body.content_sha256,
       active: request.body.active,
       deleted: request.body.deleted,
