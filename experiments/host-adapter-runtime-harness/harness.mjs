@@ -68,6 +68,7 @@ const { router: groupsRouter } = await import(pathToFileURL(resolve(stRoot, 'src
 const { router: charactersRouter } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/characters.js')).href);
 const { router: backupsRouter } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/backups.js')).href);
 const { router: dataMaidRouter } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/data-maid.js')).href);
+const { router: usersPrivateRouter } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/users.js')).href);
 const { router: backupsRouter } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/backups.js')).href);
 const { createHostLifecycleMutationMiddleware, getHostConversationInventory, recordHostCaptureAcknowledgement, registerHostConversation } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/logic-engine-host-journal.mjs')).href);
 const { router: logicEngineLifecycleRouter } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/logic-engine-lifecycle.js')).href);
@@ -787,4 +788,71 @@ test('real pinned backup and data-maid destructive routes fail closed for enroll
     });
     assert.equal(await readFile(chatPath, 'utf8'), chatBytes, 'enrolled chat must remain byte-identical after rejection');
   }
+});
+
+
+test('real pinned user-delete route refuses to delete another enrolled user data root', async (t) => {
+  const { execFileSync } = await import('node:child_process');
+  const actualSha = execFileSync('git', ['-C', stRoot, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+  assert.equal(actualSha, expectedSha, 'test must run against the exact pinned SillyTavern checkout');
+
+  const root = await mkdtemp(join(os.tmpdir(), 'st-host-user-delete-route-'));
+  const targetRoot = join(root, 'target-user');
+  const directories = {
+    root: targetRoot,
+    chats: join(targetRoot, 'chats'),
+    characters: join(targetRoot, 'characters'),
+    groups: join(targetRoot, 'groups'),
+    groupChats: join(targetRoot, 'group_chats'),
+    backups: join(targetRoot, 'backups'),
+  };
+  await Promise.all(Object.values(directories).map(directory => mkdir(directory, { recursive: true })));
+
+  const conversationUuid = randomUUID();
+  const conversationId = randomUUID() + ':' + conversationUuid;
+  const chatPath = join(directories.chats, 'enrolled.jsonl');
+  const chatBytes = JSON.stringify({ chat_metadata: { logic_engine_conversation_id: conversationUuid } }) + '\n';
+  await writeFile(chatPath, chatBytes);
+  const targetUser = { profile: { handle: 'target-user' }, directories };
+  await registerHostConversation({ user: targetUser }, {
+    conversationId,
+    sourceLocator: 'enrolled',
+    sourcePath: 'enrolled.jsonl',
+    domain: 'chats',
+  });
+
+  const app = express();
+  app.use(express.json({ limit: '1mb' }));
+  app.use((req, _res, next) => {
+    req.user = { profile: { handle: 'admin-user' }, directories };
+    next();
+  });
+  app.use(createHostLifecycleMutationMiddleware({
+    requirePersistedInventory: true,
+    getUserDirectories: handle => {
+      if (handle !== 'target-user') throw new Error('unknown target user');
+      return directories;
+    },
+  }));
+  app.use('/api/users', usersPrivateRouter);
+  const server = app.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  const address = server.address();
+  assert.ok(address && typeof address === 'object');
+
+  t.after(async () => {
+    await new Promise(resolveClose => server.close(resolveClose));
+    await rm(root, { recursive: true, force: true });
+  });
+
+  const response = await fetch('http://127.0.0.1:' + address.port + '/api/users/delete', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ handle: 'target-user' }),
+  });
+  assert.equal(response.status, 409, 'server middleware must block target-user deletion before the native handler');
+  assert.deepEqual(await response.json(), {
+    error: { code: 'HOST_ENROLLED_HISTORY_PATH_MUTATION_UNSUPPORTED' },
+  });
+  assert.equal(await readFile(chatPath, 'utf8'), chatBytes, 'target enrolled chat must remain byte-identical');
 });
