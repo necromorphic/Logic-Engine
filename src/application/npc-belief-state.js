@@ -96,7 +96,7 @@ export function reduceNpcBeliefTransition({ knowledgeRead, currentBelief = null,
 
   const active = new Map();
   for (const item of knowledgeRead.items) {
-    if (!isPlainObject(item) || !validRef(item.acquisition_id)) {
+    if (!isPlainObject(item) || !validRef(item.acquisition_id) || active.has(item.acquisition_id)) {
       return Object.freeze({ status: 'non_ready', reason: 'invalid_core_evidence', transition: null });
     }
     active.set(item.acquisition_id, item);
