@@ -1,0 +1,58 @@
+# Host/Core documentation reconciliation and local test record — 29 Oct 2026
+
+## Scope and evidence
+
+This report compares the supplied Logic-Engine source snapshot, the supplied SillyTavern source archive, the Host lifecycle prototype and its docs, and the Core's actual capture endpoint/tests. The Logic-Engine ZIP identifies source snapshot commit `de0d8d10faf71c521fc68f246f7322963abd41ab`; the SillyTavern ZIP identifies target commit `06bde939fb1e9c4c8d8641d810f0a916b5bce127`.
+
+Evidence collected in an isolated temporary checkout on 29 Oct 2026:
+- Node.js `v22.16.0`; npm `10.9.2`.
+- `npm test`: **800/800 passed**, 0 failed.
+- `node --test host-adapter/prototype/tests/*.test.mjs`: **71/71 passed**, 0 failed.
+- `git apply --check host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch` against the supplied SillyTavern archive: **PASS**.
+- No installed SillyTavern was modified. No real browser or Windows desktop-host test was performed by this local run.
+
+## Confirmed documentation discrepancies
+
+### D-01 — PR #323 status is stale in Host docs
+The docs say PR #323 remains Draft/unmerged. GitHub currently reports PR #323 merged into `main` on 26 Oct 2026. This is a status-documentation error, not a readiness approval. The code still explicitly marks itself review-only and leaves Memory→NPC fail-closed.
+
+### D-02 — the “current exact-head CI” paragraph cites the initial, unsafe candidate
+`docs/27-host-adapter-lifecycle-evidence.md` labels HEAD `504057e4103452442dd3cb1256ba06ff5afbeeaa` as “current exact-head CI”, while the same document says later commits corrected raw-text retention. The initial SHA must be described as historical evidence, not evidence for the corrected head. The prototype README records later exact-head CI for `d7686b89a051cd28566a0f19bead42b0a9bd5bd5` and `f97a4f4b2a76d0d76b82c37d61ee187b89ee7ceb`.
+
+### D-03 — test counts must be scoped to a source snapshot
+Prior status notes mention 802 Core tests, while the supplied snapshot identified as `de0d8d10faf71c521fc68f246f7322963abd41ab` runs 800 Core tests. The Host prototype suite is separate and runs 71 tests. These counts are not interchangeable; future reports must record the exact source SHA, command and result.
+
+### D-04 — transport exists, but it is not a complete Host/Core contract
+The Host prototype contains a same-origin server proxy that sends only `conversation_id`, `message_id`, `version_id`, `content_sha256`, `active` and `deleted` to `/v1/host-version-ledger/capture`. Core validates the same allowlist, requires adapter authentication and an existing canonical conversation→world binding, and rejects caller-supplied `world_id` or raw text. This confirms the shape of a digest-only transport, not production readiness or a complete source inventory.
+
+The Host docs correctly identify missing lifecycle paths: non-current chat deletion, group/recursive deletion, import/restore, branch/copy, migration, external edits, rollback, and restart/replay. Current-message hooks cannot establish a complete affected-version set for these operations. Core cannot infer source completeness from Provider ledger rows or a successful capture response.
+
+### D-05 — CI/source tests are not live Host acceptance
+The current tests and patch apply check prove code-level invariants and patch applicability only. They do not prove:
+- that the patch has been installed on any working SillyTavern instance;
+- browser IndexedDB durability after actual browser/process restart;
+- a real Windows SillyTavern↔Core request with authenticated adapter binding;
+- exact persisted before/after state for destructive/import/restore paths;
+- final disclosure authorization/revocation immediately before provider dispatch;
+- Android/Termux behavior.
+
+## Required disposition
+
+- Keep Memory→NPC **DISABLED / FAIL-CLOSED**.
+- Do not modify the installed SillyTavern or enable production listeners.
+- Treat complete Host inventory as **NON_READY / NO SUCH MECHANISM FOUND** until all mutation routes and persisted-state evidence are covered.
+- The current Core capture endpoint is digest-only; it is not evidence of raw-content capture, authorized retrieval, NPC admission, or belief.
+
+## Windows PC validation sequence
+
+Run in an isolated Logic-Engine checkout, not by applying the patch to the installed SillyTavern. The GitHub PR validation should run the repository's self-hosted Windows runtime job; use its job logs as the first Windows evidence. For a direct local run from the Logic-Engine root:
+
+```powershell
+node --version
+npm --version
+npm test
+node --test host-adapter/prototype/tests/*.test.mjs
+node --test experiments/recalculation-oracle/harness.test.mjs
+```
+
+For the Host source/transport checks, use the repository workflow that checks out the exact pinned SillyTavern SHA into a separate workspace and runs `experiments/host-adapter-source-audit/harness.mjs` plus `experiments/host-adapter-runtime-harness/harness.mjs`. Do not point this workflow at the installed SillyTavern directory. These are bounded source/fake-provider probes; they still do not replace the real browser persistence and lifecycle acceptance matrix.
