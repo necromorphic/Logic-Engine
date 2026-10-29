@@ -63,6 +63,30 @@ For every rejected mismatch, compare before/after world time, world revision, co
 
 These cases are not substitutes for the missing cross-record mismatch regression matrix above.
 
+## Process dependency and rollback semantics for #243
+
+- **Within one process:** each milestone's `prerequisites` must reference milestones in that same process. The definition validator rejects missing, cyclic, self, and later-due prerequisites. A dependent milestone is not eligible until its declared prerequisites are completed; it is not enough that a prerequisite trigger merely ran.
+- **Between separate processes:** cross-process milestone prerequisites are intentionally unsupported and rejected. Do not infer a dependency from shared trigger IDs, timestamps, matching entity IDs, or execution order. If one process event causally depends on another event, that relationship must be represented through Core's existing event-level causal links/read-write evidence; this is event causality, not a process-to-process scheduler dependency.
+- **Rollback of a supporting event:** Core rollback invalidates the event closure using existing causal links and projection/read-set dependencies. When an invalidated event supports a completed milestone, ProcessStore marks that milestone and its transitive completed descendants within the same process `needs_review`; the process is also gated for review. Completed progress is not silently preserved as authoritative, and no replacement event or automatic milestone replay is generated.
+- **Cross-process consequences of rollback:** event-level causal closure can invalidate other events that explicitly depend on the rolled-back event, but there is no general cross-process milestone graph or automatic recalculation/replan. A separate process whose event was invalidated is handled through the same event-evidence/rollback review boundary; do not claim transitive process-level recomputation that is not implemented.
+- **Manual recovery boundary:** `needs_review` blocks automatic execution. A pending trigger attached to a review-gated process cannot be replayed, and time advancement cannot cross its due coordinate until an explicit reviewed reconciliation/replan occurs. Recovery must not rewrite the mismatching milestone evidence or infer a replacement checkpoint.
+
+## #243 lifecycle and persistence acceptance matrix
+
+| Behavior | Required evidence |
+|---|---|
+| Start and stage progression | Real Core/SQLite integration test; milestone and trigger completion commit in the same segment transaction |
+| Pause and resume | Lifecycle version/idempotency checks; paused process does not execute stages; resume rejects overdue work unless explicitly replanned |
+| Interrupt and continue | TimeEngine operation persists its interrupted boundary; close/reopen and a new valid advance continues from the last confirmed coordinate without replay |
+| Cancel and completion | Terminal state transition and pending-trigger cancellation are persisted/audited; completion is derived from all required milestones |
+| Repeated request | Same key/same payload returns the durable result; changed payload conflicts; no duplicate event, revision, audit, trigger or milestone writes |
+| SQLite recovery | Operation and process checkpoints survive close/reopen; malformed, empty, stale or contradictory evidence fails closed |
+| Segment atomicity | Event commit, trigger completion, milestone result and operation checkpoint either commit together or the segment rolls back |
+| Rollback | Supporting-event invalidation gates completed dependent milestones under existing Core rollback closure; no automatic cross-process recalculation |
+| Scheduler ownership | Process milestones use registered triggers and the existing TimeEngine/operation segment scheduler; no second scheduler or process-side canonical-write path |
+
+The runtime tests and exact-head CI are the evidence for these behaviors. A row in this table is not considered verified merely because it is documented; the corresponding current test and CI result must be checked before closing #243.
+
 ## Explicit non-decisions
 
 This decision does not designate a process checkpoint or a projection as canonical authority over committed events. It does not authorize automatic repair, a new API/schema/store/cursor/outbox, cross-process milestone prerequisites, global causal closure, automatic replan, or historical semantic recalculation. It does not grant NPC knowledge or player-delivery authority.
