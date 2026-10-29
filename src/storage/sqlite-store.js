@@ -2052,6 +2052,12 @@ export class SQLiteStore {
           this.db.prepare("UPDATE time_advance_operations SET status='needs_review',error_json=?,result_json=?,updated_at=? WHERE world_id=? AND operation_id=?")
             .run(enc(errorBody), result ? enc(result) : null, now(), worldId, operationId);
         });
+        if (error?.code === 'PROCESS_CROSS_RECORD_CHECKPOINT_MISMATCH'
+          && typeof error.details?.process_id === 'string' && this.processStore) {
+          // The segment transaction has rolled back. Persist only the review gate;
+          // canonical world state, event history and trigger completion remain untouched.
+          this.processStore.markNeedsReview(worldId, error.details.process_id, error.code, error.message);
+        }
       }
     }
   }
