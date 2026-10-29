@@ -638,3 +638,101 @@ test('checkpoint failure stays terminal and same-key retry after SQLite restart 
   assert.equal(store.currentCommitSequence('world-a'), 0);
   assert.equal(store.db.prepare('SELECT COUNT(*) AS count FROM world_events WHERE world_id=?').get('world-a').count, eventCountAfterRestart);
 }));
+
+
+test('cross-process milestone prerequisites fail closed instead of being silently ignored', (t) => withDatabase(t, ({ engine, store }) => {
+  store.createWorld(worldInput());
+  const first = processInput({
+    process_id: 'process-alpha',
+    idempotency_key: 'create-process-alpha',
+    milestones: [{
+      milestone_id: 'shared-milestone',
+      trigger_id: 'alpha-shared-milestone',
+      due_coordinate: 1000,
+      prerequisites: [],
+      read_set: [],
+      write_set: [],
+      event: { turn_id: 'alpha-shared-event', event_type: 'process.alpha', effects: [] },
+    }],
+  });
+  engine.createProcess('world-a', first);
+  const before = engine.getState('world-a');
+  const triggersBefore = engine.listTimeTriggers('world-a');
+  const auditBefore = engine.getAudit('world-a');
+
+  assert.throws(
+    () => engine.createProcess('world-a', processInput({
+      process_id: 'process-beta',
+      idempotency_key: 'create-process-beta',
+      milestones: [{
+        milestone_id: 'beta-child',
+        trigger_id: 'beta-child-trigger',
+        due_coordinate: 2000,
+        prerequisites: ['shared-milestone'],
+        read_set: [],
+        write_set: [],
+        event: { turn_id: 'beta-child-event', event_type: 'process.beta', effects: [] },
+      }],
+    })),
+    (error) => error.code === 'PROCESS_MILESTONE_PREREQUISITE_MISSING',
+  );
+
+  assert.equal(engine.getState('world-a').world_revision, before.world_revision);
+  assert.deepEqual(engine.listProcesses('world-a').map((process) => process.process_id), ['process-alpha']);
+  assert.deepEqual(engine.listTimeTriggers('world-a'), triggersBefore);
+  assert.deepEqual(engine.getAudit('world-a'), auditBefore);
+}));
+
+test('rolling back one process milestone preserves an independent completed process', (t) => withDatabase(t, ({ engine, store }) => {
+  store.createWorld(worldInput());
+  engine.createProcess('world-a', processInput({
+    process_id: 'process-alpha',
+    idempotency_key: 'create-process-alpha',
+    milestones: [{
+      milestone_id: 'alpha-work',
+      trigger_id: 'alpha-work-trigger',
+      due_coordinate: 1000,
+      prerequisites: [],
+      read_set: [],
+      write_set: [],
+      event: { turn_id: 'alpha-work-event', event_type: 'process.alpha', effects: [] },
+    }],
+  }));
+  engine.createProcess('world-a', processInput({
+    process_id: 'process-beta',
+    idempotency_key: 'create-process-beta',
+    milestones: [{
+      milestone_id: 'beta-work',
+      trigger_id: 'beta-work-trigger',
+      due_coordinate: 1000,
+      prerequisites: [],
+      read_set: [],
+      write_set: [],
+      event: { turn_id: 'beta-work-event', event_type: 'process.beta', effects: [] },
+    }],
+  }));
+
+  const beforeAdvance = engine.getState('world-a');
+  const advanced = engine.startTimeAdvance('world-a', {
+    idempotency_key: 'advance-independent-processes',
+    expected_revision: beforeAdvance.world_revision,
+    to_coordinate: 1000,
+  });
+  assert.equal(advanced.status, 'completed');
+  const alpha = engine.getProcess('world-a', 'process-alpha');
+  const beta = engine.getProcess('world-a', 'process-beta');
+  assert.equal(alpha.status, 'completed');
+  assert.equal(beta.status, 'completed');
+
+  const alphaEventId = alpha.milestones[0].completed_event_ids[0];
+  assert.ok(alphaEventId);
+  const rollback = engine.rollbackEvent('world-a', {
+    root_event_id: alphaEventId,
+    idempotency_key: 'rollback-alpha-only',
+  });
+  assert.equal(rollback.invalidated_event_ids.includes(alphaEventId), true);
+
+  assert.equal(engine.getProcess('world-a', 'process-alpha').status, 'needs_review');
+  assert.equal(engine.getProcess('world-a', 'process-beta').status, 'completed');
+  assert.equal(engine.getProcess('world-a', 'process-beta').milestones[0].status, 'completed');
+}));
