@@ -218,6 +218,12 @@ export function buildNpcBeliefContext(knowledgeRead, transition) {
     return Object.freeze({ status: 'non_ready', reason: 'context_snapshot_or_actor_mismatch', context: null });
   }
 
+  const byId = new Map(knowledgeRead.items.map((item) => [item.acquisition_id, item]));
+  const evidence = transition.evidence_acquisition_ids;
+  if (!Array.isArray(evidence) || evidence.some((id) => !byId.has(id))) {
+    return Object.freeze({ status: 'non_ready', reason: 'context_evidence_no_longer_authorized', context: null });
+  }
+
   // Re-run the pure reducer at the context boundary. This prevents a caller
   // from forging or mutating a transition between validation and context build.
   const revalidated = reduceNpcBeliefTransition({
@@ -238,11 +244,6 @@ export function buildNpcBeliefContext(knowledgeRead, transition) {
     return Object.freeze({ status: 'non_ready', reason: 'context_transition_not_validated', context: null });
   }
   transition = revalidated.transition;
-  const byId = new Map(knowledgeRead.items.map((item) => [item.acquisition_id, item]));
-  const evidence = transition.evidence_acquisition_ids;
-  if (!Array.isArray(evidence) || evidence.some((id) => !byId.has(id))) {
-    return Object.freeze({ status: 'non_ready', reason: 'context_evidence_no_longer_authorized', context: null });
-  }
   const safeEvidence = evidence.map((id) => {
     const item = byId.get(id);
     return Object.freeze({
