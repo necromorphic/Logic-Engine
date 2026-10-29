@@ -37,11 +37,16 @@ const stancePolarity = (stance) => {
 
 function classifyStanceChange(previousStance, nextStance, invalidatedCount, survivingCount) {
   if (previousStance === null) return 'initial';
-  if (previousStance === nextStance) {
-    if (invalidatedCount > 0 && survivingCount === 0) return 'evidence_invalidated_stance_preserved';
-    if (invalidatedCount > 0) return 'evidence_lineage_changed';
-    return 'unchanged';
+  // Missing prior evidence takes precedence over a semantic label such as
+  // "conflict_resolved": disappearance from this read does not prove the
+  // underlying disagreement was resolved.
+  if (invalidatedCount > 0) {
+    if (previousStance === nextStance && survivingCount === 0) {
+      return 'evidence_invalidated_stance_preserved';
+    }
+    return 'evidence_lineage_changed';
   }
+  if (previousStance === nextStance) return 'unchanged';
   if (nextStance === 'unresolved_conflict') return 'conflict_opened';
   if (previousStance === 'unresolved_conflict') return 'conflict_resolved';
   if (stancePolarity(previousStance) !== stancePolarity(nextStance)) return 'reversal';
