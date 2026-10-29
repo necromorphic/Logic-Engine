@@ -6,6 +6,8 @@
 
 - Adds a SillyTavern extension settings panel using the pinned ST extension loader contract.
 - Checks Logic-Engine `GET /health` with a 2.5-second timeout, no cookies, no redirects and no cached response.
+- Shows three distinct connection states: **connected**, **unavailable** (offline/refused/timeout) and **error** (invalid address, HTTP error, malformed or foreign response). A failed check never blocks the panel.
+- Runs one read-only health check on activation, so a SillyTavern reload shows the current state; later checks are user-initiated with **Проверить связь**, which also rechecks after the engine restarts.
 - Offers explicit user actions for chat enrollment and digest sync only when a compatible Host lifecycle bridge exists.
 - Does not subscribe to model-generation events, read message text, send prompts, or call any model provider.
 - Does not store Core credentials in browser code.

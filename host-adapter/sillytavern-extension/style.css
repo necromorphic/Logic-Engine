@@ -10,6 +10,15 @@
 #logic_engine_extension #logic_engine_host_status {
   overflow-wrap: anywhere;
 }
+#logic_engine_extension #logic_engine_status[data-state="connected"] {
+  color: #4caf50;
+}
+#logic_engine_extension #logic_engine_status[data-state="unavailable"] {
+  color: #ff9800;
+}
+#logic_engine_extension #logic_engine_status[data-state="error"] {
+  color: #f44336;
+}
 #logic_engine_extension button:disabled {
   opacity: 0.45;
   cursor: not-allowed;

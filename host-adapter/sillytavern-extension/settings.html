@@ -10,8 +10,9 @@
       <input id="logic_engine_url" class="text_pole" type="url" value="http://127.0.0.1:8787" autocomplete="url" spellcheck="false">
       <div class="flex-container">
         <button id="logic_engine_check" class="menu_button">Проверить связь</button>
-        <span id="logic_engine_status" role="status" aria-live="polite">Не проверено</span>
+        <span id="logic_engine_status" role="status" aria-live="polite" data-state="idle">Не проверено</span>
       </div>
+      <p class="logic-engine-muted">Проверка выполняется при загрузке страницы и по кнопке; авторизация адаптера и Memory → NPC при этом не проверяются.</p>
       <hr>
       <div class="flex-container">
         <button id="logic_engine_enroll" class="menu_button" disabled>Подключить текущий чат</button>
