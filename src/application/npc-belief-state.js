@@ -71,12 +71,54 @@ function classifyStanceChange(previousStance, nextStance, invalidatedCount, surv
   if (previousStance.startsWith('believes_') && nextStance.startsWith('suspects_')) return 'weakened';
   return 'revised';
 }
-const stableJson = (value) => {
-  if (Array.isArray(value)) return '[' + value.map(stableJson).join(',') + ']';
-  if (isPlainObject(value)) return '{' + Object.keys(value).sort().map((key) =>
-    JSON.stringify(key) + ':' + stableJson(value[key])).join(',') + '}';
-  return JSON.stringify(value);
-};
+function stableJson(value, state = { depth: 0, nodes: 0, ancestors: new WeakSet() }) {
+  state.nodes += 1;
+  if (state.nodes > 10000 || state.depth > 32) {
+    throw new TypeError('Evidence values exceed the supported JSON complexity limit');
+  }
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') {
+    return JSON.stringify(value);
+  }
+  if (typeof value === 'number' && Number.isFinite(value)) return JSON.stringify(value);
+  if (!value || typeof value !== 'object' || state.ancestors.has(value)) {
+    throw new TypeError('Evidence values must be acyclic JSON data');
+  }
+
+  state.ancestors.add(value);
+  state.depth += 1;
+  try {
+    if (Array.isArray(value)) {
+      if (Object.getPrototypeOf(value) !== Array.prototype
+        || Reflect.ownKeys(value).length !== value.length + 1) {
+        throw new TypeError('Evidence arrays must be dense standard arrays');
+      }
+      for (let index = 0; index < value.length; index += 1) {
+        const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+        if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) {
+          throw new TypeError('Evidence arrays must contain only data items');
+        }
+      }
+      return '[' + value.map((item) => stableJson(item, state)).join(',') + ']';
+    }
+    if (!isPlainObject(value)) throw new TypeError('Evidence objects must be plain JSON objects');
+    const keys = Reflect.ownKeys(value);
+    if (keys.some((key) => typeof key !== 'string')) {
+      throw new TypeError('Evidence objects must not contain symbol keys');
+    }
+    const serialized = [];
+    for (const key of keys.sort()) {
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) {
+        throw new TypeError('Evidence objects must contain only enumerable data properties');
+      }
+      serialized.push(JSON.stringify(key) + ':' + stableJson(descriptor.value, state));
+    }
+    return '{' + serialized.join(',') + '}';
+  } finally {
+    state.depth -= 1;
+    state.ancestors.delete(value);
+  }
+}
 function freezeTree(value) {
   if (value && typeof value === 'object' && !Object.isFrozen(value)) {
     for (const child of Object.values(value)) freezeTree(child);
@@ -181,9 +223,17 @@ export function reduceNpcBeliefTransition({ knowledgeRead, currentBelief = null,
     return Object.freeze({ status: 'non_ready', reason: 'invalid_proposition_value', transition: null });
   }
   const canonicalPropositionValue = freezeTree(JSON.parse(propositionValueKey));
-  const valuesBySide = (refs) => new Set(refs.map((ref) => stableJson(active.get(ref).value)));
-  const supportValues = valuesBySide(supporting);
-  const contradictValues = valuesBySide(contradicting);
+  let supportValues;
+  let contradictValues;
+  let propositionValues;
+  try {
+    const valuesBySide = (refs) => new Set(refs.map((ref) => stableJson(active.get(ref).value)));
+    supportValues = valuesBySide(supporting);
+    contradictValues = valuesBySide(contradicting);
+    propositionValues = new Set(propositionItems.map((item) => stableJson(item.value)));
+  } catch {
+    return Object.freeze({ status: 'non_ready', reason: 'invalid_core_evidence', transition: null });
+  }
   if ([...supportValues].some((value) => contradictValues.has(value))) {
     return Object.freeze({ status: 'non_ready', reason: 'same_value_cannot_support_and_contradict', transition: null });
   }
@@ -191,7 +241,6 @@ export function reduceNpcBeliefTransition({ knowledgeRead, currentBelief = null,
     || contradicting.some((ref) => stableJson(active.get(ref).value) === propositionValueKey)) {
     return Object.freeze({ status: 'non_ready', reason: 'evidence_side_does_not_match_proposition_value', transition: null });
   }
-  const propositionValues = new Set(propositionItems.map((item) => stableJson(item.value)));
   const hasConflict = propositionValues.size > 1;
   if (hasConflict && (proposal.stance !== 'unresolved_conflict'
     || supportValues.size === 0 || contradictValues.size === 0)) {
