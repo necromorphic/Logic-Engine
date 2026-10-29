@@ -118,14 +118,14 @@ test('enrolled chat save without matching persisted payload fails closed', async
     await response.finished;
 
     assert.equal(response.statusCode, 503);
-    assert.match(response.body, /HOST_SAVE_PERSISTENCE_MISMATCH/);
+    assert.match(response.body, /HOST_SAVE_CAPABILITY_POSTSTATE_MISMATCH/);
     assert.doesNotMatch(response.body, /"ok":true/);
 
     const journalText = await readFile(path.join(root, '.logic-engine-host', 'mutation-ledger.jsonl'), 'utf8');
     const records = journalText.trim().split('\n').map(line => JSON.parse(line));
     const outcome = records.find(record => record.kind === 'outcome');
     assert.equal(outcome.status, 'UNRESOLVED');
-    assert.equal(outcome.persistenceVerification, 'HOST_SAVE_PERSISTENCE_MISMATCH');
+    assert.equal(outcome.afterSnapshotStatus, 'HOST_SAVE_CAPABILITY_POSTSTATE_MISMATCH');
     assert.doesNotMatch(journalText, /persisted-before|new-but-not-written/);
   } finally {
     await rm(root, { recursive: true, force: true });
