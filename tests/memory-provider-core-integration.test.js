@@ -165,7 +165,7 @@ test('real Provider preserves immutable versions and duplicate/conflict semantic
     worldId: s.scope.world_id, adapterId: 'provider-e2e-adapter', actorEntityId: s.scope.subject_id,
   });
   assert.equal(afterRestart.status, 'ready');
-  assert.deepEqual(afterRestart.candidates.map((candidate) => candidate.record?.version), ['record-v2']);
+  assert.deepEqual(afterRestart.candidates.map((candidate) => candidate.record_version), ['record-v2']);
   assert.equal(JSON.stringify(afterRestart).includes('visible source-a'), true,
     'the independently authorized v2 remains readable after v1 revocation and restart');
 });
