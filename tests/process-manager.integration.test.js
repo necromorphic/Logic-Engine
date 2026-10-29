@@ -899,6 +899,15 @@ test('cross-record process checkpoint mismatch fails closed and replays idempote
   assert.deepEqual(engine.getProcess('world-a', 'journey-1'), processBeforeReplay);
   assert.deepEqual(engine.getAudit('world-a'), auditBeforeReplay);
   assert.deepEqual(engine.getEvents('world-a', true), eventsBeforeReplay);
+  assert.throws(
+    () => engine.startTimeAdvance('world-a', {
+      ...request,
+      to_coordinate: 2000,
+    }),
+    (error) => error.code === 'IDEMPOTENCY_CONFLICT',
+  );
+  assert.deepEqual(engine.getAudit('world-a'), auditBeforeReplay);
+  assert.deepEqual(engine.getEvents('world-a', true), eventsBeforeReplay);
 
   ({ engine, store } = reopen());
   assert.equal(engine.getProcess('world-a', 'journey-1').status, 'needs_review');
