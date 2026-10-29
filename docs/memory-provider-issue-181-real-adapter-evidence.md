@@ -3,7 +3,7 @@
 **Status:** implementation candidate; an initial CI attempt exposed one test assertion mismatch and a missing focused-test environment preload; both were corrected, and exact-head CI is pending on the updated commit.  
 **Base main:** `b5fc27506ffda4fd6bc2e236c0463231f6c6c321`  
 **Candidate branch:** `provider/issue-181-real-adapter-lifecycle-2026-10-29`  
-**Candidate head for current validation attempt:** `c8a516c88d15d29007f420f5ddc858c341457771`  
+**Candidate head:** use the exact SHA shown on [PR #686](https://github.com/necromorphic/Logic-Engine/pull/686) and its linked checks; a report-only edit also advances the branch head.  
 **Issue:** [#181](https://github.com/necromorphic/Logic-Engine/issues/181)
 
 ## Audit: current main and prior work
