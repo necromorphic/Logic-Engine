@@ -803,3 +803,58 @@ test('rollback follows an explicit cross-process event cause and gates both affe
   assert.equal(engine.getProcess('world-a', 'process-alpha').status, 'needs_review');
   assert.equal(engine.getProcess('world-a', 'process-beta').status, 'needs_review');
 }));
+
+
+test('process completion stays world-scoped and creates no NPC knowledge or delivery records', (t) => withDatabase(t, ({ engine, store }) => {
+  store.createWorld(worldInput('world-a'));
+  store.createWorld(worldInput('world-b'));
+  const definition = (worldId) => ({
+    process_id: 'same-process-id',
+    definition_version: '1',
+    expected_revision: 0,
+    idempotency_key: 'create-same-process-' + worldId,
+    milestones: [{
+      milestone_id: 'finish',
+      trigger_id: 'finish-' + worldId,
+      due_coordinate: 1000,
+      prerequisites: [],
+      read_set: [],
+      write_set: [],
+      event: { turn_id: 'finish-event-' + worldId, event_type: 'process.finish', effects: [] },
+    }],
+  });
+  const processA = engine.createProcess('world-a', definition('world-a')).process;
+  const processB = engine.createProcess('world-b', definition('world-b')).process;
+  assert.equal(processA.process_id, processB.process_id);
+
+  const stateA = engine.getState('world-a');
+  const advancedA = engine.startTimeAdvance('world-a', {
+    idempotency_key: 'advance-world-a-only',
+    expected_revision: stateA.world_revision,
+    to_coordinate: 1000,
+  });
+  assert.equal(advancedA.status, 'completed');
+  assert.equal(engine.getProcess('world-a', 'same-process-id').status, 'completed');
+  assert.equal(engine.getProcess('world-b', 'same-process-id').status, 'scheduled');
+  assert.equal(engine.getState('world-b').game_time_coordinate, 0);
+
+  const stateB = engine.getState('world-b');
+  const advancedB = engine.startTimeAdvance('world-b', {
+    idempotency_key: 'advance-world-b-only',
+    expected_revision: stateB.world_revision,
+    to_coordinate: 1000,
+  });
+  assert.equal(advancedB.status, 'completed');
+  assert.equal(engine.getProcess('world-b', 'same-process-id').status, 'completed');
+
+  const knowledgeCount = store.db.prepare(
+    'SELECT COUNT(*) AS count FROM knowledge_acquisitions WHERE world_id IN (?, ?)',
+  ).get('world-a', 'world-b').count;
+  assert.equal(knowledgeCount, 0);
+  for (const worldId of ['world-a', 'world-b']) {
+    const process = engine.getProcess(worldId, 'same-process-id');
+    assert.equal(Object.hasOwn(process, 'npc_knowledge'), false);
+    assert.equal(Object.hasOwn(process, 'player_delivery'), false);
+    assert.equal(engine.getAudit(worldId).some((entry) => /delivery/i.test(entry.action)), false);
+  }
+}));
