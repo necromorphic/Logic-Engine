@@ -55,6 +55,29 @@ test('trusted World Pack catalog resolves only exact ID/version and pins the art
   assert.equal(audit[0].payload.world_pack_digest, digest(artifactBytes));
 });
 
+test('world creation rolls back the world row when the creation audit cannot be written', (t) => {
+  const { catalogPath } = fixture(t);
+  const store = new SQLiteStore(':memory:');
+  t.after(() => store.close());
+  store.db.exec(`
+    CREATE TRIGGER fail_world_created_audit
+    BEFORE INSERT ON audit_entries
+    WHEN NEW.action = 'world.created'
+    BEGIN
+      SELECT RAISE(ABORT, 'forced audit failure');
+    END;
+  `);
+  const engine = new LogicEngine(store, { worldPackCatalog: loadTrustedWorldPackCatalog(catalogPath) });
+  assert.throws(() => engine.createWorld({
+    world_id: 'world-audit-rollback',
+    world_pack_id: 'test.world',
+    world_pack_version: '1.0.0',
+    game_time: '2026-01-01T00:00:00Z',
+  }), /forced audit failure/);
+  assert.equal(store.db.prepare('SELECT COUNT(*) AS count FROM worlds WHERE world_id = ?')
+    .get('world-audit-rollback').count, 0);
+});
+
 test('trusted World Pack catalog rejects modified artifact bytes', (t) => {
   const { catalogPath, artifactPath } = fixture(t);
   writeFileSync(artifactPath, readFileSync(artifactPath, 'utf8').replace('catalog-pin-test', 'modified'));
