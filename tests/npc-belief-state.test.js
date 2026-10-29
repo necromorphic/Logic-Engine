@@ -160,6 +160,39 @@ test('preserves prior belief stance when its evidence was revoked or is no longe
   assert.equal(withNewEvidence.transition.previous_stance, 'believes_true');
 });
 
+test('classifies qualitative stance changes without inventing numeric confidence', () => {
+  const reduce = (previousStance, nextStance, priorEvidence = ['acq-support']) => reduceNpcBeliefTransition({
+    knowledgeRead: knowledgeRead(),
+    currentBelief: previousStance === null ? null : {
+      world_id: 'world-a',
+      actor_id: 'npc-a',
+      proposition_ref: propositionRef,
+      stance: previousStance,
+      evidence_acquisition_ids: priorEvidence,
+    },
+    proposal: proposal({
+      stance: nextStance,
+      supporting_acquisition_ids: nextStance === 'believes_false' || nextStance === 'suspects_false'
+        ? [] : ['acq-support'],
+      contradicting_acquisition_ids: nextStance === 'believes_false' || nextStance === 'suspects_false'
+        ? ['acq-support'] : [],
+      proposition_value: nextStance === 'believes_false' || nextStance === 'suspects_false'
+        ? 'Sotenbori' : 'Kamurochō',
+    }),
+  });
+
+  assert.equal(reduce(null, 'believes_true').transition.stance_change, 'initial');
+  assert.equal(reduce('believes_true', 'believes_true').transition.stance_change, 'unchanged');
+  assert.equal(reduce('suspects_true', 'believes_true').transition.stance_change, 'strengthened');
+  assert.equal(reduce('believes_true', 'suspects_true').transition.stance_change, 'weakened');
+  assert.equal(reduce('believes_true', 'believes_false').transition.stance_change, 'reversal');
+  assert.equal(reduce('believes_true', 'unresolved_conflict').transition.stance_change, 'conflict_opened');
+  assert.equal(reduce('unresolved_conflict', 'believes_true').transition.stance_change, 'conflict_resolved');
+  assert.equal(reduce('believes_true', 'believes_true', ['revoked-acquisition'])
+    .transition.stance_change, 'evidence_invalidated_stance_preserved');
+  assert.equal('confidence' in reduce(null, 'believes_true').transition, false);
+});
+
 test('context includes only the evidence explicitly admitted by the validated transition', () => {
   const read = knowledgeRead();
   const reduced = reduceNpcBeliefTransition({ knowledgeRead: read, proposal: proposal() });
