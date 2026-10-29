@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { readFileSync, statSync } from 'node:fs';
+import { readFileSync, lstatSync } from 'node:fs';
+import { isAbsolute } from 'node:path';
 import { assert, EngineError } from '../core/errors.js';
 import { hashRequest } from '../core/request-hash.js';
 import { validateEffects } from '../core/rules.js';
@@ -685,16 +686,18 @@ export class LogicEngine {
       && entry.source_ref === input.source_ref
       && entry.world_pack_id === world.world_pack_id
       && entry.world_pack_version === world.world_pack_version
-      && typeof entry.source_path === 'string' && entry.source_path.length > 0);
+      && typeof entry.source_path === 'string' && isAbsolute(entry.source_path));
     assert(candidates.length === 1, 'TRUSTED_IMPORT_SOURCE_NOT_CONFIGURED',
       'Exactly one deployment-approved imported source file must match this source_ref and world pack.', 403);
     const configured = candidates[0];
     let sourceBytes;
     try {
-      const stat = statSync(configured.source_path);
-      assert(stat.isFile() && stat.size > 0 && stat.size <= MAX_TRUSTED_IMPORT_BYTES,
-        'INVALID_TRUSTED_IMPORT_FILE', 'Trusted import file must be a non-empty regular file within the 1 MiB limit.');
+      const stat = lstatSync(configured.source_path);
+      assert(stat.isFile() && !stat.isSymbolicLink() && stat.size > 0 && stat.size <= MAX_TRUSTED_IMPORT_BYTES,
+        'INVALID_TRUSTED_IMPORT_FILE', 'Trusted import path must be an absolute non-symlink regular file within the 1 MiB limit.');
       sourceBytes = readFileSync(configured.source_path);
+      assert(sourceBytes.length > 0 && sourceBytes.length <= MAX_TRUSTED_IMPORT_BYTES,
+        'INVALID_TRUSTED_IMPORT_FILE', 'Trusted import bytes must remain within the 1 MiB limit when read.');
     } catch (error) {
       if (error instanceof EngineError) throw error;
       throw new EngineError('TRUSTED_IMPORT_FILE_UNAVAILABLE', 'Deployment-approved import file could not be read.', 503);
