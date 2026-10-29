@@ -199,6 +199,26 @@ test('classifies qualitative stance changes without inventing numeric confidence
 
   assert.equal(reduce(null, 'believes_true').transition.stance_change, 'initial');
   assert.equal(reduce('believes_true', 'believes_true').transition.stance_change, 'unchanged');
+  const secondSupport = {
+    ...evidenceItems[0],
+    acquisition_id: 'acq-support-independent',
+    provenance_ref: 'authoring:source-independent',
+    provenance_digest: 'd'.repeat(64),
+    source_event_ids: ['event-independent'],
+  };
+  const addedEvidence = reduceNpcBeliefTransition({
+    knowledgeRead: knowledgeRead({ items: [evidenceItems[0], secondSupport] }),
+    currentBelief: {
+      world_id: 'world-a',
+      actor_id: 'npc-a',
+      proposition_ref: propositionRef,
+      stance: 'believes_true',
+      evidence_acquisition_ids: ['acq-support'],
+    },
+    proposal: proposal({ supporting_acquisition_ids: ['acq-support', 'acq-support-independent'] }),
+  });
+  assert.equal(addedEvidence.status, 'ready');
+  assert.equal(addedEvidence.transition.stance_change, 'evidence_lineage_changed');
   assert.equal(reduce('suspects_true', 'believes_true').transition.stance_change, 'strengthened');
   assert.equal(reduce('believes_true', 'suspects_true').transition.stance_change, 'weakened');
   assert.equal(reduce('believes_true', 'believes_false').transition.stance_change, 'reversal');
