@@ -73,19 +73,19 @@ These cases are not substitutes for the missing cross-record mismatch regression
 
 ## #243 lifecycle and persistence acceptance matrix
 
-| Behavior | Required evidence |
+| Behavior | Current evidence |
 |---|---|
-| Start and stage progression | Real Core/SQLite integration test; milestone and trigger completion commit in the same segment transaction |
-| Pause and resume | Lifecycle version/idempotency checks; paused process does not execute stages; resume rejects overdue work unless explicitly replanned |
-| Interrupt and continue | TimeEngine operation persists its interrupted boundary; close/reopen and a new valid advance continues from the last confirmed coordinate without replay |
-| Cancel and completion | Terminal state transition and pending-trigger cancellation are persisted/audited; completion is derived from all required milestones |
-| Repeated request | Same key/same payload returns the durable result; changed payload conflicts; no duplicate event, revision, audit, trigger or milestone writes |
-| SQLite recovery | Operation and process checkpoints survive close/reopen; malformed, empty, stale or contradictory evidence fails closed |
-| Segment atomicity | Event commit, trigger completion, milestone result and operation checkpoint either commit together or the segment rolls back |
-| Rollback | Supporting-event invalidation gates completed dependent milestones under existing Core rollback closure; no automatic cross-process recalculation |
-| Scheduler ownership | Process milestones use registered triggers and the existing TimeEngine/operation segment scheduler; no second scheduler or process-side canonical-write path |
+| Start and stage progression | `tests/process-manager.integration.test.js`: `process milestone checkpoint commits with its trigger segment and survives SQLite restart` (line 66); validates the real Core/SQLite path. |
+| Pause and resume | `pause and resume rotate pending trigger identities when milestones remain in the future` (154), `resume rejects a paused process whose milestone became overdue` (314), and `paused lifecycle state and trigger cancellation survive restart before resume` (527). |
+| Interrupt and continue | `interrupted time advance resumes a running process after SQLite close and reopen` (346). This is **operation-level interruption** using the TimeEngine's persisted interrupted boundary; it does not establish a separate process lifecycle action named `interrupt`. |
+| Cancel and completion | `cancelling a process atomically cancels pending milestone triggers` (122) plus the stage-progression test (66); terminal state, trigger cancellation, and completion from required milestones are exercised. |
+| Repeated request | `checkpoint failure stays terminal and same-key retry after SQLite restart leaves no residue` (588), `cross-record process checkpoint mismatch fails closed and replays idempotently` (863), `review-gated process trigger cannot be replayed or crossed with a new time-advance key` (1200), and `failed review audit keeps operation retryable and process gate atomic` (1236). |
+| SQLite recovery | Restart cases at (66), (215), (346), (527), (588), (1007), (1119), and (1161) cover durable lifecycle/review state and malformed or empty segment evidence. Cross-record mismatch tests at (863), (929), (968), and (1052) cover contradictory checkpoints and malformed event evidence. |
+| Segment atomicity | `failure between canonical segment commit and process checkpoint rolls back the entire segment` (290), plus `failed review audit keeps operation retryable and process gate atomic` (1236). ProcessStore validates supporting event, registered trigger, persisted segment, operation and canonical event before milestone advancement (`src/storage/process-store.js:188-283`). |
+| Rollback | `rollback invalidates the transitive completed prerequisite chain and survives restart` (215), `rolling back one process milestone preserves an independent completed process` (686), and `rollback follows an explicit cross-process event cause and gates both affected processes` (742). These do not prove global process-level recomputation. |
+| Scheduler ownership | `src/application/engine.js` imports the existing pure `planDueWork` scheduler (`src/time/scheduler.js`); process milestones register normal time triggers and are advanced through `startTimeAdvance`/the persisted TimeEngine operation path. The scheduler module documents that it only plans work and does not execute effects or write storage. No second process scheduler is present in this path. |
 
-The runtime tests and exact-head CI are the evidence for these behaviors. A row in this table is not considered verified merely because it is documented; the corresponding current test and CI result must be checked before closing #243.
+Exact-head CI for `1fb43497c2d5896bc9cf7750c9cb2a76d94ea0ec`: Runtime `npm test` 1090/1090; recalculation oracle 20/20; `core-trusted-acquisition`, `npc-boundary`, and Memory Provider blocker 3 passed. These results support the matrix but do not substitute for current-head code review. Test names and line numbers above are from the PR head and should be rechecked if the test file changes.
 
 ## Explicit non-decisions
 
