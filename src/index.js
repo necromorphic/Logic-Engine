@@ -12,6 +12,37 @@ const adminToken = process.env.ENGINE_ADMIN_TOKEN || null;
 let adapterTokens = {};
 try { adapterTokens = JSON.parse(process.env.ENGINE_ADAPTER_TOKENS || '{}'); } catch { throw new Error('ENGINE_ADAPTER_TOKENS must be a JSON object mapping adapter IDs to secrets.'); }
 if (!adapterTokens || typeof adapterTokens !== 'object' || Array.isArray(adapterTokens)) throw new Error('ENGINE_ADAPTER_TOKENS must be a JSON object mapping adapter IDs to secrets.');
+let trustedInitialKnowledgeSources;
+try {
+  trustedInitialKnowledgeSources = JSON.parse(process.env.ENGINE_TRUSTED_INITIAL_KNOWLEDGE_SOURCES || '[]');
+} catch {
+  throw new Error('ENGINE_TRUSTED_INITIAL_KNOWLEDGE_SOURCES must be a JSON array of deployment-approved source records.');
+}
+if (!Array.isArray(trustedInitialKnowledgeSources)) {
+  throw new Error('ENGINE_TRUSTED_INITIAL_KNOWLEDGE_SOURCES must be a JSON array of deployment-approved source records.');
+}
+const trustedSourceIdentities = new Set();
+for (const [index, source] of trustedInitialKnowledgeSources.entries()) {
+  const allowedFields = ['world_pack_id', 'world_pack_version', 'source_kind', 'source_ref', 'authorization_ref', 'sha256', 'source_path'];
+  if (!source || typeof source !== 'object' || Array.isArray(source)
+    || Object.keys(source).some((key) => !allowedFields.includes(key))
+    || ['world_pack_id', 'world_pack_version', 'source_kind', 'source_ref', 'authorization_ref', 'sha256']
+      .some((key) => typeof source[key] !== 'string' || !source[key].trim())) {
+    throw new Error('Trusted source registry entry ' + index + ' has invalid or unsupported fields.');
+  }
+  if (!['author_initial', 'imported'].includes(source.source_kind) || !/^[a-f0-9]{64}$/.test(source.sha256)) {
+    throw new Error('Trusted source registry entry ' + index + ' has an unsupported source_kind or invalid SHA-256 digest.');
+  }
+  if (source.source_kind === 'imported' && (typeof source.source_path !== 'string' || !isAbsolute(source.source_path))) {
+    throw new Error('Imported trusted source registry entry ' + index + ' requires an absolute deployment-owned source_path.');
+  }
+  if (source.source_kind === 'author_initial' && source.source_path !== undefined) {
+    throw new Error('Author-initial source registry entries must not declare source_path.');
+  }
+  const identity = JSON.stringify([source.world_pack_id, source.world_pack_version, source.source_kind, source.source_ref, source.authorization_ref]);
+  if (trustedSourceIdentities.has(identity)) throw new Error('Trusted source registry contains duplicate source identity: ' + identity);
+  trustedSourceIdentities.add(identity);
+}
 if (!token || token.length < 16) {
   process.stderr.write('ENGINE_API_TOKEN must be set and at least 16 characters long.\n');
   process.exit(1);
@@ -79,7 +110,7 @@ const hostVersionLedger = new HostVersionDigestLedger({
   verifyInventorySnapshot: async () => false,
 });
 const server = createApiServer({
-  engine: new LogicEngine(store), token, internalToken, approvalToken, adminToken, adapterTokens,
+  engine: new LogicEngine(store, { trustedInitialKnowledgeSources }), token, internalToken, approvalToken, adminToken, adapterTokens,
   hostVersionLedger,
 });
 server.listen(port, host, () => process.stdout.write(
