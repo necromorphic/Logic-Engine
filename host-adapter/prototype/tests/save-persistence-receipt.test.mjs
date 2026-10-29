@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
-import { createHostLifecycleMutationMiddleware, registerHostConversation } from '../server-lifecycle-mutation-journal.mjs';
+import { createHostLifecycleMutationMiddleware, prepareHostSaveCapability, recordHostCaptureAcknowledgement, registerHostConversation } from '../server-lifecycle-mutation-journal.mjs';
 
 const digest = value => createHash('sha256').update(JSON.stringify(String(value))).digest('hex');
 const message = ({ messageId, versions, activeVersionIndex }) => ({
@@ -21,6 +21,26 @@ const message = ({ messageId, versions, activeVersionIndex }) => ({
     })),
   },
 });
+
+async function authorizeSave(request, conversationId, messageId, versionId, text) {
+  request.sessionID = 'save-receipt-test-session';
+  await recordHostCaptureAcknowledgement(request, {
+    conversation_id: conversationId,
+    message_id: messageId,
+    version_id: versionId,
+    parent_version_id: null,
+    content_sha256: digest(text),
+    active: true,
+    deleted: false,
+  });
+  const capability = await prepareHostSaveCapability(request, {
+    route: '/api/chats/save',
+    payload: request.body,
+  });
+  assert.equal(capability.status, 'CAPABILITY_ISSUED');
+  request.headers = { 'x-logic-engine-save-capability': capability.token };
+}
+
 function responseMock() {
   let finish;
   const finished = new Promise(resolve => { finish = resolve; });
@@ -39,7 +59,7 @@ function responseMock() {
   return response;
 }
 
-test('sanitized filename alias cannot bypass the enrolled chat save persistence receipt', async () => {
+test('enrolled chat save without matching persisted payload fails closed', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'host-save-receipt-'));
   const directories = {
     chats: path.join(root, 'chats'),
@@ -67,7 +87,7 @@ test('sanitized filename alias cannot bypass the enrolled chat save persistence 
     method: 'POST', baseUrl: '/api/chats', path: '/save', originalUrl: '/api/chats/save',
     body: {
       avatar_url: 'avatar.png',
-      file_name: 'chat-a?',
+      file_name: 'chat-a',
       chat: [
         header,
         message({
@@ -87,6 +107,7 @@ test('sanitized filename alias cannot bypass the enrolled chat save persistence 
     await registerHostConversation(request, {
       conversationId, sourceLocator: 'chat-a', sourcePath: 'avatar/chat-a.jsonl', domain: 'chats',
     });
+    await authorizeSave(request, conversationId, messageId, version1, 'persisted-before');
 
     const response = responseMock();
     await createHostLifecycleMutationMiddleware({ requirePersistedInventory: true })(request, response, async () => {
@@ -152,6 +173,7 @@ test('matching persisted enrolled chat receives success only after the version i
     await registerHostConversation(request, {
       conversationId, sourceLocator: 'chat-a', sourcePath: 'avatar/chat-a.jsonl', domain: 'chats',
     });
+    await authorizeSave(request, conversationId, messageId, version1, 'before');
     const response = responseMock();
     await createHostLifecycleMutationMiddleware({ requirePersistedInventory: true })(request, response, async () => {
       await writeFile(chatPath, request.body.chat.map(JSON.stringify).join('\n') + '\n');
