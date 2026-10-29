@@ -858,3 +858,51 @@ test('process completion stays world-scoped and creates no NPC knowledge or deli
     assert.equal(engine.getAudit(worldId).some((entry) => /delivery/i.test(entry.action)), false);
   }
 }));
+
+
+test('cross-record process checkpoint mismatch fails closed and replays idempotently', (t) => withDatabase(t, ({ engine, store, reopen }) => {
+  store.createWorld(worldInput());
+  const created = engine.createProcess('world-a', processInput());
+  const beforeState = engine.getState('world-a');
+  const beforeEvents = engine.getEvents('world-a', true);
+  const beforeCommitSequence = store.currentCommitSequence('world-a');
+  const originalCompleteTrigger = engine.processStore.completeTrigger.bind(engine.processStore);
+
+  // Simulate stale/corrupt process-side evidence at the existing Core boundary.
+  // The operation still contains the real segment and trigger, but the milestone
+  // completion callback receives an event ID that has no valid canonical event.
+  engine.processStore.completeTrigger = (worldId, triggerId, eventIds, operationId) =>
+    originalCompleteTrigger(worldId, triggerId, ['missing-canonical-event'], operationId);
+
+  const request = {
+    idempotency_key: 'cross-record-checkpoint-mismatch',
+    expected_revision: beforeState.world_revision,
+    to_coordinate: 1000,
+  };
+  const failed = engine.startTimeAdvance('world-a', request);
+  assert.equal(failed.status, 'needs_review');
+  assert.equal(engine.getState('world-a').game_time_coordinate, beforeState.game_time_coordinate);
+  assert.equal(engine.getState('world-a').world_revision, beforeState.world_revision);
+  assert.equal(store.currentCommitSequence('world-a'), beforeCommitSequence);
+  assert.deepEqual(engine.getEvents('world-a', true), beforeEvents);
+  assert.equal(engine.getProcess('world-a', 'journey-1').status, 'needs_review');
+  assert.equal(engine.getProcess('world-a', 'journey-1').milestones[0].status, 'pending');
+  assert.equal(engine.getTimeTrigger('world-a', 'journey-depart').status, 'pending');
+
+  const persisted = store.getTimeAdvanceOperationByKey('world-a', request.idempotency_key);
+  assert.equal(persisted.status, 'needs_review');
+  const processBeforeReplay = engine.getProcess('world-a', 'journey-1');
+  const auditBeforeReplay = engine.getAudit('world-a');
+  const eventsBeforeReplay = engine.getEvents('world-a', true);
+  const replay = engine.startTimeAdvance('world-a', request);
+  assert.deepEqual(replay, persisted);
+  assert.deepEqual(engine.getProcess('world-a', 'journey-1'), processBeforeReplay);
+  assert.deepEqual(engine.getAudit('world-a'), auditBeforeReplay);
+  assert.deepEqual(engine.getEvents('world-a', true), eventsBeforeReplay);
+
+  ({ engine, store } = reopen());
+  assert.equal(engine.getProcess('world-a', 'journey-1').status, 'needs_review');
+  assert.equal(store.getTimeAdvanceOperationByKey('world-a', request.idempotency_key).status, 'needs_review');
+  assert.equal(engine.getState('world-a').world_revision, beforeState.world_revision);
+  assert.deepEqual(engine.getEvents('world-a', true), beforeEvents);
+}));
