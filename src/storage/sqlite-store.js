@@ -1927,11 +1927,14 @@ export class SQLiteStore {
         if (!Array.isArray(segments) || segments.length === 0 || segments.some((segment) => (
           !segment
           || !Number.isSafeInteger(segment.coordinate)
+          || typeof segment.idempotency_key !== 'string'
+          || segment.idempotency_key.length === 0
+          || typeof segment.request_hash !== 'string'
+          || segment.request_hash.length === 0
           || !Array.isArray(segment.events)
-          || segment.events.length < 1
           || segment.events.length > 32
-          || !Array.isArray(segment.trigger_ids)
-          || !Array.isArray(segment.registered_trigger_ids)
+          || (segment.trigger_ids !== undefined && !Array.isArray(segment.trigger_ids))
+          || (segment.registered_trigger_ids !== undefined && !Array.isArray(segment.registered_trigger_ids))
         ))) throw new Error('Persisted segments must be a non-empty array of valid segment records for a running operation.');
       } catch (error) {
         // Persisted operation evidence is untrusted during recovery. Fail closed before
