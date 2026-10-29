@@ -12,14 +12,18 @@ const base = () => ({
       id: "help-friend",
       supports: ["protect-friend"],
       frustrates: [],
+      motive_assessment_complete: true,
       feasibility: "feasible",
+      hard_constraints_complete: true,
       hard_constraints: [{ id: "lawful", status: "clear" }],
     },
     {
       id: "meet-deadline",
       supports: ["meet-deadline"],
       frustrates: [],
+      motive_assessment_complete: true,
       feasibility: "feasible",
+      hard_constraints_complete: true,
       hard_constraints: [{ id: "lawful", status: "clear" }],
     },
   ],
@@ -55,6 +59,7 @@ test("an explicit rule can resolve a conflict in favor of the candidate", () => 
   const result = evaluateNpcInternalConflict(input);
   assert.equal(result.options[1].status, "eligible");
   assert.equal(result.options[1].conflict_pairs[0].status, "resolved_for_option");
+  assert.equal(result.options[1].reason, "conflicts_resolved");
 });
 
 test("a rule resolving the conflict against the candidate makes it ineligible", () => {
@@ -87,6 +92,18 @@ test("unknown hard constraint or feasibility remains unresolved", () => {
   assert.equal(result.options[0].status, "needs_review");
   assert.equal(result.options[1].status, "needs_review");
   assert.deepEqual(result.review_option_ids, ["help-friend", "meet-deadline"]);
+});
+
+test("incomplete motive or hard-constraint coverage requires review", () => {
+  const input = base();
+  input.options[0].motive_assessment_complete = false;
+  input.options[1].hard_constraints_complete = false;
+  input.options[1].hard_constraints = [];
+  const result = evaluateNpcInternalConflict(input);
+  assert.equal(result.options[0].status, "needs_review");
+  assert.equal(result.options[0].reason, "motive_assessment_incomplete");
+  assert.equal(result.options[1].status, "needs_review");
+  assert.equal(result.options[1].reason, "hard_constraint_coverage_incomplete");
 });
 
 test("rejects unknown motive references, duplicate resolution pairs, and missing rule references", () => {
@@ -171,7 +188,9 @@ test("an explicit disqualifying conflict cannot be hidden by a second unresolved
       id: "deadline-action",
       supports: ["deadline"],
       frustrates: ["protect", "avoid-harm"],
+      motive_assessment_complete: true,
       feasibility: "feasible",
+      hard_constraints_complete: true,
       hard_constraints: [],
     }],
     resolutions: [{
