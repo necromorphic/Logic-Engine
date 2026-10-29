@@ -47,7 +47,16 @@ const timeAdvanceOperation = (row) => row && ({
   current_world_revision: row.current_world_revision,
   status: row.status,
   next_segment_index: row.next_segment_index,
-  segment_count: JSON.parse(row.segments_json).length,
+  // Keep malformed persisted operation rows readable so recovery can fail closed
+  // and expose needs_review rather than throwing during result serialization.
+  segment_count: (() => {
+    try {
+      const segments = JSON.parse(row.segments_json);
+      return Array.isArray(segments) ? segments.length : null;
+    } catch {
+      return null;
+    }
+  })(),
   plan: dec(row.plan_json),
   result: dec(row.result_json),
   error: dec(row.error_json),
