@@ -28,7 +28,7 @@ The input contains three arrays:
 
 Motive kind is one of goal, obligation, value, need, fear, or commitment. Every motive and option ID is unique. Motive references must resolve within the supplied active-motive set. A resolution covers one unordered pair, explicitly prefers one of its two motives, and cites an applicable author or World Pack rule. Duplicate pair resolutions are invalid.
 
-Both completeness flags are required. A caller must not omit an unassessed motive or applicable hard constraint and let an empty or partial list look complete. Incomplete coverage produces needs_review, unless a known hard-constraint violation or explicit infeasibility already makes the option ineligible. The helper does not authenticate the caller's completeness assertion.
+Both completeness flags are required. A caller must not omit an unassessed motive or applicable hard constraint and let an empty or partial list look complete. Incomplete coverage produces needs_review, unless a known hard-constraint violation, explicit infeasibility, or explicit conflict resolution against the option already makes it ineligible. The helper does not authenticate the caller's completeness assertion.
 
 ## Per-option outcomes
 
@@ -44,7 +44,7 @@ The top-level result lists eligible, review, and ineligible option IDs. It delib
 ## Required invariants
 
 1. **Hard constraints are not priorities.** A violated hard constraint excludes an option regardless of goal priority.
-2. **Unknown is not success.** Unknown feasibility or constraint status requires review.
+2. **Unknown is not success.** Unknown feasibility or constraint status requires review unless a separate known disqualifier already excludes the option.
 3. **Missing coverage is not a clean result.** The caller must explicitly attest that motive assessment and hard-constraint coverage are complete.
 4. **Conflicting motives are retained.** If an option advances one active motive while frustrating another, an explicit applicable rule must resolve that pair; otherwise the option is not silently selected.
 5. **No universal scalarization.** This helper does not add together loyalty, fear, obligation, affection, or values into one score.
@@ -59,6 +59,7 @@ The top-level result lists eligible, review, and ineligible option IDs. It delib
 - An explicit rule can resolve a conflict for or against a candidate.
 - A violated hard constraint excludes an option regardless of motive priority.
 - Unknown feasibility/constraint status and incomplete coverage are preserved as needs_review.
+- A known disqualifying resolution remains disqualifying even if another assessment is incomplete.
 - Unknown motive references, duplicate resolution pairs, missing rule references, and sparse arrays are rejected.
 - Accessor-backed fields are rejected without invoking their getters.
 - Caller-owned input remains unchanged.
