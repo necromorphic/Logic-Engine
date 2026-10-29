@@ -199,6 +199,8 @@ export class ProcessStore {
       const operation = this.db.prepare('SELECT * FROM time_advance_operations WHERE world_id=? AND operation_id=?')
         .get(worldId, operationId);
       const ids = [...new Set(eventIds)];
+      // Parse persisted evidence defensively: malformed or wrong-shaped JSON
+      // must enter the same fail-closed review path as a missing segment.
       let operationSegments = null;
       try {
         const parsedSegments = operation ? dec(operation.segments_json) : null;
