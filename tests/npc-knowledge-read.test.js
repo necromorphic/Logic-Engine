@@ -799,7 +799,7 @@ test('NPC acquisition remains pinned to its acquired fact version and rejects pr
   `).run(JSON.stringify('replacement-value'), JSON.stringify(['independent-source-event']));
 
   assert.throws(() => engine.readNpcKnowledge(request(store)), {
-    code: 'NPC_KNOWLEDGE_PROJECTION_INVALID',
+    code: 'NPC_KNOWLEDGE_ACQUISITION_VERSION_MISMATCH',
   });
 });
 
