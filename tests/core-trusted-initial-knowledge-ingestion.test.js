@@ -150,6 +150,20 @@ test('imported assignments load only through the deployment-owned allowlisted fi
   const acquisition = store.db.prepare('SELECT acquisition_kind,provenance_ref FROM knowledge_acquisitions WHERE world_id=?').get('world-a');
   assert.equal(acquisition.acquisition_kind, 'imported');
   assert.equal(acquisition.provenance_ref, 'import:test.world@1.0.0');
+
+  const replay = engine.recordTrustedImportedKnowledgeSource({
+    world_id: 'world-a', source_ref: 'import:test.world@1.0.0', idempotency_key: 'imported-source',
+    expected_revision: 1, expected_commit_sequence: 1,
+  });
+  assert.equal(replay.idempotent_replay, true);
+
+  const rollback = engine.rollbackEvent('world-a', {
+    root_event_id: result.event_id, idempotency_key: 'rollback-imported-source',
+  });
+  assert.equal(rollback.accepted, true);
+  assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM knowledge_acquisitions WHERE world_id=?').get('world-a').n, 0);
+  store.rebuild('world-a', store.world('world-a').world_revision);
+  assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM knowledge_acquisitions WHERE world_id=?').get('world-a').n, 0);
 });
 
 test('trusted file importer rejects tampered bytes and caller-selected paths without mutation', (t) => {
