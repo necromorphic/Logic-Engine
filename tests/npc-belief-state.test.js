@@ -116,6 +116,20 @@ test('does not treat missing evidence as evidence for false or unknown propositi
   assert.equal(result.reason, 'belief_transition_requires_evidence');
 });
 
+test('fails closed on non-JSON or cyclic Core evidence values without throwing', () => {
+  const cyclic = {};
+  cyclic.self = cyclic;
+  for (const malformedValue of [undefined, Number.NaN, cyclic, new Date('2020-01-01T00:00:00.000Z')]) {
+    const malformedRead = knowledgeRead({
+      items: [{ ...evidenceItems[0], value: malformedValue }],
+    });
+    const result = reduceNpcBeliefTransition({ knowledgeRead: malformedRead, proposal: proposal() });
+    assert.equal(result.status, 'non_ready');
+    assert.equal(result.reason, 'invalid_core_evidence');
+    assert.equal(result.transition, null);
+  }
+});
+
 test('rejects malformed provenance metadata before admitting evidence into a belief', () => {
   for (const malformed of [
     { ...evidenceItems[0], fact_id: '' },
