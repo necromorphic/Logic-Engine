@@ -74,7 +74,8 @@ function uniqueStringArray(value, maxLength) {
 /**
  * Input:
  * motives: active [{ id, kind }]
- * options: [{ id, supports, frustrates, feasibility, hard_constraints }]
+ * options: [{ id, supports, frustrates, motive_assessment_complete,
+ *   feasibility, hard_constraints_complete, hard_constraints }]
  * resolutions: [{ motive_a_id, motive_b_id, preferred_motive_id, rule_ref }]
  *
  * The caller must supply trusted, current assessments. A resolution explicitly
@@ -133,7 +134,11 @@ function evaluateUnsafe(input) {
       || optionIds.has(option.id)
       || !Object.hasOwn(option, "supports")
       || !Object.hasOwn(option, "frustrates")
+      || !Object.hasOwn(option, "motive_assessment_complete")
+      || typeof option.motive_assessment_complete !== "boolean"
       || !Object.hasOwn(option, "feasibility")
+      || !Object.hasOwn(option, "hard_constraints_complete")
+      || typeof option.hard_constraints_complete !== "boolean"
       || !Object.hasOwn(option, "hard_constraints")
       || !FEASIBILITY.has(option.feasibility)) return nonReady();
     optionIds.add(option.id);
@@ -143,7 +148,6 @@ function evaluateUnsafe(input) {
     if (!supports || supports.length === 0 || !frustrates
       || !isDenseDataArray(option.hard_constraints, MAX_CONSTRAINTS)) return nonReady();
 
-    const supported = new Set(supports);
     const frustrated = new Set(frustrates);
     for (let j = 0; j < supports.length; j += 1) {
       if (!motives.has(supports[j]) || frustrated.has(supports[j])) return nonReady();
@@ -191,13 +195,16 @@ function evaluateUnsafe(input) {
     }
 
     let status = "eligible";
-    let reason = "no_unresolved_conflict";
+    let reason = conflicts.length > 0 ? "conflicts_resolved" : "no_motive_conflict";
     if (violated || option.feasibility === "infeasible") {
       status = "ineligible";
       reason = violated ? "hard_constraint_violated" : "infeasible";
-    } else if (unknown || option.feasibility === "unknown") {
+    } else if (unknown || option.feasibility === "unknown"
+      || !option.motive_assessment_complete || !option.hard_constraints_complete) {
       status = "needs_review";
-      reason = unknown ? "hard_constraint_unknown" : "feasibility_unknown";
+      if (!option.motive_assessment_complete) reason = "motive_assessment_incomplete";
+      else if (!option.hard_constraints_complete) reason = "hard_constraint_coverage_incomplete";
+      else reason = unknown ? "hard_constraint_unknown" : "feasibility_unknown";
     } else {
       let opposed = false;
       let unresolved = false;
