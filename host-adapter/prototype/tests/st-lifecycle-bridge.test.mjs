@@ -107,6 +107,30 @@ test('configured Core publisher receives digest-only baseline, replacement tombs
   assert.ok(published.every(entry => !JSON.stringify(entry).includes('edited answer')));
 });
 
+test('Core publisher emits explicit root lineage and sends parents before newly captured children', async () => {
+  const published = [];
+  const f = makeFixture([{ is_user: false, mes: 'swipe A', swipes: ['swipe A'], swipe_id: 0 }], {
+    publishDigest: async entry => { published.push(structuredClone(entry)); },
+  });
+  await f.bridge.enrollCurrentConversation();
+  const parentId = f.chat[0]._logicEngineLifecycle.versions[0].versionId;
+  assert.equal(published[0].parent_version_id, null);
+  published.length = 0;
+
+  await f.bridge.beforeMutation('create-swipe', [0]);
+  f.chat[0].swipes.push('swipe B');
+  f.chat[0].swipe_id = 1;
+  f.chat[0].mes = 'swipe B';
+  await f.bridge.afterMutation('create-swipe');
+
+  assert.equal(published.length, 2);
+  assert.equal(published[0].version_id, parentId);
+  assert.equal(published[0].parent_version_id, null);
+  assert.equal(published[1].parent_version_id, parentId);
+  assert.equal(published[1].active, true);
+  assert.equal(published[1].deleted, false);
+});
+
 test('digest sync retry replays durable tombstones after a partial failed publication', async () => {
   let fail = false;
   const published = [];
