@@ -3,7 +3,7 @@
 **Status: DECISION APPROVED — fail closed on contradictory checkpoint evidence.**  
 **Scope:** Core-owned recovery boundary for issue #243 and the evaluation/recalculation boundary in #262.  
 **Decision owner:** Core owner approval recorded on 2026-10-29.  
-**Runtime guard and regression are implemented on the PR branch; acceptance remains pending exact-head CI and review of the full matrix.**
+**Runtime guard and regression are implemented on the PR branch. Exact-head CI passed on `1f32c396448109b98a7f9881cbb55f0a6a26bcb8` (Runtime 1090/1090; recalculation oracle 20/20; `core-trusted-acquisition`, `npc-boundary`, and Memory Provider blocker 3 passed). Final review of the current code head and the full acceptance matrix remain pending.**
 
 ## Approved rule
 
@@ -33,7 +33,7 @@ The `needs_review` status is a gate, not permission to auto-resume. The existing
 - `ProcessStore.completeTrigger` now rejects any registered trigger that points to a non-pending milestone, checks that the milestone's single supporting event ID matches the registered trigger in the persisted operation segment, requires that the trigger is completed by that same operation, and verifies that the event exists in canonical history with `validity='valid'`. The safe review gate can move even previously terminal process statuses to `needs_review` when contradictory evidence is detected; it does not rewrite the contradictory milestone.
 - A mismatch throws `PROCESS_CROSS_RECORD_CHECKPOINT_MISMATCH` inside the existing Core segment transaction. The segment transaction rolls back; the operation is persisted as `needs_review`; any still-pending trigger claims held by that operation are released without changing trigger `updated_at`; then the owning process is gated as `needs_review` through the existing ProcessStore path. Canonical world time/revision, commit sequence, event history, trigger status/completion and milestone progress are not committed. Regression tests compare the full trigger record before and after the rejected operation.
 - `tests/process-manager.integration.test.js` adds real-path regressions through `startTimeAdvance` for stale supporting-event evidence, a completed milestone with a pending trigger, a terminal process with a non-pending milestone, and malformed persisted operation-segment evidence. They assert fail-closed behavior, unchanged canonical state/event history, unchanged trigger and milestone checkpoints, exactly one process-review audit entry on first detection, persisted `needs_review` after SQLite reopen, same-key idempotent replay, and changed-content idempotency conflict.
-- This test is a targeted cross-record failure-path regression, not proof that every conceivable corruption shape is covered. Full Runtime CI on the latest exact head and the remaining acceptance matrix are still required before #243 can close.
+- These are targeted cross-record failure-path regressions, not proof that every conceivable corruption shape is covered. The exact-head CI result above verifies the current PR head; review and explicit evidence reconciliation for every acceptance-matrix row are still required before #243 can close.
 
 ## Required regression matrix
 
@@ -93,6 +93,6 @@ This decision does not designate a process checkpoint or a projection as canonic
 
 ## Release boundary
 
-- Keep #243 open until the required cross-record mismatch tests pass on an exact current head and the full acceptance matrix is evidenced.
+- Keep #243 open until final code review is recorded and each acceptance-matrix row is reconciled to a current test/source/CI result; passing CI alone does not close the issue.
 - Keep the broader Core evaluation/recalculation/publication boundary in #262 open until its own source-backed acceptance matrix is satisfied.
 - Keep production Memory→NPC **DISABLED / FAIL-CLOSED**. This decision does not authorize release or disclosure.
