@@ -741,7 +741,12 @@ export class LogicEngine {
           throw new EngineError('NPC_KNOWLEDGE_ACQUISITION_VERSION_MISMATCH',
             'The active fact no longer matches the version conveyed by this acquisition; reacquisition is required.', 409);
         }
-      } catch {
+      } catch (error) {
+        // Preserve the deliberate version-mismatch failure. Converting it to a
+        // generic projection error hides the actionable requirement to reacquire.
+        if (error instanceof EngineError && error.code === 'NPC_KNOWLEDGE_ACQUISITION_VERSION_MISMATCH') {
+          throw error;
+        }
         throw new EngineError('NPC_KNOWLEDGE_PROJECTION_INVALID',
           'The knowledge projection contains invalid canonical JSON.', 409);
       }
