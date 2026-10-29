@@ -701,6 +701,7 @@ test('rolling back one process milestone preserves an independent completed proc
   engine.createProcess('world-a', processInput({
     process_id: 'process-beta',
     idempotency_key: 'create-process-beta',
+    expected_revision: engine.getState('world-a').world_revision,
     milestones: [{
       milestone_id: 'beta-work',
       trigger_id: 'beta-work-trigger',
