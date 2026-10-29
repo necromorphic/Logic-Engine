@@ -280,3 +280,32 @@ test('context evidence owns an immutable copy of source event IDs', () => {
   assert.equal(buildNpcBeliefContext(malformed, malformedTransition.transition).reason,
     'context_core_evidence_invalid');
 });
+
+test('rejects malformed, duplicate, or sparse references in prior belief history', () => {
+  const baseBelief = {
+    world_id: 'world-a',
+    actor_id: 'npc-a',
+    proposition_ref: propositionRef,
+    stance: 'believes_true',
+    evidence_acquisition_ids: ['revoked-acquisition'],
+  };
+  const sparseEvidence = [];
+  sparseEvidence.length = 1;
+
+  for (const evidenceIds of [
+    ['revoked-acquisition', 'revoked-acquisition'],
+    sparseEvidence,
+    ['valid-ref', ''],
+    Array.from({ length: 201 }, (_, index) => 'ref-' + index),
+  ]) {
+    const result = reduceNpcBeliefTransition({
+      knowledgeRead: knowledgeRead(),
+      currentBelief: { ...baseBelief, evidence_acquisition_ids: evidenceIds },
+      proposal: proposal({ stance: 'suspects_true' }),
+    });
+    assert.equal(result.status, 'non_ready');
+    assert.equal(result.reason, 'current_belief_scope_invalid');
+    assert.equal(result.transition, null);
+  }
+});
+
