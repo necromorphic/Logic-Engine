@@ -146,7 +146,8 @@ test('imported assignments load only through the deployment-owned allowlisted fi
   });
   assert.equal(result.accepted, true);
   const acquisition = store.db.prepare('SELECT acquisition_kind,provenance_ref FROM knowledge_acquisitions WHERE world_id=?').get('world-a');
-  assert.deepEqual(acquisition, { acquisition_kind: 'imported', provenance_ref: 'authoring:test.world@1.0.0' });
+  assert.equal(acquisition.acquisition_kind, 'imported');
+  assert.equal(acquisition.provenance_ref, 'authoring:test.world@1.0.0');
 });
 
 test('trusted file importer rejects tampered bytes and caller-selected paths without mutation', (t) => {
