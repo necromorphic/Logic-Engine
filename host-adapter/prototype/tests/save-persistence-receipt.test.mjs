@@ -339,9 +339,8 @@ test('server persistence receipt rejects a modified inactive version digest', ()
 test('pinned production startup enables persisted inventory receipts', async () => {
   const patchUrl = new URL('../patches/sillytavern-1.19.0-lifecycle-hooks.patch', import.meta.url);
   const patch = (await readFile(patchUrl, 'utf8')).replace(/\\r\\n/g, '\\n');
-  assert.match(
-    patch,
-    /app\\.use\\(createHostLifecycleMutationMiddleware\\(\\{\\s*requirePersistedInventory:\\s*true,\\s*getUserDirectories\\s*\\}\\)\\);/,
+  assert.ok(
+    patch.includes('+    app.use(createHostLifecycleMutationMiddleware({ requirePersistedInventory: true, getUserDirectories }));'),
     'pinned server-startup.js must enable persisted inventory verification in production',
   );
 });
