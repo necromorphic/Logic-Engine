@@ -1083,7 +1083,7 @@ test('checkpoint failure gates only the implicated process and releases all oper
     process_id: processId,
     definition_version: '1',
     idempotency_key: `create-${processId}`,
-    expected_revision: 0,
+    expected_revision: engine.getState('world-a').world_revision,
     milestones: [{
       milestone_id: 'stage',
       trigger_id: triggerId,
