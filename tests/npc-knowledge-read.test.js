@@ -802,3 +802,62 @@ test('NPC acquisition remains pinned to its acquired fact version and rejects pr
     code: 'NPC_KNOWLEDGE_PROJECTION_INVALID',
   });
 });
+
+test('rolling back a belief revision restores the previous valid belief without erasing history', (t) => {
+  const { store, engine } = setup(t);
+  const initial = request(store);
+  const read = engine.readNpcKnowledge(initial);
+  const proposition_ref = propositionRefFor(read.items[0]);
+  const first = engine.recordNpcBeliefTransition({
+    ...initial,
+    proposition_ref,
+    proposition_value: read.items[0].value,
+    stance: 'believes_true',
+    supporting_acquisition_ids: [read.items[0].acquisition_id],
+    contradicting_acquisition_ids: [],
+    reason_rule_ref: 'rule:belief-update-v1',
+    idempotency_key: 'belief-history-first',
+  });
+  assert.equal(first.status, 'ready');
+
+  const revision = request(store);
+  const second = engine.recordNpcBeliefTransition({
+    ...revision,
+    proposition_ref,
+    proposition_value: read.items[0].value,
+    stance: 'suspects_true',
+    supporting_acquisition_ids: [read.items[0].acquisition_id],
+    contradicting_acquisition_ids: [],
+    reason_rule_ref: 'rule:belief-update-v1',
+    idempotency_key: 'belief-history-revision',
+  });
+  assert.equal(second.status, 'ready');
+  assert.equal(second.transition.previous_stance, 'believes_true');
+  assert.equal(second.transition.stance_change, 'weakened');
+
+  const rollback = engine.rollbackEvent('world-a', {
+    root_event_id: second.transition.event_id,
+    idempotency_key: 'rollback-belief-history-revision',
+  });
+  assert.equal(rollback.accepted, true);
+
+  const afterRollback = request(store);
+  const state = engine.getNpcBeliefState({
+    ...afterRollback,
+    proposition_ref,
+  });
+  assert.equal(state.status, 'ready');
+  assert.equal(state.stance, 'believes_true');
+  assert.equal(state.evidence_status, 'supported');
+  assert.deepEqual(state.surviving_evidence_acquisition_ids, [read.items[0].acquisition_id]);
+
+  const history = store.db.prepare(`
+    SELECT transition_id, event_id
+    FROM npc_belief_transitions
+    WHERE world_id='world-a' AND actor_id='npc-a' AND proposition_ref=?
+    ORDER BY committed_revision ASC
+  `).all(proposition_ref);
+  assert.equal(history.length, 2, 'rollback must preserve both historical projection rows');
+  assert.equal(history[0].event_id, first.transition.event_id);
+  assert.equal(history[1].event_id, second.transition.event_id);
+});
