@@ -204,3 +204,18 @@ test("an explicit disqualifying conflict cannot be hidden by a second unresolved
   assert.equal(result.options[0].status, "ineligible");
   assert.equal(result.options[0].reason, "explicit_resolution_opposes_option");
 });
+
+test("explicit disqualification takes precedence over incomplete coverage", () => {
+  const input = base();
+  input.options[1].frustrates = ["protect-friend"];
+  input.options[1].motive_assessment_complete = false;
+  input.resolutions = [{
+    motive_a_id: "meet-deadline",
+    motive_b_id: "protect-friend",
+    preferred_motive_id: "protect-friend",
+    rule_ref: "author:protect-friend-first",
+  }];
+  const result = evaluateNpcInternalConflict(input);
+  assert.equal(result.options[1].status, "ineligible");
+  assert.equal(result.options[1].reason, "explicit_resolution_opposes_option");
+});
