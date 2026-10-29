@@ -308,6 +308,33 @@ test('context evidence owns an immutable copy of source event IDs', () => {
     'context_core_evidence_invalid');
 });
 
+test('rejects prior belief history linked to active evidence for a different proposition', () => {
+  const unrelated = {
+    acquisition_id: 'acq-unrelated',
+    fact_id: 'fact-secret',
+    subject_ref: 'character:other',
+    predicate: 'secret',
+    value: 'classified',
+    provenance_ref: 'authoring:source-secret',
+    provenance_digest: 'c'.repeat(64),
+    source_event_ids: ['event-secret'],
+  };
+  const result = reduceNpcBeliefTransition({
+    knowledgeRead: knowledgeRead({ items: [evidenceItems[0], unrelated] }),
+    currentBelief: {
+      world_id: 'world-a',
+      actor_id: 'npc-a',
+      proposition_ref: propositionRef,
+      stance: 'believes_true',
+      evidence_acquisition_ids: ['acq-unrelated'],
+    },
+    proposal: proposal({ stance: 'suspects_true' }),
+  });
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'current_belief_scope_invalid');
+  assert.equal(result.transition, null);
+});
+
 test('rejects malformed, duplicate, or sparse references in prior belief history', () => {
   const baseBelief = {
     world_id: 'world-a',
