@@ -95,6 +95,7 @@ export function loadTrustedWorldPackCatalog(catalogPath) {
       version: entry.version,
       sha256: digest,
       artifact_path: artifactPath,
+      catalog_artifact_path: entry.artifact_path,
     }));
   }
 
@@ -106,7 +107,22 @@ export function loadTrustedWorldPackCatalog(catalogPath) {
       if (!entry) {
         throw new EngineError('WORLD_PACK_NOT_TRUSTED', 'The requested World Pack ID/version is not present in the deployment-controlled catalog.', 400);
       }
-      return entry;
+      // Re-check at resolution time so a file changed after process startup cannot
+      // be treated as the artifact that was originally verified.
+      const currentPath = safeArtifactPath(root, entry.catalog_artifact_path);
+      let currentBytes;
+      try { currentBytes = readFileSync(currentPath); } catch {
+        fail('WORLD_PACK_ARTIFACT_UNAVAILABLE', 'A trusted World Pack artifact cannot be read.');
+      }
+      if (sha256(currentBytes) !== entry.sha256) {
+        fail('WORLD_PACK_ARTIFACT_DIGEST_MISMATCH', 'A trusted World Pack artifact changed after catalog validation.');
+      }
+      return Object.freeze({
+        world_pack_id: entry.world_pack_id,
+        version: entry.version,
+        sha256: entry.sha256,
+        artifact_path: currentPath,
+      });
     },
   });
 }
