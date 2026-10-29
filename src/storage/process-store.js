@@ -424,7 +424,7 @@ export class ProcessStore {
     return this.store.tx(() => {
       const stamp = now();
       this.db.prepare(`UPDATE world_processes SET status='needs_review',version=version+1,last_error_json=?,updated_at=?
-        WHERE world_id=? AND process_id=? AND status IN ('scheduled','running','paused','needs_review')`)
+        WHERE world_id=? AND process_id=? AND status IN ('scheduled','running','paused','completed','failed','cancelled','needs_review')`)
         .run(enc({ code, message }), stamp, worldId, processId);
       const world = this.store.world(worldId);
       this.db.prepare('INSERT INTO audit_entries(world_id,world_revision,action,target_id,payload_json,occurred_at) VALUES(?,?,?,?,?,?)')
