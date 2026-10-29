@@ -242,6 +242,20 @@ export function buildNpcBeliefContext(knowledgeRead, transition) {
   if (!Array.isArray(evidence) || evidence.some((id) => !byId.has(id))) {
     return Object.freeze({ status: 'non_ready', reason: 'context_evidence_no_longer_authorized', context: null });
   }
+  for (const id of evidence) {
+    const sourceEventIds = byId.get(id).source_event_ids;
+    if (!Array.isArray(sourceEventIds) || sourceEventIds.length > 200) {
+      return Object.freeze({ status: 'non_ready', reason: 'context_core_evidence_invalid', context: null });
+    }
+    const seenSourceEvents = new Set();
+    for (let index = 0; index < sourceEventIds.length; index += 1) {
+      const sourceEventId = sourceEventIds[index];
+      if (!(index in sourceEventIds) || !validRef(sourceEventId) || seenSourceEvents.has(sourceEventId)) {
+        return Object.freeze({ status: 'non_ready', reason: 'context_core_evidence_invalid', context: null });
+      }
+      seenSourceEvents.add(sourceEventId);
+    }
+  }
 
   // Re-run the pure reducer at the context boundary. This prevents a caller
   // from forging or mutating a transition between validation and context build.
@@ -273,7 +287,7 @@ export function buildNpcBeliefContext(knowledgeRead, transition) {
       value: freezeTree(JSON.parse(stableJson(item.value))),
       provenance_ref: item.provenance_ref,
       provenance_digest: item.provenance_digest,
-      source_event_ids: item.source_event_ids,
+      source_event_ids: Object.freeze([...item.source_event_ids]),
     });
   });
   const context = Object.freeze({
