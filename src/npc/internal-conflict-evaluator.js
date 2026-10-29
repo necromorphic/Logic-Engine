@@ -196,29 +196,28 @@ function evaluateUnsafe(input) {
 
     let status = "eligible";
     let reason = conflicts.length > 0 ? "conflicts_resolved" : "no_motive_conflict";
+    let opposed = false;
+    let unresolved = false;
+    for (let j = 0; j < conflicts.length; j += 1) {
+      if (conflicts[j].status === "resolved_against_option") opposed = true;
+      if (conflicts[j].status === "unresolved") unresolved = true;
+    }
+
     if (violated || option.feasibility === "infeasible") {
       status = "ineligible";
       reason = violated ? "hard_constraint_violated" : "infeasible";
+    } else if (opposed) {
+      status = "ineligible";
+      reason = "explicit_resolution_opposes_option";
     } else if (unknown || option.feasibility === "unknown"
       || !option.motive_assessment_complete || !option.hard_constraints_complete) {
       status = "needs_review";
       if (!option.motive_assessment_complete) reason = "motive_assessment_incomplete";
       else if (!option.hard_constraints_complete) reason = "hard_constraint_coverage_incomplete";
       else reason = unknown ? "hard_constraint_unknown" : "feasibility_unknown";
-    } else {
-      let opposed = false;
-      let unresolved = false;
-      for (let j = 0; j < conflicts.length; j += 1) {
-        if (conflicts[j].status === "resolved_against_option") opposed = true;
-        if (conflicts[j].status === "unresolved") unresolved = true;
-      }
-      if (opposed) {
-        status = "ineligible";
-        reason = "explicit_resolution_opposes_option";
-      } else if (unresolved) {
-        status = "needs_review";
-        reason = "unresolved_motive_conflict";
-      }
+    } else if (unresolved) {
+      status = "needs_review";
+      reason = "unresolved_motive_conflict";
     }
 
     results.push(Object.freeze({
