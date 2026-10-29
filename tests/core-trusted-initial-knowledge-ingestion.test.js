@@ -164,6 +164,14 @@ test('imported assignments load only through the deployment-owned allowlisted fi
   assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM knowledge_acquisitions WHERE world_id=?').get('world-a').n, 0);
   store.rebuild('world-a', store.world('world-a').world_revision);
   assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM knowledge_acquisitions WHERE world_id=?').get('world-a').n, 0);
+
+  const retryAfterRollback = engine.recordTrustedImportedKnowledgeSource({
+    world_id: 'world-a', source_ref: 'import:test.world@1.0.0', idempotency_key: 'imported-source',
+    expected_revision: 1, expected_commit_sequence: 1,
+  });
+  assert.equal(retryAfterRollback.idempotent_replay, true);
+  assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM knowledge_acquisitions WHERE world_id=?').get('world-a').n, 0,
+    'retry after rollback with the same idempotency key must not resurrect the acquisition');
 });
 
 test('trusted file importer rejects tampered bytes and caller-selected paths without mutation', (t) => {
