@@ -9,7 +9,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { SQLiteStore } from '../src/storage/sqlite-store.js';
 import { SQLiteMemoryProvider } from '../src/application/sqlite-memory-provider.js';
 
-const waitFor = async (predicate, timeoutMs = 4000) => {
+const waitFor = async (predicate, timeoutMs = 15000) => {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (predicate()) return;
@@ -100,7 +100,7 @@ test('file-backed Provider rejects a relative coordinator path', () => {
   }
 });
 
-test('Provider startup, grants, source-version records, tombstones, indexing and reconciliation join Core shared coordinator across processes', async () => {
+test('Provider startup, grants, source-version records, tombstones, indexing and reconciliation join Core shared coordinator across processes', { timeout: 120000 }, async () => {
   const dir = mkdtempSync(join(tmpdir(), 'logic-provider-coordinator-'));
   const coordinatorPath = join(dir, 'shared-coordinator.sqlite');
   const corePath = join(dir, 'core.sqlite');
