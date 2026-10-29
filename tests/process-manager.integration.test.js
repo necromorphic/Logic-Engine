@@ -1117,3 +1117,111 @@ test('malformed persisted segments are gated before resume and remain gated afte
   assert.equal(reopenedEngine.getState('world-a').game_time_coordinate, beforeState.game_time_coordinate);
   assert.equal(reopenedEngine.getState('world-a').world_revision, beforeState.world_revision);
 }));
+
+
+test('empty persisted segments fail closed instead of completing a running operation', (t) => withDatabase(t, ({ engine, store, reopen }) => {
+  store.createWorld(worldInput());
+  engine.createProcess('world-a', processInput());
+  const beforeState = engine.getState('world-a');
+  const beforeEvents = engine.getEvents('world-a', true);
+  const beforeCommitSequence = store.currentCommitSequence('world-a');
+  const beforeTrigger = engine.getTimeTrigger('world-a', 'journey-depart');
+  const beforeAudit = engine.getAudit('world-a');
+  const originalResume = store.resumeTimeAdvanceOperation.bind(store);
+  store.resumeTimeAdvanceOperation = (worldId, operationId) => {
+    store.db.prepare('UPDATE time_advance_operations SET segments_json=? WHERE world_id=? AND operation_id=?')
+      .run('[]', worldId, operationId);
+    return originalResume(worldId, operationId);
+  };
+
+  const result = engine.startTimeAdvance('world-a', {
+    idempotency_key: 'empty-segments-must-not-complete',
+    expected_revision: beforeState.world_revision,
+    to_coordinate: 1000,
+  });
+  assert.equal(result.status, 'needs_review');
+  assert.equal(result.error.code, 'TIME_ADVANCE_SEGMENTS_MALFORMED');
+  assert.equal(engine.getProcess('world-a', 'journey-1').status, 'needs_review');
+  assert.deepEqual(engine.getTimeTrigger('world-a', 'journey-depart'), beforeTrigger);
+  assert.equal(engine.getState('world-a').game_time_coordinate, beforeState.game_time_coordinate);
+  assert.equal(engine.getState('world-a').world_revision, beforeState.world_revision);
+  assert.equal(store.currentCommitSequence('world-a'), beforeCommitSequence);
+  assert.deepEqual(engine.getEvents('world-a', true), beforeEvents);
+  assert.equal(engine.getAudit('world-a').length, beforeAudit.length + 1);
+
+  ({ engine } = reopen());
+  assert.equal(engine.getProcess('world-a', 'journey-1').status, 'needs_review');
+  assert.equal(engine.startTimeAdvance('world-a', {
+    idempotency_key: 'empty-segments-must-not-complete',
+    expected_revision: beforeState.world_revision,
+    to_coordinate: 1000,
+  }).status, 'needs_review');
+}));
+
+test('review-gated process trigger cannot be replayed or crossed with a new time-advance key', (t) => withDatabase(t, ({ engine, store }) => {
+  store.createWorld(worldInput());
+  engine.createProcess('world-a', processInput());
+  store.db.prepare(`UPDATE world_process_milestones
+    SET status='completed',completed_event_ids_json=?,checkpoint_version=checkpoint_version+1
+    WHERE world_id=? AND process_id=? AND milestone_id=?`)
+    .run(JSON.stringify(['missing-canonical-event']), 'world-a', 'journey-1', 'depart');
+
+  const beforeState = engine.getState('world-a');
+  const failed = engine.startTimeAdvance('world-a', {
+    idempotency_key: 'gate-trigger-after-checkpoint-mismatch',
+    expected_revision: beforeState.world_revision,
+    to_coordinate: 1000,
+  });
+  assert.equal(failed.status, 'needs_review');
+  assert.equal(engine.getProcess('world-a', 'journey-1').status, 'needs_review');
+  const beforeRetryState = engine.getState('world-a');
+  const beforeRetryEvents = engine.getEvents('world-a', true);
+  const beforeRetryAudit = engine.getAudit('world-a');
+  const beforeTrigger = engine.getTimeTrigger('world-a', 'journey-depart');
+
+  assert.throws(
+    () => engine.startTimeAdvance('world-a', {
+      idempotency_key: 'new-key-must-not-replay-review-gated-trigger',
+      expected_revision: beforeRetryState.world_revision,
+      to_coordinate: 2000,
+    }),
+    (error) => error.code === 'TIME_TRIGGER_PROCESS_NEEDS_REVIEW',
+  );
+  assert.deepEqual(engine.getState('world-a'), beforeRetryState);
+  assert.deepEqual(engine.getEvents('world-a', true), beforeRetryEvents);
+  assert.deepEqual(engine.getAudit('world-a'), beforeRetryAudit);
+  assert.deepEqual(engine.getTimeTrigger('world-a', 'journey-depart'), beforeTrigger);
+  assert.equal(store.getTimeAdvanceOperationByKey('world-a', 'new-key-must-not-replay-review-gated-trigger'), null);
+}));
+
+test('failed review audit keeps operation retryable and process gate atomic', (t) => withDatabase(t, ({ engine, store }) => {
+  store.createWorld(worldInput());
+  engine.createProcess('world-a', processInput());
+  const beforeState = engine.getState('world-a');
+  const originalResume = store.resumeTimeAdvanceOperation.bind(store);
+  const originalMarkNeedsReview = engine.processStore.markNeedsReview.bind(engine.processStore);
+  store.resumeTimeAdvanceOperation = (worldId, operationId) => {
+    store.db.prepare('UPDATE time_advance_operations SET segments_json=? WHERE world_id=? AND operation_id=?')
+      .run('{malformed-json', worldId, operationId);
+    return originalResume(worldId, operationId);
+  };
+  engine.processStore.markNeedsReview = () => { throw new Error('injected review audit failure'); };
+
+  assert.throws(() => engine.startTimeAdvance('world-a', {
+    idempotency_key: 'retryable-review-gate',
+    expected_revision: beforeState.world_revision,
+    to_coordinate: 1000,
+  }), /injected review audit failure/);
+  const operation = store.getTimeAdvanceOperationByKey('world-a', 'retryable-review-gate');
+  assert.equal(operation.status, 'running');
+  assert.equal(engine.getProcess('world-a', 'journey-1').stored_status, 'scheduled');
+  assert.equal(engine.getTimeTrigger('world-a', 'journey-depart').claimed_by_operation_id, operation.operation_id);
+  assert.equal(engine.getState('world-a').game_time_coordinate, beforeState.game_time_coordinate);
+
+  engine.processStore.markNeedsReview = originalMarkNeedsReview;
+  const retried = engine.resumeTimeAdvance('world-a', operation.operation_id);
+  assert.equal(retried.status, 'needs_review');
+  assert.equal(engine.getProcess('world-a', 'journey-1').status, 'needs_review');
+  assert.equal(engine.getTimeTrigger('world-a', 'journey-depart').claimed_by_operation_id, null);
+  assert.equal(engine.getState('world-a').game_time_coordinate, beforeState.game_time_coordinate);
+}));
