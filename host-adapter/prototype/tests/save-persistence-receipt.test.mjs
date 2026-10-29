@@ -43,6 +43,7 @@ test('sanitized filename alias cannot bypass the enrolled chat save persistence 
   const root = await mkdtemp(path.join(os.tmpdir(), 'host-save-receipt-'));
   const directories = {
     chats: path.join(root, 'chats'),
+    characters: path.join(root, 'characters'),
     groups: path.join(root, 'groups'),
     groupChats: path.join(root, 'group_chats'),
     backups: path.join(root, 'backups'),
@@ -115,6 +116,7 @@ test('matching persisted enrolled chat receives success only after the version i
   const root = await mkdtemp(path.join(os.tmpdir(), 'host-save-receipt-success-'));
   const directories = {
     chats: path.join(root, 'chats'),
+    characters: path.join(root, 'characters'),
     groups: path.join(root, 'groups'),
     groupChats: path.join(root, 'group_chats'),
     backups: path.join(root, 'backups'),
@@ -174,7 +176,7 @@ test('pinned browser bridge verifies persisted chat before committing its lifecy
   const patchUrl = new URL('../patches/sillytavern-1.19.0-lifecycle-hooks.patch', import.meta.url);
   const patch = await readFile(patchUrl, 'utf8');
   assert.match(patch, /saveChat: async \(\) => \{/);
-  assert.match(patch, /await saveChatConditional\(\);[\s\S]*?\/api\/chats\/group\/get[\s\S]*?\/api\/chats\/get/);
+  assert.match(patch, /await saveChatConditional(?:\(\)|\(\{ throwOnError: true \}\));[\s\S]*?\/api\/chats\/group\/get[\s\S]*?\/api\/chats\/get/);
   assert.match(patch, /persistedChat\.length !== chat\.length \+ 1/);
   assert.match(patch, /persisted Host chat differs from the current message\/version state/);
 });
