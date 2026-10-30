@@ -102,7 +102,16 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
       first.prepare('SELECT logic_engine_vfs_probe_native_open_count() AS count').get().count > 0,
       'the native syscall wrapper must observe the actual OS file-open calls made by node:sqlite'
     );
-    first.exec("PRAGMA journal_mode=WAL; CREATE TABLE probe(value TEXT); INSERT INTO probe VALUES('ok');");
+    first.exec("CREATE TABLE probe(value TEXT);");
+    try {
+      const journalMode = first.prepare("PRAGMA journal_mode=WAL").get().journal_mode;
+      assert.equal(journalMode, "wal", "the registered VFS must permit WAL activation");
+      first.exec("INSERT INTO probe VALUES('ok');");
+    } catch (error) {
+      const diagnostics = first.prepare("SELECT logic_engine_vfs_probe_native_open_count() AS native_open, logic_engine_vfs_probe_open_count() AS opens, logic_engine_vfs_probe_wal_open_count() AS wal_opens, logic_engine_vfs_probe_journal_open_count() AS journal_opens, logic_engine_vfs_probe_identity_reject_count() AS identity_rejects, logic_engine_vfs_probe_sidecar_identity_check_count() AS sidecar_checks, logic_engine_vfs_probe_sidecar_identity_reject_count() AS sidecar_rejects").get();
+      console.error("VFS bootstrap diagnostics: " + JSON.stringify(diagnostics));
+      throw error;
+    }
     assert.equal(first.prepare('SELECT value FROM probe').get().value, 'ok');
     const opened = first.prepare('SELECT logic_engine_vfs_probe_open_count() AS count').get().count;
     assert.equal(opened, 2, 'the worker and Core file-backed DatabaseSync connections must pass through the registered VFS xOpen');
