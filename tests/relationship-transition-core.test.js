@@ -764,6 +764,7 @@ test('projection rebuild preserves the exact historical rule-version pin when it
     assert.equal(committedEvent.effects[0].rule_module_id, 'relationship-rules');
     assert.equal(committedEvent.effects[0].rule_module_version, '1.0.0');
     const historicalSnapshot = committedEvent.effects[0].relationship_evaluation_snapshot;
+    assert.equal(historicalSnapshot.originating_event_id, committed.event_id);
     assert.equal(historicalSnapshot.schema, 'relationship-evaluation-input/v1');
     assert.equal(historicalSnapshot.evaluator_contract, 'relationship-candidate/v1');
     assert.equal(historicalSnapshot.rule_module_id, 'relationship-rules');
