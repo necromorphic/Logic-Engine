@@ -1244,9 +1244,10 @@ export class LogicEngine {
         // canonical writes on this database cannot interleave between this check
         // and commitEvent's revision/sequence compare-and-swap.
         const commitPrepared = this.prepareNpcBeliefContext(readRequest, proposal, currentBelief);
-        assert(hashRequest(commitPrepared.transition) === hashRequest(prepared.transition),
+        assert(hashRequest(commitPrepared.transition) === hashRequest(prepared.transition)
+          && hashRequest(commitPrepared.policy_authority ?? null) === hashRequest(prepared.policy_authority ?? null),
           'NPC_BELIEF_CONTEXT_STALE',
-          'NPC belief evidence or stance changed during final commit authorization; retry from a fresh snapshot.', 409);
+          'NPC belief evidence, policy authority, or stance changed during final commit authorization; retry from a fresh snapshot.', 409);
         const transition = commitPrepared.transition;
         const replay = this.store.db.prepare(`
           SELECT transition_id, request_hash, event_id, committed_revision
