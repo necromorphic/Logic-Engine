@@ -472,6 +472,23 @@ diff --git a/public/scripts/slash-commands.js b/public/scripts/slash-commands.js
  
      return newName;
 
+
+diff --git a/src/server-main.js b/src/server-main.js
+--- a/src/server-main.js
++++ b/src/server-main.js
+@@ -67,6 +67,11 @@
+ app.use(compression());
+ app.use(responseTime());
+ 
++// Bound the digest-only Logic-Engine reconciliation body before the global
++// 500 MiB JSON parser; this route must not inherit SillyTavern's large upload cap.
++app.use(bodyParser.json({
++    limit: '8mb',
++    type: req => req.path === '/api/logic-engine/host-version-ledger/reconcile',
++}));
+ app.use(bodyParser.json({ limit: '500mb' }));
+ app.use(bodyParser.urlencoded({ extended: true, limit: '500mb' }));
+
 diff --git a/src/server-startup.js b/src/server-startup.js
 --- a/src/server-startup.js
 +++ b/src/server-startup.js
@@ -500,7 +517,7 @@ new file mode 100644
 +
 +export const router = express.Router();
 +router.post('/host-version-ledger/capture', createHostDigestProxyHandler());
-+router.post('/host-version-ledger/reconcile', express.json({ limit: '9mb' }), createHostInventoryReconcileProxyHandler());
++router.post('/host-version-ledger/reconcile', createHostInventoryReconcileProxyHandler());
 
 diff --git a/src/endpoints/backends/chat-completions.js b/src/endpoints/backends/chat-completions.js
 --- a/src/endpoints/backends/chat-completions.js
