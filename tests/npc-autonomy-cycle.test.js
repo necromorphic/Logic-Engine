@@ -97,12 +97,13 @@ test("unknown change relevance or incomplete context stops selection for review"
   assert.equal(result.intention, null);
 });
 
-test("a contradicted plan assumption stops selection for plan reconsideration", () => {
+test("a contradicted plan assumption emits a plan-scoped revision request", () => {
   const input = base();
   input.assessment.assumptions[0].outcome = "contradicted";
   const result = evaluateNpcAutonomyCycle(input);
-  assert.equal(result.status, "plan_not_ready");
+  assert.equal(result.status, "plan_revision_required");
   assert.equal(result.viability.disposition, "reconsider");
+  assert.equal(result.plan_revision_request.plan_id, "plan-1");
   assert.equal(result.intention, null);
 });
 
