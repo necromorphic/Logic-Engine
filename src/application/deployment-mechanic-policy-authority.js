@@ -78,6 +78,10 @@ export class DeploymentMechanicPolicyAuthority {
     if (!object(args) || args.authenticatedAdapterId !== principal.adapterId) {
       throw new Error('Mechanic evaluation adapter does not match the deployment policy principal.');
     }
+    if (typeof active.contextProvider.assertPrincipalBound !== 'function') {
+      throw new Error('Deployment context provider cannot prove the configured actor binding.');
+    }
+    active.contextProvider.assertPrincipalBound(args.worldId);
     const resolved = active.contextProvider.resolve(args);
     const after = this.resolveCurrentPolicy();
     if (!sameGeneration(active, after)
