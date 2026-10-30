@@ -66,6 +66,10 @@ The implementation must inventory every production SQLite open and classify it. 
 | Accepted-head authority | `src/security/accepted-head-authority.js` | Secure VFS open; rollback-sensitive authority |
 | Enrollment/recovery opens | `src/security/enroll-accepted-head-domain.js`, `src/security/recover-accepted-head-domain.js` | Must use the same verified open boundary; no direct path bypass |
 
+| NPC goal/plan repository | **Not implemented**; target boundary is the NPC-local repository defined by `docs/97`–`docs/99` | Future protected role: must use the same reviewed secure-open boundary; physically separate from Core DB; distinct role identity; no direct `node:sqlite` fallback |
+
+The NPC row is a **planned role**, not part of the current production-open set and not evidence that an NPC database or adapter exists. When the repository adapter is implemented, its production open module must be added to the source guard's expected inventory in the same change, and its identity must be included in the all-role alias/race matrix before the adapter can be enabled. The NPC store may persist only NPC-owned goals, plans, candidates, revisions, and task progress; it must not become a second canonical world store.
+
 The automated source guard `tests/security-sqlite-open-inventory.test.js` enumerates all JavaScript files under `src/` and fails if the set of production modules importing `node:sqlite` and constructing `DatabaseSync` differs from this inventory. Test-only and migration-only opens are excluded from the production set; they remain separately visible through the repository-wide search and must not be mistaken for production role owners.
 
 ## Required prototype and acceptance matrix
