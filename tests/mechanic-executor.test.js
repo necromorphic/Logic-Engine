@@ -1589,6 +1589,15 @@ test('configured deployment policy runtime binds real authorized reads and rejec
   });
   activeConfig = makeConfig(3);
   assert.throws(
+    () => proposals.createFromMechanicEvaluation(worldId, staleBeforeApproval, {
+      idempotencyKey: 'configured-policy-stale-before-approval',
+      turnId: 'configured-policy-stale-before-approval',
+      sourceText: 'A generation-two proposal must not survive rotation before approval.',
+      adapterId: 'test-adapter',
+    }),
+    (error) => error.code === 'STALE_MECHANIC_POLICY' && error.details?.stage === 'proposal_creation_retry',
+  );
+  assert.throws(
     () => proposals.approve(worldId, pending.proposal_id),
     (error) => error.code === 'STALE_MECHANIC_POLICY' && error.details?.stage === 'approval',
   );
