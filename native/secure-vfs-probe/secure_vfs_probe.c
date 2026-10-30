@@ -819,8 +819,8 @@ static int probe_capture_role_identity(const char *path, ProbeDatabaseRole *capt
     parent_path = sqlite3_mprintf(".");
   } else {
     basename = sqlite3_mprintf("%s", separator + 1);
-    if (separator == parent_path) separator[1] = '\\0';
-    else *separator = '\\0';
+    if (separator == parent_path) separator[1] = '\0';
+    else *separator = '\0';
   }
   if (!parent_path || !basename || !basename[0] || !parent_path[0]) {
     sqlite3_free(parent_path);
