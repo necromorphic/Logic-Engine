@@ -21,6 +21,22 @@ const obj = (x) => x !== null && typeof x === 'object' && !Array.isArray(x);
 // the bytes read from the opened handle against the deployment-owned SHA-256
 // allowlist before any state mutation. A path race can therefore cause denial
 // of service, but cannot make unapproved bytes pass trusted-source validation.
+function sameTrustedImportPath(left, right) {
+  const normalize = (value) => {
+    let path = resolve(value);
+    if (process.platform === 'win32') {
+      // realpathSync may return the extended-length Win32 namespace while
+      // configured paths use the ordinary DOS namespace. They identify the
+      // same path; compare case-insensitively as Windows does.
+      if (path.startsWith('\\\\?\\UNC\\')) path = '\\\\' + path.slice(8);
+      else if (path.startsWith('\\\\?\\')) path = path.slice(4);
+      path = path.toLowerCase();
+    }
+    return path;
+  };
+  return normalize(left) === normalize(right);
+}
+
 function sameTrustedImportFileIdentity(opened, pathStat) {
   const hasStableFileId = Number.isSafeInteger(opened.ino) && Number.isSafeInteger(pathStat.ino)
     && opened.ino !== 0 && pathStat.ino !== 0;
@@ -728,7 +744,7 @@ export class LogicEngine {
         pathBefore = lstatSync(configured.source_path);
         resolvedBefore = realpathSync(configured.source_path);
         assert(pathBefore.isFile() && !pathBefore.isSymbolicLink()
-          && resolve(resolvedBefore) === resolve(configured.source_path),
+          && sameTrustedImportPath(resolvedBefore, configured.source_path),
         'TRUSTED_IMPORT_FILE_UNAVAILABLE', 'Trusted import path must resolve directly to a regular, non-link file.', 503);
       }
       fd = openSync(configured.source_path, fsConstants.O_RDONLY | (Number.isInteger(noFollow) && noFollow !== 0 ? noFollow : 0));
@@ -739,7 +755,7 @@ export class LogicEngine {
         const pathAfter = lstatSync(configured.source_path);
         const resolvedAfter = realpathSync(configured.source_path);
         assert(pathAfter.isFile() && !pathAfter.isSymbolicLink()
-          && resolve(resolvedBefore) === resolve(resolvedAfter)
+          && sameTrustedImportPath(resolvedBefore, resolvedAfter)
           && sameTrustedImportFileIdentity(stat, pathBefore)
           && sameTrustedImportFileIdentity(stat, pathAfter),
         'TRUSTED_IMPORT_FILE_UNAVAILABLE', 'Trusted import path changed while it was being opened.', 503);
