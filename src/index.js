@@ -5,6 +5,15 @@ import { LogicEngine } from './application/engine.js';
 import { createApiServer } from './api/server.js';
 import { HostVersionDigestLedger } from './application/host-version-digest-ledger.js';
 import { loadTrustedWorldPackCatalog } from './application/world-pack-catalog.js';
+import { ActorBindingService } from './application/actor-bindings.js';
+import { AuthorizedReadService } from './application/authorized-read-service.js';
+import { CanonicalEntityAttributeContextProvider } from './application/entity-attribute-context-provider.js';
+import { DeploymentMechanicPolicyAuthority } from './application/deployment-mechanic-policy-authority.js';
+import {
+  createTrustedMechanicFieldPolicy,
+  loadTrustedMechanicPolicyConfig,
+  trustedMechanicPolicyRevision,
+} from './application/trusted-mechanic-policy-config.js';
 
 const token = process.env.ENGINE_API_TOKEN;
 const internalToken = process.env.ENGINE_INTERNAL_TOKEN || null;
@@ -116,8 +125,49 @@ const hostVersionLedger = new HostVersionDigestLedger({
   coordinatorPath,
   verifyInventorySnapshot: async () => false,
 });
+const engine = new LogicEngine(store, { trustedInitialKnowledgeSources, worldPackCatalog });
+const mechanicPolicyConfigPath = process.env.ENGINE_MECHANIC_POLICY_CONFIG_PATH || null;
+let actorBindingService = null;
+let authorizedReadService = null;
+let mechanicPolicyAuthority = null;
+if (mechanicPolicyConfigPath !== null) {
+  if (!isAbsolute(mechanicPolicyConfigPath)) {
+    throw new Error('ENGINE_MECHANIC_POLICY_CONFIG_PATH must be an absolute deployment-controlled path.');
+  }
+  // Validate the deployment-owned policy before exposing the API. The active
+  // resolver reloads it at every authority boundary so rotations invalidate
+  // old evaluations/proposals instead of silently refreshing them.
+  loadTrustedMechanicPolicyConfig(mechanicPolicyConfigPath);
+  actorBindingService = new ActorBindingService(engine);
+  authorizedReadService = new AuthorizedReadService(
+    engine,
+    actorBindingService,
+    createTrustedMechanicFieldPolicy(mechanicPolicyConfigPath),
+  );
+  mechanicPolicyAuthority = new DeploymentMechanicPolicyAuthority({
+    resolveActivePolicy: () => {
+      const config = loadTrustedMechanicPolicyConfig(mechanicPolicyConfigPath);
+      const contextProvider = new CanonicalEntityAttributeContextProvider(engine, {
+        policyVersion: trustedMechanicPolicyRevision(config),
+        authorizationScope: config.authorization_scope,
+        bindings: config.bindings,
+        authorizedReadService,
+        adapterId: config.adapter_id,
+        actorEntityId: config.actor_entity_id,
+        recipient: config.recipient,
+        purpose: config.purpose,
+      });
+      return {
+        authority_id: config.authority_id,
+        generation: config.generation,
+        contextProvider,
+      };
+    },
+  });
+}
 const server = createApiServer({
-  engine: new LogicEngine(store, { trustedInitialKnowledgeSources, worldPackCatalog }), token, internalToken, approvalToken, adminToken, adapterTokens,
+  engine, token, internalToken, approvalToken, adminToken, adapterTokens,
+  actorBindingService, authorizedReadService, mechanicPolicyAuthority,
   hostVersionLedger,
 });
 server.listen(port, host, () => process.stdout.write(
