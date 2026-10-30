@@ -36,9 +36,11 @@ This approval authorizes preparation and exact-diff review only. It does not aut
 
 ## Port decision
 
-**Not ported.** The earlier candidate was built against an older Logic-Engine source snapshot and a pinned SillyTavern source revision. Blindly applying it to current `main` would risk overwriting intervening lifecycle and destructive-operation safeguards.
+**Initial assessment: not ported.** At the time this assessment was written, the earlier candidate was built against an older Logic-Engine source snapshot and could not be applied blindly to current `main`.
 
-The correct next implementation step is a source-aware port against the current embedded pinned-host patch and its acceptance tests, followed by:
+A subsequent commit on this review branch adds a separate Direction A overlay at `host-adapter/prototype/patches/issue-258-direction-a-delete-safety.patch`, based on the current-main lifecycle patch and checked against the exact pinned SillyTavern source. The overlay and its source-contract tests are implementation-candidate artifacts, not a runtime-validated integration.
+
+Remaining steps are:
 - exact diff review against this base;
 - focused tests and the full repository test suite in a real checkout;
 - `git apply --check` and syntax checks against the exact pinned SillyTavern tree;
