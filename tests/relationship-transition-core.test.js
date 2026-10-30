@@ -633,17 +633,39 @@ test('Relationship projection survives store restart and deterministic rebuild f
     const { engine, seed } = fixtureState;
     const result = engine.commitRelationshipTransition('world-relationship-test', transitionRequest(seed));
     assert.equal(result.accepted, true);
+    const committedEvent = engine.getEvents('world-relationship-test')
+      .find((event) => event.event_id === result.event_id);
+    assert.equal(committedEvent.effects[0].rule_module_id, 'relationship-rules');
+    assert.equal(committedEvent.effects[0].rule_module_version, '1.0.0');
+    const committedPin = store.db.prepare(
+      'SELECT rule_module_id, rule_module_version, last_event_id FROM relationships WHERE world_id=? AND subject_id=? AND target_id=? AND dimension=?',
+    ).get('world-relationship-test', 'A', 'B', 'trust');
+    assert.deepEqual(committedPin, {
+      rule_module_id: 'relationship-rules',
+      rule_module_version: '1.0.0',
+      last_event_id: result.event_id,
+    });
     store.close();
     store = null;
 
     const reopened = new SQLiteStore(databasePath);
     store = reopened;
+    const reopenedEngine = new LogicEngine(reopened);
+    assert.equal(reopenedEngine.getRuleModuleManifest('relationship-rules', '1.0.0').manifest.version, '1.0.0');
     assert.equal(reopened.getRelationshipPair('world-relationship-test', 'A', 'B').dimensions.trust, 'low');
     assert.deepEqual(reopened.getRelationshipPair('world-relationship-test', 'B', 'A').dimensions, {});
 
     reopened.tx(() => reopened.rebuild('world-relationship-test', 2));
     assert.equal(reopened.getRelationshipPair('world-relationship-test', 'A', 'B').dimensions.trust, 'low');
     assert.deepEqual(reopened.getRelationshipPair('world-relationship-test', 'B', 'A').dimensions, {});
+    const replayedEvent = reopenedEngine.getEvents('world-relationship-test')
+      .find((event) => event.event_id === result.event_id);
+    assert.equal(replayedEvent.effects[0].rule_module_id, 'relationship-rules');
+    assert.equal(replayedEvent.effects[0].rule_module_version, '1.0.0');
+    const replayedPin = reopened.db.prepare(
+      'SELECT rule_module_id, rule_module_version, last_event_id FROM relationships WHERE world_id=? AND subject_id=? AND target_id=? AND dimension=?',
+    ).get('world-relationship-test', 'A', 'B', 'trust');
+    assert.deepEqual(replayedPin, committedPin);
     assert.equal(reopened.db.prepare("SELECT COUNT(*) AS count FROM world_events WHERE world_id=? AND event_type='relationship.transition' AND validity='valid'").get('world-relationship-test').count, 1);
   } finally {
     if (store) store.close();
