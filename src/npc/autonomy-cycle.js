@@ -2,8 +2,8 @@
  * NPC-local autonomy cycle coordinator.
  *
  * Composes existing pure cognition helpers into one bounded decision pass:
- * reconsider the prior decision, assess the current plan, then select from
- * caller-supplied eligible action candidates.
+ * reconsider the prior decision, assess the current plan, classify internal
+ * motive conflicts, then select from the remaining eligible action candidates.
  *
  * This module does not assemble or authenticate context, discover goals or
  * actions, invoke a model, persist NPC state, schedule work, execute actions,
@@ -12,6 +12,7 @@
 
 import { types as utilTypes } from "node:util";
 import { evaluateNpcDecisionReconsideration } from "./decision-reconsideration-evaluator.js";
+import { evaluateNpcInternalConflict } from "./internal-conflict-evaluator.js";
 import { assessNpcPlanViability } from "./plan-viability.js";
 import { selectNpcIntention } from "./autonomous-intention-selector.js";
 
@@ -31,6 +32,23 @@ function isPlainDataObject(value) {
   }
 }
 
+function isDenseDataArray(value) {
+  if (!Array.isArray(value) || utilTypes.isProxy(value)) return false;
+  try {
+    for (let index = 0; index < value.length; index += 1) {
+      const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+      if (descriptor === undefined || !Object.hasOwn(descriptor, "value")) return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function nonEmptyString(value) {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
 function nonReady(stage, detail = null) {
   return Object.freeze({
     status: "non_ready",
@@ -40,27 +58,58 @@ function nonReady(stage, detail = null) {
   });
 }
 
+function hasExactActionOptionCoverage(actions, options) {
+  if (!isDenseDataArray(actions) || !isDenseDataArray(options) || actions.length !== options.length) {
+    return false;
+  }
+
+  const actionIds = new Set();
+  for (let index = 0; index < actions.length; index += 1) {
+    const action = actions[index];
+    if (!isPlainDataObject(action) || !nonEmptyString(action.id) || actionIds.has(action.id)) {
+      return false;
+    }
+    actionIds.add(action.id);
+  }
+
+  const optionIds = new Set();
+  for (let index = 0; index < options.length; index += 1) {
+    const option = options[index];
+    if (!isPlainDataObject(option) || !nonEmptyString(option.id) || optionIds.has(option.id)) {
+      return false;
+    }
+    optionIds.add(option.id);
+  }
+
+  for (const id of actionIds) {
+    if (!optionIds.has(id)) return false;
+  }
+  return true;
+}
+
 /**
  * Evaluate one NPC-local decision cycle.
  *
  * Required input:
  * {
  *   prior_decision, current_context, plan, assessment, goals, actions,
- *   current_intention? 
+ *   conflict_assessment: { motives, options, resolutions },
+ *   current_intention?
  * }
  *
  * The first two fields use the decision-reconsideration evaluator contract;
- * plan/assessment use the plan-viability contract; goals/actions/current
+ * plan/assessment use the plan-viability contract; conflict_assessment uses
+ * the existing internal-conflict evaluator contract; goals/actions/current
  * intention use the autonomous-intention-selector contract.
  *
- * A selected intention is returned only when the prior decision assessment
- * reports no material change and the active plan is explicitly viable.
+ * Each action candidate must have exactly one conflict option with the same
+ * ID. Only options classified eligible are passed to intention selection.
  */
 function evaluateNpcAutonomyCycleUnsafe(input) {
   if (!isPlainDataObject(input)) return nonReady("input");
 
   for (const key of [
-    "prior_decision", "current_context", "plan", "assessment", "goals", "actions",
+    "prior_decision", "current_context", "plan", "assessment", "goals", "actions", "conflict_assessment",
   ]) {
     if (!Object.hasOwn(input, key)) return nonReady("input");
   }
@@ -71,6 +120,10 @@ function evaluateNpcAutonomyCycleUnsafe(input) {
     || !isPlainDataObject(input.assessment)
     || !Array.isArray(input.goals)
     || !Array.isArray(input.actions)
+    || !isPlainDataObject(input.conflict_assessment)
+    || !Array.isArray(input.conflict_assessment.motives)
+    || !Array.isArray(input.conflict_assessment.options)
+    || !Array.isArray(input.conflict_assessment.resolutions)
     || (input.current_intention !== undefined
       && input.current_intention !== null
       && !isPlainDataObject(input.current_intention))
@@ -126,9 +179,64 @@ function evaluateNpcAutonomyCycleUnsafe(input) {
     });
   }
 
+  if (!isDenseDataArray(input.actions) || !isDenseDataArray(input.conflict_assessment.options)
+    || !isDenseDataArray(input.conflict_assessment.motives)
+    || !isDenseDataArray(input.conflict_assessment.resolutions)) {
+    return nonReady("internal_conflict");
+  }
+
+  if (input.actions.length === 0) {
+    if (input.conflict_assessment.options.length !== 0) return nonReady("internal_conflict");
+    return Object.freeze({
+      status: "no_eligible_action",
+      stage: "internal_conflict",
+      intention: null,
+      conflict_decision: "no_candidates",
+      reconsideration,
+      viability,
+    });
+  }
+
+  if (!hasExactActionOptionCoverage(input.actions, input.conflict_assessment.options)) {
+    return nonReady("internal_conflict");
+  }
+
+  const conflict = evaluateNpcInternalConflict(input.conflict_assessment);
+  if (conflict.status !== "evaluated") {
+    return nonReady("internal_conflict");
+  }
+
+  const eligibleOptionIds = new Set(conflict.eligible_option_ids);
+  if (eligibleOptionIds.size === 0) {
+    if (conflict.review_option_ids.length > 0) {
+      return Object.freeze({
+        status: "review_required",
+        stage: "internal_conflict",
+        intention: null,
+        conflict_decision: "needs_review",
+        reconsideration,
+        viability,
+      });
+    }
+    return Object.freeze({
+      status: "no_eligible_action",
+      stage: "internal_conflict",
+      intention: null,
+      conflict_decision: "no_eligible_option",
+      reconsideration,
+      viability,
+    });
+  }
+
+  const eligibleActions = [];
+  for (let index = 0; index < input.actions.length; index += 1) {
+    const action = input.actions[index];
+    if (eligibleOptionIds.has(action.id)) eligibleActions.push(action);
+  }
+
   const selection = selectNpcIntention({
     goals: input.goals,
-    actions: input.actions,
+    actions: eligibleActions,
     ...(Object.hasOwn(input, "current_intention")
       ? { current_intention: input.current_intention }
       : {}),
@@ -142,6 +250,7 @@ function evaluateNpcAutonomyCycleUnsafe(input) {
       status: "no_eligible_action",
       stage: "intention_selection",
       intention: null,
+      conflict_decision: conflict.decision,
       reconsideration,
       viability,
     });
@@ -151,6 +260,7 @@ function evaluateNpcAutonomyCycleUnsafe(input) {
     status: "intention_selected",
     stage: "complete",
     intention: selection.intention,
+    conflict_decision: conflict.decision,
     reconsideration,
     viability,
   });
