@@ -61,3 +61,10 @@ The original comparison above is historical (2026-10-26). Current main has since
 The combined pinned-ST patch candidate #787 successfully applies lifecycle hooks → file-inventory route → Direction A delete-safety overlay in CI (Host prototype tests 75/75, syntax checks and patch application pass). This does not change the snapshot contract or make `verifyInventorySnapshot` positive.
 
 **Disposition:** patch composition is validated; Host snapshot compatibility, complete inventory, restore/branch lineage and production reconciliation remain BLOCKED / NON_READY. Do not infer Provider readiness or Memory→NPC authorization from the current-file inventory endpoint or individual digest-capture responses. No new cursor, outbox, schema or raw-text retention is approved by this refresh.
+
+
+## Authenticated Host session identity update — 30 Oct 2026
+
+The Host candidate now scopes its conversation identifier as `hostSessionId:installationId:conversationUuid`. The server-generated session UUID is stored in SillyTavern's signed cookie-session object after verifying that the authenticated session handle matches the authenticated user handle. This prevents reuse of a prior Core conversation binding by a different login session. Session reset, cookie loss, cookie-signing-secret rotation, or account change rotates the identifier and causes old local enrollment mappings to fail closed rather than silently rebind.
+
+This improves identity scoping but does not change the Provider snapshot envelope. `HostVersionDigestLedger.reconcileConversation()` still requires a trusted complete `versions[]` inventory, and Core startup still uses a deny-only inventory verifier. The session UUID is not a durable installation attestation, does not establish world/actor authorization, and does not supply branch/restore lineage or monotonic snapshot sequence. No Provider reconciliation or revocation claim is upgraded by this change; production Memory→NPC remains DISABLED / FAIL-CLOSED.
