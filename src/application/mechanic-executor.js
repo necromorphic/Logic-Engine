@@ -133,7 +133,7 @@ export class MechanicExecutor {
         && candidateTemplate.version === candidate.template_version);
       if (!entry) {
         return unknown('ACTIVE_MECHANIC_TEMPLATE_NOT_FOUND',
-          'An enabled or review-required mechanic references a missing pinned template.', identity);
+          'An enabled or review-required mechanic references a missing pinned template.');
       }
       activeTemplateByInstance.set(candidate.instance_id, entry.template);
       activeMechanicSet.push({
