@@ -438,3 +438,138 @@ test("scope accessors and proxies are rejected without invoking getters", () => 
     h.close();
   }
 });
+
+
+test("action-attempt idempotency binds the entire local checkpoint, not only the Core request", () => {
+  const h = harness();
+  try {
+    const goal = createGoal(h.repository);
+    const state = acceptedPlan(h.repository, goal.goal_id);
+    const first = createAttempt(h.repository, state, "same-proposal-key");
+    assert.equal(first.status, "applied");
+    const pending = h.repository.listPendingReconciliations(scope).items[0].attempt;
+    const changedCheckpoint = {
+      ...pending,
+      world_revision: pending.world_revision + 1,
+    };
+    const conflict = h.repository.recordActionAttempt(scope, changedCheckpoint);
+    assert.equal(conflict.status, "conflict");
+    assert.equal(conflict.reason, "idempotency_key_reused_with_different_content");
+    assert.equal(h.repository.listPendingReconciliations(scope).items.length, 1);
+  } finally {
+    h.close();
+  }
+});
+
+test("reconciliation fails closed when the goal changed after the action attempt", () => {
+  const h = harness();
+  try {
+    const goal = createGoal(h.repository);
+    const state = acceptedPlan(h.repository, goal.goal_id);
+    const createdAttempt = createAttempt(h.repository, state);
+    const pending = h.repository.listPendingReconciliations(scope).items[0].attempt;
+    const verified = {
+      status: "committed",
+      outcome: "step_succeeded",
+      world_id: scope.world_id,
+      proposal_id: "core-proposal-stale-goal",
+      event_id: "core-event-stale-goal",
+      idempotency_key: pending.proposal_idempotency_key,
+      request_hash: pending.request_hash,
+      goal_id: pending.goal_id,
+      plan_id: pending.plan_id,
+      plan_revision: pending.plan_revision,
+      step_id: pending.step_id,
+      action_id: pending.action_id,
+      world_revision: 11,
+      commit_sequence: 5,
+    };
+    const blocked = h.repository.applyGoalTransition(
+      scope, goal.goal_id, 1, "block", { source: "trusted-test-evidence" },
+      { idempotency_key: "block-with-pending-attempt" },
+    );
+    assert.equal(blocked.status, "applied");
+    const result = h.repository.reconcileCoreResult(scope, createdAttempt.attempt_id, verified);
+    assert.equal(result.status, "review_required");
+    assert.equal(result.reason, "goal_changed_before_core_reconciliation");
+    const after = h.repository.loadDecisionState(scope, { goal_id: goal.goal_id }).goals[0];
+    assert.equal(after.current_plan_revision, 1);
+    assert.equal(after.current_plan.steps[0].status, "active");
+  } finally {
+    h.close();
+  }
+});
+
+test("reconciliation requires a strictly newer Core commit sequence", () => {
+  const h = harness();
+  try {
+    const goal = createGoal(h.repository);
+    const state = acceptedPlan(h.repository, goal.goal_id);
+    const createdAttempt = createAttempt(h.repository, state);
+    const pending = h.repository.listPendingReconciliations(scope).items[0].attempt;
+    const verified = {
+      status: "committed",
+      outcome: "step_succeeded",
+      world_id: scope.world_id,
+      proposal_id: "core-proposal-same-sequence",
+      event_id: "core-event-same-sequence",
+      idempotency_key: pending.proposal_idempotency_key,
+      request_hash: pending.request_hash,
+      goal_id: pending.goal_id,
+      plan_id: pending.plan_id,
+      plan_revision: pending.plan_revision,
+      step_id: pending.step_id,
+      action_id: pending.action_id,
+      world_revision: pending.world_revision,
+      commit_sequence: pending.commit_sequence,
+    };
+    const rejected = h.repository.reconcileCoreResult(scope, createdAttempt.attempt_id, verified);
+    assert.equal(rejected.status, "review_required");
+    assert.equal(rejected.reason, "core_result_linkage_mismatch");
+    const after = h.repository.loadDecisionState(scope, { goal_id: goal.goal_id }).goals[0];
+    assert.equal(after.current_plan_revision, 1);
+    assert.equal(after.current_plan.steps[0].status, "active");
+  } finally {
+    h.close();
+  }
+});
+
+test("Core reconciliation fails closed when no trusted result verifier is wired", () => {
+  const h = harness();
+  try {
+    const goal = createGoal(h.repository);
+    const state = acceptedPlan(h.repository, goal.goal_id);
+    const createdAttempt = createAttempt(h.repository, state);
+    const pending = h.repository.listPendingReconciliations(scope).items[0].attempt;
+    const unverifiedRepository = createNpcGoalPlanRepository({
+      database: h.database,
+      idFactory: () => "unused-id",
+      now: () => new Date("2026-10-30T12:00:00.000Z"),
+      goalAdmissionVerifier: () => true,
+    });
+    const claimed = {
+      status: "committed",
+      outcome: "step_succeeded",
+      world_id: scope.world_id,
+      proposal_id: "caller-claimed-proposal",
+      event_id: "caller-claimed-event",
+      idempotency_key: pending.proposal_idempotency_key,
+      request_hash: pending.request_hash,
+      goal_id: pending.goal_id,
+      plan_id: pending.plan_id,
+      plan_revision: pending.plan_revision,
+      step_id: pending.step_id,
+      action_id: pending.action_id,
+      world_revision: 11,
+      commit_sequence: 5,
+    };
+    const result = unverifiedRepository.reconcileCoreResult(scope, createdAttempt.attempt_id, claimed);
+    assert.equal(result.status, "review_required");
+    assert.equal(result.reason, "trusted_core_result_verifier_not_available");
+    const after = h.repository.loadDecisionState(scope, { goal_id: goal.goal_id }).goals[0];
+    assert.equal(after.current_plan_revision, 1);
+    assert.equal(after.current_plan.steps[0].status, "active");
+  } finally {
+    h.close();
+  }
+});
