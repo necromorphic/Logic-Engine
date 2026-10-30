@@ -80,6 +80,16 @@ typedef struct ProbeSidecarIdentity {
 } ProbeSidecarIdentity;
 static ProbeSidecarIdentity g_sidecar_identities[PROBE_MAX_SIDECAR_IDENTITIES];
 static int g_sidecar_identity_count = 0;
+#else
+#define PROBE_MAX_SIDECAR_IDENTITIES (PROBE_MAX_DATABASE_ROLES * 3)
+typedef struct ProbeSidecarIdentity {
+  int role_index;
+  int kind; /* 1 = WAL, 2 = SHM, 3 = rollback journal */
+  dev_t device;
+  ino_t inode;
+} ProbeSidecarIdentity;
+static ProbeSidecarIdentity g_sidecar_identities[PROBE_MAX_SIDECAR_IDENTITIES];
+static int g_sidecar_identity_count = 0;
 #endif
 #ifdef _WIN32
 static LogicEngineWinFileIdentity g_race_identity;
@@ -641,6 +651,32 @@ static int probe_open(const char *name, int flags, int mode) {
             && info.st_ino == role->inode) reject = 1;
       }
     }
+    if (!reject && is_sidecar && has_anchor && anchored_suffix[0] != '\\0') {
+      int kind = strcmp(anchored_suffix, "-wal") == 0 ? 1
+        : strcmp(anchored_suffix, "-shm") == 0 ? 2
+        : strcmp(anchored_suffix, "-journal") == 0 ? 3 : 0;
+      int existing = -1;
+      if (kind == 0) reject = 1;
+      for (int i = 0; !reject && i < g_sidecar_identity_count; ++i) {
+        ProbeSidecarIdentity *entry = &g_sidecar_identities[i];
+        if (entry->role_index == anchored_role_index && entry->kind == kind) {
+          existing = i;
+          if (entry->device != info.st_dev || entry->inode != info.st_ino) reject = 1;
+        } else if (entry->device == info.st_dev && entry->inode == info.st_ino) {
+          reject = 1;
+        }
+      }
+      if (!reject && existing < 0) {
+        if (g_sidecar_identity_count >= PROBE_MAX_SIDECAR_IDENTITIES) reject = 1;
+        else {
+          ProbeSidecarIdentity *entry = &g_sidecar_identities[g_sidecar_identity_count++];
+          entry->role_index = anchored_role_index;
+          entry->kind = kind;
+          entry->device = info.st_dev;
+          entry->inode = info.st_ino;
+        }
+      }
+    }
     if (!reject && g_current_race_open && !g_current_race_captured
         && g_race_identity_set) {
       reject = info.st_dev != g_race_device || info.st_ino != g_race_inode;
@@ -1040,8 +1076,44 @@ static int probe_xDelete(sqlite3_vfs *vfs, const char *name, int sync_dir) {
     memcpy(relative_name, role->basename, base_length);
     memcpy(relative_name + base_length, suffix, suffix_length + 1);
     if (unlinkat(role->trusted_parent_fd, relative_name, 0) != 0) {
-      if (errno == ENOENT) return SQLITE_OK;
+      if (errno == ENOENT) {
+        if (suffix[0] != '\\0') {
+          int kind = strcmp(suffix, "-wal") == 0 ? 1
+            : strcmp(suffix, "-shm") == 0 ? 2
+            : strcmp(suffix, "-journal") == 0 ? 3 : 0;
+          probe_registry_lock();
+          for (int i = 0; i < g_sidecar_identity_count; ++i) {
+            if (g_sidecar_identities[i].role_index == role_index
+                && g_sidecar_identities[i].kind == kind) {
+              g_sidecar_identity_count--;
+              if (i < g_sidecar_identity_count) memmove(&g_sidecar_identities[i],
+                &g_sidecar_identities[i + 1],
+                (size_t)(g_sidecar_identity_count - i) * sizeof(g_sidecar_identities[0]));
+              break;
+            }
+          }
+          probe_registry_unlock();
+        }
+        return SQLITE_OK;
+      }
       return SQLITE_IOERR_DELETE;
+    }
+    if (suffix[0] != '\\0') {
+      int kind = strcmp(suffix, "-wal") == 0 ? 1
+        : strcmp(suffix, "-shm") == 0 ? 2
+        : strcmp(suffix, "-journal") == 0 ? 3 : 0;
+      probe_registry_lock();
+      for (int i = 0; i < g_sidecar_identity_count; ++i) {
+        if (g_sidecar_identities[i].role_index == role_index
+            && g_sidecar_identities[i].kind == kind) {
+          g_sidecar_identity_count--;
+          if (i < g_sidecar_identity_count) memmove(&g_sidecar_identities[i],
+            &g_sidecar_identities[i + 1],
+            (size_t)(g_sidecar_identity_count - i) * sizeof(g_sidecar_identities[0]));
+          break;
+        }
+      }
+      probe_registry_unlock();
     }
     if (sync_dir && fsync(role->trusted_parent_fd) != 0) return SQLITE_IOERR_DIR_FSYNC;
     return SQLITE_OK;
