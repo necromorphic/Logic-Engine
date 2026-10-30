@@ -72,19 +72,21 @@ typedef struct ProbeDatabaseRole {
 static ProbeDatabaseRole g_database_roles[PROBE_MAX_DATABASE_ROLES];
 static int g_database_role_count = 0;
 #ifdef _WIN32
-#define PROBE_MAX_SIDECAR_IDENTITIES (PROBE_MAX_DATABASE_ROLES * 3)
+#define PROBE_MAX_SIDECAR_IDENTITIES (PROBE_MAX_DATABASE_ROLES * 12)
 typedef struct ProbeSidecarIdentity {
   int role_index;
   int kind; /* 1 = WAL, 2 = SHM, 3 = rollback journal */
+  int retired; /* pathname deleted, but another hardlink may keep the object alive */
   LogicEngineWinFileIdentity identity;
 } ProbeSidecarIdentity;
 static ProbeSidecarIdentity g_sidecar_identities[PROBE_MAX_SIDECAR_IDENTITIES];
 static int g_sidecar_identity_count = 0;
 #else
-#define PROBE_MAX_SIDECAR_IDENTITIES (PROBE_MAX_DATABASE_ROLES * 3)
+#define PROBE_MAX_SIDECAR_IDENTITIES (PROBE_MAX_DATABASE_ROLES * 12)
 typedef struct ProbeSidecarIdentity {
   int role_index;
   int kind; /* 1 = WAL, 2 = SHM, 3 = rollback journal */
+  int retired; /* pathname deleted, but another hardlink may keep the object alive */
   dev_t device;
   ino_t inode;
 } ProbeSidecarIdentity;
@@ -250,7 +252,8 @@ static int probe_win_sidecar_identity_lookup(int role_index, const wchar_t *suff
   probe_registry_lock();
   for (int i = 0; i < g_sidecar_identity_count; ++i) {
     if (g_sidecar_identities[i].role_index == role_index
-        && g_sidecar_identities[i].kind == kind) {
+        && g_sidecar_identities[i].kind == kind
+        && !g_sidecar_identities[i].retired) {
       *identity = g_sidecar_identities[i].identity;
       found = 1;
       break;
@@ -264,54 +267,66 @@ static int probe_win_sidecar_identity_lookup(int role_index, const wchar_t *suff
 static int probe_win_sidecar_identity_record_locked(int role_index, const wchar_t *suffix,
                                                      const LogicEngineWinFileIdentity *identity) {
   int kind = probe_win_sidecar_kind(suffix);
-  int existing = -1;
+  int matching_identity = 0;
   int reject = !kind || !identity;
   for (int i = 0; !reject && i < g_database_role_count; ++i) {
     if (logic_engine_win_identity_equal(identity, &g_database_roles[i].identity)) reject = 1;
   }
   for (int i = 0; !reject && i < g_sidecar_identity_count; ++i) {
     ProbeSidecarIdentity *entry = &g_sidecar_identities[i];
-    if (entry->role_index == role_index && entry->kind == kind) {
-      existing = i;
-      if (!logic_engine_win_identity_equal(identity, &entry->identity)) reject = 1;
-    } else if (logic_engine_win_identity_equal(identity, &entry->identity)) {
+    int same_identity = logic_engine_win_identity_equal(identity, &entry->identity);
+    int same_owner = entry->role_index == role_index && entry->kind == kind;
+    if (same_identity) {
+      if (same_owner) {
+        entry->retired = 0;
+        matching_identity = 1;
+      } else {
+        reject = 1;
+      }
+    } else if (same_owner && !entry->retired) {
       reject = 1;
     }
   }
-  if (!reject && existing < 0) {
+  if (!reject && !matching_identity) {
     if (g_sidecar_identity_count >= PROBE_MAX_SIDECAR_IDENTITIES) {
       reject = 1;
     } else {
       ProbeSidecarIdentity *entry = &g_sidecar_identities[g_sidecar_identity_count++];
       entry->role_index = role_index;
       entry->kind = kind;
+      entry->retired = 0;
       entry->identity = *identity;
     }
   }
   return !reject;
 }
 
-static int probe_win_sidecar_identity_remove(int role_index, const wchar_t *suffix,
-                                              const LogicEngineWinFileIdentity *identity) {
+static int probe_win_sidecar_identity_retire(int role_index, const wchar_t *suffix,
+                                              const LogicEngineWinFileIdentity *identity,
+                                              int keep_record) {
   int kind = probe_win_sidecar_kind(suffix);
-  int removed = 0;
+  int updated = 0;
   if (!kind || !identity) return 0;
   probe_registry_lock();
   for (int i = 0; i < g_sidecar_identity_count; ++i) {
     ProbeSidecarIdentity *entry = &g_sidecar_identities[i];
     if (entry->role_index == role_index && entry->kind == kind
         && logic_engine_win_identity_equal(identity, &entry->identity)) {
-      g_sidecar_identity_count -= 1;
-      if (i < g_sidecar_identity_count) {
-        memmove(&g_sidecar_identities[i], &g_sidecar_identities[i + 1],
-          (size_t)(g_sidecar_identity_count - i) * sizeof(g_sidecar_identities[0]));
+      if (keep_record) {
+        entry->retired = 1;
+      } else {
+        g_sidecar_identity_count -= 1;
+        if (i < g_sidecar_identity_count) {
+          memmove(&g_sidecar_identities[i], &g_sidecar_identities[i + 1],
+            (size_t)(g_sidecar_identity_count - i) * sizeof(g_sidecar_identities[0]));
+        }
       }
-      removed = 1;
+      updated = 1;
       break;
     }
   }
   probe_registry_unlock();
-  return removed;
+  return updated;
 }
 
 static int probe_win_map_create_file(
@@ -645,10 +660,16 @@ static int probe_open(const char *name, int flags, int mode) {
       if (kind == 0) reject = 1;
       for (int i = 0; !reject && i < g_sidecar_identity_count; ++i) {
         ProbeSidecarIdentity *entry = &g_sidecar_identities[i];
-        if (entry->role_index == anchored_role_index && entry->kind == kind) {
-          existing = i;
-          if (entry->device != info.st_dev || entry->inode != info.st_ino) reject = 1;
-        } else if (entry->device == info.st_dev && entry->inode == info.st_ino) {
+        int same_identity = entry->device == info.st_dev && entry->inode == info.st_ino;
+        int same_owner = entry->role_index == anchored_role_index && entry->kind == kind;
+        if (same_identity) {
+          if (same_owner) {
+            entry->retired = 0;
+            existing = i;
+          } else {
+            reject = 1;
+          }
+        } else if (same_owner && !entry->retired) {
           reject = 1;
         }
       }
@@ -658,6 +679,7 @@ static int probe_open(const char *name, int flags, int mode) {
           ProbeSidecarIdentity *entry = &g_sidecar_identities[g_sidecar_identity_count++];
           entry->role_index = anchored_role_index;
           entry->kind = kind;
+          entry->retired = 0;
           entry->device = info.st_dev;
           entry->inode = info.st_ino;
         }
@@ -994,6 +1016,7 @@ static int probe_win_delete_role(int role_index, const wchar_t *relative_name,
   const LogicEngineWinFileIdentity *expected = &role->identity;
   HANDLE handle;
   FILE_DISPOSITION_INFO disposition;
+  FILE_STANDARD_INFO standard_info;
   DWORD error;
   if (!is_main) {
     if (!suffix || !probe_win_sidecar_kind(suffix)) return SQLITE_IOERR_DELETE;
@@ -1028,13 +1051,18 @@ static int probe_win_delete_role(int role_index, const wchar_t *relative_name,
     error = GetLastError();
     if (error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND) {
       if (!is_main && suffix) {
-        (void)probe_win_sidecar_identity_remove(role_index, suffix, expected);
+        (void)probe_win_sidecar_identity_retire(role_index, suffix, expected, 1);
       }
       return SQLITE_OK;
     }
     return SQLITE_IOERR_DELETE;
   }
   if (!is_main && probe_win_identity_is_registered_database(&actual)) {
+    CloseHandle(handle);
+    return SQLITE_IOERR_DELETE;
+  }
+  if (!is_main && !GetFileInformationByHandleEx(
+        handle, FileStandardInfo, &standard_info, sizeof(standard_info))) {
     CloseHandle(handle);
     return SQLITE_IOERR_DELETE;
   }
@@ -1045,7 +1073,8 @@ static int probe_win_delete_role(int role_index, const wchar_t *relative_name,
     return SQLITE_IOERR_DELETE;
   }
   CloseHandle(handle);
-  if (!is_main) (void)probe_win_sidecar_identity_remove(role_index, suffix, expected);
+  if (!is_main) (void)probe_win_sidecar_identity_retire(
+    role_index, suffix, expected, standard_info.NumberOfLinks > 1);
   return SQLITE_OK;
 }
 #endif
