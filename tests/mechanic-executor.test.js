@@ -1724,7 +1724,7 @@ test('executor evaluates fact subjects against entity status at the effect posit
 });
 
 
-test('executor pins the complete active mechanic set and rejects inbound interaction declarations', (t) => {
+test('executor pins the complete active mechanic set and rejects multi-instance conflict scope', (t) => {
   const { engine, worldId } = setup(t, 'executor-inbound-interaction-world');
   enableFixture(engine, worldId);
   const otherTemplate = template({
@@ -1761,7 +1761,7 @@ test('executor pins the complete active mechanic set and rejects inbound interac
   }).evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
 
   assert.equal(result.status, 'unknown');
-  assert.equal(result.reason_code, 'UNSUPPORTED_ACTIVE_MECHANIC_INTERACTION');
+  assert.equal(result.reason_code, 'UNSUPPORTED_MULTIPLE_ACTIVE_MECHANICS');
   assert.equal(providerCalls, 0);
   assert.deepEqual(result.effects, []);
   assert.equal(result.snapshot_identity.active_mechanic_set.length, 2);
