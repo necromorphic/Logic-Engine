@@ -6,6 +6,8 @@ import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { enumerateHostDataInventory } from '../host-data-inventory.mjs';
 import { isVerifiedFileInventory } from '../fs-inventory.js';
 
+const test = nodeTest;
+
 const PINNED = '06bde939fb1e9c4c8d8641d810f0a916b5bce127';
 
 function chatJsonl(id, label) {
