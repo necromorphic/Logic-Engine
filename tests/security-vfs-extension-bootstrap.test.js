@@ -231,8 +231,8 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
   try {
     second.exec('CREATE TABLE probe(value TEXT);');
     const opened = second.prepare('SELECT logic_engine_vfs_probe_open_count() AS count').get().count;
-    assert.equal(opened, 5,
-      'the VFS must remain registered across the worker, core, reader, journal and coordinator file connections');
+    assert.equal(opened, 7,
+      'the VFS must remain registered across worker, Core, reader, journal, journal-race, SHM-race and coordinator file connections');
 
     // Establish the expected OS identity, then replace the path with a hardlink
     // after SQLite has reached xOpen but immediately before the native OS open.
