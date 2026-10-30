@@ -325,6 +325,8 @@ export class MemoryDispatchGateway {
     let coreHead;
     let providerHead;
     let release = null;
+    let upstreamPromise = null;
+    let upstreamStartError = null;
 
     try {
       release = beginCoordinatorLock(this.coordinatorDb);
@@ -400,6 +402,21 @@ export class MemoryDispatchGateway {
         }
         throw error;
       }
+      // Invoke the transport's synchronous start function before releasing the
+      // shared coordinator. Its contract is to initiate the final outbound
+      // request synchronously and return a Promise for the eventual response.
+      // This makes the durable DISPATCH_STARTED row and actual transport handoff
+      // one ordered boundary relative to Provider revocation/source invalidation.
+      try {
+        upstreamPromise = this.sendUpstream({
+          route, model, stream, body, requestId, requestDigest, forwardResponse, signal,
+        });
+        if (!upstreamPromise || typeof upstreamPromise.then !== 'function') {
+          throw new Error('MEMORY_DISPATCH_TRANSPORT_START_INVALID');
+        }
+      } catch (error) {
+        upstreamStartError = error;
+      }
     } catch (error) {
       if (error?.message === 'MEMORY_DISPATCH_DUPLICATE_ID'
         || error?.message === 'MEMORY_DISPATCH_REPLAY_BLOCKED') throw error;
@@ -408,11 +425,16 @@ export class MemoryDispatchGateway {
       try { release?.(); } catch {}
     }
 
-    // Never hold the shared coordinator while performing upstream network I/O.
+    // The transport has already been synchronously handed off while the shared
+    // coordinator was held. Never await network I/O under the coordinator.
     // Once DISPATCH_STARTED is durable, an ambiguous outcome is never retried.
+    if (upstreamStartError) {
+      try { this.#recordOutcome(requestId, 'UNKNOWN', null); } catch {}
+      throw new Error('MEMORY_DISPATCH_OUTCOME_UNKNOWN');
+    }
     let response;
     try {
-      response = await this.sendUpstream({ route, model, stream, body, requestId, requestDigest, forwardResponse, signal });
+      response = await upstreamPromise;
     } catch {
       this.#recordOutcome(requestId, 'UNKNOWN', null);
       throw new Error('MEMORY_DISPATCH_OUTCOME_UNKNOWN');
