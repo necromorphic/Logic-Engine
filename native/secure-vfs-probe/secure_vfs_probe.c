@@ -374,6 +374,10 @@ static HANDLE WINAPI probe_create_file_w(
       || ((g_current_sidecar_open || (name && probe_wide_path_is_shm(name)))
         && !has_anchor)
       || (g_current_race_open && !has_anchor)) {
+    fprintf(stderr, "VFS Windows early reject: name=%ls anchor=%d main=%d role=%d current_role=%d sidecar=%d shm=%d race=%d\\n",
+      name ? name : L"<null>", has_anchor, main_role_open, role_index,
+      g_current_role_index, g_current_sidecar_open,
+      name ? probe_wide_path_is_shm(name) : 0, g_current_race_open);
     SetLastError(ERROR_ACCESS_DENIED);
     probe_counter_increment(&g_identity_reject_count);
     if (is_sidecar) probe_counter_increment(&g_sidecar_identity_reject_count);
@@ -407,6 +411,9 @@ static HANDLE WINAPI probe_create_file_w(
     if (security || template_file
         || !probe_win_map_create_file(creation, attributes,
              &disposition, &options, &native_attributes)) {
+      fprintf(stderr, "VFS Windows unsupported create: creation=%lu attributes=0x%lx name=%ls\\n",
+        (unsigned long)creation, (unsigned long)attributes,
+        name ? name : L"<null>");
       SetLastError(ERROR_NOT_SUPPORTED);
       return INVALID_HANDLE_VALUE;
     }
