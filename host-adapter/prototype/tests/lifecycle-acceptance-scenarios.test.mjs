@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { webcrypto } from 'node:crypto';
-import { HostLifecycleJournal } from '../lifecycle-journal.mjs';
+import { HostLifecycleJournal, contentDigest } from '../lifecycle-journal.mjs';
 import { createStLifecycleBridge } from '../st-lifecycle-bridge.mjs';
 
 globalThis.crypto ??= webcrypto;
@@ -28,6 +28,61 @@ class FakeDB {
   transaction() { return new Transaction(this); }
   finish(tx) { setImmediate(() => tx.oncomplete?.()); }
 }
+const TEST_CONVERSATION_UUID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+const TEST_SESSION_UUID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+const TEST_INSTALLATION_UUID = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+const TEST_CONVERSATION_ID = TEST_SESSION_UUID + ':' + TEST_INSTALLATION_UUID + ':' + TEST_CONVERSATION_UUID;
+const TEST_HOST_COMMIT = '06bde939fb1e9c4c8d8641d810f0a916b5bce127';
+
+async function makePersistedInventory(chat, conversationUuid) {
+  const messages = [];
+  for (const message of chat) {
+    const identity = message?._logicEngineLifecycle;
+    if (!identity) throw Error('SOURCE_CHAT_MESSAGE_IDENTITY_INCOMPLETE');
+    const contents = Array.isArray(message.swipes) && message.swipes.length ? message.swipes : [message.mes ?? ''];
+    const activeIndex = Number.isInteger(message.swipe_id) ? message.swipe_id : 0;
+    const versions = [];
+    for (let index = 0; index < contents.length; index++) {
+      const version = identity.versions[index];
+      const digest = await contentDigest(contents[index]);
+      if (!version || version.payloadDigest !== digest) throw Error('SOURCE_CHAT_VERSION_DIGEST_MISMATCH');
+      versions.push({
+        version_id: version.versionId,
+        version_index: index,
+        parent_version_id: version.parentVersionId ?? null,
+        content_sha256: digest,
+        active: index === activeIndex,
+      });
+    }
+    messages.push({
+      message_id: identity.messageId,
+      role: message.is_user === true ? 'user' : message.is_system === true ? 'system' : 'assistant',
+      active_version_index: activeIndex,
+      versions,
+    });
+  }
+  return {
+    status: 'DOUBLE_SCAN_CANDIDATE',
+    authority: 'NON_AUTHORITATIVE',
+    host_commit: TEST_HOST_COMMIT,
+    scope: 'PINNED_SILLYTAVERN_CHAT_DATA_ROOTS',
+    completeness: 'DOUBLE_SCANNED_PATH_VIEW_ONLY',
+    host_build_claim_type: 'DEPLOYMENT_ASSERTION_NOT_RUNTIME_ATTESTATION',
+    inventory_sha256: 'b'.repeat(64),
+    file_count: 1,
+    files: [{
+      logical_identity: {
+        conversation_uuid: conversationUuid,
+        identity_status: 'CURRENT_IDENTITIES_VERIFIED',
+        message_count: chat.length,
+        identified_message_count: chat.length,
+        missing_message_identity_count: 0,
+        messages,
+      },
+    }],
+  };
+}
+
 function fixture() {
   const db = new FakeDB();
   const journal = new HostLifecycleJournal(db);
@@ -36,7 +91,8 @@ function fixture() {
     { is_user: false, mes: 'swipe A', swipes: ['swipe A', 'swipe B', 'swipe C'], swipe_id: 1 },
   ];
   const bridge = createStLifecycleBridge({
-    journal, getConversationId: () => 'scenario-chat', getChat: () => chat,
+    journal, getConversationId: () => TEST_CONVERSATION_ID, getConversationUuid: () => TEST_CONVERSATION_UUID,
+    readPersistedInventory: uuid => makePersistedInventory(chat, uuid), getChat: () => chat,
     saveChat: async () => {},
   });
   return { db, journal, chat, bridge };
@@ -60,7 +116,7 @@ test('swipe deletion preserves surviving version IDs and does not treat selectio
   assert.deepEqual(after.versions.map(v => v.versionId), [ids[0], ids[2]]);
   assert.deepEqual(after.versions.map(v => v.versionIndex), [0, 1]);
   assert.equal(after.activeVersionIndex, 1);
-  assert.equal((await f.journal.verifyIntegrity('scenario-chat')).status, 'INTEGRITY_OK');
+  assert.equal((await f.journal.verifyIntegrity(TEST_CONVERSATION_ID)).status, 'INTEGRITY_OK');
 });
 
 test('write-ahead failure prevents the simulated destructive mutation', async () => {
@@ -95,6 +151,7 @@ test('pinned patch explicitly hooks core mutations but does not pretend uncovere
     "beforeMutation('delete-message'",
     "beforeMutation('delete-swipe'",
     "beforeMutation('edit-message'",
+    "lifecycleOperation === 'create-message' ? [] : [chat.length - 1]",
     "afterMutation('delete-swipe'",
     "beforeMutation('select-swipe'",
     "afterMutation('select-swipe'",
@@ -152,6 +209,10 @@ test('branch creation from an enrolled conversation is rejected before branch pe
   assert.ok(branchEntry > branchHook, 'the guard must run at function entry, before branch processing or persistence');
   const bridge = await readFile(resolve(here, '../st-lifecycle-bridge.mjs'), 'utf8');
   assert.ok(bridge.includes('NON_READY: unsupported/uninstrumented Host lifecycle operation '), 'unsupported enrolled operations must reject at the bridge boundary');
+  assert.ok(bridge.includes('afterMutation has no matching durable beforeMutation'), 'after receipts must have a matching write-ahead record');
+  assert.ok(bridge.includes('previous lifecycle operation is incomplete'), 'a second mutation must not overtake an unfinished operation');
+  const journal = await readFile(resolve(here, '../lifecycle-journal.mjs'), 'utf8');
+  assert.ok(journal.includes('async pendingMutation(conversationId)'), 'pending operation state must be derived from the durable journal');
 });
 
 
@@ -189,4 +250,36 @@ test('destructive and import UI entry points invoke target-aware fail-closed Hos
   assertBefore('export async function importCharacterChat(formData,', 'guardBulkMutation', "fetch('/api/chats/import'");
   assertBefore('export async function importGroupChat(formData,', 'guardBulkMutation', "fetch('/api/chats/group/import'");
   assertBefore('async restoreBackup(name)', 'guardBulkMutation', "fetch('/api/backups/chat/download'");
+});
+
+
+
+test('pinned SillyTavern patch wires the existing digest-only Core capture proxy', async () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const patch = await readFile(resolve(here, '../patches/sillytavern-1.19.0-lifecycle-hooks.patch'), 'utf8');
+  const proxy = await readFile(resolve(here, '../st-server-digest-proxy.mjs'), 'utf8');
+
+  assert.ok(patch.includes("import { router as logicEngineLifecycleRouter } from './endpoints/logic-engine-lifecycle.js';"));
+  assert.ok(patch.includes("app.use('/api/logic-engine', logicEngineLifecycleRouter);"));
+  assert.ok(patch.includes("import { createHostDigestProxyHandler, createHostInventoryReconcileProxyHandler } from './logic-engine-lifecycle-proxy.mjs';"));
+  assert.ok(patch.includes("router.post('/host-version-ledger/capture', createHostDigestProxyHandler());"));
+  assert.ok(patch.includes("fetch('/api/logic-engine/host-version-ledger/capture'"));
+  assert.ok(patch.includes("fetch('/api/logic-engine/host/session'"));
+  assert.ok(patch.includes("hostSessionId: await getLogicEngineHostSessionId()"));
+  assert.ok(patch.includes("getConversationUuid: () => chat_metadata.logic_engine_conversation_id"));
+  assert.ok(patch.includes("readPersistedInventory: async conversationUuid =>"));
+  assert.ok(patch.includes("fetch('/api/logic-engine/host/inventory?conversation_uuid='"));
+  assert.equal(patch.includes('logicEngineHostSessionPromise'), false);
+  assert.ok(patch.includes("router.post('/host-version-ledger/reconcile', createHostInventoryReconcileProxyHandler());"));
+
+  // The endpoint delegates to the pre-existing, separately tested proxy.
+  // It must not accept caller-selected upstream URLs, world scope or raw text.
+  assert.ok(proxy.includes("'/v1/host-version-ledger/capture'"));
+  assert.ok(proxy.includes('LOGIC_ENGINE_API_TOKEN'));
+  assert.ok(proxy.includes('LOGIC_ENGINE_ADAPTER_TOKEN'));
+  assert.ok(proxy.includes('HOST_SESSION_SCOPE_REQUIRED'));
+  assert.ok(proxy.includes("'content_sha256'"));
+  assert.ok(proxy.includes("requestMatchesAuthenticatedHostSession"));
+  assert.ok(proxy.includes("conversationId.startsWith(sessionId + ':')"));
+  assert.equal(proxy.includes("'world_id'"), false);
 });
