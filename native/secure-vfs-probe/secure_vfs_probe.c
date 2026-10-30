@@ -55,9 +55,8 @@ typedef struct ProbeDatabaseRole {
   char *role;
   int identity_set;
 #ifdef _WIN32
-  DWORD volume_serial;
-  DWORD file_index_high;
-  DWORD file_index_low;
+  LogicEngineWinFileIdentity identity;
+  LogicEngineWinDirectoryAnchor anchor;
   HANDLE trusted_handle;
 #else
   dev_t device;
@@ -70,9 +69,7 @@ typedef struct ProbeDatabaseRole {
 static ProbeDatabaseRole g_database_roles[PROBE_MAX_DATABASE_ROLES];
 static int g_database_role_count = 0;
 #ifdef _WIN32
-static DWORD g_race_volume_serial = 0;
-static DWORD g_race_file_index_high = 0;
-static DWORD g_race_file_index_low = 0;
+static LogicEngineWinFileIdentity g_race_identity;
 __declspec(thread) static int g_current_race_open = 0;
 __declspec(thread) static int g_current_race_captured = 0;
 __declspec(thread) static int g_current_role_index = -1;
@@ -152,7 +149,8 @@ static HANDLE WINAPI probe_create_file_w(
   DWORD creation, DWORD attributes, HANDLE template_file
 ) {
   HANDLE handle;
-  BY_HANDLE_FILE_INFORMATION info;
+  LogicEngineWinFileIdentity info_identity;
+  DWORD file_attributes = 0;
   int is_sidecar = (g_current_sidecar_open && !g_current_sidecar_captured)
     || probe_wide_path_is_shm(name);
   int needs_identity = is_sidecar
@@ -190,22 +188,17 @@ static HANDLE WINAPI probe_create_file_w(
 
   probe_registry_lock();
   {
-    int reject = !GetFileInformationByHandle(handle, &info)
-      || (info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0
-      || (info.nFileIndexHigh == 0 && info.nFileIndexLow == 0);
+    int reject = !logic_engine_win_identity(handle, &info_identity, &file_attributes)
+      || (file_attributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
     if (!reject && g_current_role_index >= 0 && !g_current_role_captured) {
       ProbeDatabaseRole *role = &g_database_roles[g_current_role_index];
       if (role->identity_set) {
-        reject = info.dwVolumeSerialNumber != role->volume_serial
-          || info.nFileIndexHigh != role->file_index_high
-          || info.nFileIndexLow != role->file_index_low;
+        reject = !logic_engine_win_identity_equal(&info_identity, &role->identity);
       } else {
         for (int i = 0; i < g_database_role_count; i++) {
           ProbeDatabaseRole *other = &g_database_roles[i];
           if (i != g_current_role_index && other->identity_set
-              && info.dwVolumeSerialNumber == other->volume_serial
-              && info.nFileIndexHigh == other->file_index_high
-              && info.nFileIndexLow == other->file_index_low) reject = 1;
+              && logic_engine_win_identity_equal(&info_identity, &other->identity)) reject = 1;
         }
       }
     }
@@ -213,16 +206,12 @@ static HANDLE WINAPI probe_create_file_w(
       for (int i = 0; i < g_database_role_count; i++) {
         ProbeDatabaseRole *role = &g_database_roles[i];
         if (role->identity_set
-            && info.dwVolumeSerialNumber == role->volume_serial
-            && info.nFileIndexHigh == role->file_index_high
-            && info.nFileIndexLow == role->file_index_low) reject = 1;
+            && logic_engine_win_identity_equal(&info_identity, &role->identity)) reject = 1;
       }
     }
     if (!reject && g_current_race_open && !g_current_race_captured
         && g_race_identity_set) {
-      reject = info.dwVolumeSerialNumber != g_race_volume_serial
-        || info.nFileIndexHigh != g_race_file_index_high
-        || info.nFileIndexLow != g_race_file_index_low;
+      reject = !logic_engine_win_identity_equal(&info_identity, &g_race_identity);
     }
     if (reject) {
       g_identity_reject_count += 1;
@@ -239,15 +228,11 @@ static HANDLE WINAPI probe_create_file_w(
     if (g_current_role_index >= 0 && !g_current_role_captured
         && !g_database_roles[g_current_role_index].identity_set) {
       ProbeDatabaseRole *role = &g_database_roles[g_current_role_index];
-      role->volume_serial = info.dwVolumeSerialNumber;
-      role->file_index_high = info.nFileIndexHigh;
-      role->file_index_low = info.nFileIndexLow;
+      role->identity = info_identity;
       role->identity_set = 1;
     }
     if (g_current_race_open && !g_current_race_captured && !g_race_identity_set) {
-      g_race_volume_serial = info.dwVolumeSerialNumber;
-      g_race_file_index_high = info.nFileIndexHigh;
-      g_race_file_index_low = info.nFileIndexLow;
+      g_race_identity = info_identity;
       g_race_identity_set = 1;
     }
     if (is_sidecar) {
@@ -877,39 +862,34 @@ static int probe_open_directory_chain(const char *path) {
 
 static int probe_capture_role_identity(const char *path, ProbeDatabaseRole *captured) {
 #ifdef _WIN32
-  typedef HANDLE (WINAPI *probe_register_create_file_fn)(
-    LPCWSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD, DWORD, HANDLE
-  );
   wchar_t *wide_path = probe_utf8_to_wide(path);
   HANDLE handle;
-  BY_HANDLE_FILE_INFORMATION info;
-  int ok;
+  DWORD file_attributes = 0;
   if (!wide_path) return 0;
-  handle = ((probe_register_create_file_fn)g_original_open_syscall)(
-    wide_path,
+  if (!logic_engine_win_anchor_path(wide_path, &captured->anchor)) {
+    sqlite3_free(wide_path);
+    return 0;
+  }
+  sqlite3_free(wide_path);
+  handle = logic_engine_win_open_relative(captured->anchor.parent,
+    captured->anchor.basename,
     GENERIC_READ | GENERIC_WRITE,
     FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-    0,
-    OPEN_ALWAYS,
-    FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT,
-    0
-  );
-  sqlite3_free(wide_path);
-  if (handle == INVALID_HANDLE_VALUE) return 0;
-  ok = GetFileInformationByHandle(handle, &info)
-    && (info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) == 0
-    && (info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0
-    && (info.nFileIndexHigh != 0 || info.nFileIndexLow != 0);
-  if (ok) {
-    captured->volume_serial = info.dwVolumeSerialNumber;
-    captured->file_index_high = info.nFileIndexHigh;
-    captured->file_index_low = info.nFileIndexLow;
-    captured->trusted_handle = handle;
-    captured->identity_set = 1;
-    return 1;
+    FILE_OPEN_IF, FILE_NON_DIRECTORY_FILE, FILE_ATTRIBUTE_NORMAL,
+    NULL, &captured->identity);
+  if (handle == INVALID_HANDLE_VALUE) {
+    logic_engine_win_anchor_close(&captured->anchor);
+    return 0;
   }
-  CloseHandle(handle);
-  return 0;
+  if (!logic_engine_win_identity(handle, &captured->identity, &file_attributes)
+      || (file_attributes & FILE_ATTRIBUTE_DIRECTORY) != 0) {
+    CloseHandle(handle);
+    logic_engine_win_anchor_close(&captured->anchor);
+    return 0;
+  }
+  captured->trusted_handle = handle;
+  captured->identity_set = 1;
+  return 1;
 #else
   typedef int (*probe_register_open_fn)(const char *, int, int);
   int flags = O_RDWR | O_CREAT;
@@ -986,6 +966,7 @@ static void probe_close_captured_role_identity(ProbeDatabaseRole *captured) {
     CloseHandle(captured->trusted_handle);
     captured->trusted_handle = INVALID_HANDLE_VALUE;
   }
+  logic_engine_win_anchor_close(&captured->anchor);
 #else
   if (captured->trusted_fd >= 0) {
     close(captured->trusted_fd);
@@ -1014,6 +995,8 @@ static void probe_register_database_role(sqlite3_context *context, int argc, sql
   memset(&captured_role, 0, sizeof(captured_role));
 #ifdef _WIN32
   captured_role.trusted_handle = INVALID_HANDLE_VALUE;
+  captured_role.anchor.parent = INVALID_HANDLE_VALUE;
+  captured_role.anchor.basename = NULL;
 #else
   captured_role.trusted_fd = -1;
   captured_role.trusted_parent_fd = -1;
@@ -1062,9 +1045,7 @@ static void probe_register_database_role(sqlite3_context *context, int argc, sql
       break;
     }
 #ifdef _WIN32
-    if (captured_role.volume_serial == other->volume_serial
-        && captured_role.file_index_high == other->file_index_high
-        && captured_role.file_index_low == other->file_index_low) duplicate_identity = 1;
+    if (logic_engine_win_identity_equal(&captured_role.identity, &other->identity)) duplicate_identity = 1;
 #else
     if (captured_role.device == other->device
         && captured_role.inode == other->inode) duplicate_identity = 1;
@@ -1075,10 +1056,12 @@ static void probe_register_database_role(sqlite3_context *context, int argc, sql
     entry->path = stored_path;
     entry->role = stored_role;
 #ifdef _WIN32
-    entry->volume_serial = captured_role.volume_serial;
-    entry->file_index_high = captured_role.file_index_high;
-    entry->file_index_low = captured_role.file_index_low;
+    entry->identity = captured_role.identity;
+    entry->anchor = captured_role.anchor;
     entry->trusted_handle = captured_role.trusted_handle;
+    captured_role.anchor.parent = INVALID_HANDLE_VALUE;
+    captured_role.anchor.basename = NULL;
+    captured_role.trusted_handle = INVALID_HANDLE_VALUE;
 #else
     entry->device = captured_role.device;
     entry->inode = captured_role.inode;
@@ -1134,9 +1117,7 @@ static void probe_configure_race(sqlite3_context *context, int argc, sqlite3_val
     if (!g_race_path || strcmp(g_race_path, full_path) != 0) {
       g_race_identity_set = 0;
 #ifdef _WIN32
-      g_race_volume_serial = 0;
-      g_race_file_index_high = 0;
-      g_race_file_index_low = 0;
+      memset(&g_race_identity, 0, sizeof(g_race_identity));
 #else
       g_race_device = 0;
       g_race_inode = 0;
