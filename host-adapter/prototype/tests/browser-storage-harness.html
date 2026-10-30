@@ -11,7 +11,11 @@
     const mode = new URL(location.href).searchParams.get('mode');
 
     try {
-      const journal = await HostLifecycleJournal.open('logic-engine-host-lifecycle-browser-test');
+      const journal = await HostLifecycleJournal.open({
+        name: 'logic-engine-host-lifecycle-browser-test-v3',
+        hostInstallationId: '00000000-0000-4000-8000-000000000111',
+        authenticatedAccountId: '00000000-0000-4000-8000-000000000112',
+      });
       if (mode === 'write') {
         await journal.enroll({
           conversationId,
