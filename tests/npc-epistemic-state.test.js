@@ -734,3 +734,49 @@ test("state validation fails closed without invoking a polluted Array iterator",
   assert.equal(result.status, "non_ready");
   assert.equal(getterCalls, 0);
 });
+
+
+test("directional and unresolved stances require evidence on the asserted side", () => {
+  const supportsFalse = admit(emptyState(), { polarity: "supports_false" }).state;
+  for (const stance of ["believes_true", "suspects_true"]) {
+    const result = apply(supportsFalse, {
+      type: "belief_updated",
+      proposition_ref: "prop-secret-location",
+      stance,
+      revision_rule_ref: "rule-no-opposing-only",
+      evidence_refs: ["evidence-1"],
+    });
+    assert.equal(result.status, "non_ready", stance);
+    assert.equal(result.reason, "belief_revision_evidence_does_not_support_stance");
+  }
+
+  const onlyOneSide = apply(admit(emptyState()).state, {
+    type: "belief_updated",
+    proposition_ref: "prop-secret-location",
+    stance: "unresolved",
+    revision_rule_ref: "rule-conflict-requires-two-sides",
+    evidence_refs: ["evidence-1"],
+  });
+  assert.equal(onlyOneSide.status, "non_ready");
+  assert.equal(onlyOneSide.reason, "belief_revision_evidence_does_not_support_stance");
+
+  let conflicting = admit(emptyState()).state;
+  conflicting = admit(conflicting, {
+    evidence_ref: "evidence-2",
+    evidence_version: "v1",
+    acquisition_ref: "acq-2",
+    source_ref: "source-2",
+    source_version: "v1",
+    polarity: "supports_false",
+  }).state;
+  const unresolved = apply(conflicting, {
+    type: "belief_updated",
+    proposition_ref: "prop-secret-location",
+    stance: "unresolved",
+    revision_rule_ref: "rule-both-sides",
+    evidence_refs: ["evidence-1", "evidence-2"],
+  });
+  assert.equal(unresolved.status, "updated");
+  assert.deepEqual(unresolved.state.beliefs[0].supporting_evidence_refs, ["evidence-1"]);
+  assert.deepEqual(unresolved.state.beliefs[0].conflicting_evidence_refs, ["evidence-2"]);
+});
