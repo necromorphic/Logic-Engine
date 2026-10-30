@@ -79,6 +79,62 @@ test('production NPC read authorization requires configured adapter, active Host
   assert.equal(authorizers.readAuthorizer({ ...scope, actor_id: 'other-actor' }), null);
 });
 
+test('Core resolves world and actor only from active bindings and denies ambiguous actor selection', (t) => {
+  const { engine, authorizers, scope, actors } = setup(t);
+  assert.deepEqual(authorizers.resolveContext({
+    adapter_id: scope.adapter_id,
+    conversation_id: scope.conversation_id,
+  }), {
+    world_id: scope.world_id,
+    conversation_id: scope.conversation_id,
+    adapter_id: scope.adapter_id,
+    actor_id: scope.actor_id,
+  });
+
+  // Caller-supplied world/actor fields are not part of the identity contract.
+  assert.equal(authorizers.resolveContext({
+    adapter_id: scope.adapter_id,
+    conversation_id: scope.conversation_id,
+    world_id: 'attacker-world',
+    actor_id: 'attacker-actor',
+  }), null);
+
+  let getterInvoked = false;
+  const accessorIdentity = {
+    adapter_id: scope.adapter_id,
+    get conversation_id() {
+      getterInvoked = true;
+      return scope.conversation_id;
+    },
+  };
+  assert.equal(authorizers.resolveContext(accessorIdentity), null);
+  assert.equal(getterInvoked, false);
+
+  engine.commitEvent('world-a', {
+    event_id: 'create-second-npc',
+    idempotency_key: 'create-second-npc',
+    turn_id: 'create-second-npc',
+    event_type: 'action.completed',
+    expected_revision: 1,
+    effects: [{ kind: 'entity.create', entity_id: 'npc-b', entity_type: 'character' }],
+  });
+  actors.bind('world-a', 'adapter-st', 'npc-b');
+
+  // Multiple active actors cannot be selected by supplying actor_id in a request.
+  assert.equal(authorizers.resolveContext({
+    adapter_id: scope.adapter_id,
+    conversation_id: scope.conversation_id,
+  }), null);
+  assert.equal(authorizers.readAuthorizer(scope), null);
+
+  actors.revoke('world-a', 'adapter-st', 'npc-b');
+  assert.equal(authorizers.resolveContext({
+    adapter_id: scope.adapter_id,
+    conversation_id: scope.conversation_id,
+  }).actor_id, 'npc-a');
+  assert.equal(authorizers.readAuthorizer(scope).status, 'authorized');
+});
+
 test('per-acquisition visibility requires exact trusted source provenance and the same live Host/actor bindings', (t) => {
   const { authorizers, scope, conversations } = setup(t);
   const acquisition = {
