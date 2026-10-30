@@ -1529,6 +1529,20 @@ test('configured deployment policy runtime binds real authorized reads and rejec
     validateMechanicPolicy: (identity) => runtime.authority.validateMechanicPolicy(identity),
   });
 
+  const wrongAdapterEvaluation = executor.evaluate({
+    worldId, instanceId: 'instance.executor', actionId: 'wait',
+  });
+  assert.throws(
+    () => proposals.createFromMechanicEvaluation(worldId, wrongAdapterEvaluation, {
+      idempotencyKey: 'configured-policy-wrong-adapter',
+      turnId: 'configured-policy-wrong-adapter',
+      sourceText: 'A different adapter cannot adopt this evaluated actor context.',
+      adapterId: 'another-adapter',
+    }),
+    (error) => error.code === 'MECHANIC_ADAPTER_PRINCIPAL_MISMATCH' && error.status === 403,
+  );
+  assert.equal(proposals.db.prepare('SELECT COUNT(*) AS count FROM event_proposals').get().count, 0);
+
   const staleBeforeProposal = executor.evaluate({
     worldId, instanceId: 'instance.executor', actionId: 'wait',
   });
