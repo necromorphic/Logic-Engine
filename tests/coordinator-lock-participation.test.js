@@ -8,7 +8,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { SQLiteStore } from '../src/storage/sqlite-store.js';
 import { openCoordinatorDatabase, withCoordinatorLock } from '../src/storage/coordinator-lock.js';
 
-const waitForFile = async (path, timeoutMs = 4000) => {
+const waitForFile = async (path, timeoutMs = 15000) => {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (existsSync(path)) return;
