@@ -11,6 +11,23 @@ const unavailable = () => new EngineError(
   404,
 );
 
+function cloneAndFreezePolicyValue(value) {
+  if (Array.isArray(value)) return Object.freeze(value.map(cloneAndFreezePolicyValue));
+  if (value !== null && typeof value === 'object') {
+    const copy = {};
+    for (const [key, item] of Object.entries(value)) {
+      Object.defineProperty(copy, key, {
+        value: cloneAndFreezePolicyValue(item),
+        enumerable: true,
+        writable: false,
+        configurable: false,
+      });
+    }
+    return Object.freeze(copy);
+  }
+  return value;
+}
+
 /**
  * Internal, fail-closed read boundary.
  *
@@ -59,10 +76,7 @@ export class AuthorizedReadService {
   }
 
   _authorizeField(context, entity, field, evidence) {
-    const policyEntity = Object.freeze({
-      ...entity,
-      ...(object(entity.attributes) ? { attributes: Object.freeze({ ...entity.attributes }) } : {}),
-    });
+    const policyEntity = cloneAndFreezePolicyValue(entity);
     try {
       if (this.policyAuthority) {
         return this.policyAuthority.authorizeField(context, policyEntity, field, evidence) === true;
