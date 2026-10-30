@@ -75,7 +75,7 @@ test('file-backed Provider detects coordinator alias through a symlinked parent 
   try {
     symlinkSync(realDirectory, aliasDirectory, 'dir');
   } catch (error) {
-    if (process.platform === 'win32' && error?.code === 'EPERM') {
+    if (process.platform === 'win32' && error?.code === 'EPERM' && process.env.LOGIC_ENGINE_REQUIRE_SYMLINK_TESTS !== '1') {
       t.skip('this Windows service account cannot create directory symlinks; the same reparse case runs on windows-latest');
       return;
     }
