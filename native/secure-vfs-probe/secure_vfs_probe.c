@@ -529,50 +529,50 @@ static const char *probe_xNextSystemCall(sqlite3_vfs *vfs, const char *name) {
 static void probe_open_count(sqlite3_context *context, int argc, sqlite3_value **argv) {
   (void)argc;
   (void)argv;
-  sqlite3_result_int(context, g_main_db_open_count);
+  sqlite3_result_int(context, probe_counter_read(&g_main_db_open_count));
 }
 
 static void probe_wal_open_count(sqlite3_context *context, int argc, sqlite3_value **argv) {
   (void)argc;
   (void)argv;
-  sqlite3_result_int(context, g_wal_open_count);
+  sqlite3_result_int(context, probe_counter_read(&g_wal_open_count));
 }
 
 static void probe_journal_open_count(sqlite3_context *context, int argc, sqlite3_value **argv) {
   (void)argc;
   (void)argv;
-  sqlite3_result_int(context, g_journal_open_count);
+  sqlite3_result_int(context, probe_counter_read(&g_journal_open_count));
 }
 
 static void probe_native_open_count(sqlite3_context *context, int argc, sqlite3_value **argv) {
   (void)argc;
   (void)argv;
-  sqlite3_result_int(context, g_native_open_count);
+  sqlite3_result_int(context, probe_counter_read(&g_native_open_count));
 }
 static void probe_identity_reject_count(sqlite3_context *context, int argc, sqlite3_value **argv) {
   (void)argc;
   (void)argv;
-  sqlite3_result_int(context, g_identity_reject_count);
+  sqlite3_result_int(context, probe_counter_read(&g_identity_reject_count));
 }
 static void probe_race_injection_count(sqlite3_context *context, int argc, sqlite3_value **argv) {
   (void)argc;
   (void)argv;
-  sqlite3_result_int(context, g_race_injection_count);
+  sqlite3_result_int(context, probe_counter_read(&g_race_injection_count));
 }
 static void probe_sidecar_identity_check_count(sqlite3_context *context, int argc, sqlite3_value **argv) {
   (void)argc;
   (void)argv;
-  sqlite3_result_int(context, g_sidecar_identity_check_count);
+  sqlite3_result_int(context, probe_counter_read(&g_sidecar_identity_check_count));
 }
 static void probe_sidecar_identity_reject_count(sqlite3_context *context, int argc, sqlite3_value **argv) {
   (void)argc;
   (void)argv;
-  sqlite3_result_int(context, g_sidecar_identity_reject_count);
+  sqlite3_result_int(context, probe_counter_read(&g_sidecar_identity_reject_count));
 }
 static void probe_reused_descriptor_accept_count(sqlite3_context *context, int argc, sqlite3_value **argv) {
   (void)argc;
   (void)argv;
-  sqlite3_result_int(context, g_reused_descriptor_accept_count);
+  sqlite3_result_int(context, probe_counter_read(&g_reused_descriptor_accept_count));
 }
 static void probe_register_database_role(sqlite3_context *context, int argc, sqlite3_value **argv) {
   const unsigned char *path = sqlite3_value_text(argv[0]);
