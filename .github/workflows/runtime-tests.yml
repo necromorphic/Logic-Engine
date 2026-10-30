@@ -1,7 +1,7 @@
 name: Runtime tests
 on:
   push:
-    branches: [main, 'work/**']
+    branches: [main, 'work/**', 'host/**']
   pull_request:
   workflow_dispatch:
 
@@ -10,8 +10,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: runtime-tests-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: runtime-tests-${{ github.workflow }}-${{ github.ref }}-${{ github.sha }}
+  cancel-in-progress: false
 
 jobs:
   npc-boundary:
@@ -32,7 +32,7 @@ jobs:
 
   test:
     runs-on: [self-hosted, Windows, X64]
-    timeout-minutes: 10
+    timeout-minutes: 20
     permissions:
       contents: read
     defaults:
