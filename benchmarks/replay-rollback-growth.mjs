@@ -86,6 +86,17 @@ function seed(store, eventCount, operation) {
     store.db.prepare('UPDATE worlds SET world_revision=? WHERE world_id=?').run(eventCount, 'bench-world');
   });
   store.tx(() => store.rebuild('bench-world', eventCount));
+  // This benchmark seeds canonical events directly for scale. Seed the
+  // corresponding source-version ledger explicitly, as the production commit
+  // path normally does, so rollback scenarios exercise the real invariant.
+  store.tx(() => {
+    const entities = store.db.prepare(
+      'SELECT entity_id FROM entities WHERE world_id=?',
+    ).all('bench-world');
+    const insertVersion = store.db.prepare(`INSERT INTO entity_source_versions
+      (world_id,entity_id,source_version,updated_at) VALUES(?,?,1,?)`);
+    for (const entity of entities) insertVersion.run('bench-world', entity.entity_id, timestamp);
+  });
 }
 
 function projectionCounts(store) {
