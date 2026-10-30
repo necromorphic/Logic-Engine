@@ -144,9 +144,12 @@ test('Core reader, belief writer, and belief-state reader reject caller-selected
   });
   const snapshot = guardedEngine.getSnapshot(scope.world_id);
   const request = {
-    ...scope,
-    world_revision: snapshot.world_revision,
-    commit_sequence: snapshot.commit_sequence,
+    world_id: scope.world_id,
+    conversation_id: scope.conversation_id,
+    adapter_id: scope.adapter_id,
+    actor_id: scope.actor_id,
+    recipient: scope.recipient,
+    purpose: scope.purpose,
     expected_revision: snapshot.world_revision,
     expected_commit_sequence: snapshot.commit_sequence,
     limit: 20,
