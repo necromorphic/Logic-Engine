@@ -13,6 +13,7 @@ import { types as utilTypes } from "node:util";
 const ID_MAX = 200;
 const POLARITIES = new Set(["supports_true", "supports_false"]);
 const STANCES = new Set(["believes_true", "believes_false", "suspects_true", "suspects_false", "unresolved", "unknown"]);
+const EPISTEMIC_STATUSES = new Set(["confirmed", "unconfirmed_report", "suspicion", "inference", "rumor", "unknown"]);
 
 const nonReady = (reason = "invalid_epistemic_input") => Object.freeze({
   status: "non_ready",
@@ -127,7 +128,7 @@ function validState(state) {
   const evidenceRefs = new Set();
   const evidenceByRef = new Map();
   for (const item of state.evidence) {
-    if (!hasExactKeys(item, ["ref", "version", "proposition_ref", "acquisition_ref", "source_ref", "source_version", "polarity", "status", "invalidation_rule_ref"])
+    if (!hasExactKeys(item, ["ref", "version", "proposition_ref", "acquisition_ref", "source_ref", "source_version", "polarity", "epistemic_status", "status", "invalidation_rule_ref"])
       || !validId(item.ref)
       || !validId(item.version)
       || !validId(item.proposition_ref)
@@ -135,6 +136,7 @@ function validState(state) {
       || !validId(item.source_ref)
       || !validId(item.source_version)
       || !POLARITIES.has(item.polarity)
+      || !EPISTEMIC_STATUSES.has(item.epistemic_status)
       || !["valid", "invalidated"].includes(item.status)
       || !(item.invalidation_rule_ref === null || validId(item.invalidation_rule_ref))
       || (item.status === "valid" && item.invalidation_rule_ref !== null)
@@ -192,7 +194,7 @@ function findEvidence(state, ref, version) {
 
 const EVENT_KEYS = Object.freeze({
   information_received: ["world_id", "subject_id", "type", "event_ref", "source_ref", "source_version"],
-  evidence_admitted: ["world_id", "subject_id", "type", "acquisition_ref", "proposition_ref", "evidence_ref", "evidence_version", "source_ref", "source_version", "polarity"],
+  evidence_admitted: ["world_id", "subject_id", "type", "acquisition_ref", "proposition_ref", "evidence_ref", "evidence_version", "source_ref", "source_version", "polarity", "epistemic_status"],
   belief_updated: ["world_id", "subject_id", "type", "proposition_ref", "stance", "revision_rule_ref", "evidence_refs"],
   evidence_invalidated: ["world_id", "subject_id", "type", "evidence_ref", "evidence_version", "invalidation_rule_ref"],
   canonical_truth_changed: ["world_id", "subject_id", "type"],
@@ -240,7 +242,8 @@ function applyEventUnsafe(state, event) {
       event.acquisition_ref, event.proposition_ref, event.evidence_ref,
       event.evidence_version, event.source_ref, event.source_version,
     ];
-    if (!required.every(validId) || !POLARITIES.has(event.polarity)) {
+    if (!required.every(validId) || !POLARITIES.has(event.polarity)
+      || !EPISTEMIC_STATUSES.has(event.epistemic_status)) {
       return nonReady("admitted_evidence_metadata_incomplete");
     }
     const prior = findEvidence(state, event.evidence_ref, event.evidence_version);
@@ -254,6 +257,7 @@ function applyEventUnsafe(state, event) {
       source_ref: event.source_ref,
       source_version: event.source_version,
       polarity: event.polarity,
+      epistemic_status: event.epistemic_status,
       status: "valid",
       invalidation_rule_ref: null,
     };
@@ -262,7 +266,8 @@ function applyEventUnsafe(state, event) {
         && prior.acquisition_ref === nextEvidence.acquisition_ref
         && prior.source_ref === nextEvidence.source_ref
         && prior.source_version === nextEvidence.source_version
-        && prior.polarity === nextEvidence.polarity;
+        && prior.polarity === nextEvidence.polarity
+        && prior.epistemic_status === nextEvidence.epistemic_status;
       return same
         ? Object.freeze({ status: "unchanged", state, reason: null })
         : nonReady("evidence_identity_conflict");
@@ -288,6 +293,15 @@ function applyEventUnsafe(state, event) {
     const evidence = event.evidence_refs.map((ref) => state.evidence.find((item) => item.ref === ref && item.status === "valid"));
     if (evidence.some((item) => !item || item.proposition_ref !== event.proposition_ref)) {
       return nonReady("belief_revision_evidence_unavailable");
+    }
+    // The reducer preserves the caller-established epistemic class; it does not
+    // authenticate it. Reports, suspicions, inferences and rumors may support
+    // only a tentative stance or an unresolved state. They cannot be promoted
+    // into a confirmed belief by choosing a stronger stance at this boundary.
+    if (evidence.some((item) => item.epistemic_status === "unknown")
+      || ((event.stance === "believes_true" || event.stance === "believes_false")
+        && evidence.some((item) => item.epistemic_status !== "confirmed"))) {
+      return nonReady("belief_revision_epistemic_status_not_admissible");
     }
     const negativeStance = event.stance === "believes_false" || event.stance === "suspects_false";
     // "unresolved" retains both sides distinctly rather than placing every
