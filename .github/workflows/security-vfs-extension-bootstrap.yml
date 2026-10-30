@@ -1,0 +1,83 @@
+name: SQLite VFS extension bootstrap probe
+
+# Push-only runs validate the exact branch HEAD SHA used by the PR CI monitor.
+# A second pull_request merge-ref run duplicates the same native tests and queues
+# independently, so this probe deliberately avoids that duplicate execution.
+on:
+  push:
+    branches:
+      - 'security/**'
+    paths:
+      - 'native/secure-vfs-probe/*.c'
+      - 'native/secure-vfs-probe/*.h'
+      - 'tests/security-vfs-extension-bootstrap.test.js'
+      - 'docs/97-issue-770-windows-vfs-integration-contract.md'
+      - 'docs/security/sqlite-vfs-directory-anchor-design.md'
+      - 'docs/security/sqlite-database-role-inventory.md'
+      - 'native/secure-vfs-probe/README.md'
+      - 'deploy/sqlite-security/**'
+      - '.github/workflows/security-vfs-extension-bootstrap.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sqlite-vfs-probe-v2-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22.13.0'
+      - name: Validate systemd service unit
+        run: systemd-analyze verify deploy/sqlite-security/logic-engine.service
+      - name: Build VFS registration probe
+        run: cc -O2 -fPIC -shared -I native/secure-vfs-probe native/secure-vfs-probe/secure_vfs_probe.c -o native/secure-vfs-probe/secure_vfs_probe.so
+      - name: Verify persistent VFS registration through node:sqlite
+        env:
+          LOGIC_ENGINE_VFS_PROBE_PATH: native/secure-vfs-probe/secure_vfs_probe.so
+        run: node --test tests/security-vfs-extension-bootstrap.test.js
+
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22.13.0'
+      - name: Parse Windows service installer
+        shell: pwsh
+        run: $null = [scriptblock]::Create((Get-Content deploy/sqlite-security/install-windows-service.ps1 -Raw))
+      - name: Build VFS registration probe
+        shell: pwsh
+        run: |
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
+          $vs = & $vswhere -latest -products '*' -property installationPath
+          if (-not $vs) { throw 'Visual Studio Build Tools not found' }
+          $vcvars = Join-Path $vs 'VC/Auxiliary/Build/vcvars64.bat'
+          $command = '"' + $vcvars + '" && cl /nologo /O2 /LD /I native\\secure-vfs-probe native\\secure-vfs-probe\\secure_vfs_probe.c /link /OUT:native\\secure-vfs-probe\\secure_vfs_probe.dll'
+          cmd /c $command
+          if ($LASTEXITCODE -ne 0) { throw 'VFS probe compilation failed' }
+          $relativeCommand = 'call "' + $vcvars + '" && cl /nologo /O2 /I native\\secure-vfs-probe native\\secure-vfs-probe\\windows_relative_open_test.c /link /OUT:native\\secure-vfs-probe\\windows_relative_open_test.exe'
+          cmd /c $relativeCommand
+          if ($LASTEXITCODE -ne 0) { throw 'Windows relative-open test compilation failed' }
+      - name: Stop MSVC background helper processes
+        if: always()
+        shell: pwsh
+        run: |
+          $helpers = Get-Process -Name vctip -ErrorAction SilentlyContinue
+          if ($helpers) { $helpers | Stop-Process -Force -ErrorAction SilentlyContinue }
+      - name: Verify Windows handle-relative directory anchoring
+        shell: pwsh
+        run: native/secure-vfs-probe/windows_relative_open_test.exe
+      - name: Verify persistent VFS registration through node:sqlite
+        shell: pwsh
+        env:
+          LOGIC_ENGINE_VFS_PROBE_PATH: native/secure-vfs-probe/secure_vfs_probe.dll
+        run: node --test tests/security-vfs-extension-bootstrap.test.js
