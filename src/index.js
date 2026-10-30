@@ -99,13 +99,6 @@ if (typeof worldPackCatalogPath !== 'string' || !worldPackCatalogPath.trim()) {
 }
 const worldPackCatalog = loadTrustedWorldPackCatalog(resolve(worldPackCatalogPath));
 
-const worldPackCatalogPath = process.env.LOGIC_ENGINE_WORLD_PACK_CATALOG_PATH;
-if (typeof worldPackCatalogPath !== 'string' || !worldPackCatalogPath.trim()) {
-  process.stderr.write('LOGIC_ENGINE_WORLD_PACK_CATALOG_PATH must point to a deployment-controlled World Pack catalog.' + String.fromCharCode(10));
-  process.exit(1);
-}
-const worldPackCatalog = loadTrustedWorldPackCatalog(resolve(worldPackCatalogPath));
-
 const store = new SQLiteStore(dbPath);
 const hostVersionLedgerPath = process.env.ENGINE_HOST_VERSION_LEDGER_DB_PATH
   ? resolve(process.env.ENGINE_HOST_VERSION_LEDGER_DB_PATH)
