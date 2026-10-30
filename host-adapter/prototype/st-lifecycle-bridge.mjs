@@ -219,6 +219,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getConvers
       activeVersionIndex: activeIndex(message),
     }));
     const result = await journal.enroll({ conversationId, sourceFingerprint: fingerprint, messages: descriptors });
+    let persistedInventory;
     try {
       for (let i = 0; i < chat.length; i++) {
         const identity = result.mapping[i];
@@ -229,10 +230,11 @@ export function createStLifecycleBridge({ journal, getConversationId, getConvers
         };
       }
       await saveChat();
+      persistedInventory = await assertPersistedChatMatches(conversationId, chat);
     } catch (error) {
-      // The durable baseline now exists but native metadata may not. Subsequent
-      // fingerprint/identity validation must fail closed; enrollment cannot be retried.
-      throw Error('NON_READY: baseline persisted but native identity metadata could not be saved; ' + (error?.message || error));
+      // The durable baseline now exists but native metadata or independent disk readback may not.
+      // Subsequent fingerprint/identity validation must fail closed; enrollment cannot be retried.
+      throw Error('NON_READY: baseline persisted but native identity metadata or independent disk verification failed; ' + (error?.message || error));
     }
     const coreCapture = await publishCurrentDigestInventory(conversationId, chat);
     return {
@@ -241,6 +243,8 @@ export function createStLifecycleBridge({ journal, getConversationId, getConvers
       preEnrollmentHistory: result.preEnrollmentHistory,
       messageCount: chat.length,
       status: 'REVIEW_ONLY',
+      persistedInventoryStatus: persistedInventory.status,
+      persistedInventorySha256: persistedInventory.inventorySha256,
       coreCaptureStatus: coreCapture.status,
     };
   }
@@ -301,6 +305,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getConvers
       throw Error('NON_READY: source fingerprint differs from journal; abort mutation');
     }
     await assertIdentitySnapshotMatches(conversationId, chat);
+    const persistedInventory = await assertPersistedChatMatches(conversationId, chat);
     if (!Array.isArray(messageIndexes)) throw TypeError('messageIndexes must be an array');
     if (messageIndexes.some(index => !Number.isInteger(index) || index < 0 || index >= chat.length)) {
       throw Error('NON_READY: mutation contains an invalid source message index; abort mutation');
@@ -339,7 +344,11 @@ export function createStLifecycleBridge({ journal, getConversationId, getConvers
       operation,
       affectedVersions,
       sourceFingerprint: fingerprint,
-      details,
+      details: {
+        ...details,
+        persistedInventoryStatus: persistedInventory.status,
+        persistedInventorySha256: persistedInventory.inventorySha256,
+      },
     });
   }
 
@@ -490,6 +499,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getConvers
     // subsequent append fails, the journal remains behind and the next pre-hook
     // rejects the fingerprint mismatch instead of silently claiming completeness.
     await saveChat();
+    const persistedInventory = await assertPersistedChatMatches(conversationId, chat);
     const changes = chat.map((message, messageIndex) => ({
       messageId: message._logicEngineLifecycle.messageId,
       messageIndex,
@@ -501,7 +511,11 @@ export function createStLifecycleBridge({ journal, getConversationId, getConvers
       eventId: newId(),
       operation: 'after:' + operation,
       sourceFingerprint: fingerprint,
-      payload: { changes, removedSwipeIndex, selectedMessageIndex, versionPayloads, tombstones },
+      payload: {
+        changes, removedSwipeIndex, selectedMessageIndex, versionPayloads, tombstones,
+        persistedInventoryStatus: persistedInventory.status,
+        persistedInventorySha256: persistedInventory.inventorySha256,
+      },
     });
     if (event?.status === 'NON_READY') throw Error('NON_READY: post-mutation journal append rejected: ' + event.reason);
     const coreCapture = await publishCurrentDigestInventory(conversationId, chat, tombstones);
@@ -519,6 +533,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getConvers
       return { status: 'NON_READY', reason: 'current Host source differs from the durable journal checkpoint' };
     }
     await assertIdentitySnapshotMatches(conversationId, chat);
+    await assertPersistedChatMatches(conversationId, chat);
     const exported = await journal.exportCaptureLedger(conversationId);
     if (exported.status !== 'REVIEW_ONLY' || !Array.isArray(exported.records)) {
       return { status: 'NON_READY', reason: 'durable Host journal cannot provide a replayable digest ledger' };
@@ -553,6 +568,8 @@ export function createStLifecycleBridge({ journal, getConversationId, getConvers
       };
     }
     const chat = getChat();
+    try { await assertPersistedChatMatches(conversationId, chat); }
+    catch (error) { return { status: 'NON_READY', reason: error?.message || 'persisted Host inventory verification failed' }; }
     const messageIds = new Set();
     const versionIds = new Set();
     for (const message of chat) {
