@@ -298,7 +298,7 @@ test('restart reconciliation fails closed when source changed after the last jou
   f.chat[0].mes = 'changed without hook';
   const result = await f.bridge.reconcileCurrentConversation();
   assert.equal(result.status, 'NON_READY');
-  assert.match(result.reason, /previous lifecycle operation is incomplete/);
+  assert.match(result.reason, /fingerprint differs/);
   await assert.rejects(f.bridge.beforeMutation('delete-message', [0]), /source fingerprint differs/);
 });
 
@@ -344,7 +344,7 @@ test('native save failure leaves the journal behind so the next mutation fails c
   f.setFailSave(true);
   await assert.rejects(f.bridge.afterMutation('edit-message'), /simulated native chat save failure/);
   f.setFailSave(false);
-  await assert.rejects(f.bridge.beforeMutation('delete-message', [0]), /fingerprint differs/);
+  await assert.rejects(f.bridge.beforeMutation('delete-message', [0]), /previous lifecycle operation is incomplete/);
 });
 
 test('empty chat enrollment is explicit and does not imply pre-enrollment history', async () => {
