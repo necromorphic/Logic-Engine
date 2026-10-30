@@ -142,6 +142,23 @@ test('reader returns only facts acquired by the requesting NPC and binds the exa
   assert.throws(() => { result.items[0].value = 'tampered'; }, TypeError);
 });
 
+test('reader rejects a non-character entity even when it exists and is not destroyed', (t) => {
+  const { store, engine } = setup(t);
+  const world = store.world('world-a');
+  engine.commitEvent('world-a', {
+    event_id: 'create-non-character-actor',
+    idempotency_key: 'create-non-character-actor',
+    turn_id: 'create-non-character-actor',
+    event_type: 'action.completed',
+    expected_revision: world.world_revision,
+    effects: [{ kind: 'entity.create', entity_id: 'location-a', entity_type: 'location' }],
+  });
+  assert.throws(
+    () => engine.readNpcKnowledge(request(store, { actor_id: 'location-a' })),
+    { code: 'NPC_KNOWLEDGE_READER_NOT_ELIGIBLE' },
+  );
+});
+
 test('reader fails closed without a trusted deployment authorizer', (t) => {
   const { store } = setup(t, null);
   const engine = new LogicEngine(store, { trustedInitialKnowledgeSources: trustedRegistry });
