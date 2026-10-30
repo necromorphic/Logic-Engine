@@ -56,6 +56,10 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
       'WAL sidecar must exist while concurrent connections are active');
     assert.equal(existsSync(`${corePath}-shm`), true,
       'SHM sidecar must exist while concurrent connections are active');
+    assert.ok(
+      first.prepare('SELECT logic_engine_vfs_probe_wal_open_count() AS count').get().count > 0,
+      'the WAL sidecar must be opened through the registered VFS'
+    );
     reader.exec('ROLLBACK;');
     reader.close();
     reader = undefined;
@@ -71,6 +75,10 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
     journalDb.exec("PRAGMA journal_mode=DELETE; CREATE TABLE probe(value TEXT); BEGIN IMMEDIATE; INSERT INTO probe VALUES('pending');");
     assert.equal(existsSync(`${journalPath}-journal`), true,
       'rollback journal sidecar must exist before the transaction commits');
+    assert.ok(
+      journalDb.prepare('SELECT logic_engine_vfs_probe_journal_open_count() AS count').get().count > 0,
+      'the rollback journal must be opened through the registered VFS'
+    );
     journalDb.exec('ROLLBACK;');
   } finally {
     journalDb.close();
