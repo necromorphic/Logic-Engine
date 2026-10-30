@@ -211,3 +211,24 @@ Until those decisions map to an existing or separately approved runtime owner, e
 | Pure invalidation/revision request | Implemented and covered by PR tests | Available, bounded |
 
 This is a source-level audit of the inspected documents and helper files. It does not claim that every repository branch or unmerged worktree was exhaustively inspected; any newly identified production implementation must be traced to its exact owner, code path, and tests before changing these statuses.
+
+
+### 10.5 Cross-branch and open-PR check
+
+Because NPC work is spread across unmerged branches, the audit also checked relevant branch heads and open PRs rather than treating `main` or this PR as the only source.
+
+- `npc/isolated-autonomy-planner-20261028` contains the earlier intention-selector, goal-lifecycle, and plan-progress helpers/tests. Its diff against current `main` does not contain a separate planner, goal-plan store, goal-plan association, or acceptance/versioning mechanism. It is substantially behind and diverged from current `main`; it is not a missing implementation to merge blindly.
+- `npc/plan-viability-review-20261028` contains the pure plan-viability helper and tests. It adds assessment of caller-supplied assumptions, blockers, and deadlines, not goal-plan persistence or revision acceptance.
+- `npc/goal-generation-contract-proposal-20261028` changes the autonomy inventory document only. It does not contain goal-generation code.
+- `docs/npc-cognition-skeleton-2026-10-28` adds cognition design documentation, including belief/actor-model/conflict semantics. It does not establish durable goal/plan runtime state.
+- Open Draft PR #353 (`docs/npc-autonomy-story-kt-rules`) contains `src/npc/decision-kernel.js`, a pure prototype that selects a unique highest-preference candidate from caller-supplied `feasible/blocked/unknown` classifications. Its own source says it is not a production contract or executor. It does not accept goals, plans, goal-plan links, versions, or authoritative results. PR #353 is non-mergeable and remains Draft.
+- Open Draft PR #769 adds a pure NPC epistemic reducer; its scope explicitly excludes goal/plan runtime, a production NPC caller, and Memory dispatch.
+- Open Draft Core candidates #699/#702/#764 concern canonical acquisition/belief state, not NPC goal/plan ownership or plan acceptance. Their presence must not be treated as an implementation of the missing plan lifecycle.
+
+**Cross-branch conclusion:** the relevant unmerged work adds cognition primitives, candidate ranking prototypes, epistemic reduction, or design proposals. The inspected branches/PRs do not supply the missing durable goal-plan contract. This is not a claim that every branch in the repository was exhaustively reviewed; it is a targeted check of branches and open PRs whose names, diffs, or scope directly relate to NPC autonomy, goal generation, planning, or cognition.
+
+### 10.6 Implementation consequence
+
+Do not add a new `goal_id` or `version` field to the pure helper simply because the current branch lacks it. First define the NPC-local state record and the authoritative durable owner, then port that contract onto the current mainline and test its real persistence/acceptance boundary. Avoid stacking a new implementation on the stale planner/helper branch or merging PR #353's prototype as if it supplied production planning.
+
+The current PR's next safe contribution remains the bounded, pure revision request plus evidence-backed contract. A later runtime PR must be separately scoped to the owner-approved goal/plan state lifecycle; it cannot be inferred from the current coordinator.
