@@ -106,16 +106,13 @@ test('a changed or unavailable trusted source snapshot never reuses the previous
   );
 });
 
-test('revocation of one exact record version during awaited source validation blocks that version, not its sibling', async (t) => {
+test('revoking one exact record version during awaited candidate authorization blocks it but preserves its sibling', async (t) => {
   let pause = false;
   let startedResolve;
   let releaseResolve;
+  let timeoutId;
   const started = new Promise((resolve) => { startedResolve = resolve; });
   const gate = new Promise((resolve) => { releaseResolve = resolve; });
-  // Keep a referenced handle alive while the deliberately paused validation
-  // promise is pending; Node's test runner otherwise cancels an unresolved
-  // promise when no event-loop handles remain.
-  const keepAlive = setInterval(() => {}, 1000);
   const s = setup(t, {
     validateSourceVersion: async () => {
       if (pause) {
@@ -135,17 +132,32 @@ test('revocation of one exact record version during awaited source validation bl
   await s.provider.rebuildIndex(scope.world_id);
   assert.equal((await s.provider.reconcile(scope.world_id)).status, 'current');
 
-  pause = true;
-  const pending = s.provider.retrieveCandidates(scope);
-  await started;
-  s.provider.revokeRecord(scope, 'memory:canonical-entity-1', 'record-v1');
-  releaseResolve();
+  const candidateInput = (version) => ({
+    ...scope,
+    record_ref: 'memory:canonical-entity-1',
+    record_version: version,
+    source_kind: 'canonical_entity',
+    source_entity_id: 'canonical-entity-1',
+  });
 
+  pause = true;
+  const pendingOutcome = s.provider.authorizeCandidate(candidateInput('record-v1'))
+    .then((value) => ({ value }), (error) => ({ error }));
   try {
-    const result = await pending;
-    assert.deepEqual(result.candidates.map((candidate) => candidate.record_version), ['record-v2']);
-    assert.equal(result.completeness, 'complete');
+    await Promise.race([
+      started,
+      new Promise((_, reject) => {
+        timeoutId = setTimeout(() => reject(new Error('source validation was not reached')), 2000);
+      }),
+    ]);
+    s.provider.revokeRecord(scope, 'memory:canonical-entity-1', 'record-v1');
+    releaseResolve();
+
+    const outcome = await pendingOutcome;
+    assert.equal(outcome.error?.message, 'MEMORY_RECORD_ACCESS_REVOKED');
+    assert.equal(await s.provider.authorizeCandidate(candidateInput('record-v2')), true);
   } finally {
-    clearInterval(keepAlive);
+    if (timeoutId) clearTimeout(timeoutId);
+    releaseResolve();
   }
 });
