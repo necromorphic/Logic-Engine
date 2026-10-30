@@ -14,7 +14,13 @@ export function createDeploymentMechanicPolicyRuntime({ engine, actorBindingServ
   if (typeof actorBindingService?.resolve !== 'function') throw new TypeError('A trusted ActorBindingService is required.');
   if (typeof loadPolicyConfig !== 'function') throw new TypeError('A trusted deployment policy config loader is required.');
 
-  const readPolicy = () => validateTrustedMechanicPolicyConfig(loadPolicyConfig());
+  const readPolicy = () => {
+    const config = validateTrustedMechanicPolicyConfig(loadPolicyConfig());
+    if (config.recipient !== 'model' || config.purpose !== 'npc_decision') {
+      throw new TypeError('The bounded mechanic runtime requires recipient=model and purpose=npc_decision.');
+    }
+    return config;
+  };
   const fieldPolicy = (context, entity, field) => {
     let config;
     try { config = readPolicy(); } catch { return false; }
