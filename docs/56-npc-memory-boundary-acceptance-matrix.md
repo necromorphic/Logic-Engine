@@ -147,8 +147,7 @@ The native repository test command is `npm test` (`node --test`). A successful r
 4. Existing canonical persistence boundary and transaction/audit semantics for acquisition, delivery/receipt, and belief; identify actual host evidence for delivery.
 
 **Memory**
-5. Approved authorized-read contract, including complete-empty/results, partial, unavailable, denied/withheld, stale/reconciliation-pending, and invalid request outcomes, without existence/count/diagnostic leakage.
-6. Authoritative source identity/version and versioned summary lineage; per-source authorization propagation and any explicit declassification policy.
+5. Approved authorized-read contract, including complete-empty/results, partial, unavailable, denied/withheld, stale/reconciliation-pending, and invalid request outcomes, without existence/count/diagnostic leakage.6. Authoritative source identity/version and versioned summary lineage; per-source authorization propagation and any explicit declassification policy.
 7. Index health/completeness contract and how it is reflected in real retrieval results.
 
 No new API, schema, permission enum, outbox, cursor, parallel store, or cross-store atomicity assumption is proposed by this document. Until owners approve the real boundaries and executable tests against them, the production consumer remains unapproved and fail-closed.
@@ -297,7 +296,6 @@ The following distinctions are normative behavior targets. PR #695 adds an NPC-l
 | Belief revision | A justified transition from a prior stance to a new stance, linked to the evidence/reasoning that changed it where supported | Latest-source replacement, an unversioned summary, a changed snapshot marker, or an ungrounded generated rationale | Preserve the distinction between historical stance, current stance, and canonical world state; do not invent persistence/history guarantees |
 
 Cross-cutting rules:
-
 - Source authority answers whether evidence may be used or disclosed; it does not determine whether a character believes the proposition.
 - Proposition truth, source credibility, acquisition, belief, confidence, recall, and externally expressed behavior are separate dimensions.
 - Internal state does not automatically determine outward speech or action. An NPC may conceal, misstate, or decline to disclose a belief; observed dialogue is not proof of the internal state.
@@ -449,39 +447,89 @@ Source-inspected current `main` at baseline `af750f80f617e7ad944e4418c1cba8e345a
 
 Core's delegated decision in [issue #140 comment 6488390384](https://github.com/necromorphic/Logic-Engine/issues/140#issuecomment-6488390384) selects **version-pinned acquisition semantics**: an NPC must not follow a replacement value for the same fact identity after rollback/reprojection without a new explicit acquisition event. This is a recorded policy decision, not an unresolved policy choice.
 
-The implementation remains blocked, and this NPC PR does not implement it:
-- Core source-version candidate PR [#681](https://github.com/necromorphic/Logic-Engine/pull/681) and Core knowledge/belief candidate PR [#670](https://github.com/necromorphic/Logic-Engine/pull/670) were closed unmerged on 2026-10-29. Neither implementation nor its migration changes are shipped on `main`.
-- Any revival must be a fresh current-main combined port. The competing migration-14 assignments must be reconciled before review, with migration-sequence assertions and the full migration-upgrade suite passing.
-- Core's selected source-version semantics are therefore policy only; source-version authority and rollback/reconciliation remain unimplemented on `main`.
-- Provider PR [#686](https://github.com/necromorphic/Logic-Engine/pull/686) is merged and supplies file-backed immutable-version/revocation/restart coverage through the existing internal consumer seam. It does not provide canonical Core source-version authority or production final-model egress.
-- Host lifecycle PR [#680](https://github.com/necromorphic/Logic-Engine/pull/680) remains open Draft/non-mergeable, not proof that a target SillyTavern installation is patched or that the final sole-egress race is closed.
+## 12. Сквозное ТЗ NPC: аудит реализации и готовности — 30.10.2026
 
-**NPC acceptance impact:** the reducer regression that invalidates source version A and admits version B without silently rewriting the existing stance is aligned with the selected policy. It remains pure NPC-local unit evidence. Production use still requires coordinated Core version authority, rollback/reconciliation, trusted Host lifecycle, and final-dispatch acceptance gates. Memory→NPC remains **DISABLED / FAIL-CLOSED**.
+**Статус блока: NOT ACCEPTED. Production Memory→NPC: DISABLED / FAIL-CLOSED.**  
+Этот раздел фиксирует исполнение требований R1–R5 и NPC-E2E-01..12. PASS у локального компонента или теста не означает PASS сквозного сценария.
 
-## P0.2 reducer hardening — exact-head evidence, 29 Oct 2026
+### 12.1 Решение по минимальному контракту
 
-The NPC-local reducer candidate received two regressions on code head `77bcb6961ddab09f11a9dd6f67c7fb9577008e5e`:
+Для дальнейшей реализации принят следующий минимальный контракт, без создания нового публичного API:
 
-- Recursive data-tree validation rejects numeric-looking own properties attached to arrays when the key is outside the actual array index range.
-- After evidence for source version A is invalidated, admitting replacement evidence for version B does not silently rewrite the NPC's existing stance or evidence references. The reducer preserves the prior stance and marks it for review; a separate explicit belief-revision event is required to change that stance.
+1. Реальный Host/NPC runtime получает доверенные `world_id`, `adapter_id`, `actor_entity_id` и согласованный snapshot только из существующего trusted binding.
+2. Runtime вызывает существующий `MemoryNpcConsumer.retrieveForNpc()`; произвольные model/caller labels не являются полномочиями.
+3. Consumer проверяет Provider readiness/access и Core-authorized canonical source. Для acquisition knowledge требуется отдельное Core-owned чтение version-pinned acquisition projection; текущий `AuthorizedReadService` предоставляет entity-field reads и не является таким reader.
+4. NPC получает только разрешённую проекцию, сохраняющую исходный epistemic kind. Retrieval/admission/context inclusion не создают receipt, acquisition или belief.
+5. NPC decision/runtime может сформировать изменение только как предложение существующему Core commit path. Canonical mutation и его атомарность принадлежат Core; NPC не пишет canonical state напрямую.
+6. Ошибка, неполный ответ, неизвестная версия, потеря доверия, stale snapshot или конфликт дают fail-closed результат. Никакого fallback в полный/неограниченный контекст.
+7. Финальная проверка непосредственно перед dispatch и сериализация должны быть связаны с единственным Host/Gateway egress. Повторная проверка consumer сама по себе не закрывает TOCTOU race.
 
-Exact-head Runtime CI for that code revision passed: [run #40914369790](https://github.com/necromorphic/Logic-Engine/actions/runs/40914369790), with `test`, `npc-boundary`, and `core-trusted-acquisition` successful. This is regression evidence for the isolated reducer only; it does not establish trusted acquisition, canonical source-version validity, durable NPC persistence, or production model egress.
+Это рабочее направление интеграции, а не объявление новых интерфейсов существующими. Пункты 3, 4, 5 и 7 зависят от подтверждённых owner boundaries Core/Memory/Host. До их появления нельзя подменять отсутствующий runtime моками или локальным NPC store.
 
-## Status correction — 30 Oct 2026
+### 12.2 Требования R1–R5
 
-The acceptance matrix was refreshed after Core PR #670 and #681 were confirmed closed unmerged. The update is on this NPC branch at commit `6b4b03cd7063ab6821a74e82d0627a1490f02959`.
+| Требование | Статус | Что реально есть | Чего не хватает для PASS |
+|---|---|---|---|
+| R1. Сквозной цикл source → Provider → provenance/trust/version/admission → NPC → context → Core commit → retry/failure | **PARTIAL** | Реальный SQLite Provider + Core AuthorizedReadService + MemoryNpcConsumer integration tests; Core source-version/inventory checks; отдельный pure NPC reducer | Нет production NPC runtime caller, acquisition read path, model-context egress proof и NPC→Core commit cycle. Тесты consumer не доказывают фактическое использование контекста моделью |
+| R2. Initial acquisition + reconciliation | **PARTIAL** | Core-owned acquisition write events/projection и Provider-local reconcile/revalidation существуют; direct canonical-entity source version проверяется | NPC не читает acquisition projection; нет сквозного NPC acquisition invalidation/reacquisition при revoke/trust loss/rollback. Host inventory остаётся NON_READY |
+| R3. Разделение belief/inference/report/rumor/unknown | **PARTIAL** | NPC reducer разделяет receipt, admitted evidence и belief; admission сохраняет переданный epistemic kind; конфликтующие evidence не сливаются | Нет runtime policy/representation, доказывающей, что rumor/report/inference остаются отдельными состояниями и никогда не повышаются до факта. Reducer не является авторитетом источника или production belief store |
+| R4. Реальная точка интеграции NPC runtime | **NOT IMPLEMENTED** | `MemoryNpcConsumer` — вызываемый in-process seam; pure reducer и autonomy helpers | В `src/index.js` и `src/api/server.js` нет production wiring Consumer/Provider; нет рабочего NPC decision caller, context serializer и финального Host dispatch callsite |
+| R5. Safety/fault scenarios | **PARTIAL** | Component/integration tests покрывают ряд отказов Provider, Core authorization, version/snapshot, partial result, revocation и restart/rebuild отдельных проекций | Нет fault injection через один реальный NPC runtime цикл, особенно restart mid-processing, duplicate delivery, Core commit failure и final dispatch race |
 
-Exact-head Runtime workflow [#40928179068](https://github.com/necromorphic/Logic-Engine/actions/runs/40928179068) completed successfully: `test`, `npc-boundary`, and `core-trusted-acquisition` all passed. This validates the current PR head's test suite, not the blocked production Memory→NPC→model integration.
+### 12.3 NPC-E2E-01..12 acceptance ledger
 
-The PR currently contains six NPC/workflow paths: `.github/workflows/runtime-tests.yml`, `docs/56-npc-memory-boundary-acceptance-matrix.md`, `src/npc/epistemic-state.js`, `src/npc/memory-candidate-eligibility.js`, `tests/npc-epistemic-state.test.js`, and `tests/npc-memory-candidate-eligibility.test.js`. No Personality, Core, Memory Provider, Relationships, or Host-owned runtime source was changed. Production Memory→NPC remains **DISABLED / FAIL-CLOSED**.
+Статус ниже относится к требуемому сквозному сценарию, а не к наличию похожего unit-теста.
 
+| ID | Сценарий | Статус | Доказательство / точный недостающий участок |
+|---|---|---|---|
+| NPC-E2E-01 | Trusted source → admissible knowledge | **PARTIAL** | Provider/Core/Consumer integration доказывает admissible canonical-entity candidate при тестовых trusted seams; не доказывает acquisition read → runtime knowledge |
+| NPC-E2E-02 | Untrusted source → no admission | **PARTIAL** | Admission fail-closed и Core/Provider denial покрыты раздельно; реальная source identity/trust chain до NPC runtime отсутствует |
+| NPC-E2E-03 | Rumor remains rumor | **NOT TESTED** | Нет runtime rumor lifecycle/consumer scenario, запрещающего promotion rumor → fact |
+| NPC-E2E-04 | New source updates without duplicates | **PARTIAL** | Provider/Core idempotency и projection rebuild покрывают отдельные уровни; нет доставки/reconciliation в NPC acquisition state |
+| NPC-E2E-05 | Revoke source invalidates knowledge | **PARTIAL** | Provider/Core revalidation и invalidation primitives покрыты частично; нет NPC acquisition read/reconcile end-to-end |
+| NPC-E2E-06 | Conflict preserved | **PARTIAL** | Pure reducer сохраняет conflicting evidence refs; нет production runtime/context use проверки |
+| NPC-E2E-07 | Partial Provider response fails closed | **PARTIAL** | Consumer/Provider integration tests возвращают non-ready для incomplete/unavailable результата; не сквозной runtime |
+| NPC-E2E-08 | Duplicate delivery is idempotent | **NOT TESTED** | Production delivery transport/correlation identity и NPC receiver отсутствуют |
+| NPC-E2E-09 | Restart mid-processing causes no loss/duplicate | **NOT TESTED** | Есть отдельные Core/Provider replay/rebuild tests; нет restart теста единого NPC runtime processing |
+| NPC-E2E-10 | Core commit failure leaves no partial canonical state | **NOT TESTED** | Нет NPC runtime commit caller и соответствующего fault-injection сценария |
+| NPC-E2E-11 | Inaccessible knowledge is blocked | **PARTIAL** | AuthorizedReadService и consumer tests fail closed; нет фактического model-context/final-egress assertion |
+| NPC-E2E-12 | Recovery is deterministic | **PARTIAL** | Core projection rebuild и pure reducer replay determinism тестируются отдельно; не проверена совместная recovery цепочка |
 
-## NPC admission correction — 30 Oct 2026
+### 12.4 Точные границы кода и владельцы
 
-The initial review found that the NPC candidate helper admitted `disputed`, `insufficient`, and `unassessed` evidence assessments. This contradicted the requested fail-closed boundary. Commit `b7e4cbfd8c9beae757501271ecdc800ce4196ec4` changes `lifecycleIsAdmissible()` to admit only positively `supported` evidence. Commit `f06ff230f293116c99d84c7544e43549140c22e8` updates the NPC tests: disputed/insufficient/unassessed candidates are excluded; serialized output is indistinguishable from authorized-empty and contains neither rejected identifiers nor content. The ordinary candidate fixture now uses `supported`.
+| Узел | Текущая реализация | Фактическая граница |
+|---|---|---|
+| Provider query / reconcile | `src/application/sqlite-memory-provider.js` | Provider-owned storage/index/query. Не доказывает полноту Host inventory |
+| Consumer | `src/application/memory-npc-consumer.js`: `retrieveForNpc()`, `revalidateForFinalDispatch()` | In-process consumer seam. Revalidation сужает TOCTOU, но не сериализует Host dispatch |
+| Core source read | `src/application/authorized-read-service.js`, `src/application/canonical-entity-source-version.js` | Canonical entity field authorization/version. Не выдаёт Core acquisition records |
+| Core acquisition write/projection | `src/application/engine.js`; `src/storage/sqlite-store.js` (`knowledge_acquisitions`) | Core-owned write + event projection/rebuild. Production NPC reader отсутствует |
+| NPC epistemic transitions | `src/npc/epistemic-state.js` | Pure/local reducer. Caller-supplied events are not authenticated; no production persistence/runtime caller |
+| NPC admission | `src/npc/memory-candidate-eligibility.js` | Pure metadata eligibility oracle; references only |
+| Runtime wiring | `src/index.js`, `src/api/server.js` | No Provider/Consumer construction or NPC runtime invocation found |
+| Host dispatch | Host candidate PR #680 / issue #258 | Candidate work is not a verified production sole-egress route; Host inventory/final dispatch remain release gates |
 
-Commit `edca37e6c9add739c96a5d949cacbb56af091307` updates this matrix to make the conservative gate explicit. Commit `f5d5a5e2e1e1aeb28e3d7d5f82d210b4b6ad4c4e` clarifies the ordered lifecycle: retrieved → authorized/admitted → included in context → dispatched/delivered → received → acquired/assimilated → believed. These are distinct states with distinct evidence and owners. The contradiction rule now distinguishes untrusted/disputed candidates (rejected before admission) from two independently supported facts that later conflict (preserved for Core-owned subject-relative evaluation).
+### 12.5 Safety cases that remain unproven as a single cycle
 
-The current PR diff is six NPC/workflow paths, not four; earlier four-file statements above describe the previous head and are superseded. No sibling-owned runtime source was changed. Exact-head Runtime CI run [#41004001476](https://github.com/necromorphic/Logic-Engine/actions/runs/41004001476) is pending at the time of this update. Do not claim the new tests passed until this exact run completes.
+- Unknown/untrusted source, missing/stale version, revoked trust, and conflicts: local gates exist at Provider/Core/NPC boundaries, but the full trusted envelope has not traversed a production NPC runtime.
+- Candidate partial Provider response: fail-closed behavior is covered in consumer/provider integration tests; no actual context serializer is exercised.
+- Duplicate delivery and restart during processing: no production receiver/processing transaction exists to test idempotency or interruption recovery.
+- Core commit failure: no NPC runtime commit call exists, so no claim about absence of partial canonical state is made.
+- Inaccessible knowledge: authorized read is tested, but final model-context and Host egress are not wired.
+- Recovery: Core and Provider rebuild/replay behavior is tested at their respective layers; joint NPC acquisition recovery is not implemented.
 
-This is NPC-only executable admission behavior plus a pure reducer and acceptance documentation. It does not create production Memory→NPC wiring, Host delivery/receipt proof, Core acquisition persistence/reconciliation, or final-model egress. Production Memory→NPC remains **DISABLED / FAIL-CLOSED**.
+### 12.6 Implementation decision and ordered owner gates
+
+No additional NPC persistence, scheduler, event bus, outbox, event log, cursor, canonical store, or transport was introduced. The reducer and admission helper remain NPC-local and side-effect-free.
+
+The remaining work is blocked by these concrete owner contracts:
+
+1. **Core:** expose/approve an internal, non-public, subject- and purpose-bound read of version-pinned acquisition projection, reusing the existing canonical event/projection model. Required regression: acquire value A; rollback its source; reactivate the same fact ID as value B from an independent claim; NPC must not read B until a new acquisition event. Also define trusted caller binding and error/non-disclosure semantics.
+2. **Memory Provider:** confirm the exact provider candidate identity/version and final access revalidation contract consumed by the existing consumer; provide real-path tests for revoke/version change/partial result/restart. Do not add a parallel store or source journal.
+3. **Host/Adapter:** identify the actual NPC runtime invocation and context serialization/final-dispatch point on the pinned SillyTavern target. Prove the sole egress ordering: revocation before durable dispatch-start means zero upstream calls; dispatch-start first permits only the one in-flight call and no automatic replay.
+4. **NPC:** after the above are approved and available, implement only the NPC-owned runtime adapter/context projection and E2E tests. Preserve epistemic kind and prevent rumor/report/inference promotion. No cross-block API edits.
+
+Until all four gates and NPC-E2E-01..12 are green on exact HEAD, the module remains **NOT ACCEPTED** and production Memory→NPC remains **DISABLED / FAIL-CLOSED**.
+
+### 12.7 Verification provenance
+
+The pre-update PR head was `770f17feeecbab123e1d6787e9874da4bbce0784`. Exact-head Runtime run [#41008344419](https://github.com/necromorphic/Logic-Engine/actions/runs/41008344419) passed jobs `test`, `npc-boundary`, and `core-trusted-acquisition`. It verifies that prior eight-file candidate only; it does not validate this new documentation update or the cross-block E2E scenarios above. A fresh exact-head CI run is required after this commit.
