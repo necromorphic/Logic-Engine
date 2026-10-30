@@ -178,6 +178,7 @@ test('mapping schema declares an immutable, exact-pin, Relationships-owned artif
   assert.equal(schema.$schema, 'https://json-schema.org/draft/2020-12/schema');
   assert.equal(schema.properties.artifact_schema_version.const, 'relationships-state-mapping/v1');
   assert.equal(schema.properties.directionality.const, 'preserve_subject_target_direction');
+  assert.equal(schema.properties.dimension_mappings.items.oneOf[0].properties.special_state_mappings.allOf.length, SPECIAL_STATES.length);
   assert.equal(schema.additionalProperties, false);
   assert.ok(schema.required.includes('source'));
   assert.ok(schema.required.includes('target'));
