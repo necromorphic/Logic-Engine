@@ -288,9 +288,21 @@ static inline int logic_engine_win_map_create_options(
   DWORD flags, ULONG *nt_options, ULONG *nt_attributes) {
   ULONG options = FILE_NON_DIRECTORY_FILE;
   ULONG file_attributes = flags & 0x0000ffffUL;
+  const DWORD flag_bits = flags & 0xffff0000UL;
+  const DWORD allowed_flags = FILE_FLAG_WRITE_THROUGH | FILE_FLAG_NO_BUFFERING
+    | FILE_FLAG_RANDOM_ACCESS | FILE_FLAG_SEQUENTIAL_SCAN
+    | FILE_FLAG_DELETE_ON_CLOSE | FILE_FLAG_OPEN_REPARSE_POINT;
   if (!nt_options || !nt_attributes) return 0;
-  /* Protected DB handles are synchronous regular files; unsupported modes fail closed. */
-  if ((flags & (FILE_FLAG_OVERLAPPED | FILE_FLAG_BACKUP_SEMANTICS)) != 0) return 0;
+  /*
+   * Protected DB handles are synchronous regular files. Reject every flag
+   * whose semantics are not explicitly represented below; silently ignoring
+   * a Win32 flag could make the caller believe a security-relevant mode stuck.
+   */
+  if ((flag_bits & ~allowed_flags) != 0
+      || (file_attributes & FILE_ATTRIBUTE_DIRECTORY) != 0
+      || (file_attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0
+      || ((file_attributes & FILE_ATTRIBUTE_NORMAL) != 0
+          && file_attributes != FILE_ATTRIBUTE_NORMAL)) return 0;
   if ((flags & FILE_FLAG_WRITE_THROUGH) != 0) options |= 0x00000002UL;
   if ((flags & FILE_FLAG_SEQUENTIAL_SCAN) != 0) options |= 0x00000004UL;
   if ((flags & FILE_FLAG_NO_BUFFERING) != 0) options |= 0x00000008UL;
