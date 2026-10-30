@@ -93,4 +93,25 @@ Tests must use the real configured authority and ordinary proposal lifecycle, no
 
 Current branch tests add coverage for versioned reads, malformed/missing authority, in-read rotation, shared authority identity, actor-binding revocation, and policy generation rotation across proposal creation, approval, and commit. These tests are not considered passed until exact-head CI completes.
 
+## 7. Confirmed executor boundary and dependency completeness
+
+The supported executor remains `bounded_deterministic_action_v1`. Its confirmed supported slice is read-only evaluation of a deterministic action with empty object input, explicit same-snapshot condition evidence, and canonical effect-intent translation. The dependency manifest intentionally reports:
+- `condition_ast_dependencies_complete: true` for the declared condition paths in this slice;
+- `context_projection_dependencies_complete: true` when the trusted provider supplies exactly one authorized canonical mapping per condition path;
+- `effect_target_dependencies_complete: true` for the supported translated effect targets;
+- `causal_read_set_complete_for_supported_slice: true`;
+- `mechanic_dependencies_complete: true` only within this bounded slice;
+- `global_mechanic_dependencies_complete: false`.
+
+The final flag is not a defect to hide or a value to flip. Full mechanic dependency completeness is not established for modules, input-derived reads, participant selection, interactions, capability grants, automatic conflict resolvers, or future action/effect types. The independent A/B/C recalculation oracle remains an isolated benchmark and does not prove global dependency completeness or production runtime correctness.
+
+Unsupported cases must remain rejected before effect translation/proposal creation:
+- registered rule modules or required capabilities without an explicit executable allowlist/grant contract;
+- non-empty action input schemas or non-empty action input values;
+- eligible participants, participant constraints, or interactions;
+- automatic conflict resolution or any conflict mode other than the current manual policy;
+- unsupported ambiguity policies and effect-intent kinds.
+
+Future support for input parameters, modules, participants, interactions, capability grants, and conflict resolution requires separate versioned contracts, trusted authorization/dependency semantics, conflict rules, and tests. Do not implement any of these by silently expanding the current executor's accepted shape.
+
 **Current verdict: authority contract and lifecycle revalidation are implemented on the review branch; standalone production context-provider wiring, cross-process generation ownership, and exact-head CI remain open. Production Mechanics stays DISABLED / FAIL-CLOSED.**
