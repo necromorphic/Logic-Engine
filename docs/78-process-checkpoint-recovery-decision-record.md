@@ -93,6 +93,15 @@ This decision does not designate a process checkpoint or a projection as canonic
 
 ## Release boundary
 
-- #243's stated lifecycle, persistence, atomicity, idempotency, scheduler-ownership, and rollback requirements are evidenced by the current-main tests and source references in the matrix above. The CI figures are exact-head results for the tested PR candidate, not a new run on the current `main` head. This record does not claim global cross-process process-graph recomputation.
+The evidence above establishes only the specific lifecycle, persistence, atomicity, idempotency, scheduler-ownership, and rollback cases named in the matrix. It does **not** establish that every acceptance row for #243 or the broader Process Manager contract is closed. In particular, the following remain open or require explicit owner disposition:
+
+- **Cross-world replay:** the Core boundary register still lists this as an unverified acceptance row; do not infer coverage from world-scoped identity tests alone.
+- **Response-loss replay at every commit boundary:** existing retry tests cover named paths, not every possible commit/response-loss boundary.
+- **Cross-process causal closure:** event-level causal invalidation has bounded coverage, but there is no general cross-process process-dependency graph or closure/recomputation engine.
+- **Unrelated-progress independence:** a bounded test preserves an explicitly independent process, but the system does not prove independence when causal inputs are incomplete or unenumerable.
+- **Explicit replan semantics:** overdue resume is fail-closed; the separate replan contract remains a proposal without a runtime API and requires owner approval and implementation evidence.
+
+Keep #243 open until its remaining acceptance rows are either directly evidenced by tests/source or explicitly descoped by the issue owner. Passing CI and the bounded tests above do not close those gaps. The CI figures are exact-head results for the tested PR candidate, not a new run on the current `main` head. This record does not claim global cross-process process-graph recomputation.
+
 - Keep the broader Core evaluation/recalculation/publication boundary in #262 open until its own source-backed acceptance matrix is satisfied.
 - Keep production Memory→NPC **DISABLED / FAIL-CLOSED**. This decision does not authorize release or disclosure.
