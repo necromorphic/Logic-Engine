@@ -636,11 +636,22 @@ int sqlite3_secure_vfs_probe_init(
   g_open_syscall_name = "CreateFileW";
 #else
   g_open_syscall_name = "open";
+  g_original_stat_syscall = g_parent_vfs->xGetSystemCall(g_parent_vfs, "stat");
+  if (!g_original_stat_syscall) return SQLITE_ERROR;
+  rc = g_parent_vfs->xSetSystemCall(
+    g_parent_vfs, "stat", (sqlite3_syscall_ptr)probe_stat
+  );
+  if (rc != SQLITE_OK) return rc;
 #endif
   g_original_open_syscall = g_parent_vfs->xGetSystemCall(
     g_parent_vfs, g_open_syscall_name
   );
-  if (!g_original_open_syscall) return SQLITE_ERROR;
+  if (!g_original_open_syscall) {
+#ifndef _WIN32
+    g_parent_vfs->xSetSystemCall(g_parent_vfs, "stat", g_original_stat_syscall);
+#endif
+    return SQLITE_ERROR;
+  }
 #ifdef _WIN32
   rc = g_parent_vfs->xSetSystemCall(
     g_parent_vfs, g_open_syscall_name, (sqlite3_syscall_ptr)probe_create_file_w
@@ -650,7 +661,12 @@ int sqlite3_secure_vfs_probe_init(
     g_parent_vfs, g_open_syscall_name, (sqlite3_syscall_ptr)probe_open
   );
 #endif
-  if (rc != SQLITE_OK) return rc;
+  if (rc != SQLITE_OK) {
+#ifndef _WIN32
+    g_parent_vfs->xSetSystemCall(g_parent_vfs, "stat", g_original_stat_syscall);
+#endif
+    return rc;
+  }
 
   memset(&g_probe_vfs, 0, sizeof(g_probe_vfs));
   g_probe_vfs.iVersion = g_parent_vfs->iVersion;
@@ -682,12 +698,18 @@ int sqlite3_secure_vfs_probe_init(
   rc = sqlite3_vfs_register(&g_probe_vfs, 1);
   if (rc != SQLITE_OK) {
     g_parent_vfs->xSetSystemCall(g_parent_vfs, g_open_syscall_name, g_original_open_syscall);
+#ifndef _WIN32
+    g_parent_vfs->xSetSystemCall(g_parent_vfs, "stat", g_original_stat_syscall);
+#endif
     return rc;
   }
   rc = sqlite3_auto_extension((void (*)(void))probe_auto_extension);
   if (rc != SQLITE_OK) {
     sqlite3_vfs_unregister(&g_probe_vfs);
     g_parent_vfs->xSetSystemCall(g_parent_vfs, g_open_syscall_name, g_original_open_syscall);
+#ifndef _WIN32
+    g_parent_vfs->xSetSystemCall(g_parent_vfs, "stat", g_original_stat_syscall);
+#endif
     return rc;
   }
 
