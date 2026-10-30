@@ -76,7 +76,7 @@ test('replaying an identical canonical Provider record is idempotent and leaves 
 
   const result = await s.provider.retrieveCandidates(scope);
   assert.equal(result.completeness, 'complete');
-  assert.deepEqual(result.candidates.map((candidate) => candidate.record_version), ['record-v1']);
+  assert.deepEqual(result.candidates.map((candidate) => candidate.record.version), ['record-v1']);
 });
 
 test('a changed or unavailable trusted source snapshot never reuses the previous current marker', async (t) => {
