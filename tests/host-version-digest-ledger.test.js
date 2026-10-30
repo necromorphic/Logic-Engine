@@ -913,3 +913,44 @@ test('complete inventory revalidates binding synchronously while the shared Coor
   assert.equal(result.status, 'ready');
   assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).status, 'READY');
 });
+
+
+test('bound async Host binding resolver is rejected before acquiring the write path', (t) => {
+  const ledger = setup(t);
+  const asyncResolver = async ({ conversationId }) => ({
+    world_id: tuple.world_id,
+    conversation_id: conversationId,
+    active: true,
+  });
+  assert.throws(() => ledger.captureBoundVersion({
+    adapterId: 'adapter-a',
+    conversationId: tuple.conversation_id,
+    message_id: tuple.message_id,
+    version_id: tuple.version_id,
+    parent_version_id: null,
+    content_sha256: digest('bound async resolver must not run'),
+    active: true,
+    deleted: false,
+    resolveBinding: asyncResolver.bind(null),
+  }), /Host binding resolution must be synchronous under the coordinator lease/);
+  assert.equal(ledger.db.prepare('SELECT COUNT(*) AS n FROM host_version_digest_ledger').get().n, 0);
+});
+
+test('bound async reconciliation binding callback is rejected before inventory verification', async (t) => {
+  let verifierCalls = 0;
+  const ledger = setup(t, async () => { verifierCalls += 1; return true; });
+  const asyncBinding = async ({ world_id, conversation_id }) => ({
+    world_id,
+    conversation_id,
+    active: true,
+  });
+  const result = await ledger.reconcileConversation({
+    world_id: tuple.world_id,
+    conversation_id: tuple.conversation_id,
+    complete: true,
+    versions: [entry()],
+  }, { revalidateBinding: asyncBinding.bind(null) });
+  assert.deepEqual(result, { status: 'non_ready', code: 'HOST_INVENTORY_INVALID' });
+  assert.equal(verifierCalls, 0);
+  assert.equal(ledger.db.prepare('SELECT COUNT(*) AS n FROM host_version_digest_ledger').get().n, 0);
+});
