@@ -1,6 +1,23 @@
 const validId = (value) => typeof value === 'string' && value === value.trim()
   && value.length > 0 && value.length <= 200
   && ![...value].some((character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127);
+const HOST_SESSION_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const HOST_CONVERSATION_ID = new RegExp('^' + HOST_SESSION_UUID.source.slice(1, -1) + ':'
+  + HOST_SESSION_UUID.source.slice(1, -1) + ':' + HOST_SESSION_UUID.source.slice(1, -1) + '$', 'i');
+
+function requestMatchesAuthenticatedHostSession(request, conversationId) {
+  const session = request?.session;
+  const userHandle = request?.user?.profile?.handle;
+  const sessionHandle = session?.handle;
+  const sessionId = session?.logicEngineSessionId;
+  return typeof userHandle === 'string' && userHandle.trim().length > 0
+    && sessionHandle === userHandle
+    && typeof sessionId === 'string' && HOST_SESSION_UUID.test(sessionId)
+    && typeof conversationId === 'string'
+    && HOST_CONVERSATION_ID.test(conversationId)
+    && conversationId.startsWith(sessionId + ':');
+}
+
 const ALLOWED_FIELDS = new Set([
   'conversation_id', 'message_id', 'version_id', 'parent_version_id', 'content_sha256', 'active', 'deleted',
 ]);
@@ -55,6 +72,11 @@ export function createHostDigestProxyHandler({
     if (!target) {
       return response.status(503).json({
         error: { code: 'LOGIC_ENGINE_PROXY_UNCONFIGURED', message: 'The server-side Logic-Engine bridge is not configured.' },
+      });
+    }
+    if (!requestMatchesAuthenticatedHostSession(request, request?.body?.conversation_id)) {
+      return response.status(403).json({
+        error: { code: 'HOST_SESSION_SCOPE_REQUIRED', message: 'The Host conversation is not bound to this authenticated SillyTavern session.' },
       });
     }
     if (!validCapture(request?.body)) {
@@ -150,6 +172,11 @@ export function createHostInventoryReconcileProxyHandler({
     }
     let bodyBytes = Infinity;
     try { bodyBytes = Buffer.byteLength(JSON.stringify(request?.body)); } catch {}
+    if (!requestMatchesAuthenticatedHostSession(request, request?.body?.conversation_id)) {
+      return response.status(403).json({
+        error: { code: 'HOST_SESSION_SCOPE_REQUIRED', message: 'The Host conversation is not bound to this authenticated SillyTavern session.' },
+      });
+    }
     if (bodyBytes > MAX_RECONCILE_BYTES) {
       return response.status(413).json({
         error: { code: 'HOST_INVENTORY_TOO_LARGE', message: 'Host inventory request exceeds the 8 MiB limit.' },
