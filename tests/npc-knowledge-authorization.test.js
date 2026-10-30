@@ -110,6 +110,16 @@ test('Core resolves world and actor only from active bindings and denies ambiguo
   assert.equal(authorizers.resolveContext(accessorIdentity), null);
   assert.equal(getterInvoked, false);
 
+  let proxyTrapInvoked = false;
+  const proxyIdentity = new Proxy({}, {
+    getPrototypeOf() {
+      proxyTrapInvoked = true;
+      throw new Error('proxy trap must not run');
+    },
+  });
+  assert.equal(authorizers.resolveContext(proxyIdentity), null);
+  assert.equal(proxyTrapInvoked, false);
+
   engine.commitEvent('world-a', {
     event_id: 'create-second-npc',
     idempotency_key: 'create-second-npc',
