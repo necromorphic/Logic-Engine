@@ -437,7 +437,12 @@ export class ProposalService {
     return this.engine.store.tx(() => {
       const row = this.db.prepare('SELECT * FROM event_proposals WHERE world_id=? AND proposal_id=?').get(worldId, proposalId);
       if (!row) throw new EngineError('PROPOSAL_NOT_FOUND', 'Proposal not found.', 404);
-      if (row.status === 'committed') return { ...this.publicProposal(row, true), commit_result: { ...dec(row.commit_result_json), idempotent_replay: true } };
+      if (row.status === 'committed') {
+        // A replay still returns the stored proposal and commit result. Revalidate
+        // the pinned policy before disclosing that result after a policy rotation.
+        this.assertMechanicPolicyCurrent(row, 'commit_replay');
+        return { ...this.publicProposal(row, true), commit_result: { ...dec(row.commit_result_json), idempotent_replay: true } };
+      }
       if (row.status !== 'approved') throw new EngineError('PROPOSAL_NOT_APPROVED', 'Proposal must be approved before commit.', 409, { status: row.status });
       const world = this.engine.store.world(worldId);
       if (!world) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
