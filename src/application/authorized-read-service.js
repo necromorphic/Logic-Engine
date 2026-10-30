@@ -43,7 +43,11 @@ export class AuthorizedReadService {
 
   capturePolicyEvidence() {
     if (!this.policyAuthority) return null;
-    return this.policyAuthority.capture();
+    try {
+      return this.policyAuthority.capture();
+    } catch {
+      throw unavailable();
+    }
   }
 
   isPolicyEvidenceCurrent(evidence) {
