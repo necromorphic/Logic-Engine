@@ -105,7 +105,7 @@ Exact candidate components: PR #783 session handler/route and stacked Host sessi
 
 ## Complete Host snapshot reconciliation transport — Draft integration
 
-The session-bound Host candidate now has a matching Core transport seam: `POST /v1/host-version-ledger/reconcile`. It accepts a complete digest-only message-version inventory with explicit parent lineage and active/deleted state. Core derives world scope from the authenticated adapter's active conversation binding; callers cannot provide `world_id` or raw content. The endpoint limits requests to 8 MiB and 25,000 versions.
+The session-bound Host candidate now has a matching Core transport seam: `POST /v1/host-version-ledger/reconcile`. It accepts a complete digest-only message-version inventory with explicit parent lineage and active/deleted state. The ST server proxy additionally checks that the signed cookie session's account handle matches the authenticated user and that its server-generated Host session UUID prefixes the conversation ID. Core derives world scope from the authenticated adapter's active conversation binding; callers cannot provide `world_id` or raw content. The endpoint limits requests to 8 MiB and 25,000 versions.
 
 The ledger performs its final binding revalidation synchronously while holding the shared Coordinator lease after the async snapshot verifier completes. Revocation and READY publication therefore serialize. Revocation after a previous READY state also invalidates that inventory before acknowledging success. This does not make inventory status an authorization token: every consumer must independently re-resolve the binding at its own read/disclosure/dispatch boundary.
 
