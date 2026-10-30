@@ -12,9 +12,6 @@ const MAX = 1048576;
 /** Resolve the active deployment-owned policy on every boundary check. */
 export function createActiveMechanicPolicyValidator(getActiveMechanicContextProvider) {
   if (typeof getActiveMechanicContextProvider !== 'function') throw new TypeError('getActiveMechanicContextProvider must be a trusted application callback.');
-  if (mechanicPolicyAuthority !== null && typeof mechanicPolicyAuthority?.validateMechanicPolicy !== 'function') {
-    throw new TypeError('mechanicPolicyAuthority must be a trusted DeploymentMechanicPolicyAuthority.');
-  }
   return (identity) => {
     let provider;
     try { provider = getActiveMechanicContextProvider(); } catch { return false; }
@@ -68,6 +65,9 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
     throw new TypeError('Authorized-read field policy must be trusted application configuration.');
   }
   if (typeof getActiveMechanicContextProvider !== 'function') throw new TypeError('getActiveMechanicContextProvider must be a trusted application callback.');
+  if (mechanicPolicyAuthority !== null && typeof mechanicPolicyAuthority?.validateMechanicPolicy !== 'function') {
+    throw new TypeError('mechanicPolicyAuthority must be a trusted DeploymentMechanicPolicyAuthority.');
+  }
   const configuredAdapterSecrets = Object.values(adapterTokens || {});
   if (!adapterTokens || typeof adapterTokens !== 'object' || Array.isArray(adapterTokens) || Object.entries(adapterTokens).some(([id, secret]) => !id.trim() || typeof secret !== 'string' || secret.length < 16 || [token, internalToken, approvalToken, adminToken].includes(secret)) || new Set(configuredAdapterSecrets).size !== configuredAdapterSecrets.length) {
     throw new TypeError('Adapter tokens must map non-empty adapter IDs to unique, distinct secrets of at least 16 characters');
