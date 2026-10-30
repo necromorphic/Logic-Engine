@@ -222,26 +222,29 @@ test('reader rejects authorizer scope mismatches for world, purpose, revision, a
   }
 });
 
-test('reader configuration rejects an asynchronous trusted authorizer', (t) => {
+test('reader configuration rejects direct and bound asynchronous trusted authorizers', (t) => {
   const { store } = setup(t);
-  assert.throws(() => new LogicEngine(store, {
+  const asyncAuthorizer = async (scope) => ({
+    status: 'authorized',
+    world_id: scope.world_id,
+    conversation_id: scope.conversation_id,
+    adapter_id: scope.adapter_id,
+    actor_id: scope.actor_id,
+    recipient: scope.recipient,
+    purpose: scope.purpose,
+    world_revision: scope.world_revision,
+    commit_sequence: scope.commit_sequence,
+    authorization_ref: 'rule:npc-read-v1',
+  });
+  const assertRejected = (authorizer) => assert.throws(() => new LogicEngine(store, {
     trustedInitialKnowledgeSources: trustedRegistry,
-    npcKnowledgeReadAuthorizer: async (scope) => ({
-      status: 'authorized',
-      world_id: scope.world_id,
-      conversation_id: scope.conversation_id,
-      adapter_id: scope.adapter_id,
-      actor_id: scope.actor_id,
-      recipient: scope.recipient,
-      purpose: scope.purpose,
-      world_revision: scope.world_revision,
-      commit_sequence: scope.commit_sequence,
-      authorization_ref: 'rule:npc-read-v1',
-    }),
+    npcKnowledgeReadAuthorizer: authorizer,
   }), {
     name: 'TypeError',
     message: 'npcKnowledgeReadAuthorizer must be a synchronous deployment-owned function',
   });
+  assertRejected(asyncAuthorizer);
+  assertRejected(asyncAuthorizer.bind(null));
 });
 
 test('reader rejects unsupported purpose, unknown actor, and malformed limits', (t) => {
