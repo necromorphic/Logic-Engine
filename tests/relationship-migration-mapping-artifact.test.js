@@ -236,6 +236,23 @@ test('target-only dimensions require an explicit remain-unset or initialize-valu
   assert.deepEqual(complete.target_only_dimensions, [
     { target_dimension: 'reliability', disposition: 'remain_unset' },
   ]);
+  assert.deepEqual(validateAgainstDomain(complete, {
+    sourceDomains, targetDomains, sourceModules, targetModule, sourcePack, targetPack,
+  }), []);
+
+  const initialized = clone(complete);
+  initialized.target_only_dimensions = [
+    { target_dimension: 'reliability', disposition: 'initialize_value', value: 'verified' },
+  ];
+  assert.deepEqual(validateAgainstDomain(initialized, {
+    sourceDomains, targetDomains, sourceModules, targetModule, sourcePack, targetPack,
+  }), []);
+
+  initialized.target_only_dimensions[0].value = 'not-in-target-domain';
+  assert.ok(validateAgainstDomain(initialized, {
+    sourceDomains, targetDomains, sourceModules, targetModule, sourcePack, targetPack,
+  }).some(error => error.code === 'invalid_target_only_initial_value'));
+
   const candidate = clone(complete);
   candidate.target_only_dimensions = [];
   assert.ok(validateAgainstDomain(candidate, {
@@ -271,6 +288,32 @@ test('an extra unsupported source rule-module pin rejects the artifact', () => {
   assert.ok(validateAgainstDomain(candidate, {
     sourceDomains, targetDomains, sourceModules, targetModule, sourcePack, targetPack,
   }).some(error => error.code === 'source_module_pin_set'));
+});
+
+test('a dimension mapping cannot reference an undeclared source module pin', () => {
+  const candidate = clone(complete);
+  candidate.dimension_mappings[0].source_rule_module.version = '0.9.0';
+  assert.ok(validateAgainstDomain(candidate, {
+    sourceDomains, targetDomains, sourceModules, targetModule, sourcePack, targetPack,
+  }).some(error => error.code === 'undeclared_source_module'));
+});
+
+test('missing special-state coverage rejects the whole artifact', () => {
+  const candidate = clone(complete);
+  candidate.dimension_mappings[0].special_state_mappings =
+    candidate.dimension_mappings[0].special_state_mappings
+      .filter(item => item.source_state !== 'insufficient_support');
+  assert.ok(validateAgainstDomain(candidate, {
+    sourceDomains, targetDomains, sourceModules, targetModule, sourcePack, targetPack,
+  }).some(error => error.code === 'incomplete_special_state_coverage'));
+});
+
+test('a mismatched target rule-module pin is rejected', () => {
+  const candidate = clone(complete);
+  candidate.target_rule_module.version = '2.1.0';
+  assert.ok(validateAgainstDomain(candidate, {
+    sourceDomains, targetDomains, sourceModules, targetModule, sourcePack, targetPack,
+  }).some(error => error.code === 'target_module_pin'));
 });
 
 test('removed dimensions require an explicit retirement disposition and reason', () => {
