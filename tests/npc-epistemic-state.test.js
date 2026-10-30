@@ -494,6 +494,48 @@ test("event schemas reject unknown fields even when the value is ordinary data",
   assert.deepEqual(state.received, []);
 });
 
+test("event type validation never executes inherited or own accessors", () => {
+  const original = Object.getOwnPropertyDescriptor(Object.prototype, "type");
+  if (original && original.configurable === false) return;
+  let inheritedGetterCalls = 0;
+  let ownGetterCalls = 0;
+  try {
+    Object.defineProperty(Object.prototype, "type", {
+      configurable: true,
+      get() {
+        inheritedGetterCalls += 1;
+        throw new Error("inherited type getter must not execute");
+      },
+    });
+    const missingType = {
+      world_id: "world-a",
+      subject_id: "npc-1",
+    };
+    const missingResult = applyNpcEpistemicEvent(emptyState(), missingType);
+    assert.equal(missingResult.status, "non_ready");
+    assert.equal(inheritedGetterCalls, 0);
+
+    const ownAccessor = {
+      world_id: "world-a",
+      subject_id: "npc-1",
+    };
+    Object.defineProperty(ownAccessor, "type", {
+      enumerable: true,
+      get() {
+        ownGetterCalls += 1;
+        throw new Error("own type getter must not execute");
+      },
+    });
+    const accessorResult = applyNpcEpistemicEvent(emptyState(), ownAccessor);
+    assert.equal(accessorResult.status, "non_ready");
+    assert.equal(ownGetterCalls, 0);
+    assert.equal(inheritedGetterCalls, 0);
+  } finally {
+    if (original) Object.defineProperty(Object.prototype, "type", original);
+    else delete Object.prototype.type;
+  }
+});
+
 test("unsupported primitive values fail closed in event metadata", () => {
   const base = {
     world_id: "world-a",
