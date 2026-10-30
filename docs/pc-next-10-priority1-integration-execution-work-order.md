@@ -3,7 +3,7 @@
 **Status:** DRAFT EXECUTION SPECIFICATION — documentation only; no implementation or release approval.  
 **Date:** 2026-10-30.  
 **Repository:** `necromorphic/Logic-Engine`.  
-**Current-main checkpoint used for this work order:** `d4f4a26a9fc68d363308b8889657b06c5859c562`. Re-resolve `origin/main` before every implementation step; this SHA is a recorded checkpoint, not a permanent pin.  
+**Current-main checkpoint used for this work order:** `b1bf0393b398f6b283bd422eb302ad84c07873f7`. Re-resolve `origin/main` before every implementation step; this SHA is a recorded checkpoint, not a permanent pin.  
 **Parent documents:** PC-NEXT-07 Draft v3, PC-NEXT-08 implementation breakdown, PC-NEXT-09 Core/Provider/egress writer matrix.  
 **Purpose:** convert the latest source/PR/deployment evidence into one ordered agent task that advances the actual Host → Core → Memory Provider → NPC → protected model egress integration. This is not a request to repeat completed test suites.
 
@@ -31,14 +31,14 @@ The following states were read from GitHub during preparation of this work order
 
 | Workstream | Recorded state | What it does NOT prove |
 |---|---|---|
-| Core reader PR #797 | OPEN / Draft; HEAD `077719d4992c1f3afa2e78cc9121b5344bd70be2`; PR base metadata still points to `40704c1...`; comparison against checkpoint `d4f4a26...` showed candidate ahead 39 / behind 0 | Production trusted-authorizer composition, Host identity, serializer or Gateway wiring |
-| Host inventory PR #800 | OPEN / Draft; HEAD `2ae9744bc0016295cc4399471a0b9c5e4c6fcc2e`; comparison against checkpoint showed divergence (29 ahead / 1 behind) | Atomic filesystem snapshot, complete history/deleted/branch/import/export/restore inventory, durable installation attestation |
-| Host/Core reconciliation PR #793 | OPEN / Draft; HEAD `6974c999068e0827193717dffed1d3e446acca8b`; comparison against checkpoint showed divergence (11 ahead / 1 behind) | Complete Host inventory, Provider acceptance, production authorizer, final model dispatch; API change is still subject to second explicit Core approval under issue #264 |
+| Core reader PR #797 | OPEN / Draft; HEAD `077719d4992c1f3afa2e78cc9121b5344bd70be2`; PR base metadata still points to `40704c1...`; comparison against checkpoint `b1bf0393...` showed divergence (37 ahead / 2 behind) | Production trusted-authorizer composition, Host identity, serializer or Gateway wiring |
+| Host inventory PR #800 | OPEN / Draft; HEAD `2ae9744bc0016295cc4399471a0b9c5e4c6fcc2e`; comparison against checkpoint showed divergence (29 ahead / 5 behind) | Atomic filesystem snapshot, complete history/deleted/branch/import/export/restore inventory, durable installation attestation |
+| Host/Core reconciliation PR #793 | OPEN / Draft; HEAD `6974c999068e0827193717dffed1d3e446acca8b`; comparison against checkpoint showed divergence (11 ahead / 5 behind) | Complete Host inventory, Provider acceptance, production authorizer, final model dispatch; API change is still subject to second explicit Core approval under issue #264 |
 | Earlier combined PR #799 | CLOSED | Do not treat it as an active merge candidate or assume its branch is the accepted integration stack |
 | Earlier Host session-binding PR #783 | CLOSED | Do not treat its session binding as a merged/current production guarantee |
-| Dispatch-start PR #777 | OPEN / Draft; HEAD `091950592f018f213703c9ecfbe97b18922b4b1e`; comparison showed divergence (2 ahead / 1 behind) | Production Host route, all-writer participation, provider-neutral transport or dispatch-ledger anti-rollback |
-| SQLite VFS probe PR #798 | OPEN / Draft; HEAD `7a35cfa33b6374fe1ff4b54f7007a944080702ce`; comparison showed divergence (81 ahead / 1 behind) | Secure handle acquisition; registration/delegation probe is not TOCTOU closure |
-| Accepted-head/ACL PR #801 | OPEN / Draft; HEAD `a93e5ed0f3b200a6ec8f53b8264b1158a43412bf`; base checkpoint `d4f4a26...`; comparison showed ahead 14 / behind 0 | Target-PC effective ACL, independent backup domain or authority self-restore resistance |
+| Dispatch-start PR #777 | OPEN / Draft; HEAD `091950592f018f213703c9ecfbe97b18922b4b1e`; comparison showed divergence (2 ahead / 5 behind) | Production Host route, all-writer participation, provider-neutral transport or dispatch-ledger anti-rollback |
+| SQLite VFS probe PR #798 | OPEN / Draft; HEAD `489952d5d36ac31c93ed9b09c329023d07858efb`; comparison showed divergence (82 ahead / 5 behind) | Secure handle acquisition; registration/delegation probe is not TOCTOU closure |
+| Accepted-head/ACL PR #801 | OPEN / Draft; HEAD `a93e5ed0f3b200a6ec8f53b8264b1158a43412bf`; base checkpoint `d4f4a26...`; comparison against current checkpoint showed divergence (14 ahead / 4 behind) | Target-PC effective ACL, independent backup domain or authority self-restore resistance |
 | Provider acceptance | Provider-local acceptance work is merged; prior exact Runtime evidence was recorded as 1160/1160 | Joint Host snapshot reconciliation, complete Host inventory or final disclosure ordering |
 | Host source inventory | Prior pinned ST audit enumerated 13 early-return provider senders in `src/endpoints/backends/chat-completions.js`, including multiple callsites in one backend | A protected route that intercepts every actual sender in the deployed ST version |
 | SQLite open security | Issue #770 remains open; PR #798 is only an extension-registration feasibility probe | Validation and retention of the exact OS object SQLite opens, including WAL/SHM/journal behavior |
