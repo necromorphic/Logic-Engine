@@ -314,6 +314,7 @@ static int probe_open(const char *name, int flags, int mode) {
     if (g_current_role_index >= 0) g_current_role_captured = 1;
     if (g_current_race_open) g_current_race_captured = 1;
   }
+  probe_registry_unlock();
   return fd;
 }
 typedef int (*probe_stat_fn)(const char *, struct stat *);
