@@ -586,6 +586,16 @@ export class HostVersionDigestLedger {
     });
   }
 
+  invalidateConversation(worldId, conversationId) {
+    if (!validId(worldId) || !validId(conversationId)) {
+      throw new TypeError('A valid Host conversation scope is required for inventory invalidation');
+    }
+    return this.#write(() => {
+      this.#markNonReady(worldId, conversationId, 'HOST_CONVERSATION_REVOKED', new Date().toISOString());
+      return { status: 'non_ready', code: 'HOST_CONVERSATION_REVOKED' };
+    });
+  }
+
   getInventoryState(worldId, conversationId) {
     return this.db.prepare('SELECT * FROM host_version_inventory_state WHERE world_id=? AND conversation_id=?')
       .get(worldId, conversationId) ?? null;
