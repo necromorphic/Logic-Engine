@@ -642,7 +642,7 @@ static int probe_xAccess(sqlite3_vfs *vfs, const char *name, int flags, int *res
     }
     if (flags == SQLITE_ACCESS_READWRITE) mode = R_OK | W_OK;
     else if (flags == SQLITE_ACCESS_READ) mode = R_OK;
-    if (faccessat(role->trusted_parent_fd, relative_name, mode, AT_EACCESS | AT_SYMLINK_NOFOLLOW) == 0) {
+    if (faccessat(role->trusted_parent_fd, relative_name, mode, AT_EACCESS) == 0) {
       *result = 1;
       return SQLITE_OK;
     }
