@@ -769,7 +769,7 @@ export function createNpcGoalPlanRepository({
           revision: planRevision, details: { goal_id: attempt.goal_id, step_id: attempt.step_id },
         }, at);
         saveIdempotency(database, scope, "recordActionAttempt",
-          attempt.proposal_idempotency_key, requestHash, saved, at);
+          attempt.proposal_idempotency_key, attemptRequestHash, saved, at);
         return outcome("applied", saved);
       });
     });
