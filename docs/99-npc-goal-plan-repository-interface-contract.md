@@ -290,6 +290,6 @@ Before implementing the repository adapter, the project must separately settle:
 4. supported action/effect semantics and production dispatcher boundary;
 5. trusted Core proposal-result recovery path;
 6. Core rollback/invalidation handoff into NPC reconciliation;
-7. physical storage choice and migration/backup/recovery policy.
+7. secure SQLite open/identity mechanism after Issue #770, plus migration/backup/recovery policy.
 
 Passing repository unit tests alone cannot close these Core/Host integration gates.
