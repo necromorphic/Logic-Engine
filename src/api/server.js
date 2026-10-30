@@ -50,7 +50,7 @@ function send(res, status, data) {
   res.end(body);
 }
 
-export function createApiServer({ engine, token, internalToken = null, approvalToken = null, adminToken = null, adapterTokens = {}, authorizedReadFieldPolicy = null, getActiveMechanicContextProvider = () => null, mechanicPolicyAuthority = null, actorBindingService = null, authorizedReadService = null, hostVersionLedger = null }) {
+export function createApiServer({ engine, token, internalToken = null, approvalToken = null, adminToken = null, adapterTokens = {}, authorizedReadFieldPolicy = null, mechanicPolicyAuthority = null, actorBindingService = null, authorizedReadService = null, hostVersionLedger = null }) {
   if (!engine) throw new TypeError('engine required');
   if (typeof token !== 'string' || token.length < 16) throw new TypeError('API token must be at least 16 characters');
   if (internalToken !== null && (typeof internalToken !== 'string' || internalToken.length < 16 || internalToken === token)) {
@@ -89,8 +89,10 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
     const secret = req.headers['x-adapter-token'];
     return typeof id === 'string' && Object.hasOwn(adapterTokens, id) && secretMatches(secret, adapterTokens[id]) ? id : null;
   };
+  // No callback/provider fallback is accepted as a production authority.
+  // Without the composition-root authority, mechanic proposal creation stays fail-closed.
   const validateMechanicPolicy = mechanicPolicyAuthority === null
-    ? createActiveMechanicPolicyValidator(getActiveMechanicContextProvider)
+    ? () => false
     : (identity) => {
       try { return mechanicPolicyAuthority.validateMechanicPolicy(identity) === true; } catch { return false; }
     };
