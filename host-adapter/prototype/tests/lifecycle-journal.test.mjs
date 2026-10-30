@@ -72,3 +72,24 @@ test('caller-supplied path list cannot assert trusted capture readiness',async()
  const result=await journal.status('chat-1',{instrumentedPaths:lifecycleJournalContract.requiredCoveragePaths,sourceFingerprintMatches:true});
  assert.equal(result.status,'NON_READY');assert.match(result.reason,/no trusted pinned-source attestation/);
 });
+
+test('journal records and head checkpoint are bound to server-issued installation and account identity',async()=>{
+ const db=new FakeDB();
+ const identity={hostInstallationId:'00000000-0000-4000-8000-000000000011',authenticatedAccountId:'00000000-0000-4000-8000-000000000012'};
+ const journal=new HostLifecycleJournal(db,identity);
+ await journal.enroll(seed());
+ const first=[...db.rows.values()][0];
+ assert.equal(first.hostInstallationId,identity.hostInstallationId);
+ assert.equal(first.authenticatedAccountId,identity.authenticatedAccountId);
+ assert.equal(db.heads.get('chat-1').hostInstallationId,identity.hostInstallationId);
+ assert.equal((await journal.verifyIntegrity('chat-1')).status,'INTEGRITY_OK');
+ first.authenticatedAccountId='00000000-0000-4000-8000-000000000099';
+ const result=await journal.verifyIntegrity('chat-1');
+ assert.equal(result.status,'NON_READY');
+ assert.match(result.reason,/identity mismatch/);
+});
+
+test('journal schema contract requires server-issued installation and account identity',()=>{
+ assert.equal(lifecycleJournalContract.schemaVersion,3);
+ assert.equal(lifecycleJournalContract.identityBinding,'SERVER_ISSUED_INSTALLATION_AND_ACCOUNT_UUIDS');
+});
