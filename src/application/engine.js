@@ -553,6 +553,8 @@ export class LogicEngine {
 
   getState(id) { return this.store.state(id); }
   getSnapshot(id, request = {}) { return this.store.readSnapshot(id, request); }
+  /** @internal Provider reconciliation only; not an HTTP/client authorization API. */
+  getCanonicalEntityInventory(id, request = {}) { return this.store.readCanonicalEntityInventory(id, request); }
   getEvents(id, includeInvalid = false) { return this.store.events(id, includeInvalid); }
   getAudit(id) { return this.store.audit(id); }
 
@@ -1204,27 +1206,8 @@ export class LogicEngine {
     let triggerSnapshot = [];
     let completedTriggerSnapshot = [];
     try {
-      const isReviewGatedProcessTrigger = (trigger) => {
-        const milestone = this.processStore.findMilestoneByTrigger(id, trigger.trigger_id);
-        if (!milestone) return false;
-        if (milestone.status === 'needs_review') return true;
-        const process = this.processStore.get(id, milestone.process_id);
-        return process.stored_status === 'needs_review';
-      };
-      const allRegisteredTriggers = this.store.listTimeTriggers(id, true);
-      const reviewGatedDue = allRegisteredTriggers.filter((trigger) =>
-        trigger.status === 'pending'
-        && trigger.due_coordinate <= x.to_coordinate
-        && isReviewGatedProcessTrigger(trigger));
-      if (reviewGatedDue.length) {
-        throw new EngineError('TIME_TRIGGER_PROCESS_NEEDS_REVIEW',
-          'Time advancement cannot cross pending triggers owned by a process that requires reconciliation.',
-          409, { trigger_ids: reviewGatedDue.map((trigger) => trigger.trigger_id), target_coordinate: x.to_coordinate });
-      }
       if (triggerSource === 'registered') {
-        // A pending trigger owned by a process under reconciliation is not eligible
-        // for replay; advancement stops before its due coordinate until explicit repair.
-        triggerSnapshot = allRegisteredTriggers.filter((trigger) => !isReviewGatedProcessTrigger(trigger));
+        triggerSnapshot = this.store.listTimeTriggers(id, true);
         const overdue = triggerSnapshot
           .filter((trigger) => trigger.status === 'pending' && trigger.due_coordinate <= from)
           .map((trigger) => trigger.trigger_id);
@@ -1239,7 +1222,7 @@ export class LogicEngine {
       } else {
         triggerSnapshot = x.triggers ?? [];
         completedTriggerSnapshot = x.completed_trigger_ids ?? [];
-        const registeredDue = allRegisteredTriggers
+        const registeredDue = this.store.listTimeTriggers(id)
           .filter((trigger) => trigger.status === 'pending' && trigger.due_coordinate <= x.to_coordinate)
           .map((trigger) => trigger.trigger_id);
         if (registeredDue.length) {
