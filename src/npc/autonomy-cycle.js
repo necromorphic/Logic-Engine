@@ -172,6 +172,18 @@ function evaluateNpcAutonomyCycleUnsafe(input) {
       viability,
     });
   }
+  if (viability.disposition === "reconsider") {
+    return Object.freeze({
+      status: "plan_revision_required",
+      stage: "plan_viability",
+      intention: null,
+      plan_revision_request: Object.freeze({
+        plan_id: input.plan.id,
+        reasons: Object.freeze([...viability.reasons]),
+      }),
+      viability,
+    });
+  }
   if (viability.disposition !== "continue") {
     return Object.freeze({
       status: "plan_not_ready",
