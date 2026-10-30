@@ -67,7 +67,11 @@ test('replaying an identical canonical Provider record is idempotent and leaves 
   assert.equal((await s.provider.reconcile(scope.world_id)).status, 'current');
   // Re-delivery at the Provider boundary must not create a second record
   // or change its immutable identity. This does not simulate Host delivery.
-  assert.deepEqual(s.provider.putRecord(item), { status: 'duplicate' });
+  assert.deepEqual(s.provider.putRecord(item), {
+    status: 'duplicate',
+    record_ref: item.record_ref,
+    record_version: item.record_version,
+  });
   assert.equal((await s.provider.reconcile(scope.world_id)).status, 'current');
 
   const result = await s.provider.retrieveCandidates(scope);
@@ -108,6 +112,10 @@ test('revocation of one exact record version during awaited source validation bl
   let releaseResolve;
   const started = new Promise((resolve) => { startedResolve = resolve; });
   const gate = new Promise((resolve) => { releaseResolve = resolve; });
+  // Keep a referenced handle alive while the deliberately paused validation
+  // promise is pending; Node's test runner otherwise cancels an unresolved
+  // promise when no event-loop handles remain.
+  const keepAlive = setInterval(() => {}, 1000);
   const s = setup(t, {
     validateSourceVersion: async () => {
       if (pause) {
@@ -133,7 +141,11 @@ test('revocation of one exact record version during awaited source validation bl
   s.provider.revokeRecord(scope, 'memory:canonical-entity-1', 'record-v1');
   releaseResolve();
 
-  const result = await pending;
-  assert.deepEqual(result.candidates.map((candidate) => candidate.record_version), ['record-v2']);
-  assert.equal(result.completeness, 'complete');
+  try {
+    const result = await pending;
+    assert.deepEqual(result.candidates.map((candidate) => candidate.record_version), ['record-v2']);
+    assert.equal(result.completeness, 'complete');
+  } finally {
+    clearInterval(keepAlive);
+  }
 });
