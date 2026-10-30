@@ -351,3 +351,30 @@ The grouped crosswalk above is supplemented here so that no semantic ID is impli
 | PERS-SEM-027 — character card is derived/read-only | No executable card-projection consumer test in the audited evaluator/Core files. | Blocked on the actual card/read consumer contract. Required test proves card output is derived from authorized canonical state, does not mutate state, and is not an independent source of truth. |
 
 No synthetic fixture should be reported as a production integration test. IDs with no direct test above remain specified or blocked; they are not passing. The source-inspected current-main tests do not expose an approved seam for safely implementing these missing cross-block tests inside this Personality-owned documentation PR.
+
+
+## Historical Relationship semantics — joint Relationships/Personality refresh (2026-10-30)
+
+Audit base: current `main` commit `efc02d2b290b2c08d6621fe9eb75570ae4486102`. This addendum supersedes older version-semantics status statements in this file where they conflict. It is source inspection; no test suite was executed by this documentation change.
+
+Related owner trackers: Relationships [#143](https://github.com/necromorphic/Logic-Engine/issues/143), Core [#146](https://github.com/necromorphic/Logic-Engine/issues/146), and this Personality traceability issue [#73](https://github.com/necromorphic/Logic-Engine/issues/73).
+
+### Version decision and evidence matrix
+
+| Case | Current evidence on audited main | Acceptance status |
+|---|---|---|
+| Same pinned version; deterministic projection rebuild | Core test `Relationship projection survives store restart and deterministic rebuild from valid events`; `projection rebuild preserves the exact historical rule-version pin when its module is unavailable` in `tests/relationship-transition-core.test.js`. The latter commits `relationship-rules@1.0.0`, removes that manifest after restart, registers `2.0.0`, rebuilds the projection, and asserts the event and projection still carry `1.0.0`. | **CORE RUNTIME-TESTED, projection only.** It replays the already-committed effect; it does not execute historical rules again. |
+| Unknown/missing exact historical module while newer version exists | The same Core test asserts exact lookup of `relationship-rules@1.0.0` throws `RULE_MODULE_NOT_FOUND` while `2.0.0` is registered. It snapshots events, world state/revision, pair projection, commit sequence, audit, and projection pin before lookup and asserts no mutation. | **CORE RUNTIME-TESTED, exact lookup boundary.** This proves no latest-version fallback for that lookup; it does not prove a historical evaluator exists. |
+| Incompatible historical World Pack/rule module | Current typed-commit test `rejects unavailable rule versions, cross-world participants, and invalid evidence before mutation` verifies rejection for a new commit. The Relationships domain matrix requires exact World Pack identity/version match. | **NEW-COMMIT PATH TESTED; HISTORICAL RE-EVALUATION BLOCKED.** Do not extend the new-commit test claim to historical replay. |
+| Historical semantic re-evaluation under the original rules | Core #146 records that `RuleModuleManifest` is metadata/compatibility declaration, not an executable evaluator; no approved historical semantic re-evaluation entry point/contract exists. Core PR [#153](https://github.com/necromorphic/Logic-Engine/pull/153) is a merged documentation proposal only. | **UNSUPPORTED / BLOCKED.** Once Relationships and Personality approve an executable contract, Core must test exact historical selection and missing/unknown/incompatible failure with no changes to events, revision, projection, or audit. |
+| Explicit meaning-changing migration | Relationships #143 defines the domain requirement; no approved migration API/schema/path or executable migration test exists. | **UNSUPPORTED / REFUSED.** Do not create a synthetic migration test or imply an entry point. After separate approval, test source→target versions, preserved original event, auditable migration result, and deterministic replay. |
+
+### Semantic ownership and Personality mapping
+
+- The typed committed effect pins `rule_module_id + rule_module_version`. The registered manifest's `relationship_domain.world_pack_id + world_pack_version` is checked against the target world at commit time. Do not claim a separate World Pack version is stored on the event unless the event schema/test proves it.
+- Relationships owns relationship-domain compatibility and any future meaning-changing migration policy.
+- Personality owns the semantic acceptance mapping, including the distinction between `PERS-SEM-024` (deterministic repeat/replay under fixed pinned inputs) and `PERS-SEM-029` (meaning-changing migration or incompatibility).
+- Core owns exact historical resolution, persistence, replay execution, and any future approved migration transaction/audit path. Core must not choose a replacement domain meaning.
+- Projection rebuild, historical semantic re-evaluation, and meaning-changing migration are three separate operations. Evidence for one is not evidence for either of the others.
+
+**Disposition:** the same-version projection-rebuild and missing-version exact-lookup cases have Core runtime evidence. Historical semantic re-evaluation and explicit migration remain blocked. Keep #143, #146, and #73 open for their remaining acceptance work. No Personality or Relationships runtime behavior is inferred from these documentation mappings.
