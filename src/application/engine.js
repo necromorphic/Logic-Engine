@@ -835,6 +835,11 @@ export class LogicEngine {
    * model proposals cannot create evidence or commit world effects.
    */
   prepareNpcBeliefContext(input, proposal, currentBelief = null) {
+    return this.store.withCoordinatorLease(() =>
+      this._prepareNpcBeliefContextUnderCoordinatorLease(input, proposal, currentBelief));
+  }
+
+  _prepareNpcBeliefContextUnderCoordinatorLease(input, proposal, currentBelief = null) {
     assert(typeof this.npcKnowledgeVisibilityAuthorizer === 'function',
       'NPC_KNOWLEDGE_VISIBILITY_NOT_CONFIGURED',
       'A trusted deployment-owned per-acquisition visibility authorizer is required.', 403);
@@ -1149,6 +1154,10 @@ export class LogicEngine {
    * remains in the current actor-scoped acquisition projection.
    */
   getNpcBeliefState(input) {
+    return this.store.withCoordinatorLease(() => this._getNpcBeliefStateUnderCoordinatorLease(input));
+  }
+
+  _getNpcBeliefStateUnderCoordinatorLease(input) {
     const required = [
       'world_id', 'adapter_id', 'actor_id', 'recipient', 'purpose',
       'expected_revision', 'expected_commit_sequence', 'proposition_ref',
