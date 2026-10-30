@@ -95,7 +95,7 @@ Host's final step is **not** a second policy authorizer. Immediately before disp
 6. route/model/stream/body match the signed request and protected route allowlist;
 7. no direct provider fallback exists after Gateway rejection/failure.
 
-Host MUST NOT decide Core field visibility, recreate policy, broaden field allowlists, manufacture policy fingerprints, or treat a signature as proof that permissions remain current. Core/Memory revalidation checks permissions and source freshness. Host checks session, exact envelope, generation, one-time dispatch and route. Gateway verifies the exact signed request and serializes durable dispatch-start with transport start under its accepted contract.
+Host MUST NOT decide Core field visibility, recreate policy, broaden field allowlists, manufacture policy fingerprints, or treat a signature as proof that permissions remain current. Core/Memory revalidation checks permissions and source freshness at the approved boundary. Host checks session, exact envelope, generation, one-time dispatch and route. Whether the Gateway must also own a shared serialized final-disclosure/dispatch-start decision is an unresolved cross-owner contract conflict recorded in §16; do not claim that the current Host→Gateway sequence provides that stronger ordering.
 
 Tests:
 - **HOST-FINAL-01** expired/replaced session or changed binding → DENY.
@@ -134,18 +134,20 @@ Tests:
 ## 8. Version dimensions and snapshot cursor (G6, G10)
 
 Keep four independent version dimensions:
-1. **Core entity source version:** opaque `core-entity-v1:<positive safe integer>` for direct `canonical_entity` sources; merged by PR #709.
-2. **Memory record version:** exact `(record_ref, record_version)`, scoped by world/subject/purpose and grant/provenance state.
-3. **Acquisition-time value pin:** exact acquired value and sorted source-event set. Source ingestion foundation is main; reader/value/event pins described by draft PR #744 are not main.
-4. **Policy version:** `authority_id + generation + snapshot_fingerprint`, proposed above, not confirmed as implemented for disclosure.
+1. **Core entity source token:** opaque `core-entity-v1:<positive safe integer>` backed by the Core entity source-version ledger, merged by PR #709.
+2. **Provider source_version:** for direct `canonical_entity` records, the Core final-disclosure contract maps this to the canonical decimal string of the exact current Core entity's non-negative `updated_revision`; it must be compared against the exact entity snapshot. This is distinct from the opaque Core entity source token above and must not be substituted for it.
+3. **Memory record version:** exact `(record_ref, record_version)`, scoped by world/subject/purpose and grant/provenance state.
+4. **Acquisition-time value pin:** exact acquired value and sorted source-event set. Source ingestion foundation is main; reader/value/event pins described by draft PR #744 are not main.
+5. **Policy version:** `authority_id + generation + snapshot_fingerprint`, proposed above, not confirmed as implemented for disclosure.
 
 **Correction:** `world_revision + commit_sequence` is confirmed in `AuthorizedReadService` and `MemoryNpcConsumer` as a Core snapshot cursor for stale-read comparison. It is not a source journal, acquisition pin, policy fingerprint, universal source version, or proof of cross-database atomicity. No separate `world_snapshot_id` is claimed.
 
 Tests:
-- **VERSION-01a** Core source token mismatch/missing/malformed → DENY.
-- **VERSION-01b** Memory record ref/version/grant mismatch or revocation → DENY.
-- **VERSION-01c** acquisition value/source-event pin mismatch → DENY; require new acquisition.
-- **VERSION-01d** policy generation/fingerprint mismatch → POLICY-02/03.
+- **VERSION-01a** opaque Core entity source token mismatch/missing/malformed → DENY.
+- **VERSION-01b** Provider `source_version` does not exactly match canonical decimal `updated_revision` of the current Core entity → DENY.
+- **VERSION-01c** Memory record ref/version/grant mismatch or revocation → DENY.
+- **VERSION-01d** acquisition value/source-event pin mismatch → DENY; require new acquisition.
+- **VERSION-01e** policy generation/fingerprint mismatch → POLICY-02/03.
 - **SNAPSHOT-01** Core cursor changes before final validation → DENY.
 - **SNAPSHOT-02** cursor equality substituted for source/grant/lineage/completeness proof → DENY.
 
@@ -169,7 +171,7 @@ Tests:
 
 ## 10. DENY semantics (G9)
 
-External protected-read/dispatch failures use a generic response that does not reveal whether a world, actor, record, field, acquisition, grant or policy exists. Existing Core read uses generic `READ_NOT_AVAILABLE` (404); stale snapshot uses `STALE_AUTHORIZED_READ_SNAPSHOT` (409). Future integrated operation should use one generic `PROTECTED_CONTEXT_NOT_AVAILABLE` (status selected by API owner; 404/409 according to public semantics).
+External protected-read/dispatch failures must use the existing generic non-ready/denial path and must not reveal whether a world, actor, record, field, acquisition, grant or policy exists. The private adapter contract explicitly says it does not invent a new public status enum. Existing Core authorized-read internals include `READ_NOT_AVAILABLE` (404) and `STALE_AUTHORIZED_READ_SNAPSHOT` (409); those internal codes must not be exposed in a way that creates an existence oracle. Any new public error code/status requires explicit API-owner approval.
 
 Detailed reason codes, component, correlation ID and safe identifiers are server-side diagnostics only. Logs must not include raw private message content, secrets or hidden values. Authentication may retain the established generic outer 401.
 
@@ -199,7 +201,7 @@ Tests:
 | READ-01/02 | Unauthorized field, hidden target or partial target set | Generic DENY |
 | CONFLICT-01..03 | Lane A/B contradiction or missing conflict policy | Core authority; exclude or uncertainty-tag Memory |
 | SNAPSHOT-01/02 | Cursor changes or cursor used as source proof | DENY |
-| VERSION-01a..d | Core token, Memory record, acquisition pin, policy version mismatch | DENY |
+| VERSION-01a..e | Core entity token, Provider source_version, Memory record, acquisition pin, policy version mismatch | DENY |
 | HOST-FINAL-01..04 | Session, stale result, envelope mismatch or replay | DENY |
 | STATE-01/02 | Read permission used to write or stale commit revision | DENY |
 | REVOKE-01..04 | Unauthorized revoke, stale grant, unproven linearizability, unspecified timeout | DENY / no unsupported guarantee |
@@ -236,3 +238,68 @@ Before implementation is called ready:
 ## 15. Change log
 
 - **v3:** closes G1–G10; corrects actor-resolution claims against current-main services; distinguishes mechanic policy validation from versioned disclosure authority; specifies Host final checks, Lane A/B conflict precedence, four version dimensions, snapshot cursor limits, revocation guarantee boundary and generic DENY semantics.
+
+
+## 16. Cross-contract reconciliation — 2026-10-30 (G3/G7/G9 and version semantics)
+
+This section is normative for reading Draft v3 and records an unresolved owner-level conflict. It does not silently supersede either source contract.
+
+### 16.1 Conflicting revocation/dispatch guarantees
+
+Two current-main documents make materially different commitments:
+
+- `docs/57-private-host-core-memory-npc-adapter-contract.md` §7.2 is an **approved private cross-block contract**. It explicitly selects fail-closed revalidation at defined boundaries and explicitly does **not** promise linearizability between concurrent revocation/commit and model dispatch. It states that a revocation after the final check may race with transport handoff; the remaining TOCTOU interval is not solved.
+- `docs/architecture/core-final-disclosure-authorization-contract.md` §§1–3 is a **Core-owned decision** for protected Memory-derived payloads. It requires one PC-side serialized egress authority to make the final disclosure decision, durably order dispatch-start, own the sole transport, and serialize all relevant Core/Provider invalidation writers with dispatch-start. Its disposition says cross-owner implementation acceptance remains outstanding.
+
+These statements cannot both be treated as the already-approved cross-block guarantee for the same Lane B payload. The Core document is not evidence that the stronger order is implemented or accepted by Host and Memory; the private adapter contract is not permission to ignore the Core owner's stricter final-disclosure requirement.
+
+**Decision required before Lane B implementation is implementation-ready:** Core, Host and Memory owners must explicitly choose one of:
+- **Option A — retain approved boundary revalidation only:** accept the documented residual race after final revalidation and before/during transport handoff; explicitly record Core owner's acceptance of this weaker guarantee for Lane B.
+- **Option B — adopt serialized final disclosure/dispatch-start:** approve a concrete shared ordering mechanism; all relevant Core writers, Provider grant/record/lineage/readiness/reconciliation/restore writers and the PC Gateway must participate. The Gateway must evaluate the exact current policy/source/grant/readiness state, bind the exact outbound bytes/route/request identity, durably record dispatch-start, and only then hand bytes to its sole transport. No writer may bypass the order. Crash/restart/restore and ambiguous in-flight behavior require proof.
+
+Until this decision is recorded by the affected owners, Lane B remains NON_READY and cannot be described as having a solved final-dispatch TOCTOU boundary. Draft v3 does not select A or B on their behalf.
+
+Lane A (Core-owned initial acquisition) does not query Provider, so the specific cross-store Core/Provider serialization requirement in the Core final-disclosure document does not automatically map one-to-one. It still requires a Core-owned per-acquisition visibility decision, exact acquisition value/source-event pins, exact request binding and Host sole-Gateway route. Its final revocation/dispatch guarantee must be stated separately by Core and Host; do not infer it from Lane B's rule.
+
+### 16.2 Final authorization responsibility versus Host transport checks
+
+The phrase “Host final revalidation” means Host orchestrates the last approved authorization/freshness call and verifies Host-owned session and transport facts. It does not mean Host independently decides Core field visibility.
+
+- Host authenticates the session, verifies the server-side session/conversation/actor binding and generation, ensures the exact fresh result is used, and verifies the request digest, recipient, purpose, nonce, route, model/stream settings and one-time dispatch identity.
+- Core/Memory performs the authorization and source-currentness checks assigned to those owners.
+- The sole Host-owned Gateway is the only model transport.
+- Under Option B, the Gateway and shared serialization authority must own the final decision + durable dispatch-start order; a separate preflight response/token from Core is insufficient.
+- Under Option A, the last Core/Memory revalidation must immediately precede Gateway handoff as §7.2 of the approved private contract states; the residual race remains explicit.
+
+The Gateway is a logical Host-owned component, not a second policy owner. Whether it is a module in the ST server process or a separate PC service is not established by current-main evidence and must be decided in deployment design. The Core document's “PC-side” requirement constrains its location/ownership but does not prove a deployed process exists.
+
+### 16.3 Lane composition rule
+
+The approved private contract §4 explicitly prohibits combining Lane A and Lane B results into one model context until a Core/Memory purpose-mapping rule is approved and tested. Therefore the Lane A/B contradiction rule in §5 of this document is a **future conditional rule**, not permission to combine the lanes now:
+
+- Default: do not combine Lane A and Lane B in the same protected decision context.
+- If a future approved mapping permits combination, Core canonical state remains authoritative for claims about actual world state; Memory-derived evidence remains evidence and cannot overwrite canonical state.
+- A contradictory Memory item must be excluded from unqualified factual context; it may be retained only in a separately authorized uncertainty-bearing evidence channel. If no such channel/policy exists, omit it.
+- Retrieval score, recency, ordering or model preference never resolves the conflict.
+
+### 16.4 DENY/public status compatibility
+
+The approved private adapter contract §9 says the current internal consumer uses `ready / non_ready` and does not invent a new public status enum. Draft v3's proposed `PROTECTED_CONTEXT_NOT_AVAILABLE` is therefore withdrawn as a normative requirement. Use the existing generic non-ready/denial path at the current internal boundary. A new public code or HTTP status requires an explicit API-owner decision and must not expose source existence, counts, fields or policy outcomes.
+
+### 16.5 Source-version crosswalk correction
+
+The current contracts describe multiple independent values. For direct `canonical_entity` records, do not collapse:
+- opaque Core entity source token `core-entity-v1:<counter>` (PR #709);
+- Provider `source_version`, which the Core final-disclosure contract maps to canonical decimal `updated_revision` of the exact current Core entity;
+- Provider `record_version`;
+- Core snapshot cursor `(world_revision, commit_sequence)`;
+- acquisition-time value + sorted source-event pins (PR #744 candidate);
+- proposed disclosure-policy authority generation/fingerprint.
+
+Each must be compared under its own owner-defined semantics. Cursor equality is not a substitute for entity source-version validation or acquisition pins.
+
+### 16.6 Current-main baseline and readiness
+
+Latest repository commit search confirms `main` remains at `40704c1b6a2b5e6b31379973683f90e4b50eee9c` at this audit. The Core final-disclosure contract and private adapter contract were fetched from this exact branch. No implementation or runtime test was performed for this reconciliation.
+
+**Readiness remains unchanged:** Host NON_READY; Stage 2 NO-GO; Memory → NPC DISABLED / FAIL-CLOSED; production ST NO-GO. The cross-contract guarantee conflict is an explicit implementation blocker, not a defect to resolve by weakening fail-closed behavior.
