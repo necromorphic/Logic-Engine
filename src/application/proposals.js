@@ -186,7 +186,7 @@ export class ProposalService {
     assert(typeof evaluation.context_fingerprint === 'string' && /^[a-f0-9]{64}$/i.test(evaluation.context_fingerprint)
       && typeof evaluation.evaluation_fingerprint === 'string' && /^[a-f0-9]{64}$/i.test(evaluation.evaluation_fingerprint)
       && typeof evaluation.context_policy_version === 'string' && evaluation.context_policy_version.trim()
-      && typeof evaluation.authorization_scope === 'string' && evaluation.authorization_scope.trim(),
+      && typeof evaluation.authorization_scope === 'string' && evaluation.authorization_scope.trim()\n      && typeof evaluation.authority_id === 'string' && evaluation.authority_id.trim()\n      && Number.isSafeInteger(evaluation.policy_generation) && evaluation.policy_generation >= 1,
     'INVALID_MECHANIC_EVALUATION_FINGERPRINT', 'Context and evaluation fingerprints are required.');
     const expectedEvaluationFingerprint = hashRequest({
       snapshot_identity: identity,
@@ -260,6 +260,31 @@ export class ProposalService {
     assert(typeof sourceText === 'string' && sourceText.trim() && sourceText.length <= 50000,
       'INVALID_SOURCE_TEXT', 'Non-empty source text is required so semantic review is retained.');
     assert(typeof adapterId === 'string' && adapterId.trim(), 'ADAPTER_REQUIRED', 'A trusted adapter identity is required.', 403);
+
+    if (typeof this.validateMechanicPolicy !== 'function') {
+      throw new EngineError('MECHANIC_POLICY_REVALIDATION_REQUIRED',
+        'A deployment-owned mechanic policy authority is required before proposal creation.', 409,
+        { stage: 'proposal_creation' });
+    }
+    let policyCurrent = false;
+    try {
+      policyCurrent = this.validateMechanicPolicy(Object.freeze({
+        worldId,
+        authorityId: evaluation.authority_id,
+        policyGeneration: evaluation.policy_generation,
+        policyVersion: evaluation.context_policy_version,
+        authorizationScope: evaluation.authorization_scope,
+        snapshotIdentity: identity,
+        stage: 'proposal_creation',
+      })) === true;
+    } catch {
+      policyCurrent = false;
+    }
+    if (!policyCurrent) {
+      throw new EngineError('STALE_MECHANIC_POLICY',
+        'The evaluation authority identity or generation is no longer current; evaluate again.', 409,
+        { stage: 'proposal_creation' });
+    }
 
     const mechanicExecution = {
       snapshot_identity: identity,
