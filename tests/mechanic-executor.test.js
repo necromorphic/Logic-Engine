@@ -114,7 +114,7 @@ function contextProvider(context = { world: { weather: 'rain' }, actor: { hp: 10
       policy_version: 'test-visibility-policy-v1',
       authority_id: 'test-mechanic-authority',
       policy_generation: 1,
-      authorization_principal: { adapterId: 'test-adapter', actorEntityId: 'entity.actor-context', recipient: 'model', purpose: 'npc_decision' },
+      authorization_principal: { adapterId: 'test-adapter', actorEntityId: 'entity.actor-context', recipient: 'model', purpose: 'npc_decision', bindingGeneration: 1 },
     };
   };
 }
@@ -459,7 +459,7 @@ test('proposal policy validation delegates to the active context provider and re
       { path: 'actor.hp', entity_id: 'entity.actor-context', attribute: 'hp' },
     ],
     canRead: () => true,
-    authorizationPrincipal: { adapterId: 'test-adapter', actorEntityId: 'entity.actor-context', recipient: 'model', purpose: 'npc_decision' },
+    authorizationPrincipal: { adapterId: 'test-adapter', actorEntityId: 'entity.actor-context', recipient: 'model', purpose: 'npc_decision', bindingGeneration: 1 },
   });
 
   let activeProvider = makeProvider('visibility-policy-v1');
@@ -1657,12 +1657,12 @@ test('one deployment authority pins context and invalidates stale proposals acro
   const makeContextProvider = (policyVersion) => ({
     policyFingerprint: policyVersion,
     authorizationScope: 'test-principal',
-    authorizationPrincipal: { adapterId: 'test-adapter', actorEntityId: 'entity.actor-context', recipient: 'model', purpose: 'npc_decision' },
-    assertPrincipalBound: () => true,
+    authorizationPrincipal: { adapterId: 'test-adapter', actorEntityId: 'entity.actor-context', recipient: 'model', purpose: 'npc_decision', bindingGeneration: 1 },
+    assertPrincipalBound: () => ({ binding_generation: 1 }),
     resolve: (args) => ({
       ...contextProvider()(args),
       policy_version: policyVersion,
-      authorization_principal: { adapterId: 'test-adapter', actorEntityId: 'entity.actor-context', recipient: 'model', purpose: 'npc_decision' },
+      authorization_principal: { adapterId: 'test-adapter', actorEntityId: 'entity.actor-context', recipient: 'model', purpose: 'npc_decision', bindingGeneration: 1 },
     }),
   });
   let active = {
