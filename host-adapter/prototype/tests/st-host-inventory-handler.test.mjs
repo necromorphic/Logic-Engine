@@ -40,7 +40,7 @@ test('host inventory route fails closed unless the deployment build claim matche
     hostBuildClaim: '',
   });
   const response = makeResponse();
-  await handler({ user: { profile: { handle: 'default-user' }, directories: {} } }, response);
+  await handler({ user: { profile: { handle: 'default-user' }, directories: {} }, session: { handle: 'default-user' } }, response);
   assert.equal(response.statusCode, 503);
   assert.deepEqual(response.body, { status: 'NON_READY', code: 'HOST_BUILD_NOT_PINNED' });
   assert.equal(calls, 0);
@@ -68,7 +68,7 @@ test('host inventory route passes only the authenticated user data roots and ret
     characters: 'C:\\st\\data\\characters',
     backups: 'C:\\st\\data\\backups',
   };
-  await handler({ user: { profile: { handle: 'alice' }, directories } }, response);
+  await handler({ user: { profile: { handle: 'alice' }, directories }, session: { handle: 'alice' } }, response);
   assert.equal(response.statusCode, 200);
   assert.equal(response.headers['cache-control'], 'no-store, private');
   assert.equal(response.headers.vary, 'Cookie');
@@ -93,7 +93,7 @@ test('host inventory route hides scanner errors and absolute paths from the HTTP
     hostBuildClaim: pinned,
   });
   const response = makeResponse();
-  await handler({ user: { profile: { handle: 'alice' }, directories: {} } }, response);
+  await handler({ user: { profile: { handle: 'alice' }, directories: {} }, session: { handle: 'alice' } }, response);
   assert.equal(response.statusCode, 503);
   assert.deepEqual(response.body, { status: 'NON_READY', code: 'SOURCE_INVENTORY_UNAVAILABLE' });
   assert.equal(JSON.stringify(response.body).includes('private'), false);
