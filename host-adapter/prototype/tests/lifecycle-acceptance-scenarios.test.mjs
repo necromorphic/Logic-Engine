@@ -263,6 +263,9 @@ test('pinned SillyTavern patch wires the existing digest-only Core capture proxy
   assert.ok(patch.includes("fetch('/api/logic-engine/host-version-ledger/capture'"));
   assert.ok(patch.includes("fetch('/api/logic-engine/host/session'"));
   assert.ok(patch.includes("hostSessionId: await getLogicEngineHostSessionId()"));
+  assert.ok(patch.includes("getConversationUuid: () => chat_metadata.logic_engine_conversation_id"));
+  assert.ok(patch.includes("readPersistedInventory: async conversationUuid =>"));
+  assert.ok(patch.includes("fetch('/api/logic-engine/host/inventory?conversation_uuid='"));
   assert.equal(patch.includes('logicEngineHostSessionPromise'), false);
   assert.ok(patch.includes("router.post('/host-version-ledger/reconcile', createHostInventoryReconcileProxyHandler());"));
 
