@@ -178,6 +178,26 @@ test('configured mechanic API evaluates through one authority and commits only t
 });
 
 
+
+test('mechanic proposal API remains disabled without a deployment-owned policy authority', async (t) => {
+  const base = await setup(t);
+  assert.equal((await createWorld(base, 'api-mechanics-disabled-world')).status, 201);
+  const response = await fetch(base + '/v1/worlds/api-mechanics-disabled-world/mechanic-proposals', {
+    method: 'POST',
+    headers,
+    body: json({
+      instance_id: 'instance.disabled',
+      action_id: 'action.disabled',
+      idempotency_key: 'disabled-mechanic-key',
+      turn_id: 'disabled-mechanic-turn',
+      source_text: 'This must not execute without a configured policy authority.',
+    }),
+  });
+  assert.equal(response.status, 503);
+  assert.equal((await response.json()).error.code, 'MECHANICS_DISABLED');
+});
+
+
 test('time-advance API is internal-only and exposes durable start/status/replay', async (t) => {
   const base = await setup(t, { internalToken: INTERNAL });
   assert.equal((await createWorld(base, 'api-time-world')).status, 201);
