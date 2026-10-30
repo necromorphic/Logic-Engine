@@ -81,26 +81,31 @@ test('rejects identity not authorized by the trusted server-side resolver', (t) 
   assert.equal(journal.getHead(installation, account).sequence, 0);
 });
 
-test('serializes competing appends through the shared Coordinator lease', (t) => {
-  const { journal, directory } = setup(t);
-  const competing = new DatabaseSync(join(directory, 'coordinator.sqlite'));
+test('serializes lifecycle append against competing Core writers under the shared Coordinator lease', (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-host-lifecycle-lock-'));
+  const coordinatorPath = join(directory, 'coordinator.sqlite');
+  const competing = new DatabaseSync(coordinatorPath);
   competing.exec('PRAGMA busy_timeout=0;');
-  t.after(() => competing.close());
-  const result = journal.append(event({
-    event_id: 'locked-event',
-    event_type: 'VERSION_CREATED',
-    // Test the lock while trusted identity resolution executes synchronously.
-  }));
-  assert.equal(result.status, 'appended');
-  // A second journal instance uses the same Coordinator and observes the committed head.
-  const second = new HostLifecycleJournal({
-    path: join(directory, 'second-journal.sqlite'),
-    coordinatorPath: join(directory, 'coordinator.sqlite'),
-    resolveIdentity: (input) => ({ authorized: true, ...input }),
+  const journal = new HostLifecycleJournal({
+    path: join(directory, 'host-journal.sqlite'),
+    coordinatorPath,
+    resolveIdentity: (input) => {
+      assert.throws(() => competing.exec('BEGIN IMMEDIATE'), /locked|busy/i);
+      return {
+        authorized: true,
+        host_installation_id: input.host_installation_id,
+        authenticated_account_id: input.authenticated_account_id,
+        conversation_uuid: input.conversation_uuid,
+      };
+    },
   });
-  t.after(() => second.close());
-  assert.equal(second.getHead(installation, account).sequence, 0);
-  assert.throws(() => competing.exec('BEGIN IMMEDIATE'), /locked|busy/i);
+  t.after(() => {
+    try { journal.close(); } catch {}
+    try { competing.close(); } catch {}
+    rmSync(directory, { recursive: true, force: true });
+  });
+  assert.equal(journal.append(event()).status, 'appended');
+  competing.exec('BEGIN IMMEDIATE; ROLLBACK;');
 });
 
 test('append-only SQL triggers reject event update and deletion', (t) => {
