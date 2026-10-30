@@ -140,6 +140,8 @@ This refresh records repository CI only. It does not establish live browser/Andr
 
 ## Host data-root inventory — Windows VSS P0 follow-up (30 Oct 2026)
 
+Static route coverage is documented in [PINNED-ST-MUTATION-INVENTORY-2026-10-30.md](./PINNED-ST-MUTATION-INVENTORY-2026-10-30.md). The pinned source audit now checks a reviewed high-impact route/write-primitive subset across 18 endpoint files; this is not yet a proof that every mutation path is covered.
+
 The Host inventory route now passes SillyTavern's authenticated `directories.root` in addition to the chat/group roots. `enumerateHostDataInventory()` builds two views:
 
 - A generic regular-file inventory over the entire per-user data root. It hashes file contents and relative paths, so character cards, avatars/personas, worlds, settings, backups, user files and other files under that root contribute to the root fingerprint.
