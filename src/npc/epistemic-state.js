@@ -14,6 +14,15 @@ const ID_MAX = 200;
 const POLARITIES = new Set(["supports_true", "supports_false"]);
 const STANCES = new Set(["believes_true", "believes_false", "suspects_true", "suspects_false", "unresolved", "unknown"]);
 const EPISTEMIC_STATUSES = new Set(["confirmed", "unconfirmed_report", "suspicion", "inference", "rumor", "unknown"]);
+const ARRAY_ITERATOR = Object.getOwnPropertyDescriptor(Array.prototype, Symbol.iterator)?.value;
+
+function hasTrustedArrayIterator() {
+  const descriptor = Object.getOwnPropertyDescriptor(Array.prototype, Symbol.iterator);
+  return typeof ARRAY_ITERATOR === "function"
+    && descriptor !== undefined
+    && Object.hasOwn(descriptor, "value")
+    && descriptor.value === ARRAY_ITERATOR;
+}
 
 const nonReady = (reason = "invalid_epistemic_input") => Object.freeze({
   status: "non_ready",
@@ -63,9 +72,14 @@ function isSafeDataTree(value, active = new Set()) {
   try {
     const array = Array.isArray(value);
     const prototype = Object.getPrototypeOf(value);
-    if (array ? prototype !== Array.prototype : (prototype !== Object.prototype && prototype !== null)) return false;
+    if (array ? (prototype !== Array.prototype || !hasTrustedArrayIterator())
+      : (prototype !== Object.prototype && prototype !== null)) return false;
     active.add(value);
-    for (const key of Reflect.ownKeys(value)) {
+    const keys = Reflect.ownKeys(value);
+    // Avoid for..of here: it invokes Array.prototype[Symbol.iterator] on the
+    // array returned by Reflect.ownKeys, before caller state can be rejected.
+    for (let index = 0; index < keys.length; index += 1) {
+      const key = keys[index];
       if (array && key !== "length" && (typeof key !== "string" || !/^(0|[1-9][0-9]*)$/.test(key) || !Number.isSafeInteger(Number(key)) || Number(key) >= value.length)) return false;
       if (!array && typeof key !== "string") return false;
       const descriptor = Object.getOwnPropertyDescriptor(value, key);
@@ -164,7 +178,24 @@ function validState(state) {
     const currentRefs = [...belief.supporting_evidence_refs, ...belief.conflicting_evidence_refs];
     if (currentRefs.some((ref) => !validId(ref) || !evidenceByRef.has(ref)
       || evidenceByRef.get(ref).proposition_ref !== belief.proposition_ref)) return false;
-    if (belief.stance === "unknown" && (currentRefs.length > 0 || belief.review_required)) return false;
+    if (belief.stance === "unknown") {
+      if (currentRefs.length > 0 || belief.review_required) return false;
+    } else {
+      // A restored non-unknown stance must retain an evidence basis. Invalidated
+      // refs remain as history only when review_required is set by invalidation.
+      if (currentRefs.length === 0) return false;
+      if (belief.stance !== "unresolved" && belief.supporting_evidence_refs.length === 0) return false;
+      if (belief.stance === "unresolved"
+        && (belief.supporting_evidence_refs.length === 0 || belief.conflicting_evidence_refs.length === 0)) return false;
+      const negative = belief.stance === "believes_false" || belief.stance === "suspects_false";
+      const supportingPolarity = negative ? "supports_false" : "supports_true";
+      const conflictingPolarity = negative ? "supports_true" : "supports_false";
+      if (belief.supporting_evidence_refs.some((ref) => evidenceByRef.get(ref).polarity !== supportingPolarity)
+        || belief.conflicting_evidence_refs.some((ref) => evidenceByRef.get(ref).polarity !== conflictingPolarity)) return false;
+      if (currentRefs.some((ref) => evidenceByRef.get(ref).epistemic_status === "unknown")) return false;
+      if ((belief.stance === "believes_true" || belief.stance === "believes_false")
+        && currentRefs.some((ref) => evidenceByRef.get(ref).epistemic_status !== "confirmed")) return false;
+    }
     if (currentRefs.some((ref) => evidenceByRef.get(ref).status === "invalidated")
       && !belief.review_required) return false;
     if (new Set(belief.supporting_evidence_refs).size !== belief.supporting_evidence_refs.length
@@ -177,7 +208,12 @@ function validState(state) {
         || !denseArray(entry.evidence_refs)
         || !entry.evidence_refs.every((ref) => validId(ref)
           && evidenceByRef.has(ref)
-          && evidenceByRef.get(ref).proposition_ref === belief.proposition_ref)) return false;
+          && evidenceByRef.get(ref).proposition_ref === belief.proposition_ref)
+        || (entry.stance === "unknown" && entry.evidence_refs.length > 0)
+        || (entry.stance !== "unknown" && entry.evidence_refs.length === 0)
+        || entry.evidence_refs.some((ref) => evidenceByRef.get(ref).epistemic_status === "unknown")
+        || ((entry.stance === "believes_true" || entry.stance === "believes_false")
+          && entry.evidence_refs.some((ref) => evidenceByRef.get(ref).epistemic_status !== "confirmed"))) return false;
     }
     propositionKeys.add(belief.proposition_ref);
   }
