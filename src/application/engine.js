@@ -1443,7 +1443,12 @@ export class LogicEngine {
       // Check visibility before querying belief history. Otherwise, unknown vs.
       // unavailable could reveal whether a hidden proposition has a stored belief.
       if (propositionWithheld) {
-        return Object.freeze({ status: 'unavailable', actor_id: input.actor_id, proposition_ref: input.proposition_ref });
+        return Object.freeze({
+          status: 'unavailable',
+          actor_id: input.actor_id,
+          proposition_ref: input.proposition_ref,
+          ...(read.policy_authority ? { policy_authority: read.policy_authority } : {}),
+        });
       }
       const row = this.store.db.prepare(`
         SELECT b.transition_id, b.proposition_ref, b.proposition_value_json, b.stance,
@@ -1455,7 +1460,12 @@ export class LogicEngine {
         WHERE b.world_id=? AND b.actor_id=? AND b.proposition_ref=? AND e.validity='valid'
         ORDER BY e.commit_sequence DESC LIMIT 1
       `).get(input.world_id, input.actor_id, input.proposition_ref);
-      if (!row) return Object.freeze({ status: 'unknown', actor_id: input.actor_id, proposition_ref: input.proposition_ref });
+      if (!row) return Object.freeze({
+        status: 'unknown',
+        actor_id: input.actor_id,
+        proposition_ref: input.proposition_ref,
+        ...(read.policy_authority ? { policy_authority: read.policy_authority } : {}),
+      });
       const evidence = JSON.parse(row.evidence_acquisition_ids_json);
       const surviving = evidence.filter((ref) => visibleAcquisitionIds.has(ref));
       return Object.freeze({
