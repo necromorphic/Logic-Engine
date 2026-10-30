@@ -406,21 +406,33 @@ test('mechanic proposals fail closed without current-policy validation and reche
   );
 
   let activePolicyVersion = evaluation.context_policy_version;
+  let activeGeneration = evaluation.policy_generation;
   const observedStages = [];
   const guarded = new ProposalService(engine, {
     validateMechanicPolicy(identity) {
       observedStages.push(identity.stage);
       assert.equal(identity.policyVersion, evaluation.context_policy_version);
       assert.equal(identity.authorizationScope, evaluation.authorization_scope);
+      assert.equal(identity.authorityId, evaluation.authority_id);
+      assert.equal(identity.policyGeneration, evaluation.policy_generation);
       assert.equal(identity.worldId, worldId);
       return identity.policyVersion === activePolicyVersion
+        && identity.policyGeneration === activeGeneration
         && identity.authorizationScope === evaluation.authorization_scope;
     },
   });
+  const proposal = guarded.createFromMechanicEvaluation(worldId, evaluation, {
+    idempotencyKey: 'mechanic-policy-freshness-guarded',
+    turnId: 'turn-mechanic-policy-freshness-guarded',
+    sourceText: 'Policy freshness is checked on creation, approval and commit.',
+    adapterId: 'test-adapter',
+  });
+  assert.deepEqual(observedStages, ['proposal_creation']);
   guarded.approve(worldId, proposal.proposal_id);
   assert.deepEqual(observedStages, ['proposal_creation', 'approval']);
 
   activePolicyVersion = 'rotated-visibility-policy-v2';
+  activeGeneration += 1;
   assert.throws(
     () => guarded.commit(worldId, proposal.proposal_id),
     (error) => error.code === 'STALE_MECHANIC_POLICY' && error.status === 409,
