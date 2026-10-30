@@ -67,6 +67,24 @@ test('VSS provider rejects a junction/reparse point before inventory is exposed'
   });
 });
 
+test('VSS provider rejects a reparse-point ancestor of the configured data root', {
+  skip: process.platform !== 'win32',
+  timeout: 180_000,
+}, async () => {
+  await withTempRoot(async ({ parent }) => {
+    const outside = join(parent, 'real-parent');
+    const dataRoot = join(outside, 'data');
+    const junction = join(parent, 'redirected-parent');
+    await mkdir(dataRoot, { recursive: true });
+    await writeFile(join(dataRoot, 'chat.jsonl'), 'must not be inventoried through an ancestor junction');
+    await symlink(outside, junction, 'junction');
+    await assert.rejects(
+      () => withWindowsVssSnapshot(join(junction, 'data'), async () => assert.fail('reparse ancestor must never reach scanner')),
+      /HOST_VSS_REPARSE_POINT_PRESENT/,
+    );
+  });
+});
+
 test('expired or fabricated VSS lease cannot be used by the Windows scanner', {
   skip: process.platform !== 'win32',
 }, async () => {
