@@ -7,6 +7,7 @@ import { SQLiteStore } from '../src/storage/sqlite-store.js';
 import { LogicEngine } from '../src/application/engine.js';
 import { ActorBindingService } from '../src/application/actor-bindings.js';
 import { AuthorizedReadService } from '../src/application/authorized-read-service.js';
+import { MechanicPolicyAuthority } from '../src/application/mechanic-policy-authority.js';
 
 function setup(t) {
   const store = new SQLiteStore(':memory:');
@@ -125,8 +126,13 @@ test('authorized read rejects the pre-rollback snapshot when sequence is unchang
     entityIds: ['source-trust-readable-target'],
   });
   const sequenceBefore = store.currentCommitSequence('source-trust-world');
-  const service = new AuthorizedReadService(engine, bindings, (_context, _entity, field) =>
-    field === 'attributes.name');
+  const policyAuthority = new MechanicPolicyAuthority({
+    authorityId: 'source-trust-rollback-policy',
+    generation: 1,
+    fieldPolicy: (_context, _entity, field) => field === 'attributes.name',
+  });
+  const service = new AuthorizedReadService(engine, bindings, policyAuthority);
+  const expectedPolicyAuthority = policyAuthority.getSnapshot();
 
   const result = engine.rollbackEvent('source-trust-world', {
     root_event_id: source.event_id,
@@ -146,6 +152,7 @@ test('authorized read rejects the pre-rollback snapshot when sequence is unchang
       attribute: 'name',
       expectedWorldRevision: snapshot.world_revision,
       expectedCommitSequence: snapshot.commit_sequence,
+      expectedPolicyAuthority,
     }),
     (error) => error.code === 'STALE_AUTHORIZED_READ_SNAPSHOT'
       && error.status === 409

@@ -4,6 +4,11 @@ import { SQLiteStore } from '../src/storage/sqlite-store.js';
 import { LogicEngine } from '../src/application/engine.js';
 import { MechanicExecutor } from '../src/application/mechanic-executor.js';
 import { ProposalService } from '../src/application/proposals.js';
+import { ActorBindingService } from '../src/application/actor-bindings.js';
+import { AuthorizedReadService } from '../src/application/authorized-read-service.js';
+import { CanonicalEntityAttributeContextProvider } from '../src/application/entity-attribute-context-provider.js';
+import { MechanicPolicyAuthority } from '../src/application/mechanic-policy-authority.js';
+import { createActiveMechanicPolicyValidator } from '../src/api/server.js';
 
 function setup(t, worldId) {
   const store = new SQLiteStore(':memory:');
@@ -75,20 +80,7 @@ function enableFixture(engine, worldId) {
   ], [created.last_event_id]);
 }
 
-function trustedContext({ snapshot }) {
-  return {
-    context: { world: { weather: 'rain' }, actor: { hp: 10 } },
-    knownAbsentPaths: [],
-    dependencyEvidence: [
-      { path: 'actor.hp', kind: 'entity_attribute', entity_id: 'entity.actor-context', attribute: 'hp' },
-      { path: 'world.weather', kind: 'entity_attribute', entity_id: 'entity.world-context', attribute: 'weather' },
-    ],
-    world_revision: snapshot.world_revision,
-    commit_sequence: snapshot.commit_sequence,
-    authorization_scope: 'integration-test-actor',
-    policy_version: 'integration-test-policy-v1',
-  };
-}
+
 
 test('Mechanics uses the canonical Core proposal/commit path and never writes during evaluation, proposal creation, or approval', (t) => {
   const { engine, worldId } = setup(t, 'mechanics-core-canonical-write-world');
@@ -96,7 +88,34 @@ test('Mechanics uses the canonical Core proposal/commit path and never writes du
 
   const before = engine.getSnapshot(worldId);
   const beforeEvents = engine.getEvents(worldId).length;
-  const executor = new MechanicExecutor(engine, { resolveAuthorizedContext: trustedContext });
+  const adapterId = 'integration-test-adapter';
+  const actorEntityId = 'entity.actor-context';
+  const actorBindings = new ActorBindingService(engine);
+  actorBindings.bind(worldId, adapterId, actorEntityId);
+  const policyAuthority = new MechanicPolicyAuthority({
+    authorityId: 'integration-test-policy-authority',
+    generation: 1,
+    fieldPolicy: () => true,
+  });
+  const authorizedReads = new AuthorizedReadService(engine, actorBindings, policyAuthority);
+  const contextProvider = new CanonicalEntityAttributeContextProvider(engine, {
+    policyVersion: 'integration-test-policy-v1',
+    authorizationScope: 'integration-test-actor',
+    bindings: [
+      { path: 'actor.hp', entity_id: actorEntityId, attribute: 'hp' },
+      { path: 'world.weather', entity_id: 'entity.world-context', attribute: 'weather' },
+    ],
+    authorizedReadService: authorizedReads,
+    adapterId,
+    actorEntityId,
+    recipient: 'model',
+    purpose: 'npc_decision',
+  });
+  assert.equal(authorizedReads.policyAuthority, policyAuthority);
+  assert.equal(contextProvider.getPolicyAuthority(), policyAuthority);
+  const executor = new MechanicExecutor(engine, {
+    resolveAuthorizedContext: (request) => contextProvider.resolve(request),
+  });
   const evaluation = executor.evaluate({
     worldId,
     instanceId: 'instance.integration',
@@ -109,12 +128,13 @@ test('Mechanics uses the canonical Core proposal/commit path and never writes du
   assert.equal(engine.getEvents(worldId).length, beforeEvents);
   assert.equal(engine.getState(worldId).entities.some((entity) => entity.entity_id === 'entity.new'), false);
 
-  const proposals = new ProposalService(engine, { validateMechanicPolicy: () => true });
+  const validateMechanicPolicy = createActiveMechanicPolicyValidator(() => contextProvider, policyAuthority);
+  const proposals = new ProposalService(engine, { validateMechanicPolicy });
   const proposal = proposals.createFromMechanicEvaluation(worldId, evaluation, {
     idempotencyKey: 'integration-canonical-write',
     turnId: 'turn-integration-canonical-write',
     sourceText: 'Create the new character through the ordinary Core proposal lifecycle.',
-    adapterId: 'integration-test-adapter',
+    adapterId,
   });
 
   assert.equal(proposal.status, 'pending');
