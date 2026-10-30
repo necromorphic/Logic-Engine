@@ -13,7 +13,7 @@ On the exact Node.js 22.13.0 runtime used by Logic-Engine, it tests whether:
 5. The wrapper can delegate normal SQLite I/O and WAL operations to the parent VFS without replacing the underlying `sqlite3_file` methods.
 6. The pinned parent VFS exposes its native open syscall (`open` on Linux, `CreateFileW` on Windows) through `xGetSystemCall`, and a test-only wrapper installed through `xSetSystemCall` observes actual `node:sqlite` file-open calls.
 
-The C probe increments a process-local counter after the parent VFS successfully opens a main database. It also temporarily installs a process-wide counting wrapper around the pinned native open syscall and exposes both counters through SQL functions. The wrapper delegates to the original OS call unchanged; it does not inspect or validate the returned descriptor/HANDLE.
+The C probe counts successful parent-VFS opens for the main database, WAL file, and rollback journal. It also temporarily installs a process-wide counting wrapper around the pinned native open syscall and exposes the counters through SQL functions. The wrapper delegates to the original OS call unchanged; it does not inspect or validate the returned descriptor/HANDLE. SHM is created through SQLite's shared-memory methods rather than a separate VFS `xOpen`; this probe checks its on-disk presence but does not wrap `xShmMap`.
 
 ## What it explicitly does NOT prove
 
