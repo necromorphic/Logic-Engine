@@ -3,6 +3,8 @@ import { contentDigest, fingerprintSource } from './lifecycle-journal.mjs';
 const rawVersions = message => Array.isArray(message.swipes) && message.swipes.length ? message.swipes : [message.mes ?? ''];
 const roleOf = message => message.is_user ? 'user' : message.is_system ? 'system' : 'assistant';
 const activeIndex = message => Number.isInteger(message.swipe_id) ? message.swipe_id : 0;
+const HOST_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const PINNED_HOST_COMMIT = '06bde939fb1e9c4c8d8641d810f0a916b5bce127';
 const CURRENTLY_HOOKED_PATHS = Object.freeze(['create-message', 'message-send', 'message-receive', 'create-swipe', 'select-swipe', 'delete-swipe', 'delete-message', 'edit-message', 'rename-chat']);
 const newId = () => {
   if (!globalThis.crypto?.randomUUID) throw Error('crypto.randomUUID unavailable; Host capture NON_READY');
@@ -13,11 +15,91 @@ const newId = () => {
  * Opt-in adapter boundary for explicit native ST hooks.
  * This is not a complete inventory until every mutation path is wired and tested.
  */
-export function createStLifecycleBridge({ journal, getConversationId, getSourceLocator = () => null, getChat, saveChat, publishDigest = null }) {
-  if (!journal || !getConversationId || !getChat || !saveChat) throw TypeError('Missing Host lifecycle bridge dependency');
+export function createStLifecycleBridge({ journal, getConversationId, getConversationUuid, readPersistedInventory, getSourceLocator = () => null, getChat, saveChat, publishDigest = null }) {
+  if (!journal || typeof getConversationId !== 'function' || typeof getConversationUuid !== 'function'
+    || typeof readPersistedInventory !== 'function' || typeof getChat !== 'function' || typeof saveChat !== 'function') {
+    throw TypeError('Missing Host lifecycle bridge dependency, including independent persisted-inventory reader');
+  }
   if (publishDigest !== null && typeof publishDigest !== 'function') throw TypeError('publishDigest must be a trusted callback');
   const publishQueues = new Map();
   const coreCaptureStates = new Map();
+
+  async function assertPersistedChatMatches(conversationId, chat) {
+    const conversationUuid = await getConversationUuid();
+    if (!HOST_UUID.test(conversationUuid ?? '')) {
+      throw Error('NON_READY: authenticated Host conversation UUID is unavailable for disk verification');
+    }
+    const inventory = await readPersistedInventory(conversationUuid);
+    if (!inventory || inventory.status !== 'DOUBLE_SCAN_CANDIDATE'
+      || inventory.authority !== 'NON_AUTHORITATIVE'
+      || inventory.host_commit !== PINNED_HOST_COMMIT
+      || inventory.scope !== 'PINNED_SILLYTAVERN_CHAT_DATA_ROOTS'
+      || inventory.completeness !== 'DOUBLE_SCANNED_PATH_VIEW_ONLY'
+      || inventory.host_build_claim_type !== 'DEPLOYMENT_ASSERTION_NOT_RUNTIME_ATTESTATION'
+      || !/^[a-f0-9]{64}$/.test(inventory.inventory_sha256 ?? '')
+      || !Array.isArray(inventory.files) || inventory.files.length !== 1) {
+      throw Error('NON_READY: independent pinned Host disk inventory is unavailable or outside its reviewed scope');
+    }
+
+    const identities = inventory.files[0]?.logical_identity;
+    if (!identities || identities.conversation_uuid !== conversationUuid
+      || identities.identity_status !== 'CURRENT_IDENTITIES_VERIFIED'
+      || identities.message_count !== chat.length
+      || identities.identified_message_count !== chat.length
+      || identities.missing_message_identity_count !== 0
+      || !Array.isArray(identities.messages) || identities.messages.length !== chat.length) {
+      throw Error('NON_READY: persisted Host file has incomplete or mismatched logical identities');
+    }
+
+    const expectedMessages = chat.map((message, messageIndex) => {
+      const identity = message?._logicEngineLifecycle;
+      const versions = rawVersions(message);
+      const selectedIndex = activeIndex(message);
+      if (!identity || !HOST_UUID.test(identity.messageId ?? '')
+        || !Array.isArray(identity.versions) || identity.versions.length !== versions.length
+        || identity.activeVersionIndex !== selectedIndex) {
+        throw Error('NON_READY: in-memory Host identity is incomplete during persisted-state verification');
+      }
+      return {
+        message_id: identity.messageId,
+        role: roleOf(message),
+        active_version_index: selectedIndex,
+        versions: identity.versions.map((version, versionIndex) => {
+          if (!version || !HOST_UUID.test(version.versionId ?? '')
+            || version.versionIndex !== versionIndex
+            || !/^[a-f0-9]{64}$/.test(version.payloadDigest ?? '')
+            || (version.parentVersionId !== null && version.parentVersionId !== undefined
+              && !HOST_UUID.test(version.parentVersionId))) {
+            throw Error('NON_READY: in-memory Host version identity is invalid during persisted-state verification');
+          }
+          return {
+            version_id: version.versionId,
+            version_index: versionIndex,
+            parent_version_id: version.parentVersionId ?? null,
+            content_sha256: version.payloadDigest,
+            active: versionIndex === selectedIndex,
+          };
+        }),
+      };
+    });
+    const expected = {
+      conversation_uuid: conversationUuid,
+      identity_status: 'CURRENT_IDENTITIES_VERIFIED',
+      message_count: chat.length,
+      identified_message_count: chat.length,
+      missing_message_identity_count: 0,
+      messages: expectedMessages,
+    };
+    if (JSON.stringify(identities) !== JSON.stringify(expected)) {
+      throw Error('NON_READY: independently read SillyTavern JSONL identity/digests differ from the in-memory conversation');
+    }
+    return {
+      status: 'PERSISTED_MATCH_REVIEW_ONLY',
+      inventorySha256: inventory.inventory_sha256,
+      scope: inventory.scope,
+      authority: inventory.authority,
+    };
+  }
 
   function sortParentFirst(entries) {
     const groups = new Map();
