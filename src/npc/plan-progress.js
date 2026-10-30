@@ -198,7 +198,14 @@ function getNpcPlanActiveStepUnsafe(plan) {
   if (!validatePlan(plan) || plan.status !== "active") {
     return Object.freeze({ status: "non_ready", step: null });
   }
-  const active = plan.steps.find((step) => step.status === "active");
+  let active;
+  for (let index = 0; index < plan.steps.length; index += 1) {
+    if (plan.steps[index].status === "active") {
+      active = plan.steps[index];
+      break;
+    }
+  }
+  if (!active) return Object.freeze({ status: "non_ready", step: null });
   return Object.freeze({
     status: "ready",
     step: Object.freeze({ id: active.id, action_id: active.action_id }),
