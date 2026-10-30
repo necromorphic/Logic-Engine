@@ -57,7 +57,7 @@ class FakeDB {
   finish(tx) { setImmediate(() => tx.oncomplete?.()); }
 }
 
-function makeFixture(chat = [{ is_user: true, mes: 'hello' }, { is_user: false, mes: 'answer' }], { publishDigest = null } = {}) {
+function makeFixture(chat = [{ is_user: true, mes: 'hello' }, { is_user: false, mes: 'answer' }], { publishDigest = null, publishSnapshot = null } = {}) {
   let failSave = false;
   const db = new FakeDB();
   const journal = new HostLifecycleJournal(db);
@@ -69,6 +69,7 @@ function makeFixture(chat = [{ is_user: true, mes: 'hello' }, { is_user: false, 
     getSourceLocator: () => sourceLocator,
     getChat: () => chat,
     publishDigest,
+    publishSnapshot,
     saveChat: async () => {
       saveCount++;
       if (failSave) throw Error('simulated native chat save failure');
@@ -720,4 +721,29 @@ test('unique raw-content sentinels never enter persisted journal rows or exporte
   f.chat.splice(1, 1);
   await f.bridge.afterMutation('delete-message');
   await assertNoRawSentinels('after delete');
+});
+
+
+test('Host sends a digest-only Core snapshot through reconcile while explicitly withholding completeness', async () => {
+  const observed = [];
+  const f = makeFixture(undefined, {
+    publishSnapshot: async snapshot => {
+      observed.push(structuredClone(snapshot));
+      return {
+        inventory_status: 'NON_READY',
+        reconciliation: { status: 'non_ready', code: 'HOST_INVENTORY_NOT_AUTHORIZED' },
+      };
+    },
+  });
+  const enrolled = await f.bridge.enrollCurrentConversation();
+  assert.equal(observed.length, 1);
+  assert.equal(observed[0].conversation_id, 'chat-1');
+  assert.equal(observed[0].complete, false);
+  assert.equal(observed[0].versions.length, 2);
+  assert.equal(observed[0].versions.every(version =>
+    Object.keys(version).sort().join(',') === 'active,content_sha256,conversation_id,deleted,message_id,parent_version_id,version_id'), true);
+  assert.equal(JSON.stringify(observed[0]).includes('hello'), false);
+  assert.equal(JSON.stringify(observed[0]).includes('answer'), false);
+  assert.equal(enrolled.coreCaptureStatus, 'NON_READY');
+  assert.equal((await f.bridge.getCoreCaptureStatus()).status, 'NON_READY');
 });
