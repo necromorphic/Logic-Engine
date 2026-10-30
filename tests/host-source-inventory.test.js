@@ -34,7 +34,7 @@ async function scan(directories, hostCommit = PINNED) {
   return enumeratePinnedSillyTavernChatFiles({ directories, hostCommit });
 }
 
-test('enumerates root, character and group chat files as a non-authoritative stable candidate', async t => {
+test('enumerates root, character and group chat files as a non-authoritative double-scan candidate', async t => {
   const value = await fixture();
   t.after(value.cleanup);
   const result = await scan(value.directories);
