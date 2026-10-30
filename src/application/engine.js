@@ -786,6 +786,18 @@ export class LogicEngine {
       const requestInput = inputCheck.request;
       assert(typeof this.npcKnowledgeReadAuthorizer === 'function',
         'NPC_KNOWLEDGE_READ_NOT_CONFIGURED', 'A trusted deployment-owned NPC knowledge read authorizer is required.', 403);
+      let policySnapshot = null;
+      if (typeof this.npcKnowledgeContextResolver === 'function') {
+        try {
+          policySnapshot = this.npcKnowledgePolicyAuthority?.getSnapshot();
+        } catch {
+          policySnapshot = null;
+        }
+        assert(isNpcKnowledgePolicyAuthoritySnapshot(policySnapshot)
+          && this.npcKnowledgePolicyAuthority.isCurrent(policySnapshot) === true,
+        'NPC_KNOWLEDGE_READ_NOT_AUTHORIZED',
+        'The Core NPC disclosure policy authority is unavailable or malformed.', 403);
+      }
       let binding = null;
       if (typeof this.npcKnowledgeContextResolver === 'function') {
         try {
@@ -835,12 +847,13 @@ export class LogicEngine {
           purpose: request.purpose,
           world_revision: world.world_revision,
           commit_sequence: commitSequence,
+          ...(policySnapshot ?? {}),
         }));
       } catch {
         throw new EngineError('NPC_KNOWLEDGE_READ_NOT_AUTHORIZED',
           'The trusted read authorizer did not approve this request.', 403);
       }
-      const checked = validateNpcKnowledgeRead(request, world, commitSequence, authorization);
+      const checked = validateNpcKnowledgeRead(request, world, commitSequence, authorization, policySnapshot);
       if (checked.status !== 'ready') {
         const status = checked.reason === 'stale_snapshot' ? 409
           : checked.reason === 'world_not_found' ? 404 : 403;
@@ -924,7 +937,7 @@ export class LogicEngine {
       // Binding revocation does not necessarily advance the world revision, so a
       // snapshot-only check cannot establish that the reader is still authorized.
       revalidateNpcKnowledgeReadAuthorization(
-        this, request, snapshotNow, checked.request.authorization_ref,
+        this, request, snapshotNow, checked.request.authorization_ref, policySnapshot,
       );
   
       return Object.freeze({
@@ -940,6 +953,7 @@ export class LogicEngine {
           commit_sequence: checked.request.commit_sequence,
         }),
         authorization_ref: checked.request.authorization_ref,
+        ...(checked.request.policy_authority ? { policy_authority: checked.request.policy_authority } : {}),
         truncated,
         items: Object.freeze(items),
       });
