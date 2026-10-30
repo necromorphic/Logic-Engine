@@ -99,6 +99,11 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
     assert.equal(first.prepare('SELECT value FROM probe').get().value, 'ok');
     const opened = first.prepare('SELECT logic_engine_vfs_probe_open_count() AS count').get().count;
     assert.equal(opened, 2, 'the worker and Core file-backed DatabaseSync connections must pass through the registered VFS xOpen');
+    assert.equal(
+      first.prepare('SELECT logic_engine_vfs_probe_hook_protection() AS protected').get().protected,
+      1,
+      'the VFS must refuse attempts to replace its protected native open/stat hooks'
+    );
 
     // Keep a reader transaction open while the writer appends another WAL frame.
     // This makes the WAL and SHM sidecars observable before the connections close.
