@@ -14,6 +14,16 @@ Target host revision: SillyTavern 1.19.0-1-g06bde939f, commit 06bde939fb1e9c4c8d
 - Reconciliation compares native chat fingerprint **and** the current message/version IDs, active swipe, digests, and lineage against the last journaled identity snapshot. This catches copied/restored sidecar IDs even when message text is unchanged.
 - The prototype never asserts capture readiness from caller-supplied coverage. Without trusted pinned-source hook attestation it remains NON_READY.
 
+## Authenticated SillyTavern session identity (review-only)
+
+The pinned Host route exposes `GET /api/logic-engine/host/session`. It requires the authenticated SillyTavern account session (`request.session.handle` must equal `request.user.profile.handle`) and creates a server-generated UUID in the signed `cookie-session` object. The ID is stable while that authenticated cookie session remains valid and rotates when the authenticated account changes or the session is reset. The browser lifecycle bridge uses the composite conversation identity:
+
+`hostSessionId:installationId:conversationUuid`
+
+This prevents two different authenticated ST sessions from silently reusing the same Core conversation binding. The session ID is not a credential and does not authenticate a request to Core; Core still trusts only the configured server-side adapter credential and its own conversation/world binding. The browser's localStorage installation ID remains a client-side namespace, not an installation attestation.
+
+The session ID survives a SillyTavern process restart only while the signed session cookie and the ST cookie-signing secret remain valid and unchanged. Logout/login, cookie loss, secret rotation, or account change rotates the identity. Existing enrollments created with the old `installationId:conversationUuid` format are not migrated automatically; the old marker/mapping mismatch fails closed and requires explicit re-binding. This is still not a durable server installation identity, a complete inventory proof, or Core world/actor authorization.
+
 ## Digest-only Core transport (review-only)
 
 The current patch can forward digest-only Host version entries to the PC Logic-Engine API through a same-origin SillyTavern server endpoint. Browser code does **not** receive the Core API token or adapter token; the server-side proxy reads these environment variables:
