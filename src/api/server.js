@@ -293,10 +293,17 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
           throw new EngineError('INVALID_HOST_CONVERSATION_BINDING',
             'Revocation accepts an audit reason.', 400);
         }
-        return send(res, 200, { binding: hostConversationBindings.revoke({
+        const revokedBinding = hostConversationBindings.revoke({
           adapterId: decodeURIComponent(hostBindingParts[2]),
           conversationId: decodeURIComponent(hostBindingParts[3]), reason: body.reason,
-        }) });
+        });
+        // The binding is the authority; invalidate any previously READY digest
+        // inventory before acknowledging revocation. Consumers must still
+        // re-resolve the binding at their own disclosure/dispatch boundary.
+        if (hostVersionLedger && typeof hostVersionLedger.invalidateConversation === 'function') {
+          hostVersionLedger.invalidateConversation(revokedBinding.world_id, revokedBinding.conversation_id);
+        }
+        return send(res, 200, { binding: revokedBinding });
       }
 
       if (req.method === 'POST' && url.pathname === '/v1/worlds') {
