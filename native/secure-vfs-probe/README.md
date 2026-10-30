@@ -8,8 +8,8 @@ This probe is a bounded feasibility implementation for Issue #770. It keeps the 
 - Bundled SQLite 3.47.2
 - Windows x64 and Linux x64
 - Original Windows/Linux open-boundary probe: `56ebf8c6246358be363a83ccc6653fd8828523dc`
-- POSIX directory-anchor spike: `031a16d2bc8ac73bce840bf4a1728881fa9bb131`
-- The POSIX parent-rename + WAL/SHM placement test passed on Linux; the Windows job passed the unchanged Windows open-boundary test. Current-head CI: https://github.com/necromorphic/Logic-Engine/actions/runs/41086269230
+- POSIX directory-anchor spike with root-relative component walk and symlink rejection test: `6b0b854fe4659c8e43d6ac5b78bedd0043b395bc`
+- The POSIX parent-rename + WAL/SHM placement test passed on Linux in the previous tested code head; the new root-walk/symlink regression test is awaiting CI. Windows continues to validate the unchanged open-boundary probe.
 
 ## What this probe now demonstrates
 
