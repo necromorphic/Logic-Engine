@@ -6,7 +6,8 @@ Status: **prototype implementation uses SQLite; production storage and physical-
 
 ### Canonical / authoritative
 - World metadata and pinned World Pack version.
-- Entity, relation, fact, resource (if defined by pack), knowledge, goal, plan, task and process records.
+- Core-owned canonical simulation records: entities, relations, facts, resources (if defined by pack), knowledge/acquisition/belief/delivery records, and world-scoped process records.
+- NPC-domain authoritative but non-canonical records: goals, plans, plan steps/task progress, intentions, commitments, and NPC-local lifecycle/revision audit. Under accepted decision A1, these are persisted in a separate NPC-local store, not Core's canonical SQLite store. They may reference Core identities, snapshot cursors and committed result/event IDs, but do not create canonical world facts/events, world revisions, causal history, authorization, or rollback. See `docs/97-npc-goal-plan-state-ownership-decision.md` and `docs/98-npc-local-goal-plan-store-contract.md`.
 - Accepted WorldEvents and append-only audit entries.
 - Turn idempotency outcomes and rollback plans/results.
 - Story arc/beat definitions and current derived statuses where they cannot be reconstructed cheaply.
