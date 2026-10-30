@@ -45,7 +45,7 @@ export class HostLifecycleJournal {
     for (let i=0;i<messages.length;i++) {
       const m=messages[i], versions=Array.isArray(m.versions)&&m.versions.length?m.versions:[m.text ?? ''];
       mapping.push({ messageId:id(), messageIndex:i, role:String(m.role ?? 'unknown'), activeVersionIndex:Number.isInteger(m.activeVersionIndex)?m.activeVersionIndex:0,
-        versions: await Promise.all(versions.map(async (text,j)=>({versionId:id(), versionIndex:j, payloadDigest:await contentDigest(text)}))) });
+        versions: await Promise.all(versions.map(async (text,j)=>({versionId:id(), versionIndex:j, payloadDigest:await digest(String(text))}))) });
     }
     const row=await this.append({conversationId,eventId:id(),operation:'baseline',sourceFingerprint,payload:{captureBoundary:'enrollment-forward-only',messages:mapping}});
     if (row?.status === 'NON_READY') throw Error('NON_READY: baseline append rejected: ' + row.reason);
@@ -149,13 +149,7 @@ export class HostLifecycleJournal {
   #fail(cid,reason) { this.#bad.set(cid,reason); return {status:'NON_READY',reason}; }
 }
 function txDone(tx) { return new Promise((resolve,reject)=>{tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error||Error('IndexedDB transaction failed'));tx.onabort=()=>reject(tx.error||Error('IndexedDB transaction aborted'));}); }
-// Match the pinned SillyTavern source scanner: SHA-256 over exact UTF-8 message bytes,
- // not the canonical-JSON digest used for journal records and event envelopes.
-export async function contentDigest(text) {
-  const bytes = new TextEncoder().encode(String(text));
-  return [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))]
-    .map(value => value.toString(16).padStart(2, '0')).join('');
-}
+export async function contentDigest(text) { return digest(String(text)); }
 export async function fingerprintSource(messages, sourceLocator = null) {
   const projection = messages.map(message => ({
     role: message.is_user ? 'user' : message.is_system ? 'system' : 'assistant',
