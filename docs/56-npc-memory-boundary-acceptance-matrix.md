@@ -425,7 +425,7 @@ The private semantic contract is recorded in `docs/57-private-host-core-memory-n
 | Requirement | Status | Current evidence and remaining gap |
 |---|---|---|
 | R1 — Acquisition identity, provenance and source version | **PARTIAL** | Trusted source ingestion #683 and direct `canonical_entity` source-version/inventory support #709 are on main. Acquisition-time value/source-event pins and Core NPC reader are draft in #764; Memory evidence is not wired into the NPC runtime. |
-| R2 — Actor, recipient, purpose and field authorization | **PARTIAL** | Core actor binding and bounded authorized-read exist. #744 has per-read/per-acquisition authorizers but they are unset in `src/index.js`; adapter/recipient remain request scope, not Host authentication. |
+| R2 — Actor, recipient, purpose and field authorization | **PARTIAL** | Core actor binding and bounded authorized-read exist. #764 has per-read/per-acquisition authorizers but they are unset in `src/index.js`; adapter/recipient remain request scope, not Host authentication. |
 | R3 — Epistemic class → belief mapping | **PARTIAL** | Private contract PR #747 is implemented as an NPC-local pure mapping in draft PR #769. Runtime Core/Memory/Host integration and production context serialization are not present. |
 | R4 — Production NPC decision/context callsite | **NOT IMPLEMENTED** | No production caller/serializer has been demonstrated to consume the authorized result and preserve the epistemic distinctions. |
 | R5 — Host final disclosure and Gateway | **PARTIAL** | A bounded Core/Provider dispatch primitive exists, but no pinned SillyTavern final-send route is wired to it; Host inventory/restore and authenticated session binding remain incomplete. Contract requires fail-closed final revalidation and does not claim linearizability. |
@@ -476,7 +476,7 @@ This is the current NPC execution record. Earlier dated sections above are histo
 
 The old PRs are closed. The comparison shows no Personality/Core/Memory/Host/Relationships/vectorization path to port from those historical heads. Their ancestry is not part of the new implementation diff.
 
-The clean replacement is [PR #769](https://github.com/necromorphic/Logic-Engine/pull/769), Draft, based exactly on `8c8b9059ae12af3a63e96eb7cb86851e12a6d925`. Current head: `05ea559a0e195fe40acfa346c3251a775e7c59a2`; compare is 5 ahead / 0 behind. Its three changed paths are:
+The clean replacement is [PR #769](https://github.com/necromorphic/Logic-Engine/pull/769), Draft, based exactly on `8c8b9059ae12af3a63e96eb7cb86851e12a6d925`. Current head: `ad71e151c4fc2fe63076483d4818d90db45d720a`; compare is 6 ahead / 0 behind. Its four changed paths are:
 - `.github/workflows/runtime-tests.yml` — NPC-owned boundary workflow adds the reducer test and repository test bootstrap;
 - `src/npc/epistemic-state.js` — NPC-owned reducer and conservative mapping;
 - `tests/npc-epistemic-state.test.js` — focused reducer/mapping regressions.
