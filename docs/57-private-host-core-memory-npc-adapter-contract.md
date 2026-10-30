@@ -40,7 +40,7 @@ The project owner delegated architectural decision authority for the four blocks
 It does **not** claim that the end-to-end path exists. Current implementation evidence shows:
 - Trusted `author_initial` / `imported` source ingestion is implemented on main by PR #683. Core validates deployment-owned source material and emits canonical `knowledge.acquire` effects; this is source ingestion, not a knowledge reader or Memory dispatch.
 - Core stores acquisition effects in its canonical event lifecycle and maintains a rebuildable `knowledge_acquisitions` projection. The current writer's deterministic `acquisition_id` binds world, subject, fact, source kind/reference/digest and authorization reference, but does not yet pin the exact acquired fact value and sorted source-event set.
-- Current-main draft PR #764 adds `LogicEngine.readNpcKnowledge()`, acquisition-time value/source-event pins, canonical belief-transition events and a derived projection; prior PR #744 was closed unmerged. Authorizers are not configured in `src/index.js`, and the candidate does not add Host-session authentication, NPC runtime invocation or model dispatch.
+- Current-main draft PR #797 adds `LogicEngine.readNpcKnowledge()`, acquisition-time value/source-event pins, canonical belief-transition events and a derived projection. It wires Core-side read and per-acquisition visibility authorizers in `src/index.js`; reads require active Host conversation→world and adapter→actor bindings, while visibility requires exact trusted source provenance for the world's pinned World Pack. The internal reader still has no HTTP caller, authenticated SillyTavern invocation, NPC runtime callsite or model dispatch.
 - Current-main draft NPC reducer/admission PR #759 preserves `confirmed`, `unconfirmed_report`, `suspicion`, `inference`, `rumor` and `unknown`; prior PR #695 was closed as superseded. It is not an authorization or acquisition service.
 - `MemoryNpcConsumer` is a separate internal application seam for Memory candidates backed by direct `canonical_entity` sources. It excludes summaries and initial/imported candidates; it must not be mistaken for the Core initial-acquisition reader.
 - `memory-candidate-eligibility.js` is metadata-only. It does not authenticate, authorize, acquire or prove source authenticity.
@@ -74,7 +74,7 @@ The contract deliberately separates two paths. They must not be collapsed into o
 - If any acquisition relevant to a proposition is withheld or visibility cannot be established, the belief/context builder must fail closed for that proposition without revealing the hidden value or which acquisition was withheld.
 - This lane does **not** require Memory Provider retrieval. It represents explicit `author_initial` / `imported` subject assignment.
 - A Core acquisition means the subject was assigned information. It does not itself mean the proposition is objectively true or that the NPC believes it.
-- Until the Core reader, per-acquisition visibility authorizer and deployment authorizers are implemented/configured and accepted, this lane is not consumable by production NPC runtime.
+- The Core reader and per-acquisition visibility authorizer are implemented as a draft in #797 and wired into runtime composition, but remain unreviewed and have no authenticated Host caller or production NPC callsite. This lane is therefore not consumable by production NPC runtime.
 
 ### Lane B — Memory Provider evidence
 
@@ -292,7 +292,7 @@ The delegated architectural authority used to approve this document does not sil
 | Gate | Exit condition | Current state |
 |---|---|---|
 | C0 — Private contract | Semantics and block boundaries fixed by this document | **Complete for v0.1** |
-| C1 — Core acquisition reader/pins | Merge/review the Core reader candidate; prove immutable value/source-event pins and per-acquisition visibility authorization | Draft candidate PR #764; not main |
+| C1 — Core acquisition reader/pins | Review the Core reader candidate; prove immutable value/source-event pins and per-acquisition visibility authorization | Draft candidate PR #797; not main |
 | C2 — Core source version | Use the opaque canonical entity source-version token and snapshot-pinned inventory contract | **Implemented on main** by PR #709; Host/Provider production completeness remains separate |
 | C3 — Memory/Host evidence | Prove Provider inventory/reconciliation against authoritative Host lifecycle identity and restart/restore | Host PR #680 closed unmerged; #689 remains draft and is stacked on #680; production authority not established |
 | C4 — Final disclosure | Implement the approved fail-closed final revalidation and sole Gateway route; do not claim linearizability | Candidate #646 is review-only; actual pinned Host route is not wired |
