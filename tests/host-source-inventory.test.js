@@ -11,14 +11,14 @@ import {
 } from '../host-adapter/prototype/st-source-inventory.mjs';
 
 
-// Windows source inventory is exercised only through the VSS-backed path.
-// The POSIX-specific path-race and reparse tests remain skipped on Windows.
+// Windows source inventory uses the VSS-backed path. The symlink-specific
+// assertion remains covered by the dedicated VSS reparse/junction integration test.
 const test = (name, optionsOrFn, maybeFn) => {
   const options = typeof optionsOrFn === 'function' ? {} : optionsOrFn;
   const fn = typeof optionsOrFn === 'function' ? optionsOrFn : maybeFn;
-  const windowsGuard = name.startsWith('Windows pinned-source inventory uses VSS');
-  const skip = process.platform === 'win32' && !windowsGuard
-    ? 'Pinned-source filesystem inventory is unsupported on Windows until reparse-point verification is implemented.'
+  const windowsSymlinkTest = name === 'rejects symbolic links in enumerated roots';
+  const skip = process.platform === 'win32' && windowsSymlinkTest
+    ? 'VSS integration test separately verifies rejection of Windows reparse points.'
     : options?.skip;
   return nodeTest(name, { ...options, ...(skip ? { skip } : {}) }, fn);
 };
