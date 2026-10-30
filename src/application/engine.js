@@ -872,12 +872,11 @@ export class LogicEngine {
         && typeof metadata.context_policy_version === 'string' && metadata.context_policy_version.trim()
         && typeof metadata.authorization_scope === 'string' && metadata.authorization_scope.trim()
         && typeof metadata.evaluation_fingerprint === 'string' && /^[a-f0-9]{64}$/i.test(metadata.evaluation_fingerprint)
-        && (metadata.policy_authority === undefined
-          || (obj(metadata.policy_authority)
-            && Object.keys(metadata.policy_authority).every((key) => ['authority_identity', 'policy_generation', 'policy_version'].includes(key))
-            && typeof metadata.policy_authority.authority_identity === 'string' && metadata.policy_authority.authority_identity.trim()
-            && typeof metadata.policy_authority.policy_generation === 'string' && metadata.policy_authority.policy_generation.trim()
-            && typeof metadata.policy_authority.policy_version === 'string' && metadata.policy_authority.policy_version.trim())),
+        && obj(metadata.policy_authority)
+        && Object.keys(metadata.policy_authority).every((key) => ['authority_identity', 'policy_generation', 'policy_version'].includes(key))
+        && typeof metadata.policy_authority.authority_identity === 'string' && metadata.policy_authority.authority_identity.trim()
+        && typeof metadata.policy_authority.policy_generation === 'string' && metadata.policy_authority.policy_generation.trim()
+        && typeof metadata.policy_authority.policy_version === 'string' && metadata.policy_authority.policy_version.trim(),
       'INVALID_MECHANIC_EXECUTION_METADATA', 'Mechanic execution identity, authority evidence, and fingerprints are required.');
       assert(obj(metadata.dependency_manifest)
         && metadata.dependency_manifest.scope === 'bounded_deterministic_action_v1'
