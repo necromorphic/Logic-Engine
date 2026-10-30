@@ -250,7 +250,7 @@ export class MechanicExecutor {
       || Object.keys(resolved.policy_authority).some((key) => !['authority_identity', 'policy_generation', 'policy_version'].includes(key))
       || typeof resolved.policy_authority.authority_identity !== 'string' || !resolved.policy_authority.authority_identity.trim()
       || typeof resolved.policy_authority.policy_generation !== 'string' || !resolved.policy_authority.policy_generation.trim()
-      || typeof resolved.policy_authority.policy_version !== 'string' || !resolved.policy_authority.policy_version.trim()) {
+      || typeof resolved.policy_authority.policy_version !== 'string' || !/^[a-f0-9]{64}$/i.test(resolved.policy_authority.policy_version)) {
       return unknown('AUTHORIZED_CONTEXT_SNAPSHOT_MISMATCH', 'Trusted context must identify the exact snapshot, policy version, and canonical dependency evidence.', identity);
     }
 
