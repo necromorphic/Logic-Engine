@@ -238,16 +238,21 @@ export class CanonicalEntityAttributeContextProvider {
       || identity.snapshotIdentity.world_id !== identity.worldId
       || !Number.isSafeInteger(identity.snapshotIdentity.world_revision)
       || !Number.isSafeInteger(identity.snapshotIdentity.commit_sequence)
-      || !object(identity.authorizationPrincipal)) {
+      || !object(identity.authorizationPrincipal)
+      || !Number.isSafeInteger(identity.authorizationPrincipal.bindingGeneration)
+      || identity.authorizationPrincipal.bindingGeneration < 1) {
       return false;
     }
 
+    let binding;
+    try { binding = this.assertPrincipalBound(identity.worldId); } catch { return false; }
     return identity.policyVersion === this.policyFingerprint
       && identity.authorizationScope === this.authorizationScope
       && this.authorizationPrincipal !== null
       && identity.authorizationPrincipal.adapterId === this.authorizationPrincipal.adapterId
       && identity.authorizationPrincipal.actorEntityId === this.authorizationPrincipal.actorEntityId
       && identity.authorizationPrincipal.recipient === this.authorizationPrincipal.recipient
-      && identity.authorizationPrincipal.purpose === this.authorizationPrincipal.purpose;
+      && identity.authorizationPrincipal.purpose === this.authorizationPrincipal.purpose
+      && identity.authorizationPrincipal.bindingGeneration === binding.binding_generation;
   }
 }
