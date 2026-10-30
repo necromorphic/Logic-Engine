@@ -4,7 +4,7 @@ import { closeSync, fstatSync, lstatSync, mkdtempSync, openSync, realpathSync, r
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
-test('opened descriptor identity matches path snapshots on the current Windows Node runtime', (t) => {
+test('Windows Node path stat omits volume identity while descriptor stat exposes it', (t) => {
   const directory = mkdtempSync(join(tmpdir(), 'logic-file-identity-probe-'));
   const path = join(directory, 'approved-import.json');
   t.after(() => rmSync(directory, { recursive: true, force: true }));
@@ -31,10 +31,15 @@ test('opened descriptor identity matches path snapshots on the current Windows N
     assert.equal(after.isFile(), true);
     assert.equal(after.isSymbolicLink(), false);
     assert.equal(resolve(resolvedBefore), resolve(resolvedAfter));
-    assert.equal(opened.dev, before.dev, 'opened descriptor device must match pre-open path');
-    assert.equal(opened.ino, before.ino, 'opened descriptor file ID must match pre-open path');
-    assert.equal(opened.dev, after.dev, 'opened descriptor device must match post-open path');
-    assert.equal(opened.ino, after.ino, 'opened descriptor file ID must match post-open path');
+    // On the pinned Windows Node runtime, path-based stat reports dev=0,
+    // while descriptor-based fstat exposes the volume/device value. The file
+    // index remains stable, but Node's path stat cannot supply the volume part
+    // of a trusted Windows identity. Production anchoring must use FILE_ID_INFO.
+    assert.equal(before.dev, 0n, 'path lstat must expose the known missing volume identity');
+    assert.equal(after.dev, 0n, 'post-open path lstat must expose the known missing volume identity');
+    assert.notEqual(opened.dev, 0n, 'descriptor fstat must expose a non-zero volume/device identity');
+    assert.equal(opened.ino, before.ino, 'opened descriptor file index must match pre-open path');
+    assert.equal(opened.ino, after.ino, 'opened descriptor file index must match post-open path');
   } finally {
     closeSync(fd);
   }
