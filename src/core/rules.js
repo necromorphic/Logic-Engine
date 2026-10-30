@@ -1,11 +1,12 @@
 import { EngineError } from './errors.js';
+import { types as utilTypes } from 'node:util';
 
 export const SUPPORTED_RULE_OPERATORS = Object.freeze(['eq', 'neq', 'exists', 'gt', 'gte', 'lt', 'lte', 'in', 'all', 'any', 'not']);
 const OPS = new Set(SUPPORTED_RULE_OPERATORS);
 const UNSAFE_PATH_SEGMENTS = new Set(['__proto__', 'constructor', 'prototype']);
 
 function assertPlainDataObject(value, code = 'INVALID_RULE', label = 'Rule') {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+  if (!value || typeof value !== 'object' || utilTypes.isProxy(value) || Array.isArray(value)) {
     throw new EngineError(code, label + ' must be an object.');
   }
   const prototype = Object.getPrototypeOf(value);
@@ -305,7 +306,7 @@ export function validateEffects(effects, options = {}) {
       'entity.delete': ['kind', 'entity_id'],
       'fact.set': ['kind', 'fact_id', 'subject_ref', 'predicate', 'value'],
       'knowledge.acquire': ['kind', 'acquisition_id', 'subject_id', 'fact_id', 'acquisition_kind', 'provenance_ref', 'provenance_digest', 'authorization_ref', 'acquired_value', 'acquired_source_event_ids'],
-      'npc.belief.transition': ['kind', 'transition_id', 'actor_id', 'purpose', 'proposition_ref', 'proposition_value', 'stance', 'supporting_acquisition_ids', 'contradicting_acquisition_ids', 'evidence_acquisition_ids', 'reason_rule_ref', 'idempotency_key', 'request_hash', 'snapshot_revision', 'snapshot_commit_sequence', 'previous_stance', 'surviving_prior_evidence', 'invalidated_prior_evidence', 'prior_stance_preserved_despite_invalidation'],
+      'npc.belief.transition': ['kind', 'transition_id', 'actor_id', 'purpose', 'proposition_ref', 'proposition_value', 'stance', 'supporting_acquisition_ids', 'contradicting_acquisition_ids', 'evidence_acquisition_ids', 'reason_rule_ref', 'idempotency_key', 'request_hash', 'snapshot_revision', 'snapshot_commit_sequence', 'previous_stance', 'surviving_prior_evidence', 'invalidated_prior_evidence', 'prior_stance_preserved_despite_invalidation', 'policy_authority'],
       'mechanic.instance.create': ['kind', 'instance_id', 'template_id', 'template_version', 'parameters', 'state'],
       'mechanic.instance.enable': ['kind', 'instance_id'],
       'mechanic.instance.disable': ['kind', 'instance_id'],
@@ -401,6 +402,20 @@ export function validateEffects(effects, options = {}) {
         throw new EngineError('INVALID_KNOWLEDGE_ACQUISITION_VERSION', 'Acquisition source-event identities must be 1–500 unique canonical IDs.');
       }
     } else if (effect.kind === 'npc.belief.transition') {
+      if (Object.hasOwn(effect, 'policy_authority')) {
+        const policy = effect.policy_authority;
+        assertPlainDataObject(policy, 'INVALID_NPC_BELIEF_TRANSITION', 'NPC policy authority');
+        const policyKeys = Reflect.ownKeys(policy);
+        if (policyKeys.length !== 3
+          || !['authority_id', 'generation', 'snapshot_fingerprint'].every((key) => policyKeys.includes(key))
+          || policyKeys.some((key) => !['authority_id', 'generation', 'snapshot_fingerprint'].includes(key))
+          || typeof policy.authority_id !== 'string' || !policy.authority_id.trim()
+          || policy.authority_id !== policy.authority_id.trim() || policy.authority_id.length > 200
+          || !Number.isSafeInteger(policy.generation) || policy.generation < 1
+          || typeof policy.snapshot_fingerprint !== 'string' || !/^[a-f0-9]{64}$/.test(policy.snapshot_fingerprint)) {
+          throw new EngineError('INVALID_NPC_BELIEF_TRANSITION', 'NPC policy authority tuple is malformed.');
+        }
+      }
       for (const key of ['transition_id', 'actor_id', 'proposition_ref', 'reason_rule_ref', 'idempotency_key']) {
         if (typeof effect[key] !== 'string' || !effect[key].trim()
           || effect[key] !== effect[key].trim() || effect[key].length > 200) {
