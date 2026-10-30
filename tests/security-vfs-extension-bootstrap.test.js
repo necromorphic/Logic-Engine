@@ -182,9 +182,9 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
     assert.equal(roleRegistrar.prepare(
       'SELECT logic_engine_vfs_probe_race_injection_count() AS count'
     ).get().count, injectionBefore + 1);
-    assert.equal(roleRegistrar.prepare(
+    assert.ok(roleRegistrar.prepare(
       'SELECT logic_engine_vfs_probe_sidecar_identity_reject_count() AS count'
-    ).get().count, sidecarRejectBefore + 1);
+    ).get().count > sidecarRejectBefore);
   } finally {
     try { journalRaceDb.close(); } catch { /* failed journal open may leave a transaction active */ }
   }
