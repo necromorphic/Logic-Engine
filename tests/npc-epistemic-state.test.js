@@ -710,7 +710,7 @@ test("restored directional beliefs require evidence with matching polarity", () 
   assert.equal(apply(forgedBelief, { type: "canonical_truth_changed" }).status, "non_ready");
 });
 
-test("state validation fails closed without invoking a polluted Array iterator", () => {
+test("state validation does not invoke a polluted Array iterator", () => {
   const descriptor = Object.getOwnPropertyDescriptor(Array.prototype, Symbol.iterator);
   let getterCalls = 0;
   let result;
@@ -731,7 +731,7 @@ test("state validation fails closed without invoking a polluted Array iterator",
   } finally {
     Object.defineProperty(Array.prototype, Symbol.iterator, descriptor);
   }
-  assert.equal(result.status, "non_ready");
+  assert.equal(result.status, "updated");
   assert.equal(getterCalls, 0);
 });
 
@@ -779,4 +779,79 @@ test("directional and unresolved stances require evidence on the asserted side",
   assert.equal(unresolved.status, "updated");
   assert.deepEqual(unresolved.state.beliefs[0].supporting_evidence_refs, ["evidence-1"]);
   assert.deepEqual(unresolved.state.beliefs[0].conflicting_evidence_refs, ["evidence-2"]);
+});
+
+
+test("trusted scope requires own data descriptors for world and subject", () => {
+  const previousWorld = Object.getOwnPropertyDescriptor(Object.prototype, "world_id");
+  const previousSubject = Object.getOwnPropertyDescriptor(Object.prototype, "subject_id");
+  let getterCalls = 0;
+  Object.defineProperties(Object.prototype, {
+    world_id: {
+      configurable: true,
+      get() {
+        getterCalls += 1;
+        throw new Error("inherited world_id getter must not execute");
+      },
+    },
+    subject_id: {
+      configurable: true,
+      get() {
+        getterCalls += 1;
+        throw new Error("inherited subject_id getter must not execute");
+      },
+    },
+  });
+  let result;
+  try {
+    result = createNpcEpistemicState({});
+  } finally {
+    if (previousWorld) Object.defineProperty(Object.prototype, "world_id", previousWorld);
+    else delete Object.prototype.world_id;
+    if (previousSubject) Object.defineProperty(Object.prototype, "subject_id", previousSubject);
+    else delete Object.prototype.subject_id;
+  }
+  assert.equal(result.status, "non_ready");
+  assert.equal(result.reason, "trusted_scope_incomplete");
+  assert.equal(getterCalls, 0);
+});
+
+test("restored belief history validates directional polarity and unresolved conflict", () => {
+  const supportsFalse = admit(emptyState(), { polarity: "supports_false" }).state;
+  const forgedDirectionalHistory = {
+    ...supportsFalse,
+    beliefs: [{
+      proposition_ref: "prop-secret-location",
+      stance: "unknown",
+      supporting_evidence_refs: [],
+      conflicting_evidence_refs: [],
+      revision_rule_ref: "rule-current",
+      review_required: false,
+      history: [{
+        stance: "believes_true",
+        revision_rule_ref: "rule-history",
+        evidence_refs: ["evidence-1"],
+      }],
+    }],
+  };
+  assert.equal(apply(forgedDirectionalHistory, { type: "canonical_truth_changed" }).status, "non_ready");
+
+  const supportsTrue = admit(emptyState()).state;
+  const forgedUnresolvedHistory = {
+    ...supportsTrue,
+    beliefs: [{
+      proposition_ref: "prop-secret-location",
+      stance: "unknown",
+      supporting_evidence_refs: [],
+      conflicting_evidence_refs: [],
+      revision_rule_ref: "rule-current",
+      review_required: false,
+      history: [{
+        stance: "unresolved",
+        revision_rule_ref: "rule-history",
+        evidence_refs: ["evidence-1"],
+      }],
+    }],
+  };
+  assert.equal(apply(forgedUnresolvedHistory, { type: "canonical_truth_changed" }).status, "non_ready");
 });
