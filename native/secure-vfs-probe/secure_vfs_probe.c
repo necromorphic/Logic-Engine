@@ -437,6 +437,11 @@ static HANDLE WINAPI probe_create_file_w(
   }
 
   if (handle == INVALID_HANDLE_VALUE || !needs_identity) {
+    if (handle == INVALID_HANDLE_VALUE && needs_identity) {
+      fprintf(stderr, "VFS Windows open failed: error=%lu creation=%lu access=0x%lx name=%ls\\n",
+        (unsigned long)GetLastError(), (unsigned long)creation,
+        (unsigned long)access, name ? name : L"<null>");
+    }
     if (handle == INVALID_HANDLE_VALUE && needs_identity
         && relative_open_error == ERROR_ACCESS_DENIED) {
       /*
@@ -623,6 +628,10 @@ static int probe_open(const char *name, int flags, int mode) {
     fd = ((probe_open_fn)g_original_open_syscall)(name, flags, mode);
   }
   if (fd < 0 || !needs_identity) {
+    if (fd < 0 && (is_sidecar || has_anchor)) {
+      fprintf(stderr, "VFS POSIX open failed: flags=0x%x errno=%d name=%s\\n",
+        flags, errno, name);
+    }
     if (injected_here) {
       g_current_race_open = 0;
       g_current_race_captured = 0;
@@ -881,6 +890,8 @@ static int probe_xOpen(sqlite3_vfs *vfs, const char *name, sqlite3_file *file,
       && suffix[0] != '\0';
 #endif
     if (!matched) {
+      fprintf(stderr, "VFS xOpen sidecar path mismatch: flags=0x%x name=%s\\n",
+        flags, open_name ? open_name : "<null>");
       sqlite3_free(canonical_name);
       return SQLITE_CANTOPEN;
     }
@@ -922,6 +933,10 @@ static int probe_xOpen(sqlite3_vfs *vfs, const char *name, sqlite3_file *file,
   }
 
   rc = parent->xOpen(parent, open_name, file, flags, out_flags);
+  if (rc != SQLITE_OK) {
+    fprintf(stderr, "VFS parent xOpen failed: flags=0x%x rc=%d name=%s\\n",
+      flags, rc, open_name ? open_name : "<null>");
+  }
   sqlite3_free(canonical_name);
 
   if (role_index >= 0 && (flags & SQLITE_OPEN_MAIN_DB)) {
