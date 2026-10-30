@@ -1,3 +1,5 @@
+import { types as utilTypes } from 'node:util';
+
 /**
  * Pure Process Manager contract primitives.
  *
@@ -47,10 +49,39 @@ function safeCoordinate(value, name) {
   return value;
 }
 
+function denseArrayValues(value, name, max, errorCode) {
+  // Proxy traps can execute during prototype, descriptor, and key inspection.
+  // Reject proxies before performing any reflective operation.
+  if (utilTypes.isProxy(value) || !Array.isArray(value)) {
+    fail(errorCode, name + ' must be a non-proxy array.');
+  }
+  if (Object.getPrototypeOf(value) !== Array.prototype || value.length > max) {
+    fail(errorCode, name + ' must be a dense array with at most ' + max + ' entries.');
+  }
+
+  const values = [];
+  for (let index = 0; index < value.length; index += 1) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+    if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) {
+      fail(errorCode, name + ' entries must be own enumerable data properties.', { index });
+    }
+    values.push(descriptor.value);
+  }
+
+  const allowedKeys = new Set(['length']);
+  for (let index = 0; index < value.length; index += 1) allowedKeys.add(String(index));
+  for (const key of Reflect.ownKeys(value)) {
+    if (typeof key !== 'string' || !allowedKeys.has(key)) {
+      fail(errorCode, name + ' cannot contain extra array properties.');
+    }
+  }
+  return values;
+}
+
 function uniqueStringList(value, name, max = 500) {
   if (value === undefined) return [];
-  if (!Array.isArray(value) || value.length > max) fail('INVALID_PROCESS_REFERENCE_LIST', name + ' must be an array with at most ' + max + ' entries.');
-  const result = value.map((item, index) => identifier(item, name + '[' + index + ']'));
+  const result = denseArrayValues(value, name, max, 'INVALID_PROCESS_REFERENCE_LIST')
+    .map((item, index) => identifier(item, name + '[' + index + ']'));
   if (new Set(result).size !== result.length) fail('DUPLICATE_PROCESS_REFERENCE', name + ' cannot contain duplicate entries.');
   return result.sort();
 }
@@ -86,7 +117,7 @@ function checkAcyclic(milestones) {
  * are distinct: a trigger is a scheduling record, not the process itself.
  */
 export function normalizeProcessDefinition(input) {
-  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+  if (utilTypes.isProxy(input) || !input || typeof input !== 'object' || Array.isArray(input)) {
     fail('INVALID_PROCESS_DEFINITION', 'Process definition must be an object.');
   }
   const allowed = new Set([
@@ -104,14 +135,15 @@ export function normalizeProcessDefinition(input) {
     metadata: jsonValue(input.metadata ?? {}, 'metadata'),
     milestones: [],
   };
-  if (!Array.isArray(input.milestones) || input.milestones.length < 1 || input.milestones.length > 500) {
+  const milestoneValues = denseArrayValues(input.milestones, 'milestones', 500, 'INVALID_PROCESS_MILESTONES');
+  if (milestoneValues.length < 1) {
     fail('INVALID_PROCESS_MILESTONES', 'milestones must contain between 1 and 500 entries.');
   }
 
   const milestoneIds = new Set();
   const triggerIds = new Set();
-  process.milestones = input.milestones.map((raw, index) => {
-    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+  process.milestones = milestoneValues.map((raw, index) => {
+    if (utilTypes.isProxy(raw) || !raw || typeof raw !== 'object' || Array.isArray(raw)) {
       fail('INVALID_PROCESS_MILESTONE', 'Each milestone must be an object.', { index });
     }
     const milestoneAllowed = new Set([
