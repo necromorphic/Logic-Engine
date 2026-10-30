@@ -28,7 +28,7 @@ jobs:
       - name: Install dependencies
         run: npm install --no-package-lock --no-audit --no-fund
       - name: Run NPC memory boundary tests
-        run: node --import ./tests/configure-test-env.js --test tests/npc-memory-candidate-eligibility.test.js tests/memory-npc-consumer.test.js tests/trusted-initial-knowledge-source.test.js tests/npc-knowledge-read.test.js tests/npc-belief-state.test.js tests/npc-knowledge-snapshot-race.test.js tests/npc-belief-state-snapshot-race.test.js
+        run: node --import ./tests/configure-test-env.js --test tests/npc-memory-candidate-eligibility.test.js tests/memory-npc-consumer.test.js tests/trusted-initial-knowledge-source.test.js tests/npc-epistemic-state.test.js tests/npc-knowledge-read.test.js tests/npc-belief-state.test.js tests/npc-knowledge-snapshot-race.test.js tests/npc-belief-state-snapshot-race.test.js
 
   test:
     # Keep OS-specific Runtime and recalculation tests on hosted Windows CI; do not block PRs on a developer machine being online.
@@ -65,4 +65,4 @@ jobs:
       - name: Install dependencies
         run: npm install --no-package-lock --no-audit --no-fund
       - name: Run trusted acquisition lifecycle and restore tests
-        run: node --import ./tests/configure-test-env.js --test tests/core-trusted-initial-knowledge-ingestion.test.js tests/memory-provider-coordinated-restore.characterization.test.js
+        run: node --import ./tests/configure-test-env.js --test tests/core-trusted-initial-knowledge-ingestion.test.js tests/trusted-initial-knowledge-api-boundary.test.js tests/memory-provider-coordinated-restore.characterization.test.js
