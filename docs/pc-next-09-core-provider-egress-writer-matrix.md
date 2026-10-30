@@ -134,7 +134,7 @@ The durable dispatch-start is therefore ordered against participating writers on
 
 - `MemoryDispatchGateway` is not constructed in current `src/index.js`; no production ST route wiring is shown.
 - `readCoreEvidence`, `readProviderEvidence`, and `sendUpstream` are injected. Their production authority and exclusivity are not proven by this module.
-- Current route allowlist contains `host-selected-chat-generation`, while the source comment says the supported route is Google AI Studio chat. The project direction has removed Google; this route/transport must be made provider-neutral before it is an acceptable target.
+- Current route allowlist contains `host-selected-chat-generation`, while the source comment restricts support to a legacy provider-specific chat route. This route/transport must be made provider-neutral before it is an acceptable target.
 - The dispatch ledger is separate durable storage. Core/Provider accepted-head enrollment does not automatically prove the dispatch ledger itself cannot be rolled back to an older backup.
 - Current request binding does not yet show the full PC-NEXT-07 envelope: Host session/generation, recipient, policy authority generation/fingerprint and lane-specific acquisition pins are not part of the inspected digest shape.
 - No current-main evidence proves every alternate ST provider/extension/backend route is blocked for protected payloads.
