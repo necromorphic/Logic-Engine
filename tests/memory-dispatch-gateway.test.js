@@ -107,10 +107,10 @@ async function createFixture({ sendUpstream, coreHead = 1, providerHead = 1, ini
       sources,
       candidates: providerCandidatesOverride ?? candidates,
     }),
-    sendUpstream: async (request) => {
+    sendUpstream: (request) => {
       calls.push(request);
       if (sendUpstream) return sendUpstream(request);
-      return { status: 200, body: 'accepted' };
+      return Promise.resolve({ status: 200, body: 'accepted' });
     },
   });
   gateway = makeGateway();
@@ -211,6 +211,21 @@ test('read-only Gateway SQLite connection can read committed WAL state without w
   }
 });
 
+test('Gateway rejects direct and bound async transport starters because they can defer handoff past the Coordinator lease', () => {
+  const asyncStarter = async () => ({ status: 200 });
+  const configuration = (sendUpstream) => ({
+    ledgerPath: '/tmp/dispatch-ledger.sqlite',
+    coordinatorPath: '/tmp/dispatch-coordinator.sqlite',
+    authorityPort: 1,
+    readToken,
+    readCoreEvidence: () => ({}),
+    readProviderEvidence: () => ({}),
+    sendUpstream,
+  });
+  assert.throws(() => new MemoryDispatchGateway(configuration(asyncStarter)), /non-async transport-start function/);
+  assert.throws(() => new MemoryDispatchGateway(configuration(asyncStarter.bind(null))), /non-async transport-start function/);
+});
+
 test('dispatch rejects Provider evidence whose exact candidate record/version set differs from the signed request', async () => {
   const fixture = await createFixture({
     providerCandidatesOverride: [{
@@ -237,14 +252,14 @@ test('transport handoff begins while the shared coordinator is still held', asyn
   let contender;
   let coordinatorWasHeldAtTransportStart = false;
   const fixture = await createFixture({
-    sendUpstream: async () => {
+    sendUpstream: () => {
       try {
         contender.exec('BEGIN IMMEDIATE');
         contender.exec('ROLLBACK');
       } catch (error) {
         coordinatorWasHeldAtTransportStart = /locked|busy/i.test(String(error?.message || ''));
       }
-      return { status: 200, body: 'accepted' };
+      return Promise.resolve({ status: 200, body: 'accepted' });
     },
   });
   t.after(async () => {
@@ -340,9 +355,9 @@ test('unsupported route, denied Provider grant, and pending authority all produc
 test('ambiguous transport outcome is recorded UNKNOWN and the request identity cannot be replayed', async () => {
   let sends = 0;
   const fixture = await createFixture({
-    sendUpstream: async () => {
+    sendUpstream: () => {
       sends += 1;
-      throw new Error('simulated timeout after dispatch start');
+      return Promise.reject(new Error('simulated timeout after dispatch start'));
     },
   });
   try {
@@ -384,15 +399,15 @@ test('loopback Gateway endpoint requires Host authentication and a body-bound si
   let upstreamCalls = 0;
   let observedRoute;
   let observedBody;
-  const transport = async ({ route, model, body, forwardResponse }) => {
+  const transport = ({ route, model, body, forwardResponse }) => {
     upstreamCalls += 1;
     observedRoute = route;
     observedBody = body;
-    await forwardResponse(new Response('selected-backend-response', {
+    const forwarded = forwardResponse(new Response('selected-backend-response', {
       status: 200,
       headers: { 'content-type': 'text/plain' },
     }));
-    return { status: 200 };
+    return Promise.resolve(forwarded).then(() => ({ status: 200 }));
   };
   const fixture = await createFixture({ sendUpstream: transport });
   const server = await createMemoryDispatchGatewayServer({
@@ -504,7 +519,7 @@ test('existing dispatch ledger with missing schema fails closed without auto-rep
       readToken,
       readCoreEvidence: () => ({}),
       readProviderEvidence: () => ({}),
-      sendUpstream: async () => ({ status: 200 }),
+      sendUpstream: () => Promise.resolve({ status: 200 }),
     }), /DISPATCH_LEDGER_SCHEMA_INCOMPLETE/);
     const verify = new DatabaseSync(ledgerPath);
     try {
@@ -650,11 +665,10 @@ test('real Provider revokeRecord committed before dispatch-start produces zero u
           candidates: stored ? [{ record_ref: stored.record_ref, record_version: stored.record_version, source_kind: stored.source_kind, source_entity_id: stored.source_entity_id, source_version: stored.source_version }] : [],
         };
       },
-      sendUpstream: async (outgoing) => {
+      sendUpstream: (outgoing) => {
         calls.push(outgoing);
         signalTransportStart();
-        await transportGate;
-        return { status: 200, body: 'accepted' };
+        return transportGate.then(() => ({ status: 200, body: 'accepted' }));
       },
     });
 
