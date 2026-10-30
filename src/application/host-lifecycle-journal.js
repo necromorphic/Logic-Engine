@@ -227,11 +227,18 @@ export class HostLifecycleJournal {
       const { occurred_at: _occurredAt, ...eventContent } = event;
       const eventDigest = sha256(canonical(eventContent));
       const existing = this.db.prepare(`
-        SELECT sequence,event_sha256 FROM host_lifecycle_events
+        SELECT sequence,event_sha256,canonical_event_json FROM host_lifecycle_events
         WHERE host_installation_id=? AND authenticated_account_id=? AND event_id=?
       `).get(event.host_installation_id, event.authenticated_account_id, event.event_id);
       if (existing) {
-        if (existing.event_sha256 !== eventDigest) throw new Error('HOST_LIFECYCLE_EVENT_ID_CONFLICT');
+        let priorEvent;
+        try { priorEvent = JSON.parse(existing.canonical_event_json); } catch {
+          throw new Error('HOST_LIFECYCLE_EVENT_STORED_JSON_INVALID');
+        }
+        const { occurred_at: _priorOccurredAt, ...priorEventContent } = priorEvent;
+        if (sha256(canonical(priorEventContent)) !== eventDigest) {
+          throw new Error('HOST_LIFECYCLE_EVENT_ID_CONFLICT');
+        }
         return { status: 'duplicate', sequence: existing.sequence, event_sha256: existing.event_sha256 };
       }
 
