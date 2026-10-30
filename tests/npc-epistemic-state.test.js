@@ -944,3 +944,21 @@ test("evidence admission requires an explicit recognized assessment", () => {
   });
   assert.equal(missingAssessment.status, "non_ready");
 });
+
+
+test("insufficient evidence cannot support any directional or unresolved belief", () => {
+  const insufficient = admit(emptyState(), {
+    epistemic_status: "rumor",
+    evidence_assessment: "insufficient",
+  }).state;
+  for (const stance of ["suspects_true", "suspects_false", "unresolved", "believes_true", "believes_false"]) {
+    const result = apply(insufficient, {
+      type: "belief_updated",
+      proposition_ref: "prop-secret-location",
+      stance,
+      revision_rule_ref: "rule-insufficient",
+      evidence_refs: ["evidence-1"],
+    });
+    assert.equal(result.status, "non_ready", stance);
+  }
+});
