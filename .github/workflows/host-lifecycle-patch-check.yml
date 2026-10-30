@@ -1,19 +1,14 @@
 name: Host lifecycle patch check
 
 on:
+  # This check validates the complete assembled Host candidate, including
+  # cross-layer Core/Host wiring. Path filters previously allowed a Core-only
+  # commit to inherit stale Host evidence from an older SHA.
   pull_request:
-    paths:
-      - "host-adapter/prototype/**"
-      - ".github/workflows/host-lifecycle-patch-check.yml"
-      - ".github/workflows/runtime-tests.yml"
   push:
     branches:
       - "work/priority1-combined-host-patch-stack-*"
       - "host/**"
-    paths:
-      - "host-adapter/prototype/**"
-      - ".github/workflows/host-lifecycle-patch-check.yml"
-      - ".github/workflows/runtime-tests.yml"
 
   workflow_dispatch:
 
