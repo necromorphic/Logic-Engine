@@ -40,11 +40,12 @@ function sameTrustedImportFileIdentity(opened, pathStat) {
   const hasStableFileId = typeof opened.ino === 'bigint' && typeof pathStat.ino === 'bigint'
     && opened.ino !== 0n && pathStat.ino !== 0n;
   if (hasStableFileId) {
-    // On Windows, Node's path-based lstat and handle-based fstat can report
-    // different st_dev values for the same file. The NTFS file index remains
-    // stable; imported bytes are independently checked against the SHA-256 allowlist.
+    // On Windows, path-based lstat may report dev=0 while handle-based fstat
+    // reports the volume serial. Compare dev when both sides provide it.
     return opened.ino === pathStat.ino
-      && (process.platform === 'win32' || opened.dev === pathStat.dev);
+      && (process.platform === 'win32'
+        ? opened.dev === 0n || pathStat.dev === 0n || opened.dev === pathStat.dev
+        : opened.dev === pathStat.dev);
   }
   return opened.size === pathStat.size
     && opened.mtimeNs === pathStat.mtimeNs
