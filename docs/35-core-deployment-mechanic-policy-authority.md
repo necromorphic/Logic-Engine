@@ -115,7 +115,7 @@ The following features are deliberately not part of the bounded executor. They r
 - Define how missing, ambiguous, or inaccessible participants map to `unknown` or `needs_review`; never infer a participant from narrative context.
 
 ### Conflict resolution
-- `manual` remains the only supported executor policy.
+- `manual` remains the only supported executor policy, and the current executor rejects worlds with more than one enabled/review-required mechanic instance because the cross-mechanic conflict graph is not complete.
 - Automatic resolution requires an exact-version allowlisted deterministic resolver module, explicit conflict graph inputs, declared dependencies, bounded resources, and an independently tested tie-break contract.
 - Resolver output remains a proposal; the resolver cannot commit or bypass approval.
 - No priority, array order, registration order, or incidental storage order may be used as an implicit winner rule.
