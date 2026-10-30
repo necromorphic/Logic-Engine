@@ -11,8 +11,9 @@ On the exact Node.js 22.13.0 runtime used by Logic-Engine, it tests whether:
 3. Returning `SQLITE_OK_LOAD_PERMANENTLY` keeps the extension loaded after the bootstrap connection closes.
 4. Subsequent ordinary `new DatabaseSync(filePath)` connections route their main-database `xOpen` through that registered VFS.
 5. The wrapper can delegate normal SQLite I/O and WAL operations to the parent VFS without replacing the underlying `sqlite3_file` methods.
+6. The pinned parent VFS exposes its native open syscall (`open` on Linux, `CreateFileW` on Windows) through `xGetSystemCall`, and a test-only wrapper installed through `xSetSystemCall` observes actual `node:sqlite` file-open calls.
 
-The C probe increments a process-local counter after the parent VFS successfully opens a main database. A SQL function exposes that counter to later connections.
+The C probe increments a process-local counter after the parent VFS successfully opens a main database. It also temporarily installs a process-wide counting wrapper around the pinned native open syscall and exposes both counters through SQL functions. The wrapper delegates to the original OS call unchanged; it does not inspect or validate the returned descriptor/HANDLE.
 
 ## What it explicitly does NOT prove
 
@@ -20,6 +21,8 @@ The C probe increments a process-local counter after the parent VFS successfully
 - It does not prevent pathname replacement, symlink/reparse-point substitution, hard-link aliasing, or directory races.
 - It delegates `xOpen` to the default VFS and therefore remains vulnerable to the exact TOCTOU issue in #770.
 - It does not establish safe sidecar identity, locking, ACLs, backup/restore isolation, or production startup ordering.
+- Its WAL/SHM/rollback-journal assertions check that the expected sidecar files exist during live transactions; they do not inspect the physical identity of the objects opened for those sidecars.
+- The syscall wrapper only proves that the pinned VFS calls through the exposed hook. It does not validate `fstat()`/Windows file IDs, reject symlink/reparse points, detect hard-link aliases, or close any TOCTOU gap.
 - It must never be imported by production code or used to open Core, Coordinator, Provider, Host ledger, dispatch ledger, or accepted-head databases.
 
 ## Why this step exists
@@ -55,9 +58,9 @@ The current test also exercises SQLite's on-disk sidecar lifecycle:
 
 These are filesystem-level lifecycle assertions. They do **not** prove that the VFS validated the physical identity of those sidecars; the probe still delegates their opens to the parent VFS.
 
-The test asks the pinned parent VFS whether its native open syscall is exposed through `xGetSystemCall` (`open` on Linux, `CreateFileW` on Windows). SQLite 3.47.2 source confirms that the Unix and Windows VFS implementations maintain overrideable syscall tables and route their native opens through those entries. This is a promising implementation seam for validating the actual descriptor/HANDLE returned by the OS open operation, but it is not yet a security guarantee.
+The test asks the pinned parent VFS whether its native open syscall is exposed through `xGetSystemCall` (`open` on Linux, `CreateFileW` on Windows), then installs a counting wrapper and verifies that actual `node:sqlite` file opens pass through it. SQLite 3.47.2 source confirms that the Unix and Windows VFS implementations maintain overrideable syscall tables and route their native opens through those entries. This is a promising implementation seam for validating the actual descriptor/HANDLE returned by the OS open operation, but it is not yet a security guarantee.
 
-Important constraint: SQLite documents `xSetSystemCall`/`xGetSystemCall`/`xNextSystemCall` as optional, variable interfaces intended to facilitate testing. Their availability and names must be verified against the exact SQLite build; unsupported or changed implementations must fail closed. The probe does not yet install a syscall wrapper or validate an OS object.
+Important constraint: SQLite documents `xSetSystemCall`/`xGetSystemCall`/`xNextSystemCall` as optional, variable interfaces intended to facilitate testing. Their availability and names must be verified against the exact SQLite build; unsupported or changed implementations must fail closed. The probe installs only a counting wrapper for feasibility testing; a production wrapper must validate the actual OS object before returning its descriptor/HANDLE to SQLite, reject unsafe aliases/reparse points, preserve locking and sidecar behavior, and be race-tested.
 
 Pinned-source references:
 - Unix VFS 3.47.2: https://github.com/sqlite/sqlite/blob/version-3.47.2/src/os_unix.c
