@@ -138,9 +138,9 @@ Exact-head CI for this code HEAD:
 
 This refresh records repository CI only. It does not establish live browser/Android/Termux behavior, real IndexedDB durability, persisted chat-file before/after evidence, or full lifecycle coverage. PR #323 was merged into `main` on 26 Oct 2026; its code remains review-only. Core approval of the Host↔Core/Provider handoff and real persisted-state acceptance evidence are still required; production Memory→NPC remains DISABLED / FAIL-CLOSED.
 
-## Priority-1 server-side source inventory scan candidate — 30 Oct 2026
+## Priority-1 source inventory algorithm candidate — 30 Oct 2026
 
-New module: `st-source-inventory.mjs`; regression suite: `tests/host-source-inventory.test.js`.
+New module: `st-source-inventory.mjs`; regression suite: `tests/host-source-inventory.test.js`. This PR adds the enumeration algorithm to the Logic-Engine repository only. It is **not yet installed in SillyTavern**, does not add an ST server route, and is not called by the production Host.
 
 This is a **non-authoritative current-file-set scan candidate** for the pinned SillyTavern commit `06bde939fb1e9c4c8d8641d810f0a916b5bce127`. It enumerates root-level chats, every immediate character-chat directory under `user.directories.chats`, group metadata under `user.directories.groups`, and the group-chat files referenced by that metadata under `user.directories.groupChats`. Unlike `/recent`, it does not derive character chat folders from avatar PNGs and does not use `Promise.allSettled` to silently skip failed traversals.
 
