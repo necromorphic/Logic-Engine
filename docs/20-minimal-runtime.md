@@ -40,6 +40,12 @@ Example shape (replace all IDs and the digest with the exact values for your app
 
 The importer accepts a `source_ref` only, reads the configured local file, rejects symlinks/non-regular files and files larger than 1 MiB, computes SHA-256 itself, and requires an exact allowlist match before validating every subject/fact assignment against the target world's canonical state. Direct caller-supplied bytes for `imported` sources remain rejected. No public HTTP import endpoint is exposed.
 
+## Trusted World Pack catalog
+
+Runtime startup requires `LOGIC_ENGINE_WORLD_PACK_CATALOG_PATH` to point to a deployment-controlled JSON catalog. The API does not accept catalog paths or digests from world-creation requests. Each entry pins an exact World Pack ID/version to a relative artifact path and SHA-256 digest of the original bytes. Path traversal and symlink escapes are rejected; artifact identity is rechecked when a world is created.
+
+This pins artifact identity only, not full World Pack schema conformance. Trust derives from deployment control of the catalog and artifact directory, not from the hash itself. Existing worlds retain a null digest. Low-level `LogicEngine` construction remains usable without a catalog for tests/embedding; the runtime entry point fails closed if catalog configuration is missing.
+
 ## Endpoints
 
 - `POST /v1/worlds` — create a world with a pinned World Pack ID/version and explicit in-world time (requires `x-admin-token`).

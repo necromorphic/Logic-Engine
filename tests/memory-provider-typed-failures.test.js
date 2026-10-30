@@ -123,9 +123,9 @@ test('provider migrates an existing readiness table to typed failure codes witho
   });
 
   assert.deepEqual(provider.getIndexStatusForDiagnostics('world-legacy'), {
-    index_health: 'ready',
-    source_reconciliation: 'current',
-    snapshot: { world_revision: '4', commit_sequence: '2' },
-    failure_code: null,
+    index_health: 'stale',
+    source_reconciliation: 'stale',
+    snapshot: null,
+    failure_code: 'PROCESS_RESTART_RECONCILIATION_REQUIRED',
   });
 });
