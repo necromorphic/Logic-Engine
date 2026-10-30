@@ -31,7 +31,9 @@ Against the exact pinned source archive:
 - `node --check public/scripts/slash-commands.js`: PASS.
 - `git diff --check`: PASS.
 
-Logic-Engine source-contract tests: 3/3 PASS. Existing lifecycle acceptance tests: 7/7 PASS.
+Direction A source-contract tests: 3/3 PASS.
+
+The historical uploaded Logic-Engine archive is 128 commits behind current `main`; its lifecycle acceptance suite is therefore not counted as current-main validation. The full current-main Logic-Engine test suite has not been run in this work.
 
 These are patch-application, syntax, and source-contract checks. They are not browser/PC runtime evidence. No local SillyTavern instance was installed or modified by this work.
 
