@@ -476,7 +476,7 @@ diff --git a/public/scripts/slash-commands.js b/public/scripts/slash-commands.js
 diff --git a/src/server-main.js b/src/server-main.js
 --- a/src/server-main.js
 +++ b/src/server-main.js
-@@ -67,6 +67,11 @@
+@@ -107,5 +107,10 @@
  app.use(compression());
  app.use(responseTime());
  
