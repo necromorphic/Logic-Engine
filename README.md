@@ -6,22 +6,23 @@
 
 ## Прогресс проекта
 
-![Диаграмма прогресса Logic-Engine](docs/progress-bars-2026-10-28.svg)
+![Диаграмма прогресса Logic-Engine](docs/progress-bars-2026-10-30.svg)
 
-<sub>Снимок от 28.10.2026. Проценты — экспертная оценка реализации, не автоматическая метрика. Отражено состояние основной ветки на дату снимка; открытые PR и feature-ветки не засчитываются. Это не оценка production readiness.</sub>
+<sub>Снимок от 30.10.2026. Проценты — экспертная оценка реализации, не автоматическая метрика. Учитываются только код и доказательства, интегрированные в `main`; открытые PR и feature-ветки не засчитываются. Spatial / Temporal показан отдельно как исследовательское направление без runtime-реализации и не включён в общий процент. Это не оценка production readiness.</sub>
 
-| Направление | Оценка на 28.10.2026 |
+| Направление | Оценка на 30.10.2026 |
 |---|---:|
-| **Весь проект** | **38%** |
-| Core | 60% |
-| Memory Provider | 72% |
-| NPC | 47% |
-| Host / Adapter | 40% |
+| **Весь проект** | **41%** |
+| Core | 64% |
+| Memory Provider | 76% |
+| NPC | 49% |
+| Host / Adapter | 43% |
 | Mechanics | 35% |
-| Time / Process Manager | 38% |
-| Relationships / World Pack | 28% |
-| Memory → NPC — техническая реализация | 70% |
+| Time / Process Manager | 47% |
+| Relationships / World Pack | 30% |
+| Memory → NPC — техническая реализация | 75% |
 | Memory → NPC — production readiness | **0% · BLOCKED** |
+| Spatial / Temporal — runtime | **0% · RESEARCH ONLY** |
 
 ## Архитектура
 
