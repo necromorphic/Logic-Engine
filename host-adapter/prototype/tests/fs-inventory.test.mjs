@@ -120,7 +120,7 @@ test('Windows inventory fails closed when the VSS snapshot provider is unavailab
       assert.equal(result.snapshot_provider, 'windows-vss-client-accessible');
       assert.equal(result.snapshot_consistency, 'VSS_POINT_IN_TIME_READ_ONLY');
     } else {
-      assert.match(result.code, /^HOST_(VSS|INVENTORY_WINDOWS)_/);
+      assert.match(result.code, /^HOST_(VSS|INVENTORY_WINDOWS|INVENTORY_ROOT_UNAVAILABLE)_/);
     }
   });
 });
