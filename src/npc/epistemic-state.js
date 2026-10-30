@@ -350,6 +350,10 @@ function applyEventUnsafe(state, event) {
     // evidence item in both lists.
     const supporting = evidence.filter((item) => item.polarity === (negativeStance ? "supports_false" : "supports_true")).map((item) => item.ref);
     const conflicting = evidence.filter((item) => item.polarity === (negativeStance ? "supports_true" : "supports_false")).map((item) => item.ref);
+    if ((event.stance === "unresolved" && (supporting.length === 0 || conflicting.length === 0))
+      || (event.stance !== "unresolved" && supporting.length === 0)) {
+      return nonReady("belief_revision_evidence_does_not_support_stance");
+    }
     const current = state.beliefs.find((item) => item.proposition_ref === event.proposition_ref);
     if (current
       && current.stance === event.stance
