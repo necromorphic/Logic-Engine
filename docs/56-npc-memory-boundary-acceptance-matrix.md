@@ -413,7 +413,7 @@ The first connected path must read only the approved actor-specific initial-know
 
 ### Current work boundary
 
-The NPC-1/NPC-2 semantic mapping is now recorded in `docs/57-private-host-core-memory-npc-adapter-contract.md` (PR #747). That document is a private architecture contract, not runtime evidence. The next runtime dependencies are the Core reader/value-pin candidate #764, an authenticated Host-session binding, a production Memory inventory/reconciliation source, and a real NPC decision/context callsite. Do not substitute more fixture tests for these missing runtime links.
+The NPC-1/NPC-2 semantic mapping is recorded in `docs/57-private-host-core-memory-npc-adapter-contract.md` (PR #747). That document is a private architecture contract, not runtime evidence. Draft PR #797 now carries the Core reader/value-pin implementation and wires Core-side read/visibility authorizers to active Host conversation/world bindings, actor bindings, and the trusted source registry. Remaining runtime dependencies are authenticated SillyTavern caller wiring, a production Memory inventory/reconciliation source, and a real NPC decision/context callsite. Do not substitute more fixture tests for these missing runtime links.
 
 
 ## 9. Cross-block contract and end-to-end status snapshot — 30 Oct 2026
@@ -424,8 +424,8 @@ The private semantic contract is recorded in `docs/57-private-host-core-memory-n
 
 | Requirement | Status | Current evidence and remaining gap |
 |---|---|---|
-| R1 — Acquisition identity, provenance and source version | **PARTIAL** | Trusted source ingestion #683 and direct `canonical_entity` source-version/inventory support #709 are on main. Acquisition-time value/source-event pins and Core NPC reader are draft in #764; Memory evidence is not wired into the NPC runtime. |
-| R2 — Actor, recipient, purpose and field authorization | **PARTIAL** | Core actor binding and bounded authorized-read exist. #764 has per-read/per-acquisition authorizers but they are unset in `src/index.js`; adapter/recipient remain request scope, not Host authentication. |
+| R1 — Acquisition identity, provenance and source version | **PARTIAL** | Trusted source ingestion #683 and direct `canonical_entity` source-version/inventory support #709 are on main. Acquisition-time value/source-event pins and Core NPC reader/visibility checks are draft in #797; Memory evidence is not wired into the NPC runtime. |
+| R2 — Actor, recipient, purpose and field authorization | **PARTIAL** | Core actor binding and bounded authorized-read exist. Draft #797 wires NPC read/visibility authorizers in `src/index.js`; they require active Host conversation→world and adapter→actor bindings plus trusted source provenance. The internal reader has no HTTP caller; request fields are not credentials, so end-to-end Host caller authentication and production disclosure remain open. |
 | R3 — Epistemic class → belief mapping | **PARTIAL** | Conservative mapping is defined in private contract PR #747. NPC reducer #759 is draft; the Core reader candidate does not itself map Memory epistemic classes. |
 | R4 — Production NPC decision/context callsite | **NOT IMPLEMENTED** | No production caller/serializer has been demonstrated to consume the authorized result and preserve the epistemic distinctions. |
 | R5 — Host final disclosure and Gateway | **PARTIAL** | A bounded Core/Provider dispatch primitive exists, but no pinned SillyTavern final-send route is wired to it; Host inventory/restore and authenticated session binding remain incomplete. Contract requires fail-closed final revalidation and does not claim linearizability. |
