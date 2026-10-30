@@ -15,7 +15,7 @@ The minimal same-engine VFS spike in current-main Draft PR #839 passed Windows a
 | Repository interface and isolated schema | Prototype implemented | 100% |
 | CAS, idempotency and audit | Implemented in adapter | 100% |
 | Pending-attempt persistence and reconciliation reducer | Implemented behind injected verifier | 100% |
-| Windows/Linux contract tests | Source prototype: 21/21 targeted on each OS; full suite 1208/1208. Current-main port CI pending. | 100% |
+| Windows/Linux contract tests | Current-main port: 21/21 targeted on each OS; Linux full Runtime 1400/1400. Self-hosted Windows full Runtime job remains queued. Source prototype full suite: 1208/1208 on both OS. | 100% |
 | Production secure SQLite open | Blocked by VFS identity/TOCTOU gate | 0% |
 | Trusted runtime callers and authorization | Not wired | 0% |
 | First supported goal family and real dispatch cycle | Not implemented | 0% |
