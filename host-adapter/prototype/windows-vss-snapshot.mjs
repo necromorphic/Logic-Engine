@@ -95,8 +95,9 @@ async function runPowerShell(script, env, timeout = 120_000) {
     ], { windowsHide: true, timeout, maxBuffer: 1024 * 1024, env: { ...process.env, ...env } });
   } catch (error) {
     const output = [error?.stdout, error?.stderr, error?.message].filter(Boolean).join('\\n');
-    const marker = output.match(/HOST_VSS_[A-Z0-9_]+(?::[0-9]+)?/);
-    throw new Error(marker?.[0] ?? 'HOST_VSS_POWERSHELL_FAILED');
+    const markers = [...output.matchAll(/HOST_VSS_[A-Z0-9_]+(?::[0-9]+)?/g)].map(match => match[0]);
+    const marker = markers.find(value => value !== 'HOST_VSS_SNAPSHOT_ID');
+    throw new Error(marker ?? 'HOST_VSS_POWERSHELL_FAILED');
   }
 }
 
@@ -116,15 +117,30 @@ export async function withWindowsVssSnapshot(rootPath, callback) {
 
   const requestedRoot = resolve(rootPath);
   const { stdout } = await runPowerShell(CREATE_SCRIPT, { LE_VSS_ROOT: requestedRoot });
+  const idLine = stdout.match(/^HOST_VSS_SNAPSHOT_ID:([{}0-9a-f-]+)$/im);
+  const snapshotId = idLine?.[1] ?? null;
   let descriptor;
   try {
-    descriptor = JSON.parse(stdout.trim());
+    const jsonLine = stdout.split(/\\r?\\n/).map(line => line.trim())
+      .find(line => line.startsWith('{') && line.endsWith('}'));
+    if (!snapshotId || !GUID.test(snapshotId) || !jsonLine) throw new Error('invalid response');
+    descriptor = JSON.parse(jsonLine);
+    if (!descriptor || typeof descriptor.snapshotId !== 'string' || !GUID.test(descriptor.snapshotId)
+      || descriptor.snapshotId.toLowerCase() !== snapshotId.toLowerCase()
+      || typeof descriptor.snapshotRoot !== 'string' || !descriptor.snapshotRoot.startsWith('\\\\\\\\?\\\\GLOBALROOT\\\\Device\\\\HarddiskVolumeShadowCopy')
+      || typeof descriptor.root !== 'string') {
+      throw new Error('invalid descriptor');
+    }
   } catch {
-    throw new Error('HOST_VSS_INVALID_PROVIDER_RESPONSE');
-  }
-  if (!descriptor || typeof descriptor.snapshotId !== 'string' || !GUID.test(descriptor.snapshotId)
-    || typeof descriptor.snapshotRoot !== 'string' || !descriptor.snapshotRoot.startsWith('\\\\?\\GLOBALROOT\\Device\\HarddiskVolumeShadowCopy')
-    || typeof descriptor.root !== 'string') {
+    // If the provider created a snapshot but its response was malformed, release
+    // only the exact ID emitted by this child process before rejecting it.
+    if (snapshotId && GUID.test(snapshotId)) {
+      try {
+        await runPowerShell(DELETE_SCRIPT, { LE_VSS_SNAPSHOT_ID: snapshotId }, 60_000);
+      } catch {
+        throw new Error('HOST_VSS_CLEANUP_FAILED_AFTER_INVALID_PROVIDER_RESPONSE');
+      }
+    }
     throw new Error('HOST_VSS_INVALID_PROVIDER_RESPONSE');
   }
 
