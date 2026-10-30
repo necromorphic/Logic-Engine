@@ -37,17 +37,37 @@ static int g_race_identity_set = 0;
 static int g_race_inject_once = 0;
 static int g_race_injection_count = 0;
 static int g_identity_reject_count = 0;
+#define PROBE_MAX_DATABASE_ROLES 8
+typedef struct ProbeDatabaseRole {
+  char *path;
+  char *role;
+  int identity_set;
+#ifdef _WIN32
+  DWORD volume_serial;
+  DWORD file_index_high;
+  DWORD file_index_low;
+#else
+  dev_t device;
+  ino_t inode;
+#endif
+} ProbeDatabaseRole;
+static ProbeDatabaseRole g_database_roles[PROBE_MAX_DATABASE_ROLES];
+static int g_database_role_count = 0;
 #ifdef _WIN32
 static DWORD g_race_volume_serial = 0;
 static DWORD g_race_file_index_high = 0;
 static DWORD g_race_file_index_low = 0;
 __declspec(thread) static int g_current_race_open = 0;
 __declspec(thread) static int g_current_race_captured = 0;
+__declspec(thread) static int g_current_role_index = -1;
+__declspec(thread) static int g_current_role_captured = 0;
 #else
 static dev_t g_race_device = 0;
 static ino_t g_race_inode = 0;
 static _Thread_local int g_current_race_open = 0;
 static _Thread_local int g_current_race_captured = 0;
+static _Thread_local int g_current_role_index = -1;
+static _Thread_local int g_current_role_captured = 0;
 #endif
 
 #ifdef _WIN32
@@ -86,37 +106,60 @@ static HANDLE WINAPI probe_create_file_w(
   HANDLE handle;
   BY_HANDLE_FILE_INFORMATION info;
   g_native_open_count += 1;
-  if (g_current_race_open && !g_current_race_captured) {
+  if ((g_current_race_open && !g_current_race_captured)
+      || (g_current_role_index >= 0 && !g_current_role_captured)) {
     attributes |= FILE_FLAG_OPEN_REPARSE_POINT;
   }
   handle = ((probe_create_file_w_fn)g_original_open_syscall)(
     name, access, share, security, creation, attributes, template_file
   );
   if (handle == INVALID_HANDLE_VALUE) return handle;
-  if (g_current_race_open && !g_current_race_captured) {
-    if (!GetFileInformationByHandle(handle, &info)
-        || (info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0
-        || (info.nFileIndexHigh == 0 && info.nFileIndexLow == 0)) {
+  if ((g_current_race_open && !g_current_race_captured)
+      || (g_current_role_index >= 0 && !g_current_role_captured)) {
+    int reject = !GetFileInformationByHandle(handle, &info)
+      || (info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0
+      || (info.nFileIndexHigh == 0 && info.nFileIndexLow == 0);
+    if (!reject && g_current_role_index >= 0) {
+      ProbeDatabaseRole *role = &g_database_roles[g_current_role_index];
+      if (role->identity_set) {
+        reject = info.dwVolumeSerialNumber != role->volume_serial
+          || info.nFileIndexHigh != role->file_index_high
+          || info.nFileIndexLow != role->file_index_low;
+      } else {
+        for (int i = 0; i < g_database_role_count; i++) {
+          ProbeDatabaseRole *other = &g_database_roles[i];
+          if (i != g_current_role_index && other->identity_set
+              && info.dwVolumeSerialNumber == other->volume_serial
+              && info.nFileIndexHigh == other->file_index_high
+              && info.nFileIndexLow == other->file_index_low) reject = 1;
+        }
+      }
+    }
+    if (!reject && g_current_race_open && g_race_identity_set) {
+      reject = info.dwVolumeSerialNumber != g_race_volume_serial
+        || info.nFileIndexHigh != g_race_file_index_high
+        || info.nFileIndexLow != g_race_file_index_low;
+    }
+    if (reject) {
       CloseHandle(handle);
       g_identity_reject_count += 1;
       SetLastError(ERROR_ACCESS_DENIED);
       return INVALID_HANDLE_VALUE;
     }
-    if (g_race_identity_set) {
-      if (info.dwVolumeSerialNumber != g_race_volume_serial
-          || info.nFileIndexHigh != g_race_file_index_high
-          || info.nFileIndexLow != g_race_file_index_low) {
-        CloseHandle(handle);
-        g_identity_reject_count += 1;
-        SetLastError(ERROR_ACCESS_DENIED);
-        return INVALID_HANDLE_VALUE;
-      }
-    } else {
+    if (g_current_role_index >= 0 && !g_database_roles[g_current_role_index].identity_set) {
+      ProbeDatabaseRole *role = &g_database_roles[g_current_role_index];
+      role->volume_serial = info.dwVolumeSerialNumber;
+      role->file_index_high = info.nFileIndexHigh;
+      role->file_index_low = info.nFileIndexLow;
+      role->identity_set = 1;
+    }
+    if (g_current_race_open && !g_race_identity_set) {
       g_race_volume_serial = info.dwVolumeSerialNumber;
       g_race_file_index_high = info.nFileIndexHigh;
       g_race_file_index_low = info.nFileIndexLow;
       g_race_identity_set = 1;
     }
+    g_current_role_captured = 1;
     g_current_race_captured = 1;
   }
   return handle;
@@ -131,7 +174,8 @@ static int probe_open(const char *name, int flags, int mode) {
   int fd;
   struct stat info;
   g_native_open_count += 1;
-  if (g_current_race_open && !g_current_race_captured) {
+  if ((g_current_race_open && !g_current_race_captured)
+      || (g_current_role_index >= 0 && !g_current_role_captured)) {
 #ifdef O_NOFOLLOW
     flags |= O_NOFOLLOW;
 #else
@@ -142,25 +186,42 @@ static int probe_open(const char *name, int flags, int mode) {
   }
   fd = ((probe_open_fn)g_original_open_syscall)(name, flags, mode);
   if (fd < 0) return fd;
-  if (g_current_race_open && !g_current_race_captured) {
-    if (fstat(fd, &info) != 0 || info.st_dev == 0 || info.st_ino == 0) {
+  if ((g_current_race_open && !g_current_race_captured)
+      || (g_current_role_index >= 0 && !g_current_role_captured)) {
+    int reject = fstat(fd, &info) != 0 || info.st_dev == 0 || info.st_ino == 0;
+    if (!reject && g_current_role_index >= 0) {
+      ProbeDatabaseRole *role = &g_database_roles[g_current_role_index];
+      if (role->identity_set) {
+        reject = info.st_dev != role->device || info.st_ino != role->inode;
+      } else {
+        for (int i = 0; i < g_database_role_count; i++) {
+          ProbeDatabaseRole *other = &g_database_roles[i];
+          if (i != g_current_role_index && other->identity_set
+              && info.st_dev == other->device && info.st_ino == other->inode) reject = 1;
+        }
+      }
+    }
+    if (!reject && g_current_race_open && g_race_identity_set) {
+      reject = info.st_dev != g_race_device || info.st_ino != g_race_inode;
+    }
+    if (reject) {
       close(fd);
       g_identity_reject_count += 1;
       errno = EACCES;
       return -1;
     }
-    if (g_race_identity_set) {
-      if (info.st_dev != g_race_device || info.st_ino != g_race_inode) {
-        close(fd);
-        g_identity_reject_count += 1;
-        errno = EACCES;
-        return -1;
-      }
-    } else {
+    if (g_current_role_index >= 0 && !g_database_roles[g_current_role_index].identity_set) {
+      ProbeDatabaseRole *role = &g_database_roles[g_current_role_index];
+      role->device = info.st_dev;
+      role->inode = info.st_ino;
+      role->identity_set = 1;
+    }
+    if (g_current_race_open && !g_race_identity_set) {
       g_race_device = info.st_dev;
       g_race_inode = info.st_ino;
       g_race_identity_set = 1;
     }
+    g_current_role_captured = 1;
     g_current_race_captured = 1;
   }
   return fd;
@@ -173,6 +234,24 @@ static int probe_xOpen(sqlite3_vfs *vfs, const char *name, sqlite3_file *file,
   int is_race_target = name && g_race_path && (flags & SQLITE_OPEN_MAIN_DB)
     && strcmp(name, g_race_path) == 0;
   int rc;
+  int role_index = -1;
+  if (name && (flags & SQLITE_OPEN_MAIN_DB)) {
+    char *full_path = (char *)sqlite3_malloc64((sqlite3_uint64)parent->mxPathname + 1);
+    if (!full_path) return SQLITE_NOMEM;
+    if (parent->xFullPathname(parent, name, parent->mxPathname + 1, full_path) == SQLITE_OK) {
+      for (int i = 0; i < g_database_role_count; i++) {
+        if (strcmp(full_path, g_database_roles[i].path) == 0) {
+          role_index = i;
+          break;
+        }
+      }
+    }
+    sqlite3_free(full_path);
+  }
+  if (role_index >= 0) {
+    g_current_role_index = role_index;
+    g_current_role_captured = 0;
+  }
   if (is_race_target) {
     g_current_race_open = 1;
     g_current_race_captured = 0;
@@ -186,6 +265,14 @@ static int probe_xOpen(sqlite3_vfs *vfs, const char *name, sqlite3_file *file,
     }
   }
   rc = parent->xOpen(parent, name, file, flags, out_flags);
+  if (role_index >= 0) {
+    if (rc == SQLITE_OK && !g_current_role_captured) {
+      if (file->pMethods && file->pMethods->xClose) file->pMethods->xClose(file);
+      rc = SQLITE_CANTOPEN;
+    }
+    g_current_role_index = -1;
+    g_current_role_captured = 0;
+  }
   if (is_race_target) {
     if (rc == SQLITE_OK && !g_current_race_captured) {
       if (file->pMethods && file->pMethods->xClose) file->pMethods->xClose(file);
