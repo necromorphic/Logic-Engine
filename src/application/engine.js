@@ -691,10 +691,11 @@ export class LogicEngine {
     assert(world, 'WORLD_NOT_FOUND', 'World not found.', 404);
     const commitSequence = snapshot.commit_sequence;
     const actor = this.store.db.prepare(
-      "SELECT entity_id,status FROM entities WHERE world_id=? AND entity_id=?"
+      "SELECT entity_id,entity_type,status FROM entities WHERE world_id=? AND entity_id=?"
     ).get(request.world_id, request.actor_id);
-    assert(actor && actor.status !== 'destroyed',
-      'NPC_KNOWLEDGE_READER_NOT_ELIGIBLE', 'The requesting NPC must be a non-destroyed entity in this world.', 403);
+    assert(actor && actor.entity_type === 'character' && actor.status !== 'destroyed',
+      'NPC_KNOWLEDGE_READER_NOT_ELIGIBLE',
+      'The requesting NPC must be a non-destroyed character entity in this world.', 403);
 
     let authorization;
     try {
