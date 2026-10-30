@@ -49,10 +49,13 @@ jobs:
       - name: Install pinned SillyTavern dependencies
         run: npm ci --prefix SillyTavern
 
-      # actions/checkout falls back to a REST archive when Git is absent.
-      # This self-hosted service account has no Git executable; the immutable
-      # 40-character ref above is resolved by checkout (visible in its action
-      # log), so do not require a local .git directory to verify the source.
+      # The immutable SHA is verified against the actual checkout before source analysis.
+      - name: Checkout exact SillyTavern target
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: SillyTavern/SillyTavern
+          ref: 06bde939fb1e9c4c8d8641d810f0a916b5bce127
+          path: SillyTavern
       - name: Verify pinned SillyTavern checkout
         shell: powershell
         run: |
@@ -69,7 +72,6 @@ jobs:
       - name: Run source-level lifecycle assertions
         env:
           SILLYTAVERN_DIR: SillyTavern
-          SILLYTAVERN_CHECKED_OUT_REF: ${{ steps.checkout-st.outputs.ref }}
         run: node --test experiments/host-adapter-source-audit/harness.mjs
 
       - name: Run bounded fake-provider integration harness
