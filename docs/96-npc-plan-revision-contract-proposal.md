@@ -232,3 +232,96 @@ Because NPC work is spread across unmerged branches, the audit also checked rele
 Do not add a new `goal_id` or `version` field to the pure helper simply because the current branch lacks it. First define the NPC-local state record and the authoritative durable owner, then port that contract onto the current mainline and test its real persistence/acceptance boundary. Avoid stacking a new implementation on the stale planner/helper branch or merging PR #353's prototype as if it supplied production planning.
 
 The current PR's next safe contribution remains the bounded, pure revision request plus evidence-backed contract. A later runtime PR must be separately scoped to the owner-approved goal/plan state lifecycle; it cannot be inferred from the current coordinator.
+
+
+### 10.7 Third review iteration — transition closure and failure semantics (2026-10-30)
+
+This section incorporates the third review of the conceptual revision flow. It closes the identified fail-closed regression and specifies retry, acceptance, and conflict semantics without claiming that the required runtime owners or version tokens already exist.
+
+#### Unknown evidence: mandatory fail-closed outcome
+
+The plan-viability path has three distinct outcomes:
+
+- `viable` — continue the existing plan.
+- `reconsider` — request a bounded revision attempt.
+- `unknown` — obtain additional authorized context before deciding.
+
+For `unknown`, the authorized-read result must itself be classified:
+
+- **sufficient** — return to plan viability assessment using the newly authorized, provenance-bound context;
+- **insufficient, unavailable, denied, or still ambiguous** — stop this revision evaluation with `plan_reconsideration_blocked` (or the owning contract's equivalent terminal review status). Do not generate a candidate, treat missing data as a negative fact, or loop on repeated reads without a separately bounded read policy.
+
+This blocked outcome is not a budget exhaustion and must not be mislabeled as an escalation caused by repeated candidate generation. An external supervisor may later resolve the missing evidence, but no automatic retry is implied.
+
+#### Candidate rejection: reason-to-action mapping
+
+Candidate validation must return a typed rejection reason. The initial mapping is:
+
+| Rejection reason | Required handling | Retry condition |
+|---|---|---|
+| `goal_mismatch` | Reject candidate and abort this revision attempt. Do not silently retarget the candidate. | Only restart a distinct planning cycle after the owning goal authority confirms a legitimate goal change and its new identity/state. |
+| `stale_world_snapshot` or other stale basis | Discard candidate and re-read/reassess against current authoritative state. | Retry only after passing the shared revision budget gate. |
+| `infeasible` | Do not regenerate blindly. Return `no_viable_path`/abort when the supported constraints establish no path; escalate when required capability, authorization, or domain-owner evidence is unavailable or requires an external decision. | Only if a relevant prerequisite, capability, authorization, or world condition has changed and that change is evidenced; then pass the shared budget gate. |
+
+A stale generation-policy/authority basis, if such a versioned authority contract is later established, follows the stale-basis path: discard, refresh the authorized basis, then re-enter through the budget gate. The existence and identity of such an authority version remain unverified.
+
+All candidate-generation attempts, including retries after candidate rejection or an acceptance conflict, consume the same bounded revision-attempt budget. The budget gate is immediately before each candidate-generation attempt. A retry must never jump directly to generation.
+
+#### Acceptance is an owner transition, not an undefined supervisor check
+
+Remove the separate, actor-undefined "acceptance check" as a standalone gate. Candidate validation success leads to an explicit **NPC-local plan acceptance transition** performed by the future authoritative owner of NPC goal/plan state.
+
+That transition is not a model self-assertion and is not a Core world commit. Its contract must atomically verify the candidate's goal/plan linkage and freshness token, make the candidate current, and mark the previous current plan `superseded` while preserving its history. If the owner or atomic transition is not established, the candidate remains non-committing (`needs_review`); no component may simulate acceptance by mutating an in-memory copy.
+
+If a plan step later causes a world effect, that effect separately follows the relevant domain authorization and Core proposal/commit path. Plan acceptance itself neither dispatches nor commits that effect.
+
+#### Conflict handling
+
+An acceptance conflict means the expected NPC-local state no longer matches the state against which the candidate was prepared. Discard the candidate, re-read the authoritative NPC goal/plan state and the required world context, then return to **goal lifecycle assessment**, not directly to candidate generation or only to the budget gate.
+
+After re-read:
+
+- `achieved` — close the plan successfully;
+- `cancelled` — close as cancelled;
+- `unreachable` — close or escalate according to the owning goal-lifecycle contract;
+- `active` — reassess plan viability and evidence, then use the shared budget gate if another candidate is required;
+- unknown or untrusted goal status — fail closed pending authorized clarification.
+
+The conflict itself does not authorize a retry. Any subsequent candidate generation consumes the shared attempt budget.
+
+#### Goal lifecycle and known limits
+
+The goal lifecycle outcomes are distinct: `achieved`, `cancelled`, `unreachable`, and `active`. An achieved goal closes its plan successfully; cancellation closes it as cancelled; unreachable requires the owning lifecycle policy to decide between terminal closure and escalation. These outcomes must not collapse into one generic invalid/closed status.
+
+The current proposal does not yet establish an authoritative source for goal status. Until that source exists, unknown goal status must not be silently treated as active. It follows the same authorized-clarification/fail-closed principle as unknown plan evidence.
+
+A maximum attempt count is the first required loop bound. A wall-clock deadline/timeout is a known limitation and remains a deferred requirement for the first implementation slice; if later introduced, its clock source, pause/restart behavior, and expiry transition must be specified.
+
+#### Version dimensions: explicit but not fabricated
+
+"Version OK" is not one scalar comparison. A future acceptance contract must distinguish at least:
+
+- **World basis:** the authoritative world snapshot cursor, using the existing Core revision/commit-sequence contract where the selected caller supplies it.
+- **NPC plan basis:** the expected revision/concurrency token of the exact current plan being replaced. No production NPC-plan token is currently verified.
+- **Goal basis:** the expected state/revision of the exact goal served by the plan. No production goal revision token is currently verified.
+- **Generation authority/rules basis:** a version or immutable identity for the policy/rule authority used to generate and validate the candidate, only if the owning policy contract exposes one. No such production version token is currently verified.
+- **Plan schema version:** format compatibility is distinct from freshness and must not be used as a substitute for any of the above.
+
+A candidate is acceptable only if every required basis dimension is present and current according to its owner. Missing or unverifiable dimensions produce `needs_review`/fail-closed, not an assumed match. Per-entity source versions may supplement provenance for individual facts but do not replace the world snapshot cursor or NPC-local concurrency token.
+
+#### Acceptance tests added to the future contract boundary
+
+- An authorized read that remains insufficient returns `plan_reconsideration_blocked` and does not generate a candidate or repeat reads indefinitely.
+- `goal_mismatch` aborts the candidate; it cannot silently change the goal reference.
+- A stale world or authority basis discards the candidate and can retry only after the shared budget gate.
+- `infeasible` does not trigger blind regeneration; abort versus escalation follows the reason's evidence/ownership.
+- Every candidate-generation retry consumes one attempt from the same revision budget.
+- Acceptance is performed only by the authoritative NPC-local state owner; absent that owner, the candidate remains non-committing.
+- An acceptance conflict forces authoritative reread and goal-lifecycle reassessment before any retry.
+- An achieved goal closes successfully; a cancelled goal closes as cancelled; an unreachable goal follows explicit lifecycle policy.
+- Unknown goal status fails closed rather than defaulting to active.
+- A stale plan token, goal token, world cursor, or established authority version independently prevents acceptance.
+- Schema-version compatibility is tested separately from world/goal/plan freshness.
+- A candidate acceptance atomically supersedes the old plan without deleting its audit history; duplicate acceptance is idempotent.
+
+**Readiness consequence:** this review closes the conceptual transition gaps only. It does not remove the runtime blockers in §10.4: authoritative NPC goal/plan representation, plan/goal concurrency tokens, acceptance owner, durable persistence, and trusted action-result reconciliation remain unverified. No runtime implementation or schema change is authorized by this documentation update.
