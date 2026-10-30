@@ -3,7 +3,7 @@
 **Status: DECISION APPROVED — fail closed on contradictory checkpoint evidence.**  
 **Scope:** Core-owned recovery boundary for issue #243 and the evaluation/recalculation boundary in #262.  
 **Decision owner:** Core owner approval recorded on 2026-10-29.  
-**Runtime guard and regression are implemented on the PR branch. Exact-head CI passed on `1f32c396448109b98a7f9881cbb55f0a6a26bcb8` (Runtime 1090/1090; recalculation oracle 20/20; `core-trusted-acquisition`, `npc-boundary`, and Memory Provider blocker 3 passed). Final review of the current code head and the full acceptance matrix remain pending.**
+**Runtime guard and regression are merged to main in PR #694. Mainline commit `7e1fd838700eff5d2976c1e1b17565342e7c4e51` passed exact-head CI on 2026-10-30: Runtime `npm test` 1090/1090, recalculation oracle 20/20, `core-trusted-acquisition`, and `npc-boundary` passed. The Memory Provider blocker 3 workflow also passed (Provider acceptance 108/108 and recalculation oracle 20/20). Codex reviewed the PR's latest acceptance-matrix head and identified one documentation evidence overstatement; it was corrected in the follow-up commit `7e1fd838`. The lifecycle matrix is now reconciled to merged mainline tests/source. Issue #243 remains open for explicit owner acceptance; this record does not close it.**
 
 ## Approved rule
 
@@ -85,7 +85,7 @@ These cases are not substitutes for the missing cross-record mismatch regression
 | Rollback | `rollback invalidates the transitive completed prerequisite chain and survives restart` (215), `rolling back one process milestone preserves an independent completed process` (686), and `rollback follows an explicit cross-process event cause and gates both affected processes` (742). These do not prove global process-level recomputation. |
 | Scheduler ownership | `src/application/engine.js` imports the existing pure `planDueWork` scheduler (`src/time/scheduler.js`); process milestones register normal time triggers and are advanced through `startTimeAdvance`/the persisted TimeEngine operation path. The scheduler module documents that it only plans work and does not execute effects or write storage. No second process scheduler is present in this path. |
 
-Exact-head CI for `1fb43497c2d5896bc9cf7750c9cb2a76d94ea0ec`: Runtime `npm test` 1090/1090; recalculation oracle 20/20; `core-trusted-acquisition`, `npc-boundary`, and Memory Provider blocker 3 passed. These results support the matrix but do not substitute for current-head code review. Test names and line numbers above are from the PR head and should be rechecked if the test file changes.
+Exact-head CI for merged mainline commit `7e1fd838700eff5d2976c1e1b17565342e7c4e51` (2026-10-30): Runtime `npm test` 1090/1090; recalculation oracle 20/20; `core-trusted-acquisition` and `npc-boundary` passed. Memory Provider blocker 3 passed separately: Provider acceptance 108/108 and recalculation oracle 20/20. The matrix references the merged `main` test file; line numbers are anchored to this file version and should be refreshed if it changes.
 
 ## Explicit non-decisions
 
