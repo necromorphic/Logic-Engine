@@ -935,8 +935,6 @@ export class LogicEngine {
       WHERE world_id=? AND idempotency_key=?
     `).get(input.world_id, input.idempotency_key);
     if (existingReplay) {
-      assert(existingReplay.request_hash === requestHash, 'IDEMPOTENCY_KEY_REUSED',
-        'Belief transition idempotency key was already used for a different request.', 409);
       const currentWorld = this.store.world(input.world_id);
       assert(currentWorld && currentWorld.status === 'active',
         'WORLD_NOT_FOUND', 'World not found or inactive.', 404);
@@ -950,6 +948,8 @@ export class LogicEngine {
         expected_commit_sequence: this.store.currentCommitSequence(input.world_id),
         limit: input.limit ?? 200,
       });
+      assert(existingReplay.request_hash === requestHash, 'IDEMPOTENCY_KEY_REUSED',
+        'Belief transition idempotency key was already used for a different request.', 409);
       return {
         status: 'ready',
         idempotent_replay: true,
