@@ -1,5 +1,6 @@
 import { hashRequest } from '../core/request-hash.js';
 import { collectConditionDependencies } from '../core/rules.js';
+import { isMechanicPolicyAuthoritySnapshot } from './mechanic-policy-authority.js';
 
 const object = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 const forbiddenSegments = new Set(['__proto__', 'constructor', 'prototype']);
@@ -51,8 +52,11 @@ export class CanonicalEntityAttributeContextProvider {
     if (!Array.isArray(bindings)) throw new TypeError('bindings must be an explicit array.');
     const useAuthorizedReadService = authorizedReadService !== undefined;
     if (useAuthorizedReadService) {
-      if (typeof authorizedReadService?.readEntityAttributeForMechanic !== 'function') {
-        throw new TypeError('authorizedReadService must expose readEntityAttributeForMechanic.');
+      if (typeof authorizedReadService?.readEntityAttributeForMechanic !== 'function'
+        || typeof authorizedReadService?.getPolicyAuthoritySnapshot !== 'function'
+        || typeof authorizedReadService?.isPolicyAuthorityCurrent !== 'function'
+        || !authorizedReadService.policyAuthority) {
+        throw new TypeError('authorizedReadService must expose mechanic reads through a versioned policy authority.');
       }
       if (typeof adapterId !== 'string' || !adapterId.trim()
         || typeof actorEntityId !== 'string' || !actorEntityId.trim()
@@ -91,13 +95,29 @@ export class CanonicalEntityAttributeContextProvider {
       recipient,
       purpose,
     }) : null;
-    this.policyFingerprint = hashRequest({
+    this.policyConfigFingerprint = hashRequest({
       policy_version: this.policyVersion,
       authorization_scope: this.authorizationScope,
       bindings: [...byPath.values()].sort((a, b) => a.path.localeCompare(b.path)),
       ...(this.readPrincipal ? { authorization_principal: this.readPrincipal } : {}),
     });
     Object.freeze(this);
+  }
+
+  _policyFingerprintFor(policyAuthority) {
+    return hashRequest({
+      policy_configuration: this.policyConfigFingerprint,
+      policy_authority: policyAuthority,
+    });
+  }
+
+  get policyFingerprint() {
+    const policyAuthority = this.authorizedReadService?.getPolicyAuthoritySnapshot?.() ?? null;
+    return this._policyFingerprintFor(policyAuthority);
+  }
+
+  getPolicyAuthority() {
+    return this.authorizedReadService?.policyAuthority ?? null;
   }
 
   resolve({ worldId, snapshot, template, action } = {}) {
@@ -110,6 +130,12 @@ export class CanonicalEntityAttributeContextProvider {
       ...(action.preconditions ?? []),
       ...(action.constraints ?? []),
     ].flatMap((rule) => collectConditionDependencies(rule)))].sort();
+    const policyAuthority = this.authorizedReadService
+      ? this.authorizedReadService.getPolicyAuthoritySnapshot()
+      : null;
+    if (this.authorizedReadService && !isMechanicPolicyAuthoritySnapshot(policyAuthority)) {
+      throw new Error('The active mechanic policy authority is unavailable or malformed.');
+    }
     const state = this.engine.getState(worldId);
     if (state.world_revision !== snapshot.world_revision || state.commit_sequence !== snapshot.commit_sequence) {
       throw new Error('Snapshot changed during trusted context resolution.');
@@ -130,11 +156,15 @@ export class CanonicalEntityAttributeContextProvider {
           attribute: binding.attribute,
           expectedWorldRevision: snapshot.world_revision,
           expectedCommitSequence: snapshot.commit_sequence,
+          expectedPolicyAuthority: policyAuthority,
         });
         if (read.world_id !== worldId || read.entity_id !== binding.entity_id
           || read.attribute !== binding.attribute
           || read.world_revision !== snapshot.world_revision
-          || read.commit_sequence !== snapshot.commit_sequence) {
+          || read.commit_sequence !== snapshot.commit_sequence
+          || !isMechanicPolicyAuthoritySnapshot(read.policy_authority)
+          || read.policy_authority.authority_id !== policyAuthority.authority_id
+          || read.policy_authority.generation !== policyAuthority.generation) {
           throw new Error('Authorized read did not match the exact mechanic evaluation snapshot.');
         }
         if (read.present) setPath(context, path, read.value);
@@ -171,6 +201,10 @@ export class CanonicalEntityAttributeContextProvider {
       });
     }
 
+    if (policyAuthority && !this.authorizedReadService.isPolicyAuthorityCurrent(policyAuthority)) {
+      throw new Error('Mechanic policy authority changed during context resolution.');
+    }
+
     return freeze({
       context,
       knownAbsentPaths: knownAbsentPaths.sort(),
@@ -178,7 +212,8 @@ export class CanonicalEntityAttributeContextProvider {
       world_revision: snapshot.world_revision,
       commit_sequence: snapshot.commit_sequence,
       authorization_scope: this.authorizationScope,
-      policy_version: this.policyFingerprint,
+      policy_version: this._policyFingerprintFor(policyAuthority),
+      ...(policyAuthority ? { policy_authority: policyAuthority } : {}),
     });
   }
 
@@ -193,6 +228,9 @@ export class CanonicalEntityAttributeContextProvider {
       || typeof identity.worldId !== 'string' || !identity.worldId.trim()
       || typeof identity.policyVersion !== 'string' || !identity.policyVersion.trim()
       || typeof identity.authorizationScope !== 'string' || !identity.authorizationScope.trim()
+      || !isMechanicPolicyAuthoritySnapshot(identity.policyAuthority)
+      || !this.authorizedReadService
+      || !this.authorizedReadService.isPolicyAuthorityCurrent(identity.policyAuthority)
       || !object(identity.snapshotIdentity)
       || identity.snapshotIdentity.world_id !== identity.worldId
       || !Number.isSafeInteger(identity.snapshotIdentity.world_revision)
@@ -200,7 +238,7 @@ export class CanonicalEntityAttributeContextProvider {
       return false;
     }
 
-    return identity.policyVersion === this.policyFingerprint
+    return identity.policyVersion === this._policyFingerprintFor(identity.policyAuthority)
       && identity.authorizationScope === this.authorizationScope;
   }
 }
