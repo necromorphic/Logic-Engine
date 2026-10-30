@@ -17,8 +17,8 @@ export function validateTrustedMechanicPolicyConfig(config) {
   if (!validId(config.authority_id) || !Number.isSafeInteger(config.generation) || config.generation < 1
     || !validId(config.policy_version) || !validId(config.authorization_scope)
     || !validId(config.adapter_id) || !validId(config.actor_entity_id)
-    || !['model', 'player', 'adapter'].includes(config.recipient)
-    || !['npc_decision', 'character_card', 'narrative'].includes(config.purpose)
+    || config.recipient !== 'model'
+    || config.purpose !== 'npc_decision'
     || !Array.isArray(config.bindings) || !Array.isArray(config.allowed_fields)) {
     throw new TypeError('Mechanic policy config contains invalid identity, generation, principal, or collections.');
   }
