@@ -24,32 +24,24 @@ diff --git a/public/script.js b/public/script.js
 +
      // Make sure all the data is loaded.
      await unshallowCharacter(characterId);
-@@ -1583,23 +1593,151 @@
+@@ -1583,23 +1593,143 @@
   * @param {object} [options] Options
   * @param {boolean} [options.clearData=false] Optionally clear the chat array's contents.
   */
-+let logicEngineHostSessionPromise;
 +async function getLogicEngineHostSession() {
-+    if (!logicEngineHostSessionPromise) {
-+        logicEngineHostSessionPromise = fetch('/api/logic-engine/host/session', {
-+            credentials: 'same-origin',
-+            cache: 'no-store',
-+        }).then(async response => {
-+            if (!response.ok) throw Error('Host authenticated session identity unavailable');
-+            const payload = await response.json();
-+            if (typeof payload?.host_session_id !== 'string'
-+                || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(payload.host_session_id)
-+                || payload?.host_session_identity !== 'SIGNED_AUTHENTICATED_ST_SESSION'
-+                || typeof payload?.host_user_handle !== 'string') {
-+                throw Error('Host authenticated session identity is malformed');
-+            }
-+            return payload;
-+        }).catch(error => {
-+            logicEngineHostSessionPromise = null;
-+            throw error;
-+        });
++    const response = await fetch('/api/logic-engine/host/session', {
++        credentials: 'same-origin',
++        cache: 'no-store',
++    });
++    if (!response.ok) throw Error('Host authenticated session identity unavailable');
++    const payload = await response.json();
++    if (typeof payload?.host_session_id !== 'string'
++        || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(payload.host_session_id)
++        || payload?.host_session_identity !== 'SIGNED_AUTHENTICATED_ST_SESSION'
++        || typeof payload?.host_user_handle !== 'string') {
++        throw Error('Host authenticated session identity is malformed');
 +    }
-+    return logicEngineHostSessionPromise;
++    return payload;
 +}
 +
 +async function getLogicEngineHostSessionId() {
