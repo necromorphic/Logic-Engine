@@ -9,6 +9,8 @@ import { createApiServer } from '../src/api/server.js';
 const TOKEN = 'test-token-long-enough-123456';
 const ADMIN = 'admin-token-long-enough-123456';
 const ADAPTER = 'adapter-a-token-long-enough-123456';
+const CONVERSATION_ID = '11111111-1111-4111-8111-111111111111:22222222-2222-4222-8222-222222222222:33333333-3333-4333-8333-333333333333';
+const UNBOUND_CONVERSATION_ID = '11111111-1111-4111-8111-111111111111:22222222-2222-4222-8222-222222222222:44444444-4444-4444-8444-444444444444';
 const headers = { authorization: 'Bearer ' + TOKEN, 'content-type': 'application/json' };
 const adapterHeaders = {
   ...headers,
@@ -71,7 +73,7 @@ async function setup(t, enabled = true) {
   };
 }
 
-async function bindHost(base, conversationId = 'st-conversation-test') {
+async function bindHost(base, conversationId = CONVERSATION_ID) {
   const host = await fetch(base + '/v1/host-conversation-bindings', {
     method: 'POST',
     headers: { ...headers, 'x-admin-token': ADMIN },
@@ -96,7 +98,7 @@ test('Core NPC Host context route derives adapter, world and actor and accepts n
   const path = base + '/v1/npc-knowledge/context';
 
   const unauthenticatedAdapter = await fetch(path, {
-    method: 'POST', headers, body: json({ conversation_id: 'st-conversation-test' }),
+    method: 'POST', headers, body: json({ conversation_id: CONVERSATION_ID }),
   });
   assert.equal(unauthenticatedAdapter.status, 403);
   assert.equal((await unauthenticatedAdapter.json()).error.code, 'ADAPTER_REQUIRED');
@@ -104,7 +106,7 @@ test('Core NPC Host context route derives adapter, world and actor and accepts n
   const wrongAdapter = await fetch(path, {
     method: 'POST',
     headers: { ...headers, 'x-adapter-id': 'adapter-a', 'x-adapter-token': 'wrong-adapter-token-1234567890' },
-    body: json({ conversation_id: 'st-conversation-test' }),
+    body: json({ conversation_id: CONVERSATION_ID }),
   });
   assert.equal(wrongAdapter.status, 403);
 
@@ -112,7 +114,7 @@ test('Core NPC Host context route derives adapter, world and actor and accepts n
     method: 'POST',
     headers: adapterHeaders,
     body: json({
-      conversation_id: 'st-conversation-test',
+      conversation_id: CONVERSATION_ID,
       world_id: 'attacker-world',
       actor_id: 'attacker-actor',
       adapter_id: 'adapter-b',
@@ -126,7 +128,7 @@ test('Core NPC Host context route derives adapter, world and actor and accepts n
   const response = await fetch(path, {
     method: 'POST',
     headers: adapterHeaders,
-    body: json({ conversation_id: 'st-conversation-test', limit: 20 }),
+    body: json({ conversation_id: CONVERSATION_ID, limit: 20 }),
   });
   assert.equal(response.status, 200);
   const { context } = await response.json();
@@ -143,7 +145,7 @@ test('Core NPC Host context route is disabled unless explicitly enabled by deplo
   const response = await fetch(base + '/v1/npc-knowledge/context', {
     method: 'POST',
     headers: adapterHeaders,
-    body: json({ conversation_id: 'st-conversation-test' }),
+    body: json({ conversation_id: CONVERSATION_ID }),
   });
   assert.equal(response.status, 503);
   assert.equal((await response.json()).error.code, 'NPC_KNOWLEDGE_HOST_API_DISABLED');
@@ -152,8 +154,14 @@ test('Core NPC Host context route is disabled unless explicitly enabled by deplo
 test('Core NPC Host context route denies an unbound conversation or ambiguous actor scope', async (t) => {
   const { base } = await setup(t);
   const path = base + '/v1/npc-knowledge/context';
-  const unbound = await fetch(path, {
+  const malformed = await fetch(path, {
     method: 'POST', headers: adapterHeaders, body: json({ conversation_id: 'not-bound' }),
+  });
+  assert.equal(malformed.status, 400);
+  assert.equal((await malformed.json()).error.code, 'INVALID_NPC_KNOWLEDGE_HOST_REQUEST');
+
+  const unbound = await fetch(path, {
+    method: 'POST', headers: adapterHeaders, body: json({ conversation_id: UNBOUND_CONVERSATION_ID }),
   });
   assert.equal(unbound.status, 403);
   assert.equal((await unbound.json()).error.code, 'HOST_CONVERSATION_NOT_AUTHORIZED');
@@ -166,7 +174,7 @@ test('Core NPC Host context route denies an unbound conversation or ambiguous ac
   });
   assert.equal(secondActor.status, 201);
   const ambiguous = await fetch(path, {
-    method: 'POST', headers: adapterHeaders, body: json({ conversation_id: 'st-conversation-test' }),
+    method: 'POST', headers: adapterHeaders, body: json({ conversation_id: CONVERSATION_ID }),
   });
   assert.equal(ambiguous.status, 403);
   assert.equal((await ambiguous.json()).error.code, 'HOST_CONVERSATION_NOT_AUTHORIZED');
