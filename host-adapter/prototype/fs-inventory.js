@@ -5,7 +5,27 @@ import {
 import { constants as fsConstants } from 'node:fs';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 
+const MAX_FILE_BYTES = 256 * 1024 * 1024;
+const MAX_TOTAL_BYTES = 2 * 1024 * 1024 * 1024;
+const MAX_TOTAL_ENTRIES = 100_000;
 const sha256 = (value) => createHash('sha256').update(value).digest('hex');
+
+async function readBoundedFile(handle, maxBytes, overflowCode) {
+  const chunks = [];
+  let total = 0;
+  let position = 0;
+  while (total <= maxBytes) {
+    const length = Math.min(64 * 1024, maxBytes + 1 - total);
+    const buffer = Buffer.alloc(length);
+    const { bytesRead } = await handle.read(buffer, 0, length, position);
+    if (bytesRead === 0) break;
+    total += bytesRead;
+    if (total > maxBytes) throw new Error(overflowCode);
+    chunks.push(buffer.subarray(0, bytesRead));
+    position += bytesRead;
+  }
+  return Buffer.concat(chunks, total);
+}
 const fail = (code) => ({ status: 'non_ready', code });
 
 function isWithinRoot(root, candidate) {
@@ -114,7 +134,14 @@ export async function enumerateStableFileInventory(rootPath) {
           if (!openedBefore.isFile() || openedBefore.dev !== before.dev || openedBefore.ino !== before.ino) {
             throw new Error('HOST_INVENTORY_FILE_IDENTITY_CHANGED');
           }
-          const bytes = await handle.readFile();
+          if (openedBefore.size > MAX_FILE_BYTES) throw new Error('HOST_INVENTORY_FILE_SIZE_LIMIT');
+          const remainingTotalBytes = MAX_TOTAL_BYTES - totalBytes;
+          if (openedBefore.size > remainingTotalBytes) throw new Error('HOST_INVENTORY_TOTAL_SIZE_LIMIT');
+          const bytes = await readBoundedFile(
+            handle,
+            Math.min(MAX_FILE_BYTES, remainingTotalBytes),
+            remainingTotalBytes < MAX_FILE_BYTES ? 'HOST_INVENTORY_TOTAL_SIZE_LIMIT' : 'HOST_INVENTORY_FILE_SIZE_LIMIT',
+          );
           const openedAfter = await handle.stat();
           const pathAfter = await lstat(fullPath);
           if (!pathAfter.isFile() || pathAfter.isSymbolicLink()
