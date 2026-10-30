@@ -285,3 +285,40 @@ test('binding revocation that wins during async inventory verification blocks RE
   });
   assert.equal(ledger.getInventoryState('host-ledger-api-world', 'stable-host-chat').status, 'NON_READY');
 });
+
+
+test('complete Host inventory reconciliation enforces request-byte and version-count bounds', async (t) => {
+  const { base } = await setup(t);
+  assert.equal((await bind(base)).status, 201);
+  const adapterHeaders = { ...headers, 'x-adapter-id': 'adapter-a', 'x-adapter-token': ADAPTER };
+
+  const tooManyVersions = Array.from({ length: 25001 }, (_, index) => ({
+    message_id: 'message-' + index,
+    version_id: 'version-' + index,
+    parent_version_id: null,
+    content_sha256: 'a'.repeat(64),
+    active: false,
+    deleted: true,
+  }));
+  const countResponse = await fetch(base + '/v1/host-version-ledger/reconcile', {
+    method: 'POST',
+    headers: adapterHeaders,
+    body: json({ conversation_id: 'stable-host-chat', complete: true, versions: tooManyVersions }),
+  });
+  assert.equal(countResponse.status, 413);
+  assert.equal((await countResponse.json()).error.code, 'HOST_INVENTORY_TOO_LARGE');
+
+  const oversizedBody = JSON.stringify({
+    conversation_id: 'stable-host-chat',
+    complete: true,
+    versions: [],
+    padding: 'x'.repeat(8 * 1024 * 1024),
+  });
+  const byteResponse = await fetch(base + '/v1/host-version-ledger/reconcile', {
+    method: 'POST',
+    headers: adapterHeaders,
+    body: oversizedBody,
+  });
+  assert.equal(byteResponse.status, 413);
+  assert.equal((await byteResponse.json()).error.code, 'BODY_TOO_LARGE');
+});
