@@ -67,7 +67,7 @@ test('historical evaluation rejects incomplete input snapshots', () => {
 });
 
 
-test('historical evaluation detects tampering with World Pack provenance metadata', () => {
+test('historical evaluation detects an altered World Pack provenance value when its digest is not updated', () => {
   const tampered = makeSnapshot();
   tampered.world_pack_version = '99.0.0';
   assert.equal(reevaluateHistoricalRelationshipSnapshot(tampered, context).reason,
