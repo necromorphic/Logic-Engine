@@ -106,12 +106,44 @@ test("a contradicted plan assumption stops selection for plan reconsideration", 
   assert.equal(result.intention, null);
 });
 
-test("an active blocker prevents selection", () => {
+test("a contradicted plan assumption emits a plan-scoped revision request without selecting an action", () => {
+  const input = base();
+  input.assessment.assumptions[0].outcome = "contradicted";
+  const before = structuredClone(input);
+
+  const result = evaluateNpcAutonomyCycle(input);
+
+  assert.equal(result.status, "plan_revision_required");
+  assert.equal(result.stage, "plan_viability");
+  assert.equal(result.intention, null);
+  assert.deepEqual(result.plan_revision_request, {
+    plan_id: "plan-1",
+    reasons: ["assumption_contradicted"],
+  });
+  assert.deepEqual(input, before);
+});
+
+test("a passed plan deadline emits a plan-scoped revision request with its reason", () => {
+  const input = base();
+  input.assessment.deadline = "due";
+
+  const result = evaluateNpcAutonomyCycle(input);
+
+  assert.equal(result.status, "plan_revision_required");
+  assert.deepEqual(result.plan_revision_request, {
+    plan_id: "plan-1",
+    reasons: ["deadline_passed"],
+  });
+  assert.equal(result.intention, null);
+});
+
+test("an active blocker prevents selection without requesting plan revision", () => {
   const input = base();
   input.assessment.blockers[0].outcome = "active";
   const result = evaluateNpcAutonomyCycle(input);
   assert.equal(result.status, "plan_not_ready");
   assert.equal(result.viability.disposition, "blocked");
+  assert.equal(Object.hasOwn(result, "plan_revision_request"), false);
 });
 
 test("unknown or incomplete plan assessment cannot be treated as viable", () => {
