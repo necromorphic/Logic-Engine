@@ -11,9 +11,10 @@ The reader returns the value and canonical source-event set pinned by the acquis
 Each read requires:
 
 - an existing non-destroyed NPC entity in the requested world;
-- one supported purpose (npc_turn_context or npc_action_evaluation);
-- the exact current world_revision and commit_sequence;
-- a deployment-injected synchronous authorizer whose decision binds world, actor, purpose, revision, and commit sequence;
+- one supported purpose (`npc_turn_context` or `npc_action_evaluation`);
+- an explicit `adapter_id` and `recipient` (`model`), in addition to world and actor;
+- the exact current `world_revision` and `commit_sequence`;
+- a deployment-injected synchronous authorizer whose decision binds world, adapter, actor, recipient, purpose, revision, and commit sequence;
 - a stable authorization-rule reference.
 
 The read result includes the snapshot cursor and source/acquisition provenance. It is immutable at the returned object/array boundaries and nested JSON value level. Stale snapshots, missing authorizer, mismatched authorization scope, unsupported purposes, and invalid provenance fail closed.
@@ -29,7 +30,7 @@ The read result includes the snapshot cursor and source/acquisition provenance. 
 
 ## Explicit integration gaps before production use
 
-- The current read request contains world, actor, purpose, snapshot and limit, but does not carry an explicit Host session identity or recipient field. The deployment authorizer must be bound to the authenticated Host/session and the intended recipient outside caller-controlled request data. That binding is not implemented or demonstrated by this candidate.
+- The read request now carries `world_id`, `adapter_id`, `actor_id`, `recipient` (`model`), purpose, snapshot and limit. The read authorizer receives and must bind all of these fields. The adapter and recipient values are still request data, not authentication: the deployment-owned authorizer must verify them against an authenticated Host/session and intended recipient using trusted state outside the request. There is no explicit Host-session identifier in the Core request, and no such trusted binding is implemented or demonstrated by this candidate.
 - The current application bootstrap in `src/index.js` does not configure either NPC authorizer. Their constructor defaults are `null`; therefore the application-level read path fails closed with `NPC_KNOWLEDGE_READ_NOT_CONFIGURED` until an owner-approved trusted binding is supplied.
 - The Core reader checks that the actor exists and is not destroyed, but does not itself authenticate the Host adapter/session. A future caller must derive actor identity from the approved Host binding, not from model text or an arbitrary request.
 - No production NPC runtime caller, model-context serializer, or Host final-egress integration is included. This candidate is not an enablement switch.
@@ -40,6 +41,6 @@ The read result includes the snapshot cursor and source/acquisition provenance. 
 - Acquisition-time value and source-event identities are persisted in the canonical acquisition effect and derived projection.
 - A changed current fact value/source-event set cannot silently replace the acquired version; version mismatch fails closed.
 - Current snapshot identity is bound into authorization and result.
-- Authorization from another actor, purpose, world, or snapshot is rejected.
+- Authorization from another world, adapter, actor, recipient, purpose, or snapshot is rejected.
 - Unsupported purpose, stale cursor, missing authorizer, destroyed/missing actor, malformed request, and missing source provenance fail closed.
 - Read path is covered by the NPC boundary workflow and the full Runtime suite.
