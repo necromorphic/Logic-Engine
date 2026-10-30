@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { SQLiteStore } from '../src/storage/sqlite-store.js';
 import { LogicEngine } from '../src/application/engine.js';
 import { MechanicExecutor } from '../src/application/mechanic-executor.js';
+import { DeploymentMechanicPolicyAuthority } from '../src/application/deployment-mechanic-policy-authority.js';
 import { CanonicalEntityAttributeContextProvider } from '../src/application/entity-attribute-context-provider.js';
 import { ActorBindingService } from '../src/application/actor-bindings.js';
 import { AuthorizedReadService } from '../src/application/authorized-read-service.js';
@@ -1461,4 +1462,74 @@ test('proposal commit rolls back canonical state when committed-audit insertion 
   assert.equal(proposals.db.prepare(
     "SELECT COUNT(*) AS count FROM audit_entries WHERE world_id=? AND action='proposal.committed'",
   ).get(worldId).count, beforeCommittedAudits + 1);
+});
+
+test('one deployment authority pins context and invalidates stale proposals across policy generations', (t) => {
+  const { engine, worldId } = setup(t, 'executor-shared-deployment-authority-world');
+  enableFixture(engine, worldId);
+
+  const makeContextProvider = (policyVersion) => ({
+    policyFingerprint: policyVersion,
+    authorizationScope: 'test-principal',
+    resolve: (args) => ({
+      ...contextProvider()(args),
+      policy_version: policyVersion,
+    }),
+  });
+  let active = {
+    authority_id: 'deployment-mechanics-test',
+    generation: 7,
+    contextProvider: makeContextProvider('visibility-v7'),
+  };
+  const authority = new DeploymentMechanicPolicyAuthority({
+    resolveActivePolicy: () => active,
+  });
+  const executor = new MechanicExecutor(engine, {
+    resolveAuthorizedContext: (args) => authority.resolveAuthorizedContext(args),
+  });
+  const proposals = new ProposalService(engine, {
+    validateMechanicPolicy: (identity) => authority.validateMechanicPolicy(identity),
+  });
+
+  const staleEvaluation = executor.evaluate({
+    worldId, instanceId: 'instance.executor', actionId: 'wait',
+  });
+  assert.equal(staleEvaluation.status, 'ready');
+  assert.equal(staleEvaluation.authority_id, 'deployment-mechanics-test');
+  assert.equal(staleEvaluation.policy_generation, 7);
+  const staleProposal = proposals.createFromMechanicEvaluation(worldId, staleEvaluation, {
+    idempotencyKey: 'shared-authority-stale-proposal',
+    turnId: 'shared-authority-stale-turn',
+    sourceText: 'A proposal pinned to generation seven.',
+    adapterId: 'test-adapter',
+  });
+  proposals.approve(worldId, staleProposal.proposal_id);
+
+  active = {
+    authority_id: 'deployment-mechanics-test',
+    generation: 8,
+    contextProvider: makeContextProvider('visibility-v8'),
+  };
+  assert.throws(
+    () => proposals.commit(worldId, staleProposal.proposal_id),
+    (error) => error.code === 'STALE_MECHANIC_POLICY' && error.status === 409,
+  );
+  assert.equal(proposals.get(worldId, staleProposal.proposal_id).status, 'approved');
+  assert.equal(engine.getState(worldId).entities.some((entity) => entity.entity_id === 'entity.new'), false);
+
+  const freshEvaluation = executor.evaluate({
+    worldId, instanceId: 'instance.executor', actionId: 'wait',
+  });
+  assert.equal(freshEvaluation.status, 'ready');
+  assert.equal(freshEvaluation.policy_generation, 8);
+  const freshProposal = proposals.createFromMechanicEvaluation(worldId, freshEvaluation, {
+    idempotencyKey: 'shared-authority-fresh-proposal',
+    turnId: 'shared-authority-fresh-turn',
+    sourceText: 'A fresh evaluation under generation eight.',
+    adapterId: 'test-adapter',
+  });
+  proposals.approve(worldId, freshProposal.proposal_id);
+  const committed = proposals.commit(worldId, freshProposal.proposal_id);
+  assert.equal(committed.status, 'committed');
+  assert.equal(engine.getState(worldId).entities.some((entity) => entity.entity_id === 'entity.new'), true);
 });
