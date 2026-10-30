@@ -353,10 +353,12 @@ export class MechanicExecutor {
     const existingEntities = new Set(entityById.keys());
     const existingFacts = new Map(targetFacts.map((fact) => [fact.fact_id, fact]));
     const createdEntities = new Set();
+    const createdEntityEffectIndex = new Map();
     const entityStatusAfterEffects = new Map();
     const writtenEntityIds = new Set();
     const writtenFactIds = new Set();
-    for (const effect of translated.effects) {
+    for (let effectIndex = 0; effectIndex < translated.effects.length; effectIndex += 1) {
+      const effect = translated.effects[effectIndex];
       if (effect.kind === 'entity.create' || effect.kind === 'entity.update') {
         if (writtenEntityIds.has(effect.entity_id)) {
           return unknown('MECHANIC_EFFECT_WRITE_CONFLICT', 'Core event semantics allow at most one entity effect per entity in a proposal.', identity);
@@ -374,6 +376,7 @@ export class MechanicExecutor {
           return unknown('MECHANIC_EFFECT_TARGET_ALREADY_EXISTS', 'A create_entity target already exists in the snapshot or earlier in this effect batch.', identity);
         }
         createdEntities.add(effect.entity_id);
+        createdEntityEffectIndex.set(effect.entity_id, effectIndex);
         entityStatusAfterEffects.set(effect.entity_id, effect.status ?? 'active');
       } else if (effect.kind === 'entity.update') {
         const target = entityById.get(effect.entity_id);
@@ -402,9 +405,19 @@ export class MechanicExecutor {
       }
     }
 
-    const effectTargetDependencies = translated.effects.flatMap((effect) => {
-      if (effect.kind === 'entity.create') return [{ kind: 'entity_absence', target_id: effect.entity_id }];
-      if (effect.kind === 'entity.update') return [{ kind: 'entity_exists', target_id: effect.entity_id }];
+    const effectTargetDependencies = translated.effects.flatMap((effect, effectIndex) => {
+      const provenance = translated.effect_provenance[effectIndex];
+      const attachEffectProvenance = (dependencies) => dependencies.map((dependency) => ({
+        ...dependency,
+        effect_index: effectIndex,
+        effect_id: provenance.effect_id,
+      }));
+      if (effect.kind === 'entity.create') {
+        return attachEffectProvenance([{ kind: 'entity_absence', target_id: effect.entity_id }]);
+      }
+      if (effect.kind === 'entity.update') {
+        return attachEffectProvenance([{ kind: 'entity_exists', target_id: effect.entity_id }]);
+      }
       if (effect.kind === 'fact.set') {
         const existingFact = existingFacts.get(effect.fact_id);
         const dependencies = [{
@@ -417,14 +430,18 @@ export class MechanicExecutor {
           subject_ref: existingFact.subject_ref ?? null,
           predicate: existingFact.predicate,
         });
-        if (effect.subject_ref) dependencies.push({
-          kind: createdEntities.has(effect.subject_ref) ? 'entity_created_in_action' : 'entity_exists',
-          target_id: effect.subject_ref,
-        });
-        return dependencies;
+        if (effect.subject_ref) dependencies.push(createdEntities.has(effect.subject_ref)
+          ? {
+            kind: 'entity_created_in_action',
+            target_id: effect.subject_ref,
+            source_effect_index: createdEntityEffectIndex.get(effect.subject_ref),
+          }
+          : { kind: 'entity_exists', target_id: effect.subject_ref });
+        return attachEffectProvenance(dependencies);
       }
       return [];
-    }).sort((a, b) => a.kind.localeCompare(b.kind) || a.target_id.localeCompare(b.target_id));
+    }).sort((a, b) => a.effect_index - b.effect_index
+      || a.kind.localeCompare(b.kind) || a.target_id.localeCompare(b.target_id));
 
     for (const effect of translated.effects) {
       if (effect.kind === 'entity.create') {
