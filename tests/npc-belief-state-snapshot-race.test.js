@@ -510,6 +510,10 @@ test('belief transition revalidates visibility immediately before the Core commi
   // must execute under one coordinator lease, not in the gap before store.tx.
   visibilityAllowed = true;
   preparationCalls = 0;
+  engine.prepareNpcBeliefContext = (...args) => {
+    preparationCalls += 1;
+    return originalPrepare(...args);
+  };
   let leaseDepthAtCommit = null;
   const originalTx = store.tx.bind(store);
   store.tx = (callback) => {
