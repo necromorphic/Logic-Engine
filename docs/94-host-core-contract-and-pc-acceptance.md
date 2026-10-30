@@ -85,7 +85,7 @@ The bridge's exact current `CURRENTLY_HOOKED_PATHS` is:
 
 `create-message`, `message-send`, `message-receive`, `create-swipe`, `select-swipe`, `delete-swipe`, `delete-message`, `edit-message`, `rename-chat`.
 
-This is the current bounded hook set, not a complete SillyTavern lifecycle inventory. Whole-chat deletion, group-chat deletion, character deletion, import/export, copy/branch/restore, and out-of-band filesystem changes are not in this list. The bridge itself documents that integrity is not completeness and keeps `reconcileCurrentConversation()` NON_READY until all required mutation paths are wired and tested.
+This is the current bounded hook set, not a complete SillyTavern lifecycle inventory. Whole-chat deletion, group-chat deletion, character deletion, import/export, copy/branch/restore, and out-of-band filesystem changes are not in this list. The bridge itself documents that integrity is not completeness. `HostLifecycleJournal.status()` returns NON_READY while required mutation paths are missing; even after that list is complete, it still returns NON_READY because no trusted pinned-source attestation is currently supplied. Therefore the bridge has no current path to READY and cannot yet call the snapshot reconciliation route.
 
 
 ### Dispatch-start process/runtime compatibility gate
