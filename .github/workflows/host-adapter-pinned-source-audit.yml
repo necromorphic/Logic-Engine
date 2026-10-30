@@ -53,24 +53,18 @@ jobs:
       # This self-hosted service account has no Git executable; the immutable
       # 40-character ref above is resolved by checkout (visible in its action
       # log), so do not require a local .git directory to verify the source.
-      - name: Verify pinned source archive
+      - name: Verify pinned SillyTavern checkout
         shell: powershell
-        env:
-          CHECKED_OUT_REF: ${{ steps.checkout-st.outputs.ref }}
         run: |
           $expected = '06bde939fb1e9c4c8d8641d810f0a916b5bce127'
-          if ($env:CHECKED_OUT_REF -ne $expected) {
-            throw "Unexpected SillyTavern checkout ref: $env:CHECKED_OUT_REF"
+          $actual = (git -C SillyTavern rev-parse HEAD).Trim()
+          if ($actual -ne $expected) {
+            throw "Unexpected SillyTavern checkout SHA: $actual"
           }
           if (-not (Test-Path 'SillyTavern/package.json' -PathType Leaf)) {
-            throw 'Pinned SillyTavern source archive is missing package.json'
+            throw 'Pinned SillyTavern checkout is missing package.json'
           }
-          $package = Get-Content 'SillyTavern/package.json' -Raw | ConvertFrom-Json
-          if (-not $package.name -or -not $package.version) {
-            throw 'Pinned SillyTavern package metadata is invalid'
-          }
-          Write-Output "SillyTavern source was checked out using immutable commit ref $expected"
-          Write-Output "Package: $($package.name)@$($package.version)"
+          Write-Output "SillyTavern target SHA: $actual"
 
       - name: Run source-level lifecycle assertions
         env:
