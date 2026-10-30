@@ -29,13 +29,13 @@ async function fixture() {
   };
   await Promise.all(Object.values(directories).map(directory => mkdir(directory, { recursive: true })));
   await mkdir(path.join(directories.chats, 'character-a'));
-  await writeFile(path.join(directories.chats, 'root-chat.jsonl'), '[{"mes":"root"}]\n');
-  await writeFile(path.join(directories.chats, 'character-a', 'chat-a.jsonl'), '[{"mes":"character"}]\n');
+  await writeFile(path.join(directories.chats, 'root-chat.jsonl'), chatFile(UUIDS[0], 'root'));
+  await writeFile(path.join(directories.chats, 'character-a', 'chat-a.jsonl'), chatFile(UUIDS[1], 'character'));
   await writeFile(path.join(directories.groups, 'group-a.json'), JSON.stringify({
     id: 'group-a',
     chats: ['group-chat-a'],
   }));
-  await writeFile(path.join(directories.groupChats, 'group-chat-a.jsonl'), '[{"mes":"group"}]\n');
+  await writeFile(path.join(directories.groupChats, 'group-chat-a.jsonl'), chatFile(UUIDS[2], 'group'));
   return { root, directories, cleanup: () => rm(root, { recursive: true, force: true }) };
 }
 
