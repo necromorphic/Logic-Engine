@@ -4,6 +4,7 @@ import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promis
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { withWindowsVssSnapshot } from '../windows-vss-snapshot.mjs';
+import { isVerifiedFileInventory } from '../fs-inventory.js';
 import {
   enumerateStableFileInventory,
   enumerateStableFileInventoryFromWindowsSnapshot,
@@ -30,6 +31,10 @@ test('Windows VSS inventory is a complete point-in-time snapshot with reparse au
     assert.equal(result.snapshot_consistency, 'VSS_POINT_IN_TIME_READ_ONLY');
     assert.equal(result.reparse_points, 'ALL_FILE_ATTRIBUTE_REPARSE_POINT_ENTRIES_REJECTED');
     assert.equal(result.file_count, 2);
+    assert.equal(isVerifiedFileInventory(result), true);
+    assert.equal(isVerifiedFileInventory({ ...result }), false);
+    assert.equal(Object.isFrozen(result.entries), true);
+    assert.equal(result.entries.every(entry => Object.isFrozen(entry) && Object.isFrozen(entry.identity)), true);
     assert.equal(result.entries.every(entry => entry.identity.ino !== '0'), true);
     assert.equal(result.entries.every(entry => entry.sha256.length === 64), true);
   });
