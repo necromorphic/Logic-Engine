@@ -871,6 +871,8 @@ export class LogicEngine {
         && typeof metadata.authorization_principal.actorEntityId === 'string' && metadata.authorization_principal.actorEntityId.trim()
         && ['model', 'player', 'adapter'].includes(metadata.authorization_principal.recipient)
         && ['npc_decision', 'character_card', 'narrative'].includes(metadata.authorization_principal.purpose)
+        && Number.isSafeInteger(metadata.authorization_principal.bindingGeneration)
+        && metadata.authorization_principal.bindingGeneration >= 1
         && typeof metadata.evaluation_fingerprint === 'string' && /^[a-f0-9]{64}$/i.test(metadata.evaluation_fingerprint),
       'INVALID_MECHANIC_EXECUTION_METADATA', 'Mechanic execution identity and fingerprints are required.');
       assert(obj(metadata.dependency_manifest)
