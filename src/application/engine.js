@@ -856,19 +856,38 @@ export class LogicEngine {
       assert(obj(metadata) && obj(metadata.snapshot_identity)
         && metadata.snapshot_identity.world_id === id
         && metadata.snapshot_identity.world_revision === prepared.expected_revision
-        && metadata.snapshot_identity.commit_sequence === this.store.currentCommitSequence(id),
-      'STALE_MECHANIC_EVALUATION', 'Mechanic execution metadata must match the current world snapshot.');
+        && metadata.snapshot_identity.commit_sequence === this.store.currentCommitSequence(id)
+        && Array.isArray(metadata.snapshot_identity.active_mechanic_set)
+        && metadata.snapshot_identity.active_mechanic_set.length === 1
+        && obj(metadata.snapshot_identity.active_mechanic_set[0])
+        && metadata.snapshot_identity.active_mechanic_set[0].instance_id === metadata.snapshot_identity.instance_id
+        && metadata.snapshot_identity.active_mechanic_set[0].status === 'enabled'
+        && metadata.snapshot_identity.active_mechanic_set[0].template_id === metadata.snapshot_identity.template_id
+        && metadata.snapshot_identity.active_mechanic_set[0].template_version === metadata.snapshot_identity.template_version
+        && metadata.snapshot_identity.active_mechanic_set[0].template_hash === metadata.snapshot_identity.template_hash,
+      'STALE_MECHANIC_EVALUATION', 'Mechanic execution metadata must pin exactly one enabled mechanic instance in the current world snapshot.');
       assert(typeof metadata.action_id === 'string' && metadata.action_id.trim()
         && obj(metadata.condition_result) && metadata.condition_result.status === 'true'
         && typeof metadata.context_fingerprint === 'string' && /^[a-f0-9]{64}$/i.test(metadata.context_fingerprint)
         && typeof metadata.context_policy_version === 'string' && metadata.context_policy_version.trim()
         && typeof metadata.authorization_scope === 'string' && metadata.authorization_scope.trim()
-        && typeof metadata.evaluation_fingerprint === 'string' && /^[a-f0-9]{64}$/i.test(metadata.evaluation_fingerprint),
-      'INVALID_MECHANIC_EXECUTION_METADATA', 'Mechanic execution identity and fingerprints are required.');
+        && typeof metadata.evaluation_fingerprint === 'string' && /^[a-f0-9]{64}$/i.test(metadata.evaluation_fingerprint)
+        && (metadata.policy_authority === undefined
+          || (obj(metadata.policy_authority)
+            && Object.keys(metadata.policy_authority).every((key) => ['authority_identity', 'policy_generation', 'policy_version'].includes(key))
+            && typeof metadata.policy_authority.authority_identity === 'string' && metadata.policy_authority.authority_identity.trim()
+            && typeof metadata.policy_authority.policy_generation === 'string' && metadata.policy_authority.policy_generation.trim()
+            && typeof metadata.policy_authority.policy_version === 'string' && metadata.policy_authority.policy_version.trim())),
+      'INVALID_MECHANIC_EXECUTION_METADATA', 'Mechanic execution identity, authority evidence, and fingerprints are required.');
       assert(obj(metadata.dependency_manifest)
         && metadata.dependency_manifest.scope === 'bounded_deterministic_action_v1'
         && metadata.dependency_manifest.mechanic_dependencies_complete === true
         && metadata.dependency_manifest.global_mechanic_dependencies_complete === false
+        && metadata.dependency_manifest.active_mechanic_set_pinned === true
+        && metadata.dependency_manifest.active_mechanic_set_scope === 'enabled_and_needs_review_instances'
+        && metadata.dependency_manifest.supported_active_mechanic_set === 'single_enabled_instance_only'
+        && Array.isArray(metadata.dependency_manifest.unsupported_sources)
+        && metadata.dependency_manifest.unsupported_sources.includes('multiple_active_mechanics_and_cross_mechanic_conflicts')
         && Array.isArray(metadata.dependency_manifest.assumptions)
         && Array.isArray(metadata.dependency_manifest.unresolved_sources)
         && metadata.dependency_manifest.unresolved_sources.length === 0
@@ -895,6 +914,7 @@ export class LogicEngine {
         action_id: metadata.action_id,
         context_fingerprint: metadata.context_fingerprint,
         context_policy_version: metadata.context_policy_version,
+        ...(metadata.policy_authority ? { policy_authority: metadata.policy_authority } : {}),
         authorization_scope: metadata.authorization_scope,
         condition_result: metadata.condition_result,
         dependency_manifest: metadata.dependency_manifest,

@@ -4,6 +4,7 @@ import { once } from 'node:events';
 import { SQLiteStore } from '../src/storage/sqlite-store.js';
 import { LogicEngine } from '../src/application/engine.js';
 import { createApiServer } from '../src/api/server.js';
+import { DeploymentPolicyAuthority } from '../src/application/deployment-policy-authority.js';
 
 const TOKEN = 'api-token-for-authorized-read-tests';
 const ADMIN = 'admin-token-for-authorized-read-tests';
@@ -16,7 +17,7 @@ const headers = {
 };
 const json = (body) => JSON.stringify(body);
 
-async function setup(t, authorizedReadFieldPolicy = null) {
+async function setup(t, authorizedReadFieldPolicy = null, deploymentPolicyAuthority = null) {
   const store = new SQLiteStore(':memory:');
   const engine = new LogicEngine(store);
   const server = createApiServer({
@@ -25,6 +26,7 @@ async function setup(t, authorizedReadFieldPolicy = null) {
     adminToken: ADMIN,
     adapterTokens: { 'adapter-a': ADAPTER },
     authorizedReadFieldPolicy,
+    deploymentPolicyAuthority,
   });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
@@ -206,3 +208,46 @@ test('host visibility revocation is re-evaluated on every authorized-read reques
   assert.equal(JSON.stringify(revokedBody).includes('must-not-leak'), false);
 });
 
+
+
+test('authorized-read API uses the versioned deployment authority and denies after generation rotation', async (t) => {
+  let generation = 1;
+  let allowOtherName = true;
+  const authority = new DeploymentPolicyAuthority({
+    authorityIdentity: 'api.visibility',
+    resolveActivePolicy: () => ({
+      authority_identity: 'api.visibility',
+      generation,
+      authorizeField: (context, entity, field) => context.actor.entity_id === 'actor-a'
+        && context.recipient === 'model'
+        && context.purpose === 'npc_decision'
+        && entity.entity_id === 'other-a'
+        && (['entity_id', 'entity_type'].includes(field)
+          || (field === 'attributes.name' && allowOtherName)),
+    }),
+  });
+  const base = await setup(t, null, authority);
+  const read = () => fetch(base + '/v1/worlds/authorized-read-world/authorized-read', {
+    method: 'POST',
+    headers,
+    body: json({
+      actor_entity_id: 'actor-a',
+      purpose: 'npc_decision',
+      entity_ids: ['other-a'],
+      fields: ['entity_id', 'entity_type', 'attributes.name'],
+    }),
+  });
+
+  const allowed = await read();
+  assert.equal(allowed.status, 200);
+  const allowedBody = await allowed.json();
+  assert.equal(allowedBody.read.entities[0]['attributes.name'], 'Other');
+
+  generation = 2;
+  allowOtherName = false;
+  const revoked = await read();
+  assert.equal(revoked.status, 200);
+  const revokedBody = await revoked.json();
+  assert.deepEqual(revokedBody.read.entities, [{ entity_id: 'other-a', entity_type: 'character' }]);
+  assert.equal(Object.hasOwn(revokedBody.read.entities[0], 'attributes.name'), false);
+});

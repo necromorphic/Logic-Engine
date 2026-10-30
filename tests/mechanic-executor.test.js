@@ -9,6 +9,7 @@ import { MechanicExecutor } from '../src/application/mechanic-executor.js';
 import { CanonicalEntityAttributeContextProvider } from '../src/application/entity-attribute-context-provider.js';
 import { ActorBindingService } from '../src/application/actor-bindings.js';
 import { AuthorizedReadService } from '../src/application/authorized-read-service.js';
+import { DeploymentPolicyAuthority } from '../src/application/deployment-policy-authority.js';
 import { ProposalService } from '../src/application/proposals.js';
 import { collectMechanicConditionDependencies } from '../src/core/mechanics.js';
 import { hashRequest } from '../src/core/request-hash.js';
@@ -64,7 +65,7 @@ function commit(engine, worldId, eventId, expectedRevision, effects, causedBy = 
   });
 }
 
-function enableFixture(engine, worldId, value = template()) {
+function enableFixture(engine, worldId, value = template(), instanceOptions = {}) {
   engine.registerMechanicTemplate(value);
   commit(engine, worldId, 'create-instance', 0, [
     { kind: 'entity.create', entity_id: 'entity.world-context', entity_type: 'world_context', attributes: { weather: 'rain' } },
@@ -74,6 +75,8 @@ function enableFixture(engine, worldId, value = template()) {
       instance_id: 'instance.executor',
       template_id: value.template_id,
       template_version: value.version,
+      parameters: instanceOptions.parameters ?? {},
+      state: instanceOptions.state ?? {},
     },
   ]);
   const created = engine.getMechanicInstance(worldId, 'instance.executor');
@@ -196,6 +199,14 @@ test('application executor pins one enabled instance and exact template to a con
   assert.equal(result.snapshot_identity.commit_sequence, 2);
   assert.equal(result.snapshot_identity.template_id, 'test.executor');
   assert.equal(result.snapshot_identity.template_version, '1.0.0');
+  assert.equal(result.snapshot_identity.active_mechanic_set.length, 1);
+  assert.deepEqual(result.snapshot_identity.active_mechanic_set[0], {
+    instance_id: 'instance.executor',
+    status: 'enabled',
+    template_id: 'test.executor',
+    template_version: '1.0.0',
+    template_hash: result.snapshot_identity.template_hash,
+  });
   assert.equal(typeof result.context_fingerprint, 'string');
   assert.equal(result.context_policy_version, 'test-visibility-policy-v1');
   assert.equal(typeof result.evaluation_fingerprint, 'string');
@@ -211,6 +222,15 @@ test('application executor pins one enabled instance and exact template to a con
   assert.equal(result.dependency_manifest.effect_target_dependencies_complete, true);
   assert.equal(result.dependency_manifest.causal_read_set_complete_for_supported_slice, true);
   assert.equal(result.dependency_manifest.mechanic_dependencies_complete, true);
+  assert.equal(result.dependency_manifest.active_mechanic_set_pinned, true);
+  assert.equal(result.dependency_manifest.active_mechanic_set_scope, 'enabled_and_needs_review_instances');
+  assert.equal(result.dependency_manifest.supported_active_mechanic_set, 'single_enabled_instance_only');
+  assert.ok(result.dependency_manifest.unsupported_sources.includes('multiple_active_mechanics_and_cross_mechanic_conflicts'));
+  assert.equal(result.dependency_manifest.supported_instance_data, 'empty_parameters_and_state_only');
+  assert.equal(result.dependency_manifest.supported_action_input, 'empty_object_only');
+  assert.equal(result.dependency_manifest.supported_unknown_policy, 'mark_unknown');
+  assert.ok(result.dependency_manifest.unsupported_sources.includes('non_empty_instance_parameters'));
+  assert.ok(result.dependency_manifest.unsupported_sources.includes('registered_module_inputs_and_reads'));
   assert.equal(result.guarantees.complete_global_mechanic_dependencies, false);
   assert.deepEqual(result.dependency_manifest.unresolved_sources, []);
   assert.deepEqual(result.dependency_manifest.assumptions, ['trusted_provider_correctly_maps_condition_paths_to_canonical_attributes']);
@@ -374,27 +394,16 @@ test('mechanic proposals fail closed without current-policy validation and reche
     .evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
 
   const unguarded = new ProposalService(engine);
-  const proposal = unguarded.createFromMechanicEvaluation(worldId, evaluation, {
-    idempotencyKey: 'mechanic-policy-freshness',
-    turnId: 'turn-mechanic-policy-freshness',
-    sourceText: 'Policy freshness must be checked before approval and commit.',
-    adapterId: 'test-adapter',
-  });
   assert.throws(
-    () => unguarded.approve(worldId, proposal.proposal_id),
+    () => unguarded.createFromMechanicEvaluation(worldId, evaluation, {
+      idempotencyKey: 'mechanic-policy-freshness-unguarded',
+      turnId: 'turn-mechanic-policy-freshness-unguarded',
+      sourceText: 'Policy freshness must be checked before proposal creation.',
+      adapterId: 'test-adapter',
+    }),
     (error) => error.code === 'MECHANIC_POLICY_REVALIDATION_REQUIRED' && error.status === 409,
   );
-  assert.equal(unguarded.get(worldId, proposal.proposal_id).status, 'pending');
-
-  const throwingValidator = new ProposalService(engine, {
-    validateMechanicPolicy() { throw new Error('private policy internals'); },
-  });
-  assert.throws(
-    () => throwingValidator.approve(worldId, proposal.proposal_id),
-    (error) => error.code === 'STALE_MECHANIC_POLICY' && error.status === 409
-      && !error.message.includes('private policy internals'),
-  );
-  assert.equal(unguarded.get(worldId, proposal.proposal_id).status, 'pending');
+  assert.equal(unguarded.db.prepare('SELECT COUNT(*) AS count FROM event_proposals').get().count, 0);
 
   let activePolicyVersion = evaluation.context_policy_version;
   const observedStages = [];
@@ -408,20 +417,37 @@ test('mechanic proposals fail closed without current-policy validation and reche
         && identity.authorizationScope === evaluation.authorization_scope;
     },
   });
+  const proposal = guarded.createFromMechanicEvaluation(worldId, evaluation, {
+    idempotencyKey: 'mechanic-policy-freshness',
+    turnId: 'turn-mechanic-policy-freshness',
+    sourceText: 'Policy freshness must be checked before approval and commit.',
+    adapterId: 'test-adapter',
+  });
+  assert.deepEqual(observedStages, ['proposal']);
+
+  const throwingValidator = new ProposalService(engine, {
+    validateMechanicPolicy() { throw new Error('private policy internals'); },
+  });
+  assert.throws(
+    () => throwingValidator.approve(worldId, proposal.proposal_id),
+    (error) => error.code === 'STALE_MECHANIC_POLICY' && error.status === 409
+      && !error.message.includes('private policy internals'),
+  );
+  assert.equal(guarded.get(worldId, proposal.proposal_id).status, 'pending');
+
   guarded.approve(worldId, proposal.proposal_id);
-  assert.deepEqual(observedStages, ['approval']);
+  assert.deepEqual(observedStages, ['proposal', 'approval']);
 
   activePolicyVersion = 'rotated-visibility-policy-v2';
   assert.throws(
     () => guarded.commit(worldId, proposal.proposal_id),
     (error) => error.code === 'STALE_MECHANIC_POLICY' && error.status === 409,
   );
-  assert.deepEqual(observedStages, ['approval', 'commit']);
+  assert.deepEqual(observedStages, ['proposal', 'approval', 'commit']);
   assert.equal(guarded.get(worldId, proposal.proposal_id).status, 'approved');
   assert.equal(engine.getState(worldId).world_revision, 2);
   assert.equal(engine.getState(worldId).entities.some((entity) => entity.entity_id === 'entity.new'), false);
 });
-
 
 test('proposal policy validation delegates to the active context provider and rejects a rotated provider', (t) => {
   const { engine, worldId } = setup(t, 'executor-provider-policy-rotation-world');
@@ -472,7 +498,7 @@ test('mechanic proposal handoff rejects a stale evaluation before creating a pro
   const evaluation = new MechanicExecutor(engine, { resolveAuthorizedContext: contextProvider() })
     .evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
   commit(engine, worldId, 'intervening-change', 2, [{ kind: 'entity.create', entity_id: 'entity.other', entity_type: 'object' }]);
-  const proposals = new ProposalService(engine);
+  const proposals = new ProposalService(engine, { validateMechanicPolicy: () => true });
   assert.throws(
     () => proposals.createFromMechanicEvaluation(worldId, evaluation, {
       idempotencyKey: 'stale-mechanic-proposal',
@@ -1420,4 +1446,383 @@ test('proposal commit rolls back canonical state when committed-audit insertion 
   assert.equal(proposals.db.prepare(
     "SELECT COUNT(*) AS count FROM audit_entries WHERE world_id=? AND action='proposal.committed'",
   ).get(worldId).count, beforeCommittedAudits + 1);
+});
+
+
+test('one deployment authority is pinned across evaluation, proposal, approval, and commit', (t) => {
+  const { engine, worldId } = setup(t, 'mechanic-authority-lifecycle-world');
+  enableFixture(engine, worldId);
+
+  let generation = 1;
+  const authority = new DeploymentPolicyAuthority({
+    authorityIdentity: 'deployment.visibility',
+    resolveActivePolicy: () => ({
+      authority_identity: 'deployment.visibility',
+      generation,
+      authorizeField: (context, entity, field) => context.authenticatedAdapterId === 'mechanic-adapter'
+        && context.actor.entity_id === 'entity.actor-context'
+        && context.recipient === 'model'
+        && context.purpose === 'npc_decision'
+        && ((entity.entity_id === 'entity.world-context' && field === 'attributes.weather')
+          || (entity.entity_id === 'entity.actor-context' && field === 'attributes.hp')),
+    }),
+  });
+  const actorBindings = new ActorBindingService(engine);
+  actorBindings.bind(worldId, 'mechanic-adapter', 'entity.actor-context');
+  const authorizedReads = new AuthorizedReadService(engine, actorBindings, authority);
+  const provider = new CanonicalEntityAttributeContextProvider(engine, {
+    policyVersion: 'deployment-visibility',
+    authorizationScope: 'mechanic-adapter:entity.actor-context:model:npc_decision',
+    bindings: [
+      { path: 'world.weather', entity_id: 'entity.world-context', attribute: 'weather' },
+      { path: 'actor.hp', entity_id: 'entity.actor-context', attribute: 'hp' },
+    ],
+    authorizedReadService: authorizedReads,
+    adapterId: 'mechanic-adapter',
+    actorEntityId: 'entity.actor-context',
+    recipient: 'model',
+    purpose: 'npc_decision',
+  });
+  const executor = new MechanicExecutor(engine, {
+    resolveAuthorizedContext: (args) => provider.resolve(args),
+  });
+  const proposals = new ProposalService(engine, {
+    validateMechanicPolicy(identity) {
+      return provider.getPolicyAuthority() === authority
+        && authority.isCurrent(identity.policyAuthority)
+        && provider.validateMechanicPolicy(identity);
+    },
+  });
+  const evaluate = () => executor.evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
+  const propose = (evaluation, key) => proposals.createFromMechanicEvaluation(worldId, evaluation, {
+    idempotencyKey: key,
+    turnId: 'turn-' + key,
+    sourceText: 'Apply the bounded mechanic through the canonical proposal lifecycle.',
+    adapterId: 'mechanic-adapter',
+  });
+
+  const staleBeforeProposal = evaluate();
+  assert.equal(staleBeforeProposal.status, 'ready');
+  assert.equal(staleBeforeProposal.policy_authority.authority_identity, 'deployment.visibility');
+  assert.equal(staleBeforeProposal.policy_authority.policy_generation, '1');
+  generation = 2;
+  assert.throws(() => propose(staleBeforeProposal, 'stale-before-proposal'),
+    (error) => error.code === 'STALE_MECHANIC_POLICY' && error.status === 409);
+  assert.equal(engine.getState(worldId).world_revision, 2);
+
+  const staleBeforeApproval = evaluate();
+  const pending = propose(staleBeforeApproval, 'stale-before-approval');
+  generation = 3;
+  assert.throws(() => proposals.approve(worldId, pending.proposal_id),
+    (error) => error.code === 'STALE_MECHANIC_POLICY' && error.status === 409);
+  assert.equal(proposals.get(worldId, pending.proposal_id).status, 'pending');
+  assert.equal(engine.getState(worldId).world_revision, 2);
+
+  const staleBeforeCommit = evaluate();
+  const approved = propose(staleBeforeCommit, 'stale-before-commit');
+  proposals.approve(worldId, approved.proposal_id);
+  generation = 4;
+  assert.throws(() => proposals.commit(worldId, approved.proposal_id),
+    (error) => error.code === 'STALE_MECHANIC_POLICY' && error.status === 409);
+  assert.equal(proposals.get(worldId, approved.proposal_id).status, 'approved');
+  assert.equal(engine.getState(worldId).world_revision, 2);
+  assert.equal(engine.getState(worldId).entities.some((entity) => entity.entity_id === 'entity.new'), false);
+
+  const currentEvaluation = evaluate();
+  const currentProposal = propose(currentEvaluation, 'current-policy-commit');
+  proposals.approve(worldId, currentProposal.proposal_id);
+  const committed = proposals.commit(worldId, currentProposal.proposal_id);
+  assert.equal(committed.status, 'committed');
+  assert.equal(engine.getState(worldId).world_revision, 3);
+  assert.equal(engine.getState(worldId).entities.some((entity) => entity.entity_id === 'entity.new'), true);
+});
+
+
+test('executor rejects unbound instance parameters and mutable instance state', (t) => {
+  for (const instanceOptions of [{ parameters: { rate: 2 } }, { state: { count: 1 } }]) {
+    const { engine, worldId } = setup(t, 'executor-instance-data-' + hashRequest(instanceOptions).slice(0, 12));
+    enableFixture(engine, worldId, template(), instanceOptions);
+    const result = new MechanicExecutor(engine, { resolveAuthorizedContext: contextProvider() })
+      .evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
+    assert.equal(result.status, 'unknown');
+    assert.equal(result.reason_code, 'UNSUPPORTED_INSTANCE_PARAMETERS_OR_STATE');
+    assert.deepEqual(result.effects, []);
+    assert.equal(engine.getState(worldId).world_revision, 2);
+  }
+});
+
+test('executor rejects template unknown policies whose behavior it does not implement', (t) => {
+  const { engine, worldId } = setup(t, 'executor-unknown-policy-world');
+  enableFixture(engine, worldId, template({ unknown_policy: 'needs_review' }));
+  const result = new MechanicExecutor(engine, { resolveAuthorizedContext: contextProvider() })
+    .evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
+  assert.equal(result.status, 'unknown');
+  assert.equal(result.reason_code, 'UNSUPPORTED_UNKNOWN_POLICY');
+  assert.deepEqual(result.effects, []);
+});
+
+test('executor rejects non-canonical action input instead of treating hidden properties as empty input', (t) => {
+  const { engine, worldId } = setup(t, 'executor-noncanonical-input-world');
+  enableFixture(engine, worldId);
+  const input = {};
+  Object.defineProperty(input, 'hidden', { value: 'ignored', enumerable: false });
+  assert.throws(
+    () => new MechanicExecutor(engine, { resolveAuthorizedContext: contextProvider() })
+      .evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait', input }),
+    (error) => error.code === 'INVALID_MECHANIC_ACTION_INPUT',
+  );
+});
+
+
+test('executor rejects fact-set intents that reuse a fact ID with a different subject or predicate', (t) => {
+  const { engine, worldId } = setup(t, 'executor-fact-identity-world');
+  const value = template({
+    actions: [{
+      action_id: 'assert',
+      input_schema: { type: 'object' },
+      preconditions: [],
+      effects: [{
+        effect_id: 'assert-existing',
+        kind: 'assert_fact',
+        target_ref: 'fact.existing',
+        payload: { predicate: 'likes', value: true, subject_ref: 'entity.actor-context' },
+      }],
+      ambiguity_policy: 'deterministic_only',
+    }],
+  });
+  enableFixture(engine, worldId, value);
+  commit(engine, worldId, 'seed-fact-identity', 2, [
+    { kind: 'entity.create', entity_id: 'entity.other-context', entity_type: 'character' },
+    { kind: 'fact.set', fact_id: 'fact.existing', subject_ref: 'entity.other-context', predicate: 'likes', value: true },
+  ]);
+
+  const result = new MechanicExecutor(engine, { resolveAuthorizedContext: contextProvider() })
+    .evaluate({ worldId, instanceId: 'instance.executor', actionId: 'assert' });
+  assert.equal(result.status, 'unknown');
+  assert.equal(result.reason_code, 'MECHANIC_EFFECT_FACT_IDENTITY_MISMATCH');
+  assert.deepEqual(result.effects, []);
+  assert.equal(engine.getState(worldId).world_revision, 3);
+});
+
+
+test('executor records existing fact identity as an effect dependency', (t) => {
+  const { engine, worldId } = setup(t, 'executor-fact-dependency-world');
+  const value = template({
+    actions: [{
+      action_id: 'assert',
+      input_schema: { type: 'object' },
+      preconditions: [],
+      effects: [{
+        effect_id: 'assert-existing',
+        kind: 'assert_fact',
+        target_ref: 'fact.existing',
+        payload: { predicate: 'likes', value: true, subject_ref: 'entity.actor-context' },
+      }],
+      ambiguity_policy: 'deterministic_only',
+    }],
+  });
+  enableFixture(engine, worldId, value);
+  commit(engine, worldId, 'seed-fact-dependency', 2, [
+    { kind: 'fact.set', fact_id: 'fact.existing', subject_ref: 'entity.actor-context', predicate: 'likes', value: true },
+  ]);
+
+  const result = new MechanicExecutor(engine, { resolveAuthorizedContext: contextProvider() })
+    .evaluate({ worldId, instanceId: 'instance.executor', actionId: 'assert' });
+  assert.equal(result.status, 'ready');
+  assert.ok(result.dependency_manifest.effect_target_dependencies.some((item) =>
+    item.kind === 'fact_identity'
+      && item.target_id === 'fact.existing'
+      && item.subject_ref === 'entity.actor-context'
+      && item.predicate === 'likes'));
+  assert.ok(result.read_set.includes('fact:fact.existing'));
+  assert.ok(result.causal_links.some((link) => link.relation === 'READS_CLAIM' && link.target_id === 'fact.existing'));
+});
+
+
+test('executor rejects participant and interaction contracts before resolving context', (t) => {
+  const cases = [
+    template({ eligible_participants: [{ role_id: 'actor' }] }),
+    template({ interactions: [{ interaction_id: 'test.interaction', other_template_id: 'test.other', policy: 'compatible' }] }),
+  ];
+  for (let index = 0; index < cases.length; index += 1) {
+    const { engine, worldId } = setup(t, 'executor-unsupported-participant-' + index);
+    enableFixture(engine, worldId, cases[index]);
+    let providerCalls = 0;
+    const result = new MechanicExecutor(engine, {
+      resolveAuthorizedContext: () => {
+        providerCalls += 1;
+        return contextProvider()({ snapshot: engine.getSnapshot(worldId), template: cases[index], action: cases[index].actions[0] });
+      },
+    }).evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
+    assert.equal(result.status, 'unknown');
+    assert.equal(result.reason_code, 'UNSUPPORTED_PARTICIPANT_OR_INTERACTION_POLICY');
+    assert.equal(providerCalls, 0);
+    assert.deepEqual(result.effects, []);
+  }
+});
+
+test('executor rejects automatic conflict resolution without invoking a resolver', (t) => {
+  const { engine, worldId } = setup(t, 'executor-automatic-conflict-world');
+  enableFixture(engine, worldId, template({
+    conflict_policy: {
+      mode: 'automatic',
+      resolver_module_id: 'test.conflict-resolver',
+      resolver_module_version: '1.0.0',
+    },
+  }));
+  let providerCalls = 0;
+  const result = new MechanicExecutor(engine, {
+    resolveAuthorizedContext: () => {
+      providerCalls += 1;
+      return contextProvider()({
+        snapshot: engine.getSnapshot(worldId),
+        template: template(),
+        action: template().actions[0],
+      });
+    },
+  }).evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
+  assert.equal(result.status, 'unknown');
+  assert.equal(result.reason_code, 'UNSUPPORTED_MECHANIC_MODULE_OR_CONFLICT_POLICY');
+  assert.equal(providerCalls, 0);
+  assert.deepEqual(result.effects, []);
+});
+
+
+test('executor evaluates fact subjects against entity status at the effect position', (t) => {
+  const cases = [
+    {
+      name: 'destroyed-existing-subject',
+      effects: [
+        { effect_id: 'destroy-actor', kind: 'update_attribute', target_ref: 'entity.actor-context', payload: { status: 'destroyed' } },
+        { effect_id: 'assert-after-destroy', kind: 'assert_fact', target_ref: 'fact.after-destroy', payload: { predicate: 'active', value: true, subject_ref: 'entity.actor-context' } },
+      ],
+    },
+    {
+      name: 'created-destroyed-subject',
+      effects: [
+        { effect_id: 'create-destroyed-subject', kind: 'create_entity', target_ref: 'entity.destroyed-subject', payload: { entity_type: 'character', status: 'destroyed' } },
+        { effect_id: 'assert-destroyed-subject', kind: 'assert_fact', target_ref: 'fact.destroyed-subject', payload: { predicate: 'active', value: true, subject_ref: 'entity.destroyed-subject' } },
+      ],
+    },
+  ];
+  for (const item of cases) {
+    const { engine, worldId } = setup(t, 'executor-fact-subject-order-' + item.name);
+    enableFixture(engine, worldId, template({
+      actions: [{
+        action_id: 'ordered',
+        input_schema: { type: 'object' },
+        preconditions: [],
+        effects: item.effects,
+        ambiguity_policy: 'deterministic_only',
+      }],
+    }));
+    const result = new MechanicExecutor(engine, { resolveAuthorizedContext: contextProvider() })
+      .evaluate({ worldId, instanceId: 'instance.executor', actionId: 'ordered' });
+    assert.equal(result.status, 'unknown');
+    assert.equal(result.reason_code, 'MECHANIC_EFFECT_SUBJECT_NOT_FOUND');
+    assert.deepEqual(result.effects, []);
+    assert.equal(engine.getState(worldId).world_revision, 2);
+  }
+});
+
+
+test('executor pins the complete active mechanic set and rejects multi-instance conflict scope', (t) => {
+  const { engine, worldId } = setup(t, 'executor-inbound-interaction-world');
+  enableFixture(engine, worldId);
+  const otherTemplate = template({
+    template_id: 'test.other',
+    interactions: [{
+      interaction_id: 'other.conflicts.executor',
+      other_template_id: 'test.executor',
+      policy: 'conflicts',
+    }],
+  });
+  engine.registerMechanicTemplate(otherTemplate);
+  commit(engine, worldId, 'create-other-instance', 2, [{
+    kind: 'mechanic.instance.create',
+    instance_id: 'instance.other',
+    template_id: otherTemplate.template_id,
+    template_version: otherTemplate.version,
+  }]);
+  const created = engine.getMechanicInstance(worldId, 'instance.other');
+  commit(engine, worldId, 'enable-other-instance', 3, [{
+    kind: 'mechanic.instance.enable',
+    instance_id: 'instance.other',
+  }], [created.last_event_id]);
+
+  let providerCalls = 0;
+  const result = new MechanicExecutor(engine, {
+    resolveAuthorizedContext: () => {
+      providerCalls += 1;
+      return contextProvider()({
+        snapshot: engine.getSnapshot(worldId),
+        template: template(),
+        action: template().actions[0],
+      });
+    },
+  }).evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
+
+  assert.equal(result.status, 'unknown');
+  assert.equal(result.reason_code, 'UNSUPPORTED_MULTIPLE_ACTIVE_MECHANICS');
+  assert.equal(providerCalls, 0);
+  assert.deepEqual(result.effects, []);
+  assert.equal(result.snapshot_identity.active_mechanic_set.length, 2);
+  assert.deepEqual(result.snapshot_identity.active_mechanic_set.map((item) => item.instance_id),
+    ['instance.executor', 'instance.other'].sort());
+  assert.equal(engine.getState(worldId).world_revision, 4);
+});
+
+
+test('executor binds a fact subject dependency to the earlier create effect and commits through proposals', (t) => {
+  const { engine, worldId } = setup(t, 'executor-created-subject-dependency-world');
+  const value = template({
+    actions: [{
+      action_id: 'create-and-assert',
+      input_schema: { type: 'object' },
+      preconditions: [],
+      effects: [
+        {
+          effect_id: 'create-subject',
+          kind: 'create_entity',
+          target_ref: 'entity.new-subject',
+          payload: { entity_type: 'character' },
+        },
+        {
+          effect_id: 'assert-subject',
+          kind: 'assert_fact',
+          target_ref: 'fact.new-subject',
+          payload: { predicate: 'active', value: true, subject_ref: 'entity.new-subject' },
+        },
+      ],
+      ambiguity_policy: 'deterministic_only',
+    }],
+  });
+  enableFixture(engine, worldId, value);
+  const result = new MechanicExecutor(engine, { resolveAuthorizedContext: contextProvider() })
+    .evaluate({ worldId, instanceId: 'instance.executor', actionId: 'create-and-assert' });
+  assert.equal(result.status, 'ready');
+  assert.ok(result.dependency_manifest.effect_target_dependencies.some((item) =>
+    item.kind === 'entity_created_in_action'
+      && item.target_id === 'entity.new-subject'
+      && item.effect_index === 1
+      && item.effect_id === 'assert-subject'
+      && item.source_effect_index === 0));
+  assert.ok(result.dependency_manifest.effect_target_dependencies.some((item) =>
+    item.kind === 'entity_absence'
+      && item.target_id === 'entity.new-subject'
+      && item.effect_index === 0
+      && item.effect_id === 'create-subject'));
+
+  const proposals = new ProposalService(engine, { validateMechanicPolicy: () => true });
+  const proposal = proposals.createFromMechanicEvaluation(worldId, result, {
+    idempotencyKey: 'created-subject-dependency',
+    turnId: 'turn-created-subject-dependency',
+    sourceText: 'Create the subject before asserting its fact.',
+    adapterId: 'test-adapter',
+  });
+  proposals.approve(worldId, proposal.proposal_id);
+  proposals.commit(worldId, proposal.proposal_id);
+  const fact = engine.getState(worldId).facts.find((item) => item.fact_id === 'fact.new-subject');
+  assert.equal(fact.subject_ref, 'entity.new-subject');
+  assert.equal(engine.getState(worldId).entities.some((item) => item.entity_id === 'entity.new-subject'), true);
 });

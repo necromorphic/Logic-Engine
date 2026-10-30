@@ -4,7 +4,7 @@ The Core executable is host-independent, but the current `main` already includes
 
 ## Requirements and startup
 
-Node.js 22.13+ (uses the built-in `node:sqlite` API, which is experimental in supported Node releases). Set `ENGINE_API_TOKEN` to a secret at least 16 characters long. Configure `ENGINE_ADAPTER_TOKENS` as a JSON object of adapter IDs to distinct secrets for proposal creation/cancellation. Set a separate `ENGINE_APPROVAL_TOKEN` for approvals, `ENGINE_ADMIN_TOKEN` for world creation, global registry reads/writes/audit, and `ENGINE_INTERNAL_TOKEN` only if the restricted internal proposal-commit route is required. Optionally set `ENGINE_DB_PATH`, then run `npm start`. See `.env.example`; run `npm test` for contract tests.
+Node.js 22.13+ (uses the built-in `node:sqlite` API, which is experimental in supported Node releases). Set `ENGINE_API_TOKEN` to a secret at least 16 characters long. Configure `ENGINE_ADAPTER_TOKENS` as a JSON object of adapter IDs to distinct secrets for proposal creation/cancellation. Set a separate `ENGINE_APPROVAL_TOKEN` for approvals, `ENGINE_ADMIN_TOKEN` for world creation, global registry reads/writes/audit, and `ENGINE_INTERNAL_TOKEN` only if the restricted internal proposal-commit route is required. Optionally set `ENGINE_DB_PATH`, `ENGINE_POLICY_AUTHORITY_ID`, and `ENGINE_POLICY_GENERATION`, then run `npm start`. The default policy authority is deny-by-default except for the bound actor's own `entity_id`, `entity_type`, and `status`; all other attributes remain withheld. Change the generation whenever the effective policy changes. This default does not authorize mechanic condition reads or enable production Mechanics. See `.env.example`; run `npm test` for contract tests.
 
 ## Trusted World Pack catalog
 

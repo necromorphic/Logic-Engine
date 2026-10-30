@@ -70,8 +70,56 @@ Each test report must record exact commit SHA, authority identity/generation, te
 
 ## 6. Current status and scope
 
-This decision identifies the owner and the trust contract. It does not claim that the provider, context resolver, validator wiring, bounded executor, or end-to-end tests already exist. The current main source does not construct and bind such an authority, and the bounded executor path from the old #225/#270 stack is not part of current main.
+The decision identifies the owner and the trust contract. The current tree contains several bounded mechanics implementation pieces, but their presence is not proof of a production authority binding:
 
-Do not mechanically rebase or merge #225/#270 to close this gap: their stale diff contains excluded executor, attestation, proposal-handoff, and storage changes. Implement a fresh current-main vertical slice against this contract, review its effective diff, run exact-head Runtime CI plus the recalculation harness, and keep production mechanics disabled until all applicable tests above pass.
+- `src/application/authorized-read-service.js` exposes `readEntityAttributeForMechanic` and `readEntityFields`. It now accepts `DeploymentPolicyAuthority` as the versioned field-policy source; the legacy plain callback remains for compatibility and does not satisfy the Mechanics authority contract.
+- `src/application/entity-attribute-context-provider.js` can resolve mechanic condition paths through `AuthorizedReadService`. When that service uses `DeploymentPolicyAuthority`, the provider pins the authority identity/generation before reads, verifies it after reads, and incorporates the evidence into the returned policy version. The legacy direct `canRead` path remains available for isolated/compatibility use but cannot pass the production API's exact-authority check.
+- `src/application/mechanic-executor.js` exists as a read-only bounded evaluator. It requires a trusted context resolver and rejects unsupported modules, participants/interactions, non-empty input schemas, capabilities, and non-manual conflict policies.
+- `src/application/proposals.js` accepts attested mechanic evaluations and revalidates a context-provider policy fingerprint/scope at approval and commit. The validator is supplied independently of the read service, so this does not yet prove both paths resolve one versioned authority.
+- `src/api/server.js` accepts one `deploymentPolicyAuthority` and uses that same object for authorized reads and the proposal lifecycle validator. The validator also requires the active context provider to expose that exact object instance. It rejects simultaneous authority and legacy field-policy configuration.
+- `src/index.js` now constructs and passes a deployment authority with the explicit self-identity-only policy. `ENGINE_POLICY_AUTHORITY_ID` and `ENGINE_POLICY_GENERATION` identify its authority and generation; the default generation is `self-identity-only-v1`. The shipped process still does not construct a mechanic context provider, so production mechanic evaluation remains fail-closed.
 
-**Current verdict: policy ownership is decided; production integration is not yet implemented or proven.**
+### Required implementation for the next vertical slice
+
+Complete production wiring by using the already-constructed deployment authority in a trusted mechanic context resolver that owns both:
+1. the effective field authorization decision used by `AuthorizedReadService`; and
+2. the trusted identity plus active generation used by mechanic context resolution and ProposalService validation.
+
+The authority must be resolved afresh at each boundary. A plain callback, provider fingerprint, or matching configuration string is not sufficient unless the same authority explicitly binds its identity and active generation to the actual field decision. The context provider must capture the authority identity/generation before reading, verify it remains current after all reads, and return that evidence with the evaluation. Proposal metadata must persist the same evidence and revalidate it at proposal acceptance, approval, and commit.
+
+Do not silently promote the existing `authorizedReadFieldPolicy` callback into this role. Do not use a test-only authority as production configuration. The deployment may use a deny-only policy while no visibility schema is approved; that is a valid fail-closed state, but it cannot authorize mechanic condition attributes or enable production mechanics.
+
+The exact-current tree now has a versioned authority and the Core integration path. The remaining deployment gap is a trusted context resolver and approved domain visibility mapping configured with that exact authority object. Do not mechanically rebase or merge #225/#270: their stale diff contains excluded executor, attestation, proposal-handoff, and storage changes. Implement a fresh current-main vertical slice against this contract, review its effective diff, run exact-head Runtime CI plus the recalculation harness, and keep production mechanics disabled until all applicable tests below pass.
+
+
+
+## 7. Future extension gates
+
+The following features are deliberately not part of the bounded executor. They require separate contracts and acceptance tests before their rejection guards may be relaxed.
+
+### Action inputs and instance parameters/state
+- Define template-owned input, parameter, and state schemas using the exact schema dialect the runtime can validate.
+- Define canonical binding paths and whether each value is read-only input or mutable world-local state.
+- Include schema/version hashes and actual consumed paths in the evaluation fingerprint and dependency manifest.
+- Prove missing, defaulted, malformed, and unknown fields have explicit semantics. No implicit defaults or model-authored executable expressions.
+
+### Registered modules
+- Bind a registered module manifest to a host-allowlisted implementation identifier and immutable implementation/build digest.
+- Enforce operation, capability, input/output schema, determinism, timeout, memory/resource, and failure-policy contracts.
+- Declare module reads/writes and verify runtime reads against the declared dependency set. Module registration alone never authorizes execution.
+- Keep all returned effects as proposals and validate them through the canonical Core path.
+
+### Participants and interactions
+- Define same-world participant resolution, role identity, eligibility constraints, visibility authorization, and snapshot binding.
+- Include all participant/interaction condition paths and resolved participant identities in dependency evidence and fingerprints.
+- Define how missing, ambiguous, or inaccessible participants map to `unknown` or `needs_review`; never infer a participant from narrative context.
+
+### Conflict resolution
+- `manual` remains the only supported executor policy, and the current executor rejects worlds with more than one enabled/review-required mechanic instance because the cross-mechanic conflict graph is not complete.
+- Automatic resolution requires an exact-version allowlisted deterministic resolver module, explicit conflict graph inputs, declared dependencies, bounded resources, and an independently tested tie-break contract.
+- Resolver output remains a proposal; the resolver cannot commit or bypass approval.
+- No priority, array order, registration order, or incidental storage order may be used as an implicit winner rule.
+
+Until each extension gate is accepted and tested, the executor must continue returning a structured non-ready result with no effects for those cases.
+
+**Current verdict: shared versioned authority is implemented and wired to the production authorized-read path; production Mechanics remains DISABLED / FAIL-CLOSED because no trusted mechanic context resolver or approved domain visibility mapping is configured.**

@@ -179,8 +179,15 @@ export class ProposalService {
       && typeof identity.instance_id === 'string' && identity.instance_id.trim()
       && typeof identity.template_id === 'string' && identity.template_id.trim()
       && typeof identity.template_version === 'string' && identity.template_version.trim()
-      && typeof identity.template_hash === 'string' && /^[a-f0-9]{64}$/i.test(identity.template_hash),
-    'INVALID_MECHANIC_EVALUATION_IDENTITY', 'Evaluation must include a complete world, snapshot, instance, and pinned-template identity.');
+      && typeof identity.template_hash === 'string' && /^[a-f0-9]{64}$/i.test(identity.template_hash)
+      && Array.isArray(identity.active_mechanic_set) && identity.active_mechanic_set.length === 1
+      && object(identity.active_mechanic_set[0])
+      && identity.active_mechanic_set[0].instance_id === identity.instance_id
+      && identity.active_mechanic_set[0].status === 'enabled'
+      && identity.active_mechanic_set[0].template_id === identity.template_id
+      && identity.active_mechanic_set[0].template_version === identity.template_version
+      && identity.active_mechanic_set[0].template_hash === identity.template_hash,
+    'INVALID_MECHANIC_EVALUATION_IDENTITY', 'Evaluation must pin exactly one enabled mechanic instance and its exact template in the world snapshot.');
     assert(typeof evaluation.action_id === 'string' && evaluation.action_id.trim(), 'INVALID_MECHANIC_EVALUATION', 'action_id is required.');
     assert(object(evaluation.condition_result) && evaluation.condition_result.status === 'true', 'INVALID_MECHANIC_EVALUATION', 'Only evaluations with proven-true conditions may be proposed.');
     assert(typeof evaluation.context_fingerprint === 'string' && /^[a-f0-9]{64}$/i.test(evaluation.context_fingerprint)
@@ -193,6 +200,7 @@ export class ProposalService {
       action_id: evaluation.action_id,
       context_fingerprint: evaluation.context_fingerprint,
       context_policy_version: evaluation.context_policy_version,
+      ...(evaluation.policy_authority ? { policy_authority: evaluation.policy_authority } : {}),
       authorization_scope: evaluation.authorization_scope,
       condition_result: evaluation.condition_result,
       dependency_manifest: evaluation.dependency_manifest,
@@ -218,6 +226,11 @@ export class ProposalService {
       && evaluation.dependency_manifest.effect_target_dependencies_complete === true
       && evaluation.dependency_manifest.causal_read_set_complete_for_supported_slice === true
       && evaluation.dependency_manifest.mechanic_dependencies_complete === true
+      && evaluation.dependency_manifest.active_mechanic_set_pinned === true
+      && evaluation.dependency_manifest.active_mechanic_set_scope === 'enabled_and_needs_review_instances'
+      && evaluation.dependency_manifest.supported_active_mechanic_set === 'single_enabled_instance_only'
+      && Array.isArray(evaluation.dependency_manifest.unsupported_sources)
+      && evaluation.dependency_manifest.unsupported_sources.includes('multiple_active_mechanics_and_cross_mechanic_conflicts')
       && Array.isArray(evaluation.dependency_manifest.unresolved_sources)
       && evaluation.dependency_manifest.unresolved_sources.length === 0
       && Array.isArray(evaluation.dependency_manifest.assumptions)
@@ -261,12 +274,21 @@ export class ProposalService {
       'INVALID_SOURCE_TEXT', 'Non-empty source text is required so semantic review is retained.');
     assert(typeof adapterId === 'string' && adapterId.trim(), 'ADAPTER_REQUIRED', 'A trusted adapter identity is required.', 403);
 
+    if (evaluation.policy_authority !== undefined) {
+      assert(object(evaluation.policy_authority)
+        && Object.keys(evaluation.policy_authority).every((key) => ['authority_identity', 'policy_generation', 'policy_version'].includes(key))
+        && typeof evaluation.policy_authority.authority_identity === 'string' && evaluation.policy_authority.authority_identity.trim()
+        && typeof evaluation.policy_authority.policy_generation === 'string' && evaluation.policy_authority.policy_generation.trim()
+        && typeof evaluation.policy_authority.policy_version === 'string' && evaluation.policy_authority.policy_version.trim(),
+      'INVALID_MECHANIC_POLICY_AUTHORITY', 'Policy authority evidence must include a trusted identity, generation, and version fingerprint.');
+    }
     const mechanicExecution = {
       snapshot_identity: identity,
       action_id: evaluation.action_id,
       condition_result: evaluation.condition_result,
       context_fingerprint: evaluation.context_fingerprint,
       context_policy_version: evaluation.context_policy_version,
+      ...(evaluation.policy_authority ? { policy_authority: evaluation.policy_authority } : {}),
       authorization_scope: evaluation.authorization_scope,
       evaluation_fingerprint: evaluation.evaluation_fingerprint,
       dependency_manifest: evaluation.dependency_manifest,
@@ -313,6 +335,27 @@ export class ProposalService {
           current_commit_sequence: sequence,
         });
       }
+      if (typeof this.validateMechanicPolicy !== 'function') {
+        throw new EngineError('MECHANIC_POLICY_REVALIDATION_REQUIRED',
+          'Mechanic evaluations require a trusted current-policy validator before proposal creation.', 409, { stage: 'proposal' });
+      }
+      let policyCurrent = false;
+      try {
+        policyCurrent = this.validateMechanicPolicy(Object.freeze({
+          worldId,
+          policyVersion: evaluation.context_policy_version,
+          policyAuthority: evaluation.policy_authority ?? null,
+          authorizationScope: evaluation.authorization_scope,
+          snapshotIdentity: identity,
+          stage: 'proposal',
+        })) === true;
+      } catch {
+        policyCurrent = false;
+      }
+      if (!policyCurrent) {
+        throw new EngineError('STALE_MECHANIC_POLICY',
+          'The evaluation policy is no longer current; evaluate again before creating a proposal.', 409, { stage: 'proposal' });
+      }
       return this.create(worldId, {
         idempotency_key: idempotencyKey,
         source_text: sourceText,
@@ -330,9 +373,9 @@ export class ProposalService {
   /**
    * Revalidate deployment-owned visibility policy before a mechanic proposal
    * crosses an approval/commit boundary. The callback must synchronously compare
-   * the pinned policy fingerprint and authorization scope with the currently
-   * active policy; it must not mutate canonical state. Missing or non-true
-   * decisions fail closed. Ordinary non-mechanic proposals are unaffected.
+   * the pinned authority evidence, policy fingerprint, and authorization scope
+   * with the currently active policy; it must not mutate canonical state. Missing
+   * or non-true decisions fail closed. Ordinary non-mechanic proposals are unaffected.
    */
   assertMechanicPolicyCurrent(row, stage) {
     if (!row.mechanic_execution_json) return;
@@ -361,6 +404,7 @@ export class ProposalService {
       current = this.validateMechanicPolicy(Object.freeze({
         worldId: row.world_id,
         policyVersion: metadata.context_policy_version,
+        policyAuthority: metadata.policy_authority ?? null,
         authorizationScope: metadata.authorization_scope,
         snapshotIdentity: metadata.snapshot_identity,
         stage,
