@@ -56,22 +56,25 @@ function createCandidate(repository, goalId, key = "candidate-create", targetSco
   );
 }
 
-function acceptedPlan(repository, goalId, candidateKey = "candidate-create", acceptKey = "candidate-accept") {
-  const candidate = createCandidate(repository, goalId, candidateKey);
+function acceptedPlan(
+  repository, goalId, candidateKey = "candidate-create",
+  acceptKey = "candidate-accept", targetScope = scope,
+) {
+  const candidate = createCandidate(repository, goalId, candidateKey, targetScope);
   assert.equal(candidate.status, "applied");
   const accepted = repository.acceptPlanCandidate(
-    scope,
+    targetScope,
     candidate.candidate_id,
     expectedEmpty(),
     { idempotency_key: acceptKey },
   );
   assert.equal(accepted.status, "applied");
-  return repository.loadDecisionState(scope, { goal_id: goalId }).goals[0];
+  return repository.loadDecisionState(targetScope, { goal_id: goalId }).goals[0];
 }
 
-function createAttempt(repository, goalState, key = "proposal-key") {
+function createAttempt(repository, goalState, key = "proposal-key", targetScope = scope) {
   const activeStep = goalState.current_plan.steps[0];
-  return repository.recordActionAttempt(scope, {
+  return repository.recordActionAttempt(targetScope, {
     goal_id: goalState.goal.id,
     plan_id: goalState.current_plan_id,
     plan_revision: goalState.current_plan_revision,
@@ -580,6 +583,72 @@ test("Core reconciliation fails closed when no trusted result verifier is wired"
   }
 });
 
+
+test("same Core event and step can reconcile independently for two NPCs in one world", () => {
+  const h = harness();
+  const secondNpcScope = Object.freeze({
+    world_id: scope.world_id,
+    npc_entity_id: "npc-beta",
+  });
+  try {
+    const goalA = createGoal(h.repository, scope, "goal-npc-a");
+    const goalB = createGoal(h.repository, secondNpcScope, "goal-npc-b");
+    const stateA = acceptedPlan(h.repository, goalA.goal_id, "candidate-a", "accept-a", scope);
+    let stateB = acceptedPlan(
+      h.repository, goalB.goal_id, "candidate-b", "accept-b", secondNpcScope,
+    );
+
+    // Force a legitimate cross-NPC step-ID collision to exercise the scope
+    // boundary rather than relying on random UUID collisions.
+    const sharedStepId = stateA.current_plan.steps[0].id;
+    const sharedPlan = {
+      ...stateB.current_plan,
+      steps: stateB.current_plan.steps.map((step, index) =>
+        index === 0 ? { ...step, id: sharedStepId } : step),
+    };
+    h.database.prepare(
+      "UPDATE npc_plan_revisions SET plan_json = ? WHERE world_id = ? AND npc_entity_id = ? AND goal_id = ? AND plan_id = ? AND plan_revision = ?",
+    ).run(
+      JSON.stringify(sharedPlan), secondNpcScope.world_id, secondNpcScope.npc_entity_id,
+      goalB.goal_id, stateB.current_plan_id, stateB.current_plan_revision,
+    );
+    stateB = h.repository.loadDecisionState(secondNpcScope, { goal_id: goalB.goal_id }).goals[0];
+
+    const attemptA = createAttempt(h.repository, stateA, "proposal-a", scope);
+    const attemptB = createAttempt(h.repository, stateB, "proposal-b", secondNpcScope);
+    const pendingA = h.repository.listPendingReconciliations(scope).items[0].attempt;
+    const pendingB = h.repository.listPendingReconciliations(secondNpcScope).items[0].attempt;
+    const resultFor = (pending, proposalId) => ({
+      status: "committed",
+      outcome: "step_succeeded",
+      world_id: scope.world_id,
+      proposal_id: proposalId,
+      event_id: "shared-world-event",
+      idempotency_key: pending.proposal_idempotency_key,
+      request_hash: pending.request_hash,
+      goal_id: pending.goal_id,
+      plan_id: pending.plan_id,
+      plan_revision: pending.plan_revision,
+      step_id: pending.step_id,
+      action_id: pending.action_id,
+      world_revision: 11,
+      commit_sequence: 5,
+    });
+
+    const reconciledA = h.repository.reconcileCoreResult(
+      scope, attemptA.attempt_id, resultFor(pendingA, "core-proposal-a"),
+    );
+    const reconciledB = h.repository.reconcileCoreResult(
+      secondNpcScope, attemptB.attempt_id, resultFor(pendingB, "core-proposal-b"),
+    );
+    assert.equal(reconciledA.status, "applied");
+    assert.equal(reconciledB.status, "applied");
+    assert.equal(reconciledA.event_id, reconciledB.event_id);
+    assert.equal(reconciledA.step_id, reconciledB.step_id);
+  } finally {
+    h.close();
+  }
+});
 
 test("pending reconciliation pagination uses a monotonic per-store cursor", () => {
   const h = harness();
