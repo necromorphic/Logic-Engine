@@ -47,23 +47,45 @@ export function createHostInventoryHandler({
       }
       const inventory = await enumerate({
         directories: {
+          root: directories.root,
           chats: directories.chats,
           groups: directories.groups,
           groupChats: directories.groupChats,
         },
         hostCommit: pinnedHostCommit,
       });
-      if (!Array.isArray(inventory.files)) {
+      if (inventory?.filesystem?.status !== 'complete'
+        || !Array.isArray(inventory?.source?.files)
+        || !Array.isArray(inventory?.source?.blockers)) {
         return response.status(503).json({
           status: 'NON_READY',
           code: 'SOURCE_INVENTORY_INVALID',
         });
       }
+      const source = inventory.source;
+      const filesystem = inventory.filesystem;
+      const blockers = [
+        ...source.blockers,
+        ...(inventory.snapshot_alignment === 'SHARED_VSS_SNAPSHOT'
+          ? [] : ['NO_SHARED_POINT_IN_TIME_SNAPSHOT']),
+      ];
       const responseInventory = {
-        ...inventory,
+        ...source,
+        blockers: [...new Set(blockers)],
+        filesystem_inventory: {
+          status: filesystem.status,
+          snapshot_sha256: filesystem.snapshot_sha256,
+          file_count: filesystem.file_count,
+          total_bytes: filesystem.total_bytes,
+          snapshot_id: filesystem.snapshot_id ?? null,
+          snapshot_provider: filesystem.snapshot_provider ?? null,
+          snapshot_consistency: filesystem.snapshot_consistency ?? null,
+          reparse_points: filesystem.reparse_points ?? null,
+          snapshot_alignment: inventory.snapshot_alignment ?? 'UNKNOWN',
+        },
         // The browser only receives the selected conversation's logical identities.
         // Do not send every chat locator or file identity to the browser.
-        files: inventory.files.filter(file =>
+        files: source.files.filter(file =>
           file?.logical_identity?.conversation_uuid === requestedConversationUuid)
           .map(file => ({ logical_identity: file.logical_identity })),
         requested_conversation_uuid: requestedConversationUuid,
