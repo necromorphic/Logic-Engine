@@ -30,6 +30,10 @@ A proposal identifies both a canonical proposition reference (subject + predicat
 
 Belief stances are qualitative: `believes_true`, `believes_false`, `suspects_true`, `suspects_false`, and `unresolved_conflict`. Numeric confidence is intentionally absent.
 
+The model-facing context uses `belief_stance_class` (`believed`, `suspected`, or `conflicted`) only to summarize the resulting stance. It is deliberately not named `epistemic_status`: a belief stance is not the epistemic class of its source evidence.
+
+**Epistemic-source limitation:** the current Core acquisition reader returns canonical acquired fact values and provenance, but it does not carry the Memory classes `confirmed`, `unconfirmed_report`, `suspicion`, `inference`, `rumor`, or `unknown`. No mapping from Memory metadata into Core acquisition/belief events is implemented or approved in this candidate. Do not infer `confirmed` merely from a successful acquisition read, and do not use this context seam to promote a Memory report, rumor, or inference. End-to-end R3 remains partial until the source classification is explicitly represented and validated at the owning boundary.
+
 ## Failure behavior
 
 - Missing visibility authorizer: no context.
