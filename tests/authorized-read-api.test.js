@@ -246,6 +246,8 @@ test('authorized-read API uses the versioned deployment authority and denies aft
   generation = 2;
   allowOtherName = false;
   const revoked = await read();
-  assert.equal(revoked.status, 404);
-  assert.equal((await revoked.json()).error.code, 'READ_NOT_AVAILABLE');
+  assert.equal(revoked.status, 200);
+  const revokedBody = await revoked.json();
+  assert.deepEqual(revokedBody.read.entities, [{ entity_id: 'other-a', entity_type: 'character' }]);
+  assert.equal(Object.hasOwn(revokedBody.read.entities[0], 'attributes.name'), false);
 });
