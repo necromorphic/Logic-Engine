@@ -38,6 +38,8 @@ jobs:
           git apply "$GITHUB_WORKSPACE/host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch"
           git apply --check "$GITHUB_WORKSPACE/host-adapter/prototype/patches/sillytavern-1.19.0-source-inventory-route.patch"
           git apply "$GITHUB_WORKSPACE/host-adapter/prototype/patches/sillytavern-1.19.0-source-inventory-route.patch"
+      - name: Require authenticated Host session route
+        run: grep -F "router.get('/session', createHostSessionHandler())" host-adapter/prototype/st-host-inventory-route.js
       - name: Syntax-check patched host and prototype modules
         run: |
           node --check sillytavern-host-checkout/public/script.js
