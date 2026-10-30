@@ -69,7 +69,7 @@ The adapter must have a reviewed, table-driven mapping from SQLite open flags an
 
 Unknown flag combinations, unsupported template/security-attribute cases, and unsupported create dispositions must fail closed. The adapter must preserve SQLite's expected sharing behavior and delete semantics. It must translate NTSTATUS values to stable Win32 errors without converting every failure into a misleading generic success or retry condition.
 
-The current helper's generic `ERROR_ACCESS_DENIED` mapping is acceptable only as a conservative prototype behavior; production diagnostics and retry semantics require a reviewed mapping.
+The current helper's generic `ERROR_ACCESS_DENIED` mapping is acceptable only as a conservative prototype behavior; production diagnostics and retry semantics require a reviewed mapping. Destructive create dispositions (`CREATE_ALWAYS`, `TRUNCATE_EXISTING`) are rejected before `NtCreateFile`, because post-open identity validation is too late to prevent truncation. If the parent SQLite VFS requires either disposition for protected files, the adapter must implement a two-phase open/validate/modify operation on the same handle or a dedicated SQLite file backend; it must not restore destructive NT dispositions.
 
 ## 7. Required adversarial tests
 
