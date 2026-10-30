@@ -186,7 +186,17 @@ export class ProposalService {
     assert(typeof evaluation.context_fingerprint === 'string' && /^[a-f0-9]{64}$/i.test(evaluation.context_fingerprint)
       && typeof evaluation.evaluation_fingerprint === 'string' && /^[a-f0-9]{64}$/i.test(evaluation.evaluation_fingerprint)
       && typeof evaluation.context_policy_version === 'string' && evaluation.context_policy_version.trim()
-      && typeof evaluation.authorization_scope === 'string' && evaluation.authorization_scope.trim(),
+      && typeof evaluation.authorization_scope === 'string' && evaluation.authorization_scope.trim()
+      && typeof evaluation.authority_id === 'string' && evaluation.authority_id.trim()
+      && Number.isSafeInteger(evaluation.policy_generation) && evaluation.policy_generation >= 1
+      && object(evaluation.authorization_principal)
+      && Object.keys(evaluation.authorization_principal).every((key) => ['adapterId', 'actorEntityId', 'recipient', 'purpose', 'bindingGeneration'].includes(key))
+      && typeof evaluation.authorization_principal.adapterId === 'string' && evaluation.authorization_principal.adapterId.trim()
+      && typeof evaluation.authorization_principal.actorEntityId === 'string' && evaluation.authorization_principal.actorEntityId.trim()
+      && ['model', 'player', 'adapter'].includes(evaluation.authorization_principal.recipient)
+      && ['npc_decision', 'character_card', 'narrative'].includes(evaluation.authorization_principal.purpose)
+      && Number.isSafeInteger(evaluation.authorization_principal.bindingGeneration)
+      && evaluation.authorization_principal.bindingGeneration >= 1,
     'INVALID_MECHANIC_EVALUATION_FINGERPRINT', 'Context and evaluation fingerprints are required.');
     const expectedEvaluationFingerprint = hashRequest({
       snapshot_identity: identity,
@@ -194,6 +204,9 @@ export class ProposalService {
       context_fingerprint: evaluation.context_fingerprint,
       context_policy_version: evaluation.context_policy_version,
       authorization_scope: evaluation.authorization_scope,
+      authority_id: evaluation.authority_id,
+      policy_generation: evaluation.policy_generation,
+      authorization_principal: evaluation.authorization_principal,
       condition_result: evaluation.condition_result,
       dependency_manifest: evaluation.dependency_manifest,
       effects: evaluation.effects,
@@ -260,6 +273,9 @@ export class ProposalService {
     assert(typeof sourceText === 'string' && sourceText.trim() && sourceText.length <= 50000,
       'INVALID_SOURCE_TEXT', 'Non-empty source text is required so semantic review is retained.');
     assert(typeof adapterId === 'string' && adapterId.trim(), 'ADAPTER_REQUIRED', 'A trusted adapter identity is required.', 403);
+    assert(evaluation.authorization_principal.adapterId === adapterId.trim(),
+      'MECHANIC_ADAPTER_PRINCIPAL_MISMATCH',
+      'The authenticated proposal adapter must match the adapter bound to the mechanic evaluation.', 403);
 
     const mechanicExecution = {
       snapshot_identity: identity,
@@ -268,6 +284,9 @@ export class ProposalService {
       context_fingerprint: evaluation.context_fingerprint,
       context_policy_version: evaluation.context_policy_version,
       authorization_scope: evaluation.authorization_scope,
+      authority_id: evaluation.authority_id,
+      policy_generation: evaluation.policy_generation,
+      authorization_principal: evaluation.authorization_principal,
       evaluation_fingerprint: evaluation.evaluation_fingerprint,
       dependency_manifest: evaluation.dependency_manifest,
       effect_provenance: provenance,
@@ -299,6 +318,20 @@ export class ProposalService {
         if (existing.request_hash !== expectedRequestHash) {
           throw new EngineError('IDEMPOTENCY_KEY_CONFLICT', 'Proposal idempotency key was reused with different mechanic evaluation content.', 409);
         }
+        if (['pending', 'approved'].includes(existing.status)) {
+          this.assertMechanicPolicyCurrent(existing, 'proposal_creation_retry');
+          const existingMetadata = JSON.parse(existing.mechanic_execution_json);
+          const existingSnapshot = existingMetadata.snapshot_identity;
+          const currentWorld = this.engine.store.world(worldId);
+          const currentSequence = this.engine.store.currentCommitSequence(worldId);
+          if (!currentWorld
+            || currentWorld.world_revision !== existingSnapshot.world_revision
+            || currentSequence !== existingSnapshot.commit_sequence) {
+            throw new EngineError('STALE_MECHANIC_EVALUATION',
+              'An existing pending mechanic proposal is stale; a new evaluation is required.', 409,
+              { stage: 'proposal_creation_retry' });
+          }
+        }
         return this.publicProposal(existing, true);
       }
 
@@ -313,6 +346,32 @@ export class ProposalService {
           current_commit_sequence: sequence,
         });
       }
+    if (typeof this.validateMechanicPolicy !== 'function') {
+      throw new EngineError('MECHANIC_POLICY_REVALIDATION_REQUIRED',
+        'A deployment-owned mechanic policy authority is required before proposal creation.', 409,
+        { stage: 'proposal_creation' });
+    }
+    let policyCurrent = false;
+    try {
+      policyCurrent = this.validateMechanicPolicy(Object.freeze({
+        worldId,
+        authorityId: evaluation.authority_id,
+        policyGeneration: evaluation.policy_generation,
+        policyVersion: evaluation.context_policy_version,
+        authorizationScope: evaluation.authorization_scope,
+        authorizationPrincipal: evaluation.authorization_principal,
+        snapshotIdentity: identity,
+        stage: 'proposal_creation',
+      })) === true;
+    } catch {
+      policyCurrent = false;
+    }
+    if (!policyCurrent) {
+      throw new EngineError('STALE_MECHANIC_POLICY',
+        'The evaluation authority identity or generation is no longer current; evaluate again.', 409,
+        { stage: 'proposal_creation' });
+    }
+
       return this.create(worldId, {
         idempotency_key: idempotencyKey,
         source_text: sourceText,
@@ -352,8 +411,19 @@ export class ProposalService {
       throw new EngineError('STALE_MECHANIC_POLICY', 'Mechanic policy metadata is invalid; proposal cannot proceed.', 409, { stage });
     }
     if (typeof metadata.context_policy_version !== 'string' || !metadata.context_policy_version.trim()
-      || typeof metadata.authorization_scope !== 'string' || !metadata.authorization_scope.trim()) {
-      throw new EngineError('STALE_MECHANIC_POLICY', 'Mechanic proposal lacks a valid pinned policy identity.', 409, { stage });
+      || typeof metadata.authorization_scope !== 'string' || !metadata.authorization_scope.trim()
+      || typeof metadata.authority_id !== 'string' || !metadata.authority_id.trim()
+      || !Number.isSafeInteger(metadata.policy_generation) || metadata.policy_generation < 1
+      || !object(metadata.authorization_principal)
+      || Object.keys(metadata.authorization_principal).some((key) => !['adapterId', 'actorEntityId', 'recipient', 'purpose', 'bindingGeneration'].includes(key))
+      || typeof metadata.authorization_principal.adapterId !== 'string' || !metadata.authorization_principal.adapterId.trim()
+      || typeof metadata.authorization_principal.actorEntityId !== 'string' || !metadata.authorization_principal.actorEntityId.trim()
+      || !['model', 'player', 'adapter'].includes(metadata.authorization_principal.recipient)
+      || !['npc_decision', 'character_card', 'narrative'].includes(metadata.authorization_principal.purpose)
+      || !Number.isSafeInteger(metadata.authorization_principal.bindingGeneration)
+      || metadata.authorization_principal.bindingGeneration < 1
+      || row.created_by_adapter_id !== metadata.authorization_principal.adapterId) {
+      throw new EngineError('STALE_MECHANIC_POLICY', 'Mechanic proposal lacks a valid pinned policy identity or adapter binding.', 409, { stage });
     }
 
     let current = false;
@@ -362,6 +432,9 @@ export class ProposalService {
         worldId: row.world_id,
         policyVersion: metadata.context_policy_version,
         authorizationScope: metadata.authorization_scope,
+        authorizationPrincipal: metadata.authorization_principal,
+        authorityId: metadata.authority_id,
+        policyGeneration: metadata.policy_generation,
         snapshotIdentity: metadata.snapshot_identity,
         stage,
       })) === true;

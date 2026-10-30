@@ -5,6 +5,9 @@ import { LogicEngine } from './application/engine.js';
 import { createApiServer } from './api/server.js';
 import { HostVersionDigestLedger } from './application/host-version-digest-ledger.js';
 import { loadTrustedWorldPackCatalog } from './application/world-pack-catalog.js';
+import { ActorBindingService } from './application/actor-bindings.js';
+import { loadTrustedMechanicPolicyConfig } from './application/trusted-mechanic-policy-config.js';
+import { createDeploymentMechanicPolicyRuntime } from './application/deployment-mechanic-policy-runtime.js';
 
 const token = process.env.ENGINE_API_TOKEN;
 const internalToken = process.env.ENGINE_INTERNAL_TOKEN || null;
@@ -116,14 +119,37 @@ const hostVersionLedger = new HostVersionDigestLedger({
   coordinatorPath,
   verifyInventorySnapshot: async () => false,
 });
+const engine = new LogicEngine(store, { trustedInitialKnowledgeSources, worldPackCatalog });
+const mechanicPolicyConfigPath = process.env.ENGINE_MECHANIC_POLICY_CONFIG_PATH || null;
+let actorBindingService = null;
+let authorizedReadService = null;
+let mechanicPolicyAuthority = null;
+if (mechanicPolicyConfigPath !== null) {
+  if (!isAbsolute(mechanicPolicyConfigPath)) {
+    throw new Error('ENGINE_MECHANIC_POLICY_CONFIG_PATH must be an absolute deployment-controlled path.');
+  }
+  // Validate the deployment-owned policy before exposing the API. The active
+  // resolver reloads it at every authority boundary so rotations invalidate
+  // old evaluations/proposals instead of silently refreshing them.
+  loadTrustedMechanicPolicyConfig(mechanicPolicyConfigPath);
+  actorBindingService = new ActorBindingService(engine);
+  const mechanicPolicyRuntime = createDeploymentMechanicPolicyRuntime({
+    engine,
+    actorBindingService,
+    loadPolicyConfig: () => loadTrustedMechanicPolicyConfig(mechanicPolicyConfigPath),
+  });
+  authorizedReadService = mechanicPolicyRuntime.authorizedReadService;
+  mechanicPolicyAuthority = mechanicPolicyRuntime.authority;
+}
 const server = createApiServer({
-  engine: new LogicEngine(store, { trustedInitialKnowledgeSources, worldPackCatalog }), token, internalToken, approvalToken, adminToken, adapterTokens,
+  engine, token, internalToken, approvalToken, adminToken, adapterTokens,
+  actorBindingService, authorizedReadService, mechanicPolicyAuthority,
   hostVersionLedger,
 });
 server.listen(port, host, () => process.stdout.write(
   'Logic-Engine API listening on http://' + host + ':' + port + '\nDatabase: ' + dbPath +
   '\nDirect commit: ' + (internalToken ? 'enabled for internal credential' : 'disabled') +
-  '\nProposal approval: ' + (approvalToken ? 'enabled' : 'disabled') + '\nAdmin registry: ' + (adminToken ? 'enabled' : 'disabled') + '\nConfigured adapters: ' + Object.keys(adapterTokens).length + '\n',
+  '\nProposal approval: ' + (approvalToken ? 'enabled' : 'disabled') + '\nAdmin registry: ' + (adminToken ? 'enabled' : 'disabled') + '\nMechanic policy authority: ' + (mechanicPolicyAuthority ? 'configured' : 'disabled / fail-closed') + '\nConfigured adapters: ' + Object.keys(adapterTokens).length + '\n',
 ));
 function stop() { server.close(() => { try { hostVersionLedger.close(); } finally { store.close(); process.exit(0); } }); }
 process.on('SIGINT', stop);

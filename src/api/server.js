@@ -6,50 +6,11 @@ import { ProposalService } from '../application/proposals.js';
 import { ActorBindingService } from '../application/actor-bindings.js';
 import { AuthorizedReadService } from '../application/authorized-read-service.js';
 import { HostConversationWorldBindingService } from '../application/host-conversation-world-bindings.js';
+import { MechanicExecutor } from '../application/mechanic-executor.js';
 
 const MAX = 1048576;
 
-/** Resolve the active deployment-owned policy on every boundary check. */
-export function createActiveMechanicPolicyValidator(getActiveMechanicContextProvider) {
-  if (typeof getActiveMechanicContextProvider !== 'function') throw new TypeError('getActiveMechanicContextProvider must be a trusted application callback.');
-  return (identity) => {
-    let provider;
-    try { provider = getActiveMechanicContextProvider(); } catch { return false; }
-    try { return provider?.validateMechanicPolicy?.(identity) === true; } catch { return false; }
-  };
-}
-
-// Hash both inputs to a fixed-length digest before timingSafeEqual so a
-// mismatched secret length does not create a length-dependent comparison path.
-function secretMatches(provided, expected) {
-  if (typeof provided !== 'string' || typeof expected !== 'string') return false;
-  const providedDigest = createHash('sha256').update(provided, 'utf8').digest();
-  const expectedDigest = createHash('sha256').update(expected, 'utf8').digest();
-  return timingSafeEqual(providedDigest, expectedDigest);
-}
-async function readBody(req) {
-  const chunks = []; let size = 0;
-  for await (const chunk of req) {
-    size += chunk.length;
-    if (size > MAX) throw new EngineError('BODY_TOO_LARGE', 'Body exceeds 1 MiB.', 413);
-    chunks.push(chunk);
-  }
-  if (!size) return {};
-  try { return JSON.parse(Buffer.concat(chunks).toString('utf8')); }
-  catch { throw new EngineError('INVALID_JSON', 'Invalid JSON body.'); }
-}
-function send(res, status, data) {
-  const body = JSON.stringify(data);
-  res.writeHead(status, {
-    'content-type': 'application/json; charset=utf-8',
-    'content-length': Buffer.byteLength(body),
-    'cache-control': 'no-store',
-    'x-content-type-options': 'nosniff',
-  });
-  res.end(body);
-}
-
-export function createApiServer({ engine, token, internalToken = null, approvalToken = null, adminToken = null, adapterTokens = {}, authorizedReadFieldPolicy = null, getActiveMechanicContextProvider = () => null, hostVersionLedger = null }) {
+export function createApiServer({ engine, token, internalToken = null, approvalToken = null, adminToken = null, adapterTokens = {}, authorizedReadFieldPolicy = null, mechanicPolicyAuthority = null, actorBindingService = null, authorizedReadService = null, hostVersionLedger = null }) {
   if (!engine) throw new TypeError('engine required');
   if (typeof token !== 'string' || token.length < 16) throw new TypeError('API token must be at least 16 characters');
   if (internalToken !== null && (typeof internalToken !== 'string' || internalToken.length < 16 || internalToken === token)) {
@@ -64,7 +25,33 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
   if (authorizedReadFieldPolicy !== null && typeof authorizedReadFieldPolicy !== 'function') {
     throw new TypeError('Authorized-read field policy must be trusted application configuration.');
   }
-  if (typeof getActiveMechanicContextProvider !== 'function') throw new TypeError('getActiveMechanicContextProvider must be a trusted application callback.');
+  if (mechanicPolicyAuthority !== null
+    && (typeof mechanicPolicyAuthority?.validateMechanicPolicy !== 'function'
+      || typeof mechanicPolicyAuthority?.resolveAuthorizedContext !== 'function'
+      || typeof mechanicPolicyAuthority?.assertUsesAuthorizedReadService !== 'function')) {
+    throw new TypeError('mechanicPolicyAuthority must resolve authorized context and validate the same active policy.');
+  }
+  if (actorBindingService !== null && typeof actorBindingService?.resolve !== 'function') {
+    throw new TypeError('actorBindingService must be a trusted ActorBindingService.');
+  }
+  if (authorizedReadService !== null && typeof authorizedReadService?.readEntityAttributeForMechanic !== 'function') {
+    throw new TypeError('authorizedReadService must be a trusted AuthorizedReadService.');
+  }
+  if (authorizedReadService !== null && actorBindingService === null) {
+    throw new TypeError('A shared actorBindingService is required with an injected authorizedReadService.');
+  }
+  if (mechanicPolicyAuthority !== null
+    && (actorBindingService === null || authorizedReadService === null)) {
+    throw new TypeError('Mechanic policy authority requires the shared Core actor binding and AuthorizedReadService instances.');
+  }
+  if (authorizedReadService !== null
+    && authorizedReadService.actorBindingService !== actorBindingService) {
+    throw new TypeError('AuthorizedReadService must use the exact actorBindingService instance supplied to the API.');
+  }
+  if (mechanicPolicyAuthority !== null
+    && !mechanicPolicyAuthority.assertUsesAuthorizedReadService(authorizedReadService, actorBindingService)) {
+    throw new TypeError('Mechanic policy authority must resolve context through the exact AuthorizedReadService used by this API.');
+  }
   const configuredAdapterSecrets = Object.values(adapterTokens || {});
   if (!adapterTokens || typeof adapterTokens !== 'object' || Array.isArray(adapterTokens) || Object.entries(adapterTokens).some(([id, secret]) => !id.trim() || typeof secret !== 'string' || secret.length < 16 || [token, internalToken, approvalToken, adminToken].includes(secret)) || new Set(configuredAdapterSecrets).size !== configuredAdapterSecrets.length) {
     throw new TypeError('Adapter tokens must map non-empty adapter IDs to unique, distinct secrets of at least 16 characters');
@@ -74,10 +61,15 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
     const secret = req.headers['x-adapter-token'];
     return typeof id === 'string' && Object.hasOwn(adapterTokens, id) && secretMatches(secret, adapterTokens[id]) ? id : null;
   };
-  const proposals = new ProposalService(engine, {
-    validateMechanicPolicy: createActiveMechanicPolicyValidator(getActiveMechanicContextProvider),
-  });
-  const actorBindings = new ActorBindingService(engine);
+  // No callback/provider fallback is accepted as a production authority.
+  // Without the composition-root authority, mechanic proposal creation stays fail-closed.
+  const validateMechanicPolicy = mechanicPolicyAuthority === null
+    ? () => false
+    : (identity) => {
+      try { return mechanicPolicyAuthority.validateMechanicPolicy(identity) === true; } catch { return false; }
+    };
+  const proposals = new ProposalService(engine, { validateMechanicPolicy });
+  const actorBindings = actorBindingService || new ActorBindingService(engine);
   const hostConversationBindings = new HostConversationWorldBindingService(engine);
   // Until a canonical visibility schema exists, disclose only the bound actor's
   // own non-attribute identity fields. This intentionally denies all attributes.
@@ -86,7 +78,7 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
   // A host may opt into a broader, explicit policy. The policy is trusted
   // application configuration and is never accepted from an HTTP request.
   // Without one, preserve the narrow self-identity-only default.
-  const authorizedReads = new AuthorizedReadService(engine, actorBindings,
+  const authorizedReads = authorizedReadService || new AuthorizedReadService(engine, actorBindings,
     authorizedReadFieldPolicy || defaultAuthorizedReadFieldPolicy);
 
   return createServer(async (req, res) => {
@@ -409,6 +401,60 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
         return send(res, 405, { error: { code: 'METHOD_NOT_ALLOWED', message: 'Unsupported actor-binding operation.' } });
       }
 
+
+      if (parts.length === 4 && action === 'mechanic-proposals' && req.method === 'POST') {
+        const adapterId = adapterIdFor(req);
+        if (!adapterId) return send(res, 403, { error: { code: 'ADAPTER_REQUIRED', message: 'A configured adapter identity is required to evaluate a mechanic.' } });
+        if (!mechanicPolicyAuthority) {
+          return send(res, 503, { error: { code: 'MECHANICS_DISABLED', message: 'No deployment-owned mechanic policy authority is configured; mechanic execution is disabled.' } });
+        }
+        const body = await readBody(req);
+        const allowed = ['instance_id', 'action_id', 'idempotency_key', 'turn_id', 'source_text'];
+        if (!body || typeof body !== 'object' || Array.isArray(body)
+          || Object.keys(body).some((key) => !allowed.includes(key))) {
+          throw new EngineError('INVALID_MECHANIC_PROPOSAL_REQUEST', 'Mechanic proposal accepts only instance_id, action_id, idempotency_key, turn_id, and source_text.', 400);
+        }
+        for (const key of allowed) {
+          if (typeof body[key] !== 'string' || !body[key].trim() || body[key].length > (key === 'source_text' ? 50000 : 200)) {
+            throw new EngineError('INVALID_MECHANIC_PROPOSAL_REQUEST', key + ' must be a non-empty string within its supported length.', 400);
+          }
+        }
+        const executor = new MechanicExecutor(engine, {
+          resolveAuthorizedContext: (args) => mechanicPolicyAuthority.resolveAuthorizedContext({
+            ...args,
+            authenticatedAdapterId: adapterId,
+          }),
+        });
+        const evaluation = executor.evaluate({
+          worldId,
+          instanceId: body.instance_id,
+          actionId: body.action_id,
+        });
+        if (evaluation.status !== 'ready') {
+          return send(res, 409, {
+            evaluation: {
+              status: evaluation.status,
+              reason_code: evaluation.reason_code || null,
+            },
+          });
+        }
+        const proposal = proposals.createFromMechanicEvaluation(worldId, evaluation, {
+          idempotencyKey: body.idempotency_key,
+          turnId: body.turn_id,
+          sourceText: body.source_text,
+          adapterId,
+        });
+        return send(res, 201, {
+          proposal,
+          evaluation: {
+            status: evaluation.status,
+            action_id: evaluation.action_id,
+            authority_id: evaluation.authority_id,
+            policy_generation: evaluation.policy_generation,
+            authorization_scope: evaluation.authorization_scope,
+          },
+        });
+      }
 
       if (parts.length === 4 && action === 'mechanic-instances') {
         if (!secretMatches(req.headers['x-admin-token'], adminToken)) return send(res, 403, { error: { code: 'ADMIN_REQUIRED', message: 'A separate administrative credential is required.' } });

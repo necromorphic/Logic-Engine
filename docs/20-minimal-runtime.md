@@ -4,7 +4,7 @@ The Core executable is host-independent, but the current `main` already includes
 
 ## Requirements and startup
 
-Node.js 22.13+ (uses the built-in `node:sqlite` API, which is experimental in supported Node releases). Set `ENGINE_API_TOKEN` to a secret at least 16 characters long. Configure `ENGINE_ADAPTER_TOKENS` as a JSON object of adapter IDs to distinct secrets for proposal creation/cancellation. Set a separate `ENGINE_APPROVAL_TOKEN` for approvals, `ENGINE_ADMIN_TOKEN` for world creation, global registry reads/writes/audit, and `ENGINE_INTERNAL_TOKEN` only if the restricted internal proposal-commit route is required. Optionally set `ENGINE_DB_PATH`, then run `npm start`. See `.env.example`; run `npm test` for contract tests.
+Node.js 22.13+ (uses the built-in `node:sqlite` API, which is experimental in supported Node releases). Set `ENGINE_API_TOKEN` to a secret at least 16 characters long. Configure `ENGINE_ADAPTER_TOKENS` as a JSON object of adapter IDs to distinct secrets for proposal creation/cancellation. Set a separate `ENGINE_APPROVAL_TOKEN` for approvals, `ENGINE_ADMIN_TOKEN` for world creation, global registry reads/writes/audit, and `ENGINE_INTERNAL_TOKEN` only if the restricted internal proposal-commit route is required. Optionally set `ENGINE_MECHANIC_POLICY_CONFIG_PATH` to an absolute deployment-controlled policy config to enable the bounded mechanic proposal route; without it, Mechanics remain disabled/fail-closed. See [the mechanic policy runtime contract](36-mechanics-policy-runtime-config.md). Optionally set `ENGINE_DB_PATH`, then run `npm start`. See `.env.example`; run `npm test` for contract tests.
 
 ## Trusted World Pack catalog
 
@@ -76,11 +76,12 @@ The importer accepts a `source_ref` only, reads the configured local file, rejec
 - `POST /v1/worlds/:id/proposals/:proposal_id/commit` — commit through the creating adapter's proposal lifecycle.
 - `POST /v1/worlds/:id/proposals/:proposal_id/cancel` — cancel a proposal as its creating adapter.
 - `POST /v1/worlds/:id/authorized-read` — request actor-bound, policy-filtered entity fields (requires configured adapter credentials and a valid actor binding); this is not a complete knowledge/belief system.
-- `POST /v1/worlds/:id/actor-bindings` — bind an adapter ID to an entity (requires `x-admin-token`).
+- `POST /v1/worlds/:id/actor-bindings` — bind an adapter ID to an entity (requires `x-admin-token`); Core versions the binding so revoke/rebind invalidates old mechanic evaluations.
 - `POST /v1/worlds/:id/actor-bindings/resolve` — resolve the actor bound to the authenticated adapter.
 - `DELETE /v1/worlds/:id/actor-bindings/:adapter_id/:entity_id` — revoke an actor binding (requires `x-admin-token`).
 - `POST /v1/worlds/:id/relationship-transitions` — commit a typed directed Relationship transition (requires `x-admin-token`; not an NPC-facing write capability).
 - `POST /v1/worlds/:id/context-manifests` — register a generation-bound context manifest (requires `x-engine-internal-token`).
+- `POST /v1/worlds/:id/mechanic-proposals` — run the bounded deterministic evaluator and create a pending proposal only (requires an authenticated configured adapter and `ENGINE_MECHANIC_POLICY_CONFIG_PATH`; returns `503 MECHANICS_DISABLED` when no authority is configured). Approval and commit remain on the existing proposal routes.
 - `GET /v1/worlds/:id/mechanic-instances` — list mechanic instances (requires `x-admin-token`).
 - `POST /v1/worlds/:id/mechanic-instances` — create a mechanic instance from an exact registered template version (requires `x-admin-token`).
 - `POST /v1/worlds/:id/mechanic-instances/:instance_id/enable` and `/disable` — change instance lifecycle (requires `x-admin-token`).

@@ -75,3 +75,23 @@ This decision identifies the owner and the trust contract. It does not claim tha
 Do not mechanically rebase or merge #225/#270 to close this gap: their stale diff contains excluded executor, attestation, proposal-handoff, and storage changes. Implement a fresh current-main vertical slice against this contract, review its effective diff, run exact-head Runtime CI plus the recalculation harness, and keep production mechanics disabled until all applicable tests above pass.
 
 **Current verdict: policy ownership is decided; production integration is not yet implemented or proven.**
+
+
+## 7. Implementation status — draft branch only
+
+The current draft branch now contains a bounded composition-root integration:
+
+- `src/application/deployment-mechanic-policy-authority.js` resolves trusted authority identity, generation, policy fingerprint, and authenticated principal. It rejects malformed/unavailable policy, process-observed generation regression, same-generation fingerprint changes, and rotation during context resolution.
+- `src/application/deployment-mechanic-policy-runtime.js` constructs the shared `AuthorizedReadService` and context provider from one deployment-owned config loader. The field visibility callback and mechanic context reads use the same validated config source.
+- `src/index.js` optionally loads `ENGINE_MECHANIC_POLICY_CONFIG_PATH`, constructs the actor binding service, shared AuthorizedReadService, and one authority instance, then passes those same instances into `createApiServer`. Without the config path, no authority is constructed and Mechanics remain disabled/fail-closed.
+- `MechanicExecutor` requires authority identity/generation and principal evidence; it binds adapter, actor, recipient, purpose, actor-binding generation, scope, policy fingerprint, and world/mechanic snapshot into the evaluation fingerprint.
+- `ActorBindingService` increments a Core-owned `binding_generation` on revoke and rebind. Context resolution pins it; proposal lifecycle validation rechecks it, so revoking and later restoring the same adapter/actor pair does not revive old evaluations.
+- `ProposalService` persists that evidence and validates it at proposal creation, approval, and commit. Stale evaluations/proposals are rejected; retries require a new evaluation.
+- `POST /v1/worlds/{world_id}/mechanic-proposals` is proposal-only. It authenticates the adapter, evaluates the bounded action, and creates a pending proposal. Approval and commit remain on the existing ProposalService/Core lifecycle.
+- `docs/36-mechanics-policy-runtime-config.md` defines the deployment-owned config schema and operational requirements.
+
+The new configured-runtime integration test uses the real AuthorizedReadService, ActorBindingService, context provider, shared authority, and ordinary proposal lifecycle. It covers rotation before proposal creation, before approval, and before commit. An API-level test covers the proposal-only endpoint through approval and Core commit.
+
+**Remaining deployment gate:** the config's generation is deployment-owned. Runtime detects generation regression only within a process; this slice does not persist an anti-rollback generation ledger across restarts. Deployment must guarantee monotonic generation across restarts and instances. If it cannot, do not configure the authority. The external config source also remains outside the Core commit transaction, so revocation is not linearizable against a concurrent commit.
+
+The implementation is on this draft branch only. It is not on `main`, exact-head Runtime CI has not yet been confirmed green, and no production deployment config has been supplied or validated. Do not enable Mechanics in a deployment until the exact-head test suite passes and the deployment owner supplies a monotonic, deployment-controlled config source. Production status remains **DISABLED / FAIL-CLOSED**.

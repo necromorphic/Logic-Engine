@@ -43,7 +43,7 @@ export class CanonicalEntityAttributeContextProvider {
 
   constructor(engine, {
     policyVersion, authorizationScope, bindings, canRead,
-    authorizedReadService, adapterId, actorEntityId, recipient, purpose,
+    authorizedReadService, adapterId, actorEntityId, recipient, purpose, authorizationPrincipal,
   } = {}) {
     if (!engine || typeof engine.getState !== 'function') throw new TypeError('A LogicEngine is required.');
     if (typeof policyVersion !== 'string' || !policyVersion.trim()) throw new TypeError('policyVersion must be a non-empty version identifier.');
@@ -85,19 +85,47 @@ export class CanonicalEntityAttributeContextProvider {
     this.#bindings = byPath;
     this.canRead = canRead ?? null;
     this.authorizedReadService = authorizedReadService ?? null;
-    this.readPrincipal = useAuthorizedReadService ? Object.freeze({
-      adapterId: adapterId.trim(),
-      actorEntityId: actorEntityId.trim(),
-      recipient,
-      purpose,
-    }) : null;
+    const principal = useAuthorizedReadService ? {
+      adapterId: adapterId.trim(), actorEntityId: actorEntityId.trim(), recipient, purpose,
+    } : authorizationPrincipal;
+    if (principal !== undefined && principal !== null
+      && (!object(principal) || Object.keys(principal).some((key) => !['adapterId', 'actorEntityId', 'recipient', 'purpose'].includes(key))
+        || !['adapterId', 'actorEntityId'].every((key) => typeof principal[key] === 'string' && principal[key].trim())
+        || !['model', 'player', 'adapter'].includes(principal.recipient)
+        || !['npc_decision', 'character_card', 'narrative'].includes(principal.purpose))) {
+      throw new TypeError('authorizationPrincipal must identify the authenticated adapter, actor, recipient, and purpose.');
+    }
+    if (useAuthorizedReadService && authorizationPrincipal !== undefined) {
+      throw new TypeError('AuthorizedReadService mode derives authorizationPrincipal from its authenticated read binding.');
+    }
+    this.readPrincipal = principal ? Object.freeze({ ...principal }) : null;
+    this.authorizationPrincipal = this.readPrincipal;
     this.policyFingerprint = hashRequest({
       policy_version: this.policyVersion,
       authorization_scope: this.authorizationScope,
       bindings: [...byPath.values()].sort((a, b) => a.path.localeCompare(b.path)),
-      ...(this.readPrincipal ? { authorization_principal: this.readPrincipal } : {}),
+      ...(this.authorizationPrincipal ? { authorization_principal: this.authorizationPrincipal } : {}),
     });
     Object.freeze(this);
+  }
+
+  assertPrincipalBound(worldId) {
+    if (!this.authorizedReadService || !this.authorizationPrincipal
+      || typeof worldId !== 'string' || !worldId.trim()) {
+      throw new Error('An authorized actor binding is required for mechanic context resolution.');
+    }
+    const binding = this.authorizedReadService.actorBindingService.resolve(
+      worldId,
+      this.authorizationPrincipal.adapterId,
+      this.authorizationPrincipal.actorEntityId,
+    );
+    if (binding.world_id !== worldId
+      || binding.adapter_id !== this.authorizationPrincipal.adapterId
+      || binding.actor?.entity_id !== this.authorizationPrincipal.actorEntityId
+      || !Number.isSafeInteger(binding.binding_generation) || binding.binding_generation < 1) {
+      throw new Error('Mechanic context principal is not bound to the requested world.');
+    }
+    return binding;
   }
 
   resolve({ worldId, snapshot, template, action } = {}) {
@@ -105,6 +133,7 @@ export class CanonicalEntityAttributeContextProvider {
       || !object(snapshot) || snapshot.world_id !== worldId || !object(template) || !object(action)) {
       throw new TypeError('Provider resolution requires world, snapshot, template, and action.');
     }
+    const initialBinding = this.authorizedReadService ? this.assertPrincipalBound(worldId) : null;
     const conditionPaths = [...new Set([
       ...(template.applicability ?? []),
       ...(action.preconditions ?? []),
@@ -171,6 +200,12 @@ export class CanonicalEntityAttributeContextProvider {
       });
     }
 
+    if (initialBinding) {
+      const finalBinding = this.assertPrincipalBound(worldId);
+      if (finalBinding.binding_generation !== initialBinding.binding_generation) {
+        throw new Error('Mechanic actor binding changed during context resolution.');
+      }
+    }
     return freeze({
       context,
       knownAbsentPaths: knownAbsentPaths.sort(),
@@ -179,6 +214,12 @@ export class CanonicalEntityAttributeContextProvider {
       commit_sequence: snapshot.commit_sequence,
       authorization_scope: this.authorizationScope,
       policy_version: this.policyFingerprint,
+      ...(this.authorizationPrincipal ? {
+        authorization_principal: Object.freeze({
+          ...this.authorizationPrincipal,
+          ...(initialBinding ? { bindingGeneration: initialBinding.binding_generation } : {}),
+        }),
+      } : {}),
     });
   }
 
@@ -196,11 +237,22 @@ export class CanonicalEntityAttributeContextProvider {
       || !object(identity.snapshotIdentity)
       || identity.snapshotIdentity.world_id !== identity.worldId
       || !Number.isSafeInteger(identity.snapshotIdentity.world_revision)
-      || !Number.isSafeInteger(identity.snapshotIdentity.commit_sequence)) {
+      || !Number.isSafeInteger(identity.snapshotIdentity.commit_sequence)
+      || !object(identity.authorizationPrincipal)
+      || !Number.isSafeInteger(identity.authorizationPrincipal.bindingGeneration)
+      || identity.authorizationPrincipal.bindingGeneration < 1) {
       return false;
     }
 
+    let binding;
+    try { binding = this.assertPrincipalBound(identity.worldId); } catch { return false; }
     return identity.policyVersion === this.policyFingerprint
-      && identity.authorizationScope === this.authorizationScope;
+      && identity.authorizationScope === this.authorizationScope
+      && this.authorizationPrincipal !== null
+      && identity.authorizationPrincipal.adapterId === this.authorizationPrincipal.adapterId
+      && identity.authorizationPrincipal.actorEntityId === this.authorizationPrincipal.actorEntityId
+      && identity.authorizationPrincipal.recipient === this.authorizationPrincipal.recipient
+      && identity.authorizationPrincipal.purpose === this.authorizationPrincipal.purpose
+      && identity.authorizationPrincipal.bindingGeneration === binding.binding_generation;
   }
 }

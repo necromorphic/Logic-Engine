@@ -87,6 +87,9 @@ function trustedContext({ snapshot }) {
     commit_sequence: snapshot.commit_sequence,
     authorization_scope: 'integration-test-actor',
     policy_version: 'integration-test-policy-v1',
+    authority_id: 'integration-test-authority',
+    policy_generation: 1,
+    authorization_principal: { adapterId: 'integration-test-adapter', actorEntityId: 'entity.actor-context', recipient: 'model', purpose: 'npc_decision', bindingGeneration: 1 },
   };
 }
 
