@@ -5,20 +5,20 @@ Date: 30 October 2026.
 ## Base and provenance
 
 - Branch: `host/issue-258-direction-a-after-fileid-fix-v2-2026-10-30`
-- Base: stacked on the validated Core file-identity fix branch; base candidate head `df5d33359e49d312f1225d790cc5db5e5951df8a`.
+- Base: stacked on current-main Core file-identity candidate #784; base head `4ebdb8f8897d119c53aa0d505671606b570812f1`.
 - Previous current-main candidate: PR #743, head `4fcbbe877de29e240fb0acd0a01e6b702e86d70e`, was 6 ahead / 2 behind. PR #748 re-port passed all four Host-specific workflows but exposed a Windows Core file-identity false positive in Runtime; PR #750 fixes that and passed exact-head Runtime + Provider workflows.
 - The embedded base patch `host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch` is unchanged between current main and the previous candidate: blob `3ab39d8f1dbaac5e8760af2093dd91dc09bdea0a`.
 - SillyTavern target candidate remains `1.19.0-1-g06bde939f`, commit `06bde939fb1e9c4c8d8641d810f0a916b5bce127`.
 
 ## Re-port contents
 
-This branch carries forward the isolated Direction A delete-safety overlay and source-contract tests from PR #748, stacked on PR #750's validated Core file-identity fix. It is intentionally based on that fix branch until #750 is merged; then this PR can be retargeted to `main`. It does not modify the base lifecycle patch, Core API/schema, Provider, vectorization, or production dispatch.
+This branch carries forward the isolated Direction A delete-safety overlay and source-contract tests from PR #758, stacked on the current-main Core file-identity candidate #784. It does not modify the base lifecycle patch, Core API/schema, Provider, vectorization, or production dispatch. Its apply-order documentation now places the Host inventory route candidate #780 between the base lifecycle patch and the Direction A UI mutation overlay.
 
 The overlay protects stale/mismatched editor selection, exact target identity across async boundaries, delete-last, bulk deletion, swipe deletion, and direct `/delname` mutation. It avoids logging message content.
 
 ## Evidence classification
 
-Prior exact candidate head #743 had all five workflows green: Host lifecycle patch check, browser IndexedDB restart, lifecycle patch validation, pinned SillyTavern source audit, and Runtime tests. Those results belong to the prior head, not this re-port. This branch requires fresh exact-head CI; no PASS is claimed until its workflows finish.
+Exact-head CI on this current-Core branch passed: Runtime #41054995208 (Windows npm test 1165/1165, Host lifecycle 75/75, recalculation 20/20, Core trusted acquisition 15/15, NPC boundary 100/100); Host patch check #41054995202; browser IndexedDB restart #41054995183; patch apply/lint #41054995148; pinned source audit #41054995134.
 
 The prior pinned-source archive apply/syntax checks are also evidence for the unchanged SillyTavern target and overlay, but must be rerun for this branch's exact patch bytes. No installed ST instance, browser interaction, Android/Termux, or real Host→Provider→Core dispatch has been tested here.
 
@@ -33,4 +33,4 @@ The prior pinned-source archive apply/syntax checks are also evidence for the un
 
 ## Dependency
 
-This PR is stacked on Draft PR #750 because #748's Runtime run exposed a Windows Core file-identity false positive. PR #750's exact-head Runtime and Memory Provider blocker-3 workflows both pass on `5ca6be62ad31bdd763f35287bd67a10d4fe972e6`. After #750 is merged, retarget this PR to `main` and rerun exact-head CI.
+This PR is stacked on current-main Core PR #784. It remains Draft until Core/Security review and the required target-host validation.
