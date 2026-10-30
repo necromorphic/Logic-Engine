@@ -23,7 +23,7 @@ function setup(t, fieldPolicy) {
     expected_revision: 0,
     effects: [
       { kind: 'entity.create', entity_id: 'actor-a', entity_type: 'character', attributes: { name: 'Actor', secret: 'private' } },
-      { kind: 'entity.create', entity_id: 'target-a', entity_type: 'character', attributes: { name: 'Target', secret: 'classified', details: { classification: 'nested-classified' } } },
+      { kind: 'entity.create', entity_id: 'target-a', entity_type: 'character', attributes: { name: 'Target', secret: 'classified', ...(nested ? { details: { classification: 'nested-classified' } } : {}) } },
     ],
   });
   bindings.bind('read-world', 'adapter-a', 'actor-a');
@@ -569,7 +569,7 @@ test('field policy receives a recursively isolated frozen entity snapshot', (t) 
       }, TypeError);
     }
     return true;
-  });
+  }, { nested: true });
   const result = service.readEntityFields(request({
     fields: ['entity_id', 'attributes.details'],
   }));
