@@ -58,7 +58,7 @@ test('caller-constructed filesystem manifest cannot establish a baseline', async
     sourceFingerprint: 'chat-fp', expectedRoot: '/disposable/st-data',
   });
   assert.equal(result.status, 'NON_READY');
-  assert.match(result.reason, /not produced by the trusted filesystem scanner/);
+  assert.match(result.reason, /not produced by the trusted scanner in this process/);
 });
 async function fixtureJournal() {
   const journal = new HostLifecycleJournal(new DB());
