@@ -86,7 +86,7 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
       if (!evidence || typeof evidence !== 'object' || Array.isArray(evidence)
         || typeof evidence.authority_identity !== 'string' || !evidence.authority_identity.trim()
         || typeof evidence.policy_generation !== 'string' || !evidence.policy_generation.trim()
-        || typeof evidence.policy_version !== 'string' || !evidence.policy_version.trim()) {
+        || typeof evidence.policy_version !== 'string' || !/^[a-f0-9]{64}$/i.test(evidence.policy_version)) {
         throw new TypeError('Invalid policy authority evidence.');
       }
     } catch {
