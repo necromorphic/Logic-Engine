@@ -309,6 +309,9 @@ All tests use synthetic payloads and recording transport. Every denial test asse
 | VERSION-02 | Provider source_version differs from current Core updated_revision mapping | DENY |
 | VERSION-03 | Provider record ref/version/grant mismatch | DENY |
 | VERSION-04 | Lane A acquisition value/source-event pin mismatch | DENY; reacquisition required |
+| SOURCE-01 | Lane A acquisition_kind differs from trusted registry source_kind | DENY |
+| SOURCE-02 | Stored acquisition authorization_ref differs from trusted registry authorization_ref | DENY |
+| SOURCE-03 | Provenance reference, digest, World Pack ID or version mismatch | DENY |
 | SNAPSHOT-01 | Core cursor changes before final decision | DENY |
 | SNAPSHOT-02 | Cursor equality used as substitute for source/grant/lineage/completeness | DENY |
 | INVENTORY-01 | Missing/false/incomplete/stale/ambiguous Host inventory | No Provider READY; DENY |
