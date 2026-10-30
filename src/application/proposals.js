@@ -334,11 +334,12 @@ export class ProposalService {
   }
 
   /**
-   * Revalidate deployment-owned visibility policy before a mechanic proposal
-   * crosses an approval/commit boundary. The callback must synchronously compare
-   * the pinned policy fingerprint and authorization scope with the currently
-   * active policy; it must not mutate canonical state. Missing or non-true
-   * decisions fail closed. Ordinary non-mechanic proposals are unaffected.
+   * Revalidate deployment-owned policy authority before a mechanic proposal
+   * crosses proposal-creation, approval, or commit boundaries. The callback must
+   * synchronously compare the pinned policy fingerprint, authority identity/
+   * generation, and authorization scope with the currently active source; it
+   * must not mutate canonical state. Missing or non-true decisions fail closed.
+   * Ordinary non-mechanic proposals are unaffected.
    */
   assertMechanicPolicyEvidenceCurrent(metadata, worldId, stage) {
     if (typeof this.validateMechanicPolicy !== 'function') {
