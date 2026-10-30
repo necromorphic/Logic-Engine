@@ -862,6 +862,8 @@ export class LogicEngine {
             fact_id: item.fact_id,
             subject_ref: item.subject_ref,
             predicate: item.predicate,
+            acquisition_kind: item.acquisition_kind,
+            acquisition_authorization_ref: item.acquisition_authorization_ref,
             provenance_ref: item.provenance_ref,
             provenance_digest: item.provenance_digest,
           }));
@@ -1206,6 +1208,8 @@ export class LogicEngine {
             fact_id: item.fact_id,
             subject_ref: item.subject_ref,
             predicate: item.predicate,
+            acquisition_kind: item.acquisition_kind,
+            acquisition_authorization_ref: item.acquisition_authorization_ref,
             provenance_ref: item.provenance_ref,
             provenance_digest: item.provenance_digest,
           }));
