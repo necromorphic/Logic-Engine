@@ -176,6 +176,8 @@ test('reader rejects authorizer scope mismatches for world, purpose, revision, a
   const current = request(store);
   const mismatches = [
     ['world_id', 'other-world'],
+    ['adapter_id', 'other-adapter'],
+    ['recipient', 'other-recipient'],
     ['purpose', 'npc_action_evaluation'],
     ['world_revision', current.expected_revision + 1],
     ['commit_sequence', current.expected_commit_sequence + 1],
