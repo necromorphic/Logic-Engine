@@ -141,3 +141,17 @@ Therefore movement remains a sensible later action family, but selecting it now 
 5. Keep Core, Host, Memory, Personality, Relationships, scheduler, storage, and dispatch integration out of this PR unless separately approved.
 
 This sequencing choice resolves the first-slice selection for the current work. It does not authorize plan persistence, candidate generation, action dispatch, world mutation, or PR merge.
+
+
+### 10.1 Exact-head lifecycle audit
+
+The current PR head was checked against the following concrete shapes and call sites:
+
+- `src/npc/plan-progress.js::validatePlan(...)` accepts a plan identity, plan status, and ordered steps. Each step carries its own identity, `action_id`, and step status. The helper does not require or validate `goal_id`, a plan version, or a snapshot reference.
+- `getNpcPlanActiveStep(...)` returns only the active step identity and `action_id`; it is a read-only projection.
+- `advanceNpcPlan(...)` returns a copied plan after a caller-supplied progress event. It does not authenticate the outcome, compare an expected version, or persist the plan.
+- `src/npc/autonomous-intention-selector.js::selectNpcIntention(...)` validates `action.goal_id` against the supplied goal list. That action-to-goal association does **not** establish a plan-to-goal association.
+- `src/npc/autonomy-cycle.js::evaluateNpcAutonomyCycle(...)` emits `plan_revision_required` with `plan.id` and viability reason codes only. It does not claim that a replacement plan exists.
+- No plan acceptance/replacement helper or NPC-owned durable plan store is present in the files changed by this PR. The generic Process Manager is not an NPC goal/plan store.
+
+**Result:** the current implementation has enough contract surface to detect that a plan needs reconsideration, but not enough to safely construct, accept, or persist a replacement while proving that it serves the same goal and does not overwrite a newer plan. The next safe code change must not add guessed `goal_id` or `version` fields. The owning NPC-state contract must define those identities and transitions first, or the coordinator must remain at the bounded request/review stage.
