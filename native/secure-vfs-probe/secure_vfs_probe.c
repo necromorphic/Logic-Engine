@@ -1601,6 +1601,22 @@ static void probe_close_captured_role_identity(ProbeDatabaseRole *captured) {
 #endif
 }
 
+static void probe_delete_registered_role(sqlite3_context *context, int argc, sqlite3_value **argv) {
+  const unsigned char *path = sqlite3_value_text(argv[0]);
+  int rc;
+  (void)argc;
+  if (!path || !path[0]) {
+    sqlite3_result_error(context, "database path is required", -1);
+    return;
+  }
+  rc = probe_xDelete(&g_probe_vfs, (const char *)path, 1);
+  if (rc != SQLITE_OK) {
+    sqlite3_result_error_code(context, rc);
+    return;
+  }
+  sqlite3_result_int(context, 1);
+}
+
 static void probe_register_database_role(sqlite3_context *context, int argc, sqlite3_value **argv) {
   const unsigned char *path = sqlite3_value_text(argv[0]);
   const unsigned char *role_name = sqlite3_value_text(argv[1]);
@@ -1820,6 +1836,9 @@ static int probe_auto_extension(sqlite3 *db, char **error, const sqlite3_api_rou
   if (rc != SQLITE_OK) return rc;
   rc = sqlite3_create_function(db, "logic_engine_vfs_probe_register_database_role", 2,
     SQLITE_UTF8, 0, probe_register_database_role, 0, 0);
+  if (rc != SQLITE_OK) return rc;
+  rc = sqlite3_create_function(db, "logic_engine_vfs_probe_delete_registered_role", 1,
+    SQLITE_UTF8, 0, probe_delete_registered_role, 0, 0);
   if (rc != SQLITE_OK) return rc;
   rc = sqlite3_create_function(db, "logic_engine_vfs_probe_hook_protection", 0,
     SQLITE_UTF8 | SQLITE_DETERMINISTIC, 0, probe_hook_protection, 0, 0);
