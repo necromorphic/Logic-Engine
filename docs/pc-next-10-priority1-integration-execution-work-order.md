@@ -3,7 +3,7 @@
 **Status:** DRAFT EXECUTION SPECIFICATION — documentation only; no implementation or release approval.  
 **Date:** 2026-10-30.  
 **Repository:** `necromorphic/Logic-Engine`.  
-**Current-main checkpoint used for this work order:** `b1bf0393b398f6b283bd422eb302ad84c07873f7`. Re-resolve `origin/main` before every implementation step; this SHA is a recorded checkpoint, not a permanent pin.  
+**Current-main checkpoint used for this work order:** `d11211401957576545ca9099d41bffa3936aaef3`. Re-resolve `origin/main` before every implementation step; this SHA is a recorded checkpoint, not a permanent pin.  
 **Parent documents:** PC-NEXT-07 Draft v3, PC-NEXT-08 implementation breakdown, PC-NEXT-09 Core/Provider/egress writer matrix.  
 **Purpose:** convert the latest source/PR/deployment evidence into one ordered agent task that advances the actual Host → Core → Memory Provider → NPC → protected model egress integration. This is not a request to repeat completed test suites.
 
@@ -51,7 +51,7 @@ Important: PC-NEXT-07/08/09 were authored against an earlier source baseline (`4
 2. Do not merge PRs, mark Draft PRs ready, close PRs, force-push, rewrite shared branches or change issue decisions.
 3. Do not replace any deny-only callback (including `verifyInventorySnapshot: async () => false`) with an unconditional allow or a permissive mock.
 4. No caller/body/prompt/model-supplied identity, policy, purpose, recipient, world, actor, conversation, session, generation, source or version field may become trusted.
-5. Do not add API/schema/runtime fields or change cross-block contracts without the approvals required by issue #264 and the private Host/Core/Memory contract.
+5. Implement within the binding cross-block contract approved by merged ADR #809. The second Core approval required by issue #264 is satisfied for that contract. Any deviation or new cross-block API/schema/authority requires a new explicit decision; exact implementation diffs still require review, CI and release gates.
 6. Do not select or hardcode a model vendor. Gateway/transport contract must be provider-neutral.
 7. Do not change, benchmark, re-index, reconfigure or retest existing vectorization, embeddings, VectorService, Ollama, Vectra or remote vector storage. These are explicitly out of scope.
 8. Do not repeat already accepted Core proposal/commit, Provider acceptance, Process Manager, D4/D5 lifecycle, Direction A delete, vectorization or full `npm test` suites merely to produce another green number. Run only tests directly affected by a changed candidate; use exact-head CI for that candidate.
@@ -151,7 +151,7 @@ Required focused tests:
 - changed source set, omitted/deleted version, stale digest, rebind or revoke → NON_READY;
 - Provider grants/readiness/lineage change after retrieval → final revalidation denies.
 
-**Approval gate:** PR #793 introduces a cross-block route. Keep it Draft until exact diff receives the second explicit Core approval required by #264. Do not merge or enable it as part of this task.
+**Approval/evidence gate:** ADR #809 approves the bounded reconciliation contract and implementation authority. Keep the candidate Draft until its exact implementation diff, verifier behavior, exact-head CI, and pinned Host evidence are reviewed and accepted. ADR approval does not merge the PR or permit READY/production use.
 
 ### WP-10.4 — Shared serialization and dispatch-start
 
@@ -166,13 +166,13 @@ Use PC-NEXT-09 as a starting inventory, not a completeness certificate. Reconcil
 
 A shared SQLite coordinator using `BEGIN IMMEDIATE` is only a cooperative primitive. Prove that every relevant process opens the same actual file object, uses compatible permissions and participates in the same order. A matching path string is insufficient.
 
-Before choosing Option B, obtain the cross-owner D0 approval and specify:
-- exact linearization point (`DISPATCH_STARTED` durable commit vs actual transport handoff);
-- which mutations must serialize before/after it;
-- crash between durable start and network handoff;
-- timeout/lost acknowledgement behavior;
-- no automatic resend of ambiguous started requests;
-- dispatch-ledger anti-rollback and partial-restore behavior.
+Option B and the bounded in-flight semantics are already approved by merged ADR #809 and issue #356. Do not reopen the policy decision. Implement and prove the approved mechanics:
+- durable `DISPATCH_STARTED` is the linearization point;
+- invoke the actual transport-start callback synchronously while holding the shared Coordinator lease;
+- release the lease before awaiting the response/stream;
+- define and test every participating mutation and invalidation writer;
+- preserve UNKNOWN/no-auto-retry behavior for crash or ambiguous acknowledgement;
+- prove dispatch-ledger anti-rollback and partial-restore behavior.
 
 The Gateway must:
 - revalidate current Core policy/source and Provider grants/readiness under the approved order;
@@ -181,7 +181,7 @@ The Gateway must:
 - reject duplicate/replayed request IDs and conflicting reuse;
 - be the sole transport for protected payloads; no direct route, retry or fallback may bypass it.
 
-Do not await network I/O while holding a SQLite coordinator lease. If the chosen semantics require a stronger handoff guarantee, design a mechanism that provides it without holding a DB write lock across network I/O.
+Do not await the network response/stream while holding the SQLite coordinator lease. The synchronous actual transport-start callback must run under the lease immediately after durable dispatch-start; release the lease before awaiting the returned Promise.
 
 Required focused tests:
 - cross-process barrier race: revocation/source invalidation/readiness loss wins before dispatch-start → zero outbound calls;
@@ -288,4 +288,4 @@ Never report overall integration PASS while any required work package is absent 
 
 ## Normative trusted-authorization specification
 
-The finalized contract and acceptance matrix are in [PC-NEXT-11 — Trusted authorization and protected egress specification](./pc-next-11-trusted-authorization-final-specification.md). PC-NEXT-11 supersedes PC-NEXT-07 Draft v3 for normative trusted-authorization semantics. This work order remains the execution sequence; it does not override the owner-approval and release gates in PC-NEXT-11.
+The finalized contract and acceptance matrix are in [PC-NEXT-11 — Trusted authorization and protected egress specification](./pc-next-11-trusted-authorization-final-specification.md). PC-NEXT-11 supersedes PC-NEXT-07 Draft v3 for normative trusted-authorization semantics. This work order remains the execution sequence; it does not override the implementation-evidence and conjunctive release gates in PC-NEXT-11 or ADR #809 §9.
