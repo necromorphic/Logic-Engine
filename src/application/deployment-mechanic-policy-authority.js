@@ -31,6 +31,7 @@ function validPolicyRecord(record) {
     && typeof record.authority_id === 'string' && record.authority_id.trim().length > 0
     && Number.isSafeInteger(record.generation) && record.generation >= 1
     && typeof record.contextProvider?.resolve === 'function'
+    && typeof record.contextProvider.assertPrincipalBound === 'function'
     && typeof record.contextProvider.policyFingerprint === 'string'
     && record.contextProvider.policyFingerprint.trim().length > 0
     && typeof record.contextProvider.authorizationScope === 'string'
