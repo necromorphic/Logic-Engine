@@ -50,6 +50,7 @@ export async function reconcileFilesystemInventory({
   }
   const integrity = await journal.verifyIntegrity(conversationId);
   if (integrity.status !== 'INTEGRITY_OK') return fail('Host lifecycle journal is not integrity-verified', { cause: integrity.reason });
+  if (integrity.sourceFingerprint !== sourceFingerprint) return fail('current conversation fingerprint differs from the accepted lifecycle journal head');
   const ledger = await journal.exportCaptureLedger(conversationId);
   const checkpoints = ledger.records.filter(record =>
     record.operation === 'filesystem-inventory-baseline'
