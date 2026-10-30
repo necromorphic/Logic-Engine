@@ -13,19 +13,20 @@ globalThis.IDBKeyRange = { only: value => ({ only: value }) };
 class Request { result; error = null; onsuccess = null; onerror = null; }
 class Store {
   constructor(db, tx, name) { this.db = db; this.tx = tx; this.name = name; }
-  index() { return { getAll: range => { const r = new Request(); queueMicrotask(() => { r.result = [...this.db.rows.values()].filter(x => x.conversationId === range.only); r.onsuccess?.(); this.db.finish(this.tx); }); return r; } }; }
-  get(key) { const r = new Request(); queueMicrotask(() => { r.result = this.db.heads.get(key); r.onsuccess?.(); this.db.finish(this.tx); }); return r; }
+  index() { return { getAll: range => { const r = new Request(); queueMicrotask(() => { r.result = [...this.db.rows.values()].filter(x => x.conversationId === range.only); r.onsuccess?.(); if (this.tx.mode === 'readonly') this.db.finish(this.tx); }); return r; } }; }
+  get(key) { const r = new Request(); queueMicrotask(() => { r.result = this.db.heads.get(key); r.onsuccess?.(); if (this.tx.mode === 'readonly') this.db.finish(this.tx); }); return r; }
   add(row) { if (this.db.failNextWrite) { this.db.failNextWrite = false; throw Error('simulated disk full'); } if (this.db.rows.has(row.id)) throw Error('duplicate key'); this.db.rows.set(row.id, structuredClone(row)); queueMicrotask(() => this.db.finish(this.tx)); }
   put(row) { this.db.heads.set(row.conversationId, structuredClone(row)); queueMicrotask(() => this.db.finish(this.tx)); }
 }
 class Transaction {
   error = null; oncomplete = null; onerror = null; onabort = null;
-  constructor(db) { this.db = db; }
+  constructor(db, mode) { this.db = db; this.mode = mode; }
   objectStore(name) { return new Store(this.db, this, name); }
+  abort() { this.error = Error('transaction aborted'); setImmediate(() => this.onabort?.()); }
 }
 class FakeDB {
   rows = new Map(); heads = new Map(); failNextWrite = false;
-  transaction() { return new Transaction(this); }
+  transaction(names, mode = 'readonly') { return new Transaction(this, mode); }
   finish(tx) { setImmediate(() => tx.oncomplete?.()); }
 }
 function fixture() {
