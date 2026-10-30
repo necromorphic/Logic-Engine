@@ -42,7 +42,10 @@ export async function enumerateStableFileInventory(rootPath) {
 
   let root;
   try {
-    root = await realpath(resolve(rootPath));
+    const requestedRoot = resolve(rootPath);
+    const requestedRootStat = await lstat(requestedRoot);
+    if (!requestedRootStat.isDirectory() || requestedRootStat.isSymbolicLink()) return fail('HOST_INVENTORY_ROOT_UNSAFE');
+    root = await realpath(requestedRoot);
     const rootStat = await lstat(root);
     if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) return fail('HOST_INVENTORY_ROOT_UNSAFE');
   } catch {
