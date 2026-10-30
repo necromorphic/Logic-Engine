@@ -2,7 +2,7 @@
 
 **Status:** FINAL TECHNICAL SPECIFICATION / IMPLEMENTATION BLOCKED BY EXPLICIT OWNER GATES.  
 **Version:** 1.0 — 2026-10-30.  
-**Normative baseline:** `main` `15b5edad03e978e17f41a3df7a7682a9a65685e3`.  
+**Normative baseline:** `main` `6c60b3e6023d2b3f8be800d9f21daa0993d16518`.  
 **Supersedes:** PC-NEXT-07 Draft v3 as the normative trusted-authorization specification. PC-NEXT-08 remains the implementation breakdown; PC-NEXT-09 remains the source inventory; PC-NEXT-10 remains the execution work order.  
 **Scope:** trusted identity, authorization, Host inventory, Memory evidence, revocation ordering, protected model egress, anti-replay and acceptance.  
 **Change class:** documentation only. This document does not authorize production code, API/schema changes, runtime wiring, database/ACL changes, PR merges, release, or feature activation.
