@@ -52,6 +52,10 @@ export async function enumerateStableFileInventory(rootPath) {
     if (root !== requestedRoot) return fail('HOST_INVENTORY_ROOT_ALIAS_UNSUPPORTED');
     const rootStat = await lstat(root);
     if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) return fail('HOST_INVENTORY_ROOT_UNSAFE');
+    var initialRootIdentity = {
+      dev: rootStat.dev, ino: rootStat.ino,
+      mtimeMs: rootStat.mtimeMs, ctimeMs: rootStat.ctimeMs,
+    };
   } catch {
     return fail('HOST_INVENTORY_ROOT_UNAVAILABLE');
   }
@@ -85,7 +89,7 @@ export async function enumerateStableFileInventory(rootPath) {
           const afterDirectory = await lstat(fullPath);
           if (!afterDirectory.isDirectory() || afterDirectory.isSymbolicLink()
             || afterDirectory.dev !== before.dev || afterDirectory.ino !== before.ino
-            || afterDirectory.mtimeMs !== before.mtimeMs) {
+            || afterDirectory.mtimeMs !== before.mtimeMs || afterDirectory.ctimeMs !== before.ctimeMs) {
             throw new Error('HOST_INVENTORY_DIRECTORY_CHANGED');
           }
           continue;
@@ -107,6 +111,7 @@ export async function enumerateStableFileInventory(rootPath) {
           if (!pathAfter.isFile() || pathAfter.isSymbolicLink()
             || openedAfter.dev !== openedBefore.dev || openedAfter.ino !== openedBefore.ino
             || openedAfter.size !== openedBefore.size || openedAfter.mtimeMs !== openedBefore.mtimeMs
+            || openedAfter.ctimeMs !== openedBefore.ctimeMs
             || pathAfter.dev !== openedAfter.dev || pathAfter.ino !== openedAfter.ino
             || bytes.byteLength !== openedAfter.size) {
             throw new Error('HOST_INVENTORY_FILE_CHANGED_DURING_READ');
@@ -130,6 +135,13 @@ export async function enumerateStableFileInventory(rootPath) {
   try {
     const first = await scanOnce();
     const second = await scanOnce();
+    const finalRootStat = await lstat(root);
+    if (!finalRootStat.isDirectory() || finalRootStat.isSymbolicLink()
+      || finalRootStat.dev !== initialRootIdentity.dev || finalRootStat.ino !== initialRootIdentity.ino
+      || finalRootStat.mtimeMs !== initialRootIdentity.mtimeMs
+      || finalRootStat.ctimeMs !== initialRootIdentity.ctimeMs) {
+      return fail('HOST_INVENTORY_ROOT_CHANGED_DURING_SCAN');
+    }
     const identities = new Set();
     for (const entry of second) {
       const key = entry.identity.dev + ':' + entry.identity.ino;
