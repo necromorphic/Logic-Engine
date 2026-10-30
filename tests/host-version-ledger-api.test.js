@@ -249,3 +249,21 @@ test('incomplete Host snapshot is rejected before inventory verification or muta
   assert.equal(verifierCalls, 0);
   assert.equal(ledger.db.prepare('SELECT COUNT(*) AS n FROM host_version_digest_ledger').get().n, 0);
 });
+
+
+test('snapshot reconciliation enforces the bounded version-row count before ledger mutation', async (t) => {
+  const { base, ledger } = await setup(t);
+  assert.equal((await bind(base)).status, 201);
+  const response = await fetch(base + '/v1/host-version-ledger/reconcile', {
+    method: 'POST',
+    headers: { ...headers, 'x-adapter-id': 'adapter-a', 'x-adapter-token': ADAPTER },
+    body: json({
+      conversation_id: 'stable-host-chat',
+      complete: true,
+      versions: Array.from({ length: 25001 }, () => null),
+    }),
+  });
+  assert.equal(response.status, 400);
+  assert.equal((await response.json()).error.code, 'INVALID_HOST_VERSION_SNAPSHOT');
+  assert.equal(ledger.db.prepare('SELECT COUNT(*) AS n FROM host_version_digest_ledger').get().n, 0);
+});
