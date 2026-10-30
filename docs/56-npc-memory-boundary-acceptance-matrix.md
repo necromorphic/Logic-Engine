@@ -683,3 +683,58 @@ The NPC branch now:
 Fix commit: f9d8ee4b3376c6e57ff7635757915f483189404c; regression test commit: bbe7489d543c8c195b76fc3416807b42c0645d8d. Exact-head Runtime run [#41020764409](https://github.com/necromorphic/Logic-Engine/actions/runs/41020764409) on current branch HEAD 631aab8f passed test, npc-boundary, and core-trusted-acquisition. Exact-head Provider run [#41020764476](https://github.com/necromorphic/Logic-Engine/actions/runs/41020764476) passed runtime-linux and provider-acceptance. These runs include the own-event-type descriptor fix and its inherited/own getter regression test.
 
 The finding was addressed in code; independent re-review of the new head is requested. PR #695 remains Draft / NOT ACCEPTED; Memory → NPC remains DISABLED / FAIL-CLOSED.
+
+### 12.15 Continuation checkpoint — current Core candidate and downstream identity review (30.10.2026)
+
+#### Verified repository state
+
+- Current `main`: `cf61ad1af5c7338545a668d04555d53a71530ab7`.
+- NPC PR [#695](https://github.com/necromorphic/Logic-Engine/pull/695) HEAD: `6b0892d5d96dedff48f84d4743b0d2bf27b79e75`; comparison against current main: **25 ahead / 0 behind**, exactly these eight paths:
+  - `.github/workflows/runtime-tests.yml`
+  - `docs/56-npc-memory-boundary-acceptance-matrix.md`
+  - `src/npc/epistemic-state.js`
+  - `src/npc/memory-candidate-eligibility.js`
+  - `tests/memory-npc-consumer.test.js`
+  - `tests/memory-provider-core-integration.test.js`
+  - `tests/npc-epistemic-state.test.js`
+  - `tests/npc-memory-candidate-eligibility.test.js`
+- No Memory production source, Core source, Host source, or new public API is changed by this NPC PR.
+
+#### Exact-head CI
+
+For NPC PR #695 HEAD `6b0892d5d96dedff48f84d4743b0d2bf27b79e75`:
+- Runtime run [#41021755280](https://github.com/necromorphic/Logic-Engine/actions/runs/41021755280): `test`, `npc-boundary`, `core-trusted-acquisition` PASS.
+- Provider run [#41021755295](https://github.com/necromorphic/Logic-Engine/actions/runs/41021755295): `runtime-linux`, `provider-acceptance` PASS.
+
+For separate Core PR [#721](https://github.com/necromorphic/Logic-Engine/pull/721), current HEAD `a1fd5823eaf7c59b8482047365c81ae4b90c38f3`:
+- Runtime run [#41021682886](https://github.com/necromorphic/Logic-Engine/actions/runs/41021682886): `test`, `npc-boundary`, `core-trusted-acquisition` PASS.
+- Provider run [#41021683242](https://github.com/necromorphic/Logic-Engine/actions/runs/41021683242): `runtime-linux`, `provider-acceptance` PASS.
+
+These are separate candidate CI results. Core #721 is a Draft, is one commit behind current main, and is not merged or wired into the Host. Its green CI is not production integration evidence.
+
+#### NPC-owned epistemic boundary
+
+The current NPC reducer carries explicit `epistemic_status` values:
+`confirmed`, `unconfirmed_report`, `suspicion`, `inference`, `rumor`, `unknown`.
+It preserves the status on admitted evidence. Only `confirmed` evidence can support `believes_true/false`; report/suspicion/inference/rumor cannot be promoted to those stances; `unknown` cannot support any belief. Regression tests cover rumor retention, non-promotion of report/suspicion/inference, unknown, missing status and conflicting status reuse.
+
+This is still an NPC-local pure reducer contract. It does not authenticate the supplied epistemic status, map Memory metadata into the Core reader, or establish a production belief runtime. R3 remains **PARTIAL**.
+
+#### Newly identified Core acquisition identity blocker
+
+Reviewing the actual current Core PR #721 source at `a1fd5823eaf7c59b8482047365c81ae4b90c38f3` shows the trusted acquisition ID is still derived from world, subject, fact ID, source kind/ref/digest and authorization ref. The ID derivation does not include the acquired value or sorted acquired source-event IDs. This appears to leave the previously raised Codex P1 ("Bind acquisition IDs to the acquired fact version") unresolved if the same trusted source identity/digest is reused after a fact replacement.
+
+A source-backed correction and regression have been requested in Core PR #721 and issue #140. NPC did not modify Core-owned code. Until the Core owner resolves this identity collision risk, source rollback/replacement cannot be accepted as fully closed even though the reader compares the pinned acquired value/source-event set at read time.
+
+#### Current integration disposition
+
+- Core acquisition reader: **PARTIAL / DRAFT** — version-pinned read candidate exists in #721, but remains unmerged, not Host-authenticated, and has an acquisition identity review blocker.
+- Host private cross-process invocation: **NOT IMPLEMENTED** — no adapter-authenticated private operation connects the pinned ST server to Core reader.
+- Host authenticated session/conversation/actor binding: **NOT IMPLEMENTED** — source inspection only; no runtime proof.
+- NPC production runtime caller and final model-context serialization: **NOT IMPLEMENTED**.
+- Gateway durable `DISPATCH_STARTED` / sole-egress race: **NOT IMPLEMENTED**.
+- NPC-local epistemic guard and strict `supported` admission: **PASS** at component level only.
+- Production Memory → NPC: **DISABLED / FAIL-CLOSED**.
+- Overall NPC block: **NOT ACCEPTED**.
+
+No cross-block API, schema, store, scheduler, event bus, outbox, journal, public endpoint, or production switch was introduced. Core P1 review request is recorded in #721 and #140. Host remains blocked on the private adapter/session binding and sole-egress integration described in #258.
