@@ -244,6 +244,7 @@ test('application executor fails closed without trusted context or with a mismat
       commit_sequence: snapshot.commit_sequence,
       authorization_scope: 'test-principal',
       policy_version: 'test-visibility-policy-v1',
+      policy_authority: { authority_id: 'test-mechanic-policy-authority', generation: 1 },
     }),
   }).evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
   assert.equal(mismatch.status, 'unknown');
@@ -770,6 +771,7 @@ test('application executor freezes the complete evaluation snapshot before trust
         commit_sequence: snapshot.commit_sequence,
         authorization_scope: 'test-principal',
         policy_version: 'test-immutable-snapshot-v1',
+        policy_authority: { authority_id: 'test-mechanic-policy-authority', generation: 1 },
       };
     },
   }).evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
@@ -919,6 +921,7 @@ test('application executor refuses context whose canonical dependency evidence i
       commit_sequence: snapshot.commit_sequence,
       authorization_scope: 'test-principal',
       policy_version: 'test-policy-v1',
+      policy_authority: { authority_id: 'test-mechanic-policy-authority', generation: 1 },
     }),
   }).evaluate({ worldId: missingSetup.worldId, instanceId: 'instance.executor', actionId: 'wait' });
   assert.equal(missing.status, 'unknown');
@@ -939,6 +942,7 @@ test('application executor refuses context whose canonical dependency evidence i
       commit_sequence: snapshot.commit_sequence,
       authorization_scope: 'test-principal',
       policy_version: 'test-policy-v1',
+      policy_authority: { authority_id: 'test-mechanic-policy-authority', generation: 1 },
     }),
   }).evaluate({ worldId: mismatchSetup.worldId, instanceId: 'instance.executor', actionId: 'wait' });
   assert.equal(mismatch.status, 'unknown');
@@ -990,6 +994,7 @@ test('application executor accepts only same-snapshot canonical absence evidence
     commit_sequence: snapshot.commit_sequence,
     authorization_scope: 'test-principal',
       policy_version: 'test-visibility-policy-v1',
+      policy_authority: { authority_id: 'test-mechanic-policy-authority', generation: 1 },
   });
   const provenAbsent = new MechanicExecutor(engine, { resolveAuthorizedContext: provider(['actor.injury']) })
     .evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
@@ -1018,6 +1023,7 @@ test('application executor rejects known-absence claims outside the declared con
       commit_sequence: snapshot.commit_sequence,
       authorization_scope: 'test-principal',
       policy_version: 'test-visibility-policy-v1',
+      policy_authority: { authority_id: 'test-mechanic-policy-authority', generation: 1 },
     }),
   }).evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
   assert.equal(result.status, 'unknown');
@@ -1079,6 +1085,7 @@ test('mechanic context and evaluation fingerprints change when the visibility po
       ...contextProvider()(args),
       authorization_scope: 'test-principal',
       policy_version: 'test-visibility-policy-v2',
+      policy_authority: { authority_id: 'test-mechanic-policy-authority', generation: 1 },
     }),
   }).evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
   assert.equal(first.status, 'ready');
@@ -1105,6 +1112,7 @@ test('application executor rejects non-canonical context values before hashing o
       commit_sequence: snapshot.commit_sequence,
       authorization_scope: 'test-principal',
       policy_version: 'test-visibility-policy-v1',
+      policy_authority: { authority_id: 'test-mechanic-policy-authority', generation: 1 },
     }),
   }).evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
   assert.equal(result.status, 'unknown');
@@ -1219,6 +1227,7 @@ test('application executor rejects accessor-bearing trusted context without invo
       commit_sequence: snapshot.commit_sequence,
       authorization_scope: 'test-principal',
       policy_version: 'test-visibility-policy-v1',
+      policy_authority: { authority_id: 'test-mechanic-policy-authority', generation: 1 },
     }),
   }).evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
   assert.equal(result.status, 'unknown');
@@ -1272,6 +1281,7 @@ test('application executor rejects accessor-backed context without invoking gett
       commit_sequence: snapshot.commit_sequence,
       authorization_scope: 'test-principal',
       policy_version: 'test-visibility-policy-v1',
+      policy_authority: { authority_id: 'test-mechanic-policy-authority', generation: 1 },
     }),
   }).evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
   assert.equal(result.status, 'unknown');
