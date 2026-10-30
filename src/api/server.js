@@ -77,9 +77,12 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
     const secret = req.headers['x-adapter-token'];
     return typeof id === 'string' && Object.hasOwn(adapterTokens, id) && secretMatches(secret, adapterTokens[id]) ? id : null;
   };
-  const proposals = new ProposalService(engine, {
-    validateMechanicPolicy: createActiveMechanicPolicyValidator(getActiveMechanicContextProvider),
-  });
+  const validateMechanicPolicy = mechanicPolicyAuthority === null
+    ? createActiveMechanicPolicyValidator(getActiveMechanicContextProvider)
+    : (identity) => {
+      try { return mechanicPolicyAuthority.validateMechanicPolicy(identity) === true; } catch { return false; }
+    };
+  const proposals = new ProposalService(engine, { validateMechanicPolicy });
   const actorBindings = new ActorBindingService(engine);
   const hostConversationBindings = new HostConversationWorldBindingService(engine);
   // Until a canonical visibility schema exists, disclose only the bound actor's
