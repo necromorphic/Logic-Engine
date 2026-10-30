@@ -1004,6 +1004,32 @@ export class LogicEngine {
       assert(Number.isSafeInteger(input.expected_revision) && input.expected_revision >= 0
         && Number.isSafeInteger(input.expected_commit_sequence) && input.expected_commit_sequence >= 0,
       'INVALID_NPC_BELIEF_TRANSITION', 'A current world revision and commit sequence are required.');
+      if (typeof this.npcKnowledgeContextResolver === 'function') {
+        let binding;
+        try {
+          binding = this.npcKnowledgeContextResolver(Object.freeze({
+            adapter_id: input.adapter_id,
+            conversation_id: input.conversation_id,
+          }));
+        } catch {
+          binding = null;
+        }
+        assert(binding && binding.adapter_id === input.adapter_id
+          && binding.conversation_id === input.conversation_id
+          && binding.world_id === input.world_id
+          && binding.actor_id === input.actor_id,
+        'NPC_KNOWLEDGE_READ_NOT_AUTHORIZED',
+        'Belief transition world and actor must match the unique active Core Host and actor bindings.', 403);
+        // Canonical identities returned by Core are used for replay lookup,
+        // request hashing, belief reads, and the eventual canonical write.
+        input = {
+          ...input,
+          world_id: binding.world_id,
+          conversation_id: binding.conversation_id,
+          adapter_id: binding.adapter_id,
+          actor_id: binding.actor_id,
+        };
+      }
       const requestHash = hashRequest({
         operation: 'npc.belief.transition',
         world_id: input.world_id,
