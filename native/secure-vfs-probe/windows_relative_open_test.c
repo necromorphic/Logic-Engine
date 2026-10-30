@@ -76,7 +76,9 @@ int wmain(void) {
       || (mapped_options & 0x00000004UL) == 0
       || mapped_attributes != FILE_ATTRIBUTE_NORMAL
       || !logic_engine_win_map_create_disposition(CREATE_NEW, &mapped_disposition)
-      || mapped_disposition != FILE_CREATE) {
+      || mapped_disposition != FILE_CREATE
+      || logic_engine_win_map_create_disposition(CREATE_ALWAYS, &mapped_disposition)
+      || logic_engine_win_map_create_disposition(TRUNCATE_EXISTING, &mapped_disposition)) {
     fail(L"supported Win32 open flags were not mapped exactly");
     goto cleanup;
   }
@@ -235,6 +237,45 @@ int wmain(void) {
     if (!WriteFile(created, "wal-object", 10, &written, NULL) || written != 10) {
       CloseHandle(created);
       fail(L"write sidecar fixture");
+      goto cleanup;
+    }
+    /* Destructive Win32 dispositions must be rejected before NtCreateFile:
+     * otherwise an attacker-substituted child could be truncated before the
+     * post-open identity comparison rejects it. */
+    SetLastError(ERROR_SUCCESS);
+    {
+      HANDLE destructive = logic_engine_win_create_file_relative(anchor.parent,
+          L"probe-wal", GENERIC_READ | GENERIC_WRITE,
+          FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+          CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL, &sidecar_identity, NULL);
+      if (destructive != INVALID_HANDLE_VALUE) {
+        CloseHandle(destructive);
+        CloseHandle(created);
+        fail(L"CREATE_ALWAYS was not rejected");
+        goto cleanup;
+      }
+    }
+    if (!file_contains(created, "wal-object")) {
+      CloseHandle(created);
+      fail(L"rejected CREATE_ALWAYS changed existing sidecar");
+      goto cleanup;
+    }
+    SetLastError(ERROR_SUCCESS);
+    {
+      HANDLE destructive = logic_engine_win_create_file_relative(anchor.parent,
+          L"probe-wal", GENERIC_READ | GENERIC_WRITE,
+          FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+          TRUNCATE_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL, &sidecar_identity, NULL);
+      if (destructive != INVALID_HANDLE_VALUE) {
+        CloseHandle(destructive);
+        CloseHandle(created);
+        fail(L"TRUNCATE_EXISTING was not rejected");
+        goto cleanup;
+      }
+    }
+    if (!file_contains(created, "wal-object")) {
+      CloseHandle(created);
+      fail(L"rejected TRUNCATE_EXISTING changed existing sidecar");
       goto cleanup;
     }
     CloseHandle(created);
