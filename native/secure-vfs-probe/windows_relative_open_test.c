@@ -211,9 +211,9 @@ int wmain(void) {
       goto cleanup;
     }
     CloseHandle(created);
-    if (logic_engine_win_access_relative(anchor.parent, L"probe-wal", 0) != 1
-        || logic_engine_win_access_relative(anchor.parent, L"probe-wal", 1) != 1
-        || logic_engine_win_access_relative(anchor.parent, L"store.sqlite", 0) != 1) {
+    if (logic_engine_win_access_relative(anchor.parent, L"probe-wal", 0, &sidecar_identity) != 1
+        || logic_engine_win_access_relative(anchor.parent, L"probe-wal", 2, &sidecar_identity) != 1
+        || logic_engine_win_access_relative(anchor.parent, L"store.sqlite", 0, &expected) != 1) {
       fail(L"anchored xAccess primitive");
       goto cleanup;
     }
@@ -221,7 +221,7 @@ int wmain(void) {
       fail(L"anchored xDelete primitive");
       goto cleanup;
     }
-    if (logic_engine_win_access_relative(anchor.parent, L"probe-wal", 0) != 0) {
+    if (logic_engine_win_access_relative(anchor.parent, L"probe-wal", 0, &sidecar_identity) != 0) {
       fail(L"deleted sidecar remains accessible");
       goto cleanup;
     }
