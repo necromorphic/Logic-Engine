@@ -31,6 +31,13 @@ export async function reconcileFilesystemInventory({
     || !/^[a-f0-9]{64}$/.test(inventory.snapshot_sha256 ?? '')) {
     return fail('filesystem inventory is incomplete, unsupported, or outside the approved root');
   }
+  if (process.platform === 'win32'
+    && (inventory.snapshot_provider !== 'windows-vss-client-accessible'
+      || inventory.snapshot_consistency !== 'VSS_POINT_IN_TIME_READ_ONLY'
+      || inventory.reparse_points !== 'ALL_FILE_ATTRIBUTE_REPARSE_POINT_ENTRIES_REJECTED'
+      || !/^[{]?[0-9a-f-]{36}[}]?$/i.test(inventory.snapshot_id ?? ''))) {
+    return fail('Windows inventory lacks a verified VSS point-in-time snapshot and complete reparse-point audit');
+  }
   const paths = new Set();
   let previousPath = null;
   for (const entry of inventory.entries) {
@@ -69,6 +76,10 @@ export async function reconcileFilesystemInventory({
     root: expectedRoot,
     snapshotSha256: inventory.snapshot_sha256,
     fileCount: inventory.file_count,
+    ...(inventory.snapshot_id ? { snapshotId: inventory.snapshot_id } : {}),
+    ...(inventory.snapshot_provider ? { snapshotProvider: inventory.snapshot_provider } : {}),
+    ...(inventory.snapshot_consistency ? { snapshotConsistency: inventory.snapshot_consistency } : {}),
+    ...(inventory.reparse_points ? { reparsePoints: inventory.reparse_points } : {}),
     entries: inventory.entries.map(entry => ({
       path: entry.path,
       identity: entry.identity,
