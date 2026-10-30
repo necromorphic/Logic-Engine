@@ -79,3 +79,44 @@ test('summary records remain rejected until a lineage-complete summary contract 
     /Invalid direct-source Memory record/,
   );
 });
+
+
+test('Host message-version tuples cannot be promoted into Provider semantic records', (t) => {
+  const provider = setup(t);
+  const hostVersion = {
+    ...scope,
+    record_ref: 'host:chat-a:message-a:version-a',
+    record_version: 'version-a',
+    source_kind: 'host_message_version',
+    source_entity_id: 'message-a',
+    source_version: 'version-a',
+    content_kind: 'claim',
+    epistemic_kind: 'acquired_report',
+    producer_kind: 'host-adapter',
+    content_disposition: 'usable',
+    evidence_assessment: 'unassessed',
+    lineage: [{
+      source_kind: 'host_message_version',
+      entity_id: 'message-a',
+      source_version: 'version-a',
+    }],
+    conversation_id: 'chat-a',
+    message_id: 'message-a',
+    version_id: 'version-a',
+  };
+
+  assert.throws(
+    () => provider.putRecord(hostVersion),
+    /Invalid direct-source Memory record/,
+  );
+  assert.equal(
+    testDbFor(provider).prepare('SELECT COUNT(*) AS n FROM memory_records').get().n,
+    0,
+    'rejecting a Host tuple must not create a Provider semantic record',
+  );
+  assert.equal(
+    testDbFor(provider).prepare('SELECT COUNT(*) AS n FROM memory_index_entries').get().n,
+    0,
+    'rejected Host metadata must not enter the rebuildable semantic index',
+  );
+});
