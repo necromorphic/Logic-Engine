@@ -46,6 +46,9 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '22.13.0'
+      - name: Provide Node path for systemd unit validation
+        run: |
+          if [ ! -x /usr/bin/node ]; then sudo ln -s "$(command -v node)" /usr/bin/node; fi
       - name: Validate systemd service unit
         run: systemd-analyze verify deploy/sqlite-security/logic-engine.service
       - name: Build VFS registration probe
