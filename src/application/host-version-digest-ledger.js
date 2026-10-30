@@ -445,7 +445,7 @@ export class HostVersionDigestLedger {
           return { status: 'non_ready', code: 'HOST_INVENTORY_INCOMPLETE' };
         });
       }
-      return { status: 'non_ready', code: 'HOST_INVENTORY_INCOMPLETE' };
+      return { status: 'non_ready', code: 'HOST_INVENTORY_NOT_AUTHORIZED' };
     }
     // Snapshot scope must be authenticated before any rejection can mutate the
     // readiness row. This verifier is the trusted Host/Core integration seam;
