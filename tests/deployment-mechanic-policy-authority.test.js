@@ -42,7 +42,7 @@ test('deployment authority pins trusted identity and generation to resolved cont
 test('deployment authority rejects stale generation after policy rotation', () => {
   let active = { authority_id: 'deployment-mechanics', generation: 3, contextProvider: provider() };
   const authority = new DeploymentMechanicPolicyAuthority({ resolveActivePolicy: () => active });
-  const resolved = authority.resolveAuthorizedContext({ worldId: 'world-a' });
+  const resolved = authority.resolveAuthorizedContext({ worldId: 'world-a', authenticatedAdapterId: 'adapter-a' });
   active = { authority_id: 'deployment-mechanics', generation: 4, contextProvider: provider('policy-v2') };
   assert.equal(authority.validateMechanicPolicy({
     worldId: 'world-a',
@@ -50,6 +50,7 @@ test('deployment authority rejects stale generation after policy rotation', () =
     policyGeneration: resolved.policy_generation,
     policyVersion: resolved.policy_version,
     authorizationScope: resolved.authorization_scope,
+    authorizationPrincipal: resolved.authorization_principal,
     snapshotIdentity: { world_id: 'world-a', world_revision: 4, commit_sequence: 7 },
   }), false);
 });
