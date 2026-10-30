@@ -74,16 +74,17 @@ diff --git a/public/script.js b/public/script.js
 +            getSourceLocator: getCurrentChatId,
 +            getChat: () => chat,
 +            saveChat: () => saveChatConditional(),
-+            publishDigest: async entry => {
-+                const response = await fetch('/api/logic-engine/host-version-ledger/capture', {
++            publishSnapshot: async snapshot => {
++                const response = await fetch('/api/logic-engine/host-version-ledger/reconcile', {
 +                    method: 'POST',
 +                    headers: { 'Content-Type': 'application/json' },
-+                    body: JSON.stringify(entry),
++                    body: JSON.stringify(snapshot),
 +                });
 +                const payload = await response.json().catch(() => null);
++                if (response.status === 409 && payload?.inventory_status === 'NON_READY') return payload;
 +                if (!response.ok) {
 +                    const code = typeof payload?.error?.code === 'string' ? ' (' + payload.error.code + ')' : '';
-+                    throw Error('Core digest capture rejected with HTTP ' + response.status + code);
++                    throw Error('Core inventory reconciliation rejected with HTTP ' + response.status + code);
 +                }
 +                return payload;
 +            },
