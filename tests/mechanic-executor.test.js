@@ -1852,3 +1852,20 @@ test('executor binds a fact subject dependency to the earlier create effect and 
   assert.equal(fact.subject_ref, 'entity.new-subject');
   assert.equal(engine.getState(worldId).entities.some((item) => item.entity_id === 'entity.new-subject'), true);
 });
+
+
+test('executor refuses ready evaluations from providers without versioned authority evidence', (t) => {
+  const { engine, worldId } = setup(t, 'executor-no-authority-world');
+  enableFixture(engine, worldId);
+  const legacyProvider = contextProvider();
+  const result = new MechanicExecutor(engine, {
+    resolveAuthorizedContext(args) {
+      const { policy_authority, ...legacyContext } = legacyProvider(args);
+      return legacyContext;
+    },
+  }).evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
+  assert.equal(result.status, 'unknown');
+  assert.equal(result.reason_code, 'AUTHORIZED_CONTEXT_SNAPSHOT_MISMATCH');
+  assert.deepEqual(result.effects, []);
+  assert.equal(engine.getState(worldId).world_revision, 2);
+});
