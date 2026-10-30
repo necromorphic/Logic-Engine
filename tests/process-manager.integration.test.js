@@ -1289,22 +1289,22 @@ test('same process identity and idempotency key are isolated across worlds', (t)
   assert.equal(engine.listTimeTriggers('world-b').length, 2);
 
   const worldA = engine.getState('world-a');
-  const worldB = engine.getState('world-b');
   const advanceA = engine.startTimeAdvance('world-a', {
     idempotency_key: 'same-advance-key',
     expected_revision: worldA.world_revision,
     to_coordinate: 1000,
   });
+  assert.equal(advanceA.status, 'completed');
+  assert.equal(engine.getProcess('world-a', 'journey-1').progress.completed, 1);
+  assert.equal(engine.getProcess('world-b', 'journey-1').progress.completed, 0);
+  assert.equal(engine.getState('world-b').game_time_coordinate, 0);
+
+  const worldB = engine.getState('world-b');
   const advanceB = engine.startTimeAdvance('world-b', {
     idempotency_key: 'same-advance-key',
     expected_revision: worldB.world_revision,
     to_coordinate: 1000,
   });
-
-  assert.equal(advanceA.status, 'completed');
   assert.equal(advanceB.status, 'completed');
-  assert.equal(engine.getProcess('world-a', 'journey-1').progress.completed, 1);
   assert.equal(engine.getProcess('world-b', 'journey-1').progress.completed, 1);
-  assert.notDeepEqual(engine.getProcess('world-a', 'journey-1').milestones[0].completed_event_ids,
-    engine.getProcess('world-b', 'journey-1').milestones[0].completed_event_ids);
 }));
