@@ -53,7 +53,7 @@ test('proxy forwards only allowlisted digest fields with server-side credentials
     },
   });
   const response = responseRecorder();
-  await handler({ body: capture }, response);
+  await handler(requestFor(capture), response);
   assert.equal(response.statusCode, 201);
   assert.deepEqual(response.payload, { capture: { status: 'captured' } });
   assert.equal(observed.url, 'http://192.168.1.10:8787/v1/host-version-ledger/capture');
@@ -81,6 +81,21 @@ test('proxy rejects caller URLs, world IDs, raw text and malformed digests befor
     await handler(requestFor(body), response);
     assert.equal(response.statusCode, 400);
     assert.equal(response.payload.error.code, 'INVALID_HOST_VERSION_CAPTURE');
+  }
+  assert.equal(calls, 0);
+});
+
+test('capture proxy rejects a different Host session or unauthenticated account before upstream I/O', async () => {
+  let calls = 0;
+  const handler = createHostDigestProxyHandler({ env: CONFIG, fetchImpl: async () => { calls++; } });
+  for (const request of [
+    requestFor(capture, { sessionId: '44444444-4444-4444-8444-444444444444' }),
+    requestFor(capture, { sessionHandle: 'another-user' }),
+  ]) {
+    const response = responseRecorder();
+    await handler(request, response);
+    assert.equal(response.statusCode, 403);
+    assert.equal(response.payload.error.code, 'HOST_SESSION_SCOPE_REQUIRED');
   }
   assert.equal(calls, 0);
 });
@@ -172,7 +187,7 @@ test('reconciliation proxy rejects raw text, caller world scope, oversized row s
     { ...valid, versions: [{ ...valid.versions[0], content: 'raw source text' }] },
   ]) {
     const response = responseRecorder();
-    await handler({ body }, response);
+    await handler(requestFor(body), response);
     assert.equal(response.statusCode, 400);
     assert.equal(response.payload.error.code, 'INVALID_HOST_INVENTORY_RECONCILIATION');
   }
