@@ -372,11 +372,20 @@ export class HostVersionDigestLedger {
     });
   }
 
-  async reconcileConversation(input) {
+  async reconcileConversation(input, options = null) {
+    let verifyBindingUnderLock = null;
+    if (options !== null) {
+      if (!isPlainDataRecord(options)
+        || Object.keys(options).some((key) => key !== 'verifyBindingUnderLock')
+        || typeof options.verifyBindingUnderLock !== 'function') {
+        return { status: 'non_ready', code: 'HOST_INVENTORY_INVALID' };
+      }
+      verifyBindingUnderLock = options.verifyBindingUnderLock;
+    }
     // Only inspect ordinary data records before copying. Accessors and Proxy
     // traps are executable caller code and must not run inside trust checks.
     if (!isPlainDataRecord(input)) return { status: 'non_ready', code: 'HOST_INVENTORY_INVALID' };
-    if (input.complete === undefined || !Array.isArray(input.versions)) {
+    if (input.complete !== true || !Array.isArray(input.versions)) {
       return { status: 'non_ready', code: 'HOST_INVENTORY_INCOMPLETE' };
     }
     if (Object.keys(input).some((key) => !snapshotInputKeys.has(key))
@@ -485,6 +494,15 @@ export class HostVersionDigestLedger {
       .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
     const snapshotDigest = digest(JSON.stringify(canonical));
     return this.#write(() => {
+      // Revalidate the authenticated adapter→conversation→world binding while
+      // holding the same Coordinator lease used by Core binding mutations. The
+      // verifier above intentionally runs outside the lease; a revocation during
+      // that await must be observed here before any ledger/anchor mutation.
+      if (verifyBindingUnderLock) {
+        let bindingValid = false;
+        try { bindingValid = verifyBindingUnderLock() === true; } catch { bindingValid = false; }
+        if (!bindingValid) return { status: 'non_ready', code: 'HOST_CONVERSATION_NOT_AUTHORIZED' };
+      }
       const currentState = this.db.prepare('SELECT status,failure_code,updated_at,snapshot_digest FROM host_version_inventory_state WHERE world_id=? AND conversation_id=?')
         .get(snapshot.world_id, snapshot.conversation_id) ?? null;
       const invalidatedDuringVerification = currentState?.status === 'NON_READY'
