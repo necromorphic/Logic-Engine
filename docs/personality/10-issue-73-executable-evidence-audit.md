@@ -388,4 +388,4 @@ Merged Core PR #733 (`cf61ad1`) changes the historical-version evidence boundary
 
 Runtime CI #5924 passed on exact PR head `e59d329a821764c6605e2f1b3318b8a04672fce9` (3/3 jobs, including `npm test`). Codex code review on that head completed with no findings. The snapshot SHA-256 values are consistency digests, not authentication signatures.
 
-This follow-up does not resolve unrelated authorized-read, trusted import/correction, alternative-support, or Personality/NPC consumer blockers. Those retain their existing owners and trackers.
+Issue #73 was reopened for this follow-up traceability update; PR #736 carries the Personality-owned documentation changes. This follow-up does not resolve unrelated authorized-read, trusted import/correction, alternative-support, or Personality/NPC consumer blockers. Those retain their existing owners and trackers.
