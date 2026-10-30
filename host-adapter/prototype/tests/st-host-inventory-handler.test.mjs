@@ -127,6 +127,8 @@ test('host inventory route passes only the authenticated user data roots and ret
   assert.ok(response.body.blockers.includes('NO_FULL_ROOT_PER_FILE_DIFF'));
   assert.ok(response.body.blockers.includes('NO_GLOBAL_SILLYTAVERN_DATA_ROOT_COVERAGE'));
   assert.ok(response.body.blockers.includes('NO_SEMANTIC_CHARACTER_PERSONA_IDENTITY'));
+  assert.ok(response.body.blockers.includes('UNVERIFIED_MUTATION_ROUTE_COVERAGE'));
+  assert.ok(response.body.blockers.includes('UNVERIFIED_MUTATION_RUNTIME_ACCEPTANCE'));
   assert.equal(response.body.filesystem_inventory.entries, undefined);
   assert.equal(response.body.host_user_handle, 'alice');
   assert.equal(response.body.requested_conversation_uuid, '4e6b0a80-4e73-4c66-aaf3-7a6e62c7f403');
