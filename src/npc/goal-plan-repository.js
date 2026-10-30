@@ -88,7 +88,10 @@ function scopeOf(value) {
   if (!plainData(value) || !nonEmpty(value.world_id) || !nonEmpty(value.npc_entity_id)) {
     throw new NpcGoalPlanRepositoryError("exact world_id and npc_entity_id are required", "invalid_scope");
   }
-  return { world_id: value.world_id.trim(), npc_entity_id: value.npc_entity_id.trim() };
+  if (value.world_id !== value.world_id.trim() || value.npc_entity_id !== value.npc_entity_id.trim()) {
+    throw new NpcGoalPlanRepositoryError("scope identifiers must be exact and must not be whitespace-normalized", "invalid_scope");
+  }
+  return { world_id: value.world_id, npc_entity_id: value.npc_entity_id };
 }
 
 function revision(value, label) {
@@ -386,13 +389,19 @@ export function createNpcGoalPlanRepository({
         response.candidates = database.prepare(
           "SELECT candidate_id,goal_id,plan_id,plan_revision,status,candidate_json,created_at FROM npc_plan_candidates WHERE world_id = ? AND npc_entity_id = ?" +
           filter + " ORDER BY candidate_id LIMIT ?",
-        ).all(...params).map((row) => ({ ...row, candidate: parseJson(row.candidate_json) }));
+        ).all(...params).map((row) => {
+          const { candidate_json, ...metadata } = row;
+          return { ...metadata, candidate: parseJson(candidate_json) };
+        });
       }
       if (options.include_pending_attempts === true) {
         response.pending_attempts = database.prepare(
           "SELECT attempt_id,goal_id,plan_id,plan_revision,step_id,action_id,world_revision,commit_sequence,local_state,attempt_json,created_at FROM npc_action_attempts WHERE world_id = ? AND npc_entity_id = ? AND local_state != 'reconciled'" +
           filter + " ORDER BY attempt_id LIMIT ?",
-        ).all(...params).map((row) => ({ ...row, attempt: parseJson(row.attempt_json) }));
+        ).all(...params).map((row) => {
+          const { attempt_json, ...metadata } = row;
+          return { ...metadata, attempt: parseJson(attempt_json) };
+        });
       }
       return outcome("ready", response);
     });
@@ -789,7 +798,10 @@ export function createNpcGoalPlanRepository({
         "SELECT attempt_id,goal_id,plan_id,plan_revision,step_id,action_id,world_revision,commit_sequence,local_state,attempt_json,created_at FROM npc_action_attempts WHERE world_id = ? AND npc_entity_id = ? AND local_state != 'reconciled' AND (? IS NULL OR attempt_id > ?) ORDER BY attempt_id LIMIT ?",
       ).all(scope.world_id, scope.npc_entity_id, cursor, cursor, limit + 1);
       const hasMore = rows.length > limit;
-      const items = rows.slice(0, limit).map((row) => ({ ...row, attempt: parseJson(row.attempt_json) }));
+      const items = rows.slice(0, limit).map((row) => {
+        const { attempt_json, ...metadata } = row;
+        return { ...metadata, attempt: parseJson(attempt_json) };
+      });
       return outcome("ready", { items, next_cursor: hasMore ? items[items.length - 1].attempt_id : null });
     });
   }
