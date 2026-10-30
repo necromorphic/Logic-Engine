@@ -727,7 +727,8 @@ test('review-only Host projection cannot be accepted as a trusted Provider inven
 });
 
 test('untrusted incomplete snapshot cannot poison a caller-selected conversation', async (t) => {
-  const ledger = setup(t, async (snapshot) => snapshot.complete === true);
+  let verifierCalls = 0;
+  const ledger = setup(t, async (snapshot) => { verifierCalls += 1; return snapshot.complete === true; });
   const victim = { world_id: 'world-victim', conversation_id: 'chat-victim' };
   const victimEntry = entry({ ...victim, message_id: 'victim-message', version_id: 'victim-version' });
 
@@ -740,8 +741,11 @@ test('untrusted incomplete snapshot cannot poison a caller-selected conversation
 
   assert.deepEqual(await ledger.reconcileConversation({
     ...victim, complete: false, versions: []
-  }), { status: 'non_ready', code: 'HOST_INVENTORY_NOT_AUTHORIZED' });
+  }), { status: 'non_ready', code: 'HOST_INVENTORY_INCOMPLETE' });
 
+  // The incomplete input is rejected before trust verification and cannot
+  // mutate the previously published READY state.
+  assert.equal(verifierCalls, 1);
   assert.equal(ledger.getInventoryState(victim.world_id, victim.conversation_id).status, 'READY');
   assert.equal(ledger.db.prepare('SELECT COUNT(*) AS n FROM host_version_digest_ledger WHERE world_id=? AND conversation_id=?')
     .get(victim.world_id, victim.conversation_id).n, 1);
