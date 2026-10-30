@@ -965,9 +965,7 @@ test('application executor rejects known-absence claims outside the declared con
     }),
   }).evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
   assert.equal(result.status, 'unknown', JSON.stringify(result));
-  if (result.reason_code !== 'INVALID_KNOWN_ABSENCE_SCOPE') {
-    throw new Error('Unexpected mechanic result: ' + JSON.stringify(result));
-  }
+  assert.equal(result.reason_code, 'INVALID_KNOWN_ABSENCE_SCOPE');
   assert.deepEqual(result.effects, []);
 });
 
