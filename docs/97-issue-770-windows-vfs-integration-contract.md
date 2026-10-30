@@ -11,13 +11,13 @@ For every database-role and sidecar open, the file object used by SQLite must be
 
 No path-based fallback is permitted for a registered protected role. If an operation cannot be resolved under its retained parent directory handle, it fails closed.
 
-## 2. Why the current probe is not a partial fix
+## 2. Current probe boundary
 
-The current Windows probe intercepts the parent's `CreateFileW` syscall and then lets the parent Windows VFS own the returned `sqlite3_file`. Its standalone `NtCreateFile(OBJECT_ATTRIBUTES.RootDirectory=...)` helper is not used by that interception. The current `xAccess` and `xDelete` callbacks also delegate to the parent VFS.
+The Windows probe now intercepts the parent VFS `CreateFileW` call for registered database and recognized sidecar names. It resolves the basename relative to the retained parent `HANDLE` with `NtCreateFile` and `OBJECT_ATTRIBUTES.RootDirectory`, validates the returned handle identity, and returns that same anchored `HANDLE` to the parent VFS. The parent VFS still owns its `sqlite3_file` wrapper and its I/O methods; the handle inside that wrapper is the handle whose identity was checked.
 
-Calling the relative-open helper only during role registration would not fix the race: the parent VFS would still open the database by pathname later. Opening a second anchored handle and comparing its identity would also be insufficient if SQLite continues I/O through a different handle.
+Windows `xAccess` and `xDelete` no longer delegate protected names to the parent VFS. They open the target relative to the retained parent handle, validate the database or process-local sidecar identity, and operate on the opened object. The sidecar identity registry is process-local and is not a persistent ownership ledger.
 
-The integration must therefore make the anchored handle itself the handle backing SQLite's file object, and must remove path-based delegation for all protected names. The parent VFS may continue to provide unrelated services only where that delegation cannot touch protected database or sidecar paths.
+This is still only a probe. The parent VFS continues to implement SQLite file methods, locking, WAL shared memory and other behavior. Those paths have not been exhaustively audited for pathname re-entry or alternate opens. The standalone relative-open helper is now used by the VFS interception, but passing its primitive tests does not prove the complete SQLite VFS contract. The remaining production gates are listed below.
 
 ## 3. Required role state
 
@@ -35,7 +35,7 @@ The parent directory handle and identity manifest must be validated before the r
 
 ## 4. SQLite file-object ownership
 
-The production Windows backend must own the `sqlite3_file` object for protected database and sidecar files. It must not call the parent VFS `xOpen` for those names after performing an anchored open.
+The production backend must ensure that the `sqlite3_file` object used by SQLite is backed by the exact anchored handle. A dedicated backend may own the `sqlite3_file` object and implement the required methods itself. Reusing the parent VFS wrapper is acceptable only if a source-level audit proves that it retains and operates on the exact anchored handle and cannot reopen or redirect protected paths through another pathname-based callback. The current probe has not completed that audit.
 
 The backend must implement and test the complete applicable `sqlite3_io_methods` contract, including:
 
@@ -75,7 +75,7 @@ The current helper's generic `ERROR_ACCESS_DENIED` mapping is acceptable only as
 
 Tests must exercise the actual registered VFS and SQLite file methods, not only the standalone helper:
 
-1. Rename the trusted parent directory after role registration; create a decoy directory and DB at the old path; verify the original DB remains the one SQLite reads and writes.
+1. After role registration, attempt to rename the trusted parent directory. If the filesystem permits it, create a decoy at the old path and verify SQLite continues to use the original DB. If Windows denies the rename because the trusted DB HANDLE remains open, verify the denial is fail-closed and that the original path cannot be replaced.
 2. Repeat the rename/decoy attack for WAL, SHM, and rollback journal creation and reopen.
 3. Replace each protected child with a file symlink/reparse point and with a directory reparse point; verify rejection.
 4. Race replacement between role registration and main DB open; verify rejection.
@@ -83,7 +83,7 @@ Tests must exercise the actual registered VFS and SQLite file methods, not only 
 6. Attempt hardlink aliases between DB, WAL, SHM, journal, and sidecars belonging to different roles; verify rejection.
 7. Attempt deletion/replacement while handles are open and during close/reopen; verify ownership and lifecycle invariants.
 8. Exercise WAL checkpoint, crash/recovery, hot-journal recovery, read-only mode, concurrent connections, worker threads, and process restart.
-9. Verify every protected operation remains anchored when the parent path is renamed and a decoy is created.
+9. Verify every protected operation remains anchored when the parent path is renamed and a decoy is created; where the OS forbids that rename while a trusted handle is open, verify the OS denial prevents path substitution.
 10. Verify that unsupported paths/filesystems and unknown flags fail closed.
 
 The tests must assert file identities from the handles actually used by SQLite. Path-level observations alone are not sufficient.
