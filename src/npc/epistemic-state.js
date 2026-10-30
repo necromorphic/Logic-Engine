@@ -223,7 +223,8 @@ function validState(state) {
       const conflictingPolarity = negative ? "supports_true" : "supports_false";
       if (belief.supporting_evidence_refs.some((ref) => evidenceByRef.get(ref).polarity !== supportingPolarity)
         || belief.conflicting_evidence_refs.some((ref) => evidenceByRef.get(ref).polarity !== conflictingPolarity)) return false;
-      if (currentRefs.some((ref) => evidenceByRef.get(ref).epistemic_status === "unknown")) return false;
+      if (currentRefs.some((ref) => evidenceByRef.get(ref).epistemic_status === "unknown"
+        || evidenceByRef.get(ref).evidence_assessment === "insufficient")) return false;
       if (currentRefs.some((ref) => evidenceByRef.get(ref).evidence_assessment === "disputed")
         && belief.stance !== "unresolved") return false;
       if ((belief.stance === "believes_true" || belief.stance === "believes_false")
@@ -245,7 +246,8 @@ function validState(state) {
           && evidenceByRef.get(ref).proposition_ref === belief.proposition_ref)
         || (entry.stance === "unknown" && entry.evidence_refs.length > 0)
         || (entry.stance !== "unknown" && entry.evidence_refs.length === 0)
-        || entry.evidence_refs.some((ref) => evidenceByRef.get(ref).epistemic_status === "unknown")
+        || entry.evidence_refs.some((ref) => evidenceByRef.get(ref).epistemic_status === "unknown"
+          || evidenceByRef.get(ref).evidence_assessment === "insufficient")
         || (entry.evidence_refs.some((ref) => evidenceByRef.get(ref).evidence_assessment === "disputed")
           && entry.stance !== "unresolved")
         || ((entry.stance === "believes_true" || entry.stance === "believes_false")
@@ -390,7 +392,7 @@ function applyEventUnsafe(state, event) {
     // authenticate it. Reports, suspicions, inferences and rumors may support
     // only a tentative stance or an unresolved state. They cannot be promoted
     // into a confirmed belief by choosing a stronger stance at this boundary.
-    if (evidence.some((item) => item.epistemic_status === "unknown")
+    if (evidence.some((item) => item.epistemic_status === "unknown" || item.evidence_assessment === "insufficient")
       || (evidence.some((item) => item.evidence_assessment === "disputed") && event.stance !== "unresolved")
       || ((event.stance === "believes_true" || event.stance === "believes_false")
         && evidence.some((item) => item.epistemic_status !== "confirmed"))) {
