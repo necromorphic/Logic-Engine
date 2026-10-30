@@ -11,6 +11,8 @@
  * POSIX pins the final parent directory but its xDelete is not identity-safe
  * against same-directory entry replacement; Windows uses a retained parent
  * HANDLE for recognized opens, xAccess and handle-relative xDelete.
+ * Sidecar ownership records are process-local; retired records are retained
+ * when another hardlink survives deletion of the original sidecar pathname.
  * Persistent trust, complete sidecar lifecycle, full VFS operation coverage,
  * startup/recovery integration and independent review remain open. Never use
  * this probe for production databases.
