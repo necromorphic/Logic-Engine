@@ -45,6 +45,12 @@ test('enumerates root, character and group chat files as a non-authoritative dou
   assert.ok(result.blockers.includes('NO_ATOMIC_DIRECTORY_SNAPSHOT'));
   assert.ok(result.blockers.includes('PATH_BASED_DIRECTORY_REPLACEMENT_RACE_REMAINS'));
   assert.equal(result.file_count, 4);
+  assert.equal(result.current_file_identity_status, 'ALL_CURRENT_CHAT_FILES_HAVE_UUID');
+  assert.deepEqual(result.files.filter(file => file.conversation_uuid).map(file => file.conversation_uuid).sort(), [
+    '00000000-0000-4000-8000-000000000001',
+    '00000000-0000-4000-8000-000000000002',
+    '00000000-0000-4000-8000-000000000003',
+  ]);
   assert.deepEqual(result.files.map(file => file.kind).sort(), [
     'character-chat', 'group-chat', 'group-metadata', 'root-chat',
   ]);
@@ -159,7 +165,7 @@ test('extracts persisted conversation UUIDs and rejects duplicate identities', a
   const value = await fixture();
   t.after(value.cleanup);
   await writeFile(path.join(value.directories.chats, 'character-a', 'chat-a.jsonl'),
-    '{"chat_metadata":{"logic_engine_conversation_id":"00000000-0000-4000-8000-000000000001"}}\\n{"mes":"duplicate"}\\n');
+    '{"chat_metadata":{"logic_engine_conversation_id":"00000000-0000-4000-8000-000000000001"}}\n{"mes":"duplicate"}\n');
   await assert.rejects(scan(value.directories), error =>
     error instanceof HostSourceInventoryError && error.code === 'SOURCE_CONVERSATION_ID_DUPLICATE');
 });
@@ -168,7 +174,7 @@ test('marks current-file identity incomplete when a persisted conversation UUID 
   const value = await fixture();
   t.after(value.cleanup);
   await writeFile(path.join(value.directories.chats, 'character-a', 'chat-a.jsonl'),
-    '{"chat_metadata":{}}\\n{"mes":"legacy"}\\n');
+    '{"chat_metadata":{}}\n{"mes":"legacy"}\n');
   const result = await scan(value.directories);
   assert.equal(result.current_file_identity_status, 'INCOMPLETE_MISSING_PERSISTED_UUID');
   assert.ok(result.blockers.includes('MISSING_PERSISTED_CONVERSATION_UUID'));
@@ -178,10 +184,10 @@ test('rejects malformed chat headers and malformed persisted UUIDs', async t => 
   const value = await fixture();
   t.after(value.cleanup);
   const target = path.join(value.directories.chats, 'root-chat.jsonl');
-  await writeFile(target, 'not-json\\n{"mes":"bad header"}\\n');
+  await writeFile(target, 'not-json\n{"mes":"bad header"}\n');
   await assert.rejects(scan(value.directories), error =>
     error instanceof HostSourceInventoryError && error.code === 'SOURCE_CHAT_HEADER_INVALID');
-  await writeFile(target, '{"chat_metadata":{"logic_engine_conversation_id":"not-a-uuid"}}\\n');
+  await writeFile(target, '{"chat_metadata":{"logic_engine_conversation_id":"not-a-uuid"}}\n');
   await assert.rejects(scan(value.directories), error =>
     error instanceof HostSourceInventoryError && error.code === 'SOURCE_CONVERSATION_ID_INVALID');
 });
