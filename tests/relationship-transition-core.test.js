@@ -787,6 +787,8 @@ test('projection rebuild preserves the exact historical rule-version pin when it
       revision: store.world('world-relationship-test').world_revision,
       eventCount: store.events('world-relationship-test').length,
       auditCount: store.audit('world-relationship-test').length,
+      events: store.events('world-relationship-test'),
+      audit: store.audit('world-relationship-test'),
       pair: store.getRelationshipPair('world-relationship-test', 'A', 'B'),
     };
     const historicalResult = store.reevaluateRelationshipEvent('world-relationship-test', committed.event_id);
@@ -799,8 +801,10 @@ test('projection rebuild preserves the exact historical rule-version pin when it
       revision: store.world('world-relationship-test').world_revision,
       eventCount: store.events('world-relationship-test').length,
       auditCount: store.audit('world-relationship-test').length,
+      events: store.events('world-relationship-test'),
+      audit: store.audit('world-relationship-test'),
       pair: store.getRelationshipPair('world-relationship-test', 'A', 'B'),
-    }, beforeHistoricalRead, 'historical re-evaluation must not mutate revision, events, projection, or audit');
+    }, beforeHistoricalRead, 'historical re-evaluation must not mutate event/audit records, revision, or projection');
 
     store.close();
     store = null;
@@ -938,6 +942,37 @@ test('historical re-evaluation fails closed for a legacy event without a capture
     assert.equal(result.status, 'unavailable');
     assert.equal(result.results[0].reason, 'historical_relationship_snapshot_missing');
   } finally { store.close(); }
+});
+
+
+test('historical re-evaluation rejects persisted World Pack provenance corruption without writes', async () => {
+  const { store, engine, seed } = await fixture();
+  try {
+    const committed = engine.commitRelationshipTransition('world-relationship-test', transitionRequest(seed));
+    const row = store.db.prepare('SELECT effects_json FROM world_events WHERE world_id=? AND event_id=?')
+      .get('world-relationship-test', committed.event_id);
+    const effects = JSON.parse(row.effects_json);
+    effects[0].relationship_evaluation_snapshot.world_pack_version = '99.0.0';
+    store.db.prepare('UPDATE world_events SET effects_json=? WHERE world_id=? AND event_id=?')
+      .run(JSON.stringify(effects), 'world-relationship-test', committed.event_id);
+    const before = {
+      revision: store.world('world-relationship-test').world_revision,
+      events: store.events('world-relationship-test'),
+      audit: store.audit('world-relationship-test'),
+      pair: store.getRelationshipPair('world-relationship-test', 'A', 'B'),
+    };
+    const result = engine.reevaluateRelationshipEvent('world-relationship-test', committed.event_id);
+    assert.equal(result.status, 'unavailable');
+    assert.equal(result.results[0].reason, 'evaluation_snapshot_digest_mismatch');
+    assert.deepEqual({
+      revision: store.world('world-relationship-test').world_revision,
+      events: store.events('world-relationship-test'),
+      audit: store.audit('world-relationship-test'),
+      pair: store.getRelationshipPair('world-relationship-test', 'A', 'B'),
+    }, before, 'failed historical re-evaluation must not mutate persisted records or projections');
+  } finally {
+    store.close();
+  }
 });
 
 
