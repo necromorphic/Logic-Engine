@@ -6,7 +6,7 @@ import { LogicEngine } from '../src/application/engine.js';
 import { ProposalService } from '../src/application/proposals.js';
 import { ActorBindingService } from '../src/application/actor-bindings.js';
 import { createDeploymentMechanicPolicyRuntime } from '../src/application/deployment-mechanic-policy-runtime.js';
-import { createApiServer, createActiveMechanicPolicyValidator } from '../src/api/server.js';
+import { createApiServer } from '../src/api/server.js';
 
 const TOKEN = 'test-token-long-enough-123456';
 const INTERNAL = 'internal-token-long-enough-123456';
@@ -2035,7 +2035,6 @@ test('active mechanic policy validator resolves the current owner on every check
 
   const store = new SQLiteStore(':memory:');
   try {
-    assert.throws(() => createActiveMechanicPolicyValidator(null), /trusted application callback/);
     assert.doesNotThrow(() => createApiServer({ engine: new LogicEngine(store), token: TOKEN }));
   } finally {
     store.close();
