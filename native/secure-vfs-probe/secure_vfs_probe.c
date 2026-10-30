@@ -813,10 +813,10 @@ static int probe_xOpen(sqlite3_vfs *vfs, const char *name, sqlite3_file *file,
   const char *open_name = name;
 
   /*
-   * Resolve every file-backed main DB to its enrolled canonical pathname and
-   * pass that canonical name to the parent VFS. Otherwise a DB opened through
-   * a symlink/relative alias could pass the main-DB identity check while its
-   * WAL/journal names miss the pinned-role matcher and fall back to path opens.
+   * Resolve every file-backed main DB through the parent VFS full-path
+   * callback and pass that exact name to the parent VFS. WAL/journal xOpen
+   * names must map back to the same enrolled pathname; aliases that do not
+   * map to a registered role fail closed instead of falling back to path opens.
    */
   if (name && (flags & SQLITE_OPEN_MAIN_DB) && !(flags & SQLITE_OPEN_MEMORY)) {
 #ifndef _WIN32
@@ -860,8 +860,9 @@ static int probe_xOpen(sqlite3_vfs *vfs, const char *name, sqlite3_file *file,
   }
 
   /*
-   * Sidecar names must be derived from the canonical registered DB path.
-   * Never allow an unrecognized WAL/journal name to reach the parent VFS.
+   * Sidecar names must map to the exact enrolled DB pathname plus a known
+   * SQLite suffix. Never allow an unrecognized WAL/journal name to reach the
+   * parent VFS.
    */
   if (is_sidecar) {
     int matched = 0;
