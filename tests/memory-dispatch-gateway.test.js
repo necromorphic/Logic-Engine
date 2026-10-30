@@ -211,16 +211,19 @@ test('read-only Gateway SQLite connection can read committed WAL state without w
   }
 });
 
-test('Gateway rejects async transport starters because they can defer handoff past the Coordinator lease', () => {
-  assert.throws(() => new MemoryDispatchGateway({
+test('Gateway rejects direct and bound async transport starters because they can defer handoff past the Coordinator lease', () => {
+  const asyncStarter = async () => ({ status: 200 });
+  const configuration = (sendUpstream) => ({
     ledgerPath: '/tmp/dispatch-ledger.sqlite',
     coordinatorPath: '/tmp/dispatch-coordinator.sqlite',
     authorityPort: 1,
     readToken,
     readCoreEvidence: () => ({}),
     readProviderEvidence: () => ({}),
-    sendUpstream: async () => ({ status: 200 }),
-  }), /non-async transport-start function/);
+    sendUpstream,
+  });
+  assert.throws(() => new MemoryDispatchGateway(configuration(asyncStarter)), /non-async transport-start function/);
+  assert.throws(() => new MemoryDispatchGateway(configuration(asyncStarter.bind(null))), /non-async transport-start function/);
 });
 
 test('dispatch rejects Provider evidence whose exact candidate record/version set differs from the signed request', async () => {
