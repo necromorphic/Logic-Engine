@@ -194,7 +194,14 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
             deleted: version.deleted,
           })),
         };
-        const result = await hostVersionLedger.reconcileConversation(snapshot);
+        const result = await hostVersionLedger.reconcileConversation(snapshot, {
+          verifyBindingUnderLock: () => {
+            const currentBinding = hostConversationBindings.resolve({
+              adapterId, conversationId: body.conversation_id,
+            });
+            return currentBinding.world_id === binding.world_id && currentBinding.adapter_id === adapterId;
+          },
+        });
         if (result.status !== 'ready') {
           return send(res, 409, { inventory: result, inventory_status: 'NON_READY' });
         }
