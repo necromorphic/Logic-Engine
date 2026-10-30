@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, linkSync, mkdtempSync, rmSync, unlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -122,6 +122,52 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
       );
     } finally {
       aliasDb.close();
+    }
+
+    // Register the three persistent database roles used by the integration.
+    const roleCorePath = join(directory, 'role-core.sqlite');
+    const roleCoordinatorPath = join(directory, 'role-coordinator.sqlite');
+    const roleHostLedgerPath = join(directory, 'role-host-ledger.sqlite');
+    for (const [rolePath, roleName] of [
+      [roleCorePath, 'core'],
+      [roleCoordinatorPath, 'coordinator'],
+      [roleHostLedgerPath, 'host-ledger'],
+    ]) {
+      second.prepare('SELECT logic_engine_vfs_probe_register_database_role(?, ?) AS registered')
+        .get(rolePath, roleName);
+    }
+
+    const roleCoreDb = new DatabaseSync(roleCorePath);
+    const roleCoordinatorDb = new DatabaseSync(roleCoordinatorPath);
+    try {
+      roleCoreDb.exec('CREATE TABLE role_data(value TEXT);');
+      roleCoordinatorDb.exec('CREATE TABLE role_data(value TEXT);');
+      const roleHostDb = new DatabaseSync(roleHostLedgerPath);
+      try {
+        roleHostDb.exec('CREATE TABLE role_data(value TEXT);');
+      } finally {
+        roleHostDb.close();
+      }
+
+      const rejectsBeforeAliases = second.prepare(
+        'SELECT logic_engine_vfs_probe_identity_reject_count() AS count'
+      ).get().count;
+      unlinkSync(roleHostLedgerPath);
+      linkSync(roleCorePath, roleHostLedgerPath);
+      assert.throws(() => new DatabaseSync(roleHostLedgerPath),
+        'Host ledger must not open a hardlink alias of Core');
+      unlinkSync(roleHostLedgerPath);
+      linkSync(roleCoordinatorPath, roleHostLedgerPath);
+      assert.throws(() => new DatabaseSync(roleHostLedgerPath),
+        'Host ledger must not open a hardlink alias of Coordinator');
+      assert.ok(
+        second.prepare('SELECT logic_engine_vfs_probe_identity_reject_count() AS count').get().count
+          >= rejectsBeforeAliases + 2,
+        'the opened OS identities must reject aliases to both other database roles'
+      );
+    } finally {
+      roleCoordinatorDb.close();
+      roleCoreDb.close();
     }
   } finally {
     second.close();
