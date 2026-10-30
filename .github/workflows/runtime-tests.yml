@@ -50,6 +50,20 @@ jobs:
         run: node --test host-adapter/prototype/tests/*.test.mjs
       - run: node --test experiments/recalculation-oracle/harness.test.mjs
 
+  process-contract:
+    # Keep the pure Process Manager contract matrix runnable on a hosted runner.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22.13.0'
+      - name: Run Process Manager contract tests
+        run: node --test tests/process-contract.test.js
+
   core-trusted-acquisition:
     # Keep Core-owned acquisition lifecycle tests runnable even when the local Windows runner is offline.
     runs-on: ubuntu-latest
