@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { enumerateHostDataInventory } from '../host-data-inventory.mjs';
+import { isVerifiedFileInventory } from '../fs-inventory.js';
 
 const PINNED = '06bde939fb1e9c4c8d8641d810f0a916b5bce127';
 
@@ -58,6 +59,7 @@ test('full host data inventory covers character, avatar and settings files outsi
   });
   assert.equal(result.snapshot_alignment, 'INDEPENDENT_DOUBLE_SCAN');
   assert.equal(result.filesystem.status, 'complete');
+  assert.equal(isVerifiedFileInventory(result.filesystem), true);
   assert.equal(result.filesystem.file_count, 7);
   assert.ok(result.filesystem.entries.some(entry => entry.path === 'characters/hero.json'));
   assert.ok(result.filesystem.entries.some(entry => entry.path === 'User Avatars/persona.png'));
@@ -79,6 +81,7 @@ test('Windows full host inventory shares one VSS snapshot across generic and sem
   });
   assert.equal(result.snapshot_alignment, 'SHARED_VSS_SNAPSHOT');
   assert.equal(result.filesystem.status, 'complete');
+  assert.equal(isVerifiedFileInventory(result.filesystem), true);
   assert.equal(result.filesystem.snapshot_id, result.source.snapshot_id);
   assert.equal(result.filesystem.snapshot_provider, 'windows-vss-client-accessible');
   assert.equal(result.source.snapshot_provider, 'windows-vss-client-accessible');
