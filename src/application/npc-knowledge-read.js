@@ -1,4 +1,5 @@
 import { types as utilTypes } from "node:util";
+import { isNpcKnowledgePolicyAuthoritySnapshot } from './npc-knowledge-policy-authority.js';
 
 const ID_MAX = 200;
 const PURPOSES = new Set(["npc_turn_context", "npc_action_evaluation"]);
@@ -78,7 +79,7 @@ export function validateNpcKnowledgeReadInput(input) {
  * Validate a Core-owned, actor/purpose/snapshot-bound read request.
  * The authorizer is a deployment-injected trusted dependency, not request data.
  */
-export function validateNpcKnowledgeRead(input, world, commitSequence, authorization) {
+export function validateNpcKnowledgeRead(input, world, commitSequence, authorization, expectedPolicyAuthority = null) {
   const inputCheck = validateNpcKnowledgeReadInput(input);
   if (inputCheck.status !== "ready") return inputCheck;
   const request = inputCheck.request;
@@ -90,10 +91,15 @@ export function validateNpcKnowledgeRead(input, world, commitSequence, authoriza
       return nonReady("stale_snapshot");
     }
 
-    if (!exactKeys(authorization, [
+    if (expectedPolicyAuthority !== null && !isNpcKnowledgePolicyAuthoritySnapshot(expectedPolicyAuthority)) {
+      return nonReady("policy_authority_unavailable");
+    }
+    const authorizationKeys = [
       "status", "world_id", "conversation_id", "adapter_id", "actor_id", "recipient", "purpose",
       "world_revision", "commit_sequence", "authorization_ref",
-    ]) || authorization.status !== "authorized"
+      ...(expectedPolicyAuthority ? ["authority_id", "generation", "snapshot_fingerprint"] : []),
+    ];
+    if (!exactKeys(authorization, authorizationKeys) || authorization.status !== "authorized"
       || authorization.world_id !== request.world_id
       || authorization.conversation_id !== request.conversation_id
       || authorization.adapter_id !== request.adapter_id
@@ -102,7 +108,11 @@ export function validateNpcKnowledgeRead(input, world, commitSequence, authoriza
       || authorization.purpose !== request.purpose
       || authorization.world_revision !== world.world_revision
       || authorization.commit_sequence !== commitSequence
-      || !validId(authorization.authorization_ref)) {
+      || !validId(authorization.authorization_ref)
+      || (expectedPolicyAuthority !== null
+        && (authorization.authority_id !== expectedPolicyAuthority.authority_id
+          || authorization.generation !== expectedPolicyAuthority.generation
+          || authorization.snapshot_fingerprint !== expectedPolicyAuthority.snapshot_fingerprint))) {
       return nonReady("read_not_authorized");
     }
 
@@ -119,6 +129,7 @@ export function validateNpcKnowledgeRead(input, world, commitSequence, authoriza
         world_revision: world.world_revision,
         commit_sequence: commitSequence,
         authorization_ref: authorization.authorization_ref,
+        ...(expectedPolicyAuthority ? { policy_authority: expectedPolicyAuthority } : {}),
         limit: request.limit,
       }),
     });
