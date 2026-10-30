@@ -10,6 +10,8 @@ export function createHostInventoryHandler({
   }
 
   return async function hostInventoryHandler(request, response) {
+    response.set('Cache-Control', 'no-store, private');
+    response.set('Vary', 'Cookie');
     const user = request?.user;
     const directories = user?.directories;
     const userHandle = user?.profile?.handle;
