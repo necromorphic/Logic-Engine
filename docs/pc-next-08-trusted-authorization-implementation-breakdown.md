@@ -339,3 +339,72 @@ Notes:
 ## 9. Change log
 
 - **v1:** initial implementation decomposition; separates owner decisions, source traceability, work packages, deterministic acceptance evidence, rollback/recovery and route integration. Documentation only.
+
+
+## 10. Additional current-main audit — Gateway and coordinator primitive
+
+This addendum records a closer source inspection of `src/storage/coordinator-lock.js`, `src/storage/sqlite-store.js`, `src/application/sqlite-memory-provider.js`, and `src/security/memory-dispatch-gateway.js` at the same `main` baseline. This is source review only; no runtime test was run.
+
+### 10.1 What exists
+
+- `src/storage/coordinator-lock.js` implements a file-backed SQLite coordinator. `beginCoordinatorLock()` uses `BEGIN IMMEDIATE`; the lease is released with `ROLLBACK`. The helper explicitly requires synchronous callbacks and forbids awaiting while the lease is held.
+- Core `SQLiteStore.tx()` acquires its configured coordinator lease around the local Core transaction. Nested writes reuse the outer transaction/savepoint.
+- Memory Provider `#withImmediateTransaction()` acquires its configured coordinator lease around its local Provider transaction. `#withSerializedWrite()` routes serialized Provider writes through it. Async source validation is intentionally outside the lock; final Provider grant/readiness checks are synchronous under the coordinator.
+- `MemoryDispatchGateway.dispatchProtectedRequest()` acquires the coordinator, checks accepted-head status, calls injected synchronous Core and Provider evidence readers, verifies exact world/actor/purpose/readiness/head/source/candidate sets, writes a durable `DISPATCH_STARTED` row in its dispatch ledger, commits that row, and releases the coordinator before awaiting `sendUpstream()`.
+- On startup, durable `DISPATCH_STARTED` rows are converted to `UNKNOWN`; the code comments prohibit automatic retry of an ambiguous request.
+- The Gateway has no fallback reader or transport; `sendUpstream` is injected. Its current protected route constant is `host-selected-chat-generation`.
+
+These are meaningful primitives. They do not by themselves prove that every production Core/Provider writer uses the exact same coordinator file, that a production Host route invokes this Gateway, or that the injected readers/transport are the approved production implementations.
+
+### 10.2 Important provider-direction mismatch
+
+The Gateway source comment currently says: “Only the explicitly allowlisted Google AI Studio chat route is supported.” The allowlist string `host-selected-chat-generation` is not proof of a provider-neutral transport implementation.
+
+The project direction recorded in current context has removed Google as the target provider. Therefore:
+- do not treat the current Gateway route/comment as an approved provider choice;
+- do not adopt the uploaded legacy Google-specific SillyTavern patch or its environment variable contract as the current integration design;
+- retain the generic security semantics (server-owned route, no client override, no direct fallback, no secret leakage), but define a provider-neutral Host→PC Gateway transport contract;
+- the exact provider adapter and supported route must be chosen separately and must not weaken the dispatch authorization envelope.
+
+This is a source-level compatibility blocker for using the current Gateway as-is, not evidence that its shared-lock primitive is useless.
+
+### 10.3 Current Gateway gaps against the target contract
+
+1. **Runtime composition absent:** `src/index.js` constructs Core and Host version ledger but does not construct/wire `MemoryDispatchGateway`. No current-main ST route callsite was demonstrated.
+2. **Injected authority functions:** `readCoreEvidence`, `readProviderEvidence` and `sendUpstream` are constructor dependencies. The source does not establish that production composition supplies authoritative implementations or that there are no alternate senders.
+3. **Route/provider mismatch:** current source comment restricts the supported protected route to Google AI Studio; project provider direction has moved away from Google.
+4. **Shared coordinator configuration must be proven:** Core, Provider and Gateway must all use the same absolute coordinator DB path and same filesystem object, not merely a path string that happens to be similar. Deployment ACLs and process identity must prevent a participant from silently opening a different coordinator.
+5. **Accepted-head scope:** Gateway checks the Core/Provider accepted-head authority before dispatch. The dispatch ledger itself is a separate durable database; its own restore/rollback protection and recovery semantics must be demonstrated. Do not assume Core/Provider accepted-head enrollment automatically protects a restored dispatch ledger.
+6. **Transport ordering evidence:** the Gateway commits `DISPATCH_STARTED`, releases the coordinator and only then calls `sendUpstream`. This matches the declared durable dispatch-start ordering point only if the owners explicitly define that point as the transition to in-flight. It does not prove that bytes were handed to the network, and a crash in the gap must remain UNKNOWN/no-auto-retry. If owners require transport invocation itself to be inside the shared ordering window, the current implementation does not prove that stronger rule; the alternative must not await network I/O while holding the coordinator.
+7. **Exact request binding:** current request signature/digest binds body digest, route, model, stream, world, actor, purpose, sources and candidates. The integrated envelope still needs authenticated Host session/generation, recipient, policy authority version/fingerprint and any selected lane-specific pins. No field may be added from an untrusted caller without a trusted owner resolution.
+8. **No production provider credentials decision:** constructor accepts a transport callback; credential custody and outbound network restrictions are not established by this source alone.
+
+### 10.4 Required focused tests (source-derived)
+
+- **COORD-01:** Core, Provider and Gateway contend on the exact same coordinator DB and demonstrate deterministic serialization across processes.
+- **COORD-02:** a participant configured with a different coordinator file is detected by deployment validation or fails closed; path equality alone is not accepted as proof of shared inode/ACL.
+- **GW-01:** invalid/missing accepted-head state, pending operation, unenrolled Core/Provider or head mismatch → zero transport calls.
+- **GW-02:** Core evidence reader or Provider evidence reader throws, returns a Promise, wrong scope, wrong head, non-ready inventory/grants or mismatched source/candidate set → zero transport calls.
+- **GW-03:** durable `DISPATCH_STARTED` exists before `sendUpstream` is invoked.
+- **GW-04:** crash/restart with `DISPATCH_STARTED` transitions to `UNKNOWN`; no automatic second send.
+- **GW-05:** duplicate request ID and unresolved digest replay are denied; same identity with changed binding/payload conflicts.
+- **GW-06:** every protected ST route invokes this exact Gateway; direct provider, extension, alternate backend and retry paths cannot carry protected payload.
+- **GW-07:** provider-neutral adapter is used; no dependency on Google-specific route/configuration remains.
+- **GW-08:** restoring an older dispatch ledger cannot erase a prior request identity or permit a duplicate disclosure.
+- **GW-09:** exact recipient, policy generation/fingerprint, Host session generation and lane-specific source pins are bound and revalidated.
+
+### 10.5 Security 1.1 uploaded artifact disposition
+
+The uploaded `Security 1.1.txt` describes a legacy Google AI Studio-specific SillyTavern egress patch and environment variables. It is not a provider-neutral contract and conflicts with the current project direction that removed Google. It is retained as historical evidence only and is **not** used as an implementation dependency.
+
+The uploaded `Координатор 2.16.txt` is a diagnostic-package report describing a health-only ST/Core connectivity check and test counts on an archive without Git metadata. It does not prove trusted authorization, Memory reconciliation/revocation, shared dispatch ordering, or anti-rollback. It is not acceptance evidence for this workstream.
+
+## 11. Revised immediate sequence
+
+1. Finish the exact Core/Provider writer participation matrix, including restore/maintenance paths and whether each writer shares the same coordinator database object.
+2. Inspect the Gateway's full current source and exact tests against the required dispatch ledger restore semantics; do not assume accepted-head state protects the dispatch ledger.
+3. Design the provider-neutral route/transport contract without changing SillyTavern or provider configuration.
+4. Resolve D0 with Core/Host/Memory owners and select the first lane.
+5. Only then freeze implementation PR boundaries.
+
+No runtime test, database operation, production-code edit, ST patch application, PR creation or merge was performed in this addendum.
