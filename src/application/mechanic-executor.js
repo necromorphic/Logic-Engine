@@ -187,7 +187,7 @@ export class MechanicExecutor {
       return unknown('SNAPSHOT_CHANGED_DURING_CONTEXT_RESOLUTION', 'World revision or commit sequence changed while resolving authorized context.', identity);
     }
 
-    const allowedResolvedKeys = new Set(['context', 'world_revision', 'commit_sequence', 'policy_version', 'authorization_scope', 'knownAbsentPaths', 'dependencyEvidence']);
+    const allowedResolvedKeys = new Set(['context', 'world_revision', 'commit_sequence', 'policy_version', 'authorization_scope', 'knownAbsentPaths', 'dependencyEvidence', 'policy_authority']);
     let resolvedShapeValid = false;
     try {
       resolvedShapeValid = object(resolved)
@@ -206,7 +206,13 @@ export class MechanicExecutor {
       || typeof resolved.authorization_scope !== 'string' || !resolved.authorization_scope.trim()
       || !Array.isArray(resolved.knownAbsentPaths ?? [])
       || !(resolved.knownAbsentPaths ?? []).every((path) => typeof path === 'string' && path.trim())
-      || !Array.isArray(resolved.dependencyEvidence)) {
+      || !Array.isArray(resolved.dependencyEvidence)
+      || (resolved.policy_authority !== undefined
+        && (!object(resolved.policy_authority)
+          || Object.keys(resolved.policy_authority).some((key) => !['authority_identity', 'policy_generation', 'policy_version'].includes(key))
+          || typeof resolved.policy_authority.authority_identity !== 'string' || !resolved.policy_authority.authority_identity.trim()
+          || typeof resolved.policy_authority.policy_generation !== 'string' || !resolved.policy_authority.policy_generation.trim()
+          || typeof resolved.policy_authority.policy_version !== 'string' || !resolved.policy_authority.policy_version.trim()))) {
       return unknown('AUTHORIZED_CONTEXT_SNAPSHOT_MISMATCH', 'Trusted context must identify the exact snapshot, policy version, and canonical dependency evidence.', identity);
     }
 
@@ -402,6 +408,7 @@ export class MechanicExecutor {
         knownAbsentPaths,
         dependency_evidence: [...resolved.dependencyEvidence].sort((a, b) => a.path.localeCompare(b.path)),
         policy_version: resolved.policy_version,
+        policy_authority: resolved.policy_authority ?? null,
         authorization_scope: resolved.authorization_scope,
       });
     } catch {
@@ -412,6 +419,7 @@ export class MechanicExecutor {
       action_id: actionId,
       context_fingerprint: contextFingerprint,
       context_policy_version: resolved.policy_version,
+      ...(resolved.policy_authority ? { policy_authority: resolved.policy_authority } : {}),
       authorization_scope: resolved.authorization_scope,
       condition_result: conditionResult,
       dependency_manifest: dependencyManifest,
