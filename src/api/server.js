@@ -8,6 +8,8 @@ import { AuthorizedReadService } from '../application/authorized-read-service.js
 import { HostConversationWorldBindingService } from '../application/host-conversation-world-bindings.js';
 
 const MAX = 1048576;
+const MAX_HOST_VERSION_SNAPSHOT_BYTES = 8 * 1048576;
+const MAX_HOST_VERSION_SNAPSHOT_ENTRIES = 25000;
 
 /** Resolve the active deployment-owned policy on every boundary check. */
 export function createActiveMechanicPolicyValidator(getActiveMechanicContextProvider) {
@@ -27,11 +29,11 @@ function secretMatches(provided, expected) {
   const expectedDigest = createHash('sha256').update(expected, 'utf8').digest();
   return timingSafeEqual(providedDigest, expectedDigest);
 }
-async function readBody(req) {
+async function readBody(req, maxBytes = MAX) {
   const chunks = []; let size = 0;
   for await (const chunk of req) {
     size += chunk.length;
-    if (size > MAX) throw new EngineError('BODY_TOO_LARGE', 'Body exceeds 1 MiB.', 413);
+    if (size > maxBytes) throw new EngineError('BODY_TOO_LARGE', `Body exceeds ${Math.ceil(maxBytes / 1048576)} MiB.`, 413);
     chunks.push(chunk);
   }
   if (!size) return {};
@@ -182,7 +184,11 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
         }
         const adapterId = adapterIdFor(req);
         if (!adapterId) return send(res, 403, { error: { code: 'ADAPTER_REQUIRED', message: 'An authenticated adapter identity is required.' } });
-        const body = await readBody(req);
+        const body = await readBody(req, MAX_HOST_VERSION_SNAPSHOT_BYTES);
+        if (body && typeof body === 'object' && Array.isArray(body.versions)
+          && body.versions.length > MAX_HOST_VERSION_SNAPSHOT_ENTRIES) {
+          throw new EngineError('HOST_INVENTORY_TOO_LARGE', 'Host inventory exceeds the 25,000-version limit.', 413);
+        }
         const validHostId = (value) => typeof value === 'string' && value === value.trim()
           && value.length > 0 && value.length <= 200
           && ![...value].some((character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127);
