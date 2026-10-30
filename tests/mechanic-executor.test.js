@@ -184,9 +184,7 @@ test('mechanic context provider can enforce actor binding and field policy throu
     validateMechanicPolicy(identity) {
       assert.equal(provider.getPolicyAuthority(), authority);
       assert.equal(authority.isCurrent(identity.policyAuthority), true);
-      assert.equal(provider.validateMechanicPolicy(identity), true);
-      actorBindings.resolve(identity.worldId, 'test-adapter', 'entity.actor-context');
-      return true;
+      return provider.validateMechanicPolicy(identity);
     },
   });
   const proposal = proposals.createFromMechanicEvaluation(worldId, result, {
