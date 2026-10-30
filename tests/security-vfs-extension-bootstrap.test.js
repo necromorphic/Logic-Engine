@@ -225,39 +225,66 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
       seed.close();
     }
 
-    renameSync(anchoredParent, movedParent);
-    mkdirSync(anchoredParent);
-    writeFileSync(join(anchoredParent, 'anchored.sqlite'), 'decoy database');
+    let parentRenamed = false;
+    try {
+      renameSync(anchoredParent, movedParent);
+      parentRenamed = true;
+    } catch (error) {
+      // Some Windows runners/filesystems deny rename while the VFS retains
+      // the pinned parent HANDLE. That is a fail-closed outcome: the attacker
+      // cannot replace the checked pathname while the database role is open.
+      assert.ok(['EPERM', 'EACCES', 'EBUSY'].includes(error?.code),
+        'only an OS denial of parent rename is an acceptable fallback');
+      assert.equal(existsSync(anchoredParent), true,
+        'a denied rename must leave the original trusted parent in place');
+      assert.equal(existsSync(movedParent), false,
+        'a denied rename must not create a moved directory');
+      mkdirSync(movedParent);
+    }
+    if (parentRenamed) {
+      mkdirSync(anchoredParent);
+      writeFileSync(join(anchoredParent, 'anchored.sqlite'), 'decoy database');
+    }
 
     const anchoredDb = new DatabaseSync(anchoredPath);
     try {
       assert.equal(
         anchoredDb.prepare('SELECT value FROM anchored_probe').get().value,
         'trusted-windows-directory',
-        'the Windows VFS must open the original database through its pinned parent HANDLE'
+        'the Windows VFS must open the registered database, never a substituted object'
       );
       anchoredDb.exec("BEGIN IMMEDIATE; INSERT INTO anchored_probe VALUES('anchored-journal');");
-      assert.equal(
-        existsSync(join(movedParent, 'anchored.sqlite-journal')),
-        true,
-        'the rollback journal must be created beside the trusted database after parent rename'
-      );
-      assert.equal(
-        existsSync(join(anchoredParent, 'anchored.sqlite-journal')),
-        false,
-        'the replacement directory must not receive the trusted rollback journal'
-      );
+      if (parentRenamed) {
+        assert.equal(
+          existsSync(join(movedParent, 'anchored.sqlite-journal')),
+          true,
+          'the rollback journal must be created beside the trusted database after parent rename'
+        );
+        assert.equal(
+          existsSync(join(anchoredParent, 'anchored.sqlite-journal')),
+          false,
+          'the replacement directory must not receive the trusted rollback journal'
+        );
+      } else {
+        assert.equal(
+          existsSync(join(anchoredParent, 'anchored.sqlite-journal')),
+          true,
+          'when Windows denies parent rename, the trusted path remains the only possible journal target'
+        );
+      }
       anchoredDb.exec('COMMIT;');
       assert.equal(
-        existsSync(join(movedParent, 'anchored.sqlite-journal')),
+        existsSync(join(parentRenamed ? movedParent : anchoredParent, 'anchored.sqlite-journal')),
         false,
-        'Windows xDelete must remove the exact anchored rollback-journal object'
+        'Windows xDelete must remove the exact trusted rollback-journal object'
       );
-      assert.equal(
-        existsSync(join(anchoredParent, 'anchored.sqlite-journal')),
-        false,
-        'Windows xDelete must not operate on the replacement pathname'
-      );
+      if (parentRenamed) {
+        assert.equal(
+          existsSync(join(anchoredParent, 'anchored.sqlite-journal')),
+          false,
+          'Windows xDelete must not operate on the replacement pathname'
+        );
+      }
     } finally {
       anchoredDb.close();
     }
