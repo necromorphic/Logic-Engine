@@ -189,6 +189,42 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
     try { journalRaceDb.close(); } catch { /* failed journal open may leave a transaction active */ }
   }
 
+  // SHM is opened through xShmMap rather than xOpen. The syscall wrapper
+  // must still recognize the -shm path and reject a replacement at that boundary.
+  const shmRacePath = join(directory, 'shm-race.sqlite');
+  registerRole(shmRacePath, 'shm-race');
+  const shmRaceDb = new DatabaseSync(shmRacePath);
+  try {
+    shmRaceDb.exec('PRAGMA journal_mode=DELETE; CREATE TABLE probe(value TEXT);');
+    const injectionBefore = roleRegistrar.prepare(
+      'SELECT logic_engine_vfs_probe_race_injection_count() AS count'
+    ).get().count;
+    const sidecarRejectBefore = roleRegistrar.prepare(
+      'SELECT logic_engine_vfs_probe_sidecar_identity_reject_count() AS count'
+    ).get().count;
+    roleRegistrar.prepare('SELECT logic_engine_vfs_probe_configure_race(?, ?, 1)')
+      .get(`${shmRacePath}-shm`, corePath);
+    let rejected = false;
+    try {
+      const mode = shmRaceDb.prepare('PRAGMA journal_mode=WAL').get();
+      if (mode.journal_mode === 'wal') {
+        shmRaceDb.exec("BEGIN IMMEDIATE; INSERT INTO probe VALUES('shm-race');");
+      }
+    } catch {
+      rejected = true;
+    }
+    assert.equal(rejected, true,
+      'a SHM sidecar hardlinked to another registered database must fail closed');
+    assert.equal(roleRegistrar.prepare(
+      'SELECT logic_engine_vfs_probe_race_injection_count() AS count'
+    ).get().count, injectionBefore + 1);
+    assert.equal(roleRegistrar.prepare(
+      'SELECT logic_engine_vfs_probe_sidecar_identity_reject_count() AS count'
+    ).get().count, sidecarRejectBefore + 1);
+  } finally {
+    try { shmRaceDb.close(); } catch { /* failed SHM open may leave a transaction active */ }
+  }
+
   const coordinatorControlPath = join(directory, 'coordinator.sqlite');
   registerRole(coordinatorControlPath, 'coordinator-control');
   const second = new DatabaseSync(coordinatorControlPath);
