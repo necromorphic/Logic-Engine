@@ -115,6 +115,7 @@ const deploymentPolicyAuthority = new DeploymentPolicyAuthority({
       && ['entity_id', 'entity_type', 'status'].includes(field),
   }),
 });
+deploymentPolicyAuthority.capture();
 
 const store = new SQLiteStore(dbPath);
 const hostVersionLedgerPath = process.env.ENGINE_HOST_VERSION_LEDGER_DB_PATH
