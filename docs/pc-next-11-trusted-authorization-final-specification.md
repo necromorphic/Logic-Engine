@@ -50,7 +50,7 @@ NPC owns admission, belief and uncertainty semantics. It does not own canonical 
 | Memory record identity/version, grants, provenance, lineage and readiness | Memory Provider |
 | Field visibility and protected disclosure policy | Core |
 | NPC admission/belief/uncertainty | NPC |
-| Dispatch attempt, exact outbound bytes, route and sole transport | Host-owned PC Gateway |
+| Dispatch attempt, exact outbound bytes, route and sole transport | Security-owned PC Gateway |
 | Shared ordering and durable dispatch-start | Approved PC-side serialization authority, jointly enforced by Core, Provider and Gateway |
 
 No component may manufacture another component's authority. A signature or digest proves integrity/binding only; it does not replace current authorization.
