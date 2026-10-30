@@ -16,7 +16,7 @@ A snapshot is eligible only when all checks pass:
 
 - snapshot schema and evaluator input contract are supported;
 - its originating event ID equals the event from which Core read it;
-- its pinned World Pack ID/version equals the currently active World Pack ID/version;
+- its World Pack ID/version are present in the committed snapshot, and its exact declarative `dimensionRules` are part of the digest-protected evaluator input;
 - the exact rule module ID/version is present in the executable artifact allowlist;
 - all seven v1 evaluator input fields are present;
 - the embedded ruleVersion agrees with the module/version pin;
@@ -29,9 +29,9 @@ There is no latest-version fallback. Unknown or missing artifacts, malformed/inc
 
 The operation performs reads only. It does not commit events, update projections, increment world revision, append audit records, or rewrite the original event. The result is a new candidate for comparison with the committed effect, not a replacement decision.
 
-## Current World Pack limitation
+## Historical World Pack handling
 
-Core currently has no immutable executable World Pack artifact catalog. Therefore v1 conservatively permits historical evaluation only when the snapshot's exact World Pack pin matches the world's active World Pack pin. If the world has moved to another World Pack version, evaluation is unavailable even if the old declarative rules might still exist elsewhere. This avoids silently reconstructing old rules from mutable manifests.
+The current evaluator consumes declarative `dimensionRules`, not executable World Pack code. Those exact rules are persisted inside the committed evaluation-input snapshot and covered by its input digest, alongside the World Pack ID/version provenance. Historical evaluation therefore uses the captured rules even if the world has since moved to a different active World Pack version. It never reads current manifests to reconstruct old rules. If the snapshot lacks the World Pack pin or the captured rules/digest are invalid, evaluation fails closed. A future evaluator that consumes executable World Pack behavior requires a new input/evaluator contract and an immutable artifact mechanism.
 
 ## Explicit non-goals
 
