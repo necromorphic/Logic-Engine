@@ -233,6 +233,7 @@ async function enumerateStableFileInventoryOnRoot(rootPath, options = {}) {
       status: 'complete',
       root: reportedRoot ?? root,
       file_count: second.length,
+      total_bytes: totalBytes,
       ...(snapshotId ? { snapshot_id: snapshotId } : {}),
       snapshot_sha256: secondDigest,
       entries: second,
