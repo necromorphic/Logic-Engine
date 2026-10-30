@@ -24,9 +24,14 @@ const isWithin = (parent, candidate) => {
   const relative = path.relative(parent, candidate);
   return relative === '' || (!relative.startsWith('..' + path.sep) && relative !== '..' && !path.isAbsolute(relative));
 };
-const samePath = (left, right) => process.platform === 'win32'
-  ? left.toLowerCase() === right.toLowerCase()
-  : left === right;
+const normalizePath = value => {
+  let normalized = path.resolve(value);
+  if (process.platform === 'win32' && normalized.startsWith('\\\\?\\\\')) {
+    normalized = normalized.slice(4);
+  }
+  return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
+};
+const samePath = (left, right) => normalizePath(left) === normalizePath(right);
 const identityOf = stat => {
   if (stat.ino === 0n) fail('FILE_IDENTITY_UNAVAILABLE');
   return stat.dev.toString() + ':' + stat.ino.toString();
@@ -191,6 +196,7 @@ export async function enumeratePinnedSillyTavernChatFiles({
   const groupRoot = roots.groups;
   const groupChatRoot = roots.groupChats;
   const referencedGroupChats = new Set();
+  const groupIds = new Set();
 
   // Root-level chats and per-character chat directories.
   for (const entry of chatRoot.dirents) {
@@ -238,9 +244,10 @@ export async function enumeratePinnedSillyTavernChatFiles({
       fail('SOURCE_GROUP_METADATA_INVALID');
     }
     if (!group || typeof group !== 'object' || Array.isArray(group)
-      || !validLeaf(group.id) || !Array.isArray(group.chats)) {
+      || !validLeaf(group.id) || !Array.isArray(group.chats) || groupIds.has(group.id)) {
       fail('SOURCE_GROUP_METADATA_INVALID');
     }
+    groupIds.add(group.id);
     const localChats = new Set();
     for (const chatId of group.chats) {
       if (!validLeaf(chatId) || localChats.has(chatId) || referencedGroupChats.has(chatId)) {
