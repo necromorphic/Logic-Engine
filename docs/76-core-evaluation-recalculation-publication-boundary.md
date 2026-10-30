@@ -126,7 +126,7 @@ Changes to these boundaries require separately scoped, reviewed implementation s
 
 ## 10. Current-main revalidation — 30 October 2026
 
-This section supersedes the 25 October audit-base warning above for the specific current-main facts recorded here. Revalidation base: `fd8b31c55e66762cf4f2623a6749b9694a977114` (current main after the Provider coordinator-refinement merge on 30 October 2026). It does not claim that every historical test or open branch was rerun at this SHA.
+This section supersedes the 25 October audit-base warning above for the specific current-main facts recorded here. Revalidation base: `8c8b9059ae12af3a63e96eb7cb86851e12a6d925` (current main at 30 October 2026, after the subsequent documentation and Relationships fixture-test updates). This refreshes the source-reference pin; it does not claim that every historical test or open branch was rerun at this SHA.
 
 ### 10.1 Current ownership and execution path
 
@@ -139,7 +139,7 @@ This section supersedes the 25 October audit-base warning above for the specific
 
 ### 10.2 Bounded mechanic execution is still not the general pipeline
 
-Issue #226 remains the owner tracker for the bounded executor and recalculation strategy. The current-main implementation candidate is Draft PR #763; older candidates #737/#738 are superseded and must not be treated as the active integration line. PR #763's branch CI/review status must be checked on its exact head and must not be presented as merged-main behavior. The supported deterministic subset remains narrower than global dependency closure. The independent A/B/C harness is a test instrument, not a selected production strategy. No production-wide A/B/C default, automatic global recomputation, or arbitrary action-input/module/participant dependency semantics are approved by this document.
+Issue #226 remains the owner tracker for the bounded executor and recalculation strategy. The current-main implementation candidate is Draft PR #763 at exact head `949c4fbb9022d37405bc7c03dccd212ea83736f4`; Runtime CI [41046374467](https://github.com/necromorphic/Logic-Engine/actions/runs/41046374467) passed on that exact head. Older candidates #737/#738 are superseded and must not be treated as the active integration line. PR #763 is still a branch candidate, not merged-main behavior; independent maintainer review and deployment-policy acceptance remain outstanding. The supported deterministic subset remains narrower than global dependency closure. The independent A/B/C harness is a test instrument, not a selected production strategy. No production-wide A/B/C default, automatic global recomputation, or arbitrary action-input/module/participant dependency semantics are approved by this document.
 
 ### 10.3 Process recovery evidence and limits
 
@@ -147,7 +147,7 @@ The current Process Manager recovery contract is further recorded in `docs/78-pr
 
 ### 10.4 Publication and NPC boundary
 
-The internal authorized-read service remains narrower than final publication. The current bounded Memory Dispatch Gateway primitive does not establish production Host session authentication, complete Host inventory, sole final-send routing, or a serializer that can only emit the exact authorized payload. The Core/NPC acquisition-reader candidate is represented by Draft PRs #760/#764; the NPC-local restored-belief reducer is Draft PR #759. None is part of main or evidence of production wiring. Issues #140 and #264 remain the cross-block authorization, source-inventory, revocation, and final-disclosure gates. Production Memory → NPC remains **DISABLED / FAIL-CLOSED**.
+The internal authorized-read service remains narrower than final publication. The current bounded Memory Dispatch Gateway primitive does not establish production Host session authentication, complete Host inventory, sole final-send routing, or a serializer that can only emit the exact authorized payload. The Core/NPC acquisition-reader candidate is Draft PR #764 at exact head `277b4d6adf9672b2971cf877e79768df9d9088cf`; Runtime CI [41031580066](https://github.com/necromorphic/Logic-Engine/actions/runs/41031580066) and Provider blocker-3 CI [41031580198](https://github.com/necromorphic/Logic-Engine/actions/runs/41031580198) passed on that head. However, PR #764 is based on `52ad14d` while current main is `8c8b905`; main is three commits ahead. Its exact-head CI therefore does not include the latest main tree, and it still lacks deployment-configured read/visibility authorizers and independent Core/Security sign-off. The NPC-local restored-belief reducer is Draft PR #759. None is part of main or evidence of production wiring. Issues #140 and #264 remain the cross-block authorization, source-inventory, revocation, and final-disclosure gates. Production Memory → NPC remains **DISABLED / FAIL-CLOSED**.
 
 ### 10.5 Updated acceptance interpretation
 
