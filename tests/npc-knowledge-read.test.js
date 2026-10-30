@@ -64,6 +64,13 @@ function setup(t, authorizer = (scope) => ({
     world_pack_version: '1.0.0',
     game_time: '2026-01-01T00:00:00Z',
   });
+
+  store.db.prepare(`
+    INSERT INTO host_conversation_world_bindings(
+      adapter_id,conversation_id,world_id,active,created_at,updated_at
+    ) VALUES(?,?,?,1,datetime('now'),datetime('now'))
+  `).run(binding.adapter_id, binding.conversation_id, binding.world_id);
+
   engine.commitEvent('world-a', {
     event_id: 'author-seed',
     idempotency_key: 'author-seed-key',
@@ -1375,12 +1382,6 @@ test('NPC read and full belief-context authorization hold the shared Coordinator
     conversation_id: 'conversation-a',
     world_id: 'world-a',
   };
-  store.db.prepare(`
-    INSERT INTO host_conversation_world_bindings(
-      adapter_id,conversation_id,world_id,active,created_at,updated_at
-    ) VALUES(?,?,?,1,datetime('now'),datetime('now'))
-  `).run(binding.adapter_id, binding.conversation_id, binding.world_id);
-
   let blockedRevocationAttempts = 0;
   const assertRevocationBlocked = () => {
     assert.throws(() => competingStore.tx(() => {
