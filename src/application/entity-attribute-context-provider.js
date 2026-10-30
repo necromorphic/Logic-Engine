@@ -231,6 +231,11 @@ export class CanonicalEntityAttributeContextProvider {
       || !isMechanicPolicyAuthoritySnapshot(identity.policyAuthority)
       || !this.authorizedReadService
       || !this.authorizedReadService.isPolicyAuthorityCurrent(identity.policyAuthority)
+      || !this.authorizedReadService.isActorBindingCurrent({
+        worldId: identity.worldId,
+        adapterId: this.readPrincipal?.adapterId,
+        actorEntityId: this.readPrincipal?.actorEntityId,
+      })
       || !object(identity.snapshotIdentity)
       || identity.snapshotIdentity.world_id !== identity.worldId
       || !Number.isSafeInteger(identity.snapshotIdentity.world_revision)
