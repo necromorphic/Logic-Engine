@@ -18,7 +18,9 @@ defaults:
 
 jobs:
   pinned-source-audit:
-    runs-on: [self-hosted, Windows, X64]
+    # This audit only checks a pinned public source checkout; it needs no local
+    # SillyTavern installation or user data, so use a clean hosted Windows runner.
+    runs-on: windows-latest
     timeout-minutes: 15
     steps:
       - name: Checkout Logic-Engine
