@@ -1555,3 +1555,34 @@ test('executor rejects non-canonical action input instead of treating hidden pro
     (error) => error.code === 'INVALID_MECHANIC_ACTION_INPUT',
   );
 });
+
+
+test('executor rejects fact-set intents that reuse a fact ID with a different subject or predicate', (t) => {
+  const { engine, worldId } = setup(t, 'executor-fact-identity-world');
+  const value = template({
+    actions: [{
+      action_id: 'assert',
+      input_schema: { type: 'object' },
+      preconditions: [],
+      effects: [{
+        effect_id: 'assert-existing',
+        kind: 'assert_fact',
+        target_ref: 'fact.existing',
+        payload: { predicate: 'likes', value: true, subject_ref: 'entity.actor-context' },
+      }],
+      ambiguity_policy: 'deterministic_only',
+    }],
+  });
+  enableFixture(engine, worldId, value);
+  commit(engine, worldId, 'seed-fact-identity', 2, [
+    { kind: 'entity.create', entity_id: 'entity.other-context', entity_type: 'character' },
+    { kind: 'fact.set', fact_id: 'fact.existing', subject_ref: 'entity.other-context', predicate: 'likes', value: true },
+  ]);
+
+  const result = new MechanicExecutor(engine, { resolveAuthorizedContext: contextProvider() })
+    .evaluate({ worldId, instanceId: 'instance.executor', actionId: 'assert' });
+  assert.equal(result.status, 'unknown');
+  assert.equal(result.reason_code, 'MECHANIC_EFFECT_FACT_IDENTITY_MISMATCH');
+  assert.deepEqual(result.effects, []);
+  assert.equal(engine.getState(worldId).world_revision, 3);
+});
