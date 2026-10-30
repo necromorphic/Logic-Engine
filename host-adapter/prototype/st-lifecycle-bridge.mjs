@@ -476,8 +476,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
     }
     if (!inventory || inventory.status !== 'DOUBLE_SCAN_CANDIDATE'
       || inventory.authority !== 'NON_AUTHORITATIVE'
-      || inventory.completeness !== 'DOUBLE_SCAN_PATH_VIEW_ONLY'
-      && inventory.completeness !== 'DOUBLE_SCANNED_PATH_VIEW_ONLY'
+      || inventory.completeness !== 'DOUBLE_SCANNED_PATH_VIEW_ONLY'
       || inventory.host_commit !== PINNED_SILLYTAVERN_COMMIT
       || inventory.host_build_claim !== PINNED_SILLYTAVERN_COMMIT
       || inventory.host_build_claim_type !== 'DEPLOYMENT_ASSERTION_NOT_RUNTIME_ATTESTATION'
