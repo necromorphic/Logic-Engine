@@ -163,7 +163,7 @@ A future NPC-owned repository boundary should expose only bounded operations equ
 - list bounded pending reconciliation work;
 - read the NPC-local revision/audit history needed for diagnosis.
 
-These are conceptual operations, not approved function names or a public API.
+These are conceptual operations, not a public API. The proposed internal operation semantics, failure classes, atomicity requirements, and test contract are specified in `docs/99-npc-goal-plan-repository-interface-contract.md`; implementation remains blocked by the gates listed there.
 
 A store mutation must atomically persist the domain record change, current-plan pointer update (where relevant), local audit entry, and local idempotency outcome. The storage engine/file layout is intentionally not selected here. `docs/03` says the production storage and physical-isolation strategy remain open; A1 requires logical and physical separation from Core's canonical SQLite store, but does not require SQLite for the NPC store.
 
