@@ -52,6 +52,20 @@ SillyTavern lifecycle patch SHA-256: `4c79329ce1fcab2b782b12ff59875e6b465883c2f6
 
 The existing pinned SillyTavern lifecycle patch artifact is already tracked at `host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch`; the delete-safety candidate modifies that artifact. The candidate Logic-Engine patch is provided above for reproducibility; it has not yet been ported to a fresh current-main checkout.
 
+
+
+## SillyTavern candidate patch artifact
+
+The pinned SillyTavern candidate patch ZIP is committed as Base64 text:
+`docs/review-candidates/artifacts/issue258-sillytavern-lifecycle-candidate.zip.b64`
+
+Decode with the same PowerShell procedure, changing the input filename to
+`issue258-sillytavern-lifecycle-candidate.zip.b64` and output filename to
+`issue258-sillytavern-lifecycle-candidate.zip`.
+
+ZIP SHA-256: `e3f1265495bddb7b1e291f8787b6338835171b4ac2727bf8a2f0fc7b8f3d4ec9`
+Contained patch SHA-256: `4c79329ce1fcab2b782b12ff59875e6b465883c2f6eaf1e6331dd6cbad244f23`
+
 ## PC test boundary
 
 Use only isolated copies:
