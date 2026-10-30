@@ -5,6 +5,12 @@ on:
     paths:
       - "host-adapter/prototype/**"
       - ".github/workflows/host-lifecycle-patch-check.yml"
+  push:
+    branches:
+      - "work/priority1-combined-host-patch-stack-*"
+    paths:
+      - "host-adapter/prototype/**"
+      - ".github/workflows/host-lifecycle-patch-check.yml"
 
 permissions:
   contents: read
