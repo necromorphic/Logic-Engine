@@ -55,10 +55,10 @@ export class AuthorizedReadService {
   }
 
   _authorizeField(context, entity, field, evidence) {
-    if (this.policyAuthority) {
-      return this.policyAuthority.authorizeField(context, entity, field, evidence) === true;
-    }
     try {
+      if (this.policyAuthority) {
+        return this.policyAuthority.authorizeField(context, entity, field, evidence) === true;
+      }
       return this.fieldPolicy(context, Object.freeze({ ...entity }), field) === true;
     } catch {
       return false;
