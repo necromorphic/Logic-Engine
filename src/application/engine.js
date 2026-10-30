@@ -8,6 +8,7 @@ import { isMechanicPolicyAuthoritySnapshot } from './mechanic-policy-authority.j
 import { validateEffects } from '../core/rules.js';
 import { validateTrustedInitialKnowledgeSource } from './trusted-initial-knowledge-source.js';
 import { validateNpcKnowledgeRead, validateNpcKnowledgeReadInput } from './npc-knowledge-read.js';
+import { isNpcKnowledgePolicyAuthority, isNpcKnowledgePolicyAuthoritySnapshot } from './npc-knowledge-policy-authority.js';
 import { buildNpcBeliefContext, npcPropositionRefFor, reduceNpcBeliefTransition } from './npc-belief-state.js';
 import { validateMechanicTemplate, validateRuleModuleManifest } from '../core/mechanics.js';
 import { normalizeTimeTrigger, planDueWork } from '../time/scheduler.js';
@@ -84,13 +85,30 @@ function withNpcAuthorizationLease(store, callback) {
   }
 }
 
-function revalidateNpcKnowledgeReadAuthorization(engine, request, snapshot, expectedAuthorizationRef) {
+function revalidateNpcKnowledgeReadAuthorization(engine, request, snapshot, expectedAuthorizationRef, expectedPolicyAuthority = null) {
   if (!snapshot || snapshot.status !== 'active'
     || snapshot.world_id !== request.world_id
     || snapshot.world_revision !== request.expected_revision
     || snapshot.commit_sequence !== request.expected_commit_sequence) {
     throw new EngineError('NPC_KNOWLEDGE_READ_NOT_READY',
       'NPC knowledge snapshot changed during authorization; retry from a fresh snapshot.', 409);
+  }
+
+  if (expectedPolicyAuthority !== null) {
+    let currentPolicy = null;
+    try {
+      currentPolicy = engine.npcKnowledgePolicyAuthority?.getSnapshot();
+    } catch {
+      currentPolicy = null;
+    }
+    if (!isNpcKnowledgePolicyAuthoritySnapshot(currentPolicy)
+      || !engine.npcKnowledgePolicyAuthority.isCurrent(expectedPolicyAuthority)
+      || currentPolicy.authority_id !== expectedPolicyAuthority.authority_id
+      || currentPolicy.generation !== expectedPolicyAuthority.generation
+      || currentPolicy.snapshot_fingerprint !== expectedPolicyAuthority.snapshot_fingerprint) {
+      throw new EngineError('NPC_KNOWLEDGE_READ_NOT_AUTHORIZED',
+        'NPC knowledge policy authority changed during the read.', 403);
+    }
   }
 
   if (typeof engine.npcKnowledgeContextResolver === 'function') {
@@ -128,7 +146,9 @@ function revalidateNpcKnowledgeReadAuthorization(engine, request, snapshot, expe
   } catch {
     authorization = null;
   }
-  const checked = validateNpcKnowledgeRead(request, snapshot, snapshot.commit_sequence, authorization);
+  const checked = validateNpcKnowledgeRead(
+    request, snapshot, snapshot.commit_sequence, authorization, expectedPolicyAuthority,
+  );
   if (checked.status !== 'ready'
     || (expectedAuthorizationRef !== undefined
       && checked.request.authorization_ref !== expectedAuthorizationRef)) {
@@ -293,15 +313,18 @@ function validateIndependentSegment(events) {
 }
 
 export class LogicEngine {
-  constructor(store, { trustedInitialKnowledgeSources = [], worldPackCatalog = null, npcKnowledgeContextResolver = null, npcKnowledgeReadAuthorizer = null, npcKnowledgeVisibilityAuthorizer = null } = {}) {
+  constructor(store, { trustedInitialKnowledgeSources = [], worldPackCatalog = null, npcKnowledgeContextResolver = null, npcKnowledgePolicyAuthority = null, npcKnowledgeReadAuthorizer = null, npcKnowledgeVisibilityAuthorizer = null } = {}) {
     if (!Array.isArray(trustedInitialKnowledgeSources)) throw new TypeError('trustedInitialKnowledgeSources must be a deployment-owned array');
     this.trustedInitialKnowledgeSources = trustedInitialKnowledgeSources.map((entry) => Object.freeze({ ...entry }));
     if (worldPackCatalog !== null && typeof worldPackCatalog.resolve !== 'function') throw new TypeError('worldPackCatalog must provide resolve(worldPackId, version)');
     this.worldPackCatalog = worldPackCatalog;
     if (npcKnowledgeContextResolver !== null && (typeof npcKnowledgeContextResolver !== 'function' || npcKnowledgeContextResolver instanceof ASYNC_FUNCTION_PROTOTYPE)) throw new TypeError('npcKnowledgeContextResolver must be a synchronous deployment-owned function');
+    if (npcKnowledgePolicyAuthority !== null && !isNpcKnowledgePolicyAuthority(npcKnowledgePolicyAuthority)) throw new TypeError('npcKnowledgePolicyAuthority must be a trusted versioned Core policy authority');
+    if (npcKnowledgeContextResolver !== null && npcKnowledgePolicyAuthority === null) throw new TypeError('npcKnowledgePolicyAuthority is required with npcKnowledgeContextResolver');
     if (npcKnowledgeReadAuthorizer !== null && (typeof npcKnowledgeReadAuthorizer !== 'function' || npcKnowledgeReadAuthorizer instanceof ASYNC_FUNCTION_PROTOTYPE)) throw new TypeError('npcKnowledgeReadAuthorizer must be a synchronous deployment-owned function');
     if (npcKnowledgeVisibilityAuthorizer !== null && (typeof npcKnowledgeVisibilityAuthorizer !== 'function' || npcKnowledgeVisibilityAuthorizer instanceof ASYNC_FUNCTION_PROTOTYPE)) throw new TypeError('npcKnowledgeVisibilityAuthorizer must be a synchronous deployment-owned function');
     this.npcKnowledgeContextResolver = npcKnowledgeContextResolver;
+    this.npcKnowledgePolicyAuthority = npcKnowledgePolicyAuthority;
     this.npcKnowledgeReadAuthorizer = npcKnowledgeReadAuthorizer;
     this.npcKnowledgeVisibilityAuthorizer = npcKnowledgeVisibilityAuthorizer;
     this.store = store;
