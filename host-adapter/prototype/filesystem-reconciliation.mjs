@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 
 /**
  * Conservative bridge between the generic filesystem scanner and the existing
@@ -30,6 +30,23 @@ export async function reconcileFilesystemInventory({
     || inventory.file_count !== inventory.entries.length
     || !/^[a-f0-9]{64}$/.test(inventory.snapshot_sha256 ?? '')) {
     return fail('filesystem inventory is incomplete, unsupported, or outside the approved root');
+  }
+  const paths = new Set();
+  let previousPath = null;
+  for (const entry of inventory.entries) {
+    if (!entry || typeof entry.path !== 'string' || !entry.path
+      || entry.path.startsWith('/') || entry.path.split('/').some(part => !part || part === '.' || part === '..')
+      || paths.has(entry.path) || (previousPath !== null && entry.path.localeCompare(previousPath) < 0)
+      || !entry.identity || typeof entry.identity !== 'object'
+      || !/^[a-f0-9]{64}$/.test(entry.sha256 ?? '')) {
+      return fail('filesystem inventory contains malformed, duplicate, or unsafe entries');
+    }
+    paths.add(entry.path);
+    previousPath = entry.path;
+  }
+  const computedSnapshot = createHash('sha256').update(JSON.stringify(inventory.entries)).digest('hex');
+  if (computedSnapshot !== inventory.snapshot_sha256) {
+    return fail('filesystem inventory fingerprint does not match its entries');
   }
   const integrity = await journal.verifyIntegrity(conversationId);
   if (integrity.status !== 'INTEGRITY_OK') return fail('Host lifecycle journal is not integrity-verified', { cause: integrity.reason });
