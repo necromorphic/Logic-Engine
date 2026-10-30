@@ -190,6 +190,30 @@ function advanceNpcPlanUnsafe(plan, event) {
 }
 
 
+/**
+ * Read the current active step without applying or inventing a progress event.
+ * Only a structurally valid active plan has a current executable step.
+ */
+function getNpcPlanActiveStepUnsafe(plan) {
+  if (!validatePlan(plan) || plan.status !== "active") {
+    return Object.freeze({ status: "non_ready", step: null });
+  }
+  const active = plan.steps.find((step) => step.status === "active");
+  return Object.freeze({
+    status: "ready",
+    step: Object.freeze({ id: active.id, action_id: active.action_id }),
+  });
+}
+
+/** Reflection traps from malformed objects must not escape the NPC boundary. */
+export function getNpcPlanActiveStep(plan) {
+  try {
+    return getNpcPlanActiveStepUnsafe(plan);
+  } catch {
+    return Object.freeze({ status: "non_ready", step: null });
+  }
+}
+
 /** Reflection traps from malformed objects must not escape the NPC boundary. */
 export function advanceNpcPlan(plan, event) {
   try {
