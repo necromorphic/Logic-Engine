@@ -66,7 +66,7 @@ async function inspectDirectory(directory, expectedParent = null) {
   } catch {
     fail('SOURCE_DIRECTORY_UNAVAILABLE');
   }
-  if (!samePath(real, absolute) || (expectedParent && !isWithin(expectedParent, real))) {
+  if (!samePath(real, absolute) || (expectedParent && !isWithin(normalizePath(expectedParent), normalizePath(real)))) {
     fail('SOURCE_PATH_ESCAPE_OR_REPARSE');
   }
 
