@@ -375,7 +375,7 @@ Issue #264's second explicit Core approval remains required before any cross-blo
 
 ## 16. Source and decision traceability
 
-This specification is grounded in the following current-main contracts and implementation findings, checked against main `15b5edad03e978e17f41a3df7a7682a9a65685e3`:
+This specification is grounded in the following current-main contracts and implementation findings, checked against main `6c60b3e6023d2b3f8be800d9f21daa0993d16518`:
 
 - `docs/57-private-host-core-memory-npc-adapter-contract.md`: ownership, separate Lane A/Lane B semantics, Host session and sole-Gateway responsibility, actor binding, source versions and existing fail-closed boundary contract.
 - `docs/architecture/core-final-disclosure-authorization-contract.md`: Core's required PC-side serialized final-disclosure/dispatch-start authority, exact request binding, all-writer participation, crash/retry and anti-rollback acceptance.
