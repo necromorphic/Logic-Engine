@@ -1,6 +1,6 @@
 # Core-Owned NPC Belief Transition Runtime
 
-**Status:** current-main port candidate in draft integration work. Not production-enabled. No prompt dispatch or HTTP route is added.
+**Status:** implementation present on main; internal-only and not production-enabled. No prompt dispatch or HTTP route is added.
 
 ## Ownership
 
