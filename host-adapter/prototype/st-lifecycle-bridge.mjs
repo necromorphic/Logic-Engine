@@ -3,6 +3,8 @@ import { contentDigest, fingerprintSource } from './lifecycle-journal.mjs';
 const rawVersions = message => Array.isArray(message.swipes) && message.swipes.length ? message.swipes : [message.mes ?? ''];
 const roleOf = message => message.is_user ? 'user' : message.is_system ? 'system' : 'assistant';
 const activeIndex = message => Number.isInteger(message.swipe_id) ? message.swipe_id : 0;
+const HOST_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const PINNED_SILLYTAVERN_COMMIT = '06bde939fb1e9c4c8d8641d810f0a916b5bce127';
 const CURRENTLY_HOOKED_PATHS = Object.freeze(['create-message', 'message-send', 'message-receive', 'create-swipe', 'select-swipe', 'delete-swipe', 'delete-message', 'edit-message', 'rename-chat']);
 const newId = () => {
   if (!globalThis.crypto?.randomUUID) throw Error('crypto.randomUUID unavailable; Host capture NON_READY');
@@ -13,10 +15,11 @@ const newId = () => {
  * Opt-in adapter boundary for explicit native ST hooks.
  * This is not a complete inventory until every mutation path is wired and tested.
  */
-export function createStLifecycleBridge({ journal, getConversationId, getSourceLocator = () => null, getChat, saveChat, publishDigest = null, publishSnapshot = null }) {
+export function createStLifecycleBridge({ journal, getConversationId, getSourceLocator = () => null, getChat, saveChat, publishDigest = null, publishSnapshot = null, getPersistedInventory = null }) {
   if (!journal || !getConversationId || !getChat || !saveChat) throw TypeError('Missing Host lifecycle bridge dependency');
   if (publishDigest !== null && typeof publishDigest !== 'function') throw TypeError('publishDigest must be a trusted callback');
   if (publishSnapshot !== null && typeof publishSnapshot !== 'function') throw TypeError('publishSnapshot must be a trusted callback');
+  if (getPersistedInventory !== null && typeof getPersistedInventory !== 'function') throw TypeError('getPersistedInventory must be a trusted callback');
   const publishQueues = new Map();
   const coreCaptureStates = new Map();
 
@@ -449,9 +452,107 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
     return { sequence: event.sequence, messageCount: chat.length, status: 'REVIEW_ONLY', coreCaptureStatus: coreCapture.status };
   }
 
+  async function verifyPersistedInventory(conversationId = null) {
+    const id = conversationId ?? await getConversationId();
+    if (typeof id !== 'string') return { status: 'NON_READY', reason: 'Host conversation identity unavailable' };
+    const parts = id.split(':');
+    if (parts.length !== 3 || !parts.every(part => HOST_UUID.test(part))) {
+      return { status: 'NON_READY', reason: 'Host conversation identity is not session/install/conversation bound' };
+    }
+    if (typeof getPersistedInventory !== 'function') {
+      return { status: 'NON_READY', reason: 'persisted Host inventory route unavailable' };
+    }
+
+    let inventory;
+    try {
+      inventory = await getPersistedInventory();
+    } catch {
+      return { status: 'NON_READY', reason: 'persisted Host inventory request failed' };
+    }
+    if (!inventory || inventory.status !== 'DOUBLE_SCAN_CANDIDATE'
+      || inventory.authority !== 'NON_AUTHORITATIVE'
+      || inventory.completeness !== 'DOUBLE_SCAN_PATH_VIEW_ONLY'
+      && inventory.completeness !== 'DOUBLE_SCANNED_PATH_VIEW_ONLY'
+      || inventory.host_commit !== PINNED_SILLYTAVERN_COMMIT
+      || inventory.host_build_claim !== PINNED_SILLYTAVERN_COMMIT
+      || inventory.host_build_claim_type !== 'DEPLOYMENT_ASSERTION_NOT_RUNTIME_ATTESTATION'
+      || inventory.host_session_id !== parts[0]
+      || inventory.host_session_identity !== 'SIGNED_AUTHENTICATED_ST_SESSION'
+      || typeof inventory.host_user_handle !== 'string'
+      || inventory.host_user_handle !== inventory.authenticated_user_handle
+      || inventory.requested_conversation_uuid !== parts[2]
+      || !/^[a-f0-9]{64}$/.test(inventory.inventory_sha256)
+      || !Array.isArray(inventory.files)) {
+      return { status: 'NON_READY', reason: 'persisted Host inventory is not bound to the current authenticated conversation' };
+    }
+
+    const matches = inventory.files.filter(file =>
+      file?.logical_identity?.conversation_uuid === parts[2]);
+    if (matches.length !== 1) {
+      return { status: 'NON_READY', reason: 'persisted Host inventory does not contain exactly one current conversation' };
+    }
+    const logical = matches[0].logical_identity;
+    const chat = getChat();
+    if (!logical || logical.identity_status !== 'CURRENT_IDENTITIES_VERIFIED'
+      || logical.missing_message_identity_count !== 0
+      || !Array.isArray(logical.messages) || !Array.isArray(chat)
+      || logical.messages.length !== chat.length
+      || logical.message_count !== chat.length
+      || logical.identified_message_count !== chat.length) {
+      return { status: 'NON_READY', reason: 'persisted Host conversation identity inventory is incomplete' };
+    }
+
+    let versionCount = 0;
+    for (let messageIndex = 0; messageIndex < chat.length; messageIndex++) {
+      const message = chat[messageIndex];
+      const identity = message?._logicEngineLifecycle;
+      const persisted = logical.messages[messageIndex];
+      const versions = rawVersions(message);
+      if (!identity || !persisted || persisted.message_id !== identity.messageId
+        || persisted.active_version_index !== identity.activeVersionIndex
+        || identity.activeVersionIndex !== activeIndex(message)
+        || !Array.isArray(persisted.versions) || !Array.isArray(identity.versions)
+        || persisted.versions.length !== versions.length
+        || identity.versions.length !== versions.length) {
+        return { status: 'NON_READY', reason: 'persisted Host message identity differs from the active conversation' };
+      }
+      for (let versionIndex = 0; versionIndex < versions.length; versionIndex++) {
+        const currentVersion = identity.versions[versionIndex];
+        const persistedVersion = persisted.versions[versionIndex];
+        const actualDigest = await contentDigest(versions[versionIndex]);
+        if (!currentVersion || !persistedVersion
+          || persistedVersion.version_index !== versionIndex
+          || persistedVersion.version_id !== currentVersion.versionId
+          || persistedVersion.parent_version_id !== (currentVersion.parentVersionId ?? null)
+          || persistedVersion.content_sha256 !== currentVersion.payloadDigest
+          || persistedVersion.content_sha256 !== actualDigest
+          || persistedVersion.active !== (versionIndex === identity.activeVersionIndex)) {
+          return { status: 'NON_READY', reason: 'persisted Host version identity or digest differs from the active conversation' };
+        }
+        versionCount++;
+      }
+    }
+
+    return Object.freeze({
+      status: 'MATCHED_NON_AUTHORITATIVE',
+      authority: 'NON_AUTHORITATIVE',
+      completeness: inventory.completeness,
+      host_session_bound: true,
+      installation_attestation: false,
+      conversation_uuid: parts[2],
+      message_count: chat.length,
+      version_count: versionCount,
+      inventory_sha256: inventory.inventory_sha256,
+    });
+  }
+
   async function syncCurrentDigestInventory() {
     const conversationId = await getConversationId();
     if (!conversationId || !(await enrolledOrFailClosed(conversationId))) return { status: 'NOT_ENROLLED' };
+    if (getPersistedInventory) {
+      const persisted = await verifyPersistedInventory(conversationId);
+      if (persisted.status !== 'MATCHED_NON_AUTHORITATIVE') return persisted;
+    }
     const integrity = await journal.verifyIntegrity(conversationId);
     if (integrity.status !== 'INTEGRITY_OK') return { status: 'NON_READY', reason: integrity.reason };
     const chat = getChat();
@@ -481,6 +582,9 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
   async function reconcileCurrentConversation() {
     const conversationId = await getConversationId();
     if (!conversationId || !(await enrolledOrFailClosed(conversationId))) return { status: 'NOT_ENROLLED' };
+    const persisted = getPersistedInventory
+      ? await verifyPersistedInventory(conversationId) : null;
+    if (persisted && persisted.status !== 'MATCHED_NON_AUTHORITATIVE') return persisted;
     const integrity = await journal.verifyIntegrity(conversationId);
     if (integrity.status !== 'INTEGRITY_OK') return integrity;
     const current = await currentFingerprint();
@@ -559,10 +663,15 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
     }
     // Integrity is not completeness: this patch does not intercept every mutation
     // path. Keep reconciliation NON_READY until all required paths are wired.
-    return journal.status(conversationId, {
+    const readiness = await journal.status(conversationId, {
       instrumentedPaths: CURRENTLY_HOOKED_PATHS,
       sourceFingerprintMatches: true,
     });
+    return persisted ? Object.freeze({
+      ...readiness,
+      persistedInventoryStatus: persisted.status,
+      persistedInventorySha256: persisted.inventory_sha256,
+    }) : readiness;
   }
 
   return Object.freeze({
@@ -570,6 +679,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
     beforeMutation,
     afterMutation,
     syncCurrentDigestInventory,
+    verifyPersistedInventory,
     getCoreCaptureStatus,
     currentFingerprint,
     reconcileCurrentConversation,
