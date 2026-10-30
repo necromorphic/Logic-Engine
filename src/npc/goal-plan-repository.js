@@ -19,16 +19,62 @@ function nonEmpty(value) {
   return typeof value === "string" && value.trim().length > 0;
 }
 
+const INTRINSIC_OBJECT_PROTOTYPE_KEYS = [
+  "constructor", "__defineGetter__", "__defineSetter__", "hasOwnProperty",
+  "__lookupGetter__", "__lookupSetter__", "isPrototypeOf", "propertyIsEnumerable",
+  "toString", "valueOf", "__proto__", "toLocaleString",
+];
+const INTRINSIC_ARRAY_ITERATOR = Array.prototype[Symbol.iterator];
+
+function safeObjectPrototype() {
+  try {
+    const keys = Reflect.ownKeys(Object.prototype);
+    for (let i = 0; i < keys.length; i += 1) {
+      const key = keys[i];
+      let allowed = false;
+      for (let j = 0; j < INTRINSIC_OBJECT_PROTOTYPE_KEYS.length; j += 1) {
+        if (INTRINSIC_OBJECT_PROTOTYPE_KEYS[j] === key) allowed = true;
+      }
+      if (typeof key !== "string" || !allowed) return false;
+      const descriptor = Object.getOwnPropertyDescriptor(Object.prototype, key);
+      if (!descriptor) return false;
+      if (key === "__proto__") {
+        if (!Object.hasOwn(descriptor, "get") || !Object.hasOwn(descriptor, "set")) return false;
+      } else if (!Object.hasOwn(descriptor, "value")) {
+        return false;
+      }
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function safeArrayIterator() {
+  try {
+    const descriptor = Object.getOwnPropertyDescriptor(Array.prototype, Symbol.iterator);
+    return descriptor != null
+      && Object.hasOwn(descriptor, "value")
+      && descriptor.value === INTRINSIC_ARRAY_ITERATOR;
+  } catch {
+    return false;
+  }
+}
+
 function plainData(value) {
-  if (value === null || typeof value !== "object" || Array.isArray(value) || utilTypes.isProxy(value)) return false;
+  if (!safeObjectPrototype()
+    || value === null || typeof value !== "object" || Array.isArray(value) || utilTypes.isProxy(value)) return false;
   try {
     const prototype = Object.getPrototypeOf(value);
     if (prototype !== Object.prototype && prototype !== null) return false;
-    return Reflect.ownKeys(value).every((key) => {
+    const keys = Reflect.ownKeys(value);
+    for (let i = 0; i < keys.length; i += 1) {
+      const key = keys[i];
       if (typeof key !== "string") return false;
       const descriptor = Object.getOwnPropertyDescriptor(value, key);
-      return descriptor !== undefined && Object.hasOwn(descriptor, "value");
-    });
+      if (descriptor === undefined || !Object.hasOwn(descriptor, "value")) return false;
+    }
+    return true;
   } catch {
     return false;
   }
@@ -43,6 +89,7 @@ function dataCopy(value, seen = new Set()) {
   seen.add(value);
   try {
     if (Array.isArray(value)) {
+      if (!safeArrayIterator()) throw new NpcGoalPlanRepositoryError("array prototype is not trusted", "invalid_input");
       const output = [];
       for (let i = 0; i < value.length; i += 1) {
         const descriptor = Object.getOwnPropertyDescriptor(value, String(i));
@@ -55,7 +102,18 @@ function dataCopy(value, seen = new Set()) {
     }
     if (!plainData(value)) throw new NpcGoalPlanRepositoryError("plain data objects are required", "invalid_input");
     const output = Object.create(null);
-    for (const key of Object.keys(value).sort()) {
+    const keys = Object.keys(value);
+    for (let i = 1; i < keys.length; i += 1) {
+      let cursor = i;
+      while (cursor > 0 && keys[cursor] < keys[cursor - 1]) {
+        const previous = keys[cursor - 1];
+        keys[cursor - 1] = keys[cursor];
+        keys[cursor] = previous;
+        cursor -= 1;
+      }
+    }
+    for (let i = 0; i < keys.length; i += 1) {
+      const key = keys[i];
       output[key] = dataCopy(Object.getOwnPropertyDescriptor(value, key).value, seen);
     }
     return output;
