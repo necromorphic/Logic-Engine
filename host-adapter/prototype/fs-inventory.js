@@ -215,6 +215,19 @@ async function enumerateStableFileInventoryOnRoot(rootPath, options = {}) {
 
 
 /**
+ * Scan only through an active, process-local VSS lease. Exported for integration
+ * tests and tightly-scoped Host orchestration; fabricated or expired leases fail.
+ */
+export async function enumerateStableFileInventoryFromWindowsSnapshot(lease) {
+  if (!isActiveWindowsVssSnapshot(lease)) return fail('HOST_INVENTORY_WINDOWS_SNAPSHOT_UNTRUSTED');
+  return enumerateStableFileInventoryOnRoot(lease.snapshotRoot, {
+    allowSnapshotWithoutNoFollow: true,
+    reportedRoot: lease.root,
+    snapshotId: lease.snapshotId,
+  });
+}
+
+/**
  * Windows inventory is read only from a VSS point-in-time snapshot. The VSS
  * provider audits FILE_ATTRIBUTE_REPARSE_POINT on every descendant before the
  * scanner opens any file. If VSS or the reparse audit is unavailable, return
@@ -226,12 +239,7 @@ export async function enumerateStableFileInventory(rootPath) {
   }
   try {
     return await withWindowsVssSnapshot(rootPath, async lease => {
-      if (!isActiveWindowsVssSnapshot(lease)) return fail('HOST_INVENTORY_WINDOWS_SNAPSHOT_UNTRUSTED');
-      const inventory = await enumerateStableFileInventoryOnRoot(lease.snapshotRoot, {
-        allowSnapshotWithoutNoFollow: true,
-        reportedRoot: resolve(rootPath),
-        snapshotId: lease.snapshotId,
-      });
+      const inventory = await enumerateStableFileInventoryFromWindowsSnapshot(lease);
       if (inventory.status !== 'complete') return inventory;
       return Object.freeze({
         ...inventory,
