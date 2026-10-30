@@ -84,24 +84,24 @@ export function createHostBoundNpcKnowledgeAuthorizers({
   }
 
   function activeHostAndActorBinding(scope) {
-    if (!scope) return false;
+    if (!scope) return null;
     const binding = resolveContext({
       adapter_id: scope.adapter_id,
       conversation_id: scope.conversation_id,
     });
-    return Boolean(binding
-      && binding.world_id === scope.world_id
-      && binding.actor_id === scope.actor_id);
+    if (!binding || binding.world_id !== scope.world_id || binding.actor_id !== scope.actor_id) return null;
+    return binding;
   }
 
   function readAuthorizer(scope) {
-    if (!activeHostAndActorBinding(scope)) return null;
+    const binding = activeHostAndActorBinding(scope);
+    if (!binding) return null;
     return Object.freeze({
       status: 'authorized',
-      world_id: scope.world_id,
-      conversation_id: scope.conversation_id,
-      adapter_id: scope.adapter_id,
-      actor_id: scope.actor_id,
+      world_id: binding.world_id,
+      conversation_id: binding.conversation_id,
+      adapter_id: binding.adapter_id,
+      actor_id: binding.actor_id,
       recipient: scope.recipient,
       purpose: scope.purpose,
       world_revision: scope.world_revision,
