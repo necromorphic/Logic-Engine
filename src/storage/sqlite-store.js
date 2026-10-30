@@ -831,6 +831,36 @@ export class SQLiteStore {
     try { this.db.close(); } finally { this.coordinatorDb?.close(); }
   }
 
+  /**
+   * Hold the shared Core/Provider coordinator without opening a Core write
+   * transaction. Use this around trusted external authorization and the
+   * immediately following local commit when revocation must not interleave.
+   * The callback must remain synchronous for the full lease.
+   */
+  withCoordinatorLease(fn) {
+    requireSynchronousCallback(fn, 'SQLiteStore.withCoordinatorLease callback');
+    const ownsLease = this.coordinatorLeaseDepth === 0;
+    if (ownsLease && this.coordinatorDb) {
+      this.coordinatorRelease = beginCoordinatorLock(this.coordinatorDb);
+    }
+    this.coordinatorLeaseDepth += 1;
+    try {
+      const result = fn();
+      if (result !== null && (typeof result === 'object' || typeof result === 'function')
+        && typeof result.then === 'function') {
+        throw new TypeError('SQLiteStore.withCoordinatorLease callback must be synchronous; do not await while a coordinator lease is held.');
+      }
+      return result;
+    } finally {
+      this.coordinatorLeaseDepth -= 1;
+      if (ownsLease && this.coordinatorDb) {
+        const release = this.coordinatorRelease;
+        this.coordinatorRelease = null;
+        release?.();
+      }
+    }
+  }
+
   tx(fn) {
     requireSynchronousCallback(fn, 'SQLiteStore.tx callback');
     if (this.txDepth > 0) {
