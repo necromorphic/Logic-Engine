@@ -4,6 +4,7 @@ import { existsSync, linkSync, mkdtempSync, rmSync, unlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { Worker } from 'node:worker_threads';
 
 const extensionPath = process.env.LOGIC_ENGINE_VFS_PROBE_PATH;
 
@@ -25,6 +26,41 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
   } finally {
     bootstrap.close();
   }
+
+  // Node worker threads must see the same process-default VFS and auto-extension
+  // registration, or file-backed opens in a worker could bypass the identity gate.
+  const workerPath = join(directory, 'worker.sqlite');
+  const workerResult = await new Promise((resolve, reject) => {
+    const worker = new Worker(`
+      const { parentPort, workerData } = require('node:worker_threads');
+      const { DatabaseSync } = require('node:sqlite');
+      const bootstrap = new DatabaseSync(':memory:', { allowExtension: true });
+      try {
+        bootstrap.loadExtension(workerData.extensionPath, 'sqlite3_secure_vfs_probe_init');
+        bootstrap.enableLoadExtension(false);
+      } finally {
+        bootstrap.close();
+      }
+      const db = new DatabaseSync(workerData.path);
+      try {
+        db.exec('CREATE TABLE worker_probe(value TEXT);');
+        parentPort.postMessage({
+          openCount: db.prepare('SELECT logic_engine_vfs_probe_open_count() AS count').get().count,
+          sqliteVersion: db.prepare('SELECT sqlite_version() AS version').get().version
+        });
+      } finally {
+        db.close();
+      }
+    `, { eval: true, workerData: { extensionPath, path: workerPath } });
+    worker.once('message', resolve);
+    worker.once('error', reject);
+    worker.once('exit', (code) => {
+      if (code !== 0) reject(new Error(`VFS worker exited with code ${code}`));
+    });
+  });
+  assert.ok(workerResult.openCount > 0,
+    'a worker thread must route its file-backed DatabaseSync through the registered VFS');
+  assert.equal(workerResult.sqliteVersion, '3.47.2');
 
   const corePath = join(directory, 'core.sqlite');
   const first = new DatabaseSync(corePath);
