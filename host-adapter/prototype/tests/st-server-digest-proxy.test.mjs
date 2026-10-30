@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createHostDigestProxyHandler } from '../st-server-digest-proxy.mjs';
+import { createHostDigestProxyHandler, createHostInventoryReconcileProxyHandler } from '../st-server-digest-proxy.mjs';
 
 const CONFIG = {
   LOGIC_ENGINE_CORE_URL: 'http://192.168.1.10:8787',
@@ -102,4 +102,84 @@ test('proxy maps upstream transport failures to a generic response without leaki
   assert.equal(response.statusCode, 502);
   assert.equal(response.payload.error.code, 'LOGIC_ENGINE_UNREACHABLE');
   assert.equal(JSON.stringify(response.payload).includes('private upstream secret'), false);
+});
+
+
+test('reconciliation proxy forwards a bounded digest-only snapshot to the Core reconciliation route', async () => {
+  const snapshot = {
+    conversation_id: 'chat-1',
+    complete: false,
+    versions: [{
+      message_id: 'message-1',
+      version_id: 'version-1',
+      parent_version_id: null,
+      content_sha256: 'b'.repeat(64),
+      active: true,
+      deleted: false,
+    }],
+  };
+  let observed;
+  const handler = createHostInventoryReconcileProxyHandler({
+    env: CONFIG,
+    fetchImpl: async (url, options) => {
+      observed = { url: String(url), options };
+      return {
+        status: 409,
+        json: async () => ({
+          inventory_status: 'NON_READY',
+          reconciliation: { status: 'non_ready', code: 'HOST_INVENTORY_NOT_AUTHORIZED' },
+        }),
+      };
+    },
+  });
+  const response = responseRecorder();
+  await handler({ body: snapshot }, response);
+  assert.equal(response.statusCode, 409);
+  assert.equal(response.payload.inventory_status, 'NON_READY');
+  assert.equal(observed.url, 'http://192.168.1.10:8787/v1/host-version-ledger/reconcile');
+  assert.equal(observed.options.headers.authorization, 'Bearer ' + CONFIG.LOGIC_ENGINE_API_TOKEN);
+  assert.equal(observed.options.headers['x-adapter-id'], CONFIG.LOGIC_ENGINE_ADAPTER_ID);
+  assert.deepEqual(JSON.parse(observed.options.body), snapshot);
+});
+
+test('reconciliation proxy rejects raw text, caller world scope, oversized row sets and oversized bodies', async () => {
+  let calls = 0;
+  const handler = createHostInventoryReconcileProxyHandler({
+    env: CONFIG,
+    fetchImpl: async () => { calls++; throw Error('must not call upstream'); },
+  });
+  const valid = {
+    conversation_id: 'chat-1',
+    complete: false,
+    versions: [{
+      message_id: 'message-1',
+      version_id: 'version-1',
+      parent_version_id: null,
+      content_sha256: 'b'.repeat(64),
+      active: true,
+      deleted: false,
+    }],
+  };
+  for (const body of [
+    { ...valid, world_id: 'attacker-world' },
+    { ...valid, versions: [{ ...valid.versions[0], content: 'raw source text' }] },
+  ]) {
+    const response = responseRecorder();
+    await handler({ body }, response);
+    assert.equal(response.statusCode, 400);
+    assert.equal(response.payload.error.code, 'INVALID_HOST_INVENTORY_RECONCILIATION');
+  }
+  const tooMany = { ...valid, versions: Array.from({ length: 25001 }, (_, index) => ({
+    ...valid.versions[0], message_id: 'message-' + index, version_id: 'version-' + index,
+  })) };
+  const countResponse = responseRecorder();
+  await handler({ body: tooMany }, countResponse);
+  assert.equal(countResponse.statusCode, 413);
+  assert.equal(countResponse.payload.error.code, 'HOST_INVENTORY_TOO_LARGE');
+
+  const byteResponse = responseRecorder();
+  await handler({ body: { ...valid, padding: 'x'.repeat(8 * 1024 * 1024) } }, byteResponse);
+  assert.equal(byteResponse.statusCode, 413);
+  assert.equal(byteResponse.payload.error.code, 'HOST_INVENTORY_TOO_LARGE');
+  assert.equal(calls, 0);
 });
