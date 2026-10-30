@@ -944,6 +944,12 @@ static int probe_xOpen(sqlite3_vfs *vfs, const char *name, sqlite3_file *file,
   }
 
   rc = parent->xOpen(parent, open_name, file, flags, out_flags);
+  if (rc == SQLITE_OK && (flags & SQLITE_OPEN_MAIN_DB) && file->pMethods) {
+    const sqlite3_io_methods *methods = file->pMethods;
+    fprintf(stderr, "VFS main io methods: version=%d shmMap=%d shmLock=%d shmBarrier=%d\\n",
+      methods->iVersion, methods->xShmMap != 0, methods->xShmLock != 0,
+      methods->xShmBarrier != 0);
+  }
   if (rc != SQLITE_OK) {
     fprintf(stderr, "VFS parent xOpen failed: flags=0x%x rc=%d name=%s\n",
       flags, rc, open_name ? open_name : "<null>");
