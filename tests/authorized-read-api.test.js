@@ -4,6 +4,7 @@ import { once } from 'node:events';
 import { SQLiteStore } from '../src/storage/sqlite-store.js';
 import { LogicEngine } from '../src/application/engine.js';
 import { createApiServer } from '../src/api/server.js';
+import { createHostBoundNpcKnowledgeAuthorizers } from '../src/application/npc-knowledge-authorization.js';
 
 const TOKEN = 'api-token-for-authorized-read-tests';
 const ADMIN = 'admin-token-for-authorized-read-tests';
@@ -14,17 +15,34 @@ const headers = {
   'x-adapter-id': 'adapter-a',
   'x-adapter-token': ADAPTER,
 };
-const json = (body) => JSON.stringify(body);
+const adminHeaders = {
+  authorization: 'Bearer ' + TOKEN,
+  'content-type': 'application/json',
+  'x-admin-token': ADMIN,
+};
+const json = body => JSON.stringify(body);
+const readUrl = base => base + '/v1/host/authorized-read';
+const readBody = extra => ({
+  conversation_id: 'conversation-a',
+  fields: ['entity_id', 'entity_type', 'status', 'attributes.name', 'attributes.secret'],
+  ...extra,
+});
 
 async function setup(t, authorizedReadFieldPolicy = null) {
   const store = new SQLiteStore(':memory:');
   const engine = new LogicEngine(store);
+  const npcKnowledgeAuthorizers = createHostBoundNpcKnowledgeAuthorizers({
+    store,
+    adapterIds: ['adapter-a'],
+    trustedInitialKnowledgeSources: [],
+  });
   const server = createApiServer({
     engine,
     token: TOKEN,
     adminToken: ADMIN,
     adapterTokens: { 'adapter-a': ADAPTER },
     authorizedReadFieldPolicy,
+    npcKnowledgeAuthorizers,
   });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
@@ -49,24 +67,34 @@ async function setup(t, authorizedReadFieldPolicy = null) {
   const bindingPath = 'http://127.0.0.1:' + server.address().port + '/v1/worlds/authorized-read-world/actor-bindings';
   const bound = await fetch(bindingPath, {
     method: 'POST',
-    headers: { authorization: headers.authorization, 'content-type': 'application/json', 'x-admin-token': ADMIN },
+    headers: adminHeaders,
     body: json({ adapter_id: 'adapter-a', entity_id: 'actor-a' }),
   });
   assert.equal(bound.status, 201);
+  const conversationBound = await fetch('http://127.0.0.1:' + server.address().port + '/v1/host-conversation-bindings', {
+    method: 'POST',
+    headers: adminHeaders,
+    body: json({
+      adapter_id: 'adapter-a',
+      conversation_id: 'conversation-a',
+      world_id: 'authorized-read-world',
+    }),
+  });
+  assert.equal(conversationBound.status, 201);
   return 'http://127.0.0.1:' + server.address().port;
 }
 
-test('authorized-read API exposes only the bound actor identity and never arbitrary attributes', async (t) => {
-  const base = await setup(t);
-  const response = await fetch(base + '/v1/worlds/authorized-read-world/authorized-read', {
+async function authorizedRead(base, body = readBody(), requestHeaders = headers) {
+  return fetch(readUrl(base), {
     method: 'POST',
-    headers,
-    body: json({
-      actor_entity_id: 'actor-a',
-      purpose: 'npc_decision',
-      fields: ['entity_id', 'entity_type', 'status', 'attributes.name', 'attributes.secret'],
-    }),
+    headers: requestHeaders,
+    body: json(body),
   });
+}
+
+test('authorized-read API derives world and actor from authenticated Host and Core bindings', async t => {
+  const base = await setup(t);
+  const response = await authorizedRead(base);
   assert.equal(response.status, 200);
   const body = await response.json();
   assert.deepEqual(body.read.entities, [{ entity_id: 'actor-a', entity_type: 'character', status: 'active' }]);
@@ -74,20 +102,26 @@ test('authorized-read API exposes only the bound actor identity and never arbitr
   assert.equal(JSON.stringify(body).includes('Actor'), false);
   assert.equal(Number.isSafeInteger(body.read.world_revision), true);
   assert.equal(Number.isSafeInteger(body.read.commit_sequence), true);
-});
 
-test('authorized-read API keeps non-self targets unavailable when no host visibility policy is configured', async (t) => {
-  const base = await setup(t);
-  const response = await fetch(base + '/v1/worlds/authorized-read-world/authorized-read', {
+  const injected = await authorizedRead(base, readBody({
+    world_id: 'attacker-world',
+    actor_entity_id: 'other-a',
+    purpose: 'public',
+  }));
+  assert.equal(injected.status, 400);
+  assert.equal((await injected.json()).error.code, 'INVALID_AUTHORIZED_READ');
+
+  const legacy = await fetch(base + '/v1/worlds/authorized-read-world/authorized-read', {
     method: 'POST',
     headers,
-    body: json({
-      actor_entity_id: 'actor-a',
-      purpose: 'npc_decision',
-      entity_ids: ['other-a'],
-      fields: ['entity_id', 'entity_type', 'attributes.name'],
-    }),
+    body: json({ actor_entity_id: 'actor-a', purpose: 'npc_decision', fields: ['entity_id'] }),
   });
+  assert.equal(legacy.status, 410);
+});
+
+test('authorized-read API keeps non-self targets unavailable when no host visibility policy is configured', async t => {
+  const base = await setup(t);
+  const response = await authorizedRead(base, readBody({ entity_ids: ['other-a'] }));
   assert.equal(response.status, 404);
   const body = await response.json();
   assert.equal(body.error.code, 'READ_NOT_AVAILABLE');
@@ -95,7 +129,7 @@ test('authorized-read API keeps non-self targets unavailable when no host visibi
   assert.equal(JSON.stringify(body).includes('Other'), false);
 });
 
-test('authorized-read API supports only explicitly host-authorized target fields when a trusted policy is configured', async (t) => {
+test('authorized-read API supports only explicitly host-authorized target fields when a trusted policy is configured', async t => {
   const base = await setup(t, (context, entity, field) =>
     context.worldId === 'authorized-read-world'
       && context.actor.entity_id === 'actor-a'
@@ -103,16 +137,10 @@ test('authorized-read API supports only explicitly host-authorized target fields
       && context.purpose === 'npc_decision'
       && entity.entity_id === 'other-a'
       && ['entity_id', 'entity_type', 'attributes.name'].includes(field));
-  const response = await fetch(base + '/v1/worlds/authorized-read-world/authorized-read', {
-    method: 'POST',
-    headers,
-    body: json({
-      actor_entity_id: 'actor-a',
-      purpose: 'npc_decision',
-      entity_ids: ['other-a'],
-      fields: ['entity_id', 'entity_type', 'attributes.name', 'attributes.secret'],
-    }),
-  });
+  const response = await authorizedRead(base, readBody({
+    entity_ids: ['other-a'],
+    fields: ['entity_id', 'entity_type', 'attributes.name', 'attributes.secret'],
+  }));
   assert.equal(response.status, 200);
   const body = await response.json();
   assert.deepEqual(body.read.entities, [{
@@ -124,27 +152,11 @@ test('authorized-read API supports only explicitly host-authorized target fields
   assert.equal(JSON.stringify(body).includes('must-not-leak'), false);
 });
 
-test('authorized-read API cannot use a different or unbound actor to read another entity', async (t) => {
+test('authorized-read API requires adapter credentials and rejects unknown fields', async t => {
   const base = await setup(t);
-  const response = await fetch(base + '/v1/worlds/authorized-read-world/authorized-read', {
-    method: 'POST',
-    headers,
-    body: json({
-      actor_entity_id: 'other-a',
-      purpose: 'npc_decision',
-      fields: ['entity_id', 'entity_type', 'status'],
-    }),
-  });
-  assert.equal(response.status, 403);
-  assert.equal((await response.json()).error.code, 'ACTOR_NOT_AUTHORIZED');
-});
-
-test('authorized-read API requires adapter credentials and rejects unknown fields', async (t) => {
-  const base = await setup(t);
-  const noAdapter = await fetch(base + '/v1/worlds/authorized-read-world/authorized-read', {
-    method: 'POST',
-    headers: { authorization: headers.authorization, 'content-type': 'application/json' },
-    body: json({ actor_entity_id: 'actor-a', purpose: 'npc_decision', fields: ['entity_id'] }),
+  const noAdapter = await authorizedRead(base, readBody(), {
+    authorization: headers.authorization,
+    'content-type': 'application/json',
   });
   assert.equal(noAdapter.status, 403);
   assert.equal((await noAdapter.json()).error.code, 'ADAPTER_REQUIRED');
@@ -155,17 +167,12 @@ test('authorized-read API requires adapter credentials and rejects unknown field
     assert.equal((await rawRead.json()).error.code, 'AUTHORIZED_READ_REQUIRED');
   }
 
-  const extraField = await fetch(base + '/v1/worlds/authorized-read-world/authorized-read', {
-    method: 'POST',
-    headers,
-    body: json({ actor_entity_id: 'actor-a', purpose: 'npc_decision', fields: ['entity_id'], visibility: 'public' }),
-  });
+  const extraField = await authorizedRead(base, readBody({ visibility: 'public' }));
   assert.equal(extraField.status, 400);
   assert.equal((await extraField.json()).error.code, 'INVALID_AUTHORIZED_READ');
 });
 
-
-test('host visibility revocation is re-evaluated on every authorized-read request', async (t) => {
+test('host visibility revocation is re-evaluated on every authorized-read request', async t => {
   let allowTargetName = true;
   const base = await setup(t, (context, entity, field) =>
     context.worldId === 'authorized-read-world'
@@ -176,16 +183,10 @@ test('host visibility revocation is re-evaluated on every authorized-read reques
       && allowTargetName
       && ['entity_id', 'entity_type', 'attributes.name'].includes(field));
 
-  const read = () => fetch(base + '/v1/worlds/authorized-read-world/authorized-read', {
-    method: 'POST',
-    headers,
-    body: json({
-      actor_entity_id: 'actor-a',
-      purpose: 'npc_decision',
-      entity_ids: ['other-a'],
-      fields: ['entity_id', 'entity_type', 'attributes.name', 'attributes.secret'],
-    }),
-  });
+  const read = () => authorizedRead(base, readBody({
+    entity_ids: ['other-a'],
+    fields: ['entity_id', 'entity_type', 'attributes.name', 'attributes.secret'],
+  }));
 
   const allowed = await read();
   assert.equal(allowed.status, 200);
@@ -193,8 +194,7 @@ test('host visibility revocation is re-evaluated on every authorized-read reques
   assert.equal(allowedBody.read.entities[0]['attributes.name'], 'Other');
   assert.equal(JSON.stringify(allowedBody).includes('also-private'), false);
 
-  // Simulate a trusted host policy revocation between two requests. The policy
-  // remains host-owned configuration; no caller field can override it.
+  // A trusted policy revocation is re-evaluated on every request.
   allowTargetName = false;
   const revoked = await read();
   assert.equal(revoked.status, 404);
@@ -206,3 +206,16 @@ test('host visibility revocation is re-evaluated on every authorized-read reques
   assert.equal(JSON.stringify(revokedBody).includes('must-not-leak'), false);
 });
 
+test('revoked Core actor or Host conversation binding disables the same read boundary', async t => {
+  const base = await setup(t);
+  assert.equal((await authorizedRead(base)).status, 200);
+
+  const actorRevoked = await fetch(base + '/v1/worlds/authorized-read-world/actor-bindings/adapter-a/actor-a', {
+    method: 'DELETE',
+    headers: adminHeaders,
+  });
+  assert.equal(actorRevoked.status, 200);
+  const afterActorRevoke = await authorizedRead(base);
+  assert.equal(afterActorRevoke.status, 404);
+  assert.equal((await afterActorRevoke.json()).error.code, 'READ_NOT_AVAILABLE');
+});
