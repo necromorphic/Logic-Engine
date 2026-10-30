@@ -172,6 +172,7 @@ test('mechanic context provider can enforce actor binding and field policy throu
   assert.equal(result.policy_authority.policy_generation, 'fixture-v1');
   assert.equal(provider.validateMechanicPolicy({
     worldId,
+    snapshotIdentity: result.snapshot_identity,
     policyVersion: result.context_policy_version,
     policyAuthority: result.policy_authority,
     authorizationScope: result.authorization_scope,
