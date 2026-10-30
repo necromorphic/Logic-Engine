@@ -6,6 +6,7 @@ function provider(version = 'policy-v1', scope = 'adapter-a:actor-a') {
   return {
     policyFingerprint: version,
     authorizationScope: scope,
+    authorizationPrincipal: { adapterId: 'adapter-a', actorEntityId: 'actor-a', recipient: 'model', purpose: 'npc_decision' },
     resolve: () => ({
       context: { actor: { hp: 10 } },
       knownAbsentPaths: [],
@@ -14,6 +15,7 @@ function provider(version = 'policy-v1', scope = 'adapter-a:actor-a') {
       commit_sequence: 7,
       policy_version: version,
       authorization_scope: scope,
+      authorization_principal: { adapterId: 'adapter-a', actorEntityId: 'actor-a', recipient: 'model', purpose: 'npc_decision' },
     }),
   };
 }
@@ -21,7 +23,7 @@ function provider(version = 'policy-v1', scope = 'adapter-a:actor-a') {
 test('deployment authority pins trusted identity and generation to resolved context', () => {
   const active = { authority_id: 'deployment-mechanics', generation: 3, contextProvider: provider() };
   const authority = new DeploymentMechanicPolicyAuthority({ resolveActivePolicy: () => active });
-  const resolved = authority.resolveAuthorizedContext({ worldId: 'world-a' });
+  const resolved = authority.resolveAuthorizedContext({ worldId: 'world-a', authenticatedAdapterId: 'adapter-a' });
   assert.equal(resolved.authority_id, 'deployment-mechanics');
   assert.equal(resolved.policy_generation, 3);
   assert.equal(resolved.policy_version, 'policy-v1');
@@ -31,6 +33,7 @@ test('deployment authority pins trusted identity and generation to resolved cont
     policyGeneration: resolved.policy_generation,
     policyVersion: resolved.policy_version,
     authorizationScope: resolved.authorization_scope,
+    authorizationPrincipal: resolved.authorization_principal,
     snapshotIdentity: { world_id: 'world-a', world_revision: 4, commit_sequence: 7 },
   }), true);
 });
