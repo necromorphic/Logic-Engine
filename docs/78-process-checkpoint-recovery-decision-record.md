@@ -3,7 +3,7 @@
 **Status: DECISION APPROVED — fail closed on contradictory checkpoint evidence.**  
 **Scope:** Core-owned recovery boundary for issue #243 and the evaluation/recalculation boundary in #262.  
 **Decision owner:** Core owner approval recorded on 2026-10-29.  
-**Runtime guard and regression are implemented on the PR branch. Exact-head CI passed on `1f32c396448109b98a7f9881cbb55f0a6a26bcb8` (Runtime 1090/1090; recalculation oracle 20/20; `core-trusted-acquisition`, `npc-boundary`, and Memory Provider blocker 3 passed). Final review of the current code head and the full acceptance matrix remain pending.**
+**Runtime guard and targeted regression matrix are merged into `main` by PR #694 (merge commit `efe7a740b5248816a302c2301db612cf18a909a7`). Exact-head CI evidence is recorded below for the tested PR candidate; it is not represented as a fresh CI run on the current `main` head. The lifecycle and recovery acceptance evidence for #243 is reconciled below.**
 
 ## Approved rule
 
@@ -28,12 +28,12 @@ The `needs_review` status is a gate, not permission to auto-resume. The existing
 - `src/storage/process-store.js` persists process and milestone status, milestone supporting event IDs, checkpoint versions, and lifecycle idempotency records. Process milestone prerequisites are scoped to one process.
 - Rollback invalidation can mark a completed milestone and completed descendants within that same process `needs_review`. Explicit event-level causal links can be handled by Core rollback closure; this is not a general cross-process process-dependency/recalculation engine.
 
-### Cross-record guard added on the PR branch
+### Cross-record guard merged into main by PR #694
 
 - `ProcessStore.completeTrigger` now rejects any registered trigger that points to a non-pending milestone, checks that the milestone's single supporting event ID matches the registered trigger in the persisted operation segment, requires that the trigger is completed by that same operation, and verifies that the event exists in canonical history with `validity='valid'`. The safe review gate can move even previously terminal process statuses to `needs_review` when contradictory evidence is detected; it does not rewrite the contradictory milestone.
 - A mismatch throws `PROCESS_CROSS_RECORD_CHECKPOINT_MISMATCH` inside the existing Core segment transaction. The segment transaction rolls back; the operation is persisted as `needs_review`; any still-pending trigger claims held by that operation are released without changing trigger `updated_at`; then the owning process is gated as `needs_review` through the existing ProcessStore path. Canonical world time/revision, commit sequence, event history, trigger status/completion and milestone progress are not committed. Regression tests compare the full trigger record before and after the rejected operation.
 - `tests/process-manager.integration.test.js` adds real-path regressions through `startTimeAdvance` for stale supporting-event evidence, a completed milestone with a pending trigger, a terminal process with a non-pending milestone, and malformed persisted operation-segment evidence. They assert fail-closed behavior, unchanged canonical state/event history, unchanged trigger and milestone checkpoints, exactly one process-review audit entry on first detection, persisted `needs_review` after SQLite reopen, same-key idempotent replay, and changed-content idempotency conflict.
-- These are targeted cross-record failure-path regressions, not proof that every conceivable corruption shape is covered. The exact-head CI result above verifies the current PR head; review and explicit evidence reconciliation for every acceptance-matrix row are still required before #243 can close.
+- These are targeted cross-record failure-path regressions, not proof that every conceivable corruption shape is covered. The exact-head CI result above verifies the PR candidate that carried this guard. The targeted cross-record regressions described here are now present in `main`; they are not an exhaustive enumeration of every conceivable corruption shape.
 
 ## Required regression matrix
 
@@ -61,7 +61,7 @@ For every rejected mismatch, compare before/after world time, world revision, co
 - **Operation-internal checkpoint mismatch:** current-main test `tests/time-advance-operation.test.js` covers the index/coordinate disagreement and invalid indexes.
 - **Process lifecycle/atomicity:** merged Process Manager runtime coverage includes milestone/trigger/segment atomicity, restart continuation, lifecycle retries, rollback invalidation and process-local prerequisite closure.
 
-These cases are not substitutes for the missing cross-record mismatch regression matrix above.
+The targeted cross-record mismatch cases are now covered by the real-path regressions listed above. Coverage remains targeted rather than exhaustive for every conceivable malformed persisted shape.
 
 ## Process dependency and rollback semantics for #243
 
@@ -77,7 +77,7 @@ These cases are not substitutes for the missing cross-record mismatch regression
 |---|---|
 | Start and stage progression | `tests/process-manager.integration.test.js`: `process milestone checkpoint commits with its trigger segment and survives SQLite restart` (line 66); validates the real Core/SQLite path. |
 | Pause and resume | `pause and resume rotate pending trigger identities when milestones remain in the future` (154), `resume rejects a paused process whose milestone became overdue` (314), and `paused lifecycle state and trigger cancellation survive restart before resume` (527). |
-| Interrupt and continue | `interrupted time advance resumes a running process after SQLite close and reopen` (346). This is **operation-level interruption** using the TimeEngine's persisted interrupted boundary; it does not establish a separate process lifecycle action named `interrupt`. |
+| Interrupt and continue | `interrupted time advance resumes a running process after SQLite close and reopen` (346). This exercises interruption and continuation through the persisted TimeEngine operation boundary, as required by #243; the acceptance text does not require a separate `process.interrupt` API. |
 | Cancel and completion | `cancelling a process atomically cancels pending milestone triggers` (122) plus the stage-progression test (66); terminal state, trigger cancellation, and completion from required milestones are exercised. |
 | Repeated request | `checkpoint failure stays terminal and same-key retry after SQLite restart leaves no residue` (588), `cross-record process checkpoint mismatch fails closed and replays idempotently` (863), `review-gated process trigger cannot be replayed or crossed with a new time-advance key` (1200), and `failed review audit keeps operation retryable and process gate atomic` (1236). |
 | SQLite recovery | Restart cases at (66), (215), (346), (527), (588), (1119), and (1161) cover durable lifecycle/review state and malformed or empty persisted segment evidence. Test (1007) corrupts segment evidence during the active `completeTrigger` callback and verifies fail-closed recovery, but does not close/reopen SQLite; it is malformed-evidence coverage, not restart coverage. Cross-record mismatch tests at (863), (929), (968), and (1052) cover contradictory checkpoints and malformed event evidence. |
@@ -93,6 +93,15 @@ This decision does not designate a process checkpoint or a projection as canonic
 
 ## Release boundary
 
-- Keep #243 open until final code review is recorded and each acceptance-matrix row is reconciled to a current test/source/CI result; passing CI alone does not close the issue.
+The evidence above establishes only the specific lifecycle, persistence, atomicity, idempotency, scheduler-ownership, and rollback cases named in the matrix. It does **not** establish that every acceptance row for #243 or the broader Process Manager contract is closed. In particular, the following remain open or require explicit owner disposition:
+
+- **Cross-world replay:** the Core boundary register still lists this as an unverified acceptance row; do not infer coverage from world-scoped identity tests alone.
+- **Response-loss replay at every commit boundary:** existing retry tests cover named paths, not every possible commit/response-loss boundary.
+- **Cross-process causal closure:** event-level causal invalidation has bounded coverage, but there is no general cross-process process-dependency graph or closure/recomputation engine.
+- **Unrelated-progress independence:** a bounded test preserves an explicitly independent process, but the system does not prove independence when causal inputs are incomplete or unenumerable.
+- **Explicit replan semantics:** overdue resume is fail-closed; the separate replan contract remains a proposal without a runtime API and requires owner approval and implementation evidence.
+
+Keep #243 open until its remaining acceptance rows are either directly evidenced by tests/source or explicitly descoped by the issue owner. Passing CI and the bounded tests above do not close those gaps. The CI figures are exact-head results for the tested PR candidate, not a new run on the current `main` head. This record does not claim global cross-process process-graph recomputation.
+
 - Keep the broader Core evaluation/recalculation/publication boundary in #262 open until its own source-backed acceptance matrix is satisfied.
 - Keep production Memory→NPC **DISABLED / FAIL-CLOSED**. This decision does not authorize release or disclosure.
