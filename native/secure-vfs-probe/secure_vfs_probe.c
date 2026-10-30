@@ -812,6 +812,68 @@ static void probe_reused_descriptor_accept_count(sqlite3_context *context, int a
   sqlite3_result_int(context, probe_counter_read(&g_reused_descriptor_accept_count));
 }
 
+#ifndef _WIN32
+static int probe_open_directory_chain(const char *path) {
+  typedef int (*probe_register_open_fn)(const char *, int, int);
+  probe_register_open_fn native_open = (probe_register_open_fn)g_original_open_syscall;
+  char *copy;
+  char *cursor;
+  int current_fd;
+  int directory_flags = O_RDONLY | O_DIRECTORY | O_NOFOLLOW
+#ifdef O_CLOEXEC
+    | O_CLOEXEC
+#endif
+    ;
+  if (!path || path[0] != '/' || !native_open) {
+    errno = EINVAL;
+    return -1;
+  }
+  copy = sqlite3_mprintf("%s", path);
+  if (!copy) {
+    errno = ENOMEM;
+    return -1;
+  }
+  current_fd = native_open("/", directory_flags, 0);
+  if (current_fd < 0) {
+    sqlite3_free(copy);
+    return -1;
+  }
+  cursor = copy;
+  while (*cursor) {
+    char *end;
+    char saved;
+    int next_fd;
+    struct stat info;
+    while (*cursor == '/') cursor++;
+    if (!*cursor) break;
+    end = strchr(cursor, '/');
+    saved = end ? *end : '\0';
+    if (end) *end = '\0';
+    if (strcmp(cursor, ".") == 0 || strcmp(cursor, "..") == 0 || !cursor[0]) {
+      close(current_fd);
+      sqlite3_free(copy);
+      errno = EACCES;
+      return -1;
+    }
+    next_fd = openat(current_fd, cursor, directory_flags, 0);
+    if (end) *end = saved;
+    if (next_fd < 0 || fstat(next_fd, &info) != 0 || !S_ISDIR(info.st_mode)) {
+      if (next_fd >= 0) close(next_fd);
+      close(current_fd);
+      sqlite3_free(copy);
+      errno = EACCES;
+      return -1;
+    }
+    close(current_fd);
+    current_fd = next_fd;
+    if (!end) break;
+    cursor = end + 1;
+  }
+  sqlite3_free(copy);
+  return current_fd;
+}
+#endif
+
 static int probe_capture_role_identity(const char *path, ProbeDatabaseRole *captured) {
 #ifdef _WIN32
   typedef HANDLE (WINAPI *probe_register_create_file_fn)(
@@ -883,16 +945,7 @@ static int probe_capture_role_identity(const char *path, ProbeDatabaseRole *capt
     sqlite3_free(basename);
     return 0;
   }
-  {
-    typedef int (*probe_register_open_fn)(const char *, int, int);
-    parent_fd = ((probe_register_open_fn)g_original_open_syscall)(
-      parent_path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW
-#ifdef O_CLOEXEC
-      | O_CLOEXEC
-#endif
-      , 0
-    );
-  }
+  parent_fd = probe_open_directory_chain(parent_path);
   sqlite3_free(parent_path);
   if (parent_fd < 0) {
     sqlite3_free(basename);
