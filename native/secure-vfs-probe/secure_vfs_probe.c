@@ -194,7 +194,6 @@ static HANDLE WINAPI probe_create_file_w(
         || info.nFileIndexLow != g_race_file_index_low;
     }
     if (reject) {
-      CloseHandle(handle);
       g_identity_reject_count += 1;
       if (is_sidecar) g_sidecar_identity_reject_count += 1;
       probe_registry_unlock();
