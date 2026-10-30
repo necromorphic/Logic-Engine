@@ -193,14 +193,48 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
     const roleCorePath = join(directory, 'role-core.sqlite');
     const roleCoordinatorPath = join(directory, 'role-coordinator.sqlite');
     const roleHostLedgerPath = join(directory, 'role-host-ledger.sqlite');
+    const concurrentRolePaths = [
+      [join(directory, 'concurrent-a.sqlite'), 'concurrent-a'],
+      [join(directory, 'concurrent-b.sqlite'), 'concurrent-b'],
+    ];
     for (const [rolePath, roleName] of [
       [roleCorePath, 'core'],
       [roleCoordinatorPath, 'coordinator'],
       [roleHostLedgerPath, 'host-ledger'],
+      ...concurrentRolePaths,
     ]) {
       second.prepare('SELECT logic_engine_vfs_probe_register_database_role(?, ?) AS registered')
         .get(rolePath, roleName);
     }
+
+    // Two workers cross a barrier and concurrently establish first-open
+    // identities for two roles. The registry mutex must serialize the updates.
+    const openBarrier = new SharedArrayBuffer(4);
+    const concurrentResults = await Promise.all(concurrentRolePaths.map(([rolePath]) =>
+      new Promise((resolve, reject) => {
+        const worker = new Worker(`
+          const { parentPort, workerData } = require('node:worker_threads');
+          const { DatabaseSync } = require('node:sqlite');
+          const gate = new Int32Array(workerData.barrier);
+          Atomics.add(gate, 0, 1);
+          Atomics.notify(gate, 0);
+          while (Atomics.load(gate, 0) < 2) Atomics.wait(gate, 0, 1);
+          const db = new DatabaseSync(workerData.path);
+          try {
+            db.exec('CREATE TABLE concurrent_probe(value INTEGER); INSERT INTO concurrent_probe VALUES(1);');
+            parentPort.postMessage(db.prepare('SELECT value FROM concurrent_probe').get().value);
+          } finally {
+            db.close();
+          }
+        `, { eval: true, workerData: { path: rolePath, barrier: openBarrier } });
+        worker.once('message', resolve);
+        worker.once('error', reject);
+        worker.once('exit', (code) => {
+          if (code !== 0) reject(new Error(`Concurrent VFS worker exited with code ${code}`));
+        });
+      })
+    ));
+    assert.deepEqual(concurrentResults, [1, 1]);
 
     const roleCoreDb = new DatabaseSync(roleCorePath);
     const roleCoordinatorDb = new DatabaseSync(roleCoordinatorPath);
