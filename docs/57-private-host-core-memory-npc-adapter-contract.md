@@ -70,9 +70,11 @@ The contract deliberately separates two paths. They must not be collapsed into o
 
 - The source ingestion foundation is implemented on main by PR #683.
 - The reader and acquisition-time value/source-event pins are represented by draft PR #744, not main runtime.
+- `readNpcKnowledge()` is an internal Core read, not a disclosure result. Its raw values MUST NOT be serialized to Host/model context directly. A separate per-acquisition visibility decision and validated context builder (`prepareNpcBeliefContext()` or an approved equivalent) must run before any value leaves the Core boundary.
+- If any acquisition relevant to a proposition is withheld or visibility cannot be established, the belief/context builder must fail closed for that proposition without revealing the hidden value or which acquisition was withheld.
 - This lane does **not** require Memory Provider retrieval. It represents explicit `author_initial` / `imported` subject assignment.
 - A Core acquisition means the subject was assigned information. It does not itself mean the proposition is objectively true or that the NPC believes it.
-- Until the Core reader and authorizers are implemented/configured and accepted, this lane is not consumable by production NPC runtime.
+- Until the Core reader, per-acquisition visibility authorizer and deployment authorizers are implemented/configured and accepted, this lane is not consumable by production NPC runtime.
 
 ### Lane B — Memory Provider evidence
 
