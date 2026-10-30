@@ -61,9 +61,9 @@ Before any canonical write, Core must:
 5. Compute the complete target projection and its digest in memory.
 6. Recheck/hold the same transaction boundary for the writes.
 
-Any validation error rejects the whole operation. No world revision, active World Pack pin, projection head, projection row, migration result, audit record, or idempotency result may be partially changed.
+Any validation error rejects the whole operation. No world revision, active Relationships semantic pin, projection head, projection row, migration result, audit record, or idempotency result may be partially changed.
 
-A successful migration increments `world_revision` exactly once. It does not create or rewrite a `world_events` row and therefore does not fabricate a commit sequence. The source `commit_sequence` is captured as the migration's base cursor. The migration result, current-head selection, active World Pack pin update, materialized projection update, audit record, and idempotency result commit in one SQLite transaction.
+A successful migration increments `world_revision` exactly once. It does not create or rewrite a `world_events` row and therefore does not fabricate a commit sequence. The source `commit_sequence` is captured as the migration's base cursor. The migration result, current-head selection, active Relationships semantic-head update, materialized projection update, audit record, and idempotency result commit in one SQLite transaction.
 
 ### 3.3 Exact artifact and version binding
 
@@ -78,11 +78,13 @@ The migration artifact must be immutable and addressable by exact migration ID/v
 
 Core must verify that the artifact's source tuple matches the current projection's proven source tuple, that the world's active World Pack ID/version/digest still equals the artifact's source World Pack ID/version/digest, and that the target rule-module version is registered and compatible with the target World Pack ID/version. The current `worlds` record exposes `world_pack_digest`, but legacy worlds may have a null digest; a null source digest is insufficient proof and rejects migration. The event-local v2 snapshot captures World Pack ID/version but not digest, so Core uses the immutable world-scoped active digest only when it still matches the same source ID/version; it must not pretend the event snapshot itself contains that digest. The repository already provides `loadTrustedWorldPackCatalog()` and `worldPackCatalog.resolve(worldPackId, version)`; the resolver returns the exact catalog-pinned SHA-256 and rechecks artifact bytes at resolution time. Migration must use that deployment-controlled resolver for both source and target tuples, then compare its returned digest with the migration artifact and stored world pin. The current Relationship rule-module manifest contract proves only World Pack ID/version compatibility, not the pack content digest; the trusted catalog supplies that separate content-integrity proof. If the engine has no trusted catalog configured, the exact entry is absent, or the digest does not match, reject migration. The resolver establishes deployment trust, artifact identity, and byte integrity; it does **not** establish complete World Pack schema/conformance validation. `docs/04-world-pack-format.md` explicitly says the full format and production loader are not finalized. Therefore the approved migration artifact/release gate must also carry explicit target-pack conformance evidence under the supported contract; catalog presence alone must not be represented as semantic validation. If that evidence is unavailable, migration remains fail-closed. If the active world pin has already moved independently of the current Relationships state, reject rather than guessing which semantic version the world is migrating from. Core must not infer compatibility from a version label.
 
-The current implementation stores no World Pack pin on a relationship projection row. Core must obtain it from the exact v2 evaluation snapshot attached to each row's `last_event_id`; it must not use the world's current manifest to reconstruct historical provenance. A missing, legacy, corrupt, mismatched, or unavailable snapshot rejects the migration.
+The current implementation stores no World Pack pin on a relationship projection row. For the initial migration from an event-only projection, Core must obtain the source Relationships semantic ID/version and rule-module ID/version from the exact v2 evaluation snapshot attached to each row's `last_event_id`; the source digest comes from the current world's trusted catalog pin and must match the source ID/version. It must not use a different current manifest or infer an absent snapshot. A missing, legacy, corrupt, mismatched, or unavailable snapshot rejects the migration.
 
-**First-release source-pin rule:** all current dimension rows must resolve to the same exact source World Pack ID/version/digest, because the World Pack pin is world-scoped. Rule-module pins are row/event-scoped and may differ: for each current row, Core must prove that the row's `rule_module_id/version` matches the exact snapshot attached to its `last_event_id`; the migration artifact must enumerate every exact source rule-module pin present and provide explicit mappings for the source state under each pin. An unlisted module pin, row/snapshot disagreement, missing snapshot, or ambiguous mapping rejects the entire migration. No module-version fallback is allowed. The migration produces one exact target rule-module pin for subsequent typed transitions. Supporting multiple source World Pack tuples in one world migration remains outside this first-release contract.
+For later migrations, source provenance must be resolved from the **effective selected Relationships head**, not blindly from the original event snapshot. Rows inherited unchanged from an active migration base take their current semantic pin and migration lineage from that immutable migration result; their original `last_event_id` remains source lineage only. Rows overwritten by valid post-base Relationship events take their semantic pin from the new versioned post-migration evaluation snapshot, which records the active Relationships semantic pin and exact rule-module pin. Core verifies row metadata against the corresponding migration-result lineage or event snapshot. This prevents an A→B migration from leaving untouched rows falsely classified as A during a later B→C migration.
 
-The target ID/version/digest becomes the world's active World Pack binding for subsequent typed transitions. Historical event snapshots retain their original source pins. Rollback must restore the predecessor ID/version/digest as one atomic binding.
+**First-release source-pin rule:** all current dimension rows must resolve to the same exact source Relationships World Pack ID/version/digest, because the semantic pin is world-scoped. Rule-module pins are row/event-scoped and may differ: the migration artifact must enumerate every exact source rule-module pin present and provide explicit mappings for the source state under each pin. An unlisted module pin, row/snapshot disagreement, missing provenance, or ambiguous mapping rejects the entire migration. No module-version fallback is allowed. The migration produces one exact target Relationships semantic pin; subsequent typed transitions still record their own exact rule-module ID/version. Supporting multiple source Relationships World Pack tuples in one world migration remains outside this first-release contract.
+
+The target ID/version/digest becomes the active **Relationships semantic pin**, not the world's global World Pack pin. The existing `worlds.world_pack_id/version/digest` remains unchanged because this operation migrates Relationships only. Other World Pack consumers—including time configuration, calendar policy, and non-Relationship mechanics—continue using the world's original pin. Rollback restores the predecessor Relationships semantic head atomically; it never rewrites the world's global World Pack binding.
 
 ## 4. Mapping execution boundary
 
@@ -121,9 +123,11 @@ A successful operation creates an immutable derived result containing, at minimu
 
 The payload is immutable. Current selection/lifecycle is separate metadata or an append-only lifecycle record; it must never mutate the result payload or any source event.
 
-### 5.2 Current projection head
+### 5.2 Current projection head and semantic pin
 
-Core maintains a separate world-scoped current Relationships projection head identifying the selected migration base, if any. The ordinary `relationships` table remains a materialized effective projection, not the durable migration record.
+Core maintains a separate world-scoped current Relationships projection head identifying the selected migration base, if any, and the active Relationships semantic World Pack ID/version/digest. When no migration result is selected, the effective Relationships semantic pin is the world's current World Pack ID/version/digest. A migration changes only this Relationships-scoped semantic pin. It must not update `worlds.world_pack_id`, `worlds.world_pack_version`, or `worlds.world_pack_digest`.
+
+The ordinary `relationships` table remains a materialized effective projection, not the durable migration record. The current transition commit check must be extended: after a migration it validates the exact rule-module manifest against the active Relationships semantic pin, not blindly against the world-wide World Pack pin. Before any migration head exists, existing validation against the world pin remains the fallback.
 
 For a world with an active migration base at source cursor S:
 
@@ -139,7 +143,7 @@ This makes the derived result durable across restart/rebuild without changing th
 
 ### 5.3 Subsequent typed transitions
 
-Every Relationship transition committed after a migration must be evaluated against the effective projection (migration base plus post-base valid events) and carry a durable dependency on the active migration result in addition to the existing directed-pair read reference.
+Every Relationship transition committed after a migration must be evaluated against the effective projection (migration base plus post-base valid events) and carry a durable dependency on the active migration result in addition to the existing directed-pair read reference. Its new evaluation snapshot contract must distinguish the world's global World Pack pin from the active Relationships semantic pin; it must capture the exact Relationships semantic ID/version/digest and exact rule-module ID/version used for that transition. The existing v2 snapshot shape does not contain this separate semantic pin, so post-migration transitions require a versioned snapshot-contract extension rather than overloading the existing `world_pack_id/version` fields.
 
 The current read-set grammar does not support migration-result references. Core must add a typed, world-scoped migration-base dependency and validate it against the active head. A stale/missing/non-current migration dependency rejects the transition before commit.
 
@@ -151,14 +155,14 @@ The existing rollback algorithm reconstructs Relationship pair state from valid 
 
 The migration contract must extend rollback as follows:
 
-1. A rollback affecting events at or before a migration's source cursor recomputes the source Relationships projection at that cursor using the proposed invalidation set.
+1. A rollback affecting events at or before a migration's source cursor recomputes the source Relationships projection at that cursor using the proposed invalidation set. The world's global World Pack pin and active time configuration are outside this Relationships-only migration and are not changed by migration rollback.
 2. Compare the recomputed source projection digest with the immutable source digest captured by the migration.
 3. If the digest is unchanged, the migration base remains valid.
 4. If the digest changes, the migration result is no longer eligible as the current projection base. Append a migration lifecycle/invalidation record and move the current head to its valid predecessor (or to event-only history if none exists). Never alter the migration result payload or source event contents.
 5. Relationship events committed after that migration and dependent on its migration-base reference must participate in rollback dependency closure. They must not silently survive on a base that is no longer current.
 6. If Core cannot determine the affected migration/dependent-event closure deterministically, rollback returns the existing no-write/requires-review outcome. It must not proceed with a stale derived base.
 7. A rollback that invalidates a migration in a chain must evaluate dependent migration heads in order. No descendant may remain current when its source migration is invalid.
-8. Any active World Pack binding restored by migration invalidation must be restored atomically to the predecessor source tuple, with an audit entry. Source event pins remain untouched.
+8. The active Relationships semantic head restored by migration invalidation must be restored atomically to the predecessor Relationships tuple, with an audit entry. The world's global World Pack binding and time configuration remain unchanged. Source event pins remain untouched.
 
 The current directed-pair dependency granularity remains unchanged. This contract does not introduce dimension-level rollback isolation.
 
@@ -209,13 +213,13 @@ All acceptance tests must exercise the real Core application/store path at the e
 | Directionality | A→B remains A→B; no B→A record is created |
 | Source immutability | Event payloads, effects, snapshots, pins and provenance are byte-for-byte unchanged by migration |
 | Derived persistence | Derived result survives close/reopen and deterministic rebuild |
-| Post-migration transition | Transition reads migrated effective state, pins target semantics, and records dependency on the active migration result |
+| Post-migration transition | Transition reads migrated effective state, pins target Relationships semantics separately from the unchanged world-wide pack pin, and records dependency on the active migration result |
 | Explicit chain | A second migration succeeds only with an exact separately approved mapping from the first target tuple to the next target tuple |
 | Rollback unchanged source | Rollback that leaves the source projection digest unchanged preserves the migration head |
 | Rollback changed source | Rollback that changes source digest invalidates migration selection and propagates to dependent post-migration transitions atomically |
 | Rollback uncertainty | If dependency closure cannot be established, rollback is no-write/requires-review |
 | Idempotency | Same request returns the same result; key reuse with different payload conflicts |
-| Recovery | Restart during/after commit yields either the complete pre-migration state or complete post-migration state, never a partial state |
+| Recovery | Restart during/after commit yields either the complete pre-migration state or complete post-migration state, never a partial state; world-wide pack and active time configuration remain unchanged |
 | Isolation | Other worlds and opposite directed pairs are unaffected |
 | Ownership | Migration does not alter Personality traits or NPC knowledge; Memory→NPC remains disabled/fail-closed |
 
