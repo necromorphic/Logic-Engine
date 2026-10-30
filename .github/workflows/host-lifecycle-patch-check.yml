@@ -40,7 +40,10 @@ jobs:
       - name: Install reviewed Host inventory modules into the pinned host tree
         run: |
           mkdir -p sillytavern-host-checkout/src/endpoints
-          cp host-adapter/prototype/st-source-inventory.mjs sillytavern-host-checkout/src/endpoints/logic-engine-st-source-inventory.mjs
+          cp host-adapter/prototype/st-source-inventory.mjs sillytavern-host-checkout/src/endpoints/st-source-inventory.mjs
+          cp host-adapter/prototype/fs-inventory.js sillytavern-host-checkout/src/endpoints/fs-inventory.js
+          cp host-adapter/prototype/windows-vss-snapshot.mjs sillytavern-host-checkout/src/endpoints/windows-vss-snapshot.mjs
+          cp host-adapter/prototype/host-data-inventory.mjs sillytavern-host-checkout/src/endpoints/host-data-inventory.mjs
           cp host-adapter/prototype/st-host-inventory-handler.mjs sillytavern-host-checkout/src/endpoints/logic-engine-host-inventory-handler.mjs
           cp host-adapter/prototype/st-host-inventory-route.js sillytavern-host-checkout/src/endpoints/logic-engine-host-inventory.js
       - name: Apply-check and apply lifecycle, inventory, then delete-safety patches
@@ -62,7 +65,10 @@ jobs:
           node --check sillytavern-host-checkout/public/scripts/logic-engine-lifecycle/conversation-identity.mjs
           node --check sillytavern-host-checkout/src/endpoints/logic-engine-lifecycle-proxy.mjs
           node --check sillytavern-host-checkout/src/endpoints/logic-engine-lifecycle.js
-          node --check sillytavern-host-checkout/src/endpoints/logic-engine-st-source-inventory.mjs
+          node --check sillytavern-host-checkout/src/endpoints/st-source-inventory.mjs
+          node --check sillytavern-host-checkout/src/endpoints/fs-inventory.js
+          node --check sillytavern-host-checkout/src/endpoints/windows-vss-snapshot.mjs
+          node --check sillytavern-host-checkout/src/endpoints/host-data-inventory.mjs
           node --check sillytavern-host-checkout/src/endpoints/logic-engine-host-inventory-handler.mjs
           node --check sillytavern-host-checkout/src/endpoints/logic-engine-host-inventory.js
           node --check sillytavern-host-checkout/src/server-startup.js
