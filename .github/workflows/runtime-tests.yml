@@ -31,9 +31,8 @@ jobs:
         run: node --import ./tests/configure-test-env.js --test tests/npc-memory-candidate-eligibility.test.js tests/memory-npc-consumer.test.js tests/trusted-initial-knowledge-source.test.js tests/npc-epistemic-state.test.js
 
   test:
-    # Hosted Windows avoids silently cancelling exact-head validation when the
-    # developer's self-hosted runner is offline. This still verifies the
-    # Windows fail-closed contract; it does not claim reparse-point support.
+    # Hosted Windows runs the real VSS snapshot provider tests as well as the
+    # broader fail-closed inventory suite. VSS/reparse failures remain blockers.
     runs-on: windows-latest
     timeout-minutes: 20
     permissions:
@@ -53,7 +52,7 @@ jobs:
           node --version
           node -e "const [major, minor] = process.versions.node.split('.').map(Number); if (major < 22 || (major === 22 && minor < 13)) { console.error('Node.js 22.13.0 or newer is required; found ' + process.versions.node); process.exit(1); }"
       - run: npm test
-      - name: Run Host lifecycle prototype tests on Windows
+      - name: Run Host lifecycle prototype and Windows VSS snapshot tests
         run: node --test host-adapter/prototype/tests/*.test.mjs
       - run: node --test experiments/recalculation-oracle/harness.test.mjs
 
