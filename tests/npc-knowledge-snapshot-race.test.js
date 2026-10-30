@@ -77,7 +77,9 @@ test('raw NPC knowledge read rejects rollback between the SQL read and final cur
     npcKnowledgeReadAuthorizer: (scope) => ({
       status: 'authorized',
       world_id: scope.world_id,
+      adapter_id: scope.adapter_id,
       actor_id: scope.actor_id,
+      recipient: scope.recipient,
       purpose: scope.purpose,
       world_revision: scope.world_revision,
       commit_sequence: scope.commit_sequence,
