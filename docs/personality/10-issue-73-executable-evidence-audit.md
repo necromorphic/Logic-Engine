@@ -14,25 +14,25 @@ Status: repository-source audit; not a test-run report. Audited 2026-10-24 again
 
 ## Final disposition — Issue #73 (30 October 2026)
 
-Issue #73 is closed as **completed for its Personality-owned specification and acceptance-traceability scope**. This does not mean every downstream runtime behavior is implemented.
+Issue #73 was reopened on 30 October 2026 for this follow-up traceability update in PR #736. It remains open pending merge of that update; this does not mean every downstream runtime behavior is implemented.
 
 - PR #324 supplies the canonical per-case crosswalk and evidence classification.
 - Merged PR #722 updates the historical-version mapping for `PERS-SEM-024` and `PERS-SEM-029`, citing the merged Core projection-pin regression and the Relationships current-release decision.
-- Relationships #143 and Core #146 are closed for their bounded current-release domain/runtime dispositions: projection-only rebuild is supported with the original committed effect and rule-module pin preserved; historical semantic re-evaluation and meaning-changing migration remain unsupported/refused. No latest-version substitution is permitted.
+- Core #146 is closed after merged PR #733's bounded runtime implementation. Relationships #143 remains open for the unresolved meaning-changing migration policy; PR #735 updates its current evaluator evidence. Historical candidate re-evaluation is now supported as a read-only snapshot-based operation; full event-pipeline re-evaluation and migration remain unsupported. No latest-version substitution is permitted.
 - Remaining Personality/NPC and authorized-read blockers retain their separate owners and trackers, including Core #140 and NPC #317. The #73 closure does not mark those integrations as passing or enable production Memory→NPC.
 
 ### Historical version acceptance boundary
 
 | Case | Evidence / status |
 |---|---|
-| Same pinned evaluator inputs/version | Pure evaluator test `re-evaluating identical inputs is deterministic and side-effect-free`; evaluator-only. |
-| Same committed transition after restart/rebuild | Core test `projection rebuild preserves the exact historical rule-version pin when its module is unavailable`; applies the committed effect and preserves the original pin, but does not re-run the evaluator. |
+| Same pinned evaluator inputs/version | Pure evaluator test `re-evaluating identical inputs is deterministic and side-effect-free`; Core PR #733 `projection rebuild preserves the exact historical rule-version pin when its module is unavailable` also re-evaluates the persisted snapshot with the exact artifact and compares it with the committed effect before/after restart/rebuild. |
+| Same committed transition after restart/rebuild | Core test `projection rebuild preserves the exact historical rule-version pin when its module is unavailable`; projection rebuild applies the committed effect and preserves the original pin. The same test separately re-evaluates the candidate from the captured snapshot using the exact artifact. |
 | Unknown version on a new typed commit | Core test `rejects unavailable rule versions, cross-world participants, and invalid evidence before mutation`; typed-commit boundary returns `RELATIONSHIP_RULE_VERSION_NOT_FOUND`. |
-| Missing historical manifest during exact registry lookup | Core historical-pin test expects `RULE_MODULE_NOT_FOUND` from direct `getRuleModuleManifest()` lookup; this is distinct from the typed-commit error and is checked without mutation. |
-| Historical semantic re-evaluation | Unsupported in the current release because exact historical World Pack provenance and an approved executable evaluator contract are not established. Projection rebuild is not semantic re-evaluation. |
+| Missing historical manifest during exact registry lookup | Core historical-pin test expects `RULE_MODULE_NOT_FOUND` from direct `getRuleModuleManifest()` lookup; this remains distinct from historical candidate re-evaluation, which uses the captured `dimensionRules` and exact evaluator artifact rather than reconstructing inputs from the current manifest. |
+| Historical candidate re-evaluation | **Supported (bounded):** Core PR #733 uses the schema-v2 event snapshot, exact rule-module/World Pack pins, and exact version-addressed evaluator artifact; compares the result with the committed effect and makes no writes. Missing snapshot/artifact fails closed. This does not resolve an old executable World Pack from a registry or rerun the full event pipeline. |
 | Meaning-changing migration | Unsupported/refused; no approved migration API/schema/path or executable migration test exists. A future migration requires a separate approved source→target policy and auditable Core execution contract. |
 
-Older dated sections below remain as historical audit snapshots. Where their status language conflicts with this final disposition, this section and the merged PR #722 are authoritative.
+Older dated sections below remain as historical audit snapshots. Where their status language conflicts with this follow-up disposition, this section, merged Core PR #733, and the follow-up implementation evidence at the end of this file are authoritative.
 
 ## Scope and evidence rules
 
