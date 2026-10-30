@@ -104,8 +104,12 @@ async function enumerateStableFileInventoryOnRoot(rootPath, options = {}) {
       dev: rootStat.dev, ino: rootStat.ino,
       mtimeMs: rootStat.mtimeMs, ctimeMs: rootStat.ctimeMs,
     };
-  } catch {
-    return fail('HOST_INVENTORY_ROOT_UNAVAILABLE');
+  } catch (error) {
+    // Keep the path private while retaining the OS failure class needed to
+    // distinguish a missing VSS device path from access/namespace failures.
+    const reason = typeof error?.code === 'string' && /^[A-Z0-9_]+$/.test(error.code)
+      ? error.code : 'UNKNOWN';
+    return fail('HOST_INVENTORY_ROOT_UNAVAILABLE_' + reason);
   }
 
   // Validate the configured root before platform capability gating so invalid
