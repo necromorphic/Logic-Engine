@@ -40,7 +40,13 @@ function sameTrustedImportPath(left, right) {
 function sameTrustedImportFileIdentity(opened, pathStat) {
   const hasStableFileId = Number.isSafeInteger(opened.ino) && Number.isSafeInteger(pathStat.ino)
     && opened.ino !== 0 && pathStat.ino !== 0;
-  if (hasStableFileId) return opened.dev === pathStat.dev && opened.ino === pathStat.ino;
+  if (hasStableFileId) {
+    // On Windows, Node's path-based lstat and handle-based fstat can report
+    // different st_dev values for the same file. The NTFS file index remains
+    // stable; imported bytes are independently checked against the SHA-256 allowlist.
+    return opened.ino === pathStat.ino
+      && (process.platform === 'win32' || opened.dev === pathStat.dev);
+  }
   return opened.size === pathStat.size
     && opened.mtimeMs === pathStat.mtimeMs
     && opened.ctimeMs === pathStat.ctimeMs;
