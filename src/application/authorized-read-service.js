@@ -54,6 +54,17 @@ export class AuthorizedReadService {
     }
   }
 
+  isActorBindingCurrent({ worldId, adapterId, actorEntityId } = {}) {
+    try {
+      const binding = this.actorBindingService.resolve(worldId, adapterId, actorEntityId);
+      return binding.world_id === worldId
+        && binding.adapter_id === adapterId
+        && binding.actor?.entity_id === actorEntityId;
+    } catch {
+      return false;
+    }
+  }
+
   _fieldAllowed(context, entity, field, policySnapshot = null) {
     if (this.policyAuthority) {
       return this.policyAuthority.authorizeField(context, Object.freeze({ ...entity }), field, policySnapshot) === true;
