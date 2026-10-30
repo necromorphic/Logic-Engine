@@ -69,6 +69,16 @@ typedef struct ProbeDatabaseRole {
 static ProbeDatabaseRole g_database_roles[PROBE_MAX_DATABASE_ROLES];
 static int g_database_role_count = 0;
 #ifdef _WIN32
+#define PROBE_MAX_SIDECAR_IDENTITIES (PROBE_MAX_DATABASE_ROLES * 3)
+typedef struct ProbeSidecarIdentity {
+  int role_index;
+  int kind; /* 1 = WAL, 2 = SHM, 3 = rollback journal */
+  LogicEngineWinFileIdentity identity;
+} ProbeSidecarIdentity;
+static ProbeSidecarIdentity g_sidecar_identities[PROBE_MAX_SIDECAR_IDENTITIES];
+static int g_sidecar_identity_count = 0;
+#endif
+#ifdef _WIN32
 static LogicEngineWinFileIdentity g_race_identity;
 __declspec(thread) static int g_current_race_open = 0;
 __declspec(thread) static int g_current_race_captured = 0;
@@ -210,6 +220,86 @@ static wchar_t *probe_win_relative_name(const ProbeDatabaseRole *role,
   memcpy(name, role->anchor.basename, base_length * sizeof(wchar_t));
   memcpy(name + base_length, suffix, (suffix_length + 1) * sizeof(wchar_t));
   return name;
+}
+
+static int probe_win_sidecar_kind(const wchar_t *suffix) {
+  if (suffix && wcscmp(suffix, L"-wal") == 0) return 1;
+  if (suffix && wcscmp(suffix, L"-shm") == 0) return 2;
+  if (suffix && wcscmp(suffix, L"-journal") == 0) return 3;
+  return 0;
+}
+
+static int probe_win_sidecar_identity_lookup(int role_index, const wchar_t *suffix,
+                                              LogicEngineWinFileIdentity *identity) {
+  int kind = probe_win_sidecar_kind(suffix);
+  int found = 0;
+  if (!kind || !identity) return 0;
+  probe_registry_lock();
+  for (int i = 0; i < g_sidecar_identity_count; ++i) {
+    if (g_sidecar_identities[i].role_index == role_index
+        && g_sidecar_identities[i].kind == kind) {
+      *identity = g_sidecar_identities[i].identity;
+      found = 1;
+      break;
+    }
+  }
+  probe_registry_unlock();
+  return found;
+}
+
+static int probe_win_sidecar_identity_record(int role_index, const wchar_t *suffix,
+                                              const LogicEngineWinFileIdentity *identity) {
+  int kind = probe_win_sidecar_kind(suffix);
+  int existing = -1;
+  int reject = !kind || !identity;
+  probe_registry_lock();
+  for (int i = 0; !reject && i < g_database_role_count; ++i) {
+    if (logic_engine_win_identity_equal(identity, &g_database_roles[i].identity)) reject = 1;
+  }
+  for (int i = 0; !reject && i < g_sidecar_identity_count; ++i) {
+    ProbeSidecarIdentity *entry = &g_sidecar_identities[i];
+    if (entry->role_index == role_index && entry->kind == kind) {
+      existing = i;
+      if (!logic_engine_win_identity_equal(identity, &entry->identity)) reject = 1;
+    } else if (logic_engine_win_identity_equal(identity, &entry->identity)) {
+      reject = 1;
+    }
+  }
+  if (!reject && existing < 0) {
+    if (g_sidecar_identity_count >= PROBE_MAX_SIDECAR_IDENTITIES) {
+      reject = 1;
+    } else {
+      ProbeSidecarIdentity *entry = &g_sidecar_identities[g_sidecar_identity_count++];
+      entry->role_index = role_index;
+      entry->kind = kind;
+      entry->identity = *identity;
+    }
+  }
+  probe_registry_unlock();
+  return !reject;
+}
+
+static int probe_win_sidecar_identity_remove(int role_index, const wchar_t *suffix,
+                                              const LogicEngineWinFileIdentity *identity) {
+  int kind = probe_win_sidecar_kind(suffix);
+  int removed = 0;
+  if (!kind || !identity) return 0;
+  probe_registry_lock();
+  for (int i = 0; i < g_sidecar_identity_count; ++i) {
+    ProbeSidecarIdentity *entry = &g_sidecar_identities[i];
+    if (entry->role_index == role_index && entry->kind == kind
+        && logic_engine_win_identity_equal(identity, &entry->identity)) {
+      g_sidecar_identity_count -= 1;
+      if (i < g_sidecar_identity_count) {
+        memmove(&g_sidecar_identities[i], &g_sidecar_identities[i + 1],
+          (size_t)(g_sidecar_identity_count - i) * sizeof(g_sidecar_identities[0]));
+      }
+      removed = 1;
+      break;
+    }
+  }
+  probe_registry_unlock();
+  return removed;
 }
 
 static int probe_win_map_create_file(
@@ -361,6 +451,10 @@ static HANDLE WINAPI probe_create_file_w(
           reject = 1;
           break;
         }
+      }
+      if (!reject && has_anchor && !main_role_open
+          && !probe_win_sidecar_identity_record(role_index, suffix, &info_identity)) {
+        reject = 1;
       }
     }
     if (!reject && g_current_race_open && !g_current_race_captured
