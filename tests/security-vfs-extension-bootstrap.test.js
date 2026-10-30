@@ -218,7 +218,11 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
           const gate = new Int32Array(workerData.barrier);
           Atomics.add(gate, 0, 1);
           Atomics.notify(gate, 0);
-          while (Atomics.load(gate, 0) < 2) Atomics.wait(gate, 0, 1);
+          while (Atomics.load(gate, 0) < 2) {
+            if (Atomics.wait(gate, 0, 1, 10000) === 'timed-out') {
+              throw new Error('concurrent VFS worker barrier timed out');
+            }
+          }
           const db = new DatabaseSync(workerData.path);
           try {
             db.exec('CREATE TABLE concurrent_probe(value INTEGER); INSERT INTO concurrent_probe VALUES(1);');
