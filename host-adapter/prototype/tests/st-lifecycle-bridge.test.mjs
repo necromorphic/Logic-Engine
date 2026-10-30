@@ -134,9 +134,14 @@ test('persisted ST inventory is cross-checked against the session-bound conversa
   const conversationId = sessionId + ':' + installationId + ':' + conversationUuid;
   const chat = [{ is_user: true, mes: 'private user sentinel' }, { is_user: false, mes: 'private assistant sentinel' }];
   let inventory = null;
+  const publishedSnapshots = [];
   const f = makeFixture(chat, {
     conversationId,
     getPersistedInventory: async () => inventory,
+    publishSnapshot: async snapshot => {
+      publishedSnapshots.push(structuredClone(snapshot));
+      return { reconciliation: { code: 'HOST_INVENTORY_INCOMPLETE' } };
+    },
   });
   await f.bridge.enrollCurrentConversation();
   inventory = makePersistedInventory(chat, { sessionId, conversationUuid });
@@ -151,12 +156,20 @@ test('persisted ST inventory is cross-checked against the session-bound conversa
   assert.equal(JSON.stringify(verified).includes('private user sentinel'), false);
   assert.equal(JSON.stringify(verified).includes('private assistant sentinel'), false);
 
+  const synced = await f.bridge.syncCurrentDigestInventory();
+  assert.equal(synced.status, 'NON_READY');
+  assert.equal(publishedSnapshots.length, 1);
+  assert.equal(publishedSnapshots[0].complete, false);
+
   const mismatched = structuredClone(inventory);
   mismatched.files[0].logical_identity.messages[0].versions[0].content_sha256 = '0'.repeat(64);
   inventory = mismatched;
   const rejected = await f.bridge.verifyPersistedInventory();
   assert.equal(rejected.status, 'NON_READY');
   assert.match(rejected.reason, /version identity or digest differs/);
+  const blockedSync = await f.bridge.syncCurrentDigestInventory();
+  assert.equal(blockedSync.status, 'NON_READY');
+  assert.equal(publishedSnapshots.length, 1);
 
   inventory = { ...mismatched, host_session_id: '5e6b0a80-4e73-4c66-aaf3-7a6e62c7f404' };
   const wrongSession = await f.bridge.verifyPersistedInventory();
