@@ -65,7 +65,11 @@ export function createNpcKnowledgePolicyAuthority({ adapterIds, trustedInitialKn
       throw new TypeError('NPC knowledge policy source entry is malformed.');
     }
     return Object.freeze(Object.fromEntries(fields.map((field) => [field, source[field]])));
-  }).sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
+  }).sort((left, right) => {
+    const a = JSON.stringify(left);
+    const b = JSON.stringify(right);
+    return a < b ? -1 : a > b ? 1 : 0;
+  });
 
   const snapshotFingerprint = createHash('sha256').update(JSON.stringify({
     contract: 'core.npc-knowledge-disclosure.v1',
