@@ -42,10 +42,12 @@ export class HostLifecycleJournal {
     let currentRows = [];
     let currentHead;
     let validationFailure = null;
+    let expectedFailure = false;
 
-    const abortWith = (reason) => {
+    const abortWith = (reason, expected = false) => {
       if (validationFailure) return;
       validationFailure = reason;
+      expectedFailure = expected;
       try { tx.abort(); } catch {}
     };
     const commitIfReady = () => {
@@ -54,13 +56,13 @@ export class HostLifecycleJournal {
       const tail = currentRows.at(-1) ?? null;
       if (currentRows.length !== row.sequence - 1
         || (tail?.recordDigest ?? null) !== row.previousRecordDigest) {
-        abortWith('journal changed during append; retry from the verified head');
+        abortWith('journal changed during append; retry from the verified head', true);
         return;
       }
       if (tail
         ? (!currentHead || currentHead.sequence !== tail.sequence || currentHead.recordDigest !== tail.recordDigest)
         : Boolean(currentHead)) {
-        abortWith('journal head checkpoint changed during append');
+        abortWith('journal head checkpoint changed during append', true);
         return;
       }
       const lifecycleRows = currentRows.filter(record =>
@@ -69,13 +71,13 @@ export class HostLifecycleJournal {
       const latestLifecycle = lifecycleRows.at(-1);
       if (requireNoPendingMutation && latestLifecycle?.operation.startsWith('before:')) {
         abortWith('cannot append checkpoint while Host lifecycle mutation is pending: '
-          + latestLifecycle.operation.slice('before:'.length));
+          + latestLifecycle.operation.slice('before:'.length), true);
         return;
       }
       if (requirePendingMutationOperation !== null
         && latestLifecycle?.operation !== 'before:' + requirePendingMutationOperation) {
         abortWith('after receipt has no matching durable beforeMutation for '
-          + requirePendingMutationOperation);
+          + requirePendingMutationOperation, true);
         return;
       }
       try {
@@ -110,7 +112,8 @@ export class HostLifecycleJournal {
     try {
       await done;
     } catch (error) {
-      if (validationFailure) return { status: 'NON_READY', reason: validationFailure };
+      if (validationFailure && expectedFailure) return { status: 'NON_READY', reason: validationFailure };
+      if (validationFailure) throw Error(validationFailure);
       throw error;
     }
     return null;
