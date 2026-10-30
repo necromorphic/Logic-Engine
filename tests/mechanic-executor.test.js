@@ -112,6 +112,8 @@ function contextProvider(context = { world: { weather: 'rain' }, actor: { hp: 10
       policy_version: 'test-visibility-policy-v1',
       authority_id: 'test-mechanic-authority',
       policy_generation: 1,
+      authority_id: 'test-mechanic-authority',
+      policy_generation: 1,
     };
   };
 }
@@ -380,27 +382,30 @@ test('mechanic proposals fail closed without current-policy validation and reche
     .evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
 
   const unguarded = new ProposalService(engine);
-  const proposal = unguarded.createFromMechanicEvaluation(worldId, evaluation, {
-    idempotencyKey: 'mechanic-policy-freshness',
-    turnId: 'turn-mechanic-policy-freshness',
-    sourceText: 'Policy freshness must be checked before approval and commit.',
-    adapterId: 'test-adapter',
-  });
   assert.throws(
-    () => unguarded.approve(worldId, proposal.proposal_id),
+    () => unguarded.createFromMechanicEvaluation(worldId, evaluation, {
+      idempotencyKey: 'mechanic-policy-freshness',
+      turnId: 'turn-mechanic-policy-freshness',
+      sourceText: 'Policy freshness must be checked before proposal creation.',
+      adapterId: 'test-adapter',
+    }),
     (error) => error.code === 'MECHANIC_POLICY_REVALIDATION_REQUIRED' && error.status === 409,
   );
-  assert.equal(unguarded.get(worldId, proposal.proposal_id).status, 'pending');
+  assert.equal(unguarded.db.prepare('SELECT COUNT(*) AS count FROM event_proposals').get().count, 0);
 
   const throwingValidator = new ProposalService(engine, {
     validateMechanicPolicy() { throw new Error('private policy internals'); },
   });
   assert.throws(
-    () => throwingValidator.approve(worldId, proposal.proposal_id),
+    () => throwingValidator.createFromMechanicEvaluation(worldId, evaluation, {
+      idempotencyKey: 'mechanic-policy-throwing',
+      turnId: 'turn-mechanic-policy-throwing',
+      sourceText: 'A throwing authority must fail closed.',
+      adapterId: 'test-adapter',
+    }),
     (error) => error.code === 'STALE_MECHANIC_POLICY' && error.status === 409
       && !error.message.includes('private policy internals'),
   );
-  assert.equal(unguarded.get(worldId, proposal.proposal_id).status, 'pending');
 
   let activePolicyVersion = evaluation.context_policy_version;
   const observedStages = [];
@@ -505,6 +510,8 @@ test('mechanic proposal handoff rejects incomplete or mismatched effect provenan
     context_fingerprint: tampered.context_fingerprint,
     context_policy_version: tampered.context_policy_version,
     authorization_scope: tampered.authorization_scope,
+    authority_id: tampered.authority_id,
+    policy_generation: tampered.policy_generation,
     condition_result: tampered.condition_result,
     dependency_manifest: tampered.dependency_manifest,
     effects: tampered.effects,
