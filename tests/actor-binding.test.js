@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { SQLiteStore } from '../src/storage/sqlite-store.js';
 import { LogicEngine } from '../src/application/engine.js';
+import { ActorBindingService } from '../src/application/actor-bindings.js';
 import { createApiServer } from '../src/api/server.js';
 
 const TOKEN = 'test-token-long-enough-123456';
@@ -113,6 +114,48 @@ test('actor bindings require admin setup and resolve only for the authenticated 
   assert.equal(afterRebind.status, 200);
   assert.equal((await afterRebind.json()).resolution.binding_generation, 3);
 });
+
+
+test('actor binding generation migration preserves existing active bindings', (t) => {
+  const store = new SQLiteStore(':memory:');
+  const engine = new LogicEngine(store);
+  t.after(() => store.close());
+  engine.createWorld({
+    world_id: 'actor-binding-migration-world',
+    world_pack_id: 'test.world',
+    world_pack_version: '1',
+    game_time: '2026-01-01T00:00:00Z',
+  });
+  engine.commitEvent('actor-binding-migration-world', {
+    idempotency_key: 'actor-binding-migration-seed',
+    turn_id: 'actor-binding-migration-seed',
+    event_type: 'action.completed',
+    expected_revision: 0,
+    effects: [{ kind: 'entity.create', entity_id: 'npc-existing', entity_type: 'character' }],
+  });
+  store.db.exec(`
+    CREATE TABLE actor_bindings (
+      world_id TEXT NOT NULL REFERENCES worlds(world_id),
+      adapter_id TEXT NOT NULL,
+      entity_id TEXT NOT NULL,
+      active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY(world_id, adapter_id, entity_id)
+    );
+  `);
+  store.db.prepare(`
+    INSERT INTO actor_bindings(world_id,adapter_id,entity_id,active,created_at,updated_at)
+    VALUES(?,?,?,?,?,?)
+  `).run('actor-binding-migration-world', 'adapter-a', 'npc-existing', 1, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z');
+
+  const bindings = new ActorBindingService(engine);
+  assert.equal(bindings.resolve('actor-binding-migration-world', 'adapter-a', 'npc-existing').binding_generation, 1);
+  bindings.revoke('actor-binding-migration-world', 'adapter-a', 'npc-existing');
+  bindings.bind('actor-binding-migration-world', 'adapter-a', 'npc-existing');
+  assert.equal(bindings.resolve('actor-binding-migration-world', 'adapter-a', 'npc-existing').binding_generation, 3);
+});
+
 
 test('actor bindings reject missing, destroyed, and cross-world entities', async (t) => {
   const base = await setup(t);
