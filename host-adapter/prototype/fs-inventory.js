@@ -100,7 +100,10 @@ async function enumerateStableFileInventoryOnRoot(rootPath, options = {}) {
     // entry on the immutable snapshot before this scanner can read it.
     if (process.platform === 'win32' && !allowSnapshotWithoutNoFollow) return fail('HOST_INVENTORY_PLATFORM_REPARSE_UNVERIFIED');
 
-    root = await realpath(requestedRoot);
+    // A VSS GLOBALROOT path is already an attested device path. Do not
+    // canonicalize it through realpath: keep the trailing separator required
+    // by Windows device paths and avoid rewriting the snapshot namespace.
+    root = allowSnapshotWithoutNoFollow ? requestedRoot : await realpath(requestedRoot);
     if (!allowSnapshotWithoutNoFollow && root !== requestedRoot) return fail('HOST_INVENTORY_ROOT_ALIAS_UNSUPPORTED');
     const rootStat = await lstat(root);
     if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) return fail('HOST_INVENTORY_ROOT_UNSAFE');
