@@ -126,3 +126,16 @@ Tests must assert the identity of the object actually opened, not merely a count
 ## 9. Exit criteria
 
 Issue #770 can be considered resolved only when the implementation and exact-head Windows/Linux CI demonstrate all tests in §7, the supported platform/filesystem matrix is documented, and an independent Security review accepts the exact implementation commit. Until then PR #798 remains Draft and unmerged.
+
+
+## 10. POSIX deletion decision: no in-process unlink workaround
+
+The current POSIX probe's `xDelete` performs `fstatat(parent_fd, name, ...)`, compares the observed device/inode with the role or process-local sidecar record, and then calls `unlinkat(parent_fd, name, 0)`. The descriptor pins the parent directory, but neither syscall pins the child directory entry. A same-directory rename/replacement between the two syscalls can therefore make `unlinkat` remove a different object. Repeating `fstatat`, checking permissions again, or opening and validating the child before `unlinkat` only narrows the race; it does not close it.
+
+Linux has no general unlink-by-open-file-descriptor operation. `unlinkat` always resolves a directory entry by name. A same-filesystem quarantine rename followed by identity validation is not sufficient when an attacker can concurrently mutate that directory: the rename itself still selects a name, and the attacker can race the namespace operation. Do not describe quarantine as a complete fix unless the directory namespace is exclusively controlled during the move.
+
+**Decision for this probe:** keep the POSIX deletion path explicitly classified as a constrained, name-based mitigation, not identity-safe deletion. It is acceptable only against different-UID actors excluded by the owner-only directory policy; same-UID and privileged mutation remain outside that policy. No stronger guarantee is claimed. The existing test that weakens directory permissions and expects deletion to fail verifies only that policy gate, not atomic object-bound deletion.
+
+**Production direction if same-UID actors are in scope:** move namespace authority out of the application identity. A dedicated broker/service identity must own the protected database directory and be the only principal permitted to mutate its entries. The application must not have direct directory write/delete rights. The broker must mediate every namespace-changing operation required by SQLite (create, rename, delete, sidecar lifecycle and recovery), not only `xDelete`; otherwise direct SQLite opens can bypass the broker's authority. Its protocol must bind requests to an enrolled role, relative basename and persistent expected identity, validate the opened object, serialize namespace mutations, and fail closed on unsupported filesystems. This is a separate backend architecture, not a small `xDelete` patch, and requires its own threat model, protocol review and Windows/Linux implementation tests.
+
+Until that backend exists, production activation must either explicitly exclude same-UID/privileged attackers and accept the reviewed owner-only directory boundary, or remain disabled. The current VFS probe is not authorized for production in either case.
