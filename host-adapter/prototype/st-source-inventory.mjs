@@ -3,7 +3,6 @@ import { constants as fsConstants, promises as fs } from 'node:fs';
 import path from 'node:path';
 
 const PINNED_SILLYTAVERN_COMMIT = '06bde939fb1e9c4c8d8641d810f0a916b5bce127';
-const CONVERSATION_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MAX_CHAT_FILE_BYTES = 256 * 1024 * 1024;
 const MAX_GROUP_FILE_BYTES = 16 * 1024 * 1024;
 const MAX_TOTAL_BYTES = 2 * 1024 * 1024 * 1024;
@@ -92,6 +91,28 @@ async function inspectDirectory(directory, expectedParent = null) {
   return { absolute, identity: identityOf(before), stat: before, names, dirents };
 }
 
+export async function readBoundedFileHandle(handle, maxBytes) {
+  if (!Number.isSafeInteger(maxBytes) || maxBytes < 0) fail('SOURCE_FILE_SIZE_LIMIT');
+  const chunks = [];
+  const chunkSize = 64 * 1024;
+  let total = 0;
+  let position = 0;
+
+  while (total <= maxBytes) {
+    const remaining = maxBytes + 1 - total;
+    const buffer = Buffer.alloc(Math.min(chunkSize, remaining));
+    const { bytesRead } = await handle.read(buffer, 0, buffer.length, position);
+    if (bytesRead === 0) break;
+
+    total += bytesRead;
+    if (total > maxBytes) fail('SOURCE_FILE_SIZE_LIMIT');
+    chunks.push(Buffer.from(buffer.subarray(0, bytesRead)));
+    position += bytesRead;
+  }
+
+  return Buffer.concat(chunks, total);
+}
+
 async function readStableFile(filePath, rootPath, maxBytes) {
   const absolute = path.resolve(filePath);
   if (!isWithin(rootPath, absolute)) fail('SOURCE_PATH_ESCAPE_OR_REPARSE');
@@ -120,7 +141,7 @@ async function readStableFile(filePath, rootPath, maxBytes) {
     identityOf(openedBefore);
     if (openedBefore.size > BigInt(maxBytes)) fail('SOURCE_FILE_SIZE_LIMIT');
 
-    const bytes = await handle.readFile();
+    const bytes = await readBoundedFileHandle(handle, maxBytes);
     if (BigInt(bytes.length) !== openedBefore.size) fail('SOURCE_FILE_SIZE_CHANGED');
 
     const openedAfter = await handle.stat({ bigint: true });
@@ -181,9 +202,6 @@ export async function enumeratePinnedSillyTavernChatFiles({
     kind: 'root:' + kind, absolute: value.absolute, identity: value.identity, stat: value.stat, names: value.names,
   }))];
   const physicalFiles = new Set();
-  const conversationIds = new Set();
-  let chatFileCount = 0;
-  let identifiedChatFileCount = 0;
   let totalBytes = 0n;
 
   const addFile = async (kind, locator, filePath, rootPath, maxBytes) => {
@@ -192,42 +210,9 @@ export async function enumeratePinnedSillyTavernChatFiles({
     physicalFiles.add(record.identity);
     totalBytes += BigInt(record.size);
     if (totalBytes > BigInt(MAX_TOTAL_BYTES)) fail('SOURCE_INVENTORY_SIZE_LIMIT');
-
-    let conversationUuid = null;
-    const isChatFile = ['root-chat', 'character-chat', 'group-chat'].includes(kind);
-    if (isChatFile) {
-      chatFileCount += 1;
-      const lineEnd = record.bytes.indexOf(0x0a);
-      const headerBytes = record.bytes.subarray(0, lineEnd === -1 ? record.bytes.length : lineEnd);
-      let header;
-      try {
-        header = JSON.parse(headerBytes.toString('utf8'));
-      } catch {
-        fail('SOURCE_CHAT_HEADER_INVALID');
-      }
-      if (!header || typeof header !== 'object' || Array.isArray(header)) fail('SOURCE_CHAT_HEADER_INVALID');
-      const metadata = header.chat_metadata;
-      if (metadata !== undefined && metadata !== null
-        && (typeof metadata !== 'object' || Array.isArray(metadata))) {
-        fail('SOURCE_CHAT_HEADER_INVALID');
-      }
-      const candidate = metadata?.logic_engine_conversation_id;
-      if (candidate !== undefined && candidate !== null) {
-        if (typeof candidate !== 'string' || !CONVERSATION_UUID.test(candidate)) {
-          fail('SOURCE_CONVERSATION_IDENTITY_INVALID');
-        }
-        if (conversationIds.has(candidate)) fail('SOURCE_CONVERSATION_IDENTITY_DUPLICATE');
-        conversationIds.add(candidate);
-        conversationUuid = candidate;
-        identifiedChatFileCount += 1;
-      }
-    }
-
     files.push({
       kind,
       locator,
-      stable_conversation_uuid: conversationUuid,
-      conversation_identity_status: isChatFile ? (conversationUuid ? 'PRESENT' : 'MISSING') : 'NOT_A_CHAT_FILE',
       file_identity: record.identity,
       size_bytes: record.size,
       mtime_ns: record.mtime_ns,
@@ -348,8 +333,6 @@ export async function enumeratePinnedSillyTavernChatFiles({
   }
 
   files.sort((a, b) => a.kind.localeCompare(b.kind) || a.locator.localeCompare(b.locator));
-  const conversationIdentityCompleteness = chatFileCount > 0 && identifiedChatFileCount === chatFileCount
-    ? 'COMPLETE_CURRENT_FILE_SET' : 'INCOMPLETE_CURRENT_FILE_SET';
   const directoriesDigest = directoriesSeen.map(({ kind, identity, names }) => ({ kind, identity, names }))
     .sort((a, b) => a.kind.localeCompare(b.kind));
   const inventorySha256 = digest(Buffer.from(canonical({
@@ -359,7 +342,7 @@ export async function enumeratePinnedSillyTavernChatFiles({
   }), 'utf8'));
 
   return Object.freeze({
-    status: 'STABLE_SCAN_CANDIDATE',
+    status: 'DOUBLE_SCAN_CANDIDATE',
     authority: 'NON_AUTHORITATIVE',
     host_commit: hostCommit,
     scope: 'PINNED_SILLYTAVERN_CHAT_DATA_ROOTS',
@@ -369,18 +352,15 @@ export async function enumeratePinnedSillyTavernChatFiles({
     files: Object.freeze(files),
     directories_sha256: digest(Buffer.from(canonical(directoriesDigest), 'utf8')),
     inventory_sha256: inventorySha256,
-    completeness: 'STABLE_CURRENT_FILE_SET_ONLY',
-    chat_file_count: chatFileCount,
-    chat_files_with_stable_identity: identifiedChatFileCount,
-    conversation_identity_completeness: conversationIdentityCompleteness,
+    completeness: 'DOUBLE_SCANNED_PATH_VIEW_ONLY',
     blockers: Object.freeze([
-      ...(conversationIdentityCompleteness === 'INCOMPLETE_CURRENT_FILE_SET'
-        ? ['CHAT_CONVERSATION_IDENTITY_MISSING_OR_NO_CHAT_FILES'] : []),
       'NO_PRE_ENROLLMENT_DELETED_HISTORY',
       'NO_MESSAGE_OR_SWIPE_REVISION_LINEAGE',
       'NO_CORE_WORLD_OR_SESSION_AUTHORIZATION',
       'NO_ACCEPTED_HEAD_AUTHORITY',
       'IMPORT_EXPORT_COPY_BRANCH_RESTORE_UNSUPPORTED',
+      'NO_ATOMIC_DIRECTORY_SNAPSHOT',
+      'PATH_BASED_DIRECTORY_REPLACEMENT_RACE_REMAINS',
       'PLATFORM_SPECIFIC_RACE_RESISTANCE_REQUIRES_SECURITY_REVIEW',
     ]),
   });
