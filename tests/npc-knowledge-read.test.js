@@ -318,6 +318,23 @@ test('belief write revalidates actor binding inside the Core write transaction',
     trustedInitialKnowledgeSources: trustedRegistry,
   });
   let visibilityCalls = 0;
+  let revokeBeforeNextTransaction = false;
+  let revoking = false;
+  const originalTx = store.tx.bind(store);
+  store.tx = (callback) => {
+    if (revokeBeforeNextTransaction && !revoking) {
+      revokeBeforeNextTransaction = false;
+      revoking = true;
+      try {
+        // Commit a separate Core binding revocation after preflight returns but
+        // immediately before the final belief-write transaction begins.
+        actors.revoke('world-a', 'adapter-st', 'npc-a');
+      } finally {
+        revoking = false;
+      }
+    }
+    return originalTx(callback);
+  };
   const guardedEngine = new LogicEngine(store, {
     trustedInitialKnowledgeSources: trustedRegistry,
     npcKnowledgeContextResolver: authorizers.resolveContext,
@@ -325,11 +342,7 @@ test('belief write revalidates actor binding inside the Core write transaction',
     npcKnowledgeVisibilityAuthorizer: (scope) => {
       const decision = authorizers.visibilityAuthorizer(scope);
       visibilityCalls += 1;
-      if (visibilityCalls === 2) {
-        // Simulate a binding revocation after preflight preparation but during
-        // the final authorization pass that now runs under the Core write tx.
-        actors.revoke('world-a', 'adapter-st', 'npc-a');
-      }
+      if (visibilityCalls === 1) revokeBeforeNextTransaction = true;
       return decision;
     },
   });
@@ -351,10 +364,11 @@ test('belief write revalidates actor binding inside the Core write transaction',
   assert.throws(() => guardedEngine.recordNpcBeliefTransition(write), {
     code: 'NPC_KNOWLEDGE_READ_NOT_AUTHORIZED',
   });
-  assert.equal(visibilityCalls, 2);
+  assert.equal(visibilityCalls, 1);
   assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM npc_belief_transitions').get().n, 0);
-  assert.equal(actors.resolve('world-a', 'adapter-st', 'npc-a').actor.entity_id, 'npc-a',
-    'the failed transaction must not persist a partial revocation or belief transition');
+  assert.throws(() => actors.resolve('world-a', 'adapter-st', 'npc-a'), {
+    code: 'ACTOR_NOT_AUTHORIZED',
+  }, 'the independent revocation commits before the protected write transaction');
 });
 
 test('Core prepares an actor-bound belief context only after per-acquisition visibility authorization', (t) => {
