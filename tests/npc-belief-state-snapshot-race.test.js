@@ -46,6 +46,85 @@ const visibilityAuthorization = (scope) => ({
   authorization_ref: 'rule:npc-visibility-v1',
 });
 
+test('belief replay reauthorizes the adapter and recipient before exposing an idempotency conflict', (t) => {
+  const store = new SQLiteStore(':memory:');
+  t.after(() => store.close());
+  let authorized = true;
+  const engine = new LogicEngine(store, {
+    trustedInitialKnowledgeSources: trustedSources,
+    npcKnowledgeReadAuthorizer: (scope) => ({
+      ...readAuthorization(scope),
+      status: authorized ? 'authorized' : 'denied',
+    }),
+    npcKnowledgeVisibilityAuthorizer: visibilityAuthorization,
+  });
+
+  engine.createWorld({
+    world_id: 'world-belief-replay-auth',
+    world_pack_id: 'test.belief-state-race',
+    world_pack_version: '1',
+    game_time: '2026-01-01T00:00:00Z',
+  });
+  engine.commitEvent('world-belief-replay-auth', {
+    event_id: 'belief-replay-auth-seed',
+    idempotency_key: 'belief-replay-auth-seed',
+    turn_id: 'belief-replay-auth-seed',
+    event_type: 'action.completed',
+    expected_revision: 0,
+    effects: [
+      { kind: 'entity.create', entity_id: 'npc-race', entity_type: 'character' },
+      { kind: 'fact.set', fact_id: 'fact-race', predicate: 'secret', value: 'private-value' },
+    ],
+  });
+  engine.recordTrustedInitialKnowledgeSource({
+    world_id: 'world-belief-replay-auth',
+    source_bytes: sourceBytes,
+    idempotency_key: 'belief-replay-auth-acquisition',
+    expected_revision: 1,
+    expected_commit_sequence: 1,
+  });
+
+  const world = store.world('world-belief-replay-auth');
+  const current = {
+    world_id: 'world-belief-replay-auth',
+    adapter_id: 'adapter-st',
+    actor_id: 'npc-race',
+    recipient: 'model',
+    purpose: 'npc_turn_context',
+    expected_revision: world.world_revision,
+    expected_commit_sequence: store.currentCommitSequence('world-belief-replay-auth'),
+    limit: 20,
+  };
+  const read = engine.readNpcKnowledge(current);
+  const transition = {
+    ...current,
+    proposition_ref: 'proposition:fact/fact-race',
+    proposition_value: read.items[0].value,
+    stance: 'believes_true',
+    supporting_acquisition_ids: [read.items[0].acquisition_id],
+    contradicting_acquisition_ids: [],
+    reason_rule_ref: 'rule:belief-update-v1',
+    idempotency_key: 'belief-replay-auth-transition',
+  };
+  engine.recordNpcBeliefTransition(transition);
+  const before = store.db.prepare(
+    'SELECT COUNT(*) AS count FROM npc_belief_transitions WHERE world_id=? AND actor_id=?',
+  ).get(current.world_id, current.actor_id).count;
+
+  authorized = false;
+  assert.throws(
+    () => engine.recordNpcBeliefTransition({
+      ...transition,
+      proposition_value: 'caller-forged-different-value',
+    }),
+    (error) => error.code === 'NPC_KNOWLEDGE_READ_NOT_READY',
+  );
+  const after = store.db.prepare(
+    'SELECT COUNT(*) AS count FROM npc_belief_transitions WHERE world_id=? AND actor_id=?',
+  ).get(current.world_id, current.actor_id).count;
+  assert.equal(after, before);
+});
+
 test('belief-state read fails closed if visibility authorization races a canonical commit', (t) => {
   const store = new SQLiteStore(':memory:');
   t.after(() => store.close());
