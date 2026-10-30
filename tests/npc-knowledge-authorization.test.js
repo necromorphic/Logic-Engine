@@ -235,6 +235,7 @@ test('Core revalidates Host binding after the acquisition query before returning
   };
   const engine = new LogicEngine(store, {
     npcKnowledgeContextResolver: authorizers.resolveContext,
+    npcKnowledgePolicyAuthority: authorizers.policyAuthority,
     npcKnowledgeReadAuthorizer: readAuthorizer,
     npcKnowledgeVisibilityAuthorizer: authorizers.visibilityAuthorizer,
   });
@@ -322,6 +323,27 @@ test('actor revocation blocks future Core reads even while Host conversation bin
     conversation_id: scope.conversation_id,
   }), null);
   assert.equal(authorizers.readAuthorizer(scope), null);
+});
+
+test('trusted Host and actor binding revocation advances the NPC policy generation', (t) => {
+  const { authorizers, scope, actors, conversations } = setup(t);
+  const initial = authorizers.policyAuthority.getSnapshot();
+
+  actors.revoke(scope.world_id, scope.adapter_id, scope.actor_id);
+  const afterActorRevoke = authorizers.policyAuthority.getSnapshot();
+  assert.equal(afterActorRevoke.authority_id, initial.authority_id);
+  assert.equal(afterActorRevoke.generation, initial.generation + 1);
+  assert.equal(afterActorRevoke.snapshot_fingerprint, initial.snapshot_fingerprint);
+  assert.equal(authorizers.policyAuthority.isCurrent(initial), false);
+
+  conversations.revoke({
+    adapterId: scope.adapter_id,
+    conversationId: scope.conversation_id,
+    reason: 'test policy generation revoke',
+  });
+  const afterConversationRevoke = authorizers.policyAuthority.getSnapshot();
+  assert.equal(afterConversationRevoke.generation, afterActorRevoke.generation + 1);
+  assert.equal(authorizers.policyAuthority.isCurrent(afterActorRevoke), false);
 });
 
 test('authorizer configuration rejects ambiguous adapter identity input', (t) => {
