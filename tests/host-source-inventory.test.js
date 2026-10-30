@@ -1,4 +1,4 @@
-import test from 'node:test';
+import nodeTest from 'node:test';
 import { createHash } from 'node:crypto';
 import assert from 'node:assert/strict';
 import os from 'node:os';
@@ -9,6 +9,20 @@ import {
   HostSourceInventoryError,
   readBoundedFileHandle,
 } from '../host-adapter/prototype/st-source-inventory.mjs';
+
+
+// The Windows source-inventory provider is intentionally disabled until a
+// native handle-based reparse-point verifier is available. Keep only the
+// explicit fail-closed acceptance test active on Windows.
+const test = (name, optionsOrFn, maybeFn) => {
+  const options = typeof optionsOrFn === 'function' ? {} : optionsOrFn;
+  const fn = typeof optionsOrFn === 'function' ? optionsOrFn : maybeFn;
+  const windowsGuard = name.startsWith('Windows pinned-source inventory fails closed');
+  const skip = process.platform === 'win32' && !windowsGuard
+    ? 'Pinned-source filesystem inventory is unsupported on Windows until reparse-point verification is implemented.'
+    : options?.skip;
+  return nodeTest(name, { ...options, ...(skip ? { skip } : {}) }, fn);
+};
 
 const PINNED = '06bde939fb1e9c4c8d8641d810f0a916b5bce127';
 
