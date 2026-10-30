@@ -472,7 +472,7 @@ Core's delegated decision in [issue #140 comment 6488390384](https://github.com/
 |---|---|---|---|
 | R1. Сквозной цикл source → Provider → provenance/trust/version/admission → NPC → context → Core commit → retry/failure | **PARTIAL** | Реальный SQLite Provider + Core AuthorizedReadService + MemoryNpcConsumer integration tests; Core source-version/inventory checks; отдельный pure NPC reducer | Нет production NPC runtime caller, acquisition read path, model-context egress proof и NPC→Core commit cycle. Тесты consumer не доказывают фактическое использование контекста моделью |
 | R2. Initial acquisition + reconciliation | **PARTIAL** | Core-owned acquisition write events/projection и Provider-local reconcile/revalidation существуют; direct canonical-entity source version проверяется | NPC не читает acquisition projection; нет сквозного NPC acquisition invalidation/reacquisition при revoke/trust loss/rollback. Host inventory остаётся NON_READY |
-| R3. Разделение belief/inference/report/rumor/unknown | **PARTIAL** | NPC reducer разделяет receipt, admitted evidence и belief; admission сохраняет переданный epistemic kind; конфликтующие evidence не сливаются | Нет runtime policy/representation, доказывающей, что rumor/report/inference остаются отдельными состояниями и никогда не повышаются до факта. Reducer не является авторитетом источника или production belief store |
+| R3. Разделение belief/inference/report/rumor/unknown | **PARTIAL** | NPC reducer хранит явный `epistemic_status` (`confirmed`, `unconfirmed_report`, `suspicion`, `inference`, `rumor`, `unknown`); только `confirmed` может поддержать `believes_true/false`; остальные статусы допускают только tentative stance/unresolved, а `unknown` не влияет на belief. Добавлены pure reducer regression tests | Caller-supplied status не аутентифицируется; нет production runtime policy/context path. Нельзя трактовать это как cross-block schema или Core source authority |
 | R4. Реальная точка интеграции NPC runtime | **NOT IMPLEMENTED** | `MemoryNpcConsumer` — вызываемый in-process seam; pure reducer и autonomy helpers | В `src/index.js` и `src/api/server.js` нет production wiring Consumer/Provider; нет рабочего NPC decision caller, context serializer и финального Host dispatch callsite |
 | R5. Safety/fault scenarios | **PARTIAL** | Component/integration tests покрывают ряд отказов Provider, Core authorization, version/snapshot, partial result, revocation и restart/rebuild отдельных проекций | Нет fault injection через один реальный NPC runtime цикл, особенно restart mid-processing, duplicate delivery, Core commit failure и final dispatch race |
 
@@ -484,7 +484,7 @@ Core's delegated decision in [issue #140 comment 6488390384](https://github.com/
 |---|---|---|---|
 | NPC-E2E-01 | Trusted source → admissible knowledge | **PARTIAL** | Provider/Core/Consumer integration доказывает admissible canonical-entity candidate при тестовых trusted seams; не доказывает acquisition read → runtime knowledge |
 | NPC-E2E-02 | Untrusted source → no admission | **PARTIAL** | Admission fail-closed и Core/Provider denial покрыты раздельно; реальная source identity/trust chain до NPC runtime отсутствует |
-| NPC-E2E-03 | Rumor remains rumor | **NOT TESTED** | Нет runtime rumor lifecycle/consumer scenario, запрещающего promotion rumor → fact |
+| NPC-E2E-03 | Rumor remains rumor | **PARTIAL** | Pure reducer сохраняет `rumor` и отклоняет `believes_true/false` на rumor evidence; допускает только tentative stance. Production runtime/context scenario отсутствует |
 | NPC-E2E-04 | New source updates without duplicates | **PARTIAL** | Provider/Core idempotency и projection rebuild покрывают отдельные уровни; нет доставки/reconciliation в NPC acquisition state |
 | NPC-E2E-05 | Revoke source invalidates knowledge | **PARTIAL** | Provider/Core revalidation и invalidation primitives покрыты частично; нет NPC acquisition read/reconcile end-to-end |
 | NPC-E2E-06 | Conflict preserved | **PARTIAL** | Pure reducer сохраняет conflicting evidence refs; нет production runtime/context use проверки |
@@ -503,7 +503,7 @@ Core's delegated decision in [issue #140 comment 6488390384](https://github.com/
 | Consumer | `src/application/memory-npc-consumer.js`: `retrieveForNpc()`, `revalidateForFinalDispatch()` | In-process consumer seam. Revalidation сужает TOCTOU, но не сериализует Host dispatch |
 | Core source read | `src/application/authorized-read-service.js`, `src/application/canonical-entity-source-version.js` | Canonical entity field authorization/version. Не выдаёт Core acquisition records |
 | Core acquisition write/projection | `src/application/engine.js`; `src/storage/sqlite-store.js` (`knowledge_acquisitions`) | Core-owned write + event projection/rebuild. Production NPC reader отсутствует |
-| NPC epistemic transitions | `src/npc/epistemic-state.js` | Pure/local reducer. Caller-supplied events are not authenticated; no production persistence/runtime caller |
+| NPC epistemic transitions | `src/npc/epistemic-state.js` | Pure/local reducer; сохраняет `epistemic_status` и fail-closed блокирует promotion report/suspicion/inference/rumor/unknown в confirmed belief. Caller-supplied events are not authenticated; no production persistence/runtime caller |
 | NPC admission | `src/npc/memory-candidate-eligibility.js` | Pure metadata eligibility oracle; references only |
 | Runtime wiring | `src/index.js`, `src/api/server.js` | No Provider/Consumer construction or NPC runtime invocation found |
 | Host dispatch | Host candidate PR #680 / issue #258 | Candidate work is not a verified production sole-egress route; Host inventory/final dispatch remain release gates |
@@ -519,7 +519,7 @@ Core's delegated decision in [issue #140 comment 6488390384](https://github.com/
 
 ### 12.6 Implementation decision and ordered owner gates
 
-No additional NPC persistence, scheduler, event bus, outbox, event log, cursor, canonical store, or transport was introduced. The reducer and admission helper remain NPC-local and side-effect-free.
+No additional NPC persistence, scheduler, event bus, outbox, event log, cursor, canonical store, or transport was introduced. The reducer and admission helper remain NPC-local and side-effect-free. Reducer evidence now carries an explicit NPC-local `epistemic_status`; `rumor`, `unconfirmed_report`, `suspicion`, and `inference` cannot be used for `believes_true/false`, while `unknown` cannot support any belief. This is a local transition guard, not authentication or a mapping from Memory metadata.
 
 The remaining work is blocked by these concrete owner contracts:
 
@@ -532,4 +532,4 @@ Until all four gates and NPC-E2E-01..12 are green on exact HEAD, the module rema
 
 ### 12.7 Verification provenance
 
-The pre-update PR head was `770f17feeecbab123e1d6787e9874da4bbce0784`. Exact-head Runtime run [#41008344419](https://github.com/necromorphic/Logic-Engine/actions/runs/41008344419) passed jobs `test`, `npc-boundary`, and `core-trusted-acquisition`. It verifies that prior eight-file candidate only; it does not validate this new documentation update or the cross-block E2E scenarios above. A fresh exact-head CI run is required after this commit.
+The documentation-only update was first committed as `9edd2150b2e96ea593dd41bec81814d859db32fa`; exact-head Runtime run [#41011330232](https://github.com/necromorphic/Logic-Engine/actions/runs/41011330232) passed `test`, `npc-boundary`, and `core-trusted-acquisition`, and Provider run [#41011330296](https://github.com/necromorphic/Logic-Engine/actions/runs/41011330296) passed `runtime-linux` and `provider-acceptance`. The follow-up NPC-local epistemic-status guard and its tests are on exact HEAD `bf9386a326221c42f9ed94c4dd507e1ccd5c47fa`; Runtime run [#41011493752](https://github.com/necromorphic/Logic-Engine/actions/runs/41011493752) passed `test`, `npc-boundary`, and `core-trusted-acquisition`, and Provider run [#41011493683](https://github.com/necromorphic/Logic-Engine/actions/runs/41011493683) passed `runtime-linux` and `provider-acceptance`. These runs validate the local reducer change and existing component tests only; they do not close the production runtime or cross-block E2E gates.
