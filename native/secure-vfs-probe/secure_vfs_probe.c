@@ -759,7 +759,7 @@ static int probe_xDelete(sqlite3_vfs *vfs, const char *name, int sync_dir) {
      * Main DB deletion can be tied to its enrolled identity. Sidecar deletion
      * remains disabled until a per-role sidecar ownership registry exists.
      */
-    if (suffix[0] == L'\\0'
+    if (suffix[0] == L'\0'
         && logic_engine_win_delete_relative(role->anchor.parent,
              role->anchor.basename, &role->identity)) rc = SQLITE_OK;
     sqlite3_free(wide_name);
@@ -797,7 +797,7 @@ static int probe_xAccess(sqlite3_vfs *vfs, const char *name, int flags, int *res
     ProbeDatabaseRole *role = &g_database_roles[role_index];
     wchar_t *relative_name = probe_win_relative_name(role, suffix);
     const LogicEngineWinFileIdentity *expected =
-      suffix[0] == L'\\0' ? &role->identity : NULL;
+      suffix[0] == L'\0' ? &role->identity : NULL;
     int access_result;
     if (!relative_name) {
       sqlite3_free(wide_name);
