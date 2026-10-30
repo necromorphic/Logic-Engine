@@ -591,3 +591,22 @@ The frontend extension prototype [PR #595](https://github.com/necromorphic/Logic
 The current Core Memory Dispatch Gateway exists on main as a primitive, but it is not wired into the pinned ST server route. Before any protected context is sent, Host must resolve the authenticated adapter/conversation/world/actor binding server-side, prepare the NPC context, bind the exact serialized request body/model/stream/route to the authorized source/candidate set, and route the selected provider send through the Gateway's durable `DISPATCH_STARTED` boundary. Other provider/server/native/custom routes must be enumerated and remain unsupported for protected context until proven gated.
 
 **Disposition:** the actual Chat Completions route is now source-located, but R4 remains NOT IMPLEMENTED and NPC-E2E-08/10/11 remain incomplete. No Host source or new cross-block API was changed in this continuation. Memory→NPC remains **DISABLED / FAIL-CLOSED**.
+
+
+### 12.12 NPC-owned candidate exact-head verification — 30.10.2026
+
+PR [#695](https://github.com/necromorphic/Logic-Engine/pull/695) HEAD: `293eaf1a733c7195a3e7eb503333835092ccb501` (Draft). Comparison against current `main` `8e6aa5f7b585a007f7acea57dff2ab52c229bb3b`: ahead 13 / behind 0; exactly eight changed paths. Two paths are shared Memory integration test fixtures/assertions required by the stricter NPC `supported` admission rule; no Memory production source was changed.
+
+Exact-head Runtime [#41018053554](https://github.com/necromorphic/Logic-Engine/actions/runs/41018053554):
+- full Runtime: 1172/1172 PASS;
+- Host lifecycle prototype tests: 72/72 PASS;
+- recalculation oracle: 20/20 PASS;
+- NPC boundary: 127/127 PASS;
+- Core trusted acquisition: 15/15 PASS.
+
+Exact-head Provider [#41018053531](https://github.com/necromorphic/Logic-Engine/actions/runs/41018053531):
+- full Linux Runtime: 1172/1172 PASS;
+- recalculation oracle: 20/20 PASS;
+- Provider acceptance: 111/111 PASS.
+
+This validates the isolated admission/reducer candidate and existing component/integration tests. It does not prove the Core reader candidate is merged, Host-session binding, a production NPC decision caller, actual model-context serialization, delivery/receipt/acquisition in the live path, or sole-egress revocation ordering. PR #695 remains Draft; block acceptance remains **NOT ACCEPTED** and Memory→NPC remains **DISABLED / FAIL-CLOSED**.
