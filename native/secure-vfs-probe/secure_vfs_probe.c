@@ -819,7 +819,9 @@ static int probe_xOpen(sqlite3_vfs *vfs, const char *name, sqlite3_file *file,
    * WAL/journal names miss the pinned-role matcher and fall back to path opens.
    */
   if (name && (flags & SQLITE_OPEN_MAIN_DB) && !(flags & SQLITE_OPEN_MEMORY)) {
+#ifndef _WIN32
     const char *suffix = NULL;
+#endif
     canonical_name = (char *)sqlite3_malloc64((sqlite3_uint64)parent->mxPathname + 1);
     if (!canonical_name) return SQLITE_NOMEM;
     if (parent->xFullPathname(parent, name, parent->mxPathname + 1,
@@ -863,17 +865,18 @@ static int probe_xOpen(sqlite3_vfs *vfs, const char *name, sqlite3_file *file,
    */
   if (is_sidecar) {
     int matched = 0;
+    int sidecar_role_index = -1;
 #ifdef _WIN32
     wchar_t *wide_path = open_name ? probe_utf8_to_wide(open_name) : NULL;
     const wchar_t *suffix = NULL;
     if (wide_path) {
-      matched = probe_match_role_entry_w(wide_path, &role_index, &suffix)
+      matched = probe_match_role_entry_w(wide_path, &sidecar_role_index, &suffix)
         && suffix[0] != L'\\0';
       sqlite3_free(wide_path);
     }
 #else
     const char *suffix = NULL;
-    matched = open_name && probe_match_role_entry(open_name, &role_index, &suffix)
+    matched = open_name && probe_match_role_entry(open_name, &sidecar_role_index, &suffix)
       && suffix[0] != '\0';
 #endif
     if (!matched) {
