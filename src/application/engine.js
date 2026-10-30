@@ -239,13 +239,15 @@ function validateIndependentSegment(events) {
 }
 
 export class LogicEngine {
-  constructor(store, { trustedInitialKnowledgeSources = [], worldPackCatalog = null, npcKnowledgeReadAuthorizer = null, npcKnowledgeVisibilityAuthorizer = null } = {}) {
+  constructor(store, { trustedInitialKnowledgeSources = [], worldPackCatalog = null, npcKnowledgeContextResolver = null, npcKnowledgeReadAuthorizer = null, npcKnowledgeVisibilityAuthorizer = null } = {}) {
     if (!Array.isArray(trustedInitialKnowledgeSources)) throw new TypeError('trustedInitialKnowledgeSources must be a deployment-owned array');
     this.trustedInitialKnowledgeSources = trustedInitialKnowledgeSources.map((entry) => Object.freeze({ ...entry }));
     if (worldPackCatalog !== null && typeof worldPackCatalog.resolve !== 'function') throw new TypeError('worldPackCatalog must provide resolve(worldPackId, version)');
     this.worldPackCatalog = worldPackCatalog;
+    if (npcKnowledgeContextResolver !== null && (typeof npcKnowledgeContextResolver !== 'function' || npcKnowledgeContextResolver instanceof ASYNC_FUNCTION_PROTOTYPE)) throw new TypeError('npcKnowledgeContextResolver must be a synchronous deployment-owned function');
     if (npcKnowledgeReadAuthorizer !== null && (typeof npcKnowledgeReadAuthorizer !== 'function' || npcKnowledgeReadAuthorizer instanceof ASYNC_FUNCTION_PROTOTYPE)) throw new TypeError('npcKnowledgeReadAuthorizer must be a synchronous deployment-owned function');
     if (npcKnowledgeVisibilityAuthorizer !== null && (typeof npcKnowledgeVisibilityAuthorizer !== 'function' || npcKnowledgeVisibilityAuthorizer instanceof ASYNC_FUNCTION_PROTOTYPE)) throw new TypeError('npcKnowledgeVisibilityAuthorizer must be a synchronous deployment-owned function');
+    this.npcKnowledgeContextResolver = npcKnowledgeContextResolver;
     this.npcKnowledgeReadAuthorizer = npcKnowledgeReadAuthorizer;
     this.npcKnowledgeVisibilityAuthorizer = npcKnowledgeVisibilityAuthorizer;
     this.store = store;
@@ -704,9 +706,33 @@ export class LogicEngine {
       assert(inputCheck.status === 'ready', 'NPC_KNOWLEDGE_READ_NOT_READY',
         'NPC knowledge read request is malformed or unsupported.', 400,
         { reason: inputCheck.reason });
-      const request = inputCheck.request;
+      const requestInput = inputCheck.request;
+      assert(typeof this.npcKnowledgeContextResolver === 'function',
+        'NPC_KNOWLEDGE_CONTEXT_NOT_CONFIGURED', 'A trusted Core Host/actor binding resolver is required.', 403);
       assert(typeof this.npcKnowledgeReadAuthorizer === 'function',
         'NPC_KNOWLEDGE_READ_NOT_CONFIGURED', 'A trusted deployment-owned NPC knowledge read authorizer is required.', 403);
+      let binding;
+      try {
+        binding = this.npcKnowledgeContextResolver(Object.freeze({
+          adapter_id: requestInput.adapter_id,
+          conversation_id: requestInput.conversation_id,
+        }));
+      } catch {
+        binding = null;
+      }
+      assert(binding && binding.adapter_id === requestInput.adapter_id
+        && binding.conversation_id === requestInput.conversation_id
+        && binding.world_id === requestInput.world_id
+        && binding.actor_id === requestInput.actor_id,
+      'NPC_KNOWLEDGE_READ_NOT_AUTHORIZED',
+      'World and actor scope must match the unique active Core Host and actor bindings.', 403);
+      // Use the identities returned by Core binding resolution, never the
+      // request labels, for all subsequent world and actor reads.
+      const request = Object.freeze({
+        ...requestInput,
+        world_id: binding.world_id,
+        actor_id: binding.actor_id,
+      });
       // Read the authorization cursor from one Core snapshot transaction. Separate
       // world/current-sequence reads can straddle a rollback because rollback advances
       // world_revision without advancing the event commit_sequence.
