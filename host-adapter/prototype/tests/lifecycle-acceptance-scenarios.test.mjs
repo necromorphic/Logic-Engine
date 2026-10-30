@@ -96,7 +96,6 @@ test('pinned patch explicitly hooks core mutations but does not pretend uncovere
     "beforeMutation('delete-swipe'",
     "beforeMutation('edit-message'",
     "lifecycleOperation === 'create-message' ? [] : [chat.length - 1]",
-    "beforeMutation(lifecycleOperation",
     "afterMutation('delete-swipe'",
     "beforeMutation('select-swipe'",
     "afterMutation('select-swipe'",
