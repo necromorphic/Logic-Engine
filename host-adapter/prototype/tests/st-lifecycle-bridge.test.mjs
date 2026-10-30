@@ -597,6 +597,7 @@ test('reconciliation rejects copied/restored sidecar IDs even when native messag
   // identical, so the native-source fingerprint alone cannot detect the swap.
   f.chat[0]._logicEngineLifecycle.messageId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
   f.chat[0]._logicEngineLifecycle.versions[0].versionId = 'ffffffff-ffff-4fff-8fff-ffffffffffff';
+  f.setPersistedChat(f.chat);
 
   assert.equal(await f.bridge.currentFingerprint(), originalFingerprint);
   const result = await f.bridge.reconcileCurrentConversation();
