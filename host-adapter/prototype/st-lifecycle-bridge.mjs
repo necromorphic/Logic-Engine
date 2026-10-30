@@ -1,7 +1,7 @@
 import { contentDigest, fingerprintSource } from './lifecycle-journal.mjs';
 
 const rawVersions = message => Array.isArray(message.swipes) && message.swipes.length ? message.swipes : [message.mes ?? ''];
-const roleOf = message => message.is_user ? 'user' : message.is_system ? 'system' : 'assistant';
+const roleOf = message => message.is_user === true ? 'user' : message.is_system === true ? 'system' : 'assistant';
 const activeIndex = message => Number.isInteger(message.swipe_id) ? message.swipe_id : 0;
 const HOST_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const PINNED_HOST_COMMIT = '06bde939fb1e9c4c8d8641d810f0a916b5bce127';
