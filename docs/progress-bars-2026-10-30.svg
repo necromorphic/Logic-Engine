@@ -1,0 +1,84 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="750" viewBox="0 0 1000 750" role="img" aria-labelledby="title desc">
+<title id="title">Logic-Engine progress as of 30 October 2026</title>
+<desc id="desc">Expert estimate of integrated implementation progress on main. Green is verified implementation, orange is partial implementation or evidence, red is remaining work or blockers. Production Memory to NPC and Spatial Temporal runtime implementation are both at zero; spatial work is research-only.</desc>
+<rect width="1000" height="750" rx="14" fill="#ffffff"/>
+<style>
+.label{font:17px -apple-system,BlinkMacSystemFont,Segoe UI,Arial,sans-serif;fill:#202124}
+.label-bold{font:700 18px -apple-system,BlinkMacSystemFont,Segoe UI,Arial,sans-serif;fill:#202124}
+.pct{font:700 17px -apple-system,BlinkMacSystemFont,Segoe UI,Arial,sans-serif;fill:#202124}
+.note{font:13px -apple-system,BlinkMacSystemFont,Segoe UI,Arial,sans-serif;fill:#5f6368}
+</style>
+<text x="24" y="30" class="note">Оценка реализации · 30.10.2026 · экспертная, не автоматическая метрика</text>
+<g transform="translate(24,48)">
+<rect width="14" height="14" rx="3" fill="#238636"/><text x="21" y="12" class="note">подтверждено</text>
+<rect x="150" width="14" height="14" rx="3" fill="#d97706"/><text x="171" y="12" class="note">частично / ограниченный срез</text>
+<rect x="390" width="14" height="14" rx="3" fill="#b42318"/><text x="411" y="12" class="note">не завершено / блокер</text>
+</g>
+<g>
+<text x="24" y="95" class="label-bold">Весь проект</text>
+<text x="970" y="95" text-anchor="end" class="pct">41%</text>
+<rect x="24" y="106" width="946" height="15" rx="7.5" fill="#b42318"/>
+<path d="M31.5 106H317.26V121H31.5A7.5 7.5 0 0 1 24 113.5A7.5 7.5 0 0 1 31.5 106Z" fill="#238636"/><rect x="317.26" y="106" width="94.6" height="15" fill="#d97706"/>
+</g>
+<g>
+<text x="24" y="149" class="label">Core — ядро и правила мира</text>
+<text x="970" y="149" text-anchor="end" class="pct">64%</text>
+<rect x="24" y="160" width="946" height="15" rx="7.5" fill="#b42318"/>
+<path d="M31.5 160H478.08V175H31.5A7.5 7.5 0 0 1 24 167.5A7.5 7.5 0 0 1 31.5 160Z" fill="#238636"/><rect x="478.08" y="160" width="151.36" height="15" fill="#d97706"/>
+</g>
+<g>
+<text x="24" y="203" class="label">Memory Provider</text>
+<text x="970" y="203" text-anchor="end" class="pct">76%</text>
+<rect x="24" y="214" width="946" height="15" rx="7.5" fill="#b42318"/>
+<path d="M31.5 214H601.06V229H31.5A7.5 7.5 0 0 1 24 221.5A7.5 7.5 0 0 1 31.5 214Z" fill="#238636"/><rect x="601.06" y="214" width="141.9" height="15" fill="#d97706"/>
+</g>
+<g>
+<text x="24" y="257" class="label">NPC</text>
+<text x="970" y="257" text-anchor="end" class="pct">49%</text>
+<rect x="24" y="268" width="946" height="15" rx="7.5" fill="#b42318"/>
+<path d="M31.5 268H298.34V283H31.5A7.5 7.5 0 0 1 24 275.5A7.5 7.5 0 0 1 31.5 268Z" fill="#238636"/><rect x="298.34" y="268" width="189.2" height="15" fill="#d97706"/>
+</g>
+<g>
+<text x="24" y="311" class="label">Host / Adapter</text>
+<text x="970" y="311" text-anchor="end" class="pct">43%</text>
+<rect x="24" y="322" width="946" height="15" rx="7.5" fill="#b42318"/>
+<path d="M31.5 322H213.2V337H31.5A7.5 7.5 0 0 1 24 329.5A7.5 7.5 0 0 1 31.5 322Z" fill="#238636"/><rect x="213.2" y="322" width="217.58" height="15" fill="#d97706"/>
+</g>
+<g>
+<text x="24" y="365" class="label">Mechanics — игровые механики</text>
+<text x="970" y="365" text-anchor="end" class="pct">35%</text>
+<rect x="24" y="376" width="946" height="15" rx="7.5" fill="#b42318"/>
+<path d="M31.5 376H222.66V391H31.5A7.5 7.5 0 0 1 24 383.5A7.5 7.5 0 0 1 31.5 376Z" fill="#238636"/><rect x="222.66" y="376" width="132.44" height="15" fill="#d97706"/>
+</g>
+<g>
+<text x="24" y="419" class="label">Time / Process Manager</text>
+<text x="970" y="419" text-anchor="end" class="pct">47%</text>
+<rect x="24" y="430" width="946" height="15" rx="7.5" fill="#b42318"/>
+<path d="M31.5 430H326.72V445H31.5A7.5 7.5 0 0 1 24 437.5A7.5 7.5 0 0 1 31.5 430Z" fill="#238636"/><rect x="326.72" y="430" width="141.9" height="15" fill="#d97706"/>
+</g>
+<g>
+<text x="24" y="473" class="label">Relationships / World Pack</text>
+<text x="970" y="473" text-anchor="end" class="pct">30%</text>
+<rect x="24" y="484" width="946" height="15" rx="7.5" fill="#b42318"/>
+<path d="M31.5 484H175.36V499H31.5A7.5 7.5 0 0 1 24 491.5A7.5 7.5 0 0 1 31.5 484Z" fill="#238636"/><rect x="175.36" y="484" width="132.44" height="15" fill="#d97706"/>
+</g>
+<g>
+<text x="24" y="527" class="label">Memory → NPC · техническая реализация</text>
+<text x="970" y="527" text-anchor="end" class="pct">75%</text>
+<rect x="24" y="538" width="946" height="15" rx="7.5" fill="#b42318"/>
+<path d="M31.5 538H449.7V553H31.5A7.5 7.5 0 0 1 24 545.5A7.5 7.5 0 0 1 31.5 538Z" fill="#238636"/><rect x="449.7" y="538" width="283.8" height="15" fill="#d97706"/>
+</g>
+<g>
+<text x="24" y="581" class="label">Memory → NPC · production readiness</text>
+<text x="970" y="581" text-anchor="end" class="pct">0% · BLOCKED</text>
+<rect x="24" y="592" width="946" height="15" rx="7.5" fill="#b42318"/>
+
+</g>
+<g>
+<text x="24" y="635" class="label">Spatial / Temporal · runtime implementation</text>
+<text x="970" y="635" text-anchor="end" class="pct">0% · RESEARCH ONLY</text>
+<rect x="24" y="646" width="946" height="15" rx="7.5" fill="#b42318"/>
+
+</g>
+<text x="24" y="726" class="note">Проценты учитывают только код и доказательства, интегрированные в main. Открытые PR не засчитываются.</text>
+</svg>
