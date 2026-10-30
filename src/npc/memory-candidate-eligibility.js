@@ -189,8 +189,12 @@ function lifecycleIsAdmissible(candidate) {
   const lifecycle = candidate.lifecycle;
   // These are the positive semantic states shown by the proposal contract.
   // Unknown owner-defined states fail closed until their meaning is approved.
+  // Only positively supported evidence may cross the NPC admission boundary.
+  // Unassessed, disputed, and insufficient candidates remain excluded; the
+  // aggregate result deliberately exposes no per-candidate rejection details.
   return lifecycle.content_disposition === "usable"
     && lifecycle.source_reconciliation === "current"
+    && lifecycle.evidence_assessment === "supported"
     && lifecycle.access_outcome === ALLOW
     && lifecycle.index_health === "ready";
 }
