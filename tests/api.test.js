@@ -1879,7 +1879,10 @@ test('proposal policy boundary rejects a proposal pinned to a rotated active pro
   const engine = new LogicEngine(store);
   let activeProvider = {
     validateMechanicPolicy(identity) {
-      return identity.policyVersion === 'policy-v1' && identity.authorizationScope === 'npc:alice';
+      return identity.authorityId === 'api-test-authority'
+        && identity.policyGeneration === 3
+        && identity.policyVersion === 'policy-v1'
+        && identity.authorizationScope === 'npc:alice';
     },
   };
   const proposals = new ProposalService(engine, {
@@ -1890,6 +1893,8 @@ test('proposal policy boundary rejects a proposal pinned to a rotated active pro
     mechanic_execution_json: JSON.stringify({
       context_policy_version: 'policy-v1',
       authorization_scope: 'npc:alice',
+      authority_id: 'api-test-authority',
+      policy_generation: 3,
       snapshot_identity: { world_id: 'policy-rotation-world' },
     }),
   };
@@ -1897,7 +1902,10 @@ test('proposal policy boundary rejects a proposal pinned to a rotated active pro
     assert.doesNotThrow(() => proposals.assertMechanicPolicyCurrent(row, 'approval'));
     activeProvider = {
       validateMechanicPolicy(identity) {
-        return identity.policyVersion === 'policy-v2' && identity.authorizationScope === 'npc:alice';
+        return identity.authorityId === 'api-test-authority'
+          && identity.policyGeneration === 3
+          && identity.policyVersion === 'policy-v2'
+          && identity.authorizationScope === 'npc:alice';
       },
     };
     assert.throws(
