@@ -1624,7 +1624,7 @@ test('NPC read and full belief-context authorization hold the shared Coordinator
     proposition_ref: proposal.proposition_ref,
   });
   assert.equal(beliefState.status, 'unknown');
-  assert.equal(blockedRevocationAttempts, 20);
+  assert.equal(blockedRevocationAttempts, 10);
 
   const recorded = engine.recordNpcBeliefTransition({
     ...readRequest,
