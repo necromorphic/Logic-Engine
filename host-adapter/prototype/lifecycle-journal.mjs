@@ -160,10 +160,17 @@ export class HostLifecycleJournal {
       const p=rows.at(-1), base={id:conversationId+':'+String((p?.sequence||0)+1).padStart(12,'0'),schemaVersion:2,conversationId,sequence:(p?.sequence||0)+1,eventId,operation,sourceFingerprint,payload,eventDigest,previousRecordDigest:p?.recordDigest??null};
       const row={...base,recordDigest:await digest(base)};
       const requiredPendingOperation = operation.startsWith('after:') ? operation.slice('after:'.length) : null;
-      const putResult = await this.#put(row, {
-        requireNoPendingMutation: requireNoPendingMutation || operation.startsWith('before:'),
-        requirePendingMutationOperation: requiredPendingOperation,
-      });
+      let putResult;
+      try {
+        putResult = await this.#put(row, {
+          requireNoPendingMutation: requireNoPendingMutation || operation.startsWith('before:'),
+          requirePendingMutationOperation: requiredPendingOperation,
+        });
+      } catch (error) {
+        this.#bad.set(conversationId, 'durable append failed: ' + (error?.message || error));
+        throw Error('NON_READY: durable append failed; caller MUST abort mutation ('
+          + (error?.message || error) + ')');
+      }
       if (putResult?.status === 'NON_READY') return putResult;
       return row;
     } finally { release(); if(this.#locks.get(conversationId)===chain) this.#locks.delete(conversationId); }
