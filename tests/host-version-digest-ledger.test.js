@@ -271,6 +271,19 @@ test('untrusted inventory snapshot cannot make ledger ready', async (t) => {
   assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id), null);
 });
 
+test('complete:false snapshot cannot publish READY even with a positive verifier', async (t) => {
+  const ledger = setup(t, async () => true);
+  const result = await ledger.reconcileConversation({
+    world_id: tuple.world_id,
+    conversation_id: tuple.conversation_id,
+    complete: false,
+    versions: [entry()],
+  });
+  assert.deepEqual(result, { status: 'non_ready', code: 'HOST_INVENTORY_INCOMPLETE' });
+  assert.notEqual(ledger.getInventoryState(tuple.world_id, tuple.conversation_id)?.status, 'READY');
+  assert.equal(ledger.db.prepare('SELECT COUNT(*) AS n FROM host_version_digest_ledger').get().n, 0);
+});
+
 test('trusted complete snapshot recovers missed capture and publishes readiness', async (t) => {
   const ledger = setup(t, async (snapshot) => snapshot.complete === true);
   const result = await ledger.reconcileConversation({
