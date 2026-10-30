@@ -5,6 +5,7 @@ on:
     paths:
       - "host-adapter/prototype/**"
       - ".github/workflows/host-lifecycle-patch-check.yml"
+  workflow_dispatch:
 
 permissions:
   contents: read
