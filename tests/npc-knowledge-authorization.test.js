@@ -251,6 +251,35 @@ test('Core revalidates Host binding after the acquisition query before returning
   assert.equal(revoked, true);
 });
 
+test('Core read rejects policy generation rotation after authorization but before returning acquisitions', (t) => {
+  const { store, authorizers, scope } = setup(t);
+  let rotated = false;
+  const readAuthorizer = (request) => {
+    const decision = authorizers.readAuthorizer(request);
+    if (!rotated) {
+      rotated = true;
+      authorizers.policyAuthority.advanceGeneration();
+    }
+    return decision;
+  };
+  const engine = new LogicEngine(store, {
+    npcKnowledgeContextResolver: authorizers.resolveContext,
+    npcKnowledgePolicyAuthority: authorizers.policyAuthority,
+    npcKnowledgeReadAuthorizer: readAuthorizer,
+    npcKnowledgeVisibilityAuthorizer: authorizers.visibilityAuthorizer,
+  });
+  const request = {
+    ...scope,
+    expected_revision: scope.world_revision,
+    expected_commit_sequence: scope.commit_sequence,
+    limit: 20,
+  };
+  assert.throws(() => engine.readNpcKnowledge(request), {
+    code: 'NPC_KNOWLEDGE_READ_NOT_AUTHORIZED',
+  });
+  assert.equal(rotated, true);
+});
+
 test('per-acquisition visibility requires exact trusted source provenance and the same live Host/actor bindings', (t) => {
   const { authorizers, scope, conversations } = setup(t);
   const acquisition = {
