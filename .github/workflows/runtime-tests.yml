@@ -28,7 +28,7 @@ jobs:
       - name: Install dependencies
         run: npm install --no-package-lock --no-audit --no-fund
       - name: Run NPC memory boundary tests
-        run: node --test tests/npc-memory-candidate-eligibility.test.js tests/memory-npc-consumer.test.js tests/trusted-initial-knowledge-source.test.js
+        run: node --import ./tests/configure-test-env.js --test tests/npc-memory-candidate-eligibility.test.js tests/memory-npc-consumer.test.js tests/trusted-initial-knowledge-source.test.js tests/npc-epistemic-state.test.js
 
   test:
     runs-on: [self-hosted, Windows, X64]
@@ -41,6 +41,8 @@ jobs:
     steps:
       # Pin actions to reviewed immutable commit SHAs; comments retain release context.
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Install test dependencies
+        run: npm install --no-package-lock --no-audit --no-fund
       - name: Verify installed Node.js
         run: |
           node --version
@@ -65,7 +67,6 @@ jobs:
         run: npm install --no-package-lock --no-audit --no-fund
       - name: Run trusted acquisition lifecycle and restore tests
         run: node --import ./tests/configure-test-env.js --test tests/core-trusted-initial-knowledge-ingestion.test.js tests/memory-provider-coordinated-restore.characterization.test.js
-
   host-inventory-reconciliation:
     # Exercise the real file-backed Core/Coordinator/Host-ledger race on Linux
     # as well as the full Windows Runtime suite above.
@@ -82,3 +83,4 @@ jobs:
         run: npm install --no-package-lock --no-audit --no-fund
       - name: Run Host digest-ledger reconciliation and binding-revocation tests
         run: node --import ./tests/configure-test-env.js --test tests/host-version-digest-ledger.test.js tests/host-version-ledger-api.test.js
+
