@@ -180,6 +180,16 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
         false,
         'the replacement directory must not receive the trusted database WAL'
       );
+      assert.equal(
+        existsSync(join(movedParent, 'anchored.sqlite-shm')),
+        true,
+        'SHM must also be created beside the database in the pinned directory'
+      );
+      assert.equal(
+        existsSync(join(anchoredParent, 'anchored.sqlite-shm')),
+        false,
+        'the replacement directory must not receive the trusted database SHM'
+      );
     } finally {
       anchoredReader?.exec('ROLLBACK;');
       anchoredReader?.close();
@@ -281,8 +291,9 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
   try {
     second.exec('CREATE TABLE probe(value TEXT);');
     const opened = second.prepare('SELECT logic_engine_vfs_probe_open_count() AS count').get().count;
-    assert.equal(opened, 7,
-      'the VFS must remain registered across worker, Core, reader, journal, journal-race, SHM-race and coordinator file connections');
+    const expectedOpenCount = process.platform === 'win32' ? 7 : 10;
+    assert.equal(opened, expectedOpenCount,
+      'the VFS must remain registered across worker, Core, reader, journal, journal-race, SHM-race, coordinator and POSIX directory-anchor connections');
 
     // Establish the expected OS identity, then replace the path with a hardlink
     // after SQLite has reached xOpen but immediately before the native OS open.
