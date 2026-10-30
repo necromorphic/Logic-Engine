@@ -33,7 +33,7 @@ async function readBody(req, maxBytes = MAX) {
   const chunks = []; let size = 0;
   for await (const chunk of req) {
     size += chunk.length;
-    if (size > maxBytes) throw new EngineError('BODY_TOO_LARGE', `Body exceeds ${maxBytes} bytes.`, 413);
+    if (size > maxBytes) throw new EngineError('BODY_TOO_LARGE', maxBytes === MAX ? 'Body exceeds 1 MiB.' : `Body exceeds ${Math.ceil(maxBytes / 1048576)} MiB.`, 413);
     chunks.push(chunk);
   }
   if (!size) return {};
