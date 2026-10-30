@@ -743,7 +743,7 @@ export function createNpcGoalPlanRepository({
           scope.world_id, scope.npc_entity_id, attemptId, attempt.goal_id, attempt.plan_id,
           planRevision, attempt.step_id, attempt.action_id, goalRevision,
           selectionRevision, worldRevision, commitSequence, attempt.proposal_idempotency_key,
-          requestHash, json(stored), at,
+          proposalRequestHash, json(stored), at,
         );
         const saved = {
           attempt_id: attemptId, goal_id: attempt.goal_id, plan_id: attempt.plan_id,
