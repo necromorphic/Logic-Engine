@@ -411,7 +411,15 @@ test('trusted importer rejects symlinks at the file-open boundary', (t) => {
   const targetPath = join(dir, 'target.json');
   const sourcePath = join(dir, 'approved-import.json');
   writeFileSync(targetPath, importedBytes);
-  symlinkSync(targetPath, sourcePath);
+  try {
+    symlinkSync(targetPath, sourcePath);
+  } catch (error) {
+    if (['EPERM', 'EACCES', 'ENOTSUP', 'EOPNOTSUPP'].includes(error?.code)) {
+      t.skip('symlink creation is unavailable on this runner; the Linux symlink-security job exercises this boundary');
+      return;
+    }
+    throw error;
+  }
   const registry = trustedRegistry(importedBytes).map((entry) => ({ ...entry, source_path: sourcePath }));
   const engine = new LogicEngine(store, { trustedInitialKnowledgeSources: registry });
 
