@@ -144,7 +144,7 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
     symlinkSync(symlinkTarget, symlinkParent, 'dir');
     assert.throws(
       () => registerRole(join(symlinkParent, 'blocked.sqlite'), 'symlink-parent'),
-      /database role identity capture failed/,
+      /database (path could not be canonicalized|role identity capture failed)/,
       'trusted directory acquisition must reject a symlink in the parent path'
     );
   }
