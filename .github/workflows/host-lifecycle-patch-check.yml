@@ -36,6 +36,12 @@ jobs:
           git show FETCH_HEAD:host-adapter/prototype/st-host-inventory-handler.mjs > host-inventory-candidate/st-host-inventory-handler.mjs
           git show FETCH_HEAD:host-adapter/prototype/st-host-inventory-route.js > host-inventory-candidate/st-host-inventory-route.js
           git show FETCH_HEAD:host-adapter/prototype/patches/sillytavern-1.19.0-source-inventory-route.patch > host-inventory-candidate/sillytavern-1.19.0-source-inventory-route.patch
+          mkdir -p host-adapter/prototype/tests
+          git show FETCH_HEAD:host-adapter/prototype/st-source-inventory.mjs > host-adapter/prototype/st-source-inventory.mjs
+          git show FETCH_HEAD:host-adapter/prototype/st-host-inventory-handler.mjs > host-adapter/prototype/st-host-inventory-handler.mjs
+          git show FETCH_HEAD:host-adapter/prototype/st-host-inventory-route.js > host-adapter/prototype/st-host-inventory-route.js
+          git show FETCH_HEAD:host-adapter/prototype/tests/st-host-inventory-handler.test.mjs > host-adapter/prototype/tests/st-host-inventory-handler.test.mjs
+          git show FETCH_HEAD:tests/host-source-inventory.test.js > tests/host-source-inventory.test.js
       - name: Install prototype modules into the pinned host tree
         run: |
           cp host-inventory-candidate/st-source-inventory.mjs sillytavern-host-checkout/src/endpoints/logic-engine-st-source-inventory.mjs
@@ -72,5 +78,5 @@ jobs:
             exit 1
           fi
           grep -F 'request metadata:' sillytavern-host-checkout/src/endpoints/backends/chat-completions.js >/dev/null
-      - name: Run all Host prototype tests
-        run: node --test host-adapter/prototype/tests/*.test.mjs
+      - name: Run all Host prototype and inventory tests
+        run: node --test host-adapter/prototype/tests/*.test.mjs tests/host-source-inventory.test.js
