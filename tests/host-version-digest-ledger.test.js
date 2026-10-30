@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
-import { copyFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { copyFileSync, mkdtempSync, rmSync, linkSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { HostVersionDigestLedger } from '../src/application/host-version-digest-ledger.js';
@@ -825,4 +825,23 @@ test('a parent from another conversation is rejected as a cross-context link', (
   assert.deepEqual(ledger.captureVersion(entry({ parent_version_id: 'foreign-parent' })), {
     status: 'non_ready', code: 'HOST_VERSION_PARENT_UNKNOWN'
   });
+});
+
+
+test('Host version ledger rejects a coordinator path that is a hard link to its database', (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-host-digest-ledger-hardlink-'));
+  const path = join(directory, 'provider.sqlite');
+  const coordinatorPath = join(directory, 'coordinator.sqlite');
+  const db = new DatabaseSync(path);
+  db.close();
+  try {
+    linkSync(path, coordinatorPath);
+    assert.throws(() => new HostVersionDigestLedger({
+      path,
+      coordinatorPath,
+      verifyInventorySnapshot: async () => true,
+    }), /Coordinator DB must be separate from the Host version ledger DB/);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, rmSync, existsSync, linkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
@@ -106,5 +106,28 @@ test('SQLiteStore rejects asynchronous transaction callbacks before invoking the
     assert.equal(store.tx(() => 9), 9);
   } finally {
     store.close();
+  }
+});
+
+
+test('SQLiteStore rejects a coordinator path that is a hard link to the Core database', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'logic-engine-coordinator-hardlink-'));
+  const corePath = join(dir, 'core.sqlite');
+  const coordinatorPath = join(dir, 'coordinator.sqlite');
+  const previous = process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH;
+  try {
+    process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH = coordinatorPath;
+    const store = new SQLiteStore(corePath);
+    store.close();
+
+    rmSync(coordinatorPath, { force: true });
+    linkSync(corePath, coordinatorPath);
+
+    process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH = coordinatorPath;
+    assert.throws(() => new SQLiteStore(corePath), /Coordinator DB must be separate from the Core DB/);
+  } finally {
+    if (previous === undefined) delete process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH;
+    else process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH = previous;
+    rmSync(dir, { recursive: true, force: true });
   }
 });
