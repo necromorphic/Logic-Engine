@@ -153,6 +153,7 @@ test('persisted ST inventory is cross-checked against the session-bound conversa
   });
   await f.bridge.enrollCurrentConversation();
   inventory = await makePersistedInventory(chat, { sessionId, conversationUuid });
+  const publishedBeforeSync = publishedSnapshots.length;
 
   const verified = await f.bridge.verifyPersistedInventory();
   assert.equal(verified.status, 'MATCHED_NON_AUTHORITATIVE');
@@ -166,8 +167,8 @@ test('persisted ST inventory is cross-checked against the session-bound conversa
 
   const synced = await f.bridge.syncCurrentDigestInventory();
   assert.equal(synced.status, 'NON_READY');
-  assert.equal(publishedSnapshots.length, 1);
-  assert.equal(publishedSnapshots[0].complete, false);
+  assert.equal(publishedSnapshots.length, publishedBeforeSync + 1);
+  assert.equal(publishedSnapshots.at(-1).complete, false);
 
   const mismatched = structuredClone(inventory);
   mismatched.files[0].logical_identity.messages[0].versions[0].content_sha256 = '0'.repeat(64);
@@ -177,7 +178,7 @@ test('persisted ST inventory is cross-checked against the session-bound conversa
   assert.match(rejected.reason, /version identity or digest differs/);
   const blockedSync = await f.bridge.syncCurrentDigestInventory();
   assert.equal(blockedSync.status, 'NON_READY');
-  assert.equal(publishedSnapshots.length, 1);
+  assert.equal(publishedSnapshots.length, publishedBeforeSync + 1);
 
   inventory = { ...mismatched, host_session_id: '5e6b0a80-4e73-4c66-aaf3-7a6e62c7f404' };
   const wrongSession = await f.bridge.verifyPersistedInventory();
