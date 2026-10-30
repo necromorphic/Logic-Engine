@@ -246,6 +246,11 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
   async function beforeMutation(operation, messageIndexes, details = {}) {
     const conversationId = await getConversationId();
     if (!conversationId || !(await enrolledOrFailClosed(conversationId))) return { status: 'NOT_ENROLLED' };
+    const pending = await journal.pendingMutation(conversationId);
+    if (pending.status === 'NON_READY') throw Error('NON_READY: lifecycle journal integrity failed: ' + pending.reason);
+    if (pending.status === 'PENDING_MUTATION') {
+      throw Error('NON_READY: previous lifecycle operation is incomplete (' + pending.operation + '); abort mutation');
+    }
     if (!CURRENTLY_HOOKED_PATHS.includes(operation)) {
       throw Error('NON_READY: unsupported/uninstrumented Host lifecycle operation ' + String(operation) + '; abort mutation before source change');
     }
@@ -300,6 +305,11 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
   async function afterMutation(operation, { removedSwipeIndex = null, selectedMessageIndex = null, createdMessageIndex = null } = {}) {
     const conversationId = await getConversationId();
     if (!conversationId || !(await enrolledOrFailClosed(conversationId))) return { status: 'NOT_ENROLLED' };
+    const pending = await journal.pendingMutation(conversationId);
+    if (pending.status === 'NON_READY') throw Error('NON_READY: lifecycle journal integrity failed: ' + pending.reason);
+    if (pending.status !== 'PENDING_MUTATION' || pending.operation !== operation) {
+      throw Error('NON_READY: afterMutation has no matching durable beforeMutation for ' + operation);
+    }
     const chat = getChat();
     if (!Array.isArray(chat)) throw Error('NON_READY: current chat is not an array');
 
