@@ -1,7 +1,7 @@
 # Host/Adapter lifecycle evidence — SillyTavern 1.19.0-1-g06bde939f
 
 **Target:** SillyTavern commit `06bde939fb1e9c4c8d8641d810f0a916b5bce127`.
-**Status:** source-inspected lifecycle plus a review-only Host prototype. **NOT READY** for complete source inventory or production Host→Provider integration. Memory→NPC remains **DISABLED / FAIL-CLOSED**.
+**Status:** source-inspected lifecycle plus a review-only Host prototype. **NOT READY** for complete source inventory or production Host→Provider integration. A confirmed Host/Core capture payload mismatch (missing `parent_version_id`) is being corrected in [the Host/Core contract reconciliation](./94-host-core-contract-reconciliation.md); the patch is not installed or runtime-verified. Memory→NPC remains **DISABLED / FAIL-CLOSED**.
 
 ## Evidence classes
 
