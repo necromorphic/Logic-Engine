@@ -386,7 +386,7 @@ export class HostVersionDigestLedger {
     // Only inspect ordinary data records before copying. Accessors and Proxy
     // traps are executable caller code and must not run inside trust checks.
     if (!isPlainDataRecord(input)) return { status: 'non_ready', code: 'HOST_INVENTORY_INVALID' };
-    if (input.complete !== true || !Array.isArray(input.versions)) {
+    if (input.complete === undefined || !Array.isArray(input.versions)) {
       return { status: 'non_ready', code: 'HOST_INVENTORY_INCOMPLETE' };
     }
     if (Object.keys(input).some((key) => !snapshotInputKeys.has(key))
@@ -417,6 +417,35 @@ export class HostVersionDigestLedger {
     }
     if (!snapshot || !validId(snapshot.world_id) || !validId(snapshot.conversation_id)) {
       return this.#rejectSnapshot(snapshot, 'HOST_INVENTORY_INCOMPLETE');
+    }
+    if (snapshot.complete !== true) {
+      // An authenticated, still-active adapter reporting an incomplete view
+      // invalidates a previous READY marker. Do not invoke the inventory
+      // verifier: an incomplete snapshot can never establish completeness.
+      if (revalidateBinding) {
+        return this.#write(() => {
+          let binding = null;
+          try {
+            binding = revalidateBinding({
+              world_id: snapshot.world_id,
+              conversation_id: snapshot.conversation_id,
+            });
+          } catch {}
+          if (!isPlainDataRecord(binding) || binding.active !== true
+            || binding.world_id !== snapshot.world_id
+            || binding.conversation_id !== snapshot.conversation_id) {
+            return { status: 'non_ready', code: 'HOST_CONVERSATION_NOT_AUTHORIZED' };
+          }
+          this.#markNonReady(
+            snapshot.world_id,
+            snapshot.conversation_id,
+            'HOST_INVENTORY_INCOMPLETE',
+            new Date().toISOString(),
+          );
+          return { status: 'non_ready', code: 'HOST_INVENTORY_INCOMPLETE' };
+        });
+      }
+      return { status: 'non_ready', code: 'HOST_INVENTORY_INCOMPLETE' };
     }
     // Snapshot scope must be authenticated before any rejection can mutate the
     // readiness row. This verifier is the trusted Host/Core integration seam;
