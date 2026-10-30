@@ -479,7 +479,7 @@ test('mechanic proposal handoff rejects a stale evaluation before creating a pro
   const evaluation = new MechanicExecutor(engine, { resolveAuthorizedContext: contextProvider() })
     .evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
   commit(engine, worldId, 'intervening-change', 2, [{ kind: 'entity.create', entity_id: 'entity.other', entity_type: 'object' }]);
-  const proposals = new ProposalService(engine);
+  const proposals = new ProposalService(engine, { validateMechanicPolicy: () => true });
   assert.throws(
     () => proposals.createFromMechanicEvaluation(worldId, evaluation, {
       idempotencyKey: 'stale-mechanic-proposal',
