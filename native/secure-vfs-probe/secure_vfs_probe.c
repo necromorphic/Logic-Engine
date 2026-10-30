@@ -96,16 +96,38 @@ static void probe_open_count(sqlite3_context *context, int argc, sqlite3_value *
   sqlite3_result_int(context, g_main_db_open_count);
 }
 
+static void probe_has_syscall(sqlite3_context *context, int argc, sqlite3_value **argv) {
+  const unsigned char *name;
+  (void)argc;
+  name = sqlite3_value_text(argv[0]);
+  sqlite3_result_int(
+    context,
+    name && g_parent_vfs && g_parent_vfs->xGetSystemCall
+      && g_parent_vfs->xGetSystemCall(g_parent_vfs, (const char *)name) != 0
+  );
+}
+
 static int probe_auto_extension(sqlite3 *db, char **error, const sqlite3_api_routines *api) {
   (void)error;
   SQLITE_EXTENSION_INIT2(api);
-  return sqlite3_create_function(
+  int rc = sqlite3_create_function(
     db,
     "logic_engine_vfs_probe_open_count",
     0,
     SQLITE_UTF8 | SQLITE_DETERMINISTIC,
     0,
     probe_open_count,
+    0,
+    0
+  );
+  if (rc != SQLITE_OK) return rc;
+  return sqlite3_create_function(
+    db,
+    "logic_engine_vfs_probe_has_syscall",
+    1,
+    SQLITE_UTF8 | SQLITE_DETERMINISTIC,
+    0,
+    probe_has_syscall,
     0,
     0
   );
