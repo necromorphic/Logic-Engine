@@ -219,7 +219,7 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
         aliasDb.close();
       }
     } else {
-      assert.equal(existsSync(\`\${canonicalDbPath}-wal\`), false,
+      assert.equal(existsSync(`${canonicalDbPath}-wal`), false,
         'a rejected alias open must not create a WAL sidecar');
       const canonicalDb = new DatabaseSync(canonicalDbPath);
       canonicalDb.close();
