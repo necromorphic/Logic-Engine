@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import Ajv2020 from 'ajv/dist/2020.js';
+import addFormats from 'ajv-formats';
 
 const schema = JSON.parse(readFileSync(
   new URL('../schemas/relationship-state-migration-mapping.schema.json', import.meta.url),
@@ -355,4 +357,67 @@ test('an artifact cannot be approved while fixture-only or without passed confor
     rule.if?.properties?.artifact_status?.const === 'approved'
       && rule.then?.properties?.fixture_only?.const === false
       && rule.then?.required?.includes('approval')));
+});
+
+
+const schemaValidator = new Ajv2020({ allErrors: true, strict: false });
+addFormats(schemaValidator);
+const validateJsonSchema = schemaValidator.compile(schema);
+
+test('both committed migration fixtures pass the actual JSON Schema Draft 2020-12 validator', () => {
+  assert.equal(validateJsonSchema(complete), true, JSON.stringify(validateJsonSchema.errors, null, 2));
+  assert.equal(validateJsonSchema(retirement), true, JSON.stringify(validateJsonSchema.errors, null, 2));
+});
+
+test('the JSON Schema validator rejects malformed structure, pins, and approval state', () => {
+  const missingRequired = clone(complete);
+  delete missingRequired.target_rule_module;
+  assert.equal(validateJsonSchema(missingRequired), false);
+
+  const extraProperty = clone(complete);
+  extraProperty.unreviewed = true;
+  assert.equal(validateJsonSchema(extraProperty), false);
+
+  const malformedDigest = clone(complete);
+  malformedDigest.target.sha256 = 'not-a-sha256';
+  assert.equal(validateJsonSchema(malformedDigest), false);
+
+  const fixtureApproved = clone(complete);
+  fixtureApproved.artifact_status = 'approved';
+  assert.equal(validateJsonSchema(fixtureApproved), false);
+
+  const missingSpecialState = clone(complete);
+  missingSpecialState.dimension_mappings[0].special_state_mappings =
+    missingSpecialState.dimension_mappings[0].special_state_mappings
+      .filter(item => item.source_state !== 'insufficient_support');
+  assert.equal(validateJsonSchema(missingSpecialState), false);
+});
+
+test('approved non-fixture artifacts require approval metadata and passed target conformance', () => {
+  const approved = clone(complete);
+  approved.artifact_status = 'approved';
+  approved.fixture_only = false;
+  approved.target_pack_conformance.status = 'passed';
+  approved.approval = {
+    policy_ref: 'relationships-policy/v1',
+    decision_ref: 'core-conformance-decision/123',
+    approved_by: 'relationships-owner',
+    approved_at: '2026-10-30T12:00:00Z',
+  };
+  assert.equal(validateJsonSchema(approved), true, JSON.stringify(validateJsonSchema.errors, null, 2));
+
+  delete approved.approval;
+  assert.equal(validateJsonSchema(approved), false);
+
+  approved.approval = {
+    policy_ref: 'relationships-policy/v1',
+    decision_ref: 'core-conformance-decision/123',
+    approved_by: 'relationships-owner',
+    approved_at: 'not-a-date',
+  };
+  assert.equal(validateJsonSchema(approved), false);
+
+  approved.approval.approved_at = '2026-10-30T12:00:00Z';
+  approved.target_pack_conformance.status = 'not-established';
+  assert.equal(validateJsonSchema(approved), false);
 });
