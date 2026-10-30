@@ -72,7 +72,15 @@ test('file-backed Provider detects coordinator alias through a symlinked parent 
   const realDirectory = join(directory, 'real');
   const aliasDirectory = join(directory, 'alias');
   mkdirSync(realDirectory);
-  symlinkSync(realDirectory, aliasDirectory, 'dir');
+  try {
+    symlinkSync(realDirectory, aliasDirectory, 'dir');
+  } catch (error) {
+    if (process.platform === 'win32' && error?.code === 'EPERM') {
+      t.skip('this Windows service account cannot create directory symlinks; the same reparse case runs on windows-latest');
+      return;
+    }
+    throw error;
+  }
   const providerPath = join(aliasDirectory, 'provider.sqlite');
   const coordinatorPath = join(realDirectory, 'provider.sqlite');
   t.after(() => rmSync(directory, { recursive: true, force: true }));
