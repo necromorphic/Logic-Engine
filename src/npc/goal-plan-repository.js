@@ -849,8 +849,8 @@ export function createNpcGoalPlanRepository({
           return outcome("review_required", { reason: "core_result_linkage_mismatch" });
         }
         const duplicate = database.prepare(
-          "SELECT attempt_id FROM npc_core_reconciliations WHERE world_id = ? AND event_id = ? AND step_id = ?",
-        ).get(scope.world_id, verified.event_id, attempt.step_id);
+          "SELECT attempt_id FROM npc_core_reconciliations WHERE world_id = ? AND npc_entity_id = ? AND event_id = ? AND step_id = ?",
+        ).get(scope.world_id, scope.npc_entity_id, verified.event_id, attempt.step_id);
         if (duplicate) return outcome("conflict", { reason: "core_event_already_reconciled_for_step" });
         const goalRow = getGoal(database, scope, attempt.goal_id);
         if (!goalRow || goalRow.status !== "active"
