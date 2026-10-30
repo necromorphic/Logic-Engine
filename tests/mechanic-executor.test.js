@@ -909,6 +909,26 @@ test('application executor rejects required capabilities without a grant contrac
 });
 
 
+test('application executor rejects non-deterministic ambiguity policies', (t) => {
+  for (const ambiguityPolicy of ['model_proposal_then_validate', 'author_adjudication', 'unsupported']) {
+    const worldId = 'executor-ambiguity-' + ambiguityPolicy.replaceAll('_', '-') + '-world';
+    const { engine } = setup(t, worldId);
+    const value = template({
+      actions: [{
+        ...template().actions[0],
+        ambiguity_policy: ambiguityPolicy,
+      }],
+    });
+    enableFixture(engine, worldId, value);
+    const result = new MechanicExecutor(engine, { resolveAuthorizedContext: contextProvider() })
+      .evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
+    assert.equal(result.status, 'unknown');
+    assert.equal(result.reason_code, 'UNSUPPORTED_ACTION_AMBIGUITY_POLICY');
+    assert.deepEqual(result.effects, []);
+    assert.equal(engine.getState(worldId).world_revision, 2);
+  }
+});
+
 test('application executor rejects participant and automatic conflict policies instead of guessing', (t) => {
   const participantCases = [
     ['eligible-participants', { eligible_participants: [{ role_id: 'actor' }] }],
