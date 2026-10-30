@@ -1586,3 +1586,37 @@ test('executor rejects fact-set intents that reuse a fact ID with a different su
   assert.deepEqual(result.effects, []);
   assert.equal(engine.getState(worldId).world_revision, 3);
 });
+
+
+test('executor records existing fact identity as an effect dependency', (t) => {
+  const { engine, worldId } = setup(t, 'executor-fact-dependency-world');
+  const value = template({
+    actions: [{
+      action_id: 'assert',
+      input_schema: { type: 'object' },
+      preconditions: [],
+      effects: [{
+        effect_id: 'assert-existing',
+        kind: 'assert_fact',
+        target_ref: 'fact.existing',
+        payload: { predicate: 'likes', value: true, subject_ref: 'entity.actor-context' },
+      }],
+      ambiguity_policy: 'deterministic_only',
+    }],
+  });
+  enableFixture(engine, worldId, value);
+  commit(engine, worldId, 'seed-fact-dependency', 2, [
+    { kind: 'fact.set', fact_id: 'fact.existing', subject_ref: 'entity.actor-context', predicate: 'likes', value: true },
+  ]);
+
+  const result = new MechanicExecutor(engine, { resolveAuthorizedContext: contextProvider() })
+    .evaluate({ worldId, instanceId: 'instance.executor', actionId: 'assert' });
+  assert.equal(result.status, 'ready');
+  assert.ok(result.dependency_manifest.effect_target_dependencies.some((item) =>
+    item.kind === 'fact_identity'
+      && item.target_id === 'fact.existing'
+      && item.subject_ref === 'entity.actor-context'
+      && item.predicate === 'likes'));
+  assert.ok(result.read_set.includes('fact:fact.existing'));
+  assert.ok(result.causal_links.some((link) => link.relation === 'READS_CLAIM' && link.target_id === 'fact.existing'));
+});
