@@ -324,6 +324,7 @@ const SCHEMA_SQL = [
   "CREATE TABLE npc_plan_candidates (world_id TEXT NOT NULL, npc_entity_id TEXT NOT NULL, candidate_id TEXT NOT NULL, goal_id TEXT NOT NULL, plan_id TEXT NOT NULL, plan_revision INTEGER NOT NULL, candidate_json TEXT NOT NULL, snapshot_world_revision INTEGER NOT NULL CHECK(snapshot_world_revision >= 0), snapshot_commit_sequence INTEGER NOT NULL CHECK(snapshot_commit_sequence >= 0), expected_goal_revision INTEGER NOT NULL, expected_plan_selection_revision INTEGER NOT NULL, expected_current_plan_id TEXT, expected_current_plan_revision INTEGER, idempotency_key TEXT NOT NULL, request_hash TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('candidate','accepted','rejected')), created_at TEXT NOT NULL, PRIMARY KEY(world_id,npc_entity_id,candidate_id), UNIQUE(world_id,npc_entity_id,idempotency_key), FOREIGN KEY(world_id,npc_entity_id,goal_id) REFERENCES npc_goals(world_id,npc_entity_id,goal_id) ON DELETE RESTRICT);",
   "CREATE TABLE npc_action_attempts (world_id TEXT NOT NULL, npc_entity_id TEXT NOT NULL, attempt_id TEXT NOT NULL, goal_id TEXT NOT NULL, plan_id TEXT NOT NULL, plan_revision INTEGER NOT NULL, step_id TEXT NOT NULL, action_id TEXT NOT NULL, goal_revision INTEGER NOT NULL, plan_selection_revision INTEGER NOT NULL, world_revision INTEGER NOT NULL, commit_sequence INTEGER NOT NULL, proposal_idempotency_key TEXT NOT NULL, request_hash TEXT NOT NULL, attempt_json TEXT NOT NULL, local_state TEXT NOT NULL CHECK(local_state IN ('prepared','awaiting_core_result','review_required','reconciled')), created_at TEXT NOT NULL, PRIMARY KEY(world_id,npc_entity_id,attempt_id), UNIQUE(world_id,npc_entity_id,proposal_idempotency_key), FOREIGN KEY(world_id,npc_entity_id,goal_id) REFERENCES npc_goals(world_id,npc_entity_id,goal_id) ON DELETE RESTRICT);",
   "CREATE INDEX npc_pending_attempts ON npc_action_attempts(world_id,npc_entity_id,local_state,attempt_id);",
+  "CREATE UNIQUE INDEX npc_one_pending_attempt_per_step ON npc_action_attempts(world_id,npc_entity_id,goal_id,plan_id,plan_revision,step_id) WHERE local_state != 'reconciled';",
   "CREATE TABLE npc_core_reconciliations (world_id TEXT NOT NULL, npc_entity_id TEXT NOT NULL, attempt_id TEXT NOT NULL, proposal_id TEXT NOT NULL, event_id TEXT NOT NULL, goal_id TEXT NOT NULL, plan_id TEXT NOT NULL, step_id TEXT NOT NULL, result_hash TEXT NOT NULL, result_json TEXT NOT NULL, reconciled_at TEXT NOT NULL, PRIMARY KEY(world_id,npc_entity_id,attempt_id), UNIQUE(world_id,npc_entity_id,event_id,step_id), FOREIGN KEY(world_id,npc_entity_id,attempt_id) REFERENCES npc_action_attempts(world_id,npc_entity_id,attempt_id) ON DELETE RESTRICT);",
   "CREATE TABLE npc_idempotency (world_id TEXT NOT NULL, npc_entity_id TEXT NOT NULL, operation TEXT NOT NULL, idempotency_key TEXT NOT NULL, request_hash TEXT NOT NULL, result_json TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY(world_id,npc_entity_id,operation,idempotency_key));",
   "CREATE TABLE npc_audit (audit_sequence INTEGER PRIMARY KEY AUTOINCREMENT, world_id TEXT NOT NULL, npc_entity_id TEXT NOT NULL, entity_type TEXT NOT NULL, entity_id TEXT NOT NULL, action TEXT NOT NULL, revision INTEGER, details_json TEXT NOT NULL, created_at TEXT NOT NULL);",
@@ -744,6 +745,10 @@ export function createNpcGoalPlanRepository({
         if (active.status !== "ready" || active.step.id !== attempt.step_id || active.step.action_id !== attempt.action_id) {
           return outcome("conflict", { reason: "attempt_does_not_match_current_active_step" });
         }
+        const pendingForStep = database.prepare(
+          "SELECT attempt_id FROM npc_action_attempts WHERE world_id = ? AND npc_entity_id = ? AND goal_id = ? AND plan_id = ? AND plan_revision = ? AND step_id = ? AND local_state != 'reconciled'",
+        ).get(scope.world_id, scope.npc_entity_id, attempt.goal_id, attempt.plan_id, planRevision, attempt.step_id);
+        if (pendingForStep) return outcome("conflict", { reason: "pending_attempt_already_exists_for_step" });
         const at = timestamp(now);
         const attemptId = idFrom(idFactory);
         const stored = {
@@ -902,11 +907,13 @@ export function createNpcGoalPlanRepository({
       const scope = scopeOf(scopeInput);
       const options = dataCopy(optionsInput);
       const limit = pageSize(options.limit);
-      const cursor = options.cursor ?? null;
-      if (cursor !== null && !nonEmpty(cursor)) throw new NpcGoalPlanRepositoryError("invalid attempt cursor", "invalid_input");
+      const cursor = options.cursor ?? 0;
+      if (!Number.isSafeInteger(cursor) || cursor < 0) {
+        throw new NpcGoalPlanRepositoryError("attempt cursor must be a non-negative sequence", "invalid_input");
+      }
       const rows = database.prepare(
-        "SELECT attempt_id,goal_id,plan_id,plan_revision,step_id,action_id,world_revision,commit_sequence,local_state,attempt_json,created_at FROM npc_action_attempts WHERE world_id = ? AND npc_entity_id = ? AND local_state != 'reconciled' AND (? IS NULL OR attempt_id > ?) ORDER BY attempt_id LIMIT ?",
-      ).all(scope.world_id, scope.npc_entity_id, cursor, cursor, limit + 1);
+        "SELECT rowid AS cursor_sequence,attempt_id,goal_id,plan_id,plan_revision,step_id,action_id,world_revision,commit_sequence,local_state,attempt_json,created_at FROM npc_action_attempts WHERE world_id = ? AND npc_entity_id = ? AND local_state != 'reconciled' AND rowid > ? ORDER BY rowid LIMIT ?",
+      ).all(scope.world_id, scope.npc_entity_id, cursor, limit + 1);
       const hasMore = rows.length > limit;
       const items = [];
       for (let i = 0; i < rows.length && i < limit; i += 1) {
@@ -914,7 +921,10 @@ export function createNpcGoalPlanRepository({
         const { attempt_json, ...metadata } = row;
         items.push({ ...metadata, attempt: parseJson(attempt_json) });
       }
-      return outcome("ready", { items, next_cursor: hasMore ? items[items.length - 1].attempt_id : null });
+      return outcome("ready", {
+        items,
+        next_cursor: hasMore ? items[items.length - 1].cursor_sequence : null,
+      });
     });
   }
 
