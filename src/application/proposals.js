@@ -343,6 +343,7 @@ export class ProposalService {
         policyGeneration: evaluation.policy_generation,
         policyVersion: evaluation.context_policy_version,
         authorizationScope: evaluation.authorization_scope,
+        authorizationPrincipal: evaluation.authorization_principal,
         snapshotIdentity: identity,
         stage: 'proposal_creation',
       })) === true;
