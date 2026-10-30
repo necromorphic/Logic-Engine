@@ -1482,6 +1482,7 @@ test('one deployment authority pins context and invalidates stale proposals acro
     policyFingerprint: policyVersion,
     authorizationScope: 'test-principal',
     authorizationPrincipal: { adapterId: 'test-adapter', actorEntityId: 'entity.actor-context', recipient: 'model', purpose: 'npc_decision' },
+    assertPrincipalBound: () => true,
     resolve: (args) => ({
       ...contextProvider()(args),
       policy_version: policyVersion,
