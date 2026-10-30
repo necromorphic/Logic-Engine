@@ -147,8 +147,10 @@ static inline HANDLE logic_engine_win_open_relative(
       options | FILE_OPEN_REPARSE_POINT | FILE_SYNCHRONOUS_IO_NONALERT,
       NULL, 0);
   if (status < 0 || result == INVALID_HANDLE_VALUE) {
+    DWORD error = status < 0
+      ? logic_engine_win_status_to_error(status) : ERROR_ACCESS_DENIED;
     if (result && result != INVALID_HANDLE_VALUE) CloseHandle(result);
-    SetLastError(logic_engine_win_status_to_error(status));
+    SetLastError(error);
     return INVALID_HANDLE_VALUE;
   }
   {
