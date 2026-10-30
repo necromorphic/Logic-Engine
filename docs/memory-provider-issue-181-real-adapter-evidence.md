@@ -72,3 +72,23 @@ CI is required to report the exact tested commit SHA and result links before any
 - **NPC/Coordinator:** continue to require owner review and global gates before production wiring. Retrieval/context inclusion is not acquisition, belief, receipt, or delivery.
 
 This branch intentionally adds no second storage engine, no new public API/route, no Core schema or event journal, no raw-text retention, and no production default.
+
+
+## Current-main integration refresh — 30 Oct 2026
+
+The current `tests/memory-provider-core-integration.test.js` setup uses both Core-owned validators by default:
+
+- `createCanonicalEntitySourceVersionValidator(engine)` validates each Provider record against the real `SQLiteStore`/Core engine.
+- `createCanonicalEntityInventoryValidator(engine)` validates the complete canonical-entity inventory from the same Core engine. The test can override this callback to force incomplete/unavailable cases, but the positive path is **not** `validateInventory: async () => true`.
+
+The real in-process integration test therefore proves more than a fixture-positive callback: Provider reconciliation can validate actual Core canonical entity source versions and Core canonical entity inventory, then pass authorized fields through `AuthorizedReadService` and `MemoryNpcConsumer`. It also exercises Provider record/query revocation, source-version invalidation, Core rollback with unchanged commit sequence, and non-ready behavior when canonical inventory attestation fails.
+
+This still does **not** prove the Host side:
+
+- Core canonical entity inventory is not a SillyTavern message/swipe inventory.
+- `HostVersionDigestLedger` is a separate digest-only ledger with its own `verifyInventorySnapshot` callback; Core startup still supplies a deny-only verifier.
+- The current Host file inventory route does not emit the complete message-version envelope required by `HostVersionDigestLedger.reconcileConversation()`.
+- No production adapter joins ST save/edit/swipe/delete/import/restore evidence to canonical Core entity versions or Provider reconciliation.
+- Provider-local revocation and Core final-read revalidation are not the same as a shared final-dispatch/zero-egress guarantee. Security PR #777's dispatch-start primitive is not wired to the pinned ST senders.
+
+**Correct disposition:** Provider → Core canonical-entity reconciliation and revocation tests are executable and pass current CI; Host-originated source inventory/reconciliation and final disclosure remain blocked. Do not describe the positive Core validator path as proof of Host completeness or production Memory → NPC readiness.
