@@ -69,22 +69,3 @@ export function trustedMechanicPolicyRevision(config) {
   return hashRequest(validated);
 }
 
-export function createTrustedMechanicFieldPolicy(configPath) {
-  return (context, entity, field) => {
-    let config;
-    try {
-      config = loadTrustedMechanicPolicyConfig(configPath);
-    } catch {
-      return false;
-    }
-    if (context?.authenticatedAdapterId !== config.adapter_id
-      || context?.actor?.entity_id !== config.actor_entity_id
-      || context?.recipient !== config.recipient
-      || context?.purpose !== config.purpose) return false;
-    if (entity?.entity_id === context.actor.entity_id
-      && ['entity_id', 'entity_type', 'status'].includes(field)) return true;
-    if (typeof field !== 'string' || !field.startsWith('attributes.')) return false;
-    const attribute = field.slice('attributes.'.length);
-    return config.allowed_fields.some((item) => item.entity_id === entity?.entity_id && item.attribute === attribute);
-  };
-}
