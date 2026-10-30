@@ -1491,24 +1491,44 @@ test('one deployment authority pins context and invalidates stale proposals acro
     validateMechanicPolicy: (identity) => authority.validateMechanicPolicy(identity),
   });
 
+  const preProposalEvaluation = executor.evaluate({
+    worldId, instanceId: 'instance.executor', actionId: 'wait',
+  });
+  assert.equal(preProposalEvaluation.status, 'ready');
+  active = {
+    authority_id: 'deployment-mechanics-test',
+    generation: 8,
+    contextProvider: makeContextProvider('visibility-v8'),
+  };
+  assert.throws(
+    () => proposals.createFromMechanicEvaluation(worldId, preProposalEvaluation, {
+      idempotencyKey: 'shared-authority-rotated-before-proposal',
+      turnId: 'shared-authority-rotated-before-proposal-turn',
+      sourceText: 'An evaluation from generation seven must not create a proposal after rotation.',
+      adapterId: 'test-adapter',
+    }),
+    (error) => error.code === 'STALE_MECHANIC_POLICY' && error.status === 409,
+  );
+  assert.equal(proposals.db.prepare('SELECT COUNT(*) AS count FROM event_proposals').get().count, 0);
+
   const staleEvaluation = executor.evaluate({
     worldId, instanceId: 'instance.executor', actionId: 'wait',
   });
   assert.equal(staleEvaluation.status, 'ready');
   assert.equal(staleEvaluation.authority_id, 'deployment-mechanics-test');
-  assert.equal(staleEvaluation.policy_generation, 7);
+  assert.equal(staleEvaluation.policy_generation, 8);
   const staleProposal = proposals.createFromMechanicEvaluation(worldId, staleEvaluation, {
     idempotencyKey: 'shared-authority-stale-proposal',
     turnId: 'shared-authority-stale-turn',
-    sourceText: 'A proposal pinned to generation seven.',
+    sourceText: 'A proposal pinned to generation eight.',
     adapterId: 'test-adapter',
   });
   proposals.approve(worldId, staleProposal.proposal_id);
 
   active = {
     authority_id: 'deployment-mechanics-test',
-    generation: 8,
-    contextProvider: makeContextProvider('visibility-v8'),
+    generation: 9,
+    contextProvider: makeContextProvider('visibility-v9'),
   };
   assert.throws(
     () => proposals.commit(worldId, staleProposal.proposal_id),
@@ -1521,11 +1541,11 @@ test('one deployment authority pins context and invalidates stale proposals acro
     worldId, instanceId: 'instance.executor', actionId: 'wait',
   });
   assert.equal(freshEvaluation.status, 'ready');
-  assert.equal(freshEvaluation.policy_generation, 8);
+  assert.equal(freshEvaluation.policy_generation, 9);
   const freshProposal = proposals.createFromMechanicEvaluation(worldId, freshEvaluation, {
     idempotencyKey: 'shared-authority-fresh-proposal',
     turnId: 'shared-authority-fresh-turn',
-    sourceText: 'A fresh evaluation under generation eight.',
+    sourceText: 'A fresh evaluation under generation nine.',
     adapterId: 'test-adapter',
   });
   proposals.approve(worldId, freshProposal.proposal_id);
