@@ -129,13 +129,27 @@ export class HostLifecycleJournal {
     return {mapping, baselineSequence:row.sequence, preEnrollmentHistory:'UNKNOWN_UNRECOVERABLE'};
   }
   async append({conversationId,eventId,operation,payload,sourceFingerprint=null,requireNoPendingMutation=false}) {
-    if (!conversationId||!eventId||!operation||!payload||typeof payload!=='object') throw TypeError('Invalid event');
+    if (!conversationId || !eventId || typeof operation !== 'string' || !operation || !payload || typeof payload !== 'object') throw TypeError('Invalid event');
     const prev=this.#locks.get(conversationId)||Promise.resolve(); let release; const hold=new Promise(r=>release=r), chain=prev.then(()=>hold); this.#locks.set(conversationId,chain); await prev;
     try {
       if(this.#bad.has(conversationId)) throw Error('NON_READY: '+this.#bad.get(conversationId));
       const rows=await this.#records(conversationId), check=await this.#verifyStored(conversationId, rows);
       if(!check.ok) return this.#fail(conversationId,check.reason);
       if (typeof requireNoPendingMutation !== 'boolean') throw TypeError('requireNoPendingMutation must be a boolean');
+      const lifecycleRows = rows.filter(row =>
+        typeof row.operation === 'string'
+        && (row.operation.startsWith('before:') || row.operation.startsWith('after:')));
+      const latestLifecycle = lifecycleRows.at(-1);
+      if ((requireNoPendingMutation || operation.startsWith('before:'))
+        && latestLifecycle?.operation.startsWith('before:')) {
+        return { status: 'NON_READY', reason: 'cannot append checkpoint while Host lifecycle mutation is pending: '
+          + latestLifecycle.operation.slice('before:'.length) };
+      }
+      if (operation.startsWith('after:')
+        && latestLifecycle?.operation !== 'before:' + operation.slice('after:'.length)) {
+        return { status: 'NON_READY', reason: 'after receipt has no matching durable beforeMutation for '
+          + operation.slice('after:'.length) };
+      }
       const eventDigest=await digest({conversationId,eventId,operation,payload,sourceFingerprint}), duplicate=rows.find(r=>r.eventId===eventId);
       if(duplicate) return duplicate.eventDigest===eventDigest?duplicate:this.#fail(conversationId,'event ID conflict: '+eventId);
       if(operation==='baseline'&&rows.length) return this.#fail(conversationId,'baseline already exists');
