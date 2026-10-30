@@ -193,6 +193,7 @@ export class ProposalService {
       action_id: evaluation.action_id,
       context_fingerprint: evaluation.context_fingerprint,
       context_policy_version: evaluation.context_policy_version,
+      ...(evaluation.policy_authority ? { policy_authority: evaluation.policy_authority } : {}),
       authorization_scope: evaluation.authorization_scope,
       condition_result: evaluation.condition_result,
       dependency_manifest: evaluation.dependency_manifest,
@@ -261,12 +262,21 @@ export class ProposalService {
       'INVALID_SOURCE_TEXT', 'Non-empty source text is required so semantic review is retained.');
     assert(typeof adapterId === 'string' && adapterId.trim(), 'ADAPTER_REQUIRED', 'A trusted adapter identity is required.', 403);
 
+    if (evaluation.policy_authority !== undefined) {
+      assert(object(evaluation.policy_authority)
+        && Object.keys(evaluation.policy_authority).every((key) => ['authority_identity', 'policy_generation', 'policy_version'].includes(key))
+        && typeof evaluation.policy_authority.authority_identity === 'string' && evaluation.policy_authority.authority_identity.trim()
+        && typeof evaluation.policy_authority.policy_generation === 'string' && evaluation.policy_authority.policy_generation.trim()
+        && typeof evaluation.policy_authority.policy_version === 'string' && evaluation.policy_authority.policy_version.trim(),
+      'INVALID_MECHANIC_POLICY_AUTHORITY', 'Policy authority evidence must include a trusted identity, generation, and version fingerprint.');
+    }
     const mechanicExecution = {
       snapshot_identity: identity,
       action_id: evaluation.action_id,
       condition_result: evaluation.condition_result,
       context_fingerprint: evaluation.context_fingerprint,
       context_policy_version: evaluation.context_policy_version,
+      ...(evaluation.policy_authority ? { policy_authority: evaluation.policy_authority } : {}),
       authorization_scope: evaluation.authorization_scope,
       evaluation_fingerprint: evaluation.evaluation_fingerprint,
       dependency_manifest: evaluation.dependency_manifest,
@@ -361,6 +371,7 @@ export class ProposalService {
       current = this.validateMechanicPolicy(Object.freeze({
         worldId: row.world_id,
         policyVersion: metadata.context_policy_version,
+        policyAuthority: metadata.policy_authority ?? null,
         authorizationScope: metadata.authorization_scope,
         snapshotIdentity: metadata.snapshot_identity,
         stage,
