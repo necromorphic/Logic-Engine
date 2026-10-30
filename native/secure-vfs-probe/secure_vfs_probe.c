@@ -622,6 +622,73 @@ static void probe_reused_descriptor_accept_count(sqlite3_context *context, int a
   (void)argv;
   sqlite3_result_int(context, probe_counter_read(&g_reused_descriptor_accept_count));
 }
+
+static int probe_capture_role_identity(const char *path, ProbeDatabaseRole *captured) {
+#ifdef _WIN32
+  typedef HANDLE (WINAPI *probe_register_create_file_fn)(
+    LPCWSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD, DWORD, HANDLE
+  );
+  wchar_t *wide_path = probe_utf8_to_wide(path);
+  HANDLE handle;
+  BY_HANDLE_FILE_INFORMATION info;
+  int ok;
+  if (!wide_path) return 0;
+  handle = ((probe_register_create_file_fn)g_original_open_syscall)(
+    wide_path,
+    GENERIC_READ | GENERIC_WRITE,
+    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+    0,
+    OPEN_ALWAYS,
+    FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT,
+    0
+  );
+  sqlite3_free(wide_path);
+  if (handle == INVALID_HANDLE_VALUE) return 0;
+  ok = GetFileInformationByHandle(handle, &info)
+    && (info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) == 0
+    && (info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0
+    && (info.nFileIndexHigh != 0 || info.nFileIndexLow != 0);
+  if (ok) {
+    captured->volume_serial = info.dwVolumeSerialNumber;
+    captured->file_index_high = info.nFileIndexHigh;
+    captured->file_index_low = info.nFileIndexLow;
+    captured->identity_set = 1;
+  }
+  CloseHandle(handle);
+  return ok;
+#else
+  typedef int (*probe_register_open_fn)(const char *, int, int);
+  int flags = O_RDWR | O_CREAT;
+  int fd;
+  struct stat info;
+#ifndef O_NOFOLLOW
+  (void)path;
+  (void)captured;
+  return 0;
+#else
+  flags |= O_NOFOLLOW;
+#endif
+#ifdef O_CLOEXEC
+  flags |= O_CLOEXEC;
+#endif
+  fd = ((probe_register_open_fn)g_original_open_syscall)(path, flags, 0600);
+  if (fd < 0) return 0;
+  {
+    int ok = fstat(fd, &info) == 0
+      && S_ISREG(info.st_mode)
+      && info.st_dev != 0
+      && info.st_ino != 0;
+    if (ok) {
+      captured->device = info.st_dev;
+      captured->inode = info.st_ino;
+      captured->identity_set = 1;
+    }
+    close(fd);
+    return ok;
+  }
+#endif
+}
+
 static void probe_register_database_role(sqlite3_context *context, int argc, sqlite3_value **argv) {
   const unsigned char *path = sqlite3_value_text(argv[0]);
   const unsigned char *role_name = sqlite3_value_text(argv[1]);
@@ -630,7 +697,10 @@ static void probe_register_database_role(sqlite3_context *context, int argc, sql
   char *stored_role;
   int path_length;
   int duplicate = 0;
+  int duplicate_identity = 0;
   int full = 0;
+  ProbeDatabaseRole captured_role;
+  memset(&captured_role, 0, sizeof(captured_role));
   (void)argc;
   if (!path || !role_name || !path[0] || !role_name[0]) {
     sqlite3_result_error(context, "database path and role are required", -1);
@@ -658,30 +728,56 @@ static void probe_register_database_role(sqlite3_context *context, int argc, sql
     return;
   }
 
+  if (!probe_capture_role_identity(stored_path, &captured_role)) {
+    sqlite3_free(stored_path);
+    sqlite3_free(stored_role);
+    sqlite3_result_error(context, "database role identity capture failed", -1);
+    return;
+  }
+
   probe_registry_lock();
   if (g_database_role_count >= PROBE_MAX_DATABASE_ROLES) full = 1;
   for (int i = 0; !full && i < g_database_role_count; i++) {
-    if (strcmp(stored_path, g_database_roles[i].path) == 0
-        || strcmp(stored_role, g_database_roles[i].role) == 0) {
+    ProbeDatabaseRole *other = &g_database_roles[i];
+    if (strcmp(stored_path, other->path) == 0
+        || strcmp(stored_role, other->role) == 0) {
       duplicate = 1;
       break;
     }
+#ifdef _WIN32
+    if (captured_role.volume_serial == other->volume_serial
+        && captured_role.file_index_high == other->file_index_high
+        && captured_role.file_index_low == other->file_index_low) duplicate_identity = 1;
+#else
+    if (captured_role.device == other->device
+        && captured_role.inode == other->inode) duplicate_identity = 1;
+#endif
   }
-  if (!full && !duplicate) {
+  if (!full && !duplicate && !duplicate_identity) {
     ProbeDatabaseRole *entry = &g_database_roles[g_database_role_count];
     entry->path = stored_path;
     entry->role = stored_role;
-    entry->identity_set = 0;
+#ifdef _WIN32
+    entry->volume_serial = captured_role.volume_serial;
+    entry->file_index_high = captured_role.file_index_high;
+    entry->file_index_low = captured_role.file_index_low;
+#else
+    entry->device = captured_role.device;
+    entry->inode = captured_role.inode;
+#endif
+    entry->identity_set = 1;
     g_database_role_count += 1;
   }
   probe_registry_unlock();
 
-  if (full || duplicate) {
+  if (full || duplicate || duplicate_identity) {
     sqlite3_free(stored_path);
     sqlite3_free(stored_role);
     sqlite3_result_error(context, full
       ? "database role registry is full"
-      : "database role or path already registered", -1);
+      : (duplicate_identity
+        ? "database role identity is already registered"
+        : "database role or path already registered"), -1);
     return;
   }
   sqlite3_result_int(context, 1);
