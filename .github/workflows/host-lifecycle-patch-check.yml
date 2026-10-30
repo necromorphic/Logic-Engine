@@ -78,6 +78,7 @@ jobs:
           node --check sillytavern-host-checkout/src/endpoints/logic-engine-lifecycle.js
           node --check sillytavern-host-checkout/src/endpoints/logic-engine-st-source-inventory.mjs
           node --check sillytavern-host-checkout/src/endpoints/logic-engine-host-inventory-handler.mjs
+          node --check sillytavern-host-checkout/src/endpoints/logic-engine-host-identity-store.mjs
           node --check sillytavern-host-checkout/src/endpoints/logic-engine-host-inventory.js
           node --check sillytavern-host-checkout/src/server-startup.js
           node --check sillytavern-host-checkout/src/server-main.js
