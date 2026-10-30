@@ -743,8 +743,8 @@ test('rollback of an acquisition invalidates its belief support but preserves th
   assert.equal(state.evidence_status, 'unsupported');
   assert.deepEqual(state.surviving_evidence_acquisition_ids, []);
   assert.equal(store.db.prepare(
-    "SELECT COUNT(*) AS count FROM npc_belief_transitions WHERE proposition_ref='proposition:fact/fact-a'"
-  ).get().count, 1);
+    'SELECT COUNT(*) AS count FROM npc_belief_transitions WHERE proposition_ref=?'
+  ).get(propositionRefFor(read.items[0])).count, 1);
 });
 
 test('belief transition refuses a stale snapshot and does not write a projection row', (t) => {
