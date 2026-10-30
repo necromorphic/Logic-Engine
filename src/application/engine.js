@@ -866,7 +866,7 @@ export class LogicEngine {
         && typeof metadata.authority_id === 'string' && metadata.authority_id.trim()
         && Number.isSafeInteger(metadata.policy_generation) && metadata.policy_generation >= 1
         && obj(metadata.authorization_principal)
-        && Object.keys(metadata.authorization_principal).every((key) => ['adapterId', 'actorEntityId', 'recipient', 'purpose'].includes(key))
+        && Object.keys(metadata.authorization_principal).every((key) => ['adapterId', 'actorEntityId', 'recipient', 'purpose', 'bindingGeneration'].includes(key))
         && typeof metadata.authorization_principal.adapterId === 'string' && metadata.authorization_principal.adapterId.trim()
         && typeof metadata.authorization_principal.actorEntityId === 'string' && metadata.authorization_principal.actorEntityId.trim()
         && ['model', 'player', 'adapter'].includes(metadata.authorization_principal.recipient)
