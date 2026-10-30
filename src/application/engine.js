@@ -12,6 +12,7 @@ import { validateMechanicTemplate, validateRuleModuleManifest } from '../core/me
 import { normalizeTimeTrigger, planDueWork } from '../time/scheduler.js';
 import { normalizeProcessDefinition, validateProcessTransition } from '../process/contract.js';
 import { ProcessStore } from '../storage/process-store.js';
+import { beginCoordinatorLock } from '../storage/coordinator-lock.js';
 import { addTimeDuration, createCalendarDefinition, projectCalendarDate } from '../time/model.js';
 import { createTimePolicy, resolveDurationDecision } from '../time/policy.js';
 
@@ -61,6 +62,26 @@ const isSafeNpcInputRecord = (value, ancestors = new Set()) => {
   };
   return visit(value);
 };
+function withNpcAuthorizationLease(store, callback) {
+  if (typeof callback !== 'function') throw new TypeError('NPC authorization lease callback must be synchronous.');
+  if (!store?.coordinatorDb) return callback();
+  // Reuse an existing SQLiteStore transaction lease for nested operations.
+  if (store.coordinatorLeaseDepth > 0) return callback();
+  const release = beginCoordinatorLock(store.coordinatorDb);
+  store.coordinatorLeaseDepth = 1;
+  try {
+    const result = callback();
+    if (result !== null && (typeof result === 'object' || typeof result === 'function')
+      && typeof result.then === 'function') {
+      throw new TypeError('NPC authorization lease callback must be synchronous; do not await while held.');
+    }
+    return result;
+  } finally {
+    store.coordinatorLeaseDepth = 0;
+    release();
+  }
+}
+
 const strings = (x, name) => {
   x = x ?? [];
   assert(Array.isArray(x) && x.length <= 500 && x.every((v) => typeof v === 'string' && v.trim()), 'INVALID_FIELD', name + ' must be an array of non-empty strings.');
@@ -676,190 +697,205 @@ export class LogicEngine {
   }
 
   readNpcKnowledge(input) {
-    const inputCheck = validateNpcKnowledgeReadInput(input);
-    assert(inputCheck.status === 'ready', 'NPC_KNOWLEDGE_READ_NOT_READY',
-      'NPC knowledge read request is malformed or unsupported.', 400,
-      { reason: inputCheck.reason });
-    const request = inputCheck.request;
-    assert(typeof this.npcKnowledgeReadAuthorizer === 'function',
-      'NPC_KNOWLEDGE_READ_NOT_CONFIGURED', 'A trusted deployment-owned NPC knowledge read authorizer is required.', 403);
-    // Read the authorization cursor from one Core snapshot transaction. Separate
-    // world/current-sequence reads can straddle a rollback because rollback advances
-    // world_revision without advancing the event commit_sequence.
-    const snapshot = this.getSnapshot(request.world_id);
-    const world = snapshot;
-    assert(world, 'WORLD_NOT_FOUND', 'World not found.', 404);
-    const commitSequence = snapshot.commit_sequence;
-    const actor = this.store.db.prepare(
-      "SELECT entity_id,status FROM entities WHERE world_id=? AND entity_id=?"
-    ).get(request.world_id, request.actor_id);
-    assert(actor && actor.status !== 'destroyed',
-      'NPC_KNOWLEDGE_READER_NOT_ELIGIBLE', 'The requesting NPC must be a non-destroyed entity in this world.', 403);
-
-    let authorization;
-    try {
-      authorization = this.npcKnowledgeReadAuthorizer(Object.freeze({
+    return withNpcAuthorizationLease(this.store, () => {
+      const inputCheck = validateNpcKnowledgeReadInput(input);
+      assert(inputCheck.status === 'ready', 'NPC_KNOWLEDGE_READ_NOT_READY',
+        'NPC knowledge read request is malformed or unsupported.', 400,
+        { reason: inputCheck.reason });
+      const request = inputCheck.request;
+      assert(typeof this.npcKnowledgeReadAuthorizer === 'function',
+        'NPC_KNOWLEDGE_READ_NOT_CONFIGURED', 'A trusted deployment-owned NPC knowledge read authorizer is required.', 403);
+      // Read the authorization cursor from one Core snapshot transaction. Separate
+      // world/current-sequence reads can straddle a rollback because rollback advances
+      // world_revision without advancing the event commit_sequence.
+      const snapshot = this.getSnapshot(request.world_id);
+      const world = snapshot;
+      assert(world, 'WORLD_NOT_FOUND', 'World not found.', 404);
+      const commitSequence = snapshot.commit_sequence;
+      const actor = this.store.db.prepare(
+        "SELECT entity_id,status FROM entities WHERE world_id=? AND entity_id=?"
+      ).get(request.world_id, request.actor_id);
+      assert(actor && actor.status !== 'destroyed',
+        'NPC_KNOWLEDGE_READER_NOT_ELIGIBLE', 'The requesting NPC must be a non-destroyed entity in this world.', 403);
+  
+      let authorization;
+      try {
+        authorization = this.npcKnowledgeReadAuthorizer(Object.freeze({
+          world_id: request.world_id,
+          conversation_id: request.conversation_id,
+          adapter_id: request.adapter_id,
+          actor_id: request.actor_id,
+          recipient: request.recipient,
+          purpose: request.purpose,
+          world_revision: world.world_revision,
+          commit_sequence: commitSequence,
+        }));
+      } catch {
+        throw new EngineError('NPC_KNOWLEDGE_READ_NOT_AUTHORIZED',
+          'The trusted read authorizer did not approve this request.', 403);
+      }
+      const checked = validateNpcKnowledgeRead(request, world, commitSequence, authorization);
+      if (checked.status !== 'ready') {
+        const status = checked.reason === 'stale_snapshot' ? 409
+          : checked.reason === 'world_not_found' ? 404 : 403;
+        throw new EngineError('NPC_KNOWLEDGE_READ_NOT_READY',
+          'NPC knowledge read was denied or its snapshot is no longer current.', status,
+          { reason: checked.reason });
+      }
+  
+      const rows = this.store.db.prepare(`
+        SELECT a.acquisition_id, a.fact_id, a.acquisition_kind, a.provenance_ref,
+          a.provenance_digest, a.authorization_ref, a.acquired_value_json, a.acquired_source_event_ids_json,
+          f.subject_ref, f.predicate, f.value_json, f.source_event_ids_json
+        FROM knowledge_acquisitions AS a
+        JOIN facts AS f ON f.world_id=a.world_id AND f.fact_id=a.fact_id
+        WHERE a.world_id=? AND a.subject_id=? AND f.status='active'
+        ORDER BY a.acquisition_id
+        LIMIT ?
+      `).all(request.world_id, request.actor_id, checked.request.limit + 1);
+      const truncated = rows.length > checked.request.limit;
+      const items = rows.slice(0, checked.request.limit).map((row) => {
+        let value;
+        let sourceEventIds;
+        try {
+          value = JSON.parse(row.acquired_value_json);
+          sourceEventIds = JSON.parse(row.acquired_source_event_ids_json);
+          const currentValue = JSON.parse(row.value_json);
+          const currentSourceEventIds = JSON.parse(row.source_event_ids_json);
+          if (hashRequest(value) !== hashRequest(currentValue)
+            || hashRequest([...sourceEventIds].sort()) !== hashRequest([...currentSourceEventIds].sort())) {
+            throw new EngineError('NPC_KNOWLEDGE_ACQUISITION_VERSION_MISMATCH',
+              'The active fact no longer matches the version conveyed by this acquisition; reacquisition is required.', 409);
+          }
+        } catch (error) {
+          // Preserve the deliberate version-mismatch failure. Converting it to a
+          // generic projection error hides the actionable requirement to reacquire.
+          if (error instanceof EngineError && error.code === 'NPC_KNOWLEDGE_ACQUISITION_VERSION_MISMATCH') {
+            throw error;
+          }
+          throw new EngineError('NPC_KNOWLEDGE_PROJECTION_INVALID',
+            'The knowledge projection contains invalid canonical JSON.', 409);
+        }
+        assert(Array.isArray(sourceEventIds) && sourceEventIds.length > 0
+          && sourceEventIds.every((eventId) => typeof eventId === 'string' && eventId.trim()),
+        'NPC_KNOWLEDGE_PROJECTION_INVALID', 'Knowledge item is missing canonical source-event provenance.', 409);
+        const freezeTree = (node) => {
+          if (node && typeof node === 'object' && !Object.isFrozen(node)) {
+            for (const child of Object.values(node)) freezeTree(child);
+            Object.freeze(node);
+          }
+          return node;
+        };
+        return Object.freeze({
+          acquisition_id: row.acquisition_id,
+          fact_id: row.fact_id,
+          subject_ref: row.subject_ref,
+          predicate: row.predicate,
+          value: freezeTree(value),
+          acquisition_kind: row.acquisition_kind,
+          provenance_ref: row.provenance_ref,
+          provenance_digest: row.provenance_digest,
+          acquisition_authorization_ref: row.authorization_ref,
+          source_event_ids: Object.freeze(sourceEventIds),
+        });
+      });
+  
+      // The authorizer and SQL read happen after the initial cursor capture. Re-read
+      // the canonical cursor before returning so a concurrent commit cannot make
+      // this ready response combine newer acquisition rows with an older snapshot.
+      // Re-read the cursor atomically. A rollback changes world_revision but not
+      // commit_sequence, so two separate reads could observe the pre-rollback world
+      // row and post-rollback sequence and incorrectly accept a stale result.
+      let snapshotNow;
+      try { snapshotNow = this.getSnapshot(request.world_id); } catch { snapshotNow = null; }
+      assert(snapshotNow && snapshotNow.status === 'active'
+        && snapshotNow.world_revision === checked.request.world_revision
+        && snapshotNow.commit_sequence === checked.request.commit_sequence,
+      'NPC_KNOWLEDGE_READ_NOT_READY',
+      'World snapshot changed while reading NPC knowledge; retry from a fresh snapshot.', 409);
+  
+      return Object.freeze({
+        status: 'ready',
         world_id: request.world_id,
         conversation_id: request.conversation_id,
         adapter_id: request.adapter_id,
         actor_id: request.actor_id,
         recipient: request.recipient,
         purpose: request.purpose,
-        world_revision: world.world_revision,
-        commit_sequence: commitSequence,
-      }));
-    } catch {
-      throw new EngineError('NPC_KNOWLEDGE_READ_NOT_AUTHORIZED',
-        'The trusted read authorizer did not approve this request.', 403);
-    }
-    const checked = validateNpcKnowledgeRead(request, world, commitSequence, authorization);
-    if (checked.status !== 'ready') {
-      const status = checked.reason === 'stale_snapshot' ? 409
-        : checked.reason === 'world_not_found' ? 404 : 403;
-      throw new EngineError('NPC_KNOWLEDGE_READ_NOT_READY',
-        'NPC knowledge read was denied or its snapshot is no longer current.', status,
-        { reason: checked.reason });
-    }
-
-    const rows = this.store.db.prepare(`
-      SELECT a.acquisition_id, a.fact_id, a.acquisition_kind, a.provenance_ref,
-        a.provenance_digest, a.authorization_ref, a.acquired_value_json, a.acquired_source_event_ids_json,
-        f.subject_ref, f.predicate, f.value_json, f.source_event_ids_json
-      FROM knowledge_acquisitions AS a
-      JOIN facts AS f ON f.world_id=a.world_id AND f.fact_id=a.fact_id
-      WHERE a.world_id=? AND a.subject_id=? AND f.status='active'
-      ORDER BY a.acquisition_id
-      LIMIT ?
-    `).all(request.world_id, request.actor_id, checked.request.limit + 1);
-    const truncated = rows.length > checked.request.limit;
-    const items = rows.slice(0, checked.request.limit).map((row) => {
-      let value;
-      let sourceEventIds;
-      try {
-        value = JSON.parse(row.acquired_value_json);
-        sourceEventIds = JSON.parse(row.acquired_source_event_ids_json);
-        const currentValue = JSON.parse(row.value_json);
-        const currentSourceEventIds = JSON.parse(row.source_event_ids_json);
-        if (hashRequest(value) !== hashRequest(currentValue)
-          || hashRequest([...sourceEventIds].sort()) !== hashRequest([...currentSourceEventIds].sort())) {
-          throw new EngineError('NPC_KNOWLEDGE_ACQUISITION_VERSION_MISMATCH',
-            'The active fact no longer matches the version conveyed by this acquisition; reacquisition is required.', 409);
-        }
-      } catch (error) {
-        // Preserve the deliberate version-mismatch failure. Converting it to a
-        // generic projection error hides the actionable requirement to reacquire.
-        if (error instanceof EngineError && error.code === 'NPC_KNOWLEDGE_ACQUISITION_VERSION_MISMATCH') {
-          throw error;
-        }
-        throw new EngineError('NPC_KNOWLEDGE_PROJECTION_INVALID',
-          'The knowledge projection contains invalid canonical JSON.', 409);
-      }
-      assert(Array.isArray(sourceEventIds) && sourceEventIds.length > 0
-        && sourceEventIds.every((eventId) => typeof eventId === 'string' && eventId.trim()),
-      'NPC_KNOWLEDGE_PROJECTION_INVALID', 'Knowledge item is missing canonical source-event provenance.', 409);
-      const freezeTree = (node) => {
-        if (node && typeof node === 'object' && !Object.isFrozen(node)) {
-          for (const child of Object.values(node)) freezeTree(child);
-          Object.freeze(node);
-        }
-        return node;
-      };
-      return Object.freeze({
-        acquisition_id: row.acquisition_id,
-        fact_id: row.fact_id,
-        subject_ref: row.subject_ref,
-        predicate: row.predicate,
-        value: freezeTree(value),
-        acquisition_kind: row.acquisition_kind,
-        provenance_ref: row.provenance_ref,
-        provenance_digest: row.provenance_digest,
-        acquisition_authorization_ref: row.authorization_ref,
-        source_event_ids: Object.freeze(sourceEventIds),
+        snapshot: Object.freeze({
+          world_revision: checked.request.world_revision,
+          commit_sequence: checked.request.commit_sequence,
+        }),
+        authorization_ref: checked.request.authorization_ref,
+        truncated,
+        items: Object.freeze(items),
       });
     });
-
-    // The authorizer and SQL read happen after the initial cursor capture. Re-read
-    // the canonical cursor before returning so a concurrent commit cannot make
-    // this ready response combine newer acquisition rows with an older snapshot.
-    // Re-read the cursor atomically. A rollback changes world_revision but not
-    // commit_sequence, so two separate reads could observe the pre-rollback world
-    // row and post-rollback sequence and incorrectly accept a stale result.
-    let snapshotNow;
-    try { snapshotNow = this.getSnapshot(request.world_id); } catch { snapshotNow = null; }
-    assert(snapshotNow && snapshotNow.status === 'active'
-      && snapshotNow.world_revision === checked.request.world_revision
-      && snapshotNow.commit_sequence === checked.request.commit_sequence,
-    'NPC_KNOWLEDGE_READ_NOT_READY',
-    'World snapshot changed while reading NPC knowledge; retry from a fresh snapshot.', 409);
-
-    return Object.freeze({
-      status: 'ready',
-      world_id: request.world_id,
-      conversation_id: request.conversation_id,
-      adapter_id: request.adapter_id,
-      actor_id: request.actor_id,
-      recipient: request.recipient,
-      purpose: request.purpose,
-      snapshot: Object.freeze({
-        world_revision: checked.request.world_revision,
-        commit_sequence: checked.request.commit_sequence,
-      }),
-      authorization_ref: checked.request.authorization_ref,
-      truncated,
-      items: Object.freeze(items),
-    });
-  }
-
-
-
-  /**
+  }  /**
    * Build an actor-specific belief context from Core-authorized acquisitions.
    * This is an internal, non-HTTP method. Visibility is checked per acquisition;
    * model proposals cannot create evidence or commit world effects.
    */
   prepareNpcBeliefContext(input, proposal, currentBelief = null) {
-    assert(typeof this.npcKnowledgeVisibilityAuthorizer === 'function',
-      'NPC_KNOWLEDGE_VISIBILITY_NOT_CONFIGURED',
-      'A trusted deployment-owned per-acquisition visibility authorizer is required.', 403);
-    const read = this.readNpcKnowledge(input);
-    assert(read.truncated !== true, 'NPC_KNOWLEDGE_READ_INCOMPLETE',
-      'The actor knowledge read exceeded its bounded limit; belief context requires a complete acquisition window.', 409);
-    const visibleItems = [];
-    const withheldPropositionRefs = new Set();
-    for (const item of read.items) {
-      let decision;
-      try {
-        decision = this.npcKnowledgeVisibilityAuthorizer(Object.freeze({
-          world_id: read.world_id,
-          conversation_id: read.conversation_id,
-          adapter_id: read.adapter_id,
-          actor_id: read.actor_id,
-          recipient: read.recipient,
-          purpose: read.purpose,
-          world_revision: read.snapshot.world_revision,
-          commit_sequence: read.snapshot.commit_sequence,
-          acquisition_id: item.acquisition_id,
-          fact_id: item.fact_id,
-          subject_ref: item.subject_ref,
-          predicate: item.predicate,
-          provenance_ref: item.provenance_ref,
-          provenance_digest: item.provenance_digest,
-        }));
-      } catch {
-        throw new EngineError('NPC_KNOWLEDGE_VISIBILITY_NOT_AUTHORIZED',
-          'The trusted visibility authorizer failed; no belief context was prepared.', 403);
-      }
-      const allowedKeys = [
-        'status', 'world_id', 'conversation_id', 'adapter_id', 'actor_id', 'recipient', 'purpose', 'world_revision',
-        'commit_sequence', 'acquisition_id', 'authorization_ref',
-      ];
-      const exactDecision = exactDataRecord(decision, allowedKeys);
-      if (!exactDecision) {
-        throw new EngineError('NPC_KNOWLEDGE_VISIBILITY_NOT_AUTHORIZED',
-          'The visibility authorizer returned a malformed decision.', 403);
-      }
-      if (decision.status === 'denied') {
-        if (decision.world_id !== read.world_id || decision.conversation_id !== read.conversation_id
+    return withNpcAuthorizationLease(this.store, () => {
+      assert(typeof this.npcKnowledgeVisibilityAuthorizer === 'function',
+        'NPC_KNOWLEDGE_VISIBILITY_NOT_CONFIGURED',
+        'A trusted deployment-owned per-acquisition visibility authorizer is required.', 403);
+      const read = this.readNpcKnowledge(input);
+      assert(read.truncated !== true, 'NPC_KNOWLEDGE_READ_INCOMPLETE',
+        'The actor knowledge read exceeded its bounded limit; belief context requires a complete acquisition window.', 409);
+      const visibleItems = [];
+      const withheldPropositionRefs = new Set();
+      for (const item of read.items) {
+        let decision;
+        try {
+          decision = this.npcKnowledgeVisibilityAuthorizer(Object.freeze({
+            world_id: read.world_id,
+            conversation_id: read.conversation_id,
+            adapter_id: read.adapter_id,
+            actor_id: read.actor_id,
+            recipient: read.recipient,
+            purpose: read.purpose,
+            world_revision: read.snapshot.world_revision,
+            commit_sequence: read.snapshot.commit_sequence,
+            acquisition_id: item.acquisition_id,
+            fact_id: item.fact_id,
+            subject_ref: item.subject_ref,
+            predicate: item.predicate,
+            provenance_ref: item.provenance_ref,
+            provenance_digest: item.provenance_digest,
+          }));
+        } catch {
+          throw new EngineError('NPC_KNOWLEDGE_VISIBILITY_NOT_AUTHORIZED',
+            'The trusted visibility authorizer failed; no belief context was prepared.', 403);
+        }
+        const allowedKeys = [
+          'status', 'world_id', 'conversation_id', 'adapter_id', 'actor_id', 'recipient', 'purpose', 'world_revision',
+          'commit_sequence', 'acquisition_id', 'authorization_ref',
+        ];
+        const exactDecision = exactDataRecord(decision, allowedKeys);
+        if (!exactDecision) {
+          throw new EngineError('NPC_KNOWLEDGE_VISIBILITY_NOT_AUTHORIZED',
+            'The visibility authorizer returned a malformed decision.', 403);
+        }
+        if (decision.status === 'denied') {
+          if (decision.world_id !== read.world_id || decision.conversation_id !== read.conversation_id
+            || decision.adapter_id !== read.adapter_id
+            || decision.actor_id !== read.actor_id || decision.recipient !== read.recipient
+            || decision.purpose !== read.purpose
+            || decision.world_revision !== read.snapshot.world_revision
+            || decision.commit_sequence !== read.snapshot.commit_sequence
+            || decision.acquisition_id !== item.acquisition_id
+            || typeof decision.authorization_ref !== 'string' || !decision.authorization_ref.trim()) {
+            throw new EngineError('NPC_KNOWLEDGE_VISIBILITY_NOT_AUTHORIZED',
+              'The visibility denial was not bound to this actor and snapshot.', 403);
+          }
+          const withheldRef = npcPropositionRefFor(item);
+          if (withheldRef) withheldPropositionRefs.add(withheldRef);
+          continue;
+        }
+        if (decision.status !== 'allowed'
+          || decision.world_id !== read.world_id || decision.conversation_id !== read.conversation_id
           || decision.adapter_id !== read.adapter_id
           || decision.actor_id !== read.actor_id || decision.recipient !== read.recipient
           || decision.purpose !== read.purpose
@@ -868,65 +904,46 @@ export class LogicEngine {
           || decision.acquisition_id !== item.acquisition_id
           || typeof decision.authorization_ref !== 'string' || !decision.authorization_ref.trim()) {
           throw new EngineError('NPC_KNOWLEDGE_VISIBILITY_NOT_AUTHORIZED',
-            'The visibility denial was not bound to this actor and snapshot.', 403);
+            'The visibility decision did not authorize this exact acquisition, actor, purpose, and snapshot.', 403);
         }
-        const withheldRef = npcPropositionRefFor(item);
-        if (withheldRef) withheldPropositionRefs.add(withheldRef);
-        continue;
+        visibleItems.push(item);
       }
-      if (decision.status !== 'allowed'
-        || decision.world_id !== read.world_id || decision.conversation_id !== read.conversation_id
-        || decision.adapter_id !== read.adapter_id
-        || decision.actor_id !== read.actor_id || decision.recipient !== read.recipient
-        || decision.purpose !== read.purpose
-        || decision.world_revision !== read.snapshot.world_revision
-        || decision.commit_sequence !== read.snapshot.commit_sequence
-        || decision.acquisition_id !== item.acquisition_id
-        || typeof decision.authorization_ref !== 'string' || !decision.authorization_ref.trim()) {
-        throw new EngineError('NPC_KNOWLEDGE_VISIBILITY_NOT_AUTHORIZED',
-          'The visibility decision did not authorize this exact acquisition, actor, purpose, and snapshot.', 403);
-      }
-      visibleItems.push(item);
-    }
-
-    const visibleRead = Object.freeze({
-      ...read,
-      items: Object.freeze(visibleItems),
-      withheld_proposition_refs: Object.freeze([...withheldPropositionRefs]),
+  
+      const visibleRead = Object.freeze({
+        ...read,
+        items: Object.freeze(visibleItems),
+        withheld_proposition_refs: Object.freeze([...withheldPropositionRefs]),
+      });
+      const reduced = reduceNpcBeliefTransition({
+        knowledgeRead: visibleRead,
+        currentBelief,
+        proposal,
+      });
+      assert(reduced.status === 'ready', 'NPC_BELIEF_TRANSITION_NOT_READY',
+        'NPC belief proposal failed Core evidence/snapshot validation.', 409,
+        { reason: reduced.reason });
+  
+      // Use one atomic snapshot read: rollback advances world_revision without
+      // advancing commit_sequence, so separate reads can straddle a rollback and
+      // accidentally accept a stale context.
+      const snapshotNow = this.getSnapshot(read.world_id);
+      assert(snapshotNow && snapshotNow.status === 'active'
+        && snapshotNow.world_revision === read.snapshot.world_revision
+        && snapshotNow.commit_sequence === read.snapshot.commit_sequence,
+      'NPC_BELIEF_CONTEXT_STALE',
+      'World snapshot changed while preparing the NPC belief context; retry from a fresh snapshot.', 409);
+  
+      const built = buildNpcBeliefContext(visibleRead, reduced.transition);
+      assert(built.status === 'ready', 'NPC_BELIEF_CONTEXT_NOT_READY',
+        'NPC belief context failed final validation.', 409, { reason: built.reason });
+      return Object.freeze({
+        status: 'ready',
+        snapshot: visibleRead.snapshot,
+        transition: reduced.transition,
+        context: built.context,
+      });
     });
-    const reduced = reduceNpcBeliefTransition({
-      knowledgeRead: visibleRead,
-      currentBelief,
-      proposal,
-    });
-    assert(reduced.status === 'ready', 'NPC_BELIEF_TRANSITION_NOT_READY',
-      'NPC belief proposal failed Core evidence/snapshot validation.', 409,
-      { reason: reduced.reason });
-
-    // Use one atomic snapshot read: rollback advances world_revision without
-    // advancing commit_sequence, so separate reads can straddle a rollback and
-    // accidentally accept a stale context.
-    const snapshotNow = this.getSnapshot(read.world_id);
-    assert(snapshotNow && snapshotNow.status === 'active'
-      && snapshotNow.world_revision === read.snapshot.world_revision
-      && snapshotNow.commit_sequence === read.snapshot.commit_sequence,
-    'NPC_BELIEF_CONTEXT_STALE',
-    'World snapshot changed while preparing the NPC belief context; retry from a fresh snapshot.', 409);
-
-    const built = buildNpcBeliefContext(visibleRead, reduced.transition);
-    assert(built.status === 'ready', 'NPC_BELIEF_CONTEXT_NOT_READY',
-      'NPC belief context failed final validation.', 409, { reason: built.reason });
-    return Object.freeze({
-      status: 'ready',
-      snapshot: visibleRead.snapshot,
-      transition: reduced.transition,
-      context: built.context,
-    });
-  }
-
-
-
-  /**
+  }  /**
    * Persist an explicit NPC belief transition as a Core-owned projection linked
    * to the canonical event log. The proposal cannot create acquisition evidence.
    */
