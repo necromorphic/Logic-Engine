@@ -313,10 +313,11 @@ static int probe_win_map_create_file(
     | FILE_FLAG_DELETE_ON_CLOSE | FILE_FLAG_OPEN_REPARSE_POINT;
   switch (creation) {
     case CREATE_NEW: *disposition = FILE_CREATE; break;
-    case CREATE_ALWAYS: *disposition = FILE_OVERWRITE_IF; break;
+    /* Never let NT truncate a child before its opened identity is validated. */
+    case CREATE_ALWAYS: return 0;
     case OPEN_EXISTING: *disposition = FILE_OPEN; break;
     case OPEN_ALWAYS: *disposition = FILE_OPEN_IF; break;
-    case TRUNCATE_EXISTING: *disposition = FILE_OVERWRITE; break;
+    case TRUNCATE_EXISTING: return 0;
     default: return 0;
   }
   if ((flags & ~allowed_flags) != 0) return 0;
