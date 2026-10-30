@@ -332,18 +332,19 @@ static inline HANDLE logic_engine_win_create_file_relative(
 
 /* 1 = accessible, 0 = absent/inaccessible, -1 = unexpected OS failure. */
 static inline int logic_engine_win_access_relative(HANDLE parent, const wchar_t *basename,
-                                                    DWORD access_kind) {
+    DWORD access_kind, const LogicEngineWinFileIdentity *expected) {
   DWORD desired = FILE_READ_ATTRIBUTES;
   HANDLE handle;
-  if (access_kind == 1) desired = GENERIC_READ;
-  else if (access_kind == 2) desired = GENERIC_READ | GENERIC_WRITE;
+  /* Match SQLite's SQLITE_ACCESS_* values: EXISTS=0, READWRITE=1, READ=2. */
+  if (access_kind == 1) desired = GENERIC_READ | GENERIC_WRITE;
+  else if (access_kind == 2) desired = GENERIC_READ;
   else if (access_kind != 0) {
     SetLastError(ERROR_INVALID_PARAMETER);
     return -1;
   }
   handle = logic_engine_win_open_relative(parent, basename, desired,
       FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, FILE_OPEN,
-      FILE_NON_DIRECTORY_FILE, FILE_ATTRIBUTE_NORMAL, NULL, NULL);
+      FILE_NON_DIRECTORY_FILE, FILE_ATTRIBUTE_NORMAL, expected, NULL);
   if (handle != INVALID_HANDLE_VALUE) {
     CloseHandle(handle);
     return 1;
