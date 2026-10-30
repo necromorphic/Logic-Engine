@@ -76,3 +76,10 @@ Core startup still constructs `HostVersionDigestLedger` with `verifyInventorySna
 The pinned Chat Completions route has 13 provider-specific early-return senders plus a separate OpenAI-compatible fetch path. The inventory route and delete-safety overlay do not intercept these sends. The dispatch-start primitive in Security PR #777 is not wired to this ST server-side boundary. Protected Memory remains fail-closed for every provider until a single transport-start interface or complete per-sender coverage is implemented and tested for zero-egress denial/revocation.
 
 **Current disposition:** Host patch composition = PASS in disposable CI; Host complete historical/version inventory = NON_READY; Core world/session authorization = NON_READY; production final-send Gateway = NOT WIRED; Memory → NPC = DISABLED / FAIL-CLOSED. Vectorization remains out of scope and unchanged.
+
+
+The bridge's exact current `CURRENTLY_HOOKED_PATHS` is:
+
+`create-message`, `message-send`, `message-receive`, `create-swipe`, `select-swipe`, `delete-swipe`, `delete-message`, `edit-message`, `rename-chat`.
+
+This is the current bounded hook set, not a complete SillyTavern lifecycle inventory. Whole-chat deletion, group-chat deletion, character deletion, import/export, copy/branch/restore, and out-of-band filesystem changes are not in this list. The bridge itself documents that integrity is not completeness and keeps `reconcileCurrentConversation()` NON_READY until all required mutation paths are wired and tested.
