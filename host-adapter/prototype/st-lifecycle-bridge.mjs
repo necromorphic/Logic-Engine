@@ -108,7 +108,14 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
           const result = await publishSnapshot({
             conversation_id: conversationId,
             complete: false,
-            versions: orderedEntries,
+            versions: orderedEntries.map(entry => ({
+              message_id: entry.message_id,
+              version_id: entry.version_id,
+              parent_version_id: entry.parent_version_id,
+              content_sha256: entry.content_sha256,
+              active: entry.active,
+              deleted: entry.deleted,
+            })),
           });
           const reconciliation = result?.reconciliation;
           const state = {
