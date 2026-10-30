@@ -15,6 +15,20 @@ import { createTimePolicy, resolveDurationDecision } from '../time/policy.js';
 const TRUSTED_IMPORT_CAPABILITY = Symbol('trusted-import-loader');
 const MAX_TRUSTED_IMPORT_BYTES = 1_000_000;
 const obj = (x) => x !== null && typeof x === 'object' && !Array.isArray(x);
+
+// Windows may expose an unusable zero inode through Node's Stats API. In that
+// case the importer still verifies path stability with metadata, then validates
+// the bytes read from the opened handle against the deployment-owned SHA-256
+// allowlist before any state mutation. A path race can therefore cause denial
+// of service, but cannot make unapproved bytes pass trusted-source validation.
+function sameTrustedImportFileIdentity(opened, pathStat) {
+  const hasStableFileId = Number.isSafeInteger(opened.ino) && Number.isSafeInteger(pathStat.ino)
+    && opened.ino !== 0 && pathStat.ino !== 0;
+  if (hasStableFileId) return opened.dev === pathStat.dev && opened.ino === pathStat.ino;
+  return opened.size === pathStat.size
+    && opened.mtimeMs === pathStat.mtimeMs
+    && opened.ctimeMs === pathStat.ctimeMs;
+}
 const strings = (x, name) => {
   x = x ?? [];
   assert(Array.isArray(x) && x.length <= 500 && x.every((v) => typeof v === 'string' && v.trim()), 'INVALID_FIELD', name + ' must be an array of non-empty strings.');
@@ -726,8 +740,8 @@ export class LogicEngine {
         const resolvedAfter = realpathSync(configured.source_path);
         assert(pathAfter.isFile() && !pathAfter.isSymbolicLink()
           && resolve(resolvedBefore) === resolve(resolvedAfter)
-          && stat.dev === pathBefore.dev && stat.ino === pathBefore.ino
-          && stat.dev === pathAfter.dev && stat.ino === pathAfter.ino,
+          && sameTrustedImportFileIdentity(stat, pathBefore)
+          && sameTrustedImportFileIdentity(stat, pathAfter),
         'TRUSTED_IMPORT_FILE_UNAVAILABLE', 'Trusted import path changed while it was being opened.', 503);
       }
       sourceBytes = readFileSync(fd);
