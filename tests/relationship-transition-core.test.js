@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { SQLiteStore } from '../src/storage/sqlite-store.js';
 import { LogicEngine } from '../src/application/engine.js';
 import { createApiServer } from '../src/api/server.js';
+import { hashRequest } from '../src/core/request-hash.js';
 
 const token = 'test-api-token-123456789';
 const adminToken = 'test-admin-token-123456789';
@@ -777,6 +778,7 @@ test('projection rebuild preserves the exact historical rule-version pin when it
     assert.deepEqual(historicalSnapshot.input.evidence.refs, ['event:' + seed.event_id]);
     assert.equal(historicalSnapshot.input.ruleVersion, 'relationship-rules@1.0.0');
     assert.match(historicalSnapshot.input_digest, /^[a-f0-9]{64}$/);
+    assert.equal(historicalSnapshot.input_digest, hashRequest(historicalSnapshot.input));
     store.close();
     store = null;
 
@@ -844,6 +846,15 @@ test('projection rebuild preserves the exact historical rule-version pin when it
       .find((event) => event.event_id === committed.event_id);
     assert.equal(eventAfterRestart.effects[0].rule_module_id, 'relationship-rules');
     assert.equal(eventAfterRestart.effects[0].rule_module_version, '1.0.0');
+    assert.deepEqual(
+      eventAfterRestart.effects[0].relationship_evaluation_snapshot,
+      historicalSnapshot,
+      'the immutable evaluator input snapshot must survive close/reopen and projection rebuild',
+    );
+    assert.equal(
+      eventAfterRestart.effects[0].relationship_evaluation_snapshot.input_digest,
+      hashRequest(eventAfterRestart.effects[0].relationship_evaluation_snapshot.input),
+    );
 
     const projectionPin = reopenedStore.db.prepare(
       'SELECT rule_module_id, rule_module_version, last_event_id FROM relationships WHERE world_id=? AND subject_id=? AND target_id=? AND dimension=?',
