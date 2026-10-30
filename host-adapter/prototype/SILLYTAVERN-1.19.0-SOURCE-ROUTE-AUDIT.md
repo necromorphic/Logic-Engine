@@ -18,12 +18,13 @@ Evidence class: source-inspected, not runtime-observed.
 - `public/script.js:6116` — `sendGenerationRequest()`. For most backends it sends a browser request through `fetch(getGenerateUrl(main_api), ...)`; OpenAI is delegated to `sendOpenAIRequest()`, and Horde has a separate path.
 - `public/script.js` — `sendStreamingRequest()` delegates to backend-specific streaming implementations.
 - `public/scripts/openai.js:3138` — `sendOpenAIRequest()` posts to the same-origin `/api/backends/chat-completions/generate` route.
-- `src/endpoints/backends/chat-completions.js:2242` — server-side `POST /generate` dispatches by `chat_completion_source` to provider-specific sender functions.
+- `src/endpoints/backends/chat-completions.js:2242` — server-side `POST /generate` dispatches by `chat_completion_source`. Its switch at approximately line 2260 returns directly from 13 provider-specific sender functions (Claude, AI21, MakerSuite, VertexAI, MistralAI, Cohere, DeepSeek, AIMLAPI, xAI, Chutes, MiniMax, ElectronHub, Azure OpenAI); these do not pass through the common fallback fetch block.
+- The remaining OpenAI-compatible branch constructs a provider-specific request and performs the common `fetch(endpointUrl, config)` at approximately line 2689. Streaming and non-streaming share this point for that branch.
 
 Consequences for the integration design:
 
 1. `CHAT_COMPLETION_PROMPT_READY` and `GENERATE_AFTER_COMBINE_PROMPTS` are prompt-preparation hooks, not final-send authorization. They run before backend transport and can be bypassed by other generation paths.
-2. A final authorization/dispatch gate must be placed in the server-side transport path, after trusted request/session/world binding and immediately before the selected provider sender initiates outbound I/O. It must cover the non-OpenAI, OpenAI, streaming and non-streaming paths actually supported by the target build.
+2. A final authorization/dispatch gate must be placed after trusted request/session/world binding and immediately before the selected provider sender initiates outbound I/O. A single middleware at the top of `/generate` is not enough: 13 switch branches return from independent sender functions, while the OpenAI-compatible fallback uses a separate common fetch point. The integration must either refactor these branches behind one transport-start interface or instrument every sender and prove the complete provider matrix. Streaming and non-streaming must both be covered.
 3. The current Logic-Engine Gateway dispatch-start primitive is not connected to this ST route. A browser extension hook alone is insufficient to prove zero-egress on denial or revocation.
 
 ## Observed Host lifecycle source points
@@ -42,6 +43,10 @@ Evidence class: source-inspected.
 Event names are declared in `public/scripts/events.js`: `MESSAGE_SENT`, `MESSAGE_RECEIVED`, `MESSAGE_EDITED`, `MESSAGE_DELETED`, `MESSAGE_UPDATED`, `MESSAGE_SWIPE_DELETED`, `CHAT_CHANGED`, `CHAT_DELETED`, `GROUP_CHAT_DELETED`, `GENERATION_STARTED`, `GENERATION_STOPPED`, and `GENERATION_ENDED`.
 
 Event names alone do not prove exactly-once delivery, durable ordering, complete coverage, or UI delivery. In particular, `MESSAGE_RECEIVED` is not proof that the user saw a message.
+
+## Final-send integration requirement
+
+The inspected chat-completions route has multiple outbound initiation sites. Provider-specific helpers contain their own `fetch` calls (including distinct streaming paths), and the generic OpenAI-compatible branch has its own final `fetch`. Wrapping only the common fetch or only the route handler leaves provider-specific bypasses. Before enabling protected Memory, add a source-level inventory test that enumerates all outbound sender functions reachable from this route and fails when a new sender/fetch path is added without a dispatch-gate mapping. Add runtime tests for each supported protected provider asserting: (a) denial/revocation means zero outbound calls; (b) the transport-start callback is invoked synchronously under the shared Coordinator lease; (c) the lease is released before awaiting the response/stream; and (d) ambiguous started requests are not retried.
 
 ## Current implementation boundary
 
