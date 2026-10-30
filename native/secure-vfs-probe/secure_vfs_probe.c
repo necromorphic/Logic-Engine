@@ -332,7 +332,9 @@ static int probe_stat(const char *name, struct stat *info) {
 static int probe_xOpen(sqlite3_vfs *vfs, const char *name, sqlite3_file *file,
                        int flags, int *out_flags) {
   sqlite3_vfs *parent = (sqlite3_vfs *)vfs->pAppData;
-  int is_race_target = name && g_race_path && (flags & SQLITE_OPEN_MAIN_DB)
+  int is_sidecar = (flags & (SQLITE_OPEN_WAL | SQLITE_OPEN_MAIN_JOURNAL)) != 0;
+  int is_race_target = name && g_race_path
+    && (flags & (SQLITE_OPEN_MAIN_DB | SQLITE_OPEN_WAL | SQLITE_OPEN_MAIN_JOURNAL))
     && strcmp(name, g_race_path) == 0;
   int rc;
   int role_index = -1;
@@ -356,19 +358,28 @@ static int probe_xOpen(sqlite3_vfs *vfs, const char *name, sqlite3_file *file,
     g_current_role_stat_valid = 0;
 #endif
   }
+  if (is_sidecar) {
+    g_current_sidecar_open = 1;
+    g_current_sidecar_captured = 0;
+  }
   if (is_race_target) {
     g_current_race_open = 1;
     g_current_race_captured = 0;
+    // Unix main-database race is injected by probe_stat after stat() returns.
+    // WAL/journal opens have no findReusableFd stat window, so inject here.
+    if (g_race_inject_once && (is_sidecar
 #ifdef _WIN32
-    if (g_race_inject_once) {
+        || !is_sidecar
+#endif
+      )) {
       g_race_inject_once = 0;
       if (!probe_replace_with_hardlink(name, g_race_target_path)) {
         g_current_race_open = 0;
+        g_current_sidecar_open = 0;
         return SQLITE_CANTOPEN;
       }
       g_race_injection_count += 1;
     }
-#endif
   }
   rc = parent->xOpen(parent, name, file, flags, out_flags);
   if (role_index >= 0) {
@@ -392,6 +403,14 @@ static int probe_xOpen(sqlite3_vfs *vfs, const char *name, sqlite3_file *file,
 #ifndef _WIN32
     g_current_role_stat_valid = 0;
 #endif
+  }
+  if (is_sidecar) {
+    if (rc == SQLITE_OK && !g_current_sidecar_captured) {
+      if (file->pMethods && file->pMethods->xClose) file->pMethods->xClose(file);
+      rc = SQLITE_CANTOPEN;
+    }
+    g_current_sidecar_open = 0;
+    g_current_sidecar_captured = 0;
   }
   if (is_race_target) {
     if (rc == SQLITE_OK && !g_current_race_captured) {
@@ -581,6 +600,17 @@ static void probe_configure_race(sqlite3_context *context, int argc, sqlite3_val
       sqlite3_free(full_target);
       sqlite3_result_error(context, "race paths could not be canonicalized", -1);
       return;
+    }
+    if (!g_race_path || strcmp(g_race_path, full_path) != 0) {
+      g_race_identity_set = 0;
+#ifdef _WIN32
+      g_race_volume_serial = 0;
+      g_race_file_index_high = 0;
+      g_race_file_index_low = 0;
+#else
+      g_race_device = 0;
+      g_race_inode = 0;
+#endif
     }
     sqlite3_free(g_race_path);
     sqlite3_free(g_race_target_path);
