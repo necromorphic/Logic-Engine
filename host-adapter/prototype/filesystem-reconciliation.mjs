@@ -51,6 +51,16 @@ export async function reconcileFilesystemInventory({
   const integrity = await journal.verifyIntegrity(conversationId);
   if (integrity.status !== 'INTEGRITY_OK') return fail('Host lifecycle journal is not integrity-verified', { cause: integrity.reason });
   if (integrity.sourceFingerprint !== sourceFingerprint) return fail('current conversation fingerprint differs from the accepted lifecycle journal head');
+  if (typeof journal.pendingMutation !== 'function') {
+    return fail('Host lifecycle journal cannot verify whether a mutation is pending');
+  }
+  const pending = await journal.pendingMutation(conversationId);
+  if (pending?.status !== 'NO_PENDING_MUTATION') {
+    return fail('Host lifecycle mutation is pending or its state cannot be verified', {
+      pendingOperation: pending?.operation ?? null,
+      pendingSequence: pending?.sequence ?? null,
+    });
+  }
   const ledger = await journal.exportCaptureLedger(conversationId);
   const checkpoints = ledger.records.filter(record =>
     record.operation === 'filesystem-inventory-baseline'
@@ -71,6 +81,7 @@ export async function reconcileFilesystemInventory({
       eventId: randomUUID(),
       operation: 'filesystem-inventory-baseline',
       sourceFingerprint,
+      requireNoPendingMutation: true,
       payload: { schemaVersion: 1, inventory: current },
     });
     if (row?.status === 'NON_READY') return fail('filesystem baseline could not be durably recorded', { cause: row.reason });
@@ -79,6 +90,13 @@ export async function reconcileFilesystemInventory({
   const previous = checkpoints.at(-1).payload?.inventory;
   if (!previous || previous.root !== current.root) {
     return fail('filesystem inventory root changed or previous checkpoint is malformed');
+  }
+  const finalPending = await journal.pendingMutation(conversationId);
+  if (finalPending?.status !== 'NO_PENDING_MUTATION') {
+    return fail('Host lifecycle mutation started during filesystem reconciliation or its state cannot be verified', {
+      pendingOperation: finalPending?.operation ?? null,
+      pendingSequence: finalPending?.sequence ?? null,
+    });
   }
   if (previous.snapshotSha256 !== current.snapshotSha256
     || JSON.stringify(previous.entries) !== JSON.stringify(current.entries)) {
