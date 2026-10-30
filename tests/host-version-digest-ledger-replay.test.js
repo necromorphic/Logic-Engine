@@ -58,3 +58,65 @@ test('replaying the identical trusted complete Host snapshot is idempotent', asy
   ).get(worldId, conversationId, 'message-a').version_id, 'version-a');
   assert.equal(ledger.getInventoryState(worldId, conversationId).status, 'READY');
 });
+
+
+test('a complete snapshot tombstones only the deleted version and preserves its sibling', async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-host-snapshot-tombstone-'));
+  const worldId = 'snapshot-tombstone-world';
+  const conversationId = 'snapshot-tombstone-conversation';
+  const ledger = new HostVersionDigestLedger({
+    path: join(directory, 'host-ledger.sqlite'),
+    coordinatorPath: join(directory, 'coordinator.sqlite'),
+    verifyInventorySnapshot: async (snapshot) => snapshot.complete === true,
+  });
+  t.after(() => {
+    try { ledger.close(); } catch {}
+    rmSync(directory, { recursive: true, force: true });
+  });
+
+  const root = {
+    world_id: worldId,
+    conversation_id: conversationId,
+    message_id: 'message-a',
+    version_id: 'version-a',
+    parent_version_id: null,
+    content_sha256: digest('root version'),
+    active: false,
+    deleted: false,
+  };
+  const selected = {
+    ...root,
+    version_id: 'version-b',
+    parent_version_id: 'version-a',
+    content_sha256: digest('selected version'),
+    active: true,
+  };
+
+  const initial = await ledger.reconcileConversation({
+    world_id: worldId, conversation_id: conversationId, complete: true,
+    versions: [root, selected],
+  });
+  assert.equal(initial.status, 'ready');
+
+  const deletedSnapshot = await ledger.reconcileConversation({
+    world_id: worldId, conversation_id: conversationId, complete: true,
+    versions: [
+      { ...root, active: true },
+      { ...selected, active: false, deleted: true },
+    ],
+  });
+
+  assert.equal(deletedSnapshot.status, 'ready');
+  assert.equal(ledger.db.prepare(
+    'SELECT lifecycle FROM host_version_digest_ledger WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?',
+  ).get(worldId, conversationId, 'message-a', 'version-a').lifecycle, 'present');
+  assert.equal(ledger.db.prepare(
+    'SELECT lifecycle FROM host_version_digest_ledger WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?',
+  ).get(worldId, conversationId, 'message-a', 'version-b').lifecycle, 'tombstoned');
+  assert.equal(ledger.db.prepare(
+    'SELECT version_id FROM host_version_active_pointer WHERE world_id=? AND conversation_id=? AND message_id=?',
+  ).get(worldId, conversationId, 'message-a').version_id, 'version-a');
+  assert.equal(ledger.db.prepare(
+    'SELECT COUNT(*) AS count FROM host_version_digest_ledger WHERE world_id=? AND conversation_id=?',
+  ).get(worldId, conversationId).count, 2);
+});
