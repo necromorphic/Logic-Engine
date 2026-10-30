@@ -285,3 +285,7 @@ Never report overall integration PASS while any required work package is absent 
 ## 7. Change log
 
 - **v1 (2026-10-30):** consolidated current Priority-1 integration blockers into ordered work packages; reconciles PC-NEXT-07/08/09 design with the latest recorded candidate PR states; keeps production and vectorization untouched.
+
+## Normative trusted-authorization specification
+
+The finalized contract and acceptance matrix are in [PC-NEXT-11 — Trusted authorization and protected egress specification](./pc-next-11-trusted-authorization-final-specification.md). PC-NEXT-11 supersedes PC-NEXT-07 Draft v3 for normative trusted-authorization semantics. This work order remains the execution sequence; it does not override the owner-approval and release gates in PC-NEXT-11.
