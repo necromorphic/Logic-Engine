@@ -2067,7 +2067,7 @@ test('proposal policy boundary rejects a proposal pinned to a rotated active pro
       authorization_scope: 'npc:alice',
       authority_id: 'api-test-authority',
       policy_generation: 3,
-      authorization_principal: { adapterId: 'adapter-a', actorEntityId: 'actor-a', recipient: 'model', purpose: 'npc_decision' },
+      authorization_principal: { adapterId: 'adapter-a', actorEntityId: 'actor-a', recipient: 'model', purpose: 'npc_decision', bindingGeneration: 1 },
       snapshot_identity: { world_id: 'policy-rotation-world' },
     }),
   };
