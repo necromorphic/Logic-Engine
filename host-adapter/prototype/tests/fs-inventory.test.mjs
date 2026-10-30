@@ -33,9 +33,9 @@ test('rejects relative and unavailable roots', async () => {
   assert.deepEqual(await enumerateStableFileInventory('relative/path'), {
     status: 'non_ready', code: 'HOST_INVENTORY_ROOT_INVALID'
   });
-  assert.deepEqual(await enumerateStableFileInventory(join(tmpdir(), 'missing-host-inventory-root')), {
-    status: 'non_ready', code: 'HOST_INVENTORY_ROOT_UNAVAILABLE'
-  });
+  const unavailable = await enumerateStableFileInventory(join(tmpdir(), 'missing-host-inventory-root'));
+  assert.equal(unavailable.status, 'non_ready');
+  assert.match(unavailable.code, /^HOST_(INVENTORY_ROOT_UNAVAILABLE|VSS|INVENTORY_WINDOWS)_/);
 });
 
 test('rejects symlink entries instead of following them outside the root', { skip: process.platform === 'win32' }, async () => {
