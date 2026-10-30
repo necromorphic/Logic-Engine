@@ -11,13 +11,12 @@ import {
 } from '../host-adapter/prototype/st-source-inventory.mjs';
 
 
-// The Windows source-inventory provider is intentionally disabled until a
-// native handle-based reparse-point verifier is available. Keep only the
-// explicit fail-closed acceptance test active on Windows.
+// Windows source inventory is exercised only through the VSS-backed path.
+// The POSIX-specific path-race and reparse tests remain skipped on Windows.
 const test = (name, optionsOrFn, maybeFn) => {
   const options = typeof optionsOrFn === 'function' ? {} : optionsOrFn;
   const fn = typeof optionsOrFn === 'function' ? optionsOrFn : maybeFn;
-  const windowsGuard = name.startsWith('Windows pinned-source inventory fails closed');
+  const windowsGuard = name.startsWith('Windows pinned-source inventory uses VSS');
   const skip = process.platform === 'win32' && !windowsGuard
     ? 'Pinned-source filesystem inventory is unsupported on Windows until reparse-point verification is implemented.'
     : options?.skip;
@@ -292,9 +291,20 @@ test('rejects a message body that disagrees with the persisted active swipe inde
 
 
 
-test('Windows pinned-source inventory fails closed before enumerating data roots', { skip: process.platform !== 'win32' }, async t => {
+test('Windows pinned-source inventory uses an audited VSS point-in-time snapshot', {
+  skip: process.platform !== 'win32',
+  timeout: 240_000,
+}, async t => {
   const value = await fixture();
   t.after(value.cleanup);
-  await assert.rejects(scan(value.directories), error =>
-    error instanceof HostSourceInventoryError && error.code === 'SOURCE_WINDOWS_REPARSE_VERIFICATION_UNAVAILABLE');
+  const result = await scan(value.directories);
+  assert.equal(result.status, 'DOUBLE_SCAN_CANDIDATE', JSON.stringify(result));
+  assert.equal(result.authority, 'NON_AUTHORITATIVE');
+  assert.equal(result.snapshot_provider, 'windows-vss-client-accessible');
+  assert.equal(result.snapshot_consistency, 'VSS_POINT_IN_TIME_READ_ONLY');
+  assert.equal(result.reparse_points, 'ALL_FILE_ATTRIBUTE_REPARSE_POINT_ENTRIES_REJECTED');
+  assert.equal(result.file_count, 4);
+  assert.ok(result.blockers.includes('NO_APPLICATION_LEVEL_ATOMIC_SNAPSHOT'));
+  assert.ok(!result.blockers.includes('NO_ATOMIC_DIRECTORY_SNAPSHOT'));
+  assert.ok(!result.blockers.includes('PATH_BASED_DIRECTORY_REPLACEMENT_RACE_REMAINS'));
 });
