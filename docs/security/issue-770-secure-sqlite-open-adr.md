@@ -137,3 +137,18 @@ This ADR does not authorize:
 7. Independent Security review accepts the exact implementation HEAD.
 
 Until all seven are satisfied, Issue #770 remains OPEN; Core and Security remain BLOCKED; Memory→NPC remains DISABLED / FAIL-CLOSED.
+
+
+## Node.js 22.13.0 API feasibility check (verified against versioned upstream docs)
+
+The repository's minimum runtime is Node.js `>=22.13.0`. The [official Node.js v22.13.0 SQLite API reference](https://nodejs.org/download/release/v22.13.0/docs/api/sqlite.html) documents the `DatabaseSync` constructor as `new DatabaseSync(location[, options])`, where `location` is a filesystem path or `:memory:`; it does not document an already-open descriptor/HANDLE input or a VFS-selection option. The documented options include `open`, `readOnly`, foreign-key and extension controls, but no VFS injection point.
+
+The same reference documents `database.loadExtension(path)` as a wrapper around `sqlite3_load_extension()`. This loads a SQLite extension into an existing database connection; it is not a documented way to replace the VFS used to open that connection. Therefore the following shortcuts are rejected:
+
+- Pass an OS descriptor or Windows HANDLE to `DatabaseSync`: unsupported by the documented v22.13.0 signature.
+- Load an extension after opening the database and claim that it secured the already-completed open: it cannot retroactively validate the open.
+- Register a VFS in an unrelated native SQLite library and assume Node's built-in `node:sqlite` connection uses it: no such linkage is established.
+
+**Feasibility conclusion:** the ADR's dedicated native binding/VFS direction remains the only currently identified path that can own both the SQLite engine and the secure `xOpen` operation without a second path-based reopen. This is still a design conclusion, not proof that the binding is feasible or implemented. The next spike must choose whether to (a) replace the protected `node:sqlite` connection layer with a native binding that owns SQLite/VFS, or (b) establish a different OS-level service boundary with an explicitly narrower attacker model. Do not treat a path ACL precheck as closure for an attacker who can mutate the parent directory.
+
+The API check was performed against the exact minimum runtime documentation, not current/latest Node documentation. Node.js API reference: https://nodejs.org/download/release/v22.13.0/docs/api/sqlite.html
