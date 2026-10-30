@@ -15,6 +15,7 @@ on:
       - 'docs/security/sqlite-vfs-directory-anchor-design.md'
       - 'docs/security/sqlite-database-role-inventory.md'
       - 'native/secure-vfs-probe/README.md'
+      - 'deploy/sqlite-security/**'
       - '.github/workflows/security-vfs-extension-bootstrap.yml'
 
 permissions:
@@ -33,6 +34,8 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '22.13.0'
+      - name: Validate systemd service unit
+        run: systemd-analyze verify deploy/sqlite-security/logic-engine.service
       - name: Build VFS registration probe
         run: cc -O2 -fPIC -shared -I native/secure-vfs-probe native/secure-vfs-probe/secure_vfs_probe.c -o native/secure-vfs-probe/secure_vfs_probe.so
       - name: Verify persistent VFS registration through node:sqlite
@@ -48,6 +51,9 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '22.13.0'
+      - name: Parse Windows service installer
+        shell: pwsh
+        run: $null = [scriptblock]::Create((Get-Content deploy/sqlite-security/install-windows-service.ps1 -Raw))
       - name: Build VFS registration probe
         shell: pwsh
         run: |
