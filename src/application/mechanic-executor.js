@@ -105,7 +105,9 @@ export class MechanicExecutor {
       || typeof actionId !== 'string' || !actionId.trim()) {
       throw new EngineError('INVALID_MECHANIC_EVALUATION_REQUEST', 'worldId, instanceId, and actionId are required.');
     }
-    if (!object(input)) throw new EngineError('INVALID_MECHANIC_ACTION_INPUT', 'Action input must be an object.');
+    if (!object(input) || !isCanonicalJsonValue(input)) {
+      throw new EngineError('INVALID_MECHANIC_ACTION_INPUT', 'Action input must be a plain canonical JSON object.');
+    }
 
     const snapshot = deepFreezeSnapshot(this.engine.getSnapshot(worldId, { includeMechanicEvaluationState: true }));
     const state = snapshot.mechanic_evaluation_snapshot;
@@ -120,6 +122,17 @@ export class MechanicExecutor {
     }
     const template = templateEntry.template;
     const identity = snapshotIdentity(worldId, snapshot, instance, templateEntry);
+    const instanceParameters = instance.parameters ?? {};
+    const instanceState = instance.state ?? {};
+    if (!object(instanceParameters) || Object.keys(instanceParameters).length > 0
+      || !object(instanceState) || Object.keys(instanceState).length > 0) {
+      return unknown('UNSUPPORTED_INSTANCE_PARAMETERS_OR_STATE',
+        'This executor slice does not bind or interpret instance parameters or mutable instance state.', identity);
+    }
+    if (template.unknown_policy !== 'mark_unknown') {
+      return unknown('UNSUPPORTED_UNKNOWN_POLICY',
+        'This executor slice supports only unknown_policy=mark_unknown.', identity);
+    }
     const action = template.actions.find((candidate) => candidate.action_id === actionId);
     if (!action) return { status: 'rejected', reason_code: 'MECHANIC_ACTION_NOT_FOUND', snapshot_identity: identity, effects: [], effect_provenance: [] };
 
