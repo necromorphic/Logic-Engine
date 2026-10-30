@@ -1625,3 +1625,52 @@ test('executor records existing fact identity as an effect dependency', (t) => {
   assert.ok(result.read_set.includes('fact:fact.existing'));
   assert.ok(result.causal_links.some((link) => link.relation === 'READS_CLAIM' && link.target_id === 'fact.existing'));
 });
+
+
+test('executor rejects participant and interaction contracts before resolving context', (t) => {
+  const cases = [
+    template({ eligible_participants: [{ role_id: 'actor' }] }),
+    template({ interactions: [{ interaction_id: 'test.interaction', other_template_id: 'test.other', policy: 'compatible' }] }),
+  ];
+  for (let index = 0; index < cases.length; index += 1) {
+    const { engine, worldId } = setup(t, 'executor-unsupported-participant-' + index);
+    enableFixture(engine, worldId, cases[index]);
+    let providerCalls = 0;
+    const result = new MechanicExecutor(engine, {
+      resolveAuthorizedContext: () => {
+        providerCalls += 1;
+        return contextProvider()({ snapshot: engine.getSnapshot(worldId), template: cases[index], action: cases[index].actions[0] });
+      },
+    }).evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
+    assert.equal(result.status, 'unknown');
+    assert.equal(result.reason_code, 'UNSUPPORTED_PARTICIPANT_OR_INTERACTION_POLICY');
+    assert.equal(providerCalls, 0);
+    assert.deepEqual(result.effects, []);
+  }
+});
+
+test('executor rejects automatic conflict resolution without invoking a resolver', (t) => {
+  const { engine, worldId } = setup(t, 'executor-automatic-conflict-world');
+  enableFixture(engine, worldId, template({
+    conflict_policy: {
+      mode: 'automatic',
+      resolver_module_id: 'test.conflict-resolver',
+      resolver_module_version: '1.0.0',
+    },
+  }));
+  let providerCalls = 0;
+  const result = new MechanicExecutor(engine, {
+    resolveAuthorizedContext: () => {
+      providerCalls += 1;
+      return contextProvider()({
+        snapshot: engine.getSnapshot(worldId),
+        template: template(),
+        action: template().actions[0],
+      });
+    },
+  }).evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
+  assert.equal(result.status, 'unknown');
+  assert.equal(result.reason_code, 'UNSUPPORTED_MECHANIC_MODULE_OR_CONFLICT_POLICY');
+  assert.equal(providerCalls, 0);
+  assert.deepEqual(result.effects, []);
+});
