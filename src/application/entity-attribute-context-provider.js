@@ -115,6 +115,8 @@ export class CanonicalEntityAttributeContextProvider {
       throw new Error('Snapshot changed during trusted context resolution.');
     }
 
+    const policyAuthority = this.authorizedReadService?.getPolicyAuthority?.() ?? null;
+    const policyAuthorityEvidence = this.authorizedReadService?.capturePolicyEvidence?.() ?? null;
     const context = {};
     const knownAbsentPaths = [];
     const dependencyEvidence = [];
@@ -134,8 +136,9 @@ export class CanonicalEntityAttributeContextProvider {
         if (read.world_id !== worldId || read.entity_id !== binding.entity_id
           || read.attribute !== binding.attribute
           || read.world_revision !== snapshot.world_revision
-          || read.commit_sequence !== snapshot.commit_sequence) {
-          throw new Error('Authorized read did not match the exact mechanic evaluation snapshot.');
+          || read.commit_sequence !== snapshot.commit_sequence
+          || (policyAuthorityEvidence && hashRequest(read.policy_authority) !== hashRequest(policyAuthorityEvidence))) {
+          throw new Error('Authorized read did not match the exact mechanic evaluation snapshot and policy generation.');
         }
         if (read.present) setPath(context, path, read.value);
         else knownAbsentPaths.push(path);
@@ -171,6 +174,12 @@ export class CanonicalEntityAttributeContextProvider {
       });
     }
 
+    if (policyAuthority && !this.authorizedReadService.isPolicyEvidenceCurrent(policyAuthorityEvidence)) {
+      throw new Error('Deployment policy authority changed during mechanic context resolution.');
+    }
+    const policyVersion = policyAuthorityEvidence
+      ? hashRequest({ provider_policy_fingerprint: this.policyFingerprint, policy_authority: policyAuthorityEvidence })
+      : this.policyFingerprint;
     return freeze({
       context,
       knownAbsentPaths: knownAbsentPaths.sort(),
@@ -178,7 +187,8 @@ export class CanonicalEntityAttributeContextProvider {
       world_revision: snapshot.world_revision,
       commit_sequence: snapshot.commit_sequence,
       authorization_scope: this.authorizationScope,
-      policy_version: this.policyFingerprint,
+      policy_version: policyVersion,
+      ...(policyAuthorityEvidence ? { policy_authority: policyAuthorityEvidence } : {}),
     });
   }
 
@@ -188,6 +198,10 @@ export class CanonicalEntityAttributeContextProvider {
    * for fresh evaluations; replacing that provider on policy rotation makes
    * proposals pinned to the previous policy fail closed.
    */
+  getPolicyAuthority() {
+    return this.authorizedReadService?.getPolicyAuthority?.() ?? null;
+  }
+
   validateMechanicPolicy(identity) {
     if (!object(identity)
       || typeof identity.worldId !== 'string' || !identity.worldId.trim()
@@ -200,7 +214,17 @@ export class CanonicalEntityAttributeContextProvider {
       return false;
     }
 
-    return identity.policyVersion === this.policyFingerprint
-      && identity.authorizationScope === this.authorizationScope;
+    if (identity.authorizationScope !== this.authorizationScope) return false;
+    const authority = this.authorizedReadService?.getPolicyAuthority?.() ?? null;
+    if (!authority) return identity.policyVersion === this.policyFingerprint
+      && identity.policyAuthority === undefined;
+    const evidence = this.authorizedReadService.capturePolicyEvidence();
+    if (!evidence || !this.authorizedReadService.isPolicyEvidenceCurrent(evidence)) return false;
+    const expectedPolicyVersion = hashRequest({
+      provider_policy_fingerprint: this.policyFingerprint,
+      policy_authority: evidence,
+    });
+    return identity.policyVersion === expectedPolicyVersion
+      && hashRequest(identity.policyAuthority) === hashRequest(evidence);
   }
 }
