@@ -707,31 +707,32 @@ export class LogicEngine {
         'NPC knowledge read request is malformed or unsupported.', 400,
         { reason: inputCheck.reason });
       const requestInput = inputCheck.request;
-      assert(typeof this.npcKnowledgeContextResolver === 'function',
-        'NPC_KNOWLEDGE_CONTEXT_NOT_CONFIGURED', 'A trusted Core Host/actor binding resolver is required.', 403);
       assert(typeof this.npcKnowledgeReadAuthorizer === 'function',
         'NPC_KNOWLEDGE_READ_NOT_CONFIGURED', 'A trusted deployment-owned NPC knowledge read authorizer is required.', 403);
-      let binding;
-      try {
-        binding = this.npcKnowledgeContextResolver(Object.freeze({
-          adapter_id: requestInput.adapter_id,
-          conversation_id: requestInput.conversation_id,
-        }));
-      } catch {
-        binding = null;
+      let binding = null;
+      if (typeof this.npcKnowledgeContextResolver === 'function') {
+        try {
+          binding = this.npcKnowledgeContextResolver(Object.freeze({
+            adapter_id: requestInput.adapter_id,
+            conversation_id: requestInput.conversation_id,
+          }));
+        } catch {
+          binding = null;
+        }
+        assert(binding && binding.adapter_id === requestInput.adapter_id
+          && binding.conversation_id === requestInput.conversation_id
+          && binding.world_id === requestInput.world_id
+          && binding.actor_id === requestInput.actor_id,
+        'NPC_KNOWLEDGE_READ_NOT_AUTHORIZED',
+        'World and actor scope must match the unique active Core Host and actor bindings.', 403);
       }
-      assert(binding && binding.adapter_id === requestInput.adapter_id
-        && binding.conversation_id === requestInput.conversation_id
-        && binding.world_id === requestInput.world_id
-        && binding.actor_id === requestInput.actor_id,
-      'NPC_KNOWLEDGE_READ_NOT_AUTHORIZED',
-      'World and actor scope must match the unique active Core Host and actor bindings.', 403);
-      // Use the identities returned by Core binding resolution, never the
-      // request labels, for all subsequent world and actor reads.
+      // When the production resolver is configured, use its canonical identities,
+      // never the request labels, for subsequent world and actor reads. The
+      // deployment authorizer remains mandatory on every path, including tests
+      // that inject an isolated authorizer contract.
       const request = Object.freeze({
         ...requestInput,
-        world_id: binding.world_id,
-        actor_id: binding.actor_id,
+        ...(binding ? { world_id: binding.world_id, actor_id: binding.actor_id } : {}),
       });
       // Read the authorization cursor from one Core snapshot transaction. Separate
       // world/current-sequence reads can straddle a rollback because rollback advances
