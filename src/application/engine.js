@@ -1,10 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import { constants as fsConstants, openSync, fstatSync, readFileSync, closeSync, lstatSync, realpathSync } from 'node:fs';
+import { constants as fsConstants, fstatSync, closeSync, lstatSync, realpathSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
 import { assert, EngineError } from '../core/errors.js';
 import { hashRequest } from '../core/request-hash.js';
 import { validateEffects } from '../core/rules.js';
 import { validateTrustedInitialKnowledgeSource } from './trusted-initial-knowledge-source.js';
+import { MAX_TRUSTED_IMPORT_BYTES, openTrustedImportDescriptor, readBoundedFileDescriptor } from './trusted-import-file.js';
 import { validateMechanicTemplate, validateRuleModuleManifest } from '../core/mechanics.js';
 import { normalizeTimeTrigger, planDueWork } from '../time/scheduler.js';
 import { normalizeProcessDefinition, validateProcessTransition } from '../process/contract.js';
@@ -13,7 +14,6 @@ import { addTimeDuration, createCalendarDefinition, projectCalendarDate } from '
 import { createTimePolicy, resolveDurationDecision } from '../time/policy.js';
 
 const TRUSTED_IMPORT_CAPABILITY = Symbol('trusted-import-loader');
-const MAX_TRUSTED_IMPORT_BYTES = 1_000_000;
 const obj = (x) => x !== null && typeof x === 'object' && !Array.isArray(x);
 const strings = (x, name) => {
   x = x ?? [];
@@ -711,18 +711,18 @@ export class LogicEngine {
       let pathBefore;
       let resolvedBefore;
       if (!Number.isInteger(noFollow) || noFollow === 0) {
-        pathBefore = lstatSync(configured.source_path);
+        pathBefore = lstatSync(configured.source_path, { bigint: true });
         resolvedBefore = realpathSync(configured.source_path);
         assert(pathBefore.isFile() && !pathBefore.isSymbolicLink()
           && resolve(resolvedBefore) === resolve(configured.source_path),
         'TRUSTED_IMPORT_FILE_UNAVAILABLE', 'Trusted import path must resolve directly to a regular, non-link file.', 503);
       }
-      fd = openSync(configured.source_path, fsConstants.O_RDONLY | (Number.isInteger(noFollow) && noFollow !== 0 ? noFollow : 0));
-      const stat = fstatSync(fd);
+      fd = openTrustedImportDescriptor(configured.source_path, noFollow);
+      const stat = fstatSync(fd, { bigint: true });
       assert(stat.isFile() && stat.size > 0 && stat.size <= MAX_TRUSTED_IMPORT_BYTES,
         'INVALID_TRUSTED_IMPORT_FILE', 'Trusted import must be a regular file within the 1 MiB limit.');
       if (pathBefore) {
-        const pathAfter = lstatSync(configured.source_path);
+        const pathAfter = lstatSync(configured.source_path, { bigint: true });
         const resolvedAfter = realpathSync(configured.source_path);
         assert(pathAfter.isFile() && !pathAfter.isSymbolicLink()
           && resolve(resolvedBefore) === resolve(resolvedAfter)
@@ -730,9 +730,7 @@ export class LogicEngine {
           && stat.dev === pathAfter.dev && stat.ino === pathAfter.ino,
         'TRUSTED_IMPORT_FILE_UNAVAILABLE', 'Trusted import path changed while it was being opened.', 503);
       }
-      sourceBytes = readFileSync(fd);
-      assert(sourceBytes.length > 0 && sourceBytes.length <= MAX_TRUSTED_IMPORT_BYTES,
-        'INVALID_TRUSTED_IMPORT_FILE', 'Trusted import bytes must remain within the 1 MiB limit when read.');
+      sourceBytes = readBoundedFileDescriptor(fd);
     } catch (error) {
       if (error instanceof EngineError) throw error;
       throw new EngineError('TRUSTED_IMPORT_FILE_UNAVAILABLE', 'Deployment-approved import file could not be read safely.', 503);
