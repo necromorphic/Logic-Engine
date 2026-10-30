@@ -70,6 +70,8 @@ export function createHostInventoryHandler({
         'NO_FULL_ROOT_PER_FILE_DIFF',
         'NO_GLOBAL_SILLYTAVERN_DATA_ROOT_COVERAGE',
         'NO_SEMANTIC_CHARACTER_PERSONA_IDENTITY',
+        'UNVERIFIED_MUTATION_ROUTE_COVERAGE',
+        'UNVERIFIED_MUTATION_RUNTIME_ACCEPTANCE',
         ...(inventory.snapshot_alignment === 'SHARED_VSS_SNAPSHOT'
           ? [] : ['NO_SHARED_POINT_IN_TIME_SNAPSHOT']),
       ];
