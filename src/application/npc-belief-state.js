@@ -451,7 +451,7 @@ export function buildNpcBeliefContext(knowledgeRead, transition) {
     belief_stance: transition.stance,
     belief_stance_class: transition.stance === 'unresolved_conflict'
       ? 'conflicted'
-      : transition.stance.startsWith('suspects_') ? 'suspicion' : 'belief',
+      : transition.stance.startsWith('suspects_') ? 'suspected' : 'believed',
     evidence: Object.freeze(safeEvidence),
     reason_rule_ref: transition.reason_rule_ref,
   });
