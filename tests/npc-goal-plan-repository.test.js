@@ -56,14 +56,14 @@ function createCandidate(repository, goalId, key = "candidate-create", targetSco
   );
 }
 
-function acceptedPlan(repository, goalId) {
-  const candidate = createCandidate(repository, goalId);
+function acceptedPlan(repository, goalId, candidateKey = "candidate-create", acceptKey = "candidate-accept") {
+  const candidate = createCandidate(repository, goalId, candidateKey);
   assert.equal(candidate.status, "applied");
   const accepted = repository.acceptPlanCandidate(
     scope,
     candidate.candidate_id,
     expectedEmpty(),
-    { idempotency_key: "candidate-accept" },
+    { idempotency_key: acceptKey },
   );
   assert.equal(accepted.status, "applied");
   return repository.loadDecisionState(scope, { goal_id: goalId }).goals[0];
@@ -247,6 +247,12 @@ test("action attempt records a checkpoint but never advances the active step", (
     const pending = h.repository.listPendingReconciliations(scope);
     assert.equal(pending.items.length, 1);
     assert.equal(pending.items[0].attempt_id, attempt.attempt_id);
+    const duplicateStepAttempt = h.repository.recordActionAttempt(scope, {
+      ...pending.items[0].attempt,
+      proposal_idempotency_key: "different-proposal-key",
+    });
+    assert.equal(duplicateStepAttempt.status, "conflict");
+    assert.equal(duplicateStepAttempt.reason, "pending_attempt_already_exists_for_step");
   } finally {
     h.close();
   }
@@ -569,6 +575,33 @@ test("Core reconciliation fails closed when no trusted result verifier is wired"
     const after = h.repository.loadDecisionState(scope, { goal_id: goal.goal_id }).goals[0];
     assert.equal(after.current_plan_revision, 1);
     assert.equal(after.current_plan.steps[0].status, "active");
+  } finally {
+    h.close();
+  }
+});
+
+
+test("pending reconciliation pagination uses a monotonic per-store cursor", () => {
+  const h = harness();
+  try {
+    const goalA = createGoal(h.repository, scope, "goal-a");
+    const goalB = createGoal(h.repository, scope, "goal-b");
+    const stateA = acceptedPlan(h.repository, goalA.goal_id, "candidate-a", "accept-a");
+    const stateB = acceptedPlan(h.repository, goalB.goal_id, "candidate-b", "accept-b");
+    createAttempt(h.repository, stateA, "proposal-a");
+    createAttempt(h.repository, stateB, "proposal-b");
+
+    const first = h.repository.listPendingReconciliations(scope, { limit: 1 });
+    assert.equal(first.items.length, 1);
+    assert.ok(Number.isSafeInteger(first.next_cursor));
+    const second = h.repository.listPendingReconciliations(scope, {
+      limit: 1,
+      cursor: first.next_cursor,
+    });
+    assert.equal(second.items.length, 1);
+    assert.ok(second.items[0].cursor_sequence > first.items[0].cursor_sequence);
+    assert.notEqual(second.items[0].attempt_id, first.items[0].attempt_id);
+    assert.equal(second.next_cursor, null);
   } finally {
     h.close();
   }
