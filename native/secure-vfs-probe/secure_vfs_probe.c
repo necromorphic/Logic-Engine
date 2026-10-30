@@ -155,12 +155,35 @@ static HANDLE WINAPI probe_create_file_w(
   int needs_identity = is_sidecar
     || (g_current_race_open && !g_current_race_captured)
     || (g_current_role_index >= 0 && !g_current_role_captured);
+  int injected_here = 0;
   probe_counter_increment(&g_native_open_count);
+  if (g_race_inject_once && g_race_path && g_race_target_path) {
+    wchar_t *race_path = probe_utf8_to_wide(g_race_path);
+    if (race_path && wcscmp(name, race_path) == 0) {
+      g_race_inject_once = 0;
+      if (!probe_replace_with_hardlink(g_race_path, g_race_target_path)) {
+        sqlite3_free(race_path);
+        SetLastError(ERROR_ACCESS_DENIED);
+        return INVALID_HANDLE_VALUE;
+      }
+      probe_counter_increment(&g_race_injection_count);
+      g_current_race_open = 1;
+      g_current_race_captured = 0;
+      injected_here = 1;
+    }
+    sqlite3_free(race_path);
+  }
   if (needs_identity) attributes |= FILE_FLAG_OPEN_REPARSE_POINT;
   handle = ((probe_create_file_w_fn)g_original_open_syscall)(
     name, access, share, security, creation, attributes, template_file
   );
-  if (handle == INVALID_HANDLE_VALUE || !needs_identity) return handle;
+  if (handle == INVALID_HANDLE_VALUE || !needs_identity) {
+    if (injected_here) {
+      g_current_race_open = 0;
+      g_current_race_captured = 0;
+    }
+    return handle;
+  }
 
   probe_registry_lock();
   {
@@ -203,6 +226,10 @@ static HANDLE WINAPI probe_create_file_w(
       if (is_sidecar) g_sidecar_identity_reject_count += 1;
       probe_registry_unlock();
       CloseHandle(handle);
+      if (injected_here) {
+        g_current_race_open = 0;
+        g_current_race_captured = 0;
+      }
       SetLastError(ERROR_ACCESS_DENIED);
       return INVALID_HANDLE_VALUE;
     }
@@ -228,6 +255,10 @@ static HANDLE WINAPI probe_create_file_w(
     if (g_current_race_open) g_current_race_captured = 1;
   }
   probe_registry_unlock();
+  if (injected_here) {
+    g_current_race_open = 0;
+    g_current_race_captured = 0;
+  }
   return handle;
 }
 #else
@@ -248,7 +279,20 @@ static int probe_open(const char *name, int flags, int mode) {
   int needs_identity = is_sidecar
     || (g_current_race_open && !g_current_race_captured)
     || (g_current_role_index >= 0 && !g_current_role_captured);
+  int injected_here = 0;
   probe_counter_increment(&g_native_open_count);
+  if (g_race_inject_once && g_race_path && g_race_target_path
+      && strcmp(name, g_race_path) == 0) {
+    g_race_inject_once = 0;
+    if (!probe_replace_with_hardlink(g_race_path, g_race_target_path)) {
+      errno = EACCES;
+      return -1;
+    }
+    probe_counter_increment(&g_race_injection_count);
+    g_current_race_open = 1;
+    g_current_race_captured = 0;
+    injected_here = 1;
+  }
   if (needs_identity) {
 #ifdef O_NOFOLLOW
     flags |= O_NOFOLLOW;
@@ -262,7 +306,13 @@ static int probe_open(const char *name, int flags, int mode) {
 #endif
   }
   fd = ((probe_open_fn)g_original_open_syscall)(name, flags, mode);
-  if (fd < 0 || !needs_identity) return fd;
+  if (fd < 0 || !needs_identity) {
+    if (injected_here) {
+      g_current_race_open = 0;
+      g_current_race_captured = 0;
+    }
+    return fd;
+  }
   probe_registry_lock();
   {
     int reject = fstat(fd, &info) != 0 || info.st_dev == 0 || info.st_ino == 0;
@@ -297,6 +347,10 @@ static int probe_open(const char *name, int flags, int mode) {
       if (is_sidecar) g_sidecar_identity_reject_count += 1;
       probe_registry_unlock();
       close(fd);
+      if (injected_here) {
+        g_current_race_open = 0;
+        g_current_race_captured = 0;
+      }
       errno = EACCES;
       return -1;
     }
@@ -320,6 +374,10 @@ static int probe_open(const char *name, int flags, int mode) {
     if (g_current_race_open) g_current_race_captured = 1;
   }
   probe_registry_unlock();
+  if (injected_here) {
+    g_current_race_open = 0;
+    g_current_race_captured = 0;
+  }
   return fd;
 }
 typedef int (*probe_stat_fn)(const char *, struct stat *);
