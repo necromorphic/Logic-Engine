@@ -193,7 +193,7 @@ static inline int logic_engine_win_anchor_path(
   *last_separator = L'\0';
   root[0] = L'\\'; root[1] = L'\\'; root[2] = L'?'; root[3] = L'\\';
   root[4] = copy[0]; root[5] = L':'; root[6] = L'\\'; root[7] = L'\0';
-  current = CreateFileW(root, FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES,
+  current = CreateFileW(root, FILE_LIST_DIRECTORY | FILE_TRAVERSE | FILE_READ_ATTRIBUTES,
       FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL,
       OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, NULL);
   if (current == INVALID_HANDLE_VALUE) goto fail;
@@ -213,7 +213,7 @@ static inline int logic_engine_win_anchor_path(
       goto fail;
     }
     next = logic_engine_win_open_relative(current, cursor,
-        FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES,
+        FILE_LIST_DIRECTORY | FILE_TRAVERSE | FILE_READ_ATTRIBUTES,
         FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
         FILE_OPEN, FILE_DIRECTORY_FILE, FILE_ATTRIBUTE_DIRECTORY, NULL, NULL);
     if (end) *end = saved;
