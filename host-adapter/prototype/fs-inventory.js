@@ -11,6 +11,28 @@ const MAX_TOTAL_BYTES = 2 * 1024 * 1024 * 1024;
 const MAX_TOTAL_ENTRIES = 100_000;
 const sha256 = (value) => createHash('sha256').update(value).digest('hex');
 
+// Reconciliation accepts only the exact immutable object produced by this
+// scanner instance. A caller-supplied digest or copied manifest is not proof
+// that the filesystem was scanned.
+const verifiedInventories = new WeakSet();
+
+export function isVerifiedFileInventory(inventory) {
+  return inventory !== null && typeof inventory === 'object'
+    && verifiedInventories.has(inventory);
+}
+
+function sealVerifiedInventory(inventory) {
+  for (const entry of inventory.entries) {
+    Object.freeze(entry.identity);
+    Object.freeze(entry);
+  }
+  Object.freeze(inventory.entries);
+  Object.freeze(inventory);
+  verifiedInventories.add(inventory);
+  return inventory;
+}
+
+
 async function readBoundedFile(handle, maxBytes, overflowCode) {
   const chunks = [];
   let total = 0;
@@ -196,7 +218,7 @@ async function enumerateStableFileInventoryOnRoot(rootPath, options = {}) {
     const firstDigest = sha256(JSON.stringify(first));
     const secondDigest = sha256(JSON.stringify(second));
     if (firstDigest !== secondDigest) return fail('HOST_INVENTORY_UNSTABLE');
-    return Object.freeze({
+    return sealVerifiedInventory({
       status: 'complete',
       root: reportedRoot ?? root,
       file_count: second.length,
@@ -244,12 +266,15 @@ export async function enumerateStableFileInventory(rootPath) {
     return await withWindowsVssSnapshot(rootPath, async lease => {
       const inventory = await enumerateStableFileInventoryFromWindowsSnapshot(lease);
       if (inventory.status !== 'complete') return inventory;
-      return Object.freeze({
+      // The wrapper creates a new object, so authenticate the final public
+      // manifest as well; the inner snapshot manifest is not passed onward.
+      const finalInventory = {
         ...inventory,
         snapshot_provider: lease.provider,
         snapshot_consistency: lease.consistency,
         reparse_points: lease.reparsePoints,
-      });
+      };
+      return sealVerifiedInventory(finalInventory);
     });
   } catch (error) {
     const code = typeof error?.message === 'string' && error.message.startsWith('HOST_')
