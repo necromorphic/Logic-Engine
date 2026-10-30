@@ -436,7 +436,7 @@ test('restart reconciliation fails closed when source changed after the last jou
   const result = await f.bridge.reconcileCurrentConversation();
   assert.equal(result.status, 'NON_READY');
   assert.match(result.reason, /fingerprint differs/);
-  await assert.rejects(f.bridge.beforeMutation('delete-message', [0]), /previous lifecycle operation is incomplete/);
+  await assert.rejects(f.bridge.beforeMutation('delete-message', [0]), /fingerprint differs/);
 });
 
 test('speaker-label changes are fingerprinted and require an instrumented edit checkpoint', async () => {
@@ -481,7 +481,7 @@ test('native save failure leaves the journal behind so the next mutation fails c
   f.setFailSave(true);
   await assert.rejects(f.bridge.afterMutation('edit-message'), /simulated native chat save failure/);
   f.setFailSave(false);
-  await assert.rejects(f.bridge.beforeMutation('delete-message', [0]), /fingerprint differs/);
+  await assert.rejects(f.bridge.beforeMutation('delete-message', [0]), /previous lifecycle operation is incomplete/);
 });
 
 test('empty chat enrollment is explicit and does not imply pre-enrollment history', async () => {
@@ -584,8 +584,8 @@ test('reconciliation rejects identity metadata whose digest no longer matches na
 test('new-message reconciliation fails closed when an existing identity is missing', async () => {
   const f = makeFixture();
   await f.bridge.enrollCurrentConversation();
-  const before = await f.journal.verifyIntegrity('chat-1');
   await f.bridge.beforeMutation('create-message', []);
+  const before = await f.journal.verifyIntegrity('chat-1');
   delete f.chat[0]._logicEngineLifecycle;
   f.chat.push({ is_user: false, mes: 'new reply' });
 
@@ -601,8 +601,8 @@ test('new-message reconciliation fails closed when an existing identity is missi
 test('create-message checkpoint refuses to absorb an unhooked edit in earlier messages', async () => {
   const f = makeFixture();
   await f.bridge.enrollCurrentConversation();
-  const before = await f.journal.verifyIntegrity('chat-1');
   await f.bridge.beforeMutation('create-message', []);
+  const before = await f.journal.verifyIntegrity('chat-1');
   f.chat[0].mes = 'external edit before new message';
   f.chat.push({ is_user: false, mes: 'new reply' });
 
