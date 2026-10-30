@@ -28,11 +28,32 @@ jobs:
           cp host-adapter/prototype/st-lifecycle-bridge.mjs sillytavern-host-checkout/public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs
           cp host-adapter/prototype/conversation-identity.mjs sillytavern-host-checkout/public/scripts/logic-engine-lifecycle/conversation-identity.mjs
           cp host-adapter/prototype/st-server-digest-proxy.mjs sillytavern-host-checkout/src/endpoints/logic-engine-lifecycle-proxy.mjs
-      - name: Apply-check and apply the pinned-source patch
+          cp host-adapter/prototype/st-source-inventory.mjs sillytavern-host-checkout/src/endpoints/logic-engine-st-source-inventory.mjs
+          cp host-adapter/prototype/st-host-inventory-handler.mjs sillytavern-host-checkout/src/endpoints/logic-engine-host-inventory-handler.mjs
+          cp host-adapter/prototype/st-host-inventory-route.js sillytavern-host-checkout/src/endpoints/logic-engine-host-inventory.js
+      - name: Fetch the exact Host inventory candidate used by PR #780
+        run: |
+          git fetch origin 46b919086d0e9bfc129a8df9896d97373a1c6c50
+          mkdir -p host-inventory-candidate
+          git show FETCH_HEAD:host-adapter/prototype/st-source-inventory.mjs > host-inventory-candidate/st-source-inventory.mjs
+          git show FETCH_HEAD:host-adapter/prototype/st-host-inventory-handler.mjs > host-inventory-candidate/st-host-inventory-handler.mjs
+          git show FETCH_HEAD:host-adapter/prototype/st-host-inventory-route.js > host-inventory-candidate/st-host-inventory-route.js
+          git show FETCH_HEAD:host-adapter/prototype/patches/sillytavern-1.19.0-source-inventory-route.patch > host-inventory-candidate/sillytavern-1.19.0-source-inventory-route.patch
+      - name: Install prototype modules into the pinned host tree
+        run: |
+          cp host-inventory-candidate/st-source-inventory.mjs sillytavern-host-checkout/src/endpoints/logic-engine-st-source-inventory.mjs
+          cp host-inventory-candidate/st-host-inventory-handler.mjs sillytavern-host-checkout/src/endpoints/logic-engine-host-inventory-handler.mjs
+          cp host-inventory-candidate/st-host-inventory-route.js sillytavern-host-checkout/src/endpoints/logic-engine-host-inventory.js
+      - name: Apply-check and apply lifecycle, inventory, then delete-safety patches
         run: |
           cd sillytavern-host-checkout
           git apply --check "$GITHUB_WORKSPACE/host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch"
           git apply "$GITHUB_WORKSPACE/host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch"
+          git apply --check "$GITHUB_WORKSPACE/host-inventory-candidate/sillytavern-1.19.0-source-inventory-route.patch"
+          git apply "$GITHUB_WORKSPACE/host-inventory-candidate/sillytavern-1.19.0-source-inventory-route.patch"
+          git apply --check "$GITHUB_WORKSPACE/host-adapter/prototype/patches/issue-258-direction-a-delete-safety.patch"
+          git apply "$GITHUB_WORKSPACE/host-adapter/prototype/patches/issue-258-direction-a-delete-safety.patch"
+          git diff --check
       - name: Syntax-check patched host and prototype modules
         run: |
           node --check sillytavern-host-checkout/public/script.js
@@ -42,6 +63,10 @@ jobs:
           node --check sillytavern-host-checkout/public/scripts/logic-engine-lifecycle/conversation-identity.mjs
           node --check sillytavern-host-checkout/src/endpoints/logic-engine-lifecycle-proxy.mjs
           node --check sillytavern-host-checkout/src/endpoints/logic-engine-lifecycle.js
+          node --check sillytavern-host-checkout/src/endpoints/logic-engine-st-source-inventory.mjs
+          node --check sillytavern-host-checkout/src/endpoints/logic-engine-host-inventory-handler.mjs
+          node --check sillytavern-host-checkout/src/endpoints/logic-engine-host-inventory.js
+          node --check sillytavern-host-checkout/src/server-startup.js
           node --check sillytavern-host-checkout/src/endpoints/backends/chat-completions.js
       - name: Ensure MakerSuite request body is not logged
         run: |
