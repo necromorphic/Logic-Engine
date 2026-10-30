@@ -14,14 +14,15 @@ const MAX_TOTAL_LOGICAL_VERSIONS = 1_000_000;
 const HOST_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export class HostSourceInventoryError extends Error {
-  constructor(code) {
-    super(code);
+  constructor(code, detail = null) {
+    super(detail ? code + ' [' + detail + ']' : code);
     this.name = 'HostSourceInventoryError';
     this.code = code;
+    if (detail) this.detail = detail;
   }
 }
 
-const fail = code => { throw new HostSourceInventoryError(code); };
+const fail = (code, detail = null) => { throw new HostSourceInventoryError(code, detail); };
 const validLeaf = value => typeof value === 'string' && value.length > 0
   && value !== '.' && value !== '..'
   && !value.includes('/') && !value.includes('\\')
@@ -258,7 +259,11 @@ async function readStableFile(filePath, rootPath, maxBytes, snapshotMode = false
   try {
     const openedBefore = await handle.stat({ bigint: true });
     if (!openedBefore.isFile() || !sameStat(pathBefore, openedBefore)) {
-      fail('SOURCE_FILE_IDENTITY_CHANGED');
+      const fields = ['dev', 'ino', 'mode', 'size', 'mtimeNs', 'ctimeNs'];
+      const detail = fields.filter(field => pathBefore[field] !== openedBefore[field])
+        .map(field => field + '=' + String(pathBefore[field]) + '!=' + String(openedBefore[field]))
+        .join(',');
+      fail('SOURCE_FILE_IDENTITY_CHANGED', detail || 'unknown-stat-difference');
     }
     identityOf(openedBefore);
     if (openedBefore.size > BigInt(maxBytes)) fail('SOURCE_FILE_SIZE_LIMIT');
