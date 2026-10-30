@@ -128,14 +128,18 @@ const hostVersionLedger = new HostVersionDigestLedger({
   coordinatorPath,
   verifyInventorySnapshot: async () => false,
 });
+const engine = new LogicEngine(store, {
+  trustedInitialKnowledgeSources,
+  worldPackCatalog,
+  npcKnowledgeReadAuthorizer: npcKnowledgeAuthorizers.readAuthorizer,
+  npcKnowledgeVisibilityAuthorizer: npcKnowledgeAuthorizers.visibilityAuthorizer,
+  npcKnowledgeHostIdentityResolver: npcKnowledgeAuthorizers.resolveHostIdentity,
+});
 const server = createApiServer({
-  engine: new LogicEngine(store, {
-    trustedInitialKnowledgeSources, worldPackCatalog,
-    npcKnowledgeReadAuthorizer: npcKnowledgeAuthorizers.readAuthorizer,
-    npcKnowledgeVisibilityAuthorizer: npcKnowledgeAuthorizers.visibilityAuthorizer,
-  }), token, internalToken, approvalToken, adminToken, adapterTokens,
+  engine, token, internalToken, approvalToken, adminToken, adapterTokens,
   hostVersionLedger,
   mechanicPolicyAuthority,
+  npcKnowledgeAuthorizers,
 });
 server.listen(port, host, () => process.stdout.write(
   'Logic-Engine API listening on http://' + host + ':' + port + '\nDatabase: ' + dbPath +
