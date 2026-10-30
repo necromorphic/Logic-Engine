@@ -7,13 +7,13 @@
 - Core remains authoritative for world truth, acquisition records, world snapshot, commit/rollback, and persistent belief-transition history.
 - `readNpcKnowledge()` supplies only actor-assigned, active acquisition records.
 - A deployment-owned synchronous authorizer approves the actor/purpose/snapshot read.
-- A separate deployment-owned synchronous visibility authorizer must approve each acquisition for the exact actor, purpose, world revision, and commit sequence before it can enter a model-facing context.
+- A separate deployment-owned synchronous visibility authorizer must approve each acquisition for the exact adapter, actor, recipient, purpose, world revision, and commit sequence before it can enter a model-facing context.
 - The model proposes a stance; it cannot add acquisition evidence, authorize access, change canonical facts, or commit world effects. The current Core API does not expose an NPC-authored canonical world-mutation capability; any future world change remains a proposal to the existing authorized Core commit path.
 
 ## Runtime path
 
 1. Read actor-scoped Core acquisitions at an exact current snapshot. The reader probes one item beyond the configured limit; if the acquisition window is truncated, belief-context preparation and belief-state reconciliation fail closed rather than assuming the unseen remainder contains no conflicting evidence.
-2. Apply per-acquisition visibility decisions. Denied items are omitted; malformed, unbound, or failing decisions abort context preparation. If any acquisition for the proposed proposition is withheld, the reducer rejects that belief update without exposing the hidden value or identifying which source was withheld.
+2. Apply per-acquisition visibility decisions. Denied items are omitted; malformed, unbound, or failing decisions abort context preparation. Each decision is bound to the same adapter and recipient (`model`) as the read request, as well as actor, purpose and snapshot. If any acquisition for the proposed proposition is withheld, the reducer rejects that belief update without exposing the hidden value or identifying which source was withheld.
 3. Validate every proposed evidence reference against the visible acquisition set.
 4. Require both support and contradiction references when the proposal marks an unresolved conflict. Contradictory evidence cannot be forced into a winning stance by this reducer.
 5. Recheck world revision and commit sequence immediately before returning the context.
@@ -45,4 +45,4 @@ Belief stances are qualitative: `believes_true`, `believes_false`, `suspects_tru
 
 ## Boundaries still not enabled
 
-This is the Core transition and context-preparation seam only. The read authorizer and per-acquisition visibility authorizer are deployment-injected; `src/index.js` does not configure them, so the application remains fail-closed by default. The current read request also lacks explicit Host-session/recipient fields and relies on the deployment authorizer to bind those identities outside caller-controlled data; that binding is not yet demonstrated. No production NPC model receiver, context serializer, or SillyTavern Memory dispatch is wired. No model prompt is sent here. Independent Core/security review and end-to-end Host/Provider egress verification remain mandatory before Memory → NPC can be enabled.
+This is the Core transition and context-preparation seam only. The read authorizer and per-acquisition visibility authorizer are deployment-injected; `src/index.js` does not configure them, so the application remains fail-closed by default. The read and visibility requests now carry adapter and recipient fields, but those fields remain caller-supplied and do not authenticate a Host session. The deployment authorizer must bind them to trusted Host/session state; no explicit Host-session identifier or verified Host binding is implemented. No production NPC model receiver, context serializer, or SillyTavern Memory dispatch is wired. No model prompt is sent here. Independent Core/security review and end-to-end Host/Provider egress verification remain mandatory before Memory → NPC can be enabled.
