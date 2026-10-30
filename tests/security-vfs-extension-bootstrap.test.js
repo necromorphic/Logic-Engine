@@ -230,6 +230,42 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
           >= rejectsBeforeAliases + 2,
         'the opened OS identities must reject aliases to both other database roles'
       );
+
+      if (process.platform !== 'win32') {
+        const reusePath = join(directory, 'reuse.sqlite');
+        second.prepare('SELECT logic_engine_vfs_probe_register_database_role(?, ?) AS registered')
+          .get(reusePath, 'descriptor-reuse');
+        const reuseA = new DatabaseSync(reusePath);
+        let reuseB;
+        try {
+          reuseA.exec('CREATE TABLE reuse_data(value INTEGER); INSERT INTO reuse_data VALUES(1);');
+          reuseA.exec('BEGIN; SELECT value FROM reuse_data;');
+          reuseB = new DatabaseSync(reusePath);
+          reuseB.exec('BEGIN; SELECT value FROM reuse_data;');
+          reuseB.close();
+          reuseB = undefined;
+
+          const reuseCountBefore = second.prepare(
+            'SELECT logic_engine_vfs_probe_reused_descriptor_accept_count() AS count'
+          ).get().count;
+          const reuseC = new DatabaseSync(reusePath);
+          try {
+            assert.equal(reuseC.prepare('SELECT value FROM reuse_data').get().value, 1);
+          } finally {
+            reuseC.close();
+          }
+          assert.ok(
+            second.prepare('SELECT logic_engine_vfs_probe_reused_descriptor_accept_count() AS count').get().count
+              > reuseCountBefore,
+            'SQLite must reuse the pending descriptor only after the stat identity matches the registered role'
+          );
+        } finally {
+          reuseB?.close();
+          reuseA.exec('ROLLBACK;');
+          reuseA.close();
+        }
+      }
+
       // The WAL sidecar itself must not be substituted with a hardlink to Core.
       const sidecarRacePath = join(directory, 'sidecar-race.sqlite');
       second.prepare('SELECT logic_engine_vfs_probe_configure_race(?, ?, 1)')
