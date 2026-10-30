@@ -110,3 +110,8 @@ The session-bound Host candidate now has a matching Core transport seam: `POST /
 The ledger performs its final binding revalidation synchronously while holding the shared Coordinator lease after the async snapshot verifier completes. Revocation and READY publication therefore serialize. Revocation after a previous READY state also invalidates that inventory before acknowledging success. This does not make inventory status an authorization token: every consumer must independently re-resolve the binding at its own read/disclosure/dispatch boundary.
 
 The production verifier remains deny-only. The endpoint is NON_READY in production and does not grant Memory/NPC access. The Host lifecycle bridge still needs to send its assembled complete snapshot through this route only after the pinned-source attestation and complete mutation-path coverage exist. Current hooks are not complete; import/export, whole-chat/group deletion, copy/branch/restore, migrations and external filesystem edits remain unsupported. Live ST session-cookie persistence and target-PC validation remain untested.
+
+
+### Capacity gate
+
+Host source inventory permits up to 1,000,000 logical versions, while the current Core reconciliation transport is capped at 25,000 rows and 8 MiB per complete snapshot. The bridge cannot claim a complete inventory if either bound is exceeded. Large chats therefore remain NON_READY until a bounded full-snapshot transfer contract is approved. No partial-snapshot accumulation, cursor or outbox is added by this candidate.
