@@ -9,6 +9,7 @@ import { MechanicExecutor } from '../src/application/mechanic-executor.js';
 import { CanonicalEntityAttributeContextProvider } from '../src/application/entity-attribute-context-provider.js';
 import { ActorBindingService } from '../src/application/actor-bindings.js';
 import { AuthorizedReadService } from '../src/application/authorized-read-service.js';
+import { DeploymentPolicyAuthority } from '../src/application/deployment-policy-authority.js';
 import { ProposalService } from '../src/application/proposals.js';
 import { collectMechanicConditionDependencies } from '../src/core/mechanics.js';
 import { hashRequest } from '../src/core/request-hash.js';
@@ -1420,4 +1421,93 @@ test('proposal commit rolls back canonical state when committed-audit insertion 
   assert.equal(proposals.db.prepare(
     "SELECT COUNT(*) AS count FROM audit_entries WHERE world_id=? AND action='proposal.committed'",
   ).get(worldId).count, beforeCommittedAudits + 1);
+});
+
+
+test('one deployment authority is pinned across evaluation, proposal, approval, and commit', (t) => {
+  const { engine, worldId } = setup(t, 'mechanic-authority-lifecycle-world');
+  enableFixture(engine, worldId);
+
+  let generation = 1;
+  const authority = new DeploymentPolicyAuthority({
+    authorityIdentity: 'deployment.visibility',
+    resolveActivePolicy: () => ({
+      authority_identity: 'deployment.visibility',
+      generation,
+      authorizeField: (context, entity, field) => context.authenticatedAdapterId === 'mechanic-adapter'
+        && context.actor.entity_id === 'entity.actor-context'
+        && context.recipient === 'model'
+        && context.purpose === 'npc_decision'
+        && ((entity.entity_id === 'entity.world-context' && field === 'attributes.weather')
+          || (entity.entity_id === 'entity.actor-context' && field === 'attributes.hp')),
+    }),
+  });
+  const actorBindings = new ActorBindingService(engine);
+  actorBindings.bind(worldId, 'mechanic-adapter', 'entity.actor-context');
+  const authorizedReads = new AuthorizedReadService(engine, actorBindings, authority);
+  const provider = new CanonicalEntityAttributeContextProvider(engine, {
+    policyVersion: 'deployment-visibility',
+    authorizationScope: 'mechanic-adapter:entity.actor-context:model:npc_decision',
+    bindings: [
+      { path: 'world.weather', entity_id: 'entity.world-context', attribute: 'weather' },
+      { path: 'actor.hp', entity_id: 'entity.actor-context', attribute: 'hp' },
+    ],
+    authorizedReadService: authorizedReads,
+    adapterId: 'mechanic-adapter',
+    actorEntityId: 'entity.actor-context',
+    recipient: 'model',
+    purpose: 'npc_decision',
+  });
+  const executor = new MechanicExecutor(engine, {
+    resolveAuthorizedContext: (args) => provider.resolve(args),
+  });
+  const proposals = new ProposalService(engine, {
+    validateMechanicPolicy(identity) {
+      return provider.getPolicyAuthority() === authority
+        && authority.isCurrent(identity.policyAuthority)
+        && provider.validateMechanicPolicy(identity);
+    },
+  });
+  const evaluate = () => executor.evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
+  const propose = (evaluation, key) => proposals.createFromMechanicEvaluation(worldId, evaluation, {
+    idempotencyKey: key,
+    turnId: 'turn-' + key,
+    sourceText: 'Apply the bounded mechanic through the canonical proposal lifecycle.',
+    adapterId: 'mechanic-adapter',
+  });
+
+  const staleBeforeProposal = evaluate();
+  assert.equal(staleBeforeProposal.status, 'ready');
+  assert.equal(staleBeforeProposal.policy_authority.authority_identity, 'deployment.visibility');
+  assert.equal(staleBeforeProposal.policy_authority.policy_generation, '1');
+  generation = 2;
+  assert.throws(() => propose(staleBeforeProposal, 'stale-before-proposal'),
+    (error) => error.code === 'STALE_MECHANIC_POLICY' && error.status === 409);
+  assert.equal(engine.getState(worldId).world_revision, 2);
+
+  const staleBeforeApproval = evaluate();
+  const pending = propose(staleBeforeApproval, 'stale-before-approval');
+  generation = 3;
+  assert.throws(() => proposals.approve(worldId, pending.proposal_id),
+    (error) => error.code === 'STALE_MECHANIC_POLICY' && error.status === 409);
+  assert.equal(proposals.get(worldId, pending.proposal_id).status, 'pending');
+  assert.equal(engine.getState(worldId).world_revision, 2);
+
+  const staleBeforeCommit = evaluate();
+  const approved = propose(staleBeforeCommit, 'stale-before-commit');
+  proposals.approve(worldId, approved.proposal_id);
+  generation = 4;
+  assert.throws(() => proposals.commit(worldId, approved.proposal_id),
+    (error) => error.code === 'STALE_MECHANIC_POLICY' && error.status === 409);
+  assert.equal(proposals.get(worldId, approved.proposal_id).status, 'approved');
+  assert.equal(engine.getState(worldId).world_revision, 2);
+  assert.equal(engine.getState(worldId).entities.some((entity) => entity.entity_id === 'entity.new'), false);
+
+  const currentEvaluation = evaluate();
+  const currentProposal = propose(currentEvaluation, 'current-policy-commit');
+  proposals.approve(worldId, currentProposal.proposal_id);
+  const committed = proposals.commit(worldId, currentProposal.proposal_id);
+  assert.equal(committed.status, 'committed');
+  assert.equal(engine.getState(worldId).world_revision, 3);
+  assert.equal(engine.getState(worldId).entities.some((entity) => entity.entity_id === 'entity.new'), true);
 });
