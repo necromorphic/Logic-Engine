@@ -213,6 +213,8 @@ int wmain(void) {
     CloseHandle(created);
     if (logic_engine_win_access_relative(anchor.parent, L"probe-wal", 0, &sidecar_identity) != 1
         || logic_engine_win_access_relative(anchor.parent, L"probe-wal", 2, &sidecar_identity) != 1
+        || logic_engine_win_access_relative(anchor.parent, L"probe-wal", 1, &sidecar_identity) != 1
+        || logic_engine_win_access_relative(anchor.parent, L"probe-wal", 0, &expected) != 0
         || logic_engine_win_access_relative(anchor.parent, L"store.sqlite", 0, &expected) != 1) {
       fail(L"anchored xAccess primitive");
       goto cleanup;
