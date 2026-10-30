@@ -343,7 +343,7 @@ These are pure NPC helper/unit-test guarantees only. They do not establish that 
 
 ### Owner-contract reconciliation
 
-- **Core #140:** there is still no universal source identity/version contract or durable source-change feed for every source class. The direct `canonical_entity` source-version token (`core-entity-v1:<counter>`) and snapshot-pinned canonical entity inventory are now implemented on main by merged PR #709. `world_revision + commit_sequence` remains a snapshot marker, not a source-specific journal. Core initial-knowledge acquisition-time value/source-event pins and the actor-scoped reader are in draft PR #744; until merged, legacy/unpinned acquisitions remain non-ready for NPC disclosure. External Host messages and derived summaries remain unsupported as direct sources.
+- **Core #140:** there is still no universal source identity/version contract or durable source-change feed for every source class. The direct `canonical_entity` source-version token (`core-entity-v1:<counter>`) and snapshot-pinned canonical entity inventory are now implemented on main by merged PR #709. `world_revision + commit_sequence` remains a snapshot marker, not a source-specific journal. PR #744 was closed unmerged. Current-main draft PR #764 adds Core initial-knowledge acquisition-time value/source-event pins and the actor-scoped reader; until merged and independently accepted, legacy/unpinned acquisitions remain non-ready for NPC disclosure. External Host messages and derived summaries remain unsupported as direct sources.
 - **Host/Adapter #258:** the observed SillyTavern event samples establish event presence/shapes only. Array indices and swipe IDs remain host-local; no production capture/persistence mapping, stable conversation/session identity, or complete restart/replay inventory is proven. Host lifecycle PR #680 was closed unmerged; persisted-save receipt PR #689 remains a draft stacked on that branch; PR #740 is a documentation checkpoint, not the executable egress patch. Host + Provider must establish the real lifecycle-to-persisted-source mapping and authenticated session binding before any result can be considered production input.
 - **Memory Provider #181:** Provider-side SQLite grants, candidate authorization, reconciliation and the Core source-version/inventory validators exist as bounded runtime primitives. They do not establish complete Host history by themselves: injected validators are authoritative only when backed by a trusted Host inventory. Raw Host text capture/read remains explicitly disabled. Provider must supply complete, current record inventory, lineage, index health and reconciliation evidence from the approved Host source, or mark the result non-ready.
 
@@ -413,7 +413,7 @@ The first connected path must read only the approved actor-specific initial-know
 
 ### Current work boundary
 
-The NPC-1/NPC-2 semantic mapping is now recorded in `docs/57-private-host-core-memory-npc-adapter-contract.md` (PR #747). That document is a private architecture contract, not runtime evidence. The next runtime dependencies are the Core reader/value-pin candidate #744, an authenticated Host-session binding, a production Memory inventory/reconciliation source, and a real NPC decision/context callsite. Do not substitute more fixture tests for these missing runtime links.
+The NPC-1/NPC-2 semantic mapping is now recorded in `docs/57-private-host-core-memory-npc-adapter-contract.md` (PR #747). That document is a private architecture contract, not runtime evidence. The next runtime dependencies are the Core reader/value-pin candidate #764, an authenticated Host-session binding, a production Memory inventory/reconciliation source, and a real NPC decision/context callsite. Do not substitute more fixture tests for these missing runtime links.
 
 
 ## 9. Cross-block contract and end-to-end status snapshot — 30 Oct 2026
@@ -424,9 +424,9 @@ The private semantic contract is recorded in `docs/57-private-host-core-memory-n
 
 | Requirement | Status | Current evidence and remaining gap |
 |---|---|---|
-| R1 — Acquisition identity, provenance and source version | **PARTIAL** | Trusted source ingestion #683 and direct `canonical_entity` source-version/inventory support #709 are on main. Acquisition-time value/source-event pins and Core NPC reader are draft in #744; Memory evidence is not wired into the NPC runtime. |
-| R2 — Actor, recipient, purpose and field authorization | **PARTIAL** | Core actor binding and bounded authorized-read exist. #744 has per-read/per-acquisition authorizers but they are unset in `src/index.js`; adapter/recipient remain request scope, not Host authentication. |
-| R3 — Epistemic class → belief mapping | **PARTIAL** | Conservative mapping is defined in private contract PR #747. NPC reducer #695 is draft; the Core reader candidate does not itself map Memory epistemic classes. |
+| R1 — Acquisition identity, provenance and source version | **PARTIAL** | Trusted source ingestion #683 and direct `canonical_entity` source-version/inventory support #709 are on main. Acquisition-time value/source-event pins and Core NPC reader are draft in #764; Memory evidence is not wired into the NPC runtime. |
+| R2 — Actor, recipient, purpose and field authorization | **PARTIAL** | Core actor binding and bounded authorized-read exist. #764 has per-read/per-acquisition authorizers but they are unset in `src/index.js`; adapter/recipient remain request scope, not Host authentication. |
+| R3 — Epistemic class → belief mapping | **PARTIAL** | Conservative mapping is defined in private contract PR #747. NPC reducer #759 is draft; the Core reader candidate does not itself map Memory epistemic classes. |
 | R4 — Production NPC decision/context callsite | **NOT IMPLEMENTED** | No production caller/serializer has been demonstrated to consume the authorized result and preserve the epistemic distinctions. |
 | R5 — Host final disclosure and Gateway | **PARTIAL** | A bounded Core/Provider dispatch primitive exists, but no pinned SillyTavern final-send route is wired to it; Host inventory/restore and authenticated session binding remain incomplete. Contract requires fail-closed final revalidation and does not claim linearizability. |
 
@@ -438,7 +438,7 @@ The private semantic contract is recorded in `docs/57-private-host-core-memory-n
 | E2E-02 — Unknown/untrusted source rejected | **PARTIAL** | Provider and admission negative tests exist; no complete production path. |
 | E2E-03 — Stale source version rejected | **PARTIAL** | Core source-version token and Provider checks exist; no end-to-end NPC disclosure test. |
 | E2E-04 — Revoked trust/access rejected | **PARTIAL** | Provider grant/revocation tests exist; no pinned Host final-send integration. |
-| E2E-05 — Rollback and same-fact replacement do not reuse acquired value | **PARTIAL** | Regression is present in draft Core reader candidate #744; not mainline runtime evidence. |
+| E2E-05 — Rollback and same-fact replacement do not reuse acquired value | **PARTIAL** | Regression is present in draft Core reader candidate #764; not mainline runtime evidence. |
 | E2E-06 — Duplicate delivery/acquisition is idempotent | **PARTIAL** | Core ingestion and candidate belief idempotency tests exist; no integrated Host delivery/receipt path. |
 | E2E-07 — Canonical/derived-belief conflict preserves Core precedence | **PARTIAL** | Rule is defined by PR #747; candidate Core/NPC semantics are not integrated in production. |
 | E2E-08 — Partial Provider response never becomes ready/empty | **NOT TESTED** | No real integrated Host→Provider→Core→NPC partial-response test. |
