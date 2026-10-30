@@ -186,7 +186,9 @@ export class ProposalService {
     assert(typeof evaluation.context_fingerprint === 'string' && /^[a-f0-9]{64}$/i.test(evaluation.context_fingerprint)
       && typeof evaluation.evaluation_fingerprint === 'string' && /^[a-f0-9]{64}$/i.test(evaluation.evaluation_fingerprint)
       && typeof evaluation.context_policy_version === 'string' && evaluation.context_policy_version.trim()
-      && typeof evaluation.authorization_scope === 'string' && evaluation.authorization_scope.trim()\n      && typeof evaluation.authority_id === 'string' && evaluation.authority_id.trim()\n      && Number.isSafeInteger(evaluation.policy_generation) && evaluation.policy_generation >= 1,
+      && typeof evaluation.authorization_scope === 'string' && evaluation.authorization_scope.trim()
+      && typeof evaluation.authority_id === 'string' && evaluation.authority_id.trim()
+      && Number.isSafeInteger(evaluation.policy_generation) && evaluation.policy_generation >= 1,
     'INVALID_MECHANIC_EVALUATION_FINGERPRINT', 'Context and evaluation fingerprints are required.');
     const expectedEvaluationFingerprint = hashRequest({
       snapshot_identity: identity,
