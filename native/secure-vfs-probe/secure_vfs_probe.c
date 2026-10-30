@@ -17,7 +17,6 @@
  * startup/recovery integration and independent review remain open. Never use
  * this probe for production databases.
  */
-#include <stdio.h>
 #include <string.h>
 #include <stdint.h>
 #include <errno.h>
@@ -228,21 +227,6 @@ static LPCWSTR probe_strip_extended_prefix(LPCWSTR path) {
   return path && wcsncmp(path, L"\\\\?\\", 4) == 0 ? path + 4 : path;
 }
 
-static char *probe_wide_to_utf8(LPCWSTR value) {
-  int length;
-  char *out;
-  if (!value) return 0;
-  length = WideCharToMultiByte(CP_UTF8, 0, value, -1, NULL, 0, NULL, NULL);
-  if (length <= 0) return 0;
-  out = (char *)sqlite3_malloc64((sqlite3_uint64)length);
-  if (!out) return 0;
-  if (WideCharToMultiByte(CP_UTF8, 0, value, -1, out, length, NULL, NULL) <= 0) {
-    sqlite3_free(out);
-    return 0;
-  }
-  return out;
-}
-
 static int probe_win_path_equal(LPCWSTR left, LPCWSTR right) {
   left = probe_strip_extended_prefix(left);
   right = probe_strip_extended_prefix(right);
@@ -444,14 +428,6 @@ static HANDLE WINAPI probe_create_file_w(
       || ((g_current_sidecar_open || (name && probe_wide_path_is_shm(name)))
         && !has_anchor)
       || (g_current_race_open && !has_anchor)) {
-    {
-      char *debug_path = probe_wide_to_utf8(name);
-      fprintf(stderr, "VFS Windows early reject: path=%s anchor=%d main=%d role=%d current_role=%d sidecar=%d shm=%d race=%d\\n",
-        debug_path ? debug_path : "<null>", has_anchor, main_role_open, role_index,
-        g_current_role_index, g_current_sidecar_open,
-        name ? probe_wide_path_is_shm(name) : 0, g_current_race_open);
-      sqlite3_free(debug_path);
-    }
     SetLastError(ERROR_ACCESS_DENIED);
     probe_counter_increment(&g_identity_reject_count);
     if (is_sidecar) probe_counter_increment(&g_sidecar_identity_reject_count);
@@ -485,9 +461,6 @@ static HANDLE WINAPI probe_create_file_w(
     if (security || template_file
         || !probe_win_map_create_file(creation, attributes,
              &disposition, &options, &native_attributes)) {
-      fprintf(stderr, "VFS Windows unsupported create: creation=%lu attributes=0x%lx name=%ls\\n",
-        (unsigned long)creation, (unsigned long)attributes,
-        name ? name : L"<null>");
       SetLastError(ERROR_NOT_SUPPORTED);
       return INVALID_HANDLE_VALUE;
     }
@@ -520,9 +493,6 @@ static HANDLE WINAPI probe_create_file_w(
 
   if (handle == INVALID_HANDLE_VALUE || !needs_identity) {
     if (handle == INVALID_HANDLE_VALUE && needs_identity) {
-      fprintf(stderr, "VFS Windows open failed: error=%lu creation=%lu access=0x%lx name=%ls\n",
-        (unsigned long)GetLastError(), (unsigned long)creation,
-        (unsigned long)access, name ? name : L"<null>");
     }
     if (handle == INVALID_HANDLE_VALUE && needs_identity
         && relative_open_error == ERROR_ACCESS_DENIED) {
@@ -709,15 +679,7 @@ static int probe_open(const char *name, int flags, int mode) {
   } else {
     fd = ((probe_open_fn)g_original_open_syscall)(name, flags, mode);
   }
-  if (name && (strstr(name, "-wal") || strstr(name, "-shm") || strstr(name, "-journal"))) {
-    fprintf(stderr, "VFS POSIX sidecar open: path=%s flags=0x%x anchor=%d sidecar=%d fd=%d errno=%d\\n",
-      name, flags, has_anchor, is_sidecar, fd, fd < 0 ? errno : 0);
-  }
   if (fd < 0 || !needs_identity) {
-    if (fd < 0 && (is_sidecar || has_anchor)) {
-      fprintf(stderr, "VFS POSIX open failed: flags=0x%x errno=%d name=%s\n",
-        flags, errno, name);
-    }
     if (injected_here) {
       g_current_race_open = 0;
       g_current_race_captured = 0;
@@ -907,9 +869,6 @@ static int probe_xOpen(sqlite3_vfs *vfs, const char *name, sqlite3_file *file,
   char *canonical_name = NULL;
   const char *open_name = name;
 
-  fprintf(stderr, "VFS xOpen entry: flags=0x%x name=%s\\n",
-    flags, name ? name : "<null>");
-
   /*
    * Resolve every file-backed main DB through the parent VFS full-path
    * callback and pass that exact name to the parent VFS. WAL/journal xOpen
@@ -990,8 +949,6 @@ static int probe_xOpen(sqlite3_vfs *vfs, const char *name, sqlite3_file *file,
       && suffix[0] != '\0';
 #endif
     if (!matched) {
-      fprintf(stderr, "VFS xOpen sidecar path mismatch: flags=0x%x name=%s\n",
-        flags, open_name ? open_name : "<null>");
       sqlite3_free(canonical_name);
       return SQLITE_CANTOPEN;
     }
@@ -1033,16 +990,6 @@ static int probe_xOpen(sqlite3_vfs *vfs, const char *name, sqlite3_file *file,
   }
 
   rc = parent->xOpen(parent, open_name, file, flags, out_flags);
-  if (rc == SQLITE_OK && (flags & SQLITE_OPEN_MAIN_DB) && file->pMethods) {
-    const sqlite3_io_methods *methods = file->pMethods;
-    fprintf(stderr, "VFS main io methods: version=%d shmMap=%d shmLock=%d shmBarrier=%d\\n",
-      methods->iVersion, methods->xShmMap != 0, methods->xShmLock != 0,
-      methods->xShmBarrier != 0);
-  }
-  if (rc != SQLITE_OK) {
-    fprintf(stderr, "VFS parent xOpen failed: flags=0x%x rc=%d name=%s\n",
-      flags, rc, open_name ? open_name : "<null>");
-  }
   if (rc == SQLITE_OK && canonical_name) {
     /*
      * The parent VFS may retain zName inside its sqlite3_file (notably the
