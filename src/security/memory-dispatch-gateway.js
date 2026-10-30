@@ -217,8 +217,9 @@ export class MemoryDispatchGateway {
       || typeof readToken !== 'string' || readToken.length < 32
       || typeof readCoreEvidence !== 'function'
       || typeof readProviderEvidence !== 'function'
-      || typeof sendUpstream !== 'function') {
-      throw new TypeError('MemoryDispatchGateway requires file-backed stores, a read-only authority token, trusted synchronous readers, and a transport.');
+      || typeof sendUpstream !== 'function'
+      || sendUpstream.constructor?.name === 'AsyncFunction') {
+      throw new TypeError('MemoryDispatchGateway requires file-backed stores, a read-only authority token, trusted synchronous readers, and a non-async transport-start function.');
     }
     if (sameFile(ledgerPath, coordinatorPath)) {
       throw new Error('DISPATCH_LEDGER_COORDINATOR_PATH_ALIAS');
@@ -403,8 +404,10 @@ export class MemoryDispatchGateway {
         throw error;
       }
       // Invoke the transport's synchronous start function before releasing the
-      // shared coordinator. Its contract is to initiate the final outbound
-      // request synchronously and return a Promise for the eventual response.
+      // shared coordinator. AsyncFunction callbacks are rejected at construction:
+      // an `async` callback can defer the actual network handoff behind `await`.
+      // A non-async callback must initiate the final outbound request synchronously
+      // and return a Promise for the eventual response.
       // This makes the durable DISPATCH_STARTED row and actual transport handoff
       // one ordered boundary relative to Provider revocation/source invalidation.
       try {
