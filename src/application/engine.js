@@ -742,6 +742,8 @@ export class LogicEngine {
         expected_commit_sequence: snapshot.commit_sequence,
         limit: options.limit ?? 200,
       });
+      assert(read.truncated !== true, 'NPC_KNOWLEDGE_READ_INCOMPLETE',
+        'The Host knowledge read exceeded its bounded limit; incomplete acquisition sets cannot be returned as ready.', 409);
       const visibleRead = this.#authorizeNpcKnowledgeVisibility(read);
       // Withheld proposition references are reducer-internal hints. Returning
       // them to Host would distinguish hidden evidence from absent evidence.
