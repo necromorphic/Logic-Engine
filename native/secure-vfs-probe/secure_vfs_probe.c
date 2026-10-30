@@ -985,26 +985,12 @@ static int probe_win_access_role(int role_index, const wchar_t *relative_name,
     }
     return SQLITE_IOERR_ACCESS;
   }
-  if (!is_main) {
-    int recorded;
-    if (probe_win_identity_is_registered_database(&actual)) {
-      probe_counter_increment(&g_identity_reject_count);
-      probe_counter_increment(&g_sidecar_identity_reject_count);
-      CloseHandle(handle);
-      *result = 0;
-      return SQLITE_OK;
-    }
-    probe_registry_lock();
-    recorded = probe_win_sidecar_identity_record_locked(role_index, suffix, &actual);
-    probe_registry_unlock();
-    if (!recorded) {
-      probe_counter_increment(&g_identity_reject_count);
-      probe_counter_increment(&g_sidecar_identity_reject_count);
-      CloseHandle(handle);
-      *result = 0;
-      return SQLITE_OK;
-    }
-  }
+  /*
+   * xAccess is observational only. It must not enroll a pre-existing sidecar
+   * into the ownership registry: ownership is claimed after SQLite's actual
+   * xOpen handle has been identity-checked. This keeps an existence probe
+   * from becoming a trust/provisioning operation.
+   */
   CloseHandle(handle);
   *result = 1;
   return SQLITE_OK;
