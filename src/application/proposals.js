@@ -271,6 +271,9 @@ export class ProposalService {
     assert(typeof sourceText === 'string' && sourceText.trim() && sourceText.length <= 50000,
       'INVALID_SOURCE_TEXT', 'Non-empty source text is required so semantic review is retained.');
     assert(typeof adapterId === 'string' && adapterId.trim(), 'ADAPTER_REQUIRED', 'A trusted adapter identity is required.', 403);
+    assert(evaluation.authorization_principal.adapterId === adapterId.trim(),
+      'MECHANIC_ADAPTER_PRINCIPAL_MISMATCH',
+      'The authenticated proposal adapter must match the adapter bound to the mechanic evaluation.', 403);
 
     const mechanicExecution = {
       snapshot_identity: identity,
@@ -399,8 +402,9 @@ export class ProposalService {
       || typeof metadata.authorization_principal.adapterId !== 'string' || !metadata.authorization_principal.adapterId.trim()
       || typeof metadata.authorization_principal.actorEntityId !== 'string' || !metadata.authorization_principal.actorEntityId.trim()
       || !['model', 'player', 'adapter'].includes(metadata.authorization_principal.recipient)
-      || !['npc_decision', 'character_card', 'narrative'].includes(metadata.authorization_principal.purpose)) {
-      throw new EngineError('STALE_MECHANIC_POLICY', 'Mechanic proposal lacks a valid pinned policy identity.', 409, { stage });
+      || !['npc_decision', 'character_card', 'narrative'].includes(metadata.authorization_principal.purpose)
+      || row.created_by_adapter_id !== metadata.authorization_principal.adapterId) {
+      throw new EngineError('STALE_MECHANIC_POLICY', 'Mechanic proposal lacks a valid pinned policy identity or adapter binding.', 409, { stage });
     }
 
     let current = false;
