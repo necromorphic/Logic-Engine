@@ -59,11 +59,15 @@ export class AuthorizedReadService {
   }
 
   _authorizeField(context, entity, field, evidence) {
+    const policyEntity = Object.freeze({
+      ...entity,
+      ...(object(entity.attributes) ? { attributes: Object.freeze({ ...entity.attributes }) } : {}),
+    });
     try {
       if (this.policyAuthority) {
-        return this.policyAuthority.authorizeField(context, entity, field, evidence) === true;
+        return this.policyAuthority.authorizeField(context, policyEntity, field, evidence) === true;
       }
-      return this.fieldPolicy(context, Object.freeze({ ...entity }), field) === true;
+      return this.fieldPolicy(context, policyEntity, field) === true;
     } catch {
       return false;
     }
