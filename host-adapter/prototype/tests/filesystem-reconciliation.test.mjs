@@ -53,3 +53,10 @@ test('incomplete or wrong-root inventory cannot establish a baseline',async()=>{
  const wrong=await reconcileFilesystemInventory({journal,conversationId:'chat',inventory:scan(),sourceFingerprint:'chat-fp',expectedRoot:'/other/root'});
  assert.equal(wrong.status,'NON_READY');
 });
+
+test('filesystem scan cannot be attached to a different conversation journal head',async()=>{
+ const journal=await fixture();
+ const result=await reconcileFilesystemInventory({journal,conversationId:'chat',inventory:scan(),sourceFingerprint:'other-chat-fp',expectedRoot:root});
+ assert.equal(result.status,'NON_READY');
+ assert.match(result.reason,/differs from the accepted lifecycle journal head/);
+});
