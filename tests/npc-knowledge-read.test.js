@@ -27,6 +27,7 @@ const trustedRegistry = [{
 function setup(t, authorizer = (scope) => ({
   status: 'authorized',
   world_id: scope.world_id,
+  conversation_id: scope.conversation_id,
   adapter_id: scope.adapter_id,
   actor_id: scope.actor_id,
   recipient: scope.recipient,
@@ -37,6 +38,7 @@ function setup(t, authorizer = (scope) => ({
 }), visibilityAuthorizer = (scope) => ({
   status: 'allowed',
   world_id: scope.world_id,
+  conversation_id: scope.conversation_id,
   adapter_id: scope.adapter_id,
   actor_id: scope.actor_id,
   recipient: scope.recipient,
@@ -85,8 +87,8 @@ function request(store, overrides = {}) {
   const world = store.world('world-a');
   return {
     world_id: 'world-a',
+    conversation_id: 'conversation-a',
     adapter_id: 'adapter-st',
-    actor_id: 'npc-a',
     recipient: 'model',
     purpose: 'npc_turn_context',
     expected_revision: world.world_revision,
@@ -161,6 +163,7 @@ test('reader rejects stale snapshot cursors and actor/purpose authorization mism
     npcKnowledgeReadAuthorizer: (scope) => ({
       status: 'authorized',
       world_id: scope.world_id,
+      conversation_id: scope.conversation_id,
       adapter_id: scope.adapter_id,
       actor_id: 'npc-b',
       recipient: scope.recipient,
@@ -191,6 +194,7 @@ test('reader rejects authorizer scope mismatches for world, purpose, revision, a
       npcKnowledgeReadAuthorizer: (scope) => ({
         status: 'authorized',
         world_id: scope.world_id,
+        conversation_id: scope.conversation_id,
         adapter_id: scope.adapter_id,
         actor_id: scope.actor_id,
         recipient: scope.recipient,
@@ -214,6 +218,7 @@ test('reader configuration rejects an asynchronous trusted authorizer', (t) => {
     npcKnowledgeReadAuthorizer: async (scope) => ({
       status: 'authorized',
       world_id: scope.world_id,
+      conversation_id: scope.conversation_id,
       adapter_id: scope.adapter_id,
       actor_id: scope.actor_id,
       recipient: scope.recipient,
@@ -263,6 +268,7 @@ test('pure read contract rejects extra keys and authorization from another snaps
   const authorization = {
     status: 'authorized',
     world_id: 'world-a',
+    conversation_id: 'conversation-a',
     adapter_id: 'adapter-st',
     actor_id: 'npc-a',
     recipient: 'model',
@@ -338,6 +344,7 @@ test('Core omits denied acquisitions from the belief context and rejects proposa
     npcKnowledgeReadAuthorizer: (scope) => ({
       status: 'authorized',
       world_id: scope.world_id,
+      conversation_id: scope.conversation_id,
       adapter_id: scope.adapter_id,
       actor_id: scope.actor_id,
       recipient: scope.recipient,
@@ -349,6 +356,7 @@ test('Core omits denied acquisitions from the belief context and rejects proposa
     npcKnowledgeVisibilityAuthorizer: (scope) => ({
       status: 'denied',
       world_id: scope.world_id,
+      conversation_id: scope.conversation_id,
       adapter_id: scope.adapter_id,
       actor_id: scope.actor_id,
       recipient: scope.recipient,
@@ -408,6 +416,7 @@ test('Core requires a trusted visibility authorizer before preparing model conte
     npcKnowledgeReadAuthorizer: (scope) => ({
       status: 'authorized',
       world_id: scope.world_id,
+      conversation_id: scope.conversation_id,
       adapter_id: scope.adapter_id,
       actor_id: scope.actor_id,
       recipient: scope.recipient,
@@ -431,6 +440,7 @@ test('Core refuses a belief context if the snapshot changes during visibility ev
     npcKnowledgeReadAuthorizer: (scope) => ({
       status: 'authorized',
       world_id: scope.world_id,
+      conversation_id: scope.conversation_id,
       adapter_id: scope.adapter_id,
       actor_id: scope.actor_id,
       recipient: scope.recipient,
@@ -454,6 +464,7 @@ test('Core refuses a belief context if the snapshot changes during visibility ev
       return {
         status: 'allowed',
         world_id: scope.world_id,
+        conversation_id: scope.conversation_id,
         adapter_id: scope.adapter_id,
         actor_id: scope.actor_id,
         recipient: scope.recipient,
@@ -675,6 +686,7 @@ test('idempotent belief replay rechecks current read authorization and returns n
     npcKnowledgeReadAuthorizer: (scope) => ({
       status: 'denied',
       world_id: scope.world_id,
+      conversation_id: scope.conversation_id,
       adapter_id: scope.adapter_id,
       actor_id: scope.actor_id,
       recipient: scope.recipient,
@@ -713,6 +725,7 @@ test('belief-state reads do not disclose a proposition whose current evidence is
     npcKnowledgeReadAuthorizer: (scope) => ({
       status: 'authorized',
       world_id: scope.world_id,
+      conversation_id: scope.conversation_id,
       adapter_id: scope.adapter_id,
       actor_id: scope.actor_id,
       recipient: scope.recipient,
@@ -724,6 +737,7 @@ test('belief-state reads do not disclose a proposition whose current evidence is
     npcKnowledgeVisibilityAuthorizer: (scope) => ({
       status: 'denied',
       world_id: scope.world_id,
+      conversation_id: scope.conversation_id,
       adapter_id: scope.adapter_id,
       actor_id: scope.actor_id,
       recipient: scope.recipient,
@@ -835,6 +849,7 @@ test('over-limit contradictory acquisition fails closed before context or belief
     npcKnowledgeReadAuthorizer: (scope) => ({
       status: 'authorized',
       world_id: scope.world_id,
+      conversation_id: scope.conversation_id,
       adapter_id: scope.adapter_id,
       actor_id: scope.actor_id,
       recipient: scope.recipient,
@@ -846,6 +861,7 @@ test('over-limit contradictory acquisition fails closed before context or belief
     npcKnowledgeVisibilityAuthorizer: (scope) => ({
       status: 'allowed',
       world_id: scope.world_id,
+      conversation_id: scope.conversation_id,
       adapter_id: scope.adapter_id,
       actor_id: scope.actor_id,
       recipient: scope.recipient,
@@ -925,6 +941,7 @@ test('hidden proposition availability is indistinguishable when no belief transi
     npcKnowledgeReadAuthorizer: (scope) => ({
       status: 'authorized',
       world_id: scope.world_id,
+      conversation_id: scope.conversation_id,
       adapter_id: scope.adapter_id,
       actor_id: scope.actor_id,
       recipient: scope.recipient,
@@ -936,6 +953,7 @@ test('hidden proposition availability is indistinguishable when no belief transi
     npcKnowledgeVisibilityAuthorizer: (scope) => ({
       status: 'denied',
       world_id: scope.world_id,
+      conversation_id: scope.conversation_id,
       adapter_id: scope.adapter_id,
       actor_id: scope.actor_id,
       recipient: scope.recipient,
@@ -1103,6 +1121,7 @@ test('NPC revises a belief from newly acquired independent evidence after the ol
     npcKnowledgeReadAuthorizer: (scope) => ({
       status: 'authorized',
       world_id: scope.world_id,
+      conversation_id: scope.conversation_id,
       adapter_id: scope.adapter_id,
       actor_id: scope.actor_id,
       recipient: scope.recipient,
@@ -1114,6 +1133,7 @@ test('NPC revises a belief from newly acquired independent evidence after the ol
     npcKnowledgeVisibilityAuthorizer: (scope) => ({
       status: 'allowed',
       world_id: scope.world_id,
+      conversation_id: scope.conversation_id,
       adapter_id: scope.adapter_id,
       actor_id: scope.actor_id,
       recipient: scope.recipient,
@@ -1217,6 +1237,7 @@ test('source rollback and same fact-id replacement do not refresh an NPC acquisi
   const authorizer = (scope) => ({
     status: 'authorized',
     world_id: scope.world_id,
+    conversation_id: scope.conversation_id,
     adapter_id: scope.adapter_id,
     actor_id: scope.actor_id,
     recipient: scope.recipient,
@@ -1228,6 +1249,7 @@ test('source rollback and same fact-id replacement do not refresh an NPC acquisi
   const visibilityAuthorizer = (scope) => ({
     status: 'allowed',
     world_id: scope.world_id,
+    conversation_id: scope.conversation_id,
     adapter_id: scope.adapter_id,
     actor_id: scope.actor_id,
     recipient: scope.recipient,
