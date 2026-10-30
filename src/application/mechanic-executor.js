@@ -87,8 +87,9 @@ function snapshotIdentity(worldId, snapshot, instance, templateEntry, activeMech
  * Small application-layer executor slice. It is deliberately opt-in and read-only.
  * A trusted host must provide context already filtered for the intended actor and
  * recipient, and attest that it was built from this exact snapshot revision/cursor.
- * This slice rejects modules, participant selection, interactions, non-empty action
- * input schemas, and non-deterministic ambiguity policies rather than guessing.
+ * This slice permits one active mechanic, empty instance data/action input, and
+ * mark_unknown semantics; it rejects cross-mechanic conflicts, modules, capabilities,
+ * participants, interactions, and all unimplemented input/policy semantics.
  */
 export class MechanicExecutor {
   constructor(engine, { resolveAuthorizedContext } = {}) {
