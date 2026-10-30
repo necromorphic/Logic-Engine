@@ -66,7 +66,7 @@ The implementation must inventory every production SQLite open and classify it. 
 | Accepted-head authority | `src/security/accepted-head-authority.js` | Secure VFS open; rollback-sensitive authority |
 | Enrollment/recovery opens | `src/security/enroll-accepted-head-domain.js`, `src/security/recover-accepted-head-domain.js` | Must use the same verified open boundary; no direct path bypass |
 
-This table is a minimum inventory, not proof that the search is exhaustive. Before merge, add an automated source guard that enumerates production SQLite constructors/imports and fails when a new unclassified open is introduced. Include test-only and migration-only opens in a separate inventory so their status is explicit.
+The automated source guard `tests/security-sqlite-open-inventory.test.js` enumerates all JavaScript files under `src/` and fails if the set of production modules importing `node:sqlite` and constructing `DatabaseSync` differs from this inventory. Test-only and migration-only opens are excluded from the production set; they remain separately visible through the repository-wide search and must not be mistaken for production role owners.
 
 ## Required prototype and acceptance matrix
 
