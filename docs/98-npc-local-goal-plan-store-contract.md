@@ -165,7 +165,7 @@ A future NPC-owned repository boundary should expose only bounded operations equ
 
 These are conceptual operations, not a public API. The proposed internal operation semantics, failure classes, atomicity requirements, and test contract are specified in `docs/99-npc-goal-plan-repository-interface-contract.md`; implementation remains blocked by the gates listed there.
 
-A store mutation must atomically persist the domain record change, current-plan pointer update (where relevant), local audit entry, and local idempotency outcome. The storage engine/file layout is intentionally not selected here. `docs/03` says the production storage and physical-isolation strategy remain open; A1 requires logical and physical separation from Core's canonical SQLite store, but does not require SQLite for the NPC store.
+A store mutation must atomically persist the domain record change, current-plan pointer update (where relevant), local audit entry, and local idempotency outcome. The selected target is a dedicated NPC-owned SQLite database, physically separate from Core's canonical SQLite store. This is a technology selection only: implementation, schema, migration and runtime wiring remain blocked until Issue #770's SQLite file-open identity/TOCTOU security gate is resolved for the NPC database as well. The adapter must then satisfy the transaction and recovery contract in `docs/99`.
 
 The repository adapter is the only component allowed to access the NPC store. No direct Core SQLite access is permitted from NPC cognition or the NPC repository.
 
@@ -295,7 +295,7 @@ The following are not solved by adding the NPC store:
 4. The existing generic proposal path still requires separate approval and does not prove NPC semantic/player-agency authorization.
 5. No production NPC action-candidate discovery/dispatcher is verified.
 6. No Core-to-NPC event invalidation/reconciliation handoff is verified.
-7. The physical NPC-store engine, path, backup/restore and migration strategy remain unselected.
+7. The target NPC-store engine is selected as a dedicated SQLite database; its secure file-open mechanism, path, backup/restore and migration strategy remain unresolved. Implementation is blocked by Issue #770.
 
 Therefore the next implementation should be split: first implement/test the NPC-local repository and atomic lifecycle operations against the accepted domain contract; do not wire autonomous world actions until the independent Core/Host trust and dispatch gates pass.
 
@@ -314,3 +314,12 @@ Inspected on current `main` and the NPC autonomy branch:
 - `docs/31-npc-subsystem-contract.md`, `docs/34-npc-decision-context-and-proposal.md`, `docs/81-npc-goal-action-contracts-proposal.md`, `docs/88-npc-cognition-development-roadmap.md`, and `docs/89-npc-epistemic-model-stage-1-proposal.md`: domain ownership, earlier slice limits, and Core-owned knowledge/belief constraints.
 
 This source inspection did not execute tests. It does not establish that the proposed repository, actor-specific context builder, NPC dispatcher, or rollback handoff exists.
+
+
+## 14. SQLite target decision and implementation gate — 2026-10-30
+
+The project has selected a dedicated NPC-owned SQLite database as the target physical store. This supersedes statements in this document that say the storage engine itself is unselected. The database must remain physically separate from Core's canonical database and accessible only through the NPC repository adapter.
+
+This decision does not authorize schema creation, migrations, production database opens, or runtime wiring. Those remain blocked until Issue #770 is resolved with a reviewed SQLite file-open identity mechanism that covers the NPC database, binds validation to the file actually opened, supports the project's Windows and POSIX targets, and passes deterministic race, hard-link/symlink, unavailable-identity, and fail-before-write tests. Repeated path checks are not sufficient.
+
+After that security gate, the adapter must pass the complete repository contract in `docs/99`, including atomic candidate acceptance, CAS, idempotency, restart recovery, corruption handling, and scope isolation. Trusted Core result reconciliation and rollback invalidation remain separate production gates.
