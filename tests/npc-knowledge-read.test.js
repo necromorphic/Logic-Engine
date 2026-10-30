@@ -1128,3 +1128,156 @@ test('NPC revises a belief from newly acquired independent evidence after the ol
   `).get(proposition_ref);
   assert.equal(history.count, 2, 'the old belief must remain in history beside the revised belief');
 });
+
+test('source rollback and same fact-id replacement do not refresh an NPC acquisition without a new grant', (t) => {
+  const store = new SQLiteStore(':memory:');
+  t.after(() => store.close());
+
+  const sourceA = JSON.stringify({
+    schema_version: 1,
+    world_pack_id: 'test.world',
+    world_pack_version: '1.0.0',
+    source_kind: 'author_initial',
+    source_ref: 'authoring:test.world/fact-a',
+    authorization_ref: 'rule:initial-knowledge-v1',
+    assignments: [{ subject_id: 'npc-a', fact_id: 'fact-a' }],
+  });
+  const sourceB = JSON.stringify({
+    schema_version: 1,
+    world_pack_id: 'test.world',
+    world_pack_version: '1.0.0',
+    source_kind: 'author_initial',
+    source_ref: 'authoring:test.world/fact-b-replacement',
+    authorization_ref: 'rule:replacement-knowledge-v1',
+    assignments: [{ subject_id: 'npc-a', fact_id: 'fact-a' }],
+  });
+  const trustedInitialKnowledgeSources = [
+    {
+      world_pack_id: 'test.world',
+      world_pack_version: '1.0.0',
+      source_kind: 'author_initial',
+      source_ref: 'authoring:test.world/fact-a',
+      authorization_ref: 'rule:initial-knowledge-v1',
+      sha256: createHash('sha256').update(sourceA).digest('hex'),
+    },
+    {
+      world_pack_id: 'test.world',
+      world_pack_version: '1.0.0',
+      source_kind: 'author_initial',
+      source_ref: 'authoring:test.world/fact-b-replacement',
+      authorization_ref: 'rule:replacement-knowledge-v1',
+      sha256: createHash('sha256').update(sourceB).digest('hex'),
+    },
+  ];
+  const authorizer = (scope) => ({
+    status: 'authorized',
+    world_id: scope.world_id,
+    actor_id: scope.actor_id,
+    purpose: scope.purpose,
+    world_revision: scope.world_revision,
+    commit_sequence: scope.commit_sequence,
+    authorization_ref: 'rule:npc-read-v1',
+  });
+  const visibilityAuthorizer = (scope) => ({
+    status: 'allowed',
+    world_id: scope.world_id,
+    actor_id: scope.actor_id,
+    purpose: scope.purpose,
+    world_revision: scope.world_revision,
+    commit_sequence: scope.commit_sequence,
+    acquisition_id: scope.acquisition_id,
+    authorization_ref: 'rule:npc-visibility-v1',
+  });
+  const engine = new LogicEngine(store, {
+    trustedInitialKnowledgeSources,
+    npcKnowledgeReadAuthorizer: authorizer,
+    npcKnowledgeVisibilityAuthorizer: visibilityAuthorizer,
+  });
+
+  engine.createWorld({
+    world_id: 'world-a',
+    world_pack_id: 'test.world',
+    world_pack_version: '1.0.0',
+    game_time: '2026-01-01T00:00:00Z',
+  });
+  engine.commitEvent('world-a', {
+    event_id: 'npc-seed',
+    idempotency_key: 'npc-seed-key',
+    turn_id: 'npc-seed',
+    event_type: 'action.completed',
+    expected_revision: 0,
+    effects: [{ kind: 'entity.create', entity_id: 'npc-a', entity_type: 'character' }],
+  });
+  engine.commitEvent('world-a', {
+    event_id: 'fact-a-source',
+    idempotency_key: 'fact-a-source-key',
+    turn_id: 'fact-a-source',
+    event_type: 'action.completed',
+    expected_revision: 1,
+    effects: [{
+      kind: 'fact.set',
+      fact_id: 'fact-a',
+      subject_ref: 'entity:target',
+      predicate: 'location',
+      value: 'Kamurochō',
+    }],
+  });
+
+  const beforeAcquisition = request(store);
+  const acquiredA = engine.recordTrustedInitialKnowledgeSource({
+    world_id: 'world-a',
+    source_bytes: sourceA,
+    idempotency_key: 'acquire-fact-a',
+    expected_revision: beforeAcquisition.expected_revision,
+    expected_commit_sequence: beforeAcquisition.expected_commit_sequence,
+  });
+  assert.equal(acquiredA.accepted, true);
+  const firstRead = engine.readNpcKnowledge(request(store));
+  assert.equal(firstRead.status, 'ready');
+  assert.equal(firstRead.items.length, 1);
+  assert.equal(firstRead.items[0].value, 'Kamurochō');
+
+  engine.rollbackEvent('world-a', {
+    root_event_id: 'fact-a-source',
+    idempotency_key: 'rollback-fact-a-source',
+  });
+
+  const afterRollback = request(store);
+  engine.commitEvent('world-a', {
+    event_id: 'fact-a-replacement-b',
+    idempotency_key: 'fact-a-replacement-b-key',
+    turn_id: 'fact-a-replacement-b',
+    event_type: 'action.completed',
+    expected_revision: afterRollback.expected_revision,
+    expected_commit_sequence: afterRollback.expected_commit_sequence,
+    effects: [{
+      kind: 'fact.set',
+      fact_id: 'fact-a',
+      subject_ref: 'entity:target',
+      predicate: 'location',
+      value: 'Sotenbori',
+    }],
+  });
+
+  const withoutNewGrant = engine.readNpcKnowledge(request(store));
+  assert.equal(withoutNewGrant.status, 'ready');
+  assert.deepEqual(withoutNewGrant.items, [],
+    'the replacement value for the same fact_id is not knowledge acquired by the NPC');
+
+  const beforeReplacementGrant = request(store);
+  const acquiredB = engine.recordTrustedInitialKnowledgeSource({
+    world_id: 'world-a',
+    source_bytes: sourceB,
+    idempotency_key: 'acquire-fact-a-replacement-b',
+    expected_revision: beforeReplacementGrant.expected_revision,
+    expected_commit_sequence: beforeReplacementGrant.expected_commit_sequence,
+  });
+  assert.equal(acquiredB.accepted, true);
+
+  const afterNewGrant = engine.readNpcKnowledge(request(store));
+  assert.equal(afterNewGrant.status, 'ready');
+  assert.equal(afterNewGrant.items.length, 1);
+  assert.equal(afterNewGrant.items[0].fact_id, 'fact-a');
+  assert.equal(afterNewGrant.items[0].value, 'Sotenbori');
+  assert.notEqual(afterNewGrant.items[0].acquisition_id, firstRead.items[0].acquisition_id);
+});
