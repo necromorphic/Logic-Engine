@@ -7,17 +7,24 @@ const RECIPIENTS = Object.freeze(['model']);
 export function isNpcKnowledgePolicyAuthoritySnapshot(value) {
   try {
     if (!value || typeof value !== 'object' || utilTypes.isProxy(value) || Array.isArray(value)) return false;
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) return false;
     const keys = Reflect.ownKeys(value);
-    return keys.length === 3
-      && keys.every((key) => typeof key === 'string')
-      && ['authority_id', 'generation', 'snapshot_fingerprint'].every((key) => keys.includes(key))
-      && typeof value.authority_id === 'string'
-      && value.authority_id.length > 0
-      && value.authority_id === value.authority_id.trim()
-      && Number.isSafeInteger(value.generation)
-      && value.generation > 0
-      && typeof value.snapshot_fingerprint === 'string'
-      && /^[a-f0-9]{64}$/.test(value.snapshot_fingerprint);
+    if (keys.length !== 3
+      || keys.some((key) => typeof key !== 'string')
+      || !['authority_id', 'generation', 'snapshot_fingerprint'].every((key) => keys.includes(key))) return false;
+    const descriptors = Object.fromEntries(keys.map((key) => [key, Object.getOwnPropertyDescriptor(value, key)]));
+    if (keys.some((key) => !descriptors[key]?.enumerable || !Object.hasOwn(descriptors[key], 'value'))) return false;
+    const authorityId = descriptors.authority_id.value;
+    const generation = descriptors.generation.value;
+    const fingerprint = descriptors.snapshot_fingerprint.value;
+    return typeof authorityId === 'string'
+      && authorityId.length > 0
+      && authorityId === authorityId.trim()
+      && Number.isSafeInteger(generation)
+      && generation > 0
+      && typeof fingerprint === 'string'
+      && /^[a-f0-9]{64}$/.test(fingerprint);
   } catch {
     return false;
   }
@@ -25,7 +32,7 @@ export function isNpcKnowledgePolicyAuthoritySnapshot(value) {
 
 export function isNpcKnowledgePolicyAuthority(value) {
   try {
-    return value !== null && typeof value === 'object'
+    return value !== null && typeof value === 'object' && !utilTypes.isProxy(value)
       && typeof value.getSnapshot === 'function'
       && typeof value.isCurrent === 'function'
       && typeof value.advanceGeneration === 'function';
