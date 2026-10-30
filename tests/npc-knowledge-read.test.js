@@ -37,7 +37,9 @@ function setup(t, authorizer = (scope) => ({
 }), visibilityAuthorizer = (scope) => ({
   status: 'allowed',
   world_id: scope.world_id,
+  adapter_id: scope.adapter_id,
   actor_id: scope.actor_id,
+  recipient: scope.recipient,
   purpose: scope.purpose,
   world_revision: scope.world_revision,
   commit_sequence: scope.commit_sequence,
@@ -452,7 +454,9 @@ test('Core refuses a belief context if the snapshot changes during visibility ev
       return {
         status: 'allowed',
         world_id: scope.world_id,
+        adapter_id: scope.adapter_id,
         actor_id: scope.actor_id,
+        recipient: scope.recipient,
         purpose: scope.purpose,
         world_revision: scope.world_revision,
         commit_sequence: scope.commit_sequence,
@@ -842,7 +846,9 @@ test('over-limit contradictory acquisition fails closed before context or belief
     npcKnowledgeVisibilityAuthorizer: (scope) => ({
       status: 'allowed',
       world_id: scope.world_id,
+      adapter_id: scope.adapter_id,
       actor_id: scope.actor_id,
+      recipient: scope.recipient,
       purpose: scope.purpose,
       world_revision: scope.world_revision,
       commit_sequence: scope.commit_sequence,
@@ -1108,7 +1114,9 @@ test('NPC revises a belief from newly acquired independent evidence after the ol
     npcKnowledgeVisibilityAuthorizer: (scope) => ({
       status: 'allowed',
       world_id: scope.world_id,
+      adapter_id: scope.adapter_id,
       actor_id: scope.actor_id,
+      recipient: scope.recipient,
       purpose: scope.purpose,
       world_revision: scope.world_revision,
       commit_sequence: scope.commit_sequence,
@@ -1220,7 +1228,9 @@ test('source rollback and same fact-id replacement do not refresh an NPC acquisi
   const visibilityAuthorizer = (scope) => ({
     status: 'allowed',
     world_id: scope.world_id,
+    adapter_id: scope.adapter_id,
     actor_id: scope.actor_id,
+    recipient: scope.recipient,
     purpose: scope.purpose,
     world_revision: scope.world_revision,
     commit_sequence: scope.commit_sequence,
