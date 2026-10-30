@@ -28,12 +28,23 @@ function setup(t, fieldPolicy) {
   });
   bindings.bind('read-world', 'adapter-a', 'actor-a');
   t.after(() => store.close());
-  return {
-    store,
-    engine,
-    bindings,
-    service: new AuthorizedReadService(engine, bindings, fieldPolicy),
-  };
+  const policyAuthority = fieldPolicy instanceof MechanicPolicyAuthority
+    ? fieldPolicy
+    : new MechanicPolicyAuthority({
+      authorityId: 'test-authorized-read-policy',
+      generation: 1,
+      fieldPolicy,
+    });
+  const service = new AuthorizedReadService(engine, bindings, policyAuthority);
+  // Existing service tests model a trusted context provider. Pin the current
+  // authority snapshot on its internal mechanic-read call, as the real
+  // CanonicalEntityAttributeContextProvider does.
+  const readMechanicAttribute = service.readEntityAttributeForMechanic.bind(service);
+  service.readEntityAttributeForMechanic = (request) => readMechanicAttribute({
+    ...request,
+    expectedPolicyAuthority: request.expectedPolicyAuthority ?? policyAuthority.getSnapshot(),
+  });
+  return { store, engine, bindings, service, policyAuthority };
 }
 
 const request = (overrides = {}) => ({
