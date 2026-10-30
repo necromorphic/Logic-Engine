@@ -1,3 +1,5 @@
+import { types as utilTypes } from 'node:util';
+
 const STANCES = new Set([
   'believes_true',
   'believes_false',
@@ -6,10 +8,36 @@ const STANCES = new Set([
   'unresolved_conflict',
 ]);
 
-const isPlainObject = (value) => value !== null
-  && typeof value === 'object'
-  && !Array.isArray(value)
-  && (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null);
+const isPlainObject = (value) => {
+  if (value === null || typeof value !== 'object' || Array.isArray(value) || utilTypes.isProxy(value)) return false;
+  try {
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) return false;
+    return Reflect.ownKeys(value).every((key) => {
+      if (typeof key !== 'string') return false;
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      return descriptor !== undefined && descriptor.enumerable && Object.hasOwn(descriptor, 'value');
+    });
+  } catch {
+    return false;
+  }
+};
+
+const isDenseDataArray = (value, maxLength = 10000) => {
+  if (!Array.isArray(value) || utilTypes.isProxy(value) || value.length > maxLength) return false;
+  try {
+    if (Object.getPrototypeOf(value) !== Array.prototype) return false;
+    const keys = Reflect.ownKeys(value);
+    if (keys.length !== value.length + 1 || !keys.includes('length')) return false;
+    for (let index = 0; index < value.length; index += 1) {
+      const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+      if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+};
 
 const validRef = (value) => typeof value === 'string'
   && value.length > 0
@@ -18,11 +46,17 @@ const validRef = (value) => typeof value === 'string'
   && !/[\u0000-\u001f\u007f]/u.test(value);
 
 const uniqueRefs = (value, label) => {
-  if (!Array.isArray(value) || value.length > 200 || [...value].some((item) => !validRef(item))) {
-    throw new TypeError(label + ' must be an array of at most 200 valid references');
+  if (!isDenseDataArray(value, 200)) {
+    throw new TypeError(label + ' must be a dense data array of at most 200 valid references');
   }
-  if (new Set(value).size !== value.length) throw new TypeError(label + ' must not contain duplicate references');
-  return [...value].sort();
+  const refs = [];
+  for (let index = 0; index < value.length; index += 1) {
+    const item = Object.getOwnPropertyDescriptor(value, String(index)).value;
+    if (!validRef(item)) throw new TypeError(label + ' must contain valid references');
+    refs.push(item);
+  }
+  if (new Set(refs).size !== refs.length) throw new TypeError(label + ' must not contain duplicate references');
+  return refs.sort();
 };
 
 const sameSnapshot = (left, right) => isPlainObject(left)
@@ -72,6 +106,9 @@ function classifyStanceChange(previousStance, nextStance, invalidatedCount, surv
   return 'revised';
 }
 function stableJson(value, state = { depth: 0, nodes: 0, ancestors: new WeakSet() }) {
+  if (value !== null && typeof value === 'object' && utilTypes.isProxy(value)) {
+    throw new TypeError('Evidence values must not contain proxies');
+  }
   state.nodes += 1;
   if (state.nodes > 10000 || state.depth > 32) {
     throw new TypeError('Evidence values exceed the supported JSON complexity limit');
@@ -88,19 +125,17 @@ function stableJson(value, state = { depth: 0, nodes: 0, ancestors: new WeakSet(
   state.depth += 1;
   try {
     if (Array.isArray(value)) {
-      if (Object.getPrototypeOf(value) !== Array.prototype
-        || Reflect.ownKeys(value).length !== value.length + 1) {
-        throw new TypeError('Evidence arrays must be dense standard arrays');
+      if (!isDenseDataArray(value, 10000)) {
+        throw new TypeError('Evidence arrays must be dense standard data arrays');
       }
+      const serialized = [];
       for (let index = 0; index < value.length; index += 1) {
         const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
-        if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) {
-          throw new TypeError('Evidence arrays must contain only data items');
-        }
+        serialized.push(stableJson(descriptor.value, state));
       }
-      return '[' + value.map((item) => stableJson(item, state)).join(',') + ']';
+      return '[' + serialized.join(',') + ']';
     }
-    if (!isPlainObject(value)) throw new TypeError('Evidence objects must be plain JSON objects');
+    if (!isPlainObject(value)) throw new TypeError('Evidence objects must be plain JSON data objects');
     const keys = Reflect.ownKeys(value);
     if (keys.some((key) => typeof key !== 'string')) {
       throw new TypeError('Evidence objects must not contain symbol keys');
@@ -144,7 +179,7 @@ export function reduceNpcBeliefTransition({ knowledgeRead, currentBelief = null,
     || !Number.isSafeInteger(knowledgeRead.snapshot.world_revision)
     || !Number.isSafeInteger(knowledgeRead.snapshot.commit_sequence)
     || knowledgeRead.truncated === true
-    || !Array.isArray(knowledgeRead.items)) {
+    || !isDenseDataArray(knowledgeRead.items, 201)) {
     return Object.freeze({ status: 'non_ready', reason: 'core_knowledge_read_not_ready', transition: null });
   }
 
@@ -199,8 +234,12 @@ export function reduceNpcBeliefTransition({ knowledgeRead, currentBelief = null,
     return Object.freeze({ status: 'non_ready', reason: 'belief_transition_requires_evidence', transition: null });
   }
 
-  if (Array.isArray(knowledgeRead.withheld_proposition_refs)
-    && knowledgeRead.withheld_proposition_refs.includes(proposal.proposition_ref)) {
+  if (knowledgeRead.withheld_proposition_refs !== undefined
+    && (!isDenseDataArray(knowledgeRead.withheld_proposition_refs, 10000)
+      || knowledgeRead.withheld_proposition_refs.some((ref) => !validRef(ref)))) {
+    return Object.freeze({ status: 'non_ready', reason: 'invalid_core_evidence', transition: null });
+  }
+  if (knowledgeRead.withheld_proposition_refs?.includes(proposal.proposition_ref)) {
     return Object.freeze({ status: 'non_ready', reason: 'proposition_has_withheld_evidence', transition: null });
   }
   const propositionItems = knowledgeRead.items.filter((item) =>
@@ -326,7 +365,7 @@ export function buildNpcBeliefContext(knowledgeRead, transition) {
     || !Number.isSafeInteger(knowledgeRead.snapshot.world_revision)
     || !Number.isSafeInteger(knowledgeRead.snapshot.commit_sequence)
     || knowledgeRead.truncated === true
-    || !Array.isArray(knowledgeRead.items)
+    || !isDenseDataArray(knowledgeRead.items, 201)
     || !isPlainObject(transition)
     || transition.world_id !== knowledgeRead.world_id
     || transition.actor_id !== knowledgeRead.actor_id
@@ -348,12 +387,12 @@ export function buildNpcBeliefContext(knowledgeRead, transition) {
     byId.set(item.acquisition_id, item);
   }
   let evidence = transition.evidence_acquisition_ids;
-  if (!Array.isArray(evidence) || evidence.some((id) => !byId.has(id))) {
+  if (!isDenseDataArray(evidence, 400) || evidence.some((id) => !validRef(id) || !byId.has(id))) {
     return Object.freeze({ status: 'non_ready', reason: 'context_evidence_no_longer_authorized', context: null });
   }
   for (const id of evidence) {
     const sourceEventIds = byId.get(id).source_event_ids;
-    if (!Array.isArray(sourceEventIds) || sourceEventIds.length > 200) {
+    if (!isDenseDataArray(sourceEventIds, 200) || sourceEventIds.length > 200) {
       return Object.freeze({ status: 'non_ready', reason: 'context_core_evidence_invalid', context: null });
     }
     const seenSourceEvents = new Set();
