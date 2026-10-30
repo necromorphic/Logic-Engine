@@ -357,21 +357,20 @@ These are targeted relevant branches, not an exhaustive audit of every repositor
 
 There are two distinct questions that must not be collapsed:
 
-1. **Semantic owner:** NPC owns the meaning and lifecycle of its goals, plans, tasks and intentions under `docs/31-npc-subsystem-contract.md`.
-2. **Durable authority and storage boundary:** the inspected sources do not establish whether the accepted NPC-local state is persisted through a Core-owned event/projection seam, a separately owned NPC persistence component coordinated with Core, or another already-approved owner. No existing plan-specific owner or contract was found.
+1. **Semantic owner:** NPC owns the meaning and lifecycle of its goals, plans, tasks and intentions under `docs/31-npc-subsystem-contract.md` and the accepted A1 decision in `docs/97-npc-goal-plan-state-ownership-decision.md`.
+2. **Durable authority and storage boundary:** A1 now resolves this design question: the NPC subsystem is authoritative for NPC-domain goal/plan state and must use a separate NPC-local repository/store boundary. `docs/98` defines the bounded records, identity scope, one-current-plan-per-goal rule, version dimensions, candidate acceptance and reconciliation semantics; `docs/99` defines the repository operations and failure/idempotency contract. The physical storage technology and deployment topology remain deliberately undecided. The repository contract is designed, but no production adapter, schema, migration or runtime caller is implemented.
 
 Do not resolve this by placing plans in `world_processes`, `npc_belief_transitions`, arbitrary entity attributes, or a new NPC-side canonical event log. Each would assume semantics/authority that the inspected contracts do not grant.
 
-Before runtime work, the owning design must specify at least:
-- stable goal and plan identities, and authoritative goal↔plan linkage;
-- one current plan versus multiple candidates, including candidate history;
-- plan freshness/concurrency token and atomic accept/supersede semantics;
-- idempotent replay and stale candidate/result handling;
-- authoritative action-result binding to plan progress;
-- restart/replay and rollback behavior for dependent versus independent progress;
-- the boundary between NPC semantic ownership and Core canonical event/revision/rollback ownership.
+A1 and the repository contracts have now specified the NPC-local design boundary. The remaining pre-runtime work is to:
+- choose and approve the concrete storage technology/deployment boundary without moving semantic ownership to Core;
+- implement and test the repository adapter against `docs/99`, including atomic candidate acceptance, CAS conflicts, idempotency, restart recovery and bounded audit/reconciliation reads;
+- keep reconciliation unavailable for production progress until the trusted Core result-verification and rollback-invalidation handoff is implemented;
+- keep goal admission unavailable until the first goal family, admissibility policy owner and authorized source are explicitly established.
 
-**Audit conclusion:** existing Core and Process Manager primitives may support a future approved implementation, but no current production component or unmerged relevant branch can safely be selected as the NPC goal/plan store. The runtime blocker remains open. This section records evidence only and authorizes no schema, storage, API, event type, or runtime change.
+Do not resolve this by placing plans in `world_processes`, `npc_belief_transitions`, arbitrary entity attributes, or a new NPC-side canonical event log. Those are not substitutes for the accepted NPC-local boundary.
+
+**Audit conclusion:** semantic ownership, identity scope, goal↔plan association, current-plan cardinality, version dimensions and repository operation semantics are now specified by A1 / `docs/97`–`docs/99`. Runtime persistence and reconciliation remain unimplemented. The storage technology is still open by design; no production progress may be advanced from unverified outcomes.
 
 
 ## 10.9 Cross-check against shared architecture decisions — 2026-10-30
@@ -401,10 +400,35 @@ Source: [Logic-Engine — Logical Kernel (Core): boundary, contract, audit](http
 
 ### Reconciliation with the code audit
 
-These decisions support the existing distinction between NPC semantic ownership and Core canonical authority. They do **not** specify the durable representation, storage owner, plan concurrency token, or atomic NPC-local plan acceptance/supersession transition. The belief-transition candidate and Process Manager remain non-equivalent examples, as described in §10.8.
+These decisions support the distinction between NPC semantic ownership and Core canonical authority. A1 and `docs/97`–`docs/99` now specify the NPC-local authority boundary, goal/plan identities, plan concurrency dimensions, and atomic candidate acceptance/reconciliation contract. They do not select a physical storage technology or establish a production adapter. The belief-transition candidate and Process Manager remain non-equivalent examples, as described in §10.8.
 
-The cognition roadmap also marks multi-step planning/replanning as partial because persistence, invocation and authoritative outcomes remain unverified; controlled off-screen continuity is not complete because NPC invocation/dispatcher is unverified. Reuse of Process Manager is limited to the appropriate process lifecycle, not the NPC decision loop.
+The cognition roadmap marks multi-step planning/replanning as partial because persistence, invocation and authoritative outcomes remain unverified; controlled off-screen continuity is not complete because NPC invocation/dispatcher is unverified. Reuse of Process Manager is limited to its world-process lifecycle, not the NPC decision loop.
 
-Source: `docs/88-npc-cognition-development-roadmap.md` on current `main`.
+Source: `docs/88-npc-cognition-development-roadmap.md` on the PR branch.
 
-**Result:** no architecture conflict was found. The agreed design requires autonomous NPC decision-making while preserving Core as the canonical coordinator/writer. The missing work is a concrete owner-approved durable NPC goal/plan state seam and its acceptance/result lifecycle. This cross-check authorizes no runtime, API, schema, storage, scheduler, or dispatcher change.
+**Result:** no architecture conflict was found. The agreed design requires autonomous NPC decision-making while preserving Core as canonical coordinator/writer and NPC as the semantic owner of its local goals/plans. The remaining implementation gaps are the concrete repository adapter/storage choice, approved goal admission, trusted decision context/action authorization, and authoritative action-result/rollback reconciliation. This cross-check authorizes no automatic execution, world mutation, scheduler or dispatch.
+
+
+## 10.10 Reconciliation with accepted A1 and repository contracts — 2026-10-30
+
+The earlier statements in §§10.2–10.4 that the NPC goal/plan owner and its contract were wholly undefined predate the accepted A1 decision and `docs/98`–`docs/99`. Read those historical audit statements as findings at the time of their inspection, not as the current architecture decision.
+
+Current source-of-truth split:
+
+- **Semantic authority:** NPC owns goal/plan meaning, candidate evaluation, local lifecycle and plan selection.
+- **NPC-local persistence boundary:** the NPC repository owns durable goal/plan revisions, candidates, current-plan selection, task progress and local audit, subject to `docs/98`–`docs/99`.
+- **Canonical world authority:** Core owns world facts/events, world revisions, causal provenance, action authorization, proposal/approval/commit and rollback.
+- **Cross-boundary reconciliation:** only a trusted Core-facing integration may supply verified committed-result references to the NPC repository. The repository must not manufacture verification or query Core internals to infer success.
+
+A1 resolves who owns the NPC-local state and where its logical repository boundary sits. It does not mean that a repository implementation exists, that a storage engine has been selected, or that the current pure helpers are safe to persist caller-reported progress.
+
+Therefore the next implementation sequence is:
+
+1. Keep `evaluateNpcAutonomyCycle()` as a pure, fail-closed decision pass.
+2. Finish the exact repository adapter design/technology decision against `docs/99`, without implementing Core or Process Manager as the NPC plan store.
+3. Implement NPC-local goal/plan persistence and candidate acceptance without enabling action dispatch or accepting unverified step outcomes.
+4. Separately close the trusted Core result and rollback-invalidation contract before enabling production progress reconciliation.
+5. Keep goal creation/acceptance blocked until the first goal family, admissibility policy owner and trusted goal source are explicitly selected.
+6. Only then connect the autonomy cycle to a trusted production caller and bounded invocation mechanism.
+
+This update reconciles the contract documents; it does not claim that any runtime gate above has been completed.
