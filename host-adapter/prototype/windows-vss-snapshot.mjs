@@ -19,7 +19,20 @@ $id = [string]$created.ShadowID
 try {
   $shadow = Get-WmiObject -Class Win32_ShadowCopy | Where-Object { $_.ID -eq $id } | Select-Object -First 1
   if (-not $shadow) { throw 'HOST_VSS_SNAPSHOT_NOT_FOUND' }
-  $snapshotRoot = Join-Path ($shadow.DeviceObject.TrimEnd('\') + '\') $relative
+  $snapshotVolumeRoot = $shadow.DeviceObject.TrimEnd('\') + '\'
+  $snapshotRoot = $snapshotVolumeRoot
+  if ($relative.Length -gt 0) {
+    foreach ($component in $relative.Split([System.IO.Path]::DirectorySeparatorChar)) {
+      $snapshotRoot = Join-Path $snapshotRoot $component
+      $componentAttributes = [System.IO.File]::GetAttributes($snapshotRoot)
+      if (($componentAttributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw 'HOST_VSS_REPARSE_POINT_PRESENT'
+      }
+      if (($componentAttributes -band [System.IO.FileAttributes]::Directory) -eq 0) {
+        throw 'HOST_VSS_ROOT_NOT_DIRECTORY'
+      }
+    }
+  }
   $stack = New-Object 'System.Collections.Generic.Stack[string]'
   $stack.Push($snapshotRoot)
   while ($stack.Count -gt 0) {
