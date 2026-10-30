@@ -55,16 +55,19 @@ try {
   # Preserve the original provider/audit error. Resolve by snapshot ID even
   # when the failure happened before the shadow object was assigned.
   $failure = $_
+  $cleanupFailure = $null
   try {
     $cleanupShadow = Get-WmiObject -Class Win32_ShadowCopy | Where-Object { $_.ID -eq $id } | Select-Object -First 1
     if ($cleanupShadow) {
       $cleanupResult = $cleanupShadow.Delete()
       $cleanupCode = if ($cleanupResult -is [System.Management.ManagementBaseObject]) { [int]$cleanupResult.ReturnValue } else { [int]$cleanupResult }
-      if ($cleanupCode -ne 0) { Write-Error "HOST_VSS_CLEANUP_FAILED:$cleanupCode" }
+      if ($cleanupCode -ne 0) { throw "HOST_VSS_CLEANUP_FAILED:$cleanupCode" }
     }
   } catch {
-    # Cleanup failure is reported separately by the provider's delete path;
-    # do not hide the original snapshot-creation or audit failure.
+    $cleanupFailure = $_
+  }
+  if ($cleanupFailure) {
+    throw "HOST_VSS_CLEANUP_FAILED_AFTER_PROVIDER_ERROR; original=$($failure.Exception.Message); cleanup=$($cleanupFailure.Exception.Message)"
   }
   throw $failure
 }
