@@ -24,6 +24,7 @@ const isPlainDataRecord = (value) => {
   return true;
 };
 const asyncFunctionPrototype = Object.getPrototypeOf(async function asyncFunctionPrototypeMarker() {});
+const asyncFunctionConstructor = asyncFunctionPrototype.constructor;
 const MAX_HOST_SNAPSHOT_VERSIONS = 25000;
 const snapshotInputKeys = new Set(['world_id', 'conversation_id', 'complete', 'versions']);
 const versionInputKeys = new Set([
@@ -262,7 +263,7 @@ export class HostVersionDigestLedger {
       || (v.deleted && v.active)) {
       throw new TypeError('Invalid bound Host version entry');
     }
-    if (isProxy(v.resolveBinding) || Object.getPrototypeOf(v.resolveBinding) === asyncFunctionPrototype) {
+    if (isProxy(v.resolveBinding) || v.resolveBinding instanceof asyncFunctionConstructor) {
       throw new TypeError('Host binding resolution must be synchronous under the coordinator lease');
     }
     return this.#write(() => {
@@ -381,7 +382,7 @@ export class HostVersionDigestLedger {
     const revalidateBinding = options.revalidateBinding ?? null;
     if (revalidateBinding !== null && (typeof revalidateBinding !== 'function'
       || isProxy(revalidateBinding)
-      || Object.getPrototypeOf(revalidateBinding) === asyncFunctionPrototype)) {
+      || revalidateBinding instanceof asyncFunctionConstructor)) {
       return { status: 'non_ready', code: 'HOST_INVENTORY_INVALID' };
     }
     // Only inspect ordinary data records before copying. Accessors and Proxy
