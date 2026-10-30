@@ -174,6 +174,7 @@ test('host inventory route filters the response to the requested conversation lo
   assert.equal(response.statusCode, 200);
   assert.equal(response.body.requested_conversation_uuid, conversationUuid);
   assert.deepEqual(response.body.files, [{ logical_identity: selected }]);
+  assert.ok(response.body.blockers.includes('NO_SHARED_POINT_IN_TIME_SNAPSHOT'));
   assert.equal(JSON.stringify(response.body).includes('private-chat-path'), false);
   assert.equal(JSON.stringify(response.body).includes('private-file-identity'), false);
 });
