@@ -77,3 +77,8 @@ The integration branch based on the authenticated session-bound Host stack adds 
 After asynchronous snapshot verification, the ledger re-resolves the adapter/conversation binding synchronously inside the final shared Coordinator lease immediately before READY publication. Core binding mutations use the same lease. A revocation that commits during asynchronous verification therefore prevents READY publication. A successful revoke also invalidates any prior READY inventory state before the API acknowledges the revoke. Consumers must still re-resolve the binding at their own disclosure/dispatch boundary.
 
 Production remains fail-closed: `src/index.js` still injects `verifyInventorySnapshot: async () => false`. The route cannot publish READY in production. Positive-verifier tests prove only API-to-ledger mapping and lock ordering, not Host source trust or inventory completeness. The authenticated Host session UUID improves session scoping but is not durable installation attestation. Complete lifecycle coverage, trusted snapshot attestation, Core world/actor authorizers and final-send Gateway wiring remain open. No new cursor, outbox, raw-text storage or vectorization change is introduced.
+
+
+### Host/Core snapshot capacity mismatch
+
+The persisted SillyTavern scanner currently allows up to 1,000,000 logical versions over its enumerated current-file set. The Core reconciliation API accepts at most 25,000 version rows and 8 MiB in one complete snapshot. An inventory above either Core bound must remain NON_READY; the Host must not split it into partial snapshots or claim completeness. Supporting larger histories requires a separately reviewed bounded transfer protocol. This candidate adds no cursor, outbox or chunking semantics.
