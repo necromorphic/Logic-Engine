@@ -263,6 +263,38 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
     }
   }
 
+  // Windows must reject a sidecar hardlink alias to another role's live sidecar.
+  if (process.platform === 'win32') {
+    const sidecarOwnerPath = join(directory, 'sidecar-owner.sqlite');
+    const sidecarVictimPath = join(directory, 'sidecar-victim.sqlite');
+    registerRole(sidecarOwnerPath, 'sidecar-owner');
+    registerRole(sidecarVictimPath, 'sidecar-victim');
+    const sidecarOwner = new DatabaseSync(sidecarOwnerPath);
+    const sidecarVictim = new DatabaseSync(sidecarVictimPath);
+    try {
+      sidecarOwner.exec("PRAGMA journal_mode=DELETE; CREATE TABLE probe(value TEXT); BEGIN IMMEDIATE; INSERT INTO probe VALUES('owner');");
+      assert.equal(existsSync(`${sidecarOwnerPath}-journal`), true,
+        'the owner rollback journal must remain live while the transaction is open');
+      const rejectedBefore = sidecarOwner.prepare(
+        'SELECT logic_engine_vfs_probe_sidecar_identity_reject_count() AS count'
+      ).get().count;
+      linkSync(`${sidecarOwnerPath}-journal`, `${sidecarVictimPath}-journal`);
+      sidecarVictim.exec('PRAGMA journal_mode=DELETE; CREATE TABLE probe(value TEXT);');
+      assert.throws(() => sidecarVictim.exec(
+        "BEGIN IMMEDIATE; INSERT INTO probe VALUES('victim');"
+      ), 'a sidecar hardlink alias owned by another role must fail closed');
+      assert.ok(sidecarOwner.prepare(
+        'SELECT logic_engine_vfs_probe_sidecar_identity_reject_count() AS count'
+      ).get().count > rejectedBefore,
+      'the Windows sidecar identity registry must record the cross-role alias rejection');
+    } finally {
+      try { sidecarVictim.close(); } catch { /* rejected sidecar open may leave a transaction active */ }
+      try { sidecarOwner.exec('ROLLBACK;'); } catch { /* cleanup after deliberate rejection */ }
+      sidecarOwner.close();
+      try { unlinkSync(`${sidecarVictimPath}-journal`); } catch { /* link may not have been created */ }
+    }
+  }
+
   // Exercise the rollback-journal sidecar independently of WAL mode.
   const journalPath = join(directory, 'journal.sqlite');
   registerRole(journalPath, 'journal-test');
