@@ -65,7 +65,7 @@ The combined pinned-ST patch candidate #787 successfully applies lifecycle hooks
 
 ## Draft complete-snapshot API and revocation revalidation — 30 Oct 2026
 
-Draft PR #790 adds `POST /v1/host-version-ledger/reconcile` without changing the existing snapshot schema. The authenticated adapter and Core conversation binding determine the world scope; the request cannot supply `world_id` or raw text. The route accepts the existing complete `versions[]` envelope and calls `HostVersionDigestLedger.reconcileConversation()`.
+Draft PR #795 adds `POST /v1/host-version-ledger/reconcile` without changing the existing snapshot schema. The authenticated adapter and Core conversation binding determine the world scope; the request cannot supply `world_id` or raw text. The route accepts the existing complete `versions[]` envelope and calls `HostVersionDigestLedger.reconcileConversation()`.
 
 A correctness gap was closed at the ledger boundary: after the potentially asynchronous inventory verifier returns, the final READY transaction now re-resolves the adapter/conversation binding synchronously while holding the shared Coordinator lease. Core binding mutations use that same lease. If revocation commits while snapshot verification is pending, the final revalidation returns `HOST_CONVERSATION_NOT_AUTHORIZED` and READY is not published. Tests cover the lock being held during revalidation and a real API-level revoke-during-verification race using a file-backed Core store and shared Coordinator DB.
 
