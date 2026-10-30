@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { constants as fsConstants, promises as fs } from 'node:fs';
 import path from 'node:path';
-import { withWindowsVssSnapshot } from './windows-vss-snapshot.mjs';
+import { isActiveWindowsVssSnapshot, withWindowsVssSnapshot } from './windows-vss-snapshot.mjs';
 
 const PINNED_SILLYTAVERN_COMMIT = '06bde939fb1e9c4c8d8641d810f0a916b5bce127';
 const MAX_CHAT_FILE_BYTES = 256 * 1024 * 1024;
@@ -568,4 +568,9 @@ async function enumeratePinnedSillyTavernChatFilesInternal({
 
 export async function enumeratePinnedSillyTavernChatFiles(options) {
   return enumeratePinnedSillyTavernChatFilesInternal(options);
+}
+
+export async function enumeratePinnedSillyTavernChatFilesFromWindowsSnapshot(options, lease) {
+  if (!isActiveWindowsVssSnapshot(lease)) fail('SOURCE_WINDOWS_VSS_LEASE_INVALID');
+  return enumeratePinnedSillyTavernChatFilesInternal(options, lease);
 }
