@@ -5,6 +5,11 @@ const roleOf = message => message.is_user ? 'user' : message.is_system ? 'system
 const activeIndex = message => Number.isInteger(message.swipe_id) ? message.swipe_id : 0;
 const HOST_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const PINNED_SILLYTAVERN_COMMIT = '06bde939fb1e9c4c8d8641d810f0a916b5bce127';
+async function rawContentDigest(text) {
+  const bytes = new TextEncoder().encode(String(text));
+  return [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))]
+    .map(value => value.toString(16).padStart(2, '0')).join('');
+}
 const CURRENTLY_HOOKED_PATHS = Object.freeze(['create-message', 'message-send', 'message-receive', 'create-swipe', 'select-swipe', 'delete-swipe', 'delete-message', 'edit-message', 'rename-chat']);
 const newId = () => {
   if (!globalThis.crypto?.randomUUID) throw Error('crypto.randomUUID unavailable; Host capture NON_READY');
@@ -519,13 +524,14 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
       for (let versionIndex = 0; versionIndex < versions.length; versionIndex++) {
         const currentVersion = identity.versions[versionIndex];
         const persistedVersion = persisted.versions[versionIndex];
-        const actualDigest = await contentDigest(versions[versionIndex]);
+        const journalDigest = await contentDigest(versions[versionIndex]);
+        const persistedBytesDigest = await rawContentDigest(versions[versionIndex]);
         if (!currentVersion || !persistedVersion
           || persistedVersion.version_index !== versionIndex
           || persistedVersion.version_id !== currentVersion.versionId
           || persistedVersion.parent_version_id !== (currentVersion.parentVersionId ?? null)
-          || persistedVersion.content_sha256 !== currentVersion.payloadDigest
-          || persistedVersion.content_sha256 !== actualDigest
+          || currentVersion.payloadDigest !== journalDigest
+          || persistedVersion.content_sha256 !== persistedBytesDigest
           || persistedVersion.active !== (versionIndex === identity.activeVersionIndex)) {
           return { status: 'NON_READY', reason: 'persisted Host version identity or digest differs from the active conversation' };
         }
