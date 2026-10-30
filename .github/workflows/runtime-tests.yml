@@ -31,7 +31,7 @@ jobs:
         run: node --import ./tests/configure-test-env.js --test tests/npc-memory-candidate-eligibility.test.js tests/memory-npc-consumer.test.js tests/trusted-initial-knowledge-source.test.js tests/npc-epistemic-state.test.js tests/npc-knowledge-read.test.js tests/npc-belief-state.test.js tests/npc-knowledge-snapshot-race.test.js tests/npc-belief-state-snapshot-race.test.js tests/npc-host-authenticated-api.test.js
 
   test:
-    runs-on: [self-hosted, Windows, X64]
+    runs-on: windows-latest
     timeout-minutes: 10
     permissions:
       contents: read
