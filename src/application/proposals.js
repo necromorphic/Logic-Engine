@@ -188,7 +188,13 @@ export class ProposalService {
       && typeof evaluation.context_policy_version === 'string' && evaluation.context_policy_version.trim()
       && typeof evaluation.authorization_scope === 'string' && evaluation.authorization_scope.trim()
       && typeof evaluation.authority_id === 'string' && evaluation.authority_id.trim()
-      && Number.isSafeInteger(evaluation.policy_generation) && evaluation.policy_generation >= 1,
+      && Number.isSafeInteger(evaluation.policy_generation) && evaluation.policy_generation >= 1
+      && object(evaluation.authorization_principal)
+      && Object.keys(evaluation.authorization_principal).every((key) => ['adapterId', 'actorEntityId', 'recipient', 'purpose'].includes(key))
+      && typeof evaluation.authorization_principal.adapterId === 'string' && evaluation.authorization_principal.adapterId.trim()
+      && typeof evaluation.authorization_principal.actorEntityId === 'string' && evaluation.authorization_principal.actorEntityId.trim()
+      && ['model', 'player', 'adapter'].includes(evaluation.authorization_principal.recipient)
+      && ['npc_decision', 'character_card', 'narrative'].includes(evaluation.authorization_principal.purpose),
     'INVALID_MECHANIC_EVALUATION_FINGERPRINT', 'Context and evaluation fingerprints are required.');
     const expectedEvaluationFingerprint = hashRequest({
       snapshot_identity: identity,
@@ -198,6 +204,7 @@ export class ProposalService {
       authorization_scope: evaluation.authorization_scope,
       authority_id: evaluation.authority_id,
       policy_generation: evaluation.policy_generation,
+      authorization_principal: evaluation.authorization_principal,
       condition_result: evaluation.condition_result,
       dependency_manifest: evaluation.dependency_manifest,
       effects: evaluation.effects,
@@ -274,6 +281,7 @@ export class ProposalService {
       authorization_scope: evaluation.authorization_scope,
       authority_id: evaluation.authority_id,
       policy_generation: evaluation.policy_generation,
+      authorization_principal: evaluation.authorization_principal,
       evaluation_fingerprint: evaluation.evaluation_fingerprint,
       dependency_manifest: evaluation.dependency_manifest,
       effect_provenance: provenance,
@@ -385,7 +393,13 @@ export class ProposalService {
     if (typeof metadata.context_policy_version !== 'string' || !metadata.context_policy_version.trim()
       || typeof metadata.authorization_scope !== 'string' || !metadata.authorization_scope.trim()
       || typeof metadata.authority_id !== 'string' || !metadata.authority_id.trim()
-      || !Number.isSafeInteger(metadata.policy_generation) || metadata.policy_generation < 1) {
+      || !Number.isSafeInteger(metadata.policy_generation) || metadata.policy_generation < 1
+      || !object(metadata.authorization_principal)
+      || Object.keys(metadata.authorization_principal).some((key) => !['adapterId', 'actorEntityId', 'recipient', 'purpose'].includes(key))
+      || typeof metadata.authorization_principal.adapterId !== 'string' || !metadata.authorization_principal.adapterId.trim()
+      || typeof metadata.authorization_principal.actorEntityId !== 'string' || !metadata.authorization_principal.actorEntityId.trim()
+      || !['model', 'player', 'adapter'].includes(metadata.authorization_principal.recipient)
+      || !['npc_decision', 'character_card', 'narrative'].includes(metadata.authorization_principal.purpose)) {
       throw new EngineError('STALE_MECHANIC_POLICY', 'Mechanic proposal lacks a valid pinned policy identity.', 409, { stage });
     }
 
@@ -395,6 +409,9 @@ export class ProposalService {
         worldId: row.world_id,
         policyVersion: metadata.context_policy_version,
         authorizationScope: metadata.authorization_scope,
+        authorizationPrincipal: metadata.authorization_principal,
+        authorityId: metadata.authority_id,
+        policyGeneration: metadata.policy_generation,
         snapshotIdentity: metadata.snapshot_identity,
         stage,
       })) === true;
