@@ -608,6 +608,7 @@ test('reconciliation rejects copied/restored sidecar IDs even when native messag
   // as integrity-valid, while still remaining NON_READY for incomplete coverage.
   f.chat[0]._logicEngineLifecycle.messageId = originalMessageId;
   f.chat[0]._logicEngineLifecycle.versions[0].versionId = originalVersionId;
+  f.setPersistedChat(f.chat);
   const restored = await f.bridge.reconcileCurrentConversation();
   assert.equal(restored.status, 'NON_READY');
   assert.match(restored.reason, /incomplete mutation instrumentation|native hook coverage/);
