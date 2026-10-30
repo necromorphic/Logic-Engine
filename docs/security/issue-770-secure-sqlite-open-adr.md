@@ -152,3 +152,15 @@ The same reference documents `database.loadExtension(path)` as a wrapper around 
 **Feasibility conclusion:** the ADR's dedicated native binding/VFS direction remains the only currently identified path that can own both the SQLite engine and the secure `xOpen` operation without a second path-based reopen. This is still a design conclusion, not proof that the binding is feasible or implemented. The next spike must choose whether to (a) replace the protected `node:sqlite` connection layer with a native binding that owns SQLite/VFS, or (b) establish a different OS-level service boundary with an explicitly narrower attacker model. Do not treat a path ACL precheck as closure for an attacker who can mutate the parent directory.
 
 The API check was performed against the exact minimum runtime documentation, not current/latest Node documentation. Node.js API reference: https://nodejs.org/download/release/v22.13.0/docs/api/sqlite.html
+
+
+### Compatibility constraint discovered in the current implementation
+
+A native replacement must preserve more than `exec/prepare/run`. Current Core and Provider accepted-head mutation paths call `DatabaseSync.createSession()`, capture `Session.changeset()`, and later apply the changeset during protected restore/recovery. These are used in:
+
+- `src/storage/sqlite-store.js` — Core mutation/accepted-head changeset capture.
+- `src/application/sqlite-memory-provider.js` — Provider mutation/accepted-head changeset capture.
+
+Therefore the spike's minimum compatibility matrix must include `createSession`, `Session.changeset`, `Session.close`, and `applyChangeset` in addition to prepared statements, BigInt reads, transactions/savepoints, WAL, and locking. A replacement driver that lacks the SQLite Session extension or cannot build it into the same SQLite engine is not a drop-in candidate for the current accepted-head design.
+
+This raises the migration cost and must be measured in the spike before selecting a replacement binding. It does not justify bypassing accepted-head or falling back to unauthenticated/path-based opens.
