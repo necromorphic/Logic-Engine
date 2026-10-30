@@ -1023,6 +1023,9 @@ static int probe_xDelete(sqlite3_vfs *vfs, const char *name, int sync_dir) {
     size_t base_length = strlen(role->basename);
     size_t suffix_length = strlen(suffix);
     if (base_length + suffix_length + 1 > sizeof(relative_name)) return SQLITE_IOERR_DELETE;
+    if (!probe_posix_parent_is_protected(role->trusted_parent_fd)) {
+      return SQLITE_IOERR_DELETE;
+    }
     memcpy(relative_name, role->basename, base_length);
     memcpy(relative_name + base_length, suffix, suffix_length + 1);
     if (unlinkat(role->trusted_parent_fd, relative_name, 0) != 0) {
@@ -1227,6 +1230,22 @@ static void probe_reused_descriptor_accept_count(sqlite3_context *context, int a
 }
 
 #ifndef _WIN32
+static int probe_posix_parent_is_protected(int parent_fd) {
+  struct stat info;
+  /*
+   * POSIX has no portable unlink-by-file-descriptor primitive. The probe
+   * therefore permits protected-role deletion only when the pinned parent
+   * directory cannot be modified by a different UID: it must be owned by
+   * this process and have no group/other write bits. Same-UID and privileged
+   * attackers remain outside this probe policy and require a protected
+   * quarantine design before production use.
+   */
+  return fstat(parent_fd, &info) == 0
+    && S_ISDIR(info.st_mode)
+    && info.st_uid == geteuid()
+    && (info.st_mode & (S_IWGRP | S_IWOTH)) == 0;
+}
+
 static int probe_open_directory_chain(const char *path) {
   typedef int (*probe_register_open_fn)(const char *, int, int);
   probe_register_open_fn native_open = (probe_register_open_fn)g_original_open_syscall;
@@ -1358,6 +1377,17 @@ static int probe_capture_role_identity(const char *path, ProbeDatabaseRole *capt
   sqlite3_free(parent_path);
   if (parent_fd < 0) {
     sqlite3_free(basename);
+    return 0;
+  }
+  /*
+   * Refuse enrollment in a directory where another UID can replace entries.
+   * This is an explicit probe policy, not a substitute for a persistent
+   * trusted-directory manifest or same-UID attacker isolation.
+   */
+  if (!probe_posix_parent_is_protected(parent_fd)) {
+    close(parent_fd);
+    sqlite3_free(basename);
+    errno = EACCES;
     return 0;
   }
   fd = openat(parent_fd, basename, flags, 0600);
