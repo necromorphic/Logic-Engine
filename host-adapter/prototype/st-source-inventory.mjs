@@ -299,7 +299,8 @@ export async function enumeratePinnedSillyTavernChatFiles({
   for (const file of files) {
     const root = file.kind === 'group-metadata' ? groupRoot
       : file.kind === 'group-chat' ? groupChatRoot : chatRoot;
-    const absolute = path.join(root.absolute, file.locator);
+    const relativeFile = file.kind === 'group-chat' ? file.locator + '.jsonl' : file.locator;
+    const absolute = path.join(root.absolute, relativeFile);
     const second = await readStableFile(absolute, root.absolute,
       file.kind === 'group-metadata' ? MAX_GROUP_FILE_BYTES : MAX_CHAT_FILE_BYTES);
     if (second.identity !== file.file_identity || second.sha256 !== file.content_sha256
