@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -26,7 +26,9 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
     bootstrap.close();
   }
 
-  const first = new DatabaseSync(join(directory, 'core.sqlite'));
+  const corePath = join(directory, 'core.sqlite');
+  const first = new DatabaseSync(corePath);
+  let reader;
   try {
     assert.equal(first.prepare('SELECT sqlite_version() AS version').get().version, '3.47.2',
       'the native VFS ABI probe is pinned to the SQLite version bundled with Node 22.13.0');
@@ -35,7 +37,20 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
     const opened = first.prepare('SELECT logic_engine_vfs_probe_open_count() AS count').get().count;
     assert.equal(opened, 1, 'the first file-backed DatabaseSync must pass through the registered VFS xOpen');
   } finally {
+    reader?.close();
     first.close();
+  }
+
+  // Exercise the rollback-journal sidecar independently of WAL mode.
+  const journalPath = join(directory, 'journal.sqlite');
+  const journalDb = new DatabaseSync(journalPath);
+  try {
+    journalDb.exec('PRAGMA journal_mode=DELETE; CREATE TABLE probe(value TEXT); BEGIN IMMEDIATE; INSERT INTO probe VALUES(\\'pending\\');');
+    assert.equal(existsSync(`${journalPath}-journal`), true,
+      'rollback journal sidecar must exist before the transaction commits');
+    journalDb.exec('ROLLBACK;');
+  } finally {
+    journalDb.close();
   }
 
   const second = new DatabaseSync(join(directory, 'coordinator.sqlite'));
