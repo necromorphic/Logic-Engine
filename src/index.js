@@ -5,7 +5,7 @@ import { LogicEngine } from './application/engine.js';
 import { createApiServer } from './api/server.js';
 import { HostVersionDigestLedger } from './application/host-version-digest-ledger.js';
 import { loadTrustedWorldPackCatalog } from './application/world-pack-catalog.js';
-import { MechanicPolicyAuthority } from './application/mechanic-policy-authority.js';
+import { MechanicPolicyAuthority, defaultMechanicPolicyFieldPolicy } from './application/mechanic-policy-authority.js';
 
 const token = process.env.ENGINE_API_TOKEN;
 const internalToken = process.env.ENGINE_INTERNAL_TOKEN || null;
@@ -107,8 +107,7 @@ const worldPackCatalog = loadTrustedWorldPackCatalog(resolve(worldPackCatalogPat
 const mechanicPolicyAuthority = new MechanicPolicyAuthority({
   authorityId: process.env.ENGINE_MECHANIC_POLICY_AUTHORITY_ID || 'logic-engine.default-visibility-policy',
   generation: Number(process.env.ENGINE_MECHANIC_POLICY_GENERATION || '1'),
-  fieldPolicy: (context, entity, field) => entity.entity_id === context.actor.entity_id
-    && ['entity_id', 'entity_type', 'status'].includes(field),
+  fieldPolicy: defaultMechanicPolicyFieldPolicy,
 });
 
 const store = new SQLiteStore(dbPath);
