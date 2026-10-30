@@ -47,6 +47,8 @@ export class DeploymentMechanicPolicyAuthority {
   #authorityId = null;
   #highestGeneration = 0;
   #lastFingerprint = null;
+  #authorizedReadService = null;
+  #actorBindingService = null;
 
   constructor({ resolveActivePolicy } = {}) {
     if (typeof resolveActivePolicy !== 'function') {
@@ -68,6 +70,14 @@ export class DeploymentMechanicPolicyAuthority {
     }
     if (this.#authorityId !== null && record.authority_id !== this.#authorityId) {
       throw new Error('Active mechanic policy authority identity changed unexpectedly.');
+    }
+    if (this.#authorizedReadService !== null
+      && record.contextProvider.authorizedReadService !== this.#authorizedReadService) {
+      throw new Error('Active mechanic policy changed its AuthorizedReadService instance.');
+    }
+    if (this.#actorBindingService !== null
+      && record.contextProvider.authorizedReadService?.actorBindingService !== this.#actorBindingService) {
+      throw new Error('Active mechanic policy changed its Core actor binding service instance.');
     }
     if (record.generation < this.#highestGeneration
       || (record.generation === this.#highestGeneration && this.#lastFingerprint !== null
@@ -119,7 +129,10 @@ export class DeploymentMechanicPolicyAuthority {
       || authorizedReadService.actorBindingService !== actorBindingService) return false;
     try {
       const current = this.resolveCurrentPolicy();
-      return current.contextProvider.authorizedReadService === authorizedReadService;
+      if (current.contextProvider.authorizedReadService !== authorizedReadService) return false;
+      this.#authorizedReadService = authorizedReadService;
+      this.#actorBindingService = actorBindingService;
+      return true;
     } catch {
       return false;
     }
