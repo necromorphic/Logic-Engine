@@ -62,3 +62,17 @@ The current inventory uses file handles for bounded reads but pathname-based dir
 The uploaded archive also matches pinned `src/server-main.js` by Git blob SHA `bcf5bed8d6248af1db5ed0d59796e2c284bde95b`. In that source, `app.use(requireLoginMiddleware)` is installed at line 248 before `setupPrivateEndpoints(app)` is called at line 278. The candidate inventory router is mounted by `setupPrivateEndpoints`, so the route is behind SillyTavern's login middleware in the pinned build. The handler additionally requires `request.user.directories` and `request.user.profile.handle`.
 
 This establishes the Host's ordinary authenticated-user boundary for the candidate endpoint; it does **not** establish a stable installation ID, durable session ID, cryptographic session binding, world/actor authorization, or Core trust. `host_user_handle` is an account/profile identifier, not a durable session identity. The inventory response must remain NON_READY until those missing bindings are supplied by a separately reviewed deployment contract.
+
+
+## Dispatch-start process boundary and Node runtime compatibility
+
+The dispatch-start contract has an additional process-boundary constraint. The Gateway's synchronous transport-start callback must invoke the actual outbound transport while the shared Coordinator lease is held, then release the lease before awaiting the network response. A remote Core HTTP call that returns an authorization result to SillyTavern and only then lets SillyTavern call its provider is not equivalent: the Coordinator lease has already been released before the real provider fetch begins, leaving a revocation race.
+
+Therefore the eventual implementation must choose one of two architectures and prove it:
+
+1. **Host-process Gateway:** run the trusted Gateway/dispatch-start primitive in the SillyTavern server process and share the same Coordinator/dispatch authority with Core and Provider. The actual provider transport callback must be invoked synchronously inside the Gateway lease. This requires the Host process to run a supported Node runtime and have access to the protected shared authority files; it also requires proving that the Gateway's SQLite engine and accepted-head clients are compatible with the Host runtime.
+2. **Core-owned transport:** move the final provider transport itself into the Core/Gateway process so that the actual network request is initiated inside the lease. SillyTavern would hand over a narrowly scoped, authenticated request to that transport boundary; provider credentials and request signing would need a separate reviewed contract.
+
+The pinned SillyTavern 1.19.0 `package.json` declares `engines.node: >=20`, while Logic-Engine requires `>=22.13.0` for its current `node:sqlite` implementation. Thus the Host-process Gateway option is **not supported by SilencingTavern's declared minimum runtime**; it may only be considered when the deployed Host runtime is explicitly verified as Node >=22.13.0, or after a compatible secure SQLite layer is selected. Do not infer runtime support from the package minimum or from a successful patch-apply workflow.
+
+A simple Core HTTP authorize-then-send proxy is explicitly rejected as a substitute for the synchronous transport-start linearization property. This architecture decision must be resolved before implementing the final-send patch across the 13 provider-specific early-return senders and the OpenAI-compatible fetch path.
