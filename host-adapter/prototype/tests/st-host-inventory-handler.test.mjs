@@ -102,6 +102,55 @@ test('host inventory route passes only the authenticated user data roots and ret
   assert.equal(JSON.stringify(response.body).includes('raw-chat-message'), false);
 });
 
+test('host inventory route filters the response to the requested conversation logical identity', async () => {
+  const conversationUuid = '2e6b0a80-4e73-4c66-aaf3-7a6e62c7f401';
+  const otherUuid = '3e6b0a80-4e73-4c66-aaf3-7a6e62c7f402';
+  const selected = { conversation_uuid: conversationUuid, identity_status: 'CURRENT_IDENTITIES_VERIFIED', messages: [] };
+  const other = { conversation_uuid: otherUuid, identity_status: 'CURRENT_IDENTITIES_VERIFIED', messages: [] };
+  const handler = createHostInventoryHandler({
+    enumerate: async () => ({
+      status: 'DOUBLE_SCAN_CANDIDATE',
+      authority: 'NON_AUTHORITATIVE',
+      files: [
+        { locator: 'private-chat-path.jsonl', file_identity: 'private-file-identity', logical_identity: selected },
+        { locator: 'other-chat-path.jsonl', file_identity: 'other-file-identity', logical_identity: other },
+      ],
+      inventory_sha256: 'a'.repeat(64),
+    }),
+    pinnedHostCommit: pinned,
+    hostBuildClaim: pinned,
+  });
+  const response = makeResponse();
+  await handler({
+    user: { profile: { handle: 'alice' }, directories: {} },
+    session: { handle: 'alice', logicEngineSessionId: '2e6b0a80-4e73-4c66-aaf3-7a6e62c7f401', logicEngineSessionHandle: 'alice' },
+    query: { conversation_uuid: conversationUuid },
+  }, response);
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.body.requested_conversation_uuid, conversationUuid);
+  assert.deepEqual(response.body.files, [{ logical_identity: selected }]);
+  assert.equal(JSON.stringify(response.body).includes('private-chat-path'), false);
+  assert.equal(JSON.stringify(response.body).includes('private-file-identity'), false);
+});
+
+test('host inventory route rejects malformed conversation filters before scanning', async () => {
+  let calls = 0;
+  const handler = createHostInventoryHandler({
+    enumerate: async () => { calls += 1; return { files: [] }; },
+    pinnedHostCommit: pinned,
+    hostBuildClaim: pinned,
+  });
+  const response = makeResponse();
+  await handler({
+    user: { profile: { handle: 'alice' }, directories: {} },
+    session: { handle: 'alice', logicEngineSessionId: '2e6b0a80-4e73-4c66-aaf3-7a6e62c7f401', logicEngineSessionHandle: 'alice' },
+    query: { conversation_uuid: '../not-a-uuid' },
+  }, response);
+  assert.equal(response.statusCode, 400);
+  assert.deepEqual(response.body, { status: 'NON_READY', code: 'HOST_CONVERSATION_UUID_INVALID' });
+  assert.equal(calls, 0);
+});
+
 test('host inventory route hides scanner errors and absolute paths from the HTTP response', async () => {
   const handler = createHostInventoryHandler({
     enumerate: async () => { throw Object.assign(new Error('C:\\private\\chat.jsonl'), { code: 'SOURCE_FILE_UNAVAILABLE' }); },
