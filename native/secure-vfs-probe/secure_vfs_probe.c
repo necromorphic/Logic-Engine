@@ -43,6 +43,7 @@ static int g_race_injection_count = 0;
 static int g_identity_reject_count = 0;
 static int g_sidecar_identity_check_count = 0;
 static int g_sidecar_identity_reject_count = 0;
+static int g_reused_descriptor_accept_count = 0;
 #define PROBE_MAX_DATABASE_ROLES 8
 typedef struct ProbeDatabaseRole {
   char *path;
@@ -392,6 +393,7 @@ static int probe_xOpen(sqlite3_vfs *vfs, const char *name, sqlite3_file *file,
         role->inode = g_current_role_stat_inode;
         role->identity_set = 1;
       }
+      g_reused_descriptor_accept_count += 1;
       g_current_role_captured = 1;
     }
 #endif
@@ -535,6 +537,11 @@ static void probe_sidecar_identity_reject_count(sqlite3_context *context, int ar
   (void)argc;
   (void)argv;
   sqlite3_result_int(context, g_sidecar_identity_reject_count);
+}
+static void probe_reused_descriptor_accept_count(sqlite3_context *context, int argc, sqlite3_value **argv) {
+  (void)argc;
+  (void)argv;
+  sqlite3_result_int(context, g_reused_descriptor_accept_count);
 }
 static void probe_register_database_role(sqlite3_context *context, int argc, sqlite3_value **argv) {
   const unsigned char *path = sqlite3_value_text(argv[0]);
@@ -691,6 +698,9 @@ static int probe_auto_extension(sqlite3 *db, char **error, const sqlite3_api_rou
   if (rc != SQLITE_OK) return rc;
   rc = sqlite3_create_function(db, "logic_engine_vfs_probe_sidecar_identity_reject_count", 0,
     SQLITE_UTF8 | SQLITE_DETERMINISTIC, 0, probe_sidecar_identity_reject_count, 0, 0);
+  if (rc != SQLITE_OK) return rc;
+  rc = sqlite3_create_function(db, "logic_engine_vfs_probe_reused_descriptor_accept_count", 0,
+    SQLITE_UTF8 | SQLITE_DETERMINISTIC, 0, probe_reused_descriptor_accept_count, 0, 0);
   if (rc != SQLITE_OK) return rc;
   rc = sqlite3_create_function(db, "logic_engine_vfs_probe_configure_race", 3,
     SQLITE_UTF8, 0, probe_configure_race, 0, 0);
