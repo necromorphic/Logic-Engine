@@ -414,7 +414,7 @@ test('trusted importer rejects symlinks at the file-open boundary', (t) => {
   try {
     symlinkSync(targetPath, sourcePath);
   } catch (error) {
-    if (process.platform === 'win32' && error?.code === 'EPERM') {
+    if (process.platform === 'win32' && error?.code === 'EPERM' && process.env.LOGIC_ENGINE_REQUIRE_SYMLINK_TESTS !== '1') {
       t.skip('this Windows service account cannot create symlinks; the same file-reparse case runs on windows-latest');
       return;
     }
