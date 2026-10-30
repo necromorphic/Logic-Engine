@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { copyFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { once } from 'node:events';
@@ -205,6 +205,116 @@ test('Core commits only when accepted-head authority is current and aborts mutat
     } finally {
       verifySchema.close();
     }
+  } finally {
+    try { store?.close(); } catch {}
+    if (child) {
+      child.stdin.end('stop');
+      await once(child, 'exit');
+    }
+    for (const [name, value] of Object.entries(previousEnv)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+
+test('Core rejects restoration of an older enrolled database snapshot while authority remains newer', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-core-accepted-head-restore-'));
+  const corePath = join(directory, 'core.sqlite');
+  const baselinePath = join(directory, 'core-baseline.sqlite');
+  const coordinatorPath = join(directory, 'coordinator.sqlite');
+  const authorityPath = join(directory, 'authority.sqlite');
+  const previousEnv = {};
+  let child;
+  let store;
+  try {
+    setEnv('LOGIC_ENGINE_COORDINATOR_DB_PATH', coordinatorPath, previousEnv);
+    setEnv('LOGIC_ENGINE_ACCEPTED_HEAD_REQUIRED', undefined, previousEnv);
+    setEnv('LOGIC_ENGINE_ACCEPTED_HEAD_PORT', undefined, previousEnv);
+    setEnv('LOGIC_ENGINE_ACCEPTED_HEAD_CORE_TOKEN', undefined, previousEnv);
+    const bootstrap = new SQLiteStore(corePath);
+    bootstrap.close();
+
+    const service = await startAuthorityProcess(authorityPath);
+    child = service.child;
+    const port = service.port;
+
+    const coordinatorDb = openCoordinatorDatabase(coordinatorPath);
+    const release = beginCoordinatorLock(coordinatorDb);
+    try {
+      const enrolledCore = enrollAcceptedHeadSync({
+        domain: 'core', operationId: 'core-restore-baseline-enrollment',
+        operationDigest: digestA, token: coreToken, port,
+      });
+      const db = new DatabaseSync(corePath);
+      try {
+        db.exec('BEGIN IMMEDIATE');
+        db.prepare('UPDATE accepted_head_state SET head=?, enrolled=1, last_operation_id=?, last_operation_digest=? WHERE singleton=1')
+          .run(enrolledCore.head, enrolledCore.operation_id, digestA);
+        db.exec('COMMIT');
+      } catch (error) {
+        try { db.exec('ROLLBACK'); } catch {}
+        throw error;
+      } finally {
+        db.close();
+      }
+      finalizeAcceptedHeadSync({
+        domain: 'core', operationId: enrolledCore.operation_id,
+        operationDigest: digestA, token: coreToken, port,
+      });
+      const enrolledProvider = enrollAcceptedHeadSync({
+        domain: 'provider', operationId: 'provider-restore-baseline-enrollment',
+        operationDigest: digestB, token: providerToken, port,
+      });
+      finalizeAcceptedHeadSync({
+        domain: 'provider', operationId: enrolledProvider.operation_id,
+        operationDigest: digestB, token: providerToken, port,
+      });
+    } finally {
+      release();
+      coordinatorDb.close();
+    }
+
+    setEnv('LOGIC_ENGINE_ACCEPTED_HEAD_PORT', String(port), previousEnv);
+    setEnv('LOGIC_ENGINE_ACCEPTED_HEAD_CORE_TOKEN', coreToken, previousEnv);
+    setEnv('LOGIC_ENGINE_ACCEPTED_HEAD_REQUIRED', '1', previousEnv);
+    store = new SQLiteStore(corePath);
+    store.close();
+    store = null;
+
+    // A legitimate enrolled backup is captured before later Core mutations.
+    copyFileSync(corePath, baselinePath);
+
+    store = new SQLiteStore(corePath);
+    store.createWorld({
+      world_id: 'accepted-head-restore-world-one',
+      world_pack_id: 'test-pack',
+      world_pack_version: '1',
+      game_time: '2026-01-01T00:00:00Z',
+    });
+    store.createWorld({
+      world_id: 'accepted-head-restore-world-two',
+      world_pack_id: 'test-pack',
+      world_pack_version: '1',
+      game_time: '2026-01-01T00:00:30Z',
+    });
+    assert.deepEqual(getAcceptedHeadsSync({ port, token: coreToken }), { core: 3, provider: 1 });
+    store.close();
+    store = null;
+
+    // Restore only Core. The authority database remains outside this backup image.
+    copyFileSync(baselinePath, corePath);
+    store = new SQLiteStore(corePath);
+    assert.throws(() => store.createWorld({
+      world_id: 'accepted-head-restore-world-three',
+      world_pack_id: 'test-pack',
+      world_pack_version: '1',
+      game_time: '2026-01-01T00:01:00Z',
+    }), /CORE_ACCEPTED_HEAD_MISMATCH/);
+    assert.equal(store.world('accepted-head-restore-world-three') ?? null, null);
+    assert.deepEqual(getAcceptedHeadsSync({ port, token: coreToken }), { core: 3, provider: 1 });
   } finally {
     try { store?.close(); } catch {}
     if (child) {
