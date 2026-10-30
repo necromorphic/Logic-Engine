@@ -525,6 +525,7 @@ test('mechanic proposal handoff rejects incomplete or mismatched effect provenan
     authorization_scope: tampered.authorization_scope,
     authority_id: tampered.authority_id,
     policy_generation: tampered.policy_generation,
+    authorization_principal: tampered.authorization_principal,
     condition_result: tampered.condition_result,
     dependency_manifest: tampered.dependency_manifest,
     effects: tampered.effects,
