@@ -780,6 +780,22 @@ test('projection rebuild preserves the exact historical rule-version pin when it
     assert.equal(historicalSnapshot.input.ruleVersion, 'relationship-rules@1.0.0');
     assert.match(historicalSnapshot.input_digest, /^[a-f0-9]{64}$/);
     assert.equal(historicalSnapshot.input_digest, hashRequest(historicalSnapshot.input));
+    const beforeHistoricalRead = {
+      revision: store.world('world-relationship-test').world_revision,
+      eventCount: store.events('world-relationship-test').length,
+      auditCount: store.audit('world-relationship-test').length,
+    };
+    const historicalResult = store.reevaluateRelationshipEvent('world-relationship-test', committed.event_id);
+    assert.equal(historicalResult.status, 'evaluated');
+    assert.equal(historicalResult.read_only, true);
+    assert.equal(historicalResult.results.length, 1);
+    assert.equal(historicalResult.results[0].candidate.status, 'candidate');
+    assert.deepEqual({
+      revision: store.world('world-relationship-test').world_revision,
+      eventCount: store.events('world-relationship-test').length,
+      auditCount: store.audit('world-relationship-test').length,
+    }, beforeHistoricalRead, 'historical re-evaluation must not mutate world revision, events, or audit');
+
     store.close();
     store = null;
 
