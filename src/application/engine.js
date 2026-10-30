@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { types as utilTypes } from 'node:util';
 import { constants as fsConstants, openSync, fstatSync, readFileSync, closeSync, lstatSync, realpathSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
 import { assert, EngineError } from '../core/errors.js';
@@ -19,7 +20,7 @@ const TRUSTED_IMPORT_CAPABILITY = Symbol('trusted-import-loader');
 const MAX_TRUSTED_IMPORT_BYTES = 1_000_000;
 const obj = (x) => x !== null && typeof x === 'object' && !Array.isArray(x);
 const exactDataRecord = (value, keys) => {
-  if (!obj(value)) return false;
+  if (!obj(value) || utilTypes.isProxy(value)) return false;
   try {
     const prototype = Object.getPrototypeOf(value);
     if (prototype !== Object.prototype && prototype !== null) return false;
@@ -28,6 +29,37 @@ const exactDataRecord = (value, keys) => {
       || !ownKeys.every((key) => typeof key === 'string' && keys.includes(key))) return false;
     return ownKeys.every((key) => { const descriptor = Object.getOwnPropertyDescriptor(value, key); return descriptor && descriptor.enumerable && Object.hasOwn(descriptor, 'value'); });
   } catch { return false; }
+};
+const isSafeNpcInputRecord = (value, ancestors = new Set()) => {
+  if (value === null || typeof value !== 'object' || Array.isArray(value) || utilTypes.isProxy(value)) return false;
+  const visit = (node) => {
+    if (node === null || typeof node === 'string' || typeof node === 'boolean') return true;
+    if (typeof node === 'number') return Number.isFinite(node);
+    if (typeof node !== 'object' || utilTypes.isProxy(node) || ancestors.has(node)) return false;
+    try {
+      const array = Array.isArray(node);
+      const prototype = Object.getPrototypeOf(node);
+      if (array ? prototype !== Array.prototype : (prototype !== Object.prototype && prototype !== null)) return false;
+      const keys = Reflect.ownKeys(node);
+      if (array && (keys.length !== node.length + 1 || !keys.includes('length'))) return false;
+      if (!array && keys.some((key) => typeof key !== 'string')) return false;
+      ancestors.add(node);
+      for (const key of keys) {
+        if (array && key === 'length') continue;
+        if (array && (typeof key !== 'string' || !/^(0|[1-9][0-9]*)$/.test(key)
+          || !Number.isSafeInteger(Number(key)) || Number(key) >= node.length)) return false;
+        const descriptor = Object.getOwnPropertyDescriptor(node, key);
+        if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')
+          || !visit(descriptor.value)) return false;
+      }
+      ancestors.delete(node);
+      return true;
+    } catch {
+      ancestors.delete(node);
+      return false;
+    }
+  };
+  return visit(value);
 };
 const strings = (x, name) => {
   x = x ?? [];
@@ -891,7 +923,14 @@ export class LogicEngine {
    * to the canonical event log. The proposal cannot create acquisition evidence.
    */
   recordNpcBeliefTransition(input) {
-    assert(obj(input), 'INVALID_NPC_BELIEF_TRANSITION', 'Belief transition request must be an object.');
+    const required = [
+      'world_id', 'adapter_id', 'actor_id', 'recipient', 'purpose', 'expected_revision',
+      'expected_commit_sequence', 'proposition_ref', 'proposition_value', 'stance',
+      'supporting_acquisition_ids', 'contradicting_acquisition_ids', 'reason_rule_ref', 'idempotency_key',
+    ];
+    assert(isSafeNpcInputRecord(input) && required.every((key) => Object.hasOwn(input, key)),
+      'INVALID_NPC_BELIEF_TRANSITION', 'Belief transition request must be a plain data record with all required own fields.');
+    const limit = Object.hasOwn(input, 'limit') ? (limit) : 200;
     const allowed = [
       'world_id', 'adapter_id', 'actor_id', 'recipient', 'purpose', 'expected_revision', 'expected_commit_sequence',
       'limit', 'proposition_ref', 'proposition_value', 'stance', 'supporting_acquisition_ids',
@@ -917,7 +956,7 @@ export class LogicEngine {
       purpose: input.purpose,
       expected_revision: input.expected_revision,
       expected_commit_sequence: input.expected_commit_sequence,
-      limit: input.limit ?? 200,
+      limit: limit,
       proposition_ref: input.proposition_ref,
       proposition_value: input.proposition_value,
       stance: input.stance,
@@ -946,7 +985,7 @@ export class LogicEngine {
         purpose: input.purpose,
         expected_revision: currentWorld.world_revision,
         expected_commit_sequence: this.store.currentCommitSequence(input.world_id),
-        limit: input.limit ?? 200,
+        limit: limit,
       });
       assert(existingReplay.request_hash === requestHash, 'IDEMPOTENCY_KEY_REUSED',
         'Belief transition idempotency key was already used for a different request.', 409);
@@ -969,7 +1008,7 @@ export class LogicEngine {
       purpose: input.purpose,
       expected_revision: input.expected_revision,
       expected_commit_sequence: input.expected_commit_sequence,
-      limit: input.limit ?? 200,
+      limit: limit,
     };
     const read = this.readNpcKnowledge(readRequest);
     const currentRow = this.store.db.prepare(`
@@ -1078,7 +1117,13 @@ export class LogicEngine {
    * remains in the current actor-scoped acquisition projection.
    */
   getNpcBeliefState(input) {
-    assert(obj(input), 'INVALID_NPC_BELIEF_STATE_REQUEST', 'Belief state request must be an object.');
+    const required = [
+      'world_id', 'adapter_id', 'actor_id', 'recipient', 'purpose',
+      'expected_revision', 'expected_commit_sequence', 'proposition_ref',
+    ];
+    assert(isSafeNpcInputRecord(input) && required.every((key) => Object.hasOwn(input, key)),
+      'INVALID_NPC_BELIEF_STATE_REQUEST', 'Belief state request must be a plain data record with all required own fields.');
+    const limit = Object.hasOwn(input, 'limit') ? (limit) : 200;
     const allowed = [
       'world_id', 'adapter_id', 'actor_id', 'recipient', 'purpose', 'expected_revision',
       'expected_commit_sequence', 'limit', 'proposition_ref',
@@ -1096,7 +1141,7 @@ export class LogicEngine {
       purpose: input.purpose,
       expected_revision: input.expected_revision,
       expected_commit_sequence: input.expected_commit_sequence,
-      limit: input.limit ?? 200,
+      limit: limit,
     });
     assert(read.truncated !== true, 'NPC_KNOWLEDGE_READ_INCOMPLETE',
       'The actor knowledge read exceeded its bounded limit; belief support cannot be reconciled from a partial window.', 409);
