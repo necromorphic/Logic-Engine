@@ -806,32 +806,86 @@ static int probe_xOpen(sqlite3_vfs *vfs, const char *name, sqlite3_file *file,
                        int flags, int *out_flags) {
   sqlite3_vfs *parent = (sqlite3_vfs *)vfs->pAppData;
   int is_sidecar = (flags & (SQLITE_OPEN_WAL | SQLITE_OPEN_MAIN_JOURNAL)) != 0;
-  int is_race_target = name && g_race_path
-    && (flags & (SQLITE_OPEN_MAIN_DB | SQLITE_OPEN_WAL | SQLITE_OPEN_MAIN_JOURNAL))
-    && strcmp(name, g_race_path) == 0;
+  int is_race_target = 0;
   int rc;
   int role_index = -1;
-  if (name && (flags & SQLITE_OPEN_MAIN_DB)) {
-    char *full_path = (char *)sqlite3_malloc64((sqlite3_uint64)parent->mxPathname + 1);
-    if (!full_path) return SQLITE_NOMEM;
-    if (parent->xFullPathname(parent, name, parent->mxPathname + 1, full_path) == SQLITE_OK) {
-      probe_registry_lock();
-      for (int i = 0; i < g_database_role_count; i++) {
-        if (strcmp(full_path, g_database_roles[i].path) == 0) {
-          role_index = i;
-          break;
-        }
-      }
-      probe_registry_unlock();
+  char *canonical_name = NULL;
+  const char *open_name = name;
+
+  /*
+   * Resolve every file-backed main DB to its enrolled canonical pathname and
+   * pass that canonical name to the parent VFS. Otherwise a DB opened through
+   * a symlink/relative alias could pass the main-DB identity check while its
+   * WAL/journal names miss the pinned-role matcher and fall back to path opens.
+   */
+  if (name && (flags & SQLITE_OPEN_MAIN_DB) && !(flags & SQLITE_OPEN_MEMORY)) {
+    const char *suffix = NULL;
+    canonical_name = (char *)sqlite3_malloc64((sqlite3_uint64)parent->mxPathname + 1);
+    if (!canonical_name) return SQLITE_NOMEM;
+    if (parent->xFullPathname(parent, name, parent->mxPathname + 1,
+                              canonical_name) != SQLITE_OK) {
+      sqlite3_free(canonical_name);
+      return SQLITE_CANTOPEN;
     }
-    sqlite3_free(full_path);
+#ifdef _WIN32
+    {
+      wchar_t *wide_path = probe_utf8_to_wide(canonical_name);
+      const wchar_t *wide_suffix = NULL;
+      int matched = wide_path
+        && probe_match_role_entry_w(wide_path, &role_index, &wide_suffix);
+      if (!matched || wide_suffix[0] != L'\\0') {
+        sqlite3_free(wide_path);
+        sqlite3_free(canonical_name);
+        return SQLITE_CANTOPEN;
+      }
+      sqlite3_free(wide_path);
+    }
+#else
+    if (!probe_match_role_entry(canonical_name, &role_index, &suffix)
+        || suffix[0] != '\0') {
+      sqlite3_free(canonical_name);
+      return SQLITE_CANTOPEN;
+    }
+#endif
+    open_name = canonical_name;
   }
-  // Every file-backed main database must have an explicit trusted role
-  // registration. In-memory databases are intentionally exempt.
+
+  /* Every file-backed main DB must have an explicit trusted role. */
   if (name && (flags & SQLITE_OPEN_MAIN_DB)
       && !(flags & SQLITE_OPEN_MEMORY) && role_index < 0) {
+    sqlite3_free(canonical_name);
     return SQLITE_CANTOPEN;
   }
+
+  /*
+   * Sidecar names must be derived from the canonical registered DB path.
+   * Never allow an unrecognized WAL/journal name to reach the parent VFS.
+   */
+  if (is_sidecar) {
+    int matched = 0;
+#ifdef _WIN32
+    wchar_t *wide_path = open_name ? probe_utf8_to_wide(open_name) : NULL;
+    const wchar_t *suffix = NULL;
+    if (wide_path) {
+      matched = probe_match_role_entry_w(wide_path, &role_index, &suffix)
+        && suffix[0] != L'\\0';
+      sqlite3_free(wide_path);
+    }
+#else
+    const char *suffix = NULL;
+    matched = open_name && probe_match_role_entry(open_name, &role_index, &suffix)
+      && suffix[0] != '\0';
+#endif
+    if (!matched) {
+      sqlite3_free(canonical_name);
+      return SQLITE_CANTOPEN;
+    }
+  }
+
+  is_race_target = open_name && g_race_path
+    && (flags & (SQLITE_OPEN_MAIN_DB | SQLITE_OPEN_WAL | SQLITE_OPEN_MAIN_JOURNAL))
+    && strcmp(open_name, g_race_path) == 0;
+
   if (role_index >= 0) {
     g_current_role_index = role_index;
     g_current_role_captured = 0;
@@ -846,23 +900,26 @@ static int probe_xOpen(sqlite3_vfs *vfs, const char *name, sqlite3_file *file,
   if (is_race_target) {
     g_current_race_open = 1;
     g_current_race_captured = 0;
-    // Unix main-database race is injected by probe_stat after stat() returns.
-    // WAL/journal opens have no findReusableFd stat window, so inject here.
+    /* Unix main-database race is injected by probe_stat after stat returns. */
     if (g_race_inject_once && (is_sidecar
 #ifdef _WIN32
         || !is_sidecar
 #endif
       )) {
       g_race_inject_once = 0;
-      if (!probe_replace_with_hardlink(name, g_race_target_path)) {
+      if (!probe_replace_with_hardlink(open_name, g_race_target_path)) {
         g_current_race_open = 0;
         g_current_sidecar_open = 0;
+        sqlite3_free(canonical_name);
         return SQLITE_CANTOPEN;
       }
       probe_counter_increment(&g_race_injection_count);
     }
   }
-  rc = parent->xOpen(parent, name, file, flags, out_flags);
+
+  rc = parent->xOpen(parent, open_name, file, flags, out_flags);
+  sqlite3_free(canonical_name);
+
   if (role_index >= 0) {
 #ifndef _WIN32
     if (rc == SQLITE_OK && !g_current_role_captured && g_current_role_stat_valid) {
