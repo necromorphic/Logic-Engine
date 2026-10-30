@@ -91,3 +91,5 @@ jobs:
           grep -F 'request metadata:' sillytavern-host-checkout/src/endpoints/backends/chat-completions.js >/dev/null
       - name: Run all Host prototype and inventory tests
         run: node --test host-adapter/prototype/tests/*.test.mjs tests/host-source-inventory.test.js
+
+# Validation-only no-op commit: exercise this workflow against the frozen PR #804 tree.
