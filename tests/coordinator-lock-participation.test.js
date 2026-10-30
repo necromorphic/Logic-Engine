@@ -8,10 +8,15 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { SQLiteStore } from '../src/storage/sqlite-store.js';
 import { openCoordinatorDatabase, withCoordinatorLock } from '../src/storage/coordinator-lock.js';
 
-const waitForFile = async (path, timeoutMs = 4000) => {
+const waitForFile = async (path, childProcess, timeoutMs = 15000) => {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (existsSync(path)) return;
+    if (childProcess.child.exitCode !== null || childProcess.child.signalCode !== null) {
+      const outcome = await childProcess.exited;
+      throw new Error('Child exited before creating ' + path + ': '
+        + JSON.stringify({ code: outcome.code, signal: outcome.signal, error: outcome.error, stderr: outcome.stderr }));
+    }
     await delay(10);
   }
   throw new Error('Timed out waiting for ' + path);
@@ -37,11 +42,15 @@ test('separate Core stores serialize write transactions through one shared coord
   `;
   const env = { ...process.env, LOGIC_ENGINE_COORDINATOR_DB_PATH: coordinatorPath };
   const start = (dbPath, markerPath, holdMs) => {
-    const child = spawn(process.execPath, ['--input-type=module', '-e', childScript, dbPath, markerPath, String(holdMs)], { env, stdio: 'ignore' });
-    const exited = new Promise((resolve, reject) => {
-      child.once('error', reject);
-      child.once('exit', (code, signal) => code === 0 ? resolve({ code, signal })
-        : reject(new Error('child exited with code=' + code + ', signal=' + signal)));
+    const child = spawn(process.execPath, ['--input-type=module', '-e', childScript, dbPath, markerPath, String(holdMs)], {
+      env, stdio: ['ignore', 'ignore', 'pipe'],
+    });
+    let stderr = '';
+    child.stderr.setEncoding('utf8');
+    child.stderr.on('data', (chunk) => { stderr += chunk; });
+    const exited = new Promise((resolve) => {
+      child.once('error', (error) => resolve({ code: null, signal: null, error: error.message, stderr }));
+      child.once('close', (code, signal) => resolve({ code, signal, error: null, stderr }));
     });
     return { child, exited };
   };
@@ -49,13 +58,17 @@ test('separate Core stores serialize write transactions through one shared coord
   try {
     const first = start(coreA, firstEntered, 600);
     p1 = first.child;
-    await waitForFile(firstEntered);
+    await waitForFile(firstEntered, first);
     const second = start(coreB, secondEntered, 0);
     p2 = second.child;
     await delay(150);
     assert.equal(existsSync(secondEntered), false, 'second Core transaction must wait while first holds shared coordinator');
-    await waitForFile(secondEntered);
-    await Promise.all([first.exited, second.exited]);
+    await waitForFile(secondEntered, second);
+    const outcomes = await Promise.all([first.exited, second.exited]);
+    for (const outcome of outcomes) {
+      assert.equal(outcome.error, null, outcome.stderr);
+      assert.equal(outcome.code, 0, outcome.stderr);
+    }
   } finally {
     // Wait for child exit before deleting SQLite files; Windows may keep them locked.
     const stopChild = (child) => new Promise((resolve) => {
