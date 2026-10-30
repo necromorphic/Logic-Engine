@@ -89,6 +89,7 @@ function request(store, overrides = {}) {
     world_id: 'world-a',
     conversation_id: 'conversation-a',
     adapter_id: 'adapter-st',
+    actor_id: 'npc-a',
     recipient: 'model',
     purpose: 'npc_turn_context',
     expected_revision: world.world_revision,
