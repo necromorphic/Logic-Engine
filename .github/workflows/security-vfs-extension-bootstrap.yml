@@ -55,6 +55,12 @@ jobs:
           $command = '"' + $vcvars + '" && cl /nologo /O2 /LD /I native\\secure-vfs-probe native\\secure-vfs-probe\\secure_vfs_probe.c /link /OUT:native\\secure-vfs-probe\\secure_vfs_probe.dll'
           cmd /c $command
           if ($LASTEXITCODE -ne 0) { throw 'VFS probe compilation failed' }
+          $relativeCommand = 'call "' + $vcvars + '" && cl /nologo /O2 /I native\\secure-vfs-probe native\\secure-vfs-probe\\windows_relative_open_test.c /link /OUT:native\\secure-vfs-probe\\windows_relative_open_test.exe'
+          cmd /c $relativeCommand
+          if ($LASTEXITCODE -ne 0) { throw 'Windows relative-open test compilation failed' }
+      - name: Verify Windows handle-relative directory anchoring
+        shell: pwsh
+        run: native/secure-vfs-probe/windows_relative_open_test.exe
       - name: Verify persistent VFS registration through node:sqlite
         shell: pwsh
         env:
