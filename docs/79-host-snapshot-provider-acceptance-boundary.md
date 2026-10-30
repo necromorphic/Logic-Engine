@@ -27,7 +27,7 @@ Do not:
 | Requirement | Executable evidence | Boundary |
 |---|---|---|
 | Preserve Provider architecture | `tests/memory-provider-source-separation.test.js`; Provider reconciliation tests | Host digest ledger remains separate; no Provider API/schema rewrite |
-| Exact-version deletion | `tests/host-version-digest-ledger.test.js`: “active selection preserves alternatives and exact tombstone does not delete another version”; Provider exact-version lifecycle tests | Tombstone is exact tuple; sibling versions remain |
+| Exact-version deletion | `tests/host-version-digest-ledger.test.js`: “active selection preserves alternatives and exact tombstone does not delete another version”; `tests/host-version-digest-ledger-replay.test.js`: complete-snapshot tombstone preserves the sibling and reselects it; Provider exact-version lifecycle tests | Tombstone is exact tuple; sibling versions remain |
 | Identical Provider record replay | `tests/memory-provider-host-snapshot-contract.test.js` | Provider record replay is idempotent |
 | Identical Host snapshot replay | `tests/host-version-digest-ledger-replay.test.js` | Same accepted snapshot returns READY without advancing the monotonic anchor |
 | Revocation during read | `tests/memory-provider-host-snapshot-contract.test.js`; `tests/memory-provider-cross-connection-revocation-race.test.js`; `tests/memory-provider-query-revocation-race.test.js` | Revocation/ABA during awaited validation fails closed; sibling versions remain independently addressable |
@@ -41,7 +41,7 @@ Do not:
 
 1. Same immutable Host tuple + same digest + same parent lineage is idempotent.
 2. Same tuple with a different digest or parent is a conflict; do not overwrite the immutable row.
-3. Tombstoning one `(world_id, conversation_id, message_id, version_id)` must not delete a sibling version.
+3. Tombstoning one `(world_id, conversation_id, message_id, version_id)` must not delete a sibling version; complete-snapshot reconciliation also preserves and can reselect that sibling.
 4. Replaying the same trusted complete snapshot must not advance the monotonic snapshot generation.
 5. A snapshot that omits a previously known version is not interpreted as deletion unless the trusted complete-inventory contract accepts it; otherwise reconciliation fails closed.
 6. A tombstoned version must not silently reappear.
