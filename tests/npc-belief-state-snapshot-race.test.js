@@ -25,7 +25,9 @@ const trustedSources = [{
 const readAuthorization = (scope) => ({
   status: 'authorized',
   world_id: scope.world_id,
+  adapter_id: scope.adapter_id,
   actor_id: scope.actor_id,
+  recipient: scope.recipient,
   purpose: scope.purpose,
   world_revision: scope.world_revision,
   commit_sequence: scope.commit_sequence,
@@ -34,7 +36,9 @@ const readAuthorization = (scope) => ({
 const visibilityAuthorization = (scope) => ({
   status: 'allowed',
   world_id: scope.world_id,
+  adapter_id: scope.adapter_id,
   actor_id: scope.actor_id,
+  recipient: scope.recipient,
   purpose: scope.purpose,
   world_revision: scope.world_revision,
   commit_sequence: scope.commit_sequence,
@@ -78,7 +82,9 @@ test('belief-state read fails closed if visibility authorization races a canonic
   const currentWorld = store.world('world-belief-race');
   const current = {
     world_id: 'world-belief-race',
+    adapter_id: 'adapter-st',
     actor_id: 'npc-race',
+    recipient: 'model',
     purpose: 'npc_turn_context',
     expected_revision: currentWorld.world_revision,
     expected_commit_sequence: store.currentCommitSequence('world-belief-race'),
@@ -164,7 +170,9 @@ test('belief-state read rejects rollback between visibility evaluation and final
 
   const read = engine.readNpcKnowledge({
     world_id: 'world-belief-rollback-race',
+    adapter_id: 'adapter-st',
     actor_id: 'npc-race',
+    recipient: 'model',
     purpose: 'npc_turn_context',
     expected_revision: store.world('world-belief-rollback-race').world_revision,
     expected_commit_sequence: store.currentCommitSequence('world-belief-rollback-race'),
@@ -173,7 +181,9 @@ test('belief-state read rejects rollback between visibility evaluation and final
   const propositionRef = 'proposition:fact/fact-race';
   engine.recordNpcBeliefTransition({
     world_id: 'world-belief-rollback-race',
+    adapter_id: 'adapter-st',
     actor_id: 'npc-race',
+    recipient: 'model',
     purpose: 'npc_turn_context',
     expected_revision: read.snapshot.world_revision,
     expected_commit_sequence: read.snapshot.commit_sequence,
@@ -199,7 +209,9 @@ test('belief-state read rejects rollback between visibility evaluation and final
   const requestSnapshot = engine.getSnapshot('world-belief-rollback-race');
   const request = {
     world_id: 'world-belief-rollback-race',
+    adapter_id: 'adapter-st',
     actor_id: 'npc-race',
+    recipient: 'model',
     purpose: 'npc_turn_context',
     expected_revision: requestSnapshot.world_revision,
     expected_commit_sequence: requestSnapshot.commit_sequence,
