@@ -275,11 +275,11 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
       sidecarOwner.exec("PRAGMA journal_mode=DELETE; CREATE TABLE probe(value TEXT); BEGIN IMMEDIATE; INSERT INTO probe VALUES('owner');");
       assert.equal(existsSync(`${sidecarOwnerPath}-journal`), true,
         'the owner rollback journal must remain live while the transaction is open');
+      sidecarVictim.exec('PRAGMA journal_mode=DELETE; CREATE TABLE probe(value TEXT);');
       const rejectedBefore = sidecarOwner.prepare(
         'SELECT logic_engine_vfs_probe_sidecar_identity_reject_count() AS count'
       ).get().count;
       linkSync(`${sidecarOwnerPath}-journal`, `${sidecarVictimPath}-journal`);
-      sidecarVictim.exec('PRAGMA journal_mode=DELETE; CREATE TABLE probe(value TEXT);');
       assert.throws(() => sidecarVictim.exec(
         "BEGIN IMMEDIATE; INSERT INTO probe VALUES('victim');"
       ), 'a sidecar hardlink alias owned by another role must fail closed');
