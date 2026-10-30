@@ -322,3 +322,49 @@ test('complete Host inventory reconciliation enforces request-byte and version-c
   assert.equal(byteResponse.status, 413);
   assert.equal((await byteResponse.json()).error.code, 'BODY_TOO_LARGE');
 });
+
+
+test('incomplete Host snapshots are rejected before the trusted verifier and cannot mutate an existing READY ledger', async (t) => {
+  let verifierCalls = 0;
+  const { base, ledger } = await setup(t, {
+    verifyInventorySnapshot: async () => {
+      verifierCalls += 1;
+      return true;
+    },
+  });
+  assert.equal((await bind(base)).status, 201);
+  const adapterHeaders = { ...headers, 'x-adapter-id': 'adapter-a', 'x-adapter-token': ADAPTER };
+  const complete = await fetch(base + '/v1/host-version-ledger/reconcile', {
+    method: 'POST',
+    headers: adapterHeaders,
+    body: json({
+      conversation_id: 'stable-host-chat',
+      complete: true,
+      versions: [{
+        message_id: 'message-1', version_id: 'version-1', parent_version_id: null,
+        content_sha256: 'a'.repeat(64), active: true, deleted: false,
+      }],
+    }),
+  });
+  assert.equal(complete.status, 200);
+  assert.equal(verifierCalls, 1);
+  const readyBefore = ledger.getInventoryState('host-ledger-api-world', 'stable-host-chat');
+  assert.equal(readyBefore.status, 'READY');
+
+  const incomplete = await fetch(base + '/v1/host-version-ledger/reconcile', {
+    method: 'POST',
+    headers: adapterHeaders,
+    body: json({ conversation_id: 'stable-host-chat', complete: false, versions: [] }),
+  });
+  assert.equal(incomplete.status, 409);
+  assert.deepEqual((await incomplete.json()).reconciliation, {
+    status: 'non_ready',
+    code: 'HOST_INVENTORY_INCOMPLETE',
+  });
+  assert.equal(verifierCalls, 1, 'incomplete input must be rejected before invoking the trusted verifier');
+  assert.deepEqual(
+    ledger.getInventoryState('host-ledger-api-world', 'stable-host-chat'),
+    readyBefore,
+    'untrusted incomplete input must not mutate a previously accepted ledger state',
+  );
+});
