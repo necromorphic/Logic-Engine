@@ -224,6 +224,8 @@ test('application executor pins one enabled instance and exact template to a con
   assert.equal(result.dependency_manifest.mechanic_dependencies_complete, true);
   assert.equal(result.dependency_manifest.active_mechanic_set_pinned, true);
   assert.equal(result.dependency_manifest.active_mechanic_set_scope, 'enabled_and_needs_review_instances');
+  assert.equal(result.dependency_manifest.supported_active_mechanic_set, 'single_enabled_instance_only');
+  assert.ok(result.dependency_manifest.unsupported_sources.includes('multiple_active_mechanics_and_cross_mechanic_conflicts'));
   assert.equal(result.dependency_manifest.supported_instance_data, 'empty_parameters_and_state_only');
   assert.equal(result.dependency_manifest.supported_action_input, 'empty_object_only');
   assert.equal(result.dependency_manifest.supported_unknown_policy, 'mark_unknown');
