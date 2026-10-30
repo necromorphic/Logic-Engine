@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, linkSync, mkdtempSync, rmSync, unlinkSync } from 'node:fs';
+import { existsSync, linkSync, mkdtempSync, renameSync, rmSync, unlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -217,19 +217,25 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
       const rejectsBeforeAliases = second.prepare(
         'SELECT logic_engine_vfs_probe_identity_reject_count() AS count'
       ).get().count;
-      unlinkSync(roleHostLedgerPath);
-      linkSync(roleCorePath, roleHostLedgerPath);
-      assert.throws(() => new DatabaseSync(roleHostLedgerPath),
-        'Host ledger must not open a hardlink alias of Core');
-      unlinkSync(roleHostLedgerPath);
-      linkSync(roleCoordinatorPath, roleHostLedgerPath);
-      assert.throws(() => new DatabaseSync(roleHostLedgerPath),
-        'Host ledger must not open a hardlink alias of Coordinator');
-      assert.ok(
-        second.prepare('SELECT logic_engine_vfs_probe_identity_reject_count() AS count').get().count
-          >= rejectsBeforeAliases + 2,
-        'the opened OS identities must reject aliases to both other database roles'
-      );
+      const roleHostBackupPath = `${roleHostLedgerPath}.original`;
+      renameSync(roleHostLedgerPath, roleHostBackupPath);
+      try {
+        linkSync(roleCorePath, roleHostLedgerPath);
+        assert.throws(() => new DatabaseSync(roleHostLedgerPath),
+          'Host ledger must not open a hardlink alias of Core');
+        unlinkSync(roleHostLedgerPath);
+        linkSync(roleCoordinatorPath, roleHostLedgerPath);
+        assert.throws(() => new DatabaseSync(roleHostLedgerPath),
+          'Host ledger must not open a hardlink alias of Coordinator');
+        assert.ok(
+          second.prepare('SELECT logic_engine_vfs_probe_identity_reject_count() AS count').get().count
+            >= rejectsBeforeAliases + 2,
+          'the opened OS identities must reject aliases to both other database roles'
+        );
+      } finally {
+        unlinkSync(roleHostLedgerPath);
+        renameSync(roleHostBackupPath, roleHostLedgerPath);
+      }
 
       if (process.platform !== 'win32') {
         const reusePath = join(directory, 'reuse.sqlite');
