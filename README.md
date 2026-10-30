@@ -148,6 +148,7 @@ PR #670 и #681 закрыты без merge; не считать их код и�
 - `docs/11-operations-and-recovery.md` — локальный runtime, безопасность, резервное копирование и восстановление.
 - `docs/12-stage-roadmap.md` — этапы реализации и критерии перехода между ними.
 - `docs/13-sillytavern-adapter-contract.md` — контракт адаптера SillyTavern и граница векторизации.
+- `docs/94-host-core-contract-and-pc-acceptance.md` — фактические digest-only Host/Core routes, граница между capture и полным inventory, ограничения и безопасная последовательность PC acceptance.
 - `docs/17-world-agnostic-design-stage1.3.md` — критерий универсальности и граница World Pack.
 - `docs/18-rollback-and-causality.md` — требуемая семантика причинного отката.
 - `docs/19-reuse-audit-existing-projects.md` — анализ готовых проектов и карта адаптации.
@@ -169,6 +170,7 @@ PR #670 и #681 закрыты без merge; не считать их код и�
 - `src/api/server.js` — независимый от интерфейса HTTP API.
 - `tests/` — контрактные тесты.
 - `docs/20-minimal-runtime.md` — запуск, endpoints и ограничения текущей реализации.
+- `docs/92-trusted-initial-knowledge-importer-operations.md` — настройка deployment-owned trusted importer для initial knowledge.
 
 Запуск требует Node.js 22.13+, `ENGINE_API_TOKEN` (не менее 16 символов) и явный абсолютный `LOGIC_ENGINE_COORDINATOR_DB_PATH`, указывающий на отдельный SQLite-файл общего координатора; он должен быть одинаковым у Core и всех подключённых участников и не должен совпадать с `ENGINE_DB_PATH`. `ENGINE_HOST_VERSION_LEDGER_DB_PATH` задаёт отдельный digest-only журнал Host-версий (по умолчанию `./data/logic-engine-host-versions.sqlite`). Его API принимает только идентификаторы версий и SHA-256 digest, не текст сообщений. Пока trusted Host inventory verifier не подключён, reconciliation остаётся fail-closed и Memory→NPC не включается. Координатор сериализует только участвующие в нём записи; он не блокирует сторонний процесс, который напрямую открывает Core DB, поэтому OS-level single-writer isolation остаётся обязательным для production. Для создания proposals настрой `ENGINE_ADAPTER_TOKENS` как JSON-объект идентификаторов адаптеров и отдельных секретов; для регистрации механик/модулей задай отдельный `ENGINE_ADMIN_TOKEN`. `ENGINE_APPROVAL_TOKEN` включает отдельный gate подтверждения. Пример переменных находится в `.env.example`. `npm test` запускает текущие тесты. Встроенный `node:sqlite` в используемых версиях Node может помечаться как experimental.
 
