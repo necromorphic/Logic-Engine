@@ -13,6 +13,7 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
   skip: !extensionPath,
 }, (t) => {
   assert.equal(typeof extensionPath, 'string', 'workflow must build the platform VFS probe first');
+  assert.equal(process.versions.node, '22.13.0', 'the private SQLite VFS ABI probe is pinned to Node 22.13.0');
 
   const directory = mkdtempSync(join(tmpdir(), 'logic-engine-vfs-probe-'));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
