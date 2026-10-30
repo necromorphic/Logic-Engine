@@ -6,14 +6,6 @@ import path from 'node:path';
 import { HostIdentityStore } from '../st-host-identity-store.mjs';
 import { createHostIdentityHandler } from '../st-host-inventory-handler.mjs';
 
-const ids = [
-  '00000000-0000-4000-8000-000000000001',
-  '00000000-0000-4000-8000-000000000002',
-  '00000000-0000-4000-8000-000000000003',
-  '00000000-0000-4000-8000-000000000004',
-];
-function idGenerator() { return ids.shift(); }
-
 async function temp(t) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'logic-host-identity-'));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -22,7 +14,7 @@ async function temp(t) {
 
 test('installation and account identities persist across store instances without persisting account handles', async (t) => {
   const root = await temp(t);
-  const first = await new HostIdentityStore({ directory: path.join(root, 'identity'), createId: idGenerator })
+  const first = await new HostIdentityStore({ directory: path.join(root, 'identity') })
     .resolveAuthenticatedAccount('alice');
   const second = await new HostIdentityStore({ directory: path.join(root, 'identity') })
     .resolveAuthenticatedAccount('alice');
@@ -35,7 +27,7 @@ test('installation and account identities persist across store instances without
 
 test('accounts are isolated and account rename rotates the opaque account identity', async (t) => {
   const root = await temp(t);
-  const store = new HostIdentityStore({ directory: path.join(root, 'identity'), createId: idGenerator });
+  const store = new HostIdentityStore({ directory: path.join(root, 'identity') });
   const alice = await store.resolveAuthenticatedAccount('alice');
   const bob = await store.resolveAuthenticatedAccount('bob');
   const renamed = await store.resolveAuthenticatedAccount('alice-renamed');
@@ -71,7 +63,7 @@ test('identity route rejects requests outside the authenticated signed session',
 
 test('identity route returns opaque persistent IDs only after session/account binding matches', async (t) => {
   const root = await temp(t);
-  const store = new HostIdentityStore({ directory: path.join(root, 'identity'), createId: idGenerator });
+  const store = new HostIdentityStore({ directory: path.join(root, 'identity') });
   const handler = createHostIdentityHandler({ identityStore: store });
   const response = { statusCode: null, body: null, headers: {},
     set(name, value) { this.headers[name] = value; return this; },
