@@ -38,6 +38,10 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
       1,
       `the pinned ${process.platform} SQLite VFS must expose its native file-open syscall hook for feasibility review`
     );
+    assert.ok(
+      first.prepare('SELECT logic_engine_vfs_probe_native_open_count() AS count').get().count > 0,
+      'the native syscall wrapper must observe the actual OS file-open calls made by node:sqlite'
+    );
     first.exec("PRAGMA journal_mode=WAL; CREATE TABLE probe(value TEXT); INSERT INTO probe VALUES('ok');");
     assert.equal(first.prepare('SELECT value FROM probe').get().value, 'ok');
     const opened = first.prepare('SELECT logic_engine_vfs_probe_open_count() AS count').get().count;
