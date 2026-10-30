@@ -306,14 +306,15 @@ test('Core rejects restoration of an older enrolled database snapshot while auth
 
     // Restore only Core. The authority database remains outside this backup image.
     copyFileSync(baselinePath, corePath);
-    store = new SQLiteStore(corePath);
-    assert.throws(() => store.createWorld({
-      world_id: 'accepted-head-restore-world-three',
-      world_pack_id: 'test-pack',
-      world_pack_version: '1',
-      game_time: '2026-01-01T00:01:00Z',
-    }), /CORE_ACCEPTED_HEAD_MISMATCH/);
-    assert.equal(store.world('accepted-head-restore-world-three') ?? null, null);
+    assert.throws(() => new SQLiteStore(corePath), /CORE_ACCEPTED_HEAD_MISMATCH/);
+    const restored = new DatabaseSync(corePath);
+    try {
+      assert.equal(restored.prepare('SELECT head FROM accepted_head_state WHERE singleton=1').get().head, 1);
+      assert.equal(restored.prepare('SELECT world_id FROM worlds WHERE world_id=?')
+        .get('accepted-head-restore-world-one'), undefined);
+    } finally {
+      restored.close();
+    }
     assert.deepEqual(getAcceptedHeadsSync({ port, token: coreToken }), { core: 3, provider: 1 });
   } finally {
     try { store?.close(); } catch {}
