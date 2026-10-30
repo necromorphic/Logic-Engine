@@ -6,6 +6,7 @@ import { LogicEngine } from '../src/application/engine.js';
 import { ProposalService } from '../src/application/proposals.js';
 import { createApiServer, createActiveMechanicPolicyValidator } from '../src/api/server.js';
 import { MechanicPolicyAuthority } from '../src/application/mechanic-policy-authority.js';
+import { createHostBoundNpcKnowledgeAuthorizers } from '../src/application/npc-knowledge-authorization.js';
 
 const TOKEN = 'test-token-long-enough-123456';
 const INTERNAL = 'internal-token-long-enough-123456';
@@ -18,7 +19,20 @@ const json = (body) => JSON.stringify(body);
 
 async function setup(t, options = {}) {
   const store = new SQLiteStore(':memory:');
-  const server = createApiServer({ engine: new LogicEngine(store), token: TOKEN, adminToken: ADMIN, adapterTokens: { 'adapter-a': ADAPTER_A, 'adapter-b': ADAPTER_B }, ...options });
+  const adapterTokens = { 'adapter-a': ADAPTER_A, 'adapter-b': ADAPTER_B };
+  const npcKnowledgeAuthorizers = createHostBoundNpcKnowledgeAuthorizers({
+    store,
+    adapterIds: Object.keys(adapterTokens),
+    trustedInitialKnowledgeSources: [],
+  });
+  const server = createApiServer({
+    engine: new LogicEngine(store),
+    token: TOKEN,
+    adminToken: ADMIN,
+    adapterTokens,
+    npcKnowledgeAuthorizers,
+    ...options,
+  });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   t.after(() => { server.close(); store.close(); });
