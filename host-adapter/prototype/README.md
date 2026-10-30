@@ -124,7 +124,7 @@ Exact-head CI for this commit:
 - [Runtime tests #40275379287](https://github.com/necromorphic/Logic-Engine/actions/runs/40275379287) — SUCCESS.
 - [Host lifecycle patch validation #40275379405](https://github.com/necromorphic/Logic-Engine/actions/runs/40275379405) — SUCCESS.
 
-These results prove repository CI only. The storage assertions use a fake IndexedDB implementation and do not prove browser persistence, Android/Termux durability, full lifecycle coverage, or production readiness. PR #323 remains Draft/review-only; unsupported import/restore/branch/group deletion/migration paths and the absent approved Host↔Core pre-release contract keep readiness `NON_READY` and Memory→NPC `DISABLED / FAIL-CLOSED`.
+These results prove repository CI only. The storage assertions use a fake IndexedDB implementation and do not prove browser persistence, Android/Termux durability, full lifecycle coverage, or production readiness. PR #323 was merged into `main` on 26 Oct 2026, but the merged code remains a review-only prototype, not production approval. Unsupported import/restore/branch/group deletion/migration paths and the absent approved Host↔Core pre-release contract keep readiness `NON_READY` and Memory→NPC `DISABLED / FAIL-CLOSED`.
 
 
 ## Exact-head follow-up — unsupported-operation fail-closed checks (26 Oct 2026)
@@ -136,4 +136,4 @@ Exact-head CI for this code HEAD:
 - [Runtime tests #40276125997](https://github.com/necromorphic/Logic-Engine/actions/runs/40276125997) — SUCCESS.
 - [Host lifecycle patch validation #40276125986](https://github.com/necromorphic/Logic-Engine/actions/runs/40276125986) — SUCCESS.
 
-This refresh records repository CI only. It does not establish live browser/Android/Termux behavior, real IndexedDB durability, persisted chat-file before/after evidence, or full lifecycle coverage. PR #323 remains Draft/review-only. Core approval of the Host↔Core/Provider handoff and real persisted-state acceptance evidence are still required; production Memory→NPC remains DISABLED / FAIL-CLOSED.
+This refresh records repository CI only. It does not establish live browser/Android/Termux behavior, real IndexedDB durability, persisted chat-file before/after evidence, or full lifecycle coverage. PR #323 was merged into `main` on 26 Oct 2026; its code remains review-only. Core approval of the Host↔Core/Provider handoff and real persisted-state acceptance evidence are still required; production Memory→NPC remains DISABLED / FAIL-CLOSED.

@@ -73,7 +73,7 @@ The three successful workflows below ran on code/documentation HEAD `e7a33a17874
 - [Runtime tests #40222869212](https://github.com/necromorphic/Logic-Engine/actions/runs/40222869212) — SUCCESS.
 - [Host lifecycle patch validation #40222869210](https://github.com/necromorphic/Logic-Engine/actions/runs/40222869210) — SUCCESS.
 
-These results establish repository CI only. They do not establish native-browser IndexedDB crash durability, real SillyTavern persistence/restart/replay, Android/Termux behavior, complete source inventory, trusted world/session binding, or a production Host→Provider release boundary. PR #323 remains Draft/unmerged and is not approved for installation or production handoff. Required Host inventory answer remains `NO SUCH MECHANISM FOUND / NON_READY`; Memory→NPC remains `DISABLED / FAIL-CLOSED`.
+These results establish repository CI only. They do not establish native-browser IndexedDB crash durability, real SillyTavern persistence/restart/replay, Android/Termux behavior, complete source inventory, trusted world/session binding, or a production Host→Provider release boundary. PR #323 was merged into `main` on 26 Oct 2026; merge status is not approval for installation or production handoff. The prototype remains NON_READY. Required Host inventory answer remains `NO SUCH MECHANISM FOUND / NON_READY`; Memory→NPC remains `DISABLED / FAIL-CLOSED`.
 
 
 ## Final provider-send boundary audit — 26 Oct 2026
