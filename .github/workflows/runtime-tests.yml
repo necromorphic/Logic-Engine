@@ -1,7 +1,7 @@
 name: Runtime tests
 on:
   push:
-    branches: [main, 'work/**']
+    branches: [main, 'work/**', 'host/**']
   pull_request:
   workflow_dispatch:
 
@@ -11,7 +11,7 @@ permissions:
 
 concurrency:
   group: runtime-tests-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   npc-boundary:
@@ -31,16 +31,21 @@ jobs:
         run: node --import ./tests/configure-test-env.js --test tests/npc-memory-candidate-eligibility.test.js tests/memory-npc-consumer.test.js tests/trusted-initial-knowledge-source.test.js tests/npc-epistemic-state.test.js
 
   test:
-    runs-on: [self-hosted, Windows, X64]
-    timeout-minutes: 10
+    # Hosted Windows avoids silently cancelling exact-head validation when the
+    # developer's self-hosted runner is offline. This still verifies the
+    # Windows fail-closed contract; it does not claim reparse-point support.
+    runs-on: windows-latest
+    timeout-minutes: 20
     permissions:
       contents: read
     defaults:
       run:
         shell: cmd
     steps:
-      # Pin actions to reviewed immutable commit SHAs; comments retain release context.
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22.13.0'
       - name: Install test dependencies
         run: npm install --no-package-lock --no-audit --no-fund
       - name: Verify installed Node.js
@@ -53,7 +58,7 @@ jobs:
       - run: node --test experiments/recalculation-oracle/harness.test.mjs
 
   core-trusted-acquisition:
-    # Keep Core-owned acquisition lifecycle tests runnable even when the local Windows runner is offline.
+    # Keep Core-owned acquisition lifecycle tests runnable independently.
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
