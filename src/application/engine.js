@@ -84,6 +84,60 @@ function withNpcAuthorizationLease(store, callback) {
   }
 }
 
+function revalidateNpcKnowledgeReadAuthorization(engine, request, snapshot, expectedAuthorizationRef) {
+  if (!snapshot || snapshot.status !== 'active'
+    || snapshot.world_id !== request.world_id
+    || snapshot.world_revision !== request.expected_revision
+    || snapshot.commit_sequence !== request.expected_commit_sequence) {
+    throw new EngineError('NPC_KNOWLEDGE_READ_NOT_READY',
+      'NPC knowledge snapshot changed during authorization; retry from a fresh snapshot.', 409);
+  }
+
+  if (typeof engine.npcKnowledgeContextResolver === 'function') {
+    let binding = null;
+    try {
+      binding = engine.npcKnowledgeContextResolver(Object.freeze({
+        adapter_id: request.adapter_id,
+        conversation_id: request.conversation_id,
+      }));
+    } catch {
+      binding = null;
+    }
+    if (!exactDataRecord(binding, ['world_id', 'conversation_id', 'adapter_id', 'actor_id'])
+      || binding.world_id !== request.world_id
+      || binding.conversation_id !== request.conversation_id
+      || binding.adapter_id !== request.adapter_id
+      || binding.actor_id !== request.actor_id) {
+      throw new EngineError('NPC_KNOWLEDGE_READ_NOT_AUTHORIZED',
+        'Host conversation or canonical actor binding changed during the read.', 403);
+    }
+  }
+
+  let authorization = null;
+  try {
+    authorization = engine.npcKnowledgeReadAuthorizer(Object.freeze({
+      world_id: request.world_id,
+      conversation_id: request.conversation_id,
+      adapter_id: request.adapter_id,
+      actor_id: request.actor_id,
+      recipient: request.recipient,
+      purpose: request.purpose,
+      world_revision: snapshot.world_revision,
+      commit_sequence: snapshot.commit_sequence,
+    }));
+  } catch {
+    authorization = null;
+  }
+  const checked = validateNpcKnowledgeRead(request, snapshot, snapshot.commit_sequence, authorization);
+  if (checked.status !== 'ready'
+    || (expectedAuthorizationRef !== undefined
+      && checked.request.authorization_ref !== expectedAuthorizationRef)) {
+    throw new EngineError('NPC_KNOWLEDGE_READ_NOT_AUTHORIZED',
+      'NPC knowledge authorization changed during the read.', 403);
+  }
+  return checked.request.authorization_ref;
+}
+
 const strings = (x, name) => {
   x = x ?? [];
   assert(Array.isArray(x) && x.length <= 500 && x.every((v) => typeof v === 'string' && v.trim()), 'INVALID_FIELD', name + ' must be an array of non-empty strings.');
@@ -842,6 +896,13 @@ export class LogicEngine {
         && snapshotNow.commit_sequence === checked.request.commit_sequence,
       'NPC_KNOWLEDGE_READ_NOT_READY',
       'World snapshot changed while reading NPC knowledge; retry from a fresh snapshot.', 409);
+
+      // The final authorization check is deliberately after the acquisition query.
+      // Binding revocation does not necessarily advance the world revision, so a
+      // snapshot-only check cannot establish that the reader is still authorized.
+      revalidateNpcKnowledgeReadAuthorization(
+        this, request, snapshotNow, checked.request.authorization_ref,
+      );
   
       return Object.freeze({
         status: 'ready',
@@ -963,6 +1024,7 @@ export class LogicEngine {
         && snapshotNow.commit_sequence === read.snapshot.commit_sequence,
       'NPC_BELIEF_CONTEXT_STALE',
       'World snapshot changed while preparing the NPC belief context; retry from a fresh snapshot.', 409);
+      revalidateNpcKnowledgeReadAuthorization(this, input, snapshotNow, read.authorization_ref);
   
       const built = buildNpcBeliefContext(visibleRead, reduced.transition);
       assert(built.status === 'ready', 'NPC_BELIEF_CONTEXT_NOT_READY',
@@ -1128,20 +1190,16 @@ export class LogicEngine {
         idempotency_key: input.idempotency_key,
       }).slice(0, 40);
   
-      // Revalidate every acquisition's visibility at the Core commit boundary.
-      // The first preparation builds the proposal; this second pass is the final
-      // fail-closed authorization check immediately before the canonical write.
-      // Snapshot CAS below still rejects any Core mutation racing this check.
-      const commitPrepared = this.prepareNpcBeliefContext(readRequest, proposal, currentBelief);
-      assert(hashRequest(commitPrepared.transition) === hashRequest(prepared.transition),
-        'NPC_BELIEF_CONTEXT_STALE',
-        'NPC belief evidence or stance changed during final commit authorization; retry from a fresh snapshot.', 409);
-      const transition = commitPrepared.transition;
-  
       return this.store.tx(() => {
-        // A concurrent write between the authorized read and this transaction
-        // must not let a stale proposal be committed. commitEvent performs the
-        // canonical revision/sequence compare-and-swap.
+        // Final authorization is performed after BEGIN IMMEDIATE and inside the
+        // same Core transaction as the canonical event. Binding revocation and
+        // canonical writes on this database cannot interleave between this check
+        // and commitEvent's revision/sequence compare-and-swap.
+        const commitPrepared = this.prepareNpcBeliefContext(readRequest, proposal, currentBelief);
+        assert(hashRequest(commitPrepared.transition) === hashRequest(prepared.transition),
+          'NPC_BELIEF_CONTEXT_STALE',
+          'NPC belief evidence or stance changed during final commit authorization; retry from a fresh snapshot.', 409);
+        const transition = commitPrepared.transition;
         const replay = this.store.db.prepare(`
           SELECT transition_id, request_hash, event_id, committed_revision
           FROM npc_belief_transitions
