@@ -1674,3 +1674,41 @@ test('executor rejects automatic conflict resolution without invoking a resolver
   assert.equal(providerCalls, 0);
   assert.deepEqual(result.effects, []);
 });
+
+
+test('executor evaluates fact subjects against entity status at the effect position', (t) => {
+  const cases = [
+    {
+      name: 'destroyed-existing-subject',
+      effects: [
+        { effect_id: 'destroy-actor', kind: 'update_attribute', target_ref: 'entity.actor-context', payload: { status: 'destroyed' } },
+        { effect_id: 'assert-after-destroy', kind: 'assert_fact', target_ref: 'fact.after-destroy', payload: { predicate: 'active', value: true, subject_ref: 'entity.actor-context' } },
+      ],
+    },
+    {
+      name: 'created-destroyed-subject',
+      effects: [
+        { effect_id: 'create-destroyed-subject', kind: 'create_entity', target_ref: 'entity.destroyed-subject', payload: { entity_type: 'character', status: 'destroyed' } },
+        { effect_id: 'assert-destroyed-subject', kind: 'assert_fact', target_ref: 'fact.destroyed-subject', payload: { predicate: 'active', value: true, subject_ref: 'entity.destroyed-subject' } },
+      ],
+    },
+  ];
+  for (const item of cases) {
+    const { engine, worldId } = setup(t, 'executor-fact-subject-order-' + item.name);
+    enableFixture(engine, worldId, template({
+      actions: [{
+        action_id: 'ordered',
+        input_schema: { type: 'object' },
+        preconditions: [],
+        effects: item.effects,
+        ambiguity_policy: 'deterministic_only',
+      }],
+    }));
+    const result = new MechanicExecutor(engine, { resolveAuthorizedContext: contextProvider() })
+      .evaluate({ worldId, instanceId: 'instance.executor', actionId: 'ordered' });
+    assert.equal(result.status, 'unknown');
+    assert.equal(result.reason_code, 'MECHANIC_EFFECT_SUBJECT_NOT_FOUND');
+    assert.deepEqual(result.effects, []);
+    assert.equal(engine.getState(worldId).world_revision, 2);
+  }
+});
