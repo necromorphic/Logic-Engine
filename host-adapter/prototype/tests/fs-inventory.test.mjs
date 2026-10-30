@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { link, mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { link, mkdtemp, mkdir, readFile, rm, symlink, truncate, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { enumerateStableFileInventory } from '../fs-inventory.js';
@@ -117,6 +117,19 @@ test('Windows inventory remains fail-closed until reparse-point verification exi
   await withTempRoot(async ({ root }) => {
     assert.deepEqual(await enumerateStableFileInventory(resolve(root)), {
       status: 'non_ready', code: 'HOST_INVENTORY_PLATFORM_REPARSE_UNVERIFIED'
+    });
+  });
+});
+
+
+test('rejects oversized files before unbounded reads', { skip: process.platform === 'win32' }, async () => {
+  await withTempRoot(async ({ root }) => {
+    const file = join(root, 'oversized.jsonl');
+    await writeFile(file, '');
+    await truncate(file, 256 * 1024 * 1024 + 1);
+    assert.deepEqual(await enumerateStableFileInventory(resolve(root)), {
+      status: 'non_ready',
+      code: 'HOST_INVENTORY_FILE_SIZE_LIMIT',
     });
   });
 });
