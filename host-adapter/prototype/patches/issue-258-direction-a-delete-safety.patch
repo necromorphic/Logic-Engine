@@ -126,8 +126,8 @@ index 88d815b..f237371 100644
 +    if (chat !== targetChat || getCurrentChatId() !== targetLocator || chat[messageId] !== targetMessage
 +        || message.swipes !== targetSwipes || targetSwipes.length !== swipeSnapshot.length
 +        || targetSwipes.some((value, index) => value !== swipeSnapshot[index])
-+        || (swipeInfoSnapshot && (message.swipe_info !== targetSwipeInfo
-+            || targetSwipeInfo.length !== swipeInfoSnapshot.length
++        || message.swipe_info !== targetSwipeInfo
++        || (swipeInfoSnapshot && (targetSwipeInfo.length !== swipeInfoSnapshot.length
 +            || targetSwipeInfo.some((value, index) => value !== swipeInfoSnapshot[index])))) {
 +        throw Error('Swipe target changed before deletion; operation aborted');
 +    }
