@@ -373,10 +373,17 @@ export class MechanicExecutor {
       if (effect.kind === 'entity.create') return [{ kind: 'entity_absence', target_id: effect.entity_id }];
       if (effect.kind === 'entity.update') return [{ kind: 'entity_exists', target_id: effect.entity_id }];
       if (effect.kind === 'fact.set') {
+        const existingFact = existingFacts.get(effect.fact_id);
         const dependencies = [{
-          kind: existingFacts.has(effect.fact_id) ? 'fact_exists' : 'fact_absence',
+          kind: existingFact ? 'fact_exists' : 'fact_absence',
           target_id: effect.fact_id,
         }];
+        if (existingFact) dependencies.push({
+          kind: 'fact_identity',
+          target_id: effect.fact_id,
+          subject_ref: existingFact.subject_ref ?? null,
+          predicate: existingFact.predicate,
+        });
         if (effect.subject_ref) dependencies.push({
           kind: createdEntities.has(effect.subject_ref) ? 'entity_created_in_action' : 'entity_exists',
           target_id: effect.subject_ref,
