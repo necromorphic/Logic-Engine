@@ -135,6 +135,53 @@ test('Core resolves world and actor only from active bindings and denies ambiguo
   assert.equal(authorizers.readAuthorizer(scope).status, 'authorized');
 });
 
+test('Core reader, belief writer, and belief-state reader reject caller-selected world or actor scope', (t) => {
+  const { store, authorizers, scope } = setup(t);
+  const guardedEngine = new LogicEngine(store, {
+    npcKnowledgeContextResolver: authorizers.resolveContext,
+    npcKnowledgeReadAuthorizer: authorizers.readAuthorizer,
+    npcKnowledgeVisibilityAuthorizer: authorizers.visibilityAuthorizer,
+  });
+  const snapshot = guardedEngine.getSnapshot(scope.world_id);
+  const request = {
+    ...scope,
+    world_revision: snapshot.world_revision,
+    commit_sequence: snapshot.commit_sequence,
+    expected_revision: snapshot.world_revision,
+    expected_commit_sequence: snapshot.commit_sequence,
+    limit: 20,
+  };
+  assert.equal(guardedEngine.readNpcKnowledge(request).status, 'ready');
+  assert.throws(() => guardedEngine.readNpcKnowledge({
+    ...request,
+    world_id: 'attacker-world',
+  }), { code: 'NPC_KNOWLEDGE_READ_NOT_AUTHORIZED' });
+  assert.throws(() => guardedEngine.readNpcKnowledge({
+    ...request,
+    actor_id: 'attacker-actor',
+  }), { code: 'NPC_KNOWLEDGE_READ_NOT_AUTHORIZED' });
+
+  const forgedWrite = {
+    ...request,
+    actor_id: 'attacker-actor',
+    proposition_ref: 'proposition:fact/fact-a',
+    proposition_value: 'forged',
+    stance: 'believes_true',
+    supporting_acquisition_ids: [],
+    contradicting_acquisition_ids: [],
+    reason_rule_ref: 'rule:test',
+    idempotency_key: 'forged-actor-transition',
+  };
+  assert.throws(() => guardedEngine.recordNpcBeliefTransition(forgedWrite), {
+    code: 'NPC_KNOWLEDGE_READ_NOT_AUTHORIZED',
+  });
+  assert.throws(() => guardedEngine.getNpcBeliefState({
+    ...request,
+    actor_id: 'attacker-actor',
+    proposition_ref: 'proposition:fact/fact-a',
+  }), { code: 'NPC_KNOWLEDGE_READ_NOT_AUTHORIZED' });
+});
+
 test('per-acquisition visibility requires exact trusted source provenance and the same live Host/actor bindings', (t) => {
   const { authorizers, scope, conversations } = setup(t);
   const acquisition = {
