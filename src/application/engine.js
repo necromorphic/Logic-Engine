@@ -556,6 +556,9 @@ export class LogicEngine {
   /** @internal Provider reconciliation only; not an HTTP/client authorization API. */
   getCanonicalEntityInventory(id, request = {}) { return this.store.readCanonicalEntityInventory(id, request); }
   getEvents(id, includeInvalid = false) { return this.store.events(id, includeInvalid); }
+  reevaluateRelationshipEvent(id, eventId, effectIndex = null) {
+    return this.store.reevaluateRelationshipEvent(id, eventId, effectIndex);
+  }
   getAudit(id) { return this.store.audit(id); }
 
   registerMechanicTemplate(value) {
