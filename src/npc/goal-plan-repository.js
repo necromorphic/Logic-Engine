@@ -690,13 +690,26 @@ export function createNpcGoalPlanRepository({
       if (attempt.proposal_request.action_id !== attempt.action_id) {
         return outcome("conflict", { reason: "proposal_request_action_mismatch" });
       }
-      const requestHash = hash(attempt.proposal_request);
-      if (attempt.request_hash !== undefined && attempt.request_hash !== requestHash) {
+      const proposalRequestHash = hash(attempt.proposal_request);
+      if (attempt.request_hash !== undefined && attempt.request_hash !== proposalRequestHash) {
         return outcome("conflict", { reason: "proposal_request_hash_mismatch" });
       }
+      const attemptRequestHash = hash({
+        scope,
+        goal_id: attempt.goal_id,
+        plan_id: attempt.plan_id,
+        plan_revision: planRevision,
+        step_id: attempt.step_id,
+        action_id: attempt.action_id,
+        goal_revision: goalRevision,
+        plan_selection_revision: selectionRevision,
+        world_revision: worldRevision,
+        commit_sequence: commitSequence,
+        proposal_request_hash: proposalRequestHash,
+      });
       return tx(database, () => {
         const prior = lookupIdempotency(
-          database, scope, "recordActionAttempt", attempt.proposal_idempotency_key, requestHash,
+          database, scope, "recordActionAttempt", attempt.proposal_idempotency_key, attemptRequestHash,
         );
         if (prior) return prior;
         const goal = getGoal(database, scope, attempt.goal_id);
@@ -720,7 +733,8 @@ export function createNpcGoalPlanRepository({
         const at = timestamp(now);
         const attemptId = idFrom(idFactory);
         const stored = {
-          ...attempt, plan_revision: planRevision, attempt_id: attemptId, request_hash: requestHash,
+          ...attempt, plan_revision: planRevision, attempt_id: attemptId,
+          request_hash: proposalRequestHash, attempt_request_hash: attemptRequestHash,
           local_state: "awaiting_core_result",
         };
         database.prepare(
