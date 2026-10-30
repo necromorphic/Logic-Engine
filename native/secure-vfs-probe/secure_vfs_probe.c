@@ -822,6 +822,9 @@ static int probe_xOpen(sqlite3_vfs *vfs, const char *name, sqlite3_file *file,
   char *canonical_name = NULL;
   const char *open_name = name;
 
+  fprintf(stderr, "VFS xOpen entry: flags=0x%x name=%s\\n",
+    flags, name ? name : "<null>");
+
   /*
    * Resolve every file-backed main DB through the parent VFS full-path
    * callback and pass that exact name to the parent VFS. WAL/journal xOpen
