@@ -476,7 +476,7 @@ This is the current NPC execution record. Earlier dated sections above are histo
 
 The old PRs are closed. The comparison shows no Personality/Core/Memory/Host/Relationships/vectorization path to port from those historical heads. Their ancestry is not part of the new implementation diff.
 
-The clean replacement is [PR #769](https://github.com/necromorphic/Logic-Engine/pull/769), Draft, based exactly on `8c8b9059ae12af3a63e96eb7cb86851e12a6d925`. The implementation commit `527554733b2cf54847e5723af366d10f61afee25` contains the current reducer/mapping hardening; its exact-head Runtime workflow is pending at the time of this matrix update. Earlier code heads passed, but do not substitute those runs for this exact head. Its four changed paths are:
+The clean replacement is [PR #769](https://github.com/necromorphic/Logic-Engine/pull/769), Draft, based exactly on `8c8b9059ae12af3a63e96eb7cb86851e12a6d925`. The implementation commit `f5e14c4ddf5aa9f9bc020bf3cf01b8faab8ca674` contains the current reducer/mapping hardening; its exact-head Runtime workflow is pending at the time of this matrix update. Earlier code heads passed, but do not substitute those runs for this exact head. Its four changed paths are:
 - `.github/workflows/runtime-tests.yml` — NPC-owned boundary workflow adds the reducer test and repository test bootstrap;
 - `src/npc/epistemic-state.js` — NPC-owned reducer and conservative mapping;
 - `tests/npc-epistemic-state.test.js` — focused reducer/mapping regressions.
@@ -497,8 +497,8 @@ Current-main admission implementation remains unchanged by PR #769:
 ### P0.3 / P1.1 / P1.3 — NPC-local lifecycle and epistemic semantics
 
 PR #769 adds:
-- `createNpcEpistemicState()` and `applyNpcEpistemicEvent()` in `src/npc/epistemic-state.js`, blob `d207cf25fb0a31a793b05c50de1a53b55a0fd273`;
-- 40 focused tests in `tests/npc-epistemic-state.test.js`, blob `c6fbc1a92c3d0fb21b1dae9db9495efb084158d2`.
+- `createNpcEpistemicState()` and `applyNpcEpistemicEvent()` in `src/npc/epistemic-state.js`, blob `4468abaf3af2671e57a62fca8ce4ea5caa81f9c5`;
+- 41 focused tests in `tests/npc-epistemic-state.test.js`, blob `a81aa5e87b011c5cdaa479e50c1dd425871db6f4`.
 
 The reducer keeps `information_received`, `evidence_admitted`, and `belief_updated` separate. Receipt does not create evidence or belief; admission does not establish delivery or receipt; invalidation requires review; canonical truth changes do not silently rewrite a subject-relative belief; forgetting is explicit. This is an NPC-local state machine, not evidence that Host delivery or Core acquisition occurred.
 
@@ -511,7 +511,7 @@ The Memory mapping implements the private contract in PR #747:
 - `supported` does not promote any of those classes to `confirmed`;
 - `canonical`, `authored_initial`, and `imported` are not Memory-to-belief mappings; Core assigned knowledge remains separate;
 - `suspicion` is NPC cognition output, not a Memory source class;
-- disputed evidence retains its class and assessment in the NPC evidence record; it cannot support a directional stance, and an unresolved stance requires evidence on both sides. Restored state/history validation enforces the same rule.
+- disputed evidence retains its class and assessment in the NPC evidence record; it cannot support a directional stance, and an unresolved stance requires evidence on both sides. Insufficient evidence cannot support any stance. Restored state/history validation enforces the same rules.
 
 The reducer also validates exact event shape and an explicit evidence assessment, own data descriptors for trusted scope, proxy/exotic-object rejection, dense arrays, restored state and history polarity, unique evidence references, and resistance to a polluted `Array.prototype[Symbol.iterator]`. It does not authenticate the evidence labels supplied by its caller.
 
