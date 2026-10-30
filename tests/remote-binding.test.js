@@ -3,11 +3,33 @@ import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:net';
 import { once } from 'node:events';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 const API_TOKEN = 'remote-binding-test-token-123456';
+
+function writeTestWorldPackCatalog(directory) {
+  const artifactPath = join(directory, 'test-world-pack.json');
+  const artifactBytes = Buffer.from(JSON.stringify({
+    world_pack_id: 'fixture.biological-world',
+    version: '0.1.0',
+    schema_version: 'runtime-startup-test',
+  }, null, 2) + '\n');
+  writeFileSync(artifactPath, artifactBytes);
+  const catalogPath = join(directory, 'world-pack-catalog.json');
+  writeFileSync(catalogPath, JSON.stringify({
+    schema_version: 1,
+    entries: [{
+      world_pack_id: 'fixture.biological-world',
+      version: '0.1.0',
+      artifact_path: 'test-world-pack.json',
+      sha256: createHash('sha256').update(artifactBytes).digest('hex'),
+    }],
+  }, null, 2) + '\n');
+  return catalogPath;
+}
 
 async function unusedPort() {
   const server = createServer();
@@ -19,11 +41,13 @@ async function unusedPort() {
 }
 
 function runtimeEnv(directory, port, allowRemote) {
+  const worldPackCatalogPath = writeTestWorldPackCatalog(directory);
   return {
     ...process.env,
     ENGINE_API_TOKEN: API_TOKEN,
     ENGINE_DB_PATH: join(directory, 'remote-mode.sqlite'),
     ENGINE_HOST_VERSION_LEDGER_DB_PATH: join(directory, 'host-versions.sqlite'),
+    LOGIC_ENGINE_WORLD_PACK_CATALOG_PATH: worldPackCatalogPath,
     ENGINE_PORT: String(port),
     ENGINE_HOST: '0.0.0.0',
     ENGINE_ALLOW_REMOTE: allowRemote ? 'true' : '',

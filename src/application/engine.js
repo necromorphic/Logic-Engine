@@ -170,7 +170,9 @@ function validateIndependentSegment(events) {
 }
 
 export class LogicEngine {
-  constructor(store, { trustedInitialKnowledgeSources = [] } = {}) {
+  constructor(store, { trustedInitialKnowledgeSources = [], worldPackCatalog = null } = {}) {
+    if (worldPackCatalog !== null && typeof worldPackCatalog.resolve !== 'function') throw new TypeError('worldPackCatalog must provide resolve(worldPackId, version)');
+    this.worldPackCatalog = worldPackCatalog;
     if (!Array.isArray(trustedInitialKnowledgeSources)) throw new TypeError('trustedInitialKnowledgeSources must be a deployment-owned array');
     this.trustedInitialKnowledgeSources = trustedInitialKnowledgeSources.map((entry) => Object.freeze({ ...entry }));
     this.store = store;
@@ -518,10 +520,14 @@ export class LogicEngine {
     assert(typeof x.game_time === 'string' && Number.isFinite(Date.parse(x.game_time)), 'INVALID_GAME_TIME', 'game_time must be a valid date/time.');
     const id = x.world_id || randomUUID();
     assert(typeof id === 'string' && id.trim() && id.length <= 200, 'INVALID_WORLD_ID', 'Invalid world_id.');
+    const trustedPack = this.worldPackCatalog
+      ? this.worldPackCatalog.resolve(x.world_pack_id.trim(), x.world_pack_version.trim())
+      : null;
     return this.store.createWorld({
       world_id: id,
       world_pack_id: x.world_pack_id.trim(),
       world_pack_version: x.world_pack_version.trim(),
+      world_pack_digest: trustedPack?.sha256 ?? null,
       game_time: new Date(Date.parse(x.game_time)).toISOString(),
     });
   }

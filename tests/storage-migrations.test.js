@@ -92,7 +92,9 @@ test('legacy schema upgrades all numbered migrations, preserves rows, and is ide
       { event_id: 'legacy-event-2', game_time_coordinate: 300000, time_advance_ms: 0 },
     ],
   );
-  assert.deepEqual(store.db.prepare('SELECT version FROM schema_migrations ORDER BY version').all().map((row) => row.version), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]);
+  assert.deepEqual(store.db.prepare('SELECT version FROM schema_migrations ORDER BY version').all().map((row) => row.version), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]);
+  assert.ok(store.db.prepare('PRAGMA table_info(worlds)').all().some((column) => column.name === 'world_pack_digest'));
+  assert.equal(store.db.prepare('SELECT world_pack_digest FROM worlds WHERE world_id=?').get('legacy-world').world_pack_digest, null);
   assert.equal(store.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='world_time_triggers'").get().name, 'world_time_triggers');
   assert.equal(store.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='host_conversation_world_bindings'").get().name, 'host_conversation_world_bindings');
   assert.equal(store.db.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type='index' AND name='events_world_commit_sequence'").get().count, 1);
@@ -133,7 +135,9 @@ test('legacy schema upgrades all numbered migrations, preserves rows, and is ide
       { event_id: committed.event_id, commit_sequence: 3 },
     ],
   );
-  assert.deepEqual(store.db.prepare('SELECT version FROM schema_migrations ORDER BY version').all().map((row) => row.version), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]);
+  assert.deepEqual(store.db.prepare('SELECT version FROM schema_migrations ORDER BY version').all().map((row) => row.version), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]);
+  assert.ok(store.db.prepare('PRAGMA table_info(worlds)').all().some((column) => column.name === 'world_pack_digest'));
+  assert.equal(store.db.prepare('SELECT world_pack_digest FROM worlds WHERE world_id=?').get('legacy-world').world_pack_digest, null);
   assert.equal(store.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='world_time_triggers'").get().name, 'world_time_triggers');
   assert.equal(reopenedEngine.getState('legacy-world').world_revision, 3);
   assert.equal(reopenedEngine.getState('legacy-world').entities.find((entity) => entity.entity_id === 'post-migration-entity').attributes.migrated, true);
