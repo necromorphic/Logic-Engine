@@ -1913,32 +1913,42 @@ test('mechanic validator requires the exact deployment authority instance and cu
   }), false);
 });
 
-test('proposal policy boundary rejects a proposal pinned to a rotated active provider', () => {
+test('proposal policy boundary revalidates the same deployment authority at approval and commit', () => {
   const store = new SQLiteStore(':memory:');
   const engine = new LogicEngine(store);
-  let activeProvider = {
+  let generation = 1;
+  const authority = new DeploymentPolicyAuthority({
+    authorityIdentity: 'deployment.visibility',
+    resolveActivePolicy: () => ({
+      authority_identity: 'deployment.visibility',
+      generation,
+      authorizeField: () => true,
+    }),
+  });
+  const provider = {
+    getPolicyAuthority: () => authority,
     validateMechanicPolicy(identity) {
-      return identity.policyVersion === 'policy-v1' && identity.authorizationScope === 'npc:alice';
+      return identity.policyAuthority?.authority_identity === 'deployment.visibility'
+        && identity.policyAuthority?.policy_generation === String(generation)
+        && identity.policyVersion === 'policy-v1'
+        && identity.authorizationScope === 'npc:alice';
     },
   };
   const proposals = new ProposalService(engine, {
-    validateMechanicPolicy: createActiveMechanicPolicyValidator(() => activeProvider),
+    validateMechanicPolicy: createActiveMechanicPolicyValidator(() => provider, authority),
   });
   const row = {
     world_id: 'policy-rotation-world',
     mechanic_execution_json: JSON.stringify({
       context_policy_version: 'policy-v1',
+      policy_authority: authority.capture(),
       authorization_scope: 'npc:alice',
       snapshot_identity: { world_id: 'policy-rotation-world' },
     }),
   };
   try {
     assert.doesNotThrow(() => proposals.assertMechanicPolicyCurrent(row, 'approval'));
-    activeProvider = {
-      validateMechanicPolicy(identity) {
-        return identity.policyVersion === 'policy-v2' && identity.authorizationScope === 'npc:alice';
-      },
-    };
+    generation = 2;
     assert.throws(
       () => proposals.assertMechanicPolicyCurrent(row, 'commit'),
       (error) => error.code === 'STALE_MECHANIC_POLICY' && error.details?.stage === 'commit',
@@ -1947,7 +1957,6 @@ test('proposal policy boundary rejects a proposal pinned to a rotated active pro
     store.close();
   }
 });
-
 
 test('mechanic proposal policy boundary stays closed without a trusted validator or valid pinned identity', () => {
   const store = new SQLiteStore(':memory:');
