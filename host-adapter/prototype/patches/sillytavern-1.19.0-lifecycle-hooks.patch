@@ -215,9 +215,10 @@ diff --git a/public/script.js b/public/script.js
 +    const lifecycleOperation = ['swipe', 'regenerate'].includes(type) ? 'create-swipe'
 +        : ['append', 'continue', 'appendFinal'].includes(type) ? 'edit-message'
 +            : 'create-message';
-+    if (chat.length && lifecycleOperation !== 'create-message') {
-+        await lifecycleBridge.beforeMutation(lifecycleOperation, [chat.length - 1]);
-+    }
++    await lifecycleBridge.beforeMutation(
++        lifecycleOperation,
++        lifecycleOperation === 'create-message' ? [] : [chat.length - 1],
++    );
  
 @@ -6827,3 +6937,6 @@
  
