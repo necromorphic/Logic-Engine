@@ -30,6 +30,7 @@ static int g_wal_open_count = 0;
 static int g_journal_open_count = 0;
 static int g_native_open_count = 0;
 static int g_registered = 0;
+static sqlite3_mutex *g_registry_mutex = 0;
 static const char *g_open_syscall_name = 0;
 static sqlite3_syscall_ptr g_original_open_syscall = 0;
 #ifndef _WIN32
@@ -83,6 +84,25 @@ static _Thread_local int g_current_role_stat_valid = 0;
 static _Thread_local dev_t g_current_role_stat_device = 0;
 static _Thread_local ino_t g_current_role_stat_inode = 0;
 #endif
+
+static void probe_registry_lock(void) {
+  if (g_registry_mutex) sqlite3_mutex_enter(g_registry_mutex);
+}
+static void probe_registry_unlock(void) {
+  if (g_registry_mutex) sqlite3_mutex_leave(g_registry_mutex);
+}
+static void probe_counter_increment(int *counter) {
+  probe_registry_lock();
+  *counter += 1;
+  probe_registry_unlock();
+}
+static int probe_counter_read(int *counter) {
+  int value;
+  probe_registry_lock();
+  value = *counter;
+  probe_registry_unlock();
+  return value;
+}
 
 #ifdef _WIN32
 static int probe_wide_path_is_shm(LPCWSTR value) {
