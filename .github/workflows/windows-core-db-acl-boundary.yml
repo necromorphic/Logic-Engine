@@ -1,0 +1,146 @@
+name: Windows Core DB ACL boundary candidate
+on:
+  pull_request:
+    paths:
+      - 'scripts/security/Set-CoreDbAclBoundary.ps1'
+      - 'docs/security/core-db-acl-boundary-candidate.md'
+      - '.github/workflows/windows-core-db-acl-boundary.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-core-db-acl-boundary-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  powershell-51-acl-smoke:
+    runs-on: windows-2022
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Apply candidate ACL only to a disposable fixture
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $suffix = [guid]::NewGuid().ToString('N').Substring(0, 5)
+          $testAccounts = @()
+          $testServices = @()
+          $password = ([guid]::NewGuid().ToString('N') + 'Aa1!')
+          $securePassword = ConvertTo-SecureString $password -AsPlainText -Force
+          $root = $null
+          $evidence = $null
+          try {
+            foreach ($role in @('Core', 'Provider', 'Gateway')) {
+              $account = "leAcl$role$suffix"
+              $service = "LEAcl$role$suffix"
+              New-LocalUser -Name $account -Password $securePassword -PasswordNeverExpires -UserMayNotChangePassword | Out-Null
+              $testAccounts += $account
+              $accountName = "$env:COMPUTERNAME\$account"
+              & sc.exe create $service binPath= "$env:WINDIR\System32\cmd.exe /c exit" obj= $accountName password= $password start= demand | Out-Null
+              if ($LASTEXITCODE -ne 0) { throw "Failed to create disposable service identity fixture for $role." }
+              $testServices += $service
+            }
+            $root = Join-Path $env:ProgramData ('core-db-acl-smoke-' + [guid]::NewGuid().ToString('N'))
+            New-Item -ItemType Directory -Path $root | Out-Null
+            $db = Join-Path $root 'core.sqlite'
+            $evidence = Join-Path $env:RUNNER_TEMP ('core-db-acl-evidence-' + [guid]::NewGuid().ToString('N') + '.json')
+            Set-Content -LiteralPath $db -Value 'temporary non-sensitive ACL fixture'
+
+            # Regression: a permitted sidecar filename must still be rejected when it is a symlink.
+            $outsideTarget = Join-Path $env:RUNNER_TEMP ('acl-sidecar-target-' + [guid]::NewGuid().ToString('N') + '.txt')
+            $sidecar = $db + '-wal'
+            Set-Content -LiteralPath $outsideTarget -Value 'external target'
+            try {
+              New-Item -ItemType SymbolicLink -Path $sidecar -Target $outsideTarget | Out-Null
+              $rejected = $false
+              try {
+                & .\scripts\security\Set-CoreDbAclBoundary.ps1 -CoreServiceName $testServices[0] -ProviderServiceName $testServices[1] -GatewayServiceName $testServices[2] -CoreDbPath $db -EvidencePath ($evidence + '.sidecar') -Apply -Confirm:$false
+              } catch { $rejected = $true }
+              if (-not $rejected) { throw 'A reparse-point SQLite sidecar was not rejected.' }
+            } finally {
+              if (Test-Path -LiteralPath $sidecar) { Remove-Item -LiteralPath $sidecar -Force }
+              if (Test-Path -LiteralPath $outsideTarget) { Remove-Item -LiteralPath $outsideTarget -Force }
+              if (Test-Path -LiteralPath ($evidence + '.sidecar')) { Remove-Item -LiteralPath ($evidence + '.sidecar') -Force }
+            }
+
+            # Regression: an ancestor junction must be rejected even when the final file exists.
+            $junction = Join-Path $env:RUNNER_TEMP ('acl-ancestor-junction-' + [guid]::NewGuid().ToString('N'))
+            & cmd.exe /c mklink /J $junction $root | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw 'Could not create disposable ancestor-junction regression fixture.' }
+            try {
+              $rejected = $false
+              try {
+                & .\scripts\security\Set-CoreDbAclBoundary.ps1 -CoreServiceName $testServices[0] -ProviderServiceName $testServices[1] -GatewayServiceName $testServices[2] -CoreDbPath (Join-Path $junction 'core.sqlite') -EvidencePath ($evidence + '.ancestor') -Apply -Confirm:$false
+              } catch { $rejected = $true }
+              if (-not $rejected) { throw 'An ancestor reparse point was not rejected.' }
+            } finally {
+              if (Test-Path -LiteralPath $junction) { & cmd.exe /c rmdir $junction | Out-Null }
+              if (Test-Path -LiteralPath ($evidence + '.ancestor')) { Remove-Item -LiteralPath ($evidence + '.ancestor') -Force }
+            }
+            # Regression: block directory replacement through a writable parent ACL.
+            $unsafeParent = Join-Path $env:ProgramData ('acl-unsafe-parent-' + [guid]::NewGuid().ToString('N'))
+            $unsafeDirectory = Join-Path $unsafeParent 'core-db'
+            $unsafeEvidence = $evidence + '.parent'
+            New-Item -ItemType Directory -Path $unsafeDirectory -Force | Out-Null
+            $unsafeDb = Join-Path $unsafeDirectory 'core.sqlite'
+            Set-Content -LiteralPath $unsafeDb -Value 'temporary non-sensitive parent ACL fixture'
+            $originalUnsafeParentAcl = Get-Acl -LiteralPath $unsafeParent
+            $unsafeParentAcl = Get-Acl -LiteralPath $unsafeParent
+            $providerRule = New-Object System.Security.AccessControl.FileSystemAccessRule(
+              "$env:COMPUTERNAME\$($testAccounts[1])",
+              ([System.Security.AccessControl.FileSystemRights]::Delete -bor [System.Security.AccessControl.FileSystemRights]::DeleteSubdirectoriesAndFiles),
+              [System.Security.AccessControl.AccessControlType]::Allow
+            )
+            $unsafeParentAcl.AddAccessRule($providerRule)
+            Set-Acl -LiteralPath $unsafeParent -AclObject $unsafeParentAcl
+            try {
+              $rejected = $false
+              try {
+                & .\scripts\security\Set-CoreDbAclBoundary.ps1 -CoreServiceName $testServices[0] -ProviderServiceName $testServices[1] -GatewayServiceName $testServices[2] -CoreDbPath $unsafeDb -EvidencePath $unsafeEvidence -Apply -Confirm:$false
+              } catch { $rejected = $true }
+              if (-not $rejected) { throw 'A writable parent path for Provider was not rejected.' }
+            } finally {
+              Set-Acl -LiteralPath $unsafeParent -AclObject $originalUnsafeParentAcl
+              if (Test-Path -LiteralPath $unsafeEvidence) { Remove-Item -LiteralPath $unsafeEvidence -Force }
+              if (Test-Path -LiteralPath $unsafeParent) { Remove-Item -LiteralPath $unsafeParent -Recurse -Force }
+            }
+
+            & .\scripts\security\Set-CoreDbAclBoundary.ps1 -CoreServiceName $testServices[0] -ProviderServiceName $testServices[1] -GatewayServiceName $testServices[2] -CoreDbPath $db -EvidencePath $evidence -Apply -Confirm:$false
+            $report = Get-Content -LiteralPath $evidence -Raw | ConvertFrom-Json
+            if ($report.status -ne 'APPLIED_AND_ACL_SHAPE_VERIFIED') {
+              throw "Unexpected ACL smoke status: $($report.status)"
+            }
+            if ($report.services.core.sid -eq $report.services.provider.sid -or
+                $report.services.core.sid -eq $report.services.gateway.sid -or
+                $report.services.provider.sid -eq $report.services.gateway.sid) {
+              throw 'Fixture service identities were not distinct.'
+            }
+            $acl = Get-Acl -LiteralPath $root
+            $identities = @($acl.Access | ForEach-Object { [string]$_.IdentityReference })
+            if ($identities -notcontains [string]$report.services.core.account) {
+              throw 'Core service identity is missing from the fixture directory ACL.'
+            }
+            if ($identities -contains [string]$report.services.provider.account -or
+                $identities -contains [string]$report.services.gateway.account) {
+              throw 'Provider or gateway has an explicit fixture directory ACE.'
+            }
+            Write-Output 'ACL shape smoke passed on disposable local accounts/services; this is not a target deployment access test.'
+          } finally {
+            if ($evidence -and (Test-Path -LiteralPath $evidence)) { Remove-Item -LiteralPath $evidence -Force }
+            if ($root -and (Test-Path -LiteralPath $root)) {
+              $acl = Get-Acl -LiteralPath $root
+              $acl.SetAccessRuleProtection($false, $true)
+              Set-Acl -LiteralPath $root -AclObject $acl
+              Remove-Item -LiteralPath $root -Recurse -Force
+            }
+            foreach ($service in $testServices) { & sc.exe delete $service | Out-Null }
+            foreach ($account in $testAccounts) {
+              if (Get-LocalUser -Name $account -ErrorAction SilentlyContinue) {
+                Remove-LocalUser -Name $account
+              }
+            }
+          }
