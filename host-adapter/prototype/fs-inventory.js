@@ -7,6 +7,11 @@ import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { withWindowsVssSnapshot, isActiveWindowsVssSnapshot } from './windows-vss-snapshot.mjs';
 
 const MAX_FILE_BYTES = 256 * 1024 * 1024;
+
+// Windows path-based stat/lstat can report a different st_dev than fstat for
+// the same open file. The file index remains stable; dev is compared on POSIX.
+const sameFileIdentity = (left, right) => left.ino === right.ino
+  && (process.platform === 'win32' || left.dev === right.dev);
 const MAX_TOTAL_BYTES = 2 * 1024 * 1024 * 1024;
 const MAX_TOTAL_ENTRIES = 100_000;
 const sha256 = (value) => createHash('sha256').update(value).digest('hex');
@@ -156,7 +161,7 @@ async function enumerateStableFileInventoryOnRoot(rootPath, options = {}) {
           await walk(fullPath);
           const afterDirectory = await lstat(fullPath);
           if (!afterDirectory.isDirectory() || afterDirectory.isSymbolicLink()
-            || afterDirectory.dev !== before.dev || afterDirectory.ino !== before.ino
+            || !sameFileIdentity(afterDirectory, before)
             || afterDirectory.mtimeMs !== before.mtimeMs || afterDirectory.ctimeMs !== before.ctimeMs) {
             throw new Error('HOST_INVENTORY_DIRECTORY_CHANGED');
           }
@@ -172,7 +177,7 @@ async function enumerateStableFileInventoryOnRoot(rootPath, options = {}) {
           // the immutable snapshot plus the pre-scan reparse audit replaces O_NOFOLLOW.
           handle = await open(fullPath, fsConstants.O_RDONLY | noFollow);
           const openedBefore = await handle.stat();
-          if (!openedBefore.isFile() || openedBefore.dev !== before.dev || openedBefore.ino !== before.ino) {
+          if (!openedBefore.isFile() || !sameFileIdentity(openedBefore, before)) {
             throw new Error('HOST_INVENTORY_FILE_IDENTITY_CHANGED');
           }
           if (openedBefore.size > MAX_FILE_BYTES) throw new Error('HOST_INVENTORY_FILE_SIZE_LIMIT');
@@ -186,10 +191,10 @@ async function enumerateStableFileInventoryOnRoot(rootPath, options = {}) {
           const openedAfter = await handle.stat();
           const pathAfter = await lstat(fullPath);
           if (!pathAfter.isFile() || pathAfter.isSymbolicLink()
-            || openedAfter.dev !== openedBefore.dev || openedAfter.ino !== openedBefore.ino
+            || !sameFileIdentity(openedAfter, openedBefore)
             || openedAfter.size !== openedBefore.size || openedAfter.mtimeMs !== openedBefore.mtimeMs
             || openedAfter.ctimeMs !== openedBefore.ctimeMs
-            || pathAfter.dev !== openedAfter.dev || pathAfter.ino !== openedAfter.ino
+            || !sameFileIdentity(pathAfter, openedAfter)
             || bytes.byteLength !== openedAfter.size) {
             throw new Error('HOST_INVENTORY_FILE_CHANGED_DURING_READ');
           }
@@ -215,7 +220,7 @@ async function enumerateStableFileInventoryOnRoot(rootPath, options = {}) {
     const second = await scanOnce();
     const finalRootStat = await lstat(root);
     if (!finalRootStat.isDirectory() || finalRootStat.isSymbolicLink()
-      || finalRootStat.dev !== initialRootIdentity.dev || finalRootStat.ino !== initialRootIdentity.ino
+      || !sameFileIdentity(finalRootStat, initialRootIdentity)
       || finalRootStat.mtimeMs !== initialRootIdentity.mtimeMs
       || finalRootStat.ctimeMs !== initialRootIdentity.ctimeMs) {
       return fail('HOST_INVENTORY_ROOT_CHANGED_DURING_SCAN');
