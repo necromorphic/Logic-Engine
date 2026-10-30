@@ -45,7 +45,7 @@ It does **not** claim that the end-to-end path exists. Current implementation ev
 - `MemoryNpcConsumer` is a separate internal application seam for Memory candidates backed by direct `canonical_entity` sources. It excludes summaries and initial/imported candidates; it must not be mistaken for the Core initial-acquisition reader.
 - `memory-candidate-eligibility.js` is metadata-only. It does not authenticate, authorize, acquire or prove source authenticity.
 - `ActorBindingService` resolves adapter-to-actor identity only. `AuthorizedReadService` is a Core field-disclosure seam, not the final dispatch authority.
-- Core source-version token candidate PR #709 and Host lifecycle/Gateway candidates #680/#689/#646 remain separate from a production Host → NPC decision/context → sole-Gateway path. No such complete path has been demonstrated.
+- Core source-version token and complete canonical-entity inventory support were merged by PR #709. Host lifecycle PR #680 is closed unmerged; persisted-save receipt PR #689 remains a draft stacked on that branch; Gateway PR #646 remains a draft with a stronger shared-order design. None establishes a production Host → NPC decision/context → sole-Gateway path. No such complete path has been demonstrated.
 
 Therefore this contract defines the target private boundary without relabelling existing helpers as a finished adapter.
 
@@ -165,7 +165,7 @@ Every Memory candidate intended for disclosure must have authoritative:
 - complete result declaration and bounded candidate set;
 - snapshot marker that can be compared to the Core canonical read.
 
-For direct `canonical_entity` sources, the selected Core source-version contract is an opaque Core-issued token of the form `core-entity-v1:<positive safe integer>`, backed by the durable `entity_source_versions` ledger. It advances transactionally on canonical entity mutation and rollback. Draft PR #709 is the current-main implementation candidate; until it is merged and exact-head validation is accepted, direct source-dependent Memory candidates remain non-ready for production use. Do not substitute `updated_revision`, fact/event IDs, content hashes or `world_revision + commit_sequence` for this token.
+For direct `canonical_entity` sources, the selected Core source-version contract is an opaque Core-issued token of the form `core-entity-v1:<positive safe integer>`, backed by the durable `entity_source_versions` ledger. It advances transactionally on canonical entity mutation and rollback. This implementation and the snapshot-pinned canonical entity inventory were merged by PR #709 (merge commit `09a7d9ba4704c6322cae40706867c323c62f7e1a`). The token is now a mainline capability; it does not by itself prove complete Host inventory, configured Memory grants, final disclosure authorization or production dispatch. Do not substitute `updated_revision`, fact/event IDs, content hashes or `world_revision + commit_sequence` for this token.
 
 Provider `record_version`, Provider `source_version`, Core's entity source token, acquisition-time value/source-event pins, and Core `(world_revision, commit_sequence)` are distinct values with distinct meanings. They must not overwrite or impersonate one another.
 
@@ -285,8 +285,8 @@ The delegated architectural authority used to approve this document does not sil
 |---|---|---|
 | C0 — Private contract | Semantics and block boundaries fixed by this document | **Complete for v0.1** |
 | C1 — Core acquisition reader/pins | Merge/review the Core reader candidate; prove immutable value/source-event pins and per-acquisition visibility authorization | Draft candidate PR #744; not main |
-| C2 — Core source version | Merge/review the opaque canonical entity source-version token and complete inventory contract | Draft candidate PR #709; not main |
-| C3 — Memory/Host evidence | Prove Provider inventory/reconciliation against authoritative Host lifecycle identity and restart/restore | Partial candidates #680/#689; production authority not established |
+| C2 — Core source version | Use the opaque canonical entity source-version token and snapshot-pinned inventory contract | **Implemented on main** by PR #709; Host/Provider production completeness remains separate |
+| C3 — Memory/Host evidence | Prove Provider inventory/reconciliation against authoritative Host lifecycle identity and restart/restore | Host PR #680 closed unmerged; #689 remains draft and is stacked on #680; production authority not established |
 | C4 — Final disclosure | Implement the approved fail-closed final revalidation and sole Gateway route; do not claim linearizability | Candidate #646 is review-only; actual pinned Host route is not wired |
 | C5 — NPC semantics/runtime | Integrate reducer/admission into the real NPC decision/context callsite; preserve epistemic classes | Draft NPC reducer PR #695; no production caller |
 | C6 — E2E acceptance | All negative, recovery, rollback, retry and dispatch cases pass on the integrated path | Not tested end-to-end |
