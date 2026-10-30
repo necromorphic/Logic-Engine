@@ -1761,7 +1761,10 @@ export class SQLiteStore {
               enumerable: true, configurable: true, writable: true,
             });
           }
-          const candidate = evaluateRelationshipCandidate({
+          // Persist the exact pure-evaluator inputs on the canonical effect while
+          // the commit transaction is still open. Never reconstruct these from a
+          // later projection or a mutable manifest during historical inspection.
+          const evaluationInput = {
             subjectId: effect.subject_id,
             targetId: effect.target_id,
             currentValues,
@@ -1769,12 +1772,24 @@ export class SQLiteStore {
             dimensionRules: domain.dimensions,
             evidence: { status: 'supported', refs: effect.evidence_refs },
             ruleVersion: effect.rule_module_id + '@' + effect.rule_module_version,
-          });
+          };
+          const relationshipEvaluationSnapshot = {
+            schema: 'relationship-evaluation-input/v1',
+            evaluator_contract: 'relationship-candidate/v1',
+            rule_module_id: effect.rule_module_id,
+            rule_module_version: effect.rule_module_version,
+            world_pack_id: w.world_pack_id,
+            world_pack_version: w.world_pack_version,
+            input: evaluationInput,
+            input_digest: hashRequest(evaluationInput),
+          };
+          const candidate = evaluateRelationshipCandidate(evaluationInput);
           if (candidate.status !== 'candidate') {
             throw new EngineError('RELATIONSHIP_TRANSITION_REJECTED', 'Relationship candidate did not produce a committable transition.', 409, {
               candidate_status: candidate.status, reason: candidate.reason ?? null,
             });
           }
+          effect.relationship_evaluation_snapshot = relationshipEvaluationSnapshot;
           effect.patch = candidate.patch;
           continue;
         }
