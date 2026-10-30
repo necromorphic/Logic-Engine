@@ -379,7 +379,7 @@ No synthetic fixture should be reported as a production integration test. IDs wi
 
 Merged Core PR #733 (`cf61ad1`) changes the historical-version evidence boundary as follows:
 
-- **PERS-SEM-024:** a committed Relationship event now carries the exact evaluator input snapshot, originating event ID, rule-module ID/version, and World Pack ID/version. Core resolves an exact version-addressed evaluator artifact, executes it read-only, and compares the candidate with the committed effect.
+- **PERS-SEM-024:** a committed Relationship event now carries the exact evaluator input snapshot, originating event ID, rule-module ID/version, and World Pack ID/version. Core resolves an exact version-addressed evaluator artifact, executes it read-only, and compares the candidate with the committed effect. It consumes the captured declarative `dimensionRules`; it does not resolve an old executable World Pack from a registry.
 - **Exact-version failure:** the Core integration test pins an event to `0.9.0` while only the newer `1.0.0` artifact exists; the result is unavailable. No latest/nearest fallback occurs.
 - **Legacy history:** events without a captured input snapshot are unavailable. Core does not reconstruct historical inputs from current projection or manifests.
 - **Restart/rebuild:** the captured snapshot survives SQLite close/reopen and projection rebuild. The historical evaluator remains separate from projection rebuild, which continues to apply the committed effect only.
