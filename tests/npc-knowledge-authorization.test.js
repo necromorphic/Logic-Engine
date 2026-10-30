@@ -239,6 +239,10 @@ test('per-acquisition visibility requires exact trusted source provenance and th
     conversationId: scope.conversation_id,
     reason: 'test revoke binding',
   });
+  assert.equal(authorizers.resolveContext({
+    adapter_id: scope.adapter_id,
+    conversation_id: scope.conversation_id,
+  }), null);
   assert.equal(authorizers.readAuthorizer(scope), null);
   assert.equal(authorizers.visibilityAuthorizer(acquisition).status, 'denied');
 });
@@ -246,6 +250,10 @@ test('per-acquisition visibility requires exact trusted source provenance and th
 test('actor revocation blocks future Core reads even while Host conversation binding remains active', (t) => {
   const { authorizers, scope, actors } = setup(t);
   actors.revoke('world-a', 'adapter-st', 'npc-a');
+  assert.equal(authorizers.resolveContext({
+    adapter_id: scope.adapter_id,
+    conversation_id: scope.conversation_id,
+  }), null);
   assert.equal(authorizers.readAuthorizer(scope), null);
 });
 
