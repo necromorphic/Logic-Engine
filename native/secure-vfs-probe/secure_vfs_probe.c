@@ -8,8 +8,14 @@
  * DatabaseSync opens through that VFS. Never use this probe for production DBs.
  */
 #include <string.h>
+#include <stdint.h>
+#include <errno.h>
 #ifdef _WIN32
 #include <windows.h>
+#else
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
 #endif
 #include "sqlite3ext.h"
 SQLITE_EXTENSION_INIT1
@@ -23,8 +29,51 @@ static int g_native_open_count = 0;
 static int g_registered = 0;
 static const char *g_open_syscall_name = 0;
 static sqlite3_syscall_ptr g_original_open_syscall = 0;
+static char *g_race_path = 0;
+static char *g_race_target_path = 0;
+static int g_race_identity_set = 0;
+static int g_race_inject_once = 0;
+static int g_race_injection_count = 0;
+static int g_identity_reject_count = 0;
+#ifdef _WIN32
+static DWORD g_race_volume_serial = 0;
+static DWORD g_race_file_index_high = 0;
+static DWORD g_race_file_index_low = 0;
+__declspec(thread) static int g_current_race_open = 0;
+__declspec(thread) static int g_current_race_captured = 0;
+#else
+static dev_t g_race_device = 0;
+static ino_t g_race_inode = 0;
+static _Thread_local int g_current_race_open = 0;
+static _Thread_local int g_current_race_captured = 0;
+#endif
 
 #ifdef _WIN32
+static wchar_t *probe_utf8_to_wide(const char *value) {
+  int length = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value, -1, 0, 0);
+  wchar_t *wide;
+  if (length <= 0) return 0;
+  wide = (wchar_t *)sqlite3_malloc64((sqlite3_uint64)length * sizeof(wchar_t));
+  if (!wide) return 0;
+  if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value, -1, wide, length) <= 0) {
+    sqlite3_free(wide);
+    return 0;
+  }
+  return wide;
+}
+static int probe_replace_with_hardlink(const char *path, const char *target) {
+  wchar_t *wide_path = probe_utf8_to_wide(path);
+  wchar_t *wide_target = probe_utf8_to_wide(target);
+  int ok = 0;
+  if (wide_path && wide_target) {
+    if (DeleteFileW(wide_path) || GetLastError() == ERROR_FILE_NOT_FOUND) {
+      ok = CreateHardLinkW(wide_path, wide_target, 0) != 0;
+    }
+  }
+  sqlite3_free(wide_path);
+  sqlite3_free(wide_target);
+  return ok;
+}
 typedef HANDLE (WINAPI *probe_create_file_w_fn)(
   LPCWSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD, DWORD, HANDLE
 );
@@ -32,23 +81,113 @@ static HANDLE WINAPI probe_create_file_w(
   LPCWSTR name, DWORD access, DWORD share, LPSECURITY_ATTRIBUTES security,
   DWORD creation, DWORD attributes, HANDLE template_file
 ) {
+  HANDLE handle;
+  BY_HANDLE_FILE_INFORMATION info;
   g_native_open_count += 1;
-  return ((probe_create_file_w_fn)g_original_open_syscall)(
+  if (g_current_race_open && !g_current_race_captured) {
+    attributes |= FILE_FLAG_OPEN_REPARSE_POINT;
+  }
+  handle = ((probe_create_file_w_fn)g_original_open_syscall)(
     name, access, share, security, creation, attributes, template_file
   );
+  if (handle == INVALID_HANDLE_VALUE) return handle;
+  if (g_current_race_open && !g_current_race_captured) {
+    if (!GetFileInformationByHandle(handle, &info)
+        || (info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0
+        || (info.nFileIndexHigh == 0 && info.nFileIndexLow == 0)) {
+      CloseHandle(handle);
+      g_identity_reject_count += 1;
+      SetLastError(ERROR_ACCESS_DENIED);
+      return INVALID_HANDLE_VALUE;
+    }
+    if (g_race_identity_set) {
+      if (info.dwVolumeSerialNumber != g_race_volume_serial
+          || info.nFileIndexHigh != g_race_file_index_high
+          || info.nFileIndexLow != g_race_file_index_low) {
+        CloseHandle(handle);
+        g_identity_reject_count += 1;
+        SetLastError(ERROR_ACCESS_DENIED);
+        return INVALID_HANDLE_VALUE;
+      }
+    } else {
+      g_race_volume_serial = info.dwVolumeSerialNumber;
+      g_race_file_index_high = info.nFileIndexHigh;
+      g_race_file_index_low = info.nFileIndexLow;
+      g_race_identity_set = 1;
+    }
+    g_current_race_captured = 1;
+  }
+  return handle;
 }
 #else
 typedef int (*probe_open_fn)(const char *, int, int);
 static int probe_open(const char *name, int flags, int mode) {
+  int fd;
+  struct stat info;
   g_native_open_count += 1;
-  return ((probe_open_fn)g_original_open_syscall)(name, flags, mode);
+  if (g_current_race_open && !g_current_race_captured) {
+#ifdef O_NOFOLLOW
+    flags |= O_NOFOLLOW;
+#else
+    errno = EACCES;
+    g_identity_reject_count += 1;
+    return -1;
+#endif
+  }
+  fd = ((probe_open_fn)g_original_open_syscall)(name, flags, mode);
+  if (fd < 0) return fd;
+  if (g_current_race_open && !g_current_race_captured) {
+    if (fstat(fd, &info) != 0 || info.st_dev == 0 || info.st_ino == 0) {
+      close(fd);
+      g_identity_reject_count += 1;
+      errno = EACCES;
+      return -1;
+    }
+    if (g_race_identity_set) {
+      if (info.st_dev != g_race_device || info.st_ino != g_race_inode) {
+        close(fd);
+        g_identity_reject_count += 1;
+        errno = EACCES;
+        return -1;
+      }
+    } else {
+      g_race_device = info.st_dev;
+      g_race_inode = info.st_ino;
+      g_race_identity_set = 1;
+    }
+    g_current_race_captured = 1;
+  }
+  return fd;
 }
 #endif
 
 static int probe_xOpen(sqlite3_vfs *vfs, const char *name, sqlite3_file *file,
                        int flags, int *out_flags) {
   sqlite3_vfs *parent = (sqlite3_vfs *)vfs->pAppData;
-  int rc = parent->xOpen(parent, name, file, flags, out_flags);
+  int is_race_target = name && g_race_path && (flags & SQLITE_OPEN_MAIN_DB)
+    && strcmp(name, g_race_path) == 0;
+  int rc;
+  if (is_race_target) {
+    g_current_race_open = 1;
+    g_current_race_captured = 0;
+    if (g_race_inject_once) {
+      g_race_inject_once = 0;
+      if (!probe_replace_with_hardlink(name, g_race_target_path)) {
+        g_current_race_open = 0;
+        return SQLITE_CANTOPEN;
+      }
+      g_race_injection_count += 1;
+    }
+  }
+  rc = parent->xOpen(parent, name, file, flags, out_flags);
+  if (is_race_target) {
+    if (rc == SQLITE_OK && !g_current_race_captured) {
+      if (file->pMethods && file->pMethods->xClose) file->pMethods->xClose(file);
+      rc = SQLITE_CANTOPEN;
+    }
+    g_current_race_open = 0;
+    g_current_race_captured = 0;
+  }
   if (rc == SQLITE_OK) {
     if ((flags & SQLITE_OPEN_MAIN_DB) != 0) g_main_db_open_count += 1;
     if ((flags & SQLITE_OPEN_WAL) != 0) g_wal_open_count += 1;
@@ -144,6 +283,34 @@ static void probe_native_open_count(sqlite3_context *context, int argc, sqlite3_
   (void)argv;
   sqlite3_result_int(context, g_native_open_count);
 }
+static void probe_identity_reject_count(sqlite3_context *context, int argc, sqlite3_value **argv) {
+  (void)argc;
+  (void)argv;
+  sqlite3_result_int(context, g_identity_reject_count);
+}
+static void probe_race_injection_count(sqlite3_context *context, int argc, sqlite3_value **argv) {
+  (void)argc;
+  (void)argv;
+  sqlite3_result_int(context, g_race_injection_count);
+}
+static void probe_configure_race(sqlite3_context *context, int argc, sqlite3_value **argv) {
+  const unsigned char *path = sqlite3_value_text(argv[0]);
+  const unsigned char *target = sqlite3_value_text(argv[1]);
+  if (!path || !target || !path[0] || !target[0]) {
+    sqlite3_result_error(context, "race paths are required", -1);
+    return;
+  }
+  sqlite3_free(g_race_path);
+  sqlite3_free(g_race_target_path);
+  g_race_path = sqlite3_mprintf("%s", (const char *)path);
+  g_race_target_path = sqlite3_mprintf("%s", (const char *)target);
+  if (!g_race_path || !g_race_target_path) {
+    sqlite3_result_error_nomem(context);
+    return;
+  }
+  g_race_inject_once = sqlite3_value_int(argv[2]) != 0;
+  sqlite3_result_int(context, 1);
+}
 
 static void probe_has_syscall(sqlite3_context *context, int argc, sqlite3_value **argv) {
   const unsigned char *name;
@@ -186,6 +353,15 @@ static int probe_auto_extension(sqlite3 *db, char **error, const sqlite3_api_rou
     0,
     0
   );
+  if (rc != SQLITE_OK) return rc;
+  rc = sqlite3_create_function(db, "logic_engine_vfs_probe_identity_reject_count", 0,
+    SQLITE_UTF8 | SQLITE_DETERMINISTIC, 0, probe_identity_reject_count, 0, 0);
+  if (rc != SQLITE_OK) return rc;
+  rc = sqlite3_create_function(db, "logic_engine_vfs_probe_race_injection_count", 0,
+    SQLITE_UTF8 | SQLITE_DETERMINISTIC, 0, probe_race_injection_count, 0, 0);
+  if (rc != SQLITE_OK) return rc;
+  rc = sqlite3_create_function(db, "logic_engine_vfs_probe_configure_race", 3,
+    SQLITE_UTF8, 0, probe_configure_race, 0, 0);
   if (rc != SQLITE_OK) return rc;
   return sqlite3_create_function(
     db,
