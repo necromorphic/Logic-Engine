@@ -168,3 +168,50 @@ A native replacement must preserve more than `exec/prepare/run`. Current Core an
 Therefore the spike's minimum compatibility matrix must include `createSession`, `Session.changeset`, `Session.close`, and `applyChangeset` in addition to prepared statements, BigInt reads, transactions/savepoints, WAL, and locking. A replacement driver that lacks the SQLite Session extension or cannot build it into the same SQLite engine is not a drop-in candidate for the current accepted-head design.
 
 This raises the migration cost and must be measured in the spike before selecting a replacement binding. It does not justify bypassing accepted-head or falling back to unauthenticated/path-based opens.
+
+
+
+## Lower-migration feasibility candidate — VFS loadable extension in the existing Node SQLite engine
+
+**New candidate for the first spike; not yet tested or approved.** Before replacing the repository's `DatabaseSync` driver, test whether a small native SQLite loadable extension can register the secure VFS inside the exact SQLite engine already used by `node:sqlite`.
+
+The documented APIs make this a plausible path:
+
+1. Node.js v22.13.0 added `DatabaseSync.loadExtension()`; the caller must construct that connection with `allowExtension: true`. The constructor opens its database immediately, so the bootstrap connection must use only `:memory:`, never a protected file.
+2. SQLite loadable extensions receive the host engine's `sqlite3_api_routines` table. The extension API explicitly permits `sqlite3_vfs_register()`.
+3. SQLite documents `SQLITE_OK_LOAD_PERMANENTLY` for extensions that register VFS implementations, so the extension code remains resident after the bootstrap connection closes.
+4. The extension can register the secure VFS as the process default. Subsequent file-backed `DatabaseSync(path)` connections may then use that VFS without changing the existing JavaScript driver or losing its Session/changeset API.
+
+Proposed bootstrap sequence to test:
+
+- Start the process with a source-verified guard that prevents any file-backed `node:sqlite` open before secure-VFS bootstrap completes.
+- Open an in-memory bootstrap connection with extension loading enabled.
+- Load only the pinned, integrity-verified native VFS extension from a trusted application installation path.
+- The extension registers the secure VFS in the same SQLite engine and returns `SQLITE_OK_LOAD_PERMANENTLY`.
+- Verify the registered VFS is the process default and that a deliberately invalid/unknown secure-open configuration fails closed.
+- Close the bootstrap connection, disable extension loading on it where applicable, then allow protected file-backed connections.
+- Verify by native instrumentation that every protected main DB and sidecar open enters the registered VFS; do not infer this merely from successful SQL execution.
+
+**Important limits and risks:**
+
+- This is not a JavaScript VFS and not a wrapper around pathname checks. The extension must implement the OS file operations itself or use a proven lower-level implementation that validates and retains the actual OS handle inside `xOpen`.
+- The extension binary and its parent directories become part of the trusted computing base. Verify package provenance/integrity and load it only from a non-user-writable application path; never accept a caller-supplied extension path.
+- The VFS must remain registered and its code resident for the process lifetime. Test unload/close behavior and reject startup if registration or persistence cannot be proven.
+- Verify that Node's built-in SQLite connections use the same engine instance whose API table loaded the extension, and that their opens select the registered default VFS. The public Node API does not expose a VFS selector, so this must be demonstrated by native instrumentation and adversarial tests.
+- The bootstrap must run before Core, Coordinator, Host, Provider, dispatch-ledger, accepted-head, enrollment/recovery, and future NPC database opens. One early unprotected file-backed open invalidates the guarantee.
+- The extension's own dynamic-library load path is a separate trust boundary; SQLite VFS protection does not authenticate the extension binary.
+
+**Spike decision order:**
+
+A. First test the bootstrap-extension approach against the exact Node.js v22.13.0 minimum runtime on Windows and Linux, including Session/changeset preservation. If it passes, it may avoid replacing the JavaScript database driver while still putting secure open inside the same SQLite engine.
+
+B. If A cannot prove same-engine registration, default-VFS selection, permanent lifetime, and sidecar coverage, test a dedicated native binding that owns both SQLite and the VFS.
+
+C. If neither path proves the required race/alias guarantees, keep Issue #770 open and protected startup/dispatch fail-closed. Do not fall back to repeated path checks or a parent-directory ACL claim against the original attacker-controlled-directory threat model.
+
+References for this feasibility candidate:
+- Node.js v22.13.1 SQLite API: `loadExtension()` and `allowExtension` are available from v22.13.0 — https://nodejs.org/download/release/v22.13.1/docs/api/sqlite.html
+- SQLite Run-Time Loadable Extensions: extension initialization may call `sqlite3_vfs_register()`; `SQLITE_OK_LOAD_PERMANENTLY` keeps VFS code loaded — https://www.sqlite.org/loadext.html
+- SQLite VFS API and open boundary — https://www.sqlite.org/vfs.html
+
+This section identifies a lower-migration experiment, not a security closure. No runtime path is authorized until the exact prototype passes the full Issue #770 acceptance matrix and independent Security review.
