@@ -8,6 +8,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { EngineError } from '../core/errors.js';
 import { hashRequest } from '../core/request-hash.js';
 import { evaluateRelationshipCandidate } from '../relationship/evaluate-candidate.js';
+import { reevaluateHistoricalRelationshipSnapshot } from '../relationship/reevaluate-historical-snapshot.js';
 
 const now = () => new Date().toISOString();
 
@@ -1398,6 +1399,38 @@ export class SQLiteStore {
       source_message_id: r.source_message_id, created_at: r.created_at, rollback_id: r.rollback_id,
       ...(r.mechanic_execution_json ? { mechanic_execution: dec(r.mechanic_execution_json) } : {}),
     }));
+  }
+
+  reevaluateRelationshipEvent(worldId, eventId, effectIndex = null) {
+    // Read-only by design: this path only reads the committed event and world
+    // metadata. It never opens a write transaction or updates projections.
+    const world = this.world(worldId);
+    if (!world) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
+    const event = this.db.prepare('SELECT event_id, validity, effects_json FROM world_events WHERE world_id=? AND event_id=?')
+      .get(worldId, eventId);
+    if (!event || event.validity !== 'valid') {
+      throw new EngineError('EVENT_NOT_FOUND', 'A valid committed event was not found.', 404);
+    }
+    const effects = dec(event.effects_json) || [];
+    const selected = effects.map((effect, index) => ({ effect, index }))
+      .filter(({ effect, index }) => effect?.kind === 'relationship.transition'
+        && effect.relationship_evaluation_snapshot
+        && (effectIndex === null || effectIndex === index));
+    if (selected.length === 0) {
+      return { status: 'unavailable', reason: 'historical_relationship_snapshot_missing', read_only: true };
+    }
+    const results = selected.map(({ effect, index }) => ({
+      effect_index: index,
+      ...reevaluateHistoricalRelationshipSnapshot(effect.relationship_evaluation_snapshot, {
+        eventId: event.event_id,
+        // Conservative until Core has an immutable World Pack artifact catalog:
+        // only evaluate when the exact pinned pack is the active pack.
+        worldPackId: world.world_pack_id,
+        worldPackVersion: world.world_pack_version,
+      }),
+    }));
+    return { status: results.every((item) => item.status === 'evaluated') ? 'evaluated' : 'unavailable',
+      read_only: true, event_id: event.event_id, results };
   }
 
   audit(id) {
