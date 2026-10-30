@@ -160,6 +160,21 @@ test('reconciliation rejects Proxy and accessor-backed inputs before invoking th
   assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id), null);
 });
 
+test('reconciliation enforces the version-count cap before verification or row traversal', async (t) => {
+  let verifierCalls = 0;
+  const ledger = setup(t, async () => { verifierCalls += 1; return true; });
+  const versions = Array.from({ length: 25001 }, () => ({}));
+  assert.deepEqual(await ledger.reconcileConversation({
+    world_id: tuple.world_id,
+    conversation_id: tuple.conversation_id,
+    complete: true,
+    versions,
+  }), { status: 'non_ready', code: 'HOST_INVENTORY_TOO_LARGE' });
+  assert.equal(verifierCalls, 0);
+  assert.equal(ledger.db.prepare('SELECT COUNT(*) AS n FROM host_version_digest_ledger').get().n, 0);
+  assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id), null);
+});
+
 test('reconciliation rejects metadata outside the current Provider snapshot shape before verification', async (t) => {
   let verifierCalls = 0;
   const ledger = setup(t, async () => { verifierCalls += 1; return true; });
