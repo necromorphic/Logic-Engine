@@ -2,7 +2,7 @@
 
 **Status:** design contract based on the accepted A1 ownership decision in `docs/97-npc-goal-plan-state-ownership-decision.md`.
 **Date:** 2026-10-30.
-**Implementation status:** not implemented. No runtime, API, database schema, migration, dispatcher, scheduler, or automatic execution is authorized by this draft.
+**Implementation status:** not implemented. The first-slice current-plan cardinality rule in §4.3 is accepted. No runtime, API, database schema, migration, dispatcher, scheduler, or automatic execution is authorized by this draft.
 **Purpose:** define the smallest durable NPC-domain store contract and its boundary with Core.
 
 ## 1. Scope and decision
@@ -92,7 +92,7 @@ The existing `advanceNpcPlan` helper accepts plan status `active | blocked | com
 
 ### 4.3 Current plan and alternatives
 
-Proposed bounded first-slice rule:
+Accepted bounded first-slice rule:
 
 - a goal may retain multiple plan candidates/alternatives;
 - at most one plan is selected as the current plan for a goal at a time;
@@ -101,7 +101,7 @@ Proposed bounded first-slice rule:
 - the previous plan and its revisions remain in history; they are not deleted;
 - a completed/abandoned plan is not automatically replaced, and a failed plan does not automatically complete or abandon its goal.
 
-This rule matches the current autonomy-cycle helper, which evaluates one supplied current plan per pass, while preserving alternatives as candidates. It is a proposed first-slice constraint, not a claim that the runtime currently enforces it.
+This rule matches the current autonomy-cycle helper, which evaluates one supplied current plan per pass, while preserving alternatives as candidates. It is an accepted first-slice architecture constraint; the runtime does not yet enforce it.
 
 ### 4.4 Distinct version dimensions
 
