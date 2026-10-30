@@ -4,11 +4,12 @@ Target SillyTavern source: `1.19.0-1-g06bde939f` (`06bde939fb1e9c4c8d8641d810f0a
 
 ## Apply order
 
-1. Start from the pinned SillyTavern source.
-2. Apply `sillytavern-1.19.0-lifecycle-hooks.patch` from the current Logic-Engine `main` tree.
-3. Apply `issue-258-direction-a-delete-safety.patch`.
+1. Start from the pinned SillyTavern source `06bde939fb1e9c4c8d8641d810f0a916b5bce127`.
+2. Apply `sillytavern-1.19.0-lifecycle-hooks.patch` from the Logic-Engine current Core candidate base (#784).
+3. Apply `sillytavern-1.19.0-source-inventory-route.patch` from Host candidate #780; this adds the authenticated read-only current-file inventory endpoint after the lifecycle router is present.
+4. Apply `issue-258-direction-a-delete-safety.patch` from this PR (#785); it overlays the UI mutation guards in `public/script.js`.
 
-The Direction A patch is deliberately a separate overlay. It must not be applied to an unpatched SillyTavern tree.
+The Direction A patch is deliberately a separate overlay. It must not be applied to an unpatched SillyTavern tree. The inventory route patch must be applied after the lifecycle patch because its server-startup hunk anchors on the lifecycle router import/mount. Apply all patches to a disposable source copy first; do not install them into the primary ST instance until independent review and target-host approval.
 
 ## Changes
 
