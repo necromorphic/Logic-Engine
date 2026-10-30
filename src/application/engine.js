@@ -863,6 +863,14 @@ export class LogicEngine {
         && typeof metadata.context_fingerprint === 'string' && /^[a-f0-9]{64}$/i.test(metadata.context_fingerprint)
         && typeof metadata.context_policy_version === 'string' && metadata.context_policy_version.trim()
         && typeof metadata.authorization_scope === 'string' && metadata.authorization_scope.trim()
+        && typeof metadata.authority_id === 'string' && metadata.authority_id.trim()
+        && Number.isSafeInteger(metadata.policy_generation) && metadata.policy_generation >= 1
+        && obj(metadata.authorization_principal)
+        && Object.keys(metadata.authorization_principal).every((key) => ['adapterId', 'actorEntityId', 'recipient', 'purpose'].includes(key))
+        && typeof metadata.authorization_principal.adapterId === 'string' && metadata.authorization_principal.adapterId.trim()
+        && typeof metadata.authorization_principal.actorEntityId === 'string' && metadata.authorization_principal.actorEntityId.trim()
+        && ['model', 'player', 'adapter'].includes(metadata.authorization_principal.recipient)
+        && ['npc_decision', 'character_card', 'narrative'].includes(metadata.authorization_principal.purpose)
         && typeof metadata.evaluation_fingerprint === 'string' && /^[a-f0-9]{64}$/i.test(metadata.evaluation_fingerprint),
       'INVALID_MECHANIC_EXECUTION_METADATA', 'Mechanic execution identity and fingerprints are required.');
       assert(obj(metadata.dependency_manifest)
@@ -896,6 +904,9 @@ export class LogicEngine {
         context_fingerprint: metadata.context_fingerprint,
         context_policy_version: metadata.context_policy_version,
         authorization_scope: metadata.authorization_scope,
+        authority_id: metadata.authority_id,
+        policy_generation: metadata.policy_generation,
+        authorization_principal: metadata.authorization_principal,
         condition_result: metadata.condition_result,
         dependency_manifest: metadata.dependency_manifest,
         effects: x.effects,
