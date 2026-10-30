@@ -489,8 +489,8 @@ test('belief transition revalidates visibility immediately before the Core commi
   const originalPrepare = engine.prepareNpcBeliefContext.bind(engine);
   let preparationCalls = 0;
   engine.prepareNpcBeliefContext = (...args) => {
-    const result = originalPrepare(...args);
     preparationCalls += 1;
+    const result = originalPrepare(...args);
     if (preparationCalls === 1) visibilityAllowed = false;
     return result;
   };
