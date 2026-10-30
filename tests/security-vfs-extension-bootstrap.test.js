@@ -435,6 +435,41 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
     }
   }
 
+  // POSIX xDelete must refuse to delete a replacement object at a registered main-DB path.
+  if (process.platform !== 'win32') {
+    const deleteMainPath = join(directory, 'delete-main.sqlite');
+    registerRole(deleteMainPath, 'delete-main');
+    const deleteMainDb = new DatabaseSync(deleteMainPath);
+    try {
+      deleteMainDb.exec('CREATE TABLE probe(value TEXT);');
+    } finally {
+      deleteMainDb.close();
+    }
+    assert.equal(existsSync(deleteMainPath), true);
+    assert.equal(roleRegistrar.prepare(
+      'SELECT logic_engine_vfs_probe_delete_registered_role(?) AS deleted'
+    ).get(deleteMainPath).deleted, 1);
+    assert.equal(existsSync(deleteMainPath), false,
+      'xDelete must remove the enrolled main DB when its identity matches');
+
+    const deleteAliasPath = join(directory, 'delete-main-alias.sqlite');
+    registerRole(deleteAliasPath, 'delete-main-alias');
+    const deleteAliasDb = new DatabaseSync(deleteAliasPath);
+    try {
+      deleteAliasDb.exec('CREATE TABLE probe(value TEXT);');
+    } finally {
+      deleteAliasDb.close();
+    }
+    unlinkSync(deleteAliasPath);
+    linkSync(corePath, deleteAliasPath);
+    assert.throws(() => roleRegistrar.prepare(
+      'SELECT logic_engine_vfs_probe_delete_registered_role(?)'
+    ).get(deleteAliasPath),
+    'xDelete must reject a hardlink replacement instead of deleting another role DB');
+    assert.equal(existsSync(corePath), true,
+      'a rejected main-DB deletion must leave the other role database intact');
+  }
+
   // Exercise the rollback-journal sidecar independently of WAL mode.
   const journalPath = join(directory, 'journal.sqlite');
   registerRole(journalPath, 'journal-test');
