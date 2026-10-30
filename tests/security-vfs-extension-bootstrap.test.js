@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, linkSync, mkdirSync, mkdtempSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, linkSync, mkdirSync, mkdtempSync, renameSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -135,6 +135,18 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
   } finally {
     reader?.close();
     first.close();
+  }
+
+  if (process.platform !== 'win32') {
+    const symlinkTarget = join(directory, 'symlink-target');
+    const symlinkParent = join(directory, 'symlink-parent');
+    mkdirSync(symlinkTarget);
+    symlinkSync(symlinkTarget, symlinkParent, 'dir');
+    assert.throws(
+      () => registerRole(join(symlinkParent, 'blocked.sqlite'), 'symlink-parent'),
+      /database role identity capture failed/,
+      'trusted directory acquisition must reject a symlink in the parent path'
+    );
   }
 
   // POSIX-only directory-anchor proof: after registration, rename the trusted
