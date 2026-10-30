@@ -137,3 +137,20 @@ Exact-head CI for this code HEAD:
 - [Host lifecycle patch validation #40276125986](https://github.com/necromorphic/Logic-Engine/actions/runs/40276125986) — SUCCESS.
 
 This refresh records repository CI only. It does not establish live browser/Android/Termux behavior, real IndexedDB durability, persisted chat-file before/after evidence, or full lifecycle coverage. PR #323 was merged into `main` on 26 Oct 2026; its code remains review-only. Core approval of the Host↔Core/Provider handoff and real persisted-state acceptance evidence are still required; production Memory→NPC remains DISABLED / FAIL-CLOSED.
+
+## Priority-1 server-side source inventory scan candidate — 30 Oct 2026
+
+New module: `st-source-inventory.mjs`; regression suite: `tests/host-source-inventory.test.js`.
+
+This is a **non-authoritative current-file-set scan candidate** for the pinned SillyTavern commit `06bde939fb1e9c4c8d8641d810f0a916b5bce127`. It enumerates root-level chats, every immediate character-chat directory under `user.directories.chats`, group metadata under `user.directories.groups`, and the group-chat files referenced by that metadata under `user.directories.groupChats`. Unlike `/recent`, it does not derive character chat folders from avatar PNGs and does not use `Promise.allSettled` to silently skip failed traversals.
+
+The candidate fails closed on unavailable/unknown roots, unknown directory entries, unreadable/invalid group metadata, orphan or missing group chat files, symlinks/reparse entries, path escape, duplicate physical file identities (including hard links), zero/unavailable inode identity, size limits, and metadata/content changes detected during the scan. It reads each file through a file handle, compares path and opened-handle identity, hashes exact bytes, then re-stats and re-hashes the full set before producing a deterministic fingerprint.
+
+**This does not establish production Host readiness.** It does not recover pre-enrollment history, message/swipe revisions, tombstones, import/export/copy/branch/restore lineage, Core world/session authorization, accepted-head authority, or target-platform race resistance. The module is not wired to the deny-only production verifier or any Provider/Core route. The returned state is explicitly `STABLE_SCAN_CANDIDATE` / `NON_AUTHORITATIVE`, never `READY`.
+
+The first test suite covers the supported root layout, pinned-build refusal, missing/orphan group chats, hard-link aliases, unknown entries, symlink refusal (when the test platform permits symlink creation), and root aliasing. Concurrent-mutation race injection and Windows/Termux exact-host runs remain mandatory follow-up gates.
+
+Run:
+```sh
+node --test tests/host-source-inventory.test.js
+```
