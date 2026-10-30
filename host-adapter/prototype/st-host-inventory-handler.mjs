@@ -130,3 +130,30 @@ export function createHostSessionHandler({ createId = randomUUID } = {}) {
     });
   };
 }
+
+
+/** Server-only identity route for the authenticated same-origin ST session. */
+export function createHostIdentityHandler({ identityStore }) {
+  if (!identityStore || typeof identityStore.resolveAuthenticatedAccount !== 'function') {
+    throw new TypeError('A server-owned Host identity store is required.');
+  }
+  return async function hostIdentityHandler(request, response) {
+    response.set('Cache-Control', 'no-store, private');
+    response.set('Vary', 'Cookie');
+    const userHandle = request?.user?.profile?.handle;
+    const session = request?.session;
+    if (typeof userHandle !== 'string' || !userHandle.trim()
+      || session?.handle !== userHandle
+      || typeof session?.logicEngineSessionId !== 'string'
+      || !HOST_SESSION_UUID.test(session.logicEngineSessionId)
+      || session?.logicEngineSessionHandle !== userHandle) {
+      return response.sendStatus(403);
+    }
+    try {
+      const identity = await identityStore.resolveAuthenticatedAccount(userHandle);
+      return response.status(200).json({ ...identity, host_session_id: session.logicEngineSessionId });
+    } catch {
+      return response.status(503).json({ status: 'NON_READY', code: 'HOST_IDENTITY_UNAVAILABLE' });
+    }
+  };
+}
