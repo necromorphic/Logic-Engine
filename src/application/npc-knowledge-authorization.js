@@ -1,4 +1,5 @@
 import { types as utilTypes } from 'node:util';
+import { createNpcKnowledgePolicyAuthority } from './npc-knowledge-policy-authority.js';
 
 const validId = value => typeof value === 'string' && value === value.trim()
   && value.length > 0 && value.length <= 200
@@ -37,6 +38,7 @@ export function createHostBoundNpcKnowledgeAuthorizers({
 
   const configuredAdapters = new Set(adapterIds);
   const trustedSources = trustedInitialKnowledgeSources.map(source => Object.freeze({ ...source }));
+  const policyAuthority = createNpcKnowledgePolicyAuthority({ adapterIds, trustedInitialKnowledgeSources });
 
   /**
    * Resolve canonical scope from Core-owned bindings. Request world/actor values
@@ -109,12 +111,20 @@ export function createHostBoundNpcKnowledgeAuthorizers({
       world_revision: scope.world_revision,
       commit_sequence: scope.commit_sequence,
       authorization_ref: READ_AUTHORIZATION_REF,
+      ...policyAuthority.getSnapshot(),
     });
   }
 
   function visibilityAuthorizer(scope) {
     let source = null;
-    if (activeHostAndActorBinding(scope)
+    const currentPolicy = policyAuthority.getSnapshot();
+    const expectedPolicy = {
+      authority_id: scope.authority_id,
+      generation: scope.generation,
+      snapshot_fingerprint: scope.snapshot_fingerprint,
+    };
+    const policyCurrent = policyAuthority.isCurrent(expectedPolicy);
+    if (policyCurrent && activeHostAndActorBinding(scope)
       && validId(scope.acquisition_kind)
       && validId(scope.acquisition_authorization_ref)
       && validId(scope.provenance_ref)
@@ -131,7 +141,7 @@ export function createHostBoundNpcKnowledgeAuthorizers({
         && validId(candidate.authorization_ref)) ?? null;
     }
     return Object.freeze({
-      status: source ? 'allowed' : 'denied',
+      status: source && policyCurrent ? 'allowed' : 'denied',
       world_id: scope.world_id,
       conversation_id: scope.conversation_id,
       adapter_id: scope.adapter_id,
@@ -142,8 +152,9 @@ export function createHostBoundNpcKnowledgeAuthorizers({
       commit_sequence: scope.commit_sequence,
       acquisition_id: scope.acquisition_id,
       authorization_ref: source?.authorization_ref ?? DENY_VISIBILITY_REF,
+      ...currentPolicy,
     });
   }
 
-  return Object.freeze({ resolveContext, readAuthorizer, visibilityAuthorizer });
+  return Object.freeze({ resolveContext, readAuthorizer, visibilityAuthorizer, policyAuthority });
 }
