@@ -741,7 +741,7 @@ test('Host sends a digest-only Core snapshot through reconcile while explicitly 
   assert.equal(observed[0].complete, false);
   assert.equal(observed[0].versions.length, 2);
   assert.equal(observed[0].versions.every(version =>
-    Object.keys(version).sort().join(',') === 'active,content_sha256,conversation_id,deleted,message_id,parent_version_id,version_id'), true);
+    Object.keys(version).sort().join(',') === 'active,content_sha256,deleted,message_id,parent_version_id,version_id'), true);
   assert.equal(JSON.stringify(observed[0]).includes('hello'), false);
   assert.equal(JSON.stringify(observed[0]).includes('answer'), false);
   assert.equal(enrolled.coreCaptureStatus, 'NON_READY');
