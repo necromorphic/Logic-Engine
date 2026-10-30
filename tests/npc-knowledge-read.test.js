@@ -8,6 +8,8 @@ import { SQLiteStore } from '../src/storage/sqlite-store.js';
 import { LogicEngine } from '../src/application/engine.js';
 import { validateNpcKnowledgeRead, validateNpcKnowledgeReadInput } from '../src/application/npc-knowledge-read.js';
 import { buildNpcBeliefContext, reduceNpcBeliefTransition } from '../src/application/npc-belief-state.js';
+import { ActorBindingService } from '../src/application/actor-bindings.js';
+import { createHostBoundNpcKnowledgeAuthorizers } from '../src/application/npc-knowledge-authorization.js';
 
 const sourceBytes = JSON.stringify({
   schema_version: 1,
@@ -303,6 +305,56 @@ test('pure read contract rejects extra keys and authorization from another snaps
   assert.equal(validateNpcKnowledgeRead(input, world, commitSequence, {
     ...authorization, commit_sequence: commitSequence - 1,
   }).reason, 'read_not_authorized');
+});
+
+
+test('belief write revalidates actor binding inside the Core write transaction', (t) => {
+  const { store, engine: baseEngine } = setup(t);
+  const actors = new ActorBindingService(baseEngine);
+  actors.bind('world-a', 'adapter-st', 'npc-a');
+  const authorizers = createHostBoundNpcKnowledgeAuthorizers({
+    store,
+    adapterIds: ['adapter-st'],
+    trustedInitialKnowledgeSources: trustedRegistry,
+  });
+  let visibilityCalls = 0;
+  const guardedEngine = new LogicEngine(store, {
+    trustedInitialKnowledgeSources: trustedRegistry,
+    npcKnowledgeContextResolver: authorizers.resolveContext,
+    npcKnowledgeReadAuthorizer: authorizers.readAuthorizer,
+    npcKnowledgeVisibilityAuthorizer: (scope) => {
+      const decision = authorizers.visibilityAuthorizer(scope);
+      visibilityCalls += 1;
+      if (visibilityCalls === 2) {
+        // Simulate a binding revocation after preflight preparation but during
+        // the final authorization pass that now runs under the Core write tx.
+        actors.revoke('world-a', 'adapter-st', 'npc-a');
+      }
+      return decision;
+    },
+  });
+
+  const readRequest = request(store);
+  const read = guardedEngine.readNpcKnowledge(readRequest);
+  const item = read.items[0];
+  const write = {
+    ...readRequest,
+    proposition_ref: propositionRefFor(item),
+    proposition_value: item.value,
+    stance: 'believes_true',
+    supporting_acquisition_ids: [item.acquisition_id],
+    contradicting_acquisition_ids: [],
+    reason_rule_ref: 'rule:belief-update-v1',
+    idempotency_key: 'binding-revoked-during-final-write-check',
+  };
+
+  assert.throws(() => guardedEngine.recordNpcBeliefTransition(write), {
+    code: 'NPC_KNOWLEDGE_READ_NOT_AUTHORIZED',
+  });
+  assert.equal(visibilityCalls, 2);
+  assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM npc_belief_transitions').get().n, 0);
+  assert.equal(actors.resolve('world-a', 'adapter-st', 'npc-a').actor.entity_id, 'npc-a',
+    'the failed transaction must not persist a partial revocation or belief transition');
 });
 
 test('Core prepares an actor-bound belief context only after per-acquisition visibility authorization', (t) => {
