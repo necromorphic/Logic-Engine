@@ -56,6 +56,29 @@ int wmain(void) {
   LogicEngineWinFileIdentity expected;
   HANDLE handle = INVALID_HANDLE_VALUE;
   int result = 1;
+  ULONG mapped_options = 0, mapped_attributes = 0, mapped_disposition = 0;
+
+  /* The adapter must reject flags whose semantics it does not implement. */
+  if (logic_engine_win_map_create_options(FILE_FLAG_BACKUP_SEMANTICS,
+        &mapped_options, &mapped_attributes)
+      || logic_engine_win_map_create_options(FILE_FLAG_OVERLAPPED,
+        &mapped_options, &mapped_attributes)
+      || logic_engine_win_map_create_options(0x40000000UL,
+        &mapped_options, &mapped_attributes)) {
+    fail(L"unsupported Win32 open flags were accepted");
+    goto cleanup;
+  }
+  if (!logic_engine_win_map_create_options(FILE_FLAG_RANDOM_ACCESS
+        | FILE_FLAG_SEQUENTIAL_SCAN | FILE_ATTRIBUTE_NORMAL,
+        &mapped_options, &mapped_attributes)
+      || (mapped_options & 0x00000800UL) == 0
+      || (mapped_options & 0x00000004UL) == 0
+      || mapped_attributes != FILE_ATTRIBUTE_NORMAL
+      || !logic_engine_win_map_create_disposition(CREATE_NEW, &mapped_disposition)
+      || mapped_disposition != FILE_CREATE) {
+    fail(L"supported Win32 open flags were not mapped exactly");
+    goto cleanup;
+  }
 
   anchor.parent = INVALID_HANDLE_VALUE;
   anchor.basename = NULL;
