@@ -1,0 +1,111 @@
+# SQLite VFS: directory anchoring and persistent identity design
+
+**Status:** proposed implementation direction; not production approval  
+**Related:** Issue #770; Draft PR #798  
+**Scope:** Core, Coordinator, Host version ledger, and any other trusted SQLite database opened through the Node.js `node:sqlite` engine.
+
+## 1. Decision boundary
+
+The current VFS spike proves that the Node.js 22.13.0 / SQLite 3.47.2 process can retain a native VFS registration and inspect the object returned by the native open operation. It does **not** prove that path resolution remains inside the directory that was trusted when a database role was registered.
+
+A pathname-based syscall wrapper is therefore insufficient for production. Rechecking the parent path, calling `stat` before open, or checking the path again after open does not bind the open to the trusted directory entry.
+
+The next implementation must use a pinned directory handle as the authority for resolving every database and sidecar entry. If a platform/filesystem cannot provide the required semantics, startup must fail closed. Do not silently fall back to path-only checks.
+
+## 2. Trusted directory anchor
+
+For each configured database role, registration must establish:
+
+1. A trusted root/anchor from configuration outside the database directory being protected.
+2. A directory-handle chain from that root to the database parent directory.
+3. A canonical relative basename for the database file.
+4. A persistent expected file identity, loaded from a separately protected identity manifest.
+5. An open handle/descriptor for the database object whose identity matches the manifest.
+
+The directory chain is retained for the lifetime of the database service. Replacing, renaming, or redirecting a pathname ancestor after registration must not redirect a later database or sidecar open to another directory.
+
+Do not accept a directory chain containing a symbolic link, magic link, mount escape, Windows reparse point, or non-directory component unless a separately reviewed platform policy explicitly allows it.
+
+## 3. POSIX implementation direction
+
+On Linux, evaluate `openat2(2)` for component resolution from a trusted root descriptor, using restrictive resolution flags such as `RESOLVE_BENEATH`, `RESOLVE_NO_SYMLINKS`, and `RESOLVE_NO_MAGICLINKS`. Open the final database and sidecar entries relative to the pinned parent directory descriptor with `openat(2)`, `O_NOFOLLOW`, and appropriate file-type checks. Validate the returned descriptor with `fstat(2)`; the descriptor used by SQLite must be the descriptor whose identity was checked.
+
+On POSIX systems without `openat2`, use a component-by-component `openat` walk from a trusted root descriptor. Every intermediate component must be opened as a directory with no-follow semantics and validated using `fstat`. If the platform cannot guarantee the required no-follow and directory-relative behavior, mark that platform unsupported rather than falling back to pathname `open()`.
+
+The implementation must account for SQLite's descriptor-reuse path: a descriptor accepted from SQLite's pending-FD cache must be tied to the same pinned identity. The existing Linux `stat` interception test is a probe for this specific path, not a substitute for directory-relative opens.
+
+## 4. Windows implementation direction
+
+Win32 `CreateFileW(path)` alone does not provide a directory-handle-relative open. Evaluate a native Windows backend using `NtCreateFile` with `OBJECT_ATTRIBUTES.RootDirectory` set to the pinned parent-directory handle and a relative basename. Open with reparse-point inspection semantics, then query the resulting handle for file identity and attributes; reject reparse points, directories, invalid/zero file IDs, and identities that do not match the trusted manifest.
+
+The directory chain itself must be established from a trusted volume/root handle, opening each component relative to the preceding handle and rejecting reparse points. Do not reopen an absolute ancestor pathname after the chain has been trusted.
+
+This is a native implementation requirement, not a claim that the current `CreateFileW` syscall hook already provides directory anchoring. The exact NT API declarations, supported Windows versions, file-system behavior, and handle-sharing flags require a dedicated Windows CI matrix and independent Security review.
+
+## 5. Sidecar ownership and lifecycle
+
+Treat each main database role as the owner of exactly these SQLite sidecar names:
+
+- `<db>-wal`
+- `<db>-shm`
+- `<db>-journal`
+
+Resolve each sidecar relative to the same pinned parent directory as its main database. Capture identity from the actual opened handle/descriptor. Reject:
+
+- any sidecar aliasing a registered main database;
+- any sidecar aliasing a sidecar owned by another database role;
+- one sidecar identity being concurrently claimed by two different sidecar paths or roles;
+- symlink/reparse-point substitution;
+- missing or unusable identity information.
+
+Sidecar ownership must have an explicit lifecycle. Track the opened object and owning role until the corresponding SQLite file handle closes; coordinate deletion through directory-relative operations and release ownership only when the object is no longer open and the deletion/close transition is confirmed. Do not keep stale inode-only records indefinitely, because inode reuse can create false identity collisions.
+
+The current probe checks sidecars against registered main database identities and injects independent WAL, SHM, and journal replacement races. It does not yet implement this cross-sidecar ownership lifecycle.
+
+## 6. Persistent identity manifest
+
+A process-local role registry is insufficient: it forgets the expected identity after restart.
+
+The expected role-to-file identity mapping must live outside the attacker-writable database directories, under a separately protected configuration/metadata root. The manifest must bind at least:
+
+- schema/version;
+- logical role name;
+- trusted directory identity and relative database basename;
+- platform-specific file identity (POSIX device/inode; Windows volume identity/file ID);
+- the policy/version used to establish the identity.
+
+The manifest must be authenticated or protected by OS access controls so that an attacker who can replace database-directory entries cannot rewrite the expected identity. If the manifest is missing, malformed, unauthenticated, stale, or inconsistent with the opened object, startup fails before schema writes or serving.
+
+Provisioning a new database identity is a separate trusted operation. Normal startup must not silently enroll whichever object currently appears at a configured path. Backup/restore and deliberate database replacement require an explicit re-enrollment procedure and audit record.
+
+File identity persistence is filesystem-dependent. Supported filesystems and identity stability across remount, restore, copy, and upgrade must be enumerated and tested. Unsupported or ambiguous identity behavior is a hard failure, not a path-string fallback.
+
+## 7. Required tests before production consideration
+
+Run the exact same deterministic cases on Windows and Linux:
+
+1. Replace the database parent directory after registration; prove the open remains bound to the pinned directory or fails closed.
+2. Replace each ancestor with a symlink/reparse point; reject it.
+3. Rename the trusted directory and create a malicious directory at the old pathname; prove no database or sidecar open reaches the replacement.
+4. Repeat the parent-directory attacks for Core, Coordinator, and Host ledger roles.
+5. Inject hardlink/symlink/reparse substitutions independently for the main DB, WAL, SHM, and rollback journal.
+6. Create WAL/SHM/journal aliases to each other and across different database roles; reject cross-role identity collisions.
+7. Verify sidecar ownership release on close, checkpoint, journal deletion, WAL deletion, and reopen; include inode/file-ID reuse scenarios.
+8. Restart the process and prove the persisted manifest rejects replacement of every role.
+9. Exercise unavailable, zero, unstable, unsupported, or unauthenticated identity data; every case must fail closed.
+10. Assert all failures occur before schema writes, migration, recovery mutation, or service startup.
+11. Verify descriptor/handle reuse, worker threads, locking, shutdown, backup/restore, and crash recovery under the same pinned directory model.
+
+Tests must assert the identity of the object actually opened, not merely a counter proving that a hook ran.
+
+## 8. Integration constraints
+
+- Keep the public `node:sqlite` API unless the native implementation demonstrates that it cannot safely supply the required file operations.
+- Do not register or open production databases until trusted role inventory, manifest provisioning, directory anchoring, sidecar ownership, and startup ordering are implemented.
+- Keep the VFS probe separate from the production adapter. Probe success is evidence for feasibility, not production authorization.
+- Keep Memory→NPC disabled until Issue #770 and the independent Security review are closed.
+- The uploaded ST-VectorService uses `better-sqlite3`, a separate SQLite engine; this Node `node:sqlite` proof does not cover it.
+
+## 9. Exit criteria
+
+Issue #770 can be considered resolved only when the implementation and exact-head Windows/Linux CI demonstrate all tests in §7, the supported platform/filesystem matrix is documented, and an independent Security review accepts the exact implementation commit. Until then PR #798 remains Draft and unmerged.
