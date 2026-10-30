@@ -1471,6 +1471,27 @@ test('NPC read and full belief-context authorization hold the shared Coordinator
   const prepared = engine.prepareNpcBeliefContext(readRequest, proposal);
   assert.equal(prepared.status, 'ready');
   assert.equal(blockedRevocationAttempts, 3);
+
+  const beliefState = engine.getNpcBeliefState({
+    ...readRequest,
+    proposition_ref: proposal.proposition_ref,
+  });
+  assert.equal(beliefState.status, 'unknown');
+  assert.equal(blockedRevocationAttempts, 5);
+
+  const recorded = engine.recordNpcBeliefTransition({
+    ...readRequest,
+    proposition_ref: proposal.proposition_ref,
+    proposition_value: proposal.proposition_value,
+    stance: proposal.stance,
+    supporting_acquisition_ids: proposal.supporting_acquisition_ids,
+    contradicting_acquisition_ids: [],
+    reason_rule_ref: 'rule:belief-update-v1',
+    idempotency_key: 'cross-connection-lease-belief-transition',
+  });
+  assert.equal(recorded.status, 'ready');
+  assert.equal(recorded.idempotent_replay, false);
+  assert.equal(blockedRevocationAttempts, 10);
   assert.equal(store.db.prepare(
     'SELECT active FROM host_conversation_world_bindings WHERE adapter_id=? AND conversation_id=?'
   ).get(binding.adapter_id, binding.conversation_id).active, 1);
