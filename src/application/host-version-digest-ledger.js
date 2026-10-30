@@ -24,6 +24,7 @@ const isPlainDataRecord = (value) => {
   return true;
 };
 const asyncFunctionPrototype = Object.getPrototypeOf(async function asyncFunctionPrototypeMarker() {});
+const MAX_HOST_SNAPSHOT_VERSIONS = 25000;
 const snapshotInputKeys = new Set(['world_id', 'conversation_id', 'complete', 'versions']);
 const versionInputKeys = new Set([
   'world_id', 'conversation_id', 'message_id', 'version_id', 'parent_version_id', 'content_sha256', 'active', 'deleted'
@@ -388,6 +389,9 @@ export class HostVersionDigestLedger {
     if (!isPlainDataRecord(input)) return { status: 'non_ready', code: 'HOST_INVENTORY_INVALID' };
     if (input.complete === undefined || !Array.isArray(input.versions)) {
       return { status: 'non_ready', code: 'HOST_INVENTORY_INCOMPLETE' };
+    }
+    if (input.versions.length > MAX_HOST_SNAPSHOT_VERSIONS) {
+      return { status: 'non_ready', code: 'HOST_INVENTORY_TOO_LARGE' };
     }
     if (Object.keys(input).some((key) => !snapshotInputKeys.has(key))
       || typeof input.complete !== 'boolean' || !isPlainDataArray(input.versions)
