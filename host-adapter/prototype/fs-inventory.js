@@ -4,6 +4,7 @@ import {
 } from 'node:fs/promises';
 import { constants as fsConstants } from 'node:fs';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
+import { withWindowsVssSnapshot, isActiveWindowsVssSnapshot } from './windows-vss-snapshot.mjs';
 
 const MAX_FILE_BYTES = 256 * 1024 * 1024;
 const MAX_TOTAL_BYTES = 2 * 1024 * 1024 * 1024;
@@ -55,7 +56,8 @@ function statIdentity(stat) {
  * Symlinks, non-regular entries, unreadable paths, path escapes and concurrent
  * changes are rejected. A second complete pass must match the first pass.
  */
-export async function enumerateStableFileInventory(rootPath) {
+async function enumerateStableFileInventoryOnRoot(rootPath, options = {}) {
+  const { allowSnapshotWithoutNoFollow = false, reportedRoot = null, snapshotId = null } = options;
   if (typeof rootPath !== 'string' || !rootPath.trim() || !isAbsolute(rootPath)) {
     return fail('HOST_INVENTORY_ROOT_INVALID');
   }
@@ -67,14 +69,13 @@ export async function enumerateStableFileInventory(rootPath) {
     const requestedRootStat = await lstat(requestedRoot);
     if (!requestedRootStat.isDirectory() || requestedRootStat.isSymbolicLink()) return fail('HOST_INVENTORY_ROOT_UNSAFE');
 
-    // Windows inventory is intentionally unavailable until every relevant
-    // reparse-point type can be verified. Do not run realpath equality first:
-    // Node may return a differently normalized Windows path (for example,
-    // an extended-length path), which would mask the actual platform blocker.
-    if (process.platform === 'win32') return fail('HOST_INVENTORY_PLATFORM_REPARSE_UNVERIFIED');
+    // Windows is admitted only when the caller holds a live, process-local
+    // VSS lease. That provider has already rejected every FILE_ATTRIBUTE_REPARSE_POINT
+    // entry on the immutable snapshot before this scanner can read it.
+    if (process.platform === 'win32' && !allowSnapshotWithoutNoFollow) return fail('HOST_INVENTORY_PLATFORM_REPARSE_UNVERIFIED');
 
     root = await realpath(requestedRoot);
-    if (root !== requestedRoot) return fail('HOST_INVENTORY_ROOT_ALIAS_UNSUPPORTED');
+    if (!allowSnapshotWithoutNoFollow && root !== requestedRoot) return fail('HOST_INVENTORY_ROOT_ALIAS_UNSUPPORTED');
     const rootStat = await lstat(root);
     if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) return fail('HOST_INVENTORY_ROOT_UNSAFE');
     initialRootIdentity = {
@@ -87,7 +88,7 @@ export async function enumerateStableFileInventory(rootPath) {
 
   // Validate the configured root before platform capability gating so invalid
   // paths retain precise failure codes on every supported OS.
-  if (typeof fsConstants.O_NOFOLLOW !== 'number') return fail('HOST_INVENTORY_PLATFORM_NOFOLLOW_UNAVAILABLE');
+  if (typeof fsConstants.O_NOFOLLOW !== 'number' && !allowSnapshotWithoutNoFollow) return fail('HOST_INVENTORY_PLATFORM_NOFOLLOW_UNAVAILABLE');
 
   async function scanOnce() {
     const entries = [];
@@ -133,7 +134,9 @@ export async function enumerateStableFileInventory(rootPath) {
 
         let handle;
         try {
-          const noFollow = fsConstants.O_NOFOLLOW;
+          const noFollow = typeof fsConstants.O_NOFOLLOW === 'number' ? fsConstants.O_NOFOLLOW : 0;
+          // On Windows this path is reachable only through a live VSS lease;
+          // the immutable snapshot plus the pre-scan reparse audit replaces O_NOFOLLOW.
           handle = await open(fullPath, fsConstants.O_RDONLY | noFollow);
           const openedBefore = await handle.stat();
           if (!openedBefore.isFile() || openedBefore.dev !== before.dev || openedBefore.ino !== before.ino) {
@@ -195,8 +198,9 @@ export async function enumerateStableFileInventory(rootPath) {
     if (firstDigest !== secondDigest) return fail('HOST_INVENTORY_UNSTABLE');
     return Object.freeze({
       status: 'complete',
-      root,
+      root: reportedRoot ?? root,
       file_count: second.length,
+      ...(snapshotId ? { snapshot_id: snapshotId } : {}),
       snapshot_sha256: secondDigest,
       entries: second,
       // Completeness is limited to this one configured root and the filesystem
@@ -206,5 +210,39 @@ export async function enumerateStableFileInventory(rootPath) {
   } catch (error) {
     return fail(typeof error?.message === 'string' && error.message.startsWith('HOST_INVENTORY_')
       ? error.message : 'HOST_INVENTORY_SCAN_FAILED');
+  }
+}
+
+
+/**
+ * Windows inventory is read only from a VSS point-in-time snapshot. The VSS
+ * provider audits FILE_ATTRIBUTE_REPARSE_POINT on every descendant before the
+ * scanner opens any file. If VSS or the reparse audit is unavailable, return
+ * NON_READY; never fall back to scanning the mutable live tree.
+ */
+export async function enumerateStableFileInventory(rootPath) {
+  if (process.platform !== 'win32') {
+    return enumerateStableFileInventoryOnRoot(rootPath);
+  }
+  try {
+    return await withWindowsVssSnapshot(rootPath, async lease => {
+      if (!isActiveWindowsVssSnapshot(lease)) return fail('HOST_INVENTORY_WINDOWS_SNAPSHOT_UNTRUSTED');
+      const inventory = await enumerateStableFileInventoryOnRoot(lease.snapshotRoot, {
+        allowSnapshotWithoutNoFollow: true,
+        reportedRoot: resolve(rootPath),
+        snapshotId: lease.snapshotId,
+      });
+      if (inventory.status !== 'complete') return inventory;
+      return Object.freeze({
+        ...inventory,
+        snapshot_provider: lease.provider,
+        snapshot_consistency: lease.consistency,
+        reparse_points: lease.reparsePoints,
+      });
+    });
+  } catch (error) {
+    const code = typeof error?.message === 'string' && error.message.startsWith('HOST_')
+      ? error.message : 'HOST_INVENTORY_WINDOWS_SNAPSHOT_UNAVAILABLE';
+    return fail(code);
   }
 }
