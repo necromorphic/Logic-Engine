@@ -426,6 +426,16 @@ static HANDLE WINAPI probe_create_file_w(
   }
 
   if (handle == INVALID_HANDLE_VALUE || !needs_identity) {
+    if (handle == INVALID_HANDLE_VALUE && needs_identity
+        && GetLastError() == ERROR_ACCESS_DENIED) {
+      /*
+       * The relative-open helper rejects a mismatched expected identity before
+       * returning a HANDLE. Count that rejection here as well as post-open
+       * identity failures so the adversarial tests observe both boundaries.
+       */
+      probe_counter_increment(&g_identity_reject_count);
+      if (is_sidecar) probe_counter_increment(&g_sidecar_identity_reject_count);
+    }
     if (injected_here) {
       g_current_race_open = 0;
       g_current_race_captured = 0;
