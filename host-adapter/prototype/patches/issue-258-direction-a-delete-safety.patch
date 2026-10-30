@@ -1,0 +1,205 @@
+diff --git a/public/script.js b/public/script.js
+index 88d815b..f237371 100644
+--- a/public/script.js
++++ b/public/script.js
+@@ -619,2 +619,4 @@ let this_edit_mes_chname = '';
+ let this_edit_mes_id = undefined;
++/** @type {object|undefined} Exact object selected when the message editor was opened. */
++let this_edit_mes_target = undefined;
+ 
+@@ -904,2 +906,3 @@ export async function selectCharacterById(id, { switchMenu = true } = {}) {
+             this_edit_mes_id = undefined;
++            this_edit_mes_target = undefined;
+             selected_button = 'character_edit';
+@@ -1716,8 +1719,15 @@ export async function clearChat({ clearData = false } = {}) {
+ export async function deleteLastMessage() {
++    if (!chat.length) return;
++    const targetChat = chat;
++    const targetLocator = getCurrentChatId();
++    const targetIndex = targetChat.length - 1;
++    const targetMessage = targetChat[targetIndex];
+     const lifecycleBridge = await getLogicEngineLifecycleBridge();
+-    const lifecycleBefore = chat.length
+-        ? await lifecycleBridge.beforeMutation('delete-message', [chat.length - 1])
+-        : { status: 'NOT_ENROLLED' };
+-    deleteItemizedPromptForMessage(chat.length - 1);
+-    chat.length = chat.length - 1;
++    const lifecycleBefore = await lifecycleBridge.beforeMutation('delete-message', [targetIndex]);
++    if (chat !== targetChat || getCurrentChatId() !== targetLocator
++        || chat[targetIndex] !== targetMessage || chat.length - 1 !== targetIndex) {
++        throw Error('Last-message target changed before deletion; operation aborted');
++    }
++    deleteItemizedPromptForMessage(targetIndex);
++    chat.length = targetIndex;
+     if (lifecycleBefore.status !== 'NOT_ENROLLED') await saveChatConditional();
+@@ -1753,12 +1763,28 @@ function getMessageDeletionStartId(id, deleteToolCalls = true) {
+  */
+-export async function deleteMessage(id, swipeDeletionIndex = undefined, askConfirmation = false, deleteToolCalls = true) {
++export async function deleteMessage(id, swipeDeletionIndex = undefined, askConfirmation = false, deleteToolCalls = true, expectedMessage = undefined) {
++    if (!Number.isInteger(id) || id < 0 || id >= chat.length) {
++        throw new RangeError('Message index is invalid or out of bounds');
++    }
++
++    const targetChat = chat;
++    const targetLocator = getCurrentChatId();
++    const targetMessage = targetChat[id];
++    if (!targetMessage || (expectedMessage !== undefined && targetMessage !== expectedMessage)) {
++        throw Error('Message target changed; deletion aborted');
++    }
++    const assertTargetUnchanged = () => {
++        if (chat !== targetChat || getCurrentChatId() !== targetLocator || chat[id] !== targetMessage) {
++            throw Error('Message target changed before deletion; operation aborted');
++        }
++    };
++
+     const canDeleteSwipe = swipeDeletionIndex !== undefined && swipeDeletionIndex !== null;
+     if (canDeleteSwipe) {
+-        if (swipeDeletionIndex < 0) {
+-            throw new Error('Swipe index cannot be negative');
++        if (!Number.isInteger(swipeDeletionIndex) || swipeDeletionIndex < 0) {
++            throw new Error('Swipe index is invalid or negative');
+         }
+-        if (!Array.isArray(chat[id].swipes)) {
++        if (!Array.isArray(targetMessage.swipes)) {
+             throw new Error('Message has no swipes to delete');
+         }
+-        if (chat[id].swipes.length <= swipeDeletionIndex) {
++        if (targetMessage.swipes.length <= swipeDeletionIndex) {
+             throw new Error('Swipe index out of bounds');
+@@ -1786,2 +1812,3 @@ export async function deleteMessage(id, swipeDeletionIndex = undefined, askConfi
+ 
++    assertTargetUnchanged();
+     if (deleteOnlySwipe) {
+@@ -1793,4 +1820,9 @@ export async function deleteMessage(id, swipeDeletionIndex = undefined, askConfi
+     const messageIds = Array.from({ length: id - firstMessageId + 1 }, (_, index) => id - index);
++    const deletedTargets = messageIds.map(messageId => targetChat[messageId]);
+     const lifecycleBridge = await getLogicEngineLifecycleBridge();
+     const lifecycleBefore = await lifecycleBridge.beforeMutation('delete-message', messageIds);
++    assertTargetUnchanged();
++    if (chat !== targetChat || messageIds.some((messageId, index) => chat[messageId] !== deletedTargets[index])) {
++        throw Error('Delete range changed before mutation; operation aborted');
++    }
+ 
+@@ -1813,2 +1845,3 @@ export async function deleteMessage(id, swipeDeletionIndex = undefined, askConfi
+         this_edit_mes_id = undefined;
++        this_edit_mes_target = undefined;
+     }
+@@ -7297,2 +7330,3 @@ export function setEditedMessageId(value) {
+     this_edit_mes_id = value;
++    this_edit_mes_target = Number.isInteger(value) ? chat[value] : undefined;
+ }
+@@ -8389,2 +8423,3 @@ export async function messageEdit(editMessageId) {
+     this_edit_mes_id = editMessageId;
++    this_edit_mes_target = editMessage;
+     this_edit_mes_chname = editMessage.name || (editMessage.is_user ? name1 : name2);
+@@ -8475,2 +8510,3 @@ async function messageEditCancel(messageId = this_edit_mes_id) {
+         this_edit_mes_id = undefined;
++        this_edit_mes_target = undefined;
+     } else {
+@@ -8570,2 +8606,3 @@ async function messageEditDone(div) {
+     this_edit_mes_id = undefined;
++    this_edit_mes_target = undefined;
+     await saveChatConditional();
+@@ -9478,2 +9515,9 @@ export function hideSwipeButtons({ hideCounters = false } = {}) {
+ export async function deleteSwipe(swipeId = null, messageId = chat.length - 1) {
++    if (!Number.isInteger(messageId) || messageId < 0 || messageId >= chat.length) {
++        toastr.warning(t`Invalid message ID.`);
++        return;
++    }
++    const targetChat = chat;
++    const targetLocator = getCurrentChatId();
++    const targetMessage = targetChat[messageId];
+     if (swipeId != null) {
+@@ -9486,3 +9530,3 @@ export async function deleteSwipe(swipeId = null, messageId = chat.length - 1) {
+ 
+-    const message = chat[messageId];
++    const message = targetMessage;
+     if (!message || !Array.isArray(message.swipes) || !message.swipes.length) {
+@@ -9505,4 +9549,16 @@ export async function deleteSwipe(swipeId = null, messageId = chat.length - 1) {
+ 
++    const targetSwipes = message.swipes;
++    const swipeSnapshot = targetSwipes.slice();
++    const targetSwipeInfo = message.swipe_info;
++    const swipeInfoSnapshot = Array.isArray(targetSwipeInfo) ? targetSwipeInfo.slice() : null;
+     const lifecycleBridge = await getLogicEngineLifecycleBridge();
+     await lifecycleBridge.beforeMutation('delete-swipe', [messageId], { swipeIndex: swipeId });
++    if (chat !== targetChat || getCurrentChatId() !== targetLocator || chat[messageId] !== targetMessage
++        || message.swipes !== targetSwipes || targetSwipes.length !== swipeSnapshot.length
++        || targetSwipes.some((value, index) => value !== swipeSnapshot[index])
++        || (swipeInfoSnapshot && (message.swipe_info !== targetSwipeInfo
++            || targetSwipeInfo.length !== swipeInfoSnapshot.length
++            || targetSwipeInfo.some((value, index) => value !== swipeInfoSnapshot[index])))) {
++        throw Error('Swipe target changed before deletion; operation aborted');
++    }
+     message.swipes.splice(swipeId, 1);
+@@ -10930,2 +10986,3 @@ export async function closeCurrentChat() {
+         this_edit_mes_id = undefined;
++        this_edit_mes_target = undefined;
+         chat_metadata = {};
+@@ -12162,7 +12219,19 @@ jQuery(async function () {
+         const fromSlashCommand = customData?.fromSlashCommand || false;
+-        const message = chat[this_edit_mes_id];
++        const editIndex = this_edit_mes_id;
++        const rawDomIndex = $(this).closest('.mes').attr('mesid');
++        const domIndex = rawDomIndex === undefined ? NaN : Number(rawDomIndex);
++        if (!Number.isInteger(editIndex) || editIndex < 0 || editIndex >= chat.length
++            || !Number.isInteger(domIndex) || domIndex !== editIndex || !chat[editIndex]) {
++            toastr.warning(t`The selected message is no longer available. Reopen message editing and try again.`);
++            return;
++        }
++        const message = chat[editIndex];
++        if (!this_edit_mes_target || message !== this_edit_mes_target) {
++            toastr.warning(t`The selected message changed. Reopen message editing and try again.`);
++            return;
++        }
+         const selectedSwipe = message.swipe_id ?? undefined;
+         const swipesArray = Array.isArray(message.swipes) ? message.swipes : [];
+-        const canDeleteSwipe = power_user.confirm_message_delete && !fromSlashCommand && !message.is_user && swipesArray.length > 1 && this_edit_mes_id === chat.length - 1 && selectedSwipe !== undefined;
+-        await deleteMessage(Number(this_edit_mes_id), canDeleteSwipe ? selectedSwipe : undefined, power_user.confirm_message_delete && fromSlashCommand !== true);
++        const canDeleteSwipe = power_user.confirm_message_delete && !fromSlashCommand && !message.is_user && swipesArray.length > 1 && editIndex === chat.length - 1 && selectedSwipe !== undefined;
++        await deleteMessage(editIndex, canDeleteSwipe ? selectedSwipe : undefined, power_user.confirm_message_delete && fromSlashCommand !== true, true, this_edit_mes_target);
+     });
+diff --git a/public/scripts/slash-commands.js b/public/scripts/slash-commands.js
+index 0c7eec5..ab60b1c 100644
+--- a/public/scripts/slash-commands.js
++++ b/public/scripts/slash-commands.js
+@@ -5057,6 +5057,8 @@ async function deleteMessagesByNameCallback(_, name) {
+ 
++    const targetChat = chat;
++    const targetLocator = getCurrentChatId();
+     const messagesToDelete = [];
+-    chat.forEach((value) => {
+-        if (value.name === name) {
+-            messagesToDelete.push(value);
++    targetChat.forEach((message, index) => {
++        if (message.name === name) {
++            messagesToDelete.push({ message, index });
+         }
+@@ -5069,8 +5071,15 @@ async function deleteMessagesByNameCallback(_, name) {
+ 
+-    for (const message of messagesToDelete) {
+-        const index = chat.indexOf(message);
+-        if (index !== -1) {
+-            console.debug(`/delname: Deleting message #${index}`, message);
+-            chat.splice(index, 1);
+-        }
++    const lifecycle = window.logicEngineHostLifecycle;
++    const messageIndexes = messagesToDelete.map(item => item.index);
++    const lifecycleBefore = lifecycle
++        ? await lifecycle.guardOperation('delete-message', messageIndexes, { source: 'slash-command-delname' })
++        : { status: 'NOT_ENROLLED' };
++    if (chat !== targetChat || getCurrentChatId() !== targetLocator
++        || messagesToDelete.some(item => chat[item.index] !== item.message)) {
++        throw Error('/delname targets changed before deletion; operation aborted');
++    }
++
++    for (const { message, index } of messagesToDelete.slice().reverse()) {
++        console.debug(`/delname: Deleting message #${index}`);
++        chat.splice(index, 1);
+     }
+@@ -5078,2 +5087,5 @@ async function deleteMessagesByNameCallback(_, name) {
+     await saveChatConditional();
++    if (lifecycleBefore.status !== 'NOT_ENROLLED') {
++        await lifecycle.completeOperation('delete-message', { source: 'slash-command-delname' });
++    }
+     await reloadCurrentChat();
