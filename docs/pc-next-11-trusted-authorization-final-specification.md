@@ -26,15 +26,16 @@ A missing, ambiguous, stale, incomplete, unsupported or unverifiable authority i
 
 ## 2. Normative architecture and ownership
 
-The protected path has three logical trust boundaries:
+The protected path has four logical trust boundaries:
 
-1. **Host session and egress boundary (PC-side):** authenticates the active SillyTavern session, resolves the active conversation and actor selection from server-side state, owns the dispatch attempt, serializes the exact outbound request and operates the sole protected outbound Gateway.
+1. **Host session/inventory boundary (PC-side):** authenticates the active SillyTavern session, resolves the active conversation and actor selection from server-side state, and supplies authenticated lifecycle/inventory evidence. It does not own final disclosure authorization or upstream transport.
 2. **Core authorization and canonical-state boundary:** derives authenticated adapter identity, resolves the conversation-to-world binding, validates the exact Host-selected actor binding, owns canonical source state and policy decisions, and supplies current source/version evidence.
 3. **Memory Provider evidence boundary:** owns record storage, record/query grants, provenance, lineage, reconciliation and readiness state. It supplies evidence, not canonical truth or final disclosure authority.
+4. **Security Gateway boundary (PC-side):** owns final disclosure authorization, the durable dispatch-start decision and the only upstream transport for every protected request. Host submits protected requests to this Gateway; it must not fall back to a direct provider route.
 
 NPC owns admission, belief and uncertainty semantics. It does not own canonical truth, acquisition identity, authorization, or model egress.
 
-**Host and Gateway are one logical Host-owned egress boundary.** They may be implemented in one PC process or in separate PC-side processes, but process topology does not change the contract: the Gateway must be PC-side, Host-owned, authenticated, and the sole transport for protected requests. A phone/client-side direct provider call is not an acceptable protected route. If separate processes are used, the IPC identity, credential custody, network boundary and shared-order participation must be proven. This document does not prescribe a particular deployment topology.
+**Host and Security Gateway are distinct authority roles.** They may be deployed in one PC process or separate PC-side processes, but the Gateway remains Security-owned and is the sole protected egress authority. The exact process topology, Host↔Gateway authentication, credential custody and network isolation are deployment gates. A phone/client-side direct provider call is never an acceptable protected route. All relevant processes must participate in the approved shared ordering boundary.
 
 ### 2.1 Authority ownership
 
@@ -209,9 +210,9 @@ Raw Host text capture/read/derived-copy/delete/purge is outside this first slice
 
 ### 9.1 Required target: Option B — shared serialized dispatch-start
 
-The target is one enforceable PC-side serialization order shared by every relevant invalidation writer and the protected Gateway. This is required to satisfy the integration objective of unified dispatch-start ordering. Boundary revalidation alone is not treated as sufficient for Lane B.
+The target is the approved PC-side shared serialization order from binding ADR #809 and the bounded in-flight policy decision #356. Every relevant invalidation writer and the protected Gateway must participate. Boundary revalidation alone is not sufficient for Lane B.
 
-The linearization point is the **durable commit of `DISPATCH_STARTED`** for the exact immutable request. The Gateway must not hand protected bytes to the network before that commit.
+The linearization point is the **durable commit of `DISPATCH_STARTED`** for the exact immutable request. The Gateway then synchronously invokes the actual transport-start callback while still holding the shared Coordinator lease; it releases the lease before awaiting the response/stream. The callback must initiate the actual network request before returning its Promise and must not defer initiation behind an await, timer, queue or callback.
 
 Operations that must participate in the same order include:
 
@@ -230,7 +231,7 @@ If any relevant writer can commit outside the order, the atomicity claim is fals
 - **Ambiguous state:** if ordering, authority or recovery state cannot be established, fail closed. An already-started ambiguous request remains UNKNOWN/in-flight until resolved under a separately approved manual/retry policy.
 - **Duplicate identity:** the same request ID and same exact binding is idempotently rejected from creating a second disclosure; same request ID with changed payload or binding is a conflict and denied.
 
-The coordinator lease must not be held across network I/O. The durable dispatch-start is the authorization/ordering boundary; transport invocation follows it exactly once. The product/security policy for timeout, cancellation, manual retry and in-flight resolution must be approved before implementation.
+The coordinator lease must not be held across an awaited network response/stream. The synchronous transport-start callback itself is invoked while the lease is held, immediately after durable dispatch-start; the lease is then released before awaiting the returned Promise. Timeout, cancellation, manual retry and in-flight resolution must follow the already-approved #356 boundary and deployment/release controls in ADR #809.
 
 ### 9.3 Mechanism is not preselected
 
@@ -269,7 +270,7 @@ Detailed reason codes, component, correlation ID and minimal safe identifiers ar
 
 Implementation must follow this order; later packages cannot claim acceptance while an earlier dependency is absent.
 
-1. **WP-1 — Owner decision freeze:** record cross-owner acceptance of Option B; approve first slice Lane B; approve policy authority/fingerprint schema; approve Host session/envelope contract; approve PC-side Gateway topology, credential custody and in-flight retry policy.
+1. **WP-1 — Approved-contract baseline and deployment decisions:** record ADR #809 and issue #356 as binding architectural/policy approvals; verify the approved Lane A/Lane B separation, Host identity envelope, Core binding, Gateway role and dispatch-start semantics. Do not reopen those decisions. Resolve only deployment-specific details not fixed by the ADR: Host↔Gateway authentication and topology, credential provisioning/rotation, effective PC ACL/process identities, backup/restore separation, and operational timeout/cancellation/manual-retry procedure.
 2. **WP-2 — Core trusted composition:** one server-side composition root creates trusted authorizers; authenticated adapter and Core-owned conversation/world binding; exact Host-selected actor validation; fail-closed policy and source-version checks; no caller-supplied authority.
 3. **WP-3 — Host session and inventory:** authenticated session/generation; stable conversation and actor binding; durable source identity/version; explicit complete/incomplete/unknown inventory; no false completeness.
 4. **WP-4 — Provider reconciliation:** authenticated accepted Host inventory; exact record/source version and lineage; grants/revocation/readiness; complete-empty distinguished from incomplete/denied; no READY without real verifier.
@@ -278,7 +279,7 @@ Implementation must follow this order; later packages cannot claim acceptance wh
 7. **WP-7 — Integrated acceptance:** deterministic multi-process races, crash/restart, ambiguous-send, replay, restore and complete route-coverage tests on an isolated deployment with exact SHAs.
 8. **WP-8 — Independent security review and release:** exact-head source review, CI, PC evidence and explicit separate release approval. No automatic activation after tests.
 
-No API/schema/runtime implementation begins before the required owner approvals and the second explicit Core approval required by issue #264.
+The cross-block contract and implementation authority were explicitly approved in merged ADR #809 under the project owner's delegated authority. The earlier second-Core-approval gate in issue #264 is satisfied for the approved contract. This does not waive exact-diff review, CI, independent security evidence, deployment gates or the separate production release decision. Any deviation from ADR #809 requires a new explicit decision before implementation.
 
 ## 13. Acceptance test matrix
 
@@ -358,20 +359,23 @@ Evidence classes: SOURCE, CI, PC-READONLY, PC-FIXTURE, PC-RUNTIME, INDEPENDENT-S
 
 No vectorization, embedding, VectorService, Ollama, Vectra or remote vector-store work is in scope. Do not rerun already accepted test families without a code-specific reason. PC tests begin only after a real isolated candidate path exists.
 
-## 15. Owner approval record required before implementation
+## 15. Approval state and remaining implementation/release gates
 
-The technical target is defined above. The following approvals remain external gates and must be recorded against the exact implementation diff:
+The architectural contract is already approved by the project owner’s delegated coordinator authority and recorded in the merged [ADR #809](https://github.com/necromorphic/Logic-Engine/blob/main/docs/architecture/2026-10-30-approved-cross-block-integration-contract.md). The bounded in-flight dispatch-start policy is approved for implementation under [issue #356](https://github.com/necromorphic/Logic-Engine/issues/356). The second Core approval required by issue #264 is therefore satisfied for the approved contract; it must not be requested again as a generic prerequisite.
 
-| Owner | Required approval |
+The following are **implementation/release evidence gates**, not outstanding semantic approvals:
+
+| Owner | Required implementation evidence / remaining gate |
 |---|---|
-| Core | Policy authority owner/generation/fingerprint schema; canonical source predicate; all Core writer participation; exact source-version checks |
-| Host | Authenticated session/generation envelope; stable actor/conversation binding; complete inventory evidence; sole PC Gateway and all-sender coverage |
-| Memory Provider | Record/query grants, revocation, lineage, reconciliation/readiness and participation in the same serialization order |
-| Security/Operations | Actual opened-file identity, process/ACL boundary, backup/restore and dispatch-ledger anti-rollback |
-| Joint Core + Host + Memory | Map the already-approved #356 dispatch-start policy onto the exact shared mechanism; enumerate every participating writer and prove durable dispatch-start, UNKNOWN/no-auto-retry recovery and no bypass. Do not reopen the approved policy boundary. |
-| Product/Security | Approve/confirm PC-side deployment topology, phone-to-PC authentication, credential custody/rotation, target-PC ACL and independent backup/restore boundary, audit/retention limits, timeout/cancellation and manual retry procedure. Raw Host text remains disabled; the #356 in-flight policy decision is already approved for implementation review. |\n| Project owner / release authority | Explicit production release approval after exact-head acceptance |
+| Core | Production composition of authenticated adapter/session→world and adapter→actor bindings; policy/visibility authority wired fail-closed; all relevant Core writers participate in the shared serialization boundary; exact source-version checks. |
+| Host | Approved session identity implemented against the pinned ST runtime; complete active + historical + alternate + deleted inventory and restore proof; exact route/callsite inventory; every protected sender handed to the sole PC Gateway. |
+| Memory Provider | Approved record/query grants, revocation, lineage, reconciliation/readiness and participation in the same serialization order; no unsupported Host tuple → Provider record mapping. |
+| Security/Operations | Actual opened-file identity for all protected DBs and sidecars; process/ACL boundary; independent accepted-head and backup/restore anti-rollback proof. |
+| Joint Core + Host + Memory | Exact compatible SHAs; every validity-changing writer and Gateway participates in the same coordinator order; synchronous transport-start occurs under the lease after durable dispatch-start; lease is released before awaiting network response; deterministic zero-egress and UNKNOWN/no-retry race evidence. |
+| Product/Security / deployment | Concrete PC-side Host↔Gateway topology; authenticated Host↔Gateway and phone↔PC channel as applicable; credential provisioning/rotation; target-PC ACL and independent backup/restore domain; default-off content logging/retention; timeout/cancellation/manual retry procedure. Raw Host message text remains disabled. |
+| Project owner / release authority | Separate explicit production release decision after all conjunctive ADR §9 gates pass. |
 
-Issue #264's second explicit Core approval remains required before any cross-block API/schema/implementation change. This specification does not replace that approval.
+No production activation follows automatically from ADR #809 or passing tests. All release gates in ADR #809 §9 remain conjunctive.
 
 ## 16. Source and decision traceability
 
@@ -385,14 +389,16 @@ This specification is grounded in the following current-main contracts and imple
 - `docs/pc-next-09-core-provider-egress-writer-matrix.md`: known writer/callsite inventory; explicitly not a completeness certificate.
 - `docs/pc-next-10-priority1-integration-execution-work-order.md`: ordered execution and strict exclusions.
 - GitHub issue #258: pinned SillyTavern lifecycle/inventory evidence.
-- GitHub issue #264: global Host→Provider gate and second explicit Core approval.
+- GitHub issue #264: global Host→Provider evidence gate; cross-block contract approval is recorded in merged ADR #809.
+- GitHub issue #356: approved bounded in-flight dispatch-start policy for implementation review.
 - GitHub issue #770: SQLite actual-opened-object TOCTOU/security gate.
+- Merged ADR #809: binding cross-block authority, Lane A/Lane B, Host identity envelope, sole Gateway, dispatch-start, anti-rollback and conjunctive release gates.
 
 ### Reconciled conflict
 
 The approved private adapter contract's §7.2 allows fail-closed boundary revalidation and explicitly does not promise linearizable revocation/dispatch. The Core-owned final-disclosure contract requires a shared serialized dispatch-start order for protected Memory-derived payloads. These guarantees cannot be silently treated as identical.
 
-For this integration's stated goal, this specification selects **Option B as the required target architecture**. The bounded in-flight dispatch-start policy has already been explicitly approved for implementation review under issue #356 (including the durable `DISPATCH_STARTED` linearization point, pre-start zero-egress rule, post-start in-flight boundary and no automatic retry for ambiguous outcomes). This specification does not reopen that policy decision. The affected owners must still approve the exact implementation mapping, writer participation, deployment topology and evidence before implementation/release. Until then Lane B remains NON_READY and production egress remains disabled.
+For this integration's stated goal, **Option B is the approved target architecture**, not a new proposal. ADR #809 binds the implementation details: durable `DISPATCH_STARTED`, synchronous actual transport initiation while holding the shared Coordinator lease, then release before awaiting the response/stream. Issue #356 records the bounded in-flight policy and no-automatic-retry semantics. The remaining work is implementation, exact-writer/route proof, deployment security evidence and release acceptance—not another semantic approval round. Until those gates pass, Lane B remains NON_READY and production egress remains disabled.
 
 ## 17. Change log
 
