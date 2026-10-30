@@ -9,7 +9,7 @@ const STANCES = new Set([
 ]);
 
 const isPlainObject = (value) => {
-  if (value === null || typeof value !== 'object' || Array.isArray(value) || utilTypes.isProxy(value)) return false;
+  if (value === null || typeof value !== 'object' || utilTypes.isProxy(value) || Array.isArray(value)) return false;
   try {
     const prototype = Object.getPrototypeOf(value);
     if (prototype !== Object.prototype && prototype !== null) return false;
@@ -24,7 +24,7 @@ const isPlainObject = (value) => {
 };
 
 const isDenseDataArray = (value, maxLength = 10000) => {
-  if (!Array.isArray(value) || utilTypes.isProxy(value) || value.length > maxLength) return false;
+  if (utilTypes.isProxy(value) || !Array.isArray(value) || value.length > maxLength) return false;
   try {
     if (Object.getPrototypeOf(value) !== Array.prototype) return false;
     const keys = Reflect.ownKeys(value);
