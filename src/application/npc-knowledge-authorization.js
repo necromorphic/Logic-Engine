@@ -1,3 +1,5 @@
+import { types as utilTypes } from 'node:util';
+
 const validId = value => typeof value === 'string' && value === value.trim()
   && value.length > 0 && value.length <= 200
   && ![...value].some(character => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127);
@@ -44,7 +46,7 @@ export function createHostBoundNpcKnowledgeAuthorizers({
    */
   function resolveContext(identity) {
     try {
-      if (!identity || typeof identity !== 'object' || Array.isArray(identity)
+      if (!identity || typeof identity !== 'object' || utilTypes.isProxy(identity) || Array.isArray(identity)
         || ![Object.prototype, null].includes(Object.getPrototypeOf(identity))
         || Reflect.ownKeys(identity).length !== 2
         || !Reflect.ownKeys(identity).every(key => key === 'adapter_id' || key === 'conversation_id')
