@@ -1602,7 +1602,7 @@ test('NPC read and full belief-context authorization hold the shared Coordinator
   const readRequest = request(store);
   const read = engine.readNpcKnowledge(readRequest);
   assert.equal(read.status, 'ready');
-  assert.equal(blockedRevocationAttempts, 1);
+  assert.equal(blockedRevocationAttempts, 2);
 
   const proposal = {
     world_id: read.world_id,
@@ -1617,14 +1617,14 @@ test('NPC read and full belief-context authorization hold the shared Coordinator
   };
   const prepared = engine.prepareNpcBeliefContext(readRequest, proposal);
   assert.equal(prepared.status, 'ready');
-  assert.equal(blockedRevocationAttempts, 3);
+  assert.equal(blockedRevocationAttempts, 6);
 
   const beliefState = engine.getNpcBeliefState({
     ...readRequest,
     proposition_ref: proposal.proposition_ref,
   });
   assert.equal(beliefState.status, 'unknown');
-  assert.equal(blockedRevocationAttempts, 5);
+  assert.equal(blockedRevocationAttempts, 20);
 
   const recorded = engine.recordNpcBeliefTransition({
     ...readRequest,
