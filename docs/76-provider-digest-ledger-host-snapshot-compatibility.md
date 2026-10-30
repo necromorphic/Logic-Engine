@@ -47,3 +47,19 @@ The current Host prototype does not yet emit this approved envelope. In particul
 ## Acceptance boundary
 
 PR #390 is a Provider-local draft and unit tests are not real Host-to-Provider integration evidence. Do not merge or wire it into Memory→NPC until Core and Host approve the exact envelope and the actual Host snapshot producer/validator is implemented and tested against the pinned ST build. Memory→NPC remains **DISABLED / FAIL-CLOSED**. Ollama/VectorService remains out of scope.
+
+
+## 30 Oct 2026 — authenticated snapshot transport candidate
+
+Draft candidate `host/host-version-snapshot-reconcile-api-2026-10-30` adds `POST /v1/host-version-ledger/reconcile` as a transport projection of the existing `HostVersionDigestLedger.reconcileConversation()` contract:
+
+- requires the existing configured adapter ID/token;
+- resolves `conversation_id` through the existing Core-owned Host conversation binding and derives `world_id` inside Core;
+- accepts only `conversation_id`, `complete`, and bounded `versions[]` rows containing message/version IDs, explicit parent, SHA-256 digest, active and deleted flags;
+- rejects caller-supplied `world_id`, raw text and unknown fields;
+- bounds the body to 8 MiB and the snapshot to 25,000 version rows;
+- returns READY only when the existing ledger reconciliation method returns `ready`; otherwise it returns 409 / NON_READY.
+
+This reuses the existing snapshot method and its validation, preflight, monotonic-anchor and rollback behavior; it adds no cursor, outbox, raw-text storage or new database schema. The route is a new HTTP exposure of the existing method and remains Draft pending Core contract review.
+
+**Production remains fail-closed:** `src/index.js` still configures `verifyInventorySnapshot: async () => false`. Therefore the production route cannot publish READY and does not mutate the ledger for an untrusted snapshot. Tests inject a positive verifier only to prove the route-to-ledger mapping. The ST lifecycle bridge does not yet call this route; it still publishes individual digest captures and remains REVIEW_ONLY while mutation-path coverage is incomplete.
