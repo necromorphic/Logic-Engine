@@ -1638,7 +1638,7 @@ test('NPC read and full belief-context authorization hold the shared Coordinator
   });
   assert.equal(recorded.status, 'ready');
   assert.equal(recorded.idempotent_replay, false);
-  assert.equal(blockedRevocationAttempts, 10);
+  assert.equal(blockedRevocationAttempts, 20);
   assert.equal(store.db.prepare(
     'SELECT active FROM host_conversation_world_bindings WHERE adapter_id=? AND conversation_id=?'
   ).get(binding.adapter_id, binding.conversation_id).active, 1);
