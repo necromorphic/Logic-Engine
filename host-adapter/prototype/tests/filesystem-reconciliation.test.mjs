@@ -19,7 +19,7 @@ class DB {rows=new Map();heads=new Map();transaction(){return new Tx(this);}fini
 const root='/disposable/st-data';
 const scan=(unused='a'.repeat(64),textHash='b'.repeat(64))=>{
  const entries=[{path:'chats/a.jsonl',identity:{dev:'1',ino:'2',size:4,mtimeMs:1,ctimeMs:1},sha256:textHash}];
- return {status:'complete',scope:'single-root-regular-files-only',root,file_count:1,snapshot_sha256:createHash('sha256').update(JSON.stringify(entries)).digest('hex'),entries};
+ return {status:'complete',scope:'single-root-regular-files-only',root,file_count:1,snapshot_sha256:createHash('sha256').update(JSON.stringify(entries)).digest('hex'),snapshot_id:'00000000-0000-0000-0000-000000000001',snapshot_provider:'windows-vss-client-accessible',snapshot_consistency:'VSS_POINT_IN_TIME_READ_ONLY',reparse_points:'ALL_FILE_ATTRIBUTE_REPARSE_POINT_ENTRIES_REJECTED',entries};
 };
 async function fixture(){const journal=new HostLifecycleJournal(new DB());await journal.enroll({conversationId:'chat',sourceFingerprint:'chat-fp',messages:[]});return journal;}
 
