@@ -183,6 +183,7 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
     );
   }
 
+  let aliasPathOpenCountDelta = 0;
   // A registered DB opened through a symlinked parent alias must either
   // fail closed or keep later sidecars on the pinned parent if xFullPathname
   // resolves the alias to the exact enrolled role path.
@@ -194,6 +195,9 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
     mkdirSync(canonicalParent);
     symlinkSync(canonicalParent, aliasParent, 'dir');
     registerRole(canonicalDbPath, 'canonical-alias');
+    const aliasOpenCountBefore = roleRegistrar.prepare(
+      'SELECT logic_engine_vfs_probe_open_count() AS count'
+    ).get().count;
     let aliasDb = null;
     try {
       aliasDb = new DatabaseSync(join(aliasParent, 'alias.sqlite'));
@@ -629,7 +633,7 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
   try {
     second.exec('CREATE TABLE probe(value TEXT);');
     const opened = second.prepare('SELECT logic_engine_vfs_probe_open_count() AS count').get().count;
-    const expectedOpenCount = process.platform === 'win32' ? 12 : 14;
+    const expectedOpenCount = (process.platform === 'win32' ? 12 : 14) + aliasPathOpenCountDelta;
     assert.equal(opened, expectedOpenCount,
       'the VFS must remain registered across worker, Core, reader, journal, journal-race, SHM-race, coordinator and Windows/POSIX directory-anchor connections');
 
