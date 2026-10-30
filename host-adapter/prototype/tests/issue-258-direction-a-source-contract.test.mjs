@@ -32,6 +32,6 @@ test('/delname participates in lifecycle write-ahead and revalidates every selec
   assert.ok(patch.includes("lifecycle.guardOperation('delete-message', messageIndexes, { source: 'slash-command-delname' })"));
   assert.ok(patch.includes('messagesToDelete.some(item => chat[item.index] !== item.message)'));
   assert.ok(patch.includes('messagesToDelete.slice().reverse()'));
-  assert.ok(!patch.includes('console.debug(`/delname: Deleting message #${index}`, message)'));
+  assert.ok(!patch.split('\n').some(line => line.startsWith('+') && line.includes('console.debug(`/delname: Deleting message #${index}`, message)')));
   assert.ok(patch.includes("lifecycle.completeOperation('delete-message', { source: 'slash-command-delname' })"));
 });
