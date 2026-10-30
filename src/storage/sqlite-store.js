@@ -93,7 +93,7 @@ const parseRelationshipRef = (value) => {
     return subjectId && targetId ? { subjectId, targetId } : null;
   } catch { return null; }
 };
-const refs = (effects) => effects.flatMap((e) => e.kind === 'knowledge.acquire' ? [] : [e.kind === 'relationship.transition'
+const refs = (effects) => effects.flatMap((e) => e.kind === 'knowledge.acquire' || e.kind === 'npc.belief.transition' ? [] : [e.kind === 'relationship.transition'
   ? relationshipRef(e.subject_id, e.target_id)
   : e.kind.startsWith('entity.') ? 'entity:' + e.entity_id
     : e.kind.startsWith('mechanic.instance.') ? 'mechanic:' + e.instance_id : 'fact:' + e.fact_id]);
@@ -740,6 +740,43 @@ export class SQLiteStore {
             }
             insert.run(entity.world_id, entity.entity_id, baseline, stamp);
           }
+        },
+      },
+      {
+        version: 16,
+        apply: () => {
+          this.db.exec(`CREATE TABLE IF NOT EXISTS npc_belief_transitions(
+            world_id TEXT NOT NULL REFERENCES worlds(world_id),
+            transition_id TEXT NOT NULL,
+            actor_id TEXT NOT NULL,
+            proposition_ref TEXT NOT NULL,
+            proposition_value_json TEXT NOT NULL,
+            stance TEXT NOT NULL CHECK(stance IN ('believes_true','believes_false','suspects_true','suspects_false','unresolved_conflict')),
+            supporting_acquisition_ids_json TEXT NOT NULL,
+            contradicting_acquisition_ids_json TEXT NOT NULL,
+            evidence_acquisition_ids_json TEXT NOT NULL,
+            reason_rule_ref TEXT NOT NULL,
+            idempotency_key TEXT NOT NULL,
+            request_hash TEXT NOT NULL,
+            snapshot_revision INTEGER NOT NULL,
+            snapshot_commit_sequence INTEGER NOT NULL,
+            event_id TEXT NOT NULL,
+            committed_revision INTEGER NOT NULL,
+            PRIMARY KEY(world_id,transition_id),
+            UNIQUE(world_id,event_id),
+            UNIQUE(world_id,idempotency_key),
+            FOREIGN KEY(world_id,event_id) REFERENCES world_events(world_id,event_id)
+          );
+          CREATE INDEX IF NOT EXISTS npc_belief_transitions_current
+            ON npc_belief_transitions(world_id,actor_id,proposition_ref,committed_revision);`);
+        },
+      },
+
+      {
+        version: 17,
+        apply: () => {
+          this.db.exec(`ALTER TABLE knowledge_acquisitions ADD COLUMN acquired_value_json TEXT;
+            ALTER TABLE knowledge_acquisitions ADD COLUMN acquired_source_event_ids_json TEXT;`);
         },
       },
     ];
@@ -2772,6 +2809,7 @@ export class SQLiteStore {
     this.db.prepare('DELETE FROM fact_claims WHERE world_id=?').run(id);
     this.db.prepare('DELETE FROM relationships WHERE world_id=?').run(id);
     this.db.prepare('DELETE FROM knowledge_acquisitions WHERE world_id=?').run(id);
+    this.db.prepare('DELETE FROM npc_belief_transitions WHERE world_id=?').run(id);
     const upsertEntity = this.db.prepare(`INSERT INTO entities(
       world_id,entity_id,entity_type,status,attributes_json,created_by_event_id,updated_revision
     ) VALUES(?,?,?,?,?,?,?) ON CONFLICT(world_id,entity_id) DO UPDATE SET
@@ -2838,8 +2876,9 @@ export class SQLiteStore {
 
     // Derived projection only: canonical valid world_events remain the authority.
     const insertAcquisition = this.db.prepare(`INSERT INTO knowledge_acquisitions(
-      world_id,acquisition_id,subject_id,fact_id,acquisition_kind,provenance_ref,provenance_digest,authorization_ref,event_id,committed_revision
-    ) VALUES(?,?,?,?,?,?,?,?,?,?)`);
+      world_id,acquisition_id,subject_id,fact_id,acquisition_kind,provenance_ref,provenance_digest,authorization_ref,event_id,committed_revision,
+      acquired_value_json,acquired_source_event_ids_json
+    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`);
     const eligibleSubjects = new Set(this.db.prepare("SELECT entity_id FROM entities WHERE world_id=? AND status<>'destroyed'").all(id).map((row) => row.entity_id));
     const eligibleFacts = new Set(this.db.prepare("SELECT fact_id,source_event_ids_json FROM facts WHERE world_id=? AND status='active'").all(id)
       .filter((row) => dec(row.source_event_ids_json).length > 0).map((row) => row.fact_id));
@@ -2847,8 +2886,37 @@ export class SQLiteStore {
       for (const effect of dec(event.effects_json)) {
         if (effect.kind !== 'knowledge.acquire') continue;
         if (!eligibleSubjects.has(effect.subject_id) || !eligibleFacts.has(effect.fact_id)) continue;
+        // Old events without an acquisition-time version remain unprojected/fail-closed.
+        if (!Object.hasOwn(effect, 'acquired_value') || !Array.isArray(effect.acquired_source_event_ids)) continue;
         insertAcquisition.run(id, effect.acquisition_id, effect.subject_id, effect.fact_id, effect.acquisition_kind,
-          effect.provenance_ref, effect.provenance_digest, effect.authorization_ref, event.event_id, event.committed_revision);
+          effect.provenance_ref, effect.provenance_digest, effect.authorization_ref, event.event_id, event.committed_revision,
+          enc(effect.acquired_value), enc(effect.acquired_source_event_ids));
+      }
+    }
+
+
+    // Belief transitions are derived from typed canonical event effects too.
+    const insertBeliefTransition = this.db.prepare(`INSERT INTO npc_belief_transitions(
+      world_id,transition_id,actor_id,proposition_ref,proposition_value_json,stance,
+      supporting_acquisition_ids_json,contradicting_acquisition_ids_json,
+      evidence_acquisition_ids_json,reason_rule_ref,idempotency_key,request_hash,
+      snapshot_revision,snapshot_commit_sequence,event_id,committed_revision
+    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
+    for (const event of events) {
+      for (const effect of dec(event.effects_json)) {
+        if (effect.kind !== 'npc.belief.transition') continue;
+        if (event.event_type !== 'npc.belief.transitioned' || effect.transition_id !== event.event_id) {
+          throw new EngineError('NPC_BELIEF_PROJECTION_REBUILD_FAILED',
+            'Canonical NPC belief transition payload must match its event type and identity.', 500,
+            { event_id: event.event_id });
+        }
+        insertBeliefTransition.run(
+          id, effect.transition_id, effect.actor_id, effect.proposition_ref, enc(effect.proposition_value), effect.stance,
+          enc(effect.supporting_acquisition_ids), enc(effect.contradicting_acquisition_ids),
+          enc(effect.evidence_acquisition_ids), effect.reason_rule_ref, effect.idempotency_key,
+          effect.request_hash, effect.snapshot_revision, effect.snapshot_commit_sequence,
+          event.event_id, event.committed_revision,
+        );
       }
     }
   }
