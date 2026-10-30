@@ -616,8 +616,8 @@ This validates the isolated admission/reducer candidate and existing component/i
 
 #### Current Core candidate
 
-- Current main: 8e6aa5f7b585a007f7acea57dff2ab52c229bb3b.
-- Core candidate: [Draft PR #721](https://github.com/necromorphic/Logic-Engine/pull/721), current review head 8b7312e21113d26bb8d3e495cdebc79e36fac223; comparison to current main: ahead 42 / behind 0. It remains a separate Core-owned draft; no Core implementation was copied into this NPC PR.
+- Current main: 20c4ab122e44982eb7fae80062c449bfd9f7931d.
+- Core candidate: [Draft PR #721](https://github.com/necromorphic/Logic-Engine/pull/721), current review head 4c8df1118e518146fec2940ed1305912edebbbf9; comparison to current main: ahead 46 / behind 0. It remains a separate Core-owned draft; no Core implementation was copied into this NPC PR.
 - The candidate includes actor-scoped Core acquisition reads, acquisition-time value/source-event pins, A → rollback → same fact ID becomes B rejection until explicit reacquisition, canonical-event-backed belief transition projection/rebuild, and adapter/recipient scope propagation through read, visibility and idempotent replay.
 - Version-pinned acquisition semantics are already selected by Core #140. This is implementation review, not a new policy decision.
 
@@ -646,7 +646,7 @@ The three full-suite failures were isolated from NPC tests:
 2. memory-provider-coordinator-lock.test.js: 4-second child-process marker timeout;
 3. replay-benchmark.test.js: 120-second child-process timeout (spawnSync.status === null).
 
-The latest #721 candidate extends the two process-startup waits to 15 seconds, the benchmark child/test budget to 300/310 seconds, and the full Windows Runtime job budget to 15 minutes. These are CI/test robustness changes; they do not change runtime semantics. Exact-head workflows for 8b7312e21113d26bb8d3e495cdebc79e36fac223 were queued at this matrix update; no pass is claimed until they complete.
+The latest #721 candidate extends the two process-startup waits to 15 seconds, the benchmark child/test budget to 300/310 seconds, and the full Windows Runtime job budget to 15 minutes. These are CI/test robustness changes; they do not change runtime semantics. Exact-head Runtime run [#41019981157](https://github.com/necromorphic/Logic-Engine/actions/runs/41019981157) on 4c8df111 has npc-boundary PASS and core-trusted-acquisition PASS; Provider run [#41019980836](https://github.com/necromorphic/Logic-Engine/actions/runs/41019980836) has runtime-linux PASS and provider-acceptance PASS. The Windows full test job is still in progress; no full Runtime pass is claimed yet.
 
 #### Remaining acceptance gaps
 
@@ -657,3 +657,14 @@ The latest #721 candidate extends the two process-startup waits to 15 seconds, t
 - No final Host/Core/Provider revoke-vs-DISPATCH_STARTED race is demonstrated.
 
 Disposition remains NOT ACCEPTED. Production Memory → NPC remains DISABLED / FAIL-CLOSED. The Core candidate is not merged; no production route, prompt injection, or outbound dispatch was enabled.
+
+
+### 12.13 NPC branch exact-head verification after main synchronization
+
+- PR #695 HEAD: d7210758cc202c7486d29dad10f0139ede3ed18c.
+- Current-main comparison: 17 ahead / 0 behind; exactly eight changed paths, all NPC/workflow/test-owned.
+- Runtime [#41019771860](https://github.com/necromorphic/Logic-Engine/actions/runs/41019771860): test, npc-boundary and core-trusted-acquisition all PASS.
+- Provider [#41019771863](https://github.com/necromorphic/Logic-Engine/actions/runs/41019771863): runtime-linux and provider-acceptance both PASS.
+- This validates the NPC-local admission/reducer candidate and existing component integration tests. It does not validate the separate Core reader draft #721 or any production Host runtime path.
+
+PR #695 remains Draft / NOT ACCEPTED. Memory → NPC remains DISABLED / FAIL-CLOSED.
