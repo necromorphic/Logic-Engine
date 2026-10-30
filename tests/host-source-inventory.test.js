@@ -8,6 +8,7 @@ import {
   HostSourceInventoryError,
   readBoundedFileHandle,
 } from '../host-adapter/prototype/st-source-inventory.mjs';
+import { createHostInventoryHandler } from '../host-adapter/prototype/st-host-inventory-handler.mjs';
 
 const PINNED = '06bde939fb1e9c4c8d8641d810f0a916b5bce127';
 
@@ -20,13 +21,13 @@ async function fixture() {
   };
   await Promise.all(Object.values(directories).map(directory => mkdir(directory, { recursive: true })));
   await mkdir(path.join(directories.chats, 'character-a'));
-  await writeFile(path.join(directories.chats, 'root-chat.jsonl'), '[{"mes":"root"}]\n');
-  await writeFile(path.join(directories.chats, 'character-a', 'chat-a.jsonl'), '[{"mes":"character"}]\n');
+  await writeFile(path.join(directories.chats, 'root-chat.jsonl'), '{"chat_metadata":{"logic_engine_conversation_id":"00000000-0000-4000-8000-000000000001"}}\n{"mes":"root"}\n');
+  await writeFile(path.join(directories.chats, 'character-a', 'chat-a.jsonl'), '{"chat_metadata":{"logic_engine_conversation_id":"00000000-0000-4000-8000-000000000002"}}\n{"mes":"character"}\n');
   await writeFile(path.join(directories.groups, 'group-a.json'), JSON.stringify({
     id: 'group-a',
     chats: ['group-chat-a'],
   }));
-  await writeFile(path.join(directories.groupChats, 'group-chat-a.jsonl'), '[{"mes":"group"}]\n');
+  await writeFile(path.join(directories.groupChats, 'group-chat-a.jsonl'), '{"chat_metadata":{"logic_engine_conversation_id":"00000000-0000-4000-8000-000000000003"}}\n{"mes":"group"}\n');
   return { root, directories, cleanup: () => rm(root, { recursive: true, force: true }) };
 }
 
@@ -151,4 +152,79 @@ test('bounded file-handle reader rejects an append during read without consuming
   );
   assert.equal(totalRead, 5);
   assert.equal(position, 5);
+});
+
+
+test('extracts persisted conversation UUIDs and rejects duplicate identities', async t => {
+  const value = await fixture();
+  t.after(value.cleanup);
+  await writeFile(path.join(value.directories.chats, 'character-a', 'chat-a.jsonl'),
+    '{"chat_metadata":{"logic_engine_conversation_id":"00000000-0000-4000-8000-000000000001"}}\\n{"mes":"duplicate"}\\n');
+  await assert.rejects(scan(value.directories), error =>
+    error instanceof HostSourceInventoryError && error.code === 'SOURCE_CONVERSATION_ID_DUPLICATE');
+});
+
+test('marks current-file identity incomplete when a persisted conversation UUID is absent', async t => {
+  const value = await fixture();
+  t.after(value.cleanup);
+  await writeFile(path.join(value.directories.chats, 'character-a', 'chat-a.jsonl'),
+    '{"chat_metadata":{}}\\n{"mes":"legacy"}\\n');
+  const result = await scan(value.directories);
+  assert.equal(result.current_file_identity_status, 'INCOMPLETE_MISSING_PERSISTED_UUID');
+  assert.ok(result.blockers.includes('MISSING_PERSISTED_CONVERSATION_UUID'));
+});
+
+test('rejects malformed chat headers and malformed persisted UUIDs', async t => {
+  const value = await fixture();
+  t.after(value.cleanup);
+  const target = path.join(value.directories.chats, 'root-chat.jsonl');
+  await writeFile(target, 'not-json\\n{"mes":"bad header"}\\n');
+  await assert.rejects(scan(value.directories), error =>
+    error instanceof HostSourceInventoryError && error.code === 'SOURCE_CHAT_HEADER_INVALID');
+  await writeFile(target, '{"chat_metadata":{"logic_engine_conversation_id":"not-a-uuid"}}\\n');
+  await assert.rejects(scan(value.directories), error =>
+    error instanceof HostSourceInventoryError && error.code === 'SOURCE_CONVERSATION_ID_INVALID');
+});
+
+function mockResponse() {
+  return {
+    statusCode: null, body: null, headers: {},
+    set(name, value) { this.headers[name] = value; return this; },
+    status(code) { this.statusCode = code; return this; },
+    json(value) { this.body = value; return this; },
+    sendStatus(code) { this.statusCode = code; return this; },
+  };
+}
+
+test('Host inventory route rejects DEFAULT_USER without an authenticated account session', async () => {
+  let enumerations = 0;
+  const handler = createHostInventoryHandler({
+    enumerate: async () => { enumerations++; return { status: 'DOUBLE_SCAN_CANDIDATE' }; },
+    pinnedHostCommit: PINNED, hostBuildClaim: PINNED,
+  });
+  const response = mockResponse();
+  await handler({ user: { profile: { handle: 'default-user' }, directories: {} } }, response);
+  assert.equal(response.statusCode, 403);
+  assert.equal(enumerations, 0);
+  assert.equal(response.headers['Cache-Control'], 'no-store, private');
+});
+
+test('Host inventory route binds the authenticated session handle to the request user', async () => {
+  let enumerations = 0;
+  const handler = createHostInventoryHandler({
+    enumerate: async () => { enumerations++; return { status: 'DOUBLE_SCAN_CANDIDATE' }; },
+    pinnedHostCommit: PINNED, hostBuildClaim: PINNED,
+  });
+  const base = { user: { profile: { handle: 'alice' }, directories: {
+    chats: '/tmp/chats', groups: '/tmp/groups', groupChats: '/tmp/group-chats',
+  } } };
+  const denied = mockResponse();
+  await handler({ ...base, session: { handle: 'mallory' } }, denied);
+  assert.equal(denied.statusCode, 403);
+  assert.equal(enumerations, 0);
+  const accepted = mockResponse();
+  await handler({ ...base, session: { handle: 'alice' } }, accepted);
+  assert.equal(accepted.statusCode, 200);
+  assert.equal(enumerations, 1);
+  assert.equal(accepted.body.host_user_handle, 'alice');
 });
