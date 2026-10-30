@@ -680,6 +680,6 @@ The NPC branch now:
 - passes the validated event type into event-shape validation and dispatches using that local value;
 - includes a regression test installing an inherited Object.prototype.type getter and an own accessor-backed type, proving neither getter executes.
 
-Fix commit: f9d8ee4b3376c6e57ff7635757915f483189404c; regression test commit: bbe7489d543c8c195b76fc3416807b42c0645d8d. Exact-head Runtime and Provider workflows for the new NPC head were pending when this entry was written. The previous successful NPC exact-head CI remains historical evidence only.
+Fix commit: f9d8ee4b3376c6e57ff7635757915f483189404c; regression test commit: bbe7489d543c8c195b76fc3416807b42c0645d8d. Exact-head Runtime run [#41020764409](https://github.com/necromorphic/Logic-Engine/actions/runs/41020764409) on current branch HEAD 631aab8f passed test, npc-boundary, and core-trusted-acquisition. Exact-head Provider run [#41020764476](https://github.com/necromorphic/Logic-Engine/actions/runs/41020764476) passed runtime-linux and provider-acceptance. These runs include the own-event-type descriptor fix and its inherited/own getter regression test.
 
 The finding was addressed in code; independent re-review of the new head is requested. PR #695 remains Draft / NOT ACCEPTED; Memory → NPC remains DISABLED / FAIL-CLOSED.
