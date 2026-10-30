@@ -1423,10 +1423,6 @@ export class SQLiteStore {
       effect_index: index,
       ...reevaluateHistoricalRelationshipSnapshot(effect.relationship_evaluation_snapshot, {
         eventId: event.event_id,
-        // Conservative until Core has an immutable World Pack artifact catalog:
-        // only evaluate when the exact pinned pack is the active pack.
-        worldPackId: world.world_pack_id,
-        worldPackVersion: world.world_pack_version,
       }),
     }));
     return { status: results.every((item) => item.status === 'evaluated') ? 'evaluated' : 'unavailable',
