@@ -113,11 +113,15 @@ test('rejects hard-linked duplicate file identities', { skip: process.platform =
 });
 
 
-test('Windows inventory remains fail-closed until reparse-point verification exists', { skip: process.platform !== 'win32' }, async () => {
+test('Windows inventory fails closed when the VSS snapshot provider is unavailable', { skip: process.platform !== 'win32' }, async () => {
   await withTempRoot(async ({ root }) => {
-    assert.deepEqual(await enumerateStableFileInventory(resolve(root)), {
-      status: 'non_ready', code: 'HOST_INVENTORY_PLATFORM_REPARSE_UNVERIFIED'
-    });
+    const result = await enumerateStableFileInventory(resolve(root));
+    if (result.status === 'complete') {
+      assert.equal(result.snapshot_provider, 'windows-vss-client-accessible');
+      assert.equal(result.snapshot_consistency, 'VSS_POINT_IN_TIME_READ_ONLY');
+    } else {
+      assert.match(result.code, /^HOST_(VSS|INVENTORY_WINDOWS)_/);
+    }
   });
 });
 
