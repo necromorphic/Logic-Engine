@@ -40,6 +40,14 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
   if (authorizedReadService !== null && actorBindingService === null) {
     throw new TypeError('A shared actorBindingService is required with an injected authorizedReadService.');
   }
+  if (mechanicPolicyAuthority !== null
+    && (actorBindingService === null || authorizedReadService === null)) {
+    throw new TypeError('Mechanic policy authority requires the shared Core actor binding and AuthorizedReadService instances.');
+  }
+  if (authorizedReadService !== null
+    && authorizedReadService.actorBindingService !== actorBindingService) {
+    throw new TypeError('AuthorizedReadService must use the exact actorBindingService instance supplied to the API.');
+  }
   const configuredAdapterSecrets = Object.values(adapterTokens || {});
   if (!adapterTokens || typeof adapterTokens !== 'object' || Array.isArray(adapterTokens) || Object.entries(adapterTokens).some(([id, secret]) => !id.trim() || typeof secret !== 'string' || secret.length < 16 || [token, internalToken, approvalToken, adminToken].includes(secret)) || new Set(configuredAdapterSecrets).size !== configuredAdapterSecrets.length) {
     throw new TypeError('Adapter tokens must map non-empty adapter IDs to unique, distinct secrets of at least 16 characters');
