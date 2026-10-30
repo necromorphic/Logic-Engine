@@ -68,6 +68,20 @@ static inline logic_engine_nt_create_file_fn logic_engine_win_nt_create_file(voi
   return (logic_engine_nt_create_file_fn)(void *)GetProcAddress(ntdll, "NtCreateFile");
 }
 
+typedef ULONG (NTAPI *logic_engine_rtl_ntstatus_to_dos_error_fn)(NTSTATUS);
+
+static inline DWORD logic_engine_win_status_to_error(NTSTATUS status) {
+  HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
+  logic_engine_rtl_ntstatus_to_dos_error_fn convert_status;
+  DWORD error;
+  if (!ntdll) return ERROR_ACCESS_DENIED;
+  convert_status = (logic_engine_rtl_ntstatus_to_dos_error_fn)(void *)
+    GetProcAddress(ntdll, "RtlNtStatusToDosError");
+  if (!convert_status) return ERROR_ACCESS_DENIED;
+  error = convert_status(status);
+  return error == ERROR_MR_MID_NOT_FOUND ? ERROR_ACCESS_DENIED : error;
+}
+
 static inline int logic_engine_win_identity(HANDLE handle,
                                              LogicEngineWinFileIdentity *identity,
                                              DWORD *attributes_out) {
@@ -133,8 +147,8 @@ static inline HANDLE logic_engine_win_open_relative(
       options | FILE_OPEN_REPARSE_POINT | FILE_SYNCHRONOUS_IO_NONALERT,
       NULL, 0);
   if (status < 0 || result == INVALID_HANDLE_VALUE) {
-    (void)status;
-    SetLastError(ERROR_ACCESS_DENIED);
+    if (result && result != INVALID_HANDLE_VALUE) CloseHandle(result);
+    SetLastError(logic_engine_win_status_to_error(status));
     return INVALID_HANDLE_VALUE;
   }
   {
