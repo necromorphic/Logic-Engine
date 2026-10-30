@@ -10,6 +10,7 @@ import { validateNpcKnowledgeRead, validateNpcKnowledgeReadInput } from '../src/
 import { buildNpcBeliefContext, reduceNpcBeliefTransition } from '../src/application/npc-belief-state.js';
 import { ActorBindingService } from '../src/application/actor-bindings.js';
 import { createHostBoundNpcKnowledgeAuthorizers } from '../src/application/npc-knowledge-authorization.js';
+import { validateEffects } from '../src/core/rules.js';
 
 const sourceBytes = JSON.stringify({
   schema_version: 1,
@@ -345,6 +346,13 @@ test('canonical NPC belief event records the exact policy authority tuple used f
   assert.deepEqual(committed.policy_authority, read.policy_authority);
   const event = store.events('world-a').find((entry) => entry.event_id === committed.transition.event_id);
   assert.deepEqual(event.effects[0].policy_authority, read.policy_authority);
+  assert.doesNotThrow(() => validateEffects(event.effects, { allowNpcBeliefTransition: true }));
+  assert.throws(() => validateEffects([{
+    ...event.effects[0],
+    policy_authority: { ...event.effects[0].policy_authority, generation: 0 },
+  }], { allowNpcBeliefTransition: true }), {
+    code: 'INVALID_NPC_BELIEF_TRANSITION',
+  });
 
   const replay = guardedEngine.recordNpcBeliefTransition(write);
   assert.equal(replay.idempotent_replay, true);
