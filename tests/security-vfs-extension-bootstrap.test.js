@@ -209,6 +209,60 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
     }
   }
 
+  // Windows VFS-level directory-anchor proof: xOpen, xAccess and xDelete
+  // must continue resolving the trusted DB/journal under the pinned parent
+  // HANDLE after the original pathname is replaced with a decoy directory.
+  if (process.platform === 'win32') {
+    const anchoredParent = join(directory, 'windows-anchored-parent');
+    const movedParent = join(directory, 'windows-moved-parent');
+    mkdirSync(anchoredParent);
+    const anchoredPath = join(anchoredParent, 'anchored.sqlite');
+    registerRole(anchoredPath, 'windows-directory-anchor');
+    const seed = new DatabaseSync(anchoredPath);
+    try {
+      seed.exec("CREATE TABLE anchored_probe(value TEXT); INSERT INTO anchored_probe VALUES('trusted-windows-directory'); PRAGMA journal_mode=DELETE;");
+    } finally {
+      seed.close();
+    }
+
+    renameSync(anchoredParent, movedParent);
+    mkdirSync(anchoredParent);
+    writeFileSync(join(anchoredParent, 'anchored.sqlite'), 'decoy database');
+
+    const anchoredDb = new DatabaseSync(anchoredPath);
+    try {
+      assert.equal(
+        anchoredDb.prepare('SELECT value FROM anchored_probe').get().value,
+        'trusted-windows-directory',
+        'the Windows VFS must open the original database through its pinned parent HANDLE'
+      );
+      anchoredDb.exec("BEGIN IMMEDIATE; INSERT INTO anchored_probe VALUES('anchored-journal');");
+      assert.equal(
+        existsSync(join(movedParent, 'anchored.sqlite-journal')),
+        true,
+        'the rollback journal must be created beside the trusted database after parent rename'
+      );
+      assert.equal(
+        existsSync(join(anchoredParent, 'anchored.sqlite-journal')),
+        false,
+        'the replacement directory must not receive the trusted rollback journal'
+      );
+      anchoredDb.exec('COMMIT;');
+      assert.equal(
+        existsSync(join(movedParent, 'anchored.sqlite-journal')),
+        false,
+        'Windows xDelete must remove the exact anchored rollback-journal object'
+      );
+      assert.equal(
+        existsSync(join(anchoredParent, 'anchored.sqlite-journal')),
+        false,
+        'Windows xDelete must not operate on the replacement pathname'
+      );
+    } finally {
+      anchoredDb.close();
+    }
+  }
+
   // Exercise the rollback-journal sidecar independently of WAL mode.
   const journalPath = join(directory, 'journal.sqlite');
   registerRole(journalPath, 'journal-test');
