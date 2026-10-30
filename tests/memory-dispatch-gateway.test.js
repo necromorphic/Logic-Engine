@@ -766,11 +766,17 @@ test('real Core source mutation and Gateway dispatch-start share one cross-proce
         return { head: 1, world_id: worldId, actor_id: actorId, readiness: 'NOT_READY', inventory_status: 'NOT_READY', sources: [] };
       }
       const currentSources = sources.map((source) => {
-        const entity = coreReader.prepare(
-          'SELECT status,updated_revision FROM entities WHERE world_id=? AND entity_id=?',
-        ).get(worldId, source.source_entity_id);
+        const entity = coreReader.prepare(`
+          SELECT entities.status, entity_source_versions.source_version
+          FROM entities LEFT JOIN entity_source_versions
+            ON entity_source_versions.world_id=entities.world_id
+            AND entity_source_versions.entity_id=entities.entity_id
+          WHERE entities.world_id=? AND entities.entity_id=?
+        `).get(worldId, source.source_entity_id);
         return entity && entity.status !== 'destroyed'
-          ? { source_kind: 'canonical_entity', source_entity_id: source.source_entity_id, source_version: String(entity.updated_revision) }
+          && Number.isSafeInteger(entity.source_version) && entity.source_version > 0
+          ? { source_kind: 'canonical_entity', source_entity_id: source.source_entity_id,
+            source_version: 'core-entity-v1:' + String(entity.source_version) }
           : { source_kind: 'canonical_entity', source_entity_id: source.source_entity_id, source_version: 'unavailable' };
       });
       return {
@@ -806,9 +812,13 @@ test('real Core source mutation and Gateway dispatch-start share one cross-proce
       },
     });
 
-    const readCurrentVersion = () => String(coreReader.prepare(
-      'SELECT updated_revision FROM entities WHERE world_id=? AND entity_id=?',
-    ).get('world-1', 'entity-42').updated_revision);
+    const readCurrentVersion = () => {
+      const row = coreReader.prepare(
+        'SELECT source_version FROM entity_source_versions WHERE world_id=? AND entity_id=?',
+      ).get('world-1', 'entity-42');
+      return Number.isSafeInteger(row?.source_version) && row.source_version > 0
+        ? 'core-entity-v1:' + String(row.source_version) : 'unavailable';
+    };
     const requestAtVersion = (requestId, version) => {
       const base = validRequest(requestId);
       const sources = [{ source_kind: 'canonical_entity', source_entity_id: 'entity-42', source_version: version }];
