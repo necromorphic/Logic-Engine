@@ -31,6 +31,9 @@ static int g_native_open_count = 0;
 static int g_registered = 0;
 static const char *g_open_syscall_name = 0;
 static sqlite3_syscall_ptr g_original_open_syscall = 0;
+#ifndef _WIN32
+static sqlite3_syscall_ptr g_original_stat_syscall = 0;
+#endif
 static char *g_race_path = 0;
 static char *g_race_target_path = 0;
 static int g_race_identity_set = 0;
@@ -68,6 +71,9 @@ static _Thread_local int g_current_race_open = 0;
 static _Thread_local int g_current_race_captured = 0;
 static _Thread_local int g_current_role_index = -1;
 static _Thread_local int g_current_role_captured = 0;
+static _Thread_local int g_current_role_stat_valid = 0;
+static _Thread_local dev_t g_current_role_stat_device = 0;
+static _Thread_local ino_t g_current_role_stat_inode = 0;
 #endif
 
 #ifdef _WIN32
@@ -191,9 +197,12 @@ static int probe_open(const char *name, int flags, int mode) {
     int reject = fstat(fd, &info) != 0 || info.st_dev == 0 || info.st_ino == 0;
     if (!reject && g_current_role_index >= 0) {
       ProbeDatabaseRole *role = &g_database_roles[g_current_role_index];
-      if (role->identity_set) {
+      if (g_current_role_stat_valid
+          && (info.st_dev != g_current_role_stat_device
+            || info.st_ino != g_current_role_stat_inode)) reject = 1;
+      if (!reject && role->identity_set) {
         reject = info.st_dev != role->device || info.st_ino != role->inode;
-      } else {
+      } else if (!reject) {
         for (int i = 0; i < g_database_role_count; i++) {
           ProbeDatabaseRole *other = &g_database_roles[i];
           if (i != g_current_role_index && other->identity_set
@@ -226,6 +235,47 @@ static int probe_open(const char *name, int flags, int mode) {
   }
   return fd;
 }
+
+typedef int (*probe_stat_fn)(const char *, struct stat *);
+static int probe_stat(const char *name, struct stat *info) {
+  int rc = ((probe_stat_fn)g_original_stat_syscall)(name, info);
+  if (rc != 0) return rc;
+  if (g_current_role_index >= 0 && !g_current_role_stat_valid
+      && strcmp(name, g_database_roles[g_current_role_index].path) == 0) {
+    ProbeDatabaseRole *role = &g_database_roles[g_current_role_index];
+    if (info->st_dev == 0 || info->st_ino == 0
+        || (role->identity_set
+          && (info->st_dev != role->device || info->st_ino != role->inode))) {
+      errno = EACCES;
+      return -1;
+    }
+    if (!role->identity_set) {
+      for (int i = 0; i < g_database_role_count; i++) {
+        ProbeDatabaseRole *other = &g_database_roles[i];
+        if (i != g_current_role_index && other->identity_set
+            && info->st_dev == other->device && info->st_ino == other->inode) {
+          errno = EACCES;
+          return -1;
+        }
+      }
+    }
+    g_current_role_stat_device = info->st_dev;
+    g_current_role_stat_inode = info->st_ino;
+    g_current_role_stat_valid = 1;
+  }
+  // Deterministically replace the path after stat has returned its identity,
+  // but before SQLite can reuse/open the file. The later fstat must detect it.
+  if (g_current_race_open && g_race_inject_once && g_race_path
+      && strcmp(name, g_race_path) == 0) {
+    g_race_inject_once = 0;
+    if (!probe_replace_with_hardlink(name, g_race_target_path)) {
+      errno = EACCES;
+      return -1;
+    }
+    g_race_injection_count += 1;
+  }
+  return rc;
+}
 #endif
 
 static int probe_xOpen(sqlite3_vfs *vfs, const char *name, sqlite3_file *file,
@@ -251,10 +301,14 @@ static int probe_xOpen(sqlite3_vfs *vfs, const char *name, sqlite3_file *file,
   if (role_index >= 0) {
     g_current_role_index = role_index;
     g_current_role_captured = 0;
+#ifndef _WIN32
+    g_current_role_stat_valid = 0;
+#endif
   }
   if (is_race_target) {
     g_current_race_open = 1;
     g_current_race_captured = 0;
+#ifdef _WIN32
     if (g_race_inject_once) {
       g_race_inject_once = 0;
       if (!probe_replace_with_hardlink(name, g_race_target_path)) {
@@ -263,15 +317,30 @@ static int probe_xOpen(sqlite3_vfs *vfs, const char *name, sqlite3_file *file,
       }
       g_race_injection_count += 1;
     }
+#endif
   }
   rc = parent->xOpen(parent, name, file, flags, out_flags);
   if (role_index >= 0) {
+#ifndef _WIN32
+    if (rc == SQLITE_OK && !g_current_role_captured && g_current_role_stat_valid) {
+      ProbeDatabaseRole *role = &g_database_roles[role_index];
+      if (!role->identity_set) {
+        role->device = g_current_role_stat_device;
+        role->inode = g_current_role_stat_inode;
+        role->identity_set = 1;
+      }
+      g_current_role_captured = 1;
+    }
+#endif
     if (rc == SQLITE_OK && !g_current_role_captured) {
       if (file->pMethods && file->pMethods->xClose) file->pMethods->xClose(file);
       rc = SQLITE_CANTOPEN;
     }
     g_current_role_index = -1;
     g_current_role_captured = 0;
+#ifndef _WIN32
+    g_current_role_stat_valid = 0;
+#endif
   }
   if (is_race_target) {
     if (rc == SQLITE_OK && !g_current_race_captured) {
