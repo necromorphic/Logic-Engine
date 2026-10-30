@@ -168,6 +168,29 @@ The pinned Host route exposes `GET /api/logic-engine/host/session`. It requires 
 
 `hostSessionId:installationId:conversationUuid`
 
-This prevents two different authenticated ST sessions from silently reusing the same Core conversation binding. The session ID is not a credential and does not authenticate a request to Core; Core still trusts only the configured server-side adapter credential and its own conversation/world binding. The browser's localStorage installation ID remains a client-side namespace, not an installation attestation.
+This prevents two different authenticated ST sessions from silently reusing the same Core conversation binding. The session ID is not a credential and does not authenticate a request to Core; Core still trusts only the configured server-side adapter credential and its own conversation/world binding. The browser's localStorage installation ID remains a client-side conversation namespace, not an installation identity.
 
 The session ID survives a SillyTavern process restart only while the signed session cookie and the ST cookie-signing secret remain valid and unchanged. Logout/login, cookie loss, secret rotation, or account change rotates the identity. Existing enrollments created with the old `installationId:conversationUuid` format are not migrated automatically; the old marker/mapping mismatch fails closed and requires explicit re-binding. This is still not a durable server installation identity, a complete inventory proof, or Core world/actor authorization.
+
+
+## Server-persisted installation/account identity — approved contract implementation slice
+
+The current branch adds a second authenticated route, `GET /api/logic-engine/host/identity`, backed by `HostIdentityStore`. Configure `LOGIC_ENGINE_HOST_IDENTITY_DIR` to an absolute, server-controlled directory that is not writable by the browser or ordinary chat data operations. If the variable is absent, the route is not mounted and the browser lifecycle journal cannot open; enrolled operations fail closed.
+
+The store creates:
+- one server-generated installation UUID in `installation.json`;
+- one opaque server-generated account UUID per authenticated SillyTavern account handle. The handle itself is not stored; its SHA-256 digest names the account record.
+
+The identity endpoint is available only after the signed session's account handle matches the authenticated server account. It returns installation ID, account ID, and the current session UUID. The browser verifies the session UUID matches the preceding `/session` response, then opens an IndexedDB journal namespaced by installation/account and includes both IDs in each journal record and head checkpoint. Existing v2 browser journal databases are not silently adopted; the v3 identity-bound journal uses a new database namespace.
+
+Operational constraints:
+- Account rename produces a new opaque account ID and requires explicit re-enrollment; no implicit identity migration is attempted.
+- Loss or replacement of the identity directory creates a new installation identity and requires explicit recovery/re-enrollment.
+- The directory must be backed up/restored only together with the independently administered accepted-head recovery procedure. This local file store and browser IndexedDB chain are not independently rollback-resistant.
+- This does not provide runtime source attestation. `LOGIC_ENGINE_HOST_BUILD_SHA` remains an operator deployment assertion only.
+- The Core-side append-only journal prototype currently has a trusted identity-resolver seam but is not yet connected to this ST endpoint. The identity route and browser journal changes therefore remain an integration candidate, not production authority.
+
+Run the expanded pinned-host checks with:
+```sh
+node --test host-adapter/prototype/tests/*.test.mjs tests/host-source-inventory.test.js tests/host-lifecycle-journal.test.js
+```
