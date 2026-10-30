@@ -84,6 +84,24 @@ For every supported operation above, the real-file harness must capture and comp
 
 The harness must include fault injection at each multi-step filesystem boundary (for example rename copy-before-unlink and group cascade between child deletion and metadata deletion). Tests must assert disk bytes and directory membership, not only mocked callbacks or emitted events.
 
+
+## 6. Draft filesystem inventory primitive added after source audit
+
+The branch now includes `host-adapter/prototype/fs-inventory.js`, a standalone fail-closed primitive that:
+
+- accepts one absolute, explicitly configured root;
+- rejects a symlinked root and symlink entries;
+- traverses regular directories and files only;
+- opens each file without following symlinks where the platform exposes `O_NOFOLLOW`;
+- compares path identity with the opened file identity and checks metadata before/after reading;
+- performs two complete scans and requires identical deterministic SHA-256 inventory fingerprints;
+- rejects duplicate device/inode identities (hard-link aliases);
+- returns relative paths, file identity metadata and content digests only; it never returns file bytes or raw message text.
+
+Tests in `host-adapter/prototype/tests/fs-inventory.test.mjs` cover deterministic enumeration, invalid/missing roots, symlink rejection, out-of-band edits, delete/restore distinction and duplicate file identities.
+
+**Important limitations:** this is a generic single-root filesystem primitive, not a complete SillyTavern enumerator. It does not yet know ST's canonical current/historical/group/backup roots, map files to logical conversation/message/swipe IDs, or reconcile a journal. On Windows it deliberately returns `HOST_INVENTORY_PLATFORM_REPARSE_UNVERIFIED` because this implementation does not independently verify every Windows reparse-point type. It is not wired to Core or used as a READY verifier. A stable double scan is not a substitute for an OS-enforced snapshot/lock against a hostile concurrent writer. No runtime test against a real ST data root has been performed by CI.
+
 ## 5. READY invariant
 
 Host cannot report `READY` unless all of the following hold simultaneously:
