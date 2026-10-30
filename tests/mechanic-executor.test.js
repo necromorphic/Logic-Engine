@@ -113,6 +113,7 @@ function contextProvider(context = { world: { weather: 'rain' }, actor: { hp: 10
       policy_version: 'test-visibility-policy-v1',
       authority_id: 'test-mechanic-authority',
       policy_generation: 1,
+      authorization_principal: { adapterId: 'test-adapter', actorEntityId: 'entity.actor-context', recipient: 'model', purpose: 'npc_decision' },
     };
   };
 }
@@ -1052,6 +1053,7 @@ test('canonical entity-attribute provider constructs versioned context and evide
       { path: 'actor.hp', entity_id: 'entity.actor-context', attribute: 'hp' },
     ],
     canRead: () => true,
+    authorizationPrincipal: { adapterId: 'test-adapter', actorEntityId: 'entity.actor-context', recipient: 'model', purpose: 'npc_decision' },
   });
   const resolved = provider.resolve({ worldId, snapshot, template: value, action: value.actions[0] });
   assert.deepEqual(resolved.context, { actor: { hp: 10 }, world: { weather: 'rain' } });
@@ -1478,9 +1480,11 @@ test('one deployment authority pins context and invalidates stale proposals acro
   const makeContextProvider = (policyVersion) => ({
     policyFingerprint: policyVersion,
     authorizationScope: 'test-principal',
+    authorizationPrincipal: { adapterId: 'test-adapter', actorEntityId: 'entity.actor-context', recipient: 'model', purpose: 'npc_decision' },
     resolve: (args) => ({
       ...contextProvider()(args),
       policy_version: policyVersion,
+      authorization_principal: { adapterId: 'test-adapter', actorEntityId: 'entity.actor-context', recipient: 'model', purpose: 'npc_decision' },
     }),
   });
   let active = {
