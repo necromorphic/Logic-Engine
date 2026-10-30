@@ -7,12 +7,6 @@ on:
       - "src/application/host-lifecycle-journal.js"
       - "tests/host-lifecycle-journal.test.js"
       - ".github/workflows/host-lifecycle-patch-check.yml"
-  push:
-    branches:
-      - "work/priority1-combined-host-patch-stack-*"
-    paths:
-      - "host-adapter/prototype/**"
-      - ".github/workflows/host-lifecycle-patch-check.yml"
 
 permissions:
   contents: read
@@ -20,6 +14,7 @@ permissions:
 jobs:
   pinned-st-host-patch:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout Logic-Engine branch
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -29,45 +24,32 @@ jobs:
           repository: SillyTavern/SillyTavern
           ref: 06bde939fb1e9c4c8d8641d810f0a916b5bce127
           path: sillytavern-host-checkout
-      - name: Install prototype modules into the pinned host tree
+      - name: Install approved Host prototype modules into the pinned Host tree
         run: |
           mkdir -p sillytavern-host-checkout/public/scripts/logic-engine-lifecycle
           cp host-adapter/prototype/lifecycle-journal.mjs sillytavern-host-checkout/public/scripts/logic-engine-lifecycle/lifecycle-journal.mjs
           cp host-adapter/prototype/st-lifecycle-bridge.mjs sillytavern-host-checkout/public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs
           cp host-adapter/prototype/conversation-identity.mjs sillytavern-host-checkout/public/scripts/logic-engine-lifecycle/conversation-identity.mjs
           cp host-adapter/prototype/st-server-digest-proxy.mjs sillytavern-host-checkout/src/endpoints/logic-engine-lifecycle-proxy.mjs
-      - name: Fetch the exact persisted-identity Host inventory candidate from PR #800
+          cp host-adapter/prototype/st-source-inventory.mjs sillytavern-host-checkout/src/endpoints/logic-engine-st-source-inventory.mjs
+          cp host-adapter/prototype/st-host-inventory-handler.mjs sillytavern-host-checkout/src/endpoints/logic-engine-host-inventory-handler.mjs
+          cp host-adapter/prototype/st-host-inventory-route.js sillytavern-host-checkout/src/endpoints/logic-engine-host-inventory.js
+          cp host-adapter/prototype/st-host-identity-store.mjs sillytavern-host-checkout/src/endpoints/logic-engine-host-identity-store.mjs
+      - name: Require authenticated session and durable installation identity routes
         run: |
-          git fetch origin 2ae9744bc0016295cc4399471a0b9c5e4c6fcc2e
-          mkdir -p host-inventory-candidate
-          git show FETCH_HEAD:host-adapter/prototype/st-source-inventory.mjs > host-inventory-candidate/st-source-inventory.mjs
-          git show FETCH_HEAD:host-adapter/prototype/st-host-inventory-handler.mjs > host-inventory-candidate/st-host-inventory-handler.mjs
-          git show FETCH_HEAD:host-adapter/prototype/st-host-inventory-route.js > host-inventory-candidate/st-host-inventory-route.js
-          git show FETCH_HEAD:host-adapter/prototype/patches/sillytavern-1.19.0-source-inventory-route.patch > host-inventory-candidate/sillytavern-1.19.0-source-inventory-route.patch
-          mkdir -p host-adapter/prototype/tests
-          git show FETCH_HEAD:host-adapter/prototype/st-source-inventory.mjs > host-adapter/prototype/st-source-inventory.mjs
-          git show FETCH_HEAD:host-adapter/prototype/st-host-inventory-handler.mjs > host-adapter/prototype/st-host-inventory-handler.mjs
-          git show FETCH_HEAD:host-adapter/prototype/st-host-inventory-route.js > host-adapter/prototype/st-host-inventory-route.js
-          git show FETCH_HEAD:host-adapter/prototype/tests/st-host-inventory-handler.test.mjs > host-adapter/prototype/tests/st-host-inventory-handler.test.mjs
-          git show FETCH_HEAD:tests/host-source-inventory.test.js > tests/host-source-inventory.test.js
-      - name: Require authenticated session identity route in the exact Host candidate
-        run: grep -F "router.get('/session', createHostSessionHandler())" host-inventory-candidate/st-host-inventory-route.js
-      - name: Install prototype modules into the pinned host tree
-        run: |
-          cp host-inventory-candidate/st-source-inventory.mjs sillytavern-host-checkout/src/endpoints/logic-engine-st-source-inventory.mjs
-          cp host-inventory-candidate/st-host-inventory-handler.mjs sillytavern-host-checkout/src/endpoints/logic-engine-host-inventory-handler.mjs
-          cp host-inventory-candidate/st-host-inventory-route.js sillytavern-host-checkout/src/endpoints/logic-engine-host-inventory.js
+          grep -F "router.get('/session', createHostSessionHandler())" host-adapter/prototype/st-host-inventory-route.js
+          grep -F "router.get('/identity', createHostIdentityHandler({ identityStore }))" host-adapter/prototype/st-host-inventory-route.js
       - name: Apply-check and apply lifecycle, inventory, then delete-safety patches
         run: |
           cd sillytavern-host-checkout
           git apply --check "$GITHUB_WORKSPACE/host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch"
           git apply "$GITHUB_WORKSPACE/host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch"
-          git apply --check "$GITHUB_WORKSPACE/host-inventory-candidate/sillytavern-1.19.0-source-inventory-route.patch"
-          git apply "$GITHUB_WORKSPACE/host-inventory-candidate/sillytavern-1.19.0-source-inventory-route.patch"
+          git apply --check "$GITHUB_WORKSPACE/host-adapter/prototype/patches/sillytavern-1.19.0-source-inventory-route.patch"
+          git apply "$GITHUB_WORKSPACE/host-adapter/prototype/patches/sillytavern-1.19.0-source-inventory-route.patch"
           git apply --check "$GITHUB_WORKSPACE/host-adapter/prototype/patches/issue-258-direction-a-delete-safety.patch"
           git apply "$GITHUB_WORKSPACE/host-adapter/prototype/patches/issue-258-direction-a-delete-safety.patch"
           git diff --check
-      - name: Syntax-check patched host and prototype modules
+      - name: Syntax-check patched Host and prototype modules
         run: |
           node --check sillytavern-host-checkout/public/script.js
           node --check sillytavern-host-checkout/public/scripts/slash-commands.js
@@ -90,9 +72,9 @@ jobs:
             exit 1
           fi
           grep -F 'request metadata:' sillytavern-host-checkout/src/endpoints/backends/chat-completions.js >/dev/null
-      - name: Set up Node.js for Core lifecycle journal tests
+      - name: Set up Node.js for Core and Host tests
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '22.13.0'
-      - name: Run all Host prototype, inventory, and Core lifecycle journal tests
+      - name: Run all Host prototype, inventory, identity, and Core journal tests
         run: node --test host-adapter/prototype/tests/*.test.mjs tests/host-source-inventory.test.js tests/host-lifecycle-journal.test.js
