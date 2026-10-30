@@ -1,7 +1,7 @@
 # PC-NEXT-11 — Trusted authorization and protected egress specification
 
 **Status:** FINAL TECHNICAL SPECIFICATION / IMPLEMENTATION BLOCKED BY EXPLICIT OWNER GATES.  
-**Version:** 1.0 — 2026-10-30.  
+**Version:** 1.1 — 2026-10-30.  
 **Normative baseline:** `main` `d11211401957576545ca9099d41bffa3936aaef3`.  
 **Supersedes:** PC-NEXT-07 Draft v3 as the normative trusted-authorization specification. PC-NEXT-08 remains the implementation breakdown; PC-NEXT-09 remains the source inventory; PC-NEXT-10 remains the execution work order.  
 **Scope:** trusted identity, authorization, Host inventory, Memory evidence, revocation ordering, protected model egress, anti-replay and acceptance.  
@@ -402,4 +402,5 @@ For this integration's stated goal, **Option B is the approved target architectu
 
 ## 17. Change log
 
-- **v1.0 (2026-10-30):** finalizes the trusted authorization target; chooses Lane B as the first isolated slice; specifies Host-owned PC Gateway; defines caller identity rules, immutable request binding, policy fingerprint target, version dimensions, complete inventory, Core/Memory conflict behavior, shared dispatch-start ordering, revoke/write semantics, generic DENY, acceptance matrix and implementation/release gates. No runtime behavior changed.
+- **v1.0 (2026-10-30):** finalizes the trusted authorization target; chooses Lane B as the first isolated slice; defines caller identity rules, immutable request binding, policy fingerprint target, version dimensions, complete inventory, Core/Memory conflict behavior, shared dispatch-start ordering, revoke/write semantics, generic DENY and acceptance matrix. No runtime behavior changed.
+- **v1.1 (2026-10-30):** reconciles the normative contract with merged ADR #809 and issue #356; records that cross-block semantic approval and the second Core approval are already satisfied; corrects Security Gateway ownership and the required synchronous transport-start-under-lease sequence; separates remaining implementation evidence from release approval. No runtime behavior changed.
