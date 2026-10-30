@@ -80,6 +80,19 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
   if (deploymentPolicyAuthority && authorizedReadFieldPolicy) {
     throw new TypeError('Configure either deploymentPolicyAuthority or authorizedReadFieldPolicy, not both.');
   }
+  if (deploymentPolicyAuthority) {
+    try {
+      const evidence = deploymentPolicyAuthority.capture();
+      if (!object(evidence)
+        || typeof evidence.authority_identity !== 'string' || !evidence.authority_identity.trim()
+        || typeof evidence.policy_generation !== 'string' || !evidence.policy_generation.trim()
+        || typeof evidence.policy_version !== 'string' || !evidence.policy_version.trim()) {
+        throw new TypeError('Invalid policy authority evidence.');
+      }
+    } catch {
+      throw new TypeError('deploymentPolicyAuthority must resolve a valid active policy at API startup.');
+    }
+  }
   if (typeof getActiveMechanicContextProvider !== 'function') throw new TypeError('getActiveMechanicContextProvider must be a trusted application callback.');
   const configuredAdapterSecrets = Object.values(adapterTokens || {});
   if (!adapterTokens || typeof adapterTokens !== 'object' || Array.isArray(adapterTokens) || Object.entries(adapterTokens).some(([id, secret]) => !id.trim() || typeof secret !== 'string' || secret.length < 16 || [token, internalToken, approvalToken, adminToken].includes(secret)) || new Set(configuredAdapterSecrets).size !== configuredAdapterSecrets.length) {
