@@ -245,6 +245,13 @@ test('reader configuration rejects direct and bound asynchronous trusted authori
   });
   assertRejected(asyncAuthorizer);
   assertRejected(asyncAuthorizer.bind(null));
+  assert.throws(() => new LogicEngine(store, {
+    trustedInitialKnowledgeSources: trustedRegistry,
+    npcKnowledgeVisibilityAuthorizer: asyncAuthorizer.bind(null),
+  }), {
+    name: 'TypeError',
+    message: 'npcKnowledgeVisibilityAuthorizer must be a synchronous deployment-owned function',
+  });
 });
 
 test('reader rejects unsupported purpose, unknown actor, and malformed limits', (t) => {
