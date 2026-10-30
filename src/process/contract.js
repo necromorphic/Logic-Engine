@@ -49,8 +49,31 @@ function safeCoordinate(value, name) {
 
 function uniqueStringList(value, name, max = 500) {
   if (value === undefined) return [];
-  if (!Array.isArray(value) || value.length > max) fail('INVALID_PROCESS_REFERENCE_LIST', name + ' must be an array with at most ' + max + ' entries.');
-  const result = value.map((item, index) => identifier(item, name + '[' + index + ']'));
+  if (!Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype || value.length > max) {
+    fail('INVALID_PROCESS_REFERENCE_LIST', name + ' must be a dense array with at most ' + max + ' entries.');
+  }
+
+  const result = [];
+  for (let index = 0; index < value.length; index += 1) {
+    if (!Object.hasOwn(value, index)) {
+      fail('INVALID_PROCESS_REFERENCE_LIST', name + ' cannot contain sparse array entries.', { index });
+    }
+    const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+    if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) {
+      fail('INVALID_PROCESS_REFERENCE_LIST', name + ' entries must be own enumerable data properties.', { index });
+    }
+    result.push(identifier(descriptor.value, name + '[' + index + ']'));
+  }
+
+  const allowedKeys = new Set(['length']);
+  for (let index = 0; index < value.length; index += 1) allowedKeys.add(String(index));
+  const keys = Reflect.ownKeys(value);
+  for (let index = 0; index < keys.length; index += 1) {
+    if (typeof keys[index] !== 'string' || !allowedKeys.has(keys[index])) {
+      fail('INVALID_PROCESS_REFERENCE_LIST', name + ' cannot contain extra array properties.');
+    }
+  }
+
   if (new Set(result).size !== result.length) fail('DUPLICATE_PROCESS_REFERENCE', name + ' cannot contain duplicate entries.');
   return result.sort();
 }
