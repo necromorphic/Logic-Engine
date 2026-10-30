@@ -154,6 +154,38 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
       if (req.method === 'GET' && registryParts[0] === 'v1' && registryParts[1] === 'rule-modules' && registryParts.length === 4) {
         return send(res, 200, engine.getRuleModuleManifest(decodeURIComponent(registryParts[2]), decodeURIComponent(registryParts[3])));
       }
+      if (req.method === 'POST' && url.pathname === '/v1/host/authorized-read') {
+        const adapterId = adapterIdFor(req);
+        if (!adapterId) return send(res, 403, { error: { code: 'ADAPTER_REQUIRED', message: 'An authenticated Host identity is required.' } });
+        if (!npcKnowledgeAuthorizers || typeof npcKnowledgeAuthorizers.resolveHostScope !== 'function') {
+          return send(res, 503, { error: { code: 'AUTHORIZED_READ_NOT_READY', message: 'Host-bound authorization is not configured.' } });
+        }
+        const body = await readBody(req);
+        if (!body || typeof body !== 'object' || Array.isArray(body)
+          || Object.keys(body).some(key => !['conversation_id', 'entity_ids', 'fields'].includes(key))
+          || typeof body.conversation_id !== 'string') {
+          throw new EngineError('INVALID_AUTHORIZED_READ',
+            'Host authorized read accepts only conversation_id, optional entity_ids and fields; world and actor identity are Core-resolved.', 400);
+        }
+        const scope = npcKnowledgeAuthorizers.resolveHostScope({
+          adapter_id: adapterId,
+          conversation_id: body.conversation_id,
+        });
+        if (!scope) {
+          return send(res, 404, { error: { code: 'READ_NOT_AVAILABLE', message: 'The requested read is not available.' } });
+        }
+        const result = authorizedReads.readEntityFields({
+          worldId: scope.world_id,
+          adapterId: scope.adapter_id,
+          actorEntityId: scope.actor_id,
+          recipient: 'model',
+          purpose: 'npc_decision',
+          entityIds: body.entity_ids === undefined ? [scope.actor_id] : body.entity_ids,
+          fields: body.fields,
+        });
+        return send(res, 200, { read: result });
+      }
+
       if (req.method === 'POST' && [
         '/v1/host/npc-knowledge/read',
         '/v1/host/npc-belief-state',
@@ -537,23 +569,10 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
       }
 
       if (parts.length === 4 && action === 'authorized-read' && req.method === 'POST') {
-        const adapterId = adapterIdFor(req);
-        if (!adapterId) return send(res, 403, { error: { code: 'ADAPTER_REQUIRED', message: 'A configured adapter identity is required for authorized reads.' } });
-        const body = await readBody(req);
-        if (!body || typeof body !== 'object' || Array.isArray(body)
-          || Object.keys(body).some((key) => !['actor_entity_id', 'purpose', 'fields', 'entity_ids'].includes(key))) {
-          throw new EngineError('INVALID_AUTHORIZED_READ', 'Authorized read accepts only actor_entity_id, purpose, fields and optional entity_ids.');
-        }
-        const result = authorizedReads.readEntityFields({
-          worldId,
-          adapterId,
-          actorEntityId: body.actor_entity_id,
-          recipient: 'model',
-          purpose: body.purpose,
-          entityIds: body.entity_ids === undefined ? [body.actor_entity_id] : body.entity_ids,
-          fields: body.fields,
-        });
-        return send(res, 200, { read: result });
+        return send(res, 410, { error: {
+          code: 'HOST_BOUND_AUTHORIZED_READ_REQUIRED',
+          message: 'Use the authenticated Host conversation route; caller-supplied world, actor and purpose are not accepted.',
+        } });
       }
 
       if (req.method === 'GET' && ['state', 'events', 'audit'].includes(action)) {
