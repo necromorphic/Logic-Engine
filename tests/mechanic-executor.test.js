@@ -65,7 +65,7 @@ function commit(engine, worldId, eventId, expectedRevision, effects, causedBy = 
   });
 }
 
-function enableFixture(engine, worldId, value = template()) {
+function enableFixture(engine, worldId, value = template(), instanceOptions = {}) {
   engine.registerMechanicTemplate(value);
   commit(engine, worldId, 'create-instance', 0, [
     { kind: 'entity.create', entity_id: 'entity.world-context', entity_type: 'world_context', attributes: { weather: 'rain' } },
@@ -75,6 +75,8 @@ function enableFixture(engine, worldId, value = template()) {
       instance_id: 'instance.executor',
       template_id: value.template_id,
       template_version: value.version,
+      parameters: instanceOptions.parameters ?? {},
+      state: instanceOptions.state ?? {},
     },
   ]);
   const created = engine.getMechanicInstance(worldId, 'instance.executor');
@@ -1516,4 +1518,40 @@ test('one deployment authority is pinned across evaluation, proposal, approval, 
   assert.equal(committed.status, 'committed');
   assert.equal(engine.getState(worldId).world_revision, 3);
   assert.equal(engine.getState(worldId).entities.some((entity) => entity.entity_id === 'entity.new'), true);
+});
+
+
+test('executor rejects unbound instance parameters and mutable instance state', (t) => {
+  for (const instanceOptions of [{ parameters: { rate: 2 } }, { state: { count: 1 } }]) {
+    const { engine, worldId } = setup(t, 'executor-instance-data-' + hashRequest(instanceOptions).slice(0, 12));
+    enableFixture(engine, worldId, template(), instanceOptions);
+    const result = new MechanicExecutor(engine, { resolveAuthorizedContext: contextProvider() })
+      .evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
+    assert.equal(result.status, 'unknown');
+    assert.equal(result.reason_code, 'UNSUPPORTED_INSTANCE_PARAMETERS_OR_STATE');
+    assert.deepEqual(result.effects, []);
+    assert.equal(engine.getState(worldId).world_revision, 2);
+  }
+});
+
+test('executor rejects template unknown policies whose behavior it does not implement', (t) => {
+  const { engine, worldId } = setup(t, 'executor-unknown-policy-world');
+  enableFixture(engine, worldId, template({ unknown_policy: 'needs_review' }));
+  const result = new MechanicExecutor(engine, { resolveAuthorizedContext: contextProvider() })
+    .evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
+  assert.equal(result.status, 'unknown');
+  assert.equal(result.reason_code, 'UNSUPPORTED_UNKNOWN_POLICY');
+  assert.deepEqual(result.effects, []);
+});
+
+test('executor rejects non-canonical action input instead of treating hidden properties as empty input', (t) => {
+  const { engine, worldId } = setup(t, 'executor-noncanonical-input-world');
+  enableFixture(engine, worldId);
+  const input = {};
+  Object.defineProperty(input, 'hidden', { value: 'ignored', enumerable: false });
+  assert.throws(
+    () => new MechanicExecutor(engine, { resolveAuthorizedContext: contextProvider() })
+      .evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait', input }),
+    (error) => error.code === 'INVALID_MECHANIC_ACTION_INPUT',
+  );
 });
