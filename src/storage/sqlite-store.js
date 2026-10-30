@@ -743,6 +743,7 @@ export class SQLiteStore {
           }
         },
       },
+      {
         version: 16,
         apply: () => {
           this.db.exec(`CREATE TABLE IF NOT EXISTS npc_belief_transitions(
