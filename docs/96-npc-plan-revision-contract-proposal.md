@@ -155,3 +155,59 @@ The current PR head was checked against the following concrete shapes and call s
 - No plan acceptance/replacement helper or NPC-owned durable plan store is present in the files changed by this PR. The generic Process Manager is not an NPC goal/plan store.
 
 **Result:** the current implementation has enough contract surface to detect that a plan needs reconsideration, but not enough to safely construct, accept, or persist a replacement while proving that it serves the same goal and does not overwrite a newer plan. The next safe code change must not add guessed `goal_id` or `version` fields. The owning NPC-state contract must define those identities and transitions first, or the coordinator must remain at the bounded request/review stage.
+
+
+### 10.2 Broader runtime-state ownership audit
+
+The goal/plan gap is larger than two absent fields. The repository's own NPC readiness and roadmap documents confirm that a durable NPC goal/plan runtime has not been established:
+
+- `docs/31-npc-subsystem-contract.md` defines goals and plans as NPC-domain state and requires plans to be revisable, but explicitly frames the document as semantic specification rather than runtime/storage authorization.
+- `docs/33-npc-runtime-readiness-audit.md` records that no NPC-specific runtime record model or end-to-end autonomous decision cycle was verified. It also warns against creating parallel state, event, revision, permission, or rollback infrastructure.
+- `docs/35-npc-test-boundary-map.md` marks runtime persistence tests as blocked until the real NPC state representation and Core production interfaces are mapped and available. Goals/plans surviving restart and rollback are listed as future acceptance targets, not existing guarantees.
+- `docs/88-npc-cognition-development-roadmap.md` marks goal formation as partial (helpers exist; goal generation/admissibility source unverified), planning/replanning as partial (progress helper exists; persistence, invocation and authoritative outcomes unverified), and end-to-end integration as blocked.
+- The generic Process Manager is implemented, but its contract is for world-scoped scheduled processes/milestones. It is not the NPC goal/plan owner, and it does not invoke NPC reasoning or establish plan identity/version semantics.
+
+This resolves an important ambiguity: **there is currently no verified runtime owner to which a `goal_id` or plan version field can simply be added.** The semantic owner of goal/plan decisions is NPC; the durable state representation and its authoritative persistence/reconciliation seam remain unverified. Core's canonical world-state authority does not by itself prove that a particular NPC-local goal/plan storage contract exists.
+
+### 10.3 Minimum contract decisions before adding runtime state
+
+The next design step is not to add fields to `plan-progress.js`. It is to establish a single NPC-state contract, then map that contract to the approved durable owner:
+
+1. **Identity and ownership**
+   - A goal has a stable identity scoped to its owning NPC and world.
+   - A plan has a stable identity in the same scope.
+   - An explicit, validated association states which goal a plan serves; labels, matching text, or action references are not substitutes.
+   - The contract defines whether one goal may have multiple candidate/current plans and how exactly one current plan is designated, if that is the chosen rule.
+2. **Freshness and concurrency**
+   - Every accepted state transition has a freshness basis that prevents a revision prepared from stale state from replacing a newer plan.
+   - The owner defines the token semantics (monotonic revision, compare-and-swap token, or another already-supported mechanism); this proposal does not choose a representation.
+   - Snapshot/world revision and NPC-local plan revision are distinct dimensions. A current world snapshot does not alone prove that the NPC plan has not changed concurrently.
+3. **Revision lifecycle**
+   - A revision candidate names the exact goal and plan it revises and the freshness basis used to create it.
+   - Candidate creation is non-mutating.
+   - Acceptance is an explicit transition by the owning NPC-state authority.
+   - Acceptance atomically makes the candidate current and supersedes the prior plan without deleting its audit/history; rejection or stale input leaves the current plan untouched.
+4. **Outcome reconciliation**
+   - Step progress accepts only a result reference from the trusted action-result path, not a caller-supplied success assertion from the model.
+   - Duplicate result delivery is idempotent; a result for an old plan/step cannot advance the replacement plan.
+   - Rollback/replay behavior is defined by the owning canonical causal lifecycle; NPC code does not maintain a second causal log.
+5. **Durability and recovery**
+   - The owner defines what survives request boundaries, restart, interruption, and rollback.
+   - The test boundary covers atomic acceptance, stale-candidate rejection, duplicate results, restart recovery, and rollback of dependent progress while preserving independent state.
+
+Until those decisions map to an existing or separately approved runtime owner, executable goal-plan association, plan revision acceptance, version checks, and persistence remain blocked. The current pure helpers should stay schema-neutral and proposal-only.
+
+### 10.4 Updated readiness
+
+| Boundary | Finding | Status |
+|---|---|---|
+| Goal/plan semantic ownership | NPC subsystem owns the semantics | Specified |
+| Goal/plan runtime representation | No verified production record model | Blocked |
+| Plan-to-goal association | Not present in current plan helper; no alternate authoritative association verified | Blocked |
+| Plan concurrency/version token | Not present in current plan helper; no alternate NPC-plan token verified | Blocked |
+| Candidate acceptance/replacement | No NPC plan acceptance transition verified | Blocked |
+| Durable persistence/restart | NPC goal/plan persistence not verified | Blocked |
+| Trusted action result → plan progress | Reducer accepts caller-reported outcomes; trusted end-to-end route not verified | Blocked |
+| Pure invalidation/revision request | Implemented and covered by PR tests | Available, bounded |
+
+This is a source-level audit of the inspected documents and helper files. It does not claim that every repository branch or unmerged worktree was exhaustively inspected; any newly identified production implementation must be traced to its exact owner, code path, and tests before changing these statuses.
