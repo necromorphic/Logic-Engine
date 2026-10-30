@@ -372,7 +372,17 @@ export class HostVersionDigestLedger {
     });
   }
 
-  async reconcileConversation(input) {
+  async reconcileConversation(input, options = {}) {
+    if (!isPlainDataRecord(options)
+      || Object.keys(options).some((key) => key !== 'revalidateBinding')) {
+      return { status: 'non_ready', code: 'HOST_INVENTORY_INVALID' };
+    }
+    const revalidateBinding = options.revalidateBinding ?? null;
+    if (revalidateBinding !== null && (typeof revalidateBinding !== 'function'
+      || isProxy(revalidateBinding)
+      || Object.getPrototypeOf(revalidateBinding) === asyncFunctionPrototype)) {
+      return { status: 'non_ready', code: 'HOST_INVENTORY_INVALID' };
+    }
     // Only inspect ordinary data records before copying. Accessors and Proxy
     // traps are executable caller code and must not run inside trust checks.
     if (!isPlainDataRecord(input)) return { status: 'non_ready', code: 'HOST_INVENTORY_INVALID' };
@@ -407,6 +417,35 @@ export class HostVersionDigestLedger {
     }
     if (!snapshot || !validId(snapshot.world_id) || !validId(snapshot.conversation_id)) {
       return this.#rejectSnapshot(snapshot, 'HOST_INVENTORY_INCOMPLETE');
+    }
+    if (snapshot.complete !== true) {
+      // An authenticated, still-active adapter reporting an incomplete view
+      // invalidates a previous READY marker. Do not invoke the inventory
+      // verifier: an incomplete snapshot can never establish completeness.
+      if (revalidateBinding) {
+        return this.#write(() => {
+          let binding = null;
+          try {
+            binding = revalidateBinding({
+              world_id: snapshot.world_id,
+              conversation_id: snapshot.conversation_id,
+            });
+          } catch {}
+          if (!isPlainDataRecord(binding) || binding.active !== true
+            || binding.world_id !== snapshot.world_id
+            || binding.conversation_id !== snapshot.conversation_id) {
+            return { status: 'non_ready', code: 'HOST_CONVERSATION_NOT_AUTHORIZED' };
+          }
+          this.#markNonReady(
+            snapshot.world_id,
+            snapshot.conversation_id,
+            'HOST_INVENTORY_INCOMPLETE',
+            new Date().toISOString(),
+          );
+          return { status: 'non_ready', code: 'HOST_INVENTORY_INCOMPLETE' };
+        });
+      }
+      return { status: 'non_ready', code: 'HOST_INVENTORY_NOT_AUTHORIZED' };
     }
     // Snapshot scope must be authenticated before any rejection can mutate the
     // readiness row. This verifier is the trusted Host/Core integration seam;
@@ -485,6 +524,27 @@ export class HostVersionDigestLedger {
       .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
     const snapshotDigest = digest(JSON.stringify(canonical));
     return this.#write(() => {
+      // Binding revocation and this final READY publication share the same
+      // Coordinator lease. The async inventory verifier runs outside the lease;
+      // re-resolve the authenticated adapter binding synchronously here so a
+      // revoke that wins during verification cannot publish READY afterwards.
+      if (revalidateBinding) {
+        let binding = null;
+        try {
+          binding = revalidateBinding({
+            world_id: snapshot.world_id,
+            conversation_id: snapshot.conversation_id,
+          });
+        } catch {}
+        if (!isPlainDataRecord(binding) || binding.active !== true
+          || binding.world_id !== snapshot.world_id
+          || binding.conversation_id !== snapshot.conversation_id) {
+          const now = new Date().toISOString();
+          this.#markNonReady(snapshot.world_id, snapshot.conversation_id,
+            'HOST_CONVERSATION_NOT_AUTHORIZED', now, snapshotDigest);
+          return { status: 'non_ready', code: 'HOST_CONVERSATION_NOT_AUTHORIZED' };
+        }
+      }
       const currentState = this.db.prepare('SELECT status,failure_code,updated_at,snapshot_digest FROM host_version_inventory_state WHERE world_id=? AND conversation_id=?')
         .get(snapshot.world_id, snapshot.conversation_id) ?? null;
       const invalidatedDuringVerification = currentState?.status === 'NON_READY'
@@ -552,6 +612,16 @@ export class HostVersionDigestLedger {
       this.db.prepare("INSERT INTO host_version_inventory_state (world_id,conversation_id,status,snapshot_digest,failure_code,updated_at) VALUES(?,?,'READY',?,NULL,?) ON CONFLICT(world_id,conversation_id) DO UPDATE SET status='READY',snapshot_digest=excluded.snapshot_digest,failure_code=NULL,updated_at=excluded.updated_at")
         .run(snapshot.world_id, snapshot.conversation_id, snapshotDigest, this.#nextStateTimestamp(snapshot.world_id, snapshot.conversation_id));
       return { status: 'ready', snapshot_sha256: snapshotDigest, version_count: snapshot.versions.length };
+    });
+  }
+
+  invalidateConversation(worldId, conversationId) {
+    if (!validId(worldId) || !validId(conversationId)) {
+      throw new TypeError('A valid Host conversation scope is required for inventory invalidation');
+    }
+    return this.#write(() => {
+      this.#markNonReady(worldId, conversationId, 'HOST_CONVERSATION_REVOKED', new Date().toISOString());
+      return { status: 'non_ready', code: 'HOST_CONVERSATION_REVOKED' };
     });
   }
 
