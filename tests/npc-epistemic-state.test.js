@@ -645,3 +645,92 @@ test("serialized failure diagnostics do not disclose rejected evidence identifie
     assert.equal(serialized.includes(marker), false, `failure diagnostic leaked protected marker: ${marker}`);
   }
 });
+
+
+test("restored belief states require evidence and preserve epistemic restrictions", () => {
+  const noEvidence = {
+    ...emptyState(),
+    beliefs: [{
+      proposition_ref: "prop-secret-location",
+      stance: "believes_true",
+      supporting_evidence_refs: [],
+      conflicting_evidence_refs: [],
+      revision_rule_ref: "rule-restored",
+      review_required: false,
+      history: [],
+    }],
+  };
+  assert.equal(apply(noEvidence, { type: "canonical_truth_changed" }).status, "non_ready");
+
+  const tentativeEvidence = admit(emptyState(), { epistemic_status: "rumor" }).state;
+  const forgedConfirmedBelief = {
+    ...tentativeEvidence,
+    beliefs: [{
+      proposition_ref: "prop-secret-location",
+      stance: "believes_true",
+      supporting_evidence_refs: ["evidence-1"],
+      conflicting_evidence_refs: [],
+      revision_rule_ref: "rule-restored",
+      review_required: false,
+      history: [],
+    }],
+  };
+  assert.equal(apply(forgedConfirmedBelief, { type: "canonical_truth_changed" }).status, "non_ready");
+
+  const unknownEvidence = admit(emptyState(), { epistemic_status: "unknown" }).state;
+  const forgedUnknownBelief = {
+    ...unknownEvidence,
+    beliefs: [{
+      proposition_ref: "prop-secret-location",
+      stance: "suspects_true",
+      supporting_evidence_refs: ["evidence-1"],
+      conflicting_evidence_refs: [],
+      revision_rule_ref: "rule-restored",
+      review_required: false,
+      history: [],
+    }],
+  };
+  assert.equal(apply(forgedUnknownBelief, { type: "canonical_truth_changed" }).status, "non_ready");
+});
+
+test("restored directional beliefs require evidence with matching polarity", () => {
+  const oppositeEvidence = admit(emptyState(), { polarity: "supports_false" }).state;
+  const forgedBelief = {
+    ...oppositeEvidence,
+    beliefs: [{
+      proposition_ref: "prop-secret-location",
+      stance: "believes_true",
+      supporting_evidence_refs: ["evidence-1"],
+      conflicting_evidence_refs: [],
+      revision_rule_ref: "rule-restored",
+      review_required: false,
+      history: [],
+    }],
+  };
+  assert.equal(apply(forgedBelief, { type: "canonical_truth_changed" }).status, "non_ready");
+});
+
+test("state validation fails closed without invoking a polluted Array iterator", () => {
+  const descriptor = Object.getOwnPropertyDescriptor(Array.prototype, Symbol.iterator);
+  let getterCalls = 0;
+  let result;
+  Object.defineProperty(Array.prototype, Symbol.iterator, {
+    configurable: true,
+    get() {
+      getterCalls += 1;
+      throw new Error("polluted Array iterator must not execute");
+    },
+  });
+  try {
+    result = apply(emptyState(), {
+      type: "information_received",
+      event_ref: "receipt-polluted-iterator",
+      source_ref: "message-1",
+      source_version: "v1",
+    });
+  } finally {
+    Object.defineProperty(Array.prototype, Symbol.iterator, descriptor);
+  }
+  assert.equal(result.status, "non_ready");
+  assert.equal(getterCalls, 0);
+});
