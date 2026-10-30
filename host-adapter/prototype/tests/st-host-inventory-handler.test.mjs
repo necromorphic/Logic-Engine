@@ -32,6 +32,22 @@ test('host inventory route rejects unauthenticated and incomplete user sessions'
   assert.equal(calls, 0);
 });
 
+test('host inventory route rejects an authenticated account whose signed session handle differs', async () => {
+  let calls = 0;
+  const handler = createHostInventoryHandler({
+    enumerate: async () => { calls += 1; return {}; },
+    pinnedHostCommit: pinned,
+    hostBuildClaim: pinned,
+  });
+  const response = makeResponse();
+  await handler({
+    user: { profile: { handle: 'alice' }, directories: {} },
+    session: { handle: 'bob' },
+  }, response);
+  assert.equal(response.statusCode, 403);
+  assert.equal(calls, 0);
+});
+
 test('host inventory route fails closed unless the deployment build claim matches the pinned target', async () => {
   let calls = 0;
   const handler = createHostInventoryHandler({
