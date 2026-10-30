@@ -198,8 +198,9 @@ function assertSyncResult(value) {
  *
  * The caller must provide trusted synchronous Core/Provider readers that open
  * their databases read-only and validate the exact current source/grant state.
- * The module intentionally has no fallback reader or transport. Only the
- * explicitly allowlisted Google AI Studio chat route is supported.
+ * The module intentionally has no fallback reader or transport. It supports only
+ * the explicitly allowlisted protected chat route; the concrete provider
+ * transport remains a trusted-composition responsibility.
  */
 export class MemoryDispatchGateway {
   constructor({
