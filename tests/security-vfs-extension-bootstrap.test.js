@@ -28,6 +28,8 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
 
   const first = new DatabaseSync(join(directory, 'core.sqlite'));
   try {
+    assert.equal(first.prepare('SELECT sqlite_version() AS version').get().version, '3.47.2',
+      'the native VFS ABI probe is pinned to the SQLite version bundled with Node 22.13.0');
     first.exec('PRAGMA journal_mode=WAL; CREATE TABLE probe(value TEXT); INSERT INTO probe VALUES(\'ok\');');
     assert.equal(first.prepare('SELECT value FROM probe').get().value, 'ok');
     const opened = first.prepare('SELECT logic_engine_vfs_probe_open_count() AS count').get().count;
