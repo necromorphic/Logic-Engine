@@ -1061,8 +1061,15 @@ test('canonical entity-attribute provider constructs versioned context and evide
   assert.equal(typeof resolved.policy_version, 'string');
   assert.equal(resolved.policy_version.length > 0, true);
 
+  const authority = new DeploymentMechanicPolicyAuthority({
+    resolveActivePolicy: () => ({
+      authority_id: 'canonical-provider-test-authority',
+      generation: 1,
+      contextProvider: provider,
+    }),
+  });
   const result = new MechanicExecutor(engine, {
-    resolveAuthorizedContext: (args) => provider.resolve(args),
+    resolveAuthorizedContext: (args) => authority.resolveAuthorizedContext(args),
   }).evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
   assert.equal(result.status, 'ready');
   assert.equal(result.guarantees.context_provider_attested_snapshot, true);
