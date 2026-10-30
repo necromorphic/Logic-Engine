@@ -26,6 +26,7 @@ function admit(state, overrides = {}) {
     source_ref: "source-1",
     source_version: "v1",
     polarity: "supports_true",
+    epistemic_status: "confirmed",
     ...overrides,
   });
 }
@@ -56,6 +57,96 @@ test("admitted evidence does not automatically become belief", () => {
   assert.equal(result.status, "updated");
   assert.equal(result.state.evidence.length, 1);
   assert.deepEqual(result.state.beliefs, []);
+});
+
+test("rumor remains a rumor and cannot be promoted into a confirmed belief", () => {
+  const admitted = admit(emptyState(), { epistemic_status: "rumor" });
+  assert.equal(admitted.status, "updated");
+  assert.equal(admitted.state.evidence[0].epistemic_status, "rumor");
+
+  const promoted = apply(admitted.state, {
+    type: "belief_updated",
+    proposition_ref: "prop-secret-location",
+    stance: "believes_true",
+    revision_rule_ref: "rule-rumor-is-not-fact",
+    evidence_refs: ["evidence-1"],
+  });
+  assert.equal(promoted.status, "non_ready");
+  assert.equal(promoted.reason, "belief_revision_epistemic_status_not_admissible");
+
+  const tentative = apply(admitted.state, {
+    type: "belief_updated",
+    proposition_ref: "prop-secret-location",
+    stance: "suspects_true",
+    revision_rule_ref: "rule-rumor-supports-suspicion-only",
+    evidence_refs: ["evidence-1"],
+  });
+  assert.equal(tentative.status, "updated");
+  assert.equal(tentative.state.beliefs[0].stance, "suspects_true");
+  assert.equal(tentative.state.evidence[0].epistemic_status, "rumor");
+});
+
+test("unconfirmed reports, suspicions, and inferences cannot create confirmed belief", () => {
+  for (const epistemic_status of ["unconfirmed_report", "suspicion", "inference"]) {
+    const admitted = admit(emptyState(), { epistemic_status });
+    assert.equal(admitted.status, "updated");
+    assert.equal(admitted.state.evidence[0].epistemic_status, epistemic_status);
+
+    const confirmed = apply(admitted.state, {
+      type: "belief_updated",
+      proposition_ref: "prop-secret-location",
+      stance: "believes_true",
+      revision_rule_ref: "rule-no-promotion",
+      evidence_refs: ["evidence-1"],
+    });
+    assert.equal(confirmed.status, "non_ready", epistemic_status);
+
+    const tentative = apply(admitted.state, {
+      type: "belief_updated",
+      proposition_ref: "prop-secret-location",
+      stance: "suspects_true",
+      revision_rule_ref: "rule-tentative-only",
+      evidence_refs: ["evidence-1"],
+    });
+    assert.equal(tentative.status, "updated", epistemic_status);
+    assert.equal(tentative.state.evidence[0].epistemic_status, epistemic_status);
+  }
+});
+
+test("unknown epistemic status is retained but cannot influence a belief", () => {
+  const admitted = admit(emptyState(), { epistemic_status: "unknown" });
+  assert.equal(admitted.status, "updated");
+  assert.equal(admitted.state.evidence[0].epistemic_status, "unknown");
+
+  for (const stance of ["believes_true", "suspects_true", "unresolved"]) {
+    const result = apply(admitted.state, {
+      type: "belief_updated",
+      proposition_ref: "prop-secret-location",
+      stance,
+      revision_rule_ref: "rule-unknown-is-not-evidence",
+      evidence_refs: ["evidence-1"],
+    });
+    assert.equal(result.status, "non_ready", stance);
+  }
+});
+
+test("epistemic status is required and conflicting status reuse is rejected", () => {
+  const state = emptyState();
+  const missing = apply(state, {
+    type: "evidence_admitted",
+    acquisition_ref: "acq-1",
+    proposition_ref: "prop-secret-location",
+    evidence_ref: "evidence-1",
+    evidence_version: "v1",
+    source_ref: "source-1",
+    source_version: "v1",
+    polarity: "supports_true",
+  });
+  assert.equal(missing.status, "non_ready");
+
+  const first = admit(state, { epistemic_status: "rumor" });
+  const conflict = admit(first.state, { epistemic_status: "confirmed" });
+  assert.equal(conflict.status, "non_ready");
 });
 
 test("same evidence identity is idempotent; conflicting reuse is rejected", () => {
