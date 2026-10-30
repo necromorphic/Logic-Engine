@@ -9,7 +9,8 @@ This probe is a bounded feasibility implementation for Issue #770. It keeps the 
 - Windows x64 and Linux x64
 - Original Windows/Linux open-boundary probe: `56ebf8c6246358be363a83ccc6653fd8828523dc`
 - POSIX directory-anchor spike with root-relative component walk and symlink rejection test: `6b0b854fe4659c8e43d6ac5b78bedd0043b395bc`
-- The POSIX parent-rename + WAL/SHM placement test passed on Linux in the previous tested code head; the new root-walk/symlink regression test is awaiting CI. Windows continues to validate the unchanged open-boundary probe.
+- Windows relative-open groundwork is compile-checked at `7059957273b6b657c7b765d3f4b782c12ee7459a`; the header is included by the Windows C build but its helpers are not yet called by the VFS.
+- Exact-head VFS workflow `41090995404` passed on Linux and Windows. Exact-head Runtime workflow `41090995420` passed, including the full Windows `npm test` suite and the Core/Host/Provider acceptance jobs. These results prove header compilation only, not Windows handle-relative database operations.
 
 ## What this probe now demonstrates
 
