@@ -159,6 +159,31 @@ test('reader rejects a non-character entity even when it exists and is not destr
   );
 });
 
+test('reader revalidates actor authorization after reading acquisition rows', (t) => {
+  let authorizationCalls = 0;
+  const authorizer = (scope) => {
+    authorizationCalls += 1;
+    return {
+      status: authorizationCalls === 1 ? 'authorized' : 'denied',
+      world_id: scope.world_id,
+      adapter_id: scope.adapter_id,
+      actor_id: scope.actor_id,
+      recipient: scope.recipient,
+      purpose: scope.purpose,
+      world_revision: scope.world_revision,
+      commit_sequence: scope.commit_sequence,
+      authorization_ref: 'rule:npc-read-v1',
+    };
+  };
+  const { store, engine } = setup(t, authorizer);
+  assert.throws(
+    () => engine.readNpcKnowledge(request(store)),
+    { code: 'NPC_KNOWLEDGE_READ_NOT_READY' },
+  );
+  assert.equal(authorizationCalls, 2,
+    'the trusted actor binding must be checked both before and after the acquisition projection read');
+});
+
 test('reader fails closed without a trusted deployment authorizer', (t) => {
   const { store } = setup(t, null);
   const engine = new LogicEngine(store, { trustedInitialKnowledgeSources: trustedRegistry });
