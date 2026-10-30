@@ -368,8 +368,8 @@ The technical target is defined above. The following approvals remain external g
 | Host | Authenticated session/generation envelope; stable actor/conversation binding; complete inventory evidence; sole PC Gateway and all-sender coverage |
 | Memory Provider | Record/query grants, revocation, lineage, reconciliation/readiness and participation in the same serialization order |
 | Security/Operations | Actual opened-file identity, process/ACL boundary, backup/restore and dispatch-ledger anti-rollback |
-| Joint Core + Host + Memory | Ratify Lane B as the first isolated slice and keep Lane A separate; accept Option B shared order; approve durable dispatch-start and in-flight/UNKNOWN/no-auto-retry semantics |
-| Product/Security | PC-side deployment topology, phone-to-PC authentication, credential custody, audit/retention limits, timeout/cancellation and manual retry policy |\n| Project owner / release authority | Explicit production release approval after exact-head acceptance |
+| Joint Core + Host + Memory | Map the already-approved #356 dispatch-start policy onto the exact shared mechanism; enumerate every participating writer and prove durable dispatch-start, UNKNOWN/no-auto-retry recovery and no bypass. Do not reopen the approved policy boundary. |
+| Product/Security | Approve/confirm PC-side deployment topology, phone-to-PC authentication, credential custody/rotation, target-PC ACL and independent backup/restore boundary, audit/retention limits, timeout/cancellation and manual retry procedure. Raw Host text remains disabled; the #356 in-flight policy decision is already approved for implementation review. |\n| Project owner / release authority | Explicit production release approval after exact-head acceptance |
 
 Issue #264's second explicit Core approval remains required before any cross-block API/schema/implementation change. This specification does not replace that approval.
 
@@ -392,7 +392,7 @@ This specification is grounded in the following current-main contracts and imple
 
 The approved private adapter contract's §7.2 allows fail-closed boundary revalidation and explicitly does not promise linearizable revocation/dispatch. The Core-owned final-disclosure contract requires a shared serialized dispatch-start order for protected Memory-derived payloads. These guarantees cannot be silently treated as identical.
 
-For this integration's stated goal, this specification selects **Option B as the required target architecture**. This is a normative technical target, not a claim that cross-owner acceptance or implementation has already occurred. The affected owners must approve the exact mechanism and guarantee before implementation. Until then Lane B remains NON_READY and production egress remains disabled.
+For this integration's stated goal, this specification selects **Option B as the required target architecture**. The bounded in-flight dispatch-start policy has already been explicitly approved for implementation review under issue #356 (including the durable `DISPATCH_STARTED` linearization point, pre-start zero-egress rule, post-start in-flight boundary and no automatic retry for ambiguous outcomes). This specification does not reopen that policy decision. The affected owners must still approve the exact implementation mapping, writer participation, deployment topology and evidence before implementation/release. Until then Lane B remains NON_READY and production egress remains disabled.
 
 ## 17. Change log
 
