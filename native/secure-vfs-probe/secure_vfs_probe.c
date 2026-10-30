@@ -877,6 +877,15 @@ static int probe_win_identity_is_registered_database(
   return found;
 }
 
+static const wchar_t *probe_win_sidecar_suffix(const ProbeDatabaseRole *role,
+                                                    const wchar_t *relative_name) {
+  size_t base_length;
+  if (!role || !relative_name) return NULL;
+  base_length = wcslen(role->anchor.basename);
+  if (wcsncmp(relative_name, role->anchor.basename, base_length) != 0) return NULL;
+  return relative_name + base_length;
+}
+
 static int probe_win_access_role(int role_index, const wchar_t *relative_name,
                                  int is_main, int flags, int *result) {
   ProbeDatabaseRole *role = &g_database_roles[role_index];
@@ -884,9 +893,11 @@ static int probe_win_access_role(int role_index, const wchar_t *relative_name,
   HANDLE handle;
   LogicEngineWinFileIdentity actual;
   DWORD error;
+  const wchar_t *suffix = probe_win_sidecar_suffix(role, relative_name);
   if (flags == SQLITE_ACCESS_READWRITE) desired = GENERIC_READ | GENERIC_WRITE;
   else if (flags == SQLITE_ACCESS_READ) desired = GENERIC_READ;
   else if (flags != SQLITE_ACCESS_EXISTS) return SQLITE_IOERR_ACCESS;
+  if (!is_main && (!suffix || !probe_win_sidecar_kind(suffix))) return SQLITE_IOERR_ACCESS;
   handle = logic_engine_win_open_relative(role->anchor.parent, relative_name,
       desired, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
       FILE_OPEN, FILE_NON_DIRECTORY_FILE, FILE_ATTRIBUTE_NORMAL,
@@ -900,10 +911,21 @@ static int probe_win_access_role(int role_index, const wchar_t *relative_name,
     }
     return SQLITE_IOERR_ACCESS;
   }
-  if (!is_main && probe_win_identity_is_registered_database(&actual)) {
-    CloseHandle(handle);
-    *result = 0;
-    return SQLITE_OK;
+  if (!is_main) {
+    int recorded;
+    if (probe_win_identity_is_registered_database(&actual)) {
+      CloseHandle(handle);
+      *result = 0;
+      return SQLITE_OK;
+    }
+    probe_registry_lock();
+    recorded = probe_win_sidecar_identity_record_locked(role_index, suffix, &actual);
+    probe_registry_unlock();
+    if (!recorded) {
+      CloseHandle(handle);
+      *result = 0;
+      return SQLITE_OK;
+    }
   }
   CloseHandle(handle);
   *result = 1;
@@ -913,14 +935,24 @@ static int probe_win_access_role(int role_index, const wchar_t *relative_name,
 static int probe_win_delete_role(int role_index, const wchar_t *relative_name,
                                 int is_main) {
   ProbeDatabaseRole *role = &g_database_roles[role_index];
-  LogicEngineWinFileIdentity actual;
-  HANDLE handle = logic_engine_win_open_relative(role->anchor.parent, relative_name,
+  LogicEngineWinFileIdentity actual, expected_sidecar;
+  const wchar_t *suffix = probe_win_sidecar_suffix(role, relative_name);
+  const LogicEngineWinFileIdentity *expected = &role->identity;
+  HANDLE handle;
+  FILE_DISPOSITION_INFO disposition;
+  DWORD error;
+  if (!is_main) {
+    if (!suffix || !probe_win_sidecar_kind(suffix)
+        || !probe_win_sidecar_identity_lookup(role_index, suffix, &expected_sidecar)) {
+      return SQLITE_IOERR_DELETE;
+    }
+    expected = &expected_sidecar;
+  }
+  handle = logic_engine_win_open_relative(role->anchor.parent, relative_name,
       DELETE | FILE_READ_ATTRIBUTES,
       FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
       FILE_OPEN, FILE_NON_DIRECTORY_FILE, FILE_ATTRIBUTE_NORMAL,
-      is_main ? &role->identity : NULL, &actual);
-  FILE_DISPOSITION_INFO disposition;
-  DWORD error;
+      expected, &actual);
   if (handle == INVALID_HANDLE_VALUE) {
     error = GetLastError();
     if (error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND) return SQLITE_OK;
@@ -937,6 +969,7 @@ static int probe_win_delete_role(int role_index, const wchar_t *relative_name,
     return SQLITE_IOERR_DELETE;
   }
   CloseHandle(handle);
+  if (!is_main) (void)probe_win_sidecar_identity_remove(role_index, suffix, expected);
   return SQLITE_OK;
 }
 #endif
