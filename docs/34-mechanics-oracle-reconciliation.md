@@ -67,4 +67,34 @@ The bounded translator/proposal integration and the source paths listed above ar
 5. State the revocation consistency guarantee honestly. An external callback check immediately before commit is not linearizable against a concurrent revocation unless the authority generation participates in the same canonical transaction or a reviewed equivalent.
 6. Reconcile remaining statements against the exact reviewed head and run exact-head Runtime CI. The isolated recalculation oracle does not prove global dependency completeness or production executor readiness.
 
+
+
+## Current implementation delta — Issue #226 (2026-10-30)
+
+A separate current-main implementation slice is now under review in draft PR #734. It does not import PR #225 wholesale and does not change the oracle into a production executor.
+
+### Implemented in the review branch
+
+- `DeploymentPolicyAuthority` supplies stable authority identity, active generation, and the actual field authorization callback.
+- The production entry point constructs a self-identity-only authority and passes it to `createApiServer`; malformed/unavailable authority evidence prevents startup.
+- `AuthorizedReadService` uses that authority for field decisions. Mechanic attribute reads capture and recheck the same authority evidence.
+- `CanonicalEntityAttributeContextProvider` includes authority identity/generation in the policy fingerprint and verifies the evidence before and after all reads.
+- The API mechanic validator requires the exact same authority object used by the read path. Provider-only legacy validation is disabled.
+- Policy freshness is checked at proposal insertion (inside the proposal transaction), approval, and commit. Evidence is persisted and included in Core's mechanic evaluation fingerprint.
+- Tests cover authority identity/generation, read-time rotation, proposal/approval/commit rotation, stable-policy commit, and fail-closed behavior.
+- The bounded executor now rejects non-empty instance parameters/state, non-canonical/non-empty action input, unsupported unknown policies, multiple active/review-required mechanics, modules/capabilities, participants/interactions, and automatic conflict resolution.
+- The bounded dependency manifest records exact effect provenance, entity/fact target dependencies, fact identity, active mechanic-set scope, and rejected sources.
+
+### Still not proven / not enabled
+
+- The shipped entry point has only a self-identity-only policy. It does not configure a domain visibility map or a trusted mechanic context provider. Therefore production mechanic evaluation remains **DISABLED / FAIL-CLOSED**.
+- The tests exercise the authority contract with controlled test authorities; they do not prove a live external identity/visibility provider or the correctness of a world-specific access policy.
+- Policy generation must change whenever effective policy semantics change. The deployment owns that obligation.
+- External revocation is rechecked at boundaries but is not linearizable with Core commit when the authority is outside the Core transaction.
+- `mechanic_dependencies_complete: true` is scoped to `bounded_deterministic_action_v1`; `global_mechanic_dependencies_complete: false` remains mandatory.
+- The executor rejects any world with more than one enabled/review-required mechanic instance. Cross-mechanic conflict completeness is not implemented.
+- The A/B/C oracle remains isolated. Passing it does not establish global dependency completeness or production readiness.
+
+The PR must remain draft until exact-head Runtime CI passes. Production Mechanics must remain disabled until a trusted context provider and approved domain visibility mapping are configured with the exact same authority object and verified by deployment-level tests.
+
 This clarification documents source provenance and current wiring only. It does not enable execution, approve a provider, expand the supported action subset, or claim that the required integration tests exist or pass.
