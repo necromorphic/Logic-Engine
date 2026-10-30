@@ -66,3 +66,22 @@ Pinned-source references:
 - Unix VFS 3.47.2: https://github.com/sqlite/sqlite/blob/version-3.47.2/src/os_unix.c
 - Windows VFS 3.47.2: https://github.com/sqlite/sqlite/blob/version-3.47.2/src/os_win.c
 - SQLite VFS syscall-hook contract: https://www.sqlite.org/c3ref/vfs.html
+
+
+## Deterministic hardlink replacement experiment
+
+The probe now supports one explicitly configured database path and one alias target. It records the physical identity of the first OS object opened for that path:
+
+- Linux: `fstat(fd)`, comparing nonzero `st_dev` and `st_ino`.
+- Windows: `GetFileInformationByHandle()`, comparing volume serial and file index, and rejecting a reparse-point handle.
+
+On a later open, the VFS test shim replaces the configured path with a hardlink to a second, already-open database immediately before delegating to the parent VFS. The syscall wrapper inspects the actual returned descriptor/HANDLE, detects that its identity differs from the previously recorded object, closes it, and causes SQLite open to fail.
+
+This is a deterministic feasibility test for the narrow **same-path hardlink substitution** race on the exact pinned runtime. It is not yet a general solution:
+- only one explicitly configured database path is tracked;
+- it does not yet enforce three-way Core/Coordinator/Host-ledger role separation;
+- it does not bind identities for WAL, SHM and rollback-journal objects;
+- it does not cover parent-directory replacement/reparse races or all filesystem types;
+- the process-global syscall hook and test registry are not production-hardened for concurrent workers, recovery, or migrations.
+
+A passing result must not be reported as Issue #770 resolved. It establishes that the Node `node:sqlite` engine can be instrumented at the native open boundary and that the opened OS object can be inspected on both target platforms.
