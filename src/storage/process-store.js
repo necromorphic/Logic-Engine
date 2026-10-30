@@ -6,13 +6,24 @@ const now = () => new Date().toISOString();
 const enc = (value) => JSON.stringify(value);
 const dec = (value) => value == null ? null : JSON.parse(value);
 
+function safeJsonArray(value) {
+  try {
+    const parsed = dec(value);
+    return Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 function publicProcess(row, milestoneRows) {
   if (!row) return null;
   const definition = dec(row.definition_json);
   const milestones = milestoneRows.map((milestone) => ({
     ...dec(milestone.definition_json),
     status: milestone.status,
-    completed_event_ids: dec(milestone.completed_event_ids_json),
+    // Corrupt checkpoint evidence must remain inspectable as null so the recovery
+    // path can persist needs_review instead of throwing while materializing the process.
+    completed_event_ids: safeJsonArray(milestone.completed_event_ids_json),
     checkpoint_version: milestone.checkpoint_version,
     updated_at: milestone.updated_at,
   }));
@@ -179,11 +190,70 @@ export class ProcessStore {
       const milestone = this.db.prepare('SELECT * FROM world_process_milestones WHERE world_id=? AND trigger_id=?')
         .get(worldId, triggerId);
       if (!milestone) return null;
-      if (milestone.status === 'completed') return this.get(worldId, milestone.process_id);
+      if (milestone.status === 'completed') {
+        let completedEventIds = null;
+        try {
+          completedEventIds = dec(milestone.completed_event_ids_json);
+          if (!Array.isArray(completedEventIds) || completedEventIds.some((id) => typeof id !== 'string')) {
+            throw new Error('Malformed completed event IDs.');
+          }
+        } catch {
+          throw new EngineError('PROCESS_CROSS_RECORD_CHECKPOINT_MISMATCH',
+            'Completed process milestone has malformed supporting-event evidence.', 409, {
+              process_id: milestone.process_id, milestone_id: milestone.milestone_id, trigger_id: triggerId,
+              operation_id: operationId,
+            });
+        }
+        throw new EngineError('PROCESS_CROSS_RECORD_CHECKPOINT_MISMATCH',
+          'A completed process milestone was reached again by a registered trigger; process and trigger checkpoints disagree.', 409, {
+            process_id: milestone.process_id, milestone_id: milestone.milestone_id, trigger_id: triggerId,
+            operation_id: operationId, completed_event_ids: completedEventIds,
+          });
+      }
       if (milestone.status !== 'pending') {
-        throw new EngineError('PROCESS_MILESTONE_CHECKPOINT_CONFLICT', 'Only a pending process milestone can be completed.', 409, {
-          process_id: milestone.process_id, milestone_id: milestone.milestone_id, status: milestone.status,
-        });
+        throw new EngineError('PROCESS_CROSS_RECORD_CHECKPOINT_MISMATCH',
+          'A registered trigger cannot complete a process milestone whose persisted status is not pending.', 409, {
+            process_id: milestone.process_id, milestone_id: milestone.milestone_id, trigger_id: triggerId,
+            operation_id: operationId, milestone_status: milestone.status,
+          });
+      }
+      // Validate the process checkpoint against the exact canonical segment evidence
+      // before advancing the milestone. This runs inside the existing Core segment
+      // transaction, so a mismatch rolls back the whole segment.
+      const operation = this.db.prepare('SELECT * FROM time_advance_operations WHERE world_id=? AND operation_id=?')
+        .get(worldId, operationId);
+      const ids = [...new Set(eventIds)];
+      // Parse persisted evidence defensively: malformed or wrong-shaped JSON
+      // must enter the same fail-closed review path as a missing segment.
+      let operationSegments = null;
+      try {
+        const parsedSegments = operation ? dec(operation.segments_json) : null;
+        if (Array.isArray(parsedSegments)) operationSegments = parsedSegments;
+      } catch {
+        // Malformed persisted operation evidence is a mismatch, not authority to guess.
+      }
+      const matchingSegment = operationSegments?.find((segment) => {
+        if (!segment || !Array.isArray(segment.events)) return false;
+        const triggerIds = Array.isArray(segment.registered_trigger_ids) ? segment.registered_trigger_ids : [];
+        if (!triggerIds.includes(triggerId)) return false;
+        const segmentTriggerIds = Array.isArray(segment.trigger_ids) ? segment.trigger_ids : [];
+        const triggerIndex = segmentTriggerIds.indexOf(triggerId);
+        const eventOffset = segment.events.length - segmentTriggerIds.length;
+        const expectedEventId = triggerIndex >= 0 ? segment.events[eventOffset + triggerIndex]?.event_id : null;
+        return expectedEventId && ids.length === 1 && ids[0] === expectedEventId;
+      }) ?? null;
+      const triggerRow = this.db.prepare('SELECT status,completed_operation_id FROM world_time_triggers WHERE world_id=? AND trigger_id=?')
+        .get(worldId, triggerId);
+      const validEvents = ids.length === 1 && this.db.prepare(
+        "SELECT COUNT(*) AS count FROM world_events WHERE world_id=? AND event_id=? AND validity='valid'",
+      ).get(worldId, ids[0]).count === 1;
+      if (!operation || !matchingSegment || !triggerRow || triggerRow.status !== 'completed'
+        || triggerRow.completed_operation_id !== operationId || !validEvents) {
+        throw new EngineError('PROCESS_CROSS_RECORD_CHECKPOINT_MISMATCH',
+          'Process milestone checkpoint does not match its trigger, operation segment, and valid canonical event evidence.', 409, {
+            process_id: milestone.process_id, milestone_id: milestone.milestone_id, trigger_id: triggerId,
+            operation_id: operationId, event_ids: ids,
+          });
       }
       const processRow = this.db.prepare('SELECT * FROM world_processes WHERE world_id=? AND process_id=?')
         .get(worldId, milestone.process_id);
@@ -193,7 +263,6 @@ export class ProcessStore {
         });
       }
       const stamp = now();
-      const ids = [...new Set(eventIds)];
       this.db.prepare(`UPDATE world_process_milestones SET status='completed',completed_event_ids_json=?,
         checkpoint_version=checkpoint_version+1,updated_at=? WHERE world_id=? AND process_id=? AND milestone_id=? AND status='pending'`)
         .run(enc(ids), stamp, worldId, milestone.process_id, milestone.milestone_id);
@@ -386,9 +455,11 @@ export class ProcessStore {
 
   markNeedsReview(worldId, processId, code, message) {
     return this.store.tx(() => {
+      // A checkpoint contradiction overrides even a terminal lifecycle label:
+      // retain milestone evidence as-is and gate the process for manual review.
       const stamp = now();
       this.db.prepare(`UPDATE world_processes SET status='needs_review',version=version+1,last_error_json=?,updated_at=?
-        WHERE world_id=? AND process_id=? AND status IN ('scheduled','running','paused','needs_review')`)
+        WHERE world_id=? AND process_id=? AND status IN ('scheduled','running','paused','completed','failed','cancelled','needs_review')`)
         .run(enc({ code, message }), stamp, worldId, processId);
       const world = this.store.world(worldId);
       this.db.prepare('INSERT INTO audit_entries(world_id,world_revision,action,target_id,payload_json,occurred_at) VALUES(?,?,?,?,?,?)')
