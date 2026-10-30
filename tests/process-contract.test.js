@@ -152,3 +152,65 @@ test('paused, cancelled, failed, and needs-review base states are not overwritte
   assert.equal(deriveProcessState('failed', allDone), 'failed');
   assert.equal(deriveProcessState('needs_review', allDone), 'needs_review');
 });
+
+
+test('rejects sparse milestone collections before normalization', () => {
+  const sparse = [];
+  sparse.length = 2;
+  sparse[1] = {
+    milestone_id: 'arrival',
+    trigger_id: 'trigger-arrival',
+    due_coordinate: 100,
+    prerequisites: [],
+    event: {},
+  };
+  assert.throws(
+    () => normalizeProcessDefinition(processDefinition({ milestones: sparse })),
+    (error) => error instanceof ProcessContractError && error.code === 'INVALID_PROCESS_MILESTONES',
+  );
+});
+
+test('rejects Proxy inputs before invoking reflective traps', () => {
+  let trapCalls = 0;
+  const hostileArray = new Proxy([], {
+    getPrototypeOf() { trapCalls += 1; throw new Error('getPrototypeOf trap executed'); },
+    ownKeys() { trapCalls += 1; throw new Error('ownKeys trap executed'); },
+  });
+  assert.throws(
+    () => normalizeProcessDefinition(processDefinition({ milestones: [{
+      milestone_id: 'only', trigger_id: 'trigger-only', due_coordinate: 10,
+      prerequisites: hostileArray, event: {},
+    }] })),
+    (error) => error instanceof ProcessContractError && error.code === 'INVALID_PROCESS_REFERENCE_LIST',
+  );
+  assert.equal(trapCalls, 0, 'Proxy traps must not execute during rejection');
+
+  const hostileMilestones = new Proxy([], {
+    getPrototypeOf() { trapCalls += 1; throw new Error('milestones getPrototypeOf trap executed'); },
+  });
+  assert.throws(
+    () => normalizeProcessDefinition(processDefinition({ milestones: hostileMilestones })),
+    (error) => error instanceof ProcessContractError && error.code === 'INVALID_PROCESS_MILESTONES',
+  );
+  assert.equal(trapCalls, 0, 'milestone Proxy traps must not execute');
+
+  const hostileMilestone = new Proxy({
+    milestone_id: 'only', trigger_id: 'trigger-only', due_coordinate: 10, event: {},
+  }, {
+    ownKeys() { trapCalls += 1; throw new Error('milestone ownKeys trap executed'); },
+  });
+  assert.throws(
+    () => normalizeProcessDefinition(processDefinition({ milestones: [hostileMilestone] })),
+    (error) => error instanceof ProcessContractError && error.code === 'INVALID_PROCESS_MILESTONE',
+  );
+  assert.equal(trapCalls, 0, 'milestone object Proxy traps must not execute');
+
+  const hostileInput = new Proxy(processDefinition(), {
+    ownKeys() { trapCalls += 1; throw new Error('input ownKeys trap executed'); },
+  });
+  assert.throws(
+    () => normalizeProcessDefinition(hostileInput),
+    (error) => error instanceof ProcessContractError && error.code === 'INVALID_PROCESS_DEFINITION',
+  );
+  assert.equal(trapCalls, 0, 'top-level Proxy traps must not execute');
+});
