@@ -11,7 +11,7 @@ This document records the implementation branch for the repository boundary in d
 | Repository interface and isolated schema | Prototype implemented | 100% |
 | CAS, idempotency and audit | Implemented in adapter | 100% |
 | Pending-attempt persistence and reconciliation reducer | Implemented behind injected verifier | 100% |
-| Windows/Linux contract tests | CI validation | Pending latest run |
+| Windows/Linux contract tests | 20/20 targeted on each OS; full suite 1207/1207 on Linux and Windows | 100% |
 | Production secure SQLite open | Blocked by VFS identity/TOCTOU gate | 0% |
 | Trusted runtime callers and authorization | Not wired | 0% |
 | First supported goal family and real dispatch cycle | Not implemented | 0% |
@@ -72,7 +72,7 @@ The repository does not query Core to manufacture evidence, authorize actions, c
 
 ## Open production gates
 
-1. **VFS secure open:** only same-engine VFS registration has been demonstrated on Windows and Linux. The current probe delegates actual file opening to the parent VFS. Opened-object identity, secure sidecar handling and TOCTOU resistance remain unproven. Issue #770 remains open.
+1. **VFS secure open:** the exact Node 22.13.0 / SQLite 3.47.2 probe now demonstrates process-default VFS registration, explicit role registration, identity capture with pinned native handles, fail-closed unknown main-database opens, and hardlink replacement rejection for main DB, WAL, rollback-journal and SHM on Windows/Linux. It is still a probe, not production: parent-directory anchoring, persistent identity across restarts, sidecar-to-sidecar ownership, direct parent-VFS bypass and full startup/recovery integration remain open. The uploaded ST-VectorService uses a separate better-sqlite3 13.0.3 engine and is not covered by this node:sqlite proof. Issue #770 remains open.
 2. **Trusted decision context:** no production caller yet supplies a complete trusted NPC decision envelope.
 3. **Host completeness:** final-send/lifecycle proof remains incomplete.
 4. **Action authorization:** actor identity is not action permission; NPC/player-agency policy and an executable allowlist remain required.
