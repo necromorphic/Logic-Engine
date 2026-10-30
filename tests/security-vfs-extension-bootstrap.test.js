@@ -224,6 +224,9 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
       const canonicalDb = new DatabaseSync(canonicalDbPath);
       canonicalDb.close();
     }
+    aliasPathOpenCountDelta = roleRegistrar.prepare(
+      'SELECT logic_engine_vfs_probe_open_count() AS count'
+    ).get().count - aliasOpenCountBefore;
   }
 
   // POSIX-only directory-anchor proof: after registration, rename the trusted
