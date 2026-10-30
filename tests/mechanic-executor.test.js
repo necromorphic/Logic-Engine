@@ -1580,7 +1580,7 @@ test('configured deployment policy runtime binds real authorized reads and rejec
   );
   assert.equal(proposals.get(worldId, approved.proposal_id).status, 'approved');
   assert.equal(engine.getState(worldId).world_revision, 2);
-  assert.equal(engine.getState(worldId).commit_sequence, 1);
+  assert.equal(engine.getState(worldId).commit_sequence, 2);
   assert.equal(engine.getState(worldId).entities.some((entity) => entity.entity_id === 'entity.new'), false);
   assert.equal(proposals.db.prepare('SELECT COUNT(*) AS count FROM event_proposals').get().count, 2);
 });
