@@ -206,11 +206,17 @@ export class CanonicalEntityAttributeContextProvider {
       || !object(identity.snapshotIdentity)
       || identity.snapshotIdentity.world_id !== identity.worldId
       || !Number.isSafeInteger(identity.snapshotIdentity.world_revision)
-      || !Number.isSafeInteger(identity.snapshotIdentity.commit_sequence)) {
+      || !Number.isSafeInteger(identity.snapshotIdentity.commit_sequence)
+      || !object(identity.authorizationPrincipal)) {
       return false;
     }
 
     return identity.policyVersion === this.policyFingerprint
-      && identity.authorizationScope === this.authorizationScope;
+      && identity.authorizationScope === this.authorizationScope
+      && this.authorizationPrincipal !== null
+      && identity.authorizationPrincipal.adapterId === this.authorizationPrincipal.adapterId
+      && identity.authorizationPrincipal.actorEntityId === this.authorizationPrincipal.actorEntityId
+      && identity.authorizationPrincipal.recipient === this.authorizationPrincipal.recipient
+      && identity.authorizationPrincipal.purpose === this.authorizationPrincipal.purpose;
   }
 }
