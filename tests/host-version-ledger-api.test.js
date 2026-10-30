@@ -18,7 +18,11 @@ const json = (body) => JSON.stringify(body);
 
 async function setup(t, { withLedger = true, verifyInventorySnapshot = async () => false } = {}) {
   const directory = mkdtempSync(join(tmpdir(), 'logic-host-ledger-api-'));
-  const store = new SQLiteStore(':memory:');
+  const coordinatorPath = join(directory, 'coordinator.sqlite');
+  const previousCoordinatorPath = process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH;
+  process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH = coordinatorPath;
+  let currentVerifier = verifyInventorySnapshot;
+  const store = new SQLiteStore(join(directory, 'core.sqlite'));
   const engine = new LogicEngine(store);
   engine.createWorld({
     world_id: 'host-ledger-api-world', world_pack_id: 'test.host-ledger', world_pack_version: '1',
@@ -26,8 +30,8 @@ async function setup(t, { withLedger = true, verifyInventorySnapshot = async () 
   });
   const ledger = withLedger ? new HostVersionDigestLedger({
     path: join(directory, 'ledger.sqlite'),
-    coordinatorPath: join(directory, 'coordinator.sqlite'),
-    verifyInventorySnapshot,
+    coordinatorPath,
+    verifyInventorySnapshot: (...args) => currentVerifier(...args),
   }) : null;
   const server = createApiServer({
     engine, token: TOKEN, adminToken: ADMIN,
@@ -36,13 +40,16 @@ async function setup(t, { withLedger = true, verifyInventorySnapshot = async () 
   });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
+  const base = 'http://127.0.0.1:' + server.address().port;
   t.after(async () => {
     await new Promise((resolve) => server.close(resolve));
     ledger?.close();
     store.close();
+    if (previousCoordinatorPath === undefined) delete process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH;
+    else process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH = previousCoordinatorPath;
     rmSync(directory, { recursive: true, force: true });
   });
-  return { base: 'http://127.0.0.1:' + server.address().port, ledger };
+  return { base, ledger, setVerifier: (verifier) => { currentVerifier = verifier; } };
 }
 
 async function bind(base, adapterId = 'adapter-a') {
