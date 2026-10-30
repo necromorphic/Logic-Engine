@@ -46,6 +46,13 @@ export async function enumerateStableFileInventory(rootPath) {
     const requestedRoot = resolve(rootPath);
     const requestedRootStat = await lstat(requestedRoot);
     if (!requestedRootStat.isDirectory() || requestedRootStat.isSymbolicLink()) return fail('HOST_INVENTORY_ROOT_UNSAFE');
+
+    // Windows inventory is intentionally unavailable until every relevant
+    // reparse-point type can be verified. Do not run realpath equality first:
+    // Node may return a differently normalized Windows path (for example,
+    // an extended-length path), which would mask the actual platform blocker.
+    if (process.platform === 'win32') return fail('HOST_INVENTORY_PLATFORM_REPARSE_UNVERIFIED');
+
     root = await realpath(requestedRoot);
     if (root !== requestedRoot) return fail('HOST_INVENTORY_ROOT_ALIAS_UNSUPPORTED');
     const rootStat = await lstat(root);
@@ -60,7 +67,6 @@ export async function enumerateStableFileInventory(rootPath) {
 
   // Validate the configured root before platform capability gating so invalid
   // paths retain precise failure codes on every supported OS.
-  if (process.platform === 'win32') return fail('HOST_INVENTORY_PLATFORM_REPARSE_UNVERIFIED');
   if (typeof fsConstants.O_NOFOLLOW !== 'number') return fail('HOST_INVENTORY_PLATFORM_NOFOLLOW_UNAVAILABLE');
 
   async function scanOnce() {
