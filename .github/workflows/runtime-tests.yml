@@ -70,7 +70,7 @@ jobs:
           node-version: '22.13.0'
       - name: Install test dependencies
         run: npm install --no-package-lock --no-audit --no-fund
-      - name: Verify Node descriptor and path file identity
+      - name: Probe Windows Node path and descriptor identity fields
         run: node --test tests/windows-file-identity-probe.test.js
       - name: Run application-level Windows symlink rejection tests
         env:
