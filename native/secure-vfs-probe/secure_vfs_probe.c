@@ -213,23 +213,27 @@ typedef int (*probe_open_fn)(const char *, int, int);
 static int probe_open(const char *name, int flags, int mode) {
   int fd;
   struct stat info;
+  int is_sidecar = (g_current_sidecar_open && !g_current_sidecar_captured)
+    || probe_path_is_shm(name);
+  int needs_identity = is_sidecar
+    || (g_current_race_open && !g_current_race_captured)
+    || (g_current_role_index >= 0 && !g_current_role_captured);
   g_native_open_count += 1;
-  if ((g_current_race_open && !g_current_race_captured)
-      || (g_current_role_index >= 0 && !g_current_role_captured)) {
+  if (needs_identity) {
 #ifdef O_NOFOLLOW
     flags |= O_NOFOLLOW;
 #else
     errno = EACCES;
     g_identity_reject_count += 1;
+    if (is_sidecar) g_sidecar_identity_reject_count += 1;
     return -1;
 #endif
   }
   fd = ((probe_open_fn)g_original_open_syscall)(name, flags, mode);
-  if (fd < 0) return fd;
-  if ((g_current_race_open && !g_current_race_captured)
-      || (g_current_role_index >= 0 && !g_current_role_captured)) {
+  if (fd < 0 || !needs_identity) return fd;
+  {
     int reject = fstat(fd, &info) != 0 || info.st_dev == 0 || info.st_ino == 0;
-    if (!reject && g_current_role_index >= 0) {
+    if (!reject && g_current_role_index >= 0 && !g_current_role_captured) {
       ProbeDatabaseRole *role = &g_database_roles[g_current_role_index];
       if (g_current_role_stat_valid
           && (info.st_dev != g_current_role_stat_device
@@ -244,32 +248,45 @@ static int probe_open(const char *name, int flags, int mode) {
         }
       }
     }
-    if (!reject && g_current_race_open && g_race_identity_set) {
+    if (!reject && is_sidecar) {
+      for (int i = 0; i < g_database_role_count; i++) {
+        ProbeDatabaseRole *role = &g_database_roles[i];
+        if (role->identity_set && info.st_dev == role->device
+            && info.st_ino == role->inode) reject = 1;
+      }
+    }
+    if (!reject && g_current_race_open && !g_current_race_captured
+        && g_race_identity_set) {
       reject = info.st_dev != g_race_device || info.st_ino != g_race_inode;
     }
     if (reject) {
       close(fd);
       g_identity_reject_count += 1;
+      if (is_sidecar) g_sidecar_identity_reject_count += 1;
       errno = EACCES;
       return -1;
     }
-    if (g_current_role_index >= 0 && !g_database_roles[g_current_role_index].identity_set) {
+    if (g_current_role_index >= 0 && !g_current_role_captured
+        && !g_database_roles[g_current_role_index].identity_set) {
       ProbeDatabaseRole *role = &g_database_roles[g_current_role_index];
       role->device = info.st_dev;
       role->inode = info.st_ino;
       role->identity_set = 1;
     }
-    if (g_current_race_open && !g_race_identity_set) {
+    if (g_current_race_open && !g_current_race_captured && !g_race_identity_set) {
       g_race_device = info.st_dev;
       g_race_inode = info.st_ino;
       g_race_identity_set = 1;
     }
-    g_current_role_captured = 1;
-    g_current_race_captured = 1;
+    if (is_sidecar) {
+      g_sidecar_identity_check_count += 1;
+      if (g_current_sidecar_open) g_current_sidecar_captured = 1;
+    }
+    if (g_current_role_index >= 0) g_current_role_captured = 1;
+    if (g_current_race_open) g_current_race_captured = 1;
   }
   return fd;
 }
-
 typedef int (*probe_stat_fn)(const char *, struct stat *);
 static int probe_stat(const char *name, struct stat *info) {
   int rc = ((probe_stat_fn)g_original_stat_syscall)(name, info);
