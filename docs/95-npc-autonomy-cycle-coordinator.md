@@ -10,8 +10,9 @@
    - Unknown relevance or incomplete assessment returns `review_required`.
    - Only `no_material_change` proceeds.
 2. **Assess the active plan** using `assessNpcPlanViability`.
-   - Only `continue` proceeds.
-   - `blocked`, `reconsider`, `needs_review`, and `resume_candidate` return `plan_not_ready`.
+   - Only `continue` proceeds to active-step evaluation.
+   - `reconsider` returns `plan_revision_required` with a plan-scoped request containing the existing `plan.id` and the evaluator's reason codes. It does not rewrite the plan, choose a replacement, change a goal, or generate alternatives.
+   - `blocked`, `needs_review`, and `resume_candidate` return `plan_not_ready`.
    - A terminal plan returns `no_active_plan`.
    - In particular, `resume_candidate` is not an unblock transition.
 3. **Bind the decision to the active plan step** using `getNpcPlanActiveStep`.
@@ -47,7 +48,7 @@ The coordinator does not interpret free text or infer missing data. The plan-pro
 ## Safety and ownership boundaries
 
 - This is NPC-local composition, not a trusted caller or dispatcher.
-- It does not generate goals, motives, plans, alternatives, or action candidates.
+- It does not generate goals, motives, plans, alternatives, or action candidates. A plan-revision request is only a bounded signal to an external owner; it is not a revised plan.
 - It does not authenticate actor identity, evidence, assessments, action permissions, preconditions, or conflict-resolution rules.
 - It does not read Core, Memory, Personality, Relationships, Host, or World Pack state.
 - It does not persist state, schedule work, invoke a model, execute actions, create proposals, or commit world effects.
