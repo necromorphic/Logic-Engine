@@ -606,3 +606,29 @@ test("pending reconciliation pagination uses a monotonic per-store cursor", () =
     h.close();
   }
 });
+
+
+test("idempotency keys are scoped by operation rather than globally per NPC", () => {
+  const h = harness();
+  try {
+    const goal = createGoal(h.repository, scope, "shared-operation-key");
+    assert.equal(goal.status, "applied");
+    const candidate = createCandidate(h.repository, goal.goal_id, "shared-operation-key");
+    assert.equal(candidate.status, "applied");
+  } finally {
+    h.close();
+  }
+});
+
+test("versioned stores fail closed when a required uniqueness index is missing", () => {
+  const h = harness();
+  try {
+    h.database.exec("DROP INDEX npc_one_current_plan_per_goal");
+    assert.throws(
+      () => createNpcGoalPlanRepository({ database: h.database }),
+      /missing required index npc_one_current_plan_per_goal/,
+    );
+  } finally {
+    h.close();
+  }
+});
