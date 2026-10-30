@@ -126,6 +126,8 @@ static inline HANDLE logic_engine_win_open_relative(
   name.Length = (USHORT)(chars * sizeof(wchar_t));
   name.MaximumLength = name.Length;
   InitializeObjectAttributes(&object_attributes, &name, OBJ_CASE_INSENSITIVE, parent, NULL);
+  /* FILE_SYNCHRONOUS_IO_NONALERT requires SYNCHRONIZE in DesiredAccess. */
+  access |= SYNCHRONIZE;
   status = nt_create(&result, access, &object_attributes, &io, NULL,
       attributes, share, disposition,
       options | FILE_OPEN_REPARSE_POINT | FILE_SYNCHRONOUS_IO_NONALERT,
