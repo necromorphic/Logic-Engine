@@ -68,7 +68,7 @@ For every effective policy change, deployment must increase `generation`. Do not
 
 The config file is reloaded at context-resolution and proposal-lifecycle validation boundaries. The same file-backed policy callback is used by AuthorizedReadService for each field read. A rotation during context resolution is rejected by the authority's post-resolution check; a rotation before proposal creation, approval, or commit rejects the stale evaluation/proposal. A new evaluation is required.
 
-Core actor bindings also carry a monotonic `binding_generation`. Evaluation evidence pins that generation alongside adapter and actor identity. Revocation increments it; rebinding the same adapter to the same actor increments it again. Consequently, a proposal created before revoke/rebind remains stale even if the same binding is later restored.
+Core actor bindings also carry a monotonic `binding_generation`, and bind/revoke audit entries record the resulting generation. Evaluation evidence pins that generation alongside adapter and actor identity. Revocation increments it; rebinding the same adapter to the same actor increments it again. Consequently, a proposal created before revoke/rebind remains stale even if the same binding is later restored.
 
 **Anti-rollback limitation:** the runtime's observed-generation guard is process-local. This slice does not persist a monotonic generation ledger across process restarts. The deployment release/configuration system must therefore be the trusted monotonic generation owner and must prevent rollback across restarts and across instances. If the deployment cannot guarantee that, do not configure the authority; keep Mechanics disabled until a durable monotonic source is approved.
 
