@@ -12,6 +12,7 @@
 #include <string.h>
 #include <stdint.h>
 #include <errno.h>
+#include <stdio.h>
 #ifdef _WIN32
 #include <windows.h>
 #include <wchar.h>
@@ -750,7 +751,12 @@ static void probe_register_database_role(sqlite3_context *context, int argc, sql
         && captured_role.file_index_low == other->file_index_low) duplicate_identity = 1;
 #else
     if (captured_role.device == other->device
-        && captured_role.inode == other->inode) duplicate_identity = 1;
+        && captured_role.inode == other->inode) {
+      fprintf(stderr, "duplicate role identity new=%s role=%s dev=%lld ino=%lld existing=%s existing_role=%s dev=%lld ino=%lld\n",
+        stored_path, stored_role, (long long)captured_role.device, (long long)captured_role.inode,
+        other->path, other->role, (long long)other->device, (long long)other->inode);
+      duplicate_identity = 1;
+    }
 #endif
   }
   if (!full && !duplicate && !duplicate_identity) {
