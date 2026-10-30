@@ -121,6 +121,8 @@ export class DeploymentMechanicPolicyAuthority {
     let current;
     try {
       current = this.resolveCurrentPolicy();
+      if (typeof current.contextProvider.assertPrincipalBound !== 'function') return false;
+      current.contextProvider.assertPrincipalBound(identity.worldId);
     } catch {
       return false;
     }
