@@ -57,9 +57,9 @@ test('VSS snapshots distinguish delete and same-byte restore as separate file ge
   skip: process.platform !== 'win32',
   timeout: 240_000,
 }, async () => {
-  await withTempRoot(async ({ root }) => {
+  await withTempRoot(async ({ parent, root }) => {
     const file = join(root, 'chat.jsonl');
-    const backup = join(root, 'backup.jsonl');
+    const backup = join(parent, 'backup.jsonl');
     await writeFile(file, 'same payload');
     const before = await enumerateStableFileInventory(resolve(root));
     await writeFile(backup, 'same payload');
