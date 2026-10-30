@@ -69,20 +69,20 @@ A successful migration increments `world_revision` exactly once. It does not cre
 
 The migration artifact must be immutable and addressable by exact migration ID/version. It must declare:
 
-- exact source World Pack ID/version;
+- exact source World Pack ID/version/**digest**;
 - exact source rule-module ID/version;
-- exact target World Pack ID/version;
+- exact target World Pack ID/version/**digest**;
 - exact target rule-module ID/version;
 - artifact schema/contract version;
 - complete dimension and value mappings, including special-state handling and explicit treatment of target-only/removed dimensions.
 
-Core must verify that the artifact's source tuple matches the current projection's proven source tuple, that the world's active World Pack ID/version still equals the artifact's source World Pack ID/version, and that the target rule-module version is registered and compatible with the target World Pack tuple. If the active world pin has already moved independently of the current Relationships state, reject rather than guessing which semantic version the world is migrating from. Core must not infer compatibility from a version label.
+Core must verify that the artifact's source tuple matches the current projection's proven source tuple, that the world's active World Pack ID/version/digest still equals the artifact's source World Pack ID/version/digest, and that the target rule-module version is registered and compatible with the target World Pack ID/version. The current `worlds` record exposes `world_pack_digest`, but legacy worlds may have a null digest; a null source digest is insufficient proof and rejects migration. The event-local v2 snapshot captures World Pack ID/version but not digest, so Core uses the immutable world-scoped active digest only when it still matches the same source ID/version; it must not pretend the event snapshot itself contains that digest. The target digest must come from a trusted exact World Pack resolver/registry or another separately approved immutable source. The current Relationship rule-module manifest contract proves only World Pack ID/version compatibility, not the target pack content digest. If Core cannot resolve and verify the exact target digest, reject migration. If the active world pin has already moved independently of the current Relationships state, reject rather than guessing which semantic version the world is migrating from. Core must not infer compatibility from a version label.
 
 The current implementation stores no World Pack pin on a relationship projection row. Core must obtain it from the exact v2 evaluation snapshot attached to each row's `last_event_id`; it must not use the world's current manifest to reconstruct historical provenance. A missing, legacy, corrupt, mismatched, or unavailable snapshot rejects the migration.
 
 **First-release conservative rule:** all current dimension rows in the world must resolve to the same exact source World Pack and rule-module tuple declared by the migration artifact. Mixed or ambiguous source tuples reject the entire migration. Supporting multiple source tuples in one migration would require an explicit expanded domain artifact contract and is not implied here.
 
-The target tuple becomes the world's active World Pack binding for subsequent typed transitions. Historical event snapshots retain their original source pins.
+The target ID/version/digest becomes the world's active World Pack binding for subsequent typed transitions. Historical event snapshots retain their original source pins. Rollback must restore the predecessor ID/version/digest as one atomic binding.
 
 ## 4. Mapping execution boundary
 
@@ -108,8 +108,8 @@ A successful operation creates an immutable derived result containing, at minimu
 
 - stable migration result ID and exact migration artifact ID/version;
 - world ID;
-- source World Pack and rule-module IDs/versions;
-- target World Pack and rule-module IDs/versions;
+- source World Pack ID/version/digest and rule-module ID/version;
+- target World Pack ID/version/digest and rule-module ID/version;
 - source world revision and commit-sequence cursor;
 - source projection-head/migration ID, if the source was itself derived;
 - canonical source projection snapshot or a losslessly recoverable immutable representation;
@@ -200,8 +200,8 @@ All acceptance tests must exercise the real Core application/store path at the e
 | Area | Required assertion |
 |---|---|
 | Exact artifact | Exact migration ID/version selected; unknown version rejected; newer artifact never substituted |
-| Exact source pins | Source WP/rule tuple proven from captured event snapshots; absent, legacy, corrupt, mismatched or mixed pins reject |
-| Exact target pins | Target rule module exists and declares the exact target World Pack tuple |
+| Exact source pins | Source WP ID/version and rule pin proven from captured event snapshots; active source digest must be non-null and match the world's exact ID/version; absent, legacy, corrupt, mismatched or mixed pins reject |
+| Exact target pins | Target rule module exists and declares the exact target World Pack ID/version; trusted resolver verifies exact target World Pack digest; missing resolver/digest rejects |
 | Complete mapping | Every present dimension/value/special state mapped; one missing mapping rejects the entire operation |
 | No implicit defaults | No neutral value, dropped dimension, coercion, or target-only initialization without explicit mapping |
 | Atomicity | On every refusal, world revision, commit sequence, active World Pack pin, current head, relationship rows, migration records, audit and idempotency state remain unchanged |
