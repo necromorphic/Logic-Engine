@@ -203,7 +203,9 @@ export class MechanicExecutor {
     if (resolved.world_revision !== snapshot.world_revision
       || resolved.commit_sequence !== snapshot.commit_sequence
       || typeof resolved.policy_version !== 'string' || !resolved.policy_version.trim()
-      || typeof resolved.authorization_scope !== 'string' || !resolved.authorization_scope.trim()\n      || typeof resolved.authority_id !== 'string' || !resolved.authority_id.trim()\n      || !Number.isSafeInteger(resolved.policy_generation) || resolved.policy_generation < 1
+      || typeof resolved.authorization_scope !== 'string' || !resolved.authorization_scope.trim()
+      || typeof resolved.authority_id !== 'string' || !resolved.authority_id.trim()
+      || !Number.isSafeInteger(resolved.policy_generation) || resolved.policy_generation < 1
       || !Array.isArray(resolved.knownAbsentPaths ?? [])
       || !(resolved.knownAbsentPaths ?? []).every((path) => typeof path === 'string' && path.trim())
       || !Array.isArray(resolved.dependencyEvidence)) {
