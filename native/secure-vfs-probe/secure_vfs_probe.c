@@ -835,7 +835,7 @@ static int probe_xOpen(sqlite3_vfs *vfs, const char *name, sqlite3_file *file,
       const wchar_t *wide_suffix = NULL;
       int matched = wide_path
         && probe_match_role_entry_w(wide_path, &role_index, &wide_suffix);
-      if (!matched || wide_suffix[0] != L'\\0') {
+      if (!matched || wide_suffix[0] != L'\0') {
         sqlite3_free(wide_path);
         sqlite3_free(canonical_name);
         return SQLITE_CANTOPEN;
@@ -872,7 +872,7 @@ static int probe_xOpen(sqlite3_vfs *vfs, const char *name, sqlite3_file *file,
     const wchar_t *suffix = NULL;
     if (wide_path) {
       matched = probe_match_role_entry_w(wide_path, &sidecar_role_index, &suffix)
-        && suffix[0] != L'\\0';
+        && suffix[0] != L'\0';
       sqlite3_free(wide_path);
     }
 #else
