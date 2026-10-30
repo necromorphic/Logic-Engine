@@ -1,18 +1,20 @@
 /*
- * Logic-Engine SQLite VFS registration probe.
+ * Logic-Engine SQLite VFS identity probe.
  *
  * This is deliberately NOT a production secure VFS. It delegates SQLite file
- * operations to the default VFS, while test-only syscall wrappers inspect the
- * OS object opened for one configured database path and inject a deterministic
- * hardlink replacement immediately before that open. It proves a narrow
- * identity-checking technique on the pinned Node/SQLite build; it does not
- * provide a complete role registry, sidecar identity policy, or production
- * startup contract. Never use this probe for production databases.
+ * operations to the default VFS, but requires explicit registration of every
+ * file-backed main database. Registration captures and pins the OS identity;
+ * test-only syscall wrappers compare later main/sidecar opens to registered
+ * identities and inject deterministic hardlink replacements.
+ *
+ * Remaining production gaps include directory-handle anchoring, persistent
+ * trusted identity across process restarts, sidecar-to-sidecar identity
+ * ownership, complete sidecar replacement coverage, and startup/recovery
+ * integration. Never use this probe for production databases.
  */
 #include <string.h>
 #include <stdint.h>
 #include <errno.h>
-#include <stdio.h>
 #ifdef _WIN32
 #include <windows.h>
 #include <wchar.h>
@@ -776,12 +778,7 @@ static void probe_register_database_role(sqlite3_context *context, int argc, sql
         && captured_role.file_index_low == other->file_index_low) duplicate_identity = 1;
 #else
     if (captured_role.device == other->device
-        && captured_role.inode == other->inode) {
-      fprintf(stderr, "duplicate role identity new=%s role=%s dev=%lld ino=%lld existing=%s existing_role=%s dev=%lld ino=%lld\n",
-        stored_path, stored_role, (long long)captured_role.device, (long long)captured_role.inode,
-        other->path, other->role, (long long)other->device, (long long)other->inode);
-      duplicate_identity = 1;
-    }
+        && captured_role.inode == other->inode) duplicate_identity = 1;
 #endif
   }
   if (!full && !duplicate && !duplicate_identity) {
