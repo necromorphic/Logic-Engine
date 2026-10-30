@@ -52,8 +52,21 @@ try {
   }
   [pscustomobject]@{ snapshotId = $id; snapshotRoot = $snapshotRoot; root = $root } | ConvertTo-Json -Compress
 } catch {
-  $null = $shadow.Delete()
-  throw
+  # Preserve the original provider/audit error. Resolve by snapshot ID even
+  # when the failure happened before the shadow object was assigned.
+  $failure = $_
+  try {
+    $cleanupShadow = Get-WmiObject -Class Win32_ShadowCopy | Where-Object { $_.ID -eq $id } | Select-Object -First 1
+    if ($cleanupShadow) {
+      $cleanupResult = $cleanupShadow.Delete()
+      $cleanupCode = if ($cleanupResult -is [System.Management.ManagementBaseObject]) { [int]$cleanupResult.ReturnValue } else { [int]$cleanupResult }
+      if ($cleanupCode -ne 0) { Write-Error "HOST_VSS_CLEANUP_FAILED:$cleanupCode" }
+    }
+  } catch {
+    # Cleanup failure is reported separately by the provider's delete path;
+    # do not hide the original snapshot-creation or audit failure.
+  }
+  throw $failure
 }
 `;
 
