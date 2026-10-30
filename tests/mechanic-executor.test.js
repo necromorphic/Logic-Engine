@@ -1497,7 +1497,7 @@ test('one deployment authority pins context and invalidates stale proposals acro
     resolveActivePolicy: () => active,
   });
   const executor = new MechanicExecutor(engine, {
-    resolveAuthorizedContext: (args) => authority.resolveAuthorizedContext(args),
+    resolveAuthorizedContext: (args) => authority.resolveAuthorizedContext({ ...args, authenticatedAdapterId: 'test-adapter' }),
   });
   const proposals = new ProposalService(engine, {
     validateMechanicPolicy: (identity) => authority.validateMechanicPolicy(identity),
