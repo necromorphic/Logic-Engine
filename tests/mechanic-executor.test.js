@@ -112,8 +112,6 @@ function contextProvider(context = { world: { weather: 'rain' }, actor: { hp: 10
       policy_version: 'test-visibility-policy-v1',
       authority_id: 'test-mechanic-authority',
       policy_generation: 1,
-      authority_id: 'test-mechanic-authority',
-      policy_generation: 1,
     };
   };
 }
@@ -420,14 +418,14 @@ test('mechanic proposals fail closed without current-policy validation and reche
     },
   });
   guarded.approve(worldId, proposal.proposal_id);
-  assert.deepEqual(observedStages, ['approval']);
+  assert.deepEqual(observedStages, ['proposal_creation', 'approval']);
 
   activePolicyVersion = 'rotated-visibility-policy-v2';
   assert.throws(
     () => guarded.commit(worldId, proposal.proposal_id),
     (error) => error.code === 'STALE_MECHANIC_POLICY' && error.status === 409,
   );
-  assert.deepEqual(observedStages, ['approval', 'commit']);
+  assert.deepEqual(observedStages, ['proposal_creation', 'approval', 'commit']);
   assert.equal(guarded.get(worldId, proposal.proposal_id).status, 'approved');
   assert.equal(engine.getState(worldId).world_revision, 2);
   assert.equal(engine.getState(worldId).entities.some((entity) => entity.entity_id === 'entity.new'), false);
