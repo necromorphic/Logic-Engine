@@ -179,8 +179,15 @@ export class ProposalService {
       && typeof identity.instance_id === 'string' && identity.instance_id.trim()
       && typeof identity.template_id === 'string' && identity.template_id.trim()
       && typeof identity.template_version === 'string' && identity.template_version.trim()
-      && typeof identity.template_hash === 'string' && /^[a-f0-9]{64}$/i.test(identity.template_hash),
-    'INVALID_MECHANIC_EVALUATION_IDENTITY', 'Evaluation must include a complete world, snapshot, instance, and pinned-template identity.');
+      && typeof identity.template_hash === 'string' && /^[a-f0-9]{64}$/i.test(identity.template_hash)
+      && Array.isArray(identity.active_mechanic_set) && identity.active_mechanic_set.length === 1
+      && object(identity.active_mechanic_set[0])
+      && identity.active_mechanic_set[0].instance_id === identity.instance_id
+      && identity.active_mechanic_set[0].status === 'enabled'
+      && identity.active_mechanic_set[0].template_id === identity.template_id
+      && identity.active_mechanic_set[0].template_version === identity.template_version
+      && identity.active_mechanic_set[0].template_hash === identity.template_hash,
+    'INVALID_MECHANIC_EVALUATION_IDENTITY', 'Evaluation must pin exactly one enabled mechanic instance and its exact template in the world snapshot.');
     assert(typeof evaluation.action_id === 'string' && evaluation.action_id.trim(), 'INVALID_MECHANIC_EVALUATION', 'action_id is required.');
     assert(object(evaluation.condition_result) && evaluation.condition_result.status === 'true', 'INVALID_MECHANIC_EVALUATION', 'Only evaluations with proven-true conditions may be proposed.');
     assert(typeof evaluation.context_fingerprint === 'string' && /^[a-f0-9]{64}$/i.test(evaluation.context_fingerprint)
@@ -219,6 +226,11 @@ export class ProposalService {
       && evaluation.dependency_manifest.effect_target_dependencies_complete === true
       && evaluation.dependency_manifest.causal_read_set_complete_for_supported_slice === true
       && evaluation.dependency_manifest.mechanic_dependencies_complete === true
+      && evaluation.dependency_manifest.active_mechanic_set_pinned === true
+      && evaluation.dependency_manifest.active_mechanic_set_scope === 'enabled_and_needs_review_instances'
+      && evaluation.dependency_manifest.supported_active_mechanic_set === 'single_enabled_instance_only'
+      && Array.isArray(evaluation.dependency_manifest.unsupported_sources)
+      && evaluation.dependency_manifest.unsupported_sources.includes('multiple_active_mechanics_and_cross_mechanic_conflicts')
       && Array.isArray(evaluation.dependency_manifest.unresolved_sources)
       && evaluation.dependency_manifest.unresolved_sources.length === 0
       && Array.isArray(evaluation.dependency_manifest.assumptions)
