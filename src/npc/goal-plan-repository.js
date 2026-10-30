@@ -423,10 +423,11 @@ export function createNpcGoalPlanRepository({
         const goal = getGoal(database, scope, candidate.goal_id);
         const selection = getSelection(database, scope, candidate.goal_id);
         if (!goal || !selection) return outcome("conflict", { reason: "goal_not_found_in_scope" });
+        if (goal.status !== "active") return outcome("conflict", { reason: "goal_not_active" });
         if (goal.goal_revision !== expected.goal_revision || !selectionMatches(selection, expected)) {
           return outcome("stale", { reason: "goal_or_selection_revision_changed" });
         }
-        let planId = idFrom(idFactory);
+        let planId;
         let planRevision = 1;
         if (candidate.revise_plan_id !== undefined) {
           if (!nonEmpty(candidate.revise_plan_id)) {
@@ -599,6 +600,8 @@ export function createNpcGoalPlanRepository({
       }
       const goalRevision = revision(attempt.goal_revision, "goal_revision");
       const selectionRevision = revision(attempt.plan_selection_revision, "plan_selection_revision");
+      const planRevision = revision(attempt.plan_revision, "plan_revision");
+      if (planRevision < 1) throw new NpcGoalPlanRepositoryError("plan_revision must be positive", "invalid_input");
       const worldRevision = revision(attempt.world_revision, "world_revision");
       const commitSequence = revision(attempt.commit_sequence, "commit_sequence");
       const requestHash = hash(attempt.proposal_request);
@@ -613,10 +616,11 @@ export function createNpcGoalPlanRepository({
         const goal = getGoal(database, scope, attempt.goal_id);
         const selection = getSelection(database, scope, attempt.goal_id);
         if (!goal || !selection) return outcome("conflict", { reason: "goal_not_found_in_scope" });
+        if (goal.status !== "active") return outcome("conflict", { reason: "goal_not_active" });
         if (goal.goal_revision !== goalRevision
           || selection.plan_selection_revision !== selectionRevision
           || selection.current_plan_id !== attempt.plan_id
-          || selection.current_plan_revision !== attempt.plan_revision) {
+          || selection.current_plan_revision !== planRevision) {
           return outcome("stale", { reason: "goal_or_plan_selection_changed" });
         }
         const planRow = database.prepare(
@@ -637,18 +641,18 @@ export function createNpcGoalPlanRepository({
           "INSERT INTO npc_action_attempts (world_id,npc_entity_id,attempt_id,goal_id,plan_id,plan_revision,step_id,action_id,goal_revision,plan_selection_revision,world_revision,commit_sequence,proposal_idempotency_key,request_hash,attempt_json,local_state,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'awaiting_core_result',?)",
         ).run(
           scope.world_id, scope.npc_entity_id, attemptId, attempt.goal_id, attempt.plan_id,
-          attempt.plan_revision, attempt.step_id, attempt.action_id, goalRevision,
+          planRevision, attempt.step_id, attempt.action_id, goalRevision,
           selectionRevision, worldRevision, commitSequence, attempt.proposal_idempotency_key,
           requestHash, json(stored), at,
         );
         const saved = {
           attempt_id: attemptId, goal_id: attempt.goal_id, plan_id: attempt.plan_id,
-          plan_revision: attempt.plan_revision, step_id: attempt.step_id,
+          plan_revision: planRevision, step_id: attempt.step_id,
           action_id: attempt.action_id, local_state: "awaiting_core_result",
         };
         audit(database, scope, {
           entity_type: "attempt", entity_id: attemptId, action: "action_attempt_prepared",
-          revision: attempt.plan_revision, details: { goal_id: attempt.goal_id, step_id: attempt.step_id },
+          revision: planRevision, details: { goal_id: attempt.goal_id, step_id: attempt.step_id },
         }, at);
         saveIdempotency(database, scope, "recordActionAttempt",
           attempt.proposal_idempotency_key, requestHash, saved, at);
@@ -666,9 +670,11 @@ export function createNpcGoalPlanRepository({
         || !nonEmpty(verified.proposal_id) || !nonEmpty(verified.event_id)
         || !nonEmpty(verified.world_id) || !nonEmpty(verified.idempotency_key)
         || !nonEmpty(verified.request_hash) || !nonEmpty(verified.goal_id)
-        || !nonEmpty(verified.plan_id) || !nonEmpty(verified.step_id) || !nonEmpty(verified.action_id)) {
+        || !nonEmpty(verified.plan_id) || !nonEmpty(verified.step_id) || !nonEmpty(verified.action_id)
+        || verified.outcome !== "step_succeeded") {
         return outcome("review_required", { reason: "verified_committed_core_result_required" });
       }
+      revision(verified.plan_revision, "plan_revision");
       revision(verified.world_revision, "world_revision");
       revision(verified.commit_sequence, "commit_sequence");
       if (!trusted(coreResultVerifier, [scope, attemptId, verified])) {
@@ -698,10 +704,12 @@ export function createNpcGoalPlanRepository({
         ).get(scope.world_id, scope.npc_entity_id, attemptId);
         if (!row) return outcome("conflict", { reason: "attempt_not_found_in_scope" });
         const attempt = parseJson(row.attempt_json);
+        if (row.local_state === "reconciled") return outcome("non_ready", { reason: "reconciled_attempt_missing_result_record" });
         if (verified.world_id !== scope.world_id
           || verified.idempotency_key !== attempt.proposal_idempotency_key
           || verified.request_hash !== attempt.request_hash
           || verified.goal_id !== attempt.goal_id || verified.plan_id !== attempt.plan_id
+          || verified.plan_revision !== attempt.plan_revision
           || verified.step_id !== attempt.step_id || verified.action_id !== attempt.action_id) {
           return outcome("review_required", { reason: "core_result_linkage_mismatch" });
         }
@@ -709,6 +717,10 @@ export function createNpcGoalPlanRepository({
           "SELECT attempt_id FROM npc_core_reconciliations WHERE world_id = ? AND event_id = ? AND step_id = ?",
         ).get(scope.world_id, verified.event_id, attempt.step_id);
         if (duplicate) return outcome("conflict", { reason: "core_event_already_reconciled_for_step" });
+        const goalRow = getGoal(database, scope, attempt.goal_id);
+        if (!goalRow || goalRow.status !== "active") {
+          return outcome("review_required", { reason: "goal_not_active_during_reconciliation" });
+        }
         const selection = getSelection(database, scope, attempt.goal_id);
         if (!selection || selection.current_plan_id !== attempt.plan_id
           || selection.current_plan_revision !== attempt.plan_revision
