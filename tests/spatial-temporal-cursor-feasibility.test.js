@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { copyFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { SQLiteStore } from '../src/storage/sqlite-store.js';
@@ -173,4 +173,85 @@ test('rollback invalidates the affected historical boundary and makes the stored
   const checkpointMatchesCurrentWorld = recoveredOperation.current_world_revision === currentWorld.world_revision;
   assert.equal(firstCursorIsValid, false);
   assert.equal(checkpointMatchesCurrentWorld, false);
+});
+
+
+test('restoring an older SQLite backup resurrects a rolled-back boundary unless an external anti-rollback authority exists', (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-engine-spatial-backup-restore-'));
+  const path = join(directory, 'state.sqlite');
+  const backupPath = join(directory, 'state-before-rollback.sqlite');
+  let store = new SQLiteStore(path);
+  let engine = new LogicEngine(store);
+  const worldId = 'spatial-cursor-backup-restore-world';
+
+  engine.createWorld({
+    world_id: worldId,
+    world_pack_id: 'test.world',
+    world_pack_version: '1.0.0',
+    game_time: '2026-01-01T00:00:00.000Z',
+  });
+  t.after(() => {
+    try { store.close(); } finally { rmSync(directory, { recursive: true, force: true }); }
+  });
+
+  engine.registerTimeTrigger(worldId, trigger('backup-at-10', 10000, 'backup-entity-10'));
+  engine.registerTimeTrigger(worldId, trigger('backup-at-20', 20000, 'backup-entity-20'));
+  const operation = engine.startTimeAdvance(worldId, {
+    idempotency_key: 'spatial-backup-restore-operation',
+    expected_revision: 2,
+    to_coordinate: 20000,
+  });
+  assert.equal(operation.status, 'completed');
+
+  const segments = readSegmentRows(store, worldId, operation.operation_id);
+  const firstBoundaryEventId = segments[0].events.at(-1).event_id;
+  const backupWorldRevision = engine.getState(worldId).world_revision;
+
+  // The default coordinator sidecar is a lock primitive, not an accepted-head
+  // ledger. It has no business tables that could remember the later rollback.
+  const coordinatorTables = store.coordinatorDb.prepare(
+    "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'",
+  ).all();
+  assert.deepEqual(coordinatorTables, []);
+
+  // Simulate a closed, consistent filesystem backup of the Core SQLite file.
+  store.close();
+  copyFileSync(path, backupPath);
+
+  store = new SQLiteStore(path);
+  engine = new LogicEngine(store);
+  const rollback = engine.rollbackEvent(worldId, {
+    root_event_id: firstBoundaryEventId,
+    idempotency_key: 'spatial-backup-restore-rollback',
+  });
+  assert.equal(rollback.accepted, true);
+  assert.ok(rollback.invalidated_event_ids.includes(firstBoundaryEventId));
+  assert.notEqual(engine.getState(worldId).world_revision, backupWorldRevision);
+
+  // Restore the older database image. This intentionally demonstrates what
+  // a raw DB restore can do; it is not an approved restore procedure.
+  store.close();
+  copyFileSync(backupPath, path);
+  store = new SQLiteStore(path);
+  engine = new LogicEngine(store);
+
+  const restoredEvent = store.db.prepare(
+    'SELECT validity FROM world_events WHERE world_id=? AND event_id=?',
+  ).get(worldId, firstBoundaryEventId);
+  assert.equal(restoredEvent.validity, 'valid');
+  assert.equal(engine.getState(worldId).world_revision, backupWorldRevision);
+
+  const rollbackRow = store.db.prepare(
+    'SELECT COUNT(*) AS count FROM rollbacks WHERE world_id=? AND root_event_id=?',
+  ).get(worldId, firstBoundaryEventId);
+  assert.equal(rollbackRow.count, 0);
+
+  const restoredOperation = engine.getTimeAdvanceOperation(worldId, operation.operation_id);
+  assert.equal(restoredOperation.status, 'completed');
+  assert.equal(restoredOperation.confirmed_coordinate, 20000);
+  assertSegmentCursorMapping(store, worldId, readSegmentRows(store, worldId, operation.operation_id));
+
+  // The restored DB is internally self-consistent, but cannot prove that a
+  // newer rollback once existed. Without state outside the restored backup,
+  // historical spatial answers may silently move back to the older branch.
 });
