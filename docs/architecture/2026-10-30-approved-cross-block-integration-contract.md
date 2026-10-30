@@ -81,6 +81,7 @@ A future additional Provider source type requires a separate source contract def
 - Revocation of one Provider record version must not revoke a sibling version unless the exact grant or scope says so.
 - Core must revalidate conversation→world and adapter→actor bindings, source validity and visibility at the final decision boundary.
 - A stale, partial, denied, withheld, unavailable, rebuilding or unverifiable inventory is not complete. It produces no protected disclosure.
+- An incomplete inventory report from an authenticated, still-bound Host adapter invalidates any prior READY marker under the shared Coordinator lease before the reconciliation response. It is rejected before the trusted completeness verifier; an unbound caller cannot mutate ledger readiness.
 - A Host capture receipt proves only receipt of that individual digest record. It does not prove complete inventory.
 - Host deletion may be inferred only from a trusted complete same-branch inventory after the verifier has established that omission means deletion. The current Host candidate cannot establish this; no deletion inference is currently permitted.
 - Core canonical source deletion/retraction remains Core-owned. Provider must not invent a second Core deletion API.
