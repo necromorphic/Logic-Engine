@@ -175,6 +175,71 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
         }
         return send(res, result.status === 'captured' ? 201 : 200, { capture: result });
       }
+      if (url.pathname === '/v1/host-version-ledger/reconcile') {
+        if (req.method !== 'POST') return send(res, 405, { error: { code: 'METHOD_NOT_ALLOWED', message: 'Unsupported Host inventory reconciliation operation.' } });
+        if (!hostVersionLedger || typeof hostVersionLedger.reconcileConversation !== 'function') {
+          return send(res, 503, { error: { code: 'HOST_VERSION_LEDGER_UNAVAILABLE', message: 'Host version ledger is not configured.' } });
+        }
+        const adapterId = adapterIdFor(req);
+        if (!adapterId) return send(res, 403, { error: { code: 'ADAPTER_REQUIRED', message: 'An authenticated adapter identity is required.' } });
+        const body = await readBody(req);
+        const validHostId = (value) => typeof value === 'string' && value === value.trim()
+          && value.length > 0 && value.length <= 200
+          && ![...value].some((character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127);
+        const versionKeys = new Set([
+          'message_id', 'version_id', 'parent_version_id', 'content_sha256', 'active', 'deleted',
+        ]);
+        if (!body || typeof body !== 'object' || Array.isArray(body)
+          || Object.keys(body).some((key) => !['conversation_id', 'complete', 'versions'].includes(key))
+          || !validHostId(body.conversation_id)
+          || typeof body.complete !== 'boolean'
+          || !Array.isArray(body.versions)
+          || body.versions.some((version) => !version || typeof version !== 'object' || Array.isArray(version)
+            || Object.keys(version).some((key) => !versionKeys.has(key))
+            || !validHostId(version.message_id)
+            || !validHostId(version.version_id)
+            || !Object.hasOwn(version, 'parent_version_id')
+            || !(version.parent_version_id === null || validHostId(version.parent_version_id))
+            || typeof version.content_sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(version.content_sha256)
+            || typeof version.active !== 'boolean' || typeof version.deleted !== 'boolean'
+            || (version.deleted && version.active))) {
+          throw new EngineError('INVALID_HOST_INVENTORY_RECONCILIATION',
+            'Reconciliation accepts only conversation_id, complete and digest-only versions with explicit parent_version_id; world_id and raw content are forbidden.', 400);
+        }
+
+        // Core derives world scope from the authenticated adapter binding.
+        // The same binding is re-resolved synchronously inside the ledger's
+        // final Coordinator lease before READY can be published.
+        const binding = hostConversationBindings.resolve({
+          adapterId,
+          conversationId: body.conversation_id,
+        });
+        const snapshot = {
+          world_id: binding.world_id,
+          conversation_id: binding.conversation_id,
+          complete: body.complete,
+          versions: body.versions.map((version) => ({
+            world_id: binding.world_id,
+            conversation_id: binding.conversation_id,
+            message_id: version.message_id,
+            version_id: version.version_id,
+            parent_version_id: version.parent_version_id,
+            content_sha256: version.content_sha256,
+            active: version.active,
+            deleted: version.deleted,
+          })),
+        };
+        const reconciliation = await hostVersionLedger.reconcileConversation(snapshot, {
+          revalidateBinding: () => hostConversationBindings.resolve({
+            adapterId,
+            conversationId: body.conversation_id,
+          }),
+        });
+        if (reconciliation.status !== 'ready') {
+          return send(res, 409, { reconciliation, inventory_status: 'NON_READY' });
+        }
+        return send(res, 200, { reconciliation, inventory_status: 'READY' });
+      }
       if (url.pathname === '/v1/host-conversation-bindings') {
         if (req.method !== 'POST') return send(res, 405, { error: { code: 'METHOD_NOT_ALLOWED', message: 'Unsupported Host conversation binding operation.' } });
         if (!secretMatches(req.headers['x-admin-token'], adminToken)) {
