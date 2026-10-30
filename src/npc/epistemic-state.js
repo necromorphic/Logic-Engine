@@ -33,7 +33,7 @@ function validId(value) {
 }
 
 function isPlainDataObject(value) {
-  if (value === null || typeof value !== "object" || Array.isArray(value) || utilTypes.isProxy(value)) return false;
+  if (value === null || typeof value !== "object" || utilTypes.isProxy(value) || Array.isArray(value)) return false;
   try {
     const prototype = Object.getPrototypeOf(value);
     if (prototype !== Object.prototype && prototype !== null) return false;
@@ -81,7 +81,7 @@ function isSafeDataTree(value, active = new Set()) {
 }
 
 function denseArray(value) {
-  if (!Array.isArray(value) || !isSafeDataTree(value)) return false;
+  if (utilTypes.isProxy(value) || !Array.isArray(value) || !isSafeDataTree(value)) return false;
   for (let index = 0; index < value.length; index += 1) {
     if (!Object.hasOwn(value, index)) return false;
   }
