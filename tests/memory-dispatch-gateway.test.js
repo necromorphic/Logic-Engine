@@ -232,6 +232,38 @@ test('dispatch rejects Provider evidence whose exact candidate record/version se
   }
 });
 
+
+test('transport handoff begins while the shared coordinator is still held', async (t) => {
+  let contender;
+  let coordinatorWasHeldAtTransportStart = false;
+  const fixture = await createFixture({
+    sendUpstream: async () => {
+      try {
+        contender.exec('BEGIN IMMEDIATE');
+        contender.exec('ROLLBACK');
+      } catch (error) {
+        coordinatorWasHeldAtTransportStart = /locked|busy/i.test(String(error?.message || ''));
+      }
+      return { status: 200, body: 'accepted' };
+    },
+  });
+  t.after(() => {
+    try { contender?.close(); } catch {}
+    return fixture.cleanup();
+  });
+
+  contender = new DatabaseSync(fixture.coordinatorPath);
+  contender.exec('PRAGMA busy_timeout=0;');
+  await fixture.gateway.dispatchProtectedRequest(validRequest('transport-start-under-lock'));
+  assert.equal(
+    coordinatorWasHeldAtTransportStart,
+    true,
+    'transport initiation must occur before the dispatch coordinator lease is released',
+  );
+  contender.exec('BEGIN IMMEDIATE');
+  contender.exec('ROLLBACK');
+});
+
 test('dispatch validates current heads and grants, records one content-free start, and sends once', async () => {
   const fixture = await createFixture();
   try {
