@@ -464,7 +464,7 @@ test('belief transition revalidates visibility immediately before the Core commi
   });
 
   const snapshot = engine.getSnapshot('world-belief-commit-boundary');
-  const request = {
+  const readRequest = {
     world_id: 'world-belief-commit-boundary',
     adapter_id: 'adapter-st',
     actor_id: 'npc-race',
@@ -473,10 +473,14 @@ test('belief transition revalidates visibility immediately before the Core commi
     expected_revision: snapshot.world_revision,
     expected_commit_sequence: snapshot.commit_sequence,
     limit: 20,
+  };
+  const acquired = engine.readNpcKnowledge(readRequest);
+  const request = {
+    ...readRequest,
     proposition_ref: 'proposition:fact/fact-race',
     proposition_value: 'private-value',
     stance: 'believes_true',
-    supporting_acquisition_ids: [],
+    supporting_acquisition_ids: [acquired.items[0].acquisition_id],
     contradicting_acquisition_ids: [],
     reason_rule_ref: 'rule:belief-update-v1',
     idempotency_key: 'belief-commit-boundary-transition',
