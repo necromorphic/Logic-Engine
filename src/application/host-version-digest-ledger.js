@@ -387,7 +387,7 @@ export class HostVersionDigestLedger {
     // Only inspect ordinary data records before copying. Accessors and Proxy
     // traps are executable caller code and must not run inside trust checks.
     if (!isPlainDataRecord(input)) return { status: 'non_ready', code: 'HOST_INVENTORY_INVALID' };
-    if (input.complete !== true || !Array.isArray(input.versions)) {
+    if (input.complete === undefined || !Array.isArray(input.versions)) {
       return { status: 'non_ready', code: 'HOST_INVENTORY_INCOMPLETE' };
     }
     if (Object.keys(input).some((key) => !snapshotInputKeys.has(key))
@@ -429,6 +429,37 @@ export class HostVersionDigestLedger {
     }
     if (!snapshot || !validId(snapshot.world_id) || !validId(snapshot.conversation_id)) {
       return this.#rejectSnapshot(snapshot, 'HOST_INVENTORY_INCOMPLETE');
+    }
+    if (snapshot.complete !== true) {
+      // An authenticated, still-bound Host adapter reporting an incomplete
+      // inventory invalidates any prior READY marker. Never call the trusted
+      // completeness verifier for a snapshot that already declares itself
+      // incomplete. The binding check and readiness invalidation share the
+      // Coordinator lease so an unbound caller cannot poison another scope.
+      if (revalidateBinding) {
+        return this.#write(() => {
+          let binding = null;
+          try {
+            binding = revalidateBinding({
+              world_id: snapshot.world_id,
+              conversation_id: snapshot.conversation_id,
+            });
+          } catch {}
+          if (!isPlainDataRecord(binding) || binding.active !== true
+            || binding.world_id !== snapshot.world_id
+            || binding.conversation_id !== snapshot.conversation_id) {
+            return { status: 'non_ready', code: 'HOST_CONVERSATION_NOT_AUTHORIZED' };
+          }
+          this.#markNonReady(
+            snapshot.world_id,
+            snapshot.conversation_id,
+            'HOST_INVENTORY_INCOMPLETE',
+            new Date().toISOString(),
+          );
+          return { status: 'non_ready', code: 'HOST_INVENTORY_INCOMPLETE' };
+        });
+      }
+      return { status: 'non_ready', code: 'HOST_INVENTORY_NOT_AUTHORIZED' };
     }
     // Snapshot scope must be authenticated before any rejection can mutate the
     // readiness row. This verifier is the trusted Host/Core integration seam;

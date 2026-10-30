@@ -280,7 +280,7 @@ test('complete:false snapshot is rejected before trust verification or READY pub
     complete: false,
     versions: [entry()],
   });
-  assert.deepEqual(result, { status: 'non_ready', code: 'HOST_INVENTORY_INCOMPLETE' });
+  assert.deepEqual(result, { status: 'non_ready', code: 'HOST_INVENTORY_NOT_AUTHORIZED' });
   assert.equal(verifierCalls, 0);
   assert.notEqual(ledger.getInventoryState(tuple.world_id, tuple.conversation_id)?.status, 'READY');
   assert.equal(ledger.db.prepare('SELECT COUNT(*) AS n FROM host_version_digest_ledger').get().n, 0);
@@ -741,10 +741,10 @@ test('untrusted incomplete snapshot cannot poison a caller-selected conversation
 
   assert.deepEqual(await ledger.reconcileConversation({
     ...victim, complete: false, versions: []
-  }), { status: 'non_ready', code: 'HOST_INVENTORY_INCOMPLETE' });
+  }), { status: 'non_ready', code: 'HOST_INVENTORY_NOT_AUTHORIZED' });
 
-  // The incomplete input is rejected before trust verification and cannot
-  // mutate the previously published READY state.
+  // Without a trusted binding revalidator, the incomplete input is not
+  // authorized to mutate the previously published READY state.
   assert.equal(verifierCalls, 1);
   assert.equal(ledger.getInventoryState(victim.world_id, victim.conversation_id).status, 'READY');
   assert.equal(ledger.db.prepare('SELECT COUNT(*) AS n FROM host_version_digest_ledger WHERE world_id=? AND conversation_id=?')
