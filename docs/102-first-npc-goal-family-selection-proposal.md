@@ -2,7 +2,7 @@
 
 **Status:** decision proposal only. No goal family is approved for production admission or execution by this document.
 
-**Baseline:** docs/81, docs/82, docs/95, docs/99, docs/100; repository prototype PR #806; Core acquisition candidate PR #781 (closed unmerged); VFS probe PR #798 (Draft, Issue #770 remains open).
+**Baseline:** docs/81, docs/82, docs/95, docs/99, docs/100; repository prototype PR #806 (21/21 repository tests and 1208/1208 full Runtime tests on Windows/Linux at tested code/test head `3767c62f9c1f1e581f5aa23fe525d9de7a041ed8`); Core acquisition candidate PR #781 (closed unmerged); current-main VFS probe PR #839 (Draft, VFS registration proven, first WAL write still blocked, sidecar/race matrix pending; Issue #770 remains open).
 
 ## 1. Decision required
 
