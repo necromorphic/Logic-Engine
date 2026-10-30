@@ -299,7 +299,7 @@ test('restart reconciliation fails closed when source changed after the last jou
   const result = await f.bridge.reconcileCurrentConversation();
   assert.equal(result.status, 'NON_READY');
   assert.match(result.reason, /fingerprint differs/);
-  await assert.rejects(f.bridge.beforeMutation('delete-message', [0]), /fingerprint differs/);
+  await assert.rejects(f.bridge.beforeMutation('delete-message', [0]), /source fingerprint differs/);
 });
 
 test('speaker-label changes are fingerprinted and require an instrumented edit checkpoint', async () => {
@@ -344,7 +344,7 @@ test('native save failure leaves the journal behind so the next mutation fails c
   f.setFailSave(true);
   await assert.rejects(f.bridge.afterMutation('edit-message'), /simulated native chat save failure/);
   f.setFailSave(false);
-  await assert.rejects(f.bridge.beforeMutation('delete-message', [0]), /fingerprint differs/);
+  await assert.rejects(f.bridge.beforeMutation('delete-message', [0]), /previous lifecycle operation is incomplete/);
 });
 
 test('empty chat enrollment is explicit and does not imply pre-enrollment history', async () => {
@@ -449,11 +449,10 @@ test('new-message reconciliation fails closed when an existing identity is missi
   await f.bridge.enrollCurrentConversation();
   const before = await f.journal.verifyIntegrity('chat-1');
   delete f.chat[0]._logicEngineLifecycle;
-  f.chat.push({ is_user: false, mes: 'new reply' });
 
   await assert.rejects(
-    f.bridge.afterMutation('create-message', { createdMessageIndex: 2 }),
-    /missing durable identity on pre-existing message/,
+    f.bridge.beforeMutation('create-message', []),
+    /identity metadata differs from journal/,
   );
   const after = await f.journal.verifyIntegrity('chat-1');
   assert.equal(after.sequence, before.sequence);
@@ -468,8 +467,8 @@ test('create-message checkpoint refuses to absorb an unhooked edit in earlier me
   f.chat.push({ is_user: false, mes: 'new reply' });
 
   await assert.rejects(
-    f.bridge.afterMutation('create-message', { createdMessageIndex: 2 }),
-    /pre-existing source changed before create-message checkpoint/,
+    f.bridge.beforeMutation('create-message', []),
+    /source fingerprint differs from journal/,
   );
   const after = await f.journal.verifyIntegrity('chat-1');
   assert.equal(after.sequence, before.sequence);
@@ -479,6 +478,7 @@ test('create-message assigns identity only to the explicitly appended tail messa
   const f = makeFixture();
   await f.bridge.enrollCurrentConversation();
   const oldMessageIds = f.chat.map(message => message._logicEngineLifecycle.messageId);
+  await f.bridge.beforeMutation('create-message', []);
   f.chat.push({ is_user: false, mes: 'new reply' });
 
   const result = await f.bridge.afterMutation('create-message', { createdMessageIndex: 2 });
@@ -499,6 +499,7 @@ test('message-send checkpoint records the inserted user message and receive pres
   assert.deepEqual(f.chat.slice(0, 2).map(message => message._logicEngineLifecycle.messageId), oldMessageIds);
   const sentMessageId = f.chat[2]._logicEngineLifecycle.messageId;
 
+  await f.bridge.beforeMutation('message-receive', []);
   f.chat.push({ is_user: false, mes: 'assistant reply' });
   const received = await f.bridge.afterMutation('message-receive', { createdMessageIndex: 3 });
   assert.equal(received.status, 'REVIEW_ONLY');

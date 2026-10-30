@@ -105,6 +105,24 @@ export class HostLifecycleJournal {
     }
     return null;
   }
+  async pendingMutation(conversationId) {
+    const rows = await this.#records(conversationId);
+    const check = await this.#verifyStored(conversationId, rows);
+    if (!check.ok) return { status: 'NON_READY', reason: check.reason };
+    const lifecycleRows = rows.filter(row =>
+      typeof row.operation === 'string'
+      && (row.operation.startsWith('before:') || row.operation.startsWith('after:')));
+    const latest = lifecycleRows.at(-1);
+    if (!latest || !latest.operation.startsWith('before:')) {
+      return { status: 'NO_PENDING_MUTATION' };
+    }
+    return {
+      status: 'PENDING_MUTATION',
+      operation: latest.operation.slice('before:'.length),
+      eventId: latest.eventId,
+      sequence: latest.sequence,
+    };
+  }
   async beforeMutation(args) {
     if(!Array.isArray(args.affectedVersions)) throw TypeError('affectedVersions must be an array');
     const result=await this.append({...args,operation:'before:'+args.operation,payload:{affectedVersions:args.affectedVersions,details:args.details??{}}});
