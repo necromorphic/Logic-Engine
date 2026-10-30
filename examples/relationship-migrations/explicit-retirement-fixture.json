@@ -1,0 +1,45 @@
+{
+  "artifact_schema_version": "relationships-state-mapping/v1",
+  "migration_id": "relationships.fixture-retired-dimension",
+  "migration_version": "1.0.0",
+  "artifact_status": "draft",
+  "fixture_only": true,
+  "source": {
+    "world_pack_id": "fixture.legacy-pack",
+    "version": "1.0.0",
+    "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  },
+  "target": {
+    "world_pack_id": "fixture.replacement-pack",
+    "version": "2.0.0",
+    "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+  },
+  "source_rule_modules": [
+    {
+      "module_id": "fixture.legacy-relationship-rules",
+      "version": "1.0.0"
+    }
+  ],
+  "target_rule_module": {
+    "module_id": "fixture.replacement-relationship-rules",
+    "version": "2.0.0"
+  },
+  "dimension_mappings": [
+    {
+      "source_rule_module": {
+        "module_id": "fixture.legacy-relationship-rules",
+        "version": "1.0.0"
+      },
+      "source_dimension": "legacy_affinity",
+      "disposition": "retire",
+      "retirement_reason": "This fixture-only source dimension has no target semantic counterpart; the domain explicitly approves retirement rather than implicit deletion."
+    }
+  ],
+  "target_only_dimensions": [],
+  "directionality": "preserve_subject_target_direction",
+  "target_pack_conformance": {
+    "target_pack_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "status": "not-established",
+    "evidence_ref": "fixture-only://target-pack-conformance-not-available"
+  }
+}
