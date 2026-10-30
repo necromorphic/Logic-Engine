@@ -427,8 +427,26 @@ export class MechanicExecutor {
       effect_target_dependencies_complete: true,
       causal_read_set_complete_for_supported_slice: true,
       mechanic_dependencies_complete: true,
+      supported_instance_data: 'empty_parameters_and_state_only',
+      supported_action_input: 'empty_object_only',
+      supported_unknown_policy: 'mark_unknown',
+      unsupported_sources: [
+        'non_empty_instance_parameters',
+        'non_empty_instance_state',
+        'non_empty_action_input',
+        'non_mark_unknown_policy',
+        'registered_module_inputs_and_reads',
+        'required_capabilities',
+        'participant_selection_and_constraints',
+        'interaction_conditions',
+        'automatic_conflict_resolution',
+        'fact_or_time_condition_projections',
+      ],
       unresolved_sources: [],
-      assumptions: ['trusted_provider_correctly_maps_condition_paths_to_canonical_attributes'],
+      assumptions: [
+        'trusted_provider_correctly_maps_condition_paths_to_canonical_attributes',
+        ...(resolved.policy_authority ? ['deployment_changes_policy_generation_when_effective_policy_changes'] : []),
+      ],
     };
     let contextFingerprint;
     try {
