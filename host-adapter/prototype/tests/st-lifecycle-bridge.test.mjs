@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { webcrypto } from 'node:crypto';
-import { HostLifecycleJournal } from '../lifecycle-journal.mjs';
+import { HostLifecycleJournal, contentDigest } from '../lifecycle-journal.mjs';
 import { createStLifecycleBridge } from '../st-lifecycle-bridge.mjs';
 
 globalThis.crypto ??= webcrypto;
@@ -57,24 +57,81 @@ class FakeDB {
   finish(tx) { setImmediate(() => tx.oncomplete?.()); }
 }
 
+const TEST_CONVERSATION_UUID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+const TEST_HOST_COMMIT = '06bde939fb1e9c4c8d8641d810f0a916b5bce127';
+
+async function makePersistedInventory(chat, conversationUuid) {
+  const messages = [];
+  for (const message of chat) {
+    const identity = message?._logicEngineLifecycle;
+    if (!identity) throw Error('SOURCE_CHAT_MESSAGE_IDENTITY_INCOMPLETE');
+    const contents = Array.isArray(message.swipes) && message.swipes.length ? message.swipes : [message.mes ?? ''];
+    const activeIndex = Number.isInteger(message.swipe_id) ? message.swipe_id : 0;
+    const versions = [];
+    for (let index = 0; index < contents.length; index++) {
+      const version = identity.versions[index];
+      const digest = await contentDigest(contents[index]);
+      if (!version || version.payloadDigest !== digest) throw Error('SOURCE_CHAT_VERSION_DIGEST_MISMATCH');
+      versions.push({
+        version_id: version.versionId,
+        version_index: index,
+        parent_version_id: version.parentVersionId ?? null,
+        content_sha256: digest,
+        active: index === activeIndex,
+      });
+    }
+    messages.push({
+      message_id: identity.messageId,
+      role: message.is_user === true ? 'user' : message.is_system === true ? 'system' : 'assistant',
+      active_version_index: activeIndex,
+      versions,
+    });
+  }
+  return {
+    status: 'DOUBLE_SCAN_CANDIDATE',
+    authority: 'NON_AUTHORITATIVE',
+    host_commit: TEST_HOST_COMMIT,
+    scope: 'PINNED_SILLYTAVERN_CHAT_DATA_ROOTS',
+    completeness: 'DOUBLE_SCANNED_PATH_VIEW_ONLY',
+    host_build_claim_type: 'DEPLOYMENT_ASSERTION_NOT_RUNTIME_ATTESTATION',
+    inventory_sha256: 'a'.repeat(64),
+    file_count: 1,
+    files: [{
+      logical_identity: {
+        conversation_uuid: conversationUuid,
+        identity_status: 'CURRENT_IDENTITIES_VERIFIED',
+        message_count: chat.length,
+        identified_message_count: chat.length,
+        missing_message_identity_count: 0,
+        messages,
+      },
+    }],
+  };
+}
+
 function makeFixture(chat = [{ is_user: true, mes: 'hello' }, { is_user: false, mes: 'answer' }], { publishDigest = null } = {}) {
   let failSave = false;
   const db = new FakeDB();
   const journal = new HostLifecycleJournal(db);
   let saveCount = 0;
   let sourceLocator = 'chat-file-1';
+  let persistedChat = structuredClone(chat);
+  let skipDiskWrite = false;
   const bridge = createStLifecycleBridge({
     journal,
     getConversationId: () => 'chat-1',
+    getConversationUuid: () => TEST_CONVERSATION_UUID,
+    readPersistedInventory: uuid => makePersistedInventory(persistedChat, uuid),
     getSourceLocator: () => sourceLocator,
     getChat: () => chat,
     publishDigest,
     saveChat: async () => {
       saveCount++;
       if (failSave) throw Error('simulated native chat save failure');
+      if (!skipDiskWrite) persistedChat = structuredClone(chat);
     },
   });
-  return { db, journal, chat, bridge, setLocator(value) { sourceLocator = value; }, setFailSave(value) { failSave = value; }, get saveCount() { return saveCount; } };
+  return { db, journal, chat, bridge, setLocator(value) { sourceLocator = value; }, setFailSave(value) { failSave = value; }, setSkipDiskWrite(value) { skipDiskWrite = value; }, get saveCount() { return saveCount; } };
 }
 
 test('configured Core publisher receives digest-only baseline, replacement tombstone, and active version in order', async () => {
@@ -721,4 +778,19 @@ test('unique raw-content sentinels never enter persisted journal rows or exporte
   f.chat.splice(1, 1);
   await f.bridge.afterMutation('delete-message');
   await assertNoRawSentinels('after delete');
+});
+
+
+test('after-mutation receipt is withheld when independent JSONL readback does not match the new state', async () => {
+  const f = makeFixture();
+  await f.bridge.enrollCurrentConversation();
+  await f.bridge.beforeMutation('edit-message', [0]);
+  f.chat[0].mes = 'changed in memory';
+  f.setSkipDiskWrite(true);
+
+  await assert.rejects(f.bridge.afterMutation('edit-message'),
+    /independently read SillyTavern JSONL identity\/digests differ/);
+  const pending = await f.journal.pendingMutation('chat-1');
+  assert.equal(pending.status, 'PENDING_MUTATION');
+  assert.equal(pending.operation, 'edit-message');
 });
