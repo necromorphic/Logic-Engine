@@ -194,3 +194,16 @@ Until these items are defined against real repository interfaces, the implementa
 - src/application/mechanic-executor.js and the Core proposal/approval/commit contracts — existing action evaluation and canonical commit boundary; not a complete NPC dispatcher.
 
 This document records an architecture decision and a contract baseline. It does not claim that any of the proposed persistence or integration capabilities already exist.
+
+
+## 13. Physical storage technology decision — 2026-10-30
+
+**Decision:** use a dedicated, NPC-owned SQLite database as the target physical implementation for the NPC-local goal/plan repository.
+
+This selects SQLite as the technology only. It does **not** authorize implementation, schema creation, migrations, runtime wiring, or production use. The NPC database must be physically separate from Core's canonical database and accessed only through the NPC repository adapter.
+
+**Security gate:** implementation remains blocked until the SQLite file-identity / file-open TOCTOU issue in [Issue #770](https://github.com/necromorphic/Logic-Engine/issues/770) is resolved with a reviewed mechanism that binds identity validation to the database actually opened, has supported Windows and POSIX behavior, and passes the required race, link, identity-unavailable, and fail-before-write tests. Repeating pathname checks is not sufficient. The selected mechanism must explicitly cover the NPC database as well as the existing Core, Coordinator, and Host ledger databases where applicable.
+
+After the security gate, the adapter must still satisfy the transaction, CAS, idempotency, recovery, corruption, migration, and scope-isolation requirements in `docs/98` and `docs/99`. No production progress reconciliation may be enabled until trusted Core result verification and rollback invalidation are implemented.
+
+This decision supersedes only the earlier statement that the physical technology was deliberately undecided. It does not change A1 ownership, the repository interface, or any fail-closed integration gate.
