@@ -311,12 +311,13 @@ test('pure read contract rejects extra keys and authorization from another snaps
 test('belief write revalidates actor binding inside the Core write transaction', (t) => {
   const { store, engine: baseEngine } = setup(t);
   const actors = new ActorBindingService(baseEngine);
-  actors.bind('world-a', 'adapter-st', 'npc-a');
   const authorizers = createHostBoundNpcKnowledgeAuthorizers({
     store,
     adapterIds: ['adapter-st'],
     trustedInitialKnowledgeSources: trustedRegistry,
   });
+  baseEngine.npcKnowledgePolicyAuthority = authorizers.policyAuthority;
+  actors.bind('world-a', 'adapter-st', 'npc-a');
   let visibilityCalls = 0;
   let revokeBeforeNextTransaction = false;
   let revoking = false;
@@ -338,6 +339,7 @@ test('belief write revalidates actor binding inside the Core write transaction',
   const guardedEngine = new LogicEngine(store, {
     trustedInitialKnowledgeSources: trustedRegistry,
     npcKnowledgeContextResolver: authorizers.resolveContext,
+    npcKnowledgePolicyAuthority: authorizers.policyAuthority,
     npcKnowledgeReadAuthorizer: authorizers.readAuthorizer,
     npcKnowledgeVisibilityAuthorizer: (scope) => {
       const decision = authorizers.visibilityAuthorizer(scope);
