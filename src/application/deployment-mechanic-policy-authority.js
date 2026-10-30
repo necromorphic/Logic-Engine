@@ -129,15 +129,15 @@ export class DeploymentMechanicPolicyAuthority {
     }
 
     let current;
+    let currentPrincipal;
     try {
       current = this.resolveCurrentPolicy();
       if (typeof current.contextProvider.assertPrincipalBound !== 'function') return false;
       const binding = current.contextProvider.assertPrincipalBound(identity.worldId);
-      const currentPrincipal = {
+      currentPrincipal = {
         ...current.contextProvider.authorizationPrincipal,
         bindingGeneration: binding.binding_generation,
       };
-      if (!samePinnedPrincipal(identity.authorizationPrincipal, currentPrincipal)) return false;
     } catch {
       return false;
     }
@@ -145,9 +145,6 @@ export class DeploymentMechanicPolicyAuthority {
       && identity.policyGeneration === current.generation
       && identity.policyVersion === current.contextProvider.policyFingerprint
       && identity.authorizationScope === current.contextProvider.authorizationScope
-      && samePinnedPrincipal(identity.authorizationPrincipal, {
-        ...current.contextProvider.authorizationPrincipal,
-        bindingGeneration: current.contextProvider.assertPrincipalBound(identity.worldId).binding_generation,
-      });
+      && samePinnedPrincipal(identity.authorizationPrincipal, currentPrincipal);
   }
 }
