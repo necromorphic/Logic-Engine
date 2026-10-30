@@ -36,7 +36,7 @@ jobs:
           cp host-adapter/prototype/st-server-digest-proxy.mjs sillytavern-host-checkout/src/endpoints/logic-engine-lifecycle-proxy.mjs
       - name: Fetch the exact persisted-identity Host inventory candidate from PR #800
         run: |
-          git fetch origin 48c5c84d0cdd81efa0869922d2b7750e2e27a2b9
+          git fetch origin ff2b79de0b40758d3e8e74fafead482cf5ea32f1
           mkdir -p host-inventory-candidate
           git show FETCH_HEAD:host-adapter/prototype/st-source-inventory.mjs > host-inventory-candidate/st-source-inventory.mjs
           git show FETCH_HEAD:host-adapter/prototype/st-host-inventory-handler.mjs > host-inventory-candidate/st-host-inventory-handler.mjs
