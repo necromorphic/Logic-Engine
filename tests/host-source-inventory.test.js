@@ -18,7 +18,7 @@ const chatFile = (id, message) => [
   JSON.stringify({ user_name: 'User', character_name: 'Character', chat_metadata: id ? { logic_engine_conversation_id: id } : {} }),
   JSON.stringify({ mes: message }),
   '',
-].join('\\n');
+].join('\n');
 
 async function fixture() {
   const root = await mkdtemp(path.join(os.tmpdir(), 'le-host-inventory-'));
