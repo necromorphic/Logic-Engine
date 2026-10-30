@@ -38,6 +38,13 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
       1,
       `the pinned ${process.platform} SQLite VFS must expose its native file-open syscall hook for feasibility review`
     );
+    if (process.platform !== 'win32') {
+      assert.equal(
+        first.prepare('SELECT logic_engine_vfs_probe_has_syscall(?) AS available').get('stat').available,
+        1,
+        'the pinned Unix VFS must expose stat so reused file descriptors can be bound to a checked identity'
+      );
+    }
     assert.ok(
       first.prepare('SELECT logic_engine_vfs_probe_native_open_count() AS count').get().count > 0,
       'the native syscall wrapper must observe the actual OS file-open calls made by node:sqlite'
