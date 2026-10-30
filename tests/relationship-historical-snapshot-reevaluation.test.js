@@ -17,7 +17,7 @@ const makeSnapshot = () => ({
   rule_module_version: '1.0.0', world_pack_id: 'pack-A', world_pack_version: '3.2.1',
   input: structuredClone(input), input_digest: hashRequest(input),
 });
-const context = { eventId: 'E2', worldPackId: 'pack-A', worldPackVersion: '3.2.1' };
+const context = { eventId: 'E2' };
 
 test('read-only historical evaluation resolves and executes the exact pinned artifact', () => {
   const result = reevaluateHistoricalRelationshipSnapshot(makeSnapshot(), context);
@@ -31,8 +31,9 @@ test('historical evaluation fails closed for missing, mismatched, or corrupt pro
   assert.equal(reevaluateHistoricalRelationshipSnapshot(null, context).status, 'unavailable');
   assert.equal(reevaluateHistoricalRelationshipSnapshot(makeSnapshot(), { ...context, eventId: 'other' }).reason,
     'originating_event_binding_mismatch');
-  assert.equal(reevaluateHistoricalRelationshipSnapshot(makeSnapshot(), { ...context, worldPackVersion: '9.0.0' }).reason,
-    'world_pack_pin_mismatch');
+  const missingPackPin = makeSnapshot(); missingPackPin.world_pack_version = null;
+  assert.equal(reevaluateHistoricalRelationshipSnapshot(missingPackPin, context).reason,
+    'world_pack_pin_missing');
   const corrupt = makeSnapshot(); corrupt.input.patch.trust = 'high';
   assert.equal(reevaluateHistoricalRelationshipSnapshot(corrupt, context).reason,
     'evaluation_input_digest_mismatch');
