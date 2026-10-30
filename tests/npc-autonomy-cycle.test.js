@@ -313,3 +313,46 @@ test("reflection traps fail closed", () => {
   });
   assert.equal(evaluateNpcAutonomyCycle(hostile).status, "non_ready");
 });
+
+
+test("a stale current intention cannot override the active plan step", () => {
+  const input = base();
+  input.goals.push({ id: "urgent-goal", status: "active", priority: 100 });
+  input.actions.push({
+    id: "urgent-action",
+    goal_id: "urgent-goal",
+    allowed: true,
+    preconditions_met: true,
+    cost: 0,
+  });
+  input.conflict_assessment.motives.push({ id: "urgent-goal", kind: "goal" });
+  input.conflict_assessment.options.push({
+    id: "urgent-action",
+    supports: ["urgent-goal"],
+    frustrates: [],
+    motive_assessment_complete: true,
+    feasibility: "feasible",
+    hard_constraints_complete: true,
+    hard_constraints: [],
+  });
+  input.current_intention = {
+    goal_id: "urgent-goal",
+    action_id: "urgent-action",
+  };
+
+  const result = evaluateNpcAutonomyCycle(input);
+  assert.equal(result.status, "intention_selected");
+  assert.deepEqual(result.intention, {
+    goal_id: "protect-contact",
+    action_id: "call-contact",
+  });
+});
+
+test("a blocked goal cannot be selected through an otherwise valid active plan step", () => {
+  const input = base();
+  input.goals[0].status = "blocked";
+  const result = evaluateNpcAutonomyCycle(input);
+  assert.equal(result.status, "no_eligible_action");
+  assert.equal(result.stage, "intention_selection");
+  assert.equal(result.intention, null);
+});
