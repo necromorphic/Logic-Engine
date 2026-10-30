@@ -1,5 +1,10 @@
 const isRecord = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 
+export function defaultMechanicPolicyFieldPolicy(context, entity, field) {
+  return entity.entity_id === context.actor.entity_id
+    && ['entity_id', 'entity_type', 'status'].includes(field);
+}
+
 export function isMechanicPolicyAuthoritySnapshot(value) {
   try {
     return isRecord(value)
