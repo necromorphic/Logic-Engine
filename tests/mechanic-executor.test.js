@@ -706,7 +706,7 @@ test('application executor freezes the complete evaluation snapshot before trust
     },
   }).evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
   assert.equal(observedFrozen, true);
-  assert.equal(result.status, 'ready');
+  assert.equal(result.status, 'ready', JSON.stringify(result));
   assert.equal(result.effects[0].entity_id, 'entity.new');
   assert.equal(engine.getState(worldId).world_revision, 2);
 });
@@ -857,7 +857,7 @@ test('application executor refuses context whose canonical dependency evidence i
     }),
   }).evaluate({ worldId: missingSetup.worldId, instanceId: 'instance.executor', actionId: 'wait' });
   assert.equal(missing.status, 'unknown');
-  assert.equal(missing.reason_code, 'DEPENDENCY_EVIDENCE_INCOMPLETE');
+  assert.equal(missing.reason_code, 'DEPENDENCY_EVIDENCE_INCOMPLETE', JSON.stringify(missing));
   assert.deepEqual(missing.effects, []);
 
   const mismatchSetup = setup(t, 'executor-mismatched-evidence-world');
@@ -880,7 +880,7 @@ test('application executor refuses context whose canonical dependency evidence i
     }),
   }).evaluate({ worldId: mismatchSetup.worldId, instanceId: 'instance.executor', actionId: 'wait' });
   assert.equal(mismatch.status, 'unknown');
-  assert.equal(mismatch.reason_code, 'DEPENDENCY_EVIDENCE_VALUE_MISMATCH');
+  assert.equal(mismatch.reason_code, 'DEPENDENCY_EVIDENCE_VALUE_MISMATCH', JSON.stringify(mismatch));
   assert.deepEqual(mismatch.effects, []);
 });
 
@@ -934,7 +934,7 @@ test('application executor accepts only same-snapshot canonical absence evidence
   });
   const provenAbsent = new MechanicExecutor(engine, { resolveAuthorizedContext: provider(['actor.injury']) })
     .evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
-  assert.equal(provenAbsent.status, 'ready');
+  assert.equal(provenAbsent.status, 'ready', JSON.stringify(provenAbsent));
   assert.deepEqual(provenAbsent.dependency_manifest.condition_paths, ['actor.hp', 'actor.injury']);
 
   const unprovenAbsent = new MechanicExecutor(engine, { resolveAuthorizedContext: provider([]) })
@@ -961,10 +961,11 @@ test('application executor rejects known-absence claims outside the declared con
       policy_version: 'test-visibility-policy-v1',
       authority_id: 'test-mechanic-authority',
       policy_generation: 1,
+      authorization_principal: { adapterId: 'test-adapter', actorEntityId: 'entity.actor-context', recipient: 'model', purpose: 'npc_decision', bindingGeneration: 1 },
     }),
   }).evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
-  assert.equal(result.status, 'unknown');
-  assert.equal(result.reason_code, 'INVALID_KNOWN_ABSENCE_SCOPE');
+  assert.equal(result.status, 'unknown', JSON.stringify(result));
+  assert.equal(result.reason_code, 'INVALID_KNOWN_ABSENCE_SCOPE', JSON.stringify(result));
   assert.deepEqual(result.effects, []);
 });
 
