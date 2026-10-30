@@ -322,3 +322,24 @@ test('complete Host inventory reconciliation enforces request-byte and version-c
   assert.equal(byteResponse.status, 413);
   assert.equal((await byteResponse.json()).error.code, 'BODY_TOO_LARGE');
 });
+
+
+test('incomplete API snapshot is rejected before verifier invocation or ledger mutation', async (t) => {
+  let verifierCalls = 0;
+  const { base, ledger } = await setup(t, {
+    verifyInventorySnapshot: async () => { verifierCalls += 1; return true; },
+  });
+  assert.equal((await bind(base)).status, 201);
+  const response = await fetch(base + '/v1/host-version-ledger/reconcile', {
+    method: 'POST',
+    headers: { ...headers, 'x-adapter-id': 'adapter-a', 'x-adapter-token': ADAPTER },
+    body: json({ conversation_id: 'stable-host-chat', complete: false, versions: [] }),
+  });
+  assert.equal(response.status, 409);
+  assert.deepEqual((await response.json()).reconciliation, {
+    status: 'non_ready', code: 'HOST_INVENTORY_INCOMPLETE',
+  });
+  assert.equal(verifierCalls, 0);
+  assert.equal(ledger.db.prepare('SELECT COUNT(*) AS n FROM host_version_digest_ledger').get().n, 0);
+  assert.equal(ledger.getInventoryState('host-ledger-api-world', 'stable-host-chat'), null);
+});
