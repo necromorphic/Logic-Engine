@@ -604,7 +604,7 @@ test('reconciliation rejects copied/restored sidecar IDs even when native messag
   assert.equal(await f.bridge.currentFingerprint(), originalFingerprint);
   const result = await f.bridge.reconcileCurrentConversation();
   assert.equal(result.status, 'NON_READY');
-  assert.match(result.reason, /identity metadata differs from the last journaled identity snapshot/);
+  assert.match(result.reason, /in-memory Host identity is incomplete during persisted-state verification/);
 
   // Restore the original identities; the same unchanged source should reconcile
   // as integrity-valid, while still remaining NON_READY for incomplete coverage.
