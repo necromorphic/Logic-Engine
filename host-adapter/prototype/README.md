@@ -147,3 +147,9 @@ Exact-head CI for this code HEAD:
 - [Host lifecycle patch validation #40276125986](https://github.com/necromorphic/Logic-Engine/actions/runs/40276125986) — SUCCESS.
 
 This refresh records repository CI only. It does not establish live browser/Android/Termux behavior, real IndexedDB durability, persisted chat-file before/after evidence, or full lifecycle coverage. PR #323 was merged into `main` on 26 Oct 2026; its code remains review-only. Core approval of the Host↔Core/Provider handoff and real persisted-state acceptance evidence are still required; production Memory→NPC remains DISABLED / FAIL-CLOSED.
+
+## Core complete-snapshot reconciliation transport (Draft)
+
+Core exposes the digest-only `POST /v1/host-version-ledger/reconcile` route on the integration candidate. The bridge may submit one complete `versions[]` snapshot containing message/version IDs, explicit parent IDs, SHA-256 digests and active/deleted flags. The ST server proxy verifies the authenticated cookie session and requires its server-generated Host session UUID to prefix the conversation ID before forwarding. Core derives the world from the authenticated adapter-bound conversation; the browser must not supply world IDs or raw message text. Core bounds the request to 8 MiB and 25,000 versions.
+
+This route is a reconciliation seam, not a readiness bypass. The production Core bootstrap still injects a deny-only snapshot verifier, so the endpoint returns NON_READY and does not publish a trusted inventory. The current bridge remains REVIEW_ONLY / NON_READY and does not yet call the route: it must first establish complete persisted lifecycle inventory and pinned-source attestation. The server-generated Host session UUID scopes the conversation identity to the authenticated ST session but is not durable installation attestation. Do not enable Memory→NPC based on the route or test-injected positive verifiers.
