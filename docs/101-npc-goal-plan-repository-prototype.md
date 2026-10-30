@@ -4,6 +4,10 @@
 
 This document records the implementation branch for the repository boundary in docs/99-npc-goal-plan-repository-interface-contract.md. It does not replace or waive the production gates in docs/99 §9 or the readiness audit in docs/100.
 
+## VFS feasibility status
+
+The minimal same-engine VFS spike in current-main Draft PR #839 passed Windows and Linux in CI run #41110835234: `node:sqlite`/SQLite 3.47.2 default-VFS registration, WAL/SHM/rollback-journal opens, sidecar alias/replacement checks, directory anchoring and concurrent/worker opens. A clean rerun after temporary diagnostic removal is pending. This is a feasibility result, not production approval: POSIX `xDelete` still has a same-directory replacement race, and persistent identity ownership, complete I/O/locking/recovery coverage, production database-role wiring and independent Security review remain open. The repository continues to accept only an injected connection and never opens a path itself.
+
 ## Progress
 
 | Area | State | Progress |
