@@ -122,6 +122,8 @@ export class MechanicExecutor {
     }
     const template = templateEntry.template;
     const identity = snapshotIdentity(worldId, snapshot, instance, templateEntry);
+    const action = template.actions.find((candidate) => candidate.action_id === actionId);
+    if (!action) return { status: 'rejected', reason_code: 'MECHANIC_ACTION_NOT_FOUND', snapshot_identity: identity, effects: [], effect_provenance: [] };
     const instanceParameters = instance.parameters ?? {};
     const instanceState = instance.state ?? {};
     if (!object(instanceParameters) || Object.keys(instanceParameters).length > 0
@@ -133,8 +135,6 @@ export class MechanicExecutor {
       return unknown('UNSUPPORTED_UNKNOWN_POLICY',
         'This executor slice supports only unknown_policy=mark_unknown.', identity);
     }
-    const action = template.actions.find((candidate) => candidate.action_id === actionId);
-    if (!action) return { status: 'rejected', reason_code: 'MECHANIC_ACTION_NOT_FOUND', snapshot_identity: identity, effects: [], effect_provenance: [] };
 
     // Read the current projection only for internal dependency/target checks.
     // It is not returned to callers or passed to the context provider. Its cursor
