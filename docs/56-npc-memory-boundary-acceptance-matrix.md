@@ -476,7 +476,7 @@ This is the current NPC execution record. Earlier dated sections above are histo
 
 The old PRs are closed. The comparison shows no Personality/Core/Memory/Host/Relationships/vectorization path to port from those historical heads. Their ancestry is not part of the new implementation diff.
 
-The clean replacement is [PR #769](https://github.com/necromorphic/Logic-Engine/pull/769), Draft, based exactly on `8c8b9059ae12af3a63e96eb7cb86851e12a6d925`. Current head: `ad71e151c4fc2fe63076483d4818d90db45d720a`; compare is 6 ahead / 0 behind. Its four changed paths are:
+The clean replacement is [PR #769](https://github.com/necromorphic/Logic-Engine/pull/769), Draft, based exactly on `8c8b9059ae12af3a63e96eb7cb86851e12a6d925`. The implementation commit `ad71e151c4fc2fe63076483d4818d90db45d720a` passed Runtime workflow [#41034257820](https://github.com/necromorphic/Logic-Engine/actions/runs/41034257820); the later commits in this branch only clarify this acceptance matrix. Its four changed paths are:
 - `.github/workflows/runtime-tests.yml` — NPC-owned boundary workflow adds the reducer test and repository test bootstrap;
 - `src/npc/epistemic-state.js` — NPC-owned reducer and conservative mapping;
 - `tests/npc-epistemic-state.test.js` — focused reducer/mapping regressions.
@@ -546,7 +546,7 @@ No integrated real-path acceptance test can run against a path that does not exi
 | P0.2 pure admission boundary | **PASS** — current-main helper and 45 focused tests; no source edit in #769 |
 | P0.3 lifecycle separation | **PASS at NPC-local state level**; real delivery/receipt remains external |
 | P0.4 real-path handoff | **BLOCKED** — Core reader/authorizers and Host session/final egress are not accepted/implemented |
-| P1.1 reducer hardening | **PENDING exact-head CI + independent review** |
+| P1.1 reducer hardening | **CI PASS** on implementation commit `ad71e151c4fc2fe63076483d4818d90db45d720a` (Runtime #41034257820); independent NPC/Security review remains pending |
 | P1.2 single matrix / review path | **PARTIAL** — this is the single acceptance matrix; #769 awaits review |
 | P1.3 epistemic semantics | **PASS at NPC-local mapping/reducer level**; production callsite remains blocked |
 | P2 capability expansion | **NOT STARTED** — intentionally outside P0/P1 |
