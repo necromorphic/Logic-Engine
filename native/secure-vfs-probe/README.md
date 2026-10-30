@@ -28,7 +28,7 @@ This probe is a bounded feasibility implementation for Issue #770. It keeps the 
 13. Linux exercises SQLite's pending-descriptor reuse path and accepts reuse only when the wrapped stat identity matches the registered role.
 14. The VFS refuses replacement of its protected open/CreateFileW and Unix stat hooks through the registered VFS xSetSystemCall interface.
 
-The probe still delegates SQLite file methods, locking and normal I/O to the parent VFS. On POSIX, registered DB/sidecar open, stat, access and delete operations are routed relative to the pinned final parent-directory descriptor. On Windows, the earlier path-based open-boundary wrapper remains in use. Neither path is a production secure VFS.
+The probe still delegates SQLite file methods, locking and normal I/O to the parent VFS. On POSIX, registered DB/sidecar open, stat, access and delete operations are routed relative to the pinned final parent-directory descriptor. On Windows, the earlier path-based open-boundary wrapper remains in use. A new `windows_relative_open.h` backend now contains native `NtCreateFile` primitives for opening a single child relative to a pinned directory HANDLE, drive-root-to-parent component acquisition, reparse-point rejection, and full `FILE_ID_INFO` identity comparison. This helper is not yet connected to the VFS role registry or SQLite `CreateFileW` interception; it is implementation groundwork, not evidence that Windows DB/sidecar opens are anchored. Neither platform path is a production secure VFS.
 
 ## What remains unproven
 
@@ -51,7 +51,7 @@ That is a feasibility decision, not a production security approval. Issue #770 r
 
 ## Remaining implementation gates
 
-1. Add a protected expected-identity manifest for the POSIX directory chain, and implement/test Windows handle-relative opens using a pinned directory HANDLE.
+1. Add a protected expected-identity manifest for the POSIX directory chain; wire `windows_relative_open.h` into Windows role registration, main DB and sidecar opens, xAccess and xDelete; then add the Windows parent-rename and reparse-point cases.
 2. Extend the directory-relative policy to every required VFS operation, temporary files, and all DB/sidecar lifecycle paths.
 3. Define the persisted trusted identity/role ledger and startup reconciliation policy.
 4. Add sidecar-to-sidecar identity ownership and complete WAL/SHM/journal lifecycle tests.
