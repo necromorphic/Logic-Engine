@@ -30,6 +30,29 @@ jobs:
       - name: Run NPC memory boundary tests
         run: node --test tests/npc-memory-candidate-eligibility.test.js tests/memory-npc-consumer.test.js tests/trusted-initial-knowledge-source.test.js
 
+  npc-goal-plan-repository:
+    # Keep the storage contract independently testable even if the self-hosted runner is offline.
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22.13.0'
+      - name: Install dependencies
+        run: npm install --no-package-lock --no-audit --no-fund
+      - name: Run NPC goal-plan repository contract tests
+        run: node --test tests/npc-goal-plan-repository.test.js
+      - name: Run full test suite on Linux
+        if: matrix.os == 'ubuntu-latest'
+        run: npm test
+
   test:
     runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 10
