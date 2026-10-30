@@ -2,7 +2,7 @@
 
 **Status:** design contract derived from accepted decision A1 and `docs/98-npc-local-goal-plan-store-contract.md`.
 **Date:** 2026-10-30.
-**Implementation status:** not implemented. This document defines a repository boundary and operation semantics; it does not select a database, file layout, public API, runtime wiring, or automatic action execution.
+**Implementation status:** not implemented. This document defines a repository boundary and operation semantics; it selects a dedicated NPC-owned SQLite database as the target physical store, but does not authorize its implementation, schema, migration, public API, runtime wiring, or automatic action execution.
 
 ## 1. Purpose
 
@@ -230,9 +230,9 @@ Uniqueness constraints must cover at least:
 
 The exact physical schema and index syntax are implementation decisions and remain open.
 
-## 6. Storage technology decision deliberately deferred
+## 6. Selected storage technology and implementation gate
 
-This interface does not choose SQLite, JSON files, another embedded database, or a service. Any later choice must demonstrate:
+The selected target is a dedicated NPC-owned SQLite database, physically separate from Core's canonical SQLite database. This is a target technology decision, not implementation authorization. Before creating or opening the NPC database in production, Issue #770's file-identity / SQLite-open TOCTOU security gate must be resolved by a reviewed mechanism that covers this database and supported Windows/POSIX platforms. The mechanism must bind identity validation to the database actually opened; repeated path checks are insufficient. Any implementation must demonstrate:
 
 - isolation from Core's canonical SQLite store;
 - atomic multi-record transactions for the operations in §5;
@@ -242,7 +242,7 @@ This interface does not choose SQLite, JSON files, another embedded database, or
 - deterministic migration/version handling;
 - testability without coupling pure NPC helpers to storage.
 
-Do not select a storage engine solely because Core already uses SQLite. The separation decision is architectural, not a ban on using the same technology in a distinct NPC-owned database file.
+SQLite is selected for the NPC store because the required operations need local transactions, uniqueness constraints, and compare-and-swap semantics. The database file and repository boundary must remain distinct from Core's canonical store. Do not share Core's SQLite connection or tables.
 
 ## 7. Test contract
 
