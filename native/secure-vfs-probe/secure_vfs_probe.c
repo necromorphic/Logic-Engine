@@ -247,12 +247,12 @@ static int probe_win_sidecar_identity_lookup(int role_index, const wchar_t *suff
   return found;
 }
 
-static int probe_win_sidecar_identity_record(int role_index, const wchar_t *suffix,
-                                              const LogicEngineWinFileIdentity *identity) {
+/* Caller must hold g_registry_mutex. */
+static int probe_win_sidecar_identity_record_locked(int role_index, const wchar_t *suffix,
+                                                     const LogicEngineWinFileIdentity *identity) {
   int kind = probe_win_sidecar_kind(suffix);
   int existing = -1;
   int reject = !kind || !identity;
-  probe_registry_lock();
   for (int i = 0; !reject && i < g_database_role_count; ++i) {
     if (logic_engine_win_identity_equal(identity, &g_database_roles[i].identity)) reject = 1;
   }
@@ -275,7 +275,6 @@ static int probe_win_sidecar_identity_record(int role_index, const wchar_t *suff
       entry->identity = *identity;
     }
   }
-  probe_registry_unlock();
   return !reject;
 }
 
@@ -453,7 +452,7 @@ static HANDLE WINAPI probe_create_file_w(
         }
       }
       if (!reject && has_anchor && !main_role_open
-          && !probe_win_sidecar_identity_record(role_index, suffix, &info_identity)) {
+          && !probe_win_sidecar_identity_record_locked(role_index, suffix, &info_identity)) {
         reject = 1;
       }
     }
