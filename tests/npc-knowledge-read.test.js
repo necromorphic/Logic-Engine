@@ -308,6 +308,54 @@ test('pure read contract rejects extra keys and authorization from another snaps
 });
 
 
+
+test('canonical NPC belief event records the exact policy authority tuple used for authorization', (t) => {
+  const { store, engine: baseEngine } = setup(t);
+  const actors = new ActorBindingService(baseEngine);
+  const authorizers = createHostBoundNpcKnowledgeAuthorizers({
+    store,
+    adapterIds: ['adapter-st'],
+    trustedInitialKnowledgeSources: trustedRegistry,
+  });
+  baseEngine.npcKnowledgePolicyAuthority = authorizers.policyAuthority;
+  actors.bind('world-a', 'adapter-st', 'npc-a');
+
+  const guardedEngine = new LogicEngine(store, {
+    trustedInitialKnowledgeSources: trustedRegistry,
+    npcKnowledgeContextResolver: authorizers.resolveContext,
+    npcKnowledgePolicyAuthority: authorizers.policyAuthority,
+    npcKnowledgeReadAuthorizer: authorizers.readAuthorizer,
+    npcKnowledgeVisibilityAuthorizer: authorizers.visibilityAuthorizer,
+  });
+  const readRequest = request(store);
+  const read = guardedEngine.readNpcKnowledge(readRequest);
+  const item = read.items[0];
+  const write = {
+    ...readRequest,
+    proposition_ref: propositionRefFor(item),
+    proposition_value: item.value,
+    stance: 'believes_true',
+    supporting_acquisition_ids: [item.acquisition_id],
+    contradicting_acquisition_ids: [],
+    reason_rule_ref: 'rule:belief-update-v1',
+    idempotency_key: 'policy-authority-bound-belief-transition',
+  };
+
+  const committed = guardedEngine.recordNpcBeliefTransition(write);
+  assert.deepEqual(committed.policy_authority, read.policy_authority);
+  const event = store.events('world-a').find((entry) => entry.event_id === committed.transition.event_id);
+  assert.deepEqual(event.effects[0].policy_authority, read.policy_authority);
+
+  const replay = guardedEngine.recordNpcBeliefTransition(write);
+  assert.equal(replay.idempotent_replay, true);
+  assert.deepEqual(replay.policy_authority, read.policy_authority);
+
+  authorizers.policyAuthority.advanceGeneration();
+  assert.throws(() => guardedEngine.recordNpcBeliefTransition(write), {
+    code: 'IDEMPOTENCY_KEY_REUSED',
+  }, 'an idempotency replay under a different policy generation is not the same authorized operation');
+});
+
 test('belief write revalidates actor binding inside the Core write transaction', (t) => {
   const { store, engine: baseEngine } = setup(t);
   const actors = new ActorBindingService(baseEngine);
