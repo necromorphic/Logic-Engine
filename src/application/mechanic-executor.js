@@ -207,7 +207,7 @@ export class MechanicExecutor {
       || typeof resolved.authority_id !== 'string' || !resolved.authority_id.trim()
       || !Number.isSafeInteger(resolved.policy_generation) || resolved.policy_generation < 1
       || !object(resolved.authorization_principal)
-      || Object.keys(resolved.authorization_principal).some((key) => !['adapterId', 'actorEntityId', 'recipient', 'purpose'].includes(key))
+      || Object.keys(resolved.authorization_principal).some((key) => !['adapterId', 'actorEntityId', 'recipient', 'purpose', 'bindingGeneration'].includes(key))
       || typeof resolved.authorization_principal.adapterId !== 'string' || !resolved.authorization_principal.adapterId.trim()
       || typeof resolved.authorization_principal.actorEntityId !== 'string' || !resolved.authorization_principal.actorEntityId.trim()
       || !['model', 'player', 'adapter'].includes(resolved.authorization_principal.recipient)
