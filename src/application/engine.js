@@ -700,6 +700,7 @@ export class LogicEngine {
     try {
       authorization = this.npcKnowledgeReadAuthorizer(Object.freeze({
         world_id: request.world_id,
+        conversation_id: request.conversation_id,
         adapter_id: request.adapter_id,
         actor_id: request.actor_id,
         recipient: request.recipient,
@@ -794,6 +795,7 @@ export class LogicEngine {
     return Object.freeze({
       status: 'ready',
       world_id: request.world_id,
+      conversation_id: request.conversation_id,
       adapter_id: request.adapter_id,
       actor_id: request.actor_id,
       recipient: request.recipient,
@@ -829,6 +831,7 @@ export class LogicEngine {
       try {
         decision = this.npcKnowledgeVisibilityAuthorizer(Object.freeze({
           world_id: read.world_id,
+          conversation_id: read.conversation_id,
           adapter_id: read.adapter_id,
           actor_id: read.actor_id,
           recipient: read.recipient,
@@ -857,7 +860,8 @@ export class LogicEngine {
       }
       if (decision.status === 'denied') {
         if (decision.world_id !== read.world_id || decision.adapter_id !== read.adapter_id
-          || decision.actor_id !== read.actor_id || decision.recipient !== read.recipient
+          || decision.conversation_id !== read.conversation_id
+        || decision.actor_id !== read.actor_id || decision.recipient !== read.recipient
           || decision.purpose !== read.purpose
           || decision.world_revision !== read.snapshot.world_revision
           || decision.commit_sequence !== read.snapshot.commit_sequence
@@ -871,7 +875,9 @@ export class LogicEngine {
         continue;
       }
       if (decision.status !== 'allowed'
-        || decision.world_id !== read.world_id || decision.adapter_id !== read.adapter_id
+        || decision.world_id !== read.world_id || decision.conversation_id !== read.conversation_id
+        || decision.adapter_id !== read.adapter_id
+        || decision.conversation_id !== read.conversation_id
         || decision.actor_id !== read.actor_id || decision.recipient !== read.recipient
         || decision.purpose !== read.purpose
         || decision.world_revision !== read.snapshot.world_revision
@@ -927,7 +933,7 @@ export class LogicEngine {
    */
   recordNpcBeliefTransition(input) {
     const required = [
-      'world_id', 'adapter_id', 'actor_id', 'recipient', 'purpose', 'expected_revision',
+      'world_id', 'conversation_id', 'adapter_id', 'actor_id', 'recipient', 'purpose', 'expected_revision',
       'expected_commit_sequence', 'proposition_ref', 'proposition_value', 'stance',
       'supporting_acquisition_ids', 'contradicting_acquisition_ids', 'reason_rule_ref', 'idempotency_key',
     ];
@@ -935,13 +941,13 @@ export class LogicEngine {
       'INVALID_NPC_BELIEF_TRANSITION', 'Belief transition request must be a plain data record with all required own fields.');
     const limit = Object.hasOwn(input, 'limit') ? (input.limit ?? 200) : 200;
     const allowed = [
-      'world_id', 'adapter_id', 'actor_id', 'recipient', 'purpose', 'expected_revision', 'expected_commit_sequence',
-      'limit', 'proposition_ref', 'proposition_value', 'stance', 'supporting_acquisition_ids',
+      'world_id', 'conversation_id', 'adapter_id', 'actor_id', 'recipient', 'purpose', 'expected_revision', 'expected_commit_sequence',
+      'limit', 'proposition_ref' 'proposition_value', 'stance', 'supporting_acquisition_ids',
       'contradicting_acquisition_ids', 'reason_rule_ref', 'idempotency_key',
     ];
     assert(Object.keys(input).every((key) => allowed.includes(key)),
       'UNSUPPORTED_NPC_BELIEF_TRANSITION_FIELD', 'Belief transition request contains an unsupported field.');
-    for (const key of ['world_id', 'adapter_id', 'actor_id', 'recipient', 'proposition_ref', 'reason_rule_ref', 'idempotency_key']) {
+    for (const key of ['world_id', 'conversation_id', 'adapter_id', 'actor_id', 'recipient', 'proposition_ref', 'reason_rule_ref', 'idempotency_key']) {
       assert(typeof input[key] === 'string' && input[key].trim() && input[key].length <= 200,
         'INVALID_NPC_BELIEF_TRANSITION', key + ' must be a non-empty string of at most 200 characters.');
     }
@@ -953,6 +959,7 @@ export class LogicEngine {
     const requestHash = hashRequest({
       operation: 'npc.belief.transition',
       world_id: input.world_id,
+      conversation_id: input.conversation_id,
       adapter_id: input.adapter_id,
       actor_id: input.actor_id,
       recipient: input.recipient,
@@ -1137,7 +1144,7 @@ export class LogicEngine {
       'INVALID_NPC_BELIEF_STATE_REQUEST', 'Belief state request must be a plain data record with all required own fields.');
     const limit = Object.hasOwn(input, 'limit') ? (input.limit ?? 200) : 200;
     const allowed = [
-      'world_id', 'adapter_id', 'actor_id', 'recipient', 'purpose', 'expected_revision',
+      'world_id', 'conversation_id', 'adapter_id', 'actor_id', 'recipient', 'purpose', 'expected_revision',
       'expected_commit_sequence', 'limit', 'proposition_ref',
     ];
     assert(Object.keys(input).every((key) => allowed.includes(key)),
@@ -1168,6 +1175,7 @@ export class LogicEngine {
       try {
         decision = this.npcKnowledgeVisibilityAuthorizer(Object.freeze({
           world_id: read.world_id,
+          conversation_id: read.conversation_id,
           adapter_id: read.adapter_id,
           actor_id: read.actor_id,
           recipient: read.recipient,
@@ -1191,7 +1199,9 @@ export class LogicEngine {
       ];
       const exactDecision = exactDataRecord(decision, allowedKeys);
       if (!exactDecision || !['allowed', 'denied'].includes(decision.status)
-        || decision.world_id !== read.world_id || decision.adapter_id !== read.adapter_id
+        || decision.world_id !== read.world_id || decision.conversation_id !== read.conversation_id
+        || decision.adapter_id !== read.adapter_id
+        || decision.conversation_id !== read.conversation_id
         || decision.actor_id !== read.actor_id || decision.recipient !== read.recipient
         || decision.purpose !== read.purpose
         || decision.world_revision !== read.snapshot.world_revision
