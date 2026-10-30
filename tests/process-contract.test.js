@@ -82,6 +82,53 @@ test('rejects prerequisite cycles without choosing an order from timestamps', ()
   );
 });
 
+test('rejects sparse, accessor-backed, and extended process reference arrays', () => {
+  for (const field of ['prerequisites', 'read_set', 'write_set']) {
+    const sparse = [];
+    sparse.length = 1;
+    const milestone = {
+      milestone_id: 'only',
+      trigger_id: 'trigger-only',
+      due_coordinate: 10,
+      event: {},
+      [field]: sparse,
+    };
+    assert.throws(
+      () => normalizeProcessDefinition(processDefinition({ milestones: [milestone] })),
+      (error) => error instanceof ProcessContractError && error.code === 'INVALID_PROCESS_REFERENCE_LIST',
+      field + ' must reject sparse arrays',
+    );
+  }
+
+  const accessorBacked = [];
+  Object.defineProperty(accessorBacked, '0', {
+    enumerable: true,
+    configurable: true,
+    get() { throw new Error('reference getter must not execute'); },
+  });
+  accessorBacked.length = 1;
+  assert.throws(
+    () => normalizeProcessDefinition(processDefinition({ milestones: [{
+      milestone_id: 'only', trigger_id: 'trigger-only', due_coordinate: 10,
+      prerequisites: accessorBacked, event: {},
+    }] })),
+    (error) => error instanceof ProcessContractError && error.code === 'INVALID_PROCESS_REFERENCE_LIST',
+  );
+
+  const extended = ['arrival'];
+  extended.extra = 'not-a-reference';
+  assert.throws(
+    () => normalizeProcessDefinition(processDefinition({ milestones: [{
+      milestone_id: 'child', trigger_id: 'trigger-child', due_coordinate: 200,
+      prerequisites: extended, event: {},
+    }, {
+      milestone_id: 'arrival', trigger_id: 'trigger-arrival', due_coordinate: 100,
+      prerequisites: [], event: {},
+    }] })),
+    (error) => error instanceof ProcessContractError && error.code === 'INVALID_PROCESS_REFERENCE_LIST',
+  );
+});
+
 test('rejects unsupported fields and non-JSON payloads', () => {
   assert.throws(
     () => normalizeProcessDefinition({ ...processDefinition(), execute: 'arbitrary-code' }),
