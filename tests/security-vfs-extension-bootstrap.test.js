@@ -90,6 +90,39 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
     const opened = second.prepare('SELECT logic_engine_vfs_probe_open_count() AS count').get().count;
     assert.equal(opened, 4,
       'the VFS must remain registered across the core, reader, journal and coordinator file connections');
+
+    // Establish the expected OS identity, then replace the path with a hardlink
+    // after SQLite has reached xOpen but immediately before the native OS open.
+    const aliasPath = join(directory, 'alias.sqlite');
+    const aliasDb = new DatabaseSync(aliasPath);
+    try {
+      aliasDb.exec('CREATE TABLE alias(value TEXT);');
+      const racePath = join(directory, 'race.sqlite');
+      second.prepare('SELECT logic_engine_vfs_probe_configure_race(?, ?, 0)')
+        .get(racePath, aliasPath);
+      const baseline = new DatabaseSync(racePath);
+      try {
+        baseline.exec('CREATE TABLE baseline(value TEXT);');
+      } finally {
+        baseline.close();
+      }
+
+      second.prepare('SELECT logic_engine_vfs_probe_configure_race(?, ?, 1)')
+        .get(racePath, aliasPath);
+      assert.throws(() => new DatabaseSync(racePath),
+        'opening a database path replaced by a hardlink to another database must fail closed');
+      assert.equal(
+        second.prepare('SELECT logic_engine_vfs_probe_race_injection_count() AS count').get().count,
+        1,
+        'the deterministic replacement must occur exactly once inside the VFS open boundary'
+      );
+      assert.ok(
+        second.prepare('SELECT logic_engine_vfs_probe_identity_reject_count() AS count').get().count > 0,
+        'the OS handle identity check must reject the substituted hardlink'
+      );
+    } finally {
+      aliasDb.close();
+    }
   } finally {
     second.close();
   }
