@@ -294,12 +294,14 @@ static inline int logic_engine_win_map_create_options(
   const DWORD flag_bits = flags & 0xffff0000UL;
   const DWORD allowed_flags = FILE_FLAG_WRITE_THROUGH | FILE_FLAG_NO_BUFFERING
     | FILE_FLAG_RANDOM_ACCESS | FILE_FLAG_SEQUENTIAL_SCAN
-    | FILE_FLAG_DELETE_ON_CLOSE | FILE_FLAG_OPEN_REPARSE_POINT;
+    | FILE_FLAG_OPEN_REPARSE_POINT;
   if (!nt_options || !nt_attributes) return 0;
   /*
    * Protected DB handles are synchronous regular files. Reject every flag
    * whose semantics are not explicitly represented below; silently ignoring
    * a Win32 flag could make the caller believe a security-relevant mode stuck.
+   * DELETE_ON_CLOSE is deliberately rejected: NT would apply it before the
+   * opened object's identity could be checked.
    */
   if ((flag_bits & ~allowed_flags) != 0
       || (file_attributes & FILE_ATTRIBUTE_DIRECTORY) != 0
@@ -309,7 +311,6 @@ static inline int logic_engine_win_map_create_options(
   if ((flags & FILE_FLAG_WRITE_THROUGH) != 0) options |= 0x00000002UL;
   if ((flags & FILE_FLAG_SEQUENTIAL_SCAN) != 0) options |= 0x00000004UL;
   if ((flags & FILE_FLAG_NO_BUFFERING) != 0) options |= 0x00000008UL;
-  if ((flags & FILE_FLAG_DELETE_ON_CLOSE) != 0) options |= 0x00001000UL;
   if ((flags & FILE_FLAG_RANDOM_ACCESS) != 0) options |= 0x00000800UL;
   if ((flags & FILE_FLAG_OPEN_REPARSE_POINT) != 0) options |= FILE_OPEN_REPARSE_POINT;
   if (file_attributes == 0) file_attributes = FILE_ATTRIBUTE_NORMAL;
