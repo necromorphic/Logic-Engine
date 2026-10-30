@@ -91,6 +91,8 @@ export async function enumerateStableFileInventory(rootPath) {
 
   async function scanOnce() {
     const entries = [];
+    let totalBytes = 0;
+    let totalEntries = 0;
 
     async function walk(directory) {
       let names;
@@ -99,9 +101,12 @@ export async function enumerateStableFileInventory(rootPath) {
       } catch {
         throw new Error('HOST_INVENTORY_UNREADABLE_DIRECTORY');
       }
+      if (names.length > MAX_TOTAL_ENTRIES) throw new Error('HOST_INVENTORY_ENTRY_COUNT_LIMIT');
       names.sort();
 
       for (const name of names) {
+        totalEntries++;
+        if (totalEntries > MAX_TOTAL_ENTRIES) throw new Error('HOST_INVENTORY_ENTRY_COUNT_LIMIT');
         const fullPath = resolve(directory, name);
         if (!isWithinRoot(root, fullPath)) throw new Error('HOST_INVENTORY_PATH_ESCAPE');
 
@@ -152,6 +157,7 @@ export async function enumerateStableFileInventory(rootPath) {
             || bytes.byteLength !== openedAfter.size) {
             throw new Error('HOST_INVENTORY_FILE_CHANGED_DURING_READ');
           }
+          totalBytes += bytes.byteLength;
           entries.push({
             path: relative(root, fullPath).split(sep).join('/'),
             identity: statIdentity(openedAfter),
