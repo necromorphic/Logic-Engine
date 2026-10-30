@@ -43,6 +43,8 @@ export const SUPPORTED_PROTECTED_MEMORY_ROUTES = Object.freeze([
   'host-selected-chat-generation',
 ]);
 
+const ASYNC_FUNCTION_PROTOTYPE = Object.getPrototypeOf(async function () {}).constructor;
+
 const validText = (value, max = 200) => typeof value === 'string'
   && value === value.trim()
   && value.length > 0
@@ -218,7 +220,7 @@ export class MemoryDispatchGateway {
       || typeof readCoreEvidence !== 'function'
       || typeof readProviderEvidence !== 'function'
       || typeof sendUpstream !== 'function'
-      || sendUpstream.constructor?.name === 'AsyncFunction') {
+      || sendUpstream instanceof ASYNC_FUNCTION_PROTOTYPE) {
       throw new TypeError('MemoryDispatchGateway requires file-backed stores, a read-only authority token, trusted synchronous readers, and a non-async transport-start function.');
     }
     if (sameFile(ledgerPath, coordinatorPath)) {
