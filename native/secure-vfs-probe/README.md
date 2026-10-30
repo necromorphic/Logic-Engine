@@ -106,3 +106,10 @@ On Unix, the probe also wraps the pinned VFS `stat` syscall used by SQLite's `fi
 The role registry remains a feasibility harness, not production code: it is process-local and not yet concurrency-hardened; the descriptor-reuse branch is guarded in code but still needs a dedicated forced-reuse stress test. It does not yet validate sidecar object identities or parent-directory replacement/reparse behavior.
 
 Exact implementation/test head: `8fb9d945c338ad569e093158b408fecda7243fab`. [Windows/Linux VFS workflow run 41074057440](https://github.com/necromorphic/Logic-Engine/actions/runs/41074057440) — passed.
+
+
+## Worker-thread registration probe
+
+The dedicated VFS test now opens a file-backed `DatabaseSync` from a Node worker thread after the main thread has loaded the extension. The worker loads the extension again, opens its own file database, and queries the auto-extension probe function. This passes on both Windows and Linux at code head `24186ad43523611862130c4b8f5fd5467097347b`.
+
+This establishes that the tested Node 22.13.0 process shares the registered default VFS and SQLite auto-extension state with worker threads. It does not yet stress simultaneous opens from multiple threads or make the role registry thread-safe.
