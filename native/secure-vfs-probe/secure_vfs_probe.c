@@ -40,6 +40,8 @@ static int g_race_identity_set = 0;
 static int g_race_inject_once = 0;
 static int g_race_injection_count = 0;
 static int g_identity_reject_count = 0;
+static int g_sidecar_identity_check_count = 0;
+static int g_sidecar_identity_reject_count = 0;
 #define PROBE_MAX_DATABASE_ROLES 8
 typedef struct ProbeDatabaseRole {
   char *path;
@@ -64,6 +66,8 @@ __declspec(thread) static int g_current_race_open = 0;
 __declspec(thread) static int g_current_race_captured = 0;
 __declspec(thread) static int g_current_role_index = -1;
 __declspec(thread) static int g_current_role_captured = 0;
+__declspec(thread) static int g_current_sidecar_open = 0;
+__declspec(thread) static int g_current_sidecar_captured = 0;
 #else
 static dev_t g_race_device = 0;
 static ino_t g_race_inode = 0;
@@ -71,12 +75,20 @@ static _Thread_local int g_current_race_open = 0;
 static _Thread_local int g_current_race_captured = 0;
 static _Thread_local int g_current_role_index = -1;
 static _Thread_local int g_current_role_captured = 0;
+static _Thread_local int g_current_sidecar_open = 0;
+static _Thread_local int g_current_sidecar_captured = 0;
 static _Thread_local int g_current_role_stat_valid = 0;
 static _Thread_local dev_t g_current_role_stat_device = 0;
 static _Thread_local ino_t g_current_role_stat_inode = 0;
 #endif
 
 #ifdef _WIN32
+static int probe_wide_path_is_shm(LPCWSTR value) {
+  size_t length = wcslen(value);
+  return length >= 4 && value[length - 4] == L'-'
+    && value[length - 3] == L's' && value[length - 2] == L'h'
+    && value[length - 1] == L'm';
+}
 static wchar_t *probe_utf8_to_wide(const char *value) {
   int length = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value, -1, 0, 0);
   wchar_t *wide;
@@ -171,8 +183,12 @@ static HANDLE WINAPI probe_create_file_w(
   return handle;
 }
 #else
+static int probe_path_is_shm(const char *path) {
+  size_t length = strlen(path);
+  return length >= 4 && strcmp(path + length - 4, "-shm") == 0;
+}
 static int probe_replace_with_hardlink(const char *path, const char *target) {
-  if (unlink(path) != 0) return 0;
+  if (unlink(path) != 0 && errno != ENOENT) return 0;
   return link(target, path) == 0;
 }
 typedef int (*probe_open_fn)(const char *, int, int);
