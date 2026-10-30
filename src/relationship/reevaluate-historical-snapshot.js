@@ -14,9 +14,9 @@ function unavailable(reason) {
  * Re-evaluate one persisted Relationship candidate snapshot without consulting
  * mutable projections/manifests and without writing to Core state.
  *
- * The caller must bind the snapshot to the event it was read from and supply
- * the target world's current World Pack identity/version. This function does
- * not load events or perform persistence; it is a pure read-side operation.
+ * The caller binds the snapshot to the committed event it was read from.
+ * World Pack identity/version and dimension rules are read from the immutable
+ * event snapshot, never reconstructed from the world's current pack.
  */
 export function reevaluateHistoricalRelationshipSnapshot(snapshot, context = {}) {
   if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) {
@@ -30,11 +30,9 @@ export function reevaluateHistoricalRelationshipSnapshot(snapshot, context = {})
       || snapshot.originating_event_id !== context.eventId) {
     return unavailable('originating_event_binding_mismatch');
   }
-  if (typeof context.worldPackId !== 'string' || !context.worldPackId
-      || typeof context.worldPackVersion !== 'string' || !context.worldPackVersion
-      || snapshot.world_pack_id !== context.worldPackId
-      || snapshot.world_pack_version !== context.worldPackVersion) {
-    return unavailable('world_pack_pin_mismatch');
+  if (typeof snapshot.world_pack_id !== 'string' || !snapshot.world_pack_id
+      || typeof snapshot.world_pack_version !== 'string' || !snapshot.world_pack_version) {
+    return unavailable('world_pack_pin_missing');
   }
   if (typeof snapshot.rule_module_id !== 'string' || !snapshot.rule_module_id
       || typeof snapshot.rule_module_version !== 'string' || !snapshot.rule_module_version) {
