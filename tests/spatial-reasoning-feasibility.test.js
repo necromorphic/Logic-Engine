@@ -69,7 +69,7 @@ function setup() {
   return { store, engine };
 }
 
-function commit(engine, worldId, eventId, effects) {
+function commit(engine, worldId, eventId, effects, causalLinks = []) {
   const state = engine.getState(worldId);
   return engine.commitEvent(worldId, {
     event_id: eventId,
@@ -81,7 +81,7 @@ function commit(engine, worldId, eventId, effects) {
     caused_by: [],
     depends_on: [],
     read_set: [],
-    causal_links: [],
+    causal_links: causalLinks,
   });
 }
 
@@ -223,4 +223,35 @@ test('segment commit also accepts malformed position-shaped generic attributes',
   );
   // This is a negative feasibility finding: segment acceptance has no typed
   // spatial validation gate. It does not authorize using the value as position.
+});
+
+
+test('entity.update can corrupt or remove a position-shaped attribute without typed spatial validation', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+
+  const seeded = commit(engine, 'spatial-lab', 'seed-update-position', [
+    { kind: 'entity.create', entity_id: 'update-point', entity_type: 'object', attributes: { position: { x: 1, y: 2, z: 3 } } },
+  ]);
+  assert.equal(seeded.accepted, true);
+
+  const existenceGuard = [{ relation: 'REQUIRES', predicate: { kind: 'entity_exists', entity_id: 'update-point' } }];
+  const malformedUpdate = commit(engine, 'spatial-lab', 'update-malformed-position', [
+    { kind: 'entity.update', entity_id: 'update-point', attributes: { position: { x: 'west', y: 2 } } },
+  ], existenceGuard);
+  assert.equal(malformedUpdate.accepted, true);
+  assert.deepEqual(
+    engine.getState('spatial-lab').entities.find((entity) => entity.entity_id === 'update-point').attributes.position,
+    { x: 'west', y: 2 },
+  );
+
+  const removePosition = commit(engine, 'spatial-lab', 'remove-position-attribute', [
+    { kind: 'entity.update', entity_id: 'update-point', remove_attributes: ['position'] },
+  ], existenceGuard);
+  assert.equal(removePosition.accepted, true);
+  const finalEntity = engine.getState('spatial-lab').entities.find((entity) => entity.entity_id === 'update-point');
+  assert.equal(Object.hasOwn(finalEntity.attributes, 'position'), false);
+
+  // Characterization only: a spatial consumer must not infer CONFIRMED from
+  // a generic attribute before, during, or after these accepted updates.
 });
