@@ -85,22 +85,30 @@ function makeFixture(chat = [{ is_user: true, mes: 'hello' }, { is_user: false, 
 }
 
 
-function makePersistedInventory(chat, { sessionId, conversationUuid, userHandle = 'alice' }) {
-  const messages = chat.map(message => {
+async function makePersistedInventory(chat, { sessionId, conversationUuid, userHandle = 'alice' }) {
+  const messages = await Promise.all(chat.map(async message => {
     const identity = message._logicEngineLifecycle;
+    const rawVersions = Array.isArray(message.swipes) && message.swipes.length
+      ? message.swipes : [message.mes];
+    const versions = await Promise.all(identity.versions.map(async (version, index) => {
+      const bytes = new TextEncoder().encode(String(rawVersions[index]));
+      const digest = [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))]
+        .map(value => value.toString(16).padStart(2, '0')).join('');
+      return {
+        version_id: version.versionId,
+        version_index: index,
+        parent_version_id: version.parentVersionId ?? null,
+        content_sha256: digest,
+        active: index === identity.activeVersionIndex,
+      };
+    }));
     return {
       message_id: identity.messageId,
       role: message.is_user ? 'user' : message.is_system ? 'system' : 'assistant',
       active_version_index: identity.activeVersionIndex,
-      versions: identity.versions.map((version, index) => ({
-        version_id: version.versionId,
-        version_index: index,
-        parent_version_id: version.parentVersionId ?? null,
-        content_sha256: version.payloadDigest,
-        active: index === identity.activeVersionIndex,
-      })),
+      versions,
     };
-  });
+  }));
   return {
     status: 'DOUBLE_SCAN_CANDIDATE',
     authority: 'NON_AUTHORITATIVE',
@@ -144,7 +152,7 @@ test('persisted ST inventory is cross-checked against the session-bound conversa
     },
   });
   await f.bridge.enrollCurrentConversation();
-  inventory = makePersistedInventory(chat, { sessionId, conversationUuid });
+  inventory = await makePersistedInventory(chat, { sessionId, conversationUuid });
 
   const verified = await f.bridge.verifyPersistedInventory();
   assert.equal(verified.status, 'MATCHED_NON_AUTHORITATIVE');
