@@ -126,7 +126,6 @@ export class MechanicExecutor {
       .filter((candidate) => candidate.status === 'enabled' || candidate.status === 'needs_review')
       .sort((a, b) => a.instance_id.localeCompare(b.instance_id));
     const activeMechanicSet = [];
-    const activeTemplateByInstance = new Map();
     for (const candidate of activeMechanicInstances) {
       const entry = state.templates.find(({ template: candidateTemplate }) =>
         candidateTemplate.template_id === candidate.template_id
@@ -135,7 +134,6 @@ export class MechanicExecutor {
         return unknown('ACTIVE_MECHANIC_TEMPLATE_NOT_FOUND',
           'An enabled or review-required mechanic references a missing pinned template.');
       }
-      activeTemplateByInstance.set(candidate.instance_id, entry.template);
       activeMechanicSet.push({
         instance_id: candidate.instance_id,
         status: candidate.status,
@@ -154,20 +152,13 @@ export class MechanicExecutor {
       return unknown('UNSUPPORTED_INSTANCE_PARAMETERS_OR_STATE',
         'This executor slice does not bind or interpret instance parameters or mutable instance state.', identity);
     }
+    if (activeMechanicSet.length > 1) {
+      return unknown('UNSUPPORTED_MULTIPLE_ACTIVE_MECHANICS',
+        'This executor slice requires a single enabled/review-required mechanic because cross-mechanic interaction and conflict completeness is not implemented.', identity);
+    }
     if (template.unknown_policy !== 'mark_unknown') {
       return unknown('UNSUPPORTED_UNKNOWN_POLICY',
         'This executor slice supports only unknown_policy=mark_unknown.', identity);
-    }
-    for (const candidate of activeMechanicInstances) {
-      if (candidate.instance_id === instanceId) continue;
-      const otherTemplate = activeTemplateByInstance.get(candidate.instance_id);
-      const referencesCurrentTemplate = (otherTemplate.interactions ?? []).some((interaction) =>
-        interaction.other_template_id === template.template_id
-        && (interaction.other_version === undefined || interaction.other_version === template.version));
-      if (referencesCurrentTemplate) {
-        return unknown('UNSUPPORTED_ACTIVE_MECHANIC_INTERACTION',
-          'Another enabled or review-required mechanic declares an interaction with the selected template; interaction semantics are not implemented.', identity);
-      }
     }
 
     // Read the current projection only for internal dependency/target checks.
