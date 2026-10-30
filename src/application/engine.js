@@ -1140,7 +1140,7 @@ export class LogicEngine {
           actor_id: binding.actor_id,
         };
       }
-      const requestHash = hashRequest({
+      const requestHashBase = {
         operation: 'npc.belief.transition',
         world_id: input.world_id,
         conversation_id: input.conversation_id,
@@ -1157,7 +1157,12 @@ export class LogicEngine {
         supporting_acquisition_ids: input.supporting_acquisition_ids,
         contradicting_acquisition_ids: input.contradicting_acquisition_ids,
         reason_rule_ref: input.reason_rule_ref,
+      };
+      const requestHashForPolicy = (policyAuthority) => hashRequest({
+        ...requestHashBase,
+        policy_authority: policyAuthority ?? null,
       });
+      let requestHash;
   
       // Canonical snapshot reads and deployment authorizers must run outside the
       // store's write transaction. Authenticate replays against the current cursor
@@ -1171,7 +1176,7 @@ export class LogicEngine {
         const currentWorld = this.store.world(input.world_id);
         assert(currentWorld && currentWorld.status === 'active',
           'WORLD_NOT_FOUND', 'World not found or inactive.', 404);
-        this.readNpcKnowledge({
+        const replayRead = this.readNpcKnowledge({
           world_id: input.world_id,
           conversation_id: input.conversation_id,
           adapter_id: input.adapter_id,
@@ -1182,11 +1187,13 @@ export class LogicEngine {
           expected_commit_sequence: this.store.currentCommitSequence(input.world_id),
           limit: limit,
         });
+        requestHash = requestHashForPolicy(replayRead.policy_authority);
         assert(existingReplay.request_hash === requestHash, 'IDEMPOTENCY_KEY_REUSED',
           'Belief transition idempotency key was already used for a different request.', 409);
         return {
           status: 'ready',
           idempotent_replay: true,
+          ...(replayRead.policy_authority ? { policy_authority: replayRead.policy_authority } : {}),
           transition: {
             transition_id: existingReplay.transition_id,
             event_id: existingReplay.event_id,
@@ -1207,6 +1214,7 @@ export class LogicEngine {
         limit: limit,
       };
       const read = this.readNpcKnowledge(readRequest);
+      requestHash = requestHashForPolicy(read.policy_authority);
       const currentRow = this.store.db.prepare(`
         SELECT b.stance, b.evidence_acquisition_ids_json
         FROM npc_belief_transitions AS b
@@ -1297,6 +1305,7 @@ export class LogicEngine {
             surviving_prior_evidence: [...transition.surviving_prior_evidence],
             invalidated_prior_evidence: [...transition.invalidated_prior_evidence],
             prior_stance_preserved_despite_invalidation: transition.prior_stance_preserved_despite_invalidation,
+            ...(commitPrepared.policy_authority ? { policy_authority: commitPrepared.policy_authority } : {}),
           }],
         }, { [INTERNAL_CORE_EFFECTS]: true, allowNpcBeliefTransition: true });
         assert(event.idempotent_replay !== true, 'NPC_BELIEF_PROJECTION_MISSING',
@@ -1304,6 +1313,7 @@ export class LogicEngine {
         return {
           status: 'ready',
           idempotent_replay: false,
+          ...(commitPrepared.policy_authority ? { policy_authority: commitPrepared.policy_authority } : {}),
           transition: {
             ...transition,
             transition_id: transitionId,
