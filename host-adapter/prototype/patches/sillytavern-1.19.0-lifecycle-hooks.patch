@@ -24,7 +24,7 @@ diff --git a/public/script.js b/public/script.js
 +
      // Make sure all the data is loaded.
      await unshallowCharacter(characterId);
-@@ -1583,23 +1593,143 @@
+@@ -1583,23 +1593,144 @@
   * @param {object} [options] Options
   * @param {boolean} [options.clearData=false] Optionally clear the chat array's contents.
   */
@@ -477,7 +477,7 @@ diff --git a/public/scripts/slash-commands.js b/public/scripts/slash-commands.js
 diff --git a/src/server-main.js b/src/server-main.js
 --- a/src/server-main.js
 +++ b/src/server-main.js
-@@ -107,5 +107,10 @@
+@@ -107,5 +107,11 @@
  app.use(compression());
  app.use(responseTime());
  
