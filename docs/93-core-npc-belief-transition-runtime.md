@@ -6,7 +6,8 @@
 
 - Core remains authoritative for world truth, acquisition records, world snapshot, commit/rollback, and persistent belief-transition history.
 - `readNpcKnowledge()` supplies only actor-assigned, active acquisition records.
-- The runtime-wired synchronous read authorizer requires an active Core Host conversation → world binding and active adapter → actor binding for the exact conversation, actor, purpose, and snapshot.
+- The runtime-wired Core context resolver derives `world_id` from the active Host conversation → world binding and derives `actor_id` from the adapter's active actor bindings in that world. Exactly one active, non-destroyed actor must resolve; zero or multiple active actors deny. Request-supplied world/actor labels are only checked as selectors against this result and never establish authority.
+- The current actor-binding schema is adapter+world scoped, not conversation scoped. Therefore multiple active actors for one adapter/world are deliberately unsupported by this resolver until a separately approved conversation-scoped actor-binding contract exists.
 - A separate runtime-wired synchronous visibility authorizer must approve each acquisition for the same conversation, adapter, actor, recipient, purpose, world revision, and commit sequence. It additionally requires the acquisition provenance reference and digest to match the trusted source registry for the world's exact World Pack version before the item can enter a model-facing context.
 - The model proposes a stance; it cannot add acquisition evidence, authorize access, change canonical facts, or commit world effects. The current Core API does not expose an NPC-authored canonical world-mutation capability; any future world change remains a proposal to the existing authorized Core commit path.
 
