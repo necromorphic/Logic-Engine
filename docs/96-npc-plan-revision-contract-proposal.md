@@ -372,3 +372,39 @@ Before runtime work, the owning design must specify at least:
 - the boundary between NPC semantic ownership and Core canonical event/revision/rollback ownership.
 
 **Audit conclusion:** existing Core and Process Manager primitives may support a future approved implementation, but no current production component or unmerged relevant branch can safely be selected as the NPC goal/plan store. The runtime blocker remains open. This section records evidence only and authorizes no schema, storage, API, event type, or runtime change.
+
+
+## 10.9 Cross-check against shared architecture decisions — 2026-10-30
+
+A cross-check against the shared Notion architecture decisions clarifies the semantic/canonical ownership boundary. It does not close the durable plan-state gap.
+
+### Adopted behavioral direction
+
+The shared NPC autonomy decision records that:
+- NPCs retain high autonomy even when an authored story exists; they choose actions, build/change plans, interact, conflict and react to consequences themselves.
+- Without an authored story, NPCs operate with maximum autonomy inside world rules; the story emerges from actions and consequences rather than hidden plot enforcement.
+- Mandatory story checkpoints remain mandatory by default and cannot be cancelled by NPC activity alone; optional checkpoints may change when real player/NPC actions alter circumstances and consequences.
+- A change in feelings, beliefs, loyalty or intention alone does not trigger mandatory-checkpoint revision. The world consequences must materially change its reachability or meaning.
+- Runtime implementation and tests remain separate work; this decision is not evidence of completed runtime capability.
+
+Source: [NPC — самостоятельность, сюжетные режимы и контрольные точки](https://app.notion.com/p/405a42c0fcaf81bc926feb283ec81b14) (page content timestamp 2026-10-26).
+
+### Adopted architecture ownership
+
+The shared Core architecture decision states:
+- Core is the principal coordinator and sole owner of canonical world-state mutation.
+- NPC owns the full NPC mind and action proposals; knowledge/belief are subject-relative.
+- A domain subsystem evaluates its own semantics and emits a candidate/proposal; Core checks authority, freshness, versions, invariants and conflicts, then uses the canonical proposal/approval/commit path.
+- TimeEngine owns temporal coordinates/due-work planning; Process Manager owns multi-stage process lifecycle. Neither replaces Core commit.
+
+Source: [Logic-Engine — Logical Kernel (Core): boundary, contract, audit](https://app.notion.com/p/403a42c0fcaf819a8efe-c37d3e244b7b) (page content timestamp 2026-10-30).
+
+### Reconciliation with the code audit
+
+These decisions support the existing distinction between NPC semantic ownership and Core canonical authority. They do **not** specify the durable representation, storage owner, plan concurrency token, or atomic NPC-local plan acceptance/supersession transition. The belief-transition candidate and Process Manager remain non-equivalent examples, as described in §10.8.
+
+The cognition roadmap also marks multi-step planning/replanning as partial because persistence, invocation and authoritative outcomes remain unverified; controlled off-screen continuity is not complete because NPC invocation/dispatcher is unverified. Reuse of Process Manager is limited to the appropriate process lifecycle, not the NPC decision loop.
+
+Source: `docs/88-npc-cognition-development-roadmap.md` on current `main`.
+
+**Result:** no architecture conflict was found. The agreed design requires autonomous NPC decision-making while preserving Core as the canonical coordinator/writer. The missing work is a concrete owner-approved durable NPC goal/plan state seam and its acceptance/result lifecycle. This cross-check authorizes no runtime, API, schema, storage, scheduler, or dispatcher change.
