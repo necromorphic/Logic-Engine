@@ -29,6 +29,9 @@ class FakeDB {
   finish(tx) { setImmediate(() => tx.oncomplete?.()); }
 }
 const TEST_CONVERSATION_UUID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+const TEST_SESSION_UUID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+const TEST_INSTALLATION_UUID = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+const TEST_CONVERSATION_ID = TEST_SESSION_UUID + ':' + TEST_INSTALLATION_UUID + ':' + TEST_CONVERSATION_UUID;
 const TEST_HOST_COMMIT = '06bde939fb1e9c4c8d8641d810f0a916b5bce127';
 
 async function makePersistedInventory(chat, conversationUuid) {
@@ -88,7 +91,7 @@ function fixture() {
     { is_user: false, mes: 'swipe A', swipes: ['swipe A', 'swipe B', 'swipe C'], swipe_id: 1 },
   ];
   const bridge = createStLifecycleBridge({
-    journal, getConversationId: () => 'scenario-chat', getConversationUuid: () => TEST_CONVERSATION_UUID,
+    journal, getConversationId: () => TEST_CONVERSATION_ID, getConversationUuid: () => TEST_CONVERSATION_UUID,
     readPersistedInventory: uuid => makePersistedInventory(chat, uuid), getChat: () => chat,
     saveChat: async () => {},
   });
@@ -113,7 +116,7 @@ test('swipe deletion preserves surviving version IDs and does not treat selectio
   assert.deepEqual(after.versions.map(v => v.versionId), [ids[0], ids[2]]);
   assert.deepEqual(after.versions.map(v => v.versionIndex), [0, 1]);
   assert.equal(after.activeVersionIndex, 1);
-  assert.equal((await f.journal.verifyIntegrity('scenario-chat')).status, 'INTEGRITY_OK');
+  assert.equal((await f.journal.verifyIntegrity(TEST_CONVERSATION_ID)).status, 'INTEGRITY_OK');
 });
 
 test('write-ahead failure prevents the simulated destructive mutation', async () => {
