@@ -65,10 +65,10 @@ function statIdentity(stat) {
   return {
     dev: String(stat.dev),
     ino: String(stat.ino),
-    mode: stat.mode,
-    size: stat.size,
-    mtimeMs: stat.mtimeMs,
-    ctimeMs: stat.ctimeMs,
+    mode: Number(stat.mode),
+    size: Number(stat.size),
+    mtimeMs: Number(stat.mtimeMs),
+    ctimeMs: Number(stat.ctimeMs),
   };
 }
 
@@ -97,7 +97,7 @@ async function enumerateStableFileInventoryOnRoot(rootPath, options = {}) {
     const requestedRoot = allowSnapshotWithoutNoFollow
       ? (rootPath.endsWith(sep) ? rootPath : rootPath + sep)
       : resolve(rootPath);
-    const requestedRootStat = await lstat(requestedRoot);
+    const requestedRootStat = await lstat(requestedRoot, { bigint: true });
     if (!requestedRootStat.isDirectory() || requestedRootStat.isSymbolicLink()) return fail('HOST_INVENTORY_ROOT_UNSAFE');
 
     // Windows is admitted only when the caller holds a live, process-local
@@ -110,7 +110,7 @@ async function enumerateStableFileInventoryOnRoot(rootPath, options = {}) {
     // by Windows device paths and avoid rewriting the snapshot namespace.
     root = allowSnapshotWithoutNoFollow ? requestedRoot : await realpath(requestedRoot);
     if (!allowSnapshotWithoutNoFollow && root !== requestedRoot) return fail('HOST_INVENTORY_ROOT_ALIAS_UNSUPPORTED');
-    const rootStat = await lstat(root);
+    const rootStat = await lstat(root, { bigint: true });
     if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) return fail('HOST_INVENTORY_ROOT_UNSAFE');
     initialRootIdentity = {
       dev: rootStat.dev, ino: rootStat.ino,
@@ -151,7 +151,7 @@ async function enumerateStableFileInventoryOnRoot(rootPath, options = {}) {
 
         let before;
         try {
-          before = await lstat(fullPath);
+          before = await lstat(fullPath, { bigint: true });
         } catch {
           throw new Error('HOST_INVENTORY_ENTRY_CHANGED');
         }
@@ -159,7 +159,7 @@ async function enumerateStableFileInventoryOnRoot(rootPath, options = {}) {
 
         if (before.isDirectory()) {
           await walk(fullPath);
-          const afterDirectory = await lstat(fullPath);
+          const afterDirectory = await lstat(fullPath, { bigint: true });
           if (!afterDirectory.isDirectory() || afterDirectory.isSymbolicLink()
             || !sameFileIdentity(afterDirectory, before)
             || afterDirectory.mtimeMs !== before.mtimeMs || afterDirectory.ctimeMs !== before.ctimeMs) {
@@ -176,7 +176,7 @@ async function enumerateStableFileInventoryOnRoot(rootPath, options = {}) {
           // On Windows this path is reachable only through a live VSS lease;
           // the immutable snapshot plus the pre-scan reparse audit replaces O_NOFOLLOW.
           handle = await open(fullPath, fsConstants.O_RDONLY | noFollow);
-          const openedBefore = await handle.stat();
+          const openedBefore = await handle.stat({ bigint: true });
           if (!openedBefore.isFile() || !sameFileIdentity(openedBefore, before)) {
             throw new Error('HOST_INVENTORY_FILE_IDENTITY_CHANGED');
           }
@@ -188,14 +188,14 @@ async function enumerateStableFileInventoryOnRoot(rootPath, options = {}) {
             Math.min(MAX_FILE_BYTES, remainingTotalBytes),
             remainingTotalBytes < MAX_FILE_BYTES ? 'HOST_INVENTORY_TOTAL_SIZE_LIMIT' : 'HOST_INVENTORY_FILE_SIZE_LIMIT',
           );
-          const openedAfter = await handle.stat();
-          const pathAfter = await lstat(fullPath);
+          const openedAfter = await handle.stat({ bigint: true });
+          const pathAfter = await lstat(fullPath, { bigint: true });
           if (!pathAfter.isFile() || pathAfter.isSymbolicLink()
             || !sameFileIdentity(openedAfter, openedBefore)
             || openedAfter.size !== openedBefore.size || openedAfter.mtimeMs !== openedBefore.mtimeMs
             || openedAfter.ctimeMs !== openedBefore.ctimeMs
             || !sameFileIdentity(pathAfter, openedAfter)
-            || bytes.byteLength !== openedAfter.size) {
+            || BigInt(bytes.byteLength) !== openedAfter.size) {
             throw new Error('HOST_INVENTORY_FILE_CHANGED_DURING_READ');
           }
           totalBytes += bytes.byteLength;
@@ -218,7 +218,7 @@ async function enumerateStableFileInventoryOnRoot(rootPath, options = {}) {
   try {
     const first = await scanOnce();
     const second = await scanOnce();
-    const finalRootStat = await lstat(root);
+    const finalRootStat = await lstat(root, { bigint: true });
     if (!finalRootStat.isDirectory() || finalRootStat.isSymbolicLink()
       || !sameFileIdentity(finalRootStat, initialRootIdentity)
       || finalRootStat.mtimeMs !== initialRootIdentity.mtimeMs
