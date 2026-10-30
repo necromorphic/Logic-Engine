@@ -81,7 +81,7 @@ A separate current-main implementation slice is now under review in draft PR #73
 - `CanonicalEntityAttributeContextProvider` includes authority identity/generation in the policy fingerprint and verifies the evidence before and after all reads.
 - The API mechanic validator requires the exact same authority object used by the read path. Provider-only legacy validation is disabled.
 - Policy freshness is checked at proposal insertion (inside the proposal transaction), approval, and commit. Evidence is persisted and included in Core's mechanic evaluation fingerprint.
-- Tests cover authority identity/generation, read-time rotation, proposal/approval/commit rotation, stable-policy commit, and fail-closed behavior.
+- Ready evaluations require complete authority evidence; ProposalService and Core require it again. Tests cover authority identity/generation, actor-binding revocation, read-time rotation, proposal/approval/commit rotation, stable-policy commit, and fail-closed behavior.
 - The bounded executor now rejects non-empty instance parameters/state, non-canonical/non-empty action input, unsupported unknown policies, multiple active/review-required mechanics, modules/capabilities, participants/interactions, and automatic conflict resolution.
 - The bounded dependency manifest records exact effect provenance, entity/fact target dependencies, fact identity, active mechanic-set scope, and rejected sources.
 
