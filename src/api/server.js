@@ -3,28 +3,12 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import { EngineError } from '../core/errors.js';
 import { hashRequest } from '../core/request-hash.js';
 import { ProposalService } from '../application/proposals.js';
-import { ActorBindingService } from '../application/actor-bindings.js';
-import { AuthorizedReadService } from '../application/authorized-read-service.js';
-import { isMechanicPolicyAuthority, defaultMechanicPolicyFieldPolicy } from '../application/mechanic-policy-authority.js';
-import { HostConversationWorldBindingService } from '../application/host-conversation-world-bindings.js';
+import { createCoreTrustedAuthorization, createActiveMechanicPolicyValidator } from '../application/trusted-authorization.js';
+export { createActiveMechanicPolicyValidator } from '../application/trusted-authorization.js';
 
 const MAX = 1048576;
 const MAX_HOST_VERSION_SNAPSHOT_BYTES = 8 * 1048576;
 const MAX_HOST_VERSION_SNAPSHOT_ENTRIES = 25000;
-
-/** Resolve the active deployment-owned policy on every boundary check. */
-export function createActiveMechanicPolicyValidator(getActiveMechanicContextProvider, policyAuthority = null) {
-  if (typeof getActiveMechanicContextProvider !== 'function') throw new TypeError('getActiveMechanicContextProvider must be a trusted application callback.');
-  return (identity) => {
-    if (!isMechanicPolicyAuthority(policyAuthority)) return false;
-    let provider;
-    try { provider = getActiveMechanicContextProvider(); } catch { return false; }
-    try {
-      if (provider?.getPolicyAuthority?.() !== policyAuthority) return false;
-      return provider?.validateMechanicPolicy?.(identity) === true;
-    } catch { return false; }
-  };
-}
 
 // Hash both inputs to a fixed-length digest before timingSafeEqual so a
 // mismatched secret length does not create a length-dependent comparison path.
@@ -56,7 +40,7 @@ function send(res, status, data) {
   res.end(body);
 }
 
-export function createApiServer({ engine, token, internalToken = null, approvalToken = null, adminToken = null, adapterTokens = {}, authorizedReadFieldPolicy = null, mechanicPolicyAuthority = null, getActiveMechanicContextProvider = () => null, hostVersionLedger = null }) {
+export function createApiServer({ engine, token, internalToken = null, approvalToken = null, adminToken = null, adapterTokens = {}, authorizedReadFieldPolicy = null, mechanicPolicyAuthority = null, getActiveMechanicContextProvider = () => null, trustedAuthorization = null, hostVersionLedger = null }) {
   if (!engine) throw new TypeError('engine required');
   if (typeof token !== 'string' || token.length < 16) throw new TypeError('API token must be at least 16 characters');
   if (internalToken !== null && (typeof internalToken !== 'string' || internalToken.length < 16 || internalToken === token)) {
@@ -68,16 +52,26 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
   if (adminToken !== null && (typeof adminToken !== 'string' || adminToken.length < 16 || [token, internalToken, approvalToken].includes(adminToken))) {
     throw new TypeError('Admin token must be at least 16 characters and differ from other tokens');
   }
-  if (authorizedReadFieldPolicy !== null && typeof authorizedReadFieldPolicy !== 'function') {
-    throw new TypeError('Authorized-read field policy must be trusted application configuration.');
+  if (trustedAuthorization !== null
+    && (authorizedReadFieldPolicy !== null || mechanicPolicyAuthority !== null)) {
+    throw new TypeError('Pass trustedAuthorization or legacy trusted policy configuration, not both.');
   }
-  if (mechanicPolicyAuthority !== null && !isMechanicPolicyAuthority(mechanicPolicyAuthority)) {
-    throw new TypeError('Mechanic policy authority must expose a trusted versioned authority contract.');
+  const authorization = trustedAuthorization || createCoreTrustedAuthorization({
+    engine,
+    policyAuthority: mechanicPolicyAuthority,
+    authorizedReadFieldPolicy,
+    getActiveMechanicContextProvider,
+  });
+  if (!authorization
+    || typeof authorization.readHostNpcContext !== 'function'
+    || typeof authorization.resolveHostScope !== 'function'
+    || typeof authorization.validateMechanicPolicy !== 'function'
+    || !authorization.actorBindings
+    || !authorization.hostConversationBindings
+    || !authorization.authorizedReads) {
+    throw new TypeError('trustedAuthorization must be created by the Core trusted authorization composition root.');
   }
-  if (mechanicPolicyAuthority !== null && authorizedReadFieldPolicy !== null) {
-    throw new TypeError('Provide mechanicPolicyAuthority or authorizedReadFieldPolicy, not both; the authority owns the field policy.');
-  }
-  if (typeof getActiveMechanicContextProvider !== 'function') throw new TypeError('getActiveMechanicContextProvider must be a trusted application callback.');
+  const { actorBindings, hostConversationBindings, authorizedReads } = authorization;
   const configuredAdapterSecrets = Object.values(adapterTokens || {});
   if (!adapterTokens || typeof adapterTokens !== 'object' || Array.isArray(adapterTokens) || Object.entries(adapterTokens).some(([id, secret]) => !id.trim() || typeof secret !== 'string' || secret.length < 16 || [token, internalToken, approvalToken, adminToken].includes(secret)) || new Set(configuredAdapterSecrets).size !== configuredAdapterSecrets.length) {
     throw new TypeError('Adapter tokens must map non-empty adapter IDs to unique, distinct secrets of at least 16 characters');
@@ -88,18 +82,8 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
     return typeof id === 'string' && Object.hasOwn(adapterTokens, id) && secretMatches(secret, adapterTokens[id]) ? id : null;
   };
   const proposals = new ProposalService(engine, {
-    validateMechanicPolicy: createActiveMechanicPolicyValidator(getActiveMechanicContextProvider, mechanicPolicyAuthority),
+    validateMechanicPolicy: authorization.validateMechanicPolicy,
   });
-  const actorBindings = new ActorBindingService(engine);
-  const hostConversationBindings = new HostConversationWorldBindingService(engine);
-  // Until a canonical visibility schema exists, disclose only the bound actor's
-  // own non-attribute identity fields. This intentionally denies all attributes.
-  const defaultAuthorizedReadFieldPolicy = defaultMechanicPolicyFieldPolicy;
-  // A host may opt into a broader, explicit policy. The policy is trusted
-  // application configuration and is never accepted from an HTTP request.
-  // Without one, preserve the narrow self-identity-only default.
-  const authorizedReads = new AuthorizedReadService(engine, actorBindings,
-    mechanicPolicyAuthority || authorizedReadFieldPolicy || defaultAuthorizedReadFieldPolicy);
 
   return createServer(async (req, res) => {
     try {
@@ -149,6 +133,37 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
       if (req.method === 'GET' && registryParts[0] === 'v1' && registryParts[1] === 'rule-modules' && registryParts.length === 4) {
         return send(res, 200, engine.getRuleModuleManifest(decodeURIComponent(registryParts[2]), decodeURIComponent(registryParts[3])));
       }
+      if (req.method === 'POST' && url.pathname === '/v1/host/authorized-read') {
+        const adapterId = adapterIdFor(req);
+        if (!adapterId) return send(res, 403, { error: { code: 'ADAPTER_REQUIRED', message: 'An authenticated Host identity is required.' } });
+        const body = await readBody(req);
+        if (!body || typeof body !== 'object' || Array.isArray(body)
+          || Object.keys(body).some(key => !['conversation_id', 'entity_ids', 'fields'].includes(key))
+          || typeof body.conversation_id !== 'string') {
+          throw new EngineError('INVALID_AUTHORIZED_READ',
+            'Host authorized read accepts only conversation_id and optional entity_ids plus fields; world and actor identity are Core-resolved.', 400);
+        }
+        let read;
+        try {
+          read = authorization.readHostNpcContext({
+            adapterId,
+            conversationId: body.conversation_id,
+            entityIds: body.entity_ids,
+            fields: body.fields,
+          });
+        } catch (error) {
+          // Do not expose whether a conversation, world, actor or target exists.
+          if (error?.code === 'HOST_CONVERSATION_NOT_AUTHORIZED'
+            || error?.code === 'WORLD_NOT_FOUND'
+            || error?.code === 'ACTOR_NOT_AUTHORIZED'
+            || error?.code === 'ACTOR_ENTITY_NOT_ELIGIBLE') {
+            throw new EngineError('READ_NOT_AVAILABLE', 'The requested read is not available.', 404);
+          }
+          throw error;
+        }
+        return send(res, 200, { read });
+      }
+
       if (url.pathname === '/v1/host-version-ledger/capture') {
         if (req.method !== 'POST') return send(res, 405, { error: { code: 'METHOD_NOT_ALLOWED', message: 'Unsupported Host version-ledger operation.' } });
         if (!hostVersionLedger || typeof hostVersionLedger.captureVersion !== 'function') {
@@ -447,23 +462,10 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
       }
 
       if (parts.length === 4 && action === 'authorized-read' && req.method === 'POST') {
-        const adapterId = adapterIdFor(req);
-        if (!adapterId) return send(res, 403, { error: { code: 'ADAPTER_REQUIRED', message: 'A configured adapter identity is required for authorized reads.' } });
-        const body = await readBody(req);
-        if (!body || typeof body !== 'object' || Array.isArray(body)
-          || Object.keys(body).some((key) => !['actor_entity_id', 'purpose', 'fields', 'entity_ids'].includes(key))) {
-          throw new EngineError('INVALID_AUTHORIZED_READ', 'Authorized read accepts only actor_entity_id, purpose, fields and optional entity_ids.');
-        }
-        const result = authorizedReads.readEntityFields({
-          worldId,
-          adapterId,
-          actorEntityId: body.actor_entity_id,
-          recipient: 'model',
-          purpose: body.purpose,
-          entityIds: body.entity_ids === undefined ? [body.actor_entity_id] : body.entity_ids,
-          fields: body.fields,
-        });
-        return send(res, 200, { read: result });
+        return send(res, 410, { error: {
+          code: 'HOST_BOUND_AUTHORIZED_READ_REQUIRED',
+          message: 'Use the authenticated Host conversation route; caller-supplied world and actor IDs are not accepted.',
+        } });
       }
 
       if (req.method === 'GET' && ['state', 'events', 'audit'].includes(action)) {
