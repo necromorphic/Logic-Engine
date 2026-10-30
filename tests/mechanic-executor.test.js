@@ -1586,6 +1586,56 @@ test('configured deployment policy runtime binds real authorized reads and rejec
 });
 
 
+
+test('configured deployment authority revalidates actor binding after evaluation', (t) => {
+  const { engine, worldId } = setup(t, 'executor-configured-policy-actor-revocation-world');
+  enableFixture(engine, worldId);
+  const actorBindings = new ActorBindingService(engine);
+  actorBindings.bind(worldId, 'test-adapter', 'entity.actor-context');
+  const config = {
+    authority_id: 'actor-revocation-authority',
+    generation: 1,
+    policy_version: 'actor-revocation-policy-v1',
+    authorization_scope: 'npc-decision-scope',
+    adapter_id: 'test-adapter',
+    actor_entity_id: 'entity.actor-context',
+    recipient: 'model',
+    purpose: 'npc_decision',
+    bindings: [
+      { path: 'world.weather', entity_id: 'entity.world-context', attribute: 'weather' },
+      { path: 'actor.hp', entity_id: 'entity.actor-context', attribute: 'hp' },
+    ],
+    allowed_fields: [
+      { entity_id: 'entity.world-context', attribute: 'weather' },
+      { entity_id: 'entity.actor-context', attribute: 'hp' },
+    ],
+  };
+  const runtime = createDeploymentMechanicPolicyRuntime({
+    engine, actorBindingService, loadPolicyConfig: () => config,
+  });
+  const evaluation = new MechanicExecutor(engine, {
+    resolveAuthorizedContext: (args) => runtime.authority.resolveAuthorizedContext({
+      ...args, authenticatedAdapterId: 'test-adapter',
+    }),
+  }).evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
+  assert.equal(evaluation.status, 'ready');
+  actorBindings.revoke(worldId, 'test-adapter', 'entity.actor-context');
+  const proposals = new ProposalService(engine, {
+    validateMechanicPolicy: (identity) => runtime.authority.validateMechanicPolicy(identity),
+  });
+  assert.throws(
+    () => proposals.createFromMechanicEvaluation(worldId, evaluation, {
+      idempotencyKey: 'actor-revoked-before-proposal',
+      turnId: 'actor-revoked-before-proposal',
+      sourceText: 'A revoked actor binding must invalidate the old evaluation.',
+      adapterId: 'test-adapter',
+    }),
+    (error) => error.code === 'STALE_MECHANIC_POLICY' && error.details?.stage === 'proposal_creation',
+  );
+  assert.equal(proposals.db.prepare('SELECT COUNT(*) AS count FROM event_proposals').get().count, 0);
+});
+
+
 test('one deployment authority pins context and invalidates stale proposals across policy generations', (t) => {
   const { engine, worldId } = setup(t, 'executor-shared-deployment-authority-world');
   enableFixture(engine, worldId);
