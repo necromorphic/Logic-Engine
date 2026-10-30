@@ -17,6 +17,8 @@ SQLITE_EXTENSION_INIT1
 static sqlite3_vfs g_probe_vfs;
 static sqlite3_vfs *g_parent_vfs = 0;
 static int g_main_db_open_count = 0;
+static int g_wal_open_count = 0;
+static int g_journal_open_count = 0;
 static int g_native_open_count = 0;
 static int g_registered = 0;
 static const char *g_open_syscall_name = 0;
@@ -47,8 +49,10 @@ static int probe_xOpen(sqlite3_vfs *vfs, const char *name, sqlite3_file *file,
                        int flags, int *out_flags) {
   sqlite3_vfs *parent = (sqlite3_vfs *)vfs->pAppData;
   int rc = parent->xOpen(parent, name, file, flags, out_flags);
-  if (rc == SQLITE_OK && (flags & SQLITE_OPEN_MAIN_DB) != 0) {
-    g_main_db_open_count += 1;
+  if (rc == SQLITE_OK) {
+    if ((flags & SQLITE_OPEN_MAIN_DB) != 0) g_main_db_open_count += 1;
+    if ((flags & SQLITE_OPEN_WAL) != 0) g_wal_open_count += 1;
+    if ((flags & SQLITE_OPEN_MAIN_JOURNAL) != 0) g_journal_open_count += 1;
   }
   return rc;
 }
@@ -123,6 +127,18 @@ static void probe_open_count(sqlite3_context *context, int argc, sqlite3_value *
   sqlite3_result_int(context, g_main_db_open_count);
 }
 
+static void probe_wal_open_count(sqlite3_context *context, int argc, sqlite3_value **argv) {
+  (void)argc;
+  (void)argv;
+  sqlite3_result_int(context, g_wal_open_count);
+}
+
+static void probe_journal_open_count(sqlite3_context *context, int argc, sqlite3_value **argv) {
+  (void)argc;
+  (void)argv;
+  sqlite3_result_int(context, g_journal_open_count);
+}
+
 static void probe_native_open_count(sqlite3_context *context, int argc, sqlite3_value **argv) {
   (void)argc;
   (void)argv;
@@ -153,6 +169,12 @@ static int probe_auto_extension(sqlite3 *db, char **error, const sqlite3_api_rou
     0,
     0
   );
+  if (rc != SQLITE_OK) return rc;
+  rc = sqlite3_create_function(db, "logic_engine_vfs_probe_wal_open_count", 0,
+    SQLITE_UTF8 | SQLITE_DETERMINISTIC, 0, probe_wal_open_count, 0, 0);
+  if (rc != SQLITE_OK) return rc;
+  rc = sqlite3_create_function(db, "logic_engine_vfs_probe_journal_open_count", 0,
+    SQLITE_UTF8 | SQLITE_DETERMINISTIC, 0, probe_journal_open_count, 0, 0);
   if (rc != SQLITE_OK) return rc;
   rc = sqlite3_create_function(
     db,
