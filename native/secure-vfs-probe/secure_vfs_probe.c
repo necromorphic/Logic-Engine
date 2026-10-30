@@ -45,7 +45,7 @@ static int g_identity_reject_count = 0;
 static int g_sidecar_identity_check_count = 0;
 static int g_sidecar_identity_reject_count = 0;
 static int g_reused_descriptor_accept_count = 0;
-#define PROBE_MAX_DATABASE_ROLES 8
+#define PROBE_MAX_DATABASE_ROLES 32
 typedef struct ProbeDatabaseRole {
   char *path;
   char *role;
@@ -390,6 +390,12 @@ static int probe_xOpen(sqlite3_vfs *vfs, const char *name, sqlite3_file *file,
       probe_registry_unlock();
     }
     sqlite3_free(full_path);
+  }
+  // Every file-backed main database must have an explicit trusted role
+  // registration. In-memory databases are intentionally exempt.
+  if (name && (flags & SQLITE_OPEN_MAIN_DB)
+      && !(flags & SQLITE_OPEN_MEMORY) && role_index < 0) {
+    return SQLITE_CANTOPEN;
   }
   if (role_index >= 0) {
     g_current_role_index = role_index;
