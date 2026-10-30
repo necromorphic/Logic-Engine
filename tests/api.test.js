@@ -1882,7 +1882,11 @@ test('proposal policy boundary rejects a proposal pinned to a rotated active pro
       return identity.authorityId === 'api-test-authority'
         && identity.policyGeneration === 3
         && identity.policyVersion === 'policy-v1'
-        && identity.authorizationScope === 'npc:alice';
+        && identity.authorizationScope === 'npc:alice'
+        && identity.authorizationPrincipal?.adapterId === 'adapter-a'
+        && identity.authorizationPrincipal?.actorEntityId === 'actor-a'
+        && identity.authorizationPrincipal?.recipient === 'model'
+        && identity.authorizationPrincipal?.purpose === 'npc_decision';
     },
   };
   const proposals = new ProposalService(engine, {
@@ -1895,6 +1899,7 @@ test('proposal policy boundary rejects a proposal pinned to a rotated active pro
       authorization_scope: 'npc:alice',
       authority_id: 'api-test-authority',
       policy_generation: 3,
+      authorization_principal: { adapterId: 'adapter-a', actorEntityId: 'actor-a', recipient: 'model', purpose: 'npc_decision' },
       snapshot_identity: { world_id: 'policy-rotation-world' },
     }),
   };
@@ -1905,7 +1910,11 @@ test('proposal policy boundary rejects a proposal pinned to a rotated active pro
         return identity.authorityId === 'api-test-authority'
           && identity.policyGeneration === 3
           && identity.policyVersion === 'policy-v2'
-          && identity.authorizationScope === 'npc:alice';
+          && identity.authorizationScope === 'npc:alice'
+          && identity.authorizationPrincipal?.adapterId === 'adapter-a'
+          && identity.authorizationPrincipal?.actorEntityId === 'actor-a'
+          && identity.authorizationPrincipal?.recipient === 'model'
+          && identity.authorizationPrincipal?.purpose === 'npc_decision';
       },
     };
     assert.throws(
