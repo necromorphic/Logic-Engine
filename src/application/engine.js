@@ -1040,11 +1040,20 @@ export class LogicEngine {
       reason_rule_ref: input.reason_rule_ref,
     };
     const prepared = this.prepareNpcBeliefContext(readRequest, proposal, currentBelief);
-    const transition = prepared.transition;
     const transitionId = 'npc-belief:' + hashRequest({
       world_id: input.world_id,
       idempotency_key: input.idempotency_key,
     }).slice(0, 40);
+
+    // Revalidate every acquisition's visibility at the Core commit boundary.
+    // The first preparation builds the proposal; this second pass is the final
+    // fail-closed authorization check immediately before the canonical write.
+    // Snapshot CAS below still rejects any Core mutation racing this check.
+    const commitPrepared = this.prepareNpcBeliefContext(readRequest, proposal, currentBelief);
+    assert(hashRequest(commitPrepared.transition) === hashRequest(prepared.transition),
+      'NPC_BELIEF_CONTEXT_STALE',
+      'NPC belief evidence or stance changed during final commit authorization; retry from a fresh snapshot.', 409);
+    const transition = commitPrepared.transition;
 
     return this.store.tx(() => {
       // A concurrent write between the authorized read and this transaction
