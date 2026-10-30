@@ -2062,6 +2062,7 @@ test('proposal policy boundary rejects a proposal pinned to a rotated active pro
   });
   const row = {
     world_id: 'policy-rotation-world',
+    created_by_adapter_id: 'adapter-a',
     mechanic_execution_json: JSON.stringify({
       context_policy_version: 'policy-v1',
       authorization_scope: 'npc:alice',
