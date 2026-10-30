@@ -10,46 +10,6 @@ import { MechanicExecutor } from '../application/mechanic-executor.js';
 
 const MAX = 1048576;
 
-/** Resolve the active deployment-owned policy on every boundary check. */
-export function createActiveMechanicPolicyValidator(getActiveMechanicContextProvider) {
-  if (typeof getActiveMechanicContextProvider !== 'function') throw new TypeError('getActiveMechanicContextProvider must be a trusted application callback.');
-  return (identity) => {
-    let provider;
-    try { provider = getActiveMechanicContextProvider(); } catch { return false; }
-    try { return provider?.validateMechanicPolicy?.(identity) === true; } catch { return false; }
-  };
-}
-
-// Hash both inputs to a fixed-length digest before timingSafeEqual so a
-// mismatched secret length does not create a length-dependent comparison path.
-function secretMatches(provided, expected) {
-  if (typeof provided !== 'string' || typeof expected !== 'string') return false;
-  const providedDigest = createHash('sha256').update(provided, 'utf8').digest();
-  const expectedDigest = createHash('sha256').update(expected, 'utf8').digest();
-  return timingSafeEqual(providedDigest, expectedDigest);
-}
-async function readBody(req) {
-  const chunks = []; let size = 0;
-  for await (const chunk of req) {
-    size += chunk.length;
-    if (size > MAX) throw new EngineError('BODY_TOO_LARGE', 'Body exceeds 1 MiB.', 413);
-    chunks.push(chunk);
-  }
-  if (!size) return {};
-  try { return JSON.parse(Buffer.concat(chunks).toString('utf8')); }
-  catch { throw new EngineError('INVALID_JSON', 'Invalid JSON body.'); }
-}
-function send(res, status, data) {
-  const body = JSON.stringify(data);
-  res.writeHead(status, {
-    'content-type': 'application/json; charset=utf-8',
-    'content-length': Buffer.byteLength(body),
-    'cache-control': 'no-store',
-    'x-content-type-options': 'nosniff',
-  });
-  res.end(body);
-}
-
 export function createApiServer({ engine, token, internalToken = null, approvalToken = null, adminToken = null, adapterTokens = {}, authorizedReadFieldPolicy = null, mechanicPolicyAuthority = null, actorBindingService = null, authorizedReadService = null, hostVersionLedger = null }) {
   if (!engine) throw new TypeError('engine required');
   if (typeof token !== 'string' || token.length < 16) throw new TypeError('API token must be at least 16 characters');
