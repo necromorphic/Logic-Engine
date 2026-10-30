@@ -183,6 +183,32 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
     );
   }
 
+  // Opening an enrolled DB through an alias must canonicalize its name
+  // before the parent VFS sees it, keeping later sidecars on the pinned parent.
+  if (process.platform !== 'win32') {
+    const canonicalParent = join(directory, 'canonical-alias-parent');
+    const aliasParent = join(directory, 'canonical-alias-link');
+    const movedCanonicalParent = join(directory, 'canonical-alias-moved');
+    const canonicalDbPath = join(canonicalParent, 'alias.sqlite');
+    mkdirSync(canonicalParent);
+    symlinkSync(canonicalParent, aliasParent, 'dir');
+    registerRole(canonicalDbPath, 'canonical-alias');
+    const aliasDb = new DatabaseSync(join(aliasParent, 'alias.sqlite'));
+    try {
+      aliasDb.exec('CREATE TABLE probe(value TEXT);');
+      renameSync(canonicalParent, movedCanonicalParent);
+      mkdirSync(canonicalParent);
+      aliasDb.exec("PRAGMA journal_mode=WAL; INSERT INTO probe VALUES('anchored');");
+      assert.equal(existsSync(join(movedCanonicalParent, 'alias.sqlite-wal')), true,
+        'a sidecar opened after parent rename must be created beside the pinned DB');
+      assert.equal(existsSync(join(canonicalParent, 'alias.sqlite-wal')), false,
+        'a symlink alias must not redirect sidecar creation into the decoy parent');
+      assert.equal(aliasDb.prepare('SELECT value FROM probe').get().value, 'anchored');
+    } finally {
+      aliasDb.close();
+    }
+  }
+
   // POSIX-only directory-anchor proof: after registration, rename the trusted
   // parent directory and replace its old pathname with a decoy directory. The
   // registered DB and its sidecars must continue to resolve through the pinned
