@@ -29,3 +29,18 @@ The repository's Node floor is 22.13.0. The SQLite extension API can register a 
 ## Next implementation gate
 
 Replace the delegating probe with a real native VFS whose `xOpen` obtains and validates the actual OS object inside the same open operation, retains that handle for the SQLite file lifetime, and correctly handles WAL/SHM/journal/locking/crash recovery. The exact native implementation must then pass deterministic replacement/alias races and three-way-or-greater database-role separation on Windows and Linux. Until then, Issue #770 stays OPEN and all current pathname checks remain defense-in-depth only.
+
+## Platform handle-introspection finding
+
+A review of SQLite's public file-control API exposes an important Windows/POSIX asymmetry:
+
+- Windows provides `SQLITE_FCNTL_WIN32_GET_HANDLE`, which returns the native HANDLE for an already-open SQLite file. A Windows wrapper can use that exact handle with `GetFileInformationByHandle` / `GetFileInformationByHandleEx` to inspect the object SQLite actually opened.
+- SQLite's public file-control documentation does not define a corresponding POSIX file-descriptor getter. `SQLITE_FCNTL_FILE_POINTER` returns the `sqlite3_file` object pointer, not the OS descriptor. Reading a private `unixFile` struct layout would depend on non-public SQLite internals and is not an acceptable stable security contract.
+- Therefore, a simple cross-platform shim over the default VFS is not enough: Windows may be able to validate the parent VFS handle, while POSIX needs a real VFS/backend that owns the descriptor acquisition or another supported native boundary.
+
+References:
+- SQLite file-control API: https://www.sqlite.org/c3ref/file_control.html
+- Standard file-control opcodes (including WIN32_GET_HANDLE): https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html
+- SQLite VFS/file object contract: https://www.sqlite.org/vfs.html
+
+This is a source/API feasibility finding, not proof that the Windows handle path has been implemented or that a POSIX solution exists.
