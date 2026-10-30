@@ -149,7 +149,13 @@ export class HostLifecycleJournal {
   #fail(cid,reason) { this.#bad.set(cid,reason); return {status:'NON_READY',reason}; }
 }
 function txDone(tx) { return new Promise((resolve,reject)=>{tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error||Error('IndexedDB transaction failed'));tx.onabort=()=>reject(tx.error||Error('IndexedDB transaction aborted'));}); }
-export async function contentDigest(text) { return digest(String(text)); }
+// Match the pinned SillyTavern source scanner: SHA-256 over exact UTF-8 message bytes,
+ // not the canonical-JSON digest used for journal records and event envelopes.
+export async function contentDigest(text) {
+  const bytes = new TextEncoder().encode(String(text));
+  return [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))]
+    .map(value => value.toString(16).padStart(2, '0')).join('');
+}
 export async function fingerprintSource(messages, sourceLocator = null) {
   const projection = messages.map(message => ({
     role: message.is_user ? 'user' : message.is_system ? 'system' : 'assistant',
