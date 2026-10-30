@@ -4,6 +4,8 @@ import { once } from 'node:events';
 import { SQLiteStore } from '../src/storage/sqlite-store.js';
 import { LogicEngine } from '../src/application/engine.js';
 import { ProposalService } from '../src/application/proposals.js';
+import { ActorBindingService } from '../src/application/actor-bindings.js';
+import { createDeploymentMechanicPolicyRuntime } from '../src/application/deployment-mechanic-policy-runtime.js';
 import { createApiServer, createActiveMechanicPolicyValidator } from '../src/api/server.js';
 
 const TOKEN = 'test-token-long-enough-123456';
@@ -29,6 +31,152 @@ async function createWorld(base, worldId, extraHeaders = { ...headers, 'x-admin-
     body: json({ world_id: worldId, world_pack_id: 'test.world', world_pack_version: '1.0.0', game_time: '2026-01-01T00:00:00Z' }),
   });
 }
+
+
+test('configured mechanic API evaluates through one authority and commits only through proposal approval', async (t) => {
+  const store = new SQLiteStore(':memory:');
+  const engine = new LogicEngine(store);
+  const worldId = 'api-configured-mechanic-world';
+  engine.createWorld({
+    world_id: worldId,
+    world_pack_id: 'test.world',
+    world_pack_version: '1.0.0',
+    game_time: '2005-12-29T10:00:00Z',
+  });
+  const mechanicTemplate = {
+    template_id: 'api.test.mechanic',
+    version: '1.0.0',
+    schema_version: 'core-1',
+    display_name: 'API test mechanic',
+    required_capabilities: [],
+    applicability: [{ op: 'eq', path: 'world.weather', value: 'rain' }],
+    actions: [{
+      action_id: 'create-character',
+      input_schema: { type: 'object' },
+      preconditions: [{ op: 'gt', path: 'actor.hp', value: 0 }],
+      effects: [{
+        effect_id: 'create-new-entity',
+        kind: 'create_entity',
+        target_ref: 'entity.new',
+        payload: { entity_type: 'character', attributes: { name: 'New' } },
+      }],
+      ambiguity_policy: 'deterministic_only',
+    }],
+    conflict_policy: { mode: 'manual' },
+    lifecycle_policy: { on_disable: 'require_author_decision' },
+    unknown_policy: 'mark_unknown',
+  };
+  engine.registerMechanicTemplate(mechanicTemplate);
+  engine.commitEvent(worldId, {
+    event_id: 'api-mechanic-create',
+    idempotency_key: 'api-mechanic-create',
+    turn_id: 'api-mechanic-create-turn',
+    event_type: 'action.completed',
+    expected_revision: 0,
+    effects: [
+      { kind: 'entity.create', entity_id: 'entity.world-context', entity_type: 'world_context', attributes: { weather: 'rain' } },
+      { kind: 'entity.create', entity_id: 'entity.actor-context', entity_type: 'character', attributes: { hp: 10 } },
+      { kind: 'mechanic.instance.create', instance_id: 'instance.api-test', template_id: mechanicTemplate.template_id, template_version: mechanicTemplate.version },
+    ],
+    caused_by: [], depends_on: [], read_set: [], causal_links: [],
+  });
+  const created = engine.getMechanicInstance(worldId, 'instance.api-test');
+  engine.commitEvent(worldId, {
+    event_id: 'api-mechanic-enable',
+    idempotency_key: 'api-mechanic-enable',
+    turn_id: 'api-mechanic-enable-turn',
+    event_type: 'mechanic.instance.enable',
+    expected_revision: 1,
+    caused_by: [created.last_event_id],
+    depends_on: [], read_set: [], causal_links: [],
+    effects: [{ kind: 'mechanic.instance.enable', instance_id: 'instance.api-test' }],
+  });
+
+  const actorBindingService = new ActorBindingService(engine);
+  actorBindingService.bind(worldId, 'adapter-a', 'entity.actor-context');
+  const policyConfig = {
+    authority_id: 'api-deployment-mechanics',
+    generation: 1,
+    policy_version: 'api-visibility-v1',
+    authorization_scope: 'api-npc-scope',
+    adapter_id: 'adapter-a',
+    actor_entity_id: 'entity.actor-context',
+    recipient: 'model',
+    purpose: 'npc_decision',
+    bindings: [
+      { path: 'world.weather', entity_id: 'entity.world-context', attribute: 'weather' },
+      { path: 'actor.hp', entity_id: 'entity.actor-context', attribute: 'hp' },
+    ],
+    allowed_fields: [
+      { entity_id: 'entity.world-context', attribute: 'weather' },
+      { entity_id: 'entity.actor-context', attribute: 'hp' },
+    ],
+  };
+  const runtime = createDeploymentMechanicPolicyRuntime({
+    engine,
+    actorBindingService,
+    loadPolicyConfig: () => policyConfig,
+  });
+  const server = createApiServer({
+    engine,
+    token: TOKEN,
+    approvalToken: APPROVAL,
+    adminToken: ADMIN,
+    adapterTokens: { 'adapter-a': ADAPTER_A },
+    actorBindingService,
+    authorizedReadService: runtime.authorizedReadService,
+    mechanicPolicyAuthority: runtime.authority,
+  });
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  t.after(() => { server.close(); store.close(); });
+  const base = 'http://127.0.0.1:' + server.address().port;
+  const adapterHeaders = { ...headers, 'x-admin-token': ADMIN };
+  const before = engine.getState(worldId);
+
+  const createdProposalResponse = await fetch(base + '/v1/worlds/' + worldId + '/mechanic-proposals', {
+    method: 'POST',
+    headers: adapterHeaders,
+    body: json({
+      instance_id: 'instance.api-test',
+      action_id: 'create-character',
+      idempotency_key: 'api-mechanic-proposal',
+      turn_id: 'api-mechanic-turn',
+      source_text: 'Create the character through the reviewed mechanic proposal lifecycle.',
+    }),
+  });
+  assert.equal(createdProposalResponse.status, 201);
+  const createdProposalBody = await createdProposalResponse.json();
+  assert.equal(createdProposalBody.evaluation.status, 'ready');
+  assert.equal(createdProposalBody.evaluation.authority_id, 'api-deployment-mechanics');
+  assert.equal(createdProposalBody.evaluation.policy_generation, 1);
+  assert.equal(createdProposalBody.proposal.status, 'pending');
+  assert.equal(engine.getState(worldId).world_revision, before.world_revision);
+  assert.equal(engine.getState(worldId).commit_sequence, before.commit_sequence);
+  assert.equal(engine.getState(worldId).entities.some((entity) => entity.entity_id === 'entity.new'), false);
+
+  const proposalId = createdProposalBody.proposal.proposal_id;
+  const approved = await fetch(base + '/v1/worlds/' + worldId + '/proposals/' + proposalId + '/approve', {
+    method: 'POST',
+    headers: { authorization: 'Bearer ' + TOKEN, 'x-approval-token': APPROVAL, 'content-type': 'application/json' },
+    body: json({}),
+  });
+  assert.equal(approved.status, 200);
+  assert.equal((await approved.json()).proposal.status, 'approved');
+  assert.equal(engine.getState(worldId).world_revision, before.world_revision);
+
+  const committed = await fetch(base + '/v1/worlds/' + worldId + '/proposals/' + proposalId + '/commit', {
+    method: 'POST',
+    headers: adapterHeaders,
+    body: json({}),
+  });
+  assert.equal(committed.status, 200);
+  assert.equal((await committed.json()).proposal.status, 'committed');
+  assert.equal(engine.getState(worldId).world_revision, before.world_revision + 1);
+  assert.equal(engine.getState(worldId).commit_sequence, before.commit_sequence + 1);
+  assert.equal(engine.getState(worldId).entities.some((entity) => entity.entity_id === 'entity.new'), true);
+});
+
 
 test('time-advance API is internal-only and exposes durable start/status/replay', async (t) => {
   const base = await setup(t, { internalToken: INTERNAL });
