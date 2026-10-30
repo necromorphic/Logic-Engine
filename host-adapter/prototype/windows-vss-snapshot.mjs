@@ -10,7 +10,7 @@ const GUID = /^[{]?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}[
 // environment, never interpolated into executable PowerShell text.
 const CREATE_SCRIPT = String.raw`
 $ErrorActionPreference = 'Stop'
-$root = (Resolve-Path -LiteralPath $env:LE_VSS_ROOT).ProviderPath
+$root = [System.IO.Path]::GetFullPath($env:LE_VSS_ROOT)
 $volumeRoot = [System.IO.Path]::GetPathRoot($root)
 $relative = $root.Substring($volumeRoot.Length).TrimStart('\')
 $created = ([WmiClass]'Win32_ShadowCopy').Create($volumeRoot, 'ClientAccessible')
