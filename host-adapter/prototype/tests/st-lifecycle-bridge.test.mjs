@@ -136,6 +136,33 @@ async function makePersistedInventory(chat, { sessionId, conversationUuid, userH
   };
 }
 
+test('lifecycle mutations require a matching durable before/after pair', async () => {
+  const f = makeFixture();
+  await f.bridge.enrollCurrentConversation();
+
+  const before = await f.bridge.beforeMutation('edit-message', [0]);
+  assert.equal(before.operation, 'before:edit-message');
+  await assert.rejects(
+    () => f.bridge.beforeMutation('delete-message', [1]),
+    /previous lifecycle operation is incomplete/,
+  );
+
+  f.chat[0].mes = 'hello edited';
+  const after = await f.bridge.afterMutation('edit-message');
+  assert.equal(after.status, 'REVIEW_ONLY');
+  await assert.rejects(
+    () => f.bridge.afterMutation('edit-message'),
+    /afterMutation has no matching durable beforeMutation/,
+  );
+
+  const ledger = await f.journal.exportCaptureLedger('chat-1');
+  assert.deepEqual(
+    ledger.records.filter(record => record.operation.startsWith('before:') || record.operation.startsWith('after:'))
+      .map(record => record.operation),
+    ['before:edit-message', 'after:edit-message'],
+  );
+});
+
 test('persisted ST inventory is cross-checked against the session-bound conversation without claiming authority', async () => {
   const sessionId = '2e6b0a80-4e73-4c66-aaf3-7a6e62c7f401';
   const installationId = '3e6b0a80-4e73-4c66-aaf3-7a6e62c7f402';
