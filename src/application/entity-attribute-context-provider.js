@@ -43,7 +43,7 @@ export class CanonicalEntityAttributeContextProvider {
 
   constructor(engine, {
     policyVersion, authorizationScope, bindings, canRead,
-    authorizedReadService, adapterId, actorEntityId, recipient, purpose,
+    authorizedReadService, adapterId, actorEntityId, recipient, purpose, authorizationPrincipal,
   } = {}) {
     if (!engine || typeof engine.getState !== 'function') throw new TypeError('A LogicEngine is required.');
     if (typeof policyVersion !== 'string' || !policyVersion.trim()) throw new TypeError('policyVersion must be a non-empty version identifier.');
@@ -85,17 +85,26 @@ export class CanonicalEntityAttributeContextProvider {
     this.#bindings = byPath;
     this.canRead = canRead ?? null;
     this.authorizedReadService = authorizedReadService ?? null;
-    this.readPrincipal = useAuthorizedReadService ? Object.freeze({
-      adapterId: adapterId.trim(),
-      actorEntityId: actorEntityId.trim(),
-      recipient,
-      purpose,
-    }) : null;
+    const principal = useAuthorizedReadService ? {
+      adapterId: adapterId.trim(), actorEntityId: actorEntityId.trim(), recipient, purpose,
+    } : authorizationPrincipal;
+    if (principal !== undefined && principal !== null
+      && (!object(principal) || Object.keys(principal).some((key) => !['adapterId', 'actorEntityId', 'recipient', 'purpose'].includes(key))
+        || !['adapterId', 'actorEntityId'].every((key) => typeof principal[key] === 'string' && principal[key].trim())
+        || !['model', 'player', 'adapter'].includes(principal.recipient)
+        || !['npc_decision', 'character_card', 'narrative'].includes(principal.purpose))) {
+      throw new TypeError('authorizationPrincipal must identify the authenticated adapter, actor, recipient, and purpose.');
+    }
+    if (useAuthorizedReadService && authorizationPrincipal !== undefined) {
+      throw new TypeError('AuthorizedReadService mode derives authorizationPrincipal from its authenticated read binding.');
+    }
+    this.readPrincipal = principal ? Object.freeze({ ...principal }) : null;
+    this.authorizationPrincipal = this.readPrincipal;
     this.policyFingerprint = hashRequest({
       policy_version: this.policyVersion,
       authorization_scope: this.authorizationScope,
       bindings: [...byPath.values()].sort((a, b) => a.path.localeCompare(b.path)),
-      ...(this.readPrincipal ? { authorization_principal: this.readPrincipal } : {}),
+      ...(this.authorizationPrincipal ? { authorization_principal: this.authorizationPrincipal } : {}),
     });
     Object.freeze(this);
   }
@@ -179,6 +188,7 @@ export class CanonicalEntityAttributeContextProvider {
       commit_sequence: snapshot.commit_sequence,
       authorization_scope: this.authorizationScope,
       policy_version: this.policyFingerprint,
+      ...(this.authorizationPrincipal ? { authorization_principal: this.authorizationPrincipal } : {}),
     });
   }
 
