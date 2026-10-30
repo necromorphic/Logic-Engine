@@ -427,15 +427,13 @@ test('trusted importer rejects file source_kind mismatch before mutation', (t) =
   const mismatchedBytes = bytes
     .replace('authoring:test.world@1.0.0', 'import:test.world@1.0.0')
     .replace('rule:initial-knowledge-v1', 'rule:import-approval-v1');
-  const importedBytes = mismatchedBytes.replace('"author_initial"', '"imported"');
   const dir = mkdtempSync(join(tmpdir(), 'logic-trusted-import-kind-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const sourcePath = join(dir, 'approved-import.json');
   writeFileSync(sourcePath, mismatchedBytes);
-  const registry = [
-    ...trustedRegistry(importedBytes).map((entry) => ({ ...entry, source_path: sourcePath })),
-    ...trustedRegistry(mismatchedBytes),
-  ];
+  // The file and registry digest must agree so this test reaches the intended
+  // source_kind guard instead of failing earlier on file-content integrity.
+  const registry = trustedRegistry(mismatchedBytes).map((entry) => ({ ...entry, source_path: sourcePath }));
   const engine = new LogicEngine(store, { trustedInitialKnowledgeSources: registry });
 
   assert.throws(() => engine.recordTrustedImportedKnowledgeSource({
