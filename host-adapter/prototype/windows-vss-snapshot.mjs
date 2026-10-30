@@ -13,9 +13,21 @@ $ErrorActionPreference = 'Stop'
 $root = [System.IO.Path]::GetFullPath($env:LE_VSS_ROOT)
 $volumeRoot = [System.IO.Path]::GetPathRoot($root)
 $relative = $root.Substring($volumeRoot.Length).TrimStart('\')
-$created = ([WmiClass]'Win32_ShadowCopy').Create($volumeRoot, 'ClientAccessible')
-if ($created.ReturnValue -ne 0) { throw "HOST_VSS_CREATE_FAILED:$($created.ReturnValue)" }
+$created = $null
+# VSS serializes snapshot creation system-wide. Concurrent host scans may
+# receive WMI return code 9; retry that transient busy state, but fail closed
+# after a bounded wait rather than racing or falling back to the live tree.
+for ($attempt = 0; $attempt -lt 20; $attempt++) {
+  $created = ([WmiClass]'Win32_ShadowCopy').Create($volumeRoot, 'ClientAccessible')
+  if ([int]$created.ReturnValue -ne 9) { break }
+  Start-Sleep -Milliseconds 500
+}
+if ($created.ReturnValue -ne 0) {
+  if ([int]$created.ReturnValue -eq 9) { throw 'HOST_VSS_CREATE_BUSY:9' }
+  throw "HOST_VSS_CREATE_FAILED:$($created.ReturnValue)"
+}
 $id = [string]$created.ShadowID
+Write-Output "HOST_VSS_SNAPSHOT_ID:$id"
 try {
   $shadow = Get-WmiObject -Class Win32_ShadowCopy | Where-Object { $_.ID -eq $id } | Select-Object -First 1
   if (-not $shadow) { throw 'HOST_VSS_SNAPSHOT_NOT_FOUND' }
@@ -121,13 +133,13 @@ export async function withWindowsVssSnapshot(rootPath, callback) {
   const snapshotId = idLine?.[1] ?? null;
   let descriptor;
   try {
-    const jsonLine = stdout.split(/\\r?\\n/).map(line => line.trim())
+    const jsonLine = stdout.split(/\r?\n/).map(line => line.trim())
       .find(line => line.startsWith('{') && line.endsWith('}'));
     if (!snapshotId || !GUID.test(snapshotId) || !jsonLine) throw new Error('invalid response');
     descriptor = JSON.parse(jsonLine);
     if (!descriptor || typeof descriptor.snapshotId !== 'string' || !GUID.test(descriptor.snapshotId)
       || descriptor.snapshotId.toLowerCase() !== snapshotId.toLowerCase()
-      || typeof descriptor.snapshotRoot !== 'string' || !descriptor.snapshotRoot.startsWith('\\\\\\\\?\\\\GLOBALROOT\\\\Device\\\\HarddiskVolumeShadowCopy')
+      || typeof descriptor.snapshotRoot !== 'string' || !descriptor.snapshotRoot.startsWith('\\\\?\\GLOBALROOT\\Device\\HarddiskVolumeShadowCopy')
       || typeof descriptor.root !== 'string') {
       throw new Error('invalid descriptor');
     }
