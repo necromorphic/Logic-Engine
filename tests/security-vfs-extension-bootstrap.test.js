@@ -65,6 +65,14 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
   assert.equal(workerResult.sqliteVersion, '3.47.2');
 
   const corePath = join(directory, 'core.sqlite');
+  const registrationControl = new DatabaseSync(':memory:');
+  try {
+    registrationControl.prepare(
+      'SELECT logic_engine_vfs_probe_register_database_role(?, ?) AS registered'
+    ).get(corePath, 'core-anchor');
+  } finally {
+    registrationControl.close();
+  }
   const first = new DatabaseSync(corePath);
   let reader;
   try {
@@ -105,6 +113,10 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
       first.prepare('SELECT logic_engine_vfs_probe_wal_open_count() AS count').get().count > 0,
       'the WAL sidecar must be opened through the registered VFS'
     );
+    assert.ok(
+      first.prepare('SELECT logic_engine_vfs_probe_sidecar_identity_check_count() AS count').get().count >= 2,
+      'the actual WAL and SHM OS objects must be inspected and remain distinct from the Core database'
+    );
     reader.exec('ROLLBACK;');
     reader.close();
     reader = undefined;
@@ -116,6 +128,9 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
   // Exercise the rollback-journal sidecar independently of WAL mode.
   const journalPath = join(directory, 'journal.sqlite');
   const journalDb = new DatabaseSync(journalPath);
+  const sidecarChecksBeforeJournal = journalDb.prepare(
+    'SELECT logic_engine_vfs_probe_sidecar_identity_check_count() AS count'
+  ).get().count;
   try {
     journalDb.exec("PRAGMA journal_mode=DELETE; CREATE TABLE probe(value TEXT); BEGIN IMMEDIATE; INSERT INTO probe VALUES('pending');");
     assert.equal(existsSync(`${journalPath}-journal`), true,
@@ -123,6 +138,11 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
     assert.ok(
       journalDb.prepare('SELECT logic_engine_vfs_probe_journal_open_count() AS count').get().count > 0,
       'the rollback journal must be opened through the registered VFS'
+    );
+    assert.ok(
+      journalDb.prepare('SELECT logic_engine_vfs_probe_sidecar_identity_check_count() AS count').get().count
+        > sidecarChecksBeforeJournal,
+      'the rollback-journal OS object must be inspected and remain distinct from registered databases'
     );
     journalDb.exec('ROLLBACK;');
   } finally {
@@ -209,6 +229,27 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
         second.prepare('SELECT logic_engine_vfs_probe_identity_reject_count() AS count').get().count
           >= rejectsBeforeAliases + 2,
         'the opened OS identities must reject aliases to both other database roles'
+      );
+      // The WAL sidecar itself must not be substituted with a hardlink to Core.
+      const sidecarRacePath = join(directory, 'sidecar-race.sqlite');
+      second.prepare('SELECT logic_engine_vfs_probe_configure_race(?, ?, 1)')
+        .get(`${sidecarRacePath}-wal`, roleCorePath);
+      const sidecarRaceDb = new DatabaseSync(sidecarRacePath);
+      try {
+        assert.throws(() => sidecarRaceDb.exec(
+          "PRAGMA journal_mode=WAL; CREATE TABLE probe(value TEXT); INSERT INTO probe VALUES('race');"
+        ), 'a WAL sidecar hardlinked to the Core database must fail closed');
+      } finally {
+        sidecarRaceDb.close();
+      }
+      assert.equal(
+        second.prepare('SELECT logic_engine_vfs_probe_race_injection_count() AS count').get().count,
+        2,
+        'both the main database and WAL sidecar replacement races must be injected'
+      );
+      assert.ok(
+        second.prepare('SELECT logic_engine_vfs_probe_sidecar_identity_reject_count() AS count').get().count > 0,
+        'the native sidecar identity check must reject the WAL-to-Core hardlink'
       );
     } finally {
       roleCoordinatorDb.close();
