@@ -60,7 +60,7 @@ This config binds one adapter/actor principal. Multi-adapter or multi-actor poli
 
 Every context binding must be covered by an exact `allowed_fields` entry. Unknown fields, malformed values, duplicate paths/fields, or an uncovered binding reject the configuration. The configured adapter must also have an active Core actor binding to the configured actor in the target world.
 
-The `policy_version` is a deployment-readable label. The effective provider fingerprint is computed from the complete validated config, including the authority identity/generation, principal, bindings, and allowed fields. It is not accepted from a request or evaluation payload.
+The `policy_version` is a deployment-readable label. The effective provider fingerprint is computed from the complete validated config, including the authority identity/generation, principal, bindings, allowed fields, and the application-owned `MECHANIC_POLICY_RUNTIME_CONTRACT_VERSION`. Increment that code constant when the policy evaluation/visibility semantics change. The fingerprint is not accepted from a request or evaluation payload.
 
 ## 3. Rotation and rollback rules
 
