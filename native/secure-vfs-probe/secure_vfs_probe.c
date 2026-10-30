@@ -746,26 +746,116 @@ static int probe_xOpen(sqlite3_vfs *vfs, const char *name, sqlite3_file *file,
   return rc;
 }
 
+#ifdef _WIN32
+static int probe_win_path_role(const char *path, int *role_index, wchar_t **relative_name,
+                               int *is_main) {
+  wchar_t *wide = probe_utf8_to_wide(path);
+  const wchar_t *suffix = NULL;
+  int matched;
+  if (!wide) return -1;
+  matched = probe_match_role_entry_w(wide, role_index, &suffix);
+  sqlite3_free(wide);
+  if (!matched) return 0;
+  *is_main = suffix[0] == L'\\0';
+  *relative_name = probe_win_relative_name(&g_database_roles[*role_index], suffix);
+  return *relative_name ? 1 : -1;
+}
+
+static int probe_win_identity_is_registered_database(
+    const LogicEngineWinFileIdentity *identity) {
+  int found = 0;
+  probe_registry_lock();
+  for (int i = 0; i < g_database_role_count; i++) {
+    ProbeDatabaseRole *role = &g_database_roles[i];
+    if (role->identity_set
+        && logic_engine_win_identity_equal(identity, &role->identity)) {
+      found = 1;
+      break;
+    }
+  }
+  probe_registry_unlock();
+  return found;
+}
+
+static int probe_win_access_role(int role_index, const wchar_t *relative_name,
+                                 int is_main, int flags, int *result) {
+  ProbeDatabaseRole *role = &g_database_roles[role_index];
+  DWORD desired = FILE_READ_ATTRIBUTES;
+  HANDLE handle;
+  LogicEngineWinFileIdentity actual;
+  DWORD error;
+  if (flags == SQLITE_ACCESS_READWRITE) desired = GENERIC_READ | GENERIC_WRITE;
+  else if (flags == SQLITE_ACCESS_READ) desired = GENERIC_READ;
+  else if (flags != SQLITE_ACCESS_EXISTS) return SQLITE_IOERR_ACCESS;
+  handle = logic_engine_win_open_relative(role->anchor.parent, relative_name,
+      desired, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+      FILE_OPEN, FILE_NON_DIRECTORY_FILE, FILE_ATTRIBUTE_NORMAL,
+      is_main ? &role->identity : NULL, &actual);
+  if (handle == INVALID_HANDLE_VALUE) {
+    error = GetLastError();
+    if (error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND
+        || error == ERROR_ACCESS_DENIED || error == ERROR_SHARING_VIOLATION) {
+      *result = 0;
+      return SQLITE_OK;
+    }
+    return SQLITE_IOERR_ACCESS;
+  }
+  if (!is_main && probe_win_identity_is_registered_database(&actual)) {
+    CloseHandle(handle);
+    *result = 0;
+    return SQLITE_OK;
+  }
+  CloseHandle(handle);
+  *result = 1;
+  return SQLITE_OK;
+}
+
+static int probe_win_delete_role(int role_index, const wchar_t *relative_name,
+                                int is_main) {
+  ProbeDatabaseRole *role = &g_database_roles[role_index];
+  LogicEngineWinFileIdentity actual;
+  HANDLE handle = logic_engine_win_open_relative(role->anchor.parent, relative_name,
+      DELETE | FILE_READ_ATTRIBUTES,
+      FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+      FILE_OPEN, FILE_NON_DIRECTORY_FILE, FILE_ATTRIBUTE_NORMAL,
+      is_main ? &role->identity : NULL, &actual);
+  FILE_DISPOSITION_INFO disposition;
+  DWORD error;
+  if (handle == INVALID_HANDLE_VALUE) {
+    error = GetLastError();
+    if (error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND) return SQLITE_OK;
+    return SQLITE_IOERR_DELETE;
+  }
+  if (!is_main && probe_win_identity_is_registered_database(&actual)) {
+    CloseHandle(handle);
+    return SQLITE_IOERR_DELETE;
+  }
+  disposition.DeleteFile = TRUE;
+  if (!SetFileInformationByHandle(handle, FileDispositionInfo,
+                                  &disposition, sizeof(disposition))) {
+    CloseHandle(handle);
+    return SQLITE_IOERR_DELETE;
+  }
+  CloseHandle(handle);
+  return SQLITE_OK;
+}
+#endif
+
 static int probe_xDelete(sqlite3_vfs *vfs, const char *name, int sync_dir) {
   sqlite3_vfs *p = (sqlite3_vfs *)vfs->pAppData;
 #ifdef _WIN32
-  wchar_t *wide_name = name ? probe_utf8_to_wide(name) : NULL;
-  int role_index = -1;
-  const wchar_t *suffix = NULL;
-  if (wide_name && probe_match_role_entry_w(wide_name, &role_index, &suffix)) {
-    ProbeDatabaseRole *role = &g_database_roles[role_index];
-    int rc = SQLITE_IOERR_DELETE;
-    /*
-     * Main DB deletion can be tied to its enrolled identity. Sidecar deletion
-     * remains disabled until a per-role sidecar ownership registry exists.
-     */
-    if (suffix[0] == L'\0'
-        && logic_engine_win_delete_relative(role->anchor.parent,
-             role->anchor.basename, &role->identity)) rc = SQLITE_OK;
-    sqlite3_free(wide_name);
-    return rc;
+  int role_index = -1, is_main = 0, matched;
+  wchar_t *relative_name = NULL;
+  (void)sync_dir;
+  if (name) {
+    matched = probe_win_path_role(name, &role_index, &relative_name, &is_main);
+    if (matched < 0) return SQLITE_IOERR_DELETE;
+    if (matched > 0) {
+      int rc = probe_win_delete_role(role_index, relative_name, is_main);
+      sqlite3_free(relative_name);
+      return rc;
+    }
   }
-  sqlite3_free(wide_name);
 #else
   int role_index = -1;
   const char *suffix = 0;
@@ -790,28 +880,17 @@ static int probe_xDelete(sqlite3_vfs *vfs, const char *name, int sync_dir) {
 static int probe_xAccess(sqlite3_vfs *vfs, const char *name, int flags, int *result) {
   sqlite3_vfs *p = (sqlite3_vfs *)vfs->pAppData;
 #ifdef _WIN32
-  wchar_t *wide_name = name ? probe_utf8_to_wide(name) : NULL;
-  int role_index = -1;
-  const wchar_t *suffix = NULL;
-  if (wide_name && probe_match_role_entry_w(wide_name, &role_index, &suffix)) {
-    ProbeDatabaseRole *role = &g_database_roles[role_index];
-    wchar_t *relative_name = probe_win_relative_name(role, suffix);
-    const LogicEngineWinFileIdentity *expected =
-      suffix[0] == L'\0' ? &role->identity : NULL;
-    int access_result;
-    if (!relative_name) {
-      sqlite3_free(wide_name);
-      return SQLITE_NOMEM;
+  int role_index = -1, is_main = 0, matched;
+  wchar_t *relative_name = NULL;
+  if (name) {
+    matched = probe_win_path_role(name, &role_index, &relative_name, &is_main);
+    if (matched < 0) return SQLITE_IOERR_ACCESS;
+    if (matched > 0) {
+      int rc = probe_win_access_role(role_index, relative_name, is_main, flags, result);
+      sqlite3_free(relative_name);
+      return rc;
     }
-    access_result = logic_engine_win_access_relative(role->anchor.parent,
-        relative_name, (DWORD)flags, expected);
-    sqlite3_free(relative_name);
-    sqlite3_free(wide_name);
-    if (access_result < 0) return SQLITE_IOERR_ACCESS;
-    *result = access_result;
-    return SQLITE_OK;
   }
-  sqlite3_free(wide_name);
 #else
   int role_index = -1;
   const char *suffix = 0;
