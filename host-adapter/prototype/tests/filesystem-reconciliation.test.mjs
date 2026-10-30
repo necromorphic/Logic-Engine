@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { webcrypto, randomUUID } from 'node:crypto';
+import { webcrypto, createHash } from 'node:crypto';
 import { HostLifecycleJournal } from '../lifecycle-journal.mjs';
 import { reconcileFilesystemInventory } from '../filesystem-reconciliation.mjs';
 
@@ -17,7 +17,10 @@ class Store {
 class Tx {oncomplete=null;onerror=null;onabort=null;constructor(db){this.db=db;}objectStore(){return new Store(this.db,this);}}
 class DB {rows=new Map();heads=new Map();transaction(){return new Tx(this);}finish(tx){setImmediate(()=>tx.oncomplete?.());}}
 const root='/disposable/st-data';
-const scan=(hash='a'.repeat(64),textHash='b'.repeat(64))=>({status:'complete',scope:'single-root-regular-files-only',root,file_count:1,snapshot_sha256:hash,entries:[{path:'chats/a.jsonl',identity:{dev:'1',ino:'2',size:4,mtimeMs:1,ctimeMs:1},sha256:textHash}]});
+const scan=(unused='a'.repeat(64),textHash='b'.repeat(64))=>{
+ const entries=[{path:'chats/a.jsonl',identity:{dev:'1',ino:'2',size:4,mtimeMs:1,ctimeMs:1},sha256:textHash}];
+ return {status:'complete',scope:'single-root-regular-files-only',root,file_count:1,snapshot_sha256:createHash('sha256').update(JSON.stringify(entries)).digest('hex'),entries};
+};
 async function fixture(){const journal=new HostLifecycleJournal(new DB());await journal.enroll({conversationId:'chat',sourceFingerprint:'chat-fp',messages:[]});return journal;}
 
 test('first complete filesystem scan is durably anchored in the existing lifecycle journal',async()=>{
