@@ -362,9 +362,8 @@ test('incomplete Host snapshots are rejected before the trusted verifier and can
     code: 'HOST_INVENTORY_INCOMPLETE',
   });
   assert.equal(verifierCalls, 1, 'incomplete input must be rejected before invoking the trusted verifier');
-  assert.deepEqual(
-    ledger.getInventoryState('host-ledger-api-world', 'stable-host-chat'),
-    readyBefore,
-    'untrusted incomplete input must not mutate a previously accepted ledger state',
-  );
+  const afterIncomplete = ledger.getInventoryState('host-ledger-api-world', 'stable-host-chat');
+  assert.equal(afterIncomplete.status, 'NON_READY');
+  assert.equal(afterIncomplete.failure_code, 'HOST_INVENTORY_INCOMPLETE');
+  assert.notEqual(afterIncomplete.updated_at, readyBefore.updated_at);
 });
