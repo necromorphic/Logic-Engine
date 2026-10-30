@@ -2,7 +2,7 @@
 
 **Status:** decision proposal only. No goal family is approved for production admission or execution by this document.
 
-**Baseline:** docs/81, docs/82, docs/95, docs/99, docs/100; repository prototype PR #806 (21/21 repository tests and 1208/1208 full Runtime tests on Windows/Linux at tested code/test head `3767c62f9c1f1e581f5aa23fe525d9de7a041ed8`); Core acquisition candidate PR #781 (closed unmerged); current-main VFS probe PR #839 (Draft; exact-head Windows/Linux feasibility run #41110835234 passed same-engine registration, WAL/SHM/rollback-journal, sidecar alias/replacement, directory-anchor and concurrent/worker-open checks; clean rerun after diagnostic removal pending; production security gates including POSIX xDelete replacement race remain open; Issue #770 remains open).
+**Baseline:** docs/81, docs/82, docs/95, docs/99, docs/100; current-main repository port PR #840 (Draft; exact-head CI pending; source prototype PR #806 had 21/21 repository tests and 1208/1208 full Runtime tests on Windows/Linux at tested code/test head `3767c62f9c1f1e581f5aa23fe525d9de7a041ed8`); Core acquisition candidate PR #781 (closed unmerged); current-main VFS probe PR #839 (Draft; exact-head Windows/Linux feasibility run #41110835234 passed same-engine registration, WAL/SHM/rollback-journal, sidecar alias/replacement, directory-anchor and concurrent/worker-open checks; clean rerun after diagnostic removal pending; production security gates including POSIX xDelete replacement race remain open; Issue #770 remains open).
 
 ## 1. Decision required
 
