@@ -4,6 +4,7 @@ import { SQLiteStore } from '../src/storage/sqlite-store.js';
 import { LogicEngine } from '../src/application/engine.js';
 import { ActorBindingService } from '../src/application/actor-bindings.js';
 import { AuthorizedReadService } from '../src/application/authorized-read-service.js';
+import { DeploymentPolicyAuthority } from '../src/application/deployment-policy-authority.js';
 
 function setup(t, fieldPolicy) {
   const store = new SQLiteStore(':memory:');
@@ -492,4 +493,66 @@ test('mechanic authorized read rejects a deleted-source cursor and rollback rest
     expectedCommitSequence: restoredSnapshot.commit_sequence,
   });
   assert.equal(current.value, 'Target');
+});
+
+
+test('authorized mechanic reads use and return the deployment authority identity and generation', (t) => {
+  const authority = new DeploymentPolicyAuthority({
+    authorityIdentity: 'deployment.visibility',
+    resolveActivePolicy: () => ({
+      authority_identity: 'deployment.visibility',
+      generation: 7,
+      authorizeField: (context, entity, field) => context.actor.entity_id === 'actor-a'
+        && entity.entity_id === 'target-a'
+        && field === 'attributes.name',
+    }),
+  });
+  const { service, engine, store } = setup(t, authority);
+  const read = service.readEntityAttributeForMechanic({
+    worldId: 'read-world',
+    adapterId: 'adapter-a',
+    actorEntityId: 'actor-a',
+    recipient: 'model',
+    purpose: 'npc_decision',
+    entityId: 'target-a',
+    attribute: 'name',
+    expectedWorldRevision: engine.getState('read-world').world_revision,
+    expectedCommitSequence: store.currentCommitSequence('read-world'),
+  });
+
+  assert.equal(read.present, true);
+  assert.equal(read.value, 'Target');
+  assert.equal(read.policy_authority.authority_identity, 'deployment.visibility');
+  assert.equal(read.policy_authority.policy_generation, '7');
+  assert.equal(authority.isCurrent(read.policy_authority), true);
+});
+
+test('policy generation rotation during a mechanic read denies the read', (t) => {
+  let generation = 1;
+  const authority = new DeploymentPolicyAuthority({
+    authorityIdentity: 'deployment.visibility',
+    resolveActivePolicy: () => ({
+      authority_identity: 'deployment.visibility',
+      generation,
+      authorizeField: () => {
+        generation = 2;
+        return true;
+      },
+    }),
+  });
+  const { service, engine, store } = setup(t, authority);
+  assert.throws(
+    () => service.readEntityAttributeForMechanic({
+      worldId: 'read-world',
+      adapterId: 'adapter-a',
+      actorEntityId: 'actor-a',
+      recipient: 'model',
+      purpose: 'npc_decision',
+      entityId: 'target-a',
+      attribute: 'name',
+      expectedWorldRevision: engine.getState('read-world').world_revision,
+      expectedCommitSequence: store.currentCommitSequence('read-world'),
+    }),
+    (error) => error.code === 'READ_NOT_AVAILABLE' && error.status === 404,
+  );
 });
