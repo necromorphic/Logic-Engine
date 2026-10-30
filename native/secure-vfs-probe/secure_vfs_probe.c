@@ -243,19 +243,22 @@ static int probe_open(const char *name, int flags, int mode) {
   int needs_identity = is_sidecar
     || (g_current_race_open && !g_current_race_captured)
     || (g_current_role_index >= 0 && !g_current_role_captured);
-  g_native_open_count += 1;
+  probe_counter_increment(&g_native_open_count);
   if (needs_identity) {
 #ifdef O_NOFOLLOW
     flags |= O_NOFOLLOW;
 #else
     errno = EACCES;
+    probe_registry_lock();
     g_identity_reject_count += 1;
     if (is_sidecar) g_sidecar_identity_reject_count += 1;
+    probe_registry_unlock();
     return -1;
 #endif
   }
   fd = ((probe_open_fn)g_original_open_syscall)(name, flags, mode);
   if (fd < 0 || !needs_identity) return fd;
+  probe_registry_lock();
   {
     int reject = fstat(fd, &info) != 0 || info.st_dev == 0 || info.st_ino == 0;
     if (!reject && g_current_role_index >= 0 && !g_current_role_captured) {
@@ -285,9 +288,10 @@ static int probe_open(const char *name, int flags, int mode) {
       reject = info.st_dev != g_race_device || info.st_ino != g_race_inode;
     }
     if (reject) {
-      close(fd);
       g_identity_reject_count += 1;
       if (is_sidecar) g_sidecar_identity_reject_count += 1;
+      probe_registry_unlock();
+      close(fd);
       errno = EACCES;
       return -1;
     }
