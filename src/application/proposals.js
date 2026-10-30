@@ -278,7 +278,7 @@ export class ProposalService {
       && Object.keys(evaluation.policy_authority).every((key) => ['authority_identity', 'policy_generation', 'policy_version'].includes(key))
       && typeof evaluation.policy_authority.authority_identity === 'string' && evaluation.policy_authority.authority_identity.trim()
       && typeof evaluation.policy_authority.policy_generation === 'string' && evaluation.policy_authority.policy_generation.trim()
-      && typeof evaluation.policy_authority.policy_version === 'string' && evaluation.policy_authority.policy_version.trim(),
+      && typeof evaluation.policy_authority.policy_version === 'string' && /^[a-f0-9]{64}$/i.test(evaluation.policy_authority.policy_version),
     'INVALID_MECHANIC_POLICY_AUTHORITY', 'A ready mechanic evaluation must carry trusted authority identity, generation, and version evidence.');
     const mechanicExecution = {
       snapshot_identity: identity,
