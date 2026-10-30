@@ -90,9 +90,13 @@ diff --git a/public/script.js b/public/script.js
 +                    credentials: 'same-origin',
 +                    cache: 'no-store',
 +                });
-+                if (!response.ok) throw Error('Persisted Host inventory unavailable');
++                if (!response.ok) {
++                    logicEngineHostSessionPromise = null;
++                    throw Error('Persisted Host inventory unavailable');
++                }
 +                const inventory = await response.json();
 +                if (inventory?.host_user_handle !== session.host_user_handle) {
++                    logicEngineHostSessionPromise = null;
 +                    throw Error('Persisted Host inventory belongs to a different authenticated account');
 +                }
 +                return {
