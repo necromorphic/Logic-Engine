@@ -343,7 +343,7 @@ These are pure NPC helper/unit-test guarantees only. They do not establish that 
 
 ### Owner-contract reconciliation
 
-- **Core #140:** there is still no universal source identity/version contract or durable source-change feed for every source class. The direct `canonical_entity` source-version token (`core-entity-v1:<counter>`) and snapshot-pinned canonical entity inventory are now implemented on main by merged PR #709. `world_revision + commit_sequence` remains a snapshot marker, not a source-specific journal. Core initial-knowledge acquisition-time value/source-event pins and the actor-scoped reader are in draft PR #764; until merged, legacy/unpinned acquisitions remain non-ready for NPC disclosure. External Host messages and derived summaries remain unsupported as direct sources.
+- **Core #140:** there is still no universal source identity/version contract or durable source-change feed for every source class. The direct `canonical_entity` source-version token (`core-entity-v1:<counter>`) and snapshot-pinned canonical entity inventory are now implemented on main by merged PR #709. `world_revision + commit_sequence` remains a snapshot marker, not a source-specific journal. Core initial-knowledge acquisition-time value/source-event pins and the actor-scoped reader are in draft PR #797; until merged, legacy/unpinned acquisitions remain non-ready for NPC disclosure. External Host messages and derived summaries remain unsupported as direct sources.
 - **Host/Adapter #258:** the observed SillyTavern event samples establish event presence/shapes only. Array indices and swipe IDs remain host-local; no production capture/persistence mapping, stable conversation/session identity, or complete restart/replay inventory is proven. Host lifecycle PR #680 was closed unmerged; persisted-save receipt PR #689 remains a draft stacked on that branch; PR #740 is a documentation checkpoint, not the executable egress patch. Host + Provider must establish the real lifecycle-to-persisted-source mapping and authenticated session binding before any result can be considered production input.
 - **Memory Provider #181:** Provider-side SQLite grants, candidate authorization, reconciliation and the Core source-version/inventory validators exist as bounded runtime primitives. They do not establish complete Host history by themselves: injected validators are authoritative only when backed by a trusted Host inventory. Raw Host text capture/read remains explicitly disabled. Provider must supply complete, current record inventory, lineage, index health and reconciliation evidence from the approved Host source, or mark the result non-ready.
 
@@ -413,7 +413,7 @@ The first connected path must read only the approved actor-specific initial-know
 
 ### Current work boundary
 
-The NPC-1/NPC-2 semantic mapping is now recorded in `docs/57-private-host-core-memory-npc-adapter-contract.md` (PR #747). That document is a private architecture contract, not runtime evidence. The next runtime dependencies are the Core reader/value-pin candidate #764, an authenticated Host-session binding, a production Memory inventory/reconciliation source, and a real NPC decision/context callsite. Do not substitute more fixture tests for these missing runtime links.
+The NPC-1/NPC-2 semantic mapping is recorded in `docs/57-private-host-core-memory-npc-adapter-contract.md` (PR #747). That document is a private architecture contract, not runtime evidence. Draft PR #797 now carries the Core reader/value pins and wires Core-side read/visibility authorizers to active Host conversation→world bindings, actor bindings, and the trusted source registry. Remaining runtime dependencies are authenticated SillyTavern caller wiring, a production Memory inventory/reconciliation source, and a real NPC decision/context callsite. Do not substitute more fixture tests for these missing runtime links.
 
 
 ## 9. Cross-block contract and end-to-end status snapshot — 30 Oct 2026
@@ -424,8 +424,8 @@ The private semantic contract is recorded in `docs/57-private-host-core-memory-n
 
 | Requirement | Status | Current evidence and remaining gap |
 |---|---|---|
-| R1 — Acquisition identity, provenance and source version | **PARTIAL** | Trusted source ingestion #683 and direct `canonical_entity` source-version/inventory support #709 are on main. Acquisition-time value/source-event pins and Core NPC reader are draft in #764; Memory evidence is not wired into the NPC runtime. |
-| R2 — Actor, recipient, purpose and field authorization | **PARTIAL** | Core actor binding and bounded authorized-read exist. #764 has per-read/per-acquisition authorizers but they are unset in `src/index.js`; adapter/recipient remain request scope, not Host authentication. |
+| R1 — Acquisition identity, provenance and source version | **PARTIAL** | Trusted source ingestion #683 and direct `canonical_entity` source-version/inventory support #709 are on main. Acquisition-time value/source-event pins and Core NPC reader/visibility checks are draft in #797; Memory evidence is not wired into the NPC runtime. |
+| R2 — Actor, recipient, purpose and field authorization | **PARTIAL** | Core actor binding and bounded authorized-read exist. Draft #797 wires per-read/per-acquisition authorizers in `src/index.js`; they require active Host conversation→world and adapter→actor bindings plus trusted source provenance. The internal reader has no HTTP caller; request fields are not credentials, so end-to-end Host caller authentication and production disclosure remain open. |
 | R3 — Epistemic class → belief mapping | **PARTIAL** | Private contract PR #747 is implemented as an NPC-local pure mapping in draft PR #769. Runtime Core/Memory/Host integration and production context serialization are not present. |
 | R4 — Production NPC decision/context callsite | **NOT IMPLEMENTED** | No production caller/serializer has been demonstrated to consume the authorized result and preserve the epistemic distinctions. |
 | R5 — Host final disclosure and Gateway | **PARTIAL** | A bounded Core/Provider dispatch primitive exists, but no pinned SillyTavern final-send route is wired to it; Host inventory/restore and authenticated session binding remain incomplete. Contract requires fail-closed final revalidation and does not claim linearizability. |
@@ -438,7 +438,7 @@ The private semantic contract is recorded in `docs/57-private-host-core-memory-n
 | E2E-02 — Unknown/untrusted source rejected | **PARTIAL** | Provider and admission negative tests exist; no complete production path. |
 | E2E-03 — Stale source version rejected | **PARTIAL** | Core source-version token and Provider checks exist; no end-to-end NPC disclosure test. |
 | E2E-04 — Revoked trust/access rejected | **PARTIAL** | Provider grant/revocation tests exist; no pinned Host final-send integration. |
-| E2E-05 — Rollback and same-fact replacement do not reuse acquired value | **PARTIAL** | Regression is present in draft Core reader candidate #764; not mainline runtime evidence. |
+| E2E-05 — Rollback and same-fact replacement do not reuse acquired value | **PARTIAL** | Regression is present in draft Core reader candidate #797; not mainline runtime evidence. |
 | E2E-06 — Duplicate delivery/acquisition is idempotent | **PARTIAL** | Core ingestion and candidate belief idempotency tests exist; no integrated Host delivery/receipt path. |
 | E2E-07 — Canonical/derived-belief conflict preserves Core precedence | **PARTIAL** | Rule is defined by PR #747; candidate Core/NPC semantics are not integrated in production. |
 | E2E-08 — Partial Provider response never becomes ready/empty | **NOT TESTED** | No real integrated Host→Provider→Core→NPC partial-response test. |
@@ -519,9 +519,9 @@ The reducer also validates exact event shape and an explicit evidence assessment
 
 ### P0.4 — real-path handoff and integrated acceptance
 
-The current Core candidate is [PR #764](https://github.com/necromorphic/Logic-Engine/pull/764), Draft, not merged. It adds an internal `readNpcKnowledge()` and belief/context preparation candidate, but its own contract states:
-- Core read/visibility authorizers are not configured in `src/index.js`;
-- `adapter_id` and `recipient` are request data, not authenticated Host session binding;
+The current Core candidate is [PR #797](https://github.com/necromorphic/Logic-Engine/pull/797), Draft, not merged. It adds an internal `readNpcKnowledge()` and belief/context preparation candidate, and wires Core-side read/visibility authorizers through `src/index.js`. The authorizers require active Host conversation→world and adapter→actor bindings; visibility additionally checks exact trusted source provenance. Remaining limits:
+- the reader is not registered as an HTTP route;
+- `adapter_id` and `conversation_id` remain request values at the internal method boundary; a future external caller must derive them from authenticated SillyTavern session and adapter credentials;
 - no production NPC caller, model-context serializer, or Host final-egress integration exists;
 - it is not an enablement switch.
 
@@ -531,7 +531,7 @@ NPC therefore has no approved real callsite/context envelope to implement yet. D
 |---|---|---|---|
 | NPC admission | `src/npc/memory-candidate-eligibility.js`; `tests/npc-memory-candidate-eligibility.test.js` | Source + focused tests on main | Component PASS; caller metadata is not authenticated |
 | NPC epistemic reducer | `src/npc/epistemic-state.js`; `tests/npc-epistemic-state.test.js` | Source + focused tests in #769 | Exact-head CI PASS on #41034902493; no runtime caller |
-| Core acquisition reader | `src/application/engine.js`, `readNpcKnowledge()`; draft #764 | Candidate source + candidate tests | NOT ACCEPTED / authorizers unconfigured |
+| Core acquisition reader | `src/application/engine.js`, `readNpcKnowledge()`; draft #797 | Candidate source + candidate tests | NOT ACCEPTED / Core-side authorizers wired; no authenticated HTTP caller |
 | Host authenticated session / recipient | No production callsite identified in pinned Host path | Not verified | BLOCKED — Host owner |
 | NPC context serializer / model envelope | No production serializer consuming Core reader result | Not implemented | BLOCKED — NPC can implement after Core/Host contract |
 | Sole final Gateway dispatch | No pinned Host route wired to Core/Memory Gateway | Not verified | BLOCKED — Host/Core owner |
@@ -545,7 +545,7 @@ No integrated real-path acceptance test can run against a path that does not exi
 | P0.1 exact baseline / clean NPC-only diff | **PASS** — current-main base and historical comparisons recorded above |
 | P0.2 pure admission boundary | **PASS** — current-main helper and 45 focused tests; no source edit in #769 |
 | P0.3 lifecycle separation | **PASS at NPC-local state level**; real delivery/receipt remains external |
-| P0.4 real-path handoff | **BLOCKED** — Core reader/authorizers and Host session/final egress are not accepted/implemented |
+| P0.4 real-path handoff | **BLOCKED** — Core reader and Core-side bindings are implemented in draft #797 but not accepted; authenticated Host caller, NPC serializer and final egress remain absent |
 | P1.1 reducer hardening | **PENDING exact-head CI** for implementation commit `527554733b2cf54847e5723af366d10f61afee25`; independent NPC/Security review remains pending |
 | P1.2 single matrix / review path | **PARTIAL** — this is the single acceptance matrix; #769 awaits review |
 | P1.3 epistemic semantics | **PASS at NPC-local mapping/reducer level**; production callsite remains blocked |
