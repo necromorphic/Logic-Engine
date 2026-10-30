@@ -204,7 +204,7 @@ All acceptance tests must exercise the real Core application/store path at the e
 | Exact target pins | Target rule module exists and declares the exact target World Pack tuple |
 | Complete mapping | Every present dimension/value/special state mapped; one missing mapping rejects the entire operation |
 | No implicit defaults | No neutral value, dropped dimension, coercion, or target-only initialization without explicit mapping |
-| Atomicity | On every refusal, world revision, commit sequence, active World Pack pin, current head, relationship rows, migration records, audit and idempotency state remain unchanged (except an explicitly documented failed-request replay record if the existing idempotency contract requires it) |
+| Atomicity | On every refusal, world revision, commit sequence, active World Pack pin, current head, relationship rows, migration records, audit and idempotency state remain unchanged |
 | Directionality | A→B remains A→B; no B→A record is created |
 | Source immutability | Event payloads, effects, snapshots, pins and provenance are byte-for-byte unchanged by migration |
 | Derived persistence | Derived result survives close/reopen and deterministic rebuild |
