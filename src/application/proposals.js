@@ -270,6 +270,8 @@ export class ProposalService {
       context_fingerprint: evaluation.context_fingerprint,
       context_policy_version: evaluation.context_policy_version,
       authorization_scope: evaluation.authorization_scope,
+      authority_id: evaluation.authority_id,
+      policy_generation: evaluation.policy_generation,
       evaluation_fingerprint: evaluation.evaluation_fingerprint,
       dependency_manifest: evaluation.dependency_manifest,
       effect_provenance: provenance,
@@ -379,7 +381,9 @@ export class ProposalService {
       throw new EngineError('STALE_MECHANIC_POLICY', 'Mechanic policy metadata is invalid; proposal cannot proceed.', 409, { stage });
     }
     if (typeof metadata.context_policy_version !== 'string' || !metadata.context_policy_version.trim()
-      || typeof metadata.authorization_scope !== 'string' || !metadata.authorization_scope.trim()) {
+      || typeof metadata.authorization_scope !== 'string' || !metadata.authorization_scope.trim()
+      || typeof metadata.authority_id !== 'string' || !metadata.authority_id.trim()
+      || !Number.isSafeInteger(metadata.policy_generation) || metadata.policy_generation < 1) {
       throw new EngineError('STALE_MECHANIC_POLICY', 'Mechanic proposal lacks a valid pinned policy identity.', 409, { stage });
     }
 
