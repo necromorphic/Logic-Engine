@@ -76,7 +76,7 @@ test('rejects hard-linked aliases in different SillyTavern chat roots', async t 
   t.after(value.cleanup);
   await writeFile(path.join(value.directories.groups, 'group-a.json'), JSON.stringify({
     id: 'group-a',
-    chats: ['linked-chat'],
+    chats: ['group-chat-a', 'linked-chat'],
   }));
   await link(
     path.join(value.directories.chats, 'root-chat.jsonl'),
