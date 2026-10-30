@@ -952,6 +952,17 @@ test('application executor rejects participant and automatic conflict policies i
 
   const conflictWorld = 'executor-unsupported-automatic-conflict-world';
   const conflictSetup = setup(t, conflictWorld);
+  conflictSetup.engine.registerRuleModuleManifest({
+    module_id: 'test.resolver',
+    version: '1.0.0',
+    contract_version: 'core-1',
+    capabilities: [],
+    operations: ['evaluate_predicate'],
+    input_schema: { type: 'object' },
+    output_schema: { type: 'object' },
+    failure_policy: 'fail_closed',
+    compatibility: { core_contract_versions: ['core-1'] },
+  });
   enableFixture(conflictSetup.engine, conflictWorld, template({
     conflict_policy: { mode: 'automatic', resolver_module_id: 'test.resolver', resolver_module_version: '1.0.0' },
   }));
