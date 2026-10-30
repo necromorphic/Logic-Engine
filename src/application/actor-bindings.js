@@ -69,6 +69,22 @@ export class ActorBindingService {
     });
   }
 
+  resolveUnique(worldId, adapterId) {
+    if (!validId(worldId) || !validId(adapterId)) {
+      throw new EngineError('INVALID_ACTOR_RESOLUTION', 'world_id and adapter_id must be non-empty identifiers.', 400);
+    }
+    if (!this.engine.store.world(worldId)) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
+    const candidates = this.db.prepare(
+      'SELECT entity_id FROM actor_bindings WHERE world_id=? AND adapter_id=? AND active=1 ORDER BY entity_id',
+    ).all(worldId, adapterId.trim());
+    // Never choose the first actor. A Host identity with zero or multiple
+    // active Core bindings is ambiguous and therefore cannot authorize access.
+    if (candidates.length !== 1) {
+      throw new EngineError('ACTOR_NOT_AUTHORIZED', 'The authenticated Host identity has no unique active actor binding.', 403);
+    }
+    return this.resolve(worldId, adapterId, candidates[0].entity_id);
+  }
+
   resolve(worldId, adapterId, entityId) {
     if (!validId(worldId) || !validId(adapterId) || !validId(entityId)) {
       throw new EngineError('INVALID_ACTOR_RESOLUTION', 'world_id, adapter_id and entity_id must be non-empty identifiers.', 400);
