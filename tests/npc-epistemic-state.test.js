@@ -131,7 +131,7 @@ test("unknown epistemic status is retained but cannot influence a belief", () =>
   }
 });
 
-test("epistemic status is required and conflicting status reuse is rejected", () => {
+test("epistemic status and evidence assessment are required; conflicting status reuse is rejected", () => {
   const state = emptyState();
   const missing = apply(state, {
     type: "evidence_admitted",
@@ -417,6 +417,8 @@ test("events from another world or subject cannot alter this NPC state", () => {
     source_ref: "source-1",
     source_version: "v1",
     polarity: "supports_true",
+    epistemic_status: "unconfirmed_report",
+    evidence_assessment: "supported",
   };
   assert.equal(apply(state, { ...event, world_id: "world-other" }).status, "non_ready");
   assert.equal(apply(state, { ...event, subject_id: "npc-other" }).status, "non_ready");
@@ -639,6 +641,8 @@ test("serialized failure diagnostics do not disclose rejected evidence identifie
     evidence_version: "v-secret",
     source_version: "v-secret",
     polarity: "supports_true",
+    epistemic_status: "unconfirmed_report",
+    evidence_assessment: "supported",
   });
   assert.equal(result.status, "non_ready");
   const serialized = JSON.stringify(result);
