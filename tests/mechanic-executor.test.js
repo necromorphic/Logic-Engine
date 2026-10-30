@@ -909,6 +909,37 @@ test('application executor rejects required capabilities without a grant contrac
 });
 
 
+test('application executor rejects participant and automatic conflict policies instead of guessing', (t) => {
+  const participantCases = [
+    ['eligible-participants', { eligible_participants: ['entity.actor-context'] }],
+    ['participant-constraints', { participant_constraints: [{ op: 'eq', path: 'actor.hp', value: 10 }] }],
+    ['interactions', { interactions: [{ interaction_id: 'talk' }] }],
+  ];
+  for (const [suffix, overrides] of participantCases) {
+    const worldId = 'executor-unsupported-' + suffix + '-world';
+    const { engine } = setup(t, worldId);
+    enableFixture(engine, worldId, template(overrides));
+    const result = new MechanicExecutor(engine, { resolveAuthorizedContext: contextProvider() })
+      .evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
+    assert.equal(result.status, 'unknown');
+    assert.equal(result.reason_code, 'UNSUPPORTED_PARTICIPANT_OR_INTERACTION_POLICY');
+    assert.deepEqual(result.effects, []);
+    assert.equal(engine.getState(worldId).world_revision, 2);
+  }
+
+  const conflictWorld = 'executor-unsupported-automatic-conflict-world';
+  const conflictSetup = setup(t, conflictWorld);
+  enableFixture(conflictSetup.engine, conflictWorld, template({
+    conflict_policy: { mode: 'automatic', resolver: { module_id: 'resolver', version: '1.0.0' } },
+  }));
+  const conflictResult = new MechanicExecutor(conflictSetup.engine, { resolveAuthorizedContext: contextProvider() })
+    .evaluate({ worldId: conflictWorld, instanceId: 'instance.executor', actionId: 'wait' });
+  assert.equal(conflictResult.status, 'unknown');
+  assert.equal(conflictResult.reason_code, 'UNSUPPORTED_MECHANIC_MODULE_OR_CONFLICT_POLICY');
+  assert.deepEqual(conflictResult.effects, []);
+  assert.equal(conflictSetup.engine.getState(conflictWorld).world_revision, 2);
+});
+
 test('application executor refuses context whose canonical dependency evidence is missing or mismatched', (t) => {
   const missingSetup = setup(t, 'executor-missing-evidence-world');
   enableFixture(missingSetup.engine, missingSetup.worldId);
