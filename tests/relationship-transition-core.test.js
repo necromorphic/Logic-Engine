@@ -640,7 +640,7 @@ test('Relationship projection survives store restart and deterministic rebuild f
     const committedPin = store.db.prepare(
       'SELECT rule_module_id, rule_module_version, last_event_id FROM relationships WHERE world_id=? AND subject_id=? AND target_id=? AND dimension=?',
     ).get('world-relationship-test', 'A', 'B', 'trust');
-    assert.deepEqual(committedPin, {
+    assert.deepEqual({ ...committedPin }, {
       rule_module_id: 'relationship-rules',
       rule_module_version: '1.0.0',
       last_event_id: result.event_id,
@@ -665,7 +665,7 @@ test('Relationship projection survives store restart and deterministic rebuild f
     const replayedPin = reopened.db.prepare(
       'SELECT rule_module_id, rule_module_version, last_event_id FROM relationships WHERE world_id=? AND subject_id=? AND target_id=? AND dimension=?',
     ).get('world-relationship-test', 'A', 'B', 'trust');
-    assert.deepEqual(replayedPin, committedPin);
+    assert.deepEqual({ ...replayedPin }, { ...committedPin });
     assert.equal(reopened.db.prepare("SELECT COUNT(*) AS count FROM world_events WHERE world_id=? AND event_type='relationship.transition' AND validity='valid'").get('world-relationship-test').count, 1);
   } finally {
     if (store) store.close();
