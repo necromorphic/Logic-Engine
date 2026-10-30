@@ -646,7 +646,7 @@ The three full-suite failures were isolated from NPC tests:
 2. memory-provider-coordinator-lock.test.js: 4-second child-process marker timeout;
 3. replay-benchmark.test.js: 120-second child-process timeout (spawnSync.status === null).
 
-The latest #721 candidate extends the two process-startup waits to 15 seconds, the benchmark child/test budget to 300/310 seconds, and the full Windows Runtime job budget to 15 minutes. These are CI/test robustness changes; they do not change runtime semantics. Exact-head Runtime run [#41019981157](https://github.com/necromorphic/Logic-Engine/actions/runs/41019981157) on 4c8df111 has npc-boundary PASS and core-trusted-acquisition PASS; Provider run [#41019980836](https://github.com/necromorphic/Logic-Engine/actions/runs/41019980836) has runtime-linux PASS and provider-acceptance PASS. The Windows full test job is still in progress; no full Runtime pass is claimed yet.
+The latest #721 candidate extends the two process-startup waits to 15 seconds, the benchmark child/test budget to 300/310 seconds, and the full Windows Runtime job budget to 15 minutes. These are CI/test robustness changes; they do not change runtime semantics. Exact-head Runtime run [#41019981157](https://github.com/necromorphic/Logic-Engine/actions/runs/41019981157) on 4c8df111 has npc-boundary PASS and core-trusted-acquisition PASS; Provider run [#41019980836](https://github.com/necromorphic/Logic-Engine/actions/runs/41019980836) has runtime-linux PASS and provider-acceptance PASS. The exact-head Runtime run [#41019981157](https://github.com/necromorphic/Logic-Engine/actions/runs/41019981157) subsequently completed with test, npc-boundary, and core-trusted-acquisition all PASS. The exact-head Provider run [#41019980836](https://github.com/necromorphic/Logic-Engine/actions/runs/41019980836) completed with runtime-linux and provider-acceptance PASS. The Windows full test pass confirms the timeout-budget correction on Core HEAD 4c8df111; it does not close the private cross-process, Host session, Memory consumer, or final egress gates.
 
 #### Remaining acceptance gaps
 
@@ -668,3 +668,18 @@ Disposition remains NOT ACCEPTED. Production Memory → NPC remains DISABLED / F
 - This validates the NPC-local admission/reducer candidate and existing component integration tests. It does not validate the separate Core reader draft #721 or any production Host runtime path.
 
 PR #695 remains Draft / NOT ACCEPTED. Memory → NPC remains DISABLED / FAIL-CLOSED.
+
+
+### 12.14 NPC reducer security review correction — own event type validation
+
+Codex identified a P2 issue on the prior NPC head: the reducer accessed event.type before verifying it was an own data property. A getter on Object.prototype could therefore run for a malformed event even though the reducer otherwise rejected proxies and accessor-backed inputs.
+
+The NPC branch now:
+- validates the event object as safe data first;
+- obtains the own property descriptor for type and requires a data value before reading it;
+- passes the validated event type into event-shape validation and dispatches using that local value;
+- includes a regression test installing an inherited Object.prototype.type getter and an own accessor-backed type, proving neither getter executes.
+
+Fix commit: f9d8ee4b3376c6e57ff7635757915f483189404c; regression test commit: bbe7489d543c8c195b76fc3416807b42c0645d8d. Exact-head Runtime and Provider workflows for the new NPC head were pending when this entry was written. The previous successful NPC exact-head CI remains historical evidence only.
+
+The finding was addressed in code; independent re-review of the new head is requested. PR #695 remains Draft / NOT ACCEPTED; Memory → NPC remains DISABLED / FAIL-CLOSED.
