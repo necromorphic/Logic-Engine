@@ -194,7 +194,9 @@ export class ProposalService {
       && typeof evaluation.authorization_principal.adapterId === 'string' && evaluation.authorization_principal.adapterId.trim()
       && typeof evaluation.authorization_principal.actorEntityId === 'string' && evaluation.authorization_principal.actorEntityId.trim()
       && ['model', 'player', 'adapter'].includes(evaluation.authorization_principal.recipient)
-      && ['npc_decision', 'character_card', 'narrative'].includes(evaluation.authorization_principal.purpose),
+      && ['npc_decision', 'character_card', 'narrative'].includes(evaluation.authorization_principal.purpose)
+      && Number.isSafeInteger(evaluation.authorization_principal.bindingGeneration)
+      && evaluation.authorization_principal.bindingGeneration >= 1,
     'INVALID_MECHANIC_EVALUATION_FINGERPRINT', 'Context and evaluation fingerprints are required.');
     const expectedEvaluationFingerprint = hashRequest({
       snapshot_identity: identity,
@@ -404,6 +406,8 @@ export class ProposalService {
       || typeof metadata.authorization_principal.actorEntityId !== 'string' || !metadata.authorization_principal.actorEntityId.trim()
       || !['model', 'player', 'adapter'].includes(metadata.authorization_principal.recipient)
       || !['npc_decision', 'character_card', 'narrative'].includes(metadata.authorization_principal.purpose)
+      || !Number.isSafeInteger(metadata.authorization_principal.bindingGeneration)
+      || metadata.authorization_principal.bindingGeneration < 1
       || row.created_by_adapter_id !== metadata.authorization_principal.adapterId) {
       throw new EngineError('STALE_MECHANIC_POLICY', 'Mechanic proposal lacks a valid pinned policy identity or adapter binding.', 409, { stage });
     }
