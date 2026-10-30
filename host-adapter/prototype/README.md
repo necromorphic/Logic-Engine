@@ -147,6 +147,8 @@ The Host inventory route now passes SillyTavern's authenticated `directories.roo
 
 On Windows, both views are produced from **one shared VSS snapshot**. The server verifies that both manifests carry the same active snapshot ID. On non-Windows platforms, they are separate double scans and the response carries `NO_SHARED_POINT_IN_TIME_SNAPSHOT`. The HTTP route exposes only the full-root digest/count/size/snapshot metadata plus the requested conversation's logical identities; it does not expose the full file list, paths, file identities or raw content.
 
+Windows identity note: Node path-based `lstat` and handle-based `fstat` can report different `st_dev` values for the same file. Cross-source identity checks therefore use the stable file index (`ino`) on Windows while retaining `dev + ino` on POSIX. Trusted imported bytes remain checked against the SHA-256 allowlist.
+
 This adds a full-root fingerprint signal, but it is not yet an end-to-end out-of-history change detector: the current bridge does not persist or compare a durable full-root baseline. The route explicitly reports `NO_DURABLE_FULL_ROOT_BASELINE` and `NO_FULL_ROOT_PER_FILE_DIFF`. It is not a complete operation ledger:
 - The generic view computes a digest of the current file set and bytes. Without a durable prior manifest and per-file diff, it cannot yet determine whether or where a change occurred, classify which SillyTavern operation caused it, or correlate a changed file to a lifecycle event.
 - The route does not persist the full manifest or a durable baseline. A changed aggregate fingerprint can be flagged, but not yet explained as a per-file before/after diff.
