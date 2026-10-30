@@ -77,6 +77,8 @@ Before code changes:
 
 **Owner:** Core.
 
+**Current candidate finding (PR #797):** the draft wires deployment-owned read and per-acquisition visibility authorizers into the Core composition root and holds the shared Coordinator lease across the synchronous read/visibility/commit boundaries. The internal reader is still not an authenticated Host HTTP caller; `adapter_id` and `conversation_id` remain internal request values until a caller derives them from the signed Host session and configured adapter credential. The candidate now binds each acquisition's exact `acquisition_kind` and stored `acquisition_authorization_ref` to the trusted registry's `source_kind` and `authorization_ref`, as well as source reference/digest. Latest head `4201ff28544c2549164445017c4bfb3d4dbbd0c2` has no exact-head workflow/status and is 9 commits behind current main. Keep Draft; rebase and exact-head CI/review are required before accepting this internal Core slice.
+
 Inspect current `src/index.js`, `src/api/server.js`, `src/application/authorized-read-service.js`, actor binding and Host conversation binding services, plus PR #797.
 
 Implement only on a new isolated Draft branch after confirming the contract:
