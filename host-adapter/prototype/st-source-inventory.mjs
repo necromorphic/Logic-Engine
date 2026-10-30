@@ -104,6 +104,9 @@ function parseChatJsonlIdentity(bytes, seen) {
     if (activeVersionIndex < 0 || activeVersionIndex >= versions.length) {
       fail('SOURCE_CHAT_ACTIVE_VERSION_INVALID');
     }
+    if (typeof message.mes !== 'string' || message.mes !== versions[activeVersionIndex]) {
+      fail('SOURCE_CHAT_ACTIVE_MESSAGE_MISMATCH');
+    }
 
     const identity = message._logicEngineLifecycle;
     if (!identity) {
