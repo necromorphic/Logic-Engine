@@ -70,7 +70,7 @@ A successful migration increments `world_revision` exactly once. It does not cre
 The migration artifact must be immutable and addressable by exact migration ID/version. It must declare:
 
 - exact source World Pack ID/version/**digest**;
-- exact source rule-module ID/version;
+- the complete set of exact source rule-module ID/version pins permitted by the current projection;
 - exact target World Pack ID/version/**digest**;
 - exact target rule-module ID/version;
 - artifact schema/contract version;
@@ -80,7 +80,7 @@ Core must verify that the artifact's source tuple matches the current projection
 
 The current implementation stores no World Pack pin on a relationship projection row. Core must obtain it from the exact v2 evaluation snapshot attached to each row's `last_event_id`; it must not use the world's current manifest to reconstruct historical provenance. A missing, legacy, corrupt, mismatched, or unavailable snapshot rejects the migration.
 
-**First-release conservative rule:** all current dimension rows in the world must resolve to the same exact source World Pack and rule-module tuple declared by the migration artifact. Mixed or ambiguous source tuples reject the entire migration. Supporting multiple source tuples in one migration would require an explicit expanded domain artifact contract and is not implied here.
+**First-release source-pin rule:** all current dimension rows must resolve to the same exact source World Pack ID/version/digest, because the World Pack pin is world-scoped. Rule-module pins are row/event-scoped and may differ: for each current row, Core must prove that the row's `rule_module_id/version` matches the exact snapshot attached to its `last_event_id`; the migration artifact must enumerate every exact source rule-module pin present and provide explicit mappings for the source state under each pin. An unlisted module pin, row/snapshot disagreement, missing snapshot, or ambiguous mapping rejects the entire migration. No module-version fallback is allowed. The migration produces one exact target rule-module pin for subsequent typed transitions. Supporting multiple source World Pack tuples in one world migration remains outside this first-release contract.
 
 The target ID/version/digest becomes the world's active World Pack binding for subsequent typed transitions. Historical event snapshots retain their original source pins. Rollback must restore the predecessor ID/version/digest as one atomic binding.
 
@@ -115,7 +115,7 @@ A successful operation creates an immutable derived result containing, at minimu
 - canonical source projection snapshot or a losslessly recoverable immutable representation;
 - source projection digest;
 - complete target Relationships projection snapshot and target digest;
-- per-dimension source lineage (including originating event IDs);
+- per-dimension source lineage (including originating event IDs and exact source rule-module ID/version);
 - operation identity, trusted executor, creation timestamp, and audit reference.
 
 The payload is immutable. Current selection/lifecycle is separate metadata or an append-only lifecycle record; it must never mutate the result payload or any source event.
@@ -200,7 +200,7 @@ All acceptance tests must exercise the real Core application/store path at the e
 | Area | Required assertion |
 |---|---|
 | Exact artifact | Exact migration ID/version selected; unknown version rejected; newer artifact never substituted |
-| Exact source pins | Source WP ID/version and rule pin proven from captured event snapshots; active source digest must be non-null and match the world's exact ID/version; absent, legacy, corrupt, mismatched or mixed pins reject |
+| Exact source pins | One exact source WP ID/version/digest across the world; every row's exact rule-module pin matches its event snapshot and is explicitly enumerated in the artifact; missing, legacy, corrupt, mismatched or unlisted pins reject |
 | Exact target pins | Target rule module exists and declares the exact target World Pack ID/version; configured `worldPackCatalog.resolve()` verifies exact artifact digest; missing catalog/entry or mismatch rejects |
 | Complete mapping | Every present dimension/value/special state mapped; one missing mapping rejects the entire operation |
 | No implicit defaults | No neutral value, dropped dimension, coercion, or target-only initialization without explicit mapping |
