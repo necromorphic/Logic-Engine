@@ -378,3 +378,18 @@ Related owner trackers: Relationships [#143](https://github.com/necromorphic/Log
 - Projection rebuild, historical semantic re-evaluation, and meaning-changing migration are three separate operations. Evidence for one is not evidence for either of the others.
 
 **Disposition:** the same-version projection-rebuild and missing-version exact-lookup cases have Core runtime evidence. Historical semantic re-evaluation and explicit migration remain blocked. Keep #143, #146, and #73 open for their remaining acceptance work. No Personality or Relationships runtime behavior is inferred from these documentation mappings.
+
+
+## Addendum — historical rule lookup error boundary clarification (2026-10-30)
+
+The Core test `projection rebuild preserves the exact historical rule-version pin when its module is unavailable` exists in `tests/relationship-transition-core.test.js`. It commits an event pinned to `relationship-rules@1.0.0`, reopens the store, removes the `1.0.0` manifest, registers `2.0.0`, and then:
+
+- calls the direct registry API `getRuleModuleManifest('relationship-rules', '1.0.0')` and expects `RULE_MODULE_NOT_FOUND`;
+- snapshots events, world state/revision, pair projection, commit sequence, audit, and projection pin around that failed lookup and verifies no mutation;
+- rebuilds the projection and verifies the committed event and projection still carry the original `1.0.0` pin.
+
+This is evidence for projection-only rebuild and the no-fallback behavior of that direct exact registry lookup. It does not execute historical rules or establish a historical semantic re-evaluation API.
+
+Keep the error codes scoped to their actual boundaries: the typed-commit test `rejects unavailable rule versions, cross-world participants, and invalid evidence before mutation` expects `RELATIONSHIP_RULE_VERSION_NOT_FOUND` for an unavailable version supplied to a new typed commit; the direct registry lookup in the historical-pin test expects `RULE_MODULE_NOT_FOUND` when the stored manifest is absent. These codes are not interchangeable.
+
+**Disposition unchanged:** historical semantic re-evaluation and meaning-changing migration remain unsupported/blocked. No latest-version substitution is permitted for historical exact lookup. No runtime behavior is inferred beyond the named test assertions.
