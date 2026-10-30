@@ -117,3 +117,27 @@ Until these questions have evidence-backed answers, this proposal authorizes no 
 - docs/22-process-manager-runtime.md — generic process lifecycle and explicit-time limitations; not an NPC decision scheduler.
 
 This proposal is based on the inspected repository contracts and source. Unverified production handoffs remain unconfirmed rather than inferred.
+
+
+## 10. Sequencing decision — action-family-independent plan revision first (2026-10-30)
+
+The first implementation slice for this work is **NPC-local plan-revision continuity**, not a world action family. This is the most useful next step because the current branch already has executable plan-viability classification and a tested, bounded `plan_revision_required` signal. It can be hardened without inventing movement, communication, observation, or object-interaction semantics.
+
+A concrete movement action was considered as the first semantic action family, but the repository evidence does not support implementing it safely yet:
+
+- `src/core/mechanic-effect-translator.js` currently executes only `create_entity`, `update_attribute`, and `assert_fact` intents. A generic attribute update is not a movement contract and does not define location, reachability, route validity, obstacles, or movement outcomes.
+- `src/application/mechanic-executor.js` requires the caller to supply an exact `instanceId` and `actionId`; it does not discover NPC movement candidates or establish NPC-specific action authorization.
+- `docs/81-npc-goal-action-contracts-proposal.md` records that no production World Pack/mechanic template with a semantically defined NPC action was identified in the reviewed paths. Its `wait` action is explicitly a test fixture that creates a character, not a production wait or movement action.
+- No verified NPC dispatcher currently binds a trigger, acting NPC, trusted snapshot context, action candidate, authorization decision, and authoritative result into one path.
+
+Therefore movement remains a sensible later action family, but selecting it now would create pressure to invent unsupported domain contracts. The current PR will first finish the NPC-owned continuity boundary: detect invalidation, issue a plan-scoped revision request, preserve the existing goal/plan until a separately defined acceptance transition, and fail closed when goal linkage or version freshness cannot be established.
+
+### Work order
+
+1. Keep the current `plan_revision_required` output as a request signal only; do not represent it as a rebuilt plan.
+2. Complete the source/contract audit for goal-plan association, plan versioning, candidate acceptance, and authoritative result reconciliation.
+3. Add executable behavior only where the existing NPC-local contracts provide enough identity and freshness guarantees. If not, retain an explicit `needs_review` boundary rather than add guessed fields.
+4. After that boundary is stable, select the first production action template and trace its domain semantics, preconditions, actor authorization, effect mapping, and committed-result route. Movement is the provisional candidate, not an approved executable action.
+5. Keep Core, Host, Memory, Personality, Relationships, scheduler, storage, and dispatch integration out of this PR unless separately approved.
+
+This sequencing choice resolves the first-slice selection for the current work. It does not authorize plan persistence, candidate generation, action dispatch, world mutation, or PR merge.
