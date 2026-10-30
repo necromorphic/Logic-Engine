@@ -20,7 +20,7 @@ No new Core API/schema/store, merge, or production Memory→NPC activation is au
 - Uploaded Logic-Engine source archive: the candidate patch applies cleanly with `git apply --check`.
 - SillyTavern pinned target: `06bde939fb1e9c4c8d8641d810f0a916b5bce127`; candidate patch applies cleanly.
 
-The Logic-Engine archive has no `.git` metadata. It contains the source snapshot used for the archive-based run; this is not represented as a fresh checkout of GitHub main.
+The Logic-Engine archive has no `.git` metadata. Its source snapshot is commit `de0d8d10faf71c521fc68f246f7322963abd41ab`; GitHub main at the recorded baseline is `efc02d2b290b2c08d6621fe9eb75570ae4486102`, **128 commits ahead**. The candidate patch has not been ported across that gap and must not be applied to current main as-is.
 
 ## Reproducible checks run 2026-10-30
 
