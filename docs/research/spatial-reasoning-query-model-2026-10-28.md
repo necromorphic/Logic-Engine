@@ -65,14 +65,14 @@ Historical queries are supported only at a boundary for which the implementation
 
 ### 3.4 Entity continuity: confirmed source-level guard, spatial proof still incomplete
 
-A read-only review of Core at `main` source revision `80cbc54fb174a8074088ee9234524e401b7dbb68` found existing entity identity safeguards:
+A read-only review of Core at the 2026-10-28 `main` source revision `80cbc54fb174a8074088ee9234524e401b7dbb68` found existing entity identity safeguards:
 
 - `entity.create` rejects an identity already present, including a destroyed tombstone (`ENTITY_ALREADY_EXISTS`).
 - `entity.upsert` rejects a destroyed identity (`ENTITY_TOMBSTONE_REUSE`).
 - Projection rebuild validates valid event history and rejects identity reuse or resurrection after a tombstone (`ENTITY_HISTORY_ID_REUSE`, `ENTITY_HISTORY_TOMBSTONE_REUSE`).
 - The documented safe path after terminal destruction is a new `entity_id`, unless the destroying event is itself validly retracted/rolled back through Core's canonical event lifecycle.
 
-This narrows the spatial lifecycle risk: the current canonical Core path already prevents ordinary reuse of a destroyed entity ID. It does **not** prove spatial continuity by itself. A confirmed spatial point still needs typed position provenance, exact schema identity, a supported temporal boundary, and a coherent current marker. Generic attributes on an entity remain untyped. These safeguards were inspected in source; this paragraph does not claim a new test was run.
+This narrows the spatial lifecycle risk: the reviewed canonical Core path already prevents ordinary reuse of a destroyed entity ID. It does **not** prove spatial continuity by itself. A confirmed spatial point still needs typed position provenance, exact schema identity, a supported temporal boundary, and a coherent current marker. Generic attributes on an entity remain untyped. These safeguards were inspected in source; this paragraph does not claim a new test was run.
 
 ## 4. Result contract for reasoning
 
@@ -160,8 +160,15 @@ Observed evidence:
 - `package.json` declares no runtime dependencies; the project test command runs Node's test runner directly.
 - The manifest file `schemas/world-pack-manifest.schema.json` describes `entity_types[].attributes_schema` only as an object.
 - Bounded repository searches for `validateWorldPackManifest`, runtime use of `world-pack-manifest.schema.json`, and an AJV instance returned no implementation references in the reviewed search results.
-- The existing spatial feasibility tests demonstrate that Core accepts arbitrary object-shaped `attributes.position` values through create/upsert and that this new PR's update characterization also accepts malformed updates when the required entity-existence causal link is supplied.
+- The existing spatial feasibility tests demonstrate that Core accepts arbitrary object-shaped `attributes.position` values through create/upsert and that the update-characterization test merged in PR #620 also accepts malformed updates when the required entity-existence causal link is supplied.
 
 Interpretation: in the reviewed repository paths, the manifest schema is a declaration artifact, not evidence of an active runtime validation pipeline. This is a bounded search finding, not proof that no external pack loader exists outside this repository or in unsearched code. Until an executable loader, pinned schema resolver, validator capability and canonical commit integration are demonstrated at an exact revision, typed spatial metadata cannot be treated as validated input and a spatial query must not emit `CONFIRMED` from generic attributes.
 
 No runtime or schema changes are proposed by this note.
+
+
+### Follow-up evidence after this 2026-10-28 snapshot
+
+- PR #611 merged a test demonstrating that restoring an older Core SQLite backup can restore a previously rolled-back boundary when no independent anti-rollback authority is configured. This is a negative security characterization, not an approved restore procedure.
+- PR #620 merged a test demonstrating that generic `entity.update` attributes can accept malformed position-shaped data and can remove the attribute. This confirms that generic attributes are not a typed spatial source.
+- These tests do not approve a spatial runtime, typed-position schema, or Memory → NPC use. The spatial runtime remains NO-GO until the typed-source and temporal-boundary contracts are approved and implemented.
