@@ -4,6 +4,7 @@ import { SQLiteStore } from '../src/storage/sqlite-store.js';
 import { LogicEngine } from '../src/application/engine.js';
 import { ActorBindingService } from '../src/application/actor-bindings.js';
 import { AuthorizedReadService } from '../src/application/authorized-read-service.js';
+import { MechanicPolicyAuthority } from '../src/application/mechanic-policy-authority.js';
 
 function setup(t, fieldPolicy) {
   const store = new SQLiteStore(':memory:');
@@ -492,4 +493,71 @@ test('mechanic authorized read rejects a deleted-source cursor and rollback rest
     expectedCommitSequence: restoredSnapshot.commit_sequence,
   });
   assert.equal(current.value, 'Target');
+});
+
+
+test('versioned policy authority governs both ordinary reads and mechanic attribute reads', (t) => {
+  const { engine, bindings, store } = setup(t, () => true);
+  const authority = new MechanicPolicyAuthority({
+    authorityId: 'test-read-authority',
+    generation: 7,
+    fieldPolicy: (context, entity, field) => context.actor.entity_id === 'actor-a'
+      && context.recipient === 'model'
+      && field !== 'attributes.secret',
+  });
+  const service = new AuthorizedReadService(engine, bindings, authority);
+  const ordinary = service.readEntityFields(request({
+    fields: ['entity_id', 'attributes.name', 'attributes.secret'],
+  }));
+  assert.deepEqual(ordinary.entities, [{ entity_id: 'target-a', 'attributes.name': 'Target' }]);
+
+  const mechanicRead = service.readEntityAttributeForMechanic({
+    worldId: 'read-world',
+    adapterId: 'adapter-a',
+    actorEntityId: 'actor-a',
+    recipient: 'model',
+    purpose: 'npc_decision',
+    entityId: 'target-a',
+    attribute: 'name',
+    expectedWorldRevision: engine.getState('read-world').world_revision,
+    expectedCommitSequence: store.currentCommitSequence('read-world'),
+    expectedPolicyAuthority: authority.getSnapshot(),
+  });
+  assert.equal(mechanicRead.present, true);
+  assert.equal(mechanicRead.value, 'Target');
+  assert.deepEqual(mechanicRead.policy_authority, {
+    authority_id: 'test-read-authority',
+    generation: 7,
+  });
+});
+
+test('policy rotation during field authorization fails closed before returning mechanic data', (t) => {
+  const { engine, bindings, store } = setup(t, () => true);
+  let authority;
+  authority = new MechanicPolicyAuthority({
+    authorityId: 'test-read-rotation-authority',
+    generation: 3,
+    fieldPolicy: () => {
+      authority.rotate(() => true);
+      return true;
+    },
+  });
+  const service = new AuthorizedReadService(engine, bindings, authority);
+  const expectedPolicyAuthority = authority.getSnapshot();
+  assert.throws(
+    () => service.readEntityAttributeForMechanic({
+      worldId: 'read-world',
+      adapterId: 'adapter-a',
+      actorEntityId: 'actor-a',
+      recipient: 'model',
+      purpose: 'npc_decision',
+      entityId: 'target-a',
+      attribute: 'name',
+      expectedWorldRevision: engine.getState('read-world').world_revision,
+      expectedCommitSequence: store.currentCommitSequence('read-world'),
+      expectedPolicyAuthority,
+    }),
+    (error) => error.code === 'READ_NOT_AVAILABLE' && error.status === 404,
+  );
+  assert.equal(authority.getSnapshot().generation, 4);
 });
