@@ -1,4 +1,7 @@
 import test from 'node:test';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { SQLiteStore } from '../src/storage/sqlite-store.js';
@@ -1352,4 +1355,123 @@ test('source rollback and same fact-id replacement do not refresh an NPC acquisi
   assert.equal(afterNewGrant.items[0].fact_id, 'fact-a');
   assert.equal(afterNewGrant.items[0].value, 'Sotenbori');
   assert.notEqual(afterNewGrant.items[0].acquisition_id, firstRead.items[0].acquisition_id);
+});
+
+
+test('NPC read and full belief-context authorization hold the shared Coordinator lease against cross-connection revocation', (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-npc-authorization-lease-'));
+  const corePath = join(directory, 'core.sqlite');
+  const store = new SQLiteStore(corePath);
+  const competingStore = new SQLiteStore(corePath);
+  competingStore.coordinatorDb.exec('PRAGMA busy_timeout=0;');
+  t.after(() => {
+    try { competingStore.close(); } catch {}
+    try { store.close(); } catch {}
+    rmSync(directory, { recursive: true, force: true });
+  });
+
+  const binding = {
+    adapter_id: 'adapter-st',
+    conversation_id: 'conversation-a',
+    world_id: 'world-a',
+  };
+  store.db.prepare(`
+    INSERT INTO host_conversation_world_bindings(
+      adapter_id,conversation_id,world_id,active,created_at,updated_at
+    ) VALUES(?,?,?,1,datetime('now'),datetime('now'))
+  `).run(binding.adapter_id, binding.conversation_id, binding.world_id);
+
+  let blockedRevocationAttempts = 0;
+  const assertRevocationBlocked = () => {
+    assert.throws(() => competingStore.tx(() => {
+      competingStore.db.prepare(`
+        UPDATE host_conversation_world_bindings SET active=0
+        WHERE adapter_id=? AND conversation_id=? AND world_id=?
+      `).run(binding.adapter_id, binding.conversation_id, binding.world_id);
+    }), /locked|busy/i);
+    blockedRevocationAttempts++;
+  };
+  const readAuthorizer = (scope) => {
+    assertRevocationBlocked();
+    return {
+      status: 'authorized',
+      world_id: scope.world_id,
+      conversation_id: scope.conversation_id,
+      adapter_id: scope.adapter_id,
+      actor_id: scope.actor_id,
+      recipient: scope.recipient,
+      purpose: scope.purpose,
+      world_revision: scope.world_revision,
+      commit_sequence: scope.commit_sequence,
+      authorization_ref: 'rule:npc-read-cross-connection-lease',
+    };
+  };
+  const visibilityAuthorizer = (scope) => {
+    assertRevocationBlocked();
+    return {
+      status: 'allowed',
+      world_id: scope.world_id,
+      conversation_id: scope.conversation_id,
+      adapter_id: scope.adapter_id,
+      actor_id: scope.actor_id,
+      recipient: scope.recipient,
+      purpose: scope.purpose,
+      world_revision: scope.world_revision,
+      commit_sequence: scope.commit_sequence,
+      acquisition_id: scope.acquisition_id,
+      authorization_ref: 'rule:npc-visibility-cross-connection-lease',
+    };
+  };
+  const engine = new LogicEngine(store, {
+    trustedInitialKnowledgeSources: trustedRegistry,
+    npcKnowledgeReadAuthorizer: readAuthorizer,
+    npcKnowledgeVisibilityAuthorizer: visibilityAuthorizer,
+  });
+  engine.createWorld({
+    world_id: 'world-a',
+    world_pack_id: 'test.world',
+    world_pack_version: '1.0.0',
+    game_time: '2026-01-01T00:00:00Z',
+  });
+  engine.commitEvent('world-a', {
+    event_id: 'author-seed',
+    idempotency_key: 'author-seed-key',
+    turn_id: 'author-seed',
+    event_type: 'action.completed',
+    expected_revision: 0,
+    effects: [
+      { kind: 'entity.create', entity_id: 'npc-a', entity_type: 'character' },
+      { kind: 'fact.set', fact_id: 'fact-a', subject_ref: 'entity:npc-a', predicate: 'secret', value: 'source-backed-value' },
+    ],
+  });
+  engine.recordTrustedInitialKnowledgeSource({
+    world_id: 'world-a',
+    source_bytes: sourceBytes,
+    idempotency_key: 'author-source-1',
+    expected_revision: 1,
+    expected_commit_sequence: 1,
+  });
+
+  const readRequest = request(store);
+  const read = engine.readNpcKnowledge(readRequest);
+  assert.equal(read.status, 'ready');
+  assert.equal(blockedRevocationAttempts, 1);
+
+  const proposal = {
+    world_id: read.world_id,
+    actor_id: read.actor_id,
+    snapshot: read.snapshot,
+    proposition_ref: propositionRefFor(read.items[0]),
+    proposition_value: read.items[0].value,
+    stance: 'believes_true',
+    supporting_acquisition_ids: [read.items[0].acquisition_id],
+    contradicting_acquisition_ids: [],
+    reason_rule_ref: 'rule:belief-update-v1',
+  };
+  const prepared = engine.prepareNpcBeliefContext(readRequest, proposal);
+  assert.equal(prepared.status, 'ready');
+  assert.equal(blockedRevocationAttempts, 3);
+  assert.equal(store.db.prepare(
+    'SELECT active FROM host_conversation_world_bindings WHERE adapter_id=? AND conversation_id=?'
+  ).get(binding.adapter_id, binding.conversation_id).active, 1);
 });
