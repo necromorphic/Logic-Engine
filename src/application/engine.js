@@ -850,7 +850,7 @@ export class LogicEngine {
           'The trusted visibility authorizer failed; no belief context was prepared.', 403);
       }
       const allowedKeys = [
-        'status', 'world_id', 'adapter_id', 'actor_id', 'recipient', 'purpose', 'world_revision',
+        'status', 'world_id', 'conversation_id', 'adapter_id', 'actor_id', 'recipient', 'purpose', 'world_revision',
         'commit_sequence', 'acquisition_id', 'authorization_ref',
       ];
       const exactDecision = exactDataRecord(decision, allowedKeys);
@@ -859,9 +859,9 @@ export class LogicEngine {
           'The visibility authorizer returned a malformed decision.', 403);
       }
       if (decision.status === 'denied') {
-        if (decision.world_id !== read.world_id || decision.adapter_id !== read.adapter_id
-          || decision.conversation_id !== read.conversation_id
-        || decision.actor_id !== read.actor_id || decision.recipient !== read.recipient
+        if (decision.world_id !== read.world_id || decision.conversation_id !== read.conversation_id
+          || decision.adapter_id !== read.adapter_id
+          || decision.actor_id !== read.actor_id || decision.recipient !== read.recipient
           || decision.purpose !== read.purpose
           || decision.world_revision !== read.snapshot.world_revision
           || decision.commit_sequence !== read.snapshot.commit_sequence
@@ -877,7 +877,6 @@ export class LogicEngine {
       if (decision.status !== 'allowed'
         || decision.world_id !== read.world_id || decision.conversation_id !== read.conversation_id
         || decision.adapter_id !== read.adapter_id
-        || decision.conversation_id !== read.conversation_id
         || decision.actor_id !== read.actor_id || decision.recipient !== read.recipient
         || decision.purpose !== read.purpose
         || decision.world_revision !== read.snapshot.world_revision
@@ -942,7 +941,7 @@ export class LogicEngine {
     const limit = Object.hasOwn(input, 'limit') ? (input.limit ?? 200) : 200;
     const allowed = [
       'world_id', 'conversation_id', 'adapter_id', 'actor_id', 'recipient', 'purpose', 'expected_revision', 'expected_commit_sequence',
-      'limit', 'proposition_ref' 'proposition_value', 'stance', 'supporting_acquisition_ids',
+      'limit', 'proposition_ref', 'proposition_value', 'stance', 'supporting_acquisition_ids',
       'contradicting_acquisition_ids', 'reason_rule_ref', 'idempotency_key',
     ];
     assert(Object.keys(input).every((key) => allowed.includes(key)),
@@ -989,6 +988,7 @@ export class LogicEngine {
         'WORLD_NOT_FOUND', 'World not found or inactive.', 404);
       this.readNpcKnowledge({
         world_id: input.world_id,
+        conversation_id: input.conversation_id,
         adapter_id: input.adapter_id,
         actor_id: input.actor_id,
         recipient: input.recipient,
@@ -1012,6 +1012,7 @@ export class LogicEngine {
 
     const readRequest = {
       world_id: input.world_id,
+      conversation_id: input.conversation_id,
       adapter_id: input.adapter_id,
       actor_id: input.actor_id,
       recipient: input.recipient,
@@ -1137,7 +1138,7 @@ export class LogicEngine {
    */
   getNpcBeliefState(input) {
     const required = [
-      'world_id', 'adapter_id', 'actor_id', 'recipient', 'purpose',
+      'world_id', 'conversation_id', 'adapter_id', 'actor_id', 'recipient', 'purpose',
       'expected_revision', 'expected_commit_sequence', 'proposition_ref',
     ];
     assert(isSafeNpcInputRecord(input) && required.every((key) => Object.hasOwn(input, key)),
@@ -1154,6 +1155,7 @@ export class LogicEngine {
     'INVALID_NPC_BELIEF_STATE_REQUEST', 'proposition_ref must be a non-empty reference of at most 200 characters.');
     const read = this.readNpcKnowledge({
       world_id: input.world_id,
+      conversation_id: input.conversation_id,
       adapter_id: input.adapter_id,
       actor_id: input.actor_id,
       recipient: input.recipient,
@@ -1194,14 +1196,13 @@ export class LogicEngine {
           'The trusted visibility authorizer failed; no belief state was returned.', 403);
       }
       const allowedKeys = [
-        'status', 'world_id', 'adapter_id', 'actor_id', 'recipient', 'purpose', 'world_revision',
+        'status', 'world_id', 'conversation_id', 'adapter_id', 'actor_id', 'recipient', 'purpose', 'world_revision',
         'commit_sequence', 'acquisition_id', 'authorization_ref',
       ];
       const exactDecision = exactDataRecord(decision, allowedKeys);
       if (!exactDecision || !['allowed', 'denied'].includes(decision.status)
         || decision.world_id !== read.world_id || decision.conversation_id !== read.conversation_id
         || decision.adapter_id !== read.adapter_id
-        || decision.conversation_id !== read.conversation_id
         || decision.actor_id !== read.actor_id || decision.recipient !== read.recipient
         || decision.purpose !== read.purpose
         || decision.world_revision !== read.snapshot.world_revision
