@@ -70,8 +70,25 @@ Each test report must record exact commit SHA, authority identity/generation, te
 
 ## 6. Current status and scope
 
-This decision identifies the owner and the trust contract. It does not claim that the provider, context resolver, validator wiring, bounded executor, or end-to-end tests already exist. The current main source does not construct and bind such an authority, and the bounded executor path from the old #225/#270 stack is not part of current main.
+The decision identifies the owner and the trust contract. The current tree contains several bounded mechanics implementation pieces, but their presence is not proof of a production authority binding:
 
-Do not mechanically rebase or merge #225/#270 to close this gap: their stale diff contains excluded executor, attestation, proposal-handoff, and storage changes. Implement a fresh current-main vertical slice against this contract, review its effective diff, run exact-head Runtime CI plus the recalculation harness, and keep production mechanics disabled until all applicable tests above pass.
+- `src/application/authorized-read-service.js` exposes `readEntityAttributeForMechanic` and `readEntityFields`. Both currently consume a plain `fieldPolicy` callback. That callback has no authority identity or generation contract.
+- `src/application/entity-attribute-context-provider.js` can resolve mechanic condition paths through `AuthorizedReadService`, but it also accepts a direct `canRead` callback. Its `policyFingerprint` covers provider configuration, bindings, and read principal; it does not fingerprint the effective implementation/state of the `AuthorizedReadService.fieldPolicy` callback.
+- `src/application/mechanic-executor.js` exists as a read-only bounded evaluator. It requires a trusted context resolver and rejects unsupported modules, participants/interactions, non-empty input schemas, capabilities, and non-manual conflict policies.
+- `src/application/proposals.js` accepts attested mechanic evaluations and revalidates a context-provider policy fingerprint/scope at approval and commit. The validator is supplied independently of the read service, so this does not yet prove both paths resolve one versioned authority.
+- `src/api/server.js` defaults the active mechanic context provider to `() => null`; the validator fails closed without a provider. It constructs the authorized-read service with either a plain host callback or the self-identity-only default.
+- `src/index.js` does not supply `authorizedReadFieldPolicy` or `getActiveMechanicContextProvider`. The shipped process therefore retains the self-identity-only read default and has no production mechanic context provider.
 
-**Current verdict: policy ownership is decided; production integration is not yet implemented or proven.**
+### Required implementation for the next vertical slice
+
+Introduce one deployment-owned, versioned policy authority that owns both:
+1. the effective field authorization decision used by `AuthorizedReadService`; and
+2. the trusted identity plus active generation used by mechanic context resolution and ProposalService validation.
+
+The authority must be resolved afresh at each boundary. A plain callback, provider fingerprint, or matching configuration string is not sufficient unless the same authority explicitly binds its identity and active generation to the actual field decision. The context provider must capture the authority identity/generation before reading, verify it remains current after all reads, and return that evidence with the evaluation. Proposal metadata must persist the same evidence and revalidate it at proposal acceptance, approval, and commit.
+
+Do not silently promote the existing `authorizedReadFieldPolicy` callback into this role. Do not use a test-only authority as production configuration. The deployment may use a deny-only policy while no visibility schema is approved; that is a valid fail-closed state, but it cannot authorize mechanic condition attributes or enable production mechanics.
+
+The exact-current tree also contains the bounded executor and proposal handoff; the remaining gap is not file absence. It is the missing shared, versioned authority and demonstrated deployment wiring. Do not mechanically rebase or merge #225/#270: their stale diff contains excluded executor, attestation, proposal-handoff, and storage changes. Implement a fresh current-main vertical slice against this contract, review its effective diff, run exact-head Runtime CI plus the recalculation harness, and keep production mechanics disabled until all applicable tests below pass.
+
+**Current verdict: policy ownership is decided; bounded runtime pieces exist; shared authority integration and production wiring are not yet implemented or proven.**
