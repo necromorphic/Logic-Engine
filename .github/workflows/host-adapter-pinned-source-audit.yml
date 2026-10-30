@@ -52,7 +52,7 @@ jobs:
       # 40-character ref above is resolved by checkout (visible in its action
       # log), so do not require a local .git directory to verify the source.
       - name: Verify pinned source archive
-        shell: pwsh
+        shell: powershell
         env:
           CHECKED_OUT_REF: ${{ steps.checkout-st.outputs.ref }}
         run: |
