@@ -474,18 +474,32 @@ test('mechanic proposals fail closed without current-policy validation and reche
   assert.equal(engine.getState(worldId).entities.some((entity) => entity.entity_id === 'entity.new'), false);
 });
 
-test('proposal policy validation delegates to the active context provider and rejects a rotated provider', (t) => {
+test('proposal policy validation delegates to the active shared authority provider and rejects provider rotation', (t) => {
   const { engine, worldId } = setup(t, 'executor-provider-policy-rotation-world');
   enableFixture(engine, worldId);
-
+  const actorBindings = new ActorBindingService(engine);
+  actorBindings.bind(worldId, 'test-adapter', 'entity.actor-context');
+  const authority = new DeploymentPolicyAuthority({
+    authorityIdentity: 'test.provider-rotation',
+    resolveActivePolicy: () => ({
+      authority_identity: 'test.provider-rotation',
+      generation: 'fixture-v1',
+      authorizeField: () => true,
+    }),
+  });
+  const authorizedReads = new AuthorizedReadService(engine, actorBindings, authority);
   const makeProvider = (policyVersion) => new CanonicalEntityAttributeContextProvider(engine, {
     policyVersion,
-    authorizationScope: 'test-principal',
+    authorizationScope: 'test-adapter:entity.actor-context:model:npc_decision',
+    adapterId: 'test-adapter',
+    actorEntityId: 'entity.actor-context',
+    recipient: 'model',
+    purpose: 'npc_decision',
     bindings: [
       { path: 'world.weather', entity_id: 'entity.world-context', attribute: 'weather' },
       { path: 'actor.hp', entity_id: 'entity.actor-context', attribute: 'hp' },
     ],
-    canRead: () => true,
+    authorizedReadService: authorizedReads,
   });
 
   let activeProvider = makeProvider('visibility-policy-v1');
@@ -493,7 +507,14 @@ test('proposal policy validation delegates to the active context provider and re
     resolveAuthorizedContext: (args) => activeProvider.resolve(args),
   }).evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
   assert.equal(evaluation.status, 'ready');
-  assert.equal(evaluation.context_policy_version, activeProvider.policyFingerprint);
+  assert.equal(evaluation.policy_authority.authority_identity, 'test.provider-rotation');
+  assert.equal(activeProvider.validateMechanicPolicy({
+    worldId,
+    snapshotIdentity: evaluation.snapshot_identity,
+    policyVersion: evaluation.context_policy_version,
+    policyAuthority: evaluation.policy_authority,
+    authorizationScope: evaluation.authorization_scope,
+  }), true);
 
   const proposals = new ProposalService(engine, {
     validateMechanicPolicy: (identity) => activeProvider.validateMechanicPolicy(identity),
