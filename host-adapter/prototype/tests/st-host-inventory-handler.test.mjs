@@ -42,7 +42,7 @@ test('host inventory route rejects an authenticated account whose signed session
   const response = makeResponse();
   await handler({
     user: { profile: { handle: 'alice' }, directories: {} },
-    session: { handle: 'bob' },
+    session: { handle: 'bob', logicEngineSessionId: '3e6b0a80-4e73-4c66-aaf3-7a6e62c7f402', logicEngineSessionHandle: 'bob' },
   }, response);
   assert.equal(response.statusCode, 403);
   assert.equal(calls, 0);
@@ -56,7 +56,7 @@ test('host inventory route fails closed unless the deployment build claim matche
     hostBuildClaim: '',
   });
   const response = makeResponse();
-  await handler({ user: { profile: { handle: 'default-user' }, directories: {} }, session: { handle: 'default-user' } }, response);
+  await handler({ user: { profile: { handle: 'default-user' }, directories: {} }, session: { handle: 'default-user', logicEngineSessionId: '2e6b0a80-4e73-4c66-aaf3-7a6e62c7f401', logicEngineSessionHandle: 'default-user' } }, response);
   assert.equal(response.statusCode, 503);
   assert.deepEqual(response.body, { status: 'NON_READY', code: 'HOST_BUILD_NOT_PINNED' });
   assert.equal(calls, 0);
@@ -84,7 +84,7 @@ test('host inventory route passes only the authenticated user data roots and ret
     characters: 'C:\\st\\data\\characters',
     backups: 'C:\\st\\data\\backups',
   };
-  await handler({ user: { profile: { handle: 'alice' }, directories }, session: { handle: 'alice' } }, response);
+  await handler({ user: { profile: { handle: 'alice' }, directories }, session: { handle: 'alice', logicEngineSessionId: '2e6b0a80-4e73-4c66-aaf3-7a6e62c7f401', logicEngineSessionHandle: 'alice' } }, response);
   assert.equal(response.statusCode, 200);
   assert.equal(response.headers['cache-control'], 'no-store, private');
   assert.equal(response.headers.vary, 'Cookie');
@@ -109,7 +109,7 @@ test('host inventory route hides scanner errors and absolute paths from the HTTP
     hostBuildClaim: pinned,
   });
   const response = makeResponse();
-  await handler({ user: { profile: { handle: 'alice' }, directories: {} }, session: { handle: 'alice' } }, response);
+  await handler({ user: { profile: { handle: 'alice' }, directories: {} }, session: { handle: 'alice', logicEngineSessionId: '2e6b0a80-4e73-4c66-aaf3-7a6e62c7f401', logicEngineSessionHandle: 'alice' } }, response);
   assert.equal(response.statusCode, 503);
   assert.deepEqual(response.body, { status: 'NON_READY', code: 'SOURCE_INVENTORY_UNAVAILABLE' });
   assert.equal(JSON.stringify(response.body).includes('private'), false);
@@ -175,7 +175,7 @@ test('Host session identity responses are private and never expose cookie materi
   });
   const response = makeResponse();
   handler({
-    session: { handle: 'alice' },
+    session: { handle: 'alice', logicEngineSessionId: '2e6b0a80-4e73-4c66-aaf3-7a6e62c7f401', logicEngineSessionHandle: 'alice' },
     user: { profile: { handle: 'alice' } },
     headers: { cookie: 'session=secret-cookie-value' },
   }, response);
