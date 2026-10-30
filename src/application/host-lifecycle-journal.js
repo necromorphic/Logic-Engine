@@ -107,7 +107,12 @@ function validateEvent(event) {
   if (event.occurred_at !== undefined && (typeof event.occurred_at !== 'string' || !Number.isFinite(Date.parse(event.occurred_at)))) {
     throw new TypeError('Invalid Host lifecycle event timestamp.');
   }
-  return Object.freeze({ ...event, occurred_at: event.occurred_at ?? new Date().toISOString() });
+  const normalized = {};
+  for (const [key, value] of Object.entries(event)) {
+    if (value !== undefined) normalized[key] = value;
+  }
+  normalized.occurred_at ??= new Date().toISOString();
+  return Object.freeze(normalized);
 }
 
 /**
