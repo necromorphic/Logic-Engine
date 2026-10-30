@@ -104,7 +104,12 @@ export class CanonicalEntityAttributeContextProvider {
       policy_version: this.policyVersion,
       authorization_scope: this.authorizationScope,
       bindings: [...byPath.values()].sort((a, b) => a.path.localeCompare(b.path)),
-      ...(this.authorizationPrincipal ? { authorization_principal: this.authorizationPrincipal } : {}),
+      ...(this.authorizationPrincipal ? {
+        authorization_principal: Object.freeze({
+          ...this.authorizationPrincipal,
+          ...(initialBinding ? { bindingGeneration: initialBinding.binding_generation } : {}),
+        }),
+      } : {}),
     });
     Object.freeze(this);
   }
@@ -121,7 +126,8 @@ export class CanonicalEntityAttributeContextProvider {
     );
     if (binding.world_id !== worldId
       || binding.adapter_id !== this.authorizationPrincipal.adapterId
-      || binding.actor?.entity_id !== this.authorizationPrincipal.actorEntityId) {
+      || binding.actor?.entity_id !== this.authorizationPrincipal.actorEntityId
+      || !Number.isSafeInteger(binding.binding_generation) || binding.binding_generation < 1) {
       throw new Error('Mechanic context principal is not bound to the requested world.');
     }
     return binding;
@@ -132,6 +138,7 @@ export class CanonicalEntityAttributeContextProvider {
       || !object(snapshot) || snapshot.world_id !== worldId || !object(template) || !object(action)) {
       throw new TypeError('Provider resolution requires world, snapshot, template, and action.');
     }
+    const initialBinding = this.authorizedReadService ? this.assertPrincipalBound(worldId) : null;
     const conditionPaths = [...new Set([
       ...(template.applicability ?? []),
       ...(action.preconditions ?? []),
@@ -198,6 +205,12 @@ export class CanonicalEntityAttributeContextProvider {
       });
     }
 
+    if (initialBinding) {
+      const finalBinding = this.assertPrincipalBound(worldId);
+      if (finalBinding.binding_generation !== initialBinding.binding_generation) {
+        throw new Error('Mechanic actor binding changed during context resolution.');
+      }
+    }
     return freeze({
       context,
       knownAbsentPaths: knownAbsentPaths.sort(),
