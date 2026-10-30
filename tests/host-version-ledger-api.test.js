@@ -274,3 +274,40 @@ test('snapshot reconciliation enforces the bounded version-row count before ledg
   assert.equal((await response.json()).error.code, 'INVALID_HOST_VERSION_SNAPSHOT');
   assert.equal(ledger.db.prepare('SELECT COUNT(*) AS n FROM host_version_digest_ledger').get().n, 0);
 });
+
+
+test('snapshot reconciliation rejects adapter revocation during async inventory verification before ledger mutation', async (t) => {
+  const { base, ledger, setVerifier } = await setup(t, { verifyInventorySnapshot: async () => true });
+  assert.equal((await bind(base)).status, 201);
+  const adapterHeaders = { ...headers, 'x-adapter-id': 'adapter-a', 'x-adapter-token': ADAPTER };
+  let revoked = false;
+  setVerifier(async () => {
+    const response = await fetch(base + '/v1/host-conversation-bindings/adapter-a/stable-host-chat', {
+      method: 'DELETE',
+      headers: { ...headers, 'x-admin-token': ADMIN },
+      body: json({ reason: 'revoke during snapshot verification race test' }),
+    });
+    assert.equal(response.status, 200);
+    revoked = true;
+    return true;
+  });
+  const response = await fetch(base + '/v1/host-version-ledger/reconcile', {
+    method: 'POST',
+    headers: adapterHeaders,
+    body: json({
+      conversation_id: 'stable-host-chat',
+      complete: true,
+      versions: [{
+        message_id: 'message-1', version_id: 'version-1', parent_version_id: null,
+        content_sha256: 'a'.repeat(64), active: true, deleted: false,
+      }],
+    }),
+  });
+  assert.equal(revoked, true);
+  assert.equal(response.status, 409);
+  const result = await response.json();
+  assert.equal(result.inventory_status, 'NON_READY');
+  assert.deepEqual(result.inventory, { status: 'non_ready', code: 'HOST_CONVERSATION_NOT_AUTHORIZED' });
+  assert.equal(ledger.db.prepare('SELECT COUNT(*) AS n FROM host_version_digest_ledger').get().n, 0);
+  assert.equal(ledger.getInventoryState('host-ledger-api-world', 'stable-host-chat'), null);
+});
