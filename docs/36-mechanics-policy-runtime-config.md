@@ -54,9 +54,9 @@ The file must contain exactly these fields:
 }
 ```
 
-Supported recipients: `model`, `player`, `adapter`.
+The bounded mechanic runtime currently accepts only `recipient: "model"` and `purpose: "npc_decision"`. Other recipients/purposes are rejected until a separately reviewed contract defines their authorization and delivery semantics.
 
-Supported purposes: `npc_decision`, `character_card`, `narrative`.
+This config binds one adapter/actor principal. Multi-adapter or multi-actor policy selection is not implemented; do not multiplex principals through caller-supplied values.
 
 Every context binding must be covered by an exact `allowed_fields` entry. Unknown fields, malformed values, duplicate paths/fields, or an uncovered binding reject the configuration. The configured adapter must also have an active Core actor binding to the configured actor in the target world.
 
