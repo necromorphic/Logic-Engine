@@ -201,21 +201,27 @@ const EVENT_KEYS = Object.freeze({
   belief_forgotten: ["world_id", "subject_id", "type", "proposition_ref", "forgetting_rule_ref"],
 });
 
-function validEventShape(event) {
-  if (!Object.hasOwn(EVENT_KEYS, event.type)) return false;
-  return hasExactKeys(event, EVENT_KEYS[event.type]);
+function validEventShape(event, eventType) {
+  if (!Object.hasOwn(EVENT_KEYS, eventType)) return false;
+  return hasExactKeys(event, EVENT_KEYS[eventType]);
 }
 
 function applyEventUnsafe(state, event) {
   if (!isSafeDataTree(state) || !validState(state) || !isSafeDataTree(event)
-    || !isPlainDataObject(event) || !validId(event.type)) return nonReady();
-  if (!validEventShape(event)) return nonReady("event_shape_invalid");
+    || !isPlainDataObject(event)) return nonReady();
+  // Do not read eventType until its own data descriptor has been verified.
+  // A getter on Object.prototype must not run for a malformed event.
+  const typeDescriptor = Object.getOwnPropertyDescriptor(event, "type");
+  if (!typeDescriptor || !Object.hasOwn(typeDescriptor, "value")
+    || !validId(typeDescriptor.value)) return nonReady();
+  const eventType = typeDescriptor.value;
+  if (!validEventShape(event, eventType)) return nonReady("event_shape_invalid");
   if (!validId(event.world_id) || !validId(event.subject_id)
     || event.world_id !== state.world_id || event.subject_id !== state.subject_id) {
     return nonReady("event_scope_mismatch");
   }
 
-  if (event.type === "information_received") {
+  if (eventType === "information_received") {
     if (!validId(event.event_ref) || !validId(event.source_ref) || !validId(event.source_version)) {
       return nonReady("receipt_metadata_incomplete");
     }
@@ -237,7 +243,7 @@ function applyEventUnsafe(state, event) {
     });
   }
 
-  if (event.type === "evidence_admitted") {
+  if (eventType === "evidence_admitted") {
     const required = [
       event.acquisition_ref, event.proposition_ref, event.evidence_ref,
       event.evidence_version, event.source_ref, event.source_version,
@@ -279,7 +285,7 @@ function applyEventUnsafe(state, event) {
     });
   }
 
-  if (event.type === "belief_updated") {
+  if (eventType === "belief_updated") {
     if (!validId(event.proposition_ref)
       || !STANCES.has(event.stance)
       || event.stance === "unknown"
@@ -337,7 +343,7 @@ function applyEventUnsafe(state, event) {
     return Object.freeze({ status: "updated", state: freezeState({ ...state, beliefs }), reason: null });
   }
 
-  if (event.type === "evidence_invalidated") {
+  if (eventType === "evidence_invalidated") {
     if (!validId(event.evidence_ref) || !validId(event.evidence_version) || !validId(event.invalidation_rule_ref)) {
       return nonReady("invalidation_metadata_incomplete");
     }
@@ -359,7 +365,7 @@ function applyEventUnsafe(state, event) {
     return Object.freeze({ status: "updated", state: freezeState({ ...state, evidence, beliefs }), reason: null });
   }
 
-  if (event.type === "canonical_truth_changed") {
+  if (eventType === "canonical_truth_changed") {
     // Canonical world changes are not evidence that this NPC acquired a
     // correction. Keep the subject-relative belief untouched.
     return Object.freeze({
@@ -369,7 +375,7 @@ function applyEventUnsafe(state, event) {
     });
   }
 
-  if (event.type === "belief_forgotten") {
+  if (eventType === "belief_forgotten") {
     if (!validId(event.proposition_ref) || !validId(event.forgetting_rule_ref)) {
       return nonReady("forgetting_metadata_incomplete");
     }
