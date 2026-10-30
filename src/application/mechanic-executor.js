@@ -352,13 +352,28 @@ export class MechanicExecutor {
         if (!target || target.status === 'destroyed') {
           return unknown('MECHANIC_EFFECT_TARGET_NOT_FOUND', 'An update_attribute target must be an existing, non-destroyed entity in the same-world snapshot.', identity);
         }
-      } else if (effect.kind === 'fact.set' && effect.subject_ref !== undefined && effect.subject_ref !== null) {
+      } else if (effect.kind === 'fact.set') {
+        const existingFact = existingFacts.get(effect.fact_id);
+        if (existingFact
+          && ((existingFact.subject_ref ?? null) !== (effect.subject_ref ?? null)
+            || existingFact.predicate !== effect.predicate)) {
+          return unknown('MECHANIC_EFFECT_FACT_IDENTITY_MISMATCH',
+            'An existing fact ID cannot be reused with a different subject or predicate.', identity);
+        }
+        if (effect.subject_ref !== undefined && effect.subject_ref !== null) {
+          const subject = entityById.get(effect.subject_ref);
+          if ((!subject || subject.status === 'destroyed') && !createdEntities.has(effect.subject_ref)) {
+            return unknown('MECHANIC_EFFECT_SUBJECT_NOT_FOUND', 'An assert_fact subject_ref must identify a non-destroyed entity in this world or an entity created earlier in this action.', identity);
+          }
+        }
+      }
+      /* replaced legacy fact subject branch */
+      if (false) {
         const subject = entityById.get(effect.subject_ref);
         if ((!subject || subject.status === 'destroyed') && !createdEntities.has(effect.subject_ref)) {
           return unknown('MECHANIC_EFFECT_SUBJECT_NOT_FOUND', 'An assert_fact subject_ref must identify a non-destroyed entity in this world or an entity created earlier in this action.', identity);
         }
       }
-    }
 
     const effectTargetDependencies = translated.effects.flatMap((effect) => {
       if (effect.kind === 'entity.create') return [{ kind: 'entity_absence', target_id: effect.entity_id }];
