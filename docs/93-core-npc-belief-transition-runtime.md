@@ -1,6 +1,6 @@
 # Core-Owned NPC Belief Transition Runtime
 
-**Status:** implementation candidate on PR #838; internal-only and not production-enabled. No prompt dispatch or NPC knowledge HTTP route is added.
+**Status:** implementation candidate on PR #838; the Host context HTTP route is present but disabled by default. No SillyTavern caller is wired and Memory→NPC remains non-production.
 
 ## Ownership
 
@@ -24,9 +24,11 @@
 8. Persist an accepted transition as a typed `npc.belief.transition` effect inside the canonical Core event, including the exact policy authority tuple used for the final write authorization. The tuple is validated as a closed three-field record. The SQLite table is a derived projection rebuilt from valid canonical event effects; it is not the only copy of transition data. Generic event callers cannot forge this privileged effect.
 9. `getNpcBeliefState()` returns the latest valid belief transition only after per-acquisition visibility checks and a final binding/read-authorization recheck. If the proposition's current evidence is withheld, it returns a non-disclosing `unavailable` result with no stance or value. Source rollback/revocation makes support `unsupported` or `partially_supported`; it does not silently rewrite the character's stance or delete its history, and invalidated acquisition IDs are not exposed.
 
-## API contract (internal Core methods only)
+## API contract (internal Core methods + disabled-by-default Host route)
 
-- `prepareNpcBeliefContext(readRequest, proposal, currentBelief?)` returns a validated, actor/snapshot-bound context. It requires both trusted read and visibility authorizers. It is not registered as HTTP.
+- `POST /v1/npc-knowledge/context` accepts only `conversation_id` and optional `limit`. Adapter identity is derived from the authenticated adapter headers. Core derives world and actor from active bindings, fixes recipient to `model` and purpose to `npc_turn_context`, and supplies the current snapshot cursor. Caller-supplied world, actor, adapter, purpose, recipient, or cursor fields are rejected.
+- The Host route requires `ENGINE_NPC_KNOWLEDGE_HOST_API_ENABLED=true` and a complete Core-owned resolver, policy authority, read authorizer, and visibility authorizer. It returns `503` when disabled and DENY when no unique active Host/actor binding resolves.
+- `prepareNpcBeliefContext(readRequest, proposal, currentBelief?)` returns a validated, actor/snapshot-bound context. It requires both trusted read and visibility authorizers. It is not registered as a public HTTP route.
 - `recordNpcBeliefTransition(input)` validates evidence, reruns read and per-acquisition visibility authorization inside the Core write transaction, persists only an unchanged validated transition and policy tuple, and requires an idempotency key plus the exact pre-transition revision and commit sequence. The policy tuple participates in the idempotency request hash; replay under another generation is not treated as the same operation.
 - `getNpcBeliefState(input)` reads the latest valid belief transition and reports current evidence support.
 
