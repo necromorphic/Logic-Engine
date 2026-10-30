@@ -109,6 +109,24 @@ export class CanonicalEntityAttributeContextProvider {
     Object.freeze(this);
   }
 
+  assertPrincipalBound(worldId) {
+    if (!this.authorizedReadService || !this.authorizationPrincipal
+      || typeof worldId !== 'string' || !worldId.trim()) {
+      throw new Error('An authorized actor binding is required for mechanic context resolution.');
+    }
+    const binding = this.authorizedReadService.actorBindingService.resolve(
+      worldId,
+      this.authorizationPrincipal.adapterId,
+      this.authorizationPrincipal.actorEntityId,
+    );
+    if (binding.world_id !== worldId
+      || binding.adapter_id !== this.authorizationPrincipal.adapterId
+      || binding.actor?.entity_id !== this.authorizationPrincipal.actorEntityId) {
+      throw new Error('Mechanic context principal is not bound to the requested world.');
+    }
+    return binding;
+  }
+
   resolve({ worldId, snapshot, template, action } = {}) {
     if (typeof worldId !== 'string' || !worldId.trim()
       || !object(snapshot) || snapshot.world_id !== worldId || !object(template) || !object(action)) {
