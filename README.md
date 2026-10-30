@@ -1,191 +1,250 @@
 # World Simulation Engine — «Логический движ»
 
-**«Логический движ» — проект универсального движка длительной ролевой симуляции.** Цель — хранить авторитетное состояние мира, рассчитывать причинно связанные изменения и игровое время, поддерживать автономность NPC и передавать подтверждённые результаты в повествование через адаптер SillyTavern.
+**«Логический движ» — универсальный движок длительной ролевой симуляции.** Его задача — хранить авторитетное состояние мира, проверять и фиксировать причинно связанные изменения, управлять игровым временем и длительными процессами, поддерживать границы знаний персонажей и передавать подтверждённые результаты в интерфейс через адаптеры.
 
-> **Актуальность: 29 октября 2026 года.** Последний проверенный функциональный commit — `baf6a3041a1d663f2b78c691d2cef526bcaf9395` (`feat(core): add deployment-owned trusted file importer`, merge PR #683); после него README обновлён документальными коммитами. На merge commit прошли проверки `test`, `core-trusted-acquisition`, `npc-boundary` и `benchmark`. PR #683 добавил deployment-owned импорт локальных trusted-файлов для `source_kind: imported`; это не включает NPC reader, prompt injection или production Memory → NPC. Открытые PR перечислены по актуальным head и CI; они не считаются частью `main`. На 29 октября 2026 года GitHub API возвращает 673 ветки; это счётчик ссылок веток, а не число уникальных или безопасных к удалению веток. Предыдущий инвентарь на 28 октября содержал 512 веток и является историческим снимком. Подробности предыдущей сверки: [отчёт по веткам и консолидации PR](docs/branch-pr-consolidation-2026-10-28.md) и [полный инвентарь](docs/branch-issue-inventory-2026-10-28.md).
-> Это снимок проверенных изменений и известных блокеров на указанную дату. Портфельный трекер — [issue #252](https://github.com/necromorphic/Logic-Engine/issues/252); глобальный блокер Memory → NPC — [issue #264](https://github.com/necromorphic/Logic-Engine/issues/264).
+> **Актуальность: 30 октября 2026 года.** Документ обновлён по загруженному архиву `Logic-Engine-main (1).zip`, приложенным материалам `Security 1.1` и `Координатор 2.16`, а также результату локального запуска тестов. Архив не содержит Git-метаданных: точный SHA его исходного состояния установить нельзя. Статусы PR и issues следует сверять с GitHub перед принятием решений о merge.
 >
-> **Состояние проекта:** есть исполняемый прототип с HTTP API, SQLite-журналом событий, базовыми сущностями и фактами, идемпотентностью, аудитом, ограниченным причинным откатом, реестром механик и базовым жизненным циклом предложений. Это ещё не завершённая автономная симуляция и не готовая production-интеграция с SillyTavern.
+> **Состояние проекта:** в репозитории есть исполняемый Node.js/SQLite-прототип с HTTP API, каноническим журналом и проекциями, предложениями изменений, ограниченным исполнением механик, авторизованным чтением, отношениями, временными операциями, длительными процессами и Memory Provider. Реализация состоит из отдельных runtime-срезов и экспериментальных интеграционных границ. Это ещё не завершённая автономная симуляция и не production-ready интеграция с SillyTavern.
 >
-> **Memory → NPC: Provider blocker #3 закрыт только в пределах интегрированного Provider/Gateway среза; сквозная интеграция не готова.** PR #618 находится в `main` и добавляет accepted-head контроль Core/Provider writes, отзывов, tombstone/purge, reconciliation/readiness и восстановления с pre-dispatch gate. Это не доказывает полноту Host inventory и не разрешает production-передачу памяти NPC. Актуальные кандидаты: [#702 — Core-owned NPC reader + source-version pins на текущей main](https://github.com/necromorphic/Logic-Engine/pull/702), [#681 — исходный Core source-version ledger](https://github.com/necromorphic/Logic-Engine/pull/681), [#680 — Host lifecycle inventory и request-bound save capability](https://github.com/necromorphic/Logic-Engine/pull/680), [отчёт проверки Issue #258](docs/issue-258-host-adapter-verification-2026-10-29.md), [#636 — Windows Provider acceptance evidence](https://github.com/necromorphic/Logic-Engine/pull/636), [#646 — сериализация начала dispatch относительно revoke](https://github.com/necromorphic/Logic-Engine/pull/646), [#670 — Core-owned NPC knowledge reader и belief boundary](https://github.com/necromorphic/Logic-Engine/pull/670), [#595 — fail-closed generation interceptor seam](https://github.com/necromorphic/Logic-Engine/pull/595), [#684 — trusted World Pack artifact digest](https://github.com/necromorphic/Logic-Engine/pull/684). Все они остаются открытыми review-only кандидатами, а не интегрированным кодом; production dispatch не разрешён.
+> **Проверка этого архива:** `npm test` завершился успешно — **800/800 тестов, 0 failures, 0 skipped** (30.10.2026, около 34 секунд). Результат относится только к предоставленному архиву и не устанавливает его Git SHA или соответствие текущему удалённому `main`.
 >
-> **Production Memory → NPC остаётся DISABLED / FAIL-CLOSED.** Provider blocker #3 закрыт на уровне реализации и тестов: если отзыв записи/запроса или потеря readiness зафиксированы до durable `DISPATCH_STARTED`, Gateway обязан выполнить ноль исходящих вызовов и не создавать запись dispatch ledger. Проверено и восстановление старой Provider DB против независимого accepted head. Но независимый remote anti-rollback для самой authority, целевые ACL/backup-restore, полнота Host inventory, окончательная привязка сериализованного тела и доказательство единственного outbound-пути в установленном SillyTavern пока не подтверждены.
->
-## Оценка прогресса
+> **Memory → NPC: DISABLED / FAIL-CLOSED для production.** В репозитории есть Provider-local операции, Core trust/authorized-read примитивы и тестируемые NPC boundary-компоненты. Они не доказывают полный реальный путь Host → Provider → Core → NPC → финальный serializer/outbound transport. Не включать production disclosure до закрытия обязательных gates из [issue #264](https://github.com/necromorphic/Logic-Engine/issues/264).
 
-> **Снимок: 28 октября 2026 года.** Проценты — ориентировочная экспертная оценка, а не автоматически измеряемая метрика. Цветная горизонтальная полоса показывает подтверждённую часть (зелёный), частично подтверждённую/незавершённую часть (оранжевый) и оставшуюся работу или блокеры (красный). Полосы непрерывные, без символов-кубиков. Учитываются изменения, уже попавшие в `main`; открытые PR и feature-ветки не считаются интегрированными.
+## Краткая оценка состояния
 
-![Горизонтальная диаграмма прогресса Logic-Engine](docs/progress-bars-2026-10-28.svg)
+Проценты прогресса в этом README намеренно не приводятся: доступные материалы не содержат единой актуальной и воспроизводимой методики подсчёта готовности всех блоков. Количество файлов, тестов или merged PR само по себе не является процентом готовности.
 
-| Направление | Оценка | Изменение к прежнему снимку |
-|---|---:|---:|
-| **Весь проект** | **38%** | **+3 п.п.** |
-| Core — ядро и правила мира | 60% | +5 п.п. |
-| Memory Provider — хранение и операции памяти | 72% | +2 п.п. |
-| NPC — допуск и потребление памяти | 47% | +2 п.п. |
-| Host / Adapter — связь с SillyTavern | 40% | +5 п.п. |
-| Mechanics — игровые механики | 35% | без изменения |
-| Time / Process Manager — время и длительные процессы | 38% | +8 п.п. |
-| Relationships / World Pack — отношения и пакеты миров | 28% | +3 п.п. |
-| Memory → NPC — техническая реализация | 70% | +5 п.п. |
-| Memory → NPC — production readiness | **0% — BLOCKED** | без изменения |
-
-Проценты и диаграмма — историческая оценка `main` на 28.10.2026 до merge #665. После merge `87b452939f690a6ad76cfeb0c3e06ad040fef900` оценки не пересчитывались; новые открытые PR и feature-ветки не засчитываются как интегрированные. Это оценка прогресса реализации, а не готовности production.
-
-### Memory → NPC: что готово и что блокирует включение
-
-Технический прогресс и разрешение на реальное использование — разные показатели. Production Memory → NPC остаётся **DISABLED / FAIL-CLOSED**.
-
-**Изменения в основной ветке:** в `main` присутствуют контракт #527 (полный пустой результат отличается от отказа/неполноты) и PR #618 — accepted-head защита реальных Core/Provider writes, revoke, tombstone/purge, reconciliation/readiness и recovery с pre-dispatch Gateway gate. Это закрывает Provider blocker #3 на уровне кода и тестов, но не доказывает полноту Host inventory или сквозную доставку памяти конкретному NPC.
-
-**Актуальные открытые кандидаты, не считать частью `main`, пока PR не слит:**
-- [PR #640](https://github.com/necromorphic/Logic-Engine/pull/640) — исходная source-version ledger ветка, только evidence; базовая история устарела.
-- [PR #683](https://github.com/necromorphic/Logic-Engine/pull/683) — merged into `main` as `baf6a3041a1d663f2b78c691d2cef526bcaf9395`. The deployment-owned local trusted importer for `source_kind: imported` reads only a configured absolute file path, checks exact bytes against the deployment SHA-256 allowlist, rejects caller-provided paths/bytes, and covers tampering, path traversal, symlinks, source identity mismatch, rollback/idempotency, and retry-after-rollback. Merge-commit checks `test`, `core-trusted-acquisition`, `npc-boundary`, and `benchmark` passed. Memory → NPC remains disabled. Deployment setup and registry format: [trusted importer operations guide](docs/92-trusted-initial-knowledge-importer-operations.md).
-- [PR #681](https://github.com/necromorphic/Logic-Engine/pull/681) — Core source-version ledger/inventory, exact HEAD `1ee9e20fc7160e028d494f7860efbfdfc2f1c3fb`: Provider blocker-3 30/30 и полный Runtime workflow, включая `npm test`, oracle 20/20, NPC boundary и trusted-acquisition lifecycle, PASS ([Provider](https://github.com/necromorphic/Logic-Engine/actions/runs/40772284591), [Runtime](https://github.com/necromorphic/Logic-Engine/actions/runs/40772284701)). Ветка на 2 commits позади `main`; требует свежего порта. Миграция 14 конфликтует с #670 и должна быть согласована с #664.
-- [PR #632](https://github.com/necromorphic/Logic-Engine/pull/632) — закрытая без merge старая Host lifecycle validation-ветка; только evidence, не переносить её историю.
-- [PR #680](https://github.com/necromorphic/Logic-Engine/pull/680) — Host lifecycle/save-capability port, exact HEAD `bd1429280486ff26530b17ff31b60d17f4fe36de`: все пять exact-head workflows PASS, включая Host patch checks, IndexedDB restart, Runtime suite, NPC boundary, trusted-acquisition lifecycle и pinned-source Linux/Windows route harness ([CI](https://github.com/necromorphic/Logic-Engine/actions)). Это закрывает CI-проверку кандидата, но не доказывает полный all-time Host inventory, anti-rollback, target-PC ACL/restore, sole egress или live deployment.
-- [PR #636](https://github.com/necromorphic/Logic-Engine/pull/636) — Windows Memory Provider acceptance evidence.
-- [PR #646](https://github.com/necromorphic/Logic-Engine/pull/646) — сериализация старта Host dispatch относительно отзыва; нужен доказанный путь от этого gate до реального final-send.
-- [PR #670](https://github.com/necromorphic/Logic-Engine/pull/670) — Core-owned actor-scoped knowledge reader и belief-transition boundary поверх #665. Текущий head `a097c79470bef6caec3fa0c7d80f8e69911bc872`: Provider blocker-3 PASS; NPC-boundary и trusted-acquisition lifecycle PASS; отдельный full Runtime workflow повторно запущен после отменённого запуска и на момент обновления ещё выполняется. Остался контрактный Core-вопрос: acquisition не закрепляет версию/значение факта, а reader берёт текущее значение по `fact_id` ([обсуждение #140](https://github.com/necromorphic/Logic-Engine/issues/140#issuecomment-6480878131)). Миграция 14 конфликтует с #681 и #664; нужна единая последовательность миграций. Draft; production Memory → NPC отключён.
-
-**Обязательные блокеры включения:**
-1. Доказать полный Host inventory активных, исторических и удалённых версий переписки, включая пропущенные изменения, импорт, ветвление и восстановление.
-2. Подключить доверенный verifier, который разрешает reconciliation только при доказанной полноте inventory. Сейчас отсутствие доказательства должно приводить к отказу.
-3. Связать финальное сериализованное тело запроса SillyTavern с точными допущенными кандидатами памяти через один защищённый outbound-путь.
-4. Provider/Gateway pre-dispatch revoke/readiness race покрыт тестами; остаётся доказать, что реальный pinned SillyTavern final-send использует именно Gateway как единственный outbound-путь, без обходного sender/retry.
-5. Подтвердить на целевом развёртывании identity процесса, ACL базы и файлов WAL/SHM, а также изоляцию backup/restore.
-6. Проверить фактическую интеграцию с установленным SillyTavern и сохранность данных после перезапуска; Android/Termux persistence пока не подтверждена.
-
-Открытый PR, зелёный CI или тест на feature-ветке не равны merge, Core approval или production readiness. См. [глобальный блокер #264](https://github.com/necromorphic/Logic-Engine/issues/264), [Core Memory/NPC gate #140](https://github.com/necromorphic/Logic-Engine/issues/140) и [портфельный трекер #252](https://github.com/necromorphic/Logic-Engine/issues/252).
-
-## First Release Readiness — критерии первой рабочей версии
-
-Первая рабочая версия не требует, чтобы **каждый запланированный блок** был завершён. Она требует, чтобы был чётко ограничен набор функций релиза и каждый обязательный критерий этого набора подтверждён кодом, тестами и интеграционными доказательствами.
-
-- [ ] **Объём релиза зафиксирован:** перечислены функции, которые входят в первую версию, и явно исключённые функции.
-- [ ] **Изменения интегрированы:** нужный релизу код находится в `main`; feature-ветки и открытые PR не считаются готовыми.
-- [ ] **Тесты текущего `main` проходят:** результаты относятся к точному проверяемому commit.
-- [ ] **Сквозной сценарий работает:** реальный запрос проходит через поддерживаемый Host/Adapter → Core путь и возвращает ожидаемый результат.
-- [ ] **Данные переживают перезапуск:** сохранение, восстановление и обработка неполной/устаревшей информации проверены на целевой конфигурации.
-- [ ] **Ошибки закрываются безопасно:** отказ, неполные данные, устаревшая версия или сбой не превращаются в разрешение на доступ.
-- [ ] **Безопасность проверена:** права доступа, удаление/отзыв, резервные копии и восстановление проверены для функций, входящих в релиз.
-- [ ] **Memory → NPC gate закрыт**, если первая версия должна передавать память NPC. До этого Memory → NPC остаётся отключённым.
-- [ ] **Инструкция запуска и отката готова:** понятно, как запустить версию, проверить состояние и безопасно вернуться назад.
-
-Релиз можно объявить готовым только после проверки каждого обязательного пункта и фиксации доказательств. Процент проекта не заменяет этот чек-лист. Если первая версия выпускается без Memory → NPC, это должно быть явно указано в её объёме; сам Memory → NPC gate при этом остаётся закрытым.
+| Направление | Подтверждённое состояние в архиве | Основное ограничение |
+|---|---|---|
+| Core / каноническое состояние | HTTP API, SQLite-журнал, проекции, события, сущности, факты, аудит, идемпотентность и rollback-примитивы | Полная семантика независимых альтернативных причин и production-изоляция хранилища не доказаны |
+| Proposal lifecycle / Mechanics | Реестр версионируемых шаблонов, экземпляры, ограниченный effect-intent translator, proposal/approval/commit и executor-срезы | Это не универсальный mechanic executor; policy-freshness и полный production approval gate остаются отдельными условиями |
+| Time | TimePolicy, координаты, time advance/action, сегментация и сохраняемый world-scoped trigger registry | Нет фоновых часов и автоматического wall-clock scheduler; NPC delivery не следует из выполнения триггера |
+| Process Manager | Контракты, API и runtime-срезы длительных процессов | Полная автономная симуляция и все требуемые lifecycle-сценарии не подтверждены |
+| Relationships | Типизированные переходы и pure evaluation-срезы | Полная NPC-facing авторизация, причинная семантика и end-to-end потребитель требуют отдельной проверки |
+| NPC / Knowledge | Actor bindings, ограниченный authorized read, candidate eligibility и Memory consumer boundary | Это не полная система приобретения знаний, доставки, понимания и убеждений |
+| Memory Provider | SQLite-backed provider, raw archive/lifecycle, reconciliation и проверки гонок/отзыва на provider boundary | Provider не может самостоятельно доказать подлинность и полноту Host inventory |
+| Host / SillyTavern | Прототип lifecycle bridge, digest proxy, inventory projection и pinned-source audit материалы | Реальные хуки, полный inventory и финальная outbound disclosure boundary не доказаны |
+| World Pack | Формат, схемы и примеры профилей | Полный production loader и end-to-end применение пакета мира не подтверждены |
 
 ## Основной принцип
 
 **Замысел ≠ происходящее ≠ рассказанное.**
 
 1. Сюжетные арки описывают предполагаемые цели, опорные точки и допустимые варианты.
-2. Симуляция вычисляет, что фактически произошло, на основании состояния, правил мира, действий, знаний и причин.
+2. Симуляция вычисляет, что фактически произошло, на основании канонического состояния, правил мира, действий, знаний и причин.
 3. Повествование отражает подтверждённые результаты и не создаёт канонические факты само по себе.
 
 ## Непереговорные требования
 
-- Игровое время заморожено, пока игрок не совершает действие и не запрашивает продвижение времени.
-- Движок — источник авторитетного состояния; языковая модель предлагает действия и формулирует повествование, но предложения валидируются до коммита.
+- Игровое время не продвигается само по себе: его изменение должно быть вызвано явной операцией. Наличие time triggers не означает наличие фоновых часов.
+- Движок — источник авторитетного состояния. Языковая модель может предложить действие или сформулировать повествование, но предложение проходит проверку до канонического коммита.
 - NPC должны автономно взаимодействовать друг с другом и миром, менять планы, формировать союзы и конфликты, ошибаться, сомневаться и пересматривать убеждения. Это целевые требования, а не заявление о завершённой реализации.
-- Знания должны иметь происхождение и путь получения; секреты не распространяются между персонажами без допустимого источника и доставки.
+- Знания должны иметь происхождение и допустимый путь получения. Секреты не распространяются между персонажами без соответствующего источника, авторизации и доставки.
 - Поддерживаются как заданные сюжетные арки, так и свободная симуляция с автономными событиями мира.
 - Сохранённые задачи, планы и длительные процессы должны продолжаться независимо от того, помнит ли о них текущий контекст модели.
 - Откат должен устранять зависимые последствия, сохраняя независимые ветви. Полная семантика альтернативных независимых причин пока не подтверждена.
 - Векторный архив — средство поиска контекста, а не авторитетная база фактов. **Существующую векторизацию и Ollama remote-store patch не переписывать.**
 - SillyTavern на Android/Termux остаётся RP-интерфейсом; Logic-Engine и его обработка должны работать на компьютере. Связь — по LAN, когда доступно, или через мост. Реальные хуки и надёжность интеграции необходимо проверять.
 - Общее ядро не навязывает миру чужие механики. Специфические правила принадлежат отдельному World Pack; неизвестные механики явно маркируются.
+- Архитектурный документ, открытый PR, fixture или успешный тест отдельного блока не доказывает production-ready end-to-end capability.
 
 ## Текущая граница реализации
 
-| Область | Статус на 29.10.2026 |
-|---|---|
-| HTTP API, SQLite-журнал, проекции, базовые сущности/факты, аудит и идемпотентность | Есть в прототипе; гарантия ограничена кодом и тестами текущей версии |
-| Причинный откат и перестроение проекций | Частично реализованы; полная семантика независимых альтернативных причин не подтверждена |
-| Механики: bounded effect-intent translation → proposal → approval → canonical commit | Ограниченный перевод трёх intent kinds и интеграция с существующим ProposalService находятся в `main` через PR #280; это не полноценный mechanic executor и не production approval |
-| Recalculation oracle / executor | Изолированный oracle и его тесты находятся в `main`; oracle не пересчитывает canonical world state. Полный dependency-aware executor, policy-freshness gate и production enablement не подтверждены |
-| Rollback transaction regression | Транзакционная регрессия присутствует в `main`; сама по себе не закрывает полную policy-freshness интеграцию |
-| Типизированные отношения | Ограниченный admin-only transition есть; полноценный NPC-facing authorized read и причинная семантика не завершены |
-| Actor bindings / authorized read | Частичные инфраструктурные примитивы есть; полной модели приобретения знаний, убеждений, доставки и секретов нет |
-| Host → Provider authoritative inventory | **BLOCKED / NON_READY**: полнота активных и исторических/удалённых версий и обнаружение пропущенных изменений не доказаны |
-| Реальный Host → Provider → Core → NPC путь | **NOT PROVEN**: Provider-local tests не доказывают Host inventory, реальную интеграцию или Android/Termux persistence |
-| Revocation прямо перед disclosure | **BLOCKED / NOT PROVEN** на реальном пути от candidate assembly до финального serializer/outbound transport |
-| Автономные NPC, долговременные процессы, StoryBeat, полный World Pack loader, проверенный ST-адаптер | Не реализованы как завершённая end-to-end система |
+| Область | Что есть в загруженном архиве | Что не следует считать завершённым |
+|---|---|---|
+| Core state и API | `src/api/server.js`, `src/application/engine.js`, `src/storage/sqlite-store.js`; события, проекции, сущности/факты, аудит, idempotency и API | Полная отказоустойчивость, внешняя single-writer изоляция и все production recovery guarantees |
+| Snapshot и authorized read | Snapshot reads, actor bindings, field-level authorized-read service/API и соответствующие тесты | Наличие read endpoint само по себе не даёт NPC общего доступа к данным и не создаёт полноценную модель знаний |
+| Source trust / freshness | Core-контракт `docs/77-core-memory-source-trust-contract.md`; проверки канонических event/entity/fact sources | Внешние Host/Memory источники без подтверждённой binding/version/lineage классифицируются как unverifiable и не должны раскрываться |
+| Proposals и Mechanics | Реестр шаблонов/экземпляров, ограниченный translator (`create_entity`, `update_attribute`, `assert_fact`), proposal lifecycle и executor-срезы | Полноценное исполнение произвольных механик, универсальный пересчёт и закрытие policy-freshness gate |
+| Recalculation | Oracle/тестовые контракты и ограниченные executor-компоненты | Oracle не является доказательством полного dependency-aware пересчёта canonical world state |
+| Rollback | Транзакционные rollback-примитивы, projection rebuild и regression tests | Полная причинная семантика независимых альтернативных поддержек и все межблочные последствия |
+| Relationships | Типизированные directed transitions и pure evaluation | Полный NPC-facing authorized read/write и end-to-end relationship knowledge semantics |
+| Time | TimePolicy, time coordinates, advances/actions, segment commits и persisted world-scoped trigger registry | Нет wall-clock scheduler, фонового исполнения и автоматического catch-up |
+| Process Manager | `src/process/`, process store/API и integration tests | Полная автономность всех длительных процессов и доказанный production lifecycle |
+| Memory Provider | `src/application/sqlite-memory-provider.js`, raw archive/import/reconciliation/lifecycle paths и соответствующие тесты | Provider-local correctness не доказывает доверенность Host IDs, полноту inventory или сквозную безопасность |
+| NPC memory boundary | `src/npc/memory-candidate-eligibility.js`, `src/application/memory-npc-consumer.js` и тесты | Не доказывает, что персонаж действительно получил, понял или принял сведения; production consumer выключен |
+| Host / Adapter | `host-adapter/prototype/` содержит lifecycle bridge, journal, inventory projection, digest proxy, тесты и patch для закреплённой версии ST | Прототип и patch не считаются установленными, runtime-проверенными или доказательством полного inventory |
+| World Pack | JSON Schema, примеры biological/magic/digital worlds и документация формата | Полный loader и проверенная загрузка/исполнение произвольного World Pack не подтверждены |
 
-**Правило доказательств:** архитектурный документ или открытый PR не является реализованной возможностью. Прохождение CI одной ветки не означает merge, интеграционную готовность или разрешение на production. Различать source-inspected, fixture-tested, runtime-observed и real Android/Termux-tested результаты.
+### Правило доказательств
 
-**Безопасностная граница:** согласованный SQLite snapshot не является разрешением на доступ. Сырые сущности, факты и метаданные событий нельзя напрямую передавать NPC, повествователю или игроку. Проверки авторизации, версии, lineage, inventory и revocation должны быть доказаны на фактическом пути раскрытия. Пока необходимые gates не пройдены, Memory → NPC остаётся выключенным.
+Использовать четыре разных статуса и не смешивать их:
 
-## Активные сквозные блокеры
+- **Source-inspected** — код или документ просмотрен; это ещё не runtime-проверка.
+- **Fixture-tested** — поведение проверено на тестовых данных/заглушках.
+- **Runtime-observed** — поведение наблюдалось при запуске конкретной версии.
+- **Real integration tested** — проверено на целевом Host/Provider/Core/клиентском пути и конкретном окружении.
 
-- **[Issue #264 — Host → Provider evidence and production-readiness gate](https://github.com/necromorphic/Logic-Engine/issues/264):** единый пакет доказательств, Host inventory, Provider reconciliation, точный disclosure boundary и список минимальных решений Core. Не создавать параллельные mapping-документы.
-- **[Issue #258 — Host/Adapter lifecycle evidence](https://github.com/necromorphic/Logic-Engine/issues/258):** проверить идентичность и lifecycle на закреплённой версии SillyTavern `1.19.0-1-g06bde939f` (SHA `06bde939fb1e9c4c8d8641d810f0a916b5bce127`). Пока нет доказанного полного inventory; кандидат patch не считается применённым или runtime-проверенным.
-- **[Issue #181 — Memory Provider](https://github.com/necromorphic/Logic-Engine/issues/181):** Provider blocker #3 интегрирован в `main` через PR #618; Host inventory, независимый anti-rollback authority и production deployment controls остаются вне этого закрытого среза. Приёмка пункта B зафиксирована в [`docs/memory-provider-acceptance-b-2026-10-28.md`](docs/memory-provider-acceptance-b-2026-10-28.md): Core запрещает долговременное хранение исходного текста SillyTavern, поэтому raw capture/read/active-selection остаются fail-closed; это не блокер ожидания нового решения. PR #636 собирает дополнительное Windows acceptance evidence, но пока не слит.
-- **[Issue #226 — Mechanics acceptance](https://github.com/necromorphic/Logic-Engine/issues/226):** остаётся блокер policy-freshness — авторитетный источник политики должен быть проверен при approval/commit, включая end-to-end rotation версии политики.
-- **[Issue #252 — Portfolio manager](https://github.com/necromorphic/Logic-Engine/issues/252):** общий реестр активных блоков, зависимостей, доказательств, владельцев и следующих действий.
+CI отдельной ветки не означает merge. Успешные тесты текущего архива не подтверждают тесты другого SHA. Архив без `.git` не позволяет установить точный commit SHA.
+
+## Memory → NPC: безопасность и блокирующие условия
+
+**Текущий production status: DISABLED / FAIL-CLOSED.**
+
+Что подтверждено в ограниченных границах:
+- Provider реализует операции с записями и lifecycle; provider-тесты проверяют локальное поведение, включая reconciliation, tombstone/revocation и race/interruption cases.
+- Core содержит узкую авторизованную границу чтения и контракт доверия к каноническим источникам.
+- NPC содержит проверку допустимости memory candidates и consumer boundary.
+- Digest ledger принимает идентификаторы версий и SHA-256 digest; сам по себе он не доказывает полноту или подлинность Host inventory.
+
+Что остаётся обязательным до production disclosure:
+1. Авторитетный Host inventory для активных, исторических и удалённых версий, включая изменения, которые не попали в обычные lifecycle events.
+2. Реальные доверенные read-only readers для Core и Provider; тестовые fixtures не заменяют их.
+3. Серверная сборка финального тела запроса SillyTavern и доказательство, что каждый раскрываемый текст соответствует точным проверенным memory candidates.
+4. Проверка доступа и revocation, синхронизированная с фактическим началом отправки, на пути от candidate assembly до serializer/outbound transport.
+5. Доказательство отсутствия обходного маршрута, который позволяет отправить запрещённые данные напрямую.
+6. Для целевого Windows deployment — идентичность службы, ACL базы и файлов WAL/SHM, резервное копирование и восстановление.
+7. Проверка persistence и lifecycle на реальном Android/Termux Host, если он остаётся целевым клиентом.
+
+Согласованный SQLite snapshot не является разрешением на раскрытие. Сырые сущности, факты и метаданные событий нельзя напрямую передавать NPC, повествователю или игроку. Пока gates не закрыты, Memory → NPC не включать.
+
+**Координационные блокеры:**
+- [Issue #264 — Host → Provider evidence and production-readiness gate](https://github.com/necromorphic/Logic-Engine/issues/264) — единый пакет доказательств, Host inventory, Provider reconciliation и точная disclosure boundary.
+- [Issue #258 — Host/Adapter lifecycle evidence](https://github.com/necromorphic/Logic-Engine/issues/258) — lifecycle и inventory на закреплённой версии SillyTavern.
+- [Issue #181 — Memory Provider](https://github.com/necromorphic/Logic-Engine/issues/181) — Provider-local возможности и границы доверия к Host.
+- [Issue #226 — Mechanics acceptance](https://github.com/necromorphic/Logic-Engine/issues/226) — policy-freshness при approval/commit.
+- [Issue #252 — Portfolio manager](https://github.com/necromorphic/Logic-Engine/issues/252) — общий реестр блоков, зависимостей, доказательств и следующих действий.
 
 Не добавлять новые persistent fields, API, schemas, stores, journals, cursors, outboxes, lifecycle hooks или production wiring в Host/Provider path до второго явного одобрения Core на конкретный diff. Не менять существующий патч векторизации.
 
-## Документы
+## SillyTavern и Google AI Studio egress gateway
 
-### Архитектурные контракты
-- `docs/00-architecture-baseline.md` — карта архитектуры и границы ответственности.
-- `docs/01-core-domain-model.md` — универсальные типы канонического состояния.
-- `docs/02-turn-event-delivery-lifecycle.md` — жизненные циклы Turn, WorldEvent и Delivery, идемпотентность и границы коммита.
-- `docs/03-storage-and-persistence-contract.md` — канонические данные, производные индексы, транзакции, изоляция и восстановление.
-- `docs/04-world-pack-format.md` — формат и правила декларативного World Pack.
-- `docs/05-causal-rollback-algorithm.md` — алгоритм построения RollbackPlan и тесты RB-001–RB-014.
-- `docs/06-npc-autonomy-and-process-manager.md` — автономные цели/планы/задачи и параллельные процессы.
-- `docs/07-knowledge-and-narrative-boundaries.md` — знания, приватность, повествование и подтверждение доставки.
-- `docs/56-context-aware-interpretation-of-communicative-intent.md` — контекстная интерпретация коммуникативного намерения, неопределённость, provenance, пересмотр и отзыв гипотез; архитектурное предложение без runtime-реализации.
-- `docs/08-stage1-acceptance-plan.md` — критерии завершения Stage 1, профили миров и матрица тестирования.
-- `docs/09-reuse-and-attribution-register.md` — реестр внешних проектов, лицензий и правил переноса кода.
-- `docs/10-open-decisions.md` — блокирующие и отложенные решения.
-- `docs/11-operations-and-recovery.md` — локальный runtime, безопасность, резервное копирование и восстановление.
-- `docs/12-stage-roadmap.md` — этапы реализации и критерии перехода между ними.
-- `docs/13-sillytavern-adapter-contract.md` — контракт адаптера SillyTavern и граница векторизации.
-- `docs/17-world-agnostic-design-stage1.3.md` — критерий универсальности и граница World Pack.
-- `docs/18-rollback-and-causality.md` — требуемая семантика причинного отката.
-- `docs/19-reuse-audit-existing-projects.md` — анализ готовых проектов и карта адаптации.
-- `docs/21-stage1-causality-contract.md` — гарантии и ограничения текущей причинности, контракт будущей верификации.
-- `docs/25-universal-mechanics-system.md` — архитектура универсальной системы механик.
-- `docs/26-mechanics-contracts.md` — контракты шаблонов/экземпляров/модулей и текущая граница реализации.
-- `docs/32-mechanic-effect-translator-contract.md` — фактическая граница ограниченного translator (только `create_entity`, `update_attribute`, `assert_fact`).
-- `docs/33-mechanic-intent-proposal-boundary.md` — путь `effect_intents` через ProposalService и канонический commit.
-- `docs/34-mechanics-oracle-reconciliation.md` — что реально вошло в Mechanics/Core интеграцию и чего oracle не доказывает.
-- `docs/17-time-process-state-machine-proposal.md` — согласование Time scheduler с Process Manager runtime.
-- `docs/22-process-manager-runtime.md` — текущий runtime-контракт долговременных процессов.
-- `docs/57-core-evaluation-recalculation-boundary.md` — граница логического ядра: интерпретация, оценка, конфликты, commit, пересчёт производного состояния и авторизованная публикация; архитектурное предложение.
+Материал `Security 1.1` описывает отдельный патч к SillyTavern, предназначенный для режима обязательного шлюза Google AI Studio:
 
-### Исполняемый прототип
-- `package.json` — Node.js runtime scripts.
-- `src/core/` — ошибки и ограниченный декларативный evaluator.
-- `src/application/engine.js` — прикладные команды и проверка входных данных.
-- `src/storage/sqlite-store.js` — журнал событий, проекции состояния, аудит и прототип причинного отката.
-- `src/api/server.js` — независимый от интерфейса HTTP API.
-- `tests/` — контрактные тесты.
-- `docs/20-minimal-runtime.md` — запуск, endpoints и ограничения текущей реализации.
+- серверная конфигурация шлюза имеет приоритет над клиентскими `reverse_proxy` и `proxy_password`;
+- при включённом обязательном режиме отсутствие/неполная конфигурация блокирует запрос до отправки, без прямого fallback к Google;
+- защита распространяется на генерацию, список моделей и Google-маршруты image description, TTS и vectorization;
+- credentials передаются в заголовке, не в URL;
+- убран вывод содержимого запросов в диагностике двух Google handlers;
+- для патча заявлены 7 целевых тестов и синтаксические проверки четырёх JS-модулей.
 
-Запуск требует Node.js 22.13+, `ENGINE_API_TOKEN` (не менее 16 символов) и явный абсолютный `LOGIC_ENGINE_COORDINATOR_DB_PATH`, указывающий на отдельный SQLite-файл общего координатора; он должен быть одинаковым у Core и всех подключённых участников и не должен совпадать с `ENGINE_DB_PATH`. `ENGINE_HOST_VERSION_LEDGER_DB_PATH` задаёт отдельный digest-only журнал Host-версий (по умолчанию `./data/logic-engine-host-versions.sqlite`). Его API принимает только идентификаторы версий и SHA-256 digest, не текст сообщений. Пока trusted Host inventory verifier не подключён, reconciliation остаётся fail-closed и Memory→NPC не включается. Координатор сериализует только участвующие в нём записи; он не блокирует сторонний процесс, который напрямую открывает Core DB, поэтому OS-level single-writer isolation остаётся обязательным для production. Для создания proposals настрой `ENGINE_ADAPTER_TOKENS` как JSON-объект идентификаторов адаптеров и отдельных секретов; для регистрации механик/модулей задай отдельный `ENGINE_ADMIN_TOKEN`. `ENGINE_APPROVAL_TOKEN` включает отдельный gate подтверждения. Пример переменных находится в `.env.example`. `npm test` запускает текущие тесты. Встроенный `node:sqlite` в используемых версиях Node может помечаться как experimental.
+Патч проверялся на исходниках SillyTavern с целевым SHA `06bde939fb1e9c4c8d8641d810f0a916b5bce127`. **Он не является частью этого архива Logic-Engine и не считается установленным в рабочем SillyTavern.** Реальный PC gateway, его auth protocol и сетевой запрет прямого egress ещё должны быть проверены. Не включать обязательный режим до запуска и проверки шлюза: при отсутствии gateway запросы будут блокироваться ожидаемым fail-closed образом.
 
-### Решения и схемы
-- `docs/decisions/ADR-0006-rollback-semantics.md` — предлагаемая семантика отката.
-- `docs/decisions/ADR-0007-world-pack-boundary.md` — предлагаемая граница ядра и World Pack.
-- `schemas/world-pack-manifest.schema.json` — начальная JSON Schema манифеста World Pack.
-- `schemas/declarative-rule.schema.json` — ограниченный формат условий и эффектов.
-- `schemas/rollback-plan.schema.json` — структурный контракт плана отката.
-- `schemas/effect-proposal.schema.json` — контракт предложения изменений до валидации и коммита.
-- `schemas/mechanic-template.schema.json` — неизменяемый версионируемый шаблон механики.
-- `schemas/mechanic-instance.schema.json` — экземпляр механики, изолированный внутри мира.
-- `schemas/rule-module-manifest.schema.json` — контракт allowlist-реестра версионированных модулей.
+## Установка и запуск прототипа
 
-### Примеры и независимое ревью
-- `examples/world-packs/biological-world.json` — тестовый профиль с биологическими сущностями.
-- `examples/world-packs/magic-world.json` — тестовый профиль с неизвестными магическими механиками.
-- `examples/world-packs/digital-world.json` — цифровой мир без обязательных биологических полей.
-- `AI_REVIEW_BRIEF.md` — задание для независимого архитектурного аудита языковыми моделями.
+### Требования
 
-## Статус и порядок работы
+- Node.js **22.13+**.
+- npm, поставляемый с Node.js.
+- Отдельный SQLite-файл для каждого хранилища с соблюдением настроенных путей и прав доступа.
 
-Прототип пока не равен полноценному движку и не должен использоваться как production-система. Причинные ссылки задаются вызывающей стороной и не проверяются на полноту; модель знаний, автономные процессы, полный World Pack loader и проверенный SillyTavern-адаптер не завершены. Возможность считается реализованной только после проверки кода, актуального коммита и соответствующих тестов.
+### Установка зависимостей
 
-Текущая экспериментальная реализация использует JavaScript/Node.js + SQLite. Архитектура API не привязана к SillyTavern; конкретные хуки ST-адаптера необходимо проверять отдельно.
+```bash
+npm install
+```
+
+### Конфигурация
+
+Минимально необходим:
+- `ENGINE_API_TOKEN` — секрет длиной не менее 16 символов;
+- `LOGIC_ENGINE_COORDINATOR_DB_PATH` — явный абсолютный путь к отдельной SQLite-базе общего координатора; значение должно быть одинаковым у Core и всех подключённых участников и не должно совпадать с `ENGINE_DB_PATH`.
+
+В зависимости от включённых маршрутов также используются:
+- `ENGINE_DB_PATH` — путь к основной Core DB;
+- `ENGINE_HOST_VERSION_LEDGER_DB_PATH` — отдельный digest-only журнал Host-версий (по умолчанию `./data/logic-engine-host-versions.sqlite`);
+- `ENGINE_ADAPTER_TOKENS` — JSON-объект adapter ID → отдельный secret для adapter-owned proposal operations;
+- `ENGINE_APPROVAL_TOKEN` — отдельный секрет approval gate;
+- `ENGINE_ADMIN_TOKEN` — административные операции, включая world/registry management;
+- `ENGINE_INTERNAL_TOKEN` — ограниченные internal routes, в том числе соответствующие context-manifest и time-trigger операции.
+
+Точный набор переменных и примеры значений смотри в `.env.example` и `docs/20-minimal-runtime.md`. Не используй production-секреты в тестах, логах или репозитории.
+
+### Команды
+
+```bash
+npm start
+npm run dev
+npm test
+npm run benchmark:replay
+```
+
+`npm test` запускает тесты через `node --import ./tests/configure-test-env.js --test`. В загруженном архиве полный запуск завершился **800/800 PASS**. `benchmark:replay` — отдельный benchmark, его результат не включён в указанную проверку.
+
+В используемых версиях Node встроенный `node:sqlite` может иметь статус experimental.
+
+### Важные эксплуатационные ограничения
+
+- Координатор сериализует только операции, участвующие в его протоколе. Он не блокирует сторонний процесс, напрямую открывающий Core DB. Для production необходима OS-level single-writer isolation.
+- Digest ledger хранит идентификаторы версий и digest, а не содержимое сообщений; наличие ledger не заменяет trusted Host inventory verifier.
+- Пока verifier не подключён и обязательные evidence gates не закрыты, reconciliation и Memory disclosure должны оставаться fail-closed.
+- Time trigger registry — сохраняемый планировочный реестр, а не фоновый scheduler. Триггеры исполняются в рамках явных time operations.
+- Не направляй внешний клиент напрямую к SQLite. Используй API и предусмотренные границы авторизации.
+
+## Структура репозитория
+
+### Runtime
+
+- `src/core/` — базовые ошибки, правила, механики и ограниченный effect-intent translator.
+- `src/application/` — прикладные сервисы Core, proposals, authorized reads, actor/host bindings, Memory Provider и интеграционные boundary-компоненты.
+- `src/api/` — HTTP API.
+- `src/storage/` — SQLite store, coordinator lock и process store.
+- `src/time/` — модель времени, TimePolicy и scheduler.
+- `src/process/` — контракты длительных процессов.
+- `src/relationship/` — pure evaluation отношений.
+- `src/npc/` — eligibility boundary для memory candidates.
+
+### Host / Adapter
+
+- `host-adapter/prototype/` — прототип SillyTavern lifecycle bridge, journal, inventory projection, digest proxy, тесты, audit evidence и pinned-source patch.
+- `docs/13-sillytavern-adapter-contract.md` — host-neutral контракт адаптера и граница векторизации.
+
+### Тесты, схемы и примеры
+
+- `tests/` — основной набор Node.js tests.
+- `test/` — дополнительные тесты/проверки.
+- `schemas/` — JSON Schema для World Pack, правил, proposals, mechanics, rollback и TimePolicy.
+- `examples/world-packs/` — biological, magic и digital профили.
+- `benchmarks/` — replay/rollback benchmark scripts.
+- `.github/workflows/` — CI для runtime tests, replay benchmark и Host lifecycle/patch checks.
+
+## Карта документации
+
+Документация в `docs/` — набор контрактов, решений, аудитных материалов и предложений. Наличие документа не означает, что описанная возможность реализована.
+
+### Базовые архитектурные контракты
+- `00-architecture-baseline.md` — архитектурная карта и ответственность блоков.
+- `01-core-domain-model.md` — универсальная модель канонического состояния.
+- `02-turn-event-delivery-lifecycle.md` — Turn, WorldEvent, Delivery, идемпотентность и коммит.
+- `03-storage-and-persistence-contract.md` — хранение, транзакции, изоляция и восстановление.
+- `04-world-pack-format.md` — формат World Pack.
+- `05-causal-rollback-algorithm.md`, `18-rollback-and-causality.md`, `21-stage1-causality-contract.md`, `22-causality-semantics.md`, `24-causality-test-matrix.md` — причинность и rollback.
+- `06-npc-autonomy-and-process-manager.md`, `16-process-manager-core-boundary.md`, `22-process-manager-runtime.md` — автономия и длительные процессы.
+- `07-knowledge-and-narrative-boundaries.md` — границы знаний и повествования.
+- `08-stage1-acceptance-plan.md`, `12-stage-roadmap.md` — этапы и критерии приёмки.
+- `09-reuse-and-attribution-register.md`, `19-reuse-audit-existing-projects.md` — повторное использование и лицензии.
+- `10-open-decisions.md`, `11-operations-and-recovery.md`, `12-sqlite-schema-lifecycle.md`, `15-core-storage-performance-budget.md` — решения и эксплуатация.
+
+### Mechanics, Core и пересчёт
+- `25-universal-mechanics-system.md`, `26-mechanics-contracts.md`, `27-proposal-to-commit-boundary.md`, `28-proposal-api-stage1.md`, `29-mechanic-instance-runtime-design.md`.
+- `30-stage1.3-mechanic-execution-boundary.md`, `31-mechanic-effect-intent-support-matrix.md`, `32-mechanic-effect-translator-contract.md`, `33-mechanic-intent-proposal-boundary.md`, `34-mechanics-oracle-reconciliation.md`.
+- `31-recalculation-strategy-contract.md`, `54-core-proposal-execution-authority-contract.md`, `57-core-evaluation-recalculation-boundary.md`.
+
+### NPC, Relationships и Memory
+- `29-character-cards-contract-v1.2.1.md`, `30-character-card-read-projection-stage1.md`, `31-npc-subsystem-contract.md`.
+- `35-npc-test-boundary-map.md`, `36-npc-core-integration-seam.md`, `37-npc-kernel-readiness-gate.md`, `38-npc-author-decisions-and-semantic-delta.md`, `39-npc-core-knowledge-contract-proposal.md`.
+- `42-npc-relationship-state-contract-proposal.md`, `43-core-npc-knowledge-runtime-implementation-plan.md`, `44-npc-relationship-semantic-acceptance.md`, `45-npc-relationship-typed-operation-design.md`, `46-relationship-domain-module-design.md`, `47-relationship-module-test-traceability.md`, `48-relationship-pure-evaluation-contract.md`, `49-relationship-to-core-typed-transition-handoff.md`.
+- `50-npc-initial-knowledge-acquisition-contract.md`, `51-npc-acquisition-source-reconciliation.md`, `52-npc-memory-consumption-contract-and-failure-matrix.md`, `53-npc-memory-lifecycle-vocabulary-crosswalk.md`, `54-npc-memory-boundary-assumptions-and-integration-gates.md`, `55-npc-delivery-acquisition-boundary-matrix.md`, `56-npc-memory-boundary-acceptance-matrix.md`.
+- `64-core-memory-architecture.md` through `78-*` — Core/Memory contracts, implementation plans, trust/freshness, source identity, provider lifecycle, integration matrices и временные runtime-срезы. Перед реализацией сверяй статус документа: часть материалов является proposal, audit snapshot или handoff, а не разрешением на изменение runtime.
+
+### Time и операционные контракты
+- `17-time-process-state-machine-proposal.md`, `58-time-domain-t1-design.md`, `60-time-coordinate-runtime-slice.md`, `61-time-segment-commit-runtime-slice.md`, `62-due-work-planner.md`, `63-time-advance-operation-runtime-slice.md`, `64-time-policy-calendar-authoring.md`, `78-time-trigger-registry-runtime-slice.md`.
+
+### Прочие важные материалы
+- `13-event-type-contract.md` — типы событий.
+- `13-sillytavern-adapter-contract.md` — адаптер.
+- `17-world-agnostic-design-stage1.3.md` — world-agnostic граница.
+- `20-minimal-runtime.md` — endpoints, запуск и ограничения прототипа.
+- `23-character-and-control-architecture.md` — персонажи и управление.
+- `56-context-aware-interpretation-of-communicative-intent.md` — архитектурное предложение по интерпретации намерения; не считать runtime-функцией.
+- `AI_REVIEW_BRIEF.md` и `docs/21-gemini-core-audit-brief.md` — материалы независимого ревью.
+
+## Порядок дальнейшей работы
+
+1. Использовать [портфельный трекер #252](https://github.com/necromorphic/Logic-Engine/issues/252) как общий реестр активных блоков, зависимостей и доказательств.
+2. Закрывать блокеры по владельцам и текущим issue; не создавать параллельные документы, дублирующие #264 или другие согласованные handoff.
+3. До изменения Host/Provider persistent contract получать явное одобрение Core на конкретный diff.
+4. Для каждой заявленной возможности фиксировать точный commit SHA, тестовую команду, результат и уровень доказательства.
+5. Сначала доказывать узкую runtime-границу, затем интеграцию между блоками, и только после этого рассматривать production enablement.
+
+**Прототип не является production-системой.** Полноценная автономная симуляция, end-to-end Memory → NPC disclosure, полная модель знаний, завершённый World Pack loader и проверенная интеграция SillyTavern остаются отдельными задачами.
