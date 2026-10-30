@@ -1135,11 +1135,20 @@ test('authorized-read HTTP route requires a configured adapter and keeps the def
     body: json({ adapter_id: 'adapter-a', entity_id: 'bound-actor' }),
   });
   assert.equal(bind.status, 201);
+  const conversationBind = await fetch(base + '/v1/host-conversation-bindings', {
+    method: 'POST',
+    headers: { ...headers, 'x-admin-token': ADMIN },
+    body: json({
+      adapter_id: 'adapter-a',
+      conversation_id: 'authorized-read-api-conversation',
+      world_id: 'authorized-read-api-world',
+    }),
+  });
+  assert.equal(conversationBind.status, 201);
 
-  const readUrl = base + '/v1/worlds/authorized-read-api-world/authorized-read';
+  const readUrl = base + '/v1/host/authorized-read';
   const readBody = {
-    actor_entity_id: 'bound-actor',
-    purpose: 'npc_decision',
+    conversation_id: 'authorized-read-api-conversation',
     entity_ids: ['bound-actor'],
     fields: ['entity_id', 'entity_type', 'status', 'attributes.name', 'attributes.secret'],
   };
@@ -1183,12 +1192,9 @@ test('authorized-read HTTP route requires a configured adapter and keeps the def
 test('authorized-read HTTP route rejects caller-supplied policy and identity overrides', async (t) => {
   const base = await setup(t);
   assert.equal((await createWorld(base, 'authorized-read-no-policy-injection')).status, 201);
-  const url = base + '/v1/worlds/authorized-read-no-policy-injection/authorized-read';
+  const url = base + '/v1/host/authorized-read';
   const baseBody = {
-    actor_entity_id: 'actor-a',
-    purpose: 'npc_decision',
-    entity_ids: ['actor-a'],
-    fields: ['entity_id'],
+    conversation_id: 'unbound-conversation',
   };
 
   for (const extra of [
@@ -1244,11 +1250,20 @@ test('authorized-read HTTP route requires a configured adapter and keeps the def
     body: json({ adapter_id: 'adapter-a', entity_id: 'bound-actor' }),
   });
   assert.equal(bind.status, 201);
+  const conversationBind = await fetch(base + '/v1/host-conversation-bindings', {
+    method: 'POST',
+    headers: { ...headers, 'x-admin-token': ADMIN },
+    body: json({
+      adapter_id: 'adapter-a',
+      conversation_id: 'authorized-read-api-conversation',
+      world_id: 'authorized-read-api-world',
+    }),
+  });
+  assert.equal(conversationBind.status, 201);
 
-  const readUrl = base + '/v1/worlds/authorized-read-api-world/authorized-read';
+  const readUrl = base + '/v1/host/authorized-read';
   const readBody = {
-    actor_entity_id: 'bound-actor',
-    purpose: 'npc_decision',
+    conversation_id: 'authorized-read-api-conversation',
     entity_ids: ['bound-actor'],
     fields: ['entity_id', 'entity_type', 'status', 'attributes.name', 'attributes.secret'],
   };
@@ -1292,12 +1307,9 @@ test('authorized-read HTTP route requires a configured adapter and keeps the def
 test('authorized-read HTTP route rejects caller-supplied policy and identity overrides', async (t) => {
   const base = await setup(t);
   assert.equal((await createWorld(base, 'authorized-read-no-policy-injection')).status, 201);
-  const url = base + '/v1/worlds/authorized-read-no-policy-injection/authorized-read';
+  const url = base + '/v1/host/authorized-read';
   const baseBody = {
-    actor_entity_id: 'actor-a',
-    purpose: 'npc_decision',
-    entity_ids: ['actor-a'],
-    fields: ['entity_id'],
+    conversation_id: 'unbound-conversation',
   };
 
   for (const extra of [
@@ -1760,10 +1772,10 @@ test('credential checks reject malformed and length-mismatched request secrets',
   });
   assert.equal(validInternal.status, 200);
 
-  const wrongAdapter = await fetch(base + '/v1/worlds/credential-check-world/authorized-read', {
+  const wrongAdapter = await fetch(base + '/v1/host/npc-knowledge/read', {
     method: 'POST',
     headers: { ...headers, 'x-adapter-token': 'x' },
-    body: json({ actor_entity_id: 'npc', purpose: 'credential-check', fields: ['entity_id'] }),
+    body: json({ conversation_id: 'credential-check-conversation' }),
   });
   assert.equal(wrongAdapter.status, 403);
   assert.equal((await wrongAdapter.json()).error.code, 'ADAPTER_REQUIRED');
