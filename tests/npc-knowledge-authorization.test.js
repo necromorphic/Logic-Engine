@@ -136,7 +136,7 @@ test('Core resolves world and actor only from active bindings and denies ambiguo
 });
 
 test('Core reader, belief writer, and belief-state reader reject caller-selected world or actor scope', (t) => {
-  const { store, authorizers, scope } = setup(t);
+  const { store, authorizers, scope, actors } = setup(t);
   const guardedEngine = new LogicEngine(store, {
     npcKnowledgeContextResolver: authorizers.resolveContext,
     npcKnowledgeReadAuthorizer: authorizers.readAuthorizer,
@@ -185,7 +185,6 @@ test('Core reader, belief writer, and belief-state reader reject caller-selected
   }), { code: 'NPC_KNOWLEDGE_READ_NOT_AUTHORIZED' });
 
   // Revocation blocks a previously valid actor on both state mutation and read.
-  const { actors } = setup(t);
   actors.revoke('world-a', 'adapter-st', 'npc-a');
   const revokedWrite = {
     ...request,
