@@ -141,26 +141,144 @@ static int probe_replace_with_hardlink(const char *path, const char *target) {
   sqlite3_free(wide_target);
   return ok;
 }
+static LPCWSTR probe_strip_extended_prefix(LPCWSTR path) {
+  return path && wcsncmp(path, L"\\\\?\\", 4) == 0 ? path + 4 : path;
+}
+
+static int probe_win_path_equal(LPCWSTR left, LPCWSTR right) {
+  left = probe_strip_extended_prefix(left);
+  right = probe_strip_extended_prefix(right);
+  return left && right
+    && CompareStringOrdinal(left, -1, right, -1, TRUE) == CSTR_EQUAL;
+}
+
+static int probe_match_role_entry_w(LPCWSTR path, int *role_index,
+                                    const wchar_t **suffix) {
+  LPCWSTR candidate = probe_strip_extended_prefix(path);
+  size_t candidate_length;
+  int found = -1;
+  const wchar_t *found_suffix = NULL;
+  if (!candidate || !role_index || !suffix) return 0;
+  candidate_length = wcslen(candidate);
+  probe_registry_lock();
+  for (int i = 0; i < g_database_role_count; i++) {
+    wchar_t *base = probe_utf8_to_wide(g_database_roles[i].path);
+    LPCWSTR normalized_base;
+    size_t base_length;
+    if (!base) continue;
+    normalized_base = probe_strip_extended_prefix(base);
+    base_length = wcslen(normalized_base);
+    if (candidate_length == base_length
+        && CompareStringOrdinal(candidate, (int)base_length,
+             normalized_base, (int)base_length, TRUE) == CSTR_EQUAL) {
+      found = i;
+      found_suffix = L"";
+    } else if (candidate_length > base_length
+        && CompareStringOrdinal(candidate, (int)base_length,
+             normalized_base, (int)base_length, TRUE) == CSTR_EQUAL) {
+      LPCWSTR tail = candidate + base_length;
+      if (probe_win_path_equal(tail, L"-wal")) {
+        found = i;
+        found_suffix = L"-wal";
+      } else if (probe_win_path_equal(tail, L"-shm")) {
+        found = i;
+        found_suffix = L"-shm";
+      } else if (probe_win_path_equal(tail, L"-journal")) {
+        found = i;
+        found_suffix = L"-journal";
+      }
+    }
+    sqlite3_free(base);
+    if (found >= 0) break;
+  }
+  probe_registry_unlock();
+  if (found < 0) return 0;
+  *role_index = found;
+  *suffix = found_suffix;
+  return 1;
+}
+
+static wchar_t *probe_win_relative_name(const ProbeDatabaseRole *role,
+                                        const wchar_t *suffix) {
+  size_t base_length = wcslen(role->anchor.basename);
+  size_t suffix_length = wcslen(suffix);
+  wchar_t *name;
+  if (base_length + suffix_length > 32760) return NULL;
+  name = (wchar_t *)sqlite3_malloc64(
+    (sqlite3_uint64)(base_length + suffix_length + 1) * sizeof(wchar_t));
+  if (!name) return NULL;
+  memcpy(name, role->anchor.basename, base_length * sizeof(wchar_t));
+  memcpy(name + base_length, suffix, (suffix_length + 1) * sizeof(wchar_t));
+  return name;
+}
+
+static int probe_win_map_create_file(
+  DWORD creation, DWORD attributes, ULONG *disposition,
+  ULONG *options, ULONG *file_attributes) {
+  DWORD flags = attributes & 0xffff0000u;
+  DWORD allowed_flags = FILE_FLAG_WRITE_THROUGH | FILE_FLAG_NO_BUFFERING
+    | FILE_FLAG_RANDOM_ACCESS | FILE_FLAG_SEQUENTIAL_SCAN
+    | FILE_FLAG_DELETE_ON_CLOSE | FILE_FLAG_OPEN_REPARSE_POINT;
+  switch (creation) {
+    case CREATE_NEW: *disposition = FILE_CREATE; break;
+    case CREATE_ALWAYS: *disposition = FILE_OVERWRITE_IF; break;
+    case OPEN_EXISTING: *disposition = FILE_OPEN; break;
+    case OPEN_ALWAYS: *disposition = FILE_OPEN_IF; break;
+    case TRUNCATE_EXISTING: *disposition = FILE_OVERWRITE; break;
+    default: return 0;
+  }
+  if ((flags & ~allowed_flags) != 0) return 0;
+  *options = 0;
+  if ((flags & FILE_FLAG_WRITE_THROUGH) != 0) *options |= FILE_WRITE_THROUGH;
+  if ((flags & FILE_FLAG_NO_BUFFERING) != 0) *options |= FILE_NO_INTERMEDIATE_BUFFERING;
+  if ((flags & FILE_FLAG_DELETE_ON_CLOSE) != 0) *options |= FILE_DELETE_ON_CLOSE;
+  *file_attributes = attributes & 0x0000ffffu;
+  if (*file_attributes == 0) *file_attributes = FILE_ATTRIBUTE_NORMAL;
+  if ((*file_attributes & FILE_ATTRIBUTE_NORMAL) != 0
+      && *file_attributes != FILE_ATTRIBUTE_NORMAL) {
+    *file_attributes &= ~FILE_ATTRIBUTE_NORMAL;
+  }
+  return 1;
+}
+
 typedef HANDLE (WINAPI *probe_create_file_w_fn)(
   LPCWSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD, DWORD, HANDLE
 );
+
 static HANDLE WINAPI probe_create_file_w(
   LPCWSTR name, DWORD access, DWORD share, LPSECURITY_ATTRIBUTES security,
   DWORD creation, DWORD attributes, HANDLE template_file
 ) {
-  HANDLE handle;
+  HANDLE handle = INVALID_HANDLE_VALUE;
   LogicEngineWinFileIdentity info_identity;
   DWORD file_attributes = 0;
-  int is_sidecar = (g_current_sidecar_open && !g_current_sidecar_captured)
-    || probe_wide_path_is_shm(name);
-  int needs_identity = is_sidecar
+  int role_index = -1;
+  const wchar_t *suffix = NULL;
+  int has_anchor = name && probe_match_role_entry_w(name, &role_index, &suffix);
+  int main_role_open = has_anchor && suffix[0] == L'\0';
+  int is_sidecar = (has_anchor && suffix[0] != L'\0')
+    || (g_current_sidecar_open && !g_current_sidecar_captured)
+    || (name && probe_wide_path_is_shm(name));
+  int needs_identity = has_anchor || is_sidecar
     || (g_current_race_open && !g_current_race_captured)
     || (g_current_role_index >= 0 && !g_current_role_captured);
   int injected_here = 0;
   probe_counter_increment(&g_native_open_count);
+
+  if ((g_current_role_index >= 0
+        && (!main_role_open || role_index != g_current_role_index))
+      || ((g_current_sidecar_open || (name && probe_wide_path_is_shm(name)))
+        && !has_anchor)
+      || (g_current_race_open && !has_anchor)) {
+    SetLastError(ERROR_ACCESS_DENIED);
+    probe_counter_increment(&g_identity_reject_count);
+    if (is_sidecar) probe_counter_increment(&g_sidecar_identity_reject_count);
+    return INVALID_HANDLE_VALUE;
+  }
+
   if (g_race_inject_once && g_race_path && g_race_target_path) {
     wchar_t *race_path = probe_utf8_to_wide(g_race_path);
-    if (race_path && wcscmp(name, race_path) == 0) {
+    if (race_path && probe_win_path_equal(name, race_path)) {
       g_race_inject_once = 0;
       if (!probe_replace_with_hardlink(g_race_path, g_race_target_path)) {
         sqlite3_free(race_path);
@@ -174,10 +292,39 @@ static HANDLE WINAPI probe_create_file_w(
     }
     sqlite3_free(race_path);
   }
-  if (needs_identity) attributes |= FILE_FLAG_OPEN_REPARSE_POINT;
-  handle = ((probe_create_file_w_fn)g_original_open_syscall)(
-    name, access, share, security, creation, attributes, template_file
-  );
+
+  if (has_anchor) {
+    ProbeDatabaseRole *role = &g_database_roles[role_index];
+    wchar_t *relative_name;
+    ULONG disposition, options, native_attributes;
+    ACCESS_MASK desired_access = (ACCESS_MASK)access;
+    const LogicEngineWinFileIdentity *expected =
+      main_role_open ? &role->identity : NULL;
+    if (security || template_file
+        || !probe_win_map_create_file(creation, attributes,
+             &disposition, &options, &native_attributes)) {
+      SetLastError(ERROR_NOT_SUPPORTED);
+      return INVALID_HANDLE_VALUE;
+    }
+    if ((options & FILE_DELETE_ON_CLOSE) != 0) desired_access |= DELETE;
+    relative_name = probe_win_relative_name(role, suffix);
+    if (!relative_name) {
+      SetLastError(ERROR_NOT_ENOUGH_MEMORY);
+      return INVALID_HANDLE_VALUE;
+    }
+    handle = logic_engine_win_open_relative(role->anchor.parent,
+      relative_name, desired_access, share, disposition, options,
+      native_attributes, expected, &info_identity);
+    sqlite3_free(relative_name);
+  } else if (needs_identity) {
+    /* Registered DB and sidecar paths must never fall back to absolute opens. */
+    SetLastError(ERROR_ACCESS_DENIED);
+    return INVALID_HANDLE_VALUE;
+  } else {
+    handle = ((probe_create_file_w_fn)g_original_open_syscall)(
+      name, access, share, security, creation, attributes, template_file);
+  }
+
   if (handle == INVALID_HANDLE_VALUE || !needs_identity) {
     if (injected_here) {
       g_current_race_open = 0;
@@ -186,27 +333,34 @@ static HANDLE WINAPI probe_create_file_w(
     return handle;
   }
 
+  if (!logic_engine_win_identity(handle, &info_identity, &file_attributes)
+      || (file_attributes & FILE_ATTRIBUTE_DIRECTORY) != 0) {
+    CloseHandle(handle);
+    if (injected_here) {
+      g_current_race_open = 0;
+      g_current_race_captured = 0;
+    }
+    SetLastError(ERROR_ACCESS_DENIED);
+    probe_counter_increment(&g_identity_reject_count);
+    if (is_sidecar) probe_counter_increment(&g_sidecar_identity_reject_count);
+    return INVALID_HANDLE_VALUE;
+  }
+
   probe_registry_lock();
   {
-    int reject = !logic_engine_win_identity(handle, &info_identity, &file_attributes)
-      || (file_attributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
-    if (!reject && g_current_role_index >= 0 && !g_current_role_captured) {
-      ProbeDatabaseRole *role = &g_database_roles[g_current_role_index];
-      if (role->identity_set) {
-        reject = !logic_engine_win_identity_equal(&info_identity, &role->identity);
-      } else {
-        for (int i = 0; i < g_database_role_count; i++) {
-          ProbeDatabaseRole *other = &g_database_roles[i];
-          if (i != g_current_role_index && other->identity_set
-              && logic_engine_win_identity_equal(&info_identity, &other->identity)) reject = 1;
-        }
-      }
+    int reject = 0;
+    if (main_role_open) {
+      ProbeDatabaseRole *role = &g_database_roles[role_index];
+      reject = !logic_engine_win_identity_equal(&info_identity, &role->identity);
     }
     if (!reject && is_sidecar) {
       for (int i = 0; i < g_database_role_count; i++) {
         ProbeDatabaseRole *role = &g_database_roles[i];
         if (role->identity_set
-            && logic_engine_win_identity_equal(&info_identity, &role->identity)) reject = 1;
+            && logic_engine_win_identity_equal(&info_identity, &role->identity)) {
+          reject = 1;
+          break;
+        }
       }
     }
     if (!reject && g_current_race_open && !g_current_race_captured
@@ -225,12 +379,6 @@ static HANDLE WINAPI probe_create_file_w(
       SetLastError(ERROR_ACCESS_DENIED);
       return INVALID_HANDLE_VALUE;
     }
-    if (g_current_role_index >= 0 && !g_current_role_captured
-        && !g_database_roles[g_current_role_index].identity_set) {
-      ProbeDatabaseRole *role = &g_database_roles[g_current_role_index];
-      role->identity = info_identity;
-      role->identity_set = 1;
-    }
     if (g_current_race_open && !g_current_race_captured && !g_race_identity_set) {
       g_race_identity = info_identity;
       g_race_identity_set = 1;
@@ -239,14 +387,16 @@ static HANDLE WINAPI probe_create_file_w(
       g_sidecar_identity_check_count += 1;
       if (g_current_sidecar_open) g_current_sidecar_captured = 1;
     }
-    if (g_current_role_index >= 0) g_current_role_captured = 1;
+    if (main_role_open && g_current_role_index >= 0) g_current_role_captured = 1;
     if (g_current_race_open) g_current_race_captured = 1;
   }
   probe_registry_unlock();
+
   if (injected_here) {
     g_current_race_open = 0;
     g_current_race_captured = 0;
   }
+  SetLastError(ERROR_SUCCESS);
   return handle;
 }
 #else
