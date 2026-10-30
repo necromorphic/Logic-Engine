@@ -297,7 +297,7 @@ The following are not solved by adding the NPC store:
 6. No Core-to-NPC event invalidation/reconciliation handoff is verified.
 7. The target NPC-store engine is selected as a dedicated SQLite database; its secure file-open mechanism, path, backup/restore and migration strategy remain unresolved. Implementation is blocked by Issue #770.
 
-Therefore the next implementation should be split: first implement/test the NPC-local repository and atomic lifecycle operations against the accepted domain contract; do not wire autonomous world actions until the independent Core/Host trust and dispatch gates pass.
+Therefore the next implementation should be split: first resolve Issue #770's secure SQLite open/identity gate; then implement/test the NPC-local repository and atomic lifecycle operations against the accepted domain contract. Do not wire autonomous world actions until the independent Core/Host trust, dispatch, result-reconciliation and rollback gates pass.
 
 ## 13. Source evidence and limits
 
@@ -310,7 +310,7 @@ Inspected on current `main` and the NPC autonomy branch:
 - `src/application/authorized-read-service.js`: bounded actor/purpose/field read, paired snapshot cursor, post-policy binding/snapshot revalidation; trusted field policy required.
 - `src/application/proposals.js`: persistent proposal lifecycle, request-hash idempotency, explicit approval, stale snapshot checks, Core commit, stored commit-result replay.
 - `src/storage/sqlite-store.js`: Core canonical world/event/snapshot/transaction/rollback storage. Its transaction callback is synchronous and atomic within the Core store; it is not an NPC-local repository.
-- `docs/03-storage-and-persistence-contract.md`: prototype SQLite storage; production storage and physical-isolation strategy remain open.
+- `docs/03-storage-and-persistence-contract.md`: prototype SQLite storage; the Core storage prototype does not itself establish a production NPC repository or its separate-file security guarantees.
 - `docs/31-npc-subsystem-contract.md`, `docs/34-npc-decision-context-and-proposal.md`, `docs/81-npc-goal-action-contracts-proposal.md`, `docs/88-npc-cognition-development-roadmap.md`, and `docs/89-npc-epistemic-model-stage-1-proposal.md`: domain ownership, earlier slice limits, and Core-owned knowledge/belief constraints.
 
 This source inspection did not execute tests. It does not establish that the proposed repository, actor-specific context builder, NPC dispatcher, or rollback handoff exists.
