@@ -476,7 +476,7 @@ This is the current NPC execution record. Earlier dated sections above are histo
 
 The old PRs are closed. The comparison shows no Personality/Core/Memory/Host/Relationships/vectorization path to port from those historical heads. Their ancestry is not part of the new implementation diff.
 
-The clean replacement is [PR #769](https://github.com/necromorphic/Logic-Engine/pull/769), Draft, based exactly on `8c8b9059ae12af3a63e96eb7cb86851e12a6d925`. The implementation commit `f5e14c4ddf5aa9f9bc020bf3cf01b8faab8ca674` contains the current reducer/mapping hardening; its exact-head Runtime workflow is pending at the time of this matrix update. Earlier code heads passed, but do not substitute those runs for this exact head. Its four changed paths are:
+The clean replacement is [PR #769](https://github.com/necromorphic/Logic-Engine/pull/769), Draft, based exactly on `8c8b9059ae12af3a63e96eb7cb86851e12a6d925`. The exact implementation head `edf8c101b6eaf2038196c5236b0a578a600e54b7` passed Runtime workflow [#41034902493](https://github.com/necromorphic/Logic-Engine/actions/runs/41034902493): full Runtime 1201/1201, NPC boundary 141/141, Core trusted acquisition 15/15, Host lifecycle 72/72, and recalculation oracle 20/20; all reported suites had zero failures and zero skipped tests. Its four changed paths are:
 - `.github/workflows/runtime-tests.yml` — NPC-owned boundary workflow adds the reducer test and repository test bootstrap;
 - `src/npc/epistemic-state.js` — NPC-owned reducer and conservative mapping;
 - `tests/npc-epistemic-state.test.js` — focused reducer/mapping regressions.
@@ -530,7 +530,7 @@ NPC therefore has no approved real callsite/context envelope to implement yet. D
 | Hop | Exact code / test evidence | Evidence class | Current result |
 |---|---|---|---|
 | NPC admission | `src/npc/memory-candidate-eligibility.js`; `tests/npc-memory-candidate-eligibility.test.js` | Source + focused tests on main | Component PASS; caller metadata is not authenticated |
-| NPC epistemic reducer | `src/npc/epistemic-state.js`; `tests/npc-epistemic-state.test.js` | Source + focused tests in #769 | Exact-head CI pending; no runtime caller |
+| NPC epistemic reducer | `src/npc/epistemic-state.js`; `tests/npc-epistemic-state.test.js` | Source + focused tests in #769 | Exact-head CI PASS on #41034902493; no runtime caller |
 | Core acquisition reader | `src/application/engine.js`, `readNpcKnowledge()`; draft #764 | Candidate source + candidate tests | NOT ACCEPTED / authorizers unconfigured |
 | Host authenticated session / recipient | No production callsite identified in pinned Host path | Not verified | BLOCKED — Host owner |
 | NPC context serializer / model envelope | No production serializer consuming Core reader result | Not implemented | BLOCKED — NPC can implement after Core/Host contract |
