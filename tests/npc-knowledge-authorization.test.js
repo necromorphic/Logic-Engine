@@ -205,6 +205,38 @@ test('Core reader, belief writer, and belief-state reader reject caller-selected
   }), { code: 'NPC_KNOWLEDGE_READ_NOT_AUTHORIZED' });
 });
 
+test('Core revalidates Host binding after the acquisition query before returning a read', (t) => {
+  const { store, authorizers, scope, conversations } = setup(t);
+  let revoked = false;
+  const readAuthorizer = (request) => {
+    const decision = authorizers.readAuthorizer(request);
+    if (!revoked) {
+      revoked = true;
+      conversations.revoke({
+        adapterId: scope.adapter_id,
+        conversationId: scope.conversation_id,
+        reason: 'revoke during read authorization',
+      });
+    }
+    return decision;
+  };
+  const engine = new LogicEngine(store, {
+    npcKnowledgeContextResolver: authorizers.resolveContext,
+    npcKnowledgeReadAuthorizer: readAuthorizer,
+    npcKnowledgeVisibilityAuthorizer: authorizers.visibilityAuthorizer,
+  });
+  const request = {
+    ...scope,
+    expected_revision: scope.world_revision,
+    expected_commit_sequence: scope.commit_sequence,
+    limit: 20,
+  };
+  assert.throws(() => engine.readNpcKnowledge(request), {
+    code: 'NPC_KNOWLEDGE_READ_NOT_AUTHORIZED',
+  });
+  assert.equal(revoked, true);
+});
+
 test('per-acquisition visibility requires exact trusted source provenance and the same live Host/actor bindings', (t) => {
   const { authorizers, scope, conversations } = setup(t);
   const acquisition = {
