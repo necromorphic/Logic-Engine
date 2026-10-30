@@ -72,12 +72,6 @@ function setup(t, authorizer = (scope) => ({
     ) VALUES(?,?,?,1,datetime('now'),datetime('now'))
   `).run(binding.adapter_id, binding.conversation_id, binding.world_id);
 
-  store.db.prepare(`
-    INSERT INTO host_conversation_world_bindings(
-      adapter_id,conversation_id,world_id,active,created_at,updated_at
-    ) VALUES(?,?,?,1,datetime('now'),datetime('now'))
-  `).run(binding.adapter_id, binding.conversation_id, binding.world_id);
-
   engine.commitEvent('world-a', {
     event_id: 'author-seed',
     idempotency_key: 'author-seed-key',
