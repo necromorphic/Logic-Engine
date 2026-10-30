@@ -1030,6 +1030,14 @@ test('canonical entity-attribute provider constructs versioned context and evide
   enableFixture(engine, worldId);
   const value = template();
   const snapshot = engine.getSnapshot(worldId, { includeMechanicEvaluationState: true });
+  const actorBindings = new ActorBindingService(engine);
+  actorBindings.bind(worldId, 'test-adapter', 'entity.actor-context');
+  const policyAuthority = new MechanicPolicyAuthority({
+    authorityId: 'test-mechanic-policy-authority',
+    generation: 1,
+    fieldPolicy: () => true,
+  });
+  const authorizedReads = new AuthorizedReadService(engine, actorBindings, policyAuthority);
   const provider = new CanonicalEntityAttributeContextProvider(engine, {
     policyVersion: 'visibility-policy-v1',
     authorizationScope: 'test-principal',
@@ -1037,7 +1045,11 @@ test('canonical entity-attribute provider constructs versioned context and evide
       { path: 'world.weather', entity_id: 'entity.world-context', attribute: 'weather' },
       { path: 'actor.hp', entity_id: 'entity.actor-context', attribute: 'hp' },
     ],
-    canRead: () => true,
+    authorizedReadService: authorizedReads,
+    adapterId: 'test-adapter',
+    actorEntityId: 'entity.actor-context',
+    recipient: 'model',
+    purpose: 'npc_decision',
   });
   const resolved = provider.resolve({ worldId, snapshot, template: value, action: value.actions[0] });
   assert.deepEqual(resolved.context, { actor: { hp: 10 }, world: { weather: 'rain' } });
