@@ -1224,7 +1224,9 @@ export class LogicEngine {
           409, { trigger_ids: reviewGatedDue.map((trigger) => trigger.trigger_id), target_coordinate: x.to_coordinate });
       }
       if (triggerSource === 'registered') {
-        triggerSnapshot = this.store.listTimeTriggers(id, true);
+        // A pending trigger owned by a process under reconciliation is not eligible
+        // for replay; advancement stops before its due coordinate until explicit repair.
+        triggerSnapshot = allRegisteredTriggers.filter((trigger) => !isReviewGatedProcessTrigger(trigger));
         const overdue = triggerSnapshot
           .filter((trigger) => trigger.status === 'pending' && trigger.due_coordinate <= from)
           .map((trigger) => trigger.trigger_id);

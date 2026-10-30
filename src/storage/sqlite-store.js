@@ -2034,6 +2034,8 @@ export class SQLiteStore {
         input.error ? enc(input.error) : null, stamp, stamp,
       );
       for (const triggerId of triggerIds) {
+        // Claim ownership is transient operation metadata, not a trigger checkpoint
+        // transition; leave updated_at unchanged until the trigger's state changes.
         this.db.prepare('UPDATE world_time_triggers SET claimed_by_operation_id=? WHERE world_id=? AND trigger_id=?')
           .run(input.operation_id, input.world_id, triggerId);
       }
