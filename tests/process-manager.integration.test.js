@@ -1264,3 +1264,47 @@ test('failed review audit keeps operation retryable and process gate atomic', (t
   assert.equal(engine.getTimeTrigger('world-a', 'journey-depart').claimed_by_operation_id, null);
   assert.equal(engine.getState('world-a').game_time_coordinate, beforeState.game_time_coordinate);
 }));
+
+
+test('same process identity and idempotency key are isolated across worlds', (t) => withDatabase(t, ({ engine, store }) => {
+  store.createWorld(worldInput('world-a'));
+  store.createWorld(worldInput('world-b'));
+
+  const request = processInput({
+    idempotency_key: 'shared-create-journey',
+    expected_revision: 0,
+  });
+  const first = engine.createProcess('world-a', request);
+  const second = engine.createProcess('world-b', request);
+
+  assert.equal(first.idempotent_replay, false);
+  assert.equal(second.idempotent_replay, false);
+  assert.equal(first.process.process_id, 'journey-1');
+  assert.equal(second.process.process_id, 'journey-1');
+  assert.equal(engine.getProcess('world-a', 'journey-1').status, 'scheduled');
+  assert.equal(engine.getProcess('world-b', 'journey-1').status, 'scheduled');
+  assert.equal(engine.listProcesses('world-a').length, 1);
+  assert.equal(engine.listProcesses('world-b').length, 1);
+  assert.equal(engine.listTimeTriggers('world-a').length, 2);
+  assert.equal(engine.listTimeTriggers('world-b').length, 2);
+
+  const worldA = engine.getState('world-a');
+  const worldB = engine.getState('world-b');
+  const advanceA = engine.startTimeAdvance('world-a', {
+    idempotency_key: 'same-advance-key',
+    expected_revision: worldA.world_revision,
+    to_coordinate: 1000,
+  });
+  const advanceB = engine.startTimeAdvance('world-b', {
+    idempotency_key: 'same-advance-key',
+    expected_revision: worldB.world_revision,
+    to_coordinate: 1000,
+  });
+
+  assert.equal(advanceA.status, 'completed');
+  assert.equal(advanceB.status, 'completed');
+  assert.equal(engine.getProcess('world-a', 'journey-1').progress.completed, 1);
+  assert.equal(engine.getProcess('world-b', 'journey-1').progress.completed, 1);
+  assert.notDeepEqual(engine.getProcess('world-a', 'journey-1').milestones[0].completed_event_ids,
+    engine.getProcess('world-b', 'journey-1').milestones[0].completed_event_ids);
+}));
