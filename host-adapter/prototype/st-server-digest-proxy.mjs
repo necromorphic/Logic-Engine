@@ -97,3 +97,106 @@ export function createHostDigestProxyHandler({
     }
   };
 }
+
+
+const RECONCILE_ALLOWED_FIELDS = new Set(['conversation_id', 'complete', 'versions']);
+const RECONCILE_VERSION_FIELDS = new Set([
+  'message_id', 'version_id', 'parent_version_id', 'content_sha256', 'active', 'deleted',
+]);
+const MAX_RECONCILE_BYTES = 8 * 1024 * 1024;
+const MAX_RECONCILE_VERSIONS = 25000;
+
+function validReconciliation(body) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)
+    || Object.getPrototypeOf(body) !== Object.prototype
+    || Object.keys(body).some(key => !RECONCILE_ALLOWED_FIELDS.has(key))
+    || !validId(body.conversation_id)
+    || typeof body.complete !== 'boolean'
+    || !Array.isArray(body.versions)
+    || body.versions.length > MAX_RECONCILE_VERSIONS) return false;
+  return body.versions.every(version => version && typeof version === 'object' && !Array.isArray(version)
+    && Object.getPrototypeOf(version) === Object.prototype
+    && Object.keys(version).every(key => RECONCILE_VERSION_FIELDS.has(key))
+    && validId(version.message_id)
+    && validId(version.version_id)
+    && Object.hasOwn(version, 'parent_version_id')
+    && (version.parent_version_id === null || validId(version.parent_version_id))
+    && typeof version.content_sha256 === 'string' && /^[a-f0-9]{64}$/.test(version.content_sha256)
+    && typeof version.active === 'boolean'
+    && typeof version.deleted === 'boolean'
+    && !(version.deleted && version.active));
+}
+
+/**
+ * Same-origin SillyTavern server proxy for a complete digest-only Host snapshot.
+ * The caller cannot select the Core URL or provide Core/adapter credentials.
+ * The complete flag is passed through exactly; the current bridge sets it false
+ * until all lifecycle paths and pinned-source attestation are accepted.
+ */
+export function createHostInventoryReconcileProxyHandler({
+  env = process.env,
+  fetchImpl = globalThis.fetch,
+  timeoutMs = 5000,
+} = {}) {
+  if (typeof fetchImpl !== 'function') throw new TypeError('A fetch implementation is required');
+  if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 30000) {
+    throw new TypeError('timeoutMs must be an integer between 1 and 30000');
+  }
+  return async function hostInventoryReconcileProxy(request, response) {
+    const target = configuredTarget(env);
+    if (!target) {
+      return response.status(503).json({
+        error: { code: 'LOGIC_ENGINE_PROXY_UNCONFIGURED', message: 'The server-side Logic-Engine bridge is not configured.' },
+      });
+    }
+    let bodyBytes = Infinity;
+    try { bodyBytes = Buffer.byteLength(JSON.stringify(request?.body)); } catch {}
+    if (bodyBytes > MAX_RECONCILE_BYTES) {
+      return response.status(413).json({
+        error: { code: 'HOST_INVENTORY_TOO_LARGE', message: 'Host inventory request exceeds the 8 MiB limit.' },
+      });
+    }
+    if (!validReconciliation(request?.body)) {
+      return response.status(400).json({
+        error: { code: 'INVALID_HOST_INVENTORY_RECONCILIATION', message: 'Only a bounded digest-only complete-inventory envelope is accepted.' },
+      });
+    }
+    const body = {
+      conversation_id: request.body.conversation_id,
+      complete: request.body.complete,
+      versions: request.body.versions.map(version => ({
+        message_id: version.message_id,
+        version_id: version.version_id,
+        parent_version_id: version.parent_version_id,
+        content_sha256: version.content_sha256,
+        active: version.active,
+        deleted: version.deleted,
+      })),
+    };
+    target.url.pathname = '/v1/host-version-ledger/reconcile';
+    try {
+      const upstream = await fetchImpl(target.url, {
+        method: 'POST',
+        headers: {
+          authorization: 'Bearer ' + target.apiToken,
+          'content-type': 'application/json',
+          'x-adapter-id': target.adapterId,
+          'x-adapter-token': target.adapterToken,
+        },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      let payload;
+      try { payload = await upstream.json(); } catch {
+        return response.status(502).json({
+          error: { code: 'LOGIC_ENGINE_INVALID_RESPONSE', message: 'Logic-Engine returned an invalid response.' },
+        });
+      }
+      return response.status(upstream.status).json(payload);
+    } catch {
+      return response.status(502).json({
+        error: { code: 'LOGIC_ENGINE_UNREACHABLE', message: 'Logic-Engine inventory reconciliation is unavailable.' },
+      });
+    }
+  };
+}
