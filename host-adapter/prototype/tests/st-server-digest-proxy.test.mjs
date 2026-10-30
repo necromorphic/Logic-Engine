@@ -110,7 +110,7 @@ test('proxy rejects upstream URL credentials and paths from configuration', asyn
     await createHostDigestProxyHandler({
       env: { ...CONFIG, LOGIC_ENGINE_CORE_URL: value },
       fetchImpl: async () => { throw Error('must not call upstream'); },
-    })({ body: capture }, response);
+    })(requestFor(capture), response);
     assert.equal(response.statusCode, 503);
   }
 });
@@ -120,7 +120,7 @@ test('proxy maps upstream transport failures to a generic response without leaki
   await createHostDigestProxyHandler({
     env: CONFIG,
     fetchImpl: async () => { throw Error('private upstream secret and raw body'); },
-  })({ body: capture }, response);
+  })(requestFor(capture), response);
   assert.equal(response.statusCode, 502);
   assert.equal(response.payload.error.code, 'LOGIC_ENGINE_UNREACHABLE');
   assert.equal(JSON.stringify(response.payload).includes('private upstream secret'), false);
