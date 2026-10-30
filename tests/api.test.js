@@ -5,6 +5,7 @@ import { SQLiteStore } from '../src/storage/sqlite-store.js';
 import { LogicEngine } from '../src/application/engine.js';
 import { ProposalService } from '../src/application/proposals.js';
 import { createApiServer, createActiveMechanicPolicyValidator } from '../src/api/server.js';
+import { DeploymentPolicyAuthority } from '../src/application/deployment-policy-authority.js';
 
 const TOKEN = 'test-token-long-enough-123456';
 const INTERNAL = 'internal-token-long-enough-123456';
@@ -1873,6 +1874,44 @@ test('active mechanic policy validator resolves the current owner on every check
   }
 });
 
+
+test('mechanic validator requires the exact deployment authority instance and current generation', () => {
+  let generation = 1;
+  const authority = new DeploymentPolicyAuthority({
+    authorityIdentity: 'deployment.visibility',
+    resolveActivePolicy: () => ({
+      authority_identity: 'deployment.visibility',
+      generation,
+      authorizeField: () => true,
+    }),
+  });
+  const provider = {
+    getPolicyAuthority: () => authority,
+    validateMechanicPolicy(identity) {
+      return identity.policyAuthority?.authority_identity === 'deployment.visibility'
+        && identity.policyAuthority?.policy_generation === String(generation);
+    },
+  };
+  const validate = createActiveMechanicPolicyValidator(() => provider, authority);
+  const pinned = { policyAuthority: authority.capture() };
+  assert.equal(validate(pinned), true);
+
+  generation = 2;
+  assert.equal(validate(pinned), false);
+  assert.equal(validate({ policyAuthority: authority.capture() }), true);
+
+  const equivalentButDifferentAuthority = new DeploymentPolicyAuthority({
+    authorityIdentity: 'deployment.visibility',
+    resolveActivePolicy: () => ({
+      authority_identity: 'deployment.visibility',
+      generation,
+      authorizeField: () => true,
+    }),
+  });
+  assert.equal(createActiveMechanicPolicyValidator(() => provider, equivalentButDifferentAuthority)({
+    policyAuthority: equivalentButDifferentAuthority.capture(),
+  }), false);
+});
 
 test('proposal policy boundary rejects a proposal pinned to a rotated active provider', () => {
   const store = new SQLiteStore(':memory:');
