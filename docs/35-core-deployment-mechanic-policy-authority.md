@@ -75,3 +75,19 @@ This decision identifies the owner and the trust contract. It does not claim tha
 Do not mechanically rebase or merge #225/#270 to close this gap: their stale diff contains excluded executor, attestation, proposal-handoff, and storage changes. Implement a fresh current-main vertical slice against this contract, review its effective diff, run exact-head Runtime CI plus the recalculation harness, and keep production mechanics disabled until all applicable tests above pass.
 
 **Current verdict: policy ownership is decided; production integration is not yet implemented or proven.**
+
+
+## 7. Implementation status — draft branch only
+
+The draft branch `feat/mechanics-deployment-policy-authority` introduces a narrow authority adapter:
+
+- `src/application/deployment-mechanic-policy-authority.js` resolves a trusted active policy record containing `authority_id`, monotonic `generation`, and the active bounded context provider. It rejects malformed/unavailable records, pins identity/generation into resolved context, checks for rotation during resolution, and validates captured identity/generation against the current record.
+- `MechanicExecutor` requires the authority identity/generation in its strict resolved-context shape and includes both in context/evaluation fingerprints.
+- `ProposalService` persists authority identity/generation in mechanic execution metadata and revalidates them at proposal creation, approval, and commit. Missing validator or mismatched generation fails closed.
+- `createApiServer` can receive the authority instance and uses that same instance for proposal lifecycle validation.
+
+This is **not yet the required end-to-end deployment wiring**. The current `src/index.js` still does not construct or pass an authority, and no production mechanic caller supplies a trusted adapter/actor/recipient/purpose binding to the context provider. The draft adapter's resolver is only an interface to a deployment-owned source; it does not create a durable generation source or prove cross-process monotonicity. It also does not provide a linearizable revoke/commit guarantee.
+
+The branch tests exercise the authority adapter and the bounded proposal lifecycle using test fixtures. Those tests are not production deployment evidence. Do not enable the executor or describe the integration as complete until the composition root constructs the real authority from an approved deployment source, the same instance is used for context resolution and proposal validation, actor/purpose binding is proven, and the required exact-head integration/concurrency tests pass.
+
+**Status remains: implementation draft; production Mechanics DISABLED / FAIL-CLOSED.**
