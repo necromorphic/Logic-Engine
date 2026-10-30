@@ -79,7 +79,9 @@ function validateAgainstDomain(artifact, {
   if (pinKey(artifact.target_rule_module) !== pinKey(expectedTargetModule)) add('target_module_pin', 'target rule-module pin is not exact');
 
   const declaredModules = new Set(artifact.source_rule_modules.map(pinKey));
-  const sourceDomainsForModule = (moduleKey) => sourceDomainsByModule?.[moduleKey] ?? sourceDomain;
+  const sourceDomainsForModule = (moduleKey) => sourceDomainsByModule
+    ? (sourceDomainsByModule[moduleKey] ?? {})
+    : sourceDomain;
   const seenSourceDimensions = new Set();
   const mappedTargetDimensions = new Set();
 
@@ -348,6 +350,32 @@ test('source dimension domains are resolved independently for each pinned module
     sourcePack,
     targetPack,
   }).some(error => error.code === 'incomplete_value_coverage'));
+});
+
+test('a missing exact module-version domain fails closed instead of borrowing another version domain', () => {
+  const secondModule = { module_id: 'relationship-rules', version: '2.0.0' };
+  const candidate = clone(complete);
+  candidate.source_rule_modules.push(secondModule);
+  const secondTrustMapping = clone(candidate.dimension_mappings.find(item => item.source_dimension === 'trust'));
+  secondTrustMapping.source_rule_module = secondModule;
+  secondTrustMapping.target_dimension = 'trust_v2';
+  candidate.dimension_mappings.push(secondTrustMapping);
+
+  const errors = validateAgainstDomain(candidate, {
+    sourceDomains,
+    sourceDomainsByModule: {
+      'relationship-rules@1.0.0': sourceDomains,
+    },
+    targetDomains: {
+      ...targetDomains,
+      trust_v2: { values: ['cautious', 'balanced', 'confident'] },
+    },
+    sourceModules: [...sourceModules, secondModule],
+    targetModule,
+    sourcePack,
+    targetPack,
+  });
+  assert.ok(errors.some(error => error.code === 'unknown_source_dimension'));
 });
 
 test('missing special-state coverage rejects the whole artifact', () => {
