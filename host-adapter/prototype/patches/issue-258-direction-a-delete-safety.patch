@@ -180,7 +180,7 @@ index 0c7eec5..ab60b1c 100644
 -    for (const message of messagesToDelete) {
 -        const index = chat.indexOf(message);
 -        if (index !== -1) {
--            console.debug(`/delname: Deleting message #${index}`);
+-            console.debug(`/delname: Deleting message #${index}`, message);
 -            chat.splice(index, 1);
 -        }
 +    const lifecycle = window.logicEngineHostLifecycle;
@@ -194,7 +194,7 @@ index 0c7eec5..ab60b1c 100644
 +    }
 +
 +    for (const { message, index } of messagesToDelete.slice().reverse()) {
-+        console.debug(`/delname: Deleting message #${index}`, message);
++        console.debug(`/delname: Deleting message #${index}`);
 +        chat.splice(index, 1);
      }
 @@ -5078,2 +5087,5 @@ async function deleteMessagesByNameCallback(_, name) {
