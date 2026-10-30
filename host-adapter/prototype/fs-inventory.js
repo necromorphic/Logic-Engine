@@ -3,7 +3,7 @@ import {
   lstat, open, realpath, readdir,
 } from 'node:fs/promises';
 import { constants as fsConstants } from 'node:fs';
-import { isAbsolute, relative, resolve, sep } from 'node:path';
+import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { withWindowsVssSnapshot, isActiveWindowsVssSnapshot } from './windows-vss-snapshot.mjs';
 
 const MAX_FILE_BYTES = 256 * 1024 * 1024;
@@ -141,7 +141,7 @@ async function enumerateStableFileInventoryOnRoot(rootPath, options = {}) {
       for (const name of names) {
         totalEntries++;
         if (totalEntries > MAX_TOTAL_ENTRIES) throw new Error('HOST_INVENTORY_ENTRY_COUNT_LIMIT');
-        const fullPath = resolve(directory, name);
+        const fullPath = allowSnapshotWithoutNoFollow ? join(directory, name) : resolve(directory, name);
         if (!isWithinRoot(root, fullPath)) throw new Error('HOST_INVENTORY_PATH_ESCAPE');
 
         let before;
