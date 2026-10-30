@@ -136,6 +136,8 @@ export class HostLifecycleJournal {
       const rows=await this.#records(conversationId), check=await this.#verifyStored(conversationId, rows);
       if(!check.ok) return this.#fail(conversationId,check.reason);
       if (typeof requireNoPendingMutation !== 'boolean') throw TypeError('requireNoPendingMutation must be a boolean');
+      const eventDigest=await digest({conversationId,eventId,operation,payload,sourceFingerprint}), duplicate=rows.find(r=>r.eventId===eventId);
+      if(duplicate) return duplicate.eventDigest===eventDigest?duplicate:this.#fail(conversationId,'event ID conflict: '+eventId);
       const lifecycleRows = rows.filter(row =>
         typeof row.operation === 'string'
         && (row.operation.startsWith('before:') || row.operation.startsWith('after:')));
@@ -150,8 +152,6 @@ export class HostLifecycleJournal {
         return { status: 'NON_READY', reason: 'after receipt has no matching durable beforeMutation for '
           + operation.slice('after:'.length) };
       }
-      const eventDigest=await digest({conversationId,eventId,operation,payload,sourceFingerprint}), duplicate=rows.find(r=>r.eventId===eventId);
-      if(duplicate) return duplicate.eventDigest===eventDigest?duplicate:this.#fail(conversationId,'event ID conflict: '+eventId);
       if(operation==='baseline'&&rows.length) return this.#fail(conversationId,'baseline already exists');
       if(operation!=='baseline'&&!rows.length) return this.#fail(conversationId,'event before baseline');
       const p=rows.at(-1), base={id:conversationId+':'+String((p?.sequence||0)+1).padStart(12,'0'),schemaVersion:2,conversationId,sequence:(p?.sequence||0)+1,eventId,operation,sourceFingerprint,payload,eventDigest,previousRecordDigest:p?.recordDigest??null};
