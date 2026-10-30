@@ -56,7 +56,7 @@ function setup(t, { validateSourceVersion = async () => true } = {}) {
   };
 }
 
-test('replaying an identical Host snapshot is idempotent and leaves canonical Provider reconciliation current', async (t) => {
+test('replaying an identical canonical Provider record is idempotent and leaves reconciliation current', async (t) => {
   const s = setup(t);
   s.provider.grantQuery(scope, true);
   const item = record('record-v1');
@@ -65,8 +65,8 @@ test('replaying an identical Host snapshot is idempotent and leaves canonical Pr
 
   await s.provider.rebuildIndex(scope.world_id);
   assert.equal((await s.provider.reconcile(scope.world_id)).status, 'current');
-  // A repeated delivery of the same snapshot must not create a second record
-  // or change its immutable identity.
+  // Re-delivery at the Provider boundary must not create a second record
+  // or change its immutable identity. This does not simulate Host delivery.
   assert.deepEqual(s.provider.putRecord(item), { status: 'duplicate' });
   assert.equal((await s.provider.reconcile(scope.world_id)).status, 'current');
 
@@ -75,7 +75,7 @@ test('replaying an identical Host snapshot is idempotent and leaves canonical Pr
   assert.deepEqual(result.candidates.map((candidate) => candidate.record_version), ['record-v1']);
 });
 
-test('a changed or unavailable snapshot never reuses the previous current marker', async (t) => {
+test('a changed or unavailable trusted source snapshot never reuses the previous current marker', async (t) => {
   const s = setup(t);
   s.provider.grantQuery(scope, true);
   const item = record('record-v1');
