@@ -712,18 +712,18 @@ export class LogicEngine {
       let pathBefore;
       let resolvedBefore;
       if (!Number.isInteger(noFollow) || noFollow === 0) {
-        pathBefore = lstatSync(configured.source_path);
+        pathBefore = lstatSync(configured.source_path, { bigint: true });
         resolvedBefore = realpathSync(configured.source_path);
         assert(pathBefore.isFile() && !pathBefore.isSymbolicLink()
           && resolve(resolvedBefore) === resolve(configured.source_path),
         'TRUSTED_IMPORT_FILE_UNAVAILABLE', 'Trusted import path must resolve directly to a regular, non-link file.', 503);
       }
       fd = openSync(configured.source_path, fsConstants.O_RDONLY | (Number.isInteger(noFollow) && noFollow !== 0 ? noFollow : 0));
-      const stat = fstatSync(fd);
+      const stat = fstatSync(fd, { bigint: true });
       assert(stat.isFile() && stat.size > 0 && stat.size <= MAX_TRUSTED_IMPORT_BYTES,
         'INVALID_TRUSTED_IMPORT_FILE', 'Trusted import must be a regular file within the 1 MiB limit.');
       if (pathBefore) {
-        const pathAfter = lstatSync(configured.source_path);
+        const pathAfter = lstatSync(configured.source_path, { bigint: true });
         const resolvedAfter = realpathSync(configured.source_path);
         assert(pathAfter.isFile() && !pathAfter.isSymbolicLink()
           && resolve(resolvedBefore) === resolve(resolvedAfter)
