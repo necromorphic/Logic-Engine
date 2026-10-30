@@ -196,6 +196,8 @@ export class ProposalService {
       context_fingerprint: evaluation.context_fingerprint,
       context_policy_version: evaluation.context_policy_version,
       authorization_scope: evaluation.authorization_scope,
+      authority_id: evaluation.authority_id,
+      policy_generation: evaluation.policy_generation,
       condition_result: evaluation.condition_result,
       dependency_manifest: evaluation.dependency_manifest,
       effects: evaluation.effects,
