@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: runtime-tests-${{ github.workflow }}-${{ github.ref }}
+  group: runtime-tests-${{ github.workflow }}-${{ github.ref }}-${{ github.sha }}
   cancel-in-progress: false
 
 jobs:
