@@ -264,7 +264,6 @@ export class AuthorizedReadService {
       world_id: snapshot.world_id,
       world_revision: snapshot.world_revision,
       commit_sequence: snapshot.commit_sequence,
-      ...(policyEvidence ? { policy_authority: policyEvidence } : {}),
       entities: Object.freeze(entities.map((entity) => Object.freeze(entity))),
     });
   }
