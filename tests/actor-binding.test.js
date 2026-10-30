@@ -59,7 +59,9 @@ test('actor bindings require admin setup and resolve only for the authenticated 
     body: json({ entity_id: 'npc-a' }),
   });
   assert.equal(resolved.status, 200);
-  assert.equal((await resolved.json()).resolution.actor.entity_id, 'npc-a');
+  const initialResolution = (await resolved.json()).resolution;
+  assert.equal(initialResolution.actor.entity_id, 'npc-a');
+  assert.equal(initialResolution.binding_generation, 1);
 
   const wrongAdapter = await fetch(resolvePath, {
     method: 'POST',
@@ -98,6 +100,18 @@ test('actor bindings require admin setup and resolve only for the authenticated 
   });
   assert.equal(afterRevoke.status, 403);
   assert.equal((await afterRevoke.json()).error.code, 'ACTOR_NOT_AUTHORIZED');
+
+  const rebound = await fetch(path, {
+    method: 'POST', headers: { ...headers, 'x-admin-token': ADMIN }, body: json(bindingBody),
+  });
+  assert.equal(rebound.status, 201);
+  const afterRebind = await fetch(resolvePath, {
+    method: 'POST',
+    headers: { ...headers, 'x-adapter-id': 'adapter-a', 'x-adapter-token': ADAPTER_A },
+    body: json({ entity_id: 'npc-a' }),
+  });
+  assert.equal(afterRebind.status, 200);
+  assert.equal((await afterRebind.json()).resolution.binding_generation, 3);
 });
 
 test('actor bindings reject missing, destroyed, and cross-world entities', async (t) => {
