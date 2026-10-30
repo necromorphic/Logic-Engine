@@ -561,3 +561,38 @@ test('policy rotation during field authorization fails closed before returning m
   );
   assert.equal(authority.getSnapshot().generation, 4);
 });
+
+
+test('mechanic attribute reads fail closed when policy authority is missing or malformed', (t) => {
+  const { engine, bindings, store } = setup(t, () => true);
+  const base = {
+    worldId: 'read-world',
+    adapterId: 'adapter-a',
+    actorEntityId: 'actor-a',
+    recipient: 'model',
+    purpose: 'npc_decision',
+    entityId: 'target-a',
+    attribute: 'name',
+    expectedWorldRevision: engine.getState('read-world').world_revision,
+    expectedCommitSequence: store.currentCommitSequence('read-world'),
+  };
+  const legacyService = new AuthorizedReadService(engine, bindings, () => true);
+  assert.throws(
+    () => legacyService.readEntityAttributeForMechanic({
+      ...base,
+      expectedPolicyAuthority: { authority_id: 'legacy-callback', generation: 1 },
+    }),
+    (error) => error.code === 'MECHANIC_POLICY_AUTHORITY_REQUIRED',
+  );
+
+  const malformedAuthority = {
+    getSnapshot: () => ({ authority_id: 'malformed-authority', generation: '1' }),
+    isCurrent: () => true,
+    authorizeField: () => true,
+  };
+  const malformedService = new AuthorizedReadService(engine, bindings, malformedAuthority);
+  assert.throws(
+    () => malformedService.readEntityFields(request()),
+    (error) => error.code === 'READ_NOT_AVAILABLE' && error.status === 404,
+  );
+});
