@@ -41,6 +41,14 @@ static int g_journal_open_count = 0;
 static int g_native_open_count = 0;
 static int g_registered = 0;
 static sqlite3_mutex *g_registry_mutex = 0;
+#define PROBE_MAX_PINNED_PATHS 256
+typedef struct ProbePinnedPath {
+  sqlite3_file *file;
+  const sqlite3_io_methods *parent_methods;
+  sqlite3_io_methods methods;
+  char *path;
+} ProbePinnedPath;
+static ProbePinnedPath g_pinned_paths[PROBE_MAX_PINNED_PATHS];
 static const char *g_open_syscall_name = 0;
 static sqlite3_syscall_ptr g_original_open_syscall = 0;
 #ifndef _WIN32
@@ -123,6 +131,53 @@ static void probe_registry_lock(void) {
 }
 static void probe_registry_unlock(void) {
   if (g_registry_mutex) sqlite3_mutex_leave(g_registry_mutex);
+}
+
+static int probe_pinned_path_close(sqlite3_file *file) {
+  const sqlite3_io_methods *parent_methods = NULL;
+  char *path = NULL;
+  probe_registry_lock();
+  for (int i = 0; i < PROBE_MAX_PINNED_PATHS; ++i) {
+    ProbePinnedPath *entry = &g_pinned_paths[i];
+    if (entry->file == file) {
+      parent_methods = entry->parent_methods;
+      path = entry->path;
+      file->pMethods = parent_methods;
+      memset(entry, 0, sizeof(*entry));
+      break;
+    }
+  }
+  probe_registry_unlock();
+  if (!parent_methods || !parent_methods->xClose) {
+    sqlite3_free(path);
+    return SQLITE_IOERR_CLOSE;
+  }
+  {
+    int rc = parent_methods->xClose(file);
+    sqlite3_free(path);
+    return rc;
+  }
+}
+
+static int probe_pinned_path_add(sqlite3_file *file, char *path) {
+  int added = 0;
+  if (!file || !file->pMethods || !path) return 0;
+  probe_registry_lock();
+  for (int i = 0; i < PROBE_MAX_PINNED_PATHS; ++i) {
+    ProbePinnedPath *entry = &g_pinned_paths[i];
+    if (!entry->file) {
+      entry->file = file;
+      entry->parent_methods = file->pMethods;
+      entry->methods = *file->pMethods;
+      entry->methods.xClose = probe_pinned_path_close;
+      entry->path = path;
+      file->pMethods = &entry->methods;
+      added = 1;
+      break;
+    }
+  }
+  probe_registry_unlock();
+  return added;
 }
 static void probe_counter_increment(int *counter) {
   probe_registry_lock();
@@ -976,6 +1031,20 @@ static int probe_xOpen(sqlite3_vfs *vfs, const char *name, sqlite3_file *file,
   if (rc != SQLITE_OK) {
     fprintf(stderr, "VFS parent xOpen failed: flags=0x%x rc=%d name=%s\n",
       flags, rc, open_name ? open_name : "<null>");
+  }
+  if (rc == SQLITE_OK && canonical_name) {
+    /*
+     * The parent VFS may retain zName inside its sqlite3_file (notably the
+     * Windows and Unix WAL/SHM implementations). Keep xFullPathname storage
+     * alive until this file handle closes; copy only xClose so every other
+     * parent io method remains unchanged.
+     */
+    if (probe_pinned_path_add(file, canonical_name)) {
+      canonical_name = NULL; /* ownership transferred to the per-file entry */
+    } else {
+      if (file->pMethods && file->pMethods->xClose) file->pMethods->xClose(file);
+      rc = SQLITE_CANTOPEN;
+    }
   }
   sqlite3_free(canonical_name);
 
