@@ -219,3 +219,22 @@ test('revoked Core actor or Host conversation binding disables the same read bou
   assert.equal(afterActorRevoke.status, 404);
   assert.equal((await afterActorRevoke.json()).error.code, 'READ_NOT_AVAILABLE');
 });
+
+
+test('revoked Host conversation binding disables authorized read even while actor binding remains active', async t => {
+  const base = await setup(t);
+  assert.equal((await authorizedRead(base)).status, 200);
+
+  const revoked = await fetch(base + '/v1/host-conversation-bindings/adapter-a/conversation-a', {
+    method: 'DELETE',
+    headers: adminHeaders,
+    body: json({ reason: 'Host conversation retired' }),
+  });
+  assert.equal(revoked.status, 200);
+
+  const after = await authorizedRead(base);
+  assert.equal(after.status, 404);
+  const body = await after.json();
+  assert.equal(body.error.code, 'READ_NOT_AVAILABLE');
+  assert.equal(JSON.stringify(body).includes('authorized-read-world'), false);
+});
