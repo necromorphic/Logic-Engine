@@ -441,6 +441,10 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
         'xDelete must remove the owner journal pathname');
       assert.equal(existsSync(retainedAliasPath), true,
         'the hardlink must keep the original journal object alive after xDelete');
+      retiredOwner.exec("BEGIN IMMEDIATE; INSERT INTO probe VALUES('owner-again');");
+      assert.equal(existsSync(`${retiredOwnerPath}-journal`), true,
+        'the original role must be allowed to create a new journal generation while its old hardlinked object remains retired');
+      retiredOwner.exec('ROLLBACK;');
       retiredVictim.exec('PRAGMA journal_mode=DELETE; CREATE TABLE probe(value TEXT);');
       linkSync(retainedAliasPath, `${retiredVictimPath}-journal`);
       const rejectedBefore = roleRegistrar.prepare(
