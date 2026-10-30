@@ -72,13 +72,15 @@ async function setup(t, registry = trustedSources) {
       { kind: 'fact.set', fact_id: 'fact-a', subject_ref: 'entity:npc-a', predicate: 'secret', value: 'bound-value' },
     ],
   });
-  engine.recordTrustedInitialKnowledgeSource({
-    world_id: 'world-a',
-    source_bytes: sourceBytes,
-    idempotency_key: 'host-auth-acquisition',
-    expected_revision: 1,
-    expected_commit_sequence: 1,
-  });
+  if (registry.length > 0) {
+    engine.recordTrustedInitialKnowledgeSource({
+      world_id: 'world-a',
+      source_bytes: sourceBytes,
+      idempotency_key: 'host-auth-acquisition',
+      expected_revision: 1,
+      expected_commit_sequence: 1,
+    });
+  }
 
   const server = createApiServer({
     engine,
@@ -344,5 +346,18 @@ test('opaque Host identity cannot be forged and expires when its Core actor bind
   assert.equal(authorizers.resolveHostIdentity(identity), null);
   assert.throws(() => engine.readVisibleNpcKnowledgeForHost(identity), {
     code: 'NPC_HOST_IDENTITY_NOT_AUTHORIZED',
+  });
+});
+
+
+test('Host-facing knowledge read fails closed when the bounded acquisition query is truncated', async t => {
+  const { engine, authorizers } = await setup(t);
+  const identity = authorizers.createHostIdentity({
+    adapter_id: 'adapter-st',
+    conversation_id: 'conversation-a',
+  });
+  engine.readNpcKnowledge = () => ({ truncated: true });
+  assert.throws(() => engine.readVisibleNpcKnowledgeForHost(identity, { limit: 1 }), {
+    code: 'NPC_KNOWLEDGE_READ_INCOMPLETE',
   });
 });
