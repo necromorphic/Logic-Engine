@@ -65,3 +65,16 @@ jobs:
         run: npm install --no-package-lock --no-audit --no-fund
       - name: Run trusted acquisition lifecycle and restore tests
         run: node --import ./tests/configure-test-env.js --test tests/core-trusted-initial-knowledge-ingestion.test.js tests/memory-provider-coordinated-restore.characterization.test.js
+
+  windows-accepted-head-acl-smoke:
+    # Exercise the candidate ACL script from an existing PR-triggered workflow.
+    # The dedicated workflow in this PR becomes independently triggerable after merge.
+    runs-on: windows-2022
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Run accepted-head authority ACL disposable-fixture smoke
+        shell: powershell
+        run: .\\scripts\\security\\Test-AcceptedHeadAuthorityAcl.ps1
