@@ -4,6 +4,8 @@ on:
     paths:
       - '.github/workflows/provider-blocker3.yml'
       - 'src/application/sqlite-memory-provider.js'
+      - 'src/application/trusted-import-file.js'
+      - 'tests/trusted-import-file-io.test.js'
       - 'src/storage/sqlite-store.js'
       - 'src/security/accepted-head-*.js'
       - 'src/security/enroll-accepted-head-domain.js'
