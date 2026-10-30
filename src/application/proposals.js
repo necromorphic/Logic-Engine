@@ -263,31 +263,6 @@ export class ProposalService {
       'INVALID_SOURCE_TEXT', 'Non-empty source text is required so semantic review is retained.');
     assert(typeof adapterId === 'string' && adapterId.trim(), 'ADAPTER_REQUIRED', 'A trusted adapter identity is required.', 403);
 
-    if (typeof this.validateMechanicPolicy !== 'function') {
-      throw new EngineError('MECHANIC_POLICY_REVALIDATION_REQUIRED',
-        'A deployment-owned mechanic policy authority is required before proposal creation.', 409,
-        { stage: 'proposal_creation' });
-    }
-    let policyCurrent = false;
-    try {
-      policyCurrent = this.validateMechanicPolicy(Object.freeze({
-        worldId,
-        authorityId: evaluation.authority_id,
-        policyGeneration: evaluation.policy_generation,
-        policyVersion: evaluation.context_policy_version,
-        authorizationScope: evaluation.authorization_scope,
-        snapshotIdentity: identity,
-        stage: 'proposal_creation',
-      })) === true;
-    } catch {
-      policyCurrent = false;
-    }
-    if (!policyCurrent) {
-      throw new EngineError('STALE_MECHANIC_POLICY',
-        'The evaluation authority identity or generation is no longer current; evaluate again.', 409,
-        { stage: 'proposal_creation' });
-    }
-
     const mechanicExecution = {
       snapshot_identity: identity,
       action_id: evaluation.action_id,
@@ -340,6 +315,31 @@ export class ProposalService {
           current_commit_sequence: sequence,
         });
       }
+    if (typeof this.validateMechanicPolicy !== 'function') {
+      throw new EngineError('MECHANIC_POLICY_REVALIDATION_REQUIRED',
+        'A deployment-owned mechanic policy authority is required before proposal creation.', 409,
+        { stage: 'proposal_creation' });
+    }
+    let policyCurrent = false;
+    try {
+      policyCurrent = this.validateMechanicPolicy(Object.freeze({
+        worldId,
+        authorityId: evaluation.authority_id,
+        policyGeneration: evaluation.policy_generation,
+        policyVersion: evaluation.context_policy_version,
+        authorizationScope: evaluation.authorization_scope,
+        snapshotIdentity: identity,
+        stage: 'proposal_creation',
+      })) === true;
+    } catch {
+      policyCurrent = false;
+    }
+    if (!policyCurrent) {
+      throw new EngineError('STALE_MECHANIC_POLICY',
+        'The evaluation authority identity or generation is no longer current; evaluate again.', 409,
+        { stage: 'proposal_creation' });
+    }
+
       return this.create(worldId, {
         idempotency_key: idempotencyKey,
         source_text: sourceText,
