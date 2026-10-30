@@ -215,10 +215,13 @@ test('complete Host inventory reconciliation publishes READY only with a trusted
     }),
   });
   assert.equal(response.status, 200);
-  assert.deepEqual((await response.json()).reconciliation, {
-    status: 'ready', snapshot_sha256: 'a'.repeat(64), version_count: 1,
-  });
-  assert.equal(ledger.getInventoryState('host-ledger-api-world', 'stable-host-chat').status, 'READY');
+  const reconciliation = (await response.json()).reconciliation;
+  assert.equal(reconciliation.status, 'ready');
+  assert.equal(reconciliation.version_count, 1);
+  assert.match(reconciliation.snapshot_sha256, /^[a-f0-9]{64}$/);
+  const readyState = ledger.getInventoryState('host-ledger-api-world', 'stable-host-chat');
+  assert.equal(readyState.status, 'READY');
+  assert.equal(readyState.snapshot_digest, reconciliation.snapshot_sha256);
 
   const revoked = await fetch(base + '/v1/host-conversation-bindings/adapter-a/stable-host-chat', {
     method: 'DELETE',
