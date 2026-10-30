@@ -75,6 +75,17 @@ export class AuthorizedReadService {
     return this.policyAuthority;
   }
 
+  isActorBindingCurrent(worldId, adapterId, actorEntityId) {
+    try {
+      const binding = this.actorBindingService.resolve(worldId, adapterId, actorEntityId);
+      return binding.world_id === worldId
+        && binding.adapter_id === adapterId
+        && binding.actor.entity_id === actorEntityId;
+    } catch {
+      return false;
+    }
+  }
+
   _authorizeField(context, entity, field, evidence) {
     const policyEntity = cloneAndFreezePolicyValue(entity);
     try {
