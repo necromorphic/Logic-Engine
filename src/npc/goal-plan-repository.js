@@ -321,7 +321,7 @@ const SCHEMA_SQL = [
   "CREATE TABLE npc_goal_selection (world_id TEXT NOT NULL, npc_entity_id TEXT NOT NULL, goal_id TEXT NOT NULL, current_plan_id TEXT, current_plan_revision INTEGER, plan_selection_revision INTEGER NOT NULL CHECK(plan_selection_revision >= 0), PRIMARY KEY(world_id,npc_entity_id,goal_id), FOREIGN KEY(world_id,npc_entity_id,goal_id) REFERENCES npc_goals(world_id,npc_entity_id,goal_id) ON DELETE RESTRICT, CHECK((current_plan_id IS NULL AND current_plan_revision IS NULL) OR (current_plan_id IS NOT NULL AND current_plan_revision IS NOT NULL AND current_plan_revision >= 1)));",
   "CREATE TABLE npc_plan_revisions (world_id TEXT NOT NULL, npc_entity_id TEXT NOT NULL, goal_id TEXT NOT NULL, plan_id TEXT NOT NULL, plan_revision INTEGER NOT NULL CHECK(plan_revision >= 1), plan_json TEXT NOT NULL, execution_status TEXT NOT NULL CHECK(execution_status IN ('active','blocked','completed','abandoned')), selection_state TEXT NOT NULL CHECK(selection_state IN ('current','superseded')), created_at TEXT NOT NULL, PRIMARY KEY(world_id,npc_entity_id,plan_id,plan_revision), UNIQUE(world_id,npc_entity_id,goal_id,plan_id,plan_revision), FOREIGN KEY(world_id,npc_entity_id,goal_id) REFERENCES npc_goals(world_id,npc_entity_id,goal_id) ON DELETE RESTRICT);",
   "CREATE UNIQUE INDEX npc_one_current_plan_per_goal ON npc_plan_revisions(world_id,npc_entity_id,goal_id) WHERE selection_state = 'current';",
-  "CREATE TABLE npc_plan_candidates (world_id TEXT NOT NULL, npc_entity_id TEXT NOT NULL, candidate_id TEXT NOT NULL, goal_id TEXT NOT NULL, plan_id TEXT NOT NULL, plan_revision INTEGER NOT NULL, candidate_json TEXT NOT NULL, snapshot_world_revision INTEGER NOT NULL CHECK(snapshot_world_revision >= 0), snapshot_commit_sequence INTEGER NOT NULL CHECK(snapshot_commit_sequence >= 0), expected_goal_revision INTEGER NOT NULL, expected_plan_selection_revision INTEGER NOT NULL, expected_current_plan_id TEXT, expected_current_plan_revision INTEGER, idempotency_key TEXT NOT NULL, request_hash TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('candidate','accepted','rejected')), created_at TEXT NOT NULL, PRIMARY KEY(world_id,npc_entity_id,candidate_id), UNIQUE(world_id,npc_entity_id,idempotency_key), FOREIGN KEY(world_id,npc_entity_id,goal_id) REFERENCES npc_goals(world_id,npc_entity_id,goal_id) ON DELETE RESTRICT);",
+  "CREATE TABLE npc_plan_candidates (world_id TEXT NOT NULL, npc_entity_id TEXT NOT NULL, candidate_id TEXT NOT NULL, goal_id TEXT NOT NULL, plan_id TEXT NOT NULL, plan_revision INTEGER NOT NULL, candidate_json TEXT NOT NULL, snapshot_world_revision INTEGER NOT NULL CHECK(snapshot_world_revision >= 0), snapshot_commit_sequence INTEGER NOT NULL CHECK(snapshot_commit_sequence >= 0), expected_goal_revision INTEGER NOT NULL, expected_plan_selection_revision INTEGER NOT NULL, expected_current_plan_id TEXT, expected_current_plan_revision INTEGER, idempotency_key TEXT NOT NULL, request_hash TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('candidate','accepted','rejected')), created_at TEXT NOT NULL, PRIMARY KEY(world_id,npc_entity_id,candidate_id), FOREIGN KEY(world_id,npc_entity_id,goal_id) REFERENCES npc_goals(world_id,npc_entity_id,goal_id) ON DELETE RESTRICT);",
   "CREATE TABLE npc_action_attempts (world_id TEXT NOT NULL, npc_entity_id TEXT NOT NULL, attempt_id TEXT NOT NULL, goal_id TEXT NOT NULL, plan_id TEXT NOT NULL, plan_revision INTEGER NOT NULL, step_id TEXT NOT NULL, action_id TEXT NOT NULL, goal_revision INTEGER NOT NULL, plan_selection_revision INTEGER NOT NULL, world_revision INTEGER NOT NULL, commit_sequence INTEGER NOT NULL, proposal_idempotency_key TEXT NOT NULL, request_hash TEXT NOT NULL, attempt_json TEXT NOT NULL, local_state TEXT NOT NULL CHECK(local_state IN ('prepared','awaiting_core_result','review_required','reconciled')), created_at TEXT NOT NULL, PRIMARY KEY(world_id,npc_entity_id,attempt_id), UNIQUE(world_id,npc_entity_id,proposal_idempotency_key), FOREIGN KEY(world_id,npc_entity_id,goal_id) REFERENCES npc_goals(world_id,npc_entity_id,goal_id) ON DELETE RESTRICT);",
   "CREATE INDEX npc_pending_attempts ON npc_action_attempts(world_id,npc_entity_id,local_state,attempt_id);",
   "CREATE UNIQUE INDEX npc_one_pending_attempt_per_step ON npc_action_attempts(world_id,npc_entity_id,goal_id,plan_id,plan_revision,step_id) WHERE local_state != 'reconciled';",
@@ -347,6 +347,20 @@ function ensureSchema(database) {
         if (tables[j].name === required[i]) found = true;
       }
       if (!found) throw new NpcGoalPlanRepositoryError("versioned NPC store is missing required tables");
+    }
+    const indexes = database.prepare("SELECT name FROM sqlite_master WHERE type='index'").all();
+    const requiredIndexes = [
+      "npc_one_current_plan_per_goal",
+      "npc_pending_attempts",
+      "npc_one_pending_attempt_per_step",
+      "npc_audit_scope_cursor",
+    ];
+    for (let i = 0; i < requiredIndexes.length; i += 1) {
+      let found = false;
+      for (let j = 0; j < indexes.length; j += 1) {
+        if (indexes[j].name === requiredIndexes[i]) found = true;
+      }
+      if (!found) throw new NpcGoalPlanRepositoryError("versioned NPC store is missing required index " + requiredIndexes[i]);
     }
     return;
   }
