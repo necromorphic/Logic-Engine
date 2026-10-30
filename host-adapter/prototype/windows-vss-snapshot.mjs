@@ -35,9 +35,12 @@ try {
   }
   $stack = New-Object 'System.Collections.Generic.Stack[string]'
   $stack.Push($snapshotRoot)
+  $entryCount = 0
   while ($stack.Count -gt 0) {
     $directory = $stack.Pop()
     foreach ($entry in [System.IO.Directory]::EnumerateFileSystemEntries($directory)) {
+      $entryCount++
+      if ($entryCount -gt 100000) { throw 'HOST_VSS_ENTRY_COUNT_LIMIT' }
       $attributes = [System.IO.File]::GetAttributes($entry)
       if (($attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
         throw 'HOST_VSS_REPARSE_POINT_PRESENT'
