@@ -49,3 +49,30 @@ Run against the isolated SillyTavern copy on port `8010` and its isolated data d
 6. Verify Core reconciliation remains `NON_READY` while the deny-only verifier is active. Do not enable Memory → NPC or outbound dispatch.
 
 **PC acceptance is not yet complete.** Automated Core CI passing does not replace the isolated live Host/Core route test. After these checks, review any failures before expanding scope.
+
+
+## 6. Priority-1 integration refresh — 30 Oct 2026
+
+The pinned ST archive supplied for this project matches upstream commit `06bde939fb1e9c4c8d8641d810f0a916b5bce127` by Git blob SHA for `public/script.js`, `src/server-startup.js`, `src/server-main.js`, `src/endpoints/chats.js`, and `src/endpoints/characters.js`.
+
+Current review candidates:
+
+- [#780](https://github.com/necromorphic/Logic-Engine/pull/780): bounded current-file inventory route candidate and pinned source audit.
+- [#785](https://github.com/necromorphic/Logic-Engine/pull/785): Direction A delete-safety overlay.
+- [#787](https://github.com/necromorphic/Logic-Engine/pull/787): combined patch composition candidate.
+
+The combined CI patch order is lifecycle hooks → inventory route → Direction A delete-safety overlay. On the pinned ST 1.19.0 checkout, this exact composition applied cleanly; patched modules passed syntax checks and Host prototype tests 75/75. This is source/CI evidence, not a live installation.
+
+### Important non-equivalence: file inventory vs message-version inventory
+
+The new #780 route enumerates the current chat files and extracts the persisted conversation UUID. It is a bounded, pathname-based double scan, not an atomic filesystem snapshot. It does not enumerate every message/version/swipe, deleted historical identity, parent chain, branch/import/restore lineage, or a monotonic installation snapshot sequence.
+
+The existing `HostVersionDigestLedger.reconcileConversation()` expects a different snapshot contract: `world_id`, `conversation_id`, `complete: true`, and a complete `versions[]` set containing exact message/version IDs, parent version, content digest, active and deleted flags. The current ST lifecycle bridge can publish individual digest-only version captures for selected hooked operations, but its hooked-path list is not complete and enrollment marks pre-enrollment history `UNKNOWN_UNRECOVERABLE`. There is no production adapter that converts the file inventory into the complete message-version envelope.
+
+Core startup still constructs `HostVersionDigestLedger` with `verifyInventorySnapshot: async () => false`. This is intentional: no Host snapshot can publish READY until Core/Host approve and implement the missing authority/lineage contract. A successful digest-capture HTTP response is not complete inventory attestation.
+
+### Final-send boundary remains separate
+
+The pinned Chat Completions route has 13 provider-specific early-return senders plus a separate OpenAI-compatible fetch path. The inventory route and delete-safety overlay do not intercept these sends. The dispatch-start primitive in Security PR #777 is not wired to this ST server-side boundary. Protected Memory remains fail-closed for every provider until a single transport-start interface or complete per-sender coverage is implemented and tested for zero-egress denial/revocation.
+
+**Current disposition:** Host patch composition = PASS in disposable CI; Host complete historical/version inventory = NON_READY; Core world/session authorization = NON_READY; production final-send Gateway = NOT WIRED; Memory → NPC = DISABLED / FAIL-CLOSED. Vectorization remains out of scope and unchanged.
