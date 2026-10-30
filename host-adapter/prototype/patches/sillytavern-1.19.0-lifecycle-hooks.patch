@@ -24,29 +24,36 @@ diff --git a/public/script.js b/public/script.js
 +
      // Make sure all the data is loaded.
      await unshallowCharacter(characterId);
-@@ -1583,23 +1593,143 @@
+@@ -1583,23 +1593,180 @@
   * @param {object} [options] Options
   * @param {boolean} [options.clearData=false] Optionally clear the chat array's contents.
   */
-+let logicEngineHostSessionIdPromise;
-+async function getLogicEngineHostSessionId() {
-+    if (!logicEngineHostSessionIdPromise) {
-+        logicEngineHostSessionIdPromise = fetch('/api/logic-engine/host/session', {
++let logicEngineHostSessionPromise;
++async function getLogicEngineHostSession() {
++    if (!logicEngineHostSessionPromise) {
++        logicEngineHostSessionPromise = fetch('/api/logic-engine/host/session', {
 +            credentials: 'same-origin',
 +            cache: 'no-store',
 +        }).then(async response => {
 +            if (!response.ok) throw Error('Host authenticated session identity unavailable');
 +            const payload = await response.json();
-+            if (typeof payload?.host_session_id !== 'string') {
++            if (typeof payload?.host_session_id !== 'string'
++                || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(payload.host_session_id)
++                || payload?.host_session_identity !== 'SIGNED_AUTHENTICATED_ST_SESSION'
++                || typeof payload?.host_user_handle !== 'string') {
 +                throw Error('Host authenticated session identity is malformed');
 +            }
-+            return payload.host_session_id;
++            return payload;
 +        }).catch(error => {
-+            logicEngineHostSessionIdPromise = null;
++            logicEngineHostSessionPromise = null;
 +            throw error;
 +        });
 +    }
-+    return logicEngineHostSessionIdPromise;
++    return logicEngineHostSessionPromise;
++}
++
++async function getLogicEngineHostSessionId() {
++    return (await getLogicEngineHostSession()).host_session_id;
 +}
 +
 +let logicEngineLifecyclePendingRenameId = null;
@@ -74,16 +81,42 @@ diff --git a/public/script.js b/public/script.js
 +            getSourceLocator: getCurrentChatId,
 +            getChat: () => chat,
 +            saveChat: () => saveChatConditional(),
-+            publishDigest: async entry => {
-+                const response = await fetch('/api/logic-engine/host-version-ledger/capture', {
++            getPersistedInventory: async () => {
++                const session = await getLogicEngineHostSession();
++                const conversationId = await getLogicEngineConversationId();
++                const conversationUuid = conversationId?.split(':').at(-1);
++                if (!conversationUuid) throw Error('Host conversation identity unavailable for persisted inventory');
++                const response = await fetch('/api/logic-engine/host/inventory?conversation_uuid=' + encodeURIComponent(conversationUuid), {
++                    credentials: 'same-origin',
++                    cache: 'no-store',
++                });
++                if (!response.ok) {
++                    logicEngineHostSessionPromise = null;
++                    throw Error('Persisted Host inventory unavailable');
++                }
++                const inventory = await response.json();
++                if (inventory?.host_user_handle !== session.host_user_handle) {
++                    logicEngineHostSessionPromise = null;
++                    throw Error('Persisted Host inventory belongs to a different authenticated account');
++                }
++                return {
++                    ...inventory,
++                    host_session_id: session.host_session_id,
++                    host_session_identity: session.host_session_identity,
++                    authenticated_user_handle: session.host_user_handle,
++                };
++            },
++            publishSnapshot: async snapshot => {
++                const response = await fetch('/api/logic-engine/host-version-ledger/reconcile', {
 +                    method: 'POST',
 +                    headers: { 'Content-Type': 'application/json' },
-+                    body: JSON.stringify(entry),
++                    body: JSON.stringify(snapshot),
 +                });
 +                const payload = await response.json().catch(() => null);
++                if (response.status === 409 && payload?.inventory_status === 'NON_READY') return payload;
 +                if (!response.ok) {
 +                    const code = typeof payload?.error?.code === 'string' ? ' (' + payload.error.code + ')' : '';
-+                    throw Error('Core digest capture rejected with HTTP ' + response.status + code);
++                    throw Error('Core inventory reconciliation rejected with HTTP ' + response.status + code);
 +                }
 +                return payload;
 +            },
@@ -143,6 +176,10 @@ diff --git a/public/script.js b/public/script.js
 +        },
 +        syncCurrentDigestInventory: async () =>
 +            (await getLogicEngineLifecycleBridge()).syncCurrentDigestInventory(),
++        verifyPersistedInventory: async () =>
++            (await getLogicEngineLifecycleBridge()).verifyPersistedInventory(),
++        reconcileCurrentConversation: async () =>
++            (await getLogicEngineLifecycleBridge()).reconcileCurrentConversation(),
 +        getCoreCaptureStatus: async () =>
 +            (await getLogicEngineLifecycleBridge()).getCoreCaptureStatus(),
 +    };
@@ -472,6 +509,23 @@ diff --git a/public/scripts/slash-commands.js b/public/scripts/slash-commands.js
  
      return newName;
 
+
+diff --git a/src/server-main.js b/src/server-main.js
+--- a/src/server-main.js
++++ b/src/server-main.js
+@@ -107,5 +107,11 @@
+ app.use(compression());
+ app.use(responseTime());
+ 
++// Bound the digest-only Logic-Engine reconciliation body before the global
++// 500 MiB JSON parser; this route must not inherit SillyTavern's large upload cap.
++app.use(bodyParser.json({
++    limit: '8mb',
++    type: req => req.path === '/api/logic-engine/host-version-ledger/reconcile',
++}));
+ app.use(bodyParser.json({ limit: '500mb' }));
+ app.use(bodyParser.urlencoded({ extended: true, limit: '500mb' }));
+
 diff --git a/src/server-startup.js b/src/server-startup.js
 --- a/src/server-startup.js
 +++ b/src/server-startup.js
@@ -494,12 +548,13 @@ diff --git a/src/endpoints/logic-engine-lifecycle.js b/src/endpoints/logic-engin
 new file mode 100644
 --- /dev/null
 +++ b/src/endpoints/logic-engine-lifecycle.js
-@@ -0,0 +1,5 @@
+@@ -0,0 +1,6 @@
 +import express from 'express';
-+import { createHostDigestProxyHandler } from './logic-engine-lifecycle-proxy.mjs';
++import { createHostDigestProxyHandler, createHostInventoryReconcileProxyHandler } from './logic-engine-lifecycle-proxy.mjs';
 +
 +export const router = express.Router();
 +router.post('/host-version-ledger/capture', createHostDigestProxyHandler());
++router.post('/host-version-ledger/reconcile', createHostInventoryReconcileProxyHandler());
 
 diff --git a/src/endpoints/backends/chat-completions.js b/src/endpoints/backends/chat-completions.js
 --- a/src/endpoints/backends/chat-completions.js

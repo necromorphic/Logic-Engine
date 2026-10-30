@@ -57,7 +57,12 @@ class FakeDB {
   finish(tx) { setImmediate(() => tx.oncomplete?.()); }
 }
 
-function makeFixture(chat = [{ is_user: true, mes: 'hello' }, { is_user: false, mes: 'answer' }], { publishDigest = null } = {}) {
+function makeFixture(chat = [{ is_user: true, mes: 'hello' }, { is_user: false, mes: 'answer' }], {
+  publishDigest = null,
+  publishSnapshot = null,
+  conversationId = 'chat-1',
+  getPersistedInventory = null,
+} = {}) {
   let failSave = false;
   const db = new FakeDB();
   const journal = new HostLifecycleJournal(db);
@@ -65,10 +70,12 @@ function makeFixture(chat = [{ is_user: true, mes: 'hello' }, { is_user: false, 
   let sourceLocator = 'chat-file-1';
   const bridge = createStLifecycleBridge({
     journal,
-    getConversationId: () => 'chat-1',
+    getConversationId: () => conversationId,
     getSourceLocator: () => sourceLocator,
     getChat: () => chat,
     publishDigest,
+    publishSnapshot,
+    getPersistedInventory,
     saveChat: async () => {
       saveCount++;
       if (failSave) throw Error('simulated native chat save failure');
@@ -76,6 +83,108 @@ function makeFixture(chat = [{ is_user: true, mes: 'hello' }, { is_user: false, 
   });
   return { db, journal, chat, bridge, setLocator(value) { sourceLocator = value; }, setFailSave(value) { failSave = value; }, get saveCount() { return saveCount; } };
 }
+
+
+async function makePersistedInventory(chat, { sessionId, conversationUuid, userHandle = 'alice' }) {
+  const messages = await Promise.all(chat.map(async message => {
+    const identity = message._logicEngineLifecycle;
+    const rawVersions = Array.isArray(message.swipes) && message.swipes.length
+      ? message.swipes : [message.mes];
+    const versions = await Promise.all(identity.versions.map(async (version, index) => {
+      const bytes = new TextEncoder().encode(String(rawVersions[index]));
+      const digest = [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))]
+        .map(value => value.toString(16).padStart(2, '0')).join('');
+      return {
+        version_id: version.versionId,
+        version_index: index,
+        parent_version_id: version.parentVersionId ?? null,
+        content_sha256: digest,
+        active: index === identity.activeVersionIndex,
+      };
+    }));
+    return {
+      message_id: identity.messageId,
+      role: message.is_user ? 'user' : message.is_system ? 'system' : 'assistant',
+      active_version_index: identity.activeVersionIndex,
+      versions,
+    };
+  }));
+  return {
+    status: 'DOUBLE_SCAN_CANDIDATE',
+    authority: 'NON_AUTHORITATIVE',
+    completeness: 'DOUBLE_SCANNED_PATH_VIEW_ONLY',
+    host_commit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127',
+    host_build_claim: '06bde939fb1e9c4c8d8641d810f0a916b5bce127',
+    host_build_claim_type: 'DEPLOYMENT_ASSERTION_NOT_RUNTIME_ATTESTATION',
+    host_session_id: sessionId,
+    host_session_identity: 'SIGNED_AUTHENTICATED_ST_SESSION',
+    host_user_handle: userHandle,
+    authenticated_user_handle: userHandle,
+    requested_conversation_uuid: conversationUuid,
+    inventory_sha256: 'a'.repeat(64),
+    files: [{
+      logical_identity: {
+        conversation_uuid: conversationUuid,
+        identity_status: 'CURRENT_IDENTITIES_VERIFIED',
+        message_count: messages.length,
+        identified_message_count: messages.length,
+        missing_message_identity_count: 0,
+        messages,
+      },
+    }],
+  };
+}
+
+test('persisted ST inventory is cross-checked against the session-bound conversation without claiming authority', async () => {
+  const sessionId = '2e6b0a80-4e73-4c66-aaf3-7a6e62c7f401';
+  const installationId = '3e6b0a80-4e73-4c66-aaf3-7a6e62c7f402';
+  const conversationUuid = '4e6b0a80-4e73-4c66-aaf3-7a6e62c7f403';
+  const conversationId = sessionId + ':' + installationId + ':' + conversationUuid;
+  const chat = [{ is_user: true, mes: 'private user sentinel' }, { is_user: false, mes: 'private assistant sentinel' }];
+  let inventory = null;
+  const publishedSnapshots = [];
+  const f = makeFixture(chat, {
+    conversationId,
+    getPersistedInventory: async () => inventory,
+    publishSnapshot: async snapshot => {
+      publishedSnapshots.push(structuredClone(snapshot));
+      return { reconciliation: { code: 'HOST_INVENTORY_INCOMPLETE' } };
+    },
+  });
+  await f.bridge.enrollCurrentConversation();
+  inventory = await makePersistedInventory(chat, { sessionId, conversationUuid });
+  const publishedBeforeSync = publishedSnapshots.length;
+
+  const verified = await f.bridge.verifyPersistedInventory();
+  assert.equal(verified.status, 'MATCHED_NON_AUTHORITATIVE');
+  assert.equal(verified.authority, 'NON_AUTHORITATIVE');
+  assert.equal(verified.host_session_bound, true);
+  assert.equal(verified.installation_attestation, false);
+  assert.equal(verified.message_count, 2);
+  assert.equal(verified.version_count, 2);
+  assert.equal(JSON.stringify(verified).includes('private user sentinel'), false);
+  assert.equal(JSON.stringify(verified).includes('private assistant sentinel'), false);
+
+  const synced = await f.bridge.syncCurrentDigestInventory();
+  assert.equal(synced.status, 'NON_READY');
+  assert.equal(publishedSnapshots.length, publishedBeforeSync + 1);
+  assert.equal(publishedSnapshots.at(-1).complete, false);
+
+  const mismatched = structuredClone(inventory);
+  mismatched.files[0].logical_identity.messages[0].versions[0].content_sha256 = '0'.repeat(64);
+  inventory = mismatched;
+  const rejected = await f.bridge.verifyPersistedInventory();
+  assert.equal(rejected.status, 'NON_READY');
+  assert.match(rejected.reason, /version identity or digest differs/);
+  const blockedSync = await f.bridge.syncCurrentDigestInventory();
+  assert.equal(blockedSync.status, 'NON_READY');
+  assert.equal(publishedSnapshots.length, publishedBeforeSync + 1);
+
+  inventory = { ...mismatched, host_session_id: '5e6b0a80-4e73-4c66-aaf3-7a6e62c7f404' };
+  const wrongSession = await f.bridge.verifyPersistedInventory();
+  assert.equal(wrongSession.status, 'NON_READY');
+  assert.match(wrongSession.reason, /not bound to the current authenticated conversation/);
+});
 
 test('configured Core publisher receives digest-only baseline, replacement tombstone, and active version in order', async () => {
   const published = [];
@@ -720,4 +829,29 @@ test('unique raw-content sentinels never enter persisted journal rows or exporte
   f.chat.splice(1, 1);
   await f.bridge.afterMutation('delete-message');
   await assertNoRawSentinels('after delete');
+});
+
+
+test('Host sends a digest-only Core snapshot through reconcile while explicitly withholding completeness', async () => {
+  const observed = [];
+  const f = makeFixture(undefined, {
+    publishSnapshot: async snapshot => {
+      observed.push(structuredClone(snapshot));
+      return {
+        inventory_status: 'NON_READY',
+        reconciliation: { status: 'non_ready', code: 'HOST_INVENTORY_NOT_AUTHORIZED' },
+      };
+    },
+  });
+  const enrolled = await f.bridge.enrollCurrentConversation();
+  assert.equal(observed.length, 1);
+  assert.equal(observed[0].conversation_id, 'chat-1');
+  assert.equal(observed[0].complete, false);
+  assert.equal(observed[0].versions.length, 2);
+  assert.equal(observed[0].versions.every(version =>
+    Object.keys(version).sort().join(',') === 'active,content_sha256,deleted,message_id,parent_version_id,version_id'), true);
+  assert.equal(JSON.stringify(observed[0]).includes('hello'), false);
+  assert.equal(JSON.stringify(observed[0]).includes('answer'), false);
+  assert.equal(enrolled.coreCaptureStatus, 'NON_READY');
+  assert.equal((await f.bridge.getCoreCaptureStatus()).status, 'NON_READY');
 });
