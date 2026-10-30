@@ -5,6 +5,40 @@
 **Decision owner:** Core owner approval recorded on 2026-10-29.  
 **Runtime guard and targeted regression matrix are merged into `main` by PR #694 (merge commit `efe7a740b5248816a302c2301db612cf18a909a7`). Exact-head CI evidence is recorded below for the tested PR candidate; it is not represented as a fresh CI run on the current `main` head. The lifecycle and recovery acceptance evidence for #243 is reconciled below.**
 
+## Current disposition — bounded Time / Process Manager slice
+
+**Issue #243 is closed as completed for the bounded durable Process Manager lifecycle described below.** This closure must not be read as completion of the broader behavioral contract in `docs/06-npc-autonomy-and-process-manager.md`, nor as proof of a general cross-process causal scheduler.
+
+### Accepted bounded scope on current main
+
+The following behavior is implemented and has named real Core/SQLite regression coverage:
+
+- One durable Process Manager lifecycle over the existing TimeEngine scheduler, registered triggers, and Core segment transaction; no second scheduler or process-owned canonical writer.
+- World-scoped process identity; milestones and prerequisite edges are process-local. Definition validation rejects missing, cyclic, self, and later-due prerequisites.
+- Durable milestone progression, pause/resume/cancel, and interruption/continuation through the persisted TimeEngine operation boundary after SQLite close/reopen. There is no separate process-level `interrupt` API.
+- Atomic canonical segment effects, trigger completion, process/milestone checkpoint and idempotency outcome in the existing Core transaction.
+- Same-key/same-content replay is stable; same-key/changed-content conflicts.
+- Contradictory, missing, malformed or stale checkpoint evidence fails closed to `needs_review`; no automatic repair, resume, effect replay, or recalculation. The #694 cross-record guard and its targeted real-path tests are merged.
+- Rollback of a supporting event uses Core's existing event-level causal closure; affected process-local completed milestones and their process-local descendants are gated as `needs_review`. A bounded test proves an explicitly independent process is preserved.
+- Process completion does not itself create NPC knowledge, belief changes, reports, or player-delivery records.
+
+### Explicitly outside the closed bounded scope
+
+1. Cross-process milestone prerequisites and a general process-to-process dependency graph. Such references are rejected; timestamps, shared entity IDs and execution order do not imply causation.
+2. Global cross-process process-causal closure, transitive process-level recomputation, or automatic replan after rollback.
+3. Proving independence where causal inputs are missing, incomplete, or not enumerable. Preserve only progress whose independence is supported by explicit evidence; otherwise require review.
+4. An explicit replan/reconciliation API or automatic recovery from `needs_review`. Manual reviewed disposition remains required.
+5. General dependency-graph completeness and derived-projection recalculation/publication. Those belong to the broader Core lifecycle tracked by #262, not to the Time scheduler.
+6. Exhaustive coverage of every possible corruption and response-loss boundary. The current evidence is the named acceptance matrix, not a proof against arbitrary storage corruption.
+
+### Ownership and tracking
+
+- #243: closed bounded lifecycle slice; do not reopen merely because broader causal features remain unimplemented.
+- #262: remains open for the broader Core evaluation/recalculation/result-publication lifecycle, including dependency evidence, conflicts, rollback/replay, derived projections and authorized publication.
+- New causal capabilities must be proposed as separate bounded Core/Time work with explicit owner, source paths, acceptance tests and fail-closed behavior. Do not expand the closed #243 contract implicitly.
+
+---
+
 ## Approved rule
 
 When persisted Process Manager state conflicts with the existing TimeEngine operation/segment checkpoint, trigger state, or canonical committed event evidence:
@@ -101,7 +135,7 @@ The evidence above establishes only the specific lifecycle, persistence, atomici
 - **Unrelated-progress independence:** a bounded test preserves an explicitly independent process, but the system does not prove independence when causal inputs are incomplete or unenumerable.
 - **Explicit replan semantics:** overdue resume is fail-closed; the separate replan contract remains a proposal without a runtime API and requires owner approval and implementation evidence.
 
-Keep #243 open until its remaining acceptance rows are either directly evidenced by tests/source or explicitly descoped by the issue owner. Passing CI and the bounded tests above do not close those gaps. The CI figures are exact-head results for the tested PR candidate, not a new run on the current `main` head. This record does not claim global cross-process process-graph recomputation.
+Issue #243 is closed for the bounded lifecycle slice stated at the top of this record. Its explicit non-goals remain non-goals; they are not silently accepted or implemented. The broader Core calculation/publication work remains tracked by #262. The CI figures below are exact-head results for the tested PR candidate, not a new run on the current `main` head. This record does not claim global cross-process process-graph recomputation.
 
 - Keep the broader Core evaluation/recalculation/publication boundary in #262 open until its own source-backed acceptance matrix is satisfied.
 - Keep production Memory→NPC **DISABLED / FAIL-CLOSED**. This decision does not authorize release or disclosure.
