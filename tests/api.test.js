@@ -2035,7 +2035,8 @@ test('active mechanic policy validator resolves the current owner on every check
 
   const store = new SQLiteStore(':memory:');
   try {
-    assert.throws(() => createApiServer({ engine: new LogicEngine(store), token: TOKEN, getActiveMechanicContextProvider: null }), /trusted application callback/);
+    assert.throws(() => createActiveMechanicPolicyValidator(null), /trusted application callback/);
+    assert.doesNotThrow(() => createApiServer({ engine: new LogicEngine(store), token: TOKEN }));
   } finally {
     store.close();
   }
