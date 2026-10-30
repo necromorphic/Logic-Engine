@@ -1258,6 +1258,11 @@ export class LogicEngine {
         reason_rule_ref: input.reason_rule_ref,
       };
       const prepared = this.prepareNpcBeliefContext(readRequest, proposal, currentBelief);
+      if (typeof this.npcKnowledgeContextResolver === 'function') {
+        assert(isNpcKnowledgePolicyAuthoritySnapshot(prepared.policy_authority),
+          'NPC_KNOWLEDGE_READ_NOT_AUTHORIZED',
+          'Core belief writes require a complete versioned NPC policy authority tuple.', 403);
+      }
       const transitionId = 'npc-belief:' + hashRequest({
         world_id: input.world_id,
         idempotency_key: input.idempotency_key,
@@ -1269,6 +1274,12 @@ export class LogicEngine {
         // canonical writes on this database cannot interleave between this check
         // and commitEvent's revision/sequence compare-and-swap.
         const commitPrepared = this.prepareNpcBeliefContext(readRequest, proposal, currentBelief);
+        if (typeof this.npcKnowledgeContextResolver === 'function') {
+          assert(isNpcKnowledgePolicyAuthoritySnapshot(commitPrepared.policy_authority)
+            && this.npcKnowledgePolicyAuthority.isCurrent(commitPrepared.policy_authority),
+          'NPC_KNOWLEDGE_READ_NOT_AUTHORIZED',
+          'The Core NPC policy authority changed or became unavailable before the canonical write.', 403);
+        }
         assert(hashRequest(commitPrepared.transition) === hashRequest(prepared.transition)
           && hashRequest(commitPrepared.policy_authority ?? null) === hashRequest(prepared.policy_authority ?? null),
           'NPC_BELIEF_CONTEXT_STALE',
