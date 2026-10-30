@@ -322,7 +322,7 @@ Notes:
 
 - No changes to production code, Core DB, Provider DB, Host installation, SillyTavern vectorization, remote vector store, or user data.
 - No activation of Memory → NPC.
-- No use of legacy Google-specific egress patch as current provider architecture; provider choice is not defined here.
+- No use of the legacy provider-specific egress patch as current architecture; provider choice is not defined here.
 - No PR creation, merge, deployment or runtime test in this documentation task.
 - No replacement of deny-only inventory verifier with a positive callback without a real authoritative verifier.
 - No API/schema change without approval from every affected owner, per private contract D5.
@@ -358,11 +358,11 @@ These are meaningful primitives. They do not by themselves prove that every prod
 
 ### 10.2 Important provider-direction mismatch
 
-The Gateway source comment currently says: “Only the explicitly allowlisted Google AI Studio chat route is supported.” The allowlist string `host-selected-chat-generation` is not proof of a provider-neutral transport implementation.
+The Gateway source comment currently restricts support to one explicitly allowlisted provider chat route. The allowlist string `host-selected-chat-generation` is not proof of a provider-neutral transport implementation.
 
-The project direction recorded in current context has removed Google as the target provider. Therefore:
+The project has explicitly rejected the legacy provider-specific route as its target. Therefore:
 - do not treat the current Gateway route/comment as an approved provider choice;
-- do not adopt the uploaded legacy Google-specific SillyTavern patch or its environment variable contract as the current integration design;
+- do not adopt the uploaded legacy provider-specific SillyTavern patch or its environment-variable contract as the current integration design;
 - retain the generic security semantics (server-owned route, no client override, no direct fallback, no secret leakage), but define a provider-neutral Host→PC Gateway transport contract;
 - the exact provider adapter and supported route must be chosen separately and must not weaken the dispatch authorization envelope.
 
@@ -372,7 +372,7 @@ This is a source-level compatibility blocker for using the current Gateway as-is
 
 1. **Runtime composition absent:** `src/index.js` constructs Core and Host version ledger but does not construct/wire `MemoryDispatchGateway`. No current-main ST route callsite was demonstrated.
 2. **Injected authority functions:** `readCoreEvidence`, `readProviderEvidence` and `sendUpstream` are constructor dependencies. The source does not establish that production composition supplies authoritative implementations or that there are no alternate senders.
-3. **Route/provider mismatch:** current source comment restricts the supported protected route to Google AI Studio; project provider direction has moved away from Google.
+3. **Route/provider mismatch:** current source comment restricts the protected route to a provider-specific implementation that is not the selected project target.
 4. **Shared coordinator configuration must be proven:** Core, Provider and Gateway must all use the same absolute coordinator DB path and same filesystem object, not merely a path string that happens to be similar. Deployment ACLs and process identity must prevent a participant from silently opening a different coordinator.
 5. **Accepted-head scope:** Gateway checks the Core/Provider accepted-head authority before dispatch. The dispatch ledger itself is a separate durable database; its own restore/rollback protection and recovery semantics must be demonstrated. Do not assume Core/Provider accepted-head enrollment automatically protects a restored dispatch ledger.
 6. **Transport ordering evidence:** the Gateway commits `DISPATCH_STARTED`, releases the coordinator and only then calls `sendUpstream`. This matches the declared durable dispatch-start ordering point only if the owners explicitly define that point as the transition to in-flight. It does not prove that bytes were handed to the network, and a crash in the gap must remain UNKNOWN/no-auto-retry. If owners require transport invocation itself to be inside the shared ordering window, the current implementation does not prove that stronger rule; the alternative must not await network I/O while holding the coordinator.
@@ -389,13 +389,13 @@ This is a source-level compatibility blocker for using the current Gateway as-is
 - **GW-04:** crash/restart with `DISPATCH_STARTED` transitions to `UNKNOWN`; no automatic second send.
 - **GW-05:** duplicate request ID and unresolved digest replay are denied; same identity with changed binding/payload conflicts.
 - **GW-06:** every protected ST route invokes this exact Gateway; direct provider, extension, alternate backend and retry paths cannot carry protected payload.
-- **GW-07:** provider-neutral adapter is used; no dependency on Google-specific route/configuration remains.
+- **GW-07:** provider-neutral adapter is used; no dependency on legacy provider-specific route/configuration remains.
 - **GW-08:** restoring an older dispatch ledger cannot erase a prior request identity or permit a duplicate disclosure.
 - **GW-09:** exact recipient, policy generation/fingerprint, Host session generation and lane-specific source pins are bound and revalidated.
 
 ### 10.5 Security 1.1 uploaded artifact disposition
 
-The uploaded `Security 1.1.txt` describes a legacy Google AI Studio-specific SillyTavern egress patch and environment variables. It is not a provider-neutral contract and conflicts with the current project direction that removed Google. It is retained as historical evidence only and is **not** used as an implementation dependency.
+The uploaded `Security 1.1.txt` describes a legacy provider-specific SillyTavern egress patch and environment variables. It is not a provider-neutral contract and conflicts with the current project direction. It is retained as historical evidence only and is **not** used as an implementation dependency.
 
 The uploaded `Координатор 2.16.txt` is a diagnostic-package report describing a health-only ST/Core connectivity check and test counts on an archive without Git metadata. It does not prove trusted authorization, Memory reconciliation/revocation, shared dispatch ordering, or anti-rollback. It is not acceptance evidence for this workstream.
 
