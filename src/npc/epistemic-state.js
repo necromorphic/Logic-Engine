@@ -15,6 +15,29 @@ const POLARITIES = new Set(["supports_true", "supports_false"]);
 const STANCES = new Set(["believes_true", "believes_false", "suspects_true", "suspects_false", "unresolved", "unknown"]);
 const EPISTEMIC_STATUSES = new Set(["confirmed", "unconfirmed_report", "suspicion", "inference", "rumor", "unknown"]);
 
+const MEMORY_EPISTEMIC_KINDS = new Set(["acquired_report", "rumor", "inference"]);
+const MEMORY_EVIDENCE_ASSESSMENTS = new Set(["unassessed", "supported", "disputed", "insufficient"]);
+
+/**
+ * Map the approved Memory evidence vocabulary into NPC-local epistemic status.
+ *
+ * This is classification only: it does not authenticate provenance, authorize
+ * disclosure, establish acquisition, or revise belief. `supported` never upgrades a report/rumor/inference to `confirmed`. Canonical and assigned/imported knowledge require their
+ * separate Core acquisition path; suspicion is produced by NPC cognition.
+ *
+ * Returns null when the evidence must not enter belief revision.
+ */
+export function mapMemoryEvidenceToNpcEpistemicStatus(epistemicKind, evidenceAssessment) {
+  if (!MEMORY_EVIDENCE_ASSESSMENTS.has(evidenceAssessment)
+    || !MEMORY_EPISTEMIC_KINDS.has(epistemicKind)) return null;
+  if (evidenceAssessment === "unassessed") return null;
+  if (evidenceAssessment === "insufficient") return "unknown";
+  if (epistemicKind === "acquired_report") return "unconfirmed_report";
+  if (epistemicKind === "rumor") return "rumor";
+  if (epistemicKind === "inference") return "inference";
+  return null;
+}
+
 const nonReady = (reason = "invalid_epistemic_input") => Object.freeze({
   status: "non_ready",
   state: null,
