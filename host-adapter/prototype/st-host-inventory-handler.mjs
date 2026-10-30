@@ -20,8 +20,12 @@ export function createHostInventoryHandler({
     const directories = user?.directories;
     const userHandle = user?.profile?.handle;
     const sessionHandle = request?.session?.handle;
+    const sessionId = request?.session?.logicEngineSessionId;
+    const sessionIdentityHandle = request?.session?.logicEngineSessionHandle;
     if (!directories || typeof userHandle !== 'string' || !userHandle.trim()
-      || typeof sessionHandle !== 'string' || sessionHandle !== userHandle) {
+      || typeof sessionHandle !== 'string' || sessionHandle !== userHandle
+      || typeof sessionId !== 'string' || !HOST_SESSION_UUID.test(sessionId)
+      || sessionIdentityHandle !== userHandle) {
       return response.sendStatus(403);
     }
 
