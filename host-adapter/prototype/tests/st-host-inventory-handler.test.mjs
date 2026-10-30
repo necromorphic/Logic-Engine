@@ -70,6 +70,7 @@ test('host inventory route passes only the authenticated user data roots and ret
     file_count: 2,
     inventory_sha256: 'a'.repeat(64),
     blockers: ['NO_PRE_ENROLLMENT_DELETED_HISTORY'],
+    files: [],
   };
   const handler = createHostInventoryHandler({
     enumerate: async input => { observed = input; return inventory; },
@@ -84,7 +85,11 @@ test('host inventory route passes only the authenticated user data roots and ret
     characters: 'C:\\st\\data\\characters',
     backups: 'C:\\st\\data\\backups',
   };
-  await handler({ user: { profile: { handle: 'alice' }, directories }, session: { handle: 'alice', logicEngineSessionId: '2e6b0a80-4e73-4c66-aaf3-7a6e62c7f401', logicEngineSessionHandle: 'alice' } }, response);
+  await handler({
+    user: { profile: { handle: 'alice' }, directories },
+    session: { handle: 'alice', logicEngineSessionId: '2e6b0a80-4e73-4c66-aaf3-7a6e62c7f401', logicEngineSessionHandle: 'alice' },
+    query: { conversation_uuid: '4e6b0a80-4e73-4c66-aaf3-7a6e62c7f403' },
+  }, response);
   assert.equal(response.statusCode, 200);
   assert.equal(response.headers['cache-control'], 'no-store, private');
   assert.equal(response.headers.vary, 'Cookie');
@@ -98,6 +103,7 @@ test('host inventory route passes only the authenticated user data roots and ret
   });
   assert.equal(response.body.authority, 'NON_AUTHORITATIVE');
   assert.equal(response.body.host_user_handle, 'alice');
+  assert.equal(response.body.requested_conversation_uuid, '4e6b0a80-4e73-4c66-aaf3-7a6e62c7f403');
   assert.equal(response.body.host_build_claim_type, 'DEPLOYMENT_ASSERTION_NOT_RUNTIME_ATTESTATION');
   assert.equal(JSON.stringify(response.body).includes('raw-chat-message'), false);
 });
@@ -158,7 +164,11 @@ test('host inventory route hides scanner errors and absolute paths from the HTTP
     hostBuildClaim: pinned,
   });
   const response = makeResponse();
-  await handler({ user: { profile: { handle: 'alice' }, directories: {} }, session: { handle: 'alice', logicEngineSessionId: '2e6b0a80-4e73-4c66-aaf3-7a6e62c7f401', logicEngineSessionHandle: 'alice' } }, response);
+  await handler({
+    user: { profile: { handle: 'alice' }, directories: {} },
+    session: { handle: 'alice', logicEngineSessionId: '2e6b0a80-4e73-4c66-aaf3-7a6e62c7f401', logicEngineSessionHandle: 'alice' },
+    query: { conversation_uuid: '4e6b0a80-4e73-4c66-aaf3-7a6e62c7f403' },
+  }, response);
   assert.equal(response.statusCode, 503);
   assert.deepEqual(response.body, { status: 'NON_READY', code: 'SOURCE_INVENTORY_UNAVAILABLE' });
   assert.equal(JSON.stringify(response.body).includes('private'), false);
