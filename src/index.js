@@ -5,6 +5,7 @@ import { LogicEngine } from './application/engine.js';
 import { createApiServer } from './api/server.js';
 import { HostVersionDigestLedger } from './application/host-version-digest-ledger.js';
 import { loadTrustedWorldPackCatalog } from './application/world-pack-catalog.js';
+import { MechanicPolicyAuthority, defaultMechanicPolicyFieldPolicy } from './application/mechanic-policy-authority.js';
 
 const token = process.env.ENGINE_API_TOKEN;
 const internalToken = process.env.ENGINE_INTERNAL_TOKEN || null;
@@ -99,6 +100,16 @@ if (typeof worldPackCatalogPath !== 'string' || !worldPackCatalogPath.trim()) {
 }
 const worldPackCatalog = loadTrustedWorldPackCatalog(resolve(worldPackCatalogPath));
 
+// The default deployment policy is intentionally narrow: it discloses only
+// the bound actor's own identity fields and denies all attributes. A broader
+// deployment policy must be supplied through an explicitly constructed trusted
+// MechanicPolicyAuthority, never through model or adapter input.
+const mechanicPolicyAuthority = new MechanicPolicyAuthority({
+  authorityId: process.env.ENGINE_MECHANIC_POLICY_AUTHORITY_ID || 'logic-engine.default-visibility-policy',
+  generation: Number(process.env.ENGINE_MECHANIC_POLICY_GENERATION || '1'),
+  fieldPolicy: defaultMechanicPolicyFieldPolicy,
+});
+
 const store = new SQLiteStore(dbPath);
 const hostVersionLedgerPath = process.env.ENGINE_HOST_VERSION_LEDGER_DB_PATH
   ? resolve(process.env.ENGINE_HOST_VERSION_LEDGER_DB_PATH)
@@ -119,6 +130,7 @@ const hostVersionLedger = new HostVersionDigestLedger({
 const server = createApiServer({
   engine: new LogicEngine(store, { trustedInitialKnowledgeSources, worldPackCatalog }), token, internalToken, approvalToken, adminToken, adapterTokens,
   hostVersionLedger,
+  mechanicPolicyAuthority,
 });
 server.listen(port, host, () => process.stdout.write(
   'Logic-Engine API listening on http://' + host + ':' + port + '\nDatabase: ' + dbPath +

@@ -9,6 +9,7 @@ import { MechanicExecutor } from '../src/application/mechanic-executor.js';
 import { CanonicalEntityAttributeContextProvider } from '../src/application/entity-attribute-context-provider.js';
 import { ActorBindingService } from '../src/application/actor-bindings.js';
 import { AuthorizedReadService } from '../src/application/authorized-read-service.js';
+import { MechanicPolicyAuthority } from '../src/application/mechanic-policy-authority.js';
 import { ProposalService } from '../src/application/proposals.js';
 import { collectMechanicConditionDependencies } from '../src/core/mechanics.js';
 import { hashRequest } from '../src/core/request-hash.js';
@@ -110,6 +111,7 @@ function contextProvider(context = { world: { weather: 'rain' }, actor: { hp: 10
       commit_sequence: snapshot.commit_sequence,
       authorization_scope: 'test-principal',
       policy_version: 'test-visibility-policy-v1',
+      policy_authority: { authority_id: 'test-mechanic-policy-authority', generation: 1 },
     };
   };
 }
@@ -120,13 +122,17 @@ test('mechanic context provider can enforce actor binding and field policy throu
 
   const actorBindings = new ActorBindingService(engine);
   actorBindings.bind(worldId, 'test-adapter', 'entity.actor-context');
-  const authorizedReads = new AuthorizedReadService(engine, actorBindings, (context, entity, field) =>
-    context.authenticatedAdapterId === 'test-adapter'
+  const policyAuthority = new MechanicPolicyAuthority({
+    authorityId: 'test-mechanic-policy-authority',
+    generation: 1,
+    fieldPolicy: (context, entity, field) => context.authenticatedAdapterId === 'test-adapter'
       && context.actor.entity_id === 'entity.actor-context'
       && context.recipient === 'model'
       && context.purpose === 'npc_decision'
       && ((entity.entity_id === 'entity.world-context' && field === 'attributes.weather')
-        || (entity.entity_id === 'entity.actor-context' && field === 'attributes.hp')));
+        || (entity.entity_id === 'entity.actor-context' && field === 'attributes.hp')),
+  });
+  const authorizedReads = new AuthorizedReadService(engine, actorBindings, policyAuthority);
 
   const provider = new CanonicalEntityAttributeContextProvider(engine, {
     policyVersion: 'test-read-policy-v1',
@@ -155,8 +161,8 @@ test('mechanic context provider can enforce actor binding and field policy throu
   const proposals = new ProposalService(engine, {
     validateMechanicPolicy(identity) {
       assert.equal(identity.policyVersion, provider.policyFingerprint);
-      actorBindings.resolve(identity.worldId, 'test-adapter', 'entity.actor-context');
-      return true;
+      assert.deepEqual(identity.policyAuthority, policyAuthority.getSnapshot());
+      return provider.validateMechanicPolicy(identity);
     },
   });
   const proposal = proposals.createFromMechanicEvaluation(worldId, result, {
@@ -238,6 +244,7 @@ test('application executor fails closed without trusted context or with a mismat
       commit_sequence: snapshot.commit_sequence,
       authorization_scope: 'test-principal',
       policy_version: 'test-visibility-policy-v1',
+      policy_authority: { authority_id: 'test-mechanic-policy-authority', generation: 1 },
     }),
   }).evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
   assert.equal(mismatch.status, 'unknown');
@@ -374,17 +381,23 @@ test('mechanic proposals fail closed without current-policy validation and reche
     .evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
 
   const unguarded = new ProposalService(engine);
-  const proposal = unguarded.createFromMechanicEvaluation(worldId, evaluation, {
+  assert.throws(
+    () => unguarded.createFromMechanicEvaluation(worldId, evaluation, {
+      idempotencyKey: 'mechanic-policy-freshness',
+      turnId: 'turn-mechanic-policy-freshness',
+      sourceText: 'Policy freshness must be checked before proposal creation.',
+      adapterId: 'test-adapter',
+    }),
+    (error) => error.code === 'MECHANIC_POLICY_REVALIDATION_REQUIRED' && error.status === 409,
+  );
+  assert.equal(unguarded.db.prepare('SELECT COUNT(*) AS count FROM event_proposals').get().count, 0);
+  const proposalService = new ProposalService(engine, { validateMechanicPolicy: () => true });
+  const proposal = proposalService.createFromMechanicEvaluation(worldId, evaluation, {
     idempotencyKey: 'mechanic-policy-freshness',
     turnId: 'turn-mechanic-policy-freshness',
     sourceText: 'Policy freshness must be checked before approval and commit.',
     adapterId: 'test-adapter',
   });
-  assert.throws(
-    () => unguarded.approve(worldId, proposal.proposal_id),
-    (error) => error.code === 'MECHANIC_POLICY_REVALIDATION_REQUIRED' && error.status === 409,
-  );
-  assert.equal(unguarded.get(worldId, proposal.proposal_id).status, 'pending');
 
   const throwingValidator = new ProposalService(engine, {
     validateMechanicPolicy() { throw new Error('private policy internals'); },
@@ -423,29 +436,39 @@ test('mechanic proposals fail closed without current-policy validation and reche
 });
 
 
-test('proposal policy validation delegates to the active context provider and rejects a rotated provider', (t) => {
+test('proposal lifecycle rejects a policy generation rotation after approval', (t) => {
   const { engine, worldId } = setup(t, 'executor-provider-policy-rotation-world');
   enableFixture(engine, worldId);
 
-  const makeProvider = (policyVersion) => new CanonicalEntityAttributeContextProvider(engine, {
-    policyVersion,
+  const actorBindings = new ActorBindingService(engine);
+  actorBindings.bind(worldId, 'test-adapter', 'entity.actor-context');
+  const policyAuthority = new MechanicPolicyAuthority({
+    authorityId: 'test-mechanic-policy-authority',
+    generation: 1,
+    fieldPolicy: () => true,
+  });
+  const authorizedReads = new AuthorizedReadService(engine, actorBindings, policyAuthority);
+  const provider = new CanonicalEntityAttributeContextProvider(engine, {
+    policyVersion: 'visibility-policy-v1',
     authorizationScope: 'test-principal',
     bindings: [
       { path: 'world.weather', entity_id: 'entity.world-context', attribute: 'weather' },
       { path: 'actor.hp', entity_id: 'entity.actor-context', attribute: 'hp' },
     ],
-    canRead: () => true,
+    authorizedReadService: authorizedReads,
+    adapterId: 'test-adapter',
+    actorEntityId: 'entity.actor-context',
+    recipient: 'model',
+    purpose: 'npc_decision',
   });
-
-  let activeProvider = makeProvider('visibility-policy-v1');
   const evaluation = new MechanicExecutor(engine, {
-    resolveAuthorizedContext: (args) => activeProvider.resolve(args),
+    resolveAuthorizedContext: (args) => provider.resolve(args),
   }).evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
   assert.equal(evaluation.status, 'ready');
-  assert.equal(evaluation.context_policy_version, activeProvider.policyFingerprint);
+  assert.deepEqual(evaluation.policy_authority, { authority_id: 'test-mechanic-policy-authority', generation: 1 });
 
   const proposals = new ProposalService(engine, {
-    validateMechanicPolicy: (identity) => activeProvider.validateMechanicPolicy(identity),
+    validateMechanicPolicy: (identity) => provider.validateMechanicPolicy(identity),
   });
   const proposal = proposals.createFromMechanicEvaluation(worldId, evaluation, {
     idempotencyKey: 'provider-policy-rotation',
@@ -455,8 +478,9 @@ test('proposal policy validation delegates to the active context provider and re
   });
   proposals.approve(worldId, proposal.proposal_id);
 
-  activeProvider = makeProvider('visibility-policy-v2');
-  assert.notEqual(activeProvider.policyFingerprint, evaluation.context_policy_version);
+  const rotated = policyAuthority.rotate(() => true);
+  assert.deepEqual(rotated, { authority_id: 'test-mechanic-policy-authority', generation: 2 });
+  assert.notEqual(provider.policyFingerprint, evaluation.context_policy_version);
   assert.throws(
     () => proposals.commit(worldId, proposal.proposal_id),
     (error) => error.code === 'STALE_MECHANIC_POLICY' && error.status === 409,
@@ -464,6 +488,102 @@ test('proposal policy validation delegates to the active context provider and re
   assert.equal(proposals.get(worldId, proposal.proposal_id).status, 'approved');
   assert.equal(engine.getState(worldId).world_revision, 2);
   assert.equal(engine.getState(worldId).entities.some((entity) => entity.entity_id === 'entity.new'), false);
+});
+
+test('real policy authority rotation is revalidated at proposal creation, approval, and commit', (t) => {
+  const { engine, worldId } = setup(t, 'executor-policy-authority-lifecycle-world');
+  enableFixture(engine, worldId);
+  const actorBindings = new ActorBindingService(engine);
+  actorBindings.bind(worldId, 'test-adapter', 'entity.actor-context');
+  const authority = new MechanicPolicyAuthority({
+    authorityId: 'test-lifecycle-policy-authority',
+    generation: 1,
+    fieldPolicy: () => true,
+  });
+  const reads = new AuthorizedReadService(engine, actorBindings, authority);
+  const provider = new CanonicalEntityAttributeContextProvider(engine, {
+    policyVersion: 'visibility-policy-v1',
+    authorizationScope: 'test-adapter:entity.actor-context:model:npc_decision',
+    bindings: [
+      { path: 'world.weather', entity_id: 'entity.world-context', attribute: 'weather' },
+      { path: 'actor.hp', entity_id: 'entity.actor-context', attribute: 'hp' },
+    ],
+    authorizedReadService: reads,
+    adapterId: 'test-adapter',
+    actorEntityId: 'entity.actor-context',
+    recipient: 'model',
+    purpose: 'npc_decision',
+  });
+  const executor = new MechanicExecutor(engine, {
+    resolveAuthorizedContext: (args) => provider.resolve(args),
+  });
+  const proposals = new ProposalService(engine, {
+    validateMechanicPolicy: (identity) => provider.validateMechanicPolicy(identity),
+  });
+  const evaluate = () => executor.evaluate({
+    worldId, instanceId: 'instance.executor', actionId: 'wait',
+  });
+  const create = (evaluation, key) => proposals.createFromMechanicEvaluation(worldId, evaluation, {
+    idempotencyKey: key,
+    turnId: 'turn-' + key,
+    sourceText: 'A bounded mechanic proposal must remain bound to its policy generation.',
+    adapterId: 'test-adapter',
+  });
+
+  const firstEvaluation = evaluate();
+  assert.equal(firstEvaluation.status, 'ready');
+  authority.rotate(() => true);
+  assert.throws(
+    () => create(firstEvaluation, 'policy-stale-before-proposal'),
+    (error) => error.code === 'STALE_MECHANIC_POLICY' && error.status === 409,
+  );
+  assert.throws(
+    () => create(firstEvaluation, 'policy-old-evaluation-retry'),
+    (error) => error.code === 'STALE_MECHANIC_POLICY' && error.status === 409,
+  );
+  assert.equal(proposals.db.prepare('SELECT COUNT(*) AS count FROM event_proposals').get().count, 0);
+
+  const secondEvaluation = evaluate();
+  assert.equal(secondEvaluation.status, 'ready');
+  const pending = create(secondEvaluation, 'policy-stale-before-approval');
+  authority.rotate(() => true);
+  assert.throws(
+    () => proposals.approve(worldId, pending.proposal_id),
+    (error) => error.code === 'STALE_MECHANIC_POLICY' && error.status === 409,
+  );
+  assert.equal(proposals.get(worldId, pending.proposal_id).status, 'pending');
+
+  const thirdEvaluation = evaluate();
+  assert.equal(thirdEvaluation.status, 'ready');
+  const approved = create(thirdEvaluation, 'policy-stale-before-commit');
+  proposals.approve(worldId, approved.proposal_id);
+  authority.rotate(() => true);
+  assert.throws(
+    () => proposals.commit(worldId, approved.proposal_id),
+    (error) => error.code === 'STALE_MECHANIC_POLICY' && error.status === 409,
+  );
+  assert.equal(proposals.get(worldId, approved.proposal_id).status, 'approved');
+  assert.equal(engine.getState(worldId).world_revision, 2);
+  assert.equal(engine.getEvents(worldId).length, 2);
+  assert.equal(engine.getState(worldId).entities.some((entity) => entity.entity_id === 'entity.new'), false);
+
+  const freshEvaluation = evaluate();
+  assert.equal(freshEvaluation.status, 'ready');
+  assert.equal(freshEvaluation.policy_authority.generation, 4);
+  const freshProposal = create(freshEvaluation, 'policy-current-generation-commit');
+  proposals.approve(worldId, freshProposal.proposal_id);
+  const committed = proposals.commit(worldId, freshProposal.proposal_id);
+  assert.equal(committed.status, 'committed');
+  assert.equal(engine.getState(worldId).world_revision, 3);
+  assert.equal(engine.getState(worldId).entities.some((entity) => entity.entity_id === 'entity.new'), true);
+
+  authority.rotate(() => true);
+  assert.throws(
+    () => proposals.commit(worldId, freshProposal.proposal_id),
+    (error) => error.code === 'STALE_MECHANIC_POLICY' && error.details?.stage === 'commit_replay',
+  );
+  assert.equal(engine.getState(worldId).world_revision, 3);
+  assert.equal(engine.getEvents(worldId).length, 3);
 });
 
 test('mechanic proposal handoff rejects a stale evaluation before creating a proposal', (t) => {
@@ -505,6 +625,7 @@ test('mechanic proposal handoff rejects incomplete or mismatched effect provenan
     effect_provenance: tampered.effect_provenance,
     read_set: tampered.read_set,
     causal_links: tampered.causal_links,
+    policy_authority: tampered.policy_authority,
   });
   attestMechanicEvaluation(tampered);
   assert.throws(
@@ -658,6 +779,7 @@ test('application executor freezes the complete evaluation snapshot before trust
         commit_sequence: snapshot.commit_sequence,
         authorization_scope: 'test-principal',
         policy_version: 'test-immutable-snapshot-v1',
+        policy_authority: { authority_id: 'test-mechanic-policy-authority', generation: 1 },
       };
     },
   }).evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
@@ -795,6 +917,71 @@ test('application executor rejects required capabilities without a grant contrac
 });
 
 
+test('application executor rejects non-deterministic ambiguity policies', (t) => {
+  for (const ambiguityPolicy of ['model_proposal_then_validate', 'author_adjudication', 'unsupported']) {
+    const worldId = 'executor-ambiguity-' + ambiguityPolicy.replaceAll('_', '-') + '-world';
+    const { engine } = setup(t, worldId);
+    const value = template({
+      actions: [{
+        ...template().actions[0],
+        ambiguity_policy: ambiguityPolicy,
+      }],
+    });
+    enableFixture(engine, worldId, value);
+    const result = new MechanicExecutor(engine, { resolveAuthorizedContext: contextProvider() })
+      .evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
+    assert.equal(result.status, 'unknown');
+    assert.equal(result.reason_code, 'UNSUPPORTED_ACTION_AMBIGUITY_POLICY');
+    assert.deepEqual(result.effects, []);
+    assert.equal(engine.getState(worldId).world_revision, 2);
+  }
+});
+
+test('application executor rejects participant and automatic conflict policies instead of guessing', (t) => {
+  const participantCases = [
+    ['eligible-participants', { eligible_participants: [{ role_id: 'actor' }] }],
+    ['interactions', { interactions: [{
+      interaction_id: 'talk',
+      other_template_id: 'test.other',
+      policy: 'compatible',
+    }] }],
+  ];
+  for (const [suffix, overrides] of participantCases) {
+    const worldId = 'executor-unsupported-' + suffix + '-world';
+    const { engine } = setup(t, worldId);
+    enableFixture(engine, worldId, template(overrides));
+    const result = new MechanicExecutor(engine, { resolveAuthorizedContext: contextProvider() })
+      .evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
+    assert.equal(result.status, 'unknown');
+    assert.equal(result.reason_code, 'UNSUPPORTED_PARTICIPANT_OR_INTERACTION_POLICY');
+    assert.deepEqual(result.effects, []);
+    assert.equal(engine.getState(worldId).world_revision, 2);
+  }
+
+  const conflictWorld = 'executor-unsupported-automatic-conflict-world';
+  const conflictSetup = setup(t, conflictWorld);
+  conflictSetup.engine.registerRuleModuleManifest({
+    module_id: 'test.resolver',
+    version: '1.0.0',
+    contract_version: 'core-1',
+    capabilities: [],
+    operations: ['resolve_conflict'],
+    input_schema: { type: 'object' },
+    output_schema: { type: 'object' },
+    failure_policy: 'fail_closed',
+    compatibility: { core_contract_versions: ['core-1'] },
+  });
+  enableFixture(conflictSetup.engine, conflictWorld, template({
+    conflict_policy: { mode: 'automatic', resolver_module_id: 'test.resolver', resolver_module_version: '1.0.0' },
+  }));
+  const conflictResult = new MechanicExecutor(conflictSetup.engine, { resolveAuthorizedContext: contextProvider() })
+    .evaluate({ worldId: conflictWorld, instanceId: 'instance.executor', actionId: 'wait' });
+  assert.equal(conflictResult.status, 'unknown');
+  assert.equal(conflictResult.reason_code, 'UNSUPPORTED_MECHANIC_MODULE_OR_CONFLICT_POLICY');
+  assert.deepEqual(conflictResult.effects, []);
+  assert.equal(conflictSetup.engine.getState(conflictWorld).world_revision, 2);
+});
+
 test('application executor refuses context whose canonical dependency evidence is missing or mismatched', (t) => {
   const missingSetup = setup(t, 'executor-missing-evidence-world');
   enableFixture(missingSetup.engine, missingSetup.worldId);
@@ -807,6 +994,7 @@ test('application executor refuses context whose canonical dependency evidence i
       commit_sequence: snapshot.commit_sequence,
       authorization_scope: 'test-principal',
       policy_version: 'test-policy-v1',
+      policy_authority: { authority_id: 'test-mechanic-policy-authority', generation: 1 },
     }),
   }).evaluate({ worldId: missingSetup.worldId, instanceId: 'instance.executor', actionId: 'wait' });
   assert.equal(missing.status, 'unknown');
@@ -827,6 +1015,7 @@ test('application executor refuses context whose canonical dependency evidence i
       commit_sequence: snapshot.commit_sequence,
       authorization_scope: 'test-principal',
       policy_version: 'test-policy-v1',
+      policy_authority: { authority_id: 'test-mechanic-policy-authority', generation: 1 },
     }),
   }).evaluate({ worldId: mismatchSetup.worldId, instanceId: 'instance.executor', actionId: 'wait' });
   assert.equal(mismatch.status, 'unknown');
@@ -878,6 +1067,7 @@ test('application executor accepts only same-snapshot canonical absence evidence
     commit_sequence: snapshot.commit_sequence,
     authorization_scope: 'test-principal',
       policy_version: 'test-visibility-policy-v1',
+      policy_authority: { authority_id: 'test-mechanic-policy-authority', generation: 1 },
   });
   const provenAbsent = new MechanicExecutor(engine, { resolveAuthorizedContext: provider(['actor.injury']) })
     .evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
@@ -906,6 +1096,7 @@ test('application executor rejects known-absence claims outside the declared con
       commit_sequence: snapshot.commit_sequence,
       authorization_scope: 'test-principal',
       policy_version: 'test-visibility-policy-v1',
+      policy_authority: { authority_id: 'test-mechanic-policy-authority', generation: 1 },
     }),
   }).evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
   assert.equal(result.status, 'unknown');
@@ -967,6 +1158,7 @@ test('mechanic context and evaluation fingerprints change when the visibility po
       ...contextProvider()(args),
       authorization_scope: 'test-principal',
       policy_version: 'test-visibility-policy-v2',
+      policy_authority: { authority_id: 'test-mechanic-policy-authority', generation: 1 },
     }),
   }).evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
   assert.equal(first.status, 'ready');
@@ -993,6 +1185,7 @@ test('application executor rejects non-canonical context values before hashing o
       commit_sequence: snapshot.commit_sequence,
       authorization_scope: 'test-principal',
       policy_version: 'test-visibility-policy-v1',
+      policy_authority: { authority_id: 'test-mechanic-policy-authority', generation: 1 },
     }),
   }).evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
   assert.equal(result.status, 'unknown');
@@ -1006,6 +1199,14 @@ test('canonical entity-attribute provider constructs versioned context and evide
   enableFixture(engine, worldId);
   const value = template();
   const snapshot = engine.getSnapshot(worldId, { includeMechanicEvaluationState: true });
+  const actorBindings = new ActorBindingService(engine);
+  actorBindings.bind(worldId, 'test-adapter', 'entity.actor-context');
+  const policyAuthority = new MechanicPolicyAuthority({
+    authorityId: 'test-mechanic-policy-authority',
+    generation: 1,
+    fieldPolicy: () => true,
+  });
+  const authorizedReads = new AuthorizedReadService(engine, actorBindings, policyAuthority);
   const provider = new CanonicalEntityAttributeContextProvider(engine, {
     policyVersion: 'visibility-policy-v1',
     authorizationScope: 'test-principal',
@@ -1013,7 +1214,11 @@ test('canonical entity-attribute provider constructs versioned context and evide
       { path: 'world.weather', entity_id: 'entity.world-context', attribute: 'weather' },
       { path: 'actor.hp', entity_id: 'entity.actor-context', attribute: 'hp' },
     ],
-    canRead: () => true,
+    authorizedReadService: authorizedReads,
+    adapterId: 'test-adapter',
+    actorEntityId: 'entity.actor-context',
+    recipient: 'model',
+    purpose: 'npc_decision',
   });
   const resolved = provider.resolve({ worldId, snapshot, template: value, action: value.actions[0] });
   assert.deepEqual(resolved.context, { actor: { hp: 10 }, world: { weather: 'rain' } });
@@ -1095,6 +1300,7 @@ test('application executor rejects accessor-bearing trusted context without invo
       commit_sequence: snapshot.commit_sequence,
       authorization_scope: 'test-principal',
       policy_version: 'test-visibility-policy-v1',
+      policy_authority: { authority_id: 'test-mechanic-policy-authority', generation: 1 },
     }),
   }).evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
   assert.equal(result.status, 'unknown');
@@ -1148,6 +1354,7 @@ test('application executor rejects accessor-backed context without invoking gett
       commit_sequence: snapshot.commit_sequence,
       authorization_scope: 'test-principal',
       policy_version: 'test-visibility-policy-v1',
+      policy_authority: { authority_id: 'test-mechanic-policy-authority', generation: 1 },
     }),
   }).evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
   assert.equal(result.status, 'unknown');
@@ -1295,7 +1502,13 @@ test('committed mechanic execution provenance survives SQLite close and reopen',
     assert.ok(reopenedEvent);
     assert.deepEqual(reopenedEvent.mechanic_execution, expectedMetadata);
     assert.deepEqual(reopenedEvent.mechanic_execution.effect_provenance, evaluation.effect_provenance);
-    const reopenedProposals = new ProposalService(reopenedEngine);
+    const unconfiguredReopenedProposals = new ProposalService(reopenedEngine);
+    assert.throws(
+      () => unconfiguredReopenedProposals.commit(worldId, proposal.proposal_id),
+      (error) => error.code === 'MECHANIC_POLICY_REVALIDATION_REQUIRED'
+        && error.details?.stage === 'commit_replay',
+    );
+    const reopenedProposals = new ProposalService(reopenedEngine, { validateMechanicPolicy: () => true });
     const reopenedProposal = reopenedProposals.get(worldId, proposal.proposal_id);
     assert.deepEqual(reopenedProposal.mechanic_execution, expectedMetadata);
     const replayedCommit = reopenedProposals.commit(worldId, proposal.proposal_id);

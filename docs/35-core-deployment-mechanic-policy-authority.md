@@ -1,8 +1,8 @@
 # Core decision: deployment-owned mechanic policy authority
 
-Status: **owner decision; binding contract for the next bounded mechanics integration. This does not enable production mechanic execution.**
+Status: **binding owner decision; partial implementation exists on the current mechanics-policy-authority branch. Production mechanic execution remains disabled.**
 
-Decision owner: **Core/deployment**. The deployment owner is responsible for constructing the trusted policy authority at process startup; Core is responsible for validating its evidence at each canonical lifecycle boundary. Neither an LLM, adapter, proposal payload, mechanic template, nor a rule-module manifest is an authority for access policy.
+Decision owner: **Core/deployment**. The deployment owner constructs the trusted policy authority at process startup; Core validates its evidence at every canonical lifecycle boundary. Neither an LLM, adapter, proposal payload, mechanic template, nor a rule-module manifest is an authority for access policy.
 
 Related:
 - docs/30-stage1.3-mechanic-execution-boundary.md
@@ -12,11 +12,11 @@ Related:
 
 ## 1. Decision
 
-Use one deployment-owned policy authority for any future bounded mechanic evaluation. Context resolution and proposal validation must resolve the active policy from the same authority. A separate callback or configuration object that is not demonstrably the same source is not sufficient.
+Use one deployment-owned policy authority for bounded mechanic evaluation. Context resolution and proposal validation must resolve the active policy from the same authority. A separate callback or configuration object that is not demonstrably the same source is insufficient.
 
-The authority must provide a trusted, stable identity and a monotonically changing generation (or an equally strong immutable revision identifier) for the effective policy. The identity/generation is produced by trusted application/deployment code; it must never be accepted from model output, an adapter request, a proposal body, or a caller-supplied evaluation object.
+The authority provides a trusted, stable identity and a monotonically changing generation (or an equally strong immutable revision identifier) for the effective policy. Identity and generation are produced by trusted application/deployment code; they must never be accepted from model output, an adapter request, a proposal body, or a caller-supplied evaluation object.
 
-The policy evidence captured during evaluation must bind, at minimum:
+The policy evidence captured during evaluation binds, at minimum:
 - authority identity and policy generation;
 - authorization scope;
 - authenticated adapter and resolved actor binding;
@@ -29,49 +29,89 @@ This evidence is an input to stale-policy detection, not a capability grant that
 
 ## 2. Lifecycle rule
 
-At each applicable boundary — context resolution, evaluation acceptance/proposal creation, approval, and commit — the application must resolve the current policy from the configured authority and compare it with the captured evidence.
+At each applicable boundary — context resolution, evaluation acceptance/proposal creation, approval, and commit — the application resolves the current policy from the configured authority and compares it with captured evidence.
 
 Fail closed if the authority is missing, unavailable, throws, returns malformed identity/generation, denies any required read, or reports a generation mismatch. Do not treat unknown as false or as permission. Do not silently refresh an old evaluation, its read evidence, or its proposal after policy rotation; reject it and require a new evaluation.
 
-The ordinary canonical path remains proposal -> approval -> Core commit. Preserve both world_revision and commit_sequence guards. Policy validation must not add a second writer, alternate commit route, or model-controlled authorization endpoint.
+The ordinary canonical path remains proposal → approval → Core commit. Preserve both world_revision and commit_sequence guards. Policy validation must not add a second writer, alternate commit route, or model-controlled authorization endpoint.
 
 ## 3. Revocation consistency guarantee
 
-The initial deployment contract guarantees **fail-closed revalidation at each lifecycle boundary**, not linearizable revocation against a concurrent commit when policy authority is external to the Core transaction.
+The initial deployment contract guarantees **fail-closed revalidation at each lifecycle boundary**, not linearizable revocation against a concurrent commit when the policy authority is external to the Core transaction.
 
-A policy rotation can occur after an external validator's final successful read and before the canonical commit. This race must remain documented and must not be described as eliminated by a callback check or passing sequential tests.
+A policy rotation can occur after an external validator's final successful read and before canonical commit. This race must remain documented and must not be described as eliminated by a callback check or passing sequential tests.
 
 If product requirements demand linearizable revocation, the active policy generation must be stored and checked in the same transactional boundary as canonical commit (or an explicitly reviewed equivalent with a demonstrated linearizability argument). That stronger guarantee is a separate implementation gate; it must not be implied by the initial contract.
 
-## 4. Deployment wiring requirements
+## 4. Implemented authority contract
 
-The deployment composition root (src/index.js) owns construction of the trusted authority and passes the same authority instance/reference to both:
-1. the context-resolution path used by mechanic evaluation; and
-2. the trusted proposal lifecycle validator used at approval and commit.
+The current implementation introduces `MechanicPolicyAuthority` in `src/application/mechanic-policy-authority.js`.
 
-No such end-to-end path is currently wired on main. In particular, authorizedReadFieldPolicy alone is only a visibility callback; it is not a versioned policy authority. Do not pretend otherwise, and do not create a test stub and call it production authority.
+- It owns a stable `authority_id`, a positive integer `generation`, and the trusted synchronous field-policy function.
+- `getSnapshot()` returns the exact authority identity/generation pair.
+- `authorizeField()` checks the expected generation both before and after the field-policy callback. A synchronous rotation during authorization therefore denies the read.
+- `rotate()` increments the in-process generation and replaces the trusted policy function.
+- The class is an in-process authority adapter. It does **not** coordinate generations across processes and does not make revocation linearizable with SQLite commit.
 
-Before any executor is enabled, implementation must demonstrate that both paths resolve the same authority identity and active generation. If the current runtime cannot make that connection because the bounded executor/context-provider path is absent, keep the executor disabled and fail-closed rather than adding a partial production route.
+`AuthorizedReadService` uses the same authority for ordinary field reads and internal mechanic attribute reads when configured with it. Mechanic reads require the expected authority snapshot and return that snapshot with the read result. A legacy bare field-policy callback remains usable for ordinary reads, but it cannot authorize mechanic attribute reads.
 
-## 5. Required tests before enabling the bounded executor
+`CanonicalEntityAttributeContextProvider` requires a versioned-authority-backed `AuthorizedReadService` for the mechanic path. It captures the authority identity/generation, passes it into every attribute read, verifies it did not rotate during resolution, and includes it in the context policy fingerprint. Its lifecycle validator also rechecks the current authority and the authenticated adapter-to-actor binding.
 
-Use the real configured authority and ordinary proposal lifecycle, not only direct helper calls or a stub validator invoked by hand.
+`MechanicExecutor` includes authority identity/generation in the resolved-context contract, context fingerprint, and evaluation fingerprint. A context without valid authority evidence cannot produce a ready evaluation.
 
-1. Missing authority, unavailable authority, thrown lookup, malformed identity/generation, and non-true validation all fail closed.
-2. Stable policy allows a supported bounded evaluation through proposal, approval, and commit; both world snapshot guards remain enforced.
+`ProposalService` persists the authority evidence and revalidates it at proposal creation, approval, and commit. Missing validators, malformed evidence, authority replacement, actor-binding revocation, or generation rotation fail closed. A stale evaluation is not refreshed or made current by retrying it.
+
+`createApiServer` accepts one `mechanicPolicyAuthority` and passes that exact object to `AuthorizedReadService` and the proposal lifecycle validator. The validator also requires the active context provider to expose that exact authority object; matching strings from two separate sources are insufficient.
+
+## 5. Deployment composition and current limitation
+
+`src/index.js` now constructs a default `MechanicPolicyAuthority` and passes it into `createApiServer`.
+
+Configuration:
+- `ENGINE_MECHANIC_POLICY_AUTHORITY_ID` — stable deployment authority identity; defaults to `logic-engine.default-visibility-policy`.
+- `ENGINE_MECHANIC_POLICY_GENERATION` — positive integer generation; defaults to `1`.
+
+The default policy intentionally permits only the bound actor's own identity fields and denies all attributes. This is a narrow fail-closed policy, not a general NPC/mechanic visibility policy. When the effective policy changes across a restart, deployment must advance the persisted generation. If the generation cannot be recovered safely, deployment must use a new authority identity so persisted proposals from the prior authority fail closed.
+
+**Production context-provider wiring is still incomplete.** `src/index.js` does not construct/register an active `CanonicalEntityAttributeContextProvider`; `getActiveMechanicContextProvider` remains null by default. Therefore the proposal validator remains fail-closed in the standalone runtime. The default authority also denies attribute reads, so it cannot make arbitrary mechanic condition paths readable. A deployment must supply its real context binding and policy source and construct the provider with the exact same authority object before enabling mechanic evaluation. Do not replace the null provider with a permissive default.
+
+The ordinary authorized-read and proposal paths now share the authority when one is configured. The full deployment-owned evaluation → proposal → approval → commit path is not yet proven on the standalone entry point.
+
+## 6. Required verification before enabling the bounded executor
+
+Tests must use the real configured authority and ordinary proposal lifecycle, not only direct helper calls or a stub validator.
+
+1. Missing authority, unavailable authority, thrown lookup, malformed identity/generation, and non-true validation fail closed.
+2. Stable policy permits a supported bounded evaluation through proposal, approval, and commit; both world snapshot guards remain enforced.
 3. Rotation after context resolution but before proposal creation rejects the stale evaluation without canonical mutation.
 4. Rotation after proposal creation but before approval rejects approval.
 5. Rotation after approval but before commit rejects commit and creates no canonical event.
 6. A rejected stale proposal cannot be made current by retrying the old evaluation; a fresh evaluation under the new generation can proceed.
-7. A concurrent/cross-process rotation test documents the actual consistency guarantee. If linearizable revocation is required, race the generation change against commit inside the approved transactional design.
+7. A concurrent/cross-process rotation test documents the actual consistency guarantee. If linearizable revocation is required, race generation change against commit inside the approved transactional design.
 8. Verify no unauthorized fields are disclosed at the final recipient boundary, not merely that an internal helper returns false.
+9. Run exact-head Runtime CI and the isolated recalculation-oracle harness. Record exact commit SHA, authority identity/generation, command, and result.
 
-Each test report must record exact commit SHA, authority identity/generation, test command and result. A green unit test with a fake provider is not closure evidence for deployment wiring.
+Current branch tests add coverage for versioned reads, malformed/missing authority, in-read rotation, shared authority identity, actor-binding revocation, and policy generation rotation across proposal creation, approval, and commit. These tests are not considered passed until exact-head CI completes.
 
-## 6. Current status and scope
+## 7. Confirmed executor boundary and dependency completeness
 
-This decision identifies the owner and the trust contract. It does not claim that the provider, context resolver, validator wiring, bounded executor, or end-to-end tests already exist. The current main source does not construct and bind such an authority, and the bounded executor path from the old #225/#270 stack is not part of current main.
+The supported executor remains `bounded_deterministic_action_v1`. Its confirmed supported slice is read-only evaluation of a deterministic action with empty object input, explicit same-snapshot condition evidence, and canonical effect-intent translation. The dependency manifest intentionally reports:
+- `condition_ast_dependencies_complete: true` for the declared condition paths in this slice;
+- `context_projection_dependencies_complete: true` when the trusted provider supplies exactly one authorized canonical mapping per condition path;
+- `effect_target_dependencies_complete: true` for the supported translated effect targets;
+- `causal_read_set_complete_for_supported_slice: true`;
+- `mechanic_dependencies_complete: true` only within this bounded slice;
+- `global_mechanic_dependencies_complete: false`.
 
-Do not mechanically rebase or merge #225/#270 to close this gap: their stale diff contains excluded executor, attestation, proposal-handoff, and storage changes. Implement a fresh current-main vertical slice against this contract, review its effective diff, run exact-head Runtime CI plus the recalculation harness, and keep production mechanics disabled until all applicable tests above pass.
+The final flag is not a defect to hide or a value to flip. Full mechanic dependency completeness is not established for modules, input-derived reads, participant selection, interactions, capability grants, automatic conflict resolvers, or future action/effect types. The independent A/B/C recalculation oracle remains an isolated benchmark and does not prove global dependency completeness or production runtime correctness.
 
-**Current verdict: policy ownership is decided; production integration is not yet implemented or proven.**
+Unsupported cases must remain rejected before effect translation/proposal creation:
+- registered rule modules or required capabilities without an explicit executable allowlist/grant contract;
+- non-empty action input schemas or non-empty action input values;
+- eligible participants, participant constraints, or interactions;
+- automatic conflict resolution or any conflict mode other than the current manual policy;
+- unsupported ambiguity policies and effect-intent kinds.
+
+Future support for input parameters, modules, participants, interactions, capability grants, and conflict resolution requires separate versioned contracts, trusted authorization/dependency semantics, conflict rules, and tests. Do not implement any of these by silently expanding the current executor's accepted shape.
+
+**Current verdict: authority contract and lifecycle revalidation are implemented on the review branch; standalone production context-provider wiring, cross-process generation ownership, and exact-head CI remain open. Production Mechanics stays DISABLED / FAIL-CLOSED.**

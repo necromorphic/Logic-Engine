@@ -87,6 +87,7 @@ function trustedContext({ snapshot }) {
     commit_sequence: snapshot.commit_sequence,
     authorization_scope: 'integration-test-actor',
     policy_version: 'integration-test-policy-v1',
+    policy_authority: { authority_id: 'integration-test-policy-authority', generation: 1 },
   };
 }
 
