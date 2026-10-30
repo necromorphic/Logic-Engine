@@ -40,9 +40,6 @@ export async function enumerateStableFileInventory(rootPath) {
     return fail('HOST_INVENTORY_ROOT_INVALID');
   }
 
-  if (process.platform === 'win32') return fail('HOST_INVENTORY_PLATFORM_REPARSE_UNVERIFIED');
-  if (typeof fsConstants.O_NOFOLLOW !== 'number') return fail('HOST_INVENTORY_PLATFORM_NOFOLLOW_UNAVAILABLE');
-
   let root;
   let initialRootIdentity;
   try {
@@ -60,6 +57,11 @@ export async function enumerateStableFileInventory(rootPath) {
   } catch {
     return fail('HOST_INVENTORY_ROOT_UNAVAILABLE');
   }
+
+  // Validate the configured root before platform capability gating so invalid
+  // paths retain precise failure codes on every supported OS.
+  if (process.platform === 'win32') return fail('HOST_INVENTORY_PLATFORM_REPARSE_UNVERIFIED');
+  if (typeof fsConstants.O_NOFOLLOW !== 'number') return fail('HOST_INVENTORY_PLATFORM_NOFOLLOW_UNAVAILABLE');
 
   async function scanOnce() {
     const entries = [];
