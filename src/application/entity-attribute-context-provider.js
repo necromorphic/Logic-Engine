@@ -217,7 +217,7 @@ export class CanonicalEntityAttributeContextProvider {
     if (identity.authorizationScope !== this.authorizationScope) return false;
     const authority = this.authorizedReadService?.getPolicyAuthority?.() ?? null;
     if (!authority) return identity.policyVersion === this.policyFingerprint
-      && identity.policyAuthority === undefined;
+      && identity.policyAuthority == null;
     const evidence = this.authorizedReadService.capturePolicyEvidence();
     if (!evidence || !this.authorizedReadService.isPolicyEvidenceCurrent(evidence)) return false;
     const expectedPolicyVersion = hashRequest({
