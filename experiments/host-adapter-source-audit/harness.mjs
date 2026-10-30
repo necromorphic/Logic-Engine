@@ -133,8 +133,9 @@ test('pinned server mutation routes remain in the reviewed inventory', () => {
     const source = mutationSources[file];
     assert.equal(typeof source, 'string', 'mutation source must be loaded: ' + file);
     for (const route of routes) {
-      const escaped = route.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      assert.match(source, new RegExp('router\\.(?:post|put|delete|patch)\\([\\'"]' + escaped + '[\\'"]'),
+      const singleQuoted = "router.post('" + route + "'";
+      const doubleQuoted = 'router.post("' + route + '"';
+      assert.ok(source.includes(singleQuoted) || source.includes(doubleQuoted),
         file + ' must retain reviewed mutation route ' + route);
     }
   }
