@@ -1064,17 +1064,17 @@ export class LogicEngine {
       idempotency_key: input.idempotency_key,
     }).slice(0, 40);
 
-    // Revalidate every acquisition's visibility at the Core commit boundary.
-    // The first preparation builds the proposal; this second pass is the final
-    // fail-closed authorization check immediately before the canonical write.
-    // Snapshot CAS below still rejects any Core mutation racing this check.
-    const commitPrepared = this.prepareNpcBeliefContext(readRequest, proposal, currentBelief);
-    assert(hashRequest(commitPrepared.transition) === hashRequest(prepared.transition),
-      'NPC_BELIEF_CONTEXT_STALE',
-      'NPC belief evidence or stance changed during final commit authorization; retry from a fresh snapshot.', 409);
-    const transition = commitPrepared.transition;
+    // Keep the final external visibility revalidation and canonical Core commit
+    // inside one shared Coordinator lease. Without this lease, Memory Provider
+    // could revoke a grant after the second check but before BEGIN IMMEDIATE.
+    return this.store.withCoordinatorLease(() => {
+      const commitPrepared = this.prepareNpcBeliefContext(readRequest, proposal, currentBelief);
+      assert(hashRequest(commitPrepared.transition) === hashRequest(prepared.transition),
+        'NPC_BELIEF_CONTEXT_STALE',
+        'NPC belief evidence or stance changed during final commit authorization; retry from a fresh snapshot.', 409);
+      const transition = commitPrepared.transition;
 
-    return this.store.tx(() => {
+      return this.store.tx(() => {
       // A concurrent write between the authorized read and this transaction
       // must not let a stale proposal be committed. commitEvent performs the
       // canonical revision/sequence compare-and-swap.
@@ -1140,6 +1140,7 @@ export class LogicEngine {
           committed_revision: event.world_revision,
         },
       };
+      });
     });
   }
 
