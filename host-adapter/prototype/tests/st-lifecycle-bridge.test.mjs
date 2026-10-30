@@ -794,3 +794,13 @@ test('after-mutation receipt is withheld when independent JSONL readback does no
   assert.equal(pending.status, 'PENDING_MUTATION');
   assert.equal(pending.operation, 'edit-message');
 });
+
+
+test('enrollment fails closed when independent JSONL readback does not contain the persisted identity baseline', async () => {
+  const f = makeFixture();
+  f.setSkipDiskWrite(true);
+  await assert.rejects(f.bridge.enrollCurrentConversation(),
+    /native identity metadata or independent disk verification failed/);
+  assert.equal((await f.journal.verifyIntegrity('chat-1')).status, 'INTEGRITY_OK');
+  assert.equal((await f.journal.pendingMutation('chat-1')).status, 'NO_PENDING_MUTATION');
+});
