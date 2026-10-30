@@ -51,12 +51,15 @@ int wmain(void) {
   wchar_t outside_file[MAX_PATH], child_link[MAX_PATH];
   wchar_t temp_file[MAX_PATH];
   LogicEngineWinDirectoryAnchor anchor;
+  LogicEngineWinDirectoryAnchor rejected_anchor;
   LogicEngineWinFileIdentity expected;
   HANDLE handle = INVALID_HANDLE_VALUE;
   int result = 1;
 
   anchor.parent = INVALID_HANDLE_VALUE;
   anchor.basename = NULL;
+  rejected_anchor.parent = INVALID_HANDLE_VALUE;
+  rejected_anchor.basename = NULL;
   if (!GetTempPathW(MAX_PATH, temp)) return fail(L"GetTempPathW");
   if (!GetTempFileNameW(temp, L"lev", 0, temp_file)) return fail(L"GetTempFileNameW");
   if (!DeleteFileW(temp_file)) return fail(L"DeleteFileW(temp file)");
@@ -127,7 +130,8 @@ int wmain(void) {
     fail(L"create directory reparse-point fixture");
     goto cleanup;
   }
-  if (logic_engine_win_anchor_path(reparse_db, &(LogicEngineWinDirectoryAnchor){0})) {
+  if (logic_engine_win_anchor_path(reparse_db, &rejected_anchor)) {
+    logic_engine_win_anchor_close(&rejected_anchor);
     fail(L"directory reparse point was accepted");
     goto cleanup;
   }
