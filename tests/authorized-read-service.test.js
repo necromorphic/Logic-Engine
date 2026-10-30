@@ -23,7 +23,7 @@ function setup(t, fieldPolicy) {
     expected_revision: 0,
     effects: [
       { kind: 'entity.create', entity_id: 'actor-a', entity_type: 'character', attributes: { name: 'Actor', secret: 'private' } },
-      { kind: 'entity.create', entity_id: 'target-a', entity_type: 'character', attributes: { name: 'Target', secret: 'classified' } },
+      { kind: 'entity.create', entity_id: 'target-a', entity_type: 'character', attributes: { name: 'Target', secret: 'classified', details: { classification: 'nested-classified' } } },
     ],
   });
   bindings.bind('read-world', 'adapter-a', 'actor-a');
@@ -555,4 +555,28 @@ test('policy generation rotation during a mechanic read denies the read', (t) =>
     }),
     (error) => error.code === 'READ_NOT_AVAILABLE' && error.status === 404,
   );
+});
+
+
+test('field policy receives a recursively isolated frozen entity snapshot', (t) => {
+  const { service, engine } = setup(t, (_context, entity, field) => {
+    if (field === 'attributes.details') {
+      assert.equal(Object.isFrozen(entity), true);
+      assert.equal(Object.isFrozen(entity.attributes), true);
+      assert.equal(Object.isFrozen(entity.attributes.details), true);
+      assert.throws(() => {
+        entity.attributes.details.classification = 'mutated-by-policy';
+      }, TypeError);
+    }
+    return true;
+  });
+  const result = service.readEntityFields(request({
+    fields: ['entity_id', 'attributes.details'],
+  }));
+  assert.deepEqual(result.entities, [{
+    entity_id: 'target-a',
+    'attributes.details': { classification: 'nested-classified' },
+  }]);
+  assert.deepEqual(engine.getState('read-world').entities.find((item) => item.entity_id === 'target-a').attributes.details,
+    { classification: 'nested-classified' });
 });
