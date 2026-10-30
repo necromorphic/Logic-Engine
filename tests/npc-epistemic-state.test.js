@@ -536,6 +536,20 @@ test("event type validation never executes inherited or own accessors", () => {
   }
 });
 
+test("revoked proxies fail closed in state and event inputs", () => {
+  const revokedEvent = Proxy.revocable({}, {});
+  revokedEvent.revoke();
+  assert.equal(applyNpcEpistemicEvent(emptyState(), revokedEvent.proxy).status, "non_ready");
+
+  const revokedState = Proxy.revocable(emptyState(), {});
+  revokedState.revoke();
+  assert.equal(applyNpcEpistemicEvent(revokedState.proxy, {
+    world_id: "world-a",
+    subject_id: "npc-1",
+    type: "canonical_truth_changed",
+  }).status, "non_ready");
+});
+
 test("unsupported primitive values fail closed in event metadata", () => {
   const base = {
     world_id: "world-a",
