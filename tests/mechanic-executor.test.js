@@ -1637,7 +1637,7 @@ test('configured deployment authority revalidates actor binding after evaluation
     ],
   };
   const runtime = createDeploymentMechanicPolicyRuntime({
-    engine, actorBindingService, loadPolicyConfig: () => config,
+    engine, actorBindingService: actorBindings, loadPolicyConfig: () => config,
   });
   const evaluation = new MechanicExecutor(engine, {
     resolveAuthorizedContext: (args) => runtime.authority.resolveAuthorizedContext({
