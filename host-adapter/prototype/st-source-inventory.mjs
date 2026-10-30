@@ -308,6 +308,13 @@ async function enumeratePinnedSillyTavernChatFilesInternal({
     snapshotLease ? directories[key] : path.resolve(directories[key]));
   const configuredNormalized = configuredPaths.map(value =>
     snapshotLease ? path.normalize(value).toLowerCase() : normalizePath(value));
+  if (snapshotLease) {
+    for (const directory of configuredPaths) {
+      const relative = path.relative(snapshotLease.snapshotRoot, directory);
+      if (!relative || relative === '..' || relative.startsWith('..' + path.sep)
+        || path.isAbsolute(relative)) fail('SOURCE_WINDOWS_VSS_PATH_OUTSIDE_SNAPSHOT');
+    }
+  }
   if (new Set(configuredNormalized).size !== configuredNormalized.length) fail('SOURCE_ROOT_ALIAS');
   for (let left = 0; left < configuredPaths.length; left++) {
     for (let right = left + 1; right < configuredPaths.length; right++) {
