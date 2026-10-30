@@ -173,6 +173,21 @@ static LPCWSTR probe_strip_extended_prefix(LPCWSTR path) {
   return path && wcsncmp(path, L"\\\\?\\", 4) == 0 ? path + 4 : path;
 }
 
+static char *probe_wide_to_utf8(LPCWSTR value) {
+  int length;
+  char *out;
+  if (!value) return 0;
+  length = WideCharToMultiByte(CP_UTF8, 0, value, -1, NULL, 0, NULL, NULL);
+  if (length <= 0) return 0;
+  out = (char *)sqlite3_malloc64((sqlite3_uint64)length);
+  if (!out) return 0;
+  if (WideCharToMultiByte(CP_UTF8, 0, value, -1, out, length, NULL, NULL) <= 0) {
+    sqlite3_free(out);
+    return 0;
+  }
+  return out;
+}
+
 static int probe_win_path_equal(LPCWSTR left, LPCWSTR right) {
   left = probe_strip_extended_prefix(left);
   right = probe_strip_extended_prefix(right);
@@ -374,10 +389,14 @@ static HANDLE WINAPI probe_create_file_w(
       || ((g_current_sidecar_open || (name && probe_wide_path_is_shm(name)))
         && !has_anchor)
       || (g_current_race_open && !has_anchor)) {
-    fprintf(stderr, "VFS Windows early reject: name=%ls anchor=%d main=%d role=%d current_role=%d sidecar=%d shm=%d race=%d\\n",
-      name ? name : L"<null>", has_anchor, main_role_open, role_index,
-      g_current_role_index, g_current_sidecar_open,
-      name ? probe_wide_path_is_shm(name) : 0, g_current_race_open);
+    {
+      char *debug_path = probe_wide_to_utf8(name);
+      fprintf(stderr, "VFS Windows early reject: path=%s anchor=%d main=%d role=%d current_role=%d sidecar=%d shm=%d race=%d\\n",
+        debug_path ? debug_path : "<null>", has_anchor, main_role_open, role_index,
+        g_current_role_index, g_current_sidecar_open,
+        name ? probe_wide_path_is_shm(name) : 0, g_current_race_open);
+      sqlite3_free(debug_path);
+    }
     SetLastError(ERROR_ACCESS_DENIED);
     probe_counter_increment(&g_identity_reject_count);
     if (is_sidecar) probe_counter_increment(&g_sidecar_identity_reject_count);
@@ -634,6 +653,10 @@ static int probe_open(const char *name, int flags, int mode) {
     fd = probe_open_anchored(anchored_role_index, anchored_suffix, flags, mode);
   } else {
     fd = ((probe_open_fn)g_original_open_syscall)(name, flags, mode);
+  }
+  if (name && (strstr(name, "-wal") || strstr(name, "-shm") || strstr(name, "-journal"))) {
+    fprintf(stderr, "VFS POSIX sidecar open: path=%s flags=0x%x anchor=%d sidecar=%d fd=%d errno=%d\\n",
+      name, flags, has_anchor, is_sidecar, fd, fd < 0 ? errno : 0);
   }
   if (fd < 0 || !needs_identity) {
     if (fd < 0 && (is_sidecar || has_anchor)) {
