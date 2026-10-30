@@ -573,6 +573,8 @@ static int probe_open(const char *name, int flags, int mode) {
     || (g_current_role_index >= 0 && !g_current_role_captured)
     || has_anchor;
   int injected_here = 0;
+  int truncate_after_validation = needs_identity && (flags & O_TRUNC) != 0;
+  if (truncate_after_validation) flags &= ~O_TRUNC;
   probe_counter_increment(&g_native_open_count);
   if (g_race_inject_once && g_race_path && g_race_target_path
       && strcmp(name, g_race_path) == 0) {
@@ -697,6 +699,12 @@ static int probe_open(const char *name, int flags, int mode) {
     if (g_current_race_open) g_current_race_captured = 1;
   }
   probe_registry_unlock();
+  if (truncate_after_validation && ftruncate(fd, 0) != 0) {
+    int saved_error = errno;
+    close(fd);
+    errno = saved_error;
+    return -1;
+  }
   if (injected_here) {
     g_current_race_open = 0;
     g_current_race_captured = 0;
