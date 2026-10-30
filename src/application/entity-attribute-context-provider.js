@@ -104,12 +104,7 @@ export class CanonicalEntityAttributeContextProvider {
       policy_version: this.policyVersion,
       authorization_scope: this.authorizationScope,
       bindings: [...byPath.values()].sort((a, b) => a.path.localeCompare(b.path)),
-      ...(this.authorizationPrincipal ? {
-        authorization_principal: Object.freeze({
-          ...this.authorizationPrincipal,
-          ...(initialBinding ? { bindingGeneration: initialBinding.binding_generation } : {}),
-        }),
-      } : {}),
+      ...(this.authorizationPrincipal ? { authorization_principal: this.authorizationPrincipal } : {}),
     });
     Object.freeze(this);
   }
@@ -219,7 +214,12 @@ export class CanonicalEntityAttributeContextProvider {
       commit_sequence: snapshot.commit_sequence,
       authorization_scope: this.authorizationScope,
       policy_version: this.policyFingerprint,
-      ...(this.authorizationPrincipal ? { authorization_principal: this.authorizationPrincipal } : {}),
+      ...(this.authorizationPrincipal ? {
+        authorization_principal: Object.freeze({
+          ...this.authorizationPrincipal,
+          ...(initialBinding ? { bindingGeneration: initialBinding.binding_generation } : {}),
+        }),
+      } : {}),
     });
   }
 
