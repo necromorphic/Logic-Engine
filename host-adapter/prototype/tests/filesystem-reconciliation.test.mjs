@@ -108,7 +108,7 @@ test('inventory checkpoint rejects a mutation committed after reconciliation pre
   releaseDigest();
   const result = await reconciliation;
   assert.equal(result.status,'NON_READY');
-  assert.match(result.reason,/journal changed during append/);
+  assert.match(result.cause,/journal changed during append/);
   const ledger = await journal.exportCaptureLedger('chat');
   assert.equal(ledger.records.some(record => record.operation === 'filesystem-inventory-baseline'),false);
   assert.equal((await journal.pendingMutation('chat')).status,'PENDING_MUTATION');
