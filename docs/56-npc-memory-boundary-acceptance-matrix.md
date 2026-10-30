@@ -610,3 +610,50 @@ Exact-head Provider [#41018053531](https://github.com/necromorphic/Logic-Engine/
 - Provider acceptance: 111/111 PASS.
 
 This validates the isolated admission/reducer candidate and existing component/integration tests. It does not prove the Core reader candidate is merged, Host-session binding, a production NPC decision caller, actual model-context serialization, delivery/receipt/acquisition in the live path, or sole-egress revocation ordering. PR #695 remains Draft; block acceptance remains **NOT ACCEPTED** and Memory→NPC remains **DISABLED / FAIL-CLOSED**.
+
+
+### 12.12 Current continuation — Core reader security review and CI portability (30.10.2026)
+
+#### Current Core candidate
+
+- Current main: 8e6aa5f7b585a007f7acea57dff2ab52c229bb3b.
+- Core candidate: [Draft PR #721](https://github.com/necromorphic/Logic-Engine/pull/721), current review head 8b7312e21113d26bb8d3e495cdebc79e36fac223; comparison to current main: ahead 42 / behind 0. It remains a separate Core-owned draft; no Core implementation was copied into this NPC PR.
+- The candidate includes actor-scoped Core acquisition reads, acquisition-time value/source-event pins, A → rollback → same fact ID becomes B rejection until explicit reacquisition, canonical-event-backed belief transition projection/rebuild, and adapter/recipient scope propagation through read, visibility and idempotent replay.
+- Version-pinned acquisition semantics are already selected by Core #140. This is implementation review, not a new policy decision.
+
+#### Security review correction in #721
+
+The first review of src/application/npc-belief-state.js found that its documentation claimed proxy-backed model inputs were rejected, but its original plain-object and stable-JSON validation did not check utilTypes.isProxy. Accessor-backed top-level objects were also not rejected before ordinary property reads.
+
+The Core candidate now:
+- rejects proxies before prototype, key, descriptor or value access;
+- accepts only plain data objects and dense standard data arrays at reducer/context boundaries;
+- avoids array iteration methods on untrusted arrays during stable JSON normalization;
+- validates nested evidence values and reference arrays fail-closed;
+- adds regression coverage for top-level/nested proxies, proxy arrays, and accessor-backed proposal/context values, asserting that traps/getters are not executed.
+
+#### Exact-head verification and CI portability
+
+The prior exact-head run on #721 HEAD 471f72c186ed32c81bba5fd7680f4bf7c46b6611 had:
+- NPC boundary: PASS (158/158);
+- Core trusted acquisition: PASS (16/16);
+- Provider runtime: PASS (1202/1202 plus recalculation oracle 20/20);
+- Provider acceptance: PASS (110/110);
+- full Windows Runtime: FAIL (1198/1201).
+
+The three full-suite failures were isolated from NPC tests:
+1. coordinator-lock-participation.test.js: 4-second child-process marker timeout;
+2. memory-provider-coordinator-lock.test.js: 4-second child-process marker timeout;
+3. replay-benchmark.test.js: 120-second child-process timeout (spawnSync.status === null).
+
+The latest #721 candidate extends the two process-startup waits to 15 seconds, the benchmark child/test budget to 300/310 seconds, and the full Windows Runtime job budget to 15 minutes. These are CI/test robustness changes; they do not change runtime semantics. Exact-head workflows for 8b7312e21113d26bb8d3e495cdebc79e36fac223 were queued at this matrix update; no pass is claimed until they complete.
+
+#### Remaining acceptance gaps
+
+- The Core read and visibility authorizers remain unset in src/index.js; the application stays fail-closed.
+- adapter_id and recipient are request values, not authentication. There is no explicit authenticated Host-session binding in the Core candidate.
+- The Core reader currently covers canonical acquired facts; it does not yet provide an approved mapping from Memory epistemic classes (confirmed, unconfirmed_report, suspicion, inference, rumor, unknown) into the Core belief transition path. The NPC-local reducer's non-promotion guard is not wired to this Core candidate. R3 therefore remains PARTIAL; no claim is made that rumor/report/inference semantics are end-to-end enforced.
+- No production NPC runtime caller/context serializer is wired. The pinned SillyTavern Chat Completions server route is source-located, but the Gateway is not installed there and other send routes remain unproven.
+- No final Host/Core/Provider revoke-vs-DISPATCH_STARTED race is demonstrated.
+
+Disposition remains NOT ACCEPTED. Production Memory → NPC remains DISABLED / FAIL-CLOSED. The Core candidate is not merged; no production route, prompt injection, or outbound dispatch was enabled.
