@@ -1364,6 +1364,17 @@ export class LogicEngine {
         && snapshotNow.commit_sequence === read.snapshot.commit_sequence,
       'NPC_KNOWLEDGE_READ_NOT_READY',
       'World snapshot changed while reconciling NPC belief state; retry from a fresh snapshot.', 409);
+      revalidateNpcKnowledgeReadAuthorization(this, {
+        world_id: read.world_id,
+        conversation_id: read.conversation_id,
+        adapter_id: read.adapter_id,
+        actor_id: read.actor_id,
+        recipient: read.recipient,
+        purpose: read.purpose,
+        expected_revision: read.snapshot.world_revision,
+        expected_commit_sequence: read.snapshot.commit_sequence,
+        limit,
+      }, snapshotNow, read.authorization_ref);
   
       // Check visibility before querying belief history. Otherwise, unknown vs.
       // unavailable could reveal whether a hidden proposition has a stored belief.
