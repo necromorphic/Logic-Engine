@@ -62,6 +62,8 @@ typedef struct ProbeDatabaseRole {
   dev_t device;
   ino_t inode;
   int trusted_fd;
+  int trusted_parent_fd;
+  char *basename;
 #endif
 } ProbeDatabaseRole;
 static ProbeDatabaseRole g_database_roles[PROBE_MAX_DATABASE_ROLES];
@@ -271,14 +273,61 @@ static int probe_replace_with_hardlink(const char *path, const char *target) {
   return link(target, path) == 0;
 }
 typedef int (*probe_open_fn)(const char *, int, int);
+#ifndef _WIN32
+static int probe_match_role_entry(const char *path, int *role_index, const char **suffix) {
+  int found = -1;
+  const char *found_suffix = 0;
+  probe_registry_lock();
+  for (int i = 0; i < g_database_role_count; i++) {
+    const char *base = g_database_roles[i].path;
+    size_t length = strlen(base);
+    if (strcmp(path, base) == 0) {
+      found = i;
+      found_suffix = "";
+      break;
+    }
+    if (strncmp(path, base, length) == 0) {
+      const char *tail = path + length;
+      if (strcmp(tail, "-wal") == 0 || strcmp(tail, "-shm") == 0
+          || strcmp(tail, "-journal") == 0) {
+        found = i;
+        found_suffix = tail;
+        break;
+      }
+    }
+  }
+  probe_registry_unlock();
+  if (found < 0) return 0;
+  *role_index = found;
+  *suffix = found_suffix;
+  return 1;
+}
+static int probe_open_anchored(int role_index, const char *suffix, int flags, int mode) {
+  ProbeDatabaseRole *role = &g_database_roles[role_index];
+  char relative_name[4096];
+  size_t base_length = strlen(role->basename);
+  size_t suffix_length = strlen(suffix);
+  if (base_length + suffix_length + 1 > sizeof(relative_name)) {
+    errno = ENAMETOOLONG;
+    return -1;
+  }
+  memcpy(relative_name, role->basename, base_length);
+  memcpy(relative_name + base_length, suffix, suffix_length + 1);
+  return openat(role->trusted_parent_fd, relative_name, flags, mode);
+}
+#endif
 static int probe_open(const char *name, int flags, int mode) {
   int fd;
   struct stat info;
   int is_sidecar = (g_current_sidecar_open && !g_current_sidecar_captured)
     || probe_path_is_shm(name);
+  int anchored_role_index = -1;
+  const char *anchored_suffix = 0;
+  int has_anchor = probe_match_role_entry(name, &anchored_role_index, &anchored_suffix);
   int needs_identity = is_sidecar
     || (g_current_race_open && !g_current_race_captured)
-    || (g_current_role_index >= 0 && !g_current_role_captured);
+    || (g_current_role_index >= 0 && !g_current_role_captured)
+    || has_anchor;
   int injected_here = 0;
   probe_counter_increment(&g_native_open_count);
   if (g_race_inject_once && g_race_path && g_race_target_path
@@ -305,7 +354,11 @@ static int probe_open(const char *name, int flags, int mode) {
     return -1;
 #endif
   }
-  fd = ((probe_open_fn)g_original_open_syscall)(name, flags, mode);
+  if (has_anchor) {
+    fd = probe_open_anchored(anchored_role_index, anchored_suffix, flags, mode);
+  } else {
+    fd = ((probe_open_fn)g_original_open_syscall)(name, flags, mode);
+  }
   if (fd < 0 || !needs_identity) {
     if (injected_here) {
       g_current_race_open = 0;
@@ -382,7 +435,24 @@ static int probe_open(const char *name, int flags, int mode) {
 }
 typedef int (*probe_stat_fn)(const char *, struct stat *);
 static int probe_stat(const char *name, struct stat *info) {
-  int rc = ((probe_stat_fn)g_original_stat_syscall)(name, info);
+  int rc;
+  int anchored_role_index = -1;
+  const char *anchored_suffix = 0;
+  if (probe_match_role_entry(name, &anchored_role_index, &anchored_suffix)) {
+    ProbeDatabaseRole *role = &g_database_roles[anchored_role_index];
+    char relative_name[4096];
+    size_t base_length = strlen(role->basename);
+    size_t suffix_length = strlen(anchored_suffix);
+    if (base_length + suffix_length + 1 > sizeof(relative_name)) {
+      errno = ENAMETOOLONG;
+      return -1;
+    }
+    memcpy(relative_name, role->basename, base_length);
+    memcpy(relative_name + base_length, anchored_suffix, suffix_length + 1);
+    rc = fstatat(role->trusted_parent_fd, relative_name, info, AT_SYMLINK_NOFOLLOW);
+  } else {
+    rc = ((probe_stat_fn)g_original_stat_syscall)(name, info);
+  }
   if (rc != 0) return rc;
   if (g_current_role_index >= 0 && !g_current_role_stat_valid) {
     int reject = 0;
@@ -542,10 +612,66 @@ static int probe_xOpen(sqlite3_vfs *vfs, const char *name, sqlite3_file *file,
 
 static int probe_xDelete(sqlite3_vfs *vfs, const char *name, int sync_dir) {
   sqlite3_vfs *p = (sqlite3_vfs *)vfs->pAppData;
+#ifndef _WIN32
+  int role_index = -1;
+  const char *suffix = 0;
+  if (name && probe_match_role_entry(name, &role_index, &suffix)) {
+    ProbeDatabaseRole *role = &g_database_roles[role_index];
+    char relative_name[4096];
+    size_t base_length = strlen(role->basename);
+    size_t suffix_length = strlen(suffix);
+    if (base_length + suffix_length + 1 > sizeof(relative_name)) return SQLITE_IOERR_DELETE;
+    memcpy(relative_name, role->basename, base_length);
+    memcpy(relative_name + base_length, suffix, suffix_length + 1);
+    if (unlinkat(role->trusted_parent_fd, relative_name, 0) != 0) {
+      if (errno == ENOENT) return SQLITE_OK;
+      return SQLITE_IOERR_DELETE;
+    }
+    if (sync_dir && fsync(role->trusted_parent_fd) != 0) return SQLITE_IOERR_DIR_FSYNC;
+    return SQLITE_OK;
+  }
+#endif
   return p->xDelete(p, name, sync_dir);
 }
 static int probe_xAccess(sqlite3_vfs *vfs, const char *name, int flags, int *result) {
   sqlite3_vfs *p = (sqlite3_vfs *)vfs->pAppData;
+#ifndef _WIN32
+  int role_index = -1;
+  const char *suffix = 0;
+  if (name && probe_match_role_entry(name, &role_index, &suffix)) {
+    ProbeDatabaseRole *role = &g_database_roles[role_index];
+    char relative_name[4096];
+    struct stat info;
+    size_t base_length = strlen(role->basename);
+    size_t suffix_length = strlen(suffix);
+    int mode = F_OK;
+    if (base_length + suffix_length + 1 > sizeof(relative_name)) return SQLITE_IOERR_ACCESS;
+    memcpy(relative_name, role->basename, base_length);
+    memcpy(relative_name + base_length, suffix, suffix_length + 1);
+    if (fstatat(role->trusted_parent_fd, relative_name, &info, AT_SYMLINK_NOFOLLOW) != 0) {
+      if (errno == ENOENT || errno == ENOTDIR || errno == EACCES) {
+        *result = 0;
+        return SQLITE_OK;
+      }
+      return SQLITE_IOERR_ACCESS;
+    }
+    if (S_ISLNK(info.st_mode)) {
+      *result = 0;
+      return SQLITE_OK;
+    }
+    if (flags == SQLITE_ACCESS_READWRITE) mode = R_OK | W_OK;
+    else if (flags == SQLITE_ACCESS_READ) mode = R_OK;
+    if (faccessat(role->trusted_parent_fd, relative_name, mode, AT_EACCESS) == 0) {
+      *result = 1;
+      return SQLITE_OK;
+    }
+    if (errno == ENOENT || errno == ENOTDIR || errno == EACCES) {
+      *result = 0;
+      return SQLITE_OK;
+    }
+    return SQLITE_IOERR_ACCESS;
+  }
+#endif
   return p->xAccess(p, name, flags, result);
 }
 static int probe_xFullPathname(sqlite3_vfs *vfs, const char *name, int n, char *out) {
@@ -725,7 +851,11 @@ static int probe_capture_role_identity(const char *path, ProbeDatabaseRole *capt
   typedef int (*probe_register_open_fn)(const char *, int, int);
   int flags = O_RDWR | O_CREAT;
   int fd;
+  int parent_fd;
   struct stat info;
+  char *parent_path = 0;
+  char *basename = 0;
+  char *separator;
 #ifndef O_NOFOLLOW
   (void)path;
   (void)captured;
@@ -736,8 +866,44 @@ static int probe_capture_role_identity(const char *path, ProbeDatabaseRole *capt
 #ifdef O_CLOEXEC
   flags |= O_CLOEXEC;
 #endif
-  fd = ((probe_register_open_fn)g_original_open_syscall)(path, flags, 0600);
-  if (fd < 0) return 0;
+  parent_path = sqlite3_mprintf("%s", path);
+  if (!parent_path) return 0;
+  separator = strrchr(parent_path, '/');
+  if (!separator) {
+    basename = sqlite3_mprintf("%s", parent_path);
+    sqlite3_free(parent_path);
+    parent_path = sqlite3_mprintf(".");
+  } else {
+    basename = sqlite3_mprintf("%s", separator + 1);
+    if (separator == parent_path) separator[1] = '\0';
+    else *separator = '\0';
+  }
+  if (!parent_path || !basename || !basename[0] || !parent_path[0]) {
+    sqlite3_free(parent_path);
+    sqlite3_free(basename);
+    return 0;
+  }
+  {
+    typedef int (*probe_register_open_fn)(const char *, int, int);
+    parent_fd = ((probe_register_open_fn)g_original_open_syscall)(
+      parent_path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW
+#ifdef O_CLOEXEC
+      | O_CLOEXEC
+#endif
+      , 0
+    );
+  }
+  sqlite3_free(parent_path);
+  if (parent_fd < 0) {
+    sqlite3_free(basename);
+    return 0;
+  }
+  fd = openat(parent_fd, basename, flags, 0600);
+  if (fd < 0) {
+    close(parent_fd);
+    sqlite3_free(basename);
+    return 0;
+  }
   {
     int ok = fstat(fd, &info) == 0
       && S_ISREG(info.st_mode)
@@ -747,10 +913,14 @@ static int probe_capture_role_identity(const char *path, ProbeDatabaseRole *capt
       captured->device = info.st_dev;
       captured->inode = info.st_ino;
       captured->trusted_fd = fd;
+      captured->trusted_parent_fd = parent_fd;
+      captured->basename = basename;
       captured->identity_set = 1;
       return 1;
     }
     close(fd);
+    close(parent_fd);
+    sqlite3_free(basename);
     return 0;
   }
 #endif
@@ -767,6 +937,12 @@ static void probe_close_captured_role_identity(ProbeDatabaseRole *captured) {
     close(captured->trusted_fd);
     captured->trusted_fd = -1;
   }
+  if (captured->trusted_parent_fd >= 0) {
+    close(captured->trusted_parent_fd);
+    captured->trusted_parent_fd = -1;
+  }
+  sqlite3_free(captured->basename);
+  captured->basename = 0;
 #endif
 }
 
@@ -786,6 +962,7 @@ static void probe_register_database_role(sqlite3_context *context, int argc, sql
   captured_role.trusted_handle = INVALID_HANDLE_VALUE;
 #else
   captured_role.trusted_fd = -1;
+  captured_role.trusted_parent_fd = -1;
 #endif
   (void)argc;
   if (!path || !role_name || !path[0] || !role_name[0]) {
@@ -852,6 +1029,8 @@ static void probe_register_database_role(sqlite3_context *context, int argc, sql
     entry->device = captured_role.device;
     entry->inode = captured_role.inode;
     entry->trusted_fd = captured_role.trusted_fd;
+    entry->trusted_parent_fd = captured_role.trusted_parent_fd;
+    entry->basename = captured_role.basename;
 #endif
     entry->identity_set = 1;
     g_database_role_count += 1;
