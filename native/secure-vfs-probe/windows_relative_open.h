@@ -269,5 +269,97 @@ static inline void logic_engine_win_anchor_close(LogicEngineWinDirectoryAnchor *
  * This helper intentionally accepts native NT disposition/options only.
  * Unknown Win32 flag combinations must be rejected by that caller.
  */
+
+
+/* Narrow Win32 CreateFileW adapter for protected regular files; no path fallback. */
+static inline int logic_engine_win_map_create_disposition(DWORD disposition, ULONG *nt_disposition) {
+  if (!nt_disposition) return 0;
+  switch (disposition) {
+    case CREATE_NEW: *nt_disposition = FILE_CREATE; return 1;
+    case CREATE_ALWAYS: *nt_disposition = FILE_OVERWRITE_IF; return 1;
+    case OPEN_EXISTING: *nt_disposition = FILE_OPEN; return 1;
+    case OPEN_ALWAYS: *nt_disposition = FILE_OPEN_IF; return 1;
+    case TRUNCATE_EXISTING: *nt_disposition = FILE_OVERWRITE; return 1;
+    default: return 0;
+  }
+}
+
+static inline int logic_engine_win_map_create_options(
+  DWORD flags, ULONG *nt_options, ULONG *nt_attributes) {
+  ULONG options = FILE_NON_DIRECTORY_FILE;
+  ULONG file_attributes = flags & 0x0000ffffUL;
+  if (!nt_options || !nt_attributes) return 0;
+  /* Protected DB handles are synchronous regular files; unsupported modes fail closed. */
+  if ((flags & (FILE_FLAG_OVERLAPPED | FILE_FLAG_BACKUP_SEMANTICS)) != 0) return 0;
+  if ((flags & FILE_FLAG_WRITE_THROUGH) != 0) options |= 0x00000002UL;
+  if ((flags & FILE_FLAG_SEQUENTIAL_SCAN) != 0) options |= 0x00000004UL;
+  if ((flags & FILE_FLAG_NO_BUFFERING) != 0) options |= 0x00000008UL;
+  if ((flags & FILE_FLAG_DELETE_ON_CLOSE) != 0) options |= 0x00001000UL;
+  if ((flags & FILE_FLAG_RANDOM_ACCESS) != 0) options |= 0x00000800UL;
+  if ((flags & FILE_FLAG_OPEN_REPARSE_POINT) != 0) options |= FILE_OPEN_REPARSE_POINT;
+  if (file_attributes == 0) file_attributes = FILE_ATTRIBUTE_NORMAL;
+  *nt_options = options;
+  *nt_attributes = file_attributes;
+  return 1;
+}
+
+static inline HANDLE logic_engine_win_create_file_relative(
+  HANDLE parent, const wchar_t *basename, DWORD desired_access, DWORD share_mode,
+  DWORD creation_disposition, DWORD flags_and_attributes, HANDLE template_file,
+  const LogicEngineWinFileIdentity *expected, LogicEngineWinFileIdentity *actual) {
+  ULONG disposition, options, attributes;
+  if (template_file != NULL
+      || !logic_engine_win_map_create_disposition(creation_disposition, &disposition)
+      || !logic_engine_win_map_create_options(flags_and_attributes, &options, &attributes)) {
+    SetLastError(ERROR_NOT_SUPPORTED);
+    return INVALID_HANDLE_VALUE;
+  }
+  return logic_engine_win_open_relative(parent, basename, (ACCESS_MASK)desired_access,
+      (ULONG)share_mode, disposition, options, attributes, expected, actual);
+}
+
+/* 1 = accessible, 0 = absent/inaccessible, -1 = unexpected OS failure. */
+static inline int logic_engine_win_access_relative(HANDLE parent, const wchar_t *basename,
+                                                    DWORD access_kind) {
+  DWORD desired = FILE_READ_ATTRIBUTES;
+  HANDLE handle;
+  if (access_kind == 1) desired = GENERIC_READ;
+  else if (access_kind == 2) desired = GENERIC_READ | GENERIC_WRITE;
+  else if (access_kind != 0) {
+    SetLastError(ERROR_INVALID_PARAMETER);
+    return -1;
+  }
+  handle = logic_engine_win_open_relative(parent, basename, desired,
+      FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, FILE_OPEN,
+      FILE_NON_DIRECTORY_FILE, FILE_ATTRIBUTE_NORMAL, NULL, NULL);
+  if (handle != INVALID_HANDLE_VALUE) {
+    CloseHandle(handle);
+    return 1;
+  }
+  if (GetLastError() == ERROR_FILE_NOT_FOUND || GetLastError() == ERROR_PATH_NOT_FOUND
+      || GetLastError() == ERROR_ACCESS_DENIED || GetLastError() == ERROR_SHARING_VIOLATION) return 0;
+  return -1;
+}
+
+/* Deletes the exact opened child object, never an absolute pathname. */
+static inline int logic_engine_win_delete_relative(HANDLE parent, const wchar_t *basename,
+    const LogicEngineWinFileIdentity *expected) {
+  HANDLE handle = logic_engine_win_open_relative(parent, basename,
+      DELETE | FILE_READ_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+      FILE_OPEN, FILE_NON_DIRECTORY_FILE, FILE_ATTRIBUTE_NORMAL, expected, NULL);
+  FILE_DISPOSITION_INFO disposition;
+  if (handle == INVALID_HANDLE_VALUE) {
+    if (GetLastError() == ERROR_FILE_NOT_FOUND || GetLastError() == ERROR_PATH_NOT_FOUND) return 1;
+    return 0;
+  }
+  disposition.DeleteFile = TRUE;
+  if (!SetFileInformationByHandle(handle, FileDispositionInfo, &disposition, sizeof(disposition))) {
+    CloseHandle(handle);
+    return 0;
+  }
+  CloseHandle(handle);
+  return 1;
+}
+
 #endif /* _WIN32 */
 #endif /* LOGIC_ENGINE_WINDOWS_RELATIVE_OPEN_H */
