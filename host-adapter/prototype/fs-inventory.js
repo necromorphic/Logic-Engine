@@ -234,6 +234,9 @@ export async function enumerateStableFileInventoryFromWindowsSnapshot(lease) {
  * NON_READY; never fall back to scanning the mutable live tree.
  */
 export async function enumerateStableFileInventory(rootPath) {
+  if (typeof rootPath !== 'string' || !rootPath.trim() || !isAbsolute(rootPath)) {
+    return fail('HOST_INVENTORY_ROOT_INVALID');
+  }
   if (process.platform !== 'win32') {
     return enumerateStableFileInventoryOnRoot(rootPath);
   }
