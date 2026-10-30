@@ -13,9 +13,10 @@ const newId = () => {
  * Opt-in adapter boundary for explicit native ST hooks.
  * This is not a complete inventory until every mutation path is wired and tested.
  */
-export function createStLifecycleBridge({ journal, getConversationId, getSourceLocator = () => null, getChat, saveChat, publishDigest = null }) {
+export function createStLifecycleBridge({ journal, getConversationId, getSourceLocator = () => null, getChat, saveChat, publishDigest = null, publishSnapshot = null }) {
   if (!journal || !getConversationId || !getChat || !saveChat) throw TypeError('Missing Host lifecycle bridge dependency');
   if (publishDigest !== null && typeof publishDigest !== 'function') throw TypeError('publishDigest must be a trusted callback');
+  if (publishSnapshot !== null && typeof publishSnapshot !== 'function') throw TypeError('publishSnapshot must be a trusted callback');
   const publishQueues = new Map();
   const coreCaptureStates = new Map();
 
@@ -48,7 +49,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
   }
 
   async function publishCurrentDigestInventory(conversationId, chat, tombstones = []) {
-    if (!publishDigest) {
+    if (!publishDigest && !publishSnapshot) {
       const state = { status: 'NOT_CONFIGURED', published: false, versionCount: 0 };
       coreCaptureStates.set(conversationId, state);
       return state;
@@ -99,6 +100,38 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
     const orderedEntries = [...sortParentFirst(entries), ...tombstoneEntries];
     const previous = publishQueues.get(conversationId) ?? Promise.resolve();
     const current = previous.catch(() => {}).then(async () => {
+      if (publishSnapshot) {
+        // Current lifecycle coverage is incomplete and has no trusted pinned-source
+        // attestation. Never claim complete=true; Core must reject this review-only
+        // projection even if a deployment later changes its verifier accidentally.
+        try {
+          const result = await publishSnapshot({
+            conversation_id: conversationId,
+            complete: false,
+            versions: orderedEntries.map(entry => ({
+              message_id: entry.message_id,
+              version_id: entry.version_id,
+              parent_version_id: entry.parent_version_id,
+              content_sha256: entry.content_sha256,
+              active: entry.active,
+              deleted: entry.deleted,
+            })),
+          });
+          const reconciliation = result?.reconciliation;
+          const state = {
+            status: 'NON_READY',
+            published: false,
+            versionCount: orderedEntries.length,
+            code: typeof reconciliation?.code === 'string' ? reconciliation.code : 'HOST_INVENTORY_NOT_READY',
+          };
+          coreCaptureStates.set(conversationId, state);
+          return state;
+        } catch {
+          const state = { status: 'NON_READY', published: false, versionCount: orderedEntries.length, code: 'HOST_INVENTORY_TRANSPORT_FAILED' };
+          coreCaptureStates.set(conversationId, state);
+          return state;
+        }
+      }
       for (const entry of orderedEntries) {
         try { await publishDigest(entry); } catch {
           const state = { status: 'NON_READY', published: false, versionCount: orderedEntries.length };
