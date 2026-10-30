@@ -34,10 +34,11 @@ function freeze(value) {
  * Versioned context projection for the bounded mechanic executor.
  *
  * Every condition path needs an explicit path-to-entity-attribute binding and
- * an explicit trusted authorization boundary. Deployments may provide a
- * callback directly, or use AuthorizedReadService so adapter/actor binding,
- * recipient, purpose, and the canonical field policy are enforced together.
- * There is intentionally no default allow policy.
+ * an explicit trusted authorization boundary. Proposal-ready mechanic context
+ * requires AuthorizedReadService backed by the same versioned MechanicPolicyAuthority
+ * used by the proposal lifecycle validator. The legacy canRead callback remains
+ * for non-proposal context projection only; without authority evidence the executor
+ * refuses to produce a ready evaluation. There is intentionally no default allow policy.
  */
 export class CanonicalEntityAttributeContextProvider {
   #bindings;
