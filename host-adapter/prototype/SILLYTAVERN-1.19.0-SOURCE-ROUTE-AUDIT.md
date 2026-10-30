@@ -55,3 +55,10 @@ PR #780 carries a bounded, read-only current-file inventory candidate and its pi
 The current inventory uses file handles for bounded reads but pathname-based directory enumeration and a second path scan. It is not an atomic filesystem snapshot. The route's build SHA is an operator-supplied deployment assertion, not runtime source attestation.
 
 **Disposition: HOST_SOURCE_ROUTE_IDENTIFIED; HOST_INVENTORY_NON_READY; FINAL_SEND_GATE_NOT_WIRED.** Do not enable production Memory → NPC.
+
+
+## Host route authentication boundary
+
+The uploaded archive also matches pinned `src/server-main.js` by Git blob SHA `bcf5bed8d6248af1db5ed0d59796e2c284bde95b`. In that source, `app.use(requireLoginMiddleware)` is installed at line 248 before `setupPrivateEndpoints(app)` is called at line 278. The candidate inventory router is mounted by `setupPrivateEndpoints`, so the route is behind SillyTavern's login middleware in the pinned build. The handler additionally requires `request.user.directories` and `request.user.profile.handle`.
+
+This establishes the Host's ordinary authenticated-user boundary for the candidate endpoint; it does **not** establish a stable installation ID, durable session ID, cryptographic session binding, world/actor authorization, or Core trust. `host_user_handle` is an account/profile identifier, not a durable session identity. The inventory response must remain NON_READY until those missing bindings are supplied by a separately reviewed deployment contract.
