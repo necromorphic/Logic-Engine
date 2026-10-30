@@ -524,6 +524,12 @@ static int probe_xCurrentTimeInt64(sqlite3_vfs *vfs, sqlite3_int64 *time_value) 
 }
 static int probe_xSetSystemCall(sqlite3_vfs *vfs, const char *name, sqlite3_syscall_ptr call) {
   sqlite3_vfs *p = (sqlite3_vfs *)vfs->pAppData;
+  if (name && g_open_syscall_name && strcmp(name, g_open_syscall_name) == 0) {
+    return SQLITE_PERM;
+  }
+#ifndef _WIN32
+  if (name && strcmp(name, "stat") == 0) return SQLITE_PERM;
+#endif
   return p->xSetSystemCall ? p->xSetSystemCall(p, name, call) : SQLITE_NOTFOUND;
 }
 static sqlite3_syscall_ptr probe_xGetSystemCall(sqlite3_vfs *vfs, const char *name) {
@@ -533,6 +539,33 @@ static sqlite3_syscall_ptr probe_xGetSystemCall(sqlite3_vfs *vfs, const char *na
 static const char *probe_xNextSystemCall(sqlite3_vfs *vfs, const char *name) {
   sqlite3_vfs *p = (sqlite3_vfs *)vfs->pAppData;
   return p->xNextSystemCall ? p->xNextSystemCall(p, name) : 0;
+}
+
+static void probe_hook_protection(sqlite3_context *context, int argc, sqlite3_value **argv) {
+  int open_rc;
+  int protected_ok;
+  (void)argc;
+  (void)argv;
+  open_rc = g_probe_vfs.xSetSystemCall(
+    &g_probe_vfs, g_open_syscall_name, g_original_open_syscall
+  );
+#ifdef _WIN32
+  protected_ok = open_rc == SQLITE_PERM
+    && g_parent_vfs->xGetSystemCall(g_parent_vfs, g_open_syscall_name)
+      == (sqlite3_syscall_ptr)probe_create_file_w;
+#else
+  {
+    int stat_rc = g_probe_vfs.xSetSystemCall(
+      &g_probe_vfs, "stat", g_original_stat_syscall
+    );
+    protected_ok = open_rc == SQLITE_PERM && stat_rc == SQLITE_PERM
+      && g_parent_vfs->xGetSystemCall(g_parent_vfs, g_open_syscall_name)
+        == (sqlite3_syscall_ptr)probe_open
+      && g_parent_vfs->xGetSystemCall(g_parent_vfs, "stat")
+        == (sqlite3_syscall_ptr)probe_stat;
+  }
+#endif
+  sqlite3_result_int(context, protected_ok);
 }
 
 static void probe_open_count(sqlite3_context *context, int argc, sqlite3_value **argv) {
@@ -762,6 +795,9 @@ static int probe_auto_extension(sqlite3 *db, char **error, const sqlite3_api_rou
   if (rc != SQLITE_OK) return rc;
   rc = sqlite3_create_function(db, "logic_engine_vfs_probe_register_database_role", 2,
     SQLITE_UTF8, 0, probe_register_database_role, 0, 0);
+  if (rc != SQLITE_OK) return rc;
+  rc = sqlite3_create_function(db, "logic_engine_vfs_probe_hook_protection", 0,
+    SQLITE_UTF8 | SQLITE_DETERMINISTIC, 0, probe_hook_protection, 0, 0);
   if (rc != SQLITE_OK) return rc;
   return sqlite3_create_function(
     db,
