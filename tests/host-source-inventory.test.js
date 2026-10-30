@@ -29,7 +29,7 @@ function chatJsonl(seed, text) {
         versions: [{ versionId, versionIndex: 0, parentVersionId: null, payloadDigest: sha256(text) }],
       },
     },
-  ].map(value => JSON.stringify(value)).join('\\n') + '\\n';
+  ].map(value => JSON.stringify(value)).join('\n') + '\n';
 }
 
 async function fixture() {
@@ -41,13 +41,13 @@ async function fixture() {
   };
   await Promise.all(Object.values(directories).map(directory => mkdir(directory, { recursive: true })));
   await mkdir(path.join(directories.chats, 'character-a'));
-  await writeFile(path.join(directories.chats, 'root-chat.jsonl'), '[{"mes":"root"}]\n');
-  await writeFile(path.join(directories.chats, 'character-a', 'chat-a.jsonl'), '[{"mes":"character"}]\n');
+  await writeFile(path.join(directories.chats, 'root-chat.jsonl'), chatJsonl(1, 'root'));
+  await writeFile(path.join(directories.chats, 'character-a', 'chat-a.jsonl'), chatJsonl(4, 'character'));
   await writeFile(path.join(directories.groups, 'group-a.json'), JSON.stringify({
     id: 'group-a',
     chats: ['group-chat-a'],
   }));
-  await writeFile(path.join(directories.groupChats, 'group-chat-a.jsonl'), '[{"mes":"group"}]\n');
+  await writeFile(path.join(directories.groupChats, 'group-chat-a.jsonl'), chatJsonl(7, 'group'));
   return { root, directories, cleanup: () => rm(root, { recursive: true, force: true }) };
 }
 
@@ -100,7 +100,7 @@ test('legacy chat records without lifecycle IDs remain incomplete and receive no
   await writeFile(path.join(value.directories.chats, 'root-chat.jsonl'), [
     { chat_metadata: { logic_engine_conversation_id: uuid(1) } },
     { is_user: true, mes: 'legacy message' },
-  ].map(record => JSON.stringify(record)).join('\\n') + '\\n');
+  ].map(record => JSON.stringify(record)).join('\n') + '\n');
   const result = await scan(value.directories);
   const root = result.files.find(file => file.locator === 'root-chat.jsonl');
   assert.equal(root.logical_identity.identity_status, 'INCOMPLETE');
@@ -114,9 +114,9 @@ test('rejects a persisted swipe digest that does not match the exact JSONL paylo
   const value = await fixture();
   t.after(value.cleanup);
   const file = path.join(value.directories.chats, 'root-chat.jsonl');
-  const records = [JSON.parse(chatJsonl(1, 'root').split('\\n')[0]), JSON.parse(chatJsonl(1, 'root').split('\\n')[1])];
+  const records = [JSON.parse(chatJsonl(1, 'root').split('\n')[0]), JSON.parse(chatJsonl(1, 'root').split('\n')[1])];
   records[1]._logicEngineLifecycle.versions[0].payloadDigest = '0'.repeat(64);
-  await writeFile(file, records.map(record => JSON.stringify(record)).join('\\n') + '\\n');
+  await writeFile(file, records.map(record => JSON.stringify(record)).join('\n') + '\n');
   await assert.rejects(scan(value.directories), error =>
     error instanceof HostSourceInventoryError && error.code === 'SOURCE_CHAT_VERSION_DIGEST_MISMATCH');
 });
