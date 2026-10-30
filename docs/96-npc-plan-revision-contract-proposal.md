@@ -325,3 +325,50 @@ A candidate is acceptable only if every required basis dimension is present and 
 - A candidate acceptance atomically supersedes the old plan without deleting its audit history; duplicate acceptance is idempotent.
 
 **Readiness consequence:** this review closes the conceptual transition gaps only. It does not remove the runtime blockers in §10.4: authoritative NPC goal/plan representation, plan/goal concurrency tokens, acceptance owner, durable persistence, and trusted action-result reconciliation remain unverified. No runtime implementation or schema change is authorized by this documentation update.
+
+
+## 10.8 Targeted persistence and branch audit — 2026-10-30
+
+This follow-up checks whether existing durable Core or Process Manager storage can already own NPC goal/plan state, and whether relevant unmerged NPC branches close the gap.
+
+### Existing persistence patterns
+
+| Existing component | Source-backed capability | Why it is not yet the NPC goal/plan owner |
+|---|---|---|
+| Core `SQLiteStore` on `main` | Canonical worlds/events/projections, transactional writes, idempotency, snapshot cursor and rollback/rebuild behavior. | These are Core canonical-world primitives. Their existence does not define NPC goal/plan identity, lifecycle, acceptance, or semantic ownership. |
+| `ProcessStore` on `main` (`src/storage/process-store.js`) | Durable world-scoped processes and milestones; process `version`, idempotency key/request hash, milestone checkpoint version, trigger linkage, and event evidence. | It models scheduled world processes and trigger-driven milestones. It does not define an NPC actor's goal, candidate plan, plan acceptance/supersession, or decision continuity. Reusing it as an NPC planner would conflate world scheduling with NPC cognition. |
+| Core-owned NPC belief-transition candidate, PR #702 branch `integration/npc-knowledge-m16-m17` | A dedicated `npc_belief_transitions` projection linked by foreign key to canonical `world_events`; actor/proposition scope, idempotency key, request hash, snapshot revision/commit sequence, event identity and committed revision. The candidate's read path filters invalidated transition events. | This is a belief-history implementation candidate, not goal/plan storage. It is an open Draft PR, not merged production capability, and its migration/authorization review remains separate. It demonstrates a possible event-linked projection pattern only; it does not authorize copying that design for plans. |
+
+### Relevant branch comparison against current `main`
+
+The following targeted comparisons found no durable goal/plan lifecycle implementation:
+
+- `npc/strict-goal-event-type-20261028`: changes `src/npc/goal-lifecycle.js` and its tests only.
+- `npc/isolated-autonomy-planner-20261028`: adds pure intention-selection, goal-lifecycle and plan-progress helpers/tests; no persistent goal/plan records or acceptance protocol.
+- `npc/plan-progress-blocked-order-20261028`: changes plan-progress helper/tests only.
+- `npc/plan-viability-review-20261028`: adds a pure viability helper/tests only.
+- `npc/goal-generation-contract-proposal-20261028`: documentation-only inventory clarification.
+- `core/atomic-state-snapshot-v3`: changes Core snapshot/store concurrency tests, not NPC goal/plan state.
+- `integration/memory-provider-core-npc`: adds Provider/consumer integration components, not NPC goal/plan ownership.
+
+These are targeted relevant branches, not an exhaustive audit of every repository branch.
+
+### Consequence for the next implementation decision
+
+There are two distinct questions that must not be collapsed:
+
+1. **Semantic owner:** NPC owns the meaning and lifecycle of its goals, plans, tasks and intentions under `docs/31-npc-subsystem-contract.md`.
+2. **Durable authority and storage boundary:** the inspected sources do not establish whether the accepted NPC-local state is persisted through a Core-owned event/projection seam, a separately owned NPC persistence component coordinated with Core, or another already-approved owner. No existing plan-specific owner or contract was found.
+
+Do not resolve this by placing plans in `world_processes`, `npc_belief_transitions`, arbitrary entity attributes, or a new NPC-side canonical event log. Each would assume semantics/authority that the inspected contracts do not grant.
+
+Before runtime work, the owning design must specify at least:
+- stable goal and plan identities, and authoritative goal↔plan linkage;
+- one current plan versus multiple candidates, including candidate history;
+- plan freshness/concurrency token and atomic accept/supersede semantics;
+- idempotent replay and stale candidate/result handling;
+- authoritative action-result binding to plan progress;
+- restart/replay and rollback behavior for dependent versus independent progress;
+- the boundary between NPC semantic ownership and Core canonical event/revision/rollback ownership.
+
+**Audit conclusion:** existing Core and Process Manager primitives may support a future approved implementation, but no current production component or unmerged relevant branch can safely be selected as the NPC goal/plan store. The runtime blocker remains open. This section records evidence only and authorizes no schema, storage, API, event type, or runtime change.
