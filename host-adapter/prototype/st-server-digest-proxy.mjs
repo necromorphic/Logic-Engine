@@ -112,8 +112,7 @@ function validReconciliation(body) {
     || Object.keys(body).some(key => !RECONCILE_ALLOWED_FIELDS.has(key))
     || !validId(body.conversation_id)
     || typeof body.complete !== 'boolean'
-    || !Array.isArray(body.versions)
-    || body.versions.length > MAX_RECONCILE_VERSIONS) return false;
+    || !Array.isArray(body.versions)) return false;
   return body.versions.every(version => version && typeof version === 'object' && !Array.isArray(version)
     && Object.getPrototypeOf(version) === Object.prototype
     && Object.keys(version).every(key => RECONCILE_VERSION_FIELDS.has(key))
@@ -154,6 +153,12 @@ export function createHostInventoryReconcileProxyHandler({
     if (bodyBytes > MAX_RECONCILE_BYTES) {
       return response.status(413).json({
         error: { code: 'HOST_INVENTORY_TOO_LARGE', message: 'Host inventory request exceeds the 8 MiB limit.' },
+      });
+    }
+    if (Array.isArray(request?.body?.versions)
+      && request.body.versions.length > MAX_RECONCILE_VERSIONS) {
+      return response.status(413).json({
+        error: { code: 'HOST_INVENTORY_TOO_LARGE', message: 'Host inventory exceeds the 25,000-version limit.' },
       });
     }
     if (!validReconciliation(request?.body)) {
