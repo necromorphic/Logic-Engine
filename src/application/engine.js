@@ -5,6 +5,8 @@ import { assert, EngineError } from '../core/errors.js';
 import { hashRequest } from '../core/request-hash.js';
 import { validateEffects } from '../core/rules.js';
 import { validateTrustedInitialKnowledgeSource } from './trusted-initial-knowledge-source.js';
+import { validateNpcKnowledgeRead, validateNpcKnowledgeReadInput } from './npc-knowledge-read.js';
+import { buildNpcBeliefContext, npcPropositionRefFor, reduceNpcBeliefTransition } from './npc-belief-state.js';
 import { validateMechanicTemplate, validateRuleModuleManifest } from '../core/mechanics.js';
 import { normalizeTimeTrigger, planDueWork } from '../time/scheduler.js';
 import { normalizeProcessDefinition, validateProcessTransition } from '../process/contract.js';
@@ -12,9 +14,21 @@ import { ProcessStore } from '../storage/process-store.js';
 import { addTimeDuration, createCalendarDefinition, projectCalendarDate } from '../time/model.js';
 import { createTimePolicy, resolveDurationDecision } from '../time/policy.js';
 
+const INTERNAL_CORE_EFFECTS = Symbol('INTERNAL_CORE_EFFECTS');
 const TRUSTED_IMPORT_CAPABILITY = Symbol('trusted-import-loader');
 const MAX_TRUSTED_IMPORT_BYTES = 1_000_000;
 const obj = (x) => x !== null && typeof x === 'object' && !Array.isArray(x);
+const exactDataRecord = (value, keys) => {
+  if (!obj(value)) return false;
+  try {
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) return false;
+    const ownKeys = Reflect.ownKeys(value);
+    if (ownKeys.length !== keys.length || !keys.every((key) => Object.hasOwn(value, key))
+      || !ownKeys.every((key) => typeof key === 'string' && keys.includes(key))) return false;
+    return ownKeys.every((key) => { const descriptor = Object.getOwnPropertyDescriptor(value, key); return descriptor && descriptor.enumerable && Object.hasOwn(descriptor, 'value'); });
+  } catch { return false; }
+};
 const strings = (x, name) => {
   x = x ?? [];
   assert(Array.isArray(x) && x.length <= 500 && x.every((v) => typeof v === 'string' && v.trim()), 'INVALID_FIELD', name + ' must be an array of non-empty strings.');
@@ -170,11 +184,15 @@ function validateIndependentSegment(events) {
 }
 
 export class LogicEngine {
-  constructor(store, { trustedInitialKnowledgeSources = [], worldPackCatalog = null } = {}) {
-    if (worldPackCatalog !== null && typeof worldPackCatalog.resolve !== 'function') throw new TypeError('worldPackCatalog must provide resolve(worldPackId, version)');
-    this.worldPackCatalog = worldPackCatalog;
+  constructor(store, { trustedInitialKnowledgeSources = [], worldPackCatalog = null, npcKnowledgeReadAuthorizer = null, npcKnowledgeVisibilityAuthorizer = null } = {}) {
     if (!Array.isArray(trustedInitialKnowledgeSources)) throw new TypeError('trustedInitialKnowledgeSources must be a deployment-owned array');
     this.trustedInitialKnowledgeSources = trustedInitialKnowledgeSources.map((entry) => Object.freeze({ ...entry }));
+    if (worldPackCatalog !== null && typeof worldPackCatalog.resolve !== 'function') throw new TypeError('worldPackCatalog must provide resolve(worldPackId, version)');
+    this.worldPackCatalog = worldPackCatalog;
+    if (npcKnowledgeReadAuthorizer !== null && (typeof npcKnowledgeReadAuthorizer !== 'function' || npcKnowledgeReadAuthorizer.constructor?.name === 'AsyncFunction')) throw new TypeError('npcKnowledgeReadAuthorizer must be a synchronous deployment-owned function');
+    if (npcKnowledgeVisibilityAuthorizer !== null && (typeof npcKnowledgeVisibilityAuthorizer !== 'function' || npcKnowledgeVisibilityAuthorizer.constructor?.name === 'AsyncFunction')) throw new TypeError('npcKnowledgeVisibilityAuthorizer must be a synchronous deployment-owned function');
+    this.npcKnowledgeReadAuthorizer = npcKnowledgeReadAuthorizer;
+    this.npcKnowledgeVisibilityAuthorizer = npcKnowledgeVisibilityAuthorizer;
     this.store = store;
     this.processStore = new ProcessStore(store);
     this.store.processStore = this.processStore;
@@ -411,59 +429,6 @@ export class LogicEngine {
     }
   }
 
-  prepareEvent(x, options = {}) {
-    assert(obj(x), 'INVALID_BODY', 'Body must be an object.');
-    const allowedFields = ['idempotency_key', 'turn_id', 'event_type', 'event_id', 'expected_revision', 'expected_commit_sequence', 'context_manifest_id', 'generation_id', 'source_message_id', 'time_advance_seconds', 'time_mode', 'duration_proposal', 'caused_by', 'depends_on', 'read_set', 'causal_links', 'effects'];
-    assert(Object.keys(x).every((key) => allowedFields.includes(key)), 'UNSUPPORTED_EVENT_FIELD', 'Event proposal contains an unsupported top-level field.');
-    assert(typeof x.idempotency_key === 'string' && x.idempotency_key.trim() && x.idempotency_key.length <= 200, 'IDEMPOTENCY_KEY_REQUIRED', 'idempotency_key required.');
-    assert(typeof x.turn_id === 'string' && x.turn_id.trim() && x.turn_id.length <= 200, 'TURN_ID_REQUIRED', 'turn_id required.');
-    assert(typeof x.event_type === 'string' && x.event_type.trim() && x.event_type.length <= 200, 'EVENT_TYPE_REQUIRED', 'event_type required.');
-    if (x.event_id !== undefined && x.event_id !== null) {
-      assert(typeof x.event_id === 'string' && x.event_id.trim() && x.event_id.length <= 200, 'INVALID_EVENT_ID', 'event_id must be a non-empty string of at most 200 characters.');
-      assert(!x.event_id.trim().startsWith('entity:') && !x.event_id.trim().startsWith('fact:'), 'INVALID_EVENT_ID', 'event_id cannot use the reserved entity: or fact: reference prefixes.');
-    }
-    if (x.expected_revision !== undefined) assert(Number.isSafeInteger(x.expected_revision) && x.expected_revision >= 0, 'INVALID_REVISION', 'expected_revision must be non-negative.');
-    if (x.expected_commit_sequence !== undefined) assert(Number.isSafeInteger(x.expected_commit_sequence) && x.expected_commit_sequence >= 0, 'INVALID_COMMIT_SEQUENCE', 'expected_commit_sequence must be non-negative.');
-    if (x.context_manifest_id !== undefined) assert(typeof x.context_manifest_id === 'string' && x.context_manifest_id.trim() && x.context_manifest_id.length <= 200, 'INVALID_CONTEXT_MANIFEST_ID', 'context_manifest_id must be a non-empty string of at most 200 characters.');
-    if (x.generation_id !== undefined && x.generation_id !== null) assert(typeof x.generation_id === 'string' && x.generation_id.trim() && x.generation_id.length <= 200, 'INVALID_GENERATION_ID', 'generation_id must be a non-empty string of at most 200 characters.');
-
-    const seconds = x.time_advance_seconds ?? 0;
-    const skip = x.time_mode === 'explicit_skip';
-    assert(Number.isSafeInteger(seconds) && seconds >= 0, 'INVALID_TIME_ADVANCE', 'time_advance_seconds must be non-negative.');
-    assert(x.time_mode === undefined || x.time_mode === 'action' || skip, 'INVALID_TIME_MODE', 'time_mode must be action or explicit_skip.');
-    const maxSeconds = skip ? (options.maxSkipDurationSeconds ?? 604800) : (options.maxActionDurationSeconds ?? 43200);
-    assert(seconds <= maxSeconds, 'TIME_ADVANCE_TOO_LARGE', 'Time advance exceeds the active duration limit.');
-    if (seconds > 0) assert(options.durationDecision?.status === 'resolved' || ['time.advance', 'action.completed'].includes(x.event_type), 'INVALID_TIME_ADVANCE', 'Positive duration requires a supported time event or an active TimePolicy decision.');
-
-    const effects = x.effects ?? [];
-    validateEffects(effects, { allowRelationshipTransition: options.allowRelationshipTransition === true });
-    const request = {
-      operation: 'event.commit',
-      event_id: x.event_id ?? null,
-      turn_id: x.turn_id.trim(),
-      generation_id: x.generation_id == null ? null : x.generation_id.trim(),
-      context_manifest_id: x.context_manifest_id == null ? null : x.context_manifest_id.trim(),
-      source_message_id: x.source_message_id ?? null,
-      event_type: x.event_type.trim(),
-      expected_revision: x.expected_revision ?? null,
-      expected_commit_sequence: x.expected_commit_sequence ?? null,
-      time_advance_seconds: seconds,
-      time_mode: x.time_mode ?? 'action',
-      ...(x.duration_proposal !== undefined ? { duration_proposal: x.duration_proposal } : {}),
-      ...(options.durationDecision ? { duration_decision: options.durationDecision } : {}),
-      caused_by: strings(x.caused_by, 'caused_by'),
-      depends_on: strings(x.depends_on, 'depends_on'),
-      read_set: strings(x.read_set, 'read_set'),
-      causal_links: causalLinks(x.causal_links),
-      effects,
-    };
-    return {
-      ...request,
-      request_hash: hashRequest(request),
-      idempotency_key: x.idempotency_key.trim(),
-    };
-  }
-
   prepareEventForWorld(id, x, options = {}) {
     const { authorApprovedDuration = false, ...prepareOptions } = options;
     const config = this.store.getTimeConfiguration(id);
@@ -617,7 +582,8 @@ export class LogicEngine {
     const effects = x.effects ?? [];
     validateEffects(effects, {
       allowRelationshipTransition: options.allowRelationshipTransition === true,
-      allowKnowledgeAcquisition: options.allowKnowledgeAcquisition === true,
+      allowKnowledgeAcquisition: options[INTERNAL_CORE_EFFECTS] === true && options.allowKnowledgeAcquisition === true,
+      allowNpcBeliefTransition: options[INTERNAL_CORE_EFFECTS] === true && options.allowNpcBeliefTransition === true,
     });
     const request = {
       operation: 'event.commit',
@@ -673,6 +639,550 @@ export class LogicEngine {
         409, { trigger_ids: due, from_coordinate: world.game_time_coordinate, to_coordinate: targetCoordinate });
     }
   }
+
+  readNpcKnowledge(input) {
+    const inputCheck = validateNpcKnowledgeReadInput(input);
+    assert(inputCheck.status === 'ready', 'NPC_KNOWLEDGE_READ_NOT_READY',
+      'NPC knowledge read request is malformed or unsupported.', 400,
+      { reason: inputCheck.reason });
+    const request = inputCheck.request;
+    assert(typeof this.npcKnowledgeReadAuthorizer === 'function',
+      'NPC_KNOWLEDGE_READ_NOT_CONFIGURED', 'A trusted deployment-owned NPC knowledge read authorizer is required.', 403);
+    // Read the authorization cursor from one Core snapshot transaction. Separate
+    // world/current-sequence reads can straddle a rollback because rollback advances
+    // world_revision without advancing the event commit_sequence.
+    const snapshot = this.getSnapshot(request.world_id);
+    const world = snapshot;
+    assert(world, 'WORLD_NOT_FOUND', 'World not found.', 404);
+    const commitSequence = snapshot.commit_sequence;
+    const actor = this.store.db.prepare(
+      "SELECT entity_id,status FROM entities WHERE world_id=? AND entity_id=?"
+    ).get(request.world_id, request.actor_id);
+    assert(actor && actor.status !== 'destroyed',
+      'NPC_KNOWLEDGE_READER_NOT_ELIGIBLE', 'The requesting NPC must be a non-destroyed entity in this world.', 403);
+
+    let authorization;
+    try {
+      authorization = this.npcKnowledgeReadAuthorizer(Object.freeze({
+        world_id: request.world_id,
+        actor_id: request.actor_id,
+        purpose: request.purpose,
+        world_revision: world.world_revision,
+        commit_sequence: commitSequence,
+      }));
+    } catch {
+      throw new EngineError('NPC_KNOWLEDGE_READ_NOT_AUTHORIZED',
+        'The trusted read authorizer did not approve this request.', 403);
+    }
+    const checked = validateNpcKnowledgeRead(request, world, commitSequence, authorization);
+    if (checked.status !== 'ready') {
+      const status = checked.reason === 'stale_snapshot' ? 409
+        : checked.reason === 'world_not_found' ? 404 : 403;
+      throw new EngineError('NPC_KNOWLEDGE_READ_NOT_READY',
+        'NPC knowledge read was denied or its snapshot is no longer current.', status,
+        { reason: checked.reason });
+    }
+
+    const rows = this.store.db.prepare(`
+      SELECT a.acquisition_id, a.fact_id, a.acquisition_kind, a.provenance_ref,
+        a.provenance_digest, a.authorization_ref, a.acquired_value_json, a.acquired_source_event_ids_json,
+        f.subject_ref, f.predicate, f.value_json, f.source_event_ids_json
+      FROM knowledge_acquisitions AS a
+      JOIN facts AS f ON f.world_id=a.world_id AND f.fact_id=a.fact_id
+      WHERE a.world_id=? AND a.subject_id=? AND f.status='active'
+      ORDER BY a.acquisition_id
+      LIMIT ?
+    `).all(request.world_id, request.actor_id, checked.request.limit + 1);
+    const truncated = rows.length > checked.request.limit;
+    const items = rows.slice(0, checked.request.limit).map((row) => {
+      let value;
+      let sourceEventIds;
+      try {
+        value = JSON.parse(row.acquired_value_json);
+        sourceEventIds = JSON.parse(row.acquired_source_event_ids_json);
+        const currentValue = JSON.parse(row.value_json);
+        const currentSourceEventIds = JSON.parse(row.source_event_ids_json);
+        if (hashRequest(value) !== hashRequest(currentValue)
+          || hashRequest([...sourceEventIds].sort()) !== hashRequest([...currentSourceEventIds].sort())) {
+          throw new EngineError('NPC_KNOWLEDGE_ACQUISITION_VERSION_MISMATCH',
+            'The active fact no longer matches the version conveyed by this acquisition; reacquisition is required.', 409);
+        }
+      } catch (error) {
+        // Preserve the deliberate version-mismatch failure. Converting it to a
+        // generic projection error hides the actionable requirement to reacquire.
+        if (error instanceof EngineError && error.code === 'NPC_KNOWLEDGE_ACQUISITION_VERSION_MISMATCH') {
+          throw error;
+        }
+        throw new EngineError('NPC_KNOWLEDGE_PROJECTION_INVALID',
+          'The knowledge projection contains invalid canonical JSON.', 409);
+      }
+      assert(Array.isArray(sourceEventIds) && sourceEventIds.length > 0
+        && sourceEventIds.every((eventId) => typeof eventId === 'string' && eventId.trim()),
+      'NPC_KNOWLEDGE_PROJECTION_INVALID', 'Knowledge item is missing canonical source-event provenance.', 409);
+      const freezeTree = (node) => {
+        if (node && typeof node === 'object' && !Object.isFrozen(node)) {
+          for (const child of Object.values(node)) freezeTree(child);
+          Object.freeze(node);
+        }
+        return node;
+      };
+      return Object.freeze({
+        acquisition_id: row.acquisition_id,
+        fact_id: row.fact_id,
+        subject_ref: row.subject_ref,
+        predicate: row.predicate,
+        value: freezeTree(value),
+        acquisition_kind: row.acquisition_kind,
+        provenance_ref: row.provenance_ref,
+        provenance_digest: row.provenance_digest,
+        acquisition_authorization_ref: row.authorization_ref,
+        source_event_ids: Object.freeze(sourceEventIds),
+      });
+    });
+
+    // The authorizer and SQL read happen after the initial cursor capture. Re-read
+    // the canonical cursor before returning so a concurrent commit cannot make
+    // this ready response combine newer acquisition rows with an older snapshot.
+    // Re-read the cursor atomically. A rollback changes world_revision but not
+    // commit_sequence, so two separate reads could observe the pre-rollback world
+    // row and post-rollback sequence and incorrectly accept a stale result.
+    let snapshotNow;
+    try { snapshotNow = this.getSnapshot(request.world_id); } catch { snapshotNow = null; }
+    assert(snapshotNow && snapshotNow.status === 'active'
+      && snapshotNow.world_revision === checked.request.world_revision
+      && snapshotNow.commit_sequence === checked.request.commit_sequence,
+    'NPC_KNOWLEDGE_READ_NOT_READY',
+    'World snapshot changed while reading NPC knowledge; retry from a fresh snapshot.', 409);
+
+    return Object.freeze({
+      status: 'ready',
+      world_id: request.world_id,
+      actor_id: request.actor_id,
+      purpose: request.purpose,
+      snapshot: Object.freeze({
+        world_revision: checked.request.world_revision,
+        commit_sequence: checked.request.commit_sequence,
+      }),
+      authorization_ref: checked.request.authorization_ref,
+      truncated,
+      items: Object.freeze(items),
+    });
+  }
+
+
+
+  /**
+   * Build an actor-specific belief context from Core-authorized acquisitions.
+   * This is an internal, non-HTTP method. Visibility is checked per acquisition;
+   * model proposals cannot create evidence or commit world effects.
+   */
+  prepareNpcBeliefContext(input, proposal, currentBelief = null) {
+    assert(typeof this.npcKnowledgeVisibilityAuthorizer === 'function',
+      'NPC_KNOWLEDGE_VISIBILITY_NOT_CONFIGURED',
+      'A trusted deployment-owned per-acquisition visibility authorizer is required.', 403);
+    const read = this.readNpcKnowledge(input);
+    assert(read.truncated !== true, 'NPC_KNOWLEDGE_READ_INCOMPLETE',
+      'The actor knowledge read exceeded its bounded limit; belief context requires a complete acquisition window.', 409);
+    const visibleItems = [];
+    const withheldPropositionRefs = new Set();
+    for (const item of read.items) {
+      let decision;
+      try {
+        decision = this.npcKnowledgeVisibilityAuthorizer(Object.freeze({
+          world_id: read.world_id,
+          actor_id: read.actor_id,
+          purpose: read.purpose,
+          world_revision: read.snapshot.world_revision,
+          commit_sequence: read.snapshot.commit_sequence,
+          acquisition_id: item.acquisition_id,
+          fact_id: item.fact_id,
+          subject_ref: item.subject_ref,
+          predicate: item.predicate,
+          provenance_ref: item.provenance_ref,
+          provenance_digest: item.provenance_digest,
+        }));
+      } catch {
+        throw new EngineError('NPC_KNOWLEDGE_VISIBILITY_NOT_AUTHORIZED',
+          'The trusted visibility authorizer failed; no belief context was prepared.', 403);
+      }
+      const allowedKeys = [
+        'status', 'world_id', 'actor_id', 'purpose', 'world_revision',
+        'commit_sequence', 'acquisition_id', 'authorization_ref',
+      ];
+      const exactDecision = exactDataRecord(decision, allowedKeys);
+      if (!exactDecision) {
+        throw new EngineError('NPC_KNOWLEDGE_VISIBILITY_NOT_AUTHORIZED',
+          'The visibility authorizer returned a malformed decision.', 403);
+      }
+      if (decision.status === 'denied') {
+        if (decision.world_id !== read.world_id || decision.actor_id !== read.actor_id
+          || decision.purpose !== read.purpose
+          || decision.world_revision !== read.snapshot.world_revision
+          || decision.commit_sequence !== read.snapshot.commit_sequence
+          || decision.acquisition_id !== item.acquisition_id
+          || typeof decision.authorization_ref !== 'string' || !decision.authorization_ref.trim()) {
+          throw new EngineError('NPC_KNOWLEDGE_VISIBILITY_NOT_AUTHORIZED',
+            'The visibility denial was not bound to this actor and snapshot.', 403);
+        }
+        const withheldRef = npcPropositionRefFor(item);
+        if (withheldRef) withheldPropositionRefs.add(withheldRef);
+        continue;
+      }
+      if (decision.status !== 'allowed'
+        || decision.world_id !== read.world_id || decision.actor_id !== read.actor_id
+        || decision.purpose !== read.purpose
+        || decision.world_revision !== read.snapshot.world_revision
+        || decision.commit_sequence !== read.snapshot.commit_sequence
+        || decision.acquisition_id !== item.acquisition_id
+        || typeof decision.authorization_ref !== 'string' || !decision.authorization_ref.trim()) {
+        throw new EngineError('NPC_KNOWLEDGE_VISIBILITY_NOT_AUTHORIZED',
+          'The visibility decision did not authorize this exact acquisition, actor, purpose, and snapshot.', 403);
+      }
+      visibleItems.push(item);
+    }
+
+    const visibleRead = Object.freeze({
+      ...read,
+      items: Object.freeze(visibleItems),
+      withheld_proposition_refs: Object.freeze([...withheldPropositionRefs]),
+    });
+    const reduced = reduceNpcBeliefTransition({
+      knowledgeRead: visibleRead,
+      currentBelief,
+      proposal,
+    });
+    assert(reduced.status === 'ready', 'NPC_BELIEF_TRANSITION_NOT_READY',
+      'NPC belief proposal failed Core evidence/snapshot validation.', 409,
+      { reason: reduced.reason });
+
+    // Use one atomic snapshot read: rollback advances world_revision without
+    // advancing commit_sequence, so separate reads can straddle a rollback and
+    // accidentally accept a stale context.
+    const snapshotNow = this.getSnapshot(read.world_id);
+    assert(snapshotNow && snapshotNow.status === 'active'
+      && snapshotNow.world_revision === read.snapshot.world_revision
+      && snapshotNow.commit_sequence === read.snapshot.commit_sequence,
+    'NPC_BELIEF_CONTEXT_STALE',
+    'World snapshot changed while preparing the NPC belief context; retry from a fresh snapshot.', 409);
+
+    const built = buildNpcBeliefContext(visibleRead, reduced.transition);
+    assert(built.status === 'ready', 'NPC_BELIEF_CONTEXT_NOT_READY',
+      'NPC belief context failed final validation.', 409, { reason: built.reason });
+    return Object.freeze({
+      status: 'ready',
+      snapshot: visibleRead.snapshot,
+      transition: reduced.transition,
+      context: built.context,
+    });
+  }
+
+
+
+  /**
+   * Persist an explicit NPC belief transition as a Core-owned projection linked
+   * to the canonical event log. The proposal cannot create acquisition evidence.
+   */
+  recordNpcBeliefTransition(input) {
+    assert(obj(input), 'INVALID_NPC_BELIEF_TRANSITION', 'Belief transition request must be an object.');
+    const allowed = [
+      'world_id', 'actor_id', 'purpose', 'expected_revision', 'expected_commit_sequence',
+      'limit', 'proposition_ref', 'proposition_value', 'stance', 'supporting_acquisition_ids',
+      'contradicting_acquisition_ids', 'reason_rule_ref', 'idempotency_key',
+    ];
+    assert(Object.keys(input).every((key) => allowed.includes(key)),
+      'UNSUPPORTED_NPC_BELIEF_TRANSITION_FIELD', 'Belief transition request contains an unsupported field.');
+    for (const key of ['world_id', 'actor_id', 'proposition_ref', 'reason_rule_ref', 'idempotency_key']) {
+      assert(typeof input[key] === 'string' && input[key].trim() && input[key].length <= 200,
+        'INVALID_NPC_BELIEF_TRANSITION', key + ' must be a non-empty string of at most 200 characters.');
+    }
+    assert(['npc_turn_context', 'npc_action_evaluation'].includes(input.purpose),
+      'INVALID_NPC_BELIEF_TRANSITION', 'Unsupported NPC belief transition purpose.');
+    assert(Number.isSafeInteger(input.expected_revision) && input.expected_revision >= 0
+      && Number.isSafeInteger(input.expected_commit_sequence) && input.expected_commit_sequence >= 0,
+    'INVALID_NPC_BELIEF_TRANSITION', 'A current world revision and commit sequence are required.');
+    const requestHash = hashRequest({
+      operation: 'npc.belief.transition',
+      world_id: input.world_id,
+      actor_id: input.actor_id,
+      purpose: input.purpose,
+      expected_revision: input.expected_revision,
+      expected_commit_sequence: input.expected_commit_sequence,
+      limit: input.limit ?? 200,
+      proposition_ref: input.proposition_ref,
+      proposition_value: input.proposition_value,
+      stance: input.stance,
+      supporting_acquisition_ids: input.supporting_acquisition_ids,
+      contradicting_acquisition_ids: input.contradicting_acquisition_ids,
+      reason_rule_ref: input.reason_rule_ref,
+    });
+
+    // Canonical snapshot reads and deployment authorizers must run outside the
+    // store's write transaction. Authenticate replays against the current cursor
+    // before returning even the minimal acknowledgement.
+    const existingReplay = this.store.db.prepare(`
+      SELECT transition_id, request_hash, event_id, committed_revision
+      FROM npc_belief_transitions
+      WHERE world_id=? AND idempotency_key=?
+    `).get(input.world_id, input.idempotency_key);
+    if (existingReplay) {
+      assert(existingReplay.request_hash === requestHash, 'IDEMPOTENCY_KEY_REUSED',
+        'Belief transition idempotency key was already used for a different request.', 409);
+      const currentWorld = this.store.world(input.world_id);
+      assert(currentWorld && currentWorld.status === 'active',
+        'WORLD_NOT_FOUND', 'World not found or inactive.', 404);
+      this.readNpcKnowledge({
+        world_id: input.world_id,
+        actor_id: input.actor_id,
+        purpose: input.purpose,
+        expected_revision: currentWorld.world_revision,
+        expected_commit_sequence: this.store.currentCommitSequence(input.world_id),
+        limit: input.limit ?? 200,
+      });
+      return {
+        status: 'ready',
+        idempotent_replay: true,
+        transition: {
+          transition_id: existingReplay.transition_id,
+          event_id: existingReplay.event_id,
+          committed_revision: existingReplay.committed_revision,
+        },
+      };
+    }
+
+    const readRequest = {
+      world_id: input.world_id,
+      actor_id: input.actor_id,
+      purpose: input.purpose,
+      expected_revision: input.expected_revision,
+      expected_commit_sequence: input.expected_commit_sequence,
+      limit: input.limit ?? 200,
+    };
+    const read = this.readNpcKnowledge(readRequest);
+    const currentRow = this.store.db.prepare(`
+      SELECT b.stance, b.evidence_acquisition_ids_json
+      FROM npc_belief_transitions AS b
+      JOIN world_events AS e ON e.world_id=b.world_id AND e.event_id=b.event_id
+      WHERE b.world_id=? AND b.actor_id=? AND b.proposition_ref=? AND e.validity='valid'
+      ORDER BY e.commit_sequence DESC LIMIT 1
+    `).get(input.world_id, input.actor_id, input.proposition_ref);
+    const currentBelief = currentRow ? {
+      world_id: input.world_id,
+      actor_id: input.actor_id,
+      proposition_ref: input.proposition_ref,
+      stance: currentRow.stance,
+      evidence_acquisition_ids: JSON.parse(currentRow.evidence_acquisition_ids_json),
+    } : null;
+    const proposal = {
+      world_id: read.world_id,
+      actor_id: read.actor_id,
+      snapshot: read.snapshot,
+      proposition_ref: input.proposition_ref,
+      proposition_value: input.proposition_value,
+      stance: input.stance,
+      supporting_acquisition_ids: input.supporting_acquisition_ids,
+      contradicting_acquisition_ids: input.contradicting_acquisition_ids,
+      reason_rule_ref: input.reason_rule_ref,
+    };
+    const prepared = this.prepareNpcBeliefContext(readRequest, proposal, currentBelief);
+    const transition = prepared.transition;
+    const transitionId = 'npc-belief:' + hashRequest({
+      world_id: input.world_id,
+      idempotency_key: input.idempotency_key,
+    }).slice(0, 40);
+
+    return this.store.tx(() => {
+      // A concurrent write between the authorized read and this transaction
+      // must not let a stale proposal be committed. commitEvent performs the
+      // canonical revision/sequence compare-and-swap.
+      const replay = this.store.db.prepare(`
+        SELECT transition_id, request_hash, event_id, committed_revision
+        FROM npc_belief_transitions
+        WHERE world_id=? AND idempotency_key=?
+      `).get(input.world_id, input.idempotency_key);
+      if (replay) {
+        assert(replay.request_hash === requestHash, 'IDEMPOTENCY_KEY_REUSED',
+          'Belief transition idempotency key was already used for a different request.', 409);
+        assert(this.store.world(input.world_id)?.world_revision === input.expected_revision
+          && this.store.currentCommitSequence(input.world_id) === input.expected_commit_sequence,
+        'STALE_WORLD_SNAPSHOT', 'World changed during belief transition authorization; retry against the current snapshot.', 409);
+        return {
+          status: 'ready',
+          idempotent_replay: true,
+          transition: {
+            transition_id: replay.transition_id,
+            event_id: replay.event_id,
+            committed_revision: replay.committed_revision,
+          },
+        };
+      }
+      const event = this.commitEvent(input.world_id, {
+        event_id: transitionId,
+        idempotency_key: input.idempotency_key,
+        turn_id: 'npc-belief-transition',
+        event_type: 'npc.belief.transitioned',
+        expected_revision: input.expected_revision,
+        expected_commit_sequence: input.expected_commit_sequence,
+        effects: [{
+          kind: 'npc.belief.transition',
+          transition_id: transitionId,
+          actor_id: transition.actor_id,
+          purpose: transition.purpose,
+          proposition_ref: transition.proposition_ref,
+          proposition_value: transition.proposition_value,
+          stance: transition.stance,
+          supporting_acquisition_ids: [...transition.supporting_acquisition_ids],
+          contradicting_acquisition_ids: [...transition.contradicting_acquisition_ids],
+          evidence_acquisition_ids: [...transition.evidence_acquisition_ids],
+          reason_rule_ref: transition.reason_rule_ref,
+          idempotency_key: input.idempotency_key,
+          request_hash: requestHash,
+          snapshot_revision: transition.snapshot.world_revision,
+          snapshot_commit_sequence: transition.snapshot.commit_sequence,
+          previous_stance: transition.previous_stance,
+          surviving_prior_evidence: [...transition.surviving_prior_evidence],
+          invalidated_prior_evidence: [...transition.invalidated_prior_evidence],
+          prior_stance_preserved_despite_invalidation: transition.prior_stance_preserved_despite_invalidation,
+        }],
+      }, { [INTERNAL_CORE_EFFECTS]: true, allowNpcBeliefTransition: true });
+      assert(event.idempotent_replay !== true, 'NPC_BELIEF_PROJECTION_MISSING',
+        'A committed belief event exists without its Core belief projection; manual reconciliation is required.', 409);
+      return {
+        status: 'ready',
+        idempotent_replay: false,
+        transition: {
+          ...transition,
+          transition_id: transitionId,
+          event_id: event.event_id,
+          committed_revision: event.world_revision,
+        },
+      };
+    });
+  }
+
+  /**
+   * Read the latest non-rolled-back Core belief and report whether its evidence
+   * remains in the current actor-scoped acquisition projection.
+   */
+  getNpcBeliefState(input) {
+    assert(obj(input), 'INVALID_NPC_BELIEF_STATE_REQUEST', 'Belief state request must be an object.');
+    const allowed = [
+      'world_id', 'actor_id', 'purpose', 'expected_revision',
+      'expected_commit_sequence', 'limit', 'proposition_ref',
+    ];
+    assert(Object.keys(input).every((key) => allowed.includes(key)),
+      'UNSUPPORTED_NPC_BELIEF_STATE_FIELD', 'Belief state request contains an unsupported field.');
+    assert(typeof input.proposition_ref === 'string' && input.proposition_ref.trim()
+      && input.proposition_ref.length <= 200,
+    'INVALID_NPC_BELIEF_STATE_REQUEST', 'proposition_ref must be a non-empty reference of at most 200 characters.');
+    const read = this.readNpcKnowledge({
+      world_id: input.world_id,
+      actor_id: input.actor_id,
+      purpose: input.purpose,
+      expected_revision: input.expected_revision,
+      expected_commit_sequence: input.expected_commit_sequence,
+      limit: input.limit ?? 200,
+    });
+    assert(read.truncated !== true, 'NPC_KNOWLEDGE_READ_INCOMPLETE',
+      'The actor knowledge read exceeded its bounded limit; belief support cannot be reconciled from a partial window.', 409);
+    assert(typeof this.npcKnowledgeVisibilityAuthorizer === 'function',
+      'NPC_KNOWLEDGE_VISIBILITY_NOT_CONFIGURED',
+      'A trusted deployment-owned visibility authorizer is required for belief-state reads.', 403);
+    const visibleAcquisitionIds = new Set();
+    let propositionWithheld = false;
+    for (const item of read.items) {
+      if (npcPropositionRefFor(item) !== input.proposition_ref) continue;
+      let decision;
+      try {
+        decision = this.npcKnowledgeVisibilityAuthorizer(Object.freeze({
+          world_id: read.world_id,
+          actor_id: read.actor_id,
+          purpose: read.purpose,
+          world_revision: read.snapshot.world_revision,
+          commit_sequence: read.snapshot.commit_sequence,
+          acquisition_id: item.acquisition_id,
+          fact_id: item.fact_id,
+          subject_ref: item.subject_ref,
+          predicate: item.predicate,
+          provenance_ref: item.provenance_ref,
+          provenance_digest: item.provenance_digest,
+        }));
+      } catch {
+        throw new EngineError('NPC_KNOWLEDGE_VISIBILITY_NOT_AUTHORIZED',
+          'The trusted visibility authorizer failed; no belief state was returned.', 403);
+      }
+      const allowedKeys = [
+        'status', 'world_id', 'actor_id', 'purpose', 'world_revision',
+        'commit_sequence', 'acquisition_id', 'authorization_ref',
+      ];
+      const exactDecision = exactDataRecord(decision, allowedKeys);
+      if (!exactDecision || !['allowed', 'denied'].includes(decision.status)
+        || decision.world_id !== read.world_id || decision.actor_id !== read.actor_id
+        || decision.purpose !== read.purpose
+        || decision.world_revision !== read.snapshot.world_revision
+        || decision.commit_sequence !== read.snapshot.commit_sequence
+        || decision.acquisition_id !== item.acquisition_id
+        || typeof decision.authorization_ref !== 'string' || !decision.authorization_ref.trim()) {
+        throw new EngineError('NPC_KNOWLEDGE_VISIBILITY_NOT_AUTHORIZED',
+          'The visibility decision did not bind to this actor, acquisition, purpose, and snapshot.', 403);
+      }
+      if (decision.status === 'denied') propositionWithheld = true;
+      else visibleAcquisitionIds.add(item.acquisition_id);
+    }
+
+    // Visibility callbacks can race a canonical commit/revocation after the raw
+    // read's own cursor check. Revalidate before returning either unavailable
+    // or ready so the belief response is bound to the same current snapshot.
+    // Keep revision and event sequence from one read transaction. Rollback
+    // advances world_revision without advancing commit_sequence, so separate
+    // reads can accidentally combine values from opposite sides of a rollback.
+    let snapshotNow;
+    try { snapshotNow = this.getSnapshot(input.world_id); } catch { snapshotNow = null; }
+    assert(snapshotNow && snapshotNow.status === 'active'
+      && snapshotNow.world_revision === read.snapshot.world_revision
+      && snapshotNow.commit_sequence === read.snapshot.commit_sequence,
+    'NPC_KNOWLEDGE_READ_NOT_READY',
+    'World snapshot changed while reconciling NPC belief state; retry from a fresh snapshot.', 409);
+
+    // Check visibility before querying belief history. Otherwise, unknown vs.
+    // unavailable could reveal whether a hidden proposition has a stored belief.
+    if (propositionWithheld) {
+      return Object.freeze({ status: 'unavailable', actor_id: input.actor_id, proposition_ref: input.proposition_ref });
+    }
+    const row = this.store.db.prepare(`
+      SELECT b.transition_id, b.proposition_ref, b.proposition_value_json, b.stance,
+        b.supporting_acquisition_ids_json, b.contradicting_acquisition_ids_json,
+        b.evidence_acquisition_ids_json, b.reason_rule_ref, b.snapshot_revision,
+        b.snapshot_commit_sequence, b.event_id, b.committed_revision
+      FROM npc_belief_transitions AS b
+      JOIN world_events AS e ON e.world_id=b.world_id AND e.event_id=b.event_id
+      WHERE b.world_id=? AND b.actor_id=? AND b.proposition_ref=? AND e.validity='valid'
+      ORDER BY e.commit_sequence DESC LIMIT 1
+    `).get(input.world_id, input.actor_id, input.proposition_ref);
+    if (!row) return Object.freeze({ status: 'unknown', actor_id: input.actor_id, proposition_ref: input.proposition_ref });
+    const evidence = JSON.parse(row.evidence_acquisition_ids_json);
+    const surviving = evidence.filter((ref) => visibleAcquisitionIds.has(ref));
+    return Object.freeze({
+      status: 'ready',
+      actor_id: input.actor_id,
+      proposition_ref: row.proposition_ref,
+      ...(surviving.length > 0 ? { proposition_value: JSON.parse(row.proposition_value_json) } : {}),
+      stance: row.stance,
+      evidence_status: surviving.length === evidence.length ? 'supported'
+        : surviving.length > 0 ? 'partially_supported' : 'unsupported',
+      evidence_acquisition_ids: Object.freeze(surviving),
+      surviving_evidence_acquisition_ids: Object.freeze(surviving),
+      reason_rule_ref: row.reason_rule_ref,
+      snapshot: Object.freeze({
+        world_revision: read.snapshot.world_revision,
+        commit_sequence: read.snapshot.commit_sequence,
+      }),
+      transition_id: row.transition_id,
+      event_id: row.event_id,
+      committed_revision: row.committed_revision,
+    });
+  }
+
+
 
   /**
    * Loads an imported source only from a deployment-owned, allowlisted local file.
@@ -796,7 +1306,7 @@ export class LogicEngine {
         .get(input.world_id, assignment.subject_id);
       assert(subject && subject.status !== 'destroyed', 'ACQUISITION_SUBJECT_NOT_ELIGIBLE',
         'Every assigned subject must be an existing non-destroyed entity in the target world.', 409);
-      const fact = this.store.db.prepare('SELECT status,source_event_ids_json FROM facts WHERE world_id=? AND fact_id=?')
+      const fact = this.store.db.prepare('SELECT status,subject_ref,predicate,value_json,source_event_ids_json FROM facts WHERE world_id=? AND fact_id=?')
         .get(input.world_id, assignment.fact_id);
       assert(fact && fact.status === 'active', 'ACQUISITION_SOURCE_NOT_ELIGIBLE',
         'Every assigned item must be an active canonical fact in the target world.', 409);
@@ -827,6 +1337,8 @@ export class LogicEngine {
         provenance_ref: source.source_ref,
         provenance_digest: source.source_digest,
         authorization_ref: source.authorization_ref,
+        acquired_value: JSON.parse(fact.value_json),
+        acquired_source_event_ids: [...factSources].sort(),
       });
     }
     assert(sourceEventIds.size <= 500, 'TRUSTED_SOURCE_TOO_MANY_SUPPORT_EVENTS',
@@ -846,7 +1358,7 @@ export class LogicEngine {
       read_set: [...readSet].sort(),
       causal_links: causalLinks,
       effects: assignments,
-    }, { allowKnowledgeAcquisition: true });
+    }, { [INTERNAL_CORE_EFFECTS]: true, allowKnowledgeAcquisition: true });
   }
 
   commitEvent(id, x, options = {}) {
