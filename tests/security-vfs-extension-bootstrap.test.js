@@ -12,7 +12,7 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
   // The full npm test suite runs in a separate job without the native probe artifact.
   // This test is exercised explicitly by the Linux/Windows VFS probe workflow jobs.
   skip: !extensionPath,
-}, (t) => {
+}, async (t) => {
   assert.equal(typeof extensionPath, 'string', 'workflow must build the platform VFS probe first');
   assert.equal(process.versions.node, '22.13.0', 'the private SQLite VFS ABI probe is pinned to Node 22.13.0');
 
@@ -42,15 +42,17 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
         bootstrap.close();
       }
       const db = new DatabaseSync(workerData.path);
+      let result;
       try {
         db.exec('CREATE TABLE worker_probe(value TEXT);');
-        parentPort.postMessage({
+        result = {
           openCount: db.prepare('SELECT logic_engine_vfs_probe_open_count() AS count').get().count,
           sqliteVersion: db.prepare('SELECT sqlite_version() AS version').get().version
-        });
+        };
       } finally {
         db.close();
       }
+      parentPort.postMessage(result);
     `, { eval: true, workerData: { extensionPath, path: workerPath } });
     worker.once('message', resolve);
     worker.once('error', reject);
