@@ -14,15 +14,6 @@ const ID_MAX = 200;
 const POLARITIES = new Set(["supports_true", "supports_false"]);
 const STANCES = new Set(["believes_true", "believes_false", "suspects_true", "suspects_false", "unresolved", "unknown"]);
 const EPISTEMIC_STATUSES = new Set(["confirmed", "unconfirmed_report", "suspicion", "inference", "rumor", "unknown"]);
-const ARRAY_ITERATOR = Object.getOwnPropertyDescriptor(Array.prototype, Symbol.iterator)?.value;
-
-function hasTrustedArrayIterator() {
-  const descriptor = Object.getOwnPropertyDescriptor(Array.prototype, Symbol.iterator);
-  return typeof ARRAY_ITERATOR === "function"
-    && descriptor !== undefined
-    && Object.hasOwn(descriptor, "value")
-    && descriptor.value === ARRAY_ITERATOR;
-}
 
 const nonReady = (reason = "invalid_epistemic_input") => Object.freeze({
   status: "non_ready",
@@ -35,10 +26,13 @@ function validId(value) {
     && value === value.trim()
     && value.length > 0
     && value.length <= ID_MAX
-    && ![...value].some((character) => {
-      const code = character.charCodeAt(0);
-      return code < 32 || code === 127;
-    });
+    && (() => {
+      for (let index = 0; index < value.length; index += 1) {
+        const code = value.charCodeAt(index);
+        if (code < 32 || code === 127) return false;
+      }
+      return true;
+    })();
 }
 
 function isPlainDataObject(value) {
@@ -72,7 +66,7 @@ function isSafeDataTree(value, active = new Set()) {
   try {
     const array = Array.isArray(value);
     const prototype = Object.getPrototypeOf(value);
-    if (array ? (prototype !== Array.prototype || !hasTrustedArrayIterator())
+    if (array ? prototype !== Array.prototype
       : (prototype !== Object.prototype && prototype !== null)) return false;
     active.add(value);
     const keys = Reflect.ownKeys(value);
@@ -102,6 +96,15 @@ function denseArray(value) {
   return true;
 }
 
+function hasUniqueItems(value) {
+  const seen = new Set();
+  for (let index = 0; index < value.length; index += 1) {
+    if (seen.has(value[index])) return false;
+    seen.add(value[index]);
+  }
+  return true;
+}
+
 function freezeState(state) {
   return Object.freeze({
     world_id: state.world_id,
@@ -110,11 +113,11 @@ function freezeState(state) {
     evidence: Object.freeze(state.evidence.map((item) => Object.freeze({ ...item }))),
     beliefs: Object.freeze(state.beliefs.map((item) => Object.freeze({
       ...item,
-      supporting_evidence_refs: Object.freeze([...item.supporting_evidence_refs]),
-      conflicting_evidence_refs: Object.freeze([...item.conflicting_evidence_refs]),
+      supporting_evidence_refs: Object.freeze(item.supporting_evidence_refs.map((ref) => ref)),
+      conflicting_evidence_refs: Object.freeze(item.conflicting_evidence_refs.map((ref) => ref)),
       history: Object.freeze(item.history.map((entry) => Object.freeze({
         ...entry,
-        evidence_refs: Object.freeze([...entry.evidence_refs]),
+        evidence_refs: Object.freeze(entry.evidence_refs.map((ref) => ref)),
       }))),
     }))),
   });
@@ -129,7 +132,8 @@ function validState(state) {
     || !denseArray(state.beliefs)) return false;
 
   const receivedKeys = new Set();
-  for (const item of state.received) {
+  for (let index = 0; index < state.received.length; index += 1) {
+    const item = state.received[index];
     if (!hasExactKeys(item, ["event_ref", "source_ref", "source_version"])
       || !validId(item.event_ref)
       || !validId(item.source_ref)
@@ -141,7 +145,8 @@ function validState(state) {
   const evidenceKeys = new Set();
   const evidenceRefs = new Set();
   const evidenceByRef = new Map();
-  for (const item of state.evidence) {
+  for (let index = 0; index < state.evidence.length; index += 1) {
+    const item = state.evidence[index];
     if (!hasExactKeys(item, ["ref", "version", "proposition_ref", "acquisition_ref", "source_ref", "source_version", "polarity", "epistemic_status", "status", "invalidation_rule_ref"])
       || !validId(item.ref)
       || !validId(item.version)
@@ -165,7 +170,8 @@ function validState(state) {
   }
 
   const propositionKeys = new Set();
-  for (const belief of state.beliefs) {
+  for (let beliefIndex = 0; beliefIndex < state.beliefs.length; beliefIndex += 1) {
+    const belief = state.beliefs[beliefIndex];
     if (!hasExactKeys(belief, ["proposition_ref", "stance", "supporting_evidence_refs", "conflicting_evidence_refs", "revision_rule_ref", "review_required", "history"])
       || !validId(belief.proposition_ref)
       || !STANCES.has(belief.stance)
@@ -175,7 +181,7 @@ function validState(state) {
       || !denseArray(belief.conflicting_evidence_refs)
       || !denseArray(belief.history)
       || propositionKeys.has(belief.proposition_ref)) return false;
-    const currentRefs = [...belief.supporting_evidence_refs, ...belief.conflicting_evidence_refs];
+    const currentRefs = belief.supporting_evidence_refs.concat(belief.conflicting_evidence_refs);
     if (currentRefs.some((ref) => !validId(ref) || !evidenceByRef.has(ref)
       || evidenceByRef.get(ref).proposition_ref !== belief.proposition_ref)) return false;
     if (belief.stance === "unknown") {
@@ -198,10 +204,11 @@ function validState(state) {
     }
     if (currentRefs.some((ref) => evidenceByRef.get(ref).status === "invalidated")
       && !belief.review_required) return false;
-    if (new Set(belief.supporting_evidence_refs).size !== belief.supporting_evidence_refs.length
-      || new Set(belief.conflicting_evidence_refs).size !== belief.conflicting_evidence_refs.length
+    if (!hasUniqueItems(belief.supporting_evidence_refs)
+      || !hasUniqueItems(belief.conflicting_evidence_refs)
       || belief.supporting_evidence_refs.some((ref) => belief.conflicting_evidence_refs.includes(ref))) return false;
-    for (const entry of belief.history) {
+    for (let historyIndex = 0; historyIndex < belief.history.length; historyIndex += 1) {
+      const entry = belief.history[historyIndex];
       if (!hasExactKeys(entry, ["stance", "revision_rule_ref", "evidence_refs"])
         || !STANCES.has(entry.stance)
         || !validId(entry.revision_rule_ref)
@@ -214,6 +221,17 @@ function validState(state) {
         || entry.evidence_refs.some((ref) => evidenceByRef.get(ref).epistemic_status === "unknown")
         || ((entry.stance === "believes_true" || entry.stance === "believes_false")
           && entry.evidence_refs.some((ref) => evidenceByRef.get(ref).epistemic_status !== "confirmed"))) return false;
+      if (entry.stance !== "unknown") {
+        const historicalEvidence = entry.evidence_refs.map((ref) => evidenceByRef.get(ref));
+        const negativeHistory = entry.stance === "believes_false" || entry.stance === "suspects_false";
+        const supportingPolarity = negativeHistory ? "supports_false" : "supports_true";
+        if (entry.stance === "unresolved") {
+          if (!historicalEvidence.some((item) => item.polarity === "supports_true")
+            || !historicalEvidence.some((item) => item.polarity === "supports_false")) return false;
+        } else if (!historicalEvidence.some((item) => item.polarity === supportingPolarity)) {
+          return false;
+        }
+      }
     }
     propositionKeys.add(belief.proposition_ref);
   }
@@ -270,11 +288,11 @@ function applyEventUnsafe(state, event) {
     }
     return Object.freeze({
       status: "updated",
-      state: freezeState({ ...state, received: [...state.received, {
+      state: freezeState({ ...state, received: state.received.concat([{
         event_ref: event.event_ref,
         source_ref: event.source_ref,
         source_version: event.source_version,
-      }] }),
+      }]) }),
       reason: null,
     });
   }
@@ -316,7 +334,7 @@ function applyEventUnsafe(state, event) {
     }
     return Object.freeze({
       status: "updated",
-      state: freezeState({ ...state, evidence: [...state.evidence, nextEvidence] }),
+      state: freezeState({ ...state, evidence: state.evidence.concat([nextEvidence]) }),
       reason: null,
     });
   }
@@ -329,7 +347,7 @@ function applyEventUnsafe(state, event) {
       || !denseArray(event.evidence_refs)
       || event.evidence_refs.length === 0
       || !event.evidence_refs.every(validId)
-      || new Set(event.evidence_refs).size !== event.evidence_refs.length) {
+      || !hasUniqueItems(event.evidence_refs)) {
       return nonReady("belief_revision_metadata_incomplete");
     }
     const evidence = event.evidence_refs.map((ref) => state.evidence.find((item) => item.ref === ref && item.status === "valid"));
@@ -363,11 +381,11 @@ function applyEventUnsafe(state, event) {
       && sameRefs(current.conflicting_evidence_refs, conflicting)) {
       return Object.freeze({ status: "unchanged", state, reason: null });
     }
-    const history = current ? [...current.history, {
+    const history = current ? current.history.concat([{
       stance: current.stance,
       revision_rule_ref: current.revision_rule_ref,
-      evidence_refs: [...current.supporting_evidence_refs, ...current.conflicting_evidence_refs],
-    }] : [];
+      evidence_refs: current.supporting_evidence_refs.concat(current.conflicting_evidence_refs),
+    }]) : [];
     const nextBelief = {
       proposition_ref: event.proposition_ref,
       stance: event.stance,
@@ -379,7 +397,7 @@ function applyEventUnsafe(state, event) {
     };
     const beliefs = current
       ? state.beliefs.map((item) => item.proposition_ref === event.proposition_ref ? nextBelief : item)
-      : [...state.beliefs, nextBelief];
+      : state.beliefs.concat([nextBelief]);
     return Object.freeze({ status: "updated", state: freezeState({ ...state, beliefs }), reason: null });
   }
 
@@ -428,11 +446,11 @@ function applyEventUnsafe(state, event) {
       && current.conflicting_evidence_refs.length === 0) {
       return Object.freeze({ status: "unchanged", state, reason: null });
     }
-    const history = [...current.history, {
+    const history = current.history.concat([{
       stance: current.stance,
       revision_rule_ref: current.revision_rule_ref,
-      evidence_refs: [...current.supporting_evidence_refs, ...current.conflicting_evidence_refs],
-    }];
+      evidence_refs: current.supporting_evidence_refs.concat(current.conflicting_evidence_refs),
+    }]);
     const beliefs = state.beliefs.map((item) => item.proposition_ref === event.proposition_ref
       ? {
         ...item,
@@ -452,14 +470,21 @@ function applyEventUnsafe(state, event) {
 
 /** Create an empty, NPC-local epistemic state. */
 export function createNpcEpistemicState(scope) {
-  if (!isSafeDataTree(scope) || !isPlainDataObject(scope) || !validId(scope.world_id) || !validId(scope.subject_id)) {
+  if (!isSafeDataTree(scope) || !isPlainDataObject(scope)) {
+    return nonReady("trusted_scope_incomplete");
+  }
+  const worldDescriptor = Object.getOwnPropertyDescriptor(scope, "world_id");
+  const subjectDescriptor = Object.getOwnPropertyDescriptor(scope, "subject_id");
+  if (!worldDescriptor || !Object.hasOwn(worldDescriptor, "value")
+    || !subjectDescriptor || !Object.hasOwn(subjectDescriptor, "value")
+    || !validId(worldDescriptor.value) || !validId(subjectDescriptor.value)) {
     return nonReady("trusted_scope_incomplete");
   }
   return Object.freeze({
     status: "ready",
     state: freezeState({
-      world_id: scope.world_id,
-      subject_id: scope.subject_id,
+      world_id: worldDescriptor.value,
+      subject_id: subjectDescriptor.value,
       received: [],
       evidence: [],
       beliefs: [],
