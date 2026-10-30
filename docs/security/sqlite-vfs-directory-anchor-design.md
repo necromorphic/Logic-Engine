@@ -42,6 +42,21 @@ The directory chain itself must be established from a trusted volume/root handle
 
 This is a native implementation requirement, not a claim that the current `CreateFileW` syscall hook already provides directory anchoring. The exact NT API declarations, supported Windows versions, file-system behavior, and handle-sharing flags require a dedicated Windows CI matrix and independent Security review.
 
+### Windows API contract details
+
+The Windows backend should not translate a trusted relative open back into an absolute Win32 path. Microsoft documents `OBJECT_ATTRIBUTES.RootDirectory` as the directory handle relative to which `ObjectName` is resolved; a non-null root handle makes the object name relative. Use `NtCreateFile` (or a verified equivalent native entry point) with a single basename relative to the pinned parent handle. See [Microsoft NtCreateFile documentation](https://learn.microsoft.com/windows-hardware/drivers/ddi/ntifs/nf-ntifs-ntcreatefile).
+
+For every component in the initial directory walk:
+- open the next component relative to the already-pinned parent handle;
+- request directory-only semantics;
+- request open-reparse-point behavior and inspect the returned handle's attributes;
+- reject a reparse point rather than following it;
+- retain the final directory handle for all DB and sidecar operations.
+
+For file identity, prefer `GetFileInformationByHandleEx(FileIdInfo)` and compare the full `FILE_ID_INFO` tuple: 64-bit volume serial plus 128-bit file ID. Microsoft documents that the tuple identifies the same file across two open handles on one computer. A filesystem that returns an unsupported/zero 128-bit ID must be explicitly classified and rejected or handled by a separately reviewed identity strategy; do not silently fall back to the legacy 64-bit file index on ReFS. See [FILE_ID_INFO](https://learn.microsoft.com/windows/win32/api/winbase/ns-winbase-file_id_info) and [GetFileInformationByHandleEx](https://learn.microsoft.com/windows/win32/api/fileapi/nf-fileapi-getfileinformationbyhandleex).
+
+The existing probe uses `CreateFileW` and `BY_HANDLE_FILE_INFORMATION`; it does not satisfy this Windows contract. The implementation must preserve SQLite's requested access, share, create-disposition, synchronous-I/O, delete-on-close, and attribute semantics when translating the open to the native relative operation. Any unhandled flag combination must fail closed, not fall back to `CreateFileW(path)`.
+
 ## 5. Sidecar ownership and lifecycle
 
 Treat each main database role as the owner of exactly these SQLite sidecar names:
