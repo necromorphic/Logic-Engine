@@ -224,7 +224,8 @@ export class HostLifecycleJournal {
       }
 
       const canonicalEvent = canonical(event);
-      const eventDigest = sha256(canonicalEvent);
+      const { occurred_at: _occurredAt, ...eventContent } = event;
+      const eventDigest = sha256(canonical(eventContent));
       const existing = this.db.prepare(`
         SELECT sequence,event_sha256 FROM host_lifecycle_events
         WHERE host_installation_id=? AND authenticated_account_id=? AND event_id=?
