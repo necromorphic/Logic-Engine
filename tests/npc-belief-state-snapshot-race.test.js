@@ -25,6 +25,7 @@ const trustedSources = [{
 const readAuthorization = (scope) => ({
   status: 'authorized',
   world_id: scope.world_id,
+  conversation_id: scope.conversation_id,
   adapter_id: scope.adapter_id,
   actor_id: scope.actor_id,
   recipient: scope.recipient,
@@ -36,6 +37,7 @@ const readAuthorization = (scope) => ({
 const visibilityAuthorization = (scope) => ({
   status: 'allowed',
   world_id: scope.world_id,
+  conversation_id: scope.conversation_id,
   adapter_id: scope.adapter_id,
   actor_id: scope.actor_id,
   recipient: scope.recipient,
@@ -87,6 +89,7 @@ test('belief replay reauthorizes the adapter and recipient before exposing an id
   const world = store.world('world-belief-replay-auth');
   const current = {
     world_id: 'world-belief-replay-auth',
+    conversation_id: 'conversation-test',
     adapter_id: 'adapter-st',
     actor_id: 'npc-race',
     recipient: 'model',
@@ -161,6 +164,7 @@ test('belief-state read fails closed if visibility authorization races a canonic
   const currentWorld = store.world('world-belief-race');
   const current = {
     world_id: 'world-belief-race',
+    conversation_id: 'conversation-test',
     adapter_id: 'adapter-st',
     actor_id: 'npc-race',
     recipient: 'model',
@@ -249,6 +253,7 @@ test('belief-state read rejects rollback between visibility evaluation and final
 
   const read = engine.readNpcKnowledge({
     world_id: 'world-belief-rollback-race',
+    conversation_id: 'conversation-test',
     adapter_id: 'adapter-st',
     actor_id: 'npc-race',
     recipient: 'model',
@@ -260,6 +265,7 @@ test('belief-state read rejects rollback between visibility evaluation and final
   const propositionRef = 'proposition:fact/fact-race';
   engine.recordNpcBeliefTransition({
     world_id: 'world-belief-rollback-race',
+    conversation_id: 'conversation-test',
     adapter_id: 'adapter-st',
     actor_id: 'npc-race',
     recipient: 'model',
@@ -288,6 +294,7 @@ test('belief-state read rejects rollback between visibility evaluation and final
   const requestSnapshot = engine.getSnapshot('world-belief-rollback-race');
   const request = {
     world_id: 'world-belief-rollback-race',
+    conversation_id: 'conversation-test',
     adapter_id: 'adapter-st',
     actor_id: 'npc-race',
     recipient: 'model',
@@ -356,6 +363,7 @@ test('belief transition and state APIs reject Proxy/accessor inputs before readi
 
   const transitionBase = {
     world_id: 'world-a',
+    conversation_id: 'conversation-test',
     adapter_id: 'adapter-st',
     actor_id: 'npc-race',
     recipient: 'model',
@@ -390,6 +398,7 @@ test('belief transition and state APIs reject Proxy/accessor inputs before readi
 
   const stateBase = {
     world_id: 'world-a',
+    conversation_id: 'conversation-test',
     adapter_id: 'adapter-st',
     actor_id: 'npc-race',
     recipient: 'model',
@@ -426,6 +435,7 @@ test('belief transition revalidates visibility immediately before the Core commi
       return {
         status: visibilityAllowed ? 'allowed' : 'denied',
         world_id: scope.world_id,
+        conversation_id: scope.conversation_id,
         adapter_id: scope.adapter_id,
         actor_id: scope.actor_id,
         recipient: scope.recipient,
@@ -466,6 +476,7 @@ test('belief transition revalidates visibility immediately before the Core commi
   const snapshot = engine.getSnapshot('world-belief-commit-boundary');
   const readRequest = {
     world_id: 'world-belief-commit-boundary',
+    conversation_id: 'conversation-test',
     adapter_id: 'adapter-st',
     actor_id: 'npc-race',
     recipient: 'model',
