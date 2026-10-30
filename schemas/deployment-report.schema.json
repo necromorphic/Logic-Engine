@@ -1,0 +1,207 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://logic-engine.invalid/schemas/deployment-report.schema.json",
+  "title": "Logic-Engine Deployment Report",
+  "description": "Machine-readable startup/security assessment. A report is evidence, not a guarantee beyond its recorded scope.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "deployment_id",
+    "generated_at",
+    "platform",
+    "runtime",
+    "profile",
+    "overall_status",
+    "components",
+    "capabilities",
+    "gates",
+    "limitations"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "deployment_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "platform": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "family",
+        "release",
+        "architecture"
+      ],
+      "properties": {
+        "family": {
+          "enum": [
+            "windows",
+            "linux",
+            "unknown"
+          ]
+        },
+        "release": {
+          "type": "string"
+        },
+        "architecture": {
+          "type": "string"
+        }
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "version"
+      ],
+      "properties": {
+        "name": {
+          "const": "node"
+        },
+        "version": {
+          "type": "string"
+        }
+      }
+    },
+    "profile": {
+      "enum": [
+        "portable-desktop",
+        "hardened-service"
+      ]
+    },
+    "overall_status": {
+      "enum": [
+        "PASS",
+        "FAIL",
+        "UNSUPPORTED",
+        "NOT_TESTED",
+        "DEGRADED"
+      ]
+    },
+    "components": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "execution_mode",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "execution_mode": {
+            "enum": [
+              "in-process",
+              "managed-process"
+            ]
+          },
+          "status": {
+            "enum": [
+              "PASS",
+              "FAIL",
+              "UNSUPPORTED",
+              "NOT_TESTED",
+              "DEGRADED"
+            ]
+          }
+        }
+      }
+    },
+    "capabilities": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "status",
+          "required",
+          "evidence_source",
+          "adapter_version",
+          "limitations"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "PASS",
+              "FAIL",
+              "UNSUPPORTED",
+              "NOT_TESTED",
+              "DEGRADED"
+            ]
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "evidence_source": {
+            "type": "string"
+          },
+          "observed_summary": {
+            "type": "string"
+          },
+          "adapter_version": {
+            "type": "string"
+          },
+          "limitations": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "gates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "status",
+          "affected_features"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "PASS",
+              "BLOCKED",
+              "DEGRADED"
+            ]
+          },
+          "affected_features": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "limitations": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}
