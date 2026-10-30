@@ -525,6 +525,16 @@ static void probe_race_injection_count(sqlite3_context *context, int argc, sqlit
   (void)argv;
   sqlite3_result_int(context, g_race_injection_count);
 }
+static void probe_sidecar_identity_check_count(sqlite3_context *context, int argc, sqlite3_value **argv) {
+  (void)argc;
+  (void)argv;
+  sqlite3_result_int(context, g_sidecar_identity_check_count);
+}
+static void probe_sidecar_identity_reject_count(sqlite3_context *context, int argc, sqlite3_value **argv) {
+  (void)argc;
+  (void)argv;
+  sqlite3_result_int(context, g_sidecar_identity_reject_count);
+}
 static void probe_register_database_role(sqlite3_context *context, int argc, sqlite3_value **argv) {
   const unsigned char *path = sqlite3_value_text(argv[0]);
   const unsigned char *role_name = sqlite3_value_text(argv[1]);
@@ -674,6 +684,12 @@ static int probe_auto_extension(sqlite3 *db, char **error, const sqlite3_api_rou
   if (rc != SQLITE_OK) return rc;
   rc = sqlite3_create_function(db, "logic_engine_vfs_probe_race_injection_count", 0,
     SQLITE_UTF8 | SQLITE_DETERMINISTIC, 0, probe_race_injection_count, 0, 0);
+  if (rc != SQLITE_OK) return rc;
+  rc = sqlite3_create_function(db, "logic_engine_vfs_probe_sidecar_identity_check_count", 0,
+    SQLITE_UTF8 | SQLITE_DETERMINISTIC, 0, probe_sidecar_identity_check_count, 0, 0);
+  if (rc != SQLITE_OK) return rc;
+  rc = sqlite3_create_function(db, "logic_engine_vfs_probe_sidecar_identity_reject_count", 0,
+    SQLITE_UTF8 | SQLITE_DETERMINISTIC, 0, probe_sidecar_identity_reject_count, 0, 0);
   if (rc != SQLITE_OK) return rc;
   rc = sqlite3_create_function(db, "logic_engine_vfs_probe_configure_race", 3,
     SQLITE_UTF8, 0, probe_configure_race, 0, 0);
