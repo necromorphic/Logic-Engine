@@ -74,7 +74,51 @@ test('filesystem inventory baseline is denied while a durable Host mutation is p
  assert.equal(ledger.records.some(record=>record.operation==='filesystem-inventory-baseline'),false);
 });
 
-test('journal atomically refuses an inventory checkpoint if a mutation starts after the preflight check',async()=>{
+test('inventory checkpoint rejects a mutation committed after reconciliation preflight', async () => {
+ const db = new DB();
+ const journal = new HostLifecycleJournal(db);
+ const competingJournal = new HostLifecycleJournal(db);
+ await journal.enroll({conversationId:'chat',sourceFingerprint:'chat-fp',messages:[]});
+
+ const originalDigest = crypto.subtle.digest.bind(crypto.subtle);
+ let releaseDigest;
+ let signalDigest;
+ let blocked = false;
+ const digestEntered = new Promise(resolve => { signalDigest = resolve; });
+ const digestGate = new Promise(resolve => { releaseDigest = resolve; });
+ crypto.subtle.digest = async (algorithm, data) => {
+  const canonicalInput = new TextDecoder().decode(data);
+  if (!blocked && canonicalInput.includes('"operation":"filesystem-inventory-baseline"')) {
+   blocked = true;
+   signalDigest();
+   await digestGate;
+  }
+  return originalDigest(algorithm, data);
+ };
+
+ try {
+  const reconciliation = reconcileFilesystemInventory({
+   journal, conversationId:'chat', inventory:scan(), sourceFingerprint:'chat-fp', expectedRoot:root,
+  });
+  await digestEntered;
+  await competingJournal.beforeMutation({
+   conversationId:'chat',eventId:'race-edit',operation:'edit-message',
+   affectedVersions:[],sourceFingerprint:'chat-fp',
+  });
+  releaseDigest();
+  const result = await reconciliation;
+  assert.equal(result.status,'NON_READY');
+  assert.match(result.reason,/journal changed during append/);
+  const ledger = await journal.exportCaptureLedger('chat');
+  assert.equal(ledger.records.some(record => record.operation === 'filesystem-inventory-baseline'),false);
+  assert.equal((await journal.pendingMutation('chat')).status,'PENDING_MUTATION');
+ } finally {
+  releaseDigest?.();
+  crypto.subtle.digest = originalDigest;
+ }
+});
+
+test('journal refuses an inventory checkpoint when a mutation is already pending',async()=>{
  const journal=await fixture();
  await journal.beforeMutation({
   conversationId:'chat',eventId:'pending-race',operation:'delete-message',
