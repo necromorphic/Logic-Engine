@@ -125,7 +125,10 @@ test('pinned SillyTavern patch uses the existing authenticated inventory and dig
   assert.ok(patch.includes("fetch('/api/logic-engine/host-version-ledger/reconcile'"));
   assert.ok(patch.includes('getLogicEngineHostSessionId'));
   assert.ok(patch.includes('getPersistedInventory: async'));
-  assert.ok(patch.includes('complete: false'));
+  assert.ok(patch.includes("throw Error('Persisted Host inventory unavailable')"),
+    'missing persisted inventory must fail closed');
+  assert.ok(patch.includes("inventory?.host_user_handle !== session.host_user_handle"),
+    'persisted inventory must remain bound to the authenticated ST account');
   assert.ok(patch.includes('logicEngineHostSessionPromise = null'));
 
   // The server proxy uses only deployment-owned credentials and the existing
