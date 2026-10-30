@@ -64,7 +64,7 @@ function setup(t, authorizer = (scope) => ({
     effects: [
       { kind: 'entity.create', entity_id: 'npc-a', entity_type: 'character' },
       { kind: 'entity.create', entity_id: 'npc-b', entity_type: 'character' },
-      { kind: 'fact.set', fact_id: 'fact-a', predicate: 'secret', value: 'source-backed-value' },
+      { kind: 'fact.set', fact_id: 'fact-a', subject_ref: 'entity:npc-a', predicate: 'secret', value: 'source-backed-value' },
     ],
   });
   const acquisition = engine.recordTrustedInitialKnowledgeSource({
@@ -994,9 +994,10 @@ test('rolling back a belief revision restores the previous valid belief without 
     WHERE world_id='world-a' AND actor_id='npc-a' AND proposition_ref=?
     ORDER BY committed_revision ASC
   `).all(proposition_ref);
-  assert.equal(history.length, 2, 'rollback must preserve both historical projection rows');
+  assert.equal(history.length, 1, 'the derived projection must omit the rolled-back transition');
   assert.equal(history[0].event_id, first.transition.event_id);
-  assert.equal(history[1].event_id, second.transition.event_id);
+  assert.ok(store.db.prepare('SELECT event_id FROM world_events WHERE world_id=? AND event_id=?')
+    .get('world-a', second.transition.event_id), 'canonical event history retains the rolled-back transition');
 });
 
 test('NPC revises a belief from newly acquired independent evidence after the old acquisition is rolled back', (t) => {
