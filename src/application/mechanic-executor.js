@@ -212,6 +212,8 @@ export class MechanicExecutor {
       || typeof resolved.authorization_principal.actorEntityId !== 'string' || !resolved.authorization_principal.actorEntityId.trim()
       || !['model', 'player', 'adapter'].includes(resolved.authorization_principal.recipient)
       || !['npc_decision', 'character_card', 'narrative'].includes(resolved.authorization_principal.purpose)
+      || !Number.isSafeInteger(resolved.authorization_principal.bindingGeneration)
+      || resolved.authorization_principal.bindingGeneration < 1
       || !Array.isArray(resolved.knownAbsentPaths ?? [])
       || !(resolved.knownAbsentPaths ?? []).every((path) => typeof path === 'string' && path.trim())
       || !Array.isArray(resolved.dependencyEvidence)) {
