@@ -68,3 +68,10 @@ The bounded translator/proposal integration and the source paths listed above ar
 6. Reconcile remaining statements against the exact reviewed head and run exact-head Runtime CI. The isolated recalculation oracle does not prove global dependency completeness or production executor readiness.
 
 This clarification documents source provenance and current wiring only. It does not enable execution, approve a provider, expand the supported action subset, or claim that the required integration tests exist or pass.
+
+
+## Draft branch #717 reconciliation
+
+The baseline bullets above describe the earlier `main` state. Draft branch `feat/mechanics-policy-authority-e2e` removes the legacy `getActiveMechanicContextProvider` fallback from `createApiServer`. The API now accepts only the composition-root `mechanicPolicyAuthority`; without it, mechanic policy validation is an unconditional fail-closed result. When authority is configured, the API also requires the injected shared `ActorBindingService` and `AuthorizedReadService` instances, and verifies that the AuthorizedReadService uses the exact actor-binding service passed to the API.
+
+This branch-level wiring does not change the baseline statement about `main`: the draft is not merged, and production Mechanics remain disabled until deployment configuration and exact-head validation are complete.
