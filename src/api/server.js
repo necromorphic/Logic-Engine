@@ -25,7 +25,6 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
   if (authorizedReadFieldPolicy !== null && typeof authorizedReadFieldPolicy !== 'function') {
     throw new TypeError('Authorized-read field policy must be trusted application configuration.');
   }
-  if (typeof getActiveMechanicContextProvider !== 'function') throw new TypeError('getActiveMechanicContextProvider must be a trusted application callback.');
   if (mechanicPolicyAuthority !== null
     && (typeof mechanicPolicyAuthority?.validateMechanicPolicy !== 'function'
       || typeof mechanicPolicyAuthority?.resolveAuthorizedContext !== 'function'
