@@ -60,3 +60,33 @@ test('filesystem scan cannot be attached to a different conversation journal hea
  assert.equal(result.status,'NON_READY');
  assert.match(result.reason,/differs from the accepted lifecycle journal head/);
 });
+
+test('filesystem inventory baseline is denied while a durable Host mutation is pending',async()=>{
+ const journal=await fixture();
+ await journal.beforeMutation({
+  conversationId:'chat',eventId:'pending-edit',operation:'edit-message',
+  affectedVersions:[],sourceFingerprint:'chat-fp',
+ });
+ const result=await reconcileFilesystemInventory({journal,conversationId:'chat',inventory:scan(),sourceFingerprint:'chat-fp',expectedRoot:root});
+ assert.equal(result.status,'NON_READY');
+ assert.match(result.reason,/mutation is pending/);
+ const ledger=await journal.exportCaptureLedger('chat');
+ assert.equal(ledger.records.some(record=>record.operation==='filesystem-inventory-baseline'),false);
+});
+
+test('journal atomically refuses an inventory checkpoint if a mutation starts after the preflight check',async()=>{
+ const journal=await fixture();
+ await journal.beforeMutation({
+  conversationId:'chat',eventId:'pending-race',operation:'delete-message',
+  affectedVersions:[],sourceFingerprint:'chat-fp',
+ });
+ const result=await journal.append({
+  conversationId:'chat',eventId:'inventory-race',operation:'filesystem-inventory-baseline',
+  sourceFingerprint:'chat-fp',requireNoPendingMutation:true,
+  payload:{schemaVersion:1,inventory:{root,snapshotSha256:'a'.repeat(64),fileCount:0,entries:[]}},
+ });
+ assert.equal(result.status,'NON_READY');
+ assert.match(result.reason,/mutation is pending/);
+ const ledger=await journal.exportCaptureLedger('chat');
+ assert.equal(ledger.records.some(record=>record.operation==='filesystem-inventory-baseline'),false);
+});
