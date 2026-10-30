@@ -131,7 +131,8 @@ static inline HANDLE logic_engine_win_open_relative(
       options | FILE_OPEN_REPARSE_POINT | FILE_SYNCHRONOUS_IO_NONALERT,
       NULL, 0);
   if (status < 0 || result == INVALID_HANDLE_VALUE) {
-    SetLastError(RtlNtStatusToDosError(status));
+    (void)status;
+    SetLastError(ERROR_ACCESS_DENIED);
     return INVALID_HANDLE_VALUE;
   }
   {
