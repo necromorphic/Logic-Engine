@@ -253,10 +253,17 @@ async function enumerateStableFileInventoryOnRoot(rootPath, options = {}) {
  */
 export async function enumerateStableFileInventoryFromWindowsSnapshot(lease) {
   if (!isActiveWindowsVssSnapshot(lease)) return fail('HOST_INVENTORY_WINDOWS_SNAPSHOT_UNTRUSTED');
-  return enumerateStableFileInventoryOnRoot(lease.snapshotRoot, {
+  const inventory = await enumerateStableFileInventoryOnRoot(lease.snapshotRoot, {
     allowSnapshotWithoutNoFollow: true,
     reportedRoot: lease.root,
     snapshotId: lease.snapshotId,
+  });
+  if (inventory.status !== 'complete') return inventory;
+  return sealVerifiedInventory({
+    ...inventory,
+    snapshot_provider: lease.provider,
+    snapshot_consistency: lease.consistency,
+    reparse_points: lease.reparsePoints,
   });
 }
 
@@ -274,19 +281,8 @@ export async function enumerateStableFileInventory(rootPath) {
     return enumerateStableFileInventoryOnRoot(rootPath);
   }
   try {
-    return await withWindowsVssSnapshot(rootPath, async lease => {
-      const inventory = await enumerateStableFileInventoryFromWindowsSnapshot(lease);
-      if (inventory.status !== 'complete') return inventory;
-      // The wrapper creates a new object, so authenticate the final public
-      // manifest as well; the inner snapshot manifest is not passed onward.
-      const finalInventory = {
-        ...inventory,
-        snapshot_provider: lease.provider,
-        snapshot_consistency: lease.consistency,
-        reparse_points: lease.reparsePoints,
-      };
-      return sealVerifiedInventory(finalInventory);
-    });
+    return await withWindowsVssSnapshot(rootPath, lease =>
+      enumerateStableFileInventoryFromWindowsSnapshot(lease));
   } catch (error) {
     const code = typeof error?.message === 'string' && error.message.startsWith('HOST_')
       ? error.message : 'HOST_INVENTORY_WINDOWS_SNAPSHOT_UNAVAILABLE';
