@@ -68,6 +68,7 @@ async function setup(t, registry = trustedSources) {
     expected_revision: 0,
     effects: [
       { kind: 'entity.create', entity_id: 'npc-a', entity_type: 'character' },
+      { kind: 'entity.create', entity_id: 'npc-b', entity_type: 'character' },
       { kind: 'fact.set', fact_id: 'fact-a', subject_ref: 'entity:npc-a', predicate: 'secret', value: 'bound-value' },
     ],
   });
@@ -279,4 +280,38 @@ test('missing trusted source keeps read visibility empty and prevents belief-sta
   });
   assert.notEqual(mutation.status, 201);
   assert.equal(store.db.prepare('SELECT COUNT(*) AS count FROM npc_belief_transitions').get().count, 0);
+});
+
+
+test('ambiguous actor bindings and revoked Host conversation bindings deny rather than selecting a caller actor', async t => {
+  const { base } = await setup(t);
+  const secondActor = await fetch(base + '/v1/worlds/world-a/actor-bindings', {
+    method: 'POST',
+    headers: adminHeaders,
+    body: json({ adapter_id: 'adapter-st', entity_id: 'npc-b' }),
+  });
+  assert.equal(secondActor.status, 201);
+  const ambiguous = await read(base);
+  assert.equal(ambiguous.status, 404);
+  assert.equal((await ambiguous.json()).error.code, 'READ_NOT_AVAILABLE');
+
+  const revokeSecond = await fetch(base + '/v1/worlds/world-a/actor-bindings/adapter-st/npc-b', {
+    method: 'DELETE', headers: adminHeaders,
+  });
+  assert.equal(revokeSecond.status, 200);
+  assert.equal((await read(base)).status, 200);
+
+  const deniedRevoke = await fetch(base + '/v1/host-conversation-bindings/adapter-st/conversation-a', {
+    method: 'DELETE', headers: hostHeaders, body: json({ reason: 'unauthorized revoke' }),
+  });
+  assert.equal(deniedRevoke.status, 403);
+
+  const revokedConversation = await fetch(base + '/v1/host-conversation-bindings/adapter-st/conversation-a', {
+    method: 'DELETE', headers: adminHeaders, body: json({ reason: 'Host session retired' }),
+  });
+  assert.equal(revokedConversation.status, 200);
+
+  const afterRevoke = await read(base);
+  assert.equal(afterRevoke.status, 404);
+  assert.equal((await afterRevoke.json()).error.code, 'READ_NOT_AVAILABLE');
 });
