@@ -212,7 +212,7 @@ Unless a future reviewed contract assigns the work to Relationships, the block d
 - canonical storage, event transactions, authorization, global scheduling/recalculation, cross-block orchestration, or publication of committed results (Core responsibility);
 - a generic memory store, source authority, or Memory→NPC admission/reconciliation path;
 - automatic relationship changes from every dialogue turn, automatic reciprocity, or automatic migration to a newer World Pack;
-- unsupported historical semantic re-evaluation or meaning-changing migration runtime paths.
+- historical evaluator runtime and meaning-changing migration execution (Core responsibility; see Sections 12–13 for the implemented bounded operation and migration boundary).
 
 ### 11.7 Acceptance boundary for social-interaction reasoning
 
@@ -249,3 +249,29 @@ This section records the accepted disposition after the Relationships, Core, and
 | Explicit migration | Unsupported/refused; no approved path or executable migration test exists. |
 
 The related trackers are closed for their defined current-release decision/traceability scopes, not as a claim that unsupported capabilities were implemented: Relationships [#143](https://github.com/necromorphic/Logic-Engine/issues/143), Core [#146](https://github.com/necromorphic/Logic-Engine/issues/146), and Personality [#73](https://github.com/necromorphic/Logic-Engine/issues/73). Personality's version-semantics traceability was updated in merged [PR #722](https://github.com/necromorphic/Logic-Engine/pull/722). The #73 closure leaves unrelated authorized-read and NPC-consumer runtime work with its owning trackers; it does not mark those behaviors implemented.
+
+
+## 13. Follow-up runtime implementation — historical candidate re-evaluation (30 October 2026)
+
+This section supersedes Section 12 only for the bounded historical candidate re-evaluation operation. The projection-rebuild and meaning-changing migration dispositions remain unchanged.
+
+- **Historical candidate re-evaluation:** supported as a read-only Core application operation after merged [Core PR #733](https://github.com/necromorphic/Logic-Engine/pull/733) (merge commit `cf61ad1`). Each new typed Relationship transition persists the exact seven inputs consumed by the pure candidate evaluator, the originating event ID, exact rule-module ID/version, and exact World Pack ID/version. An input digest and a separate envelope digest cover the captured data and provenance.
+- **Exact historical evaluator:** Core resolves a version-addressed evaluator artifact by exact `rule_module_id + rule_module_version`. It never substitutes the latest/nearest artifact. A missing, incompatible, or unknown artifact returns unavailable. The original rule-module manifest may be absent: the captured `dimensionRules` are in the event snapshot, so re-evaluation does not reconstruct them from a current manifest.
+- **Comparison and mutation boundary:** Core compares the historical candidate with the committed effect and reports whether they match. This operation does not change the event, projection, revision, or audit. It does not rerun authorization, evidence discovery, NPC knowledge acquisition, Personality decisions, or upstream proposal generation; it is not a full event-pipeline replay.
+- **Legacy events:** events without the captured v2 snapshot return unavailable. Core does not reconstruct missing historical inputs from present-day state.
+- **Meaning-changing migration:** still unsupported/refused. No source→target semantic mapping has been approved, and no migration API/schema/execution path is shipped. A future migration requires a separate Relationships-owned mapping policy and an auditable Core operation; the original event must remain immutable.
+- **Digest limitation:** the SHA-256 digests detect inconsistent/corrupt changes but are not signatures against an actor able to rewrite the canonical database and recompute them.
+
+### Runtime evidence
+
+| Acceptance | Evidence / disposition |
+|---|---|
+| Same exact pinned inputs and evaluator artifact | Core PR #733: `projection rebuild preserves the exact historical rule-version pin when its module is unavailable` now checks re-evaluation before and after restart/rebuild and verifies that the candidate matches the committed effect. |
+| Historical evaluator after old manifest removal | The same test removes the `1.0.0` manifest, registers `2.0.0`, rebuilds the projection, and re-evaluates from the captured snapshot and exact `1.0.0` evaluator artifact. |
+| Unknown exact artifact; no newer-version fallback | `historical re-evaluation rejects an unavailable pinned artifact instead of substituting a newer registered version`; a `0.9.0` event is unavailable when only the newer `1.0.0` artifact exists. |
+| Legacy event without snapshot | `historical re-evaluation fails closed for a legacy event without a captured input snapshot`. |
+| Snapshot provenance corruption | `historical evaluation detects an altered World Pack provenance value when its digest is not updated`. |
+| Read-only behavior | The Core integration test compares world revision, events, relationship projection, and audit before/after evaluation. |
+| Meaning-changing migration | Still unsupported/refused; no approved mapping or production migration path exists, so no migration-execution test is claimed. |
+
+Runtime CI #5924 passed on exact PR head `e59d329a821764c6605e2f1b3318b8a04672fce9` (all three jobs, including `npm test`). Codex code review on that exact head completed with no findings. Projection rebuild remains a separate operation that reapplies the committed effect without executing the historical evaluator.
