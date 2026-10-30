@@ -214,6 +214,11 @@ test('application executor pins one enabled instance and exact template to a con
   assert.equal(result.dependency_manifest.effect_target_dependencies_complete, true);
   assert.equal(result.dependency_manifest.causal_read_set_complete_for_supported_slice, true);
   assert.equal(result.dependency_manifest.mechanic_dependencies_complete, true);
+  assert.equal(result.dependency_manifest.supported_instance_data, 'empty_parameters_and_state_only');
+  assert.equal(result.dependency_manifest.supported_action_input, 'empty_object_only');
+  assert.equal(result.dependency_manifest.supported_unknown_policy, 'mark_unknown');
+  assert.ok(result.dependency_manifest.unsupported_sources.includes('non_empty_instance_parameters'));
+  assert.ok(result.dependency_manifest.unsupported_sources.includes('registered_module_inputs_and_reads'));
   assert.equal(result.guarantees.complete_global_mechanic_dependencies, false);
   assert.deepEqual(result.dependency_manifest.unresolved_sources, []);
   assert.deepEqual(result.dependency_manifest.assumptions, ['trusted_provider_correctly_maps_condition_paths_to_canonical_attributes']);
