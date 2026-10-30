@@ -367,13 +367,7 @@ export class MechanicExecutor {
           }
         }
       }
-      /* replaced legacy fact subject branch */
-      if (false) {
-        const subject = entityById.get(effect.subject_ref);
-        if ((!subject || subject.status === 'destroyed') && !createdEntities.has(effect.subject_ref)) {
-          return unknown('MECHANIC_EFFECT_SUBJECT_NOT_FOUND', 'An assert_fact subject_ref must identify a non-destroyed entity in this world or an entity created earlier in this action.', identity);
-        }
-      }
+    }
 
     const effectTargetDependencies = translated.effects.flatMap((effect) => {
       if (effect.kind === 'entity.create') return [{ kind: 'entity_absence', target_id: effect.entity_id }];
