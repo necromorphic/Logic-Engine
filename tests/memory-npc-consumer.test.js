@@ -58,7 +58,7 @@ function setup(t, { allowContent = true, authorizeQuery = true, authorizeCandida
     lifecycle: {
       content_disposition: 'usable',
       source_reconciliation: 'current',
-      evidence_assessment: 'unassessed',
+      evidence_assessment: 'supported',
       access_outcome: 'deny',
       index_health: 'ready',
     },
@@ -348,6 +348,32 @@ test('Memory record denial is indistinguishable from an authorized empty candida
   assert.deepEqual(staleButDenied.admitted, []);
   assert.deepEqual(staleButDenied.candidates, []);
   assert.deepEqual(staleButDenied, result);
+});
+
+test('unsupported evidence assessments are excluded without changing the NPC-visible empty result', async (t) => {
+  const genuinelyEmpty = setup(t);
+  genuinelyEmpty.setCandidates([]);
+  const emptyResult = await genuinelyEmpty.consumer.retrieveForNpc(request());
+  assert.equal(emptyResult.status, 'ready');
+  assert.deepEqual(emptyResult.admitted, []);
+  assert.deepEqual(emptyResult.candidates, []);
+
+  for (const evidenceAssessment of ['unassessed', 'disputed', 'insufficient']) {
+    const { consumer, setCandidates, candidate } = setup(t);
+    setCandidates([candidate({
+      lifecycle: {
+        ...candidate().lifecycle,
+        evidence_assessment: evidenceAssessment,
+      },
+    })]);
+
+    const result = await consumer.retrieveForNpc(request());
+    assert.deepEqual(
+      result,
+      emptyResult,
+      `unsupported assessment ${evidenceAssessment} must be indistinguishable from authorized-empty`,
+    );
+  }
 });
 
 test('duplicate canonical entity identities in an authorized read fail closed', async (t) => {
