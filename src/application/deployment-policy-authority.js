@@ -71,11 +71,9 @@ export class DeploymentPolicyAuthority {
   }
 
   authorizeField(context, entity, field, expectedEvidence) {
-    const active = this.resolve();
-    if (expectedEvidence && !this.isCurrent(expectedEvidence)) {
-      throw new Error('Deployment policy generation changed during authorization.');
-    }
     try {
+      const active = this.resolve();
+      if (expectedEvidence && !this.isCurrent(expectedEvidence)) return false;
       return active.authorizeField(context, entity, field) === true;
     } catch {
       return false;
