@@ -441,6 +441,8 @@ export function createNpcGoalPlanRepository({
           }
           planId = candidate.revise_plan_id;
           planRevision = previous.revision + 1;
+        } else {
+          planId = idFrom(idFactory);
         }
         const candidateId = idFrom(idFactory);
         const plan = normalizeCandidatePlan(candidate.plan, planId, idFactory);
@@ -495,6 +497,7 @@ export function createNpcGoalPlanRepository({
         const selection = getSelection(database, scope, row.goal_id);
         const candidate = parseJson(row.candidate_json);
         if (!goal || !selection) return outcome("non_ready", { reason: "candidate_goal_state_missing" });
+        if (goal.status !== "active") return outcome("conflict", { reason: "goal_not_active" });
         const candidateExpected = normalizeExpected(candidate.expected);
         if (goal.goal_revision !== expected.goal_revision
           || !selectionMatches(selection, expected)
@@ -634,7 +637,7 @@ export function createNpcGoalPlanRepository({
         const at = timestamp(now);
         const attemptId = idFrom(idFactory);
         const stored = {
-          ...attempt, attempt_id: attemptId, request_hash: requestHash,
+          ...attempt, plan_revision: planRevision, attempt_id: attemptId, request_hash: requestHash,
           local_state: "awaiting_core_result",
         };
         database.prepare(
