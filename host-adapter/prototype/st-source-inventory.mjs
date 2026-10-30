@@ -26,7 +26,7 @@ const isWithin = (parent, candidate) => {
 };
 const normalizePath = value => {
   let normalized = path.resolve(value);
-  if (process.platform === 'win32' && normalized.startsWith('\\\\?\\\\')) {
+  if (process.platform === 'win32' && normalized.startsWith('\\\\?\\')) {
     normalized = normalized.slice(4);
   }
   return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
