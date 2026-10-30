@@ -1,6 +1,6 @@
 # Core-Owned NPC Knowledge Reader
 
-**Status:** implementation candidate; draft PR only.  
+**Status:** implementation present on main; internal-only and not production-enabled.  
 **Scope:** internal Core read boundary for previously acquired knowledge.  
 **Not enabled:** HTTP/API exposure, prompt injection, automatic dispatch, or Memory → NPC production integration.
 
