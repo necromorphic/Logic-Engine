@@ -467,22 +467,25 @@ test('reapplying the same approved source after a fact replacement creates a dis
   assert.equal(rollback.accepted, true);
   assert.ok(rollback.invalidated_event_ids.includes(first.event_id));
 
+  const afterRollback = engine.getSnapshot('world-a');
   const replacement = engine.commitEvent('world-a', {
     event_id: 'replacement-fact-b',
     idempotency_key: 'replacement-fact-b',
     turn_id: 'replacement-fact-b',
     event_type: 'action.completed',
-    expected_revision: 2,
+    expected_revision: afterRollback.world_revision,
+    expected_commit_sequence: afterRollback.commit_sequence,
     effects: [{ kind: 'fact.set', fact_id: 'fact-a', predicate: 'secret', value: 'replacement-value-b' }],
   });
   assert.equal(replacement.accepted, true);
 
+  const afterReplacement = engine.getSnapshot('world-a');
   const second = engine.recordTrustedInitialKnowledgeSource({
     world_id: 'world-a',
     source_bytes: bytes,
     idempotency_key: 'author-source-fact-version-b',
-    expected_revision: 3,
-    expected_commit_sequence: 3,
+    expected_revision: afterReplacement.world_revision,
+    expected_commit_sequence: afterReplacement.commit_sequence,
   });
   const secondEvent = store.events('world-a').find((event) => event.event_id === second.event_id);
   const secondAcquisition = secondEvent.effects.find((effect) => effect.kind === 'knowledge.acquire');
