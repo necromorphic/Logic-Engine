@@ -388,6 +388,47 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
     }
   }
 
+  // Deleting a sidecar pathname must not release ownership while a hardlink
+  // keeps the same physical object alive. Otherwise a later role can adopt
+  // the old role's journal identity after xDelete removes the original name.
+  {
+    const retiredOwnerPath = join(directory, 'retired-sidecar-owner.sqlite');
+    const retiredVictimPath = join(directory, 'retired-sidecar-victim.sqlite');
+    const retainedAliasPath = join(directory, 'retired-owner-journal-alias');
+    registerRole(retiredOwnerPath, 'retired-sidecar-owner');
+    registerRole(retiredVictimPath, 'retired-sidecar-victim');
+    const retiredOwner = new DatabaseSync(retiredOwnerPath);
+    const retiredVictim = new DatabaseSync(retiredVictimPath);
+    try {
+      retiredOwner.exec("PRAGMA journal_mode=DELETE; CREATE TABLE probe(value TEXT); BEGIN IMMEDIATE; INSERT INTO probe VALUES('owner');");
+      assert.equal(existsSync(`${retiredOwnerPath}-journal`), true,
+        'the owner journal must exist before its identity is retained by a hardlink');
+      linkSync(`${retiredOwnerPath}-journal`, retainedAliasPath);
+      retiredOwner.exec('COMMIT;');
+      assert.equal(existsSync(`${retiredOwnerPath}-journal`), false,
+        'xDelete must remove the owner journal pathname');
+      assert.equal(existsSync(retainedAliasPath), true,
+        'the hardlink must keep the original journal object alive after xDelete');
+      retiredVictim.exec('PRAGMA journal_mode=DELETE; CREATE TABLE probe(value TEXT);');
+      linkSync(retainedAliasPath, `${retiredVictimPath}-journal`);
+      const rejectedBefore = roleRegistrar.prepare(
+        'SELECT logic_engine_vfs_probe_sidecar_identity_reject_count() AS count'
+      ).get().count;
+      assert.throws(() => retiredVictim.exec(
+        "BEGIN IMMEDIATE; INSERT INTO probe VALUES('victim');"
+      ), 'a retired sidecar object must remain owned by its original role while any hardlink survives');
+      assert.ok(roleRegistrar.prepare(
+        'SELECT logic_engine_vfs_probe_sidecar_identity_reject_count() AS count'
+      ).get().count > rejectedBefore,
+      'the sidecar registry must reject adoption of a deleted-but-still-linked object');
+    } finally {
+      try { retiredVictim.close(); } catch { /* deliberate sidecar rejection may leave a transaction active */ }
+      retiredOwner.close();
+      try { unlinkSync(`${retiredVictimPath}-journal`); } catch { /* cleanup */ }
+      try { unlinkSync(retainedAliasPath); } catch { /* cleanup */ }
+    }
+  }
+
   // Exercise the rollback-journal sidecar independently of WAL mode.
   const journalPath = join(directory, 'journal.sqlite');
   registerRole(journalPath, 'journal-test');
