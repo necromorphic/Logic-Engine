@@ -304,13 +304,35 @@ static void probe_configure_race(sqlite3_context *context, int argc, sqlite3_val
     sqlite3_result_error(context, "race paths are required", -1);
     return;
   }
-  sqlite3_free(g_race_path);
-  sqlite3_free(g_race_target_path);
-  g_race_path = sqlite3_mprintf("%s", (const char *)path);
-  g_race_target_path = sqlite3_mprintf("%s", (const char *)target);
-  if (!g_race_path || !g_race_target_path) {
-    sqlite3_result_error_nomem(context);
-    return;
+  {
+    int path_length = g_parent_vfs->mxPathname + 1;
+    char *full_path = (char *)sqlite3_malloc64((sqlite3_uint64)path_length);
+    char *full_target = (char *)sqlite3_malloc64((sqlite3_uint64)path_length);
+    if (!full_path || !full_target) {
+      sqlite3_free(full_path);
+      sqlite3_free(full_target);
+      sqlite3_result_error_nomem(context);
+      return;
+    }
+    if (g_parent_vfs->xFullPathname(g_parent_vfs, (const char *)path,
+          path_length, full_path) != SQLITE_OK
+        || g_parent_vfs->xFullPathname(g_parent_vfs, (const char *)target,
+          path_length, full_target) != SQLITE_OK) {
+      sqlite3_free(full_path);
+      sqlite3_free(full_target);
+      sqlite3_result_error(context, "race paths could not be canonicalized", -1);
+      return;
+    }
+    sqlite3_free(g_race_path);
+    sqlite3_free(g_race_target_path);
+    g_race_path = sqlite3_mprintf("%s", full_path);
+    g_race_target_path = sqlite3_mprintf("%s", full_target);
+    sqlite3_free(full_path);
+    sqlite3_free(full_target);
+    if (!g_race_path || !g_race_target_path) {
+      sqlite3_result_error_nomem(context);
+      return;
+    }
   }
   g_race_inject_once = sqlite3_value_int(argv[2]) != 0;
   sqlite3_result_int(context, 1);
