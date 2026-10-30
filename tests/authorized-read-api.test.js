@@ -222,13 +222,8 @@ test('authorized-read API uses the versioned deployment authority and denies aft
         && context.recipient === 'model'
         && context.purpose === 'npc_decision'
         && entity.entity_id === 'other-a'
-        && ['entity_id', 'entity_type'].includes(field)
-          || (context.actor.entity_id === 'actor-a'
-            && context.recipient === 'model'
-            && context.purpose === 'npc_decision'
-            && entity.entity_id === 'other-a'
-            && field === 'attributes.name'
-            && allowOtherName),
+        && (['entity_id', 'entity_type'].includes(field)
+          || (field === 'attributes.name' && allowOtherName)),
     }),
   });
   const base = await setup(t, null, authority);
