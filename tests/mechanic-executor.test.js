@@ -1771,3 +1771,58 @@ test('executor pins the complete active mechanic set and rejects multi-instance 
     ['instance.executor', 'instance.other'].sort());
   assert.equal(engine.getState(worldId).world_revision, 4);
 });
+
+
+test('executor binds a fact subject dependency to the earlier create effect and commits through proposals', (t) => {
+  const { engine, worldId } = setup(t, 'executor-created-subject-dependency-world');
+  const value = template({
+    actions: [{
+      action_id: 'create-and-assert',
+      input_schema: { type: 'object' },
+      preconditions: [],
+      effects: [
+        {
+          effect_id: 'create-subject',
+          kind: 'create_entity',
+          target_ref: 'entity.new-subject',
+          payload: { entity_type: 'character' },
+        },
+        {
+          effect_id: 'assert-subject',
+          kind: 'assert_fact',
+          target_ref: 'fact.new-subject',
+          payload: { predicate: 'active', value: true, subject_ref: 'entity.new-subject' },
+        },
+      ],
+      ambiguity_policy: 'deterministic_only',
+    }],
+  });
+  enableFixture(engine, worldId, value);
+  const result = new MechanicExecutor(engine, { resolveAuthorizedContext: contextProvider() })
+    .evaluate({ worldId, instanceId: 'instance.executor', actionId: 'create-and-assert' });
+  assert.equal(result.status, 'ready');
+  assert.ok(result.dependency_manifest.effect_target_dependencies.some((item) =>
+    item.kind === 'entity_created_in_action'
+      && item.target_id === 'entity.new-subject'
+      && item.effect_index === 1
+      && item.effect_id === 'assert-subject'
+      && item.source_effect_index === 0));
+  assert.ok(result.dependency_manifest.effect_target_dependencies.some((item) =>
+    item.kind === 'entity_absence'
+      && item.target_id === 'entity.new-subject'
+      && item.effect_index === 0
+      && item.effect_id === 'create-subject'));
+
+  const proposals = new ProposalService(engine, { validateMechanicPolicy: () => true });
+  const proposal = proposals.createFromMechanicEvaluation(worldId, result, {
+    idempotencyKey: 'created-subject-dependency',
+    turnId: 'turn-created-subject-dependency',
+    sourceText: 'Create the subject before asserting its fact.',
+    adapterId: 'test-adapter',
+  });
+  proposals.approve(worldId, proposal.proposal_id);
+  proposals.commit(worldId, proposal.proposal_id);
+  const fact = engine.getState(worldId).facts.find((item) => item.fact_id === 'fact.new-subject');
+  assert.equal(fact.subject_ref, 'entity.new-subject');
+  assert.equal(engine.getState(worldId).entities.some((item) => item.entity_id === 'entity.new-subject'), true);
+});
