@@ -149,7 +149,7 @@ const server = createApiServer({
 server.listen(port, host, () => process.stdout.write(
   'Logic-Engine API listening on http://' + host + ':' + port + '\nDatabase: ' + dbPath +
   '\nDirect commit: ' + (internalToken ? 'enabled for internal credential' : 'disabled') +
-  '\nProposal approval: ' + (approvalToken ? 'enabled' : 'disabled') + '\nAdmin registry: ' + (adminToken ? 'enabled' : 'disabled') + '\nConfigured adapters: ' + Object.keys(adapterTokens).length + '\n',
+  '\nProposal approval: ' + (approvalToken ? 'enabled' : 'disabled') + '\nAdmin registry: ' + (adminToken ? 'enabled' : 'disabled') + '\nMechanic policy authority: ' + (mechanicPolicyAuthority ? 'configured' : 'disabled / fail-closed') + '\nConfigured adapters: ' + Object.keys(adapterTokens).length + '\n',
 ));
 function stop() { server.close(() => { try { hostVersionLedger.close(); } finally { store.close(); process.exit(0); } }); }
 process.on('SIGINT', stop);
