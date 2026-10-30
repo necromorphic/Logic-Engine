@@ -7,6 +7,7 @@ function provider(version = 'policy-v1', scope = 'adapter-a:actor-a') {
     policyFingerprint: version,
     authorizationScope: scope,
     authorizationPrincipal: { adapterId: 'adapter-a', actorEntityId: 'actor-a', recipient: 'model', purpose: 'npc_decision' },
+    assertPrincipalBound: () => true,
     resolve: () => ({
       context: { actor: { hp: 10 } },
       knownAbsentPaths: [],
