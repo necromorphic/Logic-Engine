@@ -80,5 +80,6 @@ npm test
 - [Универсальная система механик](docs/25-universal-mechanics-system.md)
 - [Контракт адаптера SillyTavern](docs/13-sillytavern-adapter-contract.md)
 - [Запуск и ограничения runtime](docs/20-minimal-runtime.md)
+- [Универсальная архитектура развёртывания и безопасности (Windows + Linux)](docs/95-universal-deployment-security-architecture.md)
 
 Подробные аудиты, планы интеграции и тестовые доказательства находятся в `docs/` и GitHub Issues. README остаётся обзорной страницей проекта.
