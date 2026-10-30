@@ -57,6 +57,7 @@ int wmain(void) {
   HANDLE handle = INVALID_HANDLE_VALUE;
   int result = 1;
   ULONG mapped_options = 0, mapped_attributes = 0, mapped_disposition = 0;
+  int parent_moved = 0;
 
   /* The adapter must reject flags whose semantics it does not implement. */
   if (logic_engine_win_map_create_options(FILE_FLAG_BACKUP_SEMANTICS,
@@ -129,10 +130,29 @@ int wmain(void) {
    * Keep the identity-checked child handle open across the directory rename.
    * This mirrors the VFS role registry, which retains a trusted DB HANDLE.
    */
-  if (!MoveFileW(parent, moved) || !CreateDirectoryW(parent, NULL)
-      || !make_text_file(decoy_db, "decoy-object")) {
-    fail(L"replace original parent pathname with decoy while trusted child handle is open");
-    goto cleanup;
+  if (MoveFileW(parent, moved)) {
+    parent_moved = 1;
+    if (!CreateDirectoryW(parent, NULL)
+        || !make_text_file(decoy_db, "decoy-object")) {
+      fail(L"create replacement parent pathname and decoy");
+      goto cleanup;
+    }
+  } else {
+    DWORD rename_error = GetLastError();
+    /*
+     * Some Windows runners/filesystems deny directory rename while the VFS
+     * retains the checked parent HANDLE. This is fail-closed: the checked
+     * pathname cannot be replaced during the protected DB lifetime.
+     */
+    if (rename_error != ERROR_ACCESS_DENIED
+        && rename_error != ERROR_SHARING_VIOLATION) {
+      fail(L"parent rename failed for an unexpected reason");
+      goto cleanup;
+    }
+    if (!CreateDirectoryW(moved, NULL)) {
+      fail(L"create auxiliary directory after OS denied parent rename");
+      goto cleanup;
+    }
   }
   if (!file_contains(handle, "trusted-object")) {
     fail(L"retained trusted child handle changed after parent rename");
@@ -236,8 +256,9 @@ int wmain(void) {
     }
   }
 
-  wprintf(L"PASS: pinned-parent rename, decoy isolation, 128-bit file identity, "
-          L"directory reparse rejection, and child reparse rejection\n");
+  wprintf(parent_moved
+      ? L"PASS: pinned-parent rename, decoy isolation, 128-bit file identity, directory reparse rejection, and child reparse rejection\n"
+      : L"PASS: OS denied parent rename while trusted HANDLE was open; pinned open, 128-bit file identity, directory reparse rejection, and child reparse rejection\n");
   result = 0;
 
 cleanup:
