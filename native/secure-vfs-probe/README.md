@@ -95,3 +95,14 @@ The deterministic hardlink-race implementation and test were present at code HEA
 - Windows VFS build and deterministic race probe: [VFS workflow run 41073445244](https://github.com/necromorphic/Logic-Engine/actions/runs/41073445244) — passed.
 
 These results cover the test-only feasibility probe on the exact tested code head. They are not an independent Security approval and do not satisfy the remaining Issue #770 gates listed above.
+
+
+## Three-role and Unix descriptor-reuse probe
+
+A test-only role registry now accepts trusted path/role registrations for `core`, `coordinator`, and `host-ledger`. The native open wrapper records the actual opened object identity and rejects a second role that resolves to the same physical file. The test opens three distinct databases, then replaces the Host-ledger path with hardlinks to Core and Coordinator in turn; both opens must fail closed.
+
+On Unix, the probe also wraps the pinned VFS `stat` syscall used by SQLite's `findReusableFd()` path. A reused descriptor is accepted only when the path's observed device/inode still matches the registered role identity; a mismatch prevents reuse and the subsequent actual open is checked again with `fstat(fd)`. The deterministic TOCTOU test injects the hardlink replacement after the original `stat()` result but before SQLite can reuse or open the file. On Windows, the corresponding test injects before `CreateFileW` and checks the returned HANDLE.
+
+The role registry remains a feasibility harness, not production code: it is process-local and not yet concurrency-hardened; the descriptor-reuse branch is guarded in code but still needs a dedicated forced-reuse stress test. It does not yet validate sidecar object identities or parent-directory replacement/reparse behavior.
+
+Exact implementation/test head: `8fb9d945c338ad569e093158b408fecda7243fab`. [Windows/Linux VFS workflow run 41074057440](https://github.com/necromorphic/Logic-Engine/actions/runs/41074057440) — passed.
