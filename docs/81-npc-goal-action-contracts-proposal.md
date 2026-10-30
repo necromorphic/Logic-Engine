@@ -141,7 +141,7 @@ Until those answers are evidenced, mark unresolved dependencies **UNCONFIRMED / 
 
 - No runtime implementation or automatic NPC invocation.
 - No action execution, world mutation, new effect kind, or bypass of Core validation/approval.
-- No background worker, scheduler, queue, new process semantics or persistent NPC store.
+- No background worker, scheduler, queue, new process semantics, or persistent NPC store within this isolated proposal slice. The blanket no-store limitation is superseded only for NPC-local goal/plan/task-progress state by the later A1 decision in `docs/97` and the design contract in `docs/98`; it remains in force for knowledge/acquisition/belief/delivery and does not authorize a dispatcher or autonomous execution.
 - No changes to Host/Adapter, Core, Memory Provider, shared APIs, schemas, storage, Personality or Relationships.
 - No enablement of Memory → NPC; it remains **DISABLED / FAIL-CLOSED**.
 - No merge of PR #532, #535 or #536 is requested or implied.
@@ -333,7 +333,7 @@ Core owns the acquisition contract, records, provenance and authorization checks
 
 The proposal binds each assignment semantically to world, canonical subject, assigned proposition/source, acquisition kind, trusted source and assignment authorization, initial boundary, validity, lifecycle identity, and relevant restrictions. It specifies deterministic replay, replacement, invalidation, restart/reconstruction, and safe-read requirements without selecting a physical schema or API.
 
-**Review gate:** review the contract and KAC-01 through KAC-15 acceptance criteria before requesting a separate implementation authorization. The decision does not authorize runtime/API/schema/storage/migration/prompt changes, dispatcher/scheduler/worker, plan reconciliation, an NPC-local store, or any new permission system. Do not infer acquisition from canonical facts, World Pack channel metadata, context manifests, Memory candidate labels, or model-generated text.
+**Review gate:** review the contract and KAC-01 through KAC-15 acceptance criteria before requesting a separate implementation authorization. At the time of this 2026-10-28 decision, no runtime/API/schema/storage/migration/prompt changes, dispatcher/scheduler/worker, plan reconciliation, NPC-local store, or new permission system were authorized. The later 2026-10-30 A1 decision supersedes the no-store restriction only for NPC goal/plan/task-progress persistence, through docs/97–98. It does not authorize runtime implementation or alter Core ownership of knowledge/acquisition/belief/delivery. Do not infer acquisition from canonical facts, World Pack channel metadata, context manifests, Memory candidate labels, or model-generated text.
 
 `Memory → NPC` remains **DISABLED / FAIL-CLOSED**; Host remains **NON_READY**. No runtime readiness is claimed, and this documentation update does not claim tests were run.
 
