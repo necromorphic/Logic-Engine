@@ -11,9 +11,11 @@ test('stale editor selection fails closed without DOM-index substitution', () =>
   assert.ok(patch.includes('if (!Number.isInteger(id) || id < 0 || id >= chat.length)'));
   assert.ok(patch.includes('expectedMessage !== undefined && targetMessage !== expectedMessage'));
   assert.ok(patch.includes('const editIndex = this_edit_mes_id;'));
+  assert.ok(patch.includes('this_edit_mes_target = editMessage;'));
+  assert.ok(patch.includes('message !== this_edit_mes_target'));
   assert.ok(patch.includes('domIndex !== editIndex'));
   assert.ok(!patch.includes('const editIndex = domIndex'));
-  assert.ok(patch.includes('true, message);'));
+  assert.ok(patch.includes('true, this_edit_mes_target);'));
 });
 
 test('delete-last, bulk-delete and swipe targets are revalidated after asynchronous write-ahead', () => {
