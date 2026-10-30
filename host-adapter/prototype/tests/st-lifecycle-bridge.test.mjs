@@ -298,8 +298,8 @@ test('restart reconciliation fails closed when source changed after the last jou
   f.chat[0].mes = 'changed without hook';
   const result = await f.bridge.reconcileCurrentConversation();
   assert.equal(result.status, 'NON_READY');
-  assert.match(result.reason, /fingerprint differs/);
-  await assert.rejects(f.bridge.beforeMutation('delete-message', [0]), /previous lifecycle operation is incomplete/);
+  assert.match(result.reason, /previous lifecycle operation is incomplete/);
+  await assert.rejects(f.bridge.beforeMutation('delete-message', [0]), /source fingerprint differs/);
 });
 
 test('speaker-label changes are fingerprinted and require an instrumented edit checkpoint', async () => {
