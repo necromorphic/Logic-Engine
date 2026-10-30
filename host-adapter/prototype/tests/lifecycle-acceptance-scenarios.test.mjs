@@ -65,6 +65,12 @@ async function makePersistedInventory(chat, conversationUuid) {
     status: 'DOUBLE_SCAN_CANDIDATE',
     authority: 'NON_AUTHORITATIVE',
     host_commit: TEST_HOST_COMMIT,
+    host_build_claim: TEST_HOST_COMMIT,
+    host_session_id: TEST_SESSION_UUID,
+    host_session_identity: 'SIGNED_AUTHENTICATED_ST_SESSION',
+    host_user_handle: 'test-user',
+    authenticated_user_handle: 'test-user',
+    requested_conversation_uuid: conversationUuid,
     scope: 'PINNED_SILLYTAVERN_CHAT_DATA_ROOTS',
     completeness: 'DOUBLE_SCANNED_PATH_VIEW_ONLY',
     host_build_claim_type: 'DEPLOYMENT_ASSERTION_NOT_RUNTIME_ATTESTATION',
@@ -90,10 +96,12 @@ function fixture() {
     { is_user: true, mes: 'hello' },
     { is_user: false, mes: 'swipe A', swipes: ['swipe A', 'swipe B', 'swipe C'], swipe_id: 1 },
   ];
+  let persistedChat = structuredClone(chat);
   const bridge = createStLifecycleBridge({
-    journal, getConversationId: () => TEST_CONVERSATION_ID, getConversationUuid: () => TEST_CONVERSATION_UUID,
-    readPersistedInventory: uuid => makePersistedInventory(chat, uuid), getChat: () => chat,
-    saveChat: async () => {},
+    journal, getConversationId: () => TEST_CONVERSATION_ID,
+    getPersistedInventory: () => makePersistedInventory(persistedChat, TEST_CONVERSATION_UUID),
+    getChat: () => chat,
+    saveChat: async () => { persistedChat = structuredClone(chat); },
   });
   return { db, journal, chat, bridge };
 }
