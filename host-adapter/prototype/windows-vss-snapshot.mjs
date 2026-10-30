@@ -61,7 +61,8 @@ if ($id -notmatch '^[{]?[0-9a-fA-F-]{36}[}]?$') { throw 'HOST_VSS_INVALID_SNAPSH
 $shadow = Get-WmiObject -Class Win32_ShadowCopy | Where-Object { $_.ID -eq $id } | Select-Object -First 1
 if ($shadow) {
   $result = $shadow.Delete()
-  if ($result.ReturnValue -ne 0) { throw "HOST_VSS_DELETE_FAILED:$($result.ReturnValue)" }
+  $returnCode = if ($result -is [System.Management.ManagementBaseObject]) { [int]$result.ReturnValue } else { [int]$result }
+  if ($returnCode -ne 0) { throw "HOST_VSS_DELETE_FAILED:$returnCode" }
 }
 'HOST_VSS_RELEASED'
 `;
