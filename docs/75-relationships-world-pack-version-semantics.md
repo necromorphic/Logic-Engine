@@ -11,12 +11,12 @@ The current typed operation accepts `rule_module_id` and `rule_module_version`. 
 These are related but distinct identifiers:
 
 - **World Pack identity/version** describes the domain vocabulary and semantics intended for a world.
-- **Rule-module identity/version** selects the exact registered validator/rules used for a typed transition.
+- **Rule-module identity/version** selects the exact registered rule-module manifest and its declarative Relationship dimension rules, which Core's candidate evaluator consumes for a typed transition. The manifest is not an executable plugin/evaluator.
 - **Core contract version** in the manifest's `compatibility.core_contract_versions` describes runtime-contract compatibility; it is not a World Pack version.
 
 The commit path requires the exact registered `rule_module_id + rule_module_version`; the module must declare `validate_transition`; and `relationship_domain.world_pack_id + world_pack_version` must match the target world's identity/version. An unknown module version on the typed-commit path fails with `RELATIONSHIP_RULE_VERSION_NOT_FOUND`; a direct `getRuleModuleManifest()` registry lookup for an absent manifest fails with `RULE_MODULE_NOT_FOUND`; a mismatched World Pack identity/version or unsupported `relationship_domain` metadata fails closed with `RELATIONSHIP_RULE_VERSION_INCOMPATIBLE`.
 
-Source evidence: `src/application/engine.js` (typed transition validation and registered module resolution); `src/core/mechanics.js` (immutable rule-module manifest validation); `docs/55-core-relationship-transition-runtime-slice.md`; `tests/relationship-transition-core.test.js` — `rejects unavailable rule versions, cross-world participants, and invalid evidence before mutation`.
+Source evidence: `src/application/engine.js` (request validation and construction of the typed effect); `src/storage/sqlite-store.js` (exact manifest lookup, World Pack compatibility checks, and invocation of `evaluateRelationshipCandidate` with the manifest's declarative dimensions); `src/core/mechanics.js` (manifest-shape validation); `docs/55-core-relationship-transition-runtime-slice.md`; `tests/relationship-transition-core.test.js` — `rejects unavailable rule versions, cross-world participants, and invalid evidence before mutation`.
 
 ## 2. What is pinned to an operation/event
 
