@@ -75,6 +75,26 @@ The generic sender path also performs `fetch(endpointUrl, config)` after the pro
 
 This is a source inventory only. It does not claim those fetch sites have already been intercepted or that a common wrapper has been implemented.
 
+
+## Existing Host lifecycle bridge coverage boundary
+
+The current `st-lifecycle-bridge.mjs` declares only these instrumented operations:
+
+`create-message`, `message-send`, `message-receive`, `create-swipe`, `select-swipe`, `delete-swipe`, `delete-message`, `edit-message`, `rename-chat`.
+
+The bridge's own readiness regression explicitly expects these paths to remain missing:
+
+- `generation-start`, `generation-end`, `generation-stop`, `partial-generation`
+- `cancel-generation`, `persistence-ordering`
+- `export`, `copy-branch`, `chat-switch`, `external-edit`
+- `rollback`, `restart`, `replay`, `restore`
+
+The pinned-source audit additionally confirms that the Host patch guards some chat-locator deletion operations rather than recording complete deletion lineage. The lifecycle bridge can emit digest-only tombstones for message/swipe changes that pass through its hooks, but that is not a complete all-chat historical inventory.
+
+Enrollment explicitly reports pre-enrollment history as `UNKNOWN_UNRECOVERABLE`; it does not reconstruct earlier revisions. The bridge's current inventory publisher operates on the currently loaded `chat` array. The separate filesystem route can enumerate current chat files, but it does not parse persisted message/swipe identities. These are different partial views and must not be combined into an authoritative all-time inventory without a shared identity/reconciliation contract.
+
+**Disposition:** lifecycle journal = REVIEW_ONLY; pre-enrollment history = UNKNOWN_UNRECOVERABLE; missing mutation paths = NON_READY; Core digest publication = CAPTURED_REVIEW_ONLY at best. No Provider READY or Memory → NPC disclosure may be derived from these states.
+
 ## Current implementation boundary
 
 PR #780 carries a bounded, read-only current-file inventory candidate and its pinned ST route patch. It does not yet add a final-send gateway, message/swipe revision journal coverage for all mutation paths, import/export/copy/restore lineage, durable Host installation/session identity, or production Core/Provider wiring.
