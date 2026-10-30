@@ -48,6 +48,7 @@ export async function enumerateStableFileInventory(rootPath) {
     const requestedRootStat = await lstat(requestedRoot);
     if (!requestedRootStat.isDirectory() || requestedRootStat.isSymbolicLink()) return fail('HOST_INVENTORY_ROOT_UNSAFE');
     root = await realpath(requestedRoot);
+    if (root !== requestedRoot) return fail('HOST_INVENTORY_ROOT_ALIAS_UNSUPPORTED');
     const rootStat = await lstat(root);
     if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) return fail('HOST_INVENTORY_ROOT_UNSAFE');
   } catch {
