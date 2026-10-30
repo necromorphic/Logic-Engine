@@ -20,6 +20,7 @@ const base = () => ({
     status: "active",
     assumptions: [{ id: "route-open" }],
     blockers: [{ id: "contact-available" }],
+    steps: [{ id: "step-1", action_id: "call-contact", status: "active" }],
   },
   assessment: {
     assumptions: [{ id: "route-open", outcome: "holds" }],
@@ -186,7 +187,7 @@ test("an explicit conflict rule can disqualify an action before priority selecti
   assert.equal(result.intention, null);
 });
 
-test("eligible options remain selectable while unresolved alternatives are excluded", () => {
+test("only the active plan step reaches conflict evaluation and intention selection", () => {
   const input = base();
   input.goals.push({ id: "meet-deadline", status: "active", priority: 100 });
   input.actions.push({
@@ -209,11 +210,59 @@ test("eligible options remain selectable while unresolved alternatives are exclu
 
   const result = evaluateNpcAutonomyCycle(input);
   assert.equal(result.status, "intention_selected");
-  assert.equal(result.conflict_decision, "eligible_with_review_options");
+  assert.equal(result.conflict_decision, "ready_for_selection");
   assert.deepEqual(result.intention, {
     goal_id: "protect-contact",
     action_id: "call-contact",
   });
+});
+
+test("the cycle never substitutes a higher-priority action for the active plan step", () => {
+  const input = base();
+  input.goals.push({ id: "urgent-goal", status: "active", priority: 100 });
+  input.actions.push({
+    id: "urgent-action",
+    goal_id: "urgent-goal",
+    allowed: true,
+    preconditions_met: true,
+    cost: 1,
+  });
+  input.conflict_assessment.motives.push({ id: "urgent-goal", kind: "goal" });
+  input.conflict_assessment.options.push({
+    id: "urgent-action",
+    supports: ["urgent-goal"],
+    frustrates: [],
+    motive_assessment_complete: true,
+    feasibility: "feasible",
+    hard_constraints_complete: true,
+    hard_constraints: [],
+  });
+
+  const result = evaluateNpcAutonomyCycle(input);
+  assert.equal(result.status, "intention_selected");
+  assert.deepEqual(result.intention, {
+    goal_id: "protect-contact",
+    action_id: "call-contact",
+  });
+});
+
+test("a missing active-step action returns no action instead of selecting a substitute", () => {
+  const input = base();
+  input.actions[0].id = "different-action";
+  input.conflict_assessment.options[0].id = "different-action";
+  const result = evaluateNpcAutonomyCycle(input);
+  assert.equal(result.status, "no_eligible_action");
+  assert.equal(result.stage, "plan_progress");
+  assert.equal(result.intention, null);
+});
+
+test("malformed active-step structure fails closed before selection", () => {
+  const input = base();
+  input.plan.steps[0].status = "pending";
+  const result = evaluateNpcAutonomyCycle(input);
+  assert.equal(result.status, "non_ready");
+  assert.equal(result.stage, "plan_progress");
+  assert.equal(result.intention, null);
 });
 
 test("action candidates and conflict options require exact one-to-one identity coverage", () => {
