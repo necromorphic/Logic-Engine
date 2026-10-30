@@ -436,7 +436,7 @@ test('restart reconciliation fails closed when source changed after the last jou
   const result = await f.bridge.reconcileCurrentConversation();
   assert.equal(result.status, 'NON_READY');
   assert.match(result.reason, /fingerprint differs/);
-  await assert.rejects(f.bridge.beforeMutation('delete-message', [0]), /fingerprint differs/);
+  await assert.rejects(f.bridge.beforeMutation('delete-message', [0]), /previous lifecycle operation is incomplete/);
 });
 
 test('speaker-label changes are fingerprinted and require an instrumented edit checkpoint', async () => {
@@ -585,6 +585,7 @@ test('new-message reconciliation fails closed when an existing identity is missi
   const f = makeFixture();
   await f.bridge.enrollCurrentConversation();
   const before = await f.journal.verifyIntegrity('chat-1');
+  await f.bridge.beforeMutation('create-message', []);
   delete f.chat[0]._logicEngineLifecycle;
   f.chat.push({ is_user: false, mes: 'new reply' });
 
@@ -601,6 +602,7 @@ test('create-message checkpoint refuses to absorb an unhooked edit in earlier me
   const f = makeFixture();
   await f.bridge.enrollCurrentConversation();
   const before = await f.journal.verifyIntegrity('chat-1');
+  await f.bridge.beforeMutation('create-message', []);
   f.chat[0].mes = 'external edit before new message';
   f.chat.push({ is_user: false, mes: 'new reply' });
 
@@ -616,6 +618,7 @@ test('create-message assigns identity only to the explicitly appended tail messa
   const f = makeFixture();
   await f.bridge.enrollCurrentConversation();
   const oldMessageIds = f.chat.map(message => message._logicEngineLifecycle.messageId);
+  await f.bridge.beforeMutation('create-message', []);
   f.chat.push({ is_user: false, mes: 'new reply' });
 
   const result = await f.bridge.afterMutation('create-message', { createdMessageIndex: 2 });
@@ -636,6 +639,7 @@ test('message-send checkpoint records the inserted user message and receive pres
   assert.deepEqual(f.chat.slice(0, 2).map(message => message._logicEngineLifecycle.messageId), oldMessageIds);
   const sentMessageId = f.chat[2]._logicEngineLifecycle.messageId;
 
+  await f.bridge.beforeMutation('message-receive', []);
   f.chat.push({ is_user: false, mes: 'assistant reply' });
   const received = await f.bridge.afterMutation('message-receive', { createdMessageIndex: 3 });
   assert.equal(received.status, 'REVIEW_ONLY');
