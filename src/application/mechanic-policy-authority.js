@@ -1,19 +1,28 @@
 const isRecord = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 
 export function isMechanicPolicyAuthoritySnapshot(value) {
-  return isRecord(value)
-    && Object.keys(value).length === 2
-    && typeof value.authority_id === 'string'
-    && value.authority_id.trim().length > 0
-    && Number.isSafeInteger(value.generation)
-    && value.generation > 0;
+  try {
+    return isRecord(value)
+      && Object.keys(value).length === 2
+      && typeof value.authority_id === 'string'
+      && value.authority_id === value.authority_id.trim()
+      && value.authority_id.length > 0
+      && Number.isSafeInteger(value.generation)
+      && value.generation > 0;
+  } catch {
+    return false;
+  }
 }
 
 export function isMechanicPolicyAuthority(value) {
-  return value !== null && typeof value === 'object'
-    && typeof value.getSnapshot === 'function'
-    && typeof value.isCurrent === 'function'
-    && typeof value.authorizeField === 'function';
+  try {
+    return value !== null && typeof value === 'object'
+      && typeof value.getSnapshot === 'function'
+      && typeof value.isCurrent === 'function'
+      && typeof value.authorizeField === 'function';
+  } catch {
+    return false;
+  }
 }
 
 /**
