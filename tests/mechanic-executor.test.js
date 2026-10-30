@@ -503,6 +503,7 @@ test('proposal policy validation delegates to the active shared authority provid
   });
 
   let activeProvider = makeProvider('visibility-policy-v1');
+  const initialProviderFingerprint = activeProvider.policyFingerprint;
   const evaluation = new MechanicExecutor(engine, {
     resolveAuthorizedContext: (args) => activeProvider.resolve(args),
   }).evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
@@ -528,7 +529,14 @@ test('proposal policy validation delegates to the active shared authority provid
   proposals.approve(worldId, proposal.proposal_id);
 
   activeProvider = makeProvider('visibility-policy-v2');
-  assert.notEqual(activeProvider.policyFingerprint, evaluation.context_policy_version);
+  assert.notEqual(activeProvider.policyFingerprint, initialProviderFingerprint);
+  assert.equal(activeProvider.validateMechanicPolicy({
+    worldId,
+    snapshotIdentity: evaluation.snapshot_identity,
+    policyVersion: evaluation.context_policy_version,
+    policyAuthority: evaluation.policy_authority,
+    authorizationScope: evaluation.authorization_scope,
+  }), false);
   assert.throws(
     () => proposals.commit(worldId, proposal.proposal_id),
     (error) => error.code === 'STALE_MECHANIC_POLICY' && error.status === 409,
