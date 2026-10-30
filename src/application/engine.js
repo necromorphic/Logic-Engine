@@ -1389,11 +1389,18 @@ export class LogicEngine {
         const key = JSON.stringify(link);
         if (!causalLinkKeys.has(key)) { causalLinkKeys.add(key); causalLinks.push(link); }
       }
+      const acquiredValue = JSON.parse(fact.value_json);
+      const acquiredSourceEventIds = [...factSources].sort();
       assignments.push({
         kind: 'knowledge.acquire',
+        // The acquisition identity pins the actual canonical value and its
+        // exact supporting event set, not only the authoring source document.
+        // The same approved document may be applied after a fact ID is replaced
+        // by a different canonical claim.
         acquisition_id: 'acq:' + hashRequest([
           input.world_id, assignment.subject_id, assignment.fact_id, source.source_kind,
           source.source_ref, source.source_digest, source.authorization_ref,
+          acquiredValue, acquiredSourceEventIds,
         ]),
         subject_id: assignment.subject_id,
         fact_id: assignment.fact_id,
@@ -1401,8 +1408,8 @@ export class LogicEngine {
         provenance_ref: source.source_ref,
         provenance_digest: source.source_digest,
         authorization_ref: source.authorization_ref,
-        acquired_value: JSON.parse(fact.value_json),
-        acquired_source_event_ids: [...factSources].sort(),
+        acquired_value: acquiredValue,
+        acquired_source_event_ids: acquiredSourceEventIds,
       });
     }
     assert(sourceEventIds.size <= 500, 'TRUSTED_SOURCE_TOO_MANY_SUPPORT_EVENTS',
