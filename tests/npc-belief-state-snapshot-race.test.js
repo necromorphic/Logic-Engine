@@ -188,6 +188,8 @@ test('belief-state read fails closed if visibility authorization races a canonic
     trustedInitialKnowledgeSources: trustedSources,
     npcKnowledgeReadAuthorizer: readAuthorization,
     npcKnowledgeVisibilityAuthorizer: (scope) => {
+      assert.equal(store.coordinatorLeaseDepth, 1,
+        'belief-state disclosure must hold the shared Coordinator while visibility is checked');
       if (!mutated) {
         mutated = true;
         racedEngine.commitEvent(scope.world_id, {
