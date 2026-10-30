@@ -11,7 +11,10 @@ const MAX = 1048576;
 
 /** Resolve the active deployment-owned policy on every boundary check. */
 export function createActiveMechanicPolicyValidator(getActiveMechanicContextProvider) {
-  if (typeof getActiveMechanicContextProvider !== 'function') throw new TypeError('getActiveMechanicContextProvider must be a trusted application callback.');\n  if (mechanicPolicyAuthority !== null && typeof mechanicPolicyAuthority?.validateMechanicPolicy !== 'function') {\n    throw new TypeError('mechanicPolicyAuthority must be a trusted DeploymentMechanicPolicyAuthority.');\n  }\n  if (mechanicPolicyAuthority !== null && getActiveMechanicContextProvider !== (() => null)) {\n    throw new TypeError('Configure either mechanicPolicyAuthority or the legacy context-provider validator, not both.');\n  }
+  if (typeof getActiveMechanicContextProvider !== 'function') throw new TypeError('getActiveMechanicContextProvider must be a trusted application callback.');
+  if (mechanicPolicyAuthority !== null && typeof mechanicPolicyAuthority?.validateMechanicPolicy !== 'function') {
+    throw new TypeError('mechanicPolicyAuthority must be a trusted DeploymentMechanicPolicyAuthority.');
+  }
   return (identity) => {
     let provider;
     try { provider = getActiveMechanicContextProvider(); } catch { return false; }
