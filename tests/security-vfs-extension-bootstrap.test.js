@@ -183,22 +183,43 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
     );
   }
 
-  // A registered DB must not be opened through a symlinked parent alias.
-  // The parent VFS full-path name must map exactly to the enrolled role;
-  // otherwise its sidecar paths could escape the pinned-role matcher.
+  // A registered DB opened through a symlinked parent alias must either
+  // fail closed or keep later sidecars on the pinned parent if xFullPathname
+  // resolves the alias to the exact enrolled role path.
   if (process.platform !== 'win32') {
     const canonicalParent = join(directory, 'canonical-alias-parent');
     const aliasParent = join(directory, 'canonical-alias-link');
+    const movedCanonicalParent = join(directory, 'canonical-alias-moved');
     const canonicalDbPath = join(canonicalParent, 'alias.sqlite');
     mkdirSync(canonicalParent);
     symlinkSync(canonicalParent, aliasParent, 'dir');
     registerRole(canonicalDbPath, 'canonical-alias');
-    assert.throws(
-      () => new DatabaseSync(join(aliasParent, 'alias.sqlite')),
-      'a symlink alias that does not map to the exact enrolled VFS path must fail closed'
-    );
-    assert.equal(existsSync(\`\${canonicalDbPath}-wal\`), false,
-      'a rejected alias open must not create a WAL sidecar');
+    let aliasDb = null;
+    try {
+      aliasDb = new DatabaseSync(join(aliasParent, 'alias.sqlite'));
+    } catch {
+      // Rejection is acceptable when the parent VFS preserves the symlink path.
+    }
+    if (aliasDb) {
+      try {
+        aliasDb.exec('CREATE TABLE probe(value TEXT);');
+        renameSync(canonicalParent, movedCanonicalParent);
+        mkdirSync(canonicalParent);
+        aliasDb.exec("PRAGMA journal_mode=WAL; INSERT INTO probe VALUES('anchored');");
+        assert.equal(existsSync(join(movedCanonicalParent, 'alias.sqlite-wal')), true,
+          'an accepted alias must create WAL beside the pinned DB after parent rename');
+        assert.equal(existsSync(join(canonicalParent, 'alias.sqlite-wal')), false,
+          'an accepted alias must not redirect WAL creation into the decoy parent');
+        assert.equal(aliasDb.prepare('SELECT value FROM probe').get().value, 'anchored');
+      } finally {
+        aliasDb.close();
+      }
+    } else {
+      assert.equal(existsSync(\`\${canonicalDbPath}-wal\`), false,
+        'a rejected alias open must not create a WAL sidecar');
+      const canonicalDb = new DatabaseSync(canonicalDbPath);
+      canonicalDb.close();
+    }
   }
 
   // POSIX-only directory-anchor proof: after registration, rename the trusted
