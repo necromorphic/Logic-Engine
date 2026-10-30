@@ -8,7 +8,8 @@ on:
     branches:
       - 'security/**'
     paths:
-      - 'native/secure-vfs-probe/**'
+      - 'native/secure-vfs-probe/*.c'
+      - 'native/secure-vfs-probe/*.h'
       - 'tests/security-vfs-extension-bootstrap.test.js'
       - '.github/workflows/security-vfs-extension-bootstrap.yml'
 
