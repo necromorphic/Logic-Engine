@@ -1,0 +1,62 @@
+name: SQLite VFS extension bootstrap probe
+
+on:
+  pull_request:
+    paths:
+      - 'native/secure-vfs-probe/**'
+      - 'tests/security-vfs-extension-bootstrap.test.js'
+      - '.github/workflows/security-vfs-extension-bootstrap.yml'
+  push:
+    branches:
+      - 'security/**'
+    paths:
+      - 'native/secure-vfs-probe/**'
+      - 'tests/security-vfs-extension-bootstrap.test.js'
+      - '.github/workflows/security-vfs-extension-bootstrap.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sqlite-vfs-probe-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22.13.0'
+      - name: Build VFS registration probe
+        run: cc -O2 -fPIC -shared -I native/secure-vfs-probe native/secure-vfs-probe/secure_vfs_probe.c -o native/secure-vfs-probe/secure_vfs_probe.so
+      - name: Verify persistent VFS registration through node:sqlite
+        env:
+          LOGIC_ENGINE_VFS_PROBE_PATH: native/secure-vfs-probe/secure_vfs_probe.so
+        run: node --test tests/security-vfs-extension-bootstrap.test.js
+
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22.13.0'
+      - name: Build VFS registration probe
+        shell: pwsh
+        run: |
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
+          $vs = & $vswhere -latest -products '*' -property installationPath
+          if (-not $vs) { throw 'Visual Studio Build Tools not found' }
+          $vcvars = Join-Path $vs 'VC/Auxiliary/Build/vcvars64.bat'
+          $command = '"' + $vcvars + '" && cl /nologo /O2 /LD /I native\\secure-vfs-probe native\\secure-vfs-probe\\secure_vfs_probe.c /link /OUT:native\\secure-vfs-probe\\secure_vfs_probe.dll'
+          cmd /c $command
+          if ($LASTEXITCODE -ne 0) { throw 'VFS probe compilation failed' }
+      - name: Verify persistent VFS registration through node:sqlite
+        shell: pwsh
+        env:
+          LOGIC_ENGINE_VFS_PROBE_PATH: native/secure-vfs-probe/secure_vfs_probe.dll
+        run: node --test tests/security-vfs-extension-bootstrap.test.js
