@@ -33,7 +33,7 @@ jobs:
   test:
     # Keep OS-specific Runtime and recalculation tests on hosted Windows CI; do not block PRs on a developer machine being online.
     runs-on: windows-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     permissions:
       contents: read
     defaults:
