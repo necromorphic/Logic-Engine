@@ -270,6 +270,27 @@ export class ProposalService {
         && typeof evaluation.policy_authority.policy_version === 'string' && evaluation.policy_authority.policy_version.trim(),
       'INVALID_MECHANIC_POLICY_AUTHORITY', 'Policy authority evidence must include a trusted identity, generation, and version fingerprint.');
     }
+    if (typeof this.validateMechanicPolicy !== 'function') {
+      throw new EngineError('MECHANIC_POLICY_REVALIDATION_REQUIRED',
+        'Mechanic evaluations require a trusted current-policy validator before proposal creation.', 409, { stage: 'proposal' });
+    }
+    let policyCurrent = false;
+    try {
+      policyCurrent = this.validateMechanicPolicy(Object.freeze({
+        worldId,
+        policyVersion: evaluation.context_policy_version,
+        policyAuthority: evaluation.policy_authority ?? null,
+        authorizationScope: evaluation.authorization_scope,
+        snapshotIdentity: identity,
+        stage: 'proposal',
+      })) === true;
+    } catch {
+      policyCurrent = false;
+    }
+    if (!policyCurrent) {
+      throw new EngineError('STALE_MECHANIC_POLICY',
+        'The evaluation policy is no longer current; evaluate again before creating a proposal.', 409, { stage: 'proposal' });
+    }
     const mechanicExecution = {
       snapshot_identity: identity,
       action_id: evaluation.action_id,
