@@ -414,8 +414,10 @@ test('trusted importer rejects symlinks at the file-open boundary', (t) => {
   try {
     symlinkSync(targetPath, sourcePath);
   } catch (error) {
-    if (['EPERM', 'EACCES', 'ENOTSUP', 'EOPNOTSUPP'].includes(error?.code)) {
-      t.skip('symlink creation is unavailable on this runner; the Linux symlink-security job exercises this boundary');
+    if (process.platform === 'win32'
+      && process.env.LOGIC_ENGINE_REQUIRE_SYMLINK_TESTS !== '1'
+      && ['EPERM', 'EACCES', 'ENOTSUP', 'EOPNOTSUPP'].includes(error?.code)) {
+      t.skip('this Windows runner cannot create symlinks; the dedicated Windows/Linux security jobs exercise this boundary');
       return;
     }
     throw error;
