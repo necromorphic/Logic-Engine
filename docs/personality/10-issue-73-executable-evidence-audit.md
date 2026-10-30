@@ -12,6 +12,28 @@ Status: repository-source audit; not a test-run report. Audited 2026-10-24 again
 
 `PERS-SEM-024` remains deterministic evaluation under identical pinned inputs/version, separately from projection rebuild. Core PR #148 (merged; Runtime CI #903) proves the bounded production guarantee that projection rebuild preserves each committed event's exact `rule_module_id + rule_module_version`, including when that historical module is unavailable and a newer module is registered; rebuild applies the committed effect and does not re-run the evaluator. `PERS-SEM-029` remains the separate meaning-changing compatibility/migration gate. Relationships #143 has explicitly decided that historical semantic re-evaluation and migration are unsupported in the current release; no latest-version substitution or silent reinterpretation is permitted. No migration API/schema/executable test is claimed. A future migration requires a separately approved source→target semantic policy and an auditable Core execution contract.
 
+## Final disposition — Issue #73 (30 October 2026)
+
+Issue #73 is closed as **completed for its Personality-owned specification and acceptance-traceability scope**. This does not mean every downstream runtime behavior is implemented.
+
+- PR #324 supplies the canonical per-case crosswalk and evidence classification.
+- Merged PR #722 updates the historical-version mapping for `PERS-SEM-024` and `PERS-SEM-029`, citing the merged Core projection-pin regression and the Relationships current-release decision.
+- Relationships #143 and Core #146 are closed for their bounded current-release domain/runtime dispositions: projection-only rebuild is supported with the original committed effect and rule-module pin preserved; historical semantic re-evaluation and meaning-changing migration remain unsupported/refused. No latest-version substitution is permitted.
+- Remaining Personality/NPC and authorized-read blockers retain their separate owners and trackers, including Core #140 and NPC #317. The #73 closure does not mark those integrations as passing or enable production Memory→NPC.
+
+### Historical version acceptance boundary
+
+| Case | Evidence / status |
+|---|---|
+| Same pinned evaluator inputs/version | Pure evaluator test `re-evaluating identical inputs is deterministic and side-effect-free`; evaluator-only. |
+| Same committed transition after restart/rebuild | Core test `projection rebuild preserves the exact historical rule-version pin when its module is unavailable`; applies the committed effect and preserves the original pin, but does not re-run the evaluator. |
+| Unknown version on a new typed commit | Core test `rejects unavailable rule versions, cross-world participants, and invalid evidence before mutation`; typed-commit boundary returns `RELATIONSHIP_RULE_VERSION_NOT_FOUND`. |
+| Missing historical manifest during exact registry lookup | Core historical-pin test expects `RULE_MODULE_NOT_FOUND` from direct `getRuleModuleManifest()` lookup; this is distinct from the typed-commit error and is checked without mutation. |
+| Historical semantic re-evaluation | Unsupported in the current release because exact historical World Pack provenance and an approved executable evaluator contract are not established. Projection rebuild is not semantic re-evaluation. |
+| Meaning-changing migration | Unsupported/refused; no approved migration API/schema/path or executable migration test exists. A future migration requires a separate approved source→target policy and auditable Core execution contract. |
+
+Older dated sections below remain as historical audit snapshots. Where their status language conflicts with this final disposition, this section and the merged PR #722 are authoritative.
+
 ## Scope and evidence rules
 
 - Personality acceptance source: `docs/personality/04-semantic-acceptance-matrix.md`, `05-world-pack-relationship-dimension-template.md`, `08-semantic-traceability-and-review-workflow.md`, and `09-per-case-acceptance-traceability.md`.
@@ -40,8 +62,8 @@ Status: repository-source audit; not a test-run report. Audited 2026-10-24 again
 | Relationship does not imply motive, cause, consent, obligation or reciprocity | Personality semantic source `01-personality-and-relationship-semantics.md`; NPC contract on `feat/npc-subsystem` | Semantic/contract evidence only. No executable NPC consumer test was found for these non-implications. |
 | Re-evaluating identical inputs is deterministic and side-effect-free | `re-evaluating identical inputs is deterministic and side-effect-free`; `returns a candidate without mutating the supplied state or patch` | Pure evaluator only. It does not prove idempotent canonical commit, event deduplication, or one-write-only behavior. |
 | Duplicate evidence does not create additional support | `does not treat duplicate evidence references as additional support` | Pure evaluator rule. It does not establish Core alternative-support sufficiency or reconciliation. |
-| PERS-SEM-024 deterministic replay with pinned inputs/version | `requires a pinned rule version`; `re-evaluating identical inputs is deterministic and side-effect-free` | This establishes a supplied version requirement and deterministic evaluation, not historical version lookup, persistence of per-transition version, or rollback/replay. |
-| PERS-SEM-029 meaning-changing World Pack update, migration or incompatibility | Personality acceptance matrix §2/§2A and World Pack template define explicit compatibility/migration/incompatibility expectations; Relationship proposal docs describe the boundary | Specification only. No executable historical migration/version-selection test was found in the inspected evaluator suite. Core version pinning, migration and replay remain blocked. |
+| PERS-SEM-024 deterministic behavior under pinned inputs/version | Evaluator: `requires a pinned rule version`; `re-evaluating identical inputs is deterministic and side-effect-free`. Core: `Relationship projection survives store restart and deterministic rebuild from valid events`; `projection rebuild preserves the exact historical rule-version pin when its module is unavailable`. | Evaluator determinism and Core projection rebuild are separate. Core proves committed effect/pin preservation through restart/rebuild; it does not execute historical rules. |
+| PERS-SEM-029 meaning-changing World Pack update, migration or incompatibility | Relationships current-release decision in `docs/75-relationships-world-pack-version-semantics.md`; Core #146 disposition; merged Personality PR #722 | Current-release policy: historical semantic re-evaluation and meaning-changing migration are unsupported/refused. Projection rebuild is separately runtime-tested; no migration API/schema/path or executable migration test is claimed. |
 | Canonical write atomicity, authorization, trusted provenance, audit/revision, rollback/replay | Core PRs #94–#96 and `tests/relationship-transition-core.test.js` | **Partial / scoped pass:** admin-authored typed writes, atomicity, audit/revision/idempotency, pinned rule version, directed projection, and rollback/replay are implemented and tested. General actor/purpose/field-authorized reads, non-admin/NPC writes, trusted initial import/author correction, and safe consumer projection remain blocked. |
 
 ## Complete PERS-SEM ID disposition
@@ -300,7 +322,7 @@ This addendum supersedes earlier file-blob/test-count references where they diff
 3. **Personality/NPC consumer:** exercise relationship context against stable traits, separately acquired knowledge, motive, consent, obligation, reciprocity, and player agency. Do not substitute fixtures or prose for a real consumer integration test.
 4. **Version semantics:** Core must decide direct World Pack pin vs proven immutable historical mapping. Historical semantic re-evaluation and meaning-changing migration remain separate, unimplemented operations. Existing deterministic replay tests must not be used as evidence for either.
 
-No runtime API/schema or cross-block implementation is introduced by this audit update. Keep Issue #73 open until each requirement has either exact executable evidence at the required boundary or an explicit owner/contract blocker.
+No runtime API/schema or cross-block implementation is introduced by this audit update. At this 2026-10-25 snapshot, Issue #73 remained open; its later 2026-10-30 closure disposition is recorded in the final section below.
 
 
 ## PERS-REL current-main crosswalk refresh — 2026-10-25
