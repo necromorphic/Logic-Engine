@@ -219,8 +219,25 @@ test('complete Host inventory reconciliation publishes READY only with a trusted
     status: 'ready', snapshot_sha256: 'a'.repeat(64), version_count: 1,
   });
   assert.equal(ledger.getInventoryState('host-ledger-api-world', 'stable-host-chat').status, 'READY');
-});
 
+  const revoked = await fetch(base + '/v1/host-conversation-bindings/adapter-a/stable-host-chat', {
+    method: 'DELETE',
+    headers: { ...headers, 'x-admin-token': ADMIN },
+    body: json({ reason: 'Revoke reconciled Host inventory test' }),
+  });
+  assert.equal(revoked.status, 200);
+  const invalidated = ledger.getInventoryState('host-ledger-api-world', 'stable-host-chat');
+  assert.equal(invalidated.status, 'NON_READY');
+  assert.equal(invalidated.failure_code, 'HOST_CONVERSATION_REVOKED');
+
+  const resolveAfterRevoke = await fetch(base + '/v1/host-conversation-bindings/resolve', {
+    method: 'POST',
+    headers: { ...headers, 'x-adapter-id': 'adapter-a', 'x-adapter-token': ADAPTER },
+    body: json({ conversation_id: 'stable-host-chat' }),
+  });
+  assert.equal(resolveAfterRevoke.status, 403);
+});
+ 
 test('binding revocation that wins during async inventory verification blocks READY publication', async (t) => {
   let signalEntered;
   let releaseVerification;
