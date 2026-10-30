@@ -74,6 +74,8 @@ export function createHostBoundNpcKnowledgeAuthorizers({
   function visibilityAuthorizer(scope) {
     let source = null;
     if (activeHostAndActorBinding(scope)
+      && validId(scope.acquisition_kind)
+      && validId(scope.acquisition_authorization_ref)
       && validId(scope.provenance_ref)
       && typeof scope.provenance_digest === 'string'
       && /^[a-f0-9]{64}$/.test(scope.provenance_digest)) {
@@ -81,8 +83,10 @@ export function createHostBoundNpcKnowledgeAuthorizers({
       source = trustedSources.find(candidate =>
         candidate.world_pack_id === world?.world_pack_id
         && candidate.world_pack_version === world?.world_pack_version
+        && candidate.source_kind === scope.acquisition_kind
         && candidate.source_ref === scope.provenance_ref
         && candidate.sha256 === scope.provenance_digest
+        && candidate.authorization_ref === scope.acquisition_authorization_ref
         && validId(candidate.authorization_ref)) ?? null;
     }
     return Object.freeze({
