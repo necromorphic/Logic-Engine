@@ -89,7 +89,7 @@ export class DeploymentMechanicPolicyAuthority {
     if (typeof active.contextProvider.assertPrincipalBound !== 'function') {
       throw new Error('Deployment context provider cannot prove the configured actor binding.');
     }
-    active.contextProvider.assertPrincipalBound(args.worldId);
+    const beforeBinding = active.contextProvider.assertPrincipalBound(args.worldId);
     const resolved = active.contextProvider.resolve(args);
     const after = this.resolveCurrentPolicy();
     const afterBinding = after.contextProvider.assertPrincipalBound(args.worldId);
@@ -97,6 +97,7 @@ export class DeploymentMechanicPolicyAuthority {
       || active.contextProvider.policyFingerprint !== after.contextProvider.policyFingerprint
       || active.contextProvider.authorizationScope !== after.contextProvider.authorizationScope
       || !samePrincipal(active.contextProvider.authorizationPrincipal, after.contextProvider.authorizationPrincipal)
+      || resolved?.authorization_principal?.bindingGeneration !== beforeBinding.binding_generation
       || resolved?.authorization_principal?.bindingGeneration !== afterBinding.binding_generation) {
       throw new Error('Mechanic policy changed during authorized context resolution.');
     }
