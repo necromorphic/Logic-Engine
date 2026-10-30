@@ -55,6 +55,28 @@ jobs:
         run: node --test host-adapter/prototype/tests/*.test.mjs
       - run: node --test experiments/recalculation-oracle/harness.test.mjs
 
+  windows-symlink-security:
+    # The self-hosted Windows service account cannot create symlinks.
+    # Run the application-level reparse-point cases on a hosted Windows token
+    # that has the required privilege, and fail rather than skip if unavailable.
+    runs-on: windows-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22.13.0'
+      - name: Install test dependencies
+        run: npm install --no-package-lock --no-audit --no-fund
+      - name: Verify Node descriptor and path file identity
+        run: node --test tests/windows-file-identity-probe.test.js
+      - name: Run application-level Windows symlink rejection tests
+        env:
+          LOGIC_ENGINE_REQUIRE_SYMLINK_TESTS: '1'
+        run: node --import ./tests/configure-test-env.js --test tests/core-trusted-initial-knowledge-ingestion.test.js tests/sqlite-memory-provider.test.js
+
   core-trusted-acquisition:
     # Keep Core-owned acquisition lifecycle tests runnable even when the local Windows runner is offline.
     runs-on: ubuntu-latest
