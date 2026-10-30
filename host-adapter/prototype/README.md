@@ -140,7 +140,7 @@ This refresh records repository CI only. It does not establish live browser/Andr
 
 ## Priority-1 source inventory algorithm candidate — 30 Oct 2026
 
-New module: `st-source-inventory.mjs`; regression suite: `tests/host-source-inventory.test.js`. This PR adds the enumeration algorithm to the Logic-Engine repository only. It is **not yet installed in SillyTavern**, does not add an ST server route, and is not called by the production Host.
+New module: `st-source-inventory.mjs`; regression suite: `tests/host-source-inventory.test.js`. This PR adds the enumeration algorithm and a pinned-ST patch candidate for an authenticated read-only route. The route is **not installed in the user's live SillyTavern**, and the Logic-Engine production Host does not call it.
 
 This is a **non-authoritative current-file-set scan candidate** for the pinned SillyTavern commit `06bde939fb1e9c4c8d8641d810f0a916b5bce127`. It enumerates root-level chats, every immediate character-chat directory under `user.directories.chats`, group metadata under `user.directories.groups`, and the group-chat files referenced by that metadata under `user.directories.groupChats`. Unlike `/recent`, it does not derive character chat folders from avatar PNGs and does not use `Promise.allSettled` to silently skip failed traversals.
 
@@ -154,3 +154,10 @@ Run:
 ```sh
 node --test tests/host-source-inventory.test.js
 ```
+
+
+### Pinned-ST route candidate
+
+The patch `patches/sillytavern-1.19.0-source-inventory-route.patch` mounts a read-only `GET /api/logic-engine/host/inventory` route after SillyTavern's user-data router. The handler requires an authenticated `request.user` with a profile handle and data directories. It returns only the non-authoritative inventory manifest; scan failures return a generic `NON_READY` response without paths or chat identifiers.
+
+The route also requires `LOGIC_ENGINE_HOST_BUILD_SHA` to equal the pinned ST commit. This is explicitly a deployment assertion, **not runtime source attestation**. The route does not create a stable Host session ID, persist message/swipe revision identity, or authenticate the Logic-Engine Gateway. It must not be treated as production integration or used to enable disclosure.
