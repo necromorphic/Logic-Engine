@@ -6,14 +6,8 @@ import { createApiServer } from './api/server.js';
 import { HostVersionDigestLedger } from './application/host-version-digest-ledger.js';
 import { loadTrustedWorldPackCatalog } from './application/world-pack-catalog.js';
 import { ActorBindingService } from './application/actor-bindings.js';
-import { AuthorizedReadService } from './application/authorized-read-service.js';
-import { CanonicalEntityAttributeContextProvider } from './application/entity-attribute-context-provider.js';
-import { DeploymentMechanicPolicyAuthority } from './application/deployment-mechanic-policy-authority.js';
-import {
-  createTrustedMechanicFieldPolicy,
-  loadTrustedMechanicPolicyConfig,
-  trustedMechanicPolicyRevision,
-} from './application/trusted-mechanic-policy-config.js';
+import { loadTrustedMechanicPolicyConfig } from './application/trusted-mechanic-policy-config.js';
+import { createDeploymentMechanicPolicyRuntime } from './application/deployment-mechanic-policy-runtime.js';
 
 const token = process.env.ENGINE_API_TOKEN;
 const internalToken = process.env.ENGINE_INTERNAL_TOKEN || null;
@@ -139,31 +133,13 @@ if (mechanicPolicyConfigPath !== null) {
   // old evaluations/proposals instead of silently refreshing them.
   loadTrustedMechanicPolicyConfig(mechanicPolicyConfigPath);
   actorBindingService = new ActorBindingService(engine);
-  authorizedReadService = new AuthorizedReadService(
+  const mechanicPolicyRuntime = createDeploymentMechanicPolicyRuntime({
     engine,
     actorBindingService,
-    createTrustedMechanicFieldPolicy(mechanicPolicyConfigPath),
-  );
-  mechanicPolicyAuthority = new DeploymentMechanicPolicyAuthority({
-    resolveActivePolicy: () => {
-      const config = loadTrustedMechanicPolicyConfig(mechanicPolicyConfigPath);
-      const contextProvider = new CanonicalEntityAttributeContextProvider(engine, {
-        policyVersion: trustedMechanicPolicyRevision(config),
-        authorizationScope: config.authorization_scope,
-        bindings: config.bindings,
-        authorizedReadService,
-        adapterId: config.adapter_id,
-        actorEntityId: config.actor_entity_id,
-        recipient: config.recipient,
-        purpose: config.purpose,
-      });
-      return {
-        authority_id: config.authority_id,
-        generation: config.generation,
-        contextProvider,
-      };
-    },
+    loadPolicyConfig: () => loadTrustedMechanicPolicyConfig(mechanicPolicyConfigPath),
   });
+  authorizedReadService = mechanicPolicyRuntime.authorizedReadService;
+  mechanicPolicyAuthority = mechanicPolicyRuntime.authority;
 }
 const server = createApiServer({
   engine, token, internalToken, approvalToken, adminToken, adapterTokens,
