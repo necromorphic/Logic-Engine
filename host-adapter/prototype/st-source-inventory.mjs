@@ -90,6 +90,7 @@ function parseChatJsonlIdentity(bytes, seen) {
   }
 
   const messageRecords = hasHeader ? records.slice(1) : records;
+  if (messageRecords.length > MAX_CHAT_MESSAGES) fail('SOURCE_CHAT_MESSAGE_LIMIT');
   const messages = [];
   let missingMessageIdentityCount = 0;
   for (const message of messageRecords) {
