@@ -368,8 +368,8 @@ The technical target is defined above. The following approvals remain external g
 | Host | Authenticated session/generation envelope; stable actor/conversation binding; complete inventory evidence; sole PC Gateway and all-sender coverage |
 | Memory Provider | Record/query grants, revocation, lineage, reconciliation/readiness and participation in the same serialization order |
 | Security/Operations | Actual opened-file identity, process/ACL boundary, backup/restore and dispatch-ledger anti-rollback |
-| Joint Core + Host + Memory | Option B shared order; durable dispatch-start semantics; in-flight/UNKNOWN/no-auto-retry behavior |
-| Project owner / release authority | Explicit production release approval after exact-head acceptance |
+| Joint Core + Host + Memory | Ratify Lane B as the first isolated slice and keep Lane A separate; accept Option B shared order; approve durable dispatch-start and in-flight/UNKNOWN/no-auto-retry semantics |
+| Product/Security | PC-side deployment topology, phone-to-PC authentication, credential custody, audit/retention limits, timeout/cancellation and manual retry policy |\n| Project owner / release authority | Explicit production release approval after exact-head acceptance |
 
 Issue #264's second explicit Core approval remains required before any cross-block API/schema/implementation change. This specification does not replace that approval.
 
