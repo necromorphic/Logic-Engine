@@ -44,3 +44,22 @@ References:
 - SQLite VFS/file object contract: https://www.sqlite.org/vfs.html
 
 This is a source/API feasibility finding, not proof that the Windows handle path has been implemented or that a POSIX solution exists.
+
+
+## Sidecar and native-open-hook probes
+
+The current test also exercises SQLite's on-disk sidecar lifecycle:
+
+- WAL and SHM files are required to exist while a writer and a concurrent reader transaction are open.
+- A rollback-journal file is required to exist during an uncommitted DELETE-journal transaction.
+
+These are filesystem-level lifecycle assertions. They do **not** prove that the VFS validated the physical identity of those sidecars; the probe still delegates their opens to the parent VFS.
+
+The test asks the pinned parent VFS whether its native open syscall is exposed through `xGetSystemCall` (`open` on Linux, `CreateFileW` on Windows). SQLite 3.47.2 source confirms that the Unix and Windows VFS implementations maintain overrideable syscall tables and route their native opens through those entries. This is a promising implementation seam for validating the actual descriptor/HANDLE returned by the OS open operation, but it is not yet a security guarantee.
+
+Important constraint: SQLite documents `xSetSystemCall`/`xGetSystemCall`/`xNextSystemCall` as optional, variable interfaces intended to facilitate testing. Their availability and names must be verified against the exact SQLite build; unsupported or changed implementations must fail closed. The probe does not yet install a syscall wrapper or validate an OS object.
+
+Pinned-source references:
+- Unix VFS 3.47.2: https://github.com/sqlite/sqlite/blob/version-3.47.2/src/os_unix.c
+- Windows VFS 3.47.2: https://github.com/sqlite/sqlite/blob/version-3.47.2/src/os_win.c
+- SQLite VFS syscall-hook contract: https://www.sqlite.org/c3ref/vfs.html
