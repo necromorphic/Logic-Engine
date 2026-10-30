@@ -230,3 +230,49 @@ test('bounded file-handle reader rejects an append during read without consuming
   assert.equal(totalRead, 5);
   assert.equal(position, 5);
 });
+
+test('preserves all current swipe identities and verifies the active swipe selection', async t => {
+  const value = await fixture();
+  t.after(value.cleanup);
+  const prior = 'previous swipe';
+  const active = 'active swipe';
+  const records = [
+    { chat_metadata: { logic_engine_conversation_id: uuid(10) } },
+    {
+      is_user: false,
+      mes: active,
+      swipes: [prior, active],
+      swipe_id: 1,
+      _logicEngineLifecycle: {
+        messageId: uuid(11),
+        activeVersionIndex: 1,
+        versions: [
+          { versionId: uuid(12), versionIndex: 0, parentVersionId: null, payloadDigest: sha256(prior) },
+          { versionId: uuid(13), versionIndex: 1, parentVersionId: uuid(12), payloadDigest: sha256(active) },
+        ],
+      },
+    },
+  ];
+  await writeFile(path.join(value.directories.chats, 'root-chat.jsonl'),
+    records.map(record => JSON.stringify(record)).join('\n') + '\n');
+  const result = await scan(value.directories);
+  const root = result.files.find(file => file.locator === 'root-chat.jsonl');
+  const message = root.logical_identity.messages[0];
+  assert.equal(message.active_version_index, 1);
+  assert.deepEqual(message.versions.map(version => version.active), [false, true]);
+  assert.equal(message.versions.length, 2);
+  assert.equal(message.versions[1].parent_version_id, uuid(12));
+});
+
+test('rejects a message body that disagrees with the persisted active swipe index', async t => {
+  const value = await fixture();
+  t.after(value.cleanup);
+  const records = [JSON.parse(chatJsonl(1, 'root').split('\n')[0]), JSON.parse(chatJsonl(1, 'root').split('\n')[1])];
+  records[1].swipes = ['other swipe'];
+  records[1].swipe_id = 0;
+  await writeFile(path.join(value.directories.chats, 'root-chat.jsonl'),
+    records.map(record => JSON.stringify(record)).join('\n') + '\n');
+  await assert.rejects(scan(value.directories), error =>
+    error instanceof HostSourceInventoryError && error.code === 'SOURCE_CHAT_ACTIVE_MESSAGE_MISMATCH');
+});
+
