@@ -942,8 +942,25 @@ static int probe_win_delete_role(int role_index, const wchar_t *relative_name,
   FILE_DISPOSITION_INFO disposition;
   DWORD error;
   if (!is_main) {
-    if (!suffix || !probe_win_sidecar_kind(suffix)
-        || !probe_win_sidecar_identity_lookup(role_index, suffix, &expected_sidecar)) {
+    if (!suffix || !probe_win_sidecar_kind(suffix)) return SQLITE_IOERR_DELETE;
+    if (!probe_win_sidecar_identity_lookup(role_index, suffix, &expected_sidecar)) {
+      /*
+       * SQLite may ask to delete a sidecar that is already absent. Preserve
+       * that VFS contract, but never delete an existing object without a
+       * previously recorded per-role identity.
+       */
+      HANDLE unowned = logic_engine_win_open_relative(role->anchor.parent,
+          relative_name, DELETE | FILE_READ_ATTRIBUTES,
+          FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+          FILE_OPEN, FILE_NON_DIRECTORY_FILE, FILE_ATTRIBUTE_NORMAL, NULL, NULL);
+      if (unowned == INVALID_HANDLE_VALUE) {
+        DWORD missing_error = GetLastError();
+        if (missing_error == ERROR_FILE_NOT_FOUND || missing_error == ERROR_PATH_NOT_FOUND) {
+          return SQLITE_OK;
+        }
+      } else {
+        CloseHandle(unowned);
+      }
       return SQLITE_IOERR_DELETE;
     }
     expected = &expected_sidecar;
