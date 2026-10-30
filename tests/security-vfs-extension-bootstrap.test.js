@@ -27,9 +27,25 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
     bootstrap.close();
   }
 
+  // Every file-backed main database must be registered before opening. The
+  // in-memory registrar shares the extension's process-local role registry.
+  const roleRegistrar = new DatabaseSync(':memory:');
+  t.after(() => roleRegistrar.close());
+  const registerRole = (rolePath, roleName) => roleRegistrar.prepare(
+    'SELECT logic_engine_vfs_probe_register_database_role(?, ?) AS registered'
+  ).get(rolePath, roleName);
+
   // Node worker threads must see the same process-default VFS and auto-extension
   // registration, or file-backed opens in a worker could bypass the identity gate.
   const workerPath = join(directory, 'worker.sqlite');
+  const corePath = join(directory, 'core.sqlite');
+  registerRole(workerPath, 'worker');
+  registerRole(corePath, 'core-anchor');
+
+  const unregisteredPath = join(directory, 'unregistered.sqlite');
+  assert.throws(() => new DatabaseSync(unregisteredPath),
+    'an unregistered file-backed main database must fail closed');
+
   const workerResult = await new Promise((resolve, reject) => {
     const worker = new Worker(`
       const { parentPort, workerData } = require('node:worker_threads');
@@ -64,15 +80,6 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
     'a worker thread must route its file-backed DatabaseSync through the registered VFS');
   assert.equal(workerResult.sqliteVersion, '3.47.2');
 
-  const corePath = join(directory, 'core.sqlite');
-  const registrationControl = new DatabaseSync(':memory:');
-  try {
-    registrationControl.prepare(
-      'SELECT logic_engine_vfs_probe_register_database_role(?, ?) AS registered'
-    ).get(corePath, 'core-anchor');
-  } finally {
-    registrationControl.close();
-  }
   const first = new DatabaseSync(corePath);
   let reader;
   try {
@@ -132,6 +139,7 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
 
   // Exercise the rollback-journal sidecar independently of WAL mode.
   const journalPath = join(directory, 'journal.sqlite');
+  registerRole(journalPath, 'journal-test');
   const journalDb = new DatabaseSync(journalPath);
   const sidecarChecksBeforeJournal = journalDb.prepare(
     'SELECT logic_engine_vfs_probe_sidecar_identity_check_count() AS count'
@@ -154,7 +162,9 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
     journalDb.close();
   }
 
-  const second = new DatabaseSync(join(directory, 'coordinator.sqlite'));
+  const coordinatorControlPath = join(directory, 'coordinator.sqlite');
+  registerRole(coordinatorControlPath, 'coordinator-control');
+  const second = new DatabaseSync(coordinatorControlPath);
   try {
     second.exec('CREATE TABLE probe(value TEXT);');
     const opened = second.prepare('SELECT logic_engine_vfs_probe_open_count() AS count').get().count;
@@ -164,10 +174,12 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
     // Establish the expected OS identity, then replace the path with a hardlink
     // after SQLite has reached xOpen but immediately before the native OS open.
     const aliasPath = join(directory, 'alias.sqlite');
+    registerRole(aliasPath, 'alias-target');
     const aliasDb = new DatabaseSync(aliasPath);
     try {
       aliasDb.exec('CREATE TABLE alias(value TEXT);');
       const racePath = join(directory, 'race.sqlite');
+      registerRole(racePath, 'race-target');
       second.prepare('SELECT logic_engine_vfs_probe_configure_race(?, ?, 0)')
         .get(racePath, aliasPath);
       const baseline = new DatabaseSync(racePath);
@@ -317,6 +329,8 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
 
       // The WAL sidecar itself must not be substituted with a hardlink to Core.
       const sidecarRacePath = join(directory, 'sidecar-race.sqlite');
+      second.prepare('SELECT logic_engine_vfs_probe_register_database_role(?, ?) AS registered')
+        .get(sidecarRacePath, 'sidecar-race');
       second.prepare('SELECT logic_engine_vfs_probe_configure_race(?, ?, 1)')
         .get(`${sidecarRacePath}-wal`, roleCorePath);
       const sidecarRaceDb = new DatabaseSync(sidecarRacePath);
