@@ -946,6 +946,14 @@ static int probe_win_access_role(int role_index, const wchar_t *relative_name,
       is_main ? &role->identity : NULL, &actual);
   if (handle == INVALID_HANDLE_VALUE) {
     error = GetLastError();
+    if (error == ERROR_ACCESS_DENIED) {
+      /*
+       * xAccess can be the first identity boundary SQLite exercises for an
+       * aliased main DB. Count its fail-closed denial even when xOpen is never
+       * reached after the parent VFS observes "not accessible".
+       */
+      probe_counter_increment(&g_identity_reject_count);
+    }
     if (error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND
         || error == ERROR_ACCESS_DENIED || error == ERROR_SHARING_VIOLATION) {
       *result = 0;
