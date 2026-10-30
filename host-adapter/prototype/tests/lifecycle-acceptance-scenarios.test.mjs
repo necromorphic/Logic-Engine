@@ -208,6 +208,9 @@ test('pinned SillyTavern patch wires the existing digest-only Core capture proxy
   assert.ok(patch.includes("import { createHostDigestProxyHandler } from './logic-engine-lifecycle-proxy.mjs';"));
   assert.ok(patch.includes("router.post('/host-version-ledger/capture', createHostDigestProxyHandler());"));
   assert.ok(patch.includes("fetch('/api/logic-engine/host-version-ledger/capture'"));
+  assert.ok(patch.includes("fetch('/api/logic-engine/host/session'"));
+  assert.ok(patch.includes("hostSessionId: await getLogicEngineHostSessionId()"));
+  assert.ok(patch.includes("router.post('/host-version-ledger/reconcile', createHostInventoryReconcileProxyHandler());"));
 
   // The endpoint delegates to the pre-existing, separately tested proxy.
   // It must not accept caller-selected upstream URLs, world scope or raw text.
@@ -216,5 +219,7 @@ test('pinned SillyTavern patch wires the existing digest-only Core capture proxy
   assert.ok(proxy.includes('LOGIC_ENGINE_ADAPTER_TOKEN'));
   assert.ok(proxy.includes('HOST_SESSION_SCOPE_REQUIRED'));
   assert.ok(proxy.includes("'content_sha256'"));
+  assert.ok(proxy.includes("requestMatchesAuthenticatedHostSession"));
+  assert.ok(proxy.includes("conversationId.startsWith(sessionId + ':')"));
   assert.equal(proxy.includes("'world_id'"), false);
 });
