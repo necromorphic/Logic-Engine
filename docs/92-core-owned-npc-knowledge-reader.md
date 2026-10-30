@@ -34,7 +34,6 @@ The read result includes the Host conversation identity, snapshot cursor, and so
 - The read request now carries `world_id`, `conversation_id`, `adapter_id`, `actor_id`, `recipient` (`model`), purpose, snapshot and limit. The authorizer binds the exact conversation and actor to Core-owned active rows. The request values themselves are not credentials: any future HTTP caller must derive `adapter_id` from the authenticated adapter token and `conversation_id` from the authenticated SillyTavern session; neither may be trusted from model text or an untrusted request body.
 - The authorizers are wired into the runtime composition, but the reader remains an internal method and is not exposed as an HTTP route. No production NPC runtime caller or model-context serializer is included. The binding checks therefore establish the Core-side policy boundary, not end-to-end Host caller authentication or final-send authorization.
 - Host conversation bindings and actor bindings must be provisioned through the existing Core administrative binding operations. A read is denied until both are active. Revocation of either blocks subsequent reads and visibility checks.
-- No production NPC runtime caller, model-context serializer, or Host final-egress integration is included. This candidate is not an enablement switch.
 
 ## Acceptance checks
 
@@ -42,6 +41,6 @@ The read result includes the Host conversation identity, snapshot cursor, and so
 - Acquisition-time value and source-event identities are persisted in the canonical acquisition effect and derived projection.
 - A changed current fact value/source-event set cannot silently replace the acquired version; version mismatch fails closed.
 - Current snapshot identity is bound into authorization and result.
-- Authorization from another world, adapter, actor, recipient, purpose, or snapshot is rejected.
-- Unsupported purpose, stale cursor, missing authorizer, destroyed/missing actor, malformed request, and missing source provenance fail closed.
+- Authorization from another world, conversation, adapter, actor, recipient, purpose, or snapshot is rejected.
+- Unsupported purpose, stale cursor, missing/revoked Host or actor binding, destroyed/missing actor, malformed request, and missing source provenance fail closed.
 - Read path is covered by the NPC boundary workflow and the full Runtime suite.
