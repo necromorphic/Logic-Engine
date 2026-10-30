@@ -530,7 +530,7 @@ NPC therefore has no approved real callsite/context envelope to implement yet. D
 | Hop | Exact code / test evidence | Evidence class | Current result |
 |---|---|---|---|
 | NPC admission | `src/npc/memory-candidate-eligibility.js`; `tests/npc-memory-candidate-eligibility.test.js` | Source + focused tests on main | Component PASS; caller metadata is not authenticated |
-| NPC epistemic reducer | `src/npc/epistemic-state.js`; `tests/npc-epistemic-state.test.js` | Source + focused tests in #769 | Pending exact-head CI; no runtime caller |
+| NPC epistemic reducer | `src/npc/epistemic-state.js`; `tests/npc-epistemic-state.test.js` | Source + focused tests in #769 | Exact-head CI pending; no runtime caller |
 | Core acquisition reader | `src/application/engine.js`, `readNpcKnowledge()`; draft #764 | Candidate source + candidate tests | NOT ACCEPTED / authorizers unconfigured |
 | Host authenticated session / recipient | No production callsite identified in pinned Host path | Not verified | BLOCKED — Host owner |
 | NPC context serializer / model envelope | No production serializer consuming Core reader result | Not implemented | BLOCKED — NPC can implement after Core/Host contract |
