@@ -13,7 +13,7 @@ import path from 'node:path';
  * Run:
  *   SILLYTAVERN_SOURCE_ROOT=/path/to/SillyTavern node --test host-adapter/prototype/tests/pinned-st-source-audit.test.mjs
  */
-const root = process.env.SILLYTAVERN_SOURCE_ROOT;
+const root = process.env.SILLYTAVERN_SOURCE_ROOT ?? path.resolve('sillytavern-host-checkout');
 
 const anchors = [
     ['src/endpoints/chats.js', [
