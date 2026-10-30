@@ -42,6 +42,23 @@ This inventory is deliberately split into (a) operations that can mutate convers
 | Chat switch/load | `CHAT_CHANGED`, `CHAT_LOADED` event paths | Loads native chat into in-memory state | Bind snapshot to authorized conversation identity; scan on load |
 | External edit / extension mutation | Not centrally intercepted by native ST | Files or in-memory state may change outside audited routes | Full reconciliation must detect out-of-band changes; unknown writer => NON_READY |
 
+
+## 2a. Additional client-side mutation paths confirmed in source
+
+The initial table above is supplemented by these concrete paths:
+
+| Operation | Pinned source location | Native behavior | Required Host observation |
+|---|---|---|---|
+| Clear current chat | `public/script.js:1586-1605` | Cancels pending debounced save; clears rendered elements; optionally empties `chat` only when `clearData` is true; saves itemized prompts separately | Distinguish UI clear from data clear; do not infer deletion from DOM removal; capture chat array and disk state after caller completes |
+| Delete last message | `public/script.js:1607-1612` | Truncates in-memory array and emits `MESSAGE_DELETED(chat.length)`; this function itself does not call `saveChatDebounced()` | Trace every caller; await subsequent save if any; otherwise report operation as non-persisted/unsupported |
+| Delete message plus tool-call prefix | `public/script.js:1614-1699` | May delete a contiguous range of preceding system tool-invocation messages, not only the selected row; calls debounced save after splicing | Capture exact pre-mutation set, including tool-call prefix; test range boundaries and save completion |
+| Generate new assistant message | `public/script.js:6642-6784` | Mutates current chat in memory; creates message or appends/continues/replaces an existing message; emits `MESSAGE_RECEIVED` and render events before any save in this function | Treat event as pre-persistence; only a later disk re-read/receipt can confirm persistence |
+| Add generated swipe alternatives | `public/script.js:6671-6696,6786-6825` | Appends/updates `swipes` and `swipe_info`, and may change active text | Record immutable version identity and active pointer; array index is not a durable ID |
+| Switch active swipe | `public/script.js:6973-7015` | Changes `swipe_id`, then projects selected swipe text and metadata into the message | Record pointer transition separately from message edit/version creation |
+| Backfill swipe metadata | `public/script.js:6837-6877,6990-6998` | May synthesize `swipes`, `swipe_id`, and `swipe_info` when missing | Treat migration/backfill as mutation; preserve pre-backfill fingerprint and version lineage |
+
+**Correction to event semantics:** `saveReply()` emits `MESSAGE_RECEIVED` while modifying the in-memory chat; the function itself contains no disk persistence call. It must not be used as a save receipt. `deleteLastMessage()` emits `MESSAGE_DELETED` but does not itself schedule a save. These event paths are separate from the later server-side JSONL write.
+
 ## 3. Other user-data mutations discovered in the pinned server source
 
 These are not all conversation mutations, but they can invalidate assumptions about a stable data root, restore boundary, or identity store:
