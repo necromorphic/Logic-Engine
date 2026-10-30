@@ -282,7 +282,6 @@ export class ProposalService {
       semantic_review_required: true,
     };
     return this.engine.store.tx(() => {
-      this.assertMechanicPolicyEvidenceCurrent(mechanicExecution, worldId, 'proposal');
       const event = {
         turn_id: turnId,
         event_type: 'action.completed',
@@ -298,6 +297,7 @@ export class ProposalService {
       const existing = this.db.prepare('SELECT * FROM event_proposals WHERE world_id=? AND idempotency_key=?')
         .get(worldId, idempotencyKey.trim());
       if (existing) {
+        this.assertMechanicPolicyEvidenceCurrent(mechanicExecution, worldId, 'proposal');
         if (existing.created_by_adapter_id !== adapterId) {
           throw new EngineError('PROPOSAL_ADAPTER_MISMATCH', 'Proposal idempotency key belongs to another adapter.', 403);
         }
@@ -318,6 +318,7 @@ export class ProposalService {
           current_commit_sequence: sequence,
         });
       }
+      this.assertMechanicPolicyEvidenceCurrent(mechanicExecution, worldId, 'proposal');
       return this.create(worldId, {
         idempotency_key: idempotencyKey,
         source_text: sourceText,
