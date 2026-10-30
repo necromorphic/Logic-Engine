@@ -23,6 +23,7 @@ test('enumerates regular files recursively with deterministic digest and no cont
     assert.equal(result.file_count, 2);
     assert.deepEqual(result.entries.map((entry) => entry.path), ['chats/a.jsonl', 'settings.json']);
     assert.match(result.snapshot_sha256, /^[a-f0-9]{64}$/);
+    assert.equal(typeof result.entries[0].identity.ctimeMs, 'number');
     assert.equal(JSON.stringify(result).includes('secret'), false);
     assert.equal((await enumerateStableFileInventory(resolve(root))).snapshot_sha256, result.snapshot_sha256);
   });
