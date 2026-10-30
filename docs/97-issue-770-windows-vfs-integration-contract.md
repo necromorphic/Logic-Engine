@@ -1,7 +1,7 @@
 # Issue #770 — Windows anchored SQLite VFS integration contract
 
 **Status:** implementation contract; not a production security approval  
-**Related:** Issue #770, Draft PR #798  
+**Related:** Issue #770, current-main Draft PR #839; prior exploratory PR #798  
 **Applies to:** the Node.js 22.13.0 / SQLite 3.47.2 engine used by `node:sqlite`  
 **Platforms:** Windows x64 first; Linux remains governed by the POSIX manifest work
 
@@ -18,6 +18,8 @@ The Windows probe now intercepts the parent VFS `CreateFileW` call for registere
 Windows `xAccess` and `xDelete` no longer delegate protected names to the parent VFS. They open the target relative to the retained parent handle. `xAccess` is observational for sidecars and does not enroll ownership; the actual sidecar identity is claimed only after `xOpen` validates the returned handle. `xDelete` validates the database or process-local sidecar identity and operates on the opened object. The VFS interception and standalone helper now share one reviewed Win32 flag/disposition mapper. `CREATE_ALWAYS`, `TRUNCATE_EXISTING`, and `FILE_FLAG_DELETE_ON_CLOSE` are rejected for protected paths rather than applied before identity validation. The sidecar identity registry is process-local and is not a persistent ownership ledger.
 
 This is still only a probe. The parent VFS continues to implement SQLite file methods, locking, WAL shared memory and other behavior. Those paths have not been exhaustively audited for pathname re-entry or alternate opens. The standalone relative-open helper is now used by the VFS interception, but passing its primitive tests does not prove the complete SQLite VFS contract. The remaining production gates are listed below.
+
+**Filename lifetime invariant:** any canonical filename buffer allocated by the wrapper and passed to the parent VFS `xOpen` must remain valid for the entire lifetime of the returned `sqlite3_file`. Parent VFS implementations may retain `zName` and use it later to construct WAL/SHM paths. Freeing the wrapper-owned `xFullPathname` buffer immediately after parent `xOpen` is a use-after-free. The probe now pins that buffer per file and releases it only after the delegated parent `xClose` returns. The pin registry is bounded and fails closed on exhaustion; its capacity/lifecycle must be reviewed before production.
 
 ## 3. Required role state
 
