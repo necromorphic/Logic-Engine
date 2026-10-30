@@ -32,11 +32,11 @@ On Linux, evaluate `openat2(2)` for component resolution from a trusted root des
 
 On POSIX systems without `openat2`, use a component-by-component `openat` walk from a trusted root descriptor. Every intermediate component must be opened as a directory with no-follow semantics and validated using `fstat`. If the platform cannot guarantee the required no-follow and directory-relative behavior, mark that platform unsupported rather than falling back to pathname `open()`.
 
-The implementation must account for SQLite's descriptor-reuse path: a descriptor accepted from SQLite's pending-FD cache must be tied to the same pinned identity. The existing Linux `stat` interception test is a probe for this specific path, not a substitute for directory-relative opens.
+The implementation must account for SQLite's descriptor-reuse path: a descriptor accepted from SQLite's pending-FD cache must be tied to the same pinned identity. The existing Linux `stat` interception test is a probe for this specific path, not a substitute for directory-relative opens. The production VFS must also replace or securely constrain path-based `xAccess`, `xDelete`, and any pathname-based temporary-file operations; securing only `xOpen` leaves path-redirection and deletion races in the delegated parent VFS.
 
 ## 4. Windows implementation direction
 
-Win32 `CreateFileW(path)` alone does not provide a directory-handle-relative open. Evaluate a native Windows backend using `NtCreateFile` with `OBJECT_ATTRIBUTES.RootDirectory` set to the pinned parent-directory handle and a relative basename. Open with reparse-point inspection semantics, then query the resulting handle for file identity and attributes; reject reparse points, directories, invalid/zero file IDs, and identities that do not match the trusted manifest.
+Win32 `CreateFileW(path)` alone does not provide a directory-handle-relative open. Evaluate a native Windows backend using `NtCreateFile` with `OBJECT_ATTRIBUTES.RootDirectory` set to the pinned parent-directory handle and a relative basename. Open with reparse-point inspection semantics, then query the resulting handle for file identity and attributes; prefer `GetFileInformationByHandleEx(FileIdInfo)` and its 128-bit file ID plus volume serial over the legacy 64-bit `BY_HANDLE_FILE_INFORMATION` index. Reject reparse points, directories, invalid/zero file IDs, unsupported identity classes, and identities that do not match the trusted manifest. The supported Windows filesystem matrix must state whether the chosen file-ID class is stable and unique enough for the required lifetime.
 
 The directory chain itself must be established from a trusted volume/root handle, opening each component relative to the preceding handle and rejecting reparse points. Do not reopen an absolute ancestor pathname after the chain has been trusted.
 
@@ -103,6 +103,8 @@ Tests must assert the identity of the object actually opened, not merely a count
 - Keep the public `node:sqlite` API unless the native implementation demonstrates that it cannot safely supply the required file operations.
 - Do not register or open production databases until trusted role inventory, manifest provisioning, directory anchoring, sidecar ownership, and startup ordering are implemented.
 - Keep the VFS probe separate from the production adapter. Probe success is evidence for feasibility, not production authorization.
+- Do not expose the parent VFS as an alternate path around the protected operations. Any direct native access to the parent VFS, mutable syscall table, or unwrapped pathname operation must be excluded by the production threat model or blocked by the implementation.
+- Define SQLite temporary-file behavior explicitly. Either route every temporary file through a separately trusted scratch directory/handle policy or configure and test that the production connection cannot create pathname-based temporary files; unknown file roles must fail closed.
 - Keep Memory→NPC disabled until Issue #770 and the independent Security review are closed.
 - The uploaded ST-VectorService uses `better-sqlite3`, a separate SQLite engine; this Node `node:sqlite` proof does not cover it.
 
