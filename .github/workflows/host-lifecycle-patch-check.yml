@@ -1,6 +1,7 @@
 name: Host lifecycle patch check
 
 on:
+  workflow_dispatch:
   pull_request:
     paths:
       - "host-adapter/prototype/**"
