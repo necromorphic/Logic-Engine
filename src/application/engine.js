@@ -704,6 +704,7 @@ export class LogicEngine {
     const configured = candidates[0];
     let sourceBytes;
     let fd;
+    let identityFd;
     try {
       // POSIX platforms enforce no-follow atomically at open. Windows does not
       // expose O_NOFOLLOW through Node, so check the path around two independent
@@ -712,7 +713,6 @@ export class LogicEngine {
       const noFollow = fsConstants.O_NOFOLLOW;
       let pathBefore;
       let resolvedBefore;
-      let identityFd;
       if (!Number.isInteger(noFollow) || noFollow === 0) {
         pathBefore = lstatSync(configured.source_path, { bigint: true });
         resolvedBefore = realpathSync(configured.source_path);
