@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { resolve } from 'node:path';
+import { isAbsolute, resolve } from 'node:path';
 
 const execFileAsync = promisify(execFile);
 const activeLeases = new WeakSet();
@@ -95,7 +95,7 @@ async function runPowerShell(script, env, timeout = 120_000) {
  */
 export async function withWindowsVssSnapshot(rootPath, callback) {
   if (process.platform !== 'win32') throw new Error('HOST_VSS_PLATFORM_UNSUPPORTED');
-  if (typeof rootPath !== 'string' || !rootPath.trim()) throw new Error('HOST_VSS_ROOT_INVALID');
+  if (typeof rootPath !== 'string' || !rootPath.trim() || !isAbsolute(rootPath)) throw new Error('HOST_VSS_ROOT_INVALID');
   if (typeof callback !== 'function') throw new Error('HOST_VSS_CALLBACK_INVALID');
 
   const requestedRoot = resolve(rootPath);
