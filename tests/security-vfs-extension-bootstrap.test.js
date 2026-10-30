@@ -5,8 +5,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
-test('Node 22.13 node:sqlite keeps a loadable default VFS registered after bootstrap closes', (t) => {
-  const extensionPath = process.env.LOGIC_ENGINE_VFS_PROBE_PATH;
+const extensionPath = process.env.LOGIC_ENGINE_VFS_PROBE_PATH;
+
+test('Node 22.13 node:sqlite keeps a loadable default VFS registered after bootstrap closes', {
+  // The full npm test suite runs in a separate job without the native probe artifact.
+  // This test is exercised explicitly by the Linux/Windows VFS probe workflow jobs.
+  skip: !extensionPath,
+}, (t) => {
   assert.equal(typeof extensionPath, 'string', 'workflow must build the platform VFS probe first');
 
   const directory = mkdtempSync(join(tmpdir(), 'logic-engine-vfs-probe-'));
