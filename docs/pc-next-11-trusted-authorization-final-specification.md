@@ -2,7 +2,7 @@
 
 **Status:** FINAL TECHNICAL SPECIFICATION / IMPLEMENTATION EVIDENCE GATES OPEN.  
 **Version:** 1.1 — 2026-10-30.  
-**Normative baseline:** `main` `eaa9bcd66205b07c84d912b7680d4baf97fb918a`.  
+**Normative baseline:** `main` `c9818ad2d5a0748aa42b566abb1978896866ed31`.  
 **Supersedes:** PC-NEXT-07 Draft v3 as the normative trusted-authorization specification. PC-NEXT-08 remains the implementation breakdown; PC-NEXT-09 remains the source inventory; PC-NEXT-10 remains the execution work order.  
 **Scope:** trusted identity, authorization, Host inventory, Memory evidence, revocation ordering, protected model egress, anti-replay and acceptance.  
 **Change class:** documentation only. This document does not authorize production code, API/schema changes, runtime wiring, database/ACL changes, PR merges, release, or feature activation.
@@ -379,7 +379,7 @@ No production activation follows automatically from ADR #809 or passing tests. A
 
 ## 16. Source and decision traceability
 
-This specification is grounded in the following current-main contracts and implementation findings, checked against main `eaa9bcd66205b07c84d912b7680d4baf97fb918a`:
+This specification is grounded in the following current-main contracts and implementation findings, checked against main `c9818ad2d5a0748aa42b566abb1978896866ed31`:
 
 - `docs/57-private-host-core-memory-npc-adapter-contract.md`: ownership, separate Lane A/Lane B semantics, Host session and sole-Gateway responsibility, actor binding, source versions and existing fail-closed boundary contract.
 - `docs/architecture/core-final-disclosure-authorization-contract.md`: Core's required PC-side serialized final-disclosure/dispatch-start authority, exact request binding, all-writer participation, crash/retry and anti-rollback acceptance.
