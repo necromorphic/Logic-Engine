@@ -355,6 +355,7 @@ static HANDLE WINAPI probe_create_file_w(
   HANDLE handle = INVALID_HANDLE_VALUE;
   LogicEngineWinFileIdentity info_identity;
   DWORD file_attributes = 0;
+  DWORD relative_open_error = ERROR_SUCCESS;
   int role_index = -1;
   const wchar_t *suffix = NULL;
   int has_anchor = name && probe_match_role_entry_w(name, &role_index, &suffix);
@@ -425,6 +426,7 @@ static HANDLE WINAPI probe_create_file_w(
     handle = logic_engine_win_open_relative(role->anchor.parent,
       relative_name, desired_access, share | FILE_SHARE_DELETE, disposition, options,
       native_attributes, expected, &info_identity);
+    relative_open_error = GetLastError();
     sqlite3_free(relative_name);
   } else if (needs_identity) {
     /* Registered DB and sidecar paths must never fall back to absolute opens. */
@@ -437,7 +439,7 @@ static HANDLE WINAPI probe_create_file_w(
 
   if (handle == INVALID_HANDLE_VALUE || !needs_identity) {
     if (handle == INVALID_HANDLE_VALUE && needs_identity
-        && GetLastError() == ERROR_ACCESS_DENIED) {
+        && relative_open_error == ERROR_ACCESS_DENIED) {
       /*
        * The relative-open helper rejects a mismatched expected identity before
        * returning a HANDLE. Count that rejection here as well as post-open
