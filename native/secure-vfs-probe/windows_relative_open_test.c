@@ -125,14 +125,21 @@ int wmain(void) {
     fail(L"verify initial trusted contents");
     goto cleanup;
   }
-  CloseHandle(handle);
-  handle = INVALID_HANDLE_VALUE;
-
+  /*
+   * Keep the identity-checked child handle open across the directory rename.
+   * This mirrors the VFS role registry, which retains a trusted DB HANDLE.
+   */
   if (!MoveFileW(parent, moved) || !CreateDirectoryW(parent, NULL)
       || !make_text_file(decoy_db, "decoy-object")) {
-    fail(L"replace original parent pathname with decoy");
+    fail(L"replace original parent pathname with decoy while trusted child handle is open");
     goto cleanup;
   }
+  if (!file_contains(handle, "trusted-object")) {
+    fail(L"retained trusted child handle changed after parent rename");
+    goto cleanup;
+  }
+  CloseHandle(handle);
+  handle = INVALID_HANDLE_VALUE;
 
   handle = logic_engine_win_open_relative(anchor.parent, anchor.basename,
       GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
