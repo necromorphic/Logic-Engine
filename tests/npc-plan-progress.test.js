@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { advanceNpcPlan } from "../src/npc/plan-progress.js";
+import { advanceNpcPlan, getNpcPlanActiveStep } from "../src/npc/plan-progress.js";
 
 const plan = () => ({
   id: "investigate-rumor",
@@ -198,4 +198,35 @@ test("fails closed when Array.prototype iterator is replaced", () => {
     Object.defineProperty(Array.prototype, Symbol.iterator, original);
   }
   assert.deepEqual(result, { status: "non_ready", plan: null });
+});
+
+
+test("reads the active plan step without changing plan state", () => {
+  const original = plan();
+  const before = structuredClone(original);
+  assert.deepEqual(getNpcPlanActiveStep(original), {
+    status: "ready",
+    step: { id: "ask-contact", action_id: "ask-contact" },
+  });
+  assert.deepEqual(original, before);
+});
+
+test("active-step inspection rejects blocked, terminal, malformed, and hostile plans", () => {
+  const blocked = plan();
+  blocked.status = "blocked";
+  blocked.steps[0].status = "blocked";
+  const completed = { ...plan(), status: "completed" };
+  completed.steps = completed.steps.map((step) => ({ ...step, status: "completed" }));
+  const malformed = plan();
+  malformed.steps[1].status = "active";
+  const hostile = new Proxy({}, {
+    getPrototypeOf() { throw new Error("prototype trap"); },
+  });
+
+  for (const candidate of [blocked, completed, malformed, hostile, null]) {
+    assert.deepEqual(getNpcPlanActiveStep(candidate), {
+      status: "non_ready",
+      step: null,
+    });
+  }
 });
