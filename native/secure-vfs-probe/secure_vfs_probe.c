@@ -8,13 +8,40 @@
  * DatabaseSync opens through that VFS. Never use this probe for production DBs.
  */
 #include <string.h>
+#ifdef _WIN32
+#include <windows.h>
+#endif
 #include "sqlite3ext.h"
 SQLITE_EXTENSION_INIT1
 
 static sqlite3_vfs g_probe_vfs;
 static sqlite3_vfs *g_parent_vfs = 0;
 static int g_main_db_open_count = 0;
+static int g_native_open_count = 0;
 static int g_registered = 0;
+static const char *g_open_syscall_name = 0;
+static sqlite3_syscall_ptr g_original_open_syscall = 0;
+
+#ifdef _WIN32
+typedef HANDLE (WINAPI *probe_create_file_w_fn)(
+  LPCWSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD, DWORD, HANDLE
+);
+static HANDLE WINAPI probe_create_file_w(
+  LPCWSTR name, DWORD access, DWORD share, LPSECURITY_ATTRIBUTES security,
+  DWORD creation, DWORD attributes, HANDLE template_file
+) {
+  g_native_open_count += 1;
+  return ((probe_create_file_w_fn)g_original_open_syscall)(
+    name, access, share, security, creation, attributes, template_file
+  );
+}
+#else
+typedef int (*probe_open_fn)(const char *, int, int);
+static int probe_open(const char *name, int flags, int mode) {
+  g_native_open_count += 1;
+  return ((probe_open_fn)g_original_open_syscall)(name, flags, mode);
+}
+#endif
 
 static int probe_xOpen(sqlite3_vfs *vfs, const char *name, sqlite3_file *file,
                        int flags, int *out_flags) {
@@ -96,6 +123,12 @@ static void probe_open_count(sqlite3_context *context, int argc, sqlite3_value *
   sqlite3_result_int(context, g_main_db_open_count);
 }
 
+static void probe_native_open_count(sqlite3_context *context, int argc, sqlite3_value **argv) {
+  (void)argc;
+  (void)argv;
+  sqlite3_result_int(context, g_native_open_count);
+}
+
 static void probe_has_syscall(sqlite3_context *context, int argc, sqlite3_value **argv) {
   const unsigned char *name;
   (void)argc;
@@ -117,6 +150,17 @@ static int probe_auto_extension(sqlite3 *db, char **error, const sqlite3_api_rou
     SQLITE_UTF8 | SQLITE_DETERMINISTIC,
     0,
     probe_open_count,
+    0,
+    0
+  );
+  if (rc != SQLITE_OK) return rc;
+  rc = sqlite3_create_function(
+    db,
+    "logic_engine_vfs_probe_native_open_count",
+    0,
+    SQLITE_UTF8 | SQLITE_DETERMINISTIC,
+    0,
+    probe_native_open_count,
     0,
     0
   );
@@ -148,7 +192,30 @@ int sqlite3_secure_vfs_probe_init(
 
   if (g_registered) return SQLITE_OK_LOAD_PERMANENTLY;
   g_parent_vfs = sqlite3_vfs_find(0);
-  if (!g_parent_vfs) return SQLITE_ERROR;
+  if (!g_parent_vfs || g_parent_vfs->iVersion < 3
+      || !g_parent_vfs->xGetSystemCall || !g_parent_vfs->xSetSystemCall) {
+    return SQLITE_ERROR;
+  }
+
+#ifdef _WIN32
+  g_open_syscall_name = "CreateFileW";
+#else
+  g_open_syscall_name = "open";
+#endif
+  g_original_open_syscall = g_parent_vfs->xGetSystemCall(
+    g_parent_vfs, g_open_syscall_name
+  );
+  if (!g_original_open_syscall) return SQLITE_ERROR;
+#ifdef _WIN32
+  rc = g_parent_vfs->xSetSystemCall(
+    g_parent_vfs, g_open_syscall_name, (sqlite3_syscall_ptr)probe_create_file_w
+  );
+#else
+  rc = g_parent_vfs->xSetSystemCall(
+    g_parent_vfs, g_open_syscall_name, (sqlite3_syscall_ptr)probe_open
+  );
+#endif
+  if (rc != SQLITE_OK) return rc;
 
   memset(&g_probe_vfs, 0, sizeof(g_probe_vfs));
   g_probe_vfs.iVersion = g_parent_vfs->iVersion;
@@ -178,10 +245,14 @@ int sqlite3_secure_vfs_probe_init(
   }
 
   rc = sqlite3_vfs_register(&g_probe_vfs, 1);
-  if (rc != SQLITE_OK) return rc;
+  if (rc != SQLITE_OK) {
+    g_parent_vfs->xSetSystemCall(g_parent_vfs, g_open_syscall_name, g_original_open_syscall);
+    return rc;
+  }
   rc = sqlite3_auto_extension((void (*)(void))probe_auto_extension);
   if (rc != SQLITE_OK) {
     sqlite3_vfs_unregister(&g_probe_vfs);
+    g_parent_vfs->xSetSystemCall(g_parent_vfs, g_open_syscall_name, g_original_open_syscall);
     return rc;
   }
 
