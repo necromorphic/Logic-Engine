@@ -567,13 +567,14 @@ static void probe_register_database_role(sqlite3_context *context, int argc, sql
   const unsigned char *path = sqlite3_value_text(argv[0]);
   const unsigned char *role_name = sqlite3_value_text(argv[1]);
   char *full_path;
+  char *stored_path;
+  char *stored_role;
   int path_length;
+  int duplicate = 0;
+  int full = 0;
+  (void)argc;
   if (!path || !role_name || !path[0] || !role_name[0]) {
     sqlite3_result_error(context, "database path and role are required", -1);
-    return;
-  }
-  if (g_database_role_count >= PROBE_MAX_DATABASE_ROLES) {
-    sqlite3_result_error(context, "database role registry is full", -1);
     return;
   }
   path_length = g_parent_vfs->mxPathname + 1;
@@ -588,28 +589,42 @@ static void probe_register_database_role(sqlite3_context *context, int argc, sql
     sqlite3_result_error(context, "database path could not be canonicalized", -1);
     return;
   }
-  for (int i = 0; i < g_database_role_count; i++) {
-    if (strcmp(full_path, g_database_roles[i].path) == 0
-        || strcmp((const char *)role_name, g_database_roles[i].role) == 0) {
-      sqlite3_free(full_path);
-      sqlite3_result_error(context, "database role or path already registered", -1);
-      return;
-    }
-  }
-  g_database_roles[g_database_role_count].path = sqlite3_mprintf("%s", full_path);
-  g_database_roles[g_database_role_count].role = sqlite3_mprintf("%s", (const char *)role_name);
+  stored_path = sqlite3_mprintf("%s", full_path);
+  stored_role = sqlite3_mprintf("%s", (const char *)role_name);
   sqlite3_free(full_path);
-  if (!g_database_roles[g_database_role_count].path
-      || !g_database_roles[g_database_role_count].role) {
-    sqlite3_free(g_database_roles[g_database_role_count].path);
-    sqlite3_free(g_database_roles[g_database_role_count].role);
-    g_database_roles[g_database_role_count].path = 0;
-    g_database_roles[g_database_role_count].role = 0;
+  if (!stored_path || !stored_role) {
+    sqlite3_free(stored_path);
+    sqlite3_free(stored_role);
     sqlite3_result_error_nomem(context);
     return;
   }
-  g_database_roles[g_database_role_count].identity_set = 0;
-  g_database_role_count += 1;
+
+  probe_registry_lock();
+  if (g_database_role_count >= PROBE_MAX_DATABASE_ROLES) full = 1;
+  for (int i = 0; !full && i < g_database_role_count; i++) {
+    if (strcmp(stored_path, g_database_roles[i].path) == 0
+        || strcmp(stored_role, g_database_roles[i].role) == 0) {
+      duplicate = 1;
+      break;
+    }
+  }
+  if (!full && !duplicate) {
+    ProbeDatabaseRole *entry = &g_database_roles[g_database_role_count];
+    entry->path = stored_path;
+    entry->role = stored_role;
+    entry->identity_set = 0;
+    g_database_role_count += 1;
+  }
+  probe_registry_unlock();
+
+  if (full || duplicate) {
+    sqlite3_free(stored_path);
+    sqlite3_free(stored_role);
+    sqlite3_result_error(context, full
+      ? "database role registry is full"
+      : "database role or path already registered", -1);
+    return;
+  }
   sqlite3_result_int(context, 1);
 }
 
@@ -753,6 +768,10 @@ int sqlite3_secure_vfs_probe_init(
   (void)error;
   SQLITE_EXTENSION_INIT2(api);
 
+  if (!g_registry_mutex) {
+    g_registry_mutex = sqlite3_mutex_alloc(SQLITE_MUTEX_STATIC_APP1);
+    if (!g_registry_mutex) return SQLITE_ERROR;
+  }
   if (g_registered) return SQLITE_OK_LOAD_PERMANENTLY;
   g_parent_vfs = sqlite3_vfs_find(0);
   if (!g_parent_vfs || g_parent_vfs->iVersion < 3
