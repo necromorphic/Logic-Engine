@@ -363,7 +363,7 @@ There are two distinct questions that must not be collapsed:
 Do not resolve this by placing plans in `world_processes`, `npc_belief_transitions`, arbitrary entity attributes, or a new NPC-side canonical event log. Each would assume semantics/authority that the inspected contracts do not grant.
 
 A1 and the repository contracts have now specified the NPC-local design boundary. The remaining pre-runtime work is to:
-- choose and approve the concrete storage technology/deployment boundary without moving semantic ownership to Core;
+- implement the approved dedicated NPC-owned SQLite storage target only after Issue #770's file-open identity/TOCTOU security gate passes;
 - implement and test the repository adapter against `docs/99`, including atomic candidate acceptance, CAS conflicts, idempotency, restart recovery and bounded audit/reconciliation reads;
 - keep reconciliation unavailable for production progress until the trusted Core result-verification and rollback-invalidation handoff is implemented;
 - keep goal admission unavailable until the first goal family, admissibility policy owner and authorized source are explicitly established.
@@ -406,7 +406,7 @@ The cognition roadmap marks multi-step planning/replanning as partial because pe
 
 Source: `docs/88-npc-cognition-development-roadmap.md` on the PR branch.
 
-**Result:** no architecture conflict was found. The agreed design requires autonomous NPC decision-making while preserving Core as canonical coordinator/writer and NPC as the semantic owner of its local goals/plans. The remaining implementation gaps are the concrete repository adapter/storage choice, approved goal admission, trusted decision context/action authorization, and authoritative action-result/rollback reconciliation. This cross-check authorizes no automatic execution, world mutation, scheduler or dispatch.
+**Result:** no architecture conflict was found. The agreed design requires autonomous NPC decision-making while preserving Core as canonical coordinator/writer and NPC as the semantic owner of its local goals/plans. The remaining implementation gaps are the SQLite repository adapter (security-gated), approved goal admission, trusted decision context/action authorization, and authoritative action-result/rollback reconciliation. This cross-check authorizes no automatic execution, world mutation, scheduler or dispatch.
 
 
 ## 10.10 Reconciliation with accepted A1 and repository contracts — 2026-10-30
@@ -420,7 +420,7 @@ Current source-of-truth split:
 - **Canonical world authority:** Core owns world facts/events, world revisions, causal provenance, action authorization, proposal/approval/commit and rollback.
 - **Cross-boundary reconciliation:** only a trusted Core-facing integration may supply verified committed-result references to the NPC repository. The repository must not manufacture verification or query Core internals to infer success.
 
-A1 resolves who owns the NPC-local state and where its logical repository boundary sits. It does not mean that a repository implementation exists, that a storage engine has been selected, or that the current pure helpers are safe to persist caller-reported progress.
+A1 resolves who owns the NPC-local state and where its logical repository boundary sits; the target storage technology is now separately selected as a dedicated NPC-owned SQLite database. Neither decision means that a repository implementation exists or that the current pure helpers are safe to persist caller-reported progress.
 
 Therefore the next implementation sequence is:
 
