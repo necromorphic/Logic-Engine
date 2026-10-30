@@ -41,6 +41,7 @@ export async function enumerateStableFileInventory(rootPath) {
   }
 
   if (process.platform === 'win32') return fail('HOST_INVENTORY_PLATFORM_REPARSE_UNVERIFIED');
+  if (typeof fsConstants.O_NOFOLLOW !== 'number') return fail('HOST_INVENTORY_PLATFORM_NOFOLLOW_UNAVAILABLE');
 
   let root;
   try {
@@ -94,7 +95,7 @@ export async function enumerateStableFileInventory(rootPath) {
 
         let handle;
         try {
-          const noFollow = fsConstants.O_NOFOLLOW ?? 0;
+          const noFollow = fsConstants.O_NOFOLLOW;
           handle = await open(fullPath, fsConstants.O_RDONLY | noFollow);
           const openedBefore = await handle.stat();
           if (!openedBefore.isFile() || openedBefore.dev !== before.dev || openedBefore.ino !== before.ino) {
