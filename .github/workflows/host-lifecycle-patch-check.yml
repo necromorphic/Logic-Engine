@@ -36,7 +36,7 @@ jobs:
           cp host-adapter/prototype/st-server-digest-proxy.mjs sillytavern-host-checkout/src/endpoints/logic-engine-lifecycle-proxy.mjs
       - name: Fetch the exact Host inventory candidate used by PR #783
         run: |
-          git fetch origin bf38976e4f26b3944518161b993d6233c81b217e
+          git fetch origin db902eb884ccd142c70d074f4d42eb0c3f4457dc
           mkdir -p host-inventory-candidate
           git show FETCH_HEAD:host-adapter/prototype/st-source-inventory.mjs > host-inventory-candidate/st-source-inventory.mjs
           git show FETCH_HEAD:host-adapter/prototype/st-host-inventory-handler.mjs > host-inventory-candidate/st-host-inventory-handler.mjs
@@ -48,6 +48,8 @@ jobs:
           git show FETCH_HEAD:host-adapter/prototype/st-host-inventory-route.js > host-adapter/prototype/st-host-inventory-route.js
           git show FETCH_HEAD:host-adapter/prototype/tests/st-host-inventory-handler.test.mjs > host-adapter/prototype/tests/st-host-inventory-handler.test.mjs
           git show FETCH_HEAD:tests/host-source-inventory.test.js > tests/host-source-inventory.test.js
+      - name: Require authenticated session identity route in the exact Host candidate
+        run: grep -F "router.get('/session', createHostSessionHandler())" host-inventory-candidate/st-host-inventory-route.js
       - name: Install prototype modules into the pinned host tree
         run: |
           cp host-inventory-candidate/st-source-inventory.mjs sillytavern-host-checkout/src/endpoints/logic-engine-st-source-inventory.mjs
