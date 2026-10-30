@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, linkSync, mkdtempSync, renameSync, rmSync, unlinkSync } from 'node:fs';
+import { existsSync, linkSync, mkdirSync, mkdtempSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -135,6 +135,56 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
   } finally {
     reader?.close();
     first.close();
+  }
+
+  // POSIX-only directory-anchor proof: after registration, rename the trusted
+  // parent directory and replace its old pathname with a decoy directory. The
+  // registered DB and its sidecars must continue to resolve through the pinned
+  // directory descriptor, not through the attacker-controlled replacement.
+  if (process.platform !== 'win32') {
+    const anchoredParent = join(directory, 'anchored-parent');
+    const movedParent = join(directory, 'anchored-parent-moved');
+    mkdirSync(anchoredParent);
+    const anchoredPath = join(anchoredParent, 'anchored.sqlite');
+    registerRole(anchoredPath, 'directory-anchor');
+    const seed = new DatabaseSync(anchoredPath);
+    try {
+      seed.exec("CREATE TABLE anchored_probe(value TEXT); INSERT INTO anchored_probe VALUES('trusted-directory');");
+    } finally {
+      seed.close();
+    }
+
+    renameSync(anchoredParent, movedParent);
+    mkdirSync(anchoredParent);
+    writeFileSync(join(anchoredParent, 'anchored.sqlite'), 'decoy database');
+
+    const anchoredWriter = new DatabaseSync(anchoredPath);
+    let anchoredReader;
+    try {
+      assert.equal(
+        anchoredWriter.prepare('SELECT value FROM anchored_probe').get().value,
+        'trusted-directory',
+        'the main database must resolve through the pinned parent directory after its pathname is replaced'
+      );
+      anchoredWriter.exec('PRAGMA journal_mode=WAL;');
+      anchoredReader = new DatabaseSync(anchoredPath);
+      anchoredReader.exec('BEGIN; SELECT value FROM anchored_probe;');
+      anchoredWriter.exec("INSERT INTO anchored_probe VALUES('anchored-sidecar');");
+      assert.equal(
+        existsSync(join(movedParent, 'anchored.sqlite-wal')),
+        true,
+        'WAL must be created beside the database in the pinned directory, not in the replacement directory'
+      );
+      assert.equal(
+        existsSync(join(anchoredParent, 'anchored.sqlite-wal')),
+        false,
+        'the replacement directory must not receive the trusted database WAL'
+      );
+    } finally {
+      anchoredReader?.exec('ROLLBACK;');
+      anchoredReader?.close();
+      anchoredWriter.close();
+    }
   }
 
   // Exercise the rollback-journal sidecar independently of WAL mode.
