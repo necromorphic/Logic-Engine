@@ -182,6 +182,10 @@ test('reconciliation proxy rejects raw text, caller world scope, oversized row s
       deleted: false,
     }],
   };
+  const wrongSessionResponse = responseRecorder();
+  await handler(requestFor(valid, { sessionId: '44444444-4444-4444-8444-444444444444' }), wrongSessionResponse);
+  assert.equal(wrongSessionResponse.statusCode, 403);
+  assert.equal(wrongSessionResponse.payload.error.code, 'HOST_SESSION_SCOPE_REQUIRED');
   for (const body of [
     { ...valid, world_id: 'attacker-world' },
     { ...valid, versions: [{ ...valid.versions[0], content: 'raw source text' }] },
