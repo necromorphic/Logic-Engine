@@ -1116,10 +1116,10 @@ static int probe_xDelete(sqlite3_vfs *vfs, const char *name, int sync_dir) {
       struct stat sidecar_info;
       int sidecar_identity_found = 0;
       if (kind < 0) return SQLITE_IOERR_DELETE;
-      if (kind > 0) {
-        if (fstatat(role->trusted_parent_fd, relative_name, &sidecar_info,
-              AT_SYMLINK_NOFOLLOW) != 0) {
-          if (errno != ENOENT) return SQLITE_IOERR_DELETE;
+      if (fstatat(role->trusted_parent_fd, relative_name, &sidecar_info,
+            AT_SYMLINK_NOFOLLOW) != 0) {
+        if (errno != ENOENT) return SQLITE_IOERR_DELETE;
+        if (kind > 0) {
           /* Missing path is not proof that a hardlinked object is gone. */
           probe_registry_lock();
           for (int i = 0; i < g_sidecar_identity_count; ++i) {
@@ -1129,10 +1129,17 @@ static int probe_xDelete(sqlite3_vfs *vfs, const char *name, int sync_dir) {
             }
           }
           probe_registry_unlock();
-          return SQLITE_OK;
         }
-        if (!S_ISREG(sidecar_info.st_mode) || sidecar_info.st_dev == 0
-            || sidecar_info.st_ino == 0) return SQLITE_IOERR_DELETE;
+        return SQLITE_OK;
+      }
+      if (!S_ISREG(sidecar_info.st_mode) || sidecar_info.st_dev == 0
+          || sidecar_info.st_ino == 0) return SQLITE_IOERR_DELETE;
+      if (kind == 0) {
+        /* Main DB deletion must target the enrolled object, not a replacement. */
+        if (sidecar_info.st_dev != role->device || sidecar_info.st_ino != role->inode) {
+          return SQLITE_IOERR_DELETE;
+        }
+      } else {
         probe_registry_lock();
         for (int i = 0; i < g_sidecar_identity_count; ++i) {
           ProbeSidecarIdentity *entry = &g_sidecar_identities[i];
