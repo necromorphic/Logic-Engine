@@ -15,6 +15,7 @@ const validUuid = value => typeof value === 'string' && UUID.test(value);
  */
 export async function resolveStableHostConversationIdentity({
   locator,
+  hostSessionId,
   metadata,
   storage,
   saveMetadata,
@@ -33,6 +34,7 @@ export async function resolveStableHostConversationIdentity({
   }
   if (typeof saveMetadata !== 'function') throw TypeError('saveMetadata is required');
   if (typeof cryptoProvider?.randomUUID !== 'function') throw Error('NON_READY: crypto.randomUUID unavailable');
+  if (!validUuid(hostSessionId)) return { status: 'NON_READY', reason: 'HOST_SESSION_ID_UNAVAILABLE' };
 
   let installationId = storage.getItem(INSTALLATION_KEY);
   if (installationId !== null && !validUuid(installationId)) {
@@ -54,12 +56,12 @@ export async function resolveStableHostConversationIdentity({
   if (existing !== undefined && !validUuid(existing)) {
     throw Error('NON_READY: malformed stable Host conversation identity');
   }
-  if (mappedId && (!validUuid(existing) || mappedId !== installationId + ':' + existing)) {
+  if (mappedId && (!validUuid(existing) || mappedId !== hostSessionId + ':' + installationId + ':' + existing)) {
     throw Error('NON_READY: Host locator metadata is missing or inconsistent');
   }
 
   if (validUuid(existing)) {
-    const resolvedId = installationId + ':' + existing;
+    const resolvedId = hostSessionId + ':' + installationId + ':' + existing;
     const activeMarker = MARKER_PREFIX + resolvedId;
     if (storage.getItem(legacyMarker) && legacyMarker !== activeMarker) {
       throw Error('NON_READY: legacy Host enrollment marker conflicts with installation identity');
@@ -79,7 +81,7 @@ export async function resolveStableHostConversationIdentity({
     if (!mappedId && storage.getItem(activeMarker) && pendingRenameId !== resolvedId) {
       throw Error('NON_READY: enrolled Host conversation has no matching locator binding');
     }
-    return { status: 'READY_FOR_REVIEW', conversationId: resolvedId, installationId, conversationUuid: existing };
+    return { status: 'READY_FOR_REVIEW', conversationId: resolvedId, hostSessionId, installationId, conversationUuid: existing };
   }
 
   if (mappedId) throw Error('NON_READY: Host locator is bound but its stable metadata identity is missing');
@@ -112,7 +114,8 @@ export async function resolveStableHostConversationIdentity({
   }
   return {
     status: 'READY_FOR_REVIEW',
-    conversationId: installationId + ':' + conversationUuid,
+    conversationId: hostSessionId + ':' + installationId + ':' + conversationUuid,
+    hostSessionId,
     installationId,
     conversationUuid,
     created: true,
@@ -143,6 +146,8 @@ export function hasAnyHostEnrollment(storage) {
 
 export const stableHostIdentityContract = Object.freeze({
   installationKey: INSTALLATION_KEY,
+  sessionIdentityKey: 'logicEngineSessionId',
+  conversationIdFormat: 'hostSessionId:installationId:conversationUuid',
   markerPrefix: MARKER_PREFIX,
   identityMetadataKey: 'logic_engine_conversation_id',
   locatorBindingPrefix: 'logic-engine-host-lifecycle-locator:',
