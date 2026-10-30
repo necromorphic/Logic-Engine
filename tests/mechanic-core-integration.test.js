@@ -4,6 +4,7 @@ import { SQLiteStore } from '../src/storage/sqlite-store.js';
 import { LogicEngine } from '../src/application/engine.js';
 import { MechanicExecutor } from '../src/application/mechanic-executor.js';
 import { ProposalService } from '../src/application/proposals.js';
+import { hashRequest } from '../src/core/request-hash.js';
 
 function setup(t, worldId) {
   const store = new SQLiteStore(':memory:');
@@ -32,6 +33,15 @@ function commitFixture(engine, worldId, eventId, expectedRevision, effects, caus
     causal_links: [],
   });
 }
+
+const TEST_POLICY_AUTHORITY_EVIDENCE = Object.freeze({
+  authority_identity: 'integration.test-policy',
+  policy_generation: 'fixture-v1',
+  policy_version: hashRequest({
+    authority_identity: 'integration.test-policy',
+    policy_generation: 'fixture-v1',
+  }),
+});
 
 const mechanicTemplate = {
   template_id: 'integration.canonical-write',
@@ -87,6 +97,7 @@ function trustedContext({ snapshot }) {
     commit_sequence: snapshot.commit_sequence,
     authorization_scope: 'integration-test-actor',
     policy_version: 'integration-test-policy-v1',
+    policy_authority: TEST_POLICY_AUTHORITY_EVIDENCE,
   };
 }
 
