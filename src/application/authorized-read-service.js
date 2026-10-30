@@ -29,12 +29,40 @@ export class AuthorizedReadService {
     if (typeof actorBindingService?.resolve !== 'function') {
       throw new TypeError('AuthorizedReadService requires an ActorBindingService');
     }
-    if (typeof fieldPolicy !== 'function') {
-      throw new TypeError('AuthorizedReadService requires an explicit trusted field policy');
+    const isAuthority = fieldPolicy && typeof fieldPolicy.capture === 'function'
+      && typeof fieldPolicy.isCurrent === 'function'
+      && typeof fieldPolicy.authorizeField === 'function';
+    if (typeof fieldPolicy !== 'function' && !isAuthority) {
+      throw new TypeError('AuthorizedReadService requires a trusted field policy or DeploymentPolicyAuthority');
     }
     this.engine = engine;
     this.actorBindingService = actorBindingService;
-    this.fieldPolicy = fieldPolicy;
+    this.policyAuthority = isAuthority ? fieldPolicy : null;
+    this.fieldPolicy = typeof fieldPolicy === 'function' ? fieldPolicy : null;
+  }
+
+  capturePolicyEvidence() {
+    if (!this.policyAuthority) return null;
+    return this.policyAuthority.capture();
+  }
+
+  isPolicyEvidenceCurrent(evidence) {
+    return this.policyAuthority !== null && this.policyAuthority.isCurrent(evidence);
+  }
+
+  getPolicyAuthority() {
+    return this.policyAuthority;
+  }
+
+  _authorizeField(context, entity, field, evidence) {
+    if (this.policyAuthority) {
+      return this.policyAuthority.authorizeField(context, entity, field, evidence) === true;
+    }
+    try {
+      return this.fieldPolicy(context, Object.freeze({ ...entity }), field) === true;
+    } catch {
+      return false;
+    }
   }
 
   _assertDisclosureStillCurrent(request, snapshot, entityIds) {
@@ -101,6 +129,8 @@ export class AuthorizedReadService {
       && Number.isSafeInteger(request.expectedCommitSequence) && request.expectedCommitSequence >= 0,
     'INVALID_AUTHORIZED_READ_SNAPSHOT', 'Expected world revision and commit sequence are required.');
 
+    const policyEvidence = this.capturePolicyEvidence();
+    const policyEvidence = this.capturePolicyEvidence();
     const binding = this.actorBindingService.resolve(
       request.worldId,
       request.adapterId,
@@ -131,20 +161,17 @@ export class AuthorizedReadService {
 
     const entity = snapshot.entities[0];
     if (entity.status === 'destroyed') throw unavailable();
-    let allowedField = false;
-    try {
-      allowedField = this.fieldPolicy(context, Object.freeze({ ...entity }), 'attributes.' + request.attribute) === true;
-    } catch {
-      allowedField = false;
-    }
+    const allowedField = this._authorizeField(context, entity, 'attributes.' + request.attribute, policyEvidence);
     if (!allowedField) throw unavailable();
 
     this._assertDisclosureStillCurrent(request, snapshot, [request.entityId]);
+    if (this.policyAuthority && !this.isPolicyEvidenceCurrent(policyEvidence)) throw unavailable();
     const present = object(entity.attributes) && Object.hasOwn(entity.attributes, request.attribute);
     return Object.freeze({
       world_id: snapshot.world_id,
       world_revision: snapshot.world_revision,
       commit_sequence: snapshot.commit_sequence,
+      ...(policyEvidence ? { policy_authority: policyEvidence } : {}),
       entity_id: entity.entity_id,
       attribute: request.attribute,
       present,
@@ -202,12 +229,7 @@ export class AuthorizedReadService {
     for (const entity of snapshot.entities) {
       const disclosed = {};
       for (const field of request.fields) {
-        let allowed = false;
-        try {
-          allowed = this.fieldPolicy(context, Object.freeze({ ...entity }), field) === true;
-        } catch {
-          allowed = false;
-        }
+        const allowed = this._authorizeField(context, entity, field, policyEvidence);
         if (!allowed) continue;
 
         if (field === 'entity_id' || field === 'entity_type' || field === 'status') {
@@ -228,11 +250,13 @@ export class AuthorizedReadService {
     }
 
     this._assertDisclosureStillCurrent(request, snapshot, request.entityIds);
+    if (this.policyAuthority && !this.isPolicyEvidenceCurrent(policyEvidence)) throw unavailable();
 
     return Object.freeze({
       world_id: snapshot.world_id,
       world_revision: snapshot.world_revision,
       commit_sequence: snapshot.commit_sequence,
+      ...(policyEvidence ? { policy_authority: policyEvidence } : {}),
       entities: Object.freeze(entities.map((entity) => Object.freeze(entity))),
     });
   }
