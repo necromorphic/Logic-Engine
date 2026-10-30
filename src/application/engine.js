@@ -1373,6 +1373,7 @@ export class LogicEngine {
             acquisition_authorization_ref: item.acquisition_authorization_ref,
             provenance_ref: item.provenance_ref,
             provenance_digest: item.provenance_digest,
+            ...(read.policy_authority ?? {}),
           }));
         } catch {
           throw new EngineError('NPC_KNOWLEDGE_VISIBILITY_NOT_AUTHORIZED',
@@ -1381,6 +1382,7 @@ export class LogicEngine {
         const allowedKeys = [
           'status', 'world_id', 'conversation_id', 'adapter_id', 'actor_id', 'recipient', 'purpose', 'world_revision',
           'commit_sequence', 'acquisition_id', 'authorization_ref',
+          ...(read.policy_authority ? ['authority_id', 'generation', 'snapshot_fingerprint'] : []),
         ];
         const exactDecision = exactDataRecord(decision, allowedKeys);
         if (!exactDecision || !['allowed', 'denied'].includes(decision.status)
@@ -1391,6 +1393,9 @@ export class LogicEngine {
           || decision.world_revision !== read.snapshot.world_revision
           || decision.commit_sequence !== read.snapshot.commit_sequence
           || decision.acquisition_id !== item.acquisition_id
+          || (read.policy_authority && (decision.authority_id !== read.policy_authority.authority_id
+            || decision.generation !== read.policy_authority.generation
+            || decision.snapshot_fingerprint !== read.policy_authority.snapshot_fingerprint))
           || typeof decision.authorization_ref !== 'string' || !decision.authorization_ref.trim()) {
           throw new EngineError('NPC_KNOWLEDGE_VISIBILITY_NOT_AUTHORIZED',
             'The visibility decision did not bind to this actor, acquisition, purpose, and snapshot.', 403);
@@ -1422,7 +1427,7 @@ export class LogicEngine {
         expected_revision: read.snapshot.world_revision,
         expected_commit_sequence: read.snapshot.commit_sequence,
         limit,
-      }, snapshotNow, read.authorization_ref);
+      }, snapshotNow, read.authorization_ref, read.policy_authority ?? null);
   
       // Check visibility before querying belief history. Otherwise, unknown vs.
       // unavailable could reveal whether a hidden proposition has a stored belief.
@@ -1445,6 +1450,7 @@ export class LogicEngine {
       return Object.freeze({
         status: 'ready',
         actor_id: input.actor_id,
+        ...(read.policy_authority ? { policy_authority: read.policy_authority } : {}),
         proposition_ref: row.proposition_ref,
         ...(surviving.length > 0 ? { proposition_value: JSON.parse(row.proposition_value_json) } : {}),
         stance: row.stance,
