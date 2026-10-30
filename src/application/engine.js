@@ -652,6 +652,23 @@ export class LogicEngine {
 
   getState(id) { return this.store.state(id); }
   getSnapshot(id, request = {}) { return this.store.readSnapshot(id, request); }
+  /**
+   * NPC authorization may need a final check while the Core write transaction
+   * is held. In that case, read the world row and event cursor through the same
+   * SQLite transaction instead of nesting readSnapshot(), which intentionally
+   * rejects reads from inside a write transaction.
+   */
+  getNpcKnowledgeSnapshot(id) {
+    if (this.store.txDepth > 0) {
+      const currentWorld = this.store.world(id);
+      if (!currentWorld) return null;
+      return Object.freeze({
+        ...currentWorld,
+        commit_sequence: this.store.currentCommitSequence(id),
+      });
+    }
+    return this.getSnapshot(id);
+  }
   /** @internal Provider reconciliation only; not an HTTP/client authorization API. */
   getCanonicalEntityInventory(id, request = {}) { return this.store.readCanonicalEntityInventory(id, request); }
   getEvents(id, includeInvalid = false) { return this.store.events(id, includeInvalid); }
@@ -1063,7 +1080,7 @@ export class LogicEngine {
       // Use one atomic snapshot read: rollback advances world_revision without
       // advancing commit_sequence, so separate reads can straddle a rollback and
       // accidentally accept a stale context.
-      const snapshotNow = this.getSnapshot(read.world_id);
+      const snapshotNow = this.getNpcKnowledgeSnapshot(read.world_id);
       assert(snapshotNow && snapshotNow.status === 'active'
         && snapshotNow.world_revision === read.snapshot.world_revision
         && snapshotNow.commit_sequence === read.snapshot.commit_sequence,
@@ -1422,7 +1439,7 @@ export class LogicEngine {
       // advances world_revision without advancing commit_sequence, so separate
       // reads can accidentally combine values from opposite sides of a rollback.
       let snapshotNow;
-      try { snapshotNow = this.getSnapshot(input.world_id); } catch { snapshotNow = null; }
+      try { snapshotNow = this.getNpcKnowledgeSnapshot(input.world_id); } catch { snapshotNow = null; }
       assert(snapshotNow && snapshotNow.status === 'active'
         && snapshotNow.world_revision === read.snapshot.world_revision
         && snapshotNow.commit_sequence === read.snapshot.commit_sequence,
