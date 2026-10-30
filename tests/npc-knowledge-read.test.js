@@ -58,12 +58,19 @@ function setup(t, authorizer = (scope) => ({
     npcKnowledgeReadAuthorizer: authorizer,
     npcKnowledgeVisibilityAuthorizer: visibilityAuthorizer,
   });
+  const binding = { adapter_id: 'adapter-st', conversation_id: 'conversation-a', world_id: 'world-a' };
   engine.createWorld({
     world_id: 'world-a',
     world_pack_id: 'test.world',
     world_pack_version: '1.0.0',
     game_time: '2026-01-01T00:00:00Z',
   });
+
+  store.db.prepare(`
+    INSERT INTO host_conversation_world_bindings(
+      adapter_id,conversation_id,world_id,active,created_at,updated_at
+    ) VALUES(?,?,?,1,datetime('now'),datetime('now'))
+  `).run(binding.adapter_id, binding.conversation_id, binding.world_id);
 
   store.db.prepare(`
     INSERT INTO host_conversation_world_bindings(
@@ -900,6 +907,11 @@ test('over-limit contradictory acquisition fails closed before context or belief
     world_pack_version: '1.0.0',
     game_time: '2026-01-01T00:00:00Z',
   });
+  store.db.prepare(`
+    INSERT INTO host_conversation_world_bindings(
+      adapter_id,conversation_id,world_id,active,created_at,updated_at
+    ) VALUES(?,?,?,1,datetime('now'),datetime('now'))
+  `).run(binding.adapter_id, binding.conversation_id, binding.world_id);
   engine.commitEvent('world-a', {
     event_id: 'author-seed',
     idempotency_key: 'author-seed-key',
