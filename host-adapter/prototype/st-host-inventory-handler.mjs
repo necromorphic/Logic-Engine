@@ -66,6 +66,10 @@ export function createHostInventoryHandler({
       const filesystem = inventory.filesystem;
       const blockers = [
         ...source.blockers,
+        'NO_DURABLE_FULL_ROOT_BASELINE',
+        'NO_FULL_ROOT_PER_FILE_DIFF',
+        'NO_GLOBAL_SILLYTAVERN_DATA_ROOT_COVERAGE',
+        'NO_SEMANTIC_CHARACTER_PERSONA_IDENTITY',
         ...(inventory.snapshot_alignment === 'SHARED_VSS_SNAPSHOT'
           ? [] : ['NO_SHARED_POINT_IN_TIME_SNAPSHOT']),
       ];
