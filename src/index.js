@@ -5,6 +5,7 @@ import { LogicEngine } from './application/engine.js';
 import { createApiServer } from './api/server.js';
 import { HostVersionDigestLedger } from './application/host-version-digest-ledger.js';
 import { loadTrustedWorldPackCatalog } from './application/world-pack-catalog.js';
+import { DeploymentPolicyAuthority } from './application/deployment-policy-authority.js';
 
 const token = process.env.ENGINE_API_TOKEN;
 const internalToken = process.env.ENGINE_INTERNAL_TOKEN || null;
@@ -99,6 +100,22 @@ if (typeof worldPackCatalogPath !== 'string' || !worldPackCatalogPath.trim()) {
 }
 const worldPackCatalog = loadTrustedWorldPackCatalog(resolve(worldPackCatalogPath));
 
+// The shipped runtime has no approved domain visibility schema yet. Its explicit
+// deployment authority therefore preserves the narrow self-identity-only policy;
+// all other attributes remain withheld. Mechanics stay disabled until a trusted
+// context provider using this exact authority is wired by deployment.
+const policyAuthorityIdentity = process.env.ENGINE_POLICY_AUTHORITY_ID || 'logic-engine.self-identity';
+const policyGeneration = process.env.ENGINE_POLICY_GENERATION || 'self-identity-only-v1';
+const deploymentPolicyAuthority = new DeploymentPolicyAuthority({
+  authorityIdentity: policyAuthorityIdentity,
+  resolveActivePolicy: () => ({
+    authority_identity: policyAuthorityIdentity,
+    generation: policyGeneration,
+    authorizeField: (context, entity, field) => entity.entity_id === context.actor.entity_id
+      && ['entity_id', 'entity_type', 'status'].includes(field),
+  }),
+});
+
 const store = new SQLiteStore(dbPath);
 const hostVersionLedgerPath = process.env.ENGINE_HOST_VERSION_LEDGER_DB_PATH
   ? resolve(process.env.ENGINE_HOST_VERSION_LEDGER_DB_PATH)
@@ -118,6 +135,7 @@ const hostVersionLedger = new HostVersionDigestLedger({
 });
 const server = createApiServer({
   engine: new LogicEngine(store, { trustedInitialKnowledgeSources, worldPackCatalog }), token, internalToken, approvalToken, adminToken, adapterTokens,
+  deploymentPolicyAuthority,
   hostVersionLedger,
 });
 server.listen(port, host, () => process.stdout.write(
