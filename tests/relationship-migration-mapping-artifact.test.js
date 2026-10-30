@@ -54,6 +54,7 @@ const sameSet = (left, right) =>
 
 function validateAgainstDomain(artifact, {
   sourceDomains: sourceDomain,
+  sourceDomainsByModule = null,
   targetDomains: targetDomain,
   sourceModules: expectedSourceModules,
   targetModule: expectedTargetModule,
@@ -78,6 +79,7 @@ function validateAgainstDomain(artifact, {
   if (pinKey(artifact.target_rule_module) !== pinKey(expectedTargetModule)) add('target_module_pin', 'target rule-module pin is not exact');
 
   const declaredModules = new Set(artifact.source_rule_modules.map(pinKey));
+  const sourceDomainsForModule = (moduleKey) => sourceDomainsByModule?.[moduleKey] ?? sourceDomain;
   const seenSourceDimensions = new Set();
   const mappedTargetDimensions = new Set();
 
@@ -91,7 +93,7 @@ function validateAgainstDomain(artifact, {
     if (seenSourceDimensions.has(sourceKey)) add('duplicate_source_dimension', sourceKey);
     seenSourceDimensions.add(sourceKey);
 
-    const sourceDefinition = sourceDomain[mapping.source_dimension];
+    const sourceDefinition = sourceDomainsForModule(moduleKey)[mapping.source_dimension];
     if (!sourceDefinition) {
       add('unknown_source_dimension', mapping.source_dimension);
       continue;
@@ -141,8 +143,9 @@ function validateAgainstDomain(artifact, {
   }
 
   for (const modulePin of expectedSourceModules) {
-    for (const dimension of Object.keys(sourceDomain)) {
-      const key = pinKey(modulePin) + ':' + dimension;
+    const moduleKey = pinKey(modulePin);
+    for (const dimension of Object.keys(sourceDomainsForModule(moduleKey))) {
+      const key = moduleKey + ':' + dimension;
       if (!seenSourceDimensions.has(key)) add('missing_dimension_mapping', key);
     }
   }
@@ -167,9 +170,10 @@ function validateAgainstDomain(artifact, {
     }
   }
   for (const sourceModule of artifact.source_rule_modules) {
-    for (const dimension of Object.keys(sourceDomain)) {
-      if (!seenSourceDimensions.has(pinKey(sourceModule) + ':' + dimension)) {
-        add('source_module_dimension_coverage_missing', pinKey(sourceModule) + ':' + dimension);
+    const moduleKey = pinKey(sourceModule);
+    for (const dimension of Object.keys(sourceDomainsForModule(moduleKey))) {
+      if (!seenSourceDimensions.has(moduleKey + ':' + dimension)) {
+        add('source_module_dimension_coverage_missing', moduleKey + ':' + dimension);
       }
     }
   }
@@ -298,6 +302,52 @@ test('a dimension mapping cannot reference an undeclared source module pin', () 
   assert.ok(validateAgainstDomain(candidate, {
     sourceDomains, targetDomains, sourceModules, targetModule, sourcePack, targetPack,
   }).some(error => error.code === 'undeclared_source_module'));
+});
+
+test('source dimension domains are resolved independently for each pinned module version', () => {
+  const secondModule = { module_id: 'relationship-rules', version: '2.0.0' };
+  const secondSourceDomain = { trust: { values: ['guarded', 'open'] } };
+  const secondTargetDomain = { trust_v2: { values: ['guarded', 'open'] } };
+  const candidate = clone(complete);
+  candidate.source_rule_modules.push(secondModule);
+  const secondTrustMapping = clone(candidate.dimension_mappings.find(item => item.source_dimension === 'trust'));
+  secondTrustMapping.source_rule_module = secondModule;
+  secondTrustMapping.target_dimension = 'trust_v2';
+  secondTrustMapping.value_mappings = [
+    { source_value: 'guarded', target_value: 'guarded' },
+    { source_value: 'open', target_value: 'open' },
+  ];
+  candidate.dimension_mappings.push(secondTrustMapping);
+
+  assert.deepEqual(validateAgainstDomain(candidate, {
+    sourceDomains,
+    sourceDomainsByModule: {
+      'relationship-rules@1.0.0': sourceDomains,
+      'relationship-rules@2.0.0': secondSourceDomain,
+    },
+    targetDomains: { ...targetDomains, ...secondTargetDomain },
+    sourceModules: [...sourceModules, secondModule],
+    targetModule,
+    sourcePack,
+    targetPack,
+  }), []);
+
+  const wrongModuleValue = clone(candidate);
+  wrongModuleValue.dimension_mappings.find(item =>
+    item.source_rule_module.version === '2.0.0' && item.source_dimension === 'trust'
+  ).value_mappings[0].source_value = 'low';
+  assert.ok(validateAgainstDomain(wrongModuleValue, {
+    sourceDomains,
+    sourceDomainsByModule: {
+      'relationship-rules@1.0.0': sourceDomains,
+      'relationship-rules@2.0.0': secondSourceDomain,
+    },
+    targetDomains: { ...targetDomains, ...secondTargetDomain },
+    sourceModules: [...sourceModules, secondModule],
+    targetModule,
+    sourcePack,
+    targetPack,
+  }).some(error => error.code === 'incomplete_value_coverage'));
 });
 
 test('missing special-state coverage rejects the whole artifact', () => {
