@@ -30,7 +30,7 @@ export class ActorBindingService {
     if (!validId(worldId) || !validId(adapterId) || !validId(entityId)) {
       throw new EngineError('INVALID_ACTOR_BINDING', 'world_id, adapter_id and entity_id must be non-empty identifiers.', 400);
     }
-    return this.engine.store.tx(() => {
+    const result = this.engine.store.tx(() => {
       if (!this.engine.store.world(worldId)) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
       const entity = this.db.prepare('SELECT status FROM entities WHERE world_id=? AND entity_id=?').get(worldId, entityId.trim());
       if (!entity || entity.status === 'destroyed') {
@@ -49,13 +49,15 @@ export class ActorBindingService {
           JSON.stringify({ adapter_id: adapterId.trim(), entity_id: entityId.trim() }), t);
       return { world_id: worldId, adapter_id: adapterId.trim(), entity_id: entityId.trim(), active: true, already_bound: false };
     });
+    if (!result.already_bound) this.engine.npcKnowledgePolicyAuthority?.advanceGeneration();
+    return result;
   }
 
   revoke(worldId, adapterId, entityId) {
     if (!validId(worldId) || !validId(adapterId) || !validId(entityId)) {
       throw new EngineError('INVALID_ACTOR_BINDING', 'world_id, adapter_id and entity_id must be non-empty identifiers.', 400);
     }
-    return this.engine.store.tx(() => {
+    const result = this.engine.store.tx(() => {
       if (!this.engine.store.world(worldId)) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
       const t = now();
       const changed = this.db.prepare('UPDATE actor_bindings SET active=0,updated_at=? WHERE world_id=? AND adapter_id=? AND entity_id=? AND active=1')
@@ -67,6 +69,8 @@ export class ActorBindingService {
       }
       return { world_id: worldId, adapter_id: adapterId.trim(), entity_id: entityId.trim(), active: false, changed: Boolean(changed) };
     });
+    if (result.changed) this.engine.npcKnowledgePolicyAuthority?.advanceGeneration();
+    return result;
   }
 
   resolve(worldId, adapterId, entityId) {
