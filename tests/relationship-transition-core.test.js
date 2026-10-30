@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { SQLiteStore } from '../src/storage/sqlite-store.js';
 import { LogicEngine } from '../src/application/engine.js';
 import { createApiServer } from '../src/api/server.js';
+import { hashRequest } from '../src/core/request-hash.js';
 
 const token = 'test-api-token-123456789';
 const adminToken = 'test-admin-token-123456789';
@@ -762,6 +763,45 @@ test('projection rebuild preserves the exact historical rule-version pin when it
       .find((event) => event.event_id === committed.event_id);
     assert.equal(committedEvent.effects[0].rule_module_id, 'relationship-rules');
     assert.equal(committedEvent.effects[0].rule_module_version, '1.0.0');
+    const historicalSnapshot = committedEvent.effects[0].relationship_evaluation_snapshot;
+    assert.equal(historicalSnapshot.originating_event_id, committed.event_id);
+    assert.equal(historicalSnapshot.schema, 'relationship-evaluation-input/v2');
+    assert.equal(historicalSnapshot.evaluator_contract, 'relationship-candidate/v1');
+    assert.equal(historicalSnapshot.rule_module_id, 'relationship-rules');
+    assert.equal(historicalSnapshot.rule_module_version, '1.0.0');
+    assert.equal(historicalSnapshot.world_pack_id, 'test-pack');
+    assert.equal(historicalSnapshot.world_pack_version, '1.0.0');
+    assert.deepEqual(Object.keys(historicalSnapshot.input).sort(), [
+      'currentValues', 'dimensionRules', 'evidence', 'patch',
+      'ruleVersion', 'subjectId', 'targetId',
+    ]);
+    assert.equal(historicalSnapshot.input.evidence.status, 'supported');
+    assert.deepEqual(historicalSnapshot.input.evidence.refs, ['event:' + seed.event_id]);
+    assert.equal(historicalSnapshot.input.ruleVersion, 'relationship-rules@1.0.0');
+    assert.match(historicalSnapshot.input_digest, /^[a-f0-9]{64}$/);
+    assert.equal(historicalSnapshot.input_digest, hashRequest(historicalSnapshot.input));
+    const { snapshot_digest: snapshotDigest, ...snapshotEnvelope } = historicalSnapshot;
+    assert.match(snapshotDigest, /^[a-f0-9]{64}$/);
+    assert.equal(snapshotDigest, hashRequest(snapshotEnvelope));
+    const beforeHistoricalRead = {
+      revision: store.world('world-relationship-test').world_revision,
+      eventCount: store.events('world-relationship-test').length,
+      auditCount: store.audit('world-relationship-test').length,
+      pair: store.getRelationshipPair('world-relationship-test', 'A', 'B'),
+    };
+    const historicalResult = store.reevaluateRelationshipEvent('world-relationship-test', committed.event_id);
+    assert.equal(historicalResult.status, 'evaluated');
+    assert.equal(historicalResult.read_only, true);
+    assert.equal(historicalResult.results.length, 1);
+    assert.equal(historicalResult.results[0].candidate.status, 'candidate');
+    assert.equal(historicalResult.results[0].comparison.matches_committed_effect, true);
+    assert.deepEqual({
+      revision: store.world('world-relationship-test').world_revision,
+      eventCount: store.events('world-relationship-test').length,
+      auditCount: store.audit('world-relationship-test').length,
+      pair: store.getRelationshipPair('world-relationship-test', 'A', 'B'),
+    }, beforeHistoricalRead, 'historical re-evaluation must not mutate revision, events, projection, or audit');
+
     store.close();
     store = null;
 
@@ -829,6 +869,15 @@ test('projection rebuild preserves the exact historical rule-version pin when it
       .find((event) => event.event_id === committed.event_id);
     assert.equal(eventAfterRestart.effects[0].rule_module_id, 'relationship-rules');
     assert.equal(eventAfterRestart.effects[0].rule_module_version, '1.0.0');
+    assert.deepEqual(
+      eventAfterRestart.effects[0].relationship_evaluation_snapshot,
+      historicalSnapshot,
+      'the immutable evaluator input snapshot must survive close/reopen and projection rebuild',
+    );
+    assert.equal(
+      eventAfterRestart.effects[0].relationship_evaluation_snapshot.input_digest,
+      hashRequest(eventAfterRestart.effects[0].relationship_evaluation_snapshot.input),
+    );
 
     const projectionPin = reopenedStore.db.prepare(
       'SELECT rule_module_id, rule_module_version, last_event_id FROM relationships WHERE world_id=? AND subject_id=? AND target_id=? AND dimension=?',
@@ -837,10 +886,58 @@ test('projection rebuild preserves the exact historical rule-version pin when it
     assert.equal(projectionPin.rule_module_version, '1.0.0');
     assert.equal(projectionPin.last_event_id, committed.event_id);
     assert.equal(reopenedStore.getRelationshipPair('world-relationship-test', 'A', 'B').dimensions.trust, 'low');
+    const afterRestartEvaluation = reopenedEngine.reevaluateRelationshipEvent('world-relationship-test', committed.event_id);
+    assert.equal(afterRestartEvaluation.status, 'evaluated');
+    assert.equal(afterRestartEvaluation.results[0].comparison.matches_committed_effect, true);
   } finally {
     store?.close();
     rmSync(directory, { recursive: true, force: true });
   }
+});
+
+
+test('historical re-evaluation rejects an unavailable pinned artifact instead of substituting a newer registered version', async () => {
+  const { store, engine, seed } = await fixture();
+  try {
+    engine.registerRuleModuleManifest({
+      module_id: 'relationship-rules', version: '0.9.0', contract_version: '1.0.0',
+      capabilities: [], operations: ['validate_transition'], input_schema: {}, output_schema: {},
+      failure_policy: 'fail_closed', compatibility: { core_contract_versions: ['1.0.0'] },
+      metadata: { relationship_domain: { world_pack_id: 'test-pack', world_pack_version: '1.0.0', dimensions: rules } },
+    });
+    const committed = engine.commitRelationshipTransition('world-relationship-test', transitionRequest(seed, {
+      rule_module_version: '0.9.0', idempotency_key: 'relationship-old-rule-pin',
+    }));
+    const before = {
+      revision: engine.getState('world-relationship-test').world_revision,
+      events: engine.getEvents('world-relationship-test'),
+      audit: engine.getAudit('world-relationship-test'),
+      pair: store.getRelationshipPair('world-relationship-test', 'A', 'B'),
+    };
+    const result = engine.reevaluateRelationshipEvent('world-relationship-test', committed.event_id);
+    assert.equal(result.status, 'unavailable');
+    assert.equal(result.results[0].reason, 'exact_evaluator_artifact_unavailable');
+    assert.deepEqual({
+      revision: engine.getState('world-relationship-test').world_revision,
+      events: engine.getEvents('world-relationship-test'),
+      audit: engine.getAudit('world-relationship-test'),
+      pair: store.getRelationshipPair('world-relationship-test', 'A', 'B'),
+    }, before);
+  } finally { store.close(); }
+});
+
+test('historical re-evaluation fails closed for a legacy event without a captured input snapshot', async () => {
+  const { store, engine, seed } = await fixture();
+  try {
+    const committed = engine.commitRelationshipTransition('world-relationship-test', transitionRequest(seed));
+    const row = store.db.prepare('SELECT effects_json FROM world_events WHERE world_id=? AND event_id=?').get('world-relationship-test', committed.event_id);
+    const effects = JSON.parse(row.effects_json);
+    delete effects[0].relationship_evaluation_snapshot;
+    store.db.prepare('UPDATE world_events SET effects_json=? WHERE world_id=? AND event_id=?').run(JSON.stringify(effects), 'world-relationship-test', committed.event_id);
+    const result = engine.reevaluateRelationshipEvent('world-relationship-test', committed.event_id);
+    assert.equal(result.status, 'unavailable');
+    assert.equal(result.results[0].reason, 'historical_relationship_snapshot_missing');
+  } finally { store.close(); }
 });
 
 
