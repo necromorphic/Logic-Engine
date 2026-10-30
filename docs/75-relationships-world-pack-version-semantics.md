@@ -248,7 +248,7 @@ This section records the accepted disposition after the Relationships, Core, and
 | Incompatible historical World Pack / semantic re-evaluation | Unsupported in the current release; no historical evaluator/provenance contract or production-path test is claimed. |
 | Explicit migration | Unsupported/refused; no approved path or executable migration test exists. |
 
-The related trackers are closed for their defined current-release decision/traceability scopes, not as a claim that unsupported capabilities were implemented: Relationships [#143](https://github.com/necromorphic/Logic-Engine/issues/143), Core [#146](https://github.com/necromorphic/Logic-Engine/issues/146), and Personality [#73](https://github.com/necromorphic/Logic-Engine/issues/73). Personality's version-semantics traceability was updated in merged [PR #722](https://github.com/necromorphic/Logic-Engine/pull/722). The #73 closure leaves unrelated authorized-read and NPC-consumer runtime work with its owning trackers; it does not mark those behaviors implemented.
+At the time of this original disposition, the related trackers were closed for their bounded decision/traceability scopes, not as a claim that unsupported capabilities were implemented: Relationships [#143](https://github.com/necromorphic/Logic-Engine/issues/143), Core [#146](https://github.com/necromorphic/Logic-Engine/issues/146), and Personality [#73](https://github.com/necromorphic/Logic-Engine/issues/73). Personality's version-semantics traceability was updated in merged [PR #722](https://github.com/necromorphic/Logic-Engine/pull/722). The #73 closure leaves unrelated authorized-read and NPC-consumer runtime work with its owning trackers; it does not mark those behaviors implemented.
 
 
 ## 13. Follow-up runtime implementation — historical candidate re-evaluation (30 October 2026)
@@ -275,3 +275,5 @@ This section supersedes Section 12 only for the bounded historical candidate re-
 | Meaning-changing migration | Still unsupported/refused; no approved mapping or production migration path exists, so no migration-execution test is claimed. |
 
 Runtime CI #5924 passed on exact PR head `e59d329a821764c6605e2f1b3318b8a04672fce9` (all three jobs, including `npm test`). Codex code review on that exact head completed with no findings. Projection rebuild remains a separate operation that reapplies the committed effect without executing the historical evaluator.
+
+Current tracker status during this follow-up: Core #146 is closed after the runtime merge; Relationships #143 remains open for this owner-document update (PR #735); Personality #73 is reopened for its traceability update (PR #736).
