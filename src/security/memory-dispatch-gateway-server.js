@@ -76,6 +76,8 @@ export async function createMemoryDispatchGatewayServer({
       model: payload?.model,
       stream: payload?.stream,
       body: payload?.body,
+      adapterId: payload?.adapter_id,
+      conversationId: payload?.conversation_id,
       worldId: payload?.world_id,
       actorId: payload?.actor_id,
       purpose: payload?.purpose,
