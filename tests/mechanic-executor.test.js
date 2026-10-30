@@ -458,6 +458,7 @@ test('proposal policy validation delegates to the active context provider and re
       { path: 'actor.hp', entity_id: 'entity.actor-context', attribute: 'hp' },
     ],
     canRead: () => true,
+    authorizationPrincipal: { adapterId: 'test-adapter', actorEntityId: 'entity.actor-context', recipient: 'model', purpose: 'npc_decision' },
   });
 
   let activeProvider = makeProvider('visibility-policy-v1');
@@ -1071,7 +1072,7 @@ test('canonical entity-attribute provider constructs versioned context and evide
     }),
   });
   const result = new MechanicExecutor(engine, {
-    resolveAuthorizedContext: (args) => authority.resolveAuthorizedContext(args),
+    resolveAuthorizedContext: (args) => authority.resolveAuthorizedContext({ ...args, authenticatedAdapterId: 'test-adapter' }),
   }).evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
   assert.equal(result.status, 'ready');
   assert.equal(result.guarantees.context_provider_attested_snapshot, true);
