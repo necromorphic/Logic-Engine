@@ -100,7 +100,130 @@
                 "minItems": 8,
                 "items": {
                   "$ref": "#/$defs/specialStateMapping"
-                }
+                },
+                "uniqueItems": true,
+                "allOf": [
+                  {
+                    "contains": {
+                      "type": "object",
+                      "properties": {
+                        "source_state": {
+                          "const": "unset"
+                        }
+                      },
+                      "required": [
+                        "source_state"
+                      ]
+                    },
+                    "minContains": 1,
+                    "maxContains": 1
+                  },
+                  {
+                    "contains": {
+                      "type": "object",
+                      "properties": {
+                        "source_state": {
+                          "const": "cleared"
+                        }
+                      },
+                      "required": [
+                        "source_state"
+                      ]
+                    },
+                    "minContains": 1,
+                    "maxContains": 1
+                  },
+                  {
+                    "contains": {
+                      "type": "object",
+                      "properties": {
+                        "source_state": {
+                          "const": "withheld"
+                        }
+                      },
+                      "required": [
+                        "source_state"
+                      ]
+                    },
+                    "minContains": 1,
+                    "maxContains": 1
+                  },
+                  {
+                    "contains": {
+                      "type": "object",
+                      "properties": {
+                        "source_state": {
+                          "const": "conflict"
+                        }
+                      },
+                      "required": [
+                        "source_state"
+                      ]
+                    },
+                    "minContains": 1,
+                    "maxContains": 1
+                  },
+                  {
+                    "contains": {
+                      "type": "object",
+                      "properties": {
+                        "source_state": {
+                          "const": "insufficient"
+                        }
+                      },
+                      "required": [
+                        "source_state"
+                      ]
+                    },
+                    "minContains": 1,
+                    "maxContains": 1
+                  },
+                  {
+                    "contains": {
+                      "type": "object",
+                      "properties": {
+                        "source_state": {
+                          "const": "insufficient_support"
+                        }
+                      },
+                      "required": [
+                        "source_state"
+                      ]
+                    },
+                    "minContains": 1,
+                    "maxContains": 1
+                  },
+                  {
+                    "contains": {
+                      "type": "object",
+                      "properties": {
+                        "source_state": {
+                          "const": "unsupported"
+                        }
+                      },
+                      "required": [
+                        "source_state"
+                      ]
+                    },
+                    "minContains": 1,
+                    "maxContains": 1
+                  },
+                  {
+                    "contains": {
+                      "type": "object",
+                      "properties": {
+                        "source_state": {
+                          "const": "incomplete"
+                        }
+                      },
+                      "required": [
+                        "source_state"
+                      ]
+                    },
+                    "minContains": 1,
+                    "maxContains": 1
+                  }
+                ]
               }
             }
           },
