@@ -187,7 +187,7 @@ export class MechanicExecutor {
       return unknown('SNAPSHOT_CHANGED_DURING_CONTEXT_RESOLUTION', 'World revision or commit sequence changed while resolving authorized context.', identity);
     }
 
-    const allowedResolvedKeys = new Set(['context', 'world_revision', 'commit_sequence', 'policy_version', 'authorization_scope', 'authority_id', 'policy_generation', 'knownAbsentPaths', 'dependencyEvidence']);
+    const allowedResolvedKeys = new Set(['context', 'world_revision', 'commit_sequence', 'policy_version', 'authorization_scope', 'authority_id', 'policy_generation', 'authorization_principal', 'knownAbsentPaths', 'dependencyEvidence']);
     let resolvedShapeValid = false;
     try {
       resolvedShapeValid = object(resolved)
@@ -206,6 +206,12 @@ export class MechanicExecutor {
       || typeof resolved.authorization_scope !== 'string' || !resolved.authorization_scope.trim()
       || typeof resolved.authority_id !== 'string' || !resolved.authority_id.trim()
       || !Number.isSafeInteger(resolved.policy_generation) || resolved.policy_generation < 1
+      || !object(resolved.authorization_principal)
+      || Object.keys(resolved.authorization_principal).some((key) => !['adapterId', 'actorEntityId', 'recipient', 'purpose'].includes(key))
+      || typeof resolved.authorization_principal.adapterId !== 'string' || !resolved.authorization_principal.adapterId.trim()
+      || typeof resolved.authorization_principal.actorEntityId !== 'string' || !resolved.authorization_principal.actorEntityId.trim()
+      || !['model', 'player', 'adapter'].includes(resolved.authorization_principal.recipient)
+      || !['npc_decision', 'character_card', 'narrative'].includes(resolved.authorization_principal.purpose)
       || !Array.isArray(resolved.knownAbsentPaths ?? [])
       || !(resolved.knownAbsentPaths ?? []).every((path) => typeof path === 'string' && path.trim())
       || !Array.isArray(resolved.dependencyEvidence)) {
@@ -407,6 +413,7 @@ export class MechanicExecutor {
         authorization_scope: resolved.authorization_scope,
         authority_id: resolved.authority_id,
         policy_generation: resolved.policy_generation,
+        authorization_principal: resolved.authorization_principal,
       });
     } catch {
       return unknown('AUTHORIZED_CONTEXT_NOT_FINGERPRINTABLE', 'Trusted context is not a canonical JSON value; evaluation failed closed.', identity);
@@ -419,6 +426,7 @@ export class MechanicExecutor {
       authorization_scope: resolved.authorization_scope,
       authority_id: resolved.authority_id,
       policy_generation: resolved.policy_generation,
+      authorization_principal: resolved.authorization_principal,
       condition_result: conditionResult,
       dependency_manifest: dependencyManifest,
       effects: translated.effects,
