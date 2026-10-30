@@ -76,7 +76,7 @@ The migration artifact must be immutable and addressable by exact migration ID/v
 - artifact schema/contract version;
 - complete dimension and value mappings, including special-state handling and explicit treatment of target-only/removed dimensions.
 
-Core must verify that the artifact's source tuple matches the current projection's proven source tuple and that the target rule-module version is registered and compatible with the target World Pack tuple. Core must not infer compatibility from a version label.
+Core must verify that the artifact's source tuple matches the current projection's proven source tuple, that the world's active World Pack ID/version still equals the artifact's source World Pack ID/version, and that the target rule-module version is registered and compatible with the target World Pack tuple. If the active world pin has already moved independently of the current Relationships state, reject rather than guessing which semantic version the world is migrating from. Core must not infer compatibility from a version label.
 
 The current implementation stores no World Pack pin on a relationship projection row. Core must obtain it from the exact v2 evaluation snapshot attached to each row's `last_event_id`; it must not use the world's current manifest to reconstruct historical provenance. A missing, legacy, corrupt, mismatched, or unavailable snapshot rejects the migration.
 
