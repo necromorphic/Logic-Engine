@@ -5,7 +5,7 @@ import { hashRequest } from '../core/request-hash.js';
 import { ProposalService } from '../application/proposals.js';
 import { ActorBindingService } from '../application/actor-bindings.js';
 import { AuthorizedReadService } from '../application/authorized-read-service.js';
-import { isMechanicPolicyAuthority } from '../application/mechanic-policy-authority.js';
+import { isMechanicPolicyAuthority, defaultMechanicPolicyFieldPolicy } from '../application/mechanic-policy-authority.js';
 import { HostConversationWorldBindingService } from '../application/host-conversation-world-bindings.js';
 
 const MAX = 1048576;
@@ -94,8 +94,7 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
   const hostConversationBindings = new HostConversationWorldBindingService(engine);
   // Until a canonical visibility schema exists, disclose only the bound actor's
   // own non-attribute identity fields. This intentionally denies all attributes.
-  const defaultAuthorizedReadFieldPolicy = (context, entity, field) => entity.entity_id === context.actor.entity_id
-    && ['entity_id', 'entity_type', 'status'].includes(field);
+  const defaultAuthorizedReadFieldPolicy = defaultMechanicPolicyFieldPolicy;
   // A host may opt into a broader, explicit policy. The policy is trusted
   // application configuration and is never accepted from an HTTP request.
   // Without one, preserve the narrow self-identity-only default.
