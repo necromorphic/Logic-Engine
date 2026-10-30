@@ -88,7 +88,7 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
     first.exec("PRAGMA journal_mode=WAL; CREATE TABLE probe(value TEXT); INSERT INTO probe VALUES('ok');");
     assert.equal(first.prepare('SELECT value FROM probe').get().value, 'ok');
     const opened = first.prepare('SELECT logic_engine_vfs_probe_open_count() AS count').get().count;
-    assert.equal(opened, 1, 'the first file-backed DatabaseSync must pass through the registered VFS xOpen');
+    assert.equal(opened, 2, 'the worker and Core file-backed DatabaseSync connections must pass through the registered VFS xOpen');
 
     // Keep a reader transaction open while the writer appends another WAL frame.
     // This makes the WAL and SHM sidecars observable before the connections close.
@@ -131,8 +131,8 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
   try {
     second.exec('CREATE TABLE probe(value TEXT);');
     const opened = second.prepare('SELECT logic_engine_vfs_probe_open_count() AS count').get().count;
-    assert.equal(opened, 4,
-      'the VFS must remain registered across the core, reader, journal and coordinator file connections');
+    assert.equal(opened, 5,
+      'the VFS must remain registered across the worker, core, reader, journal and coordinator file connections');
 
     // Establish the expected OS identity, then replace the path with a hardlink
     // after SQLite has reached xOpen but immediately before the native OS open.
