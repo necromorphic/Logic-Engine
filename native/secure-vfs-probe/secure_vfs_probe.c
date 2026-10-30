@@ -1128,6 +1128,10 @@ static int probe_win_delete_role(int role_index, const wchar_t *relative_name,
 }
 #endif
 
+#ifndef _WIN32
+static int probe_posix_parent_is_protected(int parent_fd);
+#endif
+
 static int probe_xDelete(sqlite3_vfs *vfs, const char *name, int sync_dir) {
   sqlite3_vfs *p = (sqlite3_vfs *)vfs->pAppData;
 #ifdef _WIN32
