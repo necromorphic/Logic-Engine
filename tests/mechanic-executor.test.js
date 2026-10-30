@@ -15,6 +15,15 @@ import { collectMechanicConditionDependencies } from '../src/core/mechanics.js';
 import { hashRequest } from '../src/core/request-hash.js';
 import { attestMechanicEvaluation } from '../src/application/mechanic-evaluation-attestation.js';
 
+const TEST_POLICY_AUTHORITY_EVIDENCE = Object.freeze({
+  authority_identity: 'test.mechanic-context',
+  policy_generation: 'fixture-v1',
+  policy_version: hashRequest({
+    authority_identity: 'test.mechanic-context',
+    policy_generation: 'fixture-v1',
+  }),
+});
+
 function setup(t, worldId = 'executor-world') {
   const store = new SQLiteStore(':memory:');
   const engine = new LogicEngine(store);
@@ -113,6 +122,7 @@ function contextProvider(context = { world: { weather: 'rain' }, actor: { hp: 10
       commit_sequence: snapshot.commit_sequence,
       authorization_scope: 'test-principal',
       policy_version: 'test-visibility-policy-v1',
+      policy_authority: TEST_POLICY_AUTHORITY_EVIDENCE,
     };
   };
 }
