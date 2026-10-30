@@ -260,7 +260,8 @@ test('missing trusted source keeps read visibility empty and prevents belief-sta
   assert.equal(response.status, 200);
   const body = await response.json();
   assert.equal(body.read.items.length, 0);
-  assert.equal(body.read.withheld_proposition_refs.length, 1);
+  assert.equal(Object.hasOwn(body.read, 'withheld_proposition_refs'), false);
+  assert.equal(JSON.stringify(body.read).includes('fact-a'), false);
 
   const mutation = await fetch(base + '/v1/host/npc-belief-transitions', {
     method: 'POST',
