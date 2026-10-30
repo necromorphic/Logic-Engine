@@ -466,6 +466,8 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
       'SELECT logic_engine_vfs_probe_delete_registered_role(?)'
     ).get(deleteAliasPath),
     'xDelete must reject a hardlink replacement instead of deleting another role DB');
+    assert.equal(existsSync(deleteAliasPath), true,
+      'a rejected main-DB deletion must leave the replacement hardlink intact');
     assert.equal(existsSync(corePath), true,
       'a rejected main-DB deletion must leave the other role database intact');
   }
