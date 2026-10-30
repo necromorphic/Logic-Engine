@@ -726,6 +726,12 @@ Reviewing the actual current Core PR #721 source at `a1fd5823eaf7c59b8482047365c
 
 A source-backed correction and regression have been requested in Core PR #721 and issue #140. NPC did not modify Core-owned code. Until the Core owner resolves this identity collision risk, source rollback/replacement cannot be accepted as fully closed even though the reader compares the pinned acquired value/source-event set at read time.
 
+The current Core source review also found two additional previously raised P2 risks still present at HEAD `a1fd5823eaf7c59b8482047365c81ae4b90c38f3`:
+- `getNpcBeliefState()` checks the cursor before its final belief-history SELECT, but does not bind that SELECT to the checked read transaction or recheck after the SELECT. A concurrent transition can therefore race the cursor check and produce a newer belief row with the older reported snapshot.
+- `isSafeNpcInputRecord()` recursively traverses the untrusted request before hashing/processing, but current implementation has no node-count or depth bound. Cycle/proxy/accessor rejection does not bound work for a very large/deep plain data object.
+
+Both P2 corrections and regressions have been requested on Core PR #721. These are observations from source inspection of the current draft, not independently reproduced race/DoS experiments.
+
 #### Current integration disposition
 
 - Core acquisition reader: **PARTIAL / DRAFT** — version-pinned read candidate exists in #721, but remains unmerged, not Host-authenticated, and has an acquisition identity review blocker.
