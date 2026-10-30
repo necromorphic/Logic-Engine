@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { applyNpcEpistemicEvent, createNpcEpistemicState } from "../src/npc/epistemic-state.js";
+import { applyNpcEpistemicEvent, createNpcEpistemicState, mapMemoryEvidenceToNpcEpistemicStatus } from "../src/npc/epistemic-state.js";
 
 function apply(state, event) {
   return applyNpcEpistemicEvent(state, {
@@ -854,4 +854,36 @@ test("restored belief history validates directional polarity and unresolved conf
     }],
   };
   assert.equal(apply(forgedUnresolvedHistory, { type: "canonical_truth_changed" }).status, "non_ready");
+});
+
+
+test("Memory epistemic classes map conservatively without promoting supported evidence to confirmed", () => {
+  assert.equal(mapMemoryEvidenceToNpcEpistemicStatus("acquired_report", "supported"), "unconfirmed_report");
+  assert.equal(mapMemoryEvidenceToNpcEpistemicStatus("rumor", "supported"), "rumor");
+  assert.equal(mapMemoryEvidenceToNpcEpistemicStatus("inference", "supported"), "inference");
+  assert.notEqual(mapMemoryEvidenceToNpcEpistemicStatus("acquired_report", "supported"), "confirmed");
+  assert.notEqual(mapMemoryEvidenceToNpcEpistemicStatus("rumor", "supported"), "confirmed");
+  assert.notEqual(mapMemoryEvidenceToNpcEpistemicStatus("inference", "supported"), "confirmed");
+});
+
+test("disputed Memory evidence preserves its epistemic class for unresolved stance handling", () => {
+  assert.equal(mapMemoryEvidenceToNpcEpistemicStatus("acquired_report", "disputed"), "unconfirmed_report");
+  assert.equal(mapMemoryEvidenceToNpcEpistemicStatus("rumor", "disputed"), "rumor");
+  assert.equal(mapMemoryEvidenceToNpcEpistemicStatus("inference", "disputed"), "inference");
+});
+
+test("insufficient Memory evidence maps to unknown and unassessed evidence does not enter belief revision", () => {
+  assert.equal(mapMemoryEvidenceToNpcEpistemicStatus("acquired_report", "insufficient"), "unknown");
+  assert.equal(mapMemoryEvidenceToNpcEpistemicStatus("rumor", "insufficient"), "unknown");
+  assert.equal(mapMemoryEvidenceToNpcEpistemicStatus("inference", "insufficient"), "unknown");
+  assert.equal(mapMemoryEvidenceToNpcEpistemicStatus("acquired_report", "unassessed"), null);
+  assert.equal(mapMemoryEvidenceToNpcEpistemicStatus("rumor", "unassessed"), null);
+  assert.equal(mapMemoryEvidenceToNpcEpistemicStatus("inference", "unassessed"), null);
+});
+
+test("canonical, assigned, imported, and suspicion labels are not Memory-to-belief mappings", () => {
+  for (const kind of ["canonical", "authored_initial", "imported", "suspicion", "unknown", "confirmed"]) {
+    assert.equal(mapMemoryEvidenceToNpcEpistemicStatus(kind, "supported"), null);
+  }
+  assert.equal(mapMemoryEvidenceToNpcEpistemicStatus("acquired_report", "future-assessment"), null);
 });
