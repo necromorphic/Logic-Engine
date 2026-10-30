@@ -63,3 +63,18 @@ The implementation must use real file-backed stores and the actual authority imp
 - **Joint acceptance:** real Core+Provider stores, actual authority, pinned Host persistence evidence, and no-egress dispatch-race tests all pass on exact commits.
 
 No schema/API/runtime behavior is introduced here. The contract does not claim an authority currently exists. Until the independent authority and its consumers are implemented and verified, coordinated restore remains an open blocker and production Memory→NPC remains **DISABLED / FAIL-CLOSED**.
+
+
+## 30 Oct 2026 — executable restore regression update
+
+The current Security candidate adds a Core-side adversarial restore test to `tests/core-accepted-head-handshake.test.js`:
+
+1. Enroll Core and Provider with the separate accepted-head authority.
+2. Capture an enrolled Core DB image at Core head 1.
+3. Commit two later Core worlds; the authority advances to Core head 3.
+4. Restore only the older Core DB image while leaving the authority DB untouched.
+5. Opening the restored Core store fails immediately with `CORE_ACCEPTED_HEAD_MISMATCH`; the independent authority still reports Core head 3.
+
+Exact-head Linux CI on candidate `c70d138e8cf1685459f2f264a24bea06f78d3630` passed Runtime 1163/1163, Provider/accepted-head/protected-dispatch acceptance 111/111, and recalculation oracle 20/20. The Provider suite includes its existing older-Provider-image restore rejection test.
+
+This strengthens code-level evidence for restoring Core or Provider independently while the accepted-head authority remains newer. It does **not** prove that the authority DB itself is protected from restore, that deployment backup tooling excludes it, or that OS ACLs/service identities enforce an independent restore domain on the target PC. The ACL fixture workflow and target-host acceptance runbook remain separate gates.
