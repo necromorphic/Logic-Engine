@@ -143,11 +143,11 @@ test('mechanic context provider can enforce actor binding and field policy throu
   });
 
   const result = new MechanicExecutor(engine, {
-    resolveAuthorizedContext: (args) => provider.resolve(args),
+    resolveAuthorizedContext: (args) => ({ ...provider.resolve(args), authority_id: 'test-mechanic-authority', policy_generation: 1 }),
   }).evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
 
   assert.equal(result.status, 'ready', JSON.stringify(result));
-  assert.equal(result.context_policy_version, provider.policyFingerprint);
+  assert.equal(result.context_policy_version, provider.policyFingerprint);\n  assert.equal(result.authority_id, 'test-mechanic-authority');\n  assert.equal(result.policy_generation, 1);
   assert.equal(result.authorization_scope, 'test-adapter:entity.actor-context:model:npc_decision');
   assert.equal(result.dependency_manifest.context_projection_dependencies_complete, true);
   assert.equal(engine.getState(worldId).world_revision, 2);
