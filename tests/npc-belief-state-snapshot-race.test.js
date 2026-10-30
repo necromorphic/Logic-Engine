@@ -505,4 +505,20 @@ test('belief transition revalidates visibility immediately before the Core commi
   assert.equal(store.db.prepare(
     'SELECT COUNT(*) AS count FROM npc_belief_transitions WHERE world_id=?',
   ).get('world-belief-commit-boundary').count, 0);
+
+  // Once visibility is restored, the final revalidation and the Core write
+  // must execute under one coordinator lease, not in the gap before store.tx.
+  visibilityAllowed = true;
+  preparationCalls = 0;
+  let leaseDepthAtCommit = null;
+  const originalTx = store.tx.bind(store);
+  store.tx = (callback) => {
+    leaseDepthAtCommit = store.coordinatorLeaseDepth;
+    return originalTx(callback);
+  };
+  const committed = engine.recordNpcBeliefTransition(request);
+  assert.equal(committed.status, 'ready');
+  assert.equal(leaseDepthAtCommit, 1,
+    'the shared coordinator lease must already be held when the Core transaction starts');
+  assert.equal(preparationCalls, 2);
 });
