@@ -21,11 +21,18 @@ The read result includes the snapshot cursor and source/acquisition provenance. 
 ## Trust boundary and limitations
 
 - readNpcKnowledge is an internal LogicEngine method and is not registered as an HTTP route.
-- The deployment must provide a real trusted authorizer. No default allow policy exists.
+- The deployment must provide a real trusted authorizer. No default allow policy exists. The only supported purposes are `npc_turn_context` and `npc_action_evaluation`; the generic `npc_decision` purpose is deliberately not accepted.
 - A successful read means only “the Core has an active acquisition for this NPC,” not “the NPC believes the fact” or “the NPC should disclose it in every context.” The separate belief/context contract is documented in `docs/93-core-npc-belief-transition-runtime.md` and remains subject to its own visibility and lifecycle gates.
 - There is no prompt injection or automatic Memory dispatch.
-- imported source ingestion remains disabled until a trusted importer exists.
+- imported source ingestion is restricted to the existing deployment-owned allowlisted local-file importer; arbitrary caller paths and raw Host/SillyTavern text are not accepted.
 - Memory → NPC remains **DISABLED / FAIL-CLOSED** pending full lifecycle, visibility, disclosure, rollback, and integration review.
+
+## Explicit integration gaps before production use
+
+- The current read request contains world, actor, purpose, snapshot and limit, but does not carry an explicit Host session identity or recipient field. The deployment authorizer must be bound to the authenticated Host/session and the intended recipient outside caller-controlled request data. That binding is not implemented or demonstrated by this candidate.
+- The current application bootstrap in `src/index.js` does not configure either NPC authorizer. Their constructor defaults are `null`; therefore the application-level read path fails closed with `NPC_KNOWLEDGE_READ_NOT_CONFIGURED` until an owner-approved trusted binding is supplied.
+- The Core reader checks that the actor exists and is not destroyed, but does not itself authenticate the Host adapter/session. A future caller must derive actor identity from the approved Host binding, not from model text or an arbitrary request.
+- No production NPC runtime caller, model-context serializer, or Host final-egress integration is included. This candidate is not an enablement switch.
 
 ## Acceptance checks
 
