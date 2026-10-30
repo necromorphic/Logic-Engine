@@ -55,9 +55,11 @@ typedef struct ProbeDatabaseRole {
   DWORD volume_serial;
   DWORD file_index_high;
   DWORD file_index_low;
+  HANDLE trusted_handle;
 #else
   dev_t device;
   ino_t inode;
+  int trusted_fd;
 #endif
 } ProbeDatabaseRole;
 static ProbeDatabaseRole g_database_roles[PROBE_MAX_DATABASE_ROLES];
@@ -653,10 +655,12 @@ static int probe_capture_role_identity(const char *path, ProbeDatabaseRole *capt
     captured->volume_serial = info.dwVolumeSerialNumber;
     captured->file_index_high = info.nFileIndexHigh;
     captured->file_index_low = info.nFileIndexLow;
+    captured->trusted_handle = handle;
     captured->identity_set = 1;
+    return 1;
   }
   CloseHandle(handle);
-  return ok;
+  return 0;
 #else
   typedef int (*probe_register_open_fn)(const char *, int, int);
   int flags = O_RDWR | O_CREAT;
@@ -682,10 +686,26 @@ static int probe_capture_role_identity(const char *path, ProbeDatabaseRole *capt
     if (ok) {
       captured->device = info.st_dev;
       captured->inode = info.st_ino;
+      captured->trusted_fd = fd;
       captured->identity_set = 1;
+      return 1;
     }
     close(fd);
-    return ok;
+    return 0;
+  }
+#endif
+}
+
+static void probe_close_captured_role_identity(ProbeDatabaseRole *captured) {
+#ifdef _WIN32
+  if (captured->trusted_handle && captured->trusted_handle != INVALID_HANDLE_VALUE) {
+    CloseHandle(captured->trusted_handle);
+    captured->trusted_handle = INVALID_HANDLE_VALUE;
+  }
+#else
+  if (captured->trusted_fd >= 0) {
+    close(captured->trusted_fd);
+    captured->trusted_fd = -1;
   }
 #endif
 }
@@ -702,6 +722,11 @@ static void probe_register_database_role(sqlite3_context *context, int argc, sql
   int full = 0;
   ProbeDatabaseRole captured_role;
   memset(&captured_role, 0, sizeof(captured_role));
+#ifdef _WIN32
+  captured_role.trusted_handle = INVALID_HANDLE_VALUE;
+#else
+  captured_role.trusted_fd = -1;
+#endif
   (void)argc;
   if (!path || !role_name || !path[0] || !role_name[0]) {
     sqlite3_result_error(context, "database path and role are required", -1);
@@ -767,9 +792,11 @@ static void probe_register_database_role(sqlite3_context *context, int argc, sql
     entry->volume_serial = captured_role.volume_serial;
     entry->file_index_high = captured_role.file_index_high;
     entry->file_index_low = captured_role.file_index_low;
+    entry->trusted_handle = captured_role.trusted_handle;
 #else
     entry->device = captured_role.device;
     entry->inode = captured_role.inode;
+    entry->trusted_fd = captured_role.trusted_fd;
 #endif
     entry->identity_set = 1;
     g_database_role_count += 1;
@@ -777,6 +804,7 @@ static void probe_register_database_role(sqlite3_context *context, int argc, sql
   probe_registry_unlock();
 
   if (full || duplicate || duplicate_identity) {
+    probe_close_captured_role_identity(&captured_role);
     sqlite3_free(stored_path);
     sqlite3_free(stored_role);
     sqlite3_result_error(context, full
