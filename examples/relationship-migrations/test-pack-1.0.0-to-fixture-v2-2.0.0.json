@@ -1,0 +1,199 @@
+{
+  "artifact_schema_version": "relationships-state-mapping/v1",
+  "migration_id": "relationships.test-pack-a-to-b",
+  "migration_version": "1.0.0",
+  "artifact_status": "draft",
+  "fixture_only": true,
+  "source": {
+    "world_pack_id": "test-pack",
+    "version": "1.0.0",
+    "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "target": {
+    "world_pack_id": "fixture.test-pack-v2",
+    "version": "2.0.0",
+    "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "source_rule_modules": [
+    {
+      "module_id": "relationship-rules",
+      "version": "1.0.0"
+    }
+  ],
+  "target_rule_module": {
+    "module_id": "fixture.relationship-rules-v2",
+    "version": "2.0.0"
+  },
+  "dimension_mappings": [
+    {
+      "source_rule_module": {
+        "module_id": "relationship-rules",
+        "version": "1.0.0"
+      },
+      "source_dimension": "trust",
+      "disposition": "map",
+      "target_dimension": "trust_level",
+      "value_mappings": [
+        {
+          "source_value": "low",
+          "target_value": "cautious"
+        },
+        {
+          "source_value": "neutral",
+          "target_value": "balanced"
+        },
+        {
+          "source_value": "high",
+          "target_value": "confident"
+        }
+      ],
+      "special_state_mappings": [
+        {
+          "source_state": "unset",
+          "target": {
+            "kind": "state",
+            "status": "unset"
+          }
+        },
+        {
+          "source_state": "cleared",
+          "target": {
+            "kind": "state",
+            "status": "cleared"
+          }
+        },
+        {
+          "source_state": "withheld",
+          "target": {
+            "kind": "state",
+            "status": "withheld"
+          }
+        },
+        {
+          "source_state": "conflict",
+          "target": {
+            "kind": "state",
+            "status": "conflict"
+          }
+        },
+        {
+          "source_state": "insufficient",
+          "target": {
+            "kind": "state",
+            "status": "insufficient"
+          }
+        },
+        {
+          "source_state": "insufficient_support",
+          "target": {
+            "kind": "state",
+            "status": "insufficient_support"
+          }
+        },
+        {
+          "source_state": "unsupported",
+          "target": {
+            "kind": "state",
+            "status": "unsupported"
+          }
+        },
+        {
+          "source_state": "incomplete",
+          "target": {
+            "kind": "state",
+            "status": "incomplete"
+          }
+        }
+      ]
+    },
+    {
+      "source_rule_module": {
+        "module_id": "relationship-rules",
+        "version": "1.0.0"
+      },
+      "source_dimension": "affinity",
+      "disposition": "map",
+      "target_dimension": "affinity_level",
+      "value_mappings": [
+        {
+          "source_value": "low",
+          "target_value": "distant"
+        },
+        {
+          "source_value": "high",
+          "target_value": "close"
+        }
+      ],
+      "special_state_mappings": [
+        {
+          "source_state": "unset",
+          "target": {
+            "kind": "state",
+            "status": "unset"
+          }
+        },
+        {
+          "source_state": "cleared",
+          "target": {
+            "kind": "state",
+            "status": "cleared"
+          }
+        },
+        {
+          "source_state": "withheld",
+          "target": {
+            "kind": "state",
+            "status": "withheld"
+          }
+        },
+        {
+          "source_state": "conflict",
+          "target": {
+            "kind": "state",
+            "status": "conflict"
+          }
+        },
+        {
+          "source_state": "insufficient",
+          "target": {
+            "kind": "state",
+            "status": "insufficient"
+          }
+        },
+        {
+          "source_state": "insufficient_support",
+          "target": {
+            "kind": "state",
+            "status": "insufficient_support"
+          }
+        },
+        {
+          "source_state": "unsupported",
+          "target": {
+            "kind": "state",
+            "status": "unsupported"
+          }
+        },
+        {
+          "source_state": "incomplete",
+          "target": {
+            "kind": "state",
+            "status": "incomplete"
+          }
+        }
+      ]
+    }
+  ],
+  "target_only_dimensions": [
+    {
+      "target_dimension": "reliability",
+      "disposition": "remain_unset"
+    }
+  ],
+  "directionality": "preserve_subject_target_direction",
+  "target_pack_conformance": {
+    "target_pack_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "status": "not-established",
+    "evidence_ref": "fixture-only://target-pack-conformance-not-available"
+  }
+}
