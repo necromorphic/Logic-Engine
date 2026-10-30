@@ -405,6 +405,8 @@ export class MechanicExecutor {
         dependency_evidence: [...resolved.dependencyEvidence].sort((a, b) => a.path.localeCompare(b.path)),
         policy_version: resolved.policy_version,
         authorization_scope: resolved.authorization_scope,
+        authority_id: resolved.authority_id,
+        policy_generation: resolved.policy_generation,
       });
     } catch {
       return unknown('AUTHORIZED_CONTEXT_NOT_FINGERPRINTABLE', 'Trusted context is not a canonical JSON value; evaluation failed closed.', identity);
@@ -415,6 +417,8 @@ export class MechanicExecutor {
       context_fingerprint: contextFingerprint,
       context_policy_version: resolved.policy_version,
       authorization_scope: resolved.authorization_scope,
+      authority_id: resolved.authority_id,
+      policy_generation: resolved.policy_generation,
       condition_result: conditionResult,
       dependency_manifest: dependencyManifest,
       effects: translated.effects,
