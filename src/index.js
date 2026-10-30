@@ -68,7 +68,7 @@ function aliasesSameFile(left, right) {
     const absolute = resolve(value);
     if (existsSync(absolute)) {
       try {
-        const stat = statSync(absolute);
+        const stat = statSync(absolute, { bigint: true });
         return 'inode:' + stat.dev + ':' + stat.ino;
       } catch {}
     }
