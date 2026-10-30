@@ -23,13 +23,15 @@ test('Windows VSS inventory is a complete point-in-time snapshot with reparse au
 }, async () => {
   await withTempRoot(async ({ root }) => {
     await writeFile(join(root, 'chat.jsonl'), 'snapshot bytes');
+    await writeFile(join(root, 'settings.json'), '{}');
     const result = await enumerateStableFileInventory(resolve(root));
     assert.equal(result.status, 'complete', JSON.stringify(result));
     assert.equal(result.snapshot_provider, 'windows-vss-client-accessible');
     assert.equal(result.snapshot_consistency, 'VSS_POINT_IN_TIME_READ_ONLY');
     assert.equal(result.reparse_points, 'ALL_FILE_ATTRIBUTE_REPARSE_POINT_ENTRIES_REJECTED');
-    assert.equal(result.file_count, 1);
-    assert.equal(result.entries[0].sha256.length, 64);
+    assert.equal(result.file_count, 2);
+    assert.equal(result.entries.every(entry => entry.identity.ino !== '0'), true);
+    assert.equal(result.entries.every(entry => entry.sha256.length === 64), true);
   });
 });
 
@@ -48,6 +50,28 @@ test('VSS snapshot remains unchanged while the live source is concurrently modif
       assert.equal(snapshot.entries[0].sha256.length, 64);
     });
     assert.equal(await readFile(file, 'utf8'), 'concurrent writer changed live source');
+  });
+});
+
+test('VSS snapshots distinguish delete and same-byte restore as separate file generations', {
+  skip: process.platform !== 'win32',
+  timeout: 240_000,
+}, async () => {
+  await withTempRoot(async ({ root }) => {
+    const file = join(root, 'chat.jsonl');
+    const backup = join(root, 'backup.jsonl');
+    await writeFile(file, 'same payload');
+    const before = await enumerateStableFileInventory(resolve(root));
+    await writeFile(backup, 'same payload');
+    await rm(file);
+    const deleted = await enumerateStableFileInventory(resolve(root));
+    await writeFile(file, await readFile(backup));
+    const restored = await enumerateStableFileInventory(resolve(root));
+    assert.equal(before.status, 'complete', JSON.stringify(before));
+    assert.equal(deleted.status, 'complete', JSON.stringify(deleted));
+    assert.equal(restored.status, 'complete', JSON.stringify(restored));
+    assert.notEqual(deleted.snapshot_sha256, before.snapshot_sha256);
+    assert.notEqual(restored.snapshot_sha256, before.snapshot_sha256);
   });
 });
 
