@@ -164,7 +164,7 @@ export async function enumeratePinnedSillyTavernChatFiles({
 
   const files = [];
   const directoriesSeen = [...Object.entries(roots).map(([kind, value]) => ({
-    kind: 'root:' + kind, absolute: value.absolute, identity: value.identity, names: value.names,
+    kind: 'root:' + kind, absolute: value.absolute, identity: value.identity, stat: value.stat, names: value.names,
   }))];
   const physicalFiles = new Set();
   let totalBytes = 0n;
@@ -202,6 +202,7 @@ export async function enumeratePinnedSillyTavernChatFiles({
         kind: 'character-chat-directory',
         absolute: child.absolute,
         identity: child.identity,
+        stat: child.stat,
         names: child.names,
       });
       for (const childEntry of child.dirents) {
@@ -273,7 +274,9 @@ export async function enumeratePinnedSillyTavernChatFiles({
       fail('SOURCE_DIRECTORY_MUTATED');
     }
     const stat = await fs.lstat(directory.absolute, { bigint: true }).catch(() => null);
-    if (!stat || identityOf(stat) !== directory.identity) fail('SOURCE_DIRECTORY_IDENTITY_CHANGED');
+    if (!stat || identityOf(stat) !== directory.identity || !sameStat(directory.stat, stat)) {
+      fail('SOURCE_DIRECTORY_IDENTITY_CHANGED');
+    }
   }
 
   // Re-hash each exact file through a fresh handle. This detects content changes
