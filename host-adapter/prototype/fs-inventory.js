@@ -234,6 +234,7 @@ async function enumerateStableFileInventoryOnRoot(rootPath, options = {}) {
     const firstDigest = sha256(JSON.stringify(first));
     const secondDigest = sha256(JSON.stringify(second));
     if (firstDigest !== secondDigest) return fail('HOST_INVENTORY_UNSTABLE');
+    const totalBytes = second.reduce((total, entry) => total + entry.identity.size, 0);
     return sealVerifiedInventory({
       status: 'complete',
       root: reportedRoot ?? root,
