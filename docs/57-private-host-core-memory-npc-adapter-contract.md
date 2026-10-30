@@ -98,13 +98,19 @@ The current `MemoryNpcConsumer.retrieveForNpc()` and `revalidateForFinalDispatch
 
 ## 4. Request binding and session scope
 
-The private call must be bound to:
+Every private sub-operation must be bound to:
 - authenticated adapter identity established by Host/Core credentials;
 - canonical `world_id`;
 - canonical actor/NPC entity identity;
-- fixed purpose `npc_decision`;
+- the exact purpose allowed by that sub-operation;
 - one generation/dispatch attempt identity owned by Host;
-- a trusted snapshot requirement.
+- the trusted snapshot required by that sub-operation.
+
+Purpose values are intentionally **not unified or aliased** across the two evidence lanes:
+- Lane A Core acquisition reader (`readNpcKnowledge` candidate): `npc_turn_context` or `npc_action_evaluation`, selected by the actual operation.
+- Lane B Memory candidate retrieval and its current `AuthorizedReadService` call: `npc_decision`.
+
+A successful authorization under one purpose does not authorize another purpose. Until an explicit Core/Memory purpose-mapping rule exists and is tested, Lane A and Lane B results must not be combined into one model context merely because both target the same NPC. This is a real integration blocker, not a string-renaming task: Core field-policy and Memory grants must authorize the actual final use.
 
 Host owns the session-to-world/actor mapping. Core owns validation of the adapter-to-actor binding. The actor ID, world ID, purpose, record IDs, field allowlist, and snapshot values must never be accepted from model output or prompt text.
 
