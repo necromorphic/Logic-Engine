@@ -358,7 +358,7 @@ These are targeted relevant branches, not an exhaustive audit of every repositor
 There are two distinct questions that must not be collapsed:
 
 1. **Semantic owner:** NPC owns the meaning and lifecycle of its goals, plans, tasks and intentions under `docs/31-npc-subsystem-contract.md` and the accepted A1 decision in `docs/97-npc-goal-plan-state-ownership-decision.md`.
-2. **Durable authority and storage boundary:** A1 now resolves this design question: the NPC subsystem is authoritative for NPC-domain goal/plan state and must use a separate NPC-local repository/store boundary. `docs/98` defines the bounded records, identity scope, one-current-plan-per-goal rule, version dimensions, candidate acceptance and reconciliation semantics; `docs/99` defines the repository operations and failure/idempotency contract. The physical storage technology and deployment topology remain deliberately undecided. The repository contract is designed, but no production adapter, schema, migration or runtime caller is implemented.
+2. **Durable authority and storage boundary:** A1 now resolves this design question: the NPC subsystem is authoritative for NPC-domain goal/plan state and must use a separate NPC-local repository/store boundary. `docs/98` defines the bounded records, identity scope, one-current-plan-per-goal rule, version dimensions, candidate acceptance and reconciliation semantics; `docs/99` defines the repository operations and failure/idempotency contract. The target physical technology is now selected as a dedicated NPC-owned SQLite database by `docs/97 §13`; deployment topology remains open and implementation is blocked by Issue #770. The repository contract is designed, but no production adapter, schema, migration or runtime caller is implemented.
 
 Do not resolve this by placing plans in `world_processes`, `npc_belief_transitions`, arbitrary entity attributes, or a new NPC-side canonical event log. Each would assume semantics/authority that the inspected contracts do not grant.
 
@@ -370,7 +370,7 @@ A1 and the repository contracts have now specified the NPC-local design boundary
 
 Do not resolve this by placing plans in `world_processes`, `npc_belief_transitions`, arbitrary entity attributes, or a new NPC-side canonical event log. Those are not substitutes for the accepted NPC-local boundary.
 
-**Audit conclusion:** semantic ownership, identity scope, goal↔plan association, current-plan cardinality, version dimensions and repository operation semantics are now specified by A1 / `docs/97`–`docs/99`. Runtime persistence and reconciliation remain unimplemented. The storage technology is still open by design; no production progress may be advanced from unverified outcomes.
+**Audit conclusion:** semantic ownership, identity scope, goal↔plan association, current-plan cardinality, version dimensions and repository operation semantics are now specified by A1 / `docs/97`–`docs/99`. Runtime persistence and reconciliation remain unimplemented. The target storage technology is a dedicated NPC-owned SQLite database; implementation remains blocked by Issue #770, and no production progress may be advanced from unverified outcomes.
 
 
 ## 10.9 Cross-check against shared architecture decisions — 2026-10-30
@@ -400,7 +400,7 @@ Source: [Logic-Engine — Logical Kernel (Core): boundary, contract, audit](http
 
 ### Reconciliation with the code audit
 
-These decisions support the distinction between NPC semantic ownership and Core canonical authority. A1 and `docs/97`–`docs/99` now specify the NPC-local authority boundary, goal/plan identities, plan concurrency dimensions, and atomic candidate acceptance/reconciliation contract. They do not select a physical storage technology or establish a production adapter. The belief-transition candidate and Process Manager remain non-equivalent examples, as described in §10.8.
+These decisions support the distinction between NPC semantic ownership and Core canonical authority. A1 and `docs/97`–`docs/99` now specify the NPC-local authority boundary, goal/plan identities, plan concurrency dimensions, and atomic candidate acceptance/reconciliation contract. The target technology is selected by `docs/97 §13`; these contracts do not establish a production adapter. The belief-transition candidate and Process Manager remain non-equivalent examples, as described in §10.8.
 
 The cognition roadmap marks multi-step planning/replanning as partial because persistence, invocation and authoritative outcomes remain unverified; controlled off-screen continuity is not complete because NPC invocation/dispatcher is unverified. Reuse of Process Manager is limited to its world-process lifecycle, not the NPC decision loop.
 
@@ -425,7 +425,7 @@ A1 resolves who owns the NPC-local state and where its logical repository bounda
 Therefore the next implementation sequence is:
 
 1. Keep `evaluateNpcAutonomyCycle()` as a pure, fail-closed decision pass.
-2. Finish the exact repository adapter design/technology decision against `docs/99`, without implementing Core or Process Manager as the NPC plan store.
+2. After Issue #770's SQLite file-open security gate passes, implement the `docs/99` repository adapter without using Core or Process Manager as the NPC plan store.
 3. Implement NPC-local goal/plan persistence and candidate acceptance without enabling action dispatch or accepting unverified step outcomes.
 4. Separately close the trusted Core result and rollback-invalidation contract before enabling production progress reconciliation.
 5. Keep goal creation/acceptance blocked until the first goal family, admissibility policy owner and trusted goal source are explicitly selected.
