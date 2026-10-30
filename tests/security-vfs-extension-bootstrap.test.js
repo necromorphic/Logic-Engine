@@ -162,6 +162,33 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
     journalDb.close();
   }
 
+  // A rollback-journal replacement is rejected at the sidecar open boundary.
+  const journalRacePath = join(directory, 'journal-race.sqlite');
+  registerRole(journalRacePath, 'journal-race');
+  const journalRaceDb = new DatabaseSync(journalRacePath);
+  try {
+    journalRaceDb.exec('PRAGMA journal_mode=DELETE; CREATE TABLE probe(value TEXT);');
+    const injectionBefore = roleRegistrar.prepare(
+      'SELECT logic_engine_vfs_probe_race_injection_count() AS count'
+    ).get().count;
+    const sidecarRejectBefore = roleRegistrar.prepare(
+      'SELECT logic_engine_vfs_probe_sidecar_identity_reject_count() AS count'
+    ).get().count;
+    roleRegistrar.prepare('SELECT logic_engine_vfs_probe_configure_race(?, ?, 1)')
+      .get(`${journalRacePath}-journal`, corePath);
+    assert.throws(() => journalRaceDb.exec(
+      "BEGIN IMMEDIATE; INSERT INTO probe VALUES('journal-race');"
+    ), 'a rollback-journal hardlink to another registered database must fail closed');
+    assert.equal(roleRegistrar.prepare(
+      'SELECT logic_engine_vfs_probe_race_injection_count() AS count'
+    ).get().count, injectionBefore + 1);
+    assert.equal(roleRegistrar.prepare(
+      'SELECT logic_engine_vfs_probe_sidecar_identity_reject_count() AS count'
+    ).get().count, sidecarRejectBefore + 1);
+  } finally {
+    try { journalRaceDb.close(); } catch { /* failed journal open may leave a transaction active */ }
+  }
+
   const coordinatorControlPath = join(directory, 'coordinator.sqlite');
   registerRole(coordinatorControlPath, 'coordinator-control');
   const second = new DatabaseSync(coordinatorControlPath);
@@ -178,6 +205,16 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
     const aliasDb = new DatabaseSync(aliasPath);
     try {
       aliasDb.exec('CREATE TABLE alias(value TEXT);');
+
+      // Registration captures and pins the expected identity before SQLite's
+      // first open. Replacing the path in that interval must still be rejected.
+      const preopenRacePath = join(directory, 'preopen-race.sqlite');
+      registerRole(preopenRacePath, 'preopen-race');
+      unlinkSync(preopenRacePath);
+      linkSync(aliasPath, preopenRacePath);
+      assert.throws(() => new DatabaseSync(preopenRacePath),
+        'a path replaced after trusted registration but before first SQLite open must fail closed');
+
       const racePath = join(directory, 'race.sqlite');
       registerRole(racePath, 'race-target');
       second.prepare('SELECT logic_engine_vfs_probe_configure_race(?, ?, 0)')
@@ -223,6 +260,13 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
       second.prepare('SELECT logic_engine_vfs_probe_register_database_role(?, ?) AS registered')
         .get(rolePath, roleName);
     }
+    const registrationAliasPath = join(directory, 'registration-alias.sqlite');
+    linkSync(roleCorePath, registrationAliasPath);
+    assert.throws(
+      () => registerRole(registrationAliasPath, 'duplicate-core'),
+      /database role identity is already registered/,
+      'one OS file identity must not be registered under two database roles',
+    );
 
     // Two workers cross a barrier and concurrently establish first-open
     // identities for two roles. The registry mutex must serialize the updates.
