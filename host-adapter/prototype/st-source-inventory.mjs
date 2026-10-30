@@ -304,6 +304,16 @@ async function enumeratePinnedSillyTavernChatFilesInternal({
     fail('SOURCE_LAYOUT_OR_HOST_BUILD_UNSUPPORTED');
   }
 
+  const configuredPaths = ['chats', 'groups', 'groupChats'].map(key => path.resolve(directories[key]));
+  const configuredNormalized = configuredPaths.map(normalizePath);
+  if (new Set(configuredNormalized).size !== configuredNormalized.length) fail('SOURCE_ROOT_ALIAS');
+  for (let left = 0; left < configuredPaths.length; left++) {
+    for (let right = left + 1; right < configuredPaths.length; right++) {
+      if (isWithin(configuredPaths[left], configuredPaths[right])
+        || isWithin(configuredPaths[right], configuredPaths[left])) fail('SOURCE_ROOT_OVERLAP');
+    }
+  }
+
   if (process.platform === 'win32' && !snapshotLease) {
     const sourcePaths = ['chats', 'groups', 'groupChats'].map(key => path.resolve(directories[key]));
     let commonRoot = sourcePaths[0];
