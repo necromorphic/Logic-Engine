@@ -44,6 +44,7 @@ export async function enumerateStableFileInventory(rootPath) {
   if (typeof fsConstants.O_NOFOLLOW !== 'number') return fail('HOST_INVENTORY_PLATFORM_NOFOLLOW_UNAVAILABLE');
 
   let root;
+  let initialRootIdentity;
   try {
     const requestedRoot = resolve(rootPath);
     const requestedRootStat = await lstat(requestedRoot);
@@ -52,7 +53,7 @@ export async function enumerateStableFileInventory(rootPath) {
     if (root !== requestedRoot) return fail('HOST_INVENTORY_ROOT_ALIAS_UNSUPPORTED');
     const rootStat = await lstat(root);
     if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) return fail('HOST_INVENTORY_ROOT_UNSAFE');
-    var initialRootIdentity = {
+    initialRootIdentity = {
       dev: rootStat.dev, ino: rootStat.ino,
       mtimeMs: rootStat.mtimeMs, ctimeMs: rootStat.ctimeMs,
     };
