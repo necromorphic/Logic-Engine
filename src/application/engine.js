@@ -759,7 +759,7 @@ export class LogicEngine {
     ];
     assert(isSafeNpcInputRecord(input) && Object.keys(input).every(key => allowed.includes(key)),
       'INVALID_NPC_HOST_BELIEF_TRANSITION', 'Host belief transition contains caller-controlled identity or unsupported fields.', 400);
-    const scope = this.resolveNpcHostScope(hostIdentity);
+    const scope = this.#resolveNpcHostScope(hostIdentity);
     return this.recordNpcBeliefTransition({
       ...scope,
       recipient: 'model',
@@ -773,7 +773,7 @@ export class LogicEngine {
     const allowed = ['expected_revision', 'expected_commit_sequence', 'limit', 'proposition_ref'];
     assert(isSafeNpcInputRecord(input) && Object.keys(input).every(key => allowed.includes(key)),
       'INVALID_NPC_HOST_BELIEF_STATE', 'Host belief-state read contains caller-controlled identity or unsupported fields.', 400);
-    const scope = this.resolveNpcHostScope(hostIdentity);
+    const scope = this.#resolveNpcHostScope(hostIdentity);
     return this.getNpcBeliefState({
       ...scope,
       recipient: 'model',
