@@ -6,6 +6,7 @@ import { ProposalService } from '../application/proposals.js';
 import { ActorBindingService } from '../application/actor-bindings.js';
 import { AuthorizedReadService } from '../application/authorized-read-service.js';
 import { HostConversationWorldBindingService } from '../application/host-conversation-world-bindings.js';
+import { MechanicExecutor } from '../application/mechanic-executor.js';
 
 const MAX = 1048576;
 
@@ -49,7 +50,7 @@ function send(res, status, data) {
   res.end(body);
 }
 
-export function createApiServer({ engine, token, internalToken = null, approvalToken = null, adminToken = null, adapterTokens = {}, authorizedReadFieldPolicy = null, getActiveMechanicContextProvider = () => null, mechanicPolicyAuthority = null, hostVersionLedger = null }) {
+export function createApiServer({ engine, token, internalToken = null, approvalToken = null, adminToken = null, adapterTokens = {}, authorizedReadFieldPolicy = null, getActiveMechanicContextProvider = () => null, mechanicPolicyAuthority = null, actorBindingService = null, authorizedReadService = null, hostVersionLedger = null }) {
   if (!engine) throw new TypeError('engine required');
   if (typeof token !== 'string' || token.length < 16) throw new TypeError('API token must be at least 16 characters');
   if (internalToken !== null && (typeof internalToken !== 'string' || internalToken.length < 16 || internalToken === token)) {
@@ -65,8 +66,19 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
     throw new TypeError('Authorized-read field policy must be trusted application configuration.');
   }
   if (typeof getActiveMechanicContextProvider !== 'function') throw new TypeError('getActiveMechanicContextProvider must be a trusted application callback.');
-  if (mechanicPolicyAuthority !== null && typeof mechanicPolicyAuthority?.validateMechanicPolicy !== 'function') {
-    throw new TypeError('mechanicPolicyAuthority must be a trusted DeploymentMechanicPolicyAuthority.');
+  if (mechanicPolicyAuthority !== null
+    && (typeof mechanicPolicyAuthority?.validateMechanicPolicy !== 'function'
+      || typeof mechanicPolicyAuthority?.resolveAuthorizedContext !== 'function')) {
+    throw new TypeError('mechanicPolicyAuthority must resolve authorized context and validate the same active policy.');
+  }
+  if (actorBindingService !== null && typeof actorBindingService?.resolve !== 'function') {
+    throw new TypeError('actorBindingService must be a trusted ActorBindingService.');
+  }
+  if (authorizedReadService !== null && typeof authorizedReadService?.readEntityAttributeForMechanic !== 'function') {
+    throw new TypeError('authorizedReadService must be a trusted AuthorizedReadService.');
+  }
+  if (authorizedReadService !== null && actorBindingService === null) {
+    throw new TypeError('A shared actorBindingService is required with an injected authorizedReadService.');
   }
   const configuredAdapterSecrets = Object.values(adapterTokens || {});
   if (!adapterTokens || typeof adapterTokens !== 'object' || Array.isArray(adapterTokens) || Object.entries(adapterTokens).some(([id, secret]) => !id.trim() || typeof secret !== 'string' || secret.length < 16 || [token, internalToken, approvalToken, adminToken].includes(secret)) || new Set(configuredAdapterSecrets).size !== configuredAdapterSecrets.length) {
@@ -83,7 +95,7 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
       try { return mechanicPolicyAuthority.validateMechanicPolicy(identity) === true; } catch { return false; }
     };
   const proposals = new ProposalService(engine, { validateMechanicPolicy });
-  const actorBindings = new ActorBindingService(engine);
+  const actorBindings = actorBindingService || new ActorBindingService(engine);
   const hostConversationBindings = new HostConversationWorldBindingService(engine);
   // Until a canonical visibility schema exists, disclose only the bound actor's
   // own non-attribute identity fields. This intentionally denies all attributes.
@@ -92,7 +104,7 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
   // A host may opt into a broader, explicit policy. The policy is trusted
   // application configuration and is never accepted from an HTTP request.
   // Without one, preserve the narrow self-identity-only default.
-  const authorizedReads = new AuthorizedReadService(engine, actorBindings,
+  const authorizedReads = authorizedReadService || new AuthorizedReadService(engine, actorBindings,
     authorizedReadFieldPolicy || defaultAuthorizedReadFieldPolicy);
 
   return createServer(async (req, res) => {
@@ -415,6 +427,60 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
         return send(res, 405, { error: { code: 'METHOD_NOT_ALLOWED', message: 'Unsupported actor-binding operation.' } });
       }
 
+
+      if (parts.length === 4 && action === 'mechanic-proposals' && req.method === 'POST') {
+        const adapterId = adapterIdFor(req);
+        if (!adapterId) return send(res, 403, { error: { code: 'ADAPTER_REQUIRED', message: 'A configured adapter identity is required to evaluate a mechanic.' } });
+        if (!mechanicPolicyAuthority) {
+          return send(res, 503, { error: { code: 'MECHANICS_DISABLED', message: 'No deployment-owned mechanic policy authority is configured; mechanic execution is disabled.' } });
+        }
+        const body = await readBody(req);
+        const allowed = ['instance_id', 'action_id', 'idempotency_key', 'turn_id', 'source_text'];
+        if (!body || typeof body !== 'object' || Array.isArray(body)
+          || Object.keys(body).some((key) => !allowed.includes(key))) {
+          throw new EngineError('INVALID_MECHANIC_PROPOSAL_REQUEST', 'Mechanic proposal accepts only instance_id, action_id, idempotency_key, turn_id, and source_text.', 400);
+        }
+        for (const key of allowed) {
+          if (typeof body[key] !== 'string' || !body[key].trim() || body[key].length > (key === 'source_text' ? 50000 : 200)) {
+            throw new EngineError('INVALID_MECHANIC_PROPOSAL_REQUEST', key + ' must be a non-empty string within its supported length.', 400);
+          }
+        }
+        const executor = new MechanicExecutor(engine, {
+          resolveAuthorizedContext: (args) => mechanicPolicyAuthority.resolveAuthorizedContext({
+            ...args,
+            authenticatedAdapterId: adapterId,
+          }),
+        });
+        const evaluation = executor.evaluate({
+          worldId,
+          instanceId: body.instance_id,
+          actionId: body.action_id,
+        });
+        if (evaluation.status !== 'ready') {
+          return send(res, 409, {
+            evaluation: {
+              status: evaluation.status,
+              reason_code: evaluation.reason_code || null,
+            },
+          });
+        }
+        const proposal = proposals.createFromMechanicEvaluation(worldId, evaluation, {
+          idempotencyKey: body.idempotency_key,
+          turnId: body.turn_id,
+          sourceText: body.source_text,
+          adapterId,
+        });
+        return send(res, 201, {
+          proposal,
+          evaluation: {
+            status: evaluation.status,
+            action_id: evaluation.action_id,
+            authority_id: evaluation.authority_id,
+            policy_generation: evaluation.policy_generation,
+            authorization_scope: evaluation.authorization_scope,
+          },
+        });
+      }
 
       if (parts.length === 4 && action === 'mechanic-instances') {
         if (!secretMatches(req.headers['x-admin-token'], adminToken)) return send(res, 403, { error: { code: 'ADMIN_REQUIRED', message: 'A separate administrative credential is required.' } });
