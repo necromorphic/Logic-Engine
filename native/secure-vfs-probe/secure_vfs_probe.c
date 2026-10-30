@@ -317,31 +317,13 @@ static int probe_win_sidecar_identity_remove(int role_index, const wchar_t *suff
 static int probe_win_map_create_file(
   DWORD creation, DWORD attributes, ULONG *disposition,
   ULONG *options, ULONG *file_attributes) {
-  DWORD flags = attributes & 0xffff0000u;
-  DWORD allowed_flags = FILE_FLAG_WRITE_THROUGH | FILE_FLAG_NO_BUFFERING
-    | FILE_FLAG_RANDOM_ACCESS | FILE_FLAG_SEQUENTIAL_SCAN
-    | FILE_FLAG_DELETE_ON_CLOSE | FILE_FLAG_OPEN_REPARSE_POINT;
-  switch (creation) {
-    case CREATE_NEW: *disposition = FILE_CREATE; break;
-    /* Never let NT truncate a child before its opened identity is validated. */
-    case CREATE_ALWAYS: return 0;
-    case OPEN_EXISTING: *disposition = FILE_OPEN; break;
-    case OPEN_ALWAYS: *disposition = FILE_OPEN_IF; break;
-    case TRUNCATE_EXISTING: return 0;
-    default: return 0;
-  }
-  if ((flags & ~allowed_flags) != 0) return 0;
-  *options = 0;
-  if ((flags & FILE_FLAG_WRITE_THROUGH) != 0) *options |= FILE_WRITE_THROUGH;
-  if ((flags & FILE_FLAG_NO_BUFFERING) != 0) *options |= FILE_NO_INTERMEDIATE_BUFFERING;
-  if ((flags & FILE_FLAG_DELETE_ON_CLOSE) != 0) *options |= FILE_DELETE_ON_CLOSE;
-  *file_attributes = attributes & 0x0000ffffu;
-  if (*file_attributes == 0) *file_attributes = FILE_ATTRIBUTE_NORMAL;
-  if ((*file_attributes & FILE_ATTRIBUTE_NORMAL) != 0
-      && *file_attributes != FILE_ATTRIBUTE_NORMAL) {
-    *file_attributes &= ~FILE_ATTRIBUTE_NORMAL;
-  }
-  return 1;
+  /*
+   * Keep one reviewed mapping table for the standalone adapter and the actual
+   * VFS interception. In particular, destructive dispositions are rejected
+   * before an identity-checked handle exists.
+   */
+  return logic_engine_win_map_create_disposition(creation, disposition)
+    && logic_engine_win_map_create_options(attributes, options, file_attributes);
 }
 
 typedef HANDLE (WINAPI *probe_create_file_w_fn)(
