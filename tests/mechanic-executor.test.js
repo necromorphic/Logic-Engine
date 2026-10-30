@@ -576,6 +576,14 @@ test('real policy authority rotation is revalidated at proposal creation, approv
   assert.equal(committed.status, 'committed');
   assert.equal(engine.getState(worldId).world_revision, 3);
   assert.equal(engine.getState(worldId).entities.some((entity) => entity.entity_id === 'entity.new'), true);
+
+  authority.rotate(() => true);
+  assert.throws(
+    () => proposals.commit(worldId, freshProposal.proposal_id),
+    (error) => error.code === 'STALE_MECHANIC_POLICY' && error.details?.stage === 'commit_replay',
+  );
+  assert.equal(engine.getState(worldId).world_revision, 3);
+  assert.equal(engine.getEvents(worldId).length, 3);
 });
 
 test('mechanic proposal handoff rejects a stale evaluation before creating a proposal', (t) => {
@@ -1494,7 +1502,13 @@ test('committed mechanic execution provenance survives SQLite close and reopen',
     assert.ok(reopenedEvent);
     assert.deepEqual(reopenedEvent.mechanic_execution, expectedMetadata);
     assert.deepEqual(reopenedEvent.mechanic_execution.effect_provenance, evaluation.effect_provenance);
-    const reopenedProposals = new ProposalService(reopenedEngine);
+    const unconfiguredReopenedProposals = new ProposalService(reopenedEngine);
+    assert.throws(
+      () => unconfiguredReopenedProposals.commit(worldId, proposal.proposal_id),
+      (error) => error.code === 'MECHANIC_POLICY_REVALIDATION_REQUIRED'
+        && error.details?.stage === 'commit_replay',
+    );
+    const reopenedProposals = new ProposalService(reopenedEngine, { validateMechanicPolicy: () => true });
     const reopenedProposal = reopenedProposals.get(worldId, proposal.proposal_id);
     assert.deepEqual(reopenedProposal.mechanic_execution, expectedMetadata);
     const replayedCommit = reopenedProposals.commit(worldId, proposal.proposal_id);
