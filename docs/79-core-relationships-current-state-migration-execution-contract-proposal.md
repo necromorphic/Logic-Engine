@@ -88,7 +88,8 @@ The target ID/version/digest becomes the world's active World Pack binding for s
 
 Relationships owns and approves the mapping semantics. Core performs deterministic, exact lookup and structural validation only.
 
-- Every current source dimension must have exactly one explicit disposition in the artifact.
+- Each mapping entry is scoped to an exact source rule-module ID/version from the artifact's declared source-module set, plus source dimension and source value/state. It must not be applied across module versions merely because the dimension/value labels match.
+- Every current source dimension must have exactly one explicit disposition in the artifact for its exact source module pin.
 - Every current source value must have an explicit exact mapping.
 - `cleared` must have an explicit mapping distinct from an ordinary value and from absence.
 - `unset` is represented by absence in the current projection; Core must not synthesize a source row for it.
