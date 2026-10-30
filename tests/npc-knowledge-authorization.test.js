@@ -183,6 +183,27 @@ test('Core reader, belief writer, and belief-state reader reject caller-selected
     actor_id: 'attacker-actor',
     proposition_ref: 'proposition:fact/fact-a',
   }), { code: 'NPC_KNOWLEDGE_READ_NOT_AUTHORIZED' });
+
+  // Revocation blocks a previously valid actor on both state mutation and read.
+  const { actors } = setup(t);
+  actors.revoke('world-a', 'adapter-st', 'npc-a');
+  const revokedWrite = {
+    ...request,
+    proposition_ref: 'proposition:fact/fact-a',
+    proposition_value: 'value',
+    stance: 'believes_true',
+    supporting_acquisition_ids: [],
+    contradicting_acquisition_ids: [],
+    reason_rule_ref: 'rule:test',
+    idempotency_key: 'revoked-actor-transition',
+  };
+  assert.throws(() => guardedEngine.recordNpcBeliefTransition(revokedWrite), {
+    code: 'NPC_KNOWLEDGE_READ_NOT_AUTHORIZED',
+  });
+  assert.throws(() => guardedEngine.getNpcBeliefState({
+    ...request,
+    proposition_ref: 'proposition:fact/fact-a',
+  }), { code: 'NPC_KNOWLEDGE_READ_NOT_AUTHORIZED' });
 });
 
 test('per-acquisition visibility requires exact trusted source provenance and the same live Host/actor bindings', (t) => {
