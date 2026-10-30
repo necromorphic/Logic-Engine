@@ -30,6 +30,8 @@ Core is not the owner of goal meaning, plan selection, plan revision, or NPC-loc
 
 The store is not a second world-state database, event log, causality graph, rollback engine, permission system, or authoritative knowledge/acquisition store.
 
+**Terminology clarification:** docs/00-architecture-baseline.md describes the aggregate engine/simulation as owning state and lists plans among simulation concerns. Read together with the more specific docs/31-npc-subsystem-contract.md, this is an engine-wide responsibility statement, not an assignment of NPC goal/plan semantics to the Core subsystem. Core owns canonical world state and the shared trust/commit infrastructure; NPC owns the domain meaning and lifecycle of NPC-local goals/plans. If the aggregate wording in docs/00 was intended to assign Core direct semantic ownership of every NPC plan, that would require a separate explicit architecture correction; this decision does not adopt that interpretation.
+
 ## 3. NPC-local records
 
 The NPC-local store may persist, subject to a later concrete schema contract:
