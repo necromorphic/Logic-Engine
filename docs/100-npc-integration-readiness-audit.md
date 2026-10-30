@@ -75,7 +75,7 @@ Observed:
 ### 4.2 Missing context composition and dispatch
 
 Current Core candidate discovered after the first audit pass:
-- Draft PR #781 is the current Core Lane A candidate; PR #781 was closed as a duplicate of #781. It adds `LogicEngine.readNpcKnowledge()`, `prepareNpcBeliefContext()`, `recordNpcBeliefTransition()`, and `getNpcBeliefState()`, backed by acquisition-time value/source-event pins and canonical `npc.belief.transition` events with a rebuildable projection.
+- Draft PR #781 is the current Core Lane A candidate; PR #789 was closed as a duplicate of #781. It adds `LogicEngine.readNpcKnowledge()`, `prepareNpcBeliefContext()`, `recordNpcBeliefTransition()`, and `getNpcBeliefState()`, backed by acquisition-time value/source-event pins and canonical `npc.belief.transition` events with a rebuildable projection.
 - The candidate checks the exact actor/purpose/recipient/snapshot tuple through deployment-injected read and per-acquisition visibility authorizers; it rejects truncated reads, withheld proposition evidence, stale snapshots, mismatched acquisition pins, and duplicate/conflicting evidence references. It rechecks visibility before the Core belief commit.
 - This is materially closer to a usable Lane A acquisition/belief seam than the old #744 snapshot, but it remains PR-only. Its `prepareNpcBeliefContext()` builds a bounded context for one proposed proposition from selected Core-assigned evidence; it is not the complete NPC decision envelope (goals/plans, world context, Personality, Relationships, action candidates, or completeness manifest). Both authorizers are unset in `src/index.js`; request `adapter_id` and `recipient` values are not Host authentication. No Host session binding, production NPC caller, or model serializer is added.
 - PR #781 initially passed exact-head Linux and Windows matrices at `2307040c232924c2d0a51b3136c2ddd1d11de037` (Runtime 1224/1224 on both OSes; Provider acceptance 111/111; Host lifecycle 72/72; recalculation 20/20; Core trusted acquisition 17/17; NPC boundary 162/162). A follow-up source review found a revocation-to-commit TOCTOU: the final per-acquisition visibility recheck ran before `SQLiteStore.tx()` acquired the shared Core/Provider Coordinator, leaving a gap in which Provider could revoke a grant before the Core belief event committed. This was not covered by the earlier tests. The candidate was patched with `SQLiteStore.withCoordinatorLease()` and now holds the shared Coordinator across final visibility revalidation and the canonical commit; a regression test asserts the lease is already held when the Core transaction starts. Updated exact HEAD: `8d793bc8eac78eb71ad096ad38a6213ebaf0f951`; Runtime and Provider workflows were queued/pending at the time of this audit, so the patch is not yet CI-verified. Independent Core/Security review remains required.
@@ -177,7 +177,7 @@ The Core event ID is authoritative for a committed Core event, but it is not by 
 | Authorized field reads | IMPLEMENTED, narrow | `AuthorizedReadService`; default self-only |
 | Memory direct-source consumer | IMPLEMENTED internal seam, not wired | `MemoryNpcConsumer` + tests |
 | Core initial/imported ingestion | IMPLEMENTED | `docs/91` / `docs/92` |
-| Core initial/imported reader + disclosure context | PR CANDIDATE / NOT MAIN / NOT PRODUCTION-READY | PR #789 replaces closed/unmerged #744/#764; authorizers remain unconfigured and Host binding/caller/serializer are absent |
+| Core initial/imported reader + disclosure context | PR CANDIDATE / NOT MAIN / NOT PRODUCTION-READY | PR #781 is Draft; PR #789 is its closed duplicate; authorizers remain unconfigured and Host binding/caller/serializer are absent |
 | Trusted NPC decision-context builder | BLOCKED | no production caller/serializer |
 | NPC action authorization | BLOCKED | identity/read permission are not action permission |
 | First action `observe` | DESIGN ONLY | `docs/81 §11`, `docs/82 §8, §10–11` |
@@ -194,7 +194,7 @@ Do not start with the NPC-local repository adapter. The store contract is ready 
 
 Recommended sequence:
 
-1. **Core Lane A reader:** review and validate PR #789 on its exact head; configure no production authorizers until their trusted Host/session binding is specified. Then finish/approve immutable acquisition pins, per-acquisition visibility authorization, and safe context projection for `author_initial` / `imported`. Do not route this through Memory Lane B.
+1. **Core Lane A reader:** re-run and validate the patched PR #781 exact head; configure no production authorizers until their trusted Host/session binding is specified. Then finish/approve immutable acquisition pins, per-acquisition visibility authorization, and safe context projection for `author_initial` / `imported`. Do not route this through Memory Lane B.
 2. **Host final-send proof:** establish the exact production Host caller, serialized payload binding, final revalidation and sole Gateway egress. Preserve the currently approved fail-closed guarantee; do not claim cross-store linearizability unless separately approved.
 3. **NPC action authorization:** assign owner and implement the explicit actor/action/target/purpose/source policy at the real caller/proposal boundary.
 4. **First goal/action vertical slice:** only after a real approved goal family and production template/action/effect mapping are named. `observe` remains read-only until a separately supported acquisition proposal exists.
@@ -204,7 +204,7 @@ Recommended sequence:
 ## 9. Explicit non-claims
 
 This audit does not claim:
-- that PR #789 is merged (it remains Draft; its Provider workflow passed but Runtime workflow was cancelled, and independent review is outstanding); that PR #744/#764 or PR #695 is merged (closed unmerged);
+- that PR #781 is merged (it remains Draft; pre-patch exact-head matrices passed, but post-patch Runtime/Provider workflows are pending and independent review is outstanding); that PR #744/#764 or PR #695 is merged (closed unmerged);
 - that PR #646 is a shipped sole Gateway;
 - that Host source inventory is complete;
 - that Memory → NPC is enabled;
