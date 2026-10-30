@@ -1,6 +1,6 @@
 # Core-Owned NPC Belief Transition Runtime
 
-**Status:** implementation candidate in draft PR #670, with canonical-event persistence follow-up in PR #679. Not production-enabled. No prompt dispatch or HTTP route is added.
+**Status:** current-main port candidate in draft integration work. Not production-enabled. No prompt dispatch or HTTP route is added.
 
 ## Ownership
 
@@ -8,7 +8,7 @@
 - `readNpcKnowledge()` supplies only actor-assigned, active acquisition records.
 - A deployment-owned synchronous authorizer approves the actor/purpose/snapshot read.
 - A separate deployment-owned synchronous visibility authorizer must approve each acquisition for the exact actor, purpose, world revision, and commit sequence before it can enter a model-facing context.
-- The model proposes a stance; it cannot add acquisition evidence, authorize access, change canonical facts, or commit world effects.
+- The model proposes a stance; it cannot add acquisition evidence, authorize access, change canonical facts, or commit world effects. The current Core API does not expose an NPC-authored canonical world-mutation capability; any future world change remains a proposal to the existing authorized Core commit path.
 
 ## Runtime path
 
@@ -45,4 +45,4 @@ Belief stances are qualitative: `believes_true`, `believes_false`, `suspects_tru
 
 ## Boundaries still not enabled
 
-This is the Core transition and context-preparation seam only. It does not prove that a production NPC model receiver or SillyTavern Memory dispatch is wired to it. No model prompt is sent here. Independent review and end-to-end Host/Provider egress verification remain mandatory before Memory → NPC can be enabled.
+This is the Core transition and context-preparation seam only. The read authorizer and per-acquisition visibility authorizer are deployment-injected; `src/index.js` does not configure them, so the application remains fail-closed by default. The current read request also lacks explicit Host-session/recipient fields and relies on the deployment authorizer to bind those identities outside caller-controlled data; that binding is not yet demonstrated. No production NPC model receiver, context serializer, or SillyTavern Memory dispatch is wired. No model prompt is sent here. Independent Core/security review and end-to-end Host/Provider egress verification remain mandatory before Memory → NPC can be enabled.
