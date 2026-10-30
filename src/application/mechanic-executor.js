@@ -468,6 +468,8 @@ export class MechanicExecutor {
       effect_target_dependencies_complete: true,
       causal_read_set_complete_for_supported_slice: true,
       mechanic_dependencies_complete: true,
+      active_mechanic_set_pinned: true,
+      active_mechanic_set_scope: 'enabled_and_needs_review_instances',
       supported_instance_data: 'empty_parameters_and_state_only',
       supported_action_input: 'empty_object_only',
       supported_unknown_policy: 'mark_unknown',
