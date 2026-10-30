@@ -10,6 +10,16 @@ const MAX_TOTAL_BYTES = 2 * 1024 * 1024 * 1024;
 const MAX_TOTAL_ENTRIES = 100_000;
 const sha256 = (value) => createHash('sha256').update(value).digest('hex');
 
+// A manifest is accepted by reconciliation only when this exact object was
+// produced by this module instance. A caller-created object with a recomputed
+// digest is not evidence that a filesystem scan actually occurred.
+const verifiedInventories = new WeakSet();
+
+export function isVerifiedFileInventory(inventory) {
+  return inventory !== null && typeof inventory === 'object'
+    && verifiedInventories.has(inventory);
+}
+
 async function readBoundedFile(handle, maxBytes, overflowCode) {
   const chunks = [];
   let total = 0;
@@ -193,7 +203,16 @@ export async function enumerateStableFileInventory(rootPath) {
     const firstDigest = sha256(JSON.stringify(first));
     const secondDigest = sha256(JSON.stringify(second));
     if (firstDigest !== secondDigest) return fail('HOST_INVENTORY_UNSTABLE');
-    return Object.freeze({
+
+    // Freeze the complete manifest recursively before authenticating its
+    // object identity. Reconciliation cannot be tricked by mutating nested
+    // entries after the scanner has verified the filesystem.
+    for (const entry of second) {
+      Object.freeze(entry.identity);
+      Object.freeze(entry);
+    }
+    Object.freeze(second);
+    const inventory = Object.freeze({
       status: 'complete',
       root,
       file_count: second.length,
@@ -203,6 +222,8 @@ export async function enumerateStableFileInventory(rootPath) {
       // semantics supported by the current runtime. It is not an ST-wide claim.
       scope: 'single-root-regular-files-only',
     });
+    verifiedInventories.add(inventory);
+    return inventory;
   } catch (error) {
     return fail(typeof error?.message === 'string' && error.message.startsWith('HOST_INVENTORY_')
       ? error.message : 'HOST_INVENTORY_SCAN_FAILED');
