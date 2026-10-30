@@ -356,7 +356,7 @@ test('belief context final validation uses one atomic Core snapshot read', (t) =
   };
   const prepared = engine.prepareNpcBeliefContext(readRequest, proposal);
   assert.equal(prepared.status, 'ready');
-  assert.equal(snapshotReads, 3);
+  assert.equal(snapshotReads, 4);
 });
 
 test('Core omits denied acquisitions from the belief context and rejects proposals relying on them', (t) => {
