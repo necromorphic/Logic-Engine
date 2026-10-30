@@ -318,6 +318,20 @@ export class ProposalService {
         if (existing.request_hash !== expectedRequestHash) {
           throw new EngineError('IDEMPOTENCY_KEY_CONFLICT', 'Proposal idempotency key was reused with different mechanic evaluation content.', 409);
         }
+        if (['pending', 'approved'].includes(existing.status)) {
+          this.assertMechanicPolicyCurrent(existing, 'proposal_creation_retry');
+          const existingMetadata = JSON.parse(existing.mechanic_execution_json);
+          const existingSnapshot = existingMetadata.snapshot_identity;
+          const currentWorld = this.engine.store.world(worldId);
+          const currentSequence = this.engine.store.currentCommitSequence(worldId);
+          if (!currentWorld
+            || currentWorld.world_revision !== existingSnapshot.world_revision
+            || currentSequence !== existingSnapshot.commit_sequence) {
+            throw new EngineError('STALE_MECHANIC_EVALUATION',
+              'An existing pending mechanic proposal is stale; a new evaluation is required.', 409,
+              { stage: 'proposal_creation_retry' });
+          }
+        }
         return this.publicProposal(existing, true);
       }
 
