@@ -76,6 +76,28 @@ The generic sender path also performs `fetch(endpointUrl, config)` after the pro
 This is a source inventory only. It does not claim those fetch sites have already been intercepted or that a common wrapper has been implemented.
 
 
+
+## Current persisted message/swipe identity extraction added to the inventory candidate
+
+The inventory candidate now parses each bounded JSONL chat file after its file-handle read and before finalizing the double-scan manifest:
+
+- Reads the first ST metadata record and extracts only `chat_metadata.logic_engine_conversation_id` (UUID), never the mutable filename as identity.
+- For each persisted message, reads the existing `_logicEngineLifecycle.messageId` and the current `versions[]` metadata.
+- Recomputes SHA-256 for every persisted swipe payload and requires exact equality with the stored digest.
+- Verifies message/version UUID shape, uniqueness across the scanned file set, version indexes, active swipe selection, and parent-ID shape.
+- Emits only conversation UUID, message/version IDs, role, active index, parent links and content digests. Raw message text is never returned.
+- Legacy/un-enrolled messages without durable lifecycle IDs are reported as `INCOMPLETE`; the scanner does not synthesize identities. A malformed identity or digest mismatch rejects the inventory.
+- Parsing is bounded by 16 MiB per JSONL line, 100,000 messages per chat, 256 swipes per message and 1,000,000 identified versions across the inventory.
+
+This advances the candidate from file-level identity only to **current persisted logical message/swipe identity**. It still does not provide:
+- installation ID binding (the installation ID is held in browser storage, not in the chat JSONL file);
+- pre-enrollment message/swipe history or deleted/replaced version tombstones unless supplied by the separate durable lifecycle journal;
+- import/export/copy/branch/restore/replay lineage;
+- an atomic directory snapshot or protection against coordinated path replacement;
+- Core world/session authorization, accepted-head authority or production dispatch authorization.
+
+Therefore the overall result remains `DOUBLE_SCAN_CANDIDATE` / `NON_AUTHORITATIVE`. Even `CURRENT_FILE_IDENTITIES_VERIFIED` means only that the identities and digests embedded in the currently scanned files are internally consistent; it is not a trusted Host identity attestation or complete historical inventory.
+
 ## Existing Host lifecycle bridge coverage boundary
 
 The current `st-lifecycle-bridge.mjs` declares only these instrumented operations:
