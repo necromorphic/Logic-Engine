@@ -322,3 +322,82 @@ test('belief-state read rejects rollback between visibility evaluation and final
     'belief-state read must reject if rollback occurs after visibility decisions but before the final cursor check',
   );
 });
+
+
+test('belief transition and state APIs reject Proxy/accessor inputs before reading caller fields', (t) => {
+  const store = new SQLiteStore(':memory:');
+  t.after(() => store.close());
+  const engine = new LogicEngine(store);
+
+  let trapCalls = 0;
+  let getterCalls = 0;
+  const hostileProxy = new Proxy({}, {
+    getPrototypeOf() { trapCalls += 1; throw new Error('proxy trap must not execute'); },
+    ownKeys() { trapCalls += 1; throw new Error('proxy trap must not execute'); },
+  });
+  assert.throws(
+    () => engine.recordNpcBeliefTransition(hostileProxy),
+    (error) => error.code === 'INVALID_NPC_BELIEF_TRANSITION',
+  );
+  assert.throws(
+    () => engine.getNpcBeliefState(hostileProxy),
+    (error) => error.code === 'INVALID_NPC_BELIEF_STATE_REQUEST',
+  );
+
+  const transitionBase = {
+    world_id: 'world-a',
+    adapter_id: 'adapter-st',
+    actor_id: 'npc-race',
+    recipient: 'model',
+    purpose: 'npc_turn_context',
+    expected_revision: 0,
+    expected_commit_sequence: 0,
+    proposition_ref: 'proposition:secret',
+    proposition_value: 'secret',
+    stance: 'believes_true',
+    supporting_acquisition_ids: [],
+    contradicting_acquisition_ids: [],
+    reason_rule_ref: 'rule:belief-update-v1',
+    idempotency_key: 'proxy-boundary-transition',
+  };
+  const nestedProxy = new Proxy({}, {
+    getPrototypeOf() { trapCalls += 1; throw new Error('nested proxy trap must not execute'); },
+  });
+  assert.throws(
+    () => engine.recordNpcBeliefTransition({ ...transitionBase, proposition_value: nestedProxy }),
+    (error) => error.code === 'INVALID_NPC_BELIEF_TRANSITION',
+  );
+
+  const accessorTransition = { ...transitionBase };
+  Object.defineProperty(accessorTransition, 'world_id', {
+    enumerable: true,
+    get() { getterCalls += 1; throw new Error('transition getter must not execute'); },
+  });
+  assert.throws(
+    () => engine.recordNpcBeliefTransition(accessorTransition),
+    (error) => error.code === 'INVALID_NPC_BELIEF_TRANSITION',
+  );
+
+  const stateBase = {
+    world_id: 'world-a',
+    adapter_id: 'adapter-st',
+    actor_id: 'npc-race',
+    recipient: 'model',
+    purpose: 'npc_turn_context',
+    expected_revision: 0,
+    expected_commit_sequence: 0,
+    proposition_ref: 'proposition:secret',
+  };
+  const accessorState = { ...stateBase };
+  Object.defineProperty(accessorState, 'actor_id', {
+    enumerable: true,
+    get() { getterCalls += 1; throw new Error('state getter must not execute'); },
+  });
+  assert.throws(
+    () => engine.getNpcBeliefState(accessorState),
+    (error) => error.code === 'INVALID_NPC_BELIEF_STATE_REQUEST',
+  );
+
+  assert.equal(trapCalls, 0);
+  assert.equal(getterCalls, 0);
+});
