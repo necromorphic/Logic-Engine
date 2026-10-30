@@ -194,3 +194,15 @@ Run the expanded pinned-host checks with:
 ```sh
 node --test host-adapter/prototype/tests/*.test.mjs tests/host-source-inventory.test.js tests/host-lifecycle-journal.test.js
 ```
+
+
+## Coordinator approval and release boundary — 30 Oct 2026
+
+The delegated project-level contract now explicitly approves this metadata-only identity/lifecycle direction. The journal is evidence of operations observed by the instrumented Host; it is not, by itself, proof that every SillyTavern mutation path is instrumented or that the filesystem inventory is complete.
+
+For the first slice:
+- Persist only installation/account/conversation/message/version identifiers, parent/active relationships, operation type, monotonic sequence, and content digests. Never persist message text, prompts, summaries, or provider credentials.
+- A missing journal event, unsupported operation, out-of-band filesystem change, invalid hash chain, or uncertain restore makes the affected conversation NON_READY.
+- The baseline starts at explicit enrollment. Deleted history from before enrollment is unknown and must not be represented as captured.
+- Browser IndexedDB and the local server identity directory are not anti-rollback authorities. The external accepted-head/restore domain remains a separate release gate.
+- This branch does not authorize Provider raw capture, Core READY publication, protected model disclosure, or production Memory→NPC activation.
