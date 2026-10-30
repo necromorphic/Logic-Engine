@@ -3,6 +3,7 @@ import { constants as fsConstants, openSync, fstatSync, readFileSync, closeSync,
 import { isAbsolute, resolve } from 'node:path';
 import { assert, EngineError } from '../core/errors.js';
 import { hashRequest } from '../core/request-hash.js';
+import { isMechanicPolicyAuthoritySnapshot } from './mechanic-policy-authority.js';
 import { validateEffects } from '../core/rules.js';
 import { validateTrustedInitialKnowledgeSource } from './trusted-initial-knowledge-source.js';
 import { validateMechanicTemplate, validateRuleModuleManifest } from '../core/mechanics.js';
@@ -866,6 +867,7 @@ export class LogicEngine {
         && typeof metadata.context_fingerprint === 'string' && /^[a-f0-9]{64}$/i.test(metadata.context_fingerprint)
         && typeof metadata.context_policy_version === 'string' && metadata.context_policy_version.trim()
         && typeof metadata.authorization_scope === 'string' && metadata.authorization_scope.trim()
+        && isMechanicPolicyAuthoritySnapshot(metadata.policy_authority)
         && typeof metadata.evaluation_fingerprint === 'string' && /^[a-f0-9]{64}$/i.test(metadata.evaluation_fingerprint),
       'INVALID_MECHANIC_EXECUTION_METADATA', 'Mechanic execution identity and fingerprints are required.');
       assert(obj(metadata.dependency_manifest)
@@ -899,6 +901,7 @@ export class LogicEngine {
         context_fingerprint: metadata.context_fingerprint,
         context_policy_version: metadata.context_policy_version,
         authorization_scope: metadata.authorization_scope,
+        policy_authority: metadata.policy_authority,
         condition_result: metadata.condition_result,
         dependency_manifest: metadata.dependency_manifest,
         effects: x.effects,
