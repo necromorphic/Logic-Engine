@@ -63,3 +63,10 @@ Draft candidate `host/host-version-snapshot-reconcile-api-2026-10-30` adds `POST
 This reuses the existing snapshot method and its validation, preflight, monotonic-anchor and rollback behavior; it adds no cursor, outbox, raw-text storage or new database schema. The route is a new HTTP exposure of the existing method and remains Draft pending Core contract review.
 
 **Production remains fail-closed:** `src/index.js` still configures `verifyInventorySnapshot: async () => false`. Therefore the production route cannot publish READY and does not mutate the ledger for an untrusted snapshot. Tests inject a positive verifier only to prove the route-to-ledger mapping. The ST lifecycle bridge does not yet call this route; it still publishes individual digest captures and remains REVIEW_ONLY while mutation-path coverage is incomplete.
+
+
+### Revocation ordering on the new transport
+
+The route resolves the adapter/conversation binding once to derive `world_id`, then passes a synchronous `verifyBindingUnderLock` callback into `reconcileConversation()`. The ledger invokes this callback inside its final shared Coordinator lease immediately before anchor advancement and ledger mutation. This re-reads the Core-owned binding after the asynchronous inventory verifier has completed. A revoke that commits during that await is therefore observed and rejects the snapshot with `HOST_CONVERSATION_NOT_AUTHORIZED`; a revoke cannot slip between the final binding check and ledger commit because Core binding writes use the same Coordinator lease.
+
+The API test fixture now uses the same on-disk Coordinator path for Core and Host ledger. A race regression revokes the adapter binding from inside the asynchronous inventory verifier and asserts 409 / NON_READY with zero ledger rows and no inventory state mutation. Production remains fail-closed because the inventory verifier is still deny-only.
