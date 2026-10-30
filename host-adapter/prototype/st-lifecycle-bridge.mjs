@@ -51,7 +51,8 @@ export function createStLifecycleBridge({ journal, getConversationId, getConvers
       throw Error('NON_READY: persisted Host file has incomplete or mismatched logical identities');
     }
 
-    const expectedMessages = chat.map((message, messageIndex) => {
+    const expectedMessages = [];
+    for (const message of chat) {
       const identity = message?._logicEngineLifecycle;
       const versions = rawVersions(message);
       const selectedIndex = activeIndex(message);
@@ -60,28 +61,32 @@ export function createStLifecycleBridge({ journal, getConversationId, getConvers
         || identity.activeVersionIndex !== selectedIndex) {
         throw Error('NON_READY: in-memory Host identity is incomplete during persisted-state verification');
       }
-      return {
+      const expectedVersions = [];
+      for (let versionIndex = 0; versionIndex < identity.versions.length; versionIndex++) {
+        const version = identity.versions[versionIndex];
+        if (!version || !HOST_UUID.test(version.versionId ?? '')
+          || version.versionIndex !== versionIndex
+          || !/^[a-f0-9]{64}$/.test(version.payloadDigest ?? '')
+          || (version.parentVersionId !== null && version.parentVersionId !== undefined
+            && !HOST_UUID.test(version.parentVersionId))
+          || version.payloadDigest !== await contentDigest(versions[versionIndex])) {
+          throw Error('NON_READY: in-memory Host version identity or content digest is invalid during persisted-state verification');
+        }
+        expectedVersions.push({
+          version_id: version.versionId,
+          version_index: versionIndex,
+          parent_version_id: version.parentVersionId ?? null,
+          content_sha256: version.payloadDigest,
+          active: versionIndex === selectedIndex,
+        });
+      }
+      expectedMessages.push({
         message_id: identity.messageId,
         role: roleOf(message),
         active_version_index: selectedIndex,
-        versions: identity.versions.map((version, versionIndex) => {
-          if (!version || !HOST_UUID.test(version.versionId ?? '')
-            || version.versionIndex !== versionIndex
-            || !/^[a-f0-9]{64}$/.test(version.payloadDigest ?? '')
-            || (version.parentVersionId !== null && version.parentVersionId !== undefined
-              && !HOST_UUID.test(version.parentVersionId))) {
-            throw Error('NON_READY: in-memory Host version identity is invalid during persisted-state verification');
-          }
-          return {
-            version_id: version.versionId,
-            version_index: versionIndex,
-            parent_version_id: version.parentVersionId ?? null,
-            content_sha256: version.payloadDigest,
-            active: versionIndex === selectedIndex,
-          };
-        }),
-      };
-    });
+        versions: expectedVersions,
+      });
+    }
     const expected = {
       conversation_uuid: conversationUuid,
       identity_status: 'CURRENT_IDENTITIES_VERIFIED',
