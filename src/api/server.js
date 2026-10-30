@@ -56,8 +56,14 @@ function send(res, status, data) {
   res.end(body);
 }
 
-export function createApiServer({ engine, token, internalToken = null, approvalToken = null, adminToken = null, adapterTokens = {}, authorizedReadFieldPolicy = null, mechanicPolicyAuthority = null, getActiveMechanicContextProvider = () => null, hostVersionLedger = null }) {
+export function createApiServer({ engine, token, internalToken = null, approvalToken = null, adminToken = null, adapterTokens = {}, authorizedReadFieldPolicy = null, mechanicPolicyAuthority = null, getActiveMechanicContextProvider = () => null, hostVersionLedger = null, npcKnowledgeHostApiEnabled = false }) {
   if (!engine) throw new TypeError('engine required');
+  if (typeof npcKnowledgeHostApiEnabled !== 'boolean') throw new TypeError('NPC knowledge Host API enablement must be boolean.');
+  if (npcKnowledgeHostApiEnabled && (typeof engine.npcKnowledgeContextResolver !== 'function'
+    || !engine.npcKnowledgePolicyAuthority || typeof engine.npcKnowledgeReadAuthorizer !== 'function'
+    || typeof engine.npcKnowledgeVisibilityAuthorizer !== 'function')) {
+    throw new TypeError('Enabling the NPC knowledge Host API requires the complete Core-owned Lane A authorization stack.');
+  }
   if (typeof token !== 'string' || token.length < 16) throw new TypeError('API token must be at least 16 characters');
   if (internalToken !== null && (typeof internalToken !== 'string' || internalToken.length < 16 || internalToken === token)) {
     throw new TypeError('Internal token must be at least 16 characters and differ from API token');
@@ -281,6 +287,55 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
           rebind: body.rebind ?? false, reason: body.reason ?? null,
         });
         return send(res, binding.already_bound ? 200 : 201, { binding });
+      }
+      if (url.pathname === '/v1/npc-knowledge/context') {
+        if (req.method !== 'POST') return send(res, 405, { error: { code: 'METHOD_NOT_ALLOWED', message: 'Unsupported NPC knowledge context operation.' } });
+        if (!npcKnowledgeHostApiEnabled) {
+          return send(res, 503, { error: { code: 'NPC_KNOWLEDGE_HOST_API_DISABLED', message: 'The NPC knowledge Host API is disabled by deployment configuration.' } });
+        }
+        const adapterId = adapterIdFor(req);
+        if (!adapterId) return send(res, 403, { error: { code: 'ADAPTER_REQUIRED', message: 'An authenticated adapter identity is required.' } });
+        const body = await readBody(req);
+        if (!body || typeof body !== 'object' || Array.isArray(body)
+          || Object.keys(body).some((key) => !['conversation_id', 'limit'].includes(key))
+          || typeof body.conversation_id !== 'string'
+          || body.conversation_id !== body.conversation_id.trim()
+          || body.conversation_id.length < 1 || body.conversation_id.length > 200
+          || [...body.conversation_id].some((character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127)
+          || (Object.hasOwn(body, 'limit') && (!Number.isInteger(body.limit) || body.limit < 1 || body.limit > 200))) {
+          throw new EngineError('INVALID_NPC_KNOWLEDGE_HOST_REQUEST',
+            'Host context accepts only a bounded conversation_id and optional limit; world, actor, adapter, recipient, purpose, and snapshot fields are Core-owned.', 400);
+        }
+        let binding = null;
+        try {
+          binding = engine.npcKnowledgeContextResolver(Object.freeze({
+            adapter_id: adapterId,
+            conversation_id: body.conversation_id,
+          }));
+        } catch {
+          binding = null;
+        }
+        if (!binding || binding.adapter_id !== adapterId
+          || binding.conversation_id !== body.conversation_id
+          || typeof binding.world_id !== 'string' || typeof binding.actor_id !== 'string') {
+          return send(res, 403, { error: { code: 'HOST_CONVERSATION_NOT_AUTHORIZED', message: 'No unique active Core-owned world and actor binding exists for this authenticated Host conversation.' } });
+        }
+        const snapshot = engine.getNpcKnowledgeSnapshot(binding.world_id);
+        if (!snapshot || snapshot.status !== 'active') {
+          return send(res, 409, { error: { code: 'NPC_KNOWLEDGE_WORLD_NOT_READY', message: 'The bound Core world is not active.' } });
+        }
+        const context = engine.readNpcKnowledge({
+          world_id: binding.world_id,
+          conversation_id: body.conversation_id,
+          adapter_id: adapterId,
+          actor_id: binding.actor_id,
+          recipient: 'model',
+          purpose: 'npc_turn_context',
+          expected_revision: snapshot.world_revision,
+          expected_commit_sequence: snapshot.commit_sequence,
+          limit: body.limit ?? 20,
+        });
+        return send(res, 200, { context });
       }
       if (url.pathname === '/v1/host-conversation-bindings/resolve') {
         if (req.method !== 'POST') return send(res, 405, { error: { code: 'METHOD_NOT_ALLOWED', message: 'Unsupported Host conversation resolution operation.' } });
