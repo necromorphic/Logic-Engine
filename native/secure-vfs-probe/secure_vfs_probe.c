@@ -401,8 +401,15 @@ static HANDLE WINAPI probe_create_file_w(
       SetLastError(ERROR_NOT_ENOUGH_MEMORY);
       return INVALID_HANDLE_VALUE;
     }
+    /*
+     * Keep protected handles rename-compatible. SQLite's Windows VFS may omit
+     * FILE_SHARE_DELETE; without it, a still-open/pending DB handle can prevent
+     * the parent directory from being renamed even though all opens are
+     * anchored. The retained directory HANDLE remains the authority, and each
+     * later child open is still identity-checked.
+     */
     handle = logic_engine_win_open_relative(role->anchor.parent,
-      relative_name, desired_access, share, disposition, options,
+      relative_name, desired_access, share | FILE_SHARE_DELETE, disposition, options,
       native_attributes, expected, &info_identity);
     sqlite3_free(relative_name);
   } else if (needs_identity) {
