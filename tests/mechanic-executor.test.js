@@ -133,13 +133,20 @@ test('mechanic context provider can enforce actor binding and field policy throu
 
   const actorBindings = new ActorBindingService(engine);
   actorBindings.bind(worldId, 'test-adapter', 'entity.actor-context');
-  const authorizedReads = new AuthorizedReadService(engine, actorBindings, (context, entity, field) =>
-    context.authenticatedAdapterId === 'test-adapter'
-      && context.actor.entity_id === 'entity.actor-context'
-      && context.recipient === 'model'
-      && context.purpose === 'npc_decision'
-      && ((entity.entity_id === 'entity.world-context' && field === 'attributes.weather')
-        || (entity.entity_id === 'entity.actor-context' && field === 'attributes.hp')));
+  const authority = new DeploymentPolicyAuthority({
+    authorityIdentity: 'test.actor-visibility',
+    resolveActivePolicy: () => ({
+      authority_identity: 'test.actor-visibility',
+      generation: 'fixture-v1',
+      authorizeField: (context, entity, field) => context.authenticatedAdapterId === 'test-adapter'
+        && context.actor.entity_id === 'entity.actor-context'
+        && context.recipient === 'model'
+        && context.purpose === 'npc_decision'
+        && ((entity.entity_id === 'entity.world-context' && field === 'attributes.weather')
+          || (entity.entity_id === 'entity.actor-context' && field === 'attributes.hp')),
+    }),
+  });
+  const authorizedReads = new AuthorizedReadService(engine, actorBindings, authority);
 
   const provider = new CanonicalEntityAttributeContextProvider(engine, {
     policyVersion: 'test-read-policy-v1',
@@ -160,14 +167,23 @@ test('mechanic context provider can enforce actor binding and field policy throu
   }).evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
 
   assert.equal(result.status, 'ready', JSON.stringify(result));
-  assert.equal(result.context_policy_version, provider.policyFingerprint);
+  assert.notEqual(result.context_policy_version, provider.policyFingerprint);
+  assert.equal(result.policy_authority.authority_identity, 'test.actor-visibility');
+  assert.equal(result.policy_authority.policy_generation, 'fixture-v1');
+  assert.equal(provider.validateMechanicPolicy({
+    policyVersion: result.context_policy_version,
+    policyAuthority: result.policy_authority,
+    authorizationScope: result.authorization_scope,
+  }), true);
   assert.equal(result.authorization_scope, 'test-adapter:entity.actor-context:model:npc_decision');
   assert.equal(result.dependency_manifest.context_projection_dependencies_complete, true);
   assert.equal(engine.getState(worldId).world_revision, 2);
 
   const proposals = new ProposalService(engine, {
     validateMechanicPolicy(identity) {
-      assert.equal(identity.policyVersion, provider.policyFingerprint);
+      assert.equal(provider.getPolicyAuthority(), authority);
+      assert.equal(authority.isCurrent(identity.policyAuthority), true);
+      assert.equal(provider.validateMechanicPolicy(identity), true);
       actorBindings.resolve(identity.worldId, 'test-adapter', 'entity.actor-context');
       return true;
     },
