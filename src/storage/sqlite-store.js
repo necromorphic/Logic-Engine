@@ -1774,6 +1774,7 @@ export class SQLiteStore {
             ruleVersion: effect.rule_module_id + '@' + effect.rule_module_version,
           };
           const relationshipEvaluationSnapshot = {
+            originating_event_id: eventId,
             schema: 'relationship-evaluation-input/v1',
             evaluator_contract: 'relationship-candidate/v1',
             rule_module_id: effect.rule_module_id,
