@@ -233,7 +233,7 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
           'the opened OS identities must reject aliases to both other database roles'
         );
       } finally {
-        unlinkSync(roleHostLedgerPath);
+        if (existsSync(roleHostLedgerPath)) unlinkSync(roleHostLedgerPath);
         renameSync(roleHostBackupPath, roleHostLedgerPath);
       }
 
