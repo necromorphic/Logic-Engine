@@ -168,6 +168,42 @@ int wmain(void) {
     goto cleanup;
   }
 
+
+  /* Exercise anchored Win32 open, access and delete primitives after parent rename. */
+  {
+    HANDLE created;
+    DWORD written = 0;
+    LogicEngineWinFileIdentity sidecar_identity;
+    created = logic_engine_win_create_file_relative(anchor.parent, L"probe-wal",
+        GENERIC_READ | GENERIC_WRITE,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+        CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL, NULL, &sidecar_identity);
+    if (created == INVALID_HANDLE_VALUE) {
+      fail(L"create sidecar through Win32-relative adapter");
+      goto cleanup;
+    }
+    if (!WriteFile(created, "wal-object", 10, &written, NULL) || written != 10) {
+      CloseHandle(created);
+      fail(L"write sidecar fixture");
+      goto cleanup;
+    }
+    CloseHandle(created);
+    if (logic_engine_win_access_relative(anchor.parent, L"probe-wal", 0) != 1
+        || logic_engine_win_access_relative(anchor.parent, L"probe-wal", 1) != 1
+        || logic_engine_win_access_relative(anchor.parent, L"store.sqlite", 0) != 1) {
+      fail(L"anchored xAccess primitive");
+      goto cleanup;
+    }
+    if (!logic_engine_win_delete_relative(anchor.parent, L"probe-wal", &sidecar_identity)) {
+      fail(L"anchored xDelete primitive");
+      goto cleanup;
+    }
+    if (logic_engine_win_access_relative(anchor.parent, L"probe-wal", 0) != 0) {
+      fail(L"deleted sidecar remains accessible");
+      goto cleanup;
+    }
+  }
+
   wprintf(L"PASS: pinned-parent rename, decoy isolation, 128-bit file identity, "
           L"directory reparse rejection, and child reparse rejection\n");
   result = 0;
