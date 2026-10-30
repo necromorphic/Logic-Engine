@@ -48,6 +48,33 @@ Event names alone do not prove exactly-once delivery, durable ordering, complete
 
 The inspected chat-completions route has multiple outbound initiation sites. Provider-specific helpers contain their own `fetch` calls (including distinct streaming paths), and the generic OpenAI-compatible branch has its own final `fetch`. Wrapping only the common fetch or only the route handler leaves provider-specific bypasses. Before enabling protected Memory, add a source-level inventory test that enumerates all outbound sender functions reachable from this route and fails when a new sender/fetch path is added without a dispatch-gate mapping. Add runtime tests for each supported protected provider asserting: (a) denial/revocation means zero outbound calls; (b) the transport-start callback is invoked synchronously under the shared Coordinator lease; (c) the lease is released before awaiting the response/stream; and (d) ambiguous started requests are not retried.
 
+## Provider sender egress inventory
+
+The pinned server dispatcher has 13 early-return provider branches before the generic request builder. These branches do not converge on the generic `fetch(endpointUrl, config)` at line 611 of this file's source audit target; each sender has its own outbound request path.
+
+Pinned `src/endpoints/backends/chat-completions.js` sender entry points and source-level `fetch()` sites:
+
+| Sender | Function line | Fetch line(s) |
+|---|---:|---:|
+| Claude | 230 | 410 |
+| MakerSuite / Vertex AI | 454 | 733 |
+| AI21 | 800 | 852 |
+| Mistral | 881 | 942 |
+| Cohere | 971 | 1042, 1045 |
+| DeepSeek | 1071 | 1153 |
+| xAI | 1183 | 1259 |
+| AIMLAPI | 1289 | 1364 |
+| ElectronHub | 1394 | 1476 |
+| Chutes | 1506 | 1577 |
+| MiniMax | 1607 | 1658 |
+| Azure OpenAI | 1687 | 1752, 1857, 1960, 1984, 2038, 2076, 2689, 2735, 2761, 2784, 2807, 2831, 2862, 2891, 2923, 2954 |
+
+The generic sender path also performs `fetch(endpointUrl, config)` after the provider-specific URL, headers and body have been assembled. Some senders have multiple fetches for model-specific or multimodal operations; the inventory is a call-site map, not yet a semantic classification of each request.
+
+**Integration consequence:** adding a guard only around the generic `fetch(endpointUrl, config)` misses the early-return senders. A correct Host patch must either (a) route every generation egress site through one shared final-dispatch wrapper, preserving each sender's endpoint/headers/body/stream behavior, or (b) provide a common transport injection used by all sender functions and prove that no generation egress bypass remains. The protected wrapper must obtain the trusted Core/Provider authorization and dispatch-start permit before the outbound `fetch()` is invoked; prompt-preparation events and route entry alone are not sufficient.
+
+This is a source inventory only. It does not claim those fetch sites have already been intercepted or that a common wrapper has been implemented.
+
 ## Current implementation boundary
 
 PR #780 carries a bounded, read-only current-file inventory candidate and its pinned ST route patch. It does not yet add a final-send gateway, message/swipe revision journal coverage for all mutation paths, import/export/copy/restore lineage, durable Host installation/session identity, or production Core/Provider wiring.
