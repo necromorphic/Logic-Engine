@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { constants as fsConstants, openSync, fstatSync, readFileSync, closeSync, lstatSync, realpathSync } from 'node:fs';
+import { constants as fsConstants, openSync, fstatSync, readFileSync, closeSync, lstatSync, statSync, realpathSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
 import { assert, EngineError } from '../core/errors.js';
 import { hashRequest } from '../core/request-hash.js';
@@ -707,14 +707,18 @@ export class LogicEngine {
     try {
       // POSIX platforms enforce no-follow atomically at open. Windows does not
       // expose O_NOFOLLOW through Node, so validate the path before and after
-      // opening and compare the opened handle identity with both path snapshots.
+      // opening. lstat supplies the reparse/link check; stat supplies the
+      // volume identity because Windows lstat reports dev=0 for regular files.
       const noFollow = fsConstants.O_NOFOLLOW;
       let pathBefore;
+      let pathBeforeIdentity;
       let resolvedBefore;
       if (!Number.isInteger(noFollow) || noFollow === 0) {
         pathBefore = lstatSync(configured.source_path, { bigint: true });
+        pathBeforeIdentity = statSync(configured.source_path, { bigint: true });
         resolvedBefore = realpathSync(configured.source_path);
         assert(pathBefore.isFile() && !pathBefore.isSymbolicLink()
+          && pathBeforeIdentity.isFile() && pathBefore.ino === pathBeforeIdentity.ino
           && resolve(resolvedBefore) === resolve(configured.source_path),
         'TRUSTED_IMPORT_FILE_UNAVAILABLE', 'Trusted import path must resolve directly to a regular, non-link file.', 503);
       }
@@ -724,11 +728,13 @@ export class LogicEngine {
         'INVALID_TRUSTED_IMPORT_FILE', 'Trusted import must be a regular file within the 1 MiB limit.');
       if (pathBefore) {
         const pathAfter = lstatSync(configured.source_path, { bigint: true });
+        const pathAfterIdentity = statSync(configured.source_path, { bigint: true });
         const resolvedAfter = realpathSync(configured.source_path);
         assert(pathAfter.isFile() && !pathAfter.isSymbolicLink()
+          && pathAfterIdentity.isFile() && pathAfter.ino === pathAfterIdentity.ino
           && resolve(resolvedBefore) === resolve(resolvedAfter)
-          && stat.dev === pathBefore.dev && stat.ino === pathBefore.ino
-          && stat.dev === pathAfter.dev && stat.ino === pathAfter.ino,
+          && stat.dev === pathBeforeIdentity.dev && stat.ino === pathBeforeIdentity.ino
+          && stat.dev === pathAfterIdentity.dev && stat.ino === pathAfterIdentity.ino,
         'TRUSTED_IMPORT_FILE_UNAVAILABLE', 'Trusted import path changed while it was being opened.', 503);
       }
       sourceBytes = readFileSync(fd);
