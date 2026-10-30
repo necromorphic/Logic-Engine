@@ -8,6 +8,8 @@ import { AuthorizedReadService } from '../application/authorized-read-service.js
 import { HostConversationWorldBindingService } from '../application/host-conversation-world-bindings.js';
 
 const MAX = 1048576;
+const MAX_HOST_VERSION_SNAPSHOT_BYTES = 8 * 1048576;
+const MAX_HOST_VERSION_SNAPSHOT_ENTRIES = 25000;
 
 /** Resolve the active deployment-owned policy on every boundary check. */
 export function createActiveMechanicPolicyValidator(getActiveMechanicContextProvider) {
@@ -27,11 +29,11 @@ function secretMatches(provided, expected) {
   const expectedDigest = createHash('sha256').update(expected, 'utf8').digest();
   return timingSafeEqual(providedDigest, expectedDigest);
 }
-async function readBody(req) {
+async function readBody(req, maxBytes = MAX) {
   const chunks = []; let size = 0;
   for await (const chunk of req) {
     size += chunk.length;
-    if (size > MAX) throw new EngineError('BODY_TOO_LARGE', 'Body exceeds 1 MiB.', 413);
+    if (size > maxBytes) throw new EngineError('BODY_TOO_LARGE', `Body exceeds ${maxBytes} bytes.`, 413);
     chunks.push(chunk);
   }
   if (!size) return {};
@@ -136,6 +138,67 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
       }
       if (req.method === 'GET' && registryParts[0] === 'v1' && registryParts[1] === 'rule-modules' && registryParts.length === 4) {
         return send(res, 200, engine.getRuleModuleManifest(decodeURIComponent(registryParts[2]), decodeURIComponent(registryParts[3])));
+      }
+      if (url.pathname === '/v1/host-version-ledger/reconcile') {
+        if (req.method !== 'POST') return send(res, 405, { error: { code: 'METHOD_NOT_ALLOWED', message: 'Unsupported Host inventory reconciliation operation.' } });
+        if (!hostVersionLedger || typeof hostVersionLedger.reconcileConversation !== 'function') {
+          return send(res, 503, { error: { code: 'HOST_VERSION_LEDGER_UNAVAILABLE', message: 'Host version ledger is not configured.' } });
+        }
+        const adapterId = adapterIdFor(req);
+        if (!adapterId) return send(res, 403, { error: { code: 'ADAPTER_REQUIRED', message: 'An authenticated adapter identity is required.' } });
+        const body = await readBody(req, MAX_HOST_VERSION_SNAPSHOT_BYTES);
+        const allowed = ['conversation_id', 'complete', 'versions'];
+        if (!body || typeof body !== 'object' || Array.isArray(body)
+          || Object.keys(body).some((key) => !allowed.includes(key))
+          || typeof body.conversation_id !== 'string'
+          || body.conversation_id !== body.conversation_id.trim()
+          || body.conversation_id.length === 0 || body.conversation_id.length > 200
+          || [...body.conversation_id].some((character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127)
+          || typeof body.complete !== 'boolean'
+          || !Array.isArray(body.versions)
+          || body.versions.length > MAX_HOST_VERSION_SNAPSHOT_ENTRIES) {
+          throw new EngineError('INVALID_HOST_VERSION_SNAPSHOT',
+            'Reconciliation accepts only conversation_id, complete, and a bounded versions array; Core derives world_id from the authenticated adapter binding.', 400);
+        }
+        const versionAllowed = ['message_id', 'version_id', 'parent_version_id', 'content_sha256', 'active', 'deleted'];
+        for (const version of body.versions) {
+          if (!version || typeof version !== 'object' || Array.isArray(version)
+            || Object.keys(version).some((key) => !versionAllowed.includes(key))
+            || !['message_id', 'version_id'].every((key) => typeof version[key] === 'string'
+              && version[key] === version[key].trim() && version[key].length > 0 && version[key].length <= 200
+              && ![...version[key]].some((character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127))
+            || !Object.hasOwn(version, 'parent_version_id')
+            || !(version.parent_version_id === null || (typeof version.parent_version_id === 'string'
+              && version.parent_version_id === version.parent_version_id.trim()
+              && version.parent_version_id.length > 0 && version.parent_version_id.length <= 200))
+            || typeof version.content_sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(version.content_sha256)
+            || typeof version.active !== 'boolean' || typeof version.deleted !== 'boolean'
+            || (version.deleted && version.active)) {
+            throw new EngineError('INVALID_HOST_VERSION_SNAPSHOT',
+              'Each version requires exact message/version IDs, explicit parent, SHA-256 digest, active and deleted flags; raw text and caller world IDs are forbidden.', 400);
+          }
+        }
+        const binding = hostConversationBindings.resolve({ adapterId, conversationId: body.conversation_id });
+        const snapshot = {
+          world_id: binding.world_id,
+          conversation_id: body.conversation_id,
+          complete: body.complete,
+          versions: body.versions.map((version) => ({
+            world_id: binding.world_id,
+            conversation_id: body.conversation_id,
+            message_id: version.message_id,
+            version_id: version.version_id,
+            parent_version_id: version.parent_version_id,
+            content_sha256: version.content_sha256,
+            active: version.active,
+            deleted: version.deleted,
+          })),
+        };
+        const result = await hostVersionLedger.reconcileConversation(snapshot);
+        if (result.status !== 'ready') {
+          return send(res, 409, { inventory: result, inventory_status: 'NON_READY' });
+        }
+        return send(res, 200, { inventory: result, inventory_status: 'READY' });
       }
       if (url.pathname === '/v1/host-version-ledger/capture') {
         if (req.method !== 'POST') return send(res, 405, { error: { code: 'METHOD_NOT_ALLOWED', message: 'Unsupported Host version-ledger operation.' } });
