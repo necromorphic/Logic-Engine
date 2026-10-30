@@ -24,6 +24,7 @@ const isPlainDataRecord = (value) => {
   return true;
 };
 const asyncFunctionPrototype = Object.getPrototypeOf(async function asyncFunctionPrototypeMarker() {});
+const MAX_HOST_SNAPSHOT_VERSIONS = 25000;
 const snapshotInputKeys = new Set(['world_id', 'conversation_id', 'complete', 'versions']);
 const versionInputKeys = new Set([
   'world_id', 'conversation_id', 'message_id', 'version_id', 'parent_version_id', 'content_sha256', 'active', 'deleted'
@@ -372,15 +373,36 @@ export class HostVersionDigestLedger {
     });
   }
 
-  async reconcileConversation(input) {
+  async reconcileConversation(input, options = {}) {
+    if (!isPlainDataRecord(options)
+      || Object.keys(options).some((key) => key !== 'revalidateBinding')) {
+      return { status: 'non_ready', code: 'HOST_INVENTORY_INVALID' };
+    }
+    const revalidateBinding = options.revalidateBinding ?? null;
+    if (revalidateBinding !== null && (typeof revalidateBinding !== 'function'
+      || isProxy(revalidateBinding)
+      || Object.getPrototypeOf(revalidateBinding) === asyncFunctionPrototype)) {
+      return { status: 'non_ready', code: 'HOST_INVENTORY_INVALID' };
+    }
     // Only inspect ordinary data records before copying. Accessors and Proxy
     // traps are executable caller code and must not run inside trust checks.
     if (!isPlainDataRecord(input)) return { status: 'non_ready', code: 'HOST_INVENTORY_INVALID' };
-    if (input.complete === undefined || !Array.isArray(input.versions)) {
+    if (input.complete !== true || !Array.isArray(input.versions)) {
       return { status: 'non_ready', code: 'HOST_INVENTORY_INCOMPLETE' };
     }
     if (Object.keys(input).some((key) => !snapshotInputKeys.has(key))
-      || typeof input.complete !== 'boolean' || !isPlainDataArray(input.versions)
+      || typeof input.complete !== 'boolean'
+      || !Array.isArray(input.versions)
+      || isProxy(input.versions)
+      || Object.getPrototypeOf(input.versions) !== Array.prototype) {
+      return { status: 'non_ready', code: 'HOST_INVENTORY_INVALID' };
+    }
+    // Reject Proxy and non-native arrays before reading length. A native array's
+    // built-in length is a non-configurable data property, so this check is safe.
+    if (input.versions.length > MAX_HOST_SNAPSHOT_VERSIONS) {
+      return { status: 'non_ready', code: 'HOST_INVENTORY_TOO_LARGE' };
+    }
+    if (!isPlainDataArray(input.versions)
       || input.versions.some((v) => !isPlainDataRecord(v)
         || Object.keys(v).some((key) => !versionInputKeys.has(key))
         || !Object.hasOwn(v, 'parent_version_id')
@@ -485,6 +507,27 @@ export class HostVersionDigestLedger {
       .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
     const snapshotDigest = digest(JSON.stringify(canonical));
     return this.#write(() => {
+      // Binding revocation and this final READY publication share the same
+      // Coordinator lease. The async inventory verifier runs outside the lease;
+      // re-resolve the authenticated adapter binding synchronously here so a
+      // revoke that wins during verification cannot publish READY afterwards.
+      if (revalidateBinding) {
+        let binding = null;
+        try {
+          binding = revalidateBinding({
+            world_id: snapshot.world_id,
+            conversation_id: snapshot.conversation_id,
+          });
+        } catch {}
+        if (!isPlainDataRecord(binding) || binding.active !== true
+          || binding.world_id !== snapshot.world_id
+          || binding.conversation_id !== snapshot.conversation_id) {
+          const now = new Date().toISOString();
+          this.#markNonReady(snapshot.world_id, snapshot.conversation_id,
+            'HOST_CONVERSATION_NOT_AUTHORIZED', now, snapshotDigest);
+          return { status: 'non_ready', code: 'HOST_CONVERSATION_NOT_AUTHORIZED' };
+        }
+      }
       const currentState = this.db.prepare('SELECT status,failure_code,updated_at,snapshot_digest FROM host_version_inventory_state WHERE world_id=? AND conversation_id=?')
         .get(snapshot.world_id, snapshot.conversation_id) ?? null;
       const invalidatedDuringVerification = currentState?.status === 'NON_READY'
@@ -552,6 +595,16 @@ export class HostVersionDigestLedger {
       this.db.prepare("INSERT INTO host_version_inventory_state (world_id,conversation_id,status,snapshot_digest,failure_code,updated_at) VALUES(?,?,'READY',?,NULL,?) ON CONFLICT(world_id,conversation_id) DO UPDATE SET status='READY',snapshot_digest=excluded.snapshot_digest,failure_code=NULL,updated_at=excluded.updated_at")
         .run(snapshot.world_id, snapshot.conversation_id, snapshotDigest, this.#nextStateTimestamp(snapshot.world_id, snapshot.conversation_id));
       return { status: 'ready', snapshot_sha256: snapshotDigest, version_count: snapshot.versions.length };
+    });
+  }
+
+  invalidateConversation(worldId, conversationId) {
+    if (!validId(worldId) || !validId(conversationId)) {
+      throw new TypeError('A valid Host conversation scope is required for inventory invalidation');
+    }
+    return this.#write(() => {
+      this.#markNonReady(worldId, conversationId, 'HOST_CONVERSATION_REVOKED', new Date().toISOString());
+      return { status: 'non_ready', code: 'HOST_CONVERSATION_REVOKED' };
     });
   }
 

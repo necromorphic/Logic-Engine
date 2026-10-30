@@ -40,6 +40,7 @@ The following routes exist in the current Core runtime:
 - `POST /v1/host-conversation-bindings` — administrator binds a configured adapter ID and stable Host conversation ID to a canonical Core world. Requires `x-admin-token`.
 - `POST /v1/host-conversation-bindings/resolve` — resolves a binding for the authenticated adapter identity.
 - `POST /v1/host-version-ledger/capture` — accepts `conversation_id`, `message_id`, `version_id`, explicit `parent_version_id`, lowercase SHA-256 `content_sha256`, and boolean `active`/`deleted`. Requires authenticated adapter credentials and a prior binding. Raw message text and caller-supplied `world_id` are rejected.
+- `POST /v1/host-version-ledger/reconcile` — Draft integration route for a complete digest-only `versions[]` snapshot. Core derives world scope from the authenticated adapter binding and revalidates it under the shared Coordinator lease before READY publication. Request limit: 8 MiB and 25,000 versions. Production snapshot verifier remains deny-only, so this route cannot publish READY.
 
 Configure the separate digest-ledger file with `ENGINE_HOST_VERSION_LEDGER_DB_PATH`; it must not alias `ENGINE_DB_PATH` or `LOGIC_ENGINE_COORDINATOR_DB_PATH`. The ledger records identities, digests, active/deleted flags and lineage metadata, not raw message content.
 

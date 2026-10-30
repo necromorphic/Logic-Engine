@@ -33,7 +33,7 @@ The Provider draft expects a trusted verifier to establish, before reconciliatio
 - a canonical inventory digest computed over the same normalized version list;
 - explicit evidence that a missing version means deletion rather than partial enumeration, copy, or restore.
 
-The current Host prototype does not yet emit this approved envelope. In particular, its IndexedDB head is a Host-local integrity checkpoint, not a PC-side Provider authority; a list of instrumented paths does not prove runtime coverage; and the current `CURRENTLY_HOOKED_PATHS` excludes delete-chat, delete-group-chat, delete-character-chat-recursive, import/restore/branch, restart/replay and other required paths.
+The current Host bridge can now serialize a digest-only snapshot envelope to the Core reconciliation route, but it deliberately sends `complete: false`; it does not emit an approved complete snapshot or reach READY. Its IndexedDB head remains a Host-local integrity checkpoint, not a PC-side Provider authority; a list of instrumented paths does not prove runtime coverage; and `CURRENTLY_HOOKED_PATHS` still excludes delete-chat, delete-group-chat, delete-character-chat-recursive, import/restore/branch, restart/replay and other required paths.
 
 ## Provider draft behavior and limits
 
@@ -60,7 +60,7 @@ The original comparison above is historical (2026-10-26). Current main has since
 
 The combined pinned-ST patch candidate #787 successfully applies lifecycle hooks → file-inventory route → Direction A delete-safety overlay in CI (Host prototype tests 75/75, syntax checks and patch application pass). This does not change the snapshot contract or make `verifyInventorySnapshot` positive.
 
-**Disposition:** patch composition is validated; Host snapshot compatibility, complete inventory, restore/branch lineage and production reconciliation remain BLOCKED / NON_READY. Do not infer Provider readiness or Memory→NPC authorization from the current-file inventory endpoint or individual digest-capture responses. No new cursor, outbox, schema or raw-text retention is approved by this refresh.
+**Disposition:** patch composition is validated; Host snapshot compatibility, complete inventory, restore/branch lineage and production reconciliation remain BLOCKED / NON_READY. The new Host→Core reconciliation transport currently returns NON_READY because the bridge withholds `complete: true` and Core's production verifier is deny-only. Do not infer Provider readiness or Memory→NPC authorization from the current-file inventory endpoint or this transport response. No new cursor, outbox, schema or raw-text retention is approved by this refresh.
 
 
 ## Authenticated Host session identity update — 30 Oct 2026
@@ -68,3 +68,17 @@ The combined pinned-ST patch candidate #787 successfully applies lifecycle hooks
 The Host candidate now scopes its conversation identifier as `hostSessionId:installationId:conversationUuid`. The server-generated session UUID is stored in SillyTavern's signed cookie-session object after verifying that the authenticated session handle matches the authenticated user handle. This prevents reuse of a prior Core conversation binding by a different login session. Session reset, cookie loss, cookie-signing-secret rotation, or account change rotates the identifier and causes old local enrollment mappings to fail closed rather than silently rebind.
 
 This improves identity scoping but does not change the Provider snapshot envelope. `HostVersionDigestLedger.reconcileConversation()` still requires a trusted complete `versions[]` inventory, and Core startup still uses a deny-only inventory verifier. The session UUID is not a durable installation attestation, does not establish world/actor authorization, and does not supply branch/restore lineage or monotonic snapshot sequence. No Provider reconciliation or revocation claim is upgraded by this change; production Memory→NPC remains DISABLED / FAIL-CLOSED.
+
+
+## Complete-snapshot API and final revocation check — integrated with session-bound Host candidate
+
+The integration branch based on the authenticated session-bound Host stack adds `POST /v1/host-version-ledger/reconcile` as a transport projection of the existing `HostVersionDigestLedger.reconcileConversation()` contract. The request accepts only `conversation_id`, `complete`, and digest-only `versions[]`; before forwarding, the ST proxy requires an authenticated cookie session whose account handle matches `request.user.profile.handle` and whose server-generated session UUID prefixes the conversation ID. Core then derives `world_id` from the authenticated adapter binding. The API rejects caller-supplied world scope, raw text and unknown fields. Requests are bounded to 8 MiB and 25,000 version rows.
+
+After asynchronous snapshot verification, the ledger re-resolves the adapter/conversation binding synchronously inside the final shared Coordinator lease immediately before READY publication. Core binding mutations use the same lease. A revocation that commits during asynchronous verification therefore prevents READY publication. A successful revoke also invalidates any prior READY inventory state before the API acknowledges the revoke. Consumers must still re-resolve the binding at their own disclosure/dispatch boundary.
+
+Production remains fail-closed: `src/index.js` still injects `verifyInventorySnapshot: async () => false`. The route cannot publish READY in production. Positive-verifier tests prove only API-to-ledger mapping and lock ordering, not Host source trust or inventory completeness. The authenticated Host session UUID improves session scoping but is not durable installation attestation. Complete lifecycle coverage, trusted snapshot attestation, Core world/actor authorizers and final-send Gateway wiring remain open. No new cursor, outbox, raw-text storage or vectorization change is introduced.
+
+
+### Host/Core snapshot capacity mismatch
+
+The persisted SillyTavern scanner currently allows up to 1,000,000 logical versions over its enumerated current-file set. The Core reconciliation API accepts at most 25,000 version rows and 8 MiB in one complete snapshot. An inventory above either Core bound must remain NON_READY; the Host must not split it into partial snapshots or claim completeness. Supporting larger histories requires a separately reviewed bounded transfer protocol. This candidate adds no cursor, outbox or chunking semantics.
