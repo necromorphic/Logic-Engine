@@ -8,8 +8,15 @@ const CONFIG = {
   LOGIC_ENGINE_ADAPTER_ID: 'sillytavern-phone',
   LOGIC_ENGINE_ADAPTER_TOKEN: 'adapter-token-long-enough',
 };
+const SESSION_ID = '11111111-1111-4111-8111-111111111111';
+const HOST_CONVERSATION_ID = SESSION_ID + ':22222222-2222-4222-8222-222222222222:33333333-3333-4333-8333-333333333333';
+const requestFor = (body, { sessionId = SESSION_ID, userHandle = 'alice', sessionHandle = userHandle } = {}) => ({
+  body,
+  user: { profile: { handle: userHandle } },
+  session: { handle: sessionHandle, logicEngineSessionId: sessionId },
+});
 const capture = {
-  conversation_id: 'chat-1',
+  conversation_id: HOST_CONVERSATION_ID,
   message_id: 'message-1',
   version_id: 'version-1',
   parent_version_id: null,
@@ -30,7 +37,7 @@ test('unconfigured proxy fails closed without making an upstream request', async
   let called = false;
   const handler = createHostDigestProxyHandler({ env: {}, fetchImpl: async () => { called = true; } });
   const response = responseRecorder();
-  await handler({ body: capture }, response);
+  await handler(requestFor(capture), response);
   assert.equal(response.statusCode, 503);
   assert.equal(response.payload.error.code, 'LOGIC_ENGINE_PROXY_UNCONFIGURED');
   assert.equal(called, false);
@@ -71,7 +78,7 @@ test('proxy rejects caller URLs, world IDs, raw text and malformed digests befor
     { ...capture, active: true, deleted: true },
   ]) {
     const response = responseRecorder();
-    await handler({ body }, response);
+    await handler(requestFor(body), response);
     assert.equal(response.statusCode, 400);
     assert.equal(response.payload.error.code, 'INVALID_HOST_VERSION_CAPTURE');
   }
@@ -107,7 +114,7 @@ test('proxy maps upstream transport failures to a generic response without leaki
 
 test('reconciliation proxy forwards a bounded digest-only snapshot to the Core reconciliation route', async () => {
   const snapshot = {
-    conversation_id: 'chat-1',
+    conversation_id: HOST_CONVERSATION_ID,
     complete: false,
     versions: [{
       message_id: 'message-1',
@@ -133,7 +140,7 @@ test('reconciliation proxy forwards a bounded digest-only snapshot to the Core r
     },
   });
   const response = responseRecorder();
-  await handler({ body: snapshot }, response);
+  await handler(requestFor(snapshot), response);
   assert.equal(response.statusCode, 409);
   assert.equal(response.payload.inventory_status, 'NON_READY');
   assert.equal(observed.url, 'http://192.168.1.10:8787/v1/host-version-ledger/reconcile');
@@ -149,7 +156,7 @@ test('reconciliation proxy rejects raw text, caller world scope, oversized row s
     fetchImpl: async () => { calls++; throw Error('must not call upstream'); },
   });
   const valid = {
-    conversation_id: 'chat-1',
+    conversation_id: HOST_CONVERSATION_ID,
     complete: false,
     versions: [{
       message_id: 'message-1',
@@ -173,12 +180,12 @@ test('reconciliation proxy rejects raw text, caller world scope, oversized row s
     ...valid.versions[0], message_id: 'message-' + index, version_id: 'version-' + index,
   })) };
   const countResponse = responseRecorder();
-  await handler({ body: tooMany }, countResponse);
+  await handler(requestFor(tooMany), countResponse);
   assert.equal(countResponse.statusCode, 413);
   assert.equal(countResponse.payload.error.code, 'HOST_INVENTORY_TOO_LARGE');
 
   const byteResponse = responseRecorder();
-  await handler({ body: { ...valid, padding: 'x'.repeat(8 * 1024 * 1024) } }, byteResponse);
+  await handler(requestFor({ ...valid, padding: 'x'.repeat(8 * 1024 * 1024) }), byteResponse);
   assert.equal(byteResponse.statusCode, 413);
   assert.equal(byteResponse.payload.error.code, 'HOST_INVENTORY_TOO_LARGE');
   assert.equal(calls, 0);
