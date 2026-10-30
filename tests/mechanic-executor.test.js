@@ -911,9 +911,12 @@ test('application executor rejects required capabilities without a grant contrac
 
 test('application executor rejects participant and automatic conflict policies instead of guessing', (t) => {
   const participantCases = [
-    ['eligible-participants', { eligible_participants: ['entity.actor-context'] }],
-    ['participant-constraints', { participant_constraints: [{ op: 'eq', path: 'actor.hp', value: 10 }] }],
-    ['interactions', { interactions: [{ interaction_id: 'talk' }] }],
+    ['eligible-participants', { eligible_participants: [{ role_id: 'actor' }] }],
+    ['interactions', { interactions: [{
+      interaction_id: 'talk',
+      other_template_id: 'test.other',
+      policy: 'compatible',
+    }] }],
   ];
   for (const [suffix, overrides] of participantCases) {
     const worldId = 'executor-unsupported-' + suffix + '-world';
@@ -930,7 +933,7 @@ test('application executor rejects participant and automatic conflict policies i
   const conflictWorld = 'executor-unsupported-automatic-conflict-world';
   const conflictSetup = setup(t, conflictWorld);
   enableFixture(conflictSetup.engine, conflictWorld, template({
-    conflict_policy: { mode: 'automatic', resolver: { module_id: 'resolver', version: '1.0.0' } },
+    conflict_policy: { mode: 'automatic', resolver_module_id: 'test.resolver', resolver_module_version: '1.0.0' },
   }));
   const conflictResult = new MechanicExecutor(conflictSetup.engine, { resolveAuthorizedContext: contextProvider() })
     .evaluate({ worldId: conflictWorld, instanceId: 'instance.executor', actionId: 'wait' });
