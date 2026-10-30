@@ -15,12 +15,13 @@ const unavailable = () => new EngineError(
 /**
  * Internal, fail-closed read boundary.
  *
- * fieldPolicy is trusted application configuration. It must explicitly return
- * true for each field that may be disclosed to the supplied requester/actor,
- * recipient and purpose. Missing/throwing policy decisions deny disclosure.
+ * A MechanicPolicyAuthority is the versioned source for both ordinary field
+ * disclosure and internal mechanic attribute reads. Its identity/generation is
+ * rechecked before data is returned. A legacy trusted fieldPolicy callback is
+ * retained for ordinary reads only; it cannot authorize mechanic reads.
  *
  * This service is intentionally not an HTTP endpoint and does not define a
- * default public visibility policy. Do not pass model-produced policy functions.
+ * default public visibility policy. Never pass model-produced policy functions.
  */
 export class AuthorizedReadService {
   constructor(engine, actorBindingService, fieldPolicyOrAuthority) {
