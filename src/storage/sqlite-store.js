@@ -47,7 +47,16 @@ const timeAdvanceOperation = (row) => row && ({
   current_world_revision: row.current_world_revision,
   status: row.status,
   next_segment_index: row.next_segment_index,
-  segment_count: JSON.parse(row.segments_json).length,
+  // Keep malformed persisted operation rows readable so recovery can fail closed
+  // and expose needs_review rather than throwing during result serialization.
+  segment_count: (() => {
+    try {
+      const segments = JSON.parse(row.segments_json);
+      return Array.isArray(segments) ? segments.length : null;
+    } catch {
+      return null;
+    }
+  })(),
   plan: dec(row.plan_json),
   result: dec(row.result_json),
   error: dec(row.error_json),
@@ -2025,8 +2034,8 @@ export class SQLiteStore {
         input.error ? enc(input.error) : null, stamp, stamp,
       );
       for (const triggerId of triggerIds) {
-        this.db.prepare('UPDATE world_time_triggers SET claimed_by_operation_id=?,updated_at=? WHERE world_id=? AND trigger_id=?')
-          .run(input.operation_id, stamp, input.world_id, triggerId);
+        this.db.prepare('UPDATE world_time_triggers SET claimed_by_operation_id=? WHERE world_id=? AND trigger_id=?')
+          .run(input.operation_id, input.world_id, triggerId);
       }
       return timeAdvanceOperation(this.db.prepare('SELECT * FROM time_advance_operations WHERE world_id=? AND operation_id=?')
         .get(input.world_id, input.operation_id));
@@ -2052,7 +2061,51 @@ export class SQLiteStore {
         .get(worldId, operationId);
       if (!current) throw new EngineError('TIME_ADVANCE_OPERATION_NOT_FOUND', 'Time-advance operation not found.', 404);
       if (current.status !== 'running') return timeAdvanceOperation(current);
-      const segments = dec(current.segments_json);
+      let segments;
+      try {
+        segments = dec(current.segments_json);
+        if (!Array.isArray(segments) || segments.length === 0 || segments.some((segment) => (
+          !segment
+          || !Number.isSafeInteger(segment.coordinate)
+          || typeof segment.idempotency_key !== 'string'
+          || segment.idempotency_key.length === 0
+          || typeof segment.request_hash !== 'string'
+          || segment.request_hash.length === 0
+          || !Array.isArray(segment.events)
+          || segment.events.length > 32
+          || (segment.trigger_ids !== undefined && !Array.isArray(segment.trigger_ids))
+          || (segment.registered_trigger_ids !== undefined && !Array.isArray(segment.registered_trigger_ids))
+        ))) throw new Error('Persisted segments must be a non-empty array of valid segment records for a running operation.');
+      } catch (error) {
+        // Persisted operation evidence is untrusted during recovery. Fail closed before
+        // any segment is resumed, release only this operation's claims, and gate the
+        // processes whose pending triggers were owned by this operation.
+        this.tx(() => {
+          const fresh = this.db.prepare('SELECT status FROM time_advance_operations WHERE world_id=? AND operation_id=?')
+            .get(worldId, operationId);
+          if (!fresh || fresh.status !== 'running') return;
+          const processRows = this.db.prepare(`SELECT DISTINCT m.process_id
+            FROM world_process_milestones m
+            JOIN world_time_triggers t ON t.world_id=m.world_id AND t.trigger_id=m.trigger_id
+            WHERE t.world_id=? AND t.claimed_by_operation_id=?`).all(worldId, operationId);
+          this.db.prepare("UPDATE time_advance_operations SET status='needs_review',error_json=?,updated_at=? WHERE world_id=? AND operation_id=? AND status='running'")
+            .run(enc({
+              code: 'TIME_ADVANCE_SEGMENTS_MALFORMED',
+              message: 'Persisted time-advance segments are malformed; recovery was stopped without replaying effects.',
+              cause: error?.message || 'Invalid persisted segment evidence.',
+            }), now(), worldId, operationId);
+          this.db.prepare('UPDATE world_time_triggers SET claimed_by_operation_id=NULL WHERE world_id=? AND claimed_by_operation_id=?')
+            .run(worldId, operationId);
+          // Gate processes in the same SQLite transaction as the terminal operation
+          // state. If any audit/gate write fails, the whole recovery decision rolls back
+          // and the operation remains retryable rather than leaving a runnable process.
+          for (const row of processRows) {
+            this.processStore?.markNeedsReview(worldId, row.process_id, 'TIME_ADVANCE_SEGMENTS_MALFORMED',
+              'Persisted time-advance segments are malformed; recovery was stopped without replaying effects.');
+          }
+        });
+        continue;
+      }
       const expectedConfirmedCoordinate = current.next_segment_index === 0
         ? current.from_coordinate
         : current.next_segment_index > 0 && current.next_segment_index <= segments.length
@@ -2191,8 +2244,29 @@ export class SQLiteStore {
           if (plan.final_action_status === 'pending' && result) {
             result = { ...result, final_action_status: 'not_committed_needs_review' };
           }
+          const processCheckpointFailure = ['PROCESS_CROSS_RECORD_CHECKPOINT_MISMATCH', 'PROCESS_NOT_RUNNABLE'].includes(error?.code);
+          const implicatedProcessId = error?.details?.process_id;
+          const processRows = processCheckpointFailure && typeof implicatedProcessId === 'string'
+            ? this.db.prepare(`SELECT DISTINCT m.process_id
+                FROM world_process_milestones m
+                JOIN world_time_triggers t ON t.world_id=m.world_id AND t.trigger_id=m.trigger_id
+                WHERE t.world_id=? AND t.claimed_by_operation_id=? AND m.process_id=?`)
+              .all(worldId, operationId, implicatedProcessId)
+            : [];
           this.db.prepare("UPDATE time_advance_operations SET status='needs_review',error_json=?,result_json=?,updated_at=? WHERE world_id=? AND operation_id=?")
             .run(enc(errorBody), result ? enc(result) : null, now(), worldId, operationId);
+          if (processCheckpointFailure) {
+            // A checkpoint contradiction or non-runnable process must not leave any
+            // trigger from the rolled-back segment claimed. Preserve checkpoint timestamps.
+            this.db.prepare('UPDATE world_time_triggers SET claimed_by_operation_id=NULL WHERE world_id=? AND claimed_by_operation_id=?')
+              .run(worldId, operationId);
+            // Gate every process whose trigger belonged to the failed operation atomically
+            // with its needs_review operation record.
+            for (const row of processRows) {
+              this.processStore?.markNeedsReview(worldId, row.process_id, error.code, error.message);
+            }
+          }
+
         });
       }
     }

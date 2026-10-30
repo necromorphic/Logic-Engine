@@ -1206,6 +1206,23 @@ export class LogicEngine {
     let triggerSnapshot = [];
     let completedTriggerSnapshot = [];
     try {
+      const isReviewGatedProcessTrigger = (trigger) => {
+        const milestone = this.processStore.findMilestoneByTrigger(id, trigger.trigger_id);
+        if (!milestone) return false;
+        if (milestone.status === 'needs_review') return true;
+        const process = this.processStore.get(id, milestone.process_id);
+        return process.stored_status === 'needs_review';
+      };
+      const allRegisteredTriggers = this.store.listTimeTriggers(id, true);
+      const reviewGatedDue = allRegisteredTriggers.filter((trigger) =>
+        trigger.status === 'pending'
+        && trigger.due_coordinate <= x.to_coordinate
+        && isReviewGatedProcessTrigger(trigger));
+      if (reviewGatedDue.length) {
+        throw new EngineError('TIME_TRIGGER_PROCESS_NEEDS_REVIEW',
+          'Time advancement cannot cross pending triggers owned by a process that requires reconciliation.',
+          409, { trigger_ids: reviewGatedDue.map((trigger) => trigger.trigger_id), target_coordinate: x.to_coordinate });
+      }
       if (triggerSource === 'registered') {
         triggerSnapshot = this.store.listTimeTriggers(id, true);
         const overdue = triggerSnapshot
@@ -1222,7 +1239,7 @@ export class LogicEngine {
       } else {
         triggerSnapshot = x.triggers ?? [];
         completedTriggerSnapshot = x.completed_trigger_ids ?? [];
-        const registeredDue = this.store.listTimeTriggers(id)
+        const registeredDue = allRegisteredTriggers
           .filter((trigger) => trigger.status === 'pending' && trigger.due_coordinate <= x.to_coordinate)
           .map((trigger) => trigger.trigger_id);
         if (registeredDue.length) {
