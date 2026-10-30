@@ -289,12 +289,14 @@ function normalizeCandidatePlan(input, planId, idFactory) {
   if (!plainData(plan) || !Array.isArray(plan.steps) || plan.steps.length === 0) {
     throw new NpcGoalPlanRepositoryError("candidate plan requires at least one step", "invalid_input");
   }
-  const steps = plan.steps.map((step, index) => {
+  const steps = [];
+  for (let index = 0; index < plan.steps.length; index += 1) {
+    const step = plan.steps[index];
     if (!plainData(step) || !nonEmpty(step.action_id)) {
       throw new NpcGoalPlanRepositoryError("each plan step requires action_id", "invalid_input");
     }
-    return { ...step, id: idFrom(idFactory), status: index === 0 ? "active" : "pending" };
-  });
+    steps.push({ ...step, id: idFrom(idFactory), status: index === 0 ? "active" : "pending" });
+  }
   const normalized = { ...plan, id: planId, status: "active", steps };
   if (getNpcPlanActiveStep(normalized).status !== "ready") {
     throw new NpcGoalPlanRepositoryError("candidate plan violates the active-plan contract", "invalid_input");
@@ -322,13 +324,16 @@ function ensureSchema(database) {
   const tables = database.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").all();
   if (version > SCHEMA_VERSION) throw new NpcGoalPlanRepositoryError("NPC store schema is newer than this adapter");
   if (version === SCHEMA_VERSION) {
-    const names = new Set(tables.map((row) => row.name));
     const required = [
       "npc_goals", "npc_goal_selection", "npc_plan_revisions", "npc_plan_candidates",
       "npc_action_attempts", "npc_core_reconciliations", "npc_idempotency", "npc_audit",
     ];
-    if (!required.every((name) => names.has(name))) {
-      throw new NpcGoalPlanRepositoryError("versioned NPC store is missing required tables");
+    for (let i = 0; i < required.length; i += 1) {
+      let found = false;
+      for (let j = 0; j < tables.length; j += 1) {
+        if (tables[j].name === required[i]) found = true;
+      }
+      if (!found) throw new NpcGoalPlanRepositoryError("versioned NPC store is missing required tables");
     }
     return;
   }
@@ -414,7 +419,9 @@ export function createNpcGoalPlanRepository({
         "SELECT goal_id,goal_json,goal_revision,status FROM npc_goals WHERE world_id = ? AND npc_entity_id = ?" +
         filter + " ORDER BY goal_id LIMIT ?",
       ).all(...params);
-      const snapshots = goals.map((row) => {
+      const snapshots = [];
+      for (let goalIndex = 0; goalIndex < goals.length; goalIndex += 1) {
+        const row = goals[goalIndex];
         const selection = getSelection(database, scope, row.goal_id);
         if (!selection) throw new NpcGoalPlanRepositoryError("goal selection row is missing");
         let currentPlan = null;
@@ -426,15 +433,15 @@ export function createNpcGoalPlanRepository({
           if (!planRow) throw new NpcGoalPlanRepositoryError("current plan pointer is inconsistent");
           currentPlan = parseJson(planRow.plan_json);
         }
-        return {
+        snapshots.push({
           goal: parseJson(row.goal_json),
           goal_revision: row.goal_revision,
           current_plan_id: selection.current_plan_id,
           current_plan_revision: selection.current_plan_revision,
           plan_selection_revision: selection.plan_selection_revision,
           current_plan: currentPlan,
-        };
-      });
+        });
+      }
       const response = {
         scope,
         schema_version: SCHEMA_VERSION,
@@ -444,22 +451,28 @@ export function createNpcGoalPlanRepository({
         ).get(scope.world_id, scope.npc_entity_id).cursor,
       };
       if (options.include_candidates === true) {
-        response.candidates = database.prepare(
+        const candidateRows = database.prepare(
           "SELECT candidate_id,goal_id,plan_id,plan_revision,status,candidate_json,created_at FROM npc_plan_candidates WHERE world_id = ? AND npc_entity_id = ?" +
           filter + " ORDER BY candidate_id LIMIT ?",
-        ).all(...params).map((row) => {
+        ).all(...params);
+        response.candidates = [];
+        for (let i = 0; i < candidateRows.length; i += 1) {
+          const row = candidateRows[i];
           const { candidate_json, ...metadata } = row;
-          return { ...metadata, candidate: parseJson(candidate_json) };
-        });
+          response.candidates.push({ ...metadata, candidate: parseJson(candidate_json) });
+        }
       }
       if (options.include_pending_attempts === true) {
-        response.pending_attempts = database.prepare(
+        const attemptRows = database.prepare(
           "SELECT attempt_id,goal_id,plan_id,plan_revision,step_id,action_id,world_revision,commit_sequence,local_state,attempt_json,created_at FROM npc_action_attempts WHERE world_id = ? AND npc_entity_id = ? AND local_state != 'reconciled'" +
           filter + " ORDER BY attempt_id LIMIT ?",
-        ).all(...params).map((row) => {
+        ).all(...params);
+        response.pending_attempts = [];
+        for (let i = 0; i < attemptRows.length; i += 1) {
+          const row = attemptRows[i];
           const { attempt_json, ...metadata } = row;
-          return { ...metadata, attempt: parseJson(attempt_json) };
-        });
+          response.pending_attempts.push({ ...metadata, attempt: parseJson(attempt_json) });
+        }
       }
       return outcome("ready", response);
     });
@@ -856,10 +869,12 @@ export function createNpcGoalPlanRepository({
         "SELECT attempt_id,goal_id,plan_id,plan_revision,step_id,action_id,world_revision,commit_sequence,local_state,attempt_json,created_at FROM npc_action_attempts WHERE world_id = ? AND npc_entity_id = ? AND local_state != 'reconciled' AND (? IS NULL OR attempt_id > ?) ORDER BY attempt_id LIMIT ?",
       ).all(scope.world_id, scope.npc_entity_id, cursor, cursor, limit + 1);
       const hasMore = rows.length > limit;
-      const items = rows.slice(0, limit).map((row) => {
+      const items = [];
+      for (let i = 0; i < rows.length && i < limit; i += 1) {
+        const row = rows[i];
         const { attempt_json, ...metadata } = row;
-        return { ...metadata, attempt: parseJson(attempt_json) };
-      });
+        items.push({ ...metadata, attempt: parseJson(attempt_json) });
+      }
       return outcome("ready", { items, next_cursor: hasMore ? items[items.length - 1].attempt_id : null });
     });
   }
@@ -875,10 +890,14 @@ export function createNpcGoalPlanRepository({
         "SELECT audit_sequence,entity_type,entity_id,action,revision,details_json,created_at FROM npc_audit WHERE world_id = ? AND npc_entity_id = ? AND audit_sequence > ? ORDER BY audit_sequence LIMIT ?",
       ).all(scope.world_id, scope.npc_entity_id, cursor, limit + 1);
       const hasMore = rows.length > limit;
-      const items = rows.slice(0, limit).map((row) => ({
-        audit_sequence: row.audit_sequence, entity_type: row.entity_type, entity_id: row.entity_id,
-        action: row.action, revision: row.revision, details: parseJson(row.details_json), created_at: row.created_at,
-      }));
+      const items = [];
+      for (let i = 0; i < rows.length && i < limit; i += 1) {
+        const row = rows[i];
+        items.push({
+          audit_sequence: row.audit_sequence, entity_type: row.entity_type, entity_id: row.entity_id,
+          action: row.action, revision: row.revision, details: parseJson(row.details_json), created_at: row.created_at,
+        });
+      }
       return outcome("ready", {
         items,
         next_cursor: hasMore ? items[items.length - 1].audit_sequence : null,
