@@ -89,6 +89,7 @@ function trustedContext({ snapshot }) {
     policy_version: 'integration-test-policy-v1',
     authority_id: 'integration-test-authority',
     policy_generation: 1,
+    authorization_principal: { adapterId: 'integration-test-adapter', actorEntityId: 'entity.actor-context', recipient: 'model', purpose: 'npc_decision' },
   };
 }
 
