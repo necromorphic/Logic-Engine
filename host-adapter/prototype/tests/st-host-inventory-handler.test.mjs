@@ -6,6 +6,8 @@ function makeResponse() {
   return {
     statusCode: null,
     body: null,
+    headers: {},
+    set(name, value) { this.headers[name.toLowerCase()] = value; return this; },
     status(code) { this.statusCode = code; return this; },
     json(body) { this.body = body; return this; },
     sendStatus(code) { this.statusCode = code; return this; },
@@ -68,6 +70,8 @@ test('host inventory route passes only the authenticated user data roots and ret
   };
   await handler({ user: { profile: { handle: 'alice' }, directories } }, response);
   assert.equal(response.statusCode, 200);
+  assert.equal(response.headers['cache-control'], 'no-store, private');
+  assert.equal(response.headers.vary, 'Cookie');
   assert.deepEqual(observed, {
     directories: {
       chats: directories.chats,
