@@ -363,8 +363,8 @@ test('context preserves the distinction between belief, suspicion, and unresolve
     return buildNpcBeliefContext(read, reduced.transition);
   };
 
-  assert.equal(build('believes_true').context.belief_stance_class, 'belief');
-  assert.equal(build('suspects_true').context.belief_stance_class, 'suspicion');
+  assert.equal(build('believes_true').context.belief_stance_class, 'believed');
+  assert.equal(build('suspects_true').context.belief_stance_class, 'suspected');
 
   const conflictRead = knowledgeRead({ items: evidenceItems });
   const conflict = reduceNpcBeliefTransition({
