@@ -77,6 +77,7 @@ export function createHostInventoryHandler({
           snapshot_sha256: filesystem.snapshot_sha256,
           file_count: filesystem.file_count,
           total_bytes: filesystem.total_bytes,
+          scope: filesystem.scope ?? 'single-root-regular-files-only',
           snapshot_id: filesystem.snapshot_id ?? null,
           snapshot_provider: filesystem.snapshot_provider ?? null,
           snapshot_consistency: filesystem.snapshot_consistency ?? null,
