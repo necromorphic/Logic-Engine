@@ -34,13 +34,27 @@ const base = () => ({
     preconditions_met: true,
     cost: 10,
   }],
+  conflict_assessment: {
+    motives: [{ id: "protect-contact", kind: "obligation" }],
+    options: [{
+      id: "call-contact",
+      supports: ["protect-contact"],
+      frustrates: [],
+      motive_assessment_complete: true,
+      feasibility: "feasible",
+      hard_constraints_complete: true,
+      hard_constraints: [],
+    }],
+    resolutions: [],
+  },
 });
 
-test("selects an intention only after reconsideration and plan viability pass", () => {
+test("selects an intention only after reconsideration, plan viability, and conflict gates pass", () => {
   assert.deepEqual(evaluateNpcAutonomyCycle(base()), {
     status: "intention_selected",
     stage: "complete",
     intention: { goal_id: "protect-contact", action_id: "call-contact" },
+    conflict_decision: "ready_for_selection",
     reconsideration: {
       status: "no_material_change",
       reason: "no_relevant_change_detected",
@@ -128,7 +142,97 @@ test("no eligible action is a valid bounded outcome", () => {
   input.actions[0].preconditions_met = false;
   const result = evaluateNpcAutonomyCycle(input);
   assert.equal(result.status, "no_eligible_action");
+  assert.equal(result.stage, "intention_selection");
   assert.equal(result.intention, null);
+});
+
+test("unresolved motive conflict prevents intention selection", () => {
+  const input = base();
+  input.conflict_assessment.motives.push({ id: "meet-deadline", kind: "goal" });
+  input.conflict_assessment.options[0].frustrates = ["meet-deadline"];
+  const result = evaluateNpcAutonomyCycle(input);
+  assert.equal(result.status, "review_required");
+  assert.equal(result.stage, "internal_conflict");
+  assert.equal(result.conflict_decision, "needs_review");
+  assert.equal(result.intention, null);
+});
+
+test("a violated hard constraint excludes an otherwise high-priority action", () => {
+  const input = base();
+  input.conflict_assessment.options[0].hard_constraints = [
+    { id: "safety", status: "violated" },
+  ];
+  const result = evaluateNpcAutonomyCycle(input);
+  assert.equal(result.status, "no_eligible_action");
+  assert.equal(result.stage, "internal_conflict");
+  assert.equal(result.conflict_decision, "no_eligible_option");
+  assert.equal(result.intention, null);
+});
+
+test("an explicit conflict rule can disqualify an action before priority selection", () => {
+  const input = base();
+  input.conflict_assessment.motives.push({ id: "meet-deadline", kind: "goal" });
+  input.conflict_assessment.options[0].supports = ["meet-deadline"];
+  input.conflict_assessment.options[0].frustrates = ["protect-contact"];
+  input.conflict_assessment.resolutions = [{
+    motive_a_id: "meet-deadline",
+    motive_b_id: "protect-contact",
+    preferred_motive_id: "protect-contact",
+    rule_ref: "author:protect-contact-first",
+  }];
+  const result = evaluateNpcAutonomyCycle(input);
+  assert.equal(result.status, "no_eligible_action");
+  assert.equal(result.stage, "internal_conflict");
+  assert.equal(result.intention, null);
+});
+
+test("eligible options remain selectable while unresolved alternatives are excluded", () => {
+  const input = base();
+  input.goals.push({ id: "meet-deadline", status: "active", priority: 100 });
+  input.actions.push({
+    id: "meet-deadline-action",
+    goal_id: "meet-deadline",
+    allowed: true,
+    preconditions_met: true,
+    cost: 1,
+  });
+  input.conflict_assessment.motives.push({ id: "meet-deadline", kind: "goal" });
+  input.conflict_assessment.options.push({
+    id: "meet-deadline-action",
+    supports: ["meet-deadline"],
+    frustrates: ["protect-contact"],
+    motive_assessment_complete: true,
+    feasibility: "feasible",
+    hard_constraints_complete: true,
+    hard_constraints: [],
+  });
+
+  const result = evaluateNpcAutonomyCycle(input);
+  assert.equal(result.status, "intention_selected");
+  assert.equal(result.conflict_decision, "eligible_with_review_options");
+  assert.deepEqual(result.intention, {
+    goal_id: "protect-contact",
+    action_id: "call-contact",
+  });
+});
+
+test("action candidates and conflict options require exact one-to-one identity coverage", () => {
+  const input = base();
+  input.conflict_assessment.options[0].id = "different-action";
+  const result = evaluateNpcAutonomyCycle(input);
+  assert.equal(result.status, "non_ready");
+  assert.equal(result.stage, "internal_conflict");
+  assert.equal(result.intention, null);
+});
+
+test("an empty action set returns no action without inventing a conflict result", () => {
+  const input = base();
+  input.actions = [];
+  input.conflict_assessment.options = [];
+  const result = evaluateNpcAutonomyCycle(input);
+  assert.equal(result.status, "no_eligible_action");
+  assert.equal(result.stage, "internal_conflict");
+  assert.equal(result.conflict_decision, "no_candidates");
 });
 
 test("malformed input and malformed nested contracts fail closed", () => {
@@ -141,6 +245,10 @@ test("malformed input and malformed nested contracts fail closed", () => {
   assert.equal(result.status, "non_ready");
   assert.equal(result.stage, "intention_selection");
   assert.equal(result.intention, null);
+
+  const malformedConflict = base();
+  malformedConflict.conflict_assessment.options[0].feasibility = "maybe";
+  assert.equal(evaluateNpcAutonomyCycle(malformedConflict).status, "non_ready");
 });
 
 test("does not mutate caller-owned input", () => {
