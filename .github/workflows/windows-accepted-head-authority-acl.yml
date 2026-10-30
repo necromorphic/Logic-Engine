@@ -1,0 +1,27 @@
+name: Windows accepted-head authority ACL candidate
+on:
+  pull_request:
+    paths:
+      - 'scripts/security/Set-AcceptedHeadAuthorityAcl.ps1'
+      - 'docs/security/accepted-head-authority-acl-candidate.md'
+      - '.github/workflows/windows-accepted-head-authority-acl.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-accepted-head-authority-acl-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  powershell-51-acl-smoke:
+    runs-on: windows-2022
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Apply candidate ACL only to a disposable fixture
+        shell: powershell
+        run: .\scripts\security\Test-AcceptedHeadAuthorityAcl.ps1
