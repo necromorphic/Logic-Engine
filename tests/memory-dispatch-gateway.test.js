@@ -830,6 +830,8 @@ test('real Core source mutation and Gateway dispatch-start share one cross-proce
         event_type: 'action.completed',
         expected_revision: snapshot.world_revision,
         expected_commit_sequence: snapshot.commit_sequence,
+        causal_links: [{ relation: 'REQUIRES', predicate: { kind: 'entity_exists', entity_id: 'entity-42' } }],
+        read_set: ['entity:entity-42'],
         effects: [{ kind: 'entity.update', entity_id: 'entity-42', attributes: { updated_by: idempotencyKey } }],
       });
     };
