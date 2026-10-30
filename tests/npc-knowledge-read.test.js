@@ -895,6 +895,7 @@ test('over-limit contradictory acquisition fails closed before context or belief
     }),
   });
 
+  const binding = { adapter_id: 'adapter-st', conversation_id: 'conversation-a', world_id: 'world-a' };
   engine.createWorld({
     world_id: 'world-a',
     world_pack_id: 'test.world',
