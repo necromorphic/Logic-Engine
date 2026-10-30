@@ -41,14 +41,22 @@ export class AuthorizedReadService {
 
   getPolicyAuthoritySnapshot() {
     if (!this.policyAuthority) return null;
-    const snapshot = this.policyAuthority.getSnapshot();
-    if (!isMechanicPolicyAuthoritySnapshot(snapshot)) throw unavailable();
-    return snapshot;
+    try {
+      const snapshot = this.policyAuthority.getSnapshot();
+      if (!isMechanicPolicyAuthoritySnapshot(snapshot)) throw unavailable();
+      return snapshot;
+    } catch {
+      throw unavailable();
+    }
   }
 
   isPolicyAuthorityCurrent(snapshot) {
     try {
-      return this.policyAuthority?.isCurrent(snapshot) === true;
+      if (!this.policyAuthority || !isMechanicPolicyAuthoritySnapshot(snapshot)) return false;
+      const current = this.getPolicyAuthoritySnapshot();
+      return current.authority_id === snapshot.authority_id
+        && current.generation === snapshot.generation
+        && this.policyAuthority.isCurrent(snapshot) === true;
     } catch {
       return false;
     }
@@ -67,7 +75,11 @@ export class AuthorizedReadService {
 
   _fieldAllowed(context, entity, field, policySnapshot = null) {
     if (this.policyAuthority) {
-      return this.policyAuthority.authorizeField(context, Object.freeze({ ...entity }), field, policySnapshot) === true;
+      try {
+        return this.policyAuthority.authorizeField(context, Object.freeze({ ...entity }), field, policySnapshot) === true;
+      } catch {
+        return false;
+      }
     }
     try {
       return this.fieldPolicy(context, Object.freeze({ ...entity }), field) === true;
