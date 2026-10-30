@@ -8,6 +8,12 @@ Scope: contract semantics and implementation boundaries only. No runtime wiring,
 Related evidence:
 - `docs/56-npc-memory-boundary-acceptance-matrix.md`
 - `docs/50-npc-initial-knowledge-acquisition-contract.md`
+- `docs/76-core-cross-block-decision-register.md`
+- `docs/86-cross-block-authority-and-npc-integration-contract-proposal.md`
+- `docs/91-core-owned-trusted-initial-knowledge-source-decision.md`
+- `docs/92-trusted-initial-knowledge-importer-operations.md`
+- `docs/architecture/core-final-disclosure-authorization-contract.md`
+- Core candidate PRs #709, #744; NPC candidate PR #695; Host/Gateway candidates #646, #680, #689
 - `src/npc/memory-candidate-eligibility.js`
 - `src/application/memory-npc-consumer.js`
 - `src/application/sqlite-memory-provider.js`
@@ -19,12 +25,14 @@ Related evidence:
 This document resolves the private adapter architecture and the semantic decisions required to plan implementation.
 
 It does **not** claim that the end-to-end path exists. Current implementation evidence shows:
-- the NPC admission oracle is metadata-only and returns reference projections;
-- `MemoryNpcConsumer` is an internal application seam, not a public API, and is not wired into the production NPC runtime;
-- the consumer currently supports only direct `canonical_entity` sources, excludes summaries, and fails non-ready for initial/imported knowledge until Core assignment-read proof exists;
-- `ActorBindingService` binds an authenticated adapter identity to a canonical actor, but does not itself grant Memory or field disclosure;
-- `AuthorizedReadService` is the Core-owned field disclosure boundary;
-- no complete production Host → NPC decision/context → Gateway path has been demonstrated.
+- Trusted `author_initial` / `imported` source ingestion is implemented on main by PR #683. Core validates deployment-owned source material and emits canonical `knowledge.acquire` effects; this is source ingestion, not a knowledge reader or Memory dispatch.
+- Core stores acquisition effects in its canonical event lifecycle and maintains a rebuildable `knowledge_acquisitions` projection. The current writer's deterministic `acquisition_id` binds world, subject, fact, source kind/reference/digest and authorization reference, but does not yet pin the exact acquired fact value and sorted source-event set.
+- Core reader/belief candidate PR #744 adds `LogicEngine.readNpcKnowledge()`, acquisition-time value/source-event pins, canonical belief-transition events and a derived projection. It is draft/unmerged; authorizers are not configured in `src/index.js`, and it does not add Host-session authentication, NPC runtime invocation or model dispatch.
+- NPC epistemic reducer/admission candidate PR #695 preserves `confirmed`, `unconfirmed_report`, `suspicion`, `inference`, `rumor` and `unknown`. It is draft/unmerged and is not an authorization or acquisition service.
+- `MemoryNpcConsumer` is a separate internal application seam for Memory candidates backed by direct `canonical_entity` sources. It excludes summaries and initial/imported candidates; it must not be mistaken for the Core initial-acquisition reader.
+- `memory-candidate-eligibility.js` is metadata-only. It does not authenticate, authorize, acquire or prove source authenticity.
+- `ActorBindingService` resolves adapter-to-actor identity only. `AuthorizedReadService` is a Core field-disclosure seam, not the final dispatch authority.
+- Core source-version token candidate PR #709 and Host lifecycle/Gateway candidates #680/#689/#646 remain separate from a production Host → NPC decision/context → sole-Gateway path. No such complete path has been demonstrated.
 
 Therefore this contract defines the target private boundary without relabelling existing helpers as a finished adapter.
 
@@ -35,25 +43,45 @@ Therefore this contract defines the target private boundary without relabelling 
 | Host | Session authentication; session-to-world/actor binding; dispatch lifecycle; sole outbound model Gateway; exact context serialization | Decide Memory trust, grant Core access, create canonical facts/acquisitions, bypass Gateway |
 | Core | Authenticated adapter identity validation; actor binding resolution; authorization; canonical truth; acquisition identity/validity; snapshot consistency; restricted-field disclosure; canonical commit | Delegate canonical authority to Memory or NPC; accept model-supplied identity/authorization |
 | Memory | Record storage/index; record/query grants; provenance; source identity/version; lineage; completeness/index health; reconciliation evidence | Decide canonical truth; grant itself permission to disclose canonical fields; create Core acquisition or NPC belief |
-| NPC | Admission semantics; belief/inference; uncertainty/conflict preservation; decision-context interpretation | Own canonical state, source validity, acquisition ledger, access policy, or model egress |
+| NPC | Admission semantics; belief/inference; uncertainty/conflict preservation; decision-context interpretation and belief-state machine | Own canonical truth, source validity, acquisition ledger, access policy, or model egress. Core owns durable authoritative belief-transition events/projection where persistence is enabled |
 
 Core is the authorization and canonical-state authority. Memory is an evidence provider, not an authority to disclose Core-owned canonical values. NPC is a consumer and interpreter, not a second truth store.
 
-## 3. Private call path
+## 3. Two distinct evidence lanes
 
-Target logical path:
+The contract deliberately separates two paths. They must not be collapsed into one generic "Memory" concept.
 
-1. Host authenticates the active SillyTavern session and resolves its server-side binding to exactly one `world_id` and actor/NPC identity for the generation.
+### Lane A — Core-owned initial acquisition
+
+`trusted author/import bundle → Core source validation → canonical knowledge.acquire event → Core acquisition projection → Core actor-scoped knowledge read → NPC`
+
+- The source ingestion foundation is implemented on main by PR #683.
+- The reader and acquisition-time value/source-event pins are represented by draft PR #744, not main runtime.
+- This lane does **not** require Memory Provider retrieval. It represents explicit `author_initial` / `imported` subject assignment.
+- A Core acquisition means the subject was assigned information. It does not itself mean the proposition is objectively true or that the NPC believes it.
+- Until the Core reader and authorizers are implemented/configured and accepted, this lane is not consumable by production NPC runtime.
+
+### Lane B — Memory Provider evidence
+
+`Host-owned source identity → Memory Provider record/index/grants → Core actor/field authorization and source-version check → NPC admission → NPC cognition`
+
+- Memory candidates are evidence references, not Core acquisitions.
+- A retrieval hit, record grant, prompt inclusion or successful admission does not create an acquisition, receipt, belief or canonical fact.
+- Current `MemoryNpcConsumer` only supports direct `canonical_entity` candidates; summaries and other source kinds remain excluded.
+- Raw Host text capture/read and complete Host inventory remain separate gated capabilities. A Memory record must not be assumed to originate from an authenticated or complete Host history.
+
+### Dispatch path shared by both lanes
+
+1. Host authenticates the active SillyTavern session and resolves a server-side binding to exactly one `world_id` and actor/NPC identity for the generation.
 2. Host invokes the private Core application boundary using its configured authenticated adapter identity. Session and actor identifiers are not trusted merely because they appear in a request body.
 3. Core resolves the adapter-to-actor binding through `ActorBindingService`. A missing, revoked, ambiguous, cross-world or destroyed-actor binding fails closed.
-4. Core orchestrates the Memory query/retrieval boundary for the fixed purpose `npc_decision`. Memory must return a complete, current, bounded result with record- and query-level authorization, provenance, source identity/version, lifecycle and snapshot metadata.
-5. Core verifies that each candidate is in scope and supported. The current first slice accepts only direct `canonical_entity` sources. Summary/derived-source lineage is unsupported until every lineage source has an authoritative authorization and freshness proof.
-6. Core reads only an explicit trusted field allowlist through `AuthorizedReadService`, using the same actor binding, recipient `model`, purpose `npc_decision`, and exact target set. The Core snapshot must match the Memory result snapshot.
-7. NPC admission evaluates the metadata using `evaluateMemoryCandidateAdmission`. The helper is a filter only: its `ready` result is not authorization, acquisition, belief, or proof of source authenticity.
-8. Before model dispatch, Host invokes the final revalidation boundary and uses only the freshly revalidated result. Host then performs its durable dispatch-start transition and sends through the sole Gateway.
-9. Any canonical mutation caused by NPC output is a separate Core-owned command/commit. Context retrieval, admission, inference, or model output is never a commit.
+4. For Lane A, Core reads its own acquisition projection under the approved reader. For Lane B, Core orchestrates the Memory query/retrieval boundary for fixed purpose `npc_decision`, validates record/query grants, provenance, source version, lifecycle and snapshot metadata.
+5. Core reads canonical source fields only through `AuthorizedReadService` with an explicit trusted field policy and the same actor, recipient `model`, purpose `npc_decision` and exact target set. The Core snapshot must match the relevant source/acquisition snapshot.
+6. NPC admission evaluates only the validated envelope. `evaluateMemoryCandidateAdmission` is a filter, not authorization or acquisition proof. The epistemic reducer is not allowed to upgrade source certainty.
+7. Immediately before model dispatch, Host performs the final revalidation and sends only the fresh context through the sole Gateway.
+8. Any canonical mutation or durable belief transition is a separate Core-owned event/commit. Retrieval, admission, inference or model output is never a canonical commit.
 
-The current `MemoryNpcConsumer.retrieveForNpc()` and `revalidateForFinalDispatch()` are implementation seams relevant to steps 3–7. They are not evidence that steps 1, 8 or the production NPC callsite exist.
+The current `MemoryNpcConsumer.retrieveForNpc()` and `revalidateForFinalDispatch()` are implementation seams for Lane B. Draft PR #744 is the current Core reader candidate for Lane A. Neither is evidence that the production NPC callsite, Host serializer or sole-Gateway dispatch path is complete.
 
 ## 4. Request binding and session scope
 
@@ -83,44 +111,52 @@ The first initial-knowledge slice remains exactly `author_initial` and `imported
 
 An acquisition is an immutable Core-owned assignment of a specific proposition/source to a specific subject in a specific world under a specific authorization basis and initial boundary.
 
-Its identity must be anchored to a unique, non-reusable Core assignment/event identity and bind, at minimum, the semantic tuple:
-- world;
-- subject;
-- acquired proposition/fact or Core-recognized source reference;
-- acquisition kind;
-- authorization basis;
-- provenance/source identity;
-- initial assignment boundary;
-- immutable assignment payload/version.
+The current Core writer creates `acquisition_id` from world, subject, fact, source kind, source reference, trusted source digest and authorization reference. This is a useful source-assignment identity, but it does **not** pin the exact canonical fact value or the sorted source-event set that supported that value at acquisition time.
 
-The physical schema and identifier encoding are Core decisions. Do not introduce an NPC-local acquisition ID, derive identity from `fact_id` alone, or treat a Memory record ID/version as sufficient.
+The required immutable acquisition pin therefore includes:
+- world and canonical subject;
+- canonical fact/proposition identity;
+- acquisition kind;
+- trusted source identity, source digest and authorization reference;
+- exact acquired canonical value (or its lossless canonical representation);
+- exact sorted canonical source-event IDs supporting that value at acquisition;
+- initial assignment boundary and Core event identity.
+
+The value and source-event pins must be captured from the same trusted Core snapshot used to validate the assignment. A digest of the author/import bundle is not a substitute for the acquired canonical value. A fact ID or event ID alone is not a source-version token.
+
+Draft PR #744 implements the missing acquisition-time value/source-event pins and corrects acquisition identity to bind the exact value and sorted source-event IDs. Until that change is merged and independently accepted, an acquisition without a valid pin is non-ready for NPC disclosure. Do not silently use the current value of a reused `fact_id`.
+
+The physical schema and identifier encoding remain Core decisions. Do not introduce an NPC-local acquisition ID or treat a Memory record ID/version as sufficient.
 
 ### 5.3 Rollback and reuse rules
 
-- Rollback invalidates the affected assignment according to Core's canonical event validity rules; it does not erase the audit identity or make it reusable.
-- Replaying the same still-valid canonical assignment event with the same immutable payload is idempotent.
-- Reusing an old assignment/event identity with a different proposition, source, authorization basis, subject, or payload is a conflict and must fail closed.
-- Re-acquisition after rollback requires a new Core-owned assignment event identity/generation. It must not resurrect the invalidated acquisition by reusing the old ID.
-- If Core cannot prove unique event identity, payload binding, and rollback validity for a source type, that source type is `unsupported/non_ready`.
-- `world_revision + commit_sequence` is a snapshot marker only. It is not a durable source-change feed, acquisition identity, or proof that rollback did not occur.
+- The trusted ingestion event already records canonical source-event dependencies and the acquisition projection is derived from valid Core events. The merged PR #683 tests cover rollback, independent supports, restart/rebuild and idempotent retry.
+- The acquisition-time pin is still essential: if source A is rolled back and the same `fact_id` is later reactivated with value B, the old acquisition for A must not silently follow the reused fact ID to B.
+- The required regression is: acquire A → roll back A's source → reactivate the same `fact_id` with B through an independent canonical claim → the reader returns no active NPC knowledge until B is explicitly acquired. Draft PR #744 contains this regression.
+- Replaying the same still-valid canonical assignment event with the same immutable payload is idempotent. Reusing an idempotency key with changed source bytes or assignment content is a conflict.
+- Re-acquisition of B requires a new trusted assignment event and an acquisition identity bound to B's exact value/source-event set. The invalidated acquisition for A remains historical and must not be reactivated.
+- If Core cannot prove the value/source-event pin and rollback validity for a source, that source is non-ready.
+- `world_revision + commit_sequence` is a snapshot marker only. It is not a source-specific version token or durable source-change feed.
 
 This explicitly closes the acquisition-reuse defect class without inventing a new NPC-side ledger.
 
 ## 6. Provenance, versions and snapshot consistency
 
-Every candidate intended for disclosure must have authoritative:
-- stable record reference and record version;
+Every Memory candidate intended for disclosure must have authoritative:
+- stable Provider record reference and Provider record version;
 - source kind and source reference;
-- source version/validity proof;
+- Core-approved source-version token and validity proof;
 - producer provenance (producer is not automatically the content author or authority);
 - lifecycle dimensions, including content disposition, source reconciliation, evidence assessment, access outcome and index health;
 - world/subject/purpose scope;
 - complete result declaration and bounded candidate set;
 - snapshot marker that can be compared to the Core canonical read.
 
-For a summary, every source in its lineage must have a stable identity/version, same world and recipient/purpose scope, current freshness and an allow decision. Until this can be proven, summaries are excluded. A producer ID or summary's own version does not substitute for source lineage.
+For direct `canonical_entity` sources, the selected Core source-version contract is an opaque Core-issued token of the form `core-entity-v1:<positive safe integer>`, backed by the durable `entity_source_versions` ledger. It advances transactionally on canonical entity mutation and rollback. Draft PR #709 is the current-main implementation candidate; until it is merged and exact-head validation is accepted, direct source-dependent Memory candidates remain non-ready for production use. Do not substitute `updated_revision`, fact/event IDs, content hashes or `world_revision + commit_sequence` for this token.
 
-Memory's `source_version` and Core's `world_revision + commit_sequence` are different version domains. Core's snapshot must not overwrite or impersonate Memory's source freshness. A mismatch, missing version, incomplete inventory, stale index, unknown lifecycle state or conflicting identity makes the result non-ready.
+Provider `record_version`, Provider `source_version`, Core's entity source token, acquisition-time value/source-event pins, and Core `(world_revision, commit_sequence)` are distinct values with distinct meanings. They must not overwrite or impersonate one another.
+
+For a summary, every source in its lineage must have a stable identity/version, same world and recipient/purpose scope, current freshness and an allow decision. Until this can be proven, summaries are excluded. A producer ID or summary's own version does not substitute for source lineage.
 
 A complete-empty result is valid only if Memory proves complete authorized inventory for the requested scope and Core proves the same current snapshot. Denied, withheld, partial, unavailable, rebuilding or unsupported results must never be converted to empty.
 
@@ -136,18 +172,19 @@ Authorization and validity are rechecked at these boundaries:
 
 If any check is unavailable, throws, returns an unknown state, or cannot establish current authorization, the operation fails closed. No stale cached allow decision may be reused.
 
-### 7.2 Explicit guarantee boundary
+### 7.2 Explicit guarantee boundary — delegated project decision
 
-This contract guarantees fail-closed revalidation at the defined boundaries. It does **not** claim linearizability between a concurrent Memory/policy revocation and a model request that has already passed final revalidation.
+For this Memory → NPC contract, the approved guarantee is **fail-closed revalidation at the defined boundaries**, not linearizability between a concurrent revocation/commit and model dispatch.
 
-Host must order its own dispatch lifecycle as:
-- final revalidation;
-- durable `DISPATCH_STARTED` transition under the existing Host dispatch/idempotency mechanism;
-- sole Gateway send.
+- A revocation or denial observed by the final revalidation blocks the send.
+- The final check must be the last authorization/freshness operation before Host hands the exact payload to its sole Gateway. Host must use the freshly revalidated object, never the prepared/stale object.
+- A revocation that races after the final check may occur before or during transport handoff. The contract does not promise cancellation or atomic ordering across Host, Provider and Core stores.
+- Host's dispatch/idempotency record may prevent duplicate attempts, but it is not by itself a cross-store authorization fence.
+- If a required authority is unavailable or the final check is ambiguous, no send occurs.
 
-There must be no alternate egress path and no use of a stale pre-revalidation context. A revocation observed by the final revalidation blocks the send. A revocation racing after that check may occur after the request has crossed the dispatch boundary; this contract does not promise cancellation or atomic ordering across the Host and Memory/Core stores.
+This is an explicit scope decision and narrows the stronger shared-order/linearization target described in `docs/86-cross-block-authority-and-npc-integration-contract-proposal.md`, `docs/architecture/core-final-disclosure-authorization-contract.md`, issue #356 and draft Gateway PR #646. Those stronger guarantees are **not** claimed or required by this contract. Do not describe the remaining TOCTOU interval as solved.
 
-If strict linearizability is later required, it is a separate design: policy version must participate in a Core transaction/authorization fence that orders the dispatch authorization with revocation. It is not implied here and must not be claimed by tests or documentation.
+If strict linearizability is later required, it is a separate mechanism: policy version must participate in the same Core transaction/authorization fence as the dispatch decision, and all relevant writers must participate in that order. That mechanism requires a separate decision and implementation acceptance.
 
 ### 7.3 Gateway ownership
 
@@ -158,35 +195,38 @@ Only Host Gateway sends model requests. Core and Memory do not call the model. N
 Memory's current vocabulary is not itself an NPC belief schema:
 - `content_kind`: `claim`, `report`, `summary`, `author_initial`, `imported`, `inference`;
 - `epistemic_kind`: `canonical`, `acquired_report`, `rumor`, `inference`, `authored_initial`, `imported`;
-- `evidence_assessment`: `unassessed`, `supported`, `disputed`, `insufficient`.
+- `evidence_assessment`: `unassessed`, `supported`, `disputed`, `insufficient`;
+- NPC reducer candidate PR #695 uses `confirmed`, `unconfirmed_report`, `suspicion`, `inference`, `rumor`, `unknown` and separate belief stances.
 
 The mapping is deliberately conservative:
 
-| Memory class / assessment | NPC interpretation | Constraint |
+| Memory/Core class | NPC context meaning | NPC epistemic/belief rule |
 |---|---|---|
-| `epistemic_kind=acquired_report` | `reported/unconfirmed` | Preserve source attribution; not confirmed fact |
-| `epistemic_kind=rumor` | `rumor` | Never promote to confirmed by repetition |
-| `epistemic_kind=inference` | `inference` | Preserve premises and uncertainty; inference is not observation |
-| `epistemic_kind=canonical` | canonical evidence reference, not an NPC belief | Core truth does not imply subject acquisition or belief |
-| `epistemic_kind=authored_initial` | `known/assigned` only after Core proves explicit assignment | Does not imply belief, objective truth, or in-world observation |
-| `epistemic_kind=imported` | `known/assigned` only after Core proves explicit subject assignment | Import into world state alone is not actor knowledge |
-| `evidence_assessment=supported` | supported evidence | Not automatically `confirmed` |
-| `evidence_assessment=disputed` | `disputed/conflicting` | Keep conflicting claims distinct |
-| `evidence_assessment=insufficient` | `insufficient/unknown` | Must not be treated as negative proof |
-| `evidence_assessment=unassessed` | `unassessed` | No confidence promotion |
+| Core `author_initial` / `imported` acquisition | `known/assigned` information | Assignment is not an epistemic status and does not automatically create a belief or `confirmed` evidence |
+| `epistemic_kind=acquired_report` | attributed report | Map to `unconfirmed_report`; cannot support `believes_true/false` |
+| `epistemic_kind=rumor` | attributed rumor | Map to `rumor`; cannot be promoted by repetition |
+| `epistemic_kind=inference` | derived inference | Map to `inference`; preserve premises and uncertainty |
+| `epistemic_kind=canonical` | Core canonical proposition reference | Not a subject belief or acquisition; may be used only if Core separately authorizes disclosure and subject acquisition is established |
+| `evidence_assessment=supported` | supported evidence assessment | Does not automatically map to `confirmed`; source kind and subject-relative acquisition still govern |
+| `evidence_assessment=disputed` | conflicting/disputed evidence | Preserve opposing evidence refs; belief stance remains `unresolved`/review-required where applicable |
+| `evidence_assessment=insufficient` | insufficient evidence | Preserve the insufficient marker and map belief to `unknown`/no stance; never treat as false |
+| `evidence_assessment=unassessed` | unassessed evidence | Do not submit it to belief revision |
+| No eligible evidence / incomplete scope | unknown, withheld or incomplete according to Core result | Never infer `known_absent` from a missing candidate |
 
-No automatic mapping to `confirmed` is permitted from `canonical`, `supported`, producer trust, repetition, retrieval score, or model fluency. A future `confirmed` belief requires an explicit NPC belief rule with independently sufficient subject-relative evidence and an approved transition policy.
+`authored_initial` and `imported` are acquisition mechanisms, not epistemic certainty classes. They may establish that the subject was assigned information, but not that the proposition is objectively true or believed. The NPC may later reason about the assigned content, but any belief transition must cite separately admitted evidence and follow the NPC belief policy.
 
-Suspicion is an NPC inference/stance, not a Memory source class. It may be created only by NPC cognition from explicitly available premises and must remain labeled as suspicion. Absence of a record means unknown unless Core proves a complete authorized scope that supports `known_absent`.
+No automatic mapping to `confirmed` is permitted from `canonical`, `supported`, producer trust, repetition, retrieval score, or model fluency. `confirmed` is allowed only when a trusted boundary explicitly establishes a valid, subject-relative evidence basis and the NPC transition policy permits it. The reducer itself does not authenticate the evidence class.
+
+Suspicion is an NPC cognition output, not a Memory source class. It may be created only by NPC reasoning from explicitly available premises and must remain labeled as suspicion. Contradiction is not a stronger source class: preserve conflicting evidence refs and unresolved stance. Insufficient evidence remains distinct from a false proposition.
 
 ### Canonical precedence
 
 1. Core canonical state has priority for claims about the actual world.
 2. Memory-derived evidence never overwrites canonical state.
-3. If derived belief conflicts with canonical state, NPC must preserve the conflict as `disputed/derived_uncertain`; it cannot present the derived claim as canonical fact.
-4. If provenance is incomplete, stale, revoked or conflicting, the derived belief is excluded from decision context unless an explicit approved policy allows a clearly marked uncertain use.
-5. A subject may have a mistaken subjective belief, but that belief remains a subject-relative derived state and cannot mutate or supersede Core truth.
-6. No derived belief becomes canonical without an independent Core-owned command/commit.
+3. If derived belief conflicts with canonical state, NPC preserves it as a subject-relative disputed/uncertain belief; it cannot present the derived claim as canonical fact.
+4. If provenance is incomplete, stale, revoked or conflicting, the derived belief is excluded from decision context unless an explicit approved rule allows clearly marked uncertain use.
+5. A subject may hold a mistaken belief, but that belief remains subject-relative and cannot mutate or supersede Core truth.
+6. Core owns durable authoritative belief-transition events/projection; NPC owns the belief semantics and cognition. No derived belief becomes canonical without an independent Core-owned world-state command/commit.
 
 ## 9. Failure semantics
 
@@ -231,13 +271,14 @@ The delegated architectural authority used to approve this document does not sil
 | Gate | Exit condition | Current state |
 |---|---|---|
 | C0 — Private contract | Semantics and block boundaries fixed by this document | **Complete for v0.1** |
-| C1 — Core acquisition closure | Immutable assignment identity, rollback non-reuse, assignment-read proof, canonical precedence and version-pinned read | Not implemented/proven end-to-end |
-| C2 — Memory evidence closure | Authoritative provenance/source versions, complete inventory, lineage and revocation/reconciliation proof | Partial; production authority not established |
-| C3 — Host boundary | Trusted session binding, durable dispatch lifecycle and sole Gateway egress with final revalidation | Not proven for this Memory→NPC path |
-| C4 — NPC runtime | Real NPC decision/context callsite consumes only the approved envelope | Not implemented/proven |
-| C5 — E2E acceptance | All required negative and recovery cases pass on the integrated path | Not tested end-to-end |
-| C6 — Independent acceptance | Independent review against exact commit SHAs and evidence | Not started |
-| C7 — Production enablement | Separate explicit approval after C1–C6 | **Not authorized** |
+| C1 — Core acquisition reader/pins | Merge/review the Core reader candidate; prove immutable value/source-event pins and per-acquisition visibility authorization | Draft candidate PR #744; not main |
+| C2 — Core source version | Merge/review the opaque canonical entity source-version token and complete inventory contract | Draft candidate PR #709; not main |
+| C3 — Memory/Host evidence | Prove Provider inventory/reconciliation against authoritative Host lifecycle identity and restart/restore | Partial candidates #680/#689; production authority not established |
+| C4 — Final disclosure | Implement the approved fail-closed final revalidation and sole Gateway route; do not claim linearizability | Candidate #646 is review-only; actual pinned Host route is not wired |
+| C5 — NPC semantics/runtime | Integrate reducer/admission into the real NPC decision/context callsite; preserve epistemic classes | Draft NPC reducer PR #695; no production caller |
+| C6 — E2E acceptance | All negative, recovery, rollback, retry and dispatch cases pass on the integrated path | Not tested end-to-end |
+| C7 — Independent acceptance | Independent review against exact commit SHAs and evidence | Not started |
+| C8 — Production enablement | Separate explicit approval after C1–C7 | **Not authorized** |
 
 Required integrated tests include rollback/re-acquisition identity, revoked trust, stale versions, source conflicts, incomplete inventory, partial Provider response, duplicate delivery, restart/reconciliation, final-send revalidation, no Gateway bypass, and Core commit failure/retry. Existing helper and consumer tests remain useful but cannot substitute for the real NPC runtime callsite.
 
