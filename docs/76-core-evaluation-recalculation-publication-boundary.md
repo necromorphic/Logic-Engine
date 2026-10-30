@@ -126,7 +126,7 @@ Changes to these boundaries require separately scoped, reviewed implementation s
 
 ## 10. Current-main revalidation — 30 October 2026
 
-This section supersedes the 25 October audit-base warning above for the specific current-main facts recorded here. Revalidation base: `52ad14ddfa6ca23858066e7516b4dbd6a190ab01` (commit dated 30 October 2026, 08:51:58 UTC). It does not claim that every historical test or open branch was rerun at this SHA.
+This section supersedes the 25 October audit-base warning above for the specific current-main facts recorded here. Revalidation base: `fd8b31c55e66762cf4f2623a6749b9694a977114` (current main after the Provider coordinator-refinement merge on 30 October 2026). It does not claim that every historical test or open branch was rerun at this SHA.
 
 ### 10.1 Current ownership and execution path
 
@@ -139,7 +139,7 @@ This section supersedes the 25 October audit-base warning above for the specific
 
 ### 10.2 Bounded mechanic execution is still not the general pipeline
 
-Issue #226 remains the owner tracker for the bounded executor and recalculation strategy. Open candidates #737 and #738 are Draft; their branch CI/review status must be checked on their exact heads and must not be presented as merged-main behavior. The supported deterministic subset remains narrower than global dependency closure. The independent A/B/C harness is a test instrument, not a selected production strategy. No production-wide A/B/C default, automatic global recomputation, or arbitrary action-input/module/participant dependency semantics are approved by this document.
+Issue #226 remains the owner tracker for the bounded executor and recalculation strategy. The current-main implementation candidate is Draft PR #763; older candidates #737/#738 are superseded and must not be treated as the active integration line. PR #763's branch CI/review status must be checked on its exact head and must not be presented as merged-main behavior. The supported deterministic subset remains narrower than global dependency closure. The independent A/B/C harness is a test instrument, not a selected production strategy. No production-wide A/B/C default, automatic global recomputation, or arbitrary action-input/module/participant dependency semantics are approved by this document.
 
 ### 10.3 Process recovery evidence and limits
 
@@ -147,7 +147,7 @@ The current Process Manager recovery contract is further recorded in `docs/78-pr
 
 ### 10.4 Publication and NPC boundary
 
-The internal authorized-read service remains narrower than final publication. The current bounded Memory Dispatch Gateway primitive does not establish production Host session authentication, complete Host inventory, sole final-send routing, or a serializer that can only emit the exact authorized payload. The Core/NPC acquisition reader and belief-transition work in PR #755 is Draft and is not part of main. Issues #140 and #264 remain the cross-block authorization, source-inventory, revocation, and final-disclosure gates. Production Memory → NPC remains **DISABLED / FAIL-CLOSED**.
+The internal authorized-read service remains narrower than final publication. The current bounded Memory Dispatch Gateway primitive does not establish production Host session authentication, complete Host inventory, sole final-send routing, or a serializer that can only emit the exact authorized payload. The Core/NPC acquisition-reader candidate is represented by Draft PRs #760/#764; the NPC-local restored-belief reducer is Draft PR #759. None is part of main or evidence of production wiring. Issues #140 and #264 remain the cross-block authorization, source-inventory, revocation, and final-disclosure gates. Production Memory → NPC remains **DISABLED / FAIL-CLOSED**.
 
 ### 10.5 Updated acceptance interpretation
 
