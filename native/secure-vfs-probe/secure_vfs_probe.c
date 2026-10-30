@@ -616,6 +616,43 @@ static int probe_xDelete(sqlite3_vfs *vfs, const char *name, int sync_dir) {
 }
 static int probe_xAccess(sqlite3_vfs *vfs, const char *name, int flags, int *result) {
   sqlite3_vfs *p = (sqlite3_vfs *)vfs->pAppData;
+#ifndef _WIN32
+  int role_index = -1;
+  const char *suffix = 0;
+  if (name && probe_match_role_entry(name, &role_index, &suffix)) {
+    ProbeDatabaseRole *role = &g_database_roles[role_index];
+    char relative_name[4096];
+    struct stat info;
+    size_t base_length = strlen(role->basename);
+    size_t suffix_length = strlen(suffix);
+    int mode = F_OK;
+    if (base_length + suffix_length + 1 > sizeof(relative_name)) return SQLITE_IOERR_ACCESS;
+    memcpy(relative_name, role->basename, base_length);
+    memcpy(relative_name + base_length, suffix, suffix_length + 1);
+    if (fstatat(role->trusted_parent_fd, relative_name, &info, AT_SYMLINK_NOFOLLOW) != 0) {
+      if (errno == ENOENT || errno == ENOTDIR || errno == EACCES) {
+        *result = 0;
+        return SQLITE_OK;
+      }
+      return SQLITE_IOERR_ACCESS;
+    }
+    if (S_ISLNK(info.st_mode)) {
+      *result = 0;
+      return SQLITE_OK;
+    }
+    if (flags == SQLITE_ACCESS_READWRITE) mode = R_OK | W_OK;
+    else if (flags == SQLITE_ACCESS_READ) mode = R_OK;
+    if (faccessat(role->trusted_parent_fd, relative_name, mode, AT_EACCESS | AT_SYMLINK_NOFOLLOW) == 0) {
+      *result = 1;
+      return SQLITE_OK;
+    }
+    if (errno == ENOENT || errno == ENOTDIR || errno == EACCES) {
+      *result = 0;
+      return SQLITE_OK;
+    }
+    return SQLITE_IOERR_ACCESS;
+  }
+#endif
   return p->xAccess(p, name, flags, result);
 }
 static int probe_xFullPathname(sqlite3_vfs *vfs, const char *name, int n, char *out) {
