@@ -49,8 +49,26 @@ const canonical = value => Array.isArray(value)
     ? '{' + Object.keys(value).sort().map(key => JSON.stringify(key) + ':' + canonical(value[key])).join(',') + '}'
     : JSON.stringify(value);
 
+async function assertNoReparseComponents(absolute) {
+  const parsed = path.parse(absolute);
+  if (!parsed.root) fail('SOURCE_PATH_INVALID');
+  let current = parsed.root;
+  const components = absolute.slice(parsed.root.length).split(path.sep).filter(Boolean);
+  for (let index = 0; index < components.length; index++) {
+    current = path.join(current, components[index]);
+    const stat = await fs.lstat(current, { bigint: true }).catch(() => null);
+    if (!stat || stat.isSymbolicLink()) fail('SOURCE_PATH_ESCAPE_OR_REPARSE');
+    if (index < components.length - 1 && !stat.isDirectory()) fail('SOURCE_PATH_INVALID');
+  }
+}
+
 async function inspectDirectory(directory, expectedParent = null) {
   const absolute = path.resolve(directory);
+  if (expectedParent && !isWithin(normalizePath(expectedParent), normalizePath(absolute))) {
+    fail('SOURCE_PATH_ESCAPE_OR_REPARSE');
+  }
+  await assertNoReparseComponents(absolute);
+
   let before;
   try {
     before = await fs.lstat(absolute, { bigint: true });
@@ -59,16 +77,6 @@ async function inspectDirectory(directory, expectedParent = null) {
   }
   if (!before.isDirectory() || before.isSymbolicLink()) fail('SOURCE_DIRECTORY_TYPE_INVALID');
   identityOf(before);
-
-  let real;
-  try {
-    real = await fs.realpath(absolute);
-  } catch {
-    fail('SOURCE_DIRECTORY_UNAVAILABLE');
-  }
-  if (!samePath(real, absolute) || (expectedParent && !isWithin(normalizePath(expectedParent), normalizePath(real)))) {
-    fail('SOURCE_PATH_ESCAPE_OR_REPARSE');
-  }
 
   let dirents;
   try {
