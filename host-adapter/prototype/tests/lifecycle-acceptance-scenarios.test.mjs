@@ -195,3 +195,16 @@ test('destructive and import UI entry points invoke target-aware fail-closed Hos
   assertBefore('export async function importGroupChat(formData,', 'guardBulkMutation', "fetch('/api/chats/group/import'");
   assertBefore('async restoreBackup(name)', 'guardBulkMutation', "fetch('/api/backups/chat/download'");
 });
+
+
+test('pinned SillyTavern patch does not install an unapproved Core capture endpoint', async () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const patch = await readFile(resolve(here, '../patches/sillytavern-1.19.0-lifecycle-hooks.patch'), 'utf8');
+
+  // Issue #258 explicitly leaves the Provider handoff as a proposal pending
+  // Core/Memory owner approval. Do not ship an unresolved proxy import or
+  // invent a new Host-to-Core runtime endpoint/schema in the pinned ST patch.
+  assert.equal(patch.includes('logic-engine-lifecycle-proxy.mjs'), false);
+  assert.equal(patch.includes('/api/logic-engine/host-version-ledger/capture'), false);
+  assert.equal(patch.includes('createHostDigestProxyHandler'), false);
+});
