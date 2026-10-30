@@ -1,12 +1,22 @@
 name: SQLite VFS extension bootstrap probe
 
-# Push-only runs validate the exact branch HEAD SHA used by the PR CI monitor.
-# A second pull_request merge-ref run duplicates the same native tests and queues
-# independently, so this probe deliberately avoids that duplicate execution.
+# Run on pushes and pull requests. The checkout is pinned to the PR head SHA so
+# the Windows/Linux results validate the exact reviewed source commit, not a merge ref.
 on:
   push:
     branches:
       - 'security/**'
+    paths:
+      - 'native/secure-vfs-probe/*.c'
+      - 'native/secure-vfs-probe/*.h'
+      - 'tests/security-vfs-extension-bootstrap.test.js'
+      - 'docs/97-issue-770-windows-vfs-integration-contract.md'
+      - 'docs/security/sqlite-vfs-directory-anchor-design.md'
+      - 'docs/security/sqlite-database-role-inventory.md'
+      - 'native/secure-vfs-probe/README.md'
+      - 'deploy/sqlite-security/**'
+      - '.github/workflows/security-vfs-extension-bootstrap.yml'
+  pull_request:
     paths:
       - 'native/secure-vfs-probe/*.c'
       - 'native/secure-vfs-probe/*.h'
@@ -31,6 +41,8 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
