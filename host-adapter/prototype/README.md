@@ -137,3 +137,21 @@ Exact-head CI for this code HEAD:
 - [Host lifecycle patch validation #40276125986](https://github.com/necromorphic/Logic-Engine/actions/runs/40276125986) — SUCCESS.
 
 This refresh records repository CI only. It does not establish live browser/Android/Termux behavior, real IndexedDB durability, persisted chat-file before/after evidence, or full lifecycle coverage. PR #323 was merged into `main` on 26 Oct 2026; its code remains review-only. Core approval of the Host↔Core/Provider handoff and real persisted-state acceptance evidence are still required; production Memory→NPC remains DISABLED / FAIL-CLOSED.
+
+## Host data-root inventory — Windows VSS P0 follow-up (30 Oct 2026)
+
+The Host inventory route now passes SillyTavern's authenticated `directories.root` in addition to the chat/group roots. `enumerateHostDataInventory()` builds two views:
+
+- A generic regular-file inventory over the entire per-user data root. It hashes file contents and relative paths, so character cards, avatars/personas, worlds, settings, backups, user files and other files under that root contribute to the root fingerprint.
+- A semantic chat/group inventory for the selected SillyTavern chat roots, including current conversation/message/swipe identities.
+
+On Windows, both views are produced from **one shared VSS snapshot**. The server verifies that both manifests carry the same active snapshot ID. On non-Windows platforms, they are separate double scans and the response carries `NO_SHARED_POINT_IN_TIME_SNAPSHOT`. The HTTP route exposes only the full-root digest/count/size/snapshot metadata plus the requested conversation's logical identities; it does not expose the full file list, paths, file identities or raw content.
+
+This improves out-of-history change detection across the per-user data root, but it is not a complete operation ledger:
+- The generic view detects that the file set or bytes changed; it does not classify which SillyTavern operation caused the change or correlate each changed file to a lifecycle event.
+- The route does not persist the full manifest or a durable baseline. A changed aggregate fingerprint can be flagged, but not yet explained as a per-file before/after diff.
+- Public/global SillyTavern files outside `directories.root` are not included.
+- The semantic view remains chat/group-specific; character/persona files are included in the generic fingerprint, not yet given their own logical identity and lifecycle model.
+- VSS is a crash-consistent point-in-time volume snapshot, not an application-level SillyTavern transaction or a VSS writer. Windows results therefore retain `NO_APPLICATION_LEVEL_ATOMIC_SNAPSHOT`.
+
+**Readiness remains NON_READY.** This does not establish full mutation-route coverage, pre-enrollment deleted history, import/export/copy/move/branch/restore lineage, migration semantics, restart identity, or real persisted-state acceptance. No READY authorization or Memory→NPC activation is included.
