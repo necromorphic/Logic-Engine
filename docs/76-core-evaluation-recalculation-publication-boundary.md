@@ -122,3 +122,43 @@ This document does not implement or claim:
 - production Memory→NPC wiring or knowledge acquisition.
 
 Changes to these boundaries require separately scoped, reviewed implementation slices. Keep #262 open until the source-backed architecture document is reviewed and the bounded runtime gaps are separately assigned and tested.
+
+
+## 10. Current-main revalidation — 30 October 2026
+
+This section supersedes the 25 October audit-base warning above for the specific current-main facts recorded here. Revalidation base: `52ad14ddfa6ca23858066e7516b4dbd6a190ab01` (commit dated 30 October 2026, 08:51:58 UTC). It does not claim that every historical test or open branch was rerun at this SHA.
+
+### 10.1 Current ownership and execution path
+
+- **Application orchestration:** `src/application/engine.js` coordinates the supported application operations. It is not a separate calculation service or a general-purpose executor.
+- **Proposal lifecycle:** `src/application/proposals.js` owns proposal creation/approval/commit handoff. A proposal is not canonical state; final acceptance still passes through Core's ordinary commit validation.
+- **Rule/effect validation:** `src/core/rules.js` and `src/core/mechanics.js` provide bounded declarative validation/evaluation primitives. Their supported vocabulary is closed and limited; no arbitrary module execution or global dependency completeness follows.
+- **Canonical persistence:** `src/storage/sqlite-store.js` owns world events, canonical state, audit/idempotency, transaction boundaries, projection rebuild and rollback behavior. Rebuild reapplies committed effect evidence; it is not historical semantic re-evaluation under current rules.
+- **Due work:** `src/time/scheduler.js::planDueWork` remains a pure planner for registered triggers and canonical time coordinates. It does not execute effects, commit, recalculate arbitrary dependencies, or publish results.
+- **Durable processes:** `src/process/contract.js`, `src/storage/process-store.js`, and the Core application path support a bounded world-scoped process/milestone lifecycle. The broader #243 acceptance remains open for cross-process causal closure and automatic replan/recalculation. The current safe behavior for contradictory checkpoints is explicit review/fail-closed, not automatic repair.
+
+### 10.2 Bounded mechanic execution is still not the general pipeline
+
+Issue #226 remains the owner tracker for the bounded executor and recalculation strategy. Open candidates #737 and #738 are Draft; their branch CI/review status must be checked on their exact heads and must not be presented as merged-main behavior. The supported deterministic subset remains narrower than global dependency closure. The independent A/B/C harness is a test instrument, not a selected production strategy. No production-wide A/B/C default, automatic global recomputation, or arbitrary action-input/module/participant dependency semantics are approved by this document.
+
+### 10.3 Process recovery evidence and limits
+
+The current Process Manager recovery contract is further recorded in `docs/78-process-checkpoint-recovery-decision-record.md`. It distinguishes tested restart/rollback/checkpoint behavior from the still-open cross-process causal and replan semantics in #243. PR #692 adds additional candidate-branch regressions for cross-process event-cause handling and process isolation; its exact-head CI is branch evidence only, not a claim that the complete #243 contract is closed or that a general causal planner exists.
+
+### 10.4 Publication and NPC boundary
+
+The internal authorized-read service remains narrower than final publication. The current bounded Memory Dispatch Gateway primitive does not establish production Host session authentication, complete Host inventory, sole final-send routing, or a serializer that can only emit the exact authorized payload. The Core/NPC acquisition reader and belief-transition work in PR #755 is Draft and is not part of main. Issues #140 and #264 remain the cross-block authorization, source-inventory, revocation, and final-disclosure gates. Production Memory → NPC remains **DISABLED / FAIL-CLOSED**.
+
+### 10.5 Updated acceptance interpretation
+
+| #262 concern | Current evidence | Remaining boundary |
+| --- | --- | --- |
+| Proposed action → approval → canonical commit | Existing proposal/application/SQLite commit path | Not a universal executor for every action or due-work class |
+| Due-work planning | `planDueWork` and registered time-trigger path | No arbitrary world dependency planner or wall-clock worker |
+| Read-set and dependency evidence | Bounded mechanic dependency manifest and canonical read/causal evidence for its supported subset | Global completeness remains false; unsupported reads fail closed |
+| Conflict handling | Explicit supported policies and rejection paths in bounded slices | No universal conflict resolver for all effects/mechanics |
+| Projection rebuild and rollback | SQLite event/effect replay and tested rollback/rebuild paths | No silent re-evaluation under new rules; no automatic global recomputation |
+| Restart and process recovery | Process Manager checkpoints, durable review state, and targeted integration regressions | Cross-process prerequisite closure and automatic replan remain open under #243 |
+| Authorized publication | Narrow internal authorized-read and dispatch primitives | Real Host → Provider → Core → NPC → serializer → transport release path and revoke-vs-release proof remain open under #140/#264 |
+
+The architecture deliverable for #262 is therefore documented: it defines the current ownership boundaries, target semantic lifecycle, failure/replay behavior, bounded-executor relationship, and explicit test/ownership gaps. This is **documentation completion only**. It does not close #226, #243, #140, or #264, and it authorizes no new runtime/API/schema/storage implementation.
