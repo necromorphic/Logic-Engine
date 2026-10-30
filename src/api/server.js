@@ -14,12 +14,11 @@ export function createActiveMechanicPolicyValidator(getActiveMechanicContextProv
   if (typeof getActiveMechanicContextProvider !== 'function') throw new TypeError('getActiveMechanicContextProvider must be a trusted application callback.');
   return (identity) => {
     try {
+      if (!deploymentPolicyAuthority) return false;
       const provider = getActiveMechanicContextProvider();
-      if (deploymentPolicyAuthority) {
-        if (provider?.getPolicyAuthority?.() !== deploymentPolicyAuthority
-          || !identity?.policyAuthority
-          || deploymentPolicyAuthority.isCurrent(identity.policyAuthority) !== true) return false;
-      }
+      if (provider?.getPolicyAuthority?.() !== deploymentPolicyAuthority
+        || !identity?.policyAuthority
+        || deploymentPolicyAuthority.isCurrent(identity.policyAuthority) !== true) return false;
       return provider?.validateMechanicPolicy?.(identity) === true;
     } catch {
       return false;
