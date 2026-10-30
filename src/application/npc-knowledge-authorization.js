@@ -64,7 +64,7 @@ export function createHostBoundNpcKnowledgeAuthorizers({
 
       const actors = store.db.prepare(
         'SELECT entity_id FROM actor_bindings WHERE world_id=? AND adapter_id=? AND active=1 ORDER BY entity_id'
-      ).all(host.world_id, identity.adapter_id);
+      ).all(host.world_id, adapterId);
       if (actors.length !== 1) return null;
       const actor = store.db.prepare(
         "SELECT entity_id,status FROM entities WHERE world_id=? AND entity_id=?"
