@@ -83,3 +83,10 @@ The bridge's exact current `CURRENTLY_HOOKED_PATHS` is:
 `create-message`, `message-send`, `message-receive`, `create-swipe`, `select-swipe`, `delete-swipe`, `delete-message`, `edit-message`, `rename-chat`.
 
 This is the current bounded hook set, not a complete SillyTavern lifecycle inventory. Whole-chat deletion, group-chat deletion, character deletion, import/export, copy/branch/restore, and out-of-band filesystem changes are not in this list. The bridge itself documents that integrity is not completeness and keeps `reconcileCurrentConversation()` NON_READY until all required mutation paths are wired and tested.
+
+
+### Dispatch-start process/runtime compatibility gate
+
+Pinned SillyTavern 1.19.0 `package.json` declares `engines.node: >=20`. Logic-Engine's current runtime requires Node `>=22.13.0` for its `node:sqlite` implementation. Therefore embedding the current Gateway directly in the SillyTavern server process is not guaranteed by SillyTavern's declared minimum; it can only be considered after the deployed ST runtime is explicitly verified as Node >=22.13.0 and the shared Coordinator/accepted-head connections are proven compatible.
+
+A remote Core HTTP authorize-then-send call is not a substitute for dispatch-start linearization: Core would release its Coordinator lease before SillyTavern initiates the actual provider fetch. The final transport must either (1) run in the ST process and invoke the Gateway's synchronous transport-start callback while holding the shared lease, or (2) move the provider transport itself into Core/Gateway so the actual outbound request starts under the lease. This decision must precede implementation across the 13 provider-specific early-return senders and the OpenAI-compatible fetch path. No such final-send integration is currently wired.
