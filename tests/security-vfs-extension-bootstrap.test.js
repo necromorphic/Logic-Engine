@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, linkSync, mkdirSync, mkdtempSync, renameSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, linkSync, mkdirSync, mkdtempSync, renameSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -135,6 +135,17 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
   } finally {
     reader?.close();
     first.close();
+  }
+
+  if (process.platform !== 'win32') {
+    const writableParent = join(directory, 'writable-parent');
+    mkdirSync(writableParent);
+    chmodSync(writableParent, 0o777);
+    assert.throws(
+      () => registerRole(join(writableParent, 'blocked.sqlite'), 'writable-parent'),
+      /database role identity capture failed/,
+      'trusted role enrollment must reject a parent directory writable by other UIDs'
+    );
   }
 
   if (process.platform !== 'win32') {
