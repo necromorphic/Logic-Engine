@@ -17,6 +17,7 @@
  * startup/recovery integration and independent review remain open. Never use
  * this probe for production databases.
  */
+#include <stdio.h>
 #include <string.h>
 #include <stdint.h>
 #include <errno.h>
@@ -438,7 +439,7 @@ static HANDLE WINAPI probe_create_file_w(
 
   if (handle == INVALID_HANDLE_VALUE || !needs_identity) {
     if (handle == INVALID_HANDLE_VALUE && needs_identity) {
-      fprintf(stderr, "VFS Windows open failed: error=%lu creation=%lu access=0x%lx name=%ls\\n",
+      fprintf(stderr, "VFS Windows open failed: error=%lu creation=%lu access=0x%lx name=%ls\n",
         (unsigned long)GetLastError(), (unsigned long)creation,
         (unsigned long)access, name ? name : L"<null>");
     }
@@ -629,7 +630,7 @@ static int probe_open(const char *name, int flags, int mode) {
   }
   if (fd < 0 || !needs_identity) {
     if (fd < 0 && (is_sidecar || has_anchor)) {
-      fprintf(stderr, "VFS POSIX open failed: flags=0x%x errno=%d name=%s\\n",
+      fprintf(stderr, "VFS POSIX open failed: flags=0x%x errno=%d name=%s\n",
         flags, errno, name);
     }
     if (injected_here) {
@@ -890,7 +891,7 @@ static int probe_xOpen(sqlite3_vfs *vfs, const char *name, sqlite3_file *file,
       && suffix[0] != '\0';
 #endif
     if (!matched) {
-      fprintf(stderr, "VFS xOpen sidecar path mismatch: flags=0x%x name=%s\\n",
+      fprintf(stderr, "VFS xOpen sidecar path mismatch: flags=0x%x name=%s\n",
         flags, open_name ? open_name : "<null>");
       sqlite3_free(canonical_name);
       return SQLITE_CANTOPEN;
@@ -934,7 +935,7 @@ static int probe_xOpen(sqlite3_vfs *vfs, const char *name, sqlite3_file *file,
 
   rc = parent->xOpen(parent, open_name, file, flags, out_flags);
   if (rc != SQLITE_OK) {
-    fprintf(stderr, "VFS parent xOpen failed: flags=0x%x rc=%d name=%s\\n",
+    fprintf(stderr, "VFS parent xOpen failed: flags=0x%x rc=%d name=%s\n",
       flags, rc, open_name ? open_name : "<null>");
   }
   sqlite3_free(canonical_name);
