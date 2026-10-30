@@ -397,7 +397,7 @@ The shared Core architecture decision states:
 - A domain subsystem evaluates its own semantics and emits a candidate/proposal; Core checks authority, freshness, versions, invariants and conflicts, then uses the canonical proposal/approval/commit path.
 - TimeEngine owns temporal coordinates/due-work planning; Process Manager owns multi-stage process lifecycle. Neither replaces Core commit.
 
-Source: [Logic-Engine — Logical Kernel (Core): boundary, contract, audit](https://app.notion.com/p/403a42c0fcaf819a8efe-c37d3e244b7b) (page content timestamp 2026-10-30).
+Source: [Logic-Engine — Logical Kernel (Core): boundary, contract, audit](https://app.notion.com/p/403a42c0fcaf819a8efec37d3e244b7b) (page content timestamp 2026-10-30).
 
 ### Reconciliation with the code audit
 
