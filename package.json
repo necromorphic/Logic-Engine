@@ -12,5 +12,9 @@
     "dev": "node --watch src/index.js",
     "test": "node --import ./tests/configure-test-env.js --test",
     "benchmark:replay": "node benchmarks/replay-rollback-growth.mjs"
+  },
+  "devDependencies": {
+    "ajv": "8.17.1",
+    "ajv-formats": "3.0.1"
   }
 }

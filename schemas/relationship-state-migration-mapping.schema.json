@@ -1,0 +1,551 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://logic-engine.invalid/schemas/relationship-state-migration-mapping.schema.json",
+  "title": "Relationships Current-State Migration Mapping Artifact",
+  "description": "Relationships-owned immutable mapping artifact for current-state migration model B. This schema describes mapping semantics only; it is not a World Pack schema or a Core execution/API/storage contract.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "artifact_schema_version",
+    "migration_id",
+    "migration_version",
+    "artifact_status",
+    "fixture_only",
+    "source",
+    "target",
+    "source_rule_modules",
+    "target_rule_module",
+    "dimension_mappings",
+    "target_only_dimensions",
+    "directionality",
+    "target_pack_conformance"
+  ],
+  "properties": {
+    "artifact_schema_version": {
+      "const": "relationships-state-mapping/v1"
+    },
+    "migration_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{2,127}$"
+    },
+    "migration_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$"
+    },
+    "artifact_status": {
+      "enum": [
+        "draft",
+        "approved",
+        "retired"
+      ]
+    },
+    "fixture_only": {
+      "type": "boolean"
+    },
+    "source": {
+      "$ref": "#/$defs/worldPackPin"
+    },
+    "target": {
+      "$ref": "#/$defs/worldPackPin"
+    },
+    "source_rule_modules": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/modulePin"
+      }
+    },
+    "target_rule_module": {
+      "$ref": "#/$defs/modulePin"
+    },
+    "dimension_mappings": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "source_rule_module",
+              "source_dimension",
+              "disposition",
+              "target_dimension",
+              "value_mappings",
+              "special_state_mappings"
+            ],
+            "properties": {
+              "source_rule_module": {
+                "$ref": "#/$defs/modulePin"
+              },
+              "source_dimension": {
+                "$ref": "#/$defs/identifier"
+              },
+              "disposition": {
+                "const": "map"
+              },
+              "target_dimension": {
+                "$ref": "#/$defs/identifier"
+              },
+              "value_mappings": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "$ref": "#/$defs/valueMapping"
+                }
+              },
+              "special_state_mappings": {
+                "type": "array",
+                "minItems": 8,
+                "items": {
+                  "$ref": "#/$defs/specialStateMapping"
+                },
+                "uniqueItems": true,
+                "allOf": [
+                  {
+                    "contains": {
+                      "type": "object",
+                      "properties": {
+                        "source_state": {
+                          "const": "unset"
+                        }
+                      },
+                      "required": [
+                        "source_state"
+                      ]
+                    },
+                    "minContains": 1,
+                    "maxContains": 1
+                  },
+                  {
+                    "contains": {
+                      "type": "object",
+                      "properties": {
+                        "source_state": {
+                          "const": "cleared"
+                        }
+                      },
+                      "required": [
+                        "source_state"
+                      ]
+                    },
+                    "minContains": 1,
+                    "maxContains": 1
+                  },
+                  {
+                    "contains": {
+                      "type": "object",
+                      "properties": {
+                        "source_state": {
+                          "const": "withheld"
+                        }
+                      },
+                      "required": [
+                        "source_state"
+                      ]
+                    },
+                    "minContains": 1,
+                    "maxContains": 1
+                  },
+                  {
+                    "contains": {
+                      "type": "object",
+                      "properties": {
+                        "source_state": {
+                          "const": "conflict"
+                        }
+                      },
+                      "required": [
+                        "source_state"
+                      ]
+                    },
+                    "minContains": 1,
+                    "maxContains": 1
+                  },
+                  {
+                    "contains": {
+                      "type": "object",
+                      "properties": {
+                        "source_state": {
+                          "const": "insufficient"
+                        }
+                      },
+                      "required": [
+                        "source_state"
+                      ]
+                    },
+                    "minContains": 1,
+                    "maxContains": 1
+                  },
+                  {
+                    "contains": {
+                      "type": "object",
+                      "properties": {
+                        "source_state": {
+                          "const": "insufficient_support"
+                        }
+                      },
+                      "required": [
+                        "source_state"
+                      ]
+                    },
+                    "minContains": 1,
+                    "maxContains": 1
+                  },
+                  {
+                    "contains": {
+                      "type": "object",
+                      "properties": {
+                        "source_state": {
+                          "const": "unsupported"
+                        }
+                      },
+                      "required": [
+                        "source_state"
+                      ]
+                    },
+                    "minContains": 1,
+                    "maxContains": 1
+                  },
+                  {
+                    "contains": {
+                      "type": "object",
+                      "properties": {
+                        "source_state": {
+                          "const": "incomplete"
+                        }
+                      },
+                      "required": [
+                        "source_state"
+                      ]
+                    },
+                    "minContains": 1,
+                    "maxContains": 1
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "source_rule_module",
+              "source_dimension",
+              "disposition",
+              "retirement_reason"
+            ],
+            "properties": {
+              "source_rule_module": {
+                "$ref": "#/$defs/modulePin"
+              },
+              "source_dimension": {
+                "$ref": "#/$defs/identifier"
+              },
+              "disposition": {
+                "const": "retire"
+              },
+              "retirement_reason": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1000
+              }
+            }
+          }
+        ]
+      }
+    },
+    "target_only_dimensions": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "target_dimension",
+              "disposition"
+            ],
+            "properties": {
+              "target_dimension": {
+                "$ref": "#/$defs/identifier"
+              },
+              "disposition": {
+                "const": "remain_unset"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "target_dimension",
+              "disposition",
+              "value"
+            ],
+            "properties": {
+              "target_dimension": {
+                "$ref": "#/$defs/identifier"
+              },
+              "disposition": {
+                "const": "initialize_value"
+              },
+              "value": {
+                "$ref": "#/$defs/identifier"
+              }
+            }
+          }
+        ]
+      }
+    },
+    "directionality": {
+      "const": "preserve_subject_target_direction"
+    },
+    "target_pack_conformance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "target_pack_digest",
+        "status",
+        "evidence_ref"
+      ],
+      "properties": {
+        "target_pack_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "status": {
+          "enum": [
+            "passed",
+            "not-established"
+          ]
+        },
+        "evidence_ref": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
+        }
+      }
+    },
+    "approval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "policy_ref",
+        "decision_ref",
+        "approved_by",
+        "approved_at"
+      ],
+      "properties": {
+        "policy_ref": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
+        },
+        "decision_ref": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
+        },
+        "approved_by": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "approved_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "artifact_status": {
+            "const": "approved"
+          }
+        },
+        "required": [
+          "artifact_status"
+        ]
+      },
+      "then": {
+        "properties": {
+          "fixture_only": {
+            "const": false
+          },
+          "target_pack_conformance": {
+            "properties": {
+              "status": {
+                "const": "passed"
+              }
+            }
+          }
+        },
+        "required": [
+          "approval"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "fixture_only": {
+            "const": true
+          }
+        },
+        "required": [
+          "fixture_only"
+        ]
+      },
+      "then": {
+        "properties": {
+          "artifact_status": {
+            "enum": [
+              "draft",
+              "retired"
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._:-]*$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "worldPackPin": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "world_pack_id",
+        "version",
+        "sha256"
+      ],
+      "properties": {
+        "world_pack_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "sha256": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    },
+    "modulePin": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "module_id",
+        "version"
+      ],
+      "properties": {
+        "module_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      }
+    },
+    "valueMapping": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_value",
+        "target_value"
+      ],
+      "properties": {
+        "source_value": {
+          "$ref": "#/$defs/identifier"
+        },
+        "target_value": {
+          "$ref": "#/$defs/identifier"
+        }
+      }
+    },
+    "specialStateMapping": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_state",
+        "target"
+      ],
+      "properties": {
+        "source_state": {
+          "enum": [
+            "unset",
+            "cleared",
+            "withheld",
+            "conflict",
+            "insufficient",
+            "insufficient_support",
+            "unsupported",
+            "incomplete"
+          ]
+        },
+        "target": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "kind",
+                "status"
+              ],
+              "properties": {
+                "kind": {
+                  "const": "state"
+                },
+                "status": {
+                  "enum": [
+                    "unset",
+                    "cleared",
+                    "withheld",
+                    "conflict",
+                    "insufficient",
+                    "insufficient_support",
+                    "unsupported",
+                    "incomplete"
+                  ]
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "kind",
+                "value"
+              ],
+              "properties": {
+                "kind": {
+                  "const": "value"
+                },
+                "value": {
+                  "$ref": "#/$defs/identifier"
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}
