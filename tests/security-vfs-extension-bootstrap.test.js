@@ -226,13 +226,16 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
         baseline.close();
       }
 
+      const raceInjectionBeforeMain = second.prepare(
+        'SELECT logic_engine_vfs_probe_race_injection_count() AS count'
+      ).get().count;
       second.prepare('SELECT logic_engine_vfs_probe_configure_race(?, ?, 1)')
         .get(racePath, aliasPath);
       assert.throws(() => new DatabaseSync(racePath),
         'opening a database path replaced by a hardlink to another database must fail closed');
       assert.equal(
         second.prepare('SELECT logic_engine_vfs_probe_race_injection_count() AS count').get().count,
-        1,
+        raceInjectionBeforeMain + 1,
         'the deterministic replacement must occur exactly once inside the VFS open boundary'
       );
       assert.ok(
@@ -375,6 +378,9 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
       const sidecarRacePath = join(directory, 'sidecar-race.sqlite');
       second.prepare('SELECT logic_engine_vfs_probe_register_database_role(?, ?) AS registered')
         .get(sidecarRacePath, 'sidecar-race');
+      const raceInjectionBeforeWal = second.prepare(
+        'SELECT logic_engine_vfs_probe_race_injection_count() AS count'
+      ).get().count;
       second.prepare('SELECT logic_engine_vfs_probe_configure_race(?, ?, 1)')
         .get(`${sidecarRacePath}-wal`, roleCorePath);
       const sidecarRaceDb = new DatabaseSync(sidecarRacePath);
@@ -387,8 +393,8 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
       }
       assert.equal(
         second.prepare('SELECT logic_engine_vfs_probe_race_injection_count() AS count').get().count,
-        2,
-        'both the main database and WAL sidecar replacement races must be injected'
+        raceInjectionBeforeWal + 1,
+        'the WAL sidecar replacement race must be injected exactly once'
       );
       assert.ok(
         second.prepare('SELECT logic_engine_vfs_probe_sidecar_identity_reject_count() AS count').get().count > 0,
