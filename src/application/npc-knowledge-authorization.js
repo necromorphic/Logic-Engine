@@ -36,23 +36,53 @@ export function createHostBoundNpcKnowledgeAuthorizers({
   const configuredAdapters = new Set(adapterIds);
   const trustedSources = trustedInitialKnowledgeSources.map(source => Object.freeze({ ...source }));
 
-  function activeHostAndActorBinding(scope) {
-    if (!scope || !validId(scope.world_id) || !validId(scope.conversation_id)
-      || !validId(scope.adapter_id) || !validId(scope.actor_id)
-      || !configuredAdapters.has(scope.adapter_id)) return false;
+  /**
+   * Resolve canonical scope from Core-owned bindings. Request world/actor values
+   * are never used to select rows: Host binding selects the world, then the
+   * adapter's active actor binding must resolve to exactly one eligible actor.
+   * Ambiguity is a denial, not a caller-controlled selection opportunity.
+   */
+  function resolveContext(identity) {
+    if (!identity || !validId(identity.conversation_id)
+      || !validId(identity.adapter_id) || !configuredAdapters.has(identity.adapter_id)) return null;
     try {
       const host = store.db.prepare(
         'SELECT world_id,active FROM host_conversation_world_bindings WHERE adapter_id=? AND conversation_id=?'
-      ).get(scope.adapter_id, scope.conversation_id);
-      if (!host || host.active !== 1 || host.world_id !== scope.world_id) return false;
+      ).get(identity.adapter_id, identity.conversation_id);
+      if (!host || host.active !== 1) return null;
+      const world = store.world(host.world_id);
+      if (!world || world.status !== 'active') return null;
+
+      const actors = store.db.prepare(
+        'SELECT entity_id FROM actor_bindings WHERE world_id=? AND adapter_id=? AND active=1 ORDER BY entity_id'
+      ).all(host.world_id, identity.adapter_id);
+      if (actors.length !== 1) return null;
       const actor = store.db.prepare(
-        'SELECT active FROM actor_bindings WHERE world_id=? AND adapter_id=? AND entity_id=?'
-      ).get(scope.world_id, scope.adapter_id, scope.actor_id);
-      return actor?.active === 1;
+        "SELECT entity_id,status FROM entities WHERE world_id=? AND entity_id=?"
+      ).get(host.world_id, actors[0].entity_id);
+      if (!actor || actor.status === 'destroyed') return null;
+
+      return Object.freeze({
+        world_id: host.world_id,
+        conversation_id: identity.conversation_id,
+        adapter_id: identity.adapter_id,
+        actor_id: actor.entity_id,
+      });
     } catch {
       // Missing migrations, missing rows, and storage errors all deny.
-      return false;
+      return null;
     }
+  }
+
+  function activeHostAndActorBinding(scope) {
+    if (!scope) return false;
+    const binding = resolveContext({
+      adapter_id: scope.adapter_id,
+      conversation_id: scope.conversation_id,
+    });
+    return Boolean(binding
+      && binding.world_id === scope.world_id
+      && binding.actor_id === scope.actor_id);
   }
 
   function readAuthorizer(scope) {
@@ -104,5 +134,5 @@ export function createHostBoundNpcKnowledgeAuthorizers({
     });
   }
 
-  return Object.freeze({ readAuthorizer, visibilityAuthorizer });
+  return Object.freeze({ resolveContext, readAuthorizer, visibilityAuthorizer });
 }
