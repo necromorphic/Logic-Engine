@@ -11,6 +11,7 @@ import { HostConversationWorldBindingService } from '../application/host-convers
 const MAX = 1048576;
 const MAX_HOST_VERSION_SNAPSHOT_BYTES = 8 * 1048576;
 const MAX_HOST_VERSION_SNAPSHOT_ENTRIES = 25000;
+const HOST_CONVERSATION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}:[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}:[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /** Resolve the active deployment-owned policy on every boundary check. */
 export function createActiveMechanicPolicyValidator(getActiveMechanicContextProvider, policyAuthority = null) {
@@ -300,7 +301,8 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
           || Object.keys(body).some((key) => !['conversation_id', 'limit'].includes(key))
           || typeof body.conversation_id !== 'string'
           || body.conversation_id !== body.conversation_id.trim()
-          || body.conversation_id.length < 1 || body.conversation_id.length > 200
+          || !HOST_CONVERSATION_ID.test(body.conversation_id)
+          || body.conversation_id.length > 200
           || [...body.conversation_id].some((character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127)
           || (Object.hasOwn(body, 'limit') && (!Number.isInteger(body.limit) || body.limit < 1 || body.limit > 200))) {
           throw new EngineError('INVALID_NPC_KNOWLEDGE_HOST_REQUEST',
