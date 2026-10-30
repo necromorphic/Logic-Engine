@@ -58,6 +58,9 @@ class FakeDB {
 }
 
 const TEST_CONVERSATION_UUID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+const TEST_SESSION_UUID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+const TEST_INSTALLATION_UUID = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+const TEST_CONVERSATION_ID = TEST_SESSION_UUID + ':' + TEST_INSTALLATION_UUID + ':' + TEST_CONVERSATION_UUID;
 const TEST_HOST_COMMIT = '06bde939fb1e9c4c8d8641d810f0a916b5bce127';
 
 async function makePersistedInventory(chat, conversationUuid) {
@@ -119,7 +122,7 @@ function makeFixture(chat = [{ is_user: true, mes: 'hello' }, { is_user: false, 
   let skipDiskWrite = false;
   const bridge = createStLifecycleBridge({
     journal,
-    getConversationId: () => 'chat-1',
+    getConversationId: () => TEST_CONVERSATION_ID,
     getConversationUuid: () => TEST_CONVERSATION_UUID,
     readPersistedInventory: uuid => makePersistedInventory(persistedChat, uuid),
     getSourceLocator: () => sourceLocator,
@@ -142,7 +145,7 @@ test('configured Core publisher receives digest-only baseline, replacement tombs
   await f.bridge.enrollCurrentConversation();
   assert.equal(published.length, 2);
   assert.deepEqual(published.map(entry => entry.active), [false, true]);
-  assert.ok(published.every(entry => entry.conversation_id === 'chat-1'
+  assert.ok(published.every(entry => entry.conversation_id === TEST_CONVERSATION_ID
     && Object.hasOwn(entry, 'parent_version_id')
     && (entry.parent_version_id === null || typeof entry.parent_version_id === 'string')
     && /^[a-f0-9]{64}$/.test(entry.content_sha256)
@@ -295,7 +298,7 @@ test('message deletion tombstones survive journal re-open and remain digest-only
   // Simulate a process restart: instantiate a new journal over the same
   // persisted backing store rather than reusing the in-memory journal object.
   const restartedJournal = new HostLifecycleJournal(f.db);
-  const exported = await restartedJournal.exportCaptureLedger('chat-1');
+  const exported = await restartedJournal.exportCaptureLedger(TEST_CONVERSATION_ID);
   assert.equal(exported.status, 'REVIEW_ONLY');
   const deletion = exported.records.find(row => row.operation === 'after:delete-message');
   assert.ok(deletion);
@@ -446,7 +449,7 @@ test('unhooked clear-chat fails closed before source mutation', async () => {
 
 test('unavailable bridge re-checks enrollment marker for the current chat before each mutation', async () => {
   const { createUnavailableStLifecycleBridge } = await import('../st-lifecycle-bridge.mjs');
-  let conversationId = 'chat-1';
+  let conversationId = TEST_CONVERSATION_ID;
   const markers = new Map();
   const storage = { getItem: key => markers.get(key) ?? null };
   const error = Error('IndexedDB unavailable');
@@ -465,7 +468,7 @@ test('unavailable bridge re-checks enrollment marker for the current chat before
 
   conversationId = 'chat-2';
   assert.deepEqual(await bridge.beforeMutation('delete-message', [0]), { status: 'NOT_ENROLLED' });
-  conversationId = 'chat-1';
+  conversationId = TEST_CONVERSATION_ID;
   await assert.rejects(
     bridge.afterMutation('delete-message'),
     /NON_READY: enrolled Host journal unavailable: IndexedDB unavailable/,
@@ -504,14 +507,14 @@ test('reconciliation rejects identity metadata whose digest no longer matches na
 test('new-message reconciliation fails closed when an existing identity is missing', async () => {
   const f = makeFixture();
   await f.bridge.enrollCurrentConversation();
-  const before = await f.journal.verifyIntegrity('chat-1');
+  const before = await f.journal.verifyIntegrity(TEST_CONVERSATION_ID);
   delete f.chat[0]._logicEngineLifecycle;
 
   await assert.rejects(
     f.bridge.beforeMutation('create-message', []),
     /identity metadata differs from journal/,
   );
-  const after = await f.journal.verifyIntegrity('chat-1');
+  const after = await f.journal.verifyIntegrity(TEST_CONVERSATION_ID);
   assert.equal(after.sequence, before.sequence);
   assert.equal(f.chat[0]._logicEngineLifecycle, undefined);
 });
@@ -519,7 +522,7 @@ test('new-message reconciliation fails closed when an existing identity is missi
 test('create-message checkpoint refuses to absorb an unhooked edit in earlier messages', async () => {
   const f = makeFixture();
   await f.bridge.enrollCurrentConversation();
-  const before = await f.journal.verifyIntegrity('chat-1');
+  const before = await f.journal.verifyIntegrity(TEST_CONVERSATION_ID);
   f.chat[0].mes = 'external edit before new message';
   f.chat.push({ is_user: false, mes: 'new reply' });
 
@@ -527,7 +530,7 @@ test('create-message checkpoint refuses to absorb an unhooked edit in earlier me
     f.bridge.beforeMutation('create-message', []),
     /source fingerprint differs from journal/,
   );
-  const after = await f.journal.verifyIntegrity('chat-1');
+  const after = await f.journal.verifyIntegrity(TEST_CONVERSATION_ID);
   assert.equal(after.sequence, before.sequence);
 });
 
@@ -577,7 +580,7 @@ test('message-send supports insertion at a requested historical index', async ()
   assert.equal(f.chat[0]._logicEngineLifecycle.messageId, oldMessageIds[0]);
   assert.equal(f.chat[2]._logicEngineLifecycle.messageId, oldMessageIds[1]);
   assert.ok(f.chat[1]._logicEngineLifecycle.messageId);
-  assert.equal((await f.journal.verifyIntegrity('chat-1')).status, 'INTEGRITY_OK');
+  assert.equal((await f.journal.verifyIntegrity(TEST_CONVERSATION_ID)).status, 'INTEGRITY_OK');
 });
 
 test('reconciliation rejects copied/restored sidecar IDs even when native message content is unchanged', async () => {
@@ -646,7 +649,7 @@ test('swipe selection records a pre-mutation checkpoint and preserves immutable 
     'selecting a retained swipe must not mint or rewrite version identity',
   );
 
-  const journalRows = [...f.db.rows.values()].filter(row => row.conversationId === 'chat-1');
+  const journalRows = [...f.db.rows.values()].filter(row => row.conversationId === TEST_CONVERSATION_ID);
   const beforeRow = journalRows.find(row => row.operation === 'before:select-swipe');
   const afterRow = journalRows.find(row => row.operation === 'after:select-swipe');
   assert.ok(beforeRow && afterRow);
@@ -664,7 +667,7 @@ test('edit/delete checkpoints preserve identity and digests without retaining ra
   f.chat[1].mes = 'answer revised';
   await f.bridge.afterMutation('edit-message');
 
-  const ledgerAfterEdit = await f.journal.exportCaptureLedger('chat-1');
+  const ledgerAfterEdit = await f.journal.exportCaptureLedger(TEST_CONVERSATION_ID);
   const beforeEdit = ledgerAfterEdit.records.find(row => row.operation === 'before:edit-message');
   const afterEdit = ledgerAfterEdit.records.find(row => row.operation === 'after:edit-message');
   assert.equal(beforeEdit.payload.affectedVersions[0].messageId, oldMessageId);
@@ -686,7 +689,7 @@ test('edit/delete checkpoints preserve identity and digests without retaining ra
   await f.bridge.beforeMutation('delete-message', [1]);
   f.chat.splice(1, 1);
   await f.bridge.afterMutation('delete-message');
-  const ledgerAfterDelete = await f.journal.exportCaptureLedger('chat-1');
+  const ledgerAfterDelete = await f.journal.exportCaptureLedger(TEST_CONVERSATION_ID);
   const beforeDelete = ledgerAfterDelete.records.find(row => row.operation === 'before:delete-message');
   assert.ok(beforeDelete.payload.affectedVersions.some(version => version.payloadDigest));
   assert.ok(beforeDelete.payload.affectedVersions.every(version => !Object.hasOwn(version, 'content')));
@@ -708,9 +711,9 @@ test('fresh journal/bridge instances replay the persisted journal rows after res
   await f.bridge.afterMutation('edit-message');
 
   const rowsBeforeRestart = [...f.db.rows.values()]
-    .filter(row => row.conversationId === 'chat-1')
+    .filter(row => row.conversationId === TEST_CONVERSATION_ID)
     .sort((a, b) => a.sequence - b.sequence);
-  const headBeforeRestart = f.db.heads.get('chat-1');
+  const headBeforeRestart = f.db.heads.get(TEST_CONVERSATION_ID);
   assert.ok(rowsBeforeRestart.length >= 3);
   assert.equal(headBeforeRestart.sequence, rowsBeforeRestart.at(-1).sequence);
 
@@ -720,16 +723,16 @@ test('fresh journal/bridge instances replay the persisted journal rows after res
   const restartedJournal = new HostLifecycleJournal(f.db);
   const restartedBridge = createStLifecycleBridge({
     journal: restartedJournal,
-    getConversationId: () => 'chat-1',
+    getConversationId: () => TEST_CONVERSATION_ID,
     getSourceLocator: () => 'chat-file-1',
     getChat: () => f.chat,
     saveChat: async () => {},
   });
-  const integrity = await restartedJournal.verifyIntegrity('chat-1');
+  const integrity = await restartedJournal.verifyIntegrity(TEST_CONVERSATION_ID);
   assert.equal(integrity.status, 'INTEGRITY_OK');
   assert.equal(integrity.sequence, headBeforeRestart.sequence);
 
-  const ledger = await restartedJournal.exportCaptureLedger('chat-1');
+  const ledger = await restartedJournal.exportCaptureLedger(TEST_CONVERSATION_ID);
   assert.equal(ledger.status, 'REVIEW_ONLY');
   assert.deepEqual(
     ledger.records.map(row => [row.sequence, row.eventId, row.recordDigest]),
@@ -765,7 +768,7 @@ test('unique raw-content sentinels never enter persisted journal rows or exporte
       rows: [...f.db.rows.values()],
       heads: [...f.db.heads.values()],
     });
-    const exported = JSON.stringify(await f.journal.exportCaptureLedger('chat-1'));
+    const exported = JSON.stringify(await f.journal.exportCaptureLedger(TEST_CONVERSATION_ID));
     for (const sentinel of sentinels) {
       assert.equal(persisted.includes(sentinel), false, `persisted journal contains raw source text at ${stage}: ${sentinel}`);
       assert.equal(exported.includes(sentinel), false, `capture-ledger export contains raw source text at ${stage}: ${sentinel}`);
@@ -790,7 +793,7 @@ test('after-mutation receipt is withheld when independent JSONL readback does no
 
   await assert.rejects(f.bridge.afterMutation('edit-message'),
     /independently read SillyTavern JSONL identity\/digests differ/);
-  const pending = await f.journal.pendingMutation('chat-1');
+  const pending = await f.journal.pendingMutation(TEST_CONVERSATION_ID);
   assert.equal(pending.status, 'PENDING_MUTATION');
   assert.equal(pending.operation, 'edit-message');
 });
@@ -801,8 +804,8 @@ test('enrollment fails closed when independent JSONL readback does not contain t
   f.setSkipDiskWrite(true);
   await assert.rejects(f.bridge.enrollCurrentConversation(),
     /native identity metadata or independent disk verification failed/);
-  assert.equal((await f.journal.verifyIntegrity('chat-1')).status, 'INTEGRITY_OK');
-  assert.equal((await f.journal.pendingMutation('chat-1')).status, 'NO_PENDING_MUTATION');
+  assert.equal((await f.journal.verifyIntegrity(TEST_CONVERSATION_ID)).status, 'INTEGRITY_OK');
+  assert.equal((await f.journal.pendingMutation(TEST_CONVERSATION_ID)).status, 'NO_PENDING_MUTATION');
 });
 
 
@@ -814,5 +817,5 @@ test('before-mutation guard rejects an out-of-band persisted JSONL edit before t
   f.setPersistedChat(externallyEdited);
 
   await assert.rejects(f.bridge.beforeMutation('edit-message', [0]), /SOURCE_CHAT_VERSION_DIGEST_MISMATCH/);
-  assert.equal((await f.journal.pendingMutation('chat-1')).status, 'NO_PENDING_MUTATION');
+  assert.equal((await f.journal.pendingMutation(TEST_CONVERSATION_ID)).status, 'NO_PENDING_MUTATION');
 });
