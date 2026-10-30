@@ -5,6 +5,7 @@ import { LogicEngine } from './application/engine.js';
 import { createApiServer } from './api/server.js';
 import { HostVersionDigestLedger } from './application/host-version-digest-ledger.js';
 import { loadTrustedWorldPackCatalog } from './application/world-pack-catalog.js';
+import { createHostBoundNpcKnowledgeAuthorizers } from './application/npc-knowledge-authorization.js';
 import { createProcessScopedMechanicPolicyAuthority, defaultMechanicPolicyFieldPolicy } from './application/mechanic-policy-authority.js';
 
 const token = process.env.ENGINE_API_TOKEN;
@@ -99,11 +100,6 @@ if (typeof worldPackCatalogPath !== 'string' || !worldPackCatalogPath.trim()) {
   process.exit(1);
 }
 const worldPackCatalog = loadTrustedWorldPackCatalog(resolve(worldPackCatalogPath));
-
-// The default deployment policy is intentionally narrow: it discloses only
-// the bound actor's own identity fields and denies all attributes. A broader
-// deployment policy must be supplied through an explicitly constructed trusted
-// MechanicPolicyAuthority, never through model or adapter input.
 const mechanicPolicyAuthority = createProcessScopedMechanicPolicyAuthority({
   authorityId: process.env.ENGINE_MECHANIC_POLICY_AUTHORITY_ID || 'logic-engine.default-visibility-policy',
   generation: Number(process.env.ENGINE_MECHANIC_POLICY_GENERATION || '1'),
@@ -111,6 +107,11 @@ const mechanicPolicyAuthority = createProcessScopedMechanicPolicyAuthority({
 });
 
 const store = new SQLiteStore(dbPath);
+const npcKnowledgeAuthorizers = createHostBoundNpcKnowledgeAuthorizers({
+  store,
+  adapterIds: Object.keys(adapterTokens),
+  trustedInitialKnowledgeSources,
+});
 const hostVersionLedgerPath = process.env.ENGINE_HOST_VERSION_LEDGER_DB_PATH
   ? resolve(process.env.ENGINE_HOST_VERSION_LEDGER_DB_PATH)
   : resolve('./data/logic-engine-host-versions.sqlite');
@@ -128,7 +129,11 @@ const hostVersionLedger = new HostVersionDigestLedger({
   verifyInventorySnapshot: async () => false,
 });
 const server = createApiServer({
-  engine: new LogicEngine(store, { trustedInitialKnowledgeSources, worldPackCatalog }), token, internalToken, approvalToken, adminToken, adapterTokens,
+  engine: new LogicEngine(store, {
+    trustedInitialKnowledgeSources, worldPackCatalog,
+    npcKnowledgeReadAuthorizer: npcKnowledgeAuthorizers.readAuthorizer,
+    npcKnowledgeVisibilityAuthorizer: npcKnowledgeAuthorizers.visibilityAuthorizer,
+  }), token, internalToken, approvalToken, adminToken, adapterTokens,
   hostVersionLedger,
   mechanicPolicyAuthority,
 });
