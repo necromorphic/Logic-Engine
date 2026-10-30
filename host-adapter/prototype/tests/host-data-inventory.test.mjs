@@ -61,6 +61,8 @@ test('full host data inventory covers character, avatar and settings files outsi
   assert.equal(result.filesystem.status, 'complete');
   assert.equal(isVerifiedFileInventory(result.filesystem), true);
   assert.equal(result.filesystem.file_count, 7);
+  assert.ok(result.filesystem.total_bytes > 0);
+  assert.equal(result.filesystem.scope, 'single-root-regular-files-only');
   assert.ok(result.filesystem.entries.some(entry => entry.path === 'characters/hero.json'));
   assert.ok(result.filesystem.entries.some(entry => entry.path === 'User Avatars/persona.png'));
   assert.ok(result.filesystem.entries.some(entry => entry.path === 'settings.json'));
