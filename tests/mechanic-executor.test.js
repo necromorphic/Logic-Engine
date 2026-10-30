@@ -110,6 +110,8 @@ function contextProvider(context = { world: { weather: 'rain' }, actor: { hp: 10
       commit_sequence: snapshot.commit_sequence,
       authorization_scope: 'test-principal',
       policy_version: 'test-visibility-policy-v1',
+      authority_id: 'test-mechanic-authority',
+      policy_generation: 1,
     };
   };
 }
@@ -178,7 +180,7 @@ test('mechanic context provider can enforce actor binding and field policy throu
   assert.equal(engine.getState(worldId).entities.some((entity) => entity.entity_id === 'entity.new'), false);
 
   const revoked = new MechanicExecutor(engine, {
-    resolveAuthorizedContext: (args) => provider.resolve(args),
+    resolveAuthorizedContext: (args) => ({ ...provider.resolve(args), authority_id: 'test-mechanic-authority', policy_generation: 1 }),
   }).evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
   assert.equal(revoked.status, 'unknown');
   assert.equal(revoked.reason_code, 'AUTHORIZED_CONTEXT_RESOLUTION_FAILED');
@@ -240,6 +242,8 @@ test('application executor fails closed without trusted context or with a mismat
       commit_sequence: snapshot.commit_sequence,
       authorization_scope: 'test-principal',
       policy_version: 'test-visibility-policy-v1',
+      authority_id: 'test-mechanic-authority',
+      policy_generation: 1,
     }),
   }).evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
   assert.equal(mismatch.status, 'unknown');
@@ -441,7 +445,7 @@ test('proposal policy validation delegates to the active context provider and re
 
   let activeProvider = makeProvider('visibility-policy-v1');
   const evaluation = new MechanicExecutor(engine, {
-    resolveAuthorizedContext: (args) => activeProvider.resolve(args),
+    resolveAuthorizedContext: (args) => ({ ...activeProvider.resolve(args), authority_id: 'test-mechanic-authority', policy_generation: 1 }),
   }).evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
   assert.equal(evaluation.status, 'ready');
   assert.equal(evaluation.context_policy_version, activeProvider.policyFingerprint);
@@ -660,6 +664,8 @@ test('application executor freezes the complete evaluation snapshot before trust
         commit_sequence: snapshot.commit_sequence,
         authorization_scope: 'test-principal',
         policy_version: 'test-immutable-snapshot-v1',
+        authority_id: 'test-mechanic-authority',
+        policy_generation: 1,
       };
     },
   }).evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
@@ -809,6 +815,8 @@ test('application executor refuses context whose canonical dependency evidence i
       commit_sequence: snapshot.commit_sequence,
       authorization_scope: 'test-principal',
       policy_version: 'test-policy-v1',
+      authority_id: 'test-mechanic-authority',
+      policy_generation: 1,
     }),
   }).evaluate({ worldId: missingSetup.worldId, instanceId: 'instance.executor', actionId: 'wait' });
   assert.equal(missing.status, 'unknown');
@@ -829,6 +837,8 @@ test('application executor refuses context whose canonical dependency evidence i
       commit_sequence: snapshot.commit_sequence,
       authorization_scope: 'test-principal',
       policy_version: 'test-policy-v1',
+      authority_id: 'test-mechanic-authority',
+      policy_generation: 1,
     }),
   }).evaluate({ worldId: mismatchSetup.worldId, instanceId: 'instance.executor', actionId: 'wait' });
   assert.equal(mismatch.status, 'unknown');
@@ -880,6 +890,8 @@ test('application executor accepts only same-snapshot canonical absence evidence
     commit_sequence: snapshot.commit_sequence,
     authorization_scope: 'test-principal',
       policy_version: 'test-visibility-policy-v1',
+      authority_id: 'test-mechanic-authority',
+      policy_generation: 1,
   });
   const provenAbsent = new MechanicExecutor(engine, { resolveAuthorizedContext: provider(['actor.injury']) })
     .evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
@@ -908,6 +920,8 @@ test('application executor rejects known-absence claims outside the declared con
       commit_sequence: snapshot.commit_sequence,
       authorization_scope: 'test-principal',
       policy_version: 'test-visibility-policy-v1',
+      authority_id: 'test-mechanic-authority',
+      policy_generation: 1,
     }),
   }).evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
   assert.equal(result.status, 'unknown');
@@ -969,6 +983,8 @@ test('mechanic context and evaluation fingerprints change when the visibility po
       ...contextProvider()(args),
       authorization_scope: 'test-principal',
       policy_version: 'test-visibility-policy-v2',
+      authority_id: 'test-mechanic-authority',
+      policy_generation: 1,
     }),
   }).evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
   assert.equal(first.status, 'ready');
@@ -995,6 +1011,8 @@ test('application executor rejects non-canonical context values before hashing o
       commit_sequence: snapshot.commit_sequence,
       authorization_scope: 'test-principal',
       policy_version: 'test-visibility-policy-v1',
+      authority_id: 'test-mechanic-authority',
+      policy_generation: 1,
     }),
   }).evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
   assert.equal(result.status, 'unknown');
@@ -1046,7 +1064,7 @@ test('canonical entity-attribute provider fails closed for denied or unbound con
     canRead: ({ condition_path }) => condition_path !== 'actor.hp',
   });
   const deniedResult = new MechanicExecutor(engine, {
-    resolveAuthorizedContext: (args) => denied.resolve(args),
+    resolveAuthorizedContext: (args) => ({ ...denied.resolve(args), authority_id: 'test-mechanic-authority', policy_generation: 1 }),
   }).evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
   assert.equal(deniedResult.status, 'unknown');
   assert.equal(deniedResult.reason_code, 'AUTHORIZED_CONTEXT_RESOLUTION_FAILED');
@@ -1065,7 +1083,7 @@ test('canonical entity-attribute provider fails closed for denied or unbound con
     canRead: () => true,
   });
   const unboundResult = new MechanicExecutor(unboundSetup.engine, {
-    resolveAuthorizedContext: (args) => unbound.resolve(args),
+    resolveAuthorizedContext: (args) => ({ ...unbound.resolve(args), authority_id: 'test-mechanic-authority', policy_generation: 1 }),
   }).evaluate({ worldId: unboundSetup.worldId, instanceId: 'instance.executor', actionId: 'wait' });
   assert.equal(unboundResult.status, 'unknown');
   assert.equal(unboundResult.reason_code, 'AUTHORIZED_CONTEXT_RESOLUTION_FAILED');
@@ -1097,6 +1115,8 @@ test('application executor rejects accessor-bearing trusted context without invo
       commit_sequence: snapshot.commit_sequence,
       authorization_scope: 'test-principal',
       policy_version: 'test-visibility-policy-v1',
+      authority_id: 'test-mechanic-authority',
+      policy_generation: 1,
     }),
   }).evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
   assert.equal(result.status, 'unknown');
@@ -1150,6 +1170,8 @@ test('application executor rejects accessor-backed context without invoking gett
       commit_sequence: snapshot.commit_sequence,
       authorization_scope: 'test-principal',
       policy_version: 'test-visibility-policy-v1',
+      authority_id: 'test-mechanic-authority',
+      policy_generation: 1,
     }),
   }).evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
   assert.equal(result.status, 'unknown');
