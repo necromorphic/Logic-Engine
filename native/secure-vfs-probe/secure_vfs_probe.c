@@ -386,6 +386,56 @@ static void probe_race_injection_count(sqlite3_context *context, int argc, sqlit
   (void)argv;
   sqlite3_result_int(context, g_race_injection_count);
 }
+static void probe_register_database_role(sqlite3_context *context, int argc, sqlite3_value **argv) {
+  const unsigned char *path = sqlite3_value_text(argv[0]);
+  const unsigned char *role_name = sqlite3_value_text(argv[1]);
+  char *full_path;
+  int path_length;
+  if (!path || !role_name || !path[0] || !role_name[0]) {
+    sqlite3_result_error(context, "database path and role are required", -1);
+    return;
+  }
+  if (g_database_role_count >= PROBE_MAX_DATABASE_ROLES) {
+    sqlite3_result_error(context, "database role registry is full", -1);
+    return;
+  }
+  path_length = g_parent_vfs->mxPathname + 1;
+  full_path = (char *)sqlite3_malloc64((sqlite3_uint64)path_length);
+  if (!full_path) {
+    sqlite3_result_error_nomem(context);
+    return;
+  }
+  if (g_parent_vfs->xFullPathname(g_parent_vfs, (const char *)path,
+        path_length, full_path) != SQLITE_OK) {
+    sqlite3_free(full_path);
+    sqlite3_result_error(context, "database path could not be canonicalized", -1);
+    return;
+  }
+  for (int i = 0; i < g_database_role_count; i++) {
+    if (strcmp(full_path, g_database_roles[i].path) == 0
+        || strcmp((const char *)role_name, g_database_roles[i].role) == 0) {
+      sqlite3_free(full_path);
+      sqlite3_result_error(context, "database role or path already registered", -1);
+      return;
+    }
+  }
+  g_database_roles[g_database_role_count].path = sqlite3_mprintf("%s", full_path);
+  g_database_roles[g_database_role_count].role = sqlite3_mprintf("%s", (const char *)role_name);
+  sqlite3_free(full_path);
+  if (!g_database_roles[g_database_role_count].path
+      || !g_database_roles[g_database_role_count].role) {
+    sqlite3_free(g_database_roles[g_database_role_count].path);
+    sqlite3_free(g_database_roles[g_database_role_count].role);
+    g_database_roles[g_database_role_count].path = 0;
+    g_database_roles[g_database_role_count].role = 0;
+    sqlite3_result_error_nomem(context);
+    return;
+  }
+  g_database_roles[g_database_role_count].identity_set = 0;
+  g_database_role_count += 1;
+  sqlite3_result_int(context, 1);
+}
+
 static void probe_configure_race(sqlite3_context *context, int argc, sqlite3_value **argv) {
   const unsigned char *path = sqlite3_value_text(argv[0]);
   const unsigned char *target = sqlite3_value_text(argv[1]);
@@ -477,6 +527,9 @@ static int probe_auto_extension(sqlite3 *db, char **error, const sqlite3_api_rou
   if (rc != SQLITE_OK) return rc;
   rc = sqlite3_create_function(db, "logic_engine_vfs_probe_configure_race", 3,
     SQLITE_UTF8, 0, probe_configure_race, 0, 0);
+  if (rc != SQLITE_OK) return rc;
+  rc = sqlite3_create_function(db, "logic_engine_vfs_probe_register_database_role", 2,
+    SQLITE_UTF8, 0, probe_register_database_role, 0, 0);
   if (rc != SQLITE_OK) return rc;
   return sqlite3_create_function(
     db,
