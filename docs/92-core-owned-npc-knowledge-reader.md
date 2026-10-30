@@ -12,17 +12,18 @@ Each read requires:
 
 - an existing non-destroyed NPC entity in the requested world;
 - one supported purpose (`npc_turn_context` or `npc_action_evaluation`);
-- an explicit `adapter_id` and `recipient` (`model`), in addition to world and actor;
+- an explicit Host `conversation_id`, configured `adapter_id`, `recipient` (`model`), world, and actor;
 - the exact current `world_revision` and `commit_sequence`;
-- a deployment-injected synchronous authorizer whose decision binds world, adapter, actor, recipient, purpose, revision, and commit sequence;
+- a deployment-owned synchronous authorizer that requires an active Core Host conversation → world binding and an active adapter → actor binding, and binds world, conversation, adapter, actor, recipient, purpose, revision, and commit sequence;
 - a stable authorization-rule reference.
 
-The read result includes the snapshot cursor and source/acquisition provenance. It is immutable at the returned object/array boundaries and nested JSON value level. Stale snapshots, missing authorizer, mismatched authorization scope, unsupported purposes, and invalid provenance fail closed.
+The read result includes the Host conversation identity, snapshot cursor, and source/acquisition provenance. It is immutable at the returned object/array boundaries and nested JSON value level. Stale snapshots, missing/revoked Host or actor bindings, mismatched authorization scope, unsupported purposes, and invalid provenance fail closed.
 
 ## Trust boundary and limitations
 
 - readNpcKnowledge is an internal LogicEngine method and is not registered as an HTTP route.
-- The deployment must provide a real trusted authorizer. No default allow policy exists. The only supported purposes are `npc_turn_context` and `npc_action_evaluation`; the generic `npc_decision` purpose is deliberately not accepted.
+- `src/index.js` now wires the production authorizers from the persistent Core store, configured adapter IDs, and deployment-owned trusted source registry. Read authorization requires an active `host_conversation_world_bindings` row and active `actor_bindings` row for the exact conversation, world, adapter, and actor. Missing rows, revoked rows, unknown adapters, or storage errors deny the read. The only supported purposes are `npc_turn_context` and `npc_action_evaluation`; the generic `npc_decision` purpose is deliberately not accepted.
+- Per-acquisition visibility is separately checked against the trusted source registry: provenance reference and digest must match a deployment-approved source for the world's exact World Pack ID/version. Anything else is withheld. A read grant does not imply visibility.
 - A successful read means only “the Core has an active acquisition for this NPC,” not “the NPC believes the fact” or “the NPC should disclose it in every context.” The separate belief/context contract is documented in `docs/93-core-npc-belief-transition-runtime.md` and remains subject to its own visibility and lifecycle gates.
 - There is no prompt injection or automatic Memory dispatch.
 - imported source ingestion is restricted to the existing deployment-owned allowlisted local-file importer; arbitrary caller paths and raw Host/SillyTavern text are not accepted.
@@ -30,9 +31,9 @@ The read result includes the snapshot cursor and source/acquisition provenance. 
 
 ## Explicit integration gaps before production use
 
-- The read request now carries `world_id`, `adapter_id`, `actor_id`, `recipient` (`model`), purpose, snapshot and limit. The read authorizer receives and must bind all of these fields. The adapter and recipient values are still request data, not authentication: the deployment-owned authorizer must verify them against an authenticated Host/session and intended recipient using trusted state outside the request. There is no explicit Host-session identifier in the Core request, and no such trusted binding is implemented or demonstrated by this candidate.
-- The current application bootstrap in `src/index.js` does not configure either NPC authorizer. Their constructor defaults are `null`; therefore the application-level read path fails closed with `NPC_KNOWLEDGE_READ_NOT_CONFIGURED` until an owner-approved trusted binding is supplied.
-- The Core reader checks that the actor exists and is not destroyed, but does not itself authenticate the Host adapter/session. A future caller must derive actor identity from the approved Host binding, not from model text or an arbitrary request.
+- The read request now carries `world_id`, `conversation_id`, `adapter_id`, `actor_id`, `recipient` (`model`), purpose, snapshot and limit. The authorizer binds the exact conversation and actor to Core-owned active rows. The request values themselves are not credentials: any future HTTP caller must derive `adapter_id` from the authenticated adapter token and `conversation_id` from the authenticated SillyTavern session; neither may be trusted from model text or an untrusted request body.
+- The authorizers are wired into the runtime composition, but the reader remains an internal method and is not exposed as an HTTP route. No production NPC runtime caller or model-context serializer is included. The binding checks therefore establish the Core-side policy boundary, not end-to-end Host caller authentication or final-send authorization.
+- Host conversation bindings and actor bindings must be provisioned through the existing Core administrative binding operations. A read is denied until both are active. Revocation of either blocks subsequent reads and visibility checks.
 - No production NPC runtime caller, model-context serializer, or Host final-egress integration is included. This candidate is not an enablement switch.
 
 ## Acceptance checks
