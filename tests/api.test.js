@@ -5,6 +5,7 @@ import { SQLiteStore } from '../src/storage/sqlite-store.js';
 import { LogicEngine } from '../src/application/engine.js';
 import { ProposalService } from '../src/application/proposals.js';
 import { createApiServer, createActiveMechanicPolicyValidator } from '../src/api/server.js';
+import { MechanicPolicyAuthority } from '../src/application/mechanic-policy-authority.js';
 
 const TOKEN = 'test-token-long-enough-123456';
 const INTERNAL = 'internal-token-long-enough-123456';
@@ -1841,29 +1842,56 @@ test('approval rejects a pending proposal after an intervening canonical commit'
   assert.equal((await stillPending.json()).proposal.status, 'pending');
 });
 
-test('active mechanic policy validator resolves the current owner on every check and fails closed', () => {
+test('active mechanic policy validator requires the exact shared authority and resolves its owner on every check', () => {
+  const authority = new MechanicPolicyAuthority({
+    authorityId: 'test-api-policy-authority',
+    generation: 1,
+    fieldPolicy: () => true,
+  });
   let activeProvider = {
+    getPolicyAuthority: () => authority,
     validateMechanicPolicy(identity) {
-      return identity.policyVersion === 'v1' && identity.authorizationScope === 'scope-a';
+      return identity.policyVersion === 'v1'
+        && identity.authorizationScope === 'scope-a'
+        && authority.isCurrent(identity.policyAuthority);
     },
   };
-  const validate = createActiveMechanicPolicyValidator(() => activeProvider);
-  const pinnedV1 = { policyVersion: 'v1', authorizationScope: 'scope-a' };
+  const validate = createActiveMechanicPolicyValidator(() => activeProvider, authority);
+  const pinnedV1 = {
+    policyVersion: 'v1',
+    authorizationScope: 'scope-a',
+    policyAuthority: authority.getSnapshot(),
+  };
   assert.equal(validate(pinnedV1), true);
 
-  // Rotating the deployment-owned provider must affect the next boundary check.
   activeProvider = {
+    getPolicyAuthority: () => authority,
     validateMechanicPolicy(identity) {
-      return identity.policyVersion === 'v2' && identity.authorizationScope === 'scope-b';
+      return identity.policyVersion === 'v2'
+        && identity.authorizationScope === 'scope-b'
+        && authority.isCurrent(identity.policyAuthority);
     },
   };
   assert.equal(validate(pinnedV1), false);
-  assert.equal(validate({ policyVersion: 'v2', authorizationScope: 'scope-b' }), true);
+  assert.equal(validate({
+    policyVersion: 'v2',
+    authorizationScope: 'scope-b',
+    policyAuthority: authority.getSnapshot(),
+  }), true);
 
-  assert.equal(createActiveMechanicPolicyValidator(() => null)(pinnedV1), false);
-  assert.equal(createActiveMechanicPolicyValidator(() => { throw new Error('owner unavailable'); })(pinnedV1), false);
-  assert.equal(createActiveMechanicPolicyValidator(() => ({ validateMechanicPolicy() { throw new Error('policy failure'); } }))(pinnedV1), false);
-  assert.throws(() => createActiveMechanicPolicyValidator(null), /trusted application callback/);
+  assert.equal(createActiveMechanicPolicyValidator(() => null, authority)(pinnedV1), false);
+  assert.equal(createActiveMechanicPolicyValidator(() => { throw new Error('owner unavailable'); }, authority)(pinnedV1), false);
+  assert.equal(createActiveMechanicPolicyValidator(() => ({
+    getPolicyAuthority: () => authority,
+    validateMechanicPolicy() { throw new Error('policy failure'); },
+  }), authority)(pinnedV1), false);
+  assert.equal(createActiveMechanicPolicyValidator(() => ({
+    getPolicyAuthority: () => new MechanicPolicyAuthority({
+      authorityId: 'different-authority', generation: 1, fieldPolicy: () => true,
+    }),
+    validateMechanicPolicy: () => true,
+  }), authority)(pinnedV1), false);
+  assert.throws(() => createActiveMechanicPolicyValidator(null, authority), /trusted application callback/);
 
   const store = new SQLiteStore(':memory:');
   try {
@@ -1877,27 +1905,44 @@ test('active mechanic policy validator resolves the current owner on every check
 test('proposal policy boundary rejects a proposal pinned to a rotated active provider', () => {
   const store = new SQLiteStore(':memory:');
   const engine = new LogicEngine(store);
+  const authority = new MechanicPolicyAuthority({
+    authorityId: 'test-proposal-policy-authority',
+    generation: 1,
+    fieldPolicy: () => true,
+  });
   let activeProvider = {
+    getPolicyAuthority: () => authority,
     validateMechanicPolicy(identity) {
-      return identity.policyVersion === 'policy-v1' && identity.authorizationScope === 'npc:alice';
+      return identity.policyVersion === 'policy-v1'
+        && identity.authorizationScope === 'npc:alice'
+        && authority.isCurrent(identity.policyAuthority);
     },
   };
   const proposals = new ProposalService(engine, {
-    validateMechanicPolicy: createActiveMechanicPolicyValidator(() => activeProvider),
+    validateMechanicPolicy: createActiveMechanicPolicyValidator(() => activeProvider, authority),
   });
   const row = {
     world_id: 'policy-rotation-world',
     mechanic_execution_json: JSON.stringify({
       context_policy_version: 'policy-v1',
       authorization_scope: 'npc:alice',
-      snapshot_identity: { world_id: 'policy-rotation-world' },
+      policy_authority: authority.getSnapshot(),
+      snapshot_identity: {
+        world_id: 'policy-rotation-world',
+        world_revision: 1,
+        commit_sequence: 1,
+      },
     }),
   };
   try {
     assert.doesNotThrow(() => proposals.assertMechanicPolicyCurrent(row, 'approval'));
+    authority.rotate(() => true);
     activeProvider = {
+      getPolicyAuthority: () => authority,
       validateMechanicPolicy(identity) {
-        return identity.policyVersion === 'policy-v2' && identity.authorizationScope === 'npc:alice';
+        return identity.policyVersion === 'policy-v2'
+          && identity.authorizationScope === 'npc:alice'
+          && authority.isCurrent(identity.policyAuthority);
       },
     };
     assert.throws(

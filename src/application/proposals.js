@@ -3,6 +3,7 @@ import { translateMechanicEffectIntents } from '../core/mechanic-effect-translat
 import { isAttestedMechanicEvaluation } from './mechanic-evaluation-attestation.js';
 import { EngineError, assert } from '../core/errors.js';
 import { hashRequest } from '../core/request-hash.js';
+import { isMechanicPolicyAuthoritySnapshot } from './mechanic-policy-authority.js';
 
 const now = () => new Date().toISOString();
 const enc = (value) => JSON.stringify(value);
@@ -186,7 +187,8 @@ export class ProposalService {
     assert(typeof evaluation.context_fingerprint === 'string' && /^[a-f0-9]{64}$/i.test(evaluation.context_fingerprint)
       && typeof evaluation.evaluation_fingerprint === 'string' && /^[a-f0-9]{64}$/i.test(evaluation.evaluation_fingerprint)
       && typeof evaluation.context_policy_version === 'string' && evaluation.context_policy_version.trim()
-      && typeof evaluation.authorization_scope === 'string' && evaluation.authorization_scope.trim(),
+      && typeof evaluation.authorization_scope === 'string' && evaluation.authorization_scope.trim()
+      && isMechanicPolicyAuthoritySnapshot(evaluation.policy_authority),
     'INVALID_MECHANIC_EVALUATION_FINGERPRINT', 'Context and evaluation fingerprints are required.');
     const expectedEvaluationFingerprint = hashRequest({
       snapshot_identity: identity,
@@ -194,6 +196,7 @@ export class ProposalService {
       context_fingerprint: evaluation.context_fingerprint,
       context_policy_version: evaluation.context_policy_version,
       authorization_scope: evaluation.authorization_scope,
+      policy_authority: evaluation.policy_authority,
       condition_result: evaluation.condition_result,
       dependency_manifest: evaluation.dependency_manifest,
       effects: evaluation.effects,
@@ -268,6 +271,7 @@ export class ProposalService {
       context_fingerprint: evaluation.context_fingerprint,
       context_policy_version: evaluation.context_policy_version,
       authorization_scope: evaluation.authorization_scope,
+      policy_authority: evaluation.policy_authority,
       evaluation_fingerprint: evaluation.evaluation_fingerprint,
       dependency_manifest: evaluation.dependency_manifest,
       effect_provenance: provenance,
@@ -293,6 +297,7 @@ export class ProposalService {
       const existing = this.db.prepare('SELECT * FROM event_proposals WHERE world_id=? AND idempotency_key=?')
         .get(worldId, idempotencyKey.trim());
       if (existing) {
+        this.assertMechanicPolicyEvidenceCurrent(mechanicExecution, worldId, 'proposal');
         if (existing.created_by_adapter_id !== adapterId) {
           throw new EngineError('PROPOSAL_ADAPTER_MISMATCH', 'Proposal idempotency key belongs to another adapter.', 403);
         }
@@ -313,6 +318,7 @@ export class ProposalService {
           current_commit_sequence: sequence,
         });
       }
+      this.assertMechanicPolicyEvidenceCurrent(mechanicExecution, worldId, 'proposal');
       return this.create(worldId, {
         idempotency_key: idempotencyKey,
         source_text: sourceText,
@@ -328,40 +334,40 @@ export class ProposalService {
   }
 
   /**
-   * Revalidate deployment-owned visibility policy before a mechanic proposal
-   * crosses an approval/commit boundary. The callback must synchronously compare
-   * the pinned policy fingerprint and authorization scope with the currently
-   * active policy; it must not mutate canonical state. Missing or non-true
-   * decisions fail closed. Ordinary non-mechanic proposals are unaffected.
+   * Revalidate deployment-owned policy authority before a mechanic proposal
+   * crosses proposal-creation, approval, or commit boundaries. The callback must
+   * synchronously compare the pinned policy fingerprint, authority identity/
+   * generation, and authorization scope with the currently active source; it
+   * must not mutate canonical state. Missing or non-true decisions fail closed.
+   * Ordinary non-mechanic proposals are unaffected.
    */
-  assertMechanicPolicyCurrent(row, stage) {
-    if (!row.mechanic_execution_json) return;
+  assertMechanicPolicyEvidenceCurrent(metadata, worldId, stage) {
     if (typeof this.validateMechanicPolicy !== 'function') {
       throw new EngineError(
         'MECHANIC_POLICY_REVALIDATION_REQUIRED',
-        'Mechanic proposals require a trusted current-policy validator at approval and commit.',
+        'Mechanic proposals require a trusted current-policy authority at proposal, approval, and commit.',
         409,
         { stage },
       );
     }
-
-    let metadata;
-    try {
-      metadata = dec(row.mechanic_execution_json);
-    } catch {
-      throw new EngineError('STALE_MECHANIC_POLICY', 'Mechanic policy metadata is invalid; proposal cannot proceed.', 409, { stage });
-    }
-    if (typeof metadata.context_policy_version !== 'string' || !metadata.context_policy_version.trim()
-      || typeof metadata.authorization_scope !== 'string' || !metadata.authorization_scope.trim()) {
-      throw new EngineError('STALE_MECHANIC_POLICY', 'Mechanic proposal lacks a valid pinned policy identity.', 409, { stage });
+    if (!object(metadata)
+      || typeof metadata.context_policy_version !== 'string' || !metadata.context_policy_version.trim()
+      || typeof metadata.authorization_scope !== 'string' || !metadata.authorization_scope.trim()
+      || !isMechanicPolicyAuthoritySnapshot(metadata.policy_authority)
+      || !object(metadata.snapshot_identity)
+      || metadata.snapshot_identity.world_id !== worldId
+      || !Number.isSafeInteger(metadata.snapshot_identity.world_revision)
+      || !Number.isSafeInteger(metadata.snapshot_identity.commit_sequence)) {
+      throw new EngineError('STALE_MECHANIC_POLICY', 'Mechanic proposal lacks valid pinned policy authority evidence.', 409, { stage });
     }
 
     let current = false;
     try {
       current = this.validateMechanicPolicy(Object.freeze({
-        worldId: row.world_id,
+        worldId,
         policyVersion: metadata.context_policy_version,
         authorizationScope: metadata.authorization_scope,
+        policyAuthority: metadata.policy_authority,
         snapshotIdentity: metadata.snapshot_identity,
         stage,
       })) === true;
@@ -371,11 +377,22 @@ export class ProposalService {
     if (!current) {
       throw new EngineError(
         'STALE_MECHANIC_POLICY',
-        'The policy version or authorization scope is no longer current; re-evaluate and create a new proposal.',
+        'The policy authority generation or authorization scope is no longer current; re-evaluate and create a new proposal.',
         409,
         { stage },
       );
     }
+  }
+
+  assertMechanicPolicyCurrent(row, stage) {
+    if (!row.mechanic_execution_json) return;
+    let metadata;
+    try {
+      metadata = dec(row.mechanic_execution_json);
+    } catch {
+      throw new EngineError('STALE_MECHANIC_POLICY', 'Mechanic policy metadata is invalid; proposal cannot proceed.', 409, { stage });
+    }
+    this.assertMechanicPolicyEvidenceCurrent(metadata, row.world_id, stage);
   }
 
   get(worldId, proposalId, adapterId = null) {
@@ -420,7 +437,12 @@ export class ProposalService {
     return this.engine.store.tx(() => {
       const row = this.db.prepare('SELECT * FROM event_proposals WHERE world_id=? AND proposal_id=?').get(worldId, proposalId);
       if (!row) throw new EngineError('PROPOSAL_NOT_FOUND', 'Proposal not found.', 404);
-      if (row.status === 'committed') return { ...this.publicProposal(row, true), commit_result: { ...dec(row.commit_result_json), idempotent_replay: true } };
+      if (row.status === 'committed') {
+        // A replay still returns the stored proposal and commit result. Revalidate
+        // the pinned policy before disclosing that result after a policy rotation.
+        this.assertMechanicPolicyCurrent(row, 'commit_replay');
+        return { ...this.publicProposal(row, true), commit_result: { ...dec(row.commit_result_json), idempotent_replay: true } };
+      }
       if (row.status !== 'approved') throw new EngineError('PROPOSAL_NOT_APPROVED', 'Proposal must be approved before commit.', 409, { status: row.status });
       const world = this.engine.store.world(worldId);
       if (!world) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);

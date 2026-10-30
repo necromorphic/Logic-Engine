@@ -3,6 +3,7 @@ import { constants as fsConstants, openSync, fstatSync, readFileSync, closeSync,
 import { isAbsolute, resolve } from 'node:path';
 import { assert, EngineError } from '../core/errors.js';
 import { hashRequest } from '../core/request-hash.js';
+import { isMechanicPolicyAuthoritySnapshot } from './mechanic-policy-authority.js';
 import { validateEffects } from '../core/rules.js';
 import { validateTrustedInitialKnowledgeSource } from './trusted-initial-knowledge-source.js';
 import { validateMechanicTemplate, validateRuleModuleManifest } from '../core/mechanics.js';
@@ -711,18 +712,18 @@ export class LogicEngine {
       let pathBefore;
       let resolvedBefore;
       if (!Number.isInteger(noFollow) || noFollow === 0) {
-        pathBefore = lstatSync(configured.source_path, { bigint: true });
+        pathBefore = lstatSync(configured.source_path);
         resolvedBefore = realpathSync(configured.source_path);
         assert(pathBefore.isFile() && !pathBefore.isSymbolicLink()
           && resolve(resolvedBefore) === resolve(configured.source_path),
         'TRUSTED_IMPORT_FILE_UNAVAILABLE', 'Trusted import path must resolve directly to a regular, non-link file.', 503);
       }
       fd = openSync(configured.source_path, fsConstants.O_RDONLY | (Number.isInteger(noFollow) && noFollow !== 0 ? noFollow : 0));
-      const stat = fstatSync(fd, { bigint: true });
+      const stat = fstatSync(fd);
       assert(stat.isFile() && stat.size > 0 && stat.size <= MAX_TRUSTED_IMPORT_BYTES,
         'INVALID_TRUSTED_IMPORT_FILE', 'Trusted import must be a regular file within the 1 MiB limit.');
       if (pathBefore) {
-        const pathAfter = lstatSync(configured.source_path, { bigint: true });
+        const pathAfter = lstatSync(configured.source_path);
         const resolvedAfter = realpathSync(configured.source_path);
         assert(pathAfter.isFile() && !pathAfter.isSymbolicLink()
           && resolve(resolvedBefore) === resolve(resolvedAfter)
@@ -866,6 +867,7 @@ export class LogicEngine {
         && typeof metadata.context_fingerprint === 'string' && /^[a-f0-9]{64}$/i.test(metadata.context_fingerprint)
         && typeof metadata.context_policy_version === 'string' && metadata.context_policy_version.trim()
         && typeof metadata.authorization_scope === 'string' && metadata.authorization_scope.trim()
+        && isMechanicPolicyAuthoritySnapshot(metadata.policy_authority)
         && typeof metadata.evaluation_fingerprint === 'string' && /^[a-f0-9]{64}$/i.test(metadata.evaluation_fingerprint),
       'INVALID_MECHANIC_EXECUTION_METADATA', 'Mechanic execution identity and fingerprints are required.');
       assert(obj(metadata.dependency_manifest)
@@ -899,6 +901,7 @@ export class LogicEngine {
         context_fingerprint: metadata.context_fingerprint,
         context_policy_version: metadata.context_policy_version,
         authorization_scope: metadata.authorization_scope,
+        policy_authority: metadata.policy_authority,
         condition_result: metadata.condition_result,
         dependency_manifest: metadata.dependency_manifest,
         effects: x.effects,
