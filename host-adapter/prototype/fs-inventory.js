@@ -8,10 +8,12 @@ import { withWindowsVssSnapshot, isActiveWindowsVssSnapshot } from './windows-vs
 
 const MAX_FILE_BYTES = 256 * 1024 * 1024;
 
-// Windows path-based stat/lstat can report a different st_dev than fstat for
-// the same open file. The file index remains stable; dev is compared on POSIX.
+// Windows path-based stat/lstat may report st_dev=0 while handle-based fstat
+// reports the volume serial. Compare dev when both sources provide it.
 const sameFileIdentity = (left, right) => left.ino === right.ino
-  && (process.platform === 'win32' || left.dev === right.dev);
+  && (process.platform === 'win32'
+    ? left.dev === 0n || right.dev === 0n || left.dev === right.dev
+    : left.dev === right.dev);
 const MAX_TOTAL_BYTES = 2 * 1024 * 1024 * 1024;
 const MAX_TOTAL_ENTRIES = 100_000;
 const sha256 = (value) => createHash('sha256').update(value).digest('hex');
