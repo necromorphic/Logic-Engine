@@ -612,6 +612,25 @@ static int probe_xOpen(sqlite3_vfs *vfs, const char *name, sqlite3_file *file,
 
 static int probe_xDelete(sqlite3_vfs *vfs, const char *name, int sync_dir) {
   sqlite3_vfs *p = (sqlite3_vfs *)vfs->pAppData;
+#ifndef _WIN32
+  int role_index = -1;
+  const char *suffix = 0;
+  if (name && probe_match_role_entry(name, &role_index, &suffix)) {
+    ProbeDatabaseRole *role = &g_database_roles[role_index];
+    char relative_name[4096];
+    size_t base_length = strlen(role->basename);
+    size_t suffix_length = strlen(suffix);
+    if (base_length + suffix_length + 1 > sizeof(relative_name)) return SQLITE_IOERR_DELETE;
+    memcpy(relative_name, role->basename, base_length);
+    memcpy(relative_name + base_length, suffix, suffix_length + 1);
+    if (unlinkat(role->trusted_parent_fd, relative_name, 0) != 0) {
+      if (errno == ENOENT) return SQLITE_OK;
+      return SQLITE_IOERR_DELETE;
+    }
+    if (sync_dir && fsync(role->trusted_parent_fd) != 0) return SQLITE_IOERR_DIR_FSYNC;
+    return SQLITE_OK;
+  }
+#endif
   return p->xDelete(p, name, sync_dir);
 }
 static int probe_xAccess(sqlite3_vfs *vfs, const char *name, int flags, int *result) {
