@@ -131,6 +131,7 @@ const hostVersionLedger = new HostVersionDigestLedger({
 const server = createApiServer({
   engine: new LogicEngine(store, {
     trustedInitialKnowledgeSources, worldPackCatalog,
+    npcKnowledgeContextResolver: npcKnowledgeAuthorizers.resolveContext,
     npcKnowledgeReadAuthorizer: npcKnowledgeAuthorizers.readAuthorizer,
     npcKnowledgeVisibilityAuthorizer: npcKnowledgeAuthorizers.visibilityAuthorizer,
   }), token, internalToken, approvalToken, adminToken, adapterTokens,
