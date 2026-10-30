@@ -14,20 +14,21 @@
    - `blocked`, `reconsider`, `needs_review`, and `resume_candidate` return `plan_not_ready`.
    - A terminal plan returns `no_active_plan`.
    - In particular, `resume_candidate` is not an unblock transition.
-3. **Classify internal motive conflicts** using `evaluateNpcInternalConflict`.
-   - Every action candidate must have exactly one conflict option with the same ID; missing, duplicate, or extra option identities fail closed.
-   - Only options classified `eligible` proceed to intention selection.
-   - If no option is eligible and at least one requires review, the cycle returns `review_required`.
-   - If eligible options coexist with review options, selection is restricted to the eligible subset and the result records `eligible_with_review_options`.
-   - Hard-constraint violations, explicit infeasibility, and conflict rules that oppose an option exclude it before priority selection.
-   - The evaluator does not choose a winner or authenticate the supplied assessments/rules.
-4. **Bind selection to the active plan step** using `getNpcPlanActiveStep`.
+3. **Bind the decision to the active plan step** using `getNpcPlanActiveStep`.
    - The plan must have exactly one valid active step under the existing plan-progress contract.
    - The active step's `action_id` is the only action considered in this decision pass.
    - Other supplied candidates cannot replace a missing or blocked planned step merely because they have higher priority.
-5. **Classify and select** using `evaluateNpcInternalConflict` and `selectNpcIntention`.
-   - Conflict evaluation is scoped to the active-step action.
-   - Selection still applies the existing active-goal, allowed-action, precondition, priority, cost, and stable-ID rules.
+   - A missing action for the active step returns `no_eligible_action`; malformed plan progress returns `non_ready`.
+4. **Classify the active-step action against internal motive conflicts** using `evaluateNpcInternalConflict`.
+   - Every supplied action candidate must have exactly one conflict option with the same ID; missing, duplicate, or extra option identities fail closed.
+   - Only the conflict option matching the active step is evaluated in this pass.
+   - A hard-constraint violation, explicit infeasibility, or disqualifying conflict rule prevents selection.
+   - An unresolved or incomplete conflict returns `review_required`.
+   - The evaluator does not choose a winner or authenticate the supplied assessments/rules.
+5. **Select the intention** using `selectNpcIntention`.
+   - The selector receives only the active-step action after all earlier gates pass.
+   - It still applies the existing active-goal, allowed-action, precondition, priority, cost, and stable-ID rules.
+   - A stale current intention cannot restore an action excluded by the active-plan binding.
    - Only the selected goal/action identifiers are returned.
 
 ## Input
@@ -56,6 +57,6 @@ The coordinator does not interpret free text or infer missing data. The plan-pro
 
 ## Acceptance
 
-The focused suite covers the ordered gates, relevant and unknown changes, incomplete context, contradicted assumptions, active blockers, incomplete assessments, blocked-plan resume candidates, terminal plans, active-step inspection, strict binding of selection to the active plan step, hard-constraint exclusion, unresolved and explicitly resolved motive conflicts, exact action/option identity coverage, no eligible actions, malformed inputs, hostile reflection traps, and input immutability.
+The focused suite covers the ordered gates, relevant and unknown changes, incomplete context, contradicted assumptions, active blockers, incomplete assessments, blocked-plan resume candidates, terminal plans, active-step inspection, strict binding of selection to the active plan step, stale current-intention rejection, blocked-goal rejection, hard-constraint exclusion, unresolved and explicitly resolved motive conflicts, exact action/option identity coverage, no eligible actions, malformed inputs, hostile reflection traps, and input immutability.
 
 A passing unit suite proves only this deterministic composition helper. It does not establish end-to-end NPC autonomy or production readiness.
