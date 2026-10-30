@@ -199,6 +199,14 @@ test('application executor pins one enabled instance and exact template to a con
   assert.equal(result.snapshot_identity.commit_sequence, 2);
   assert.equal(result.snapshot_identity.template_id, 'test.executor');
   assert.equal(result.snapshot_identity.template_version, '1.0.0');
+  assert.equal(result.snapshot_identity.active_mechanic_set.length, 1);
+  assert.deepEqual(result.snapshot_identity.active_mechanic_set[0], {
+    instance_id: 'instance.executor',
+    status: 'enabled',
+    template_id: 'test.executor',
+    template_version: '1.0.0',
+    template_hash: result.snapshot_identity.template_hash,
+  });
   assert.equal(typeof result.context_fingerprint, 'string');
   assert.equal(result.context_policy_version, 'test-visibility-policy-v1');
   assert.equal(typeof result.evaluation_fingerprint, 'string');
@@ -1711,4 +1719,51 @@ test('executor evaluates fact subjects against entity status at the effect posit
     assert.deepEqual(result.effects, []);
     assert.equal(engine.getState(worldId).world_revision, 2);
   }
+});
+
+
+test('executor pins the complete active mechanic set and rejects inbound interaction declarations', (t) => {
+  const { engine, worldId } = setup(t, 'executor-inbound-interaction-world');
+  enableFixture(engine, worldId);
+  const otherTemplate = template({
+    template_id: 'test.other',
+    interactions: [{
+      interaction_id: 'other.conflicts.executor',
+      other_template_id: 'test.executor',
+      policy: 'conflicts',
+    }],
+  });
+  engine.registerMechanicTemplate(otherTemplate);
+  commit(engine, worldId, 'create-other-instance', 2, [{
+    kind: 'mechanic.instance.create',
+    instance_id: 'instance.other',
+    template_id: otherTemplate.template_id,
+    template_version: otherTemplate.version,
+  }]);
+  const created = engine.getMechanicInstance(worldId, 'instance.other');
+  commit(engine, worldId, 'enable-other-instance', 3, [{
+    kind: 'mechanic.instance.enable',
+    instance_id: 'instance.other',
+  }], [created.last_event_id]);
+
+  let providerCalls = 0;
+  const result = new MechanicExecutor(engine, {
+    resolveAuthorizedContext: () => {
+      providerCalls += 1;
+      return contextProvider()({
+        snapshot: engine.getSnapshot(worldId),
+        template: template(),
+        action: template().actions[0],
+      });
+    },
+  }).evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
+
+  assert.equal(result.status, 'unknown');
+  assert.equal(result.reason_code, 'UNSUPPORTED_ACTIVE_MECHANIC_INTERACTION');
+  assert.equal(providerCalls, 0);
+  assert.deepEqual(result.effects, []);
+  assert.equal(result.snapshot_identity.active_mechanic_set.length, 2);
+  assert.deepEqual(result.snapshot_identity.active_mechanic_set.map((item) => item.instance_id),
+    ['instance.executor', 'instance.other'].sort());
+  assert.equal(engine.getState(worldId).world_revision, 4);
 });
