@@ -889,7 +889,7 @@ static int probe_xOpen(sqlite3_vfs *vfs, const char *name, sqlite3_file *file,
     && (flags & (SQLITE_OPEN_MAIN_DB | SQLITE_OPEN_WAL | SQLITE_OPEN_MAIN_JOURNAL))
     && strcmp(open_name, g_race_path) == 0;
 
-  if (role_index >= 0) {
+  if (role_index >= 0 && (flags & SQLITE_OPEN_MAIN_DB)) {
     g_current_role_index = role_index;
     g_current_role_captured = 0;
 #ifndef _WIN32
@@ -923,7 +923,7 @@ static int probe_xOpen(sqlite3_vfs *vfs, const char *name, sqlite3_file *file,
   rc = parent->xOpen(parent, open_name, file, flags, out_flags);
   sqlite3_free(canonical_name);
 
-  if (role_index >= 0) {
+  if (role_index >= 0 && (flags & SQLITE_OPEN_MAIN_DB)) {
 #ifndef _WIN32
     if (rc == SQLITE_OK && !g_current_role_captured && g_current_role_stat_valid) {
       probe_registry_lock();
