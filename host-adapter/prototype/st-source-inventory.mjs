@@ -49,7 +49,7 @@ const isChatFile = kind => kind === 'root-chat' || kind === 'character-chat' || 
 function persistedConversationUuid(bytes) {
   const newline = bytes.indexOf(0x0a);
   const firstLine = (newline === -1 ? bytes : bytes.subarray(0, newline))
-    .toString('utf8').replace(/^\\uFEFF/, '').trim();
+    .toString('utf8').replace(/^\uFEFF/, '').trim();
   if (!firstLine) fail('SOURCE_CHAT_HEADER_INVALID');
   let header;
   try { header = JSON.parse(firstLine); } catch { fail('SOURCE_CHAT_HEADER_INVALID'); }
