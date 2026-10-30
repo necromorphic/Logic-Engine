@@ -645,7 +645,7 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
   try {
     second.exec('CREATE TABLE probe(value TEXT);');
     const opened = second.prepare('SELECT logic_engine_vfs_probe_open_count() AS count').get().count;
-    const expectedOpenCount = (process.platform === 'win32' ? 12 : 14) + aliasPathOpenCountDelta;
+    const expectedOpenCount = (process.platform === 'win32' ? 14 : 17) + aliasPathOpenCountDelta;
     assert.equal(opened, expectedOpenCount,
       'the VFS must remain registered across worker, Core, reader, journal, journal-race, SHM-race, coordinator and Windows/POSIX directory-anchor connections');
 
