@@ -11,6 +11,8 @@ on:
       - 'native/secure-vfs-probe/*.c'
       - 'native/secure-vfs-probe/*.h'
       - 'tests/security-vfs-extension-bootstrap.test.js'
+      - 'docs/97-issue-770-windows-vfs-integration-contract.md'
+      - 'docs/security/sqlite-vfs-directory-anchor-design.md'
       - '.github/workflows/security-vfs-extension-bootstrap.yml'
 
 permissions:
