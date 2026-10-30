@@ -190,7 +190,7 @@ export class ProposalService {
       && typeof evaluation.authority_id === 'string' && evaluation.authority_id.trim()
       && Number.isSafeInteger(evaluation.policy_generation) && evaluation.policy_generation >= 1
       && object(evaluation.authorization_principal)
-      && Object.keys(evaluation.authorization_principal).every((key) => ['adapterId', 'actorEntityId', 'recipient', 'purpose'].includes(key))
+      && Object.keys(evaluation.authorization_principal).every((key) => ['adapterId', 'actorEntityId', 'recipient', 'purpose', 'bindingGeneration'].includes(key))
       && typeof evaluation.authorization_principal.adapterId === 'string' && evaluation.authorization_principal.adapterId.trim()
       && typeof evaluation.authorization_principal.actorEntityId === 'string' && evaluation.authorization_principal.actorEntityId.trim()
       && ['model', 'player', 'adapter'].includes(evaluation.authorization_principal.recipient)
@@ -401,7 +401,7 @@ export class ProposalService {
       || typeof metadata.authority_id !== 'string' || !metadata.authority_id.trim()
       || !Number.isSafeInteger(metadata.policy_generation) || metadata.policy_generation < 1
       || !object(metadata.authorization_principal)
-      || Object.keys(metadata.authorization_principal).some((key) => !['adapterId', 'actorEntityId', 'recipient', 'purpose'].includes(key))
+      || Object.keys(metadata.authorization_principal).some((key) => !['adapterId', 'actorEntityId', 'recipient', 'purpose', 'bindingGeneration'].includes(key))
       || typeof metadata.authorization_principal.adapterId !== 'string' || !metadata.authorization_principal.adapterId.trim()
       || typeof metadata.authorization_principal.actorEntityId !== 'string' || !metadata.authorization_principal.actorEntityId.trim()
       || !['model', 'player', 'adapter'].includes(metadata.authorization_principal.recipient)
