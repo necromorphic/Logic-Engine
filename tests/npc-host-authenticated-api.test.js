@@ -316,3 +316,33 @@ test('ambiguous actor bindings and revoked Host conversation bindings deny rathe
   assert.equal(afterRevoke.status, 404);
   assert.equal((await afterRevoke.json()).error.code, 'READ_NOT_AVAILABLE');
 });
+
+
+test('opaque Host identity cannot be forged and expires when its Core actor binding is revoked', async t => {
+  const { base, engine, authorizers } = await setup(t);
+  const identity = authorizers.createHostIdentity({
+    adapter_id: 'adapter-st',
+    conversation_id: 'conversation-a',
+  });
+  assert.ok(identity);
+  assert.deepEqual(authorizers.resolveHostIdentity(identity), {
+    world_id: 'world-a',
+    conversation_id: 'conversation-a',
+    adapter_id: 'adapter-st',
+    actor_id: 'npc-a',
+  });
+  const forged = Object.freeze(Object.create(null));
+  assert.equal(authorizers.resolveHostIdentity(forged), null);
+  assert.throws(() => engine.readVisibleNpcKnowledgeForHost(forged), {
+    code: 'NPC_HOST_IDENTITY_NOT_AUTHORIZED',
+  });
+
+  const revoked = await fetch(base + '/v1/worlds/world-a/actor-bindings/adapter-st/npc-a', {
+    method: 'DELETE', headers: adminHeaders,
+  });
+  assert.equal(revoked.status, 200);
+  assert.equal(authorizers.resolveHostIdentity(identity), null);
+  assert.throws(() => engine.readVisibleNpcKnowledgeForHost(identity), {
+    code: 'NPC_HOST_IDENTITY_NOT_AUTHORIZED',
+  });
+});
