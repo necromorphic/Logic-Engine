@@ -16,6 +16,11 @@ const source = {
   authorization_ref: 'rule:author-initial-v1',
   sha256: createHash('sha256').update(sourceBytes).digest('hex'),
 };
+const importedSource = {
+  ...source,
+  source_kind: 'imported',
+  authorization_ref: 'rule:imported-v1',
+};
 
 function setup(t) {
   const store = new SQLiteStore(':memory:');
@@ -46,7 +51,7 @@ function setup(t) {
   const authorizers = createHostBoundNpcKnowledgeAuthorizers({
     store,
     adapterIds: ['adapter-st'],
-    trustedInitialKnowledgeSources: [source],
+    trustedInitialKnowledgeSources: [source, importedSource],
   });
   const snapshot = engine.getSnapshot('world-a');
   const scope = {
@@ -82,6 +87,8 @@ test('per-acquisition visibility requires exact trusted source provenance and th
     fact_id: 'fact-a',
     subject_ref: 'entity:npc-a',
     predicate: 'secret',
+    acquisition_kind: 'author_initial',
+    acquisition_authorization_ref: source.authorization_ref,
     provenance_ref: source.source_ref,
     provenance_digest: source.sha256,
   };
@@ -101,6 +108,24 @@ test('per-acquisition visibility requires exact trusted source provenance and th
   assert.equal(authorizers.visibilityAuthorizer({
     ...acquisition,
     provenance_digest: '0'.repeat(64),
+  }).status, 'denied');
+
+  assert.equal(authorizers.visibilityAuthorizer({
+    ...acquisition,
+    acquisition_kind: 'imported',
+  }).status, 'denied');
+  assert.equal(authorizers.visibilityAuthorizer({
+    ...acquisition,
+    acquisition_authorization_ref: 'rule:imported-v1',
+  }).status, 'denied');
+  assert.equal(authorizers.visibilityAuthorizer({
+    ...acquisition,
+    acquisition_kind: 'imported',
+    acquisition_authorization_ref: 'rule:imported-v1',
+  }).status, 'allowed');
+  assert.equal(authorizers.visibilityAuthorizer({
+    ...acquisition,
+    acquisition_authorization_ref: undefined,
   }).status, 'denied');
 
   conversations.revoke({
