@@ -74,5 +74,5 @@ test('deployment authority rejects rotation during context resolution', () => {
   const authority = new DeploymentMechanicPolicyAuthority({
     resolveActivePolicy: () => (++calls === 1 ? first : second),
   });
-  assert.throws(() => authority.resolveAuthorizedContext({ worldId: 'world-a' }), /changed during/);
+  assert.throws(() => authority.resolveAuthorizedContext({ worldId: 'world-a', authenticatedAdapterId: 'adapter-a' }), /changed during/);
 });
