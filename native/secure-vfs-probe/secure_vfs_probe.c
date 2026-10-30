@@ -748,7 +748,25 @@ static int probe_xOpen(sqlite3_vfs *vfs, const char *name, sqlite3_file *file,
 
 static int probe_xDelete(sqlite3_vfs *vfs, const char *name, int sync_dir) {
   sqlite3_vfs *p = (sqlite3_vfs *)vfs->pAppData;
-#ifndef _WIN32
+#ifdef _WIN32
+  wchar_t *wide_name = name ? probe_utf8_to_wide(name) : NULL;
+  int role_index = -1;
+  const wchar_t *suffix = NULL;
+  if (wide_name && probe_match_role_entry_w(wide_name, &role_index, &suffix)) {
+    ProbeDatabaseRole *role = &g_database_roles[role_index];
+    int rc = SQLITE_IOERR_DELETE;
+    /*
+     * Main DB deletion can be tied to its enrolled identity. Sidecar deletion
+     * remains disabled until a per-role sidecar ownership registry exists.
+     */
+    if (suffix[0] == L'\\0'
+        && logic_engine_win_delete_relative(role->anchor.parent,
+             role->anchor.basename, &role->identity)) rc = SQLITE_OK;
+    sqlite3_free(wide_name);
+    return rc;
+  }
+  sqlite3_free(wide_name);
+#else
   int role_index = -1;
   const char *suffix = 0;
   if (name && probe_match_role_entry(name, &role_index, &suffix)) {
@@ -771,7 +789,30 @@ static int probe_xDelete(sqlite3_vfs *vfs, const char *name, int sync_dir) {
 }
 static int probe_xAccess(sqlite3_vfs *vfs, const char *name, int flags, int *result) {
   sqlite3_vfs *p = (sqlite3_vfs *)vfs->pAppData;
-#ifndef _WIN32
+#ifdef _WIN32
+  wchar_t *wide_name = name ? probe_utf8_to_wide(name) : NULL;
+  int role_index = -1;
+  const wchar_t *suffix = NULL;
+  if (wide_name && probe_match_role_entry_w(wide_name, &role_index, &suffix)) {
+    ProbeDatabaseRole *role = &g_database_roles[role_index];
+    wchar_t *relative_name = probe_win_relative_name(role, suffix);
+    const LogicEngineWinFileIdentity *expected =
+      suffix[0] == L'\\0' ? &role->identity : NULL;
+    int access_result;
+    if (!relative_name) {
+      sqlite3_free(wide_name);
+      return SQLITE_NOMEM;
+    }
+    access_result = logic_engine_win_access_relative(role->anchor.parent,
+        relative_name, (DWORD)flags, expected);
+    sqlite3_free(relative_name);
+    sqlite3_free(wide_name);
+    if (access_result < 0) return SQLITE_IOERR_ACCESS;
+    *result = access_result;
+    return SQLITE_OK;
+  }
+  sqlite3_free(wide_name);
+#else
   int role_index = -1;
   const char *suffix = 0;
   if (name && probe_match_role_entry(name, &role_index, &suffix)) {
