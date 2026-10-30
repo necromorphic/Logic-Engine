@@ -1646,6 +1646,7 @@ test('configured deployment authority revalidates actor binding after evaluation
   }).evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
   assert.equal(evaluation.status, 'ready');
   actorBindings.revoke(worldId, 'test-adapter', 'entity.actor-context');
+  actorBindings.bind(worldId, 'test-adapter', 'entity.actor-context');
   const proposals = new ProposalService(engine, {
     validateMechanicPolicy: (identity) => runtime.authority.validateMechanicPolicy(identity),
   });
