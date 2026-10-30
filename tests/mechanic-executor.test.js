@@ -957,7 +957,7 @@ test('application executor rejects participant and automatic conflict policies i
     version: '1.0.0',
     contract_version: 'core-1',
     capabilities: [],
-    operations: ['evaluate_predicate'],
+    operations: ['resolve_conflict'],
     input_schema: { type: 'object' },
     output_schema: { type: 'object' },
     failure_policy: 'fail_closed',
