@@ -324,22 +324,42 @@ test('complete Host inventory reconciliation enforces request-byte and version-c
 });
 
 
-test('incomplete API snapshot is rejected before verifier invocation or ledger mutation', async (t) => {
+test('bound incomplete API snapshot invalidates prior READY before verifier invocation', async (t) => {
   let verifierCalls = 0;
   const { base, ledger } = await setup(t, {
     verifyInventorySnapshot: async () => { verifierCalls += 1; return true; },
   });
   assert.equal((await bind(base)).status, 201);
-  const response = await fetch(base + '/v1/host-version-ledger/reconcile', {
+  const adapterHeaders = { ...headers, 'x-adapter-id': 'adapter-a', 'x-adapter-token': ADAPTER };
+  const complete = await fetch(base + '/v1/host-version-ledger/reconcile', {
     method: 'POST',
-    headers: { ...headers, 'x-adapter-id': 'adapter-a', 'x-adapter-token': ADAPTER },
+    headers: adapterHeaders,
+    body: json({
+      conversation_id: 'stable-host-chat',
+      complete: true,
+      versions: [{
+        message_id: 'message-1', version_id: 'version-1', parent_version_id: null,
+        content_sha256: 'a'.repeat(64), active: true, deleted: false,
+      }],
+    }),
+  });
+  assert.equal(complete.status, 200);
+  assert.equal(verifierCalls, 1);
+  const readyBefore = ledger.getInventoryState('host-ledger-api-world', 'stable-host-chat');
+  assert.equal(readyBefore.status, 'READY');
+
+  const incomplete = await fetch(base + '/v1/host-version-ledger/reconcile', {
+    method: 'POST',
+    headers: adapterHeaders,
     body: json({ conversation_id: 'stable-host-chat', complete: false, versions: [] }),
   });
-  assert.equal(response.status, 409);
-  assert.deepEqual((await response.json()).reconciliation, {
+  assert.equal(incomplete.status, 409);
+  assert.deepEqual((await incomplete.json()).reconciliation, {
     status: 'non_ready', code: 'HOST_INVENTORY_INCOMPLETE',
   });
-  assert.equal(verifierCalls, 0);
-  assert.equal(ledger.db.prepare('SELECT COUNT(*) AS n FROM host_version_digest_ledger').get().n, 0);
-  assert.equal(ledger.getInventoryState('host-ledger-api-world', 'stable-host-chat'), null);
+  assert.equal(verifierCalls, 1, 'incomplete inventory must never reach the trusted verifier');
+  const afterIncomplete = ledger.getInventoryState('host-ledger-api-world', 'stable-host-chat');
+  assert.equal(afterIncomplete.status, 'NON_READY');
+  assert.equal(afterIncomplete.failure_code, 'HOST_INVENTORY_INCOMPLETE');
+  assert.notEqual(afterIncomplete.updated_at, readyBefore.updated_at);
 });
