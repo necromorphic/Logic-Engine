@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync, existsSync, linkSync, mkdirSync, mkdtempSync, renameSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, linkSync, mkdirSync, mkdtempSync, renameSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -336,6 +336,7 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
       sidecarOwner.exec("PRAGMA journal_mode=DELETE; CREATE TABLE probe(value TEXT); BEGIN IMMEDIATE; INSERT INTO probe VALUES('owner');");
       assert.equal(existsSync(`${sidecarOwnerPath}-journal`), true,
         'the owner rollback journal must remain live while the transaction is open');
+      const ownerJournalSize = statSync(`${sidecarOwnerPath}-journal`).size;
       sidecarVictim.exec('PRAGMA journal_mode=DELETE; CREATE TABLE probe(value TEXT);');
       const rejectedBefore = sidecarOwner.prepare(
         'SELECT logic_engine_vfs_probe_sidecar_identity_reject_count() AS count'
@@ -348,6 +349,8 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
         'SELECT logic_engine_vfs_probe_sidecar_identity_reject_count() AS count'
       ).get().count > rejectedBefore,
       'the Windows sidecar identity registry must record the cross-role alias rejection');
+      assert.equal(statSync(`${sidecarOwnerPath}-journal`).size, ownerJournalSize,
+        'rejected Windows sidecar aliases must not be truncated before identity validation');
     } finally {
       try { sidecarVictim.close(); } catch { /* rejected sidecar open may leave a transaction active */ }
       try { sidecarOwner.exec('ROLLBACK;'); } catch { /* cleanup after deliberate rejection */ }
@@ -368,6 +371,7 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
       sidecarOwner.exec("PRAGMA journal_mode=DELETE; CREATE TABLE probe(value TEXT); BEGIN IMMEDIATE; INSERT INTO probe VALUES('owner');");
       assert.equal(existsSync(`${sidecarOwnerPath}-journal`), true,
         'the POSIX owner rollback journal must remain live during its transaction');
+      const ownerJournalSize = statSync(`${sidecarOwnerPath}-journal`).size;
       sidecarVictim.exec('PRAGMA journal_mode=DELETE; CREATE TABLE probe(value TEXT);');
       const rejectedBefore = sidecarOwner.prepare(
         'SELECT logic_engine_vfs_probe_sidecar_identity_reject_count() AS count'
@@ -380,6 +384,8 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
         'SELECT logic_engine_vfs_probe_sidecar_identity_reject_count() AS count'
       ).get().count > rejectedBefore,
       'the POSIX sidecar registry must record the cross-role alias rejection');
+      assert.equal(statSync(`${sidecarOwnerPath}-journal`).size, ownerJournalSize,
+        'rejected POSIX sidecar aliases must not be truncated before identity validation');
     } finally {
       try { sidecarVictim.close(); } catch { /* rejected sidecar open may leave a transaction active */ }
       try { sidecarOwner.exec('ROLLBACK;'); } catch { /* cleanup after deliberate rejection */ }
