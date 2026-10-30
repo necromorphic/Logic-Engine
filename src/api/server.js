@@ -83,7 +83,7 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
   if (deploymentPolicyAuthority) {
     try {
       const evidence = deploymentPolicyAuthority.capture();
-      if (!object(evidence)
+      if (!evidence || typeof evidence !== 'object' || Array.isArray(evidence)
         || typeof evidence.authority_identity !== 'string' || !evidence.authority_identity.trim()
         || typeof evidence.policy_generation !== 'string' || !evidence.policy_generation.trim()
         || typeof evidence.policy_version !== 'string' || !evidence.policy_version.trim()) {
