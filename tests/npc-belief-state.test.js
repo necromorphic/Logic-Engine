@@ -363,8 +363,8 @@ test('context preserves the distinction between belief, suspicion, and unresolve
     return buildNpcBeliefContext(read, reduced.transition);
   };
 
-  assert.equal(build('believes_true').context.epistemic_status, 'belief');
-  assert.equal(build('suspects_true').context.epistemic_status, 'suspicion');
+  assert.equal(build('believes_true').context.belief_stance_class, 'belief');
+  assert.equal(build('suspects_true').context.belief_stance_class, 'suspicion');
 
   const conflictRead = knowledgeRead({ items: evidenceItems });
   const conflict = reduceNpcBeliefTransition({
@@ -376,7 +376,7 @@ test('context preserves the distinction between belief, suspicion, and unresolve
     }),
   });
   assert.equal(conflict.status, 'ready');
-  assert.equal(buildNpcBeliefContext(conflictRead, conflict.transition).context.epistemic_status, 'conflicted');
+  assert.equal(buildNpcBeliefContext(conflictRead, conflict.transition).context.belief_stance_class, 'conflicted');
 });
 
 test('context builder rejects proxy-backed and accessor-backed inputs without executing them', () => {
