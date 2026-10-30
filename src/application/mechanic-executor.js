@@ -124,8 +124,8 @@ export class MechanicExecutor {
     const identity = snapshotIdentity(worldId, snapshot, instance, templateEntry);
     const action = template.actions.find((candidate) => candidate.action_id === actionId);
     if (!action) return { status: 'rejected', reason_code: 'MECHANIC_ACTION_NOT_FOUND', snapshot_identity: identity, effects: [], effect_provenance: [] };
-    const instanceParameters = instance.parameters ?? {};
-    const instanceState = instance.state ?? {};
+    const instanceParameters = instance.parameters;
+    const instanceState = instance.state;
     if (!object(instanceParameters) || Object.keys(instanceParameters).length > 0
       || !object(instanceState) || Object.keys(instanceState).length > 0) {
       return unknown('UNSUPPORTED_INSTANCE_PARAMETERS_OR_STATE',
