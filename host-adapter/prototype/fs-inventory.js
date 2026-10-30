@@ -87,7 +87,7 @@ async function enumerateStableFileInventoryOnRoot(rootPath, options = {}) {
   let root;
   let initialRootIdentity;
   try {
-    const requestedRoot = resolve(rootPath);
+    // Node's Windows path resolver strips the trailing separator from VSS device roots.\n    // GLOBALROOT shadow-volume roots must retain it or fs.lstat reports ENOENT.\n    const requestedRoot = allowSnapshotWithoutNoFollow\n      ? (rootPath.endsWith(sep) ? rootPath : rootPath + sep)\n      : resolve(rootPath);
     const requestedRootStat = await lstat(requestedRoot);
     if (!requestedRootStat.isDirectory() || requestedRootStat.isSymbolicLink()) return fail('HOST_INVENTORY_ROOT_UNSAFE');
 
