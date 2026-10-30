@@ -25,6 +25,7 @@ test('raw NPC knowledge read fails closed if the world cursor changes during aut
       return {
         status: 'authorized',
         world_id: scope.world_id,
+        conversation_id: scope.conversation_id,
         adapter_id: scope.adapter_id,
         actor_id: scope.actor_id,
         recipient: scope.recipient,
@@ -54,6 +55,7 @@ test('raw NPC knowledge read fails closed if the world cursor changes during aut
   const world = store.world('world-read-race');
   const request = {
     world_id: 'world-read-race',
+    conversation_id: 'conversation-read-race',
     actor_id: 'npc-race',
     purpose: 'npc_turn_context',
     expected_revision: world.world_revision,
@@ -77,6 +79,7 @@ test('raw NPC knowledge read rejects rollback between the SQL read and final cur
     npcKnowledgeReadAuthorizer: (scope) => ({
       status: 'authorized',
       world_id: scope.world_id,
+      conversation_id: scope.conversation_id,
       adapter_id: scope.adapter_id,
       actor_id: scope.actor_id,
       recipient: scope.recipient,
@@ -106,6 +109,7 @@ test('raw NPC knowledge read rejects rollback between the SQL read and final cur
   const before = originalGetSnapshot('world-read-rollback-race');
   const request = {
     world_id: 'world-read-rollback-race',
+    conversation_id: 'conversation-read-rollback-race',
     adapter_id: 'adapter-st',
     actor_id: 'npc-rollback-race',
     recipient: 'model',
