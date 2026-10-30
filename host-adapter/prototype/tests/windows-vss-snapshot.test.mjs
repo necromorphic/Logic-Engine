@@ -40,6 +40,21 @@ test('Windows VSS inventory is a complete point-in-time snapshot with reparse au
   });
 });
 
+test('concurrent VSS inventory requests wait out the provider busy state', {
+  skip: process.platform !== 'win32',
+  timeout: 240_000,
+}, async () => {
+  await withTempRoot(async ({ root }) => {
+    await writeFile(join(root, 'chat.jsonl'), 'concurrent snapshot input');
+    const results = await Promise.all([
+      enumerateStableFileInventory(resolve(root)),
+      enumerateStableFileInventory(resolve(root)),
+    ]);
+    assert.equal(results.every(result => result.status === 'complete'), true, JSON.stringify(results));
+    assert.notEqual(results[0].snapshot_id, results[1].snapshot_id);
+  });
+});
+
 test('VSS snapshot remains unchanged while the live source is concurrently modified', {
   skip: process.platform !== 'win32',
   timeout: 180_000,
