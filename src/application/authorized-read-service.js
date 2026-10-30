@@ -196,7 +196,7 @@ export class AuthorizedReadService {
       entity_id: entity.entity_id,
       attribute: request.attribute,
       present,
-      ...(present ? { value: entity.attributes[request.attribute] } : {}),
+      ...(present ? { value: cloneAndFreezePolicyValue(entity.attributes[request.attribute]) } : {}),
     });
   }
 
@@ -261,7 +261,7 @@ export class AuthorizedReadService {
         if (field.startsWith('attributes.')) {
           const attributeName = field.slice('attributes.'.length);
           if (attributeName && object(entity.attributes) && Object.hasOwn(entity.attributes, attributeName)) {
-            disclosed[field] = entity.attributes[attributeName];
+            disclosed[field] = cloneAndFreezePolicyValue(entity.attributes[attributeName]);
           }
         }
       }
