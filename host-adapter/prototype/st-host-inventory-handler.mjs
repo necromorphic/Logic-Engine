@@ -15,7 +15,12 @@ export function createHostInventoryHandler({
     const user = request?.user;
     const directories = user?.directories;
     const userHandle = user?.profile?.handle;
-    if (!directories || typeof userHandle !== 'string' || !userHandle.trim()) {
+    const sessionHandle = request?.session?.handle;
+    // SillyTavern may expose DEFAULT_USER when accounts are disabled. A user
+    // object/profile handle alone is not proof of an authenticated account session.
+    if (!directories || typeof userHandle !== 'string' || !userHandle.trim()
+      || typeof sessionHandle !== 'string' || !sessionHandle.trim()
+      || sessionHandle !== userHandle) {
       return response.sendStatus(403);
     }
 
