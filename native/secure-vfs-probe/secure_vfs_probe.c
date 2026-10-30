@@ -1,11 +1,13 @@
 /*
  * Logic-Engine SQLite VFS registration probe.
  *
- * This is deliberately NOT a secure VFS. It delegates all file operations to
- * SQLite's default VFS and only counts successful main-database xOpen calls.
- * Its sole purpose is to prove that Node 22.13.0's built-in node:sqlite can
- * load a persistent extension, register a process-default VFS, and route later
- * DatabaseSync opens through that VFS. Never use this probe for production DBs.
+ * This is deliberately NOT a production secure VFS. It delegates SQLite file
+ * operations to the default VFS, while test-only syscall wrappers inspect the
+ * OS object opened for one configured database path and inject a deterministic
+ * hardlink replacement immediately before that open. It proves a narrow
+ * identity-checking technique on the pinned Node/SQLite build; it does not
+ * provide a complete role registry, sidecar identity policy, or production
+ * startup contract. Never use this probe for production databases.
  */
 #include <string.h>
 #include <stdint.h>
