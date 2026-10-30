@@ -121,6 +121,7 @@ test('host inventory route passes only the authenticated user data roots and ret
   assert.equal(response.body.authority, 'NON_AUTHORITATIVE');
   assert.equal(response.body.filesystem_inventory.snapshot_sha256, 'b'.repeat(64));
   assert.equal(response.body.filesystem_inventory.file_count, 12);
+  assert.equal(response.body.filesystem_inventory.scope, 'single-root-regular-files-only');
   assert.equal(response.body.filesystem_inventory.snapshot_alignment, 'SHARED_VSS_SNAPSHOT');
   assert.equal(response.body.filesystem_inventory.entries, undefined);
   assert.equal(response.body.host_user_handle, 'alice');
