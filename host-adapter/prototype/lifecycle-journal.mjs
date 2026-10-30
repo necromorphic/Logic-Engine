@@ -1,3 +1,7 @@
+const HOST_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const validIdentity = value => value && typeof value === 'object'
+  && HOST_UUID.test(value.hostInstallationId)
+  && HOST_UUID.test(value.authenticatedAccountId);
 const REQUIRED_COVERAGE = Object.freeze(['create-message','message-send','message-receive','create-swipe','select-swipe','delete-swipe','delete-message','delete-chat','delete-group-chat','delete-character-chat-recursive','edit-message','regenerate','generation-start','generation-end','generation-stop','cancel-generation','partial-generation','persistence-ordering','clear-chat','import','import-character-chat','import-group-chat','export','copy-branch','restore','backup-restore','create-branch','group-metadata-migration','chat-switch','external-edit','rollback','restart','replay']);
 const canonical = x => Array.isArray(x) ? '[' + x.map(canonical).join(',') + ']' : x && typeof x === 'object' ? '{' + Object.keys(x).sort().map(k => JSON.stringify(k) + ':' + canonical(x[k])).join(',') + '}' : JSON.stringify(x);
 const digest = async x => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(canonical(x))))].map(n => n.toString(16).padStart(2, '0')).join('');
@@ -5,14 +9,22 @@ const id = () => { if (!crypto.randomUUID) throw Error('crypto.randomUUID unavai
 
 /** Opt-in IndexedDB journal. Never stores raw message text; caller must await before mutating ST state. */
 export class HostLifecycleJournal {
-  #db; #locks = new Map(); #bad = new Map();
-  constructor(db) { if (!db) throw TypeError('IndexedDB database required'); this.#db = db; }
-  static async open(name = 'logic-engine-host-lifecycle-v1') {
+  #db; #locks = new Map(); #bad = new Map(); #identity;
+  constructor(db, identity = null) {
+    if (!db) throw TypeError('IndexedDB database required');
+    if (identity !== null && !validIdentity(identity)) throw TypeError('Valid server-issued Host installation/account identity is required');
+    this.#db = db;
+    this.#identity = identity ? Object.freeze({ ...identity }) : null;
+  }
+  static async open({ name = 'logic-engine-host-lifecycle-v2', hostInstallationId, authenticatedAccountId } = {}) {
     if (!globalThis.indexedDB) throw Error('IndexedDB unavailable; NON_READY');
-    const req = indexedDB.open(name, 2);
+    const identity = { hostInstallationId, authenticatedAccountId };
+    if (!validIdentity(identity)) throw Error('Server-issued Host installation/account identity unavailable; NON_READY');
+    const databaseName = name + ':' + hostInstallationId + ':' + authenticatedAccountId;
+    const req = indexedDB.open(databaseName, 3);
     req.onupgradeneeded = () => { const db = req.result; if (!db.objectStoreNames.contains('records')) { const s = db.createObjectStore('records', { keyPath: 'id' }); s.createIndex('conversationId', 'conversationId'); } if (!db.objectStoreNames.contains('heads')) db.createObjectStore('heads', { keyPath: 'conversationId' }); };
     const db = await new Promise((resolve, reject) => { req.onsuccess = () => resolve(req.result); req.onerror = () => reject(req.error); req.onblocked = () => reject(Error('IndexedDB upgrade blocked; NON_READY')); });
-    return new HostLifecycleJournal(db);
+    return new HostLifecycleJournal(db, identity);
   }
   async #records(cid) {
     const tx = this.#db.transaction(['records'], 'readonly'), done = txDone(tx);
@@ -29,13 +41,23 @@ export class HostLifecycleJournal {
     const chain = await this.#verify(rows); if (!chain.ok) return chain;
     const head = await this.#head(cid), tail = rows.at(-1);
     if (!tail && head) return { ok: false, reason: 'records missing but head checkpoint exists' };
-    if (tail && (!head || head.sequence !== tail.sequence || head.recordDigest !== tail.recordDigest)) return { ok: false, reason: 'head checkpoint mismatch' };
+    if (this.#identity && rows.some(row => row.hostInstallationId !== this.#identity.hostInstallationId
+      || row.authenticatedAccountId !== this.#identity.authenticatedAccountId)) {
+      return { ok: false, reason: 'Host installation/account identity mismatch' };
+    }
+    if (tail && (!head || head.sequence !== tail.sequence || head.recordDigest !== tail.recordDigest
+      || (this.#identity && (head.hostInstallationId !== this.#identity.hostInstallationId
+        || head.authenticatedAccountId !== this.#identity.authenticatedAccountId)))) return { ok: false, reason: 'head checkpoint mismatch' };
     return { ok: true };
   }
   async #put(row) {
     const tx = this.#db.transaction(['records','heads'], 'readwrite', { durability: 'strict' });
     tx.objectStore('records').add(row);
-    tx.objectStore('heads').put({ conversationId: row.conversationId, sequence: row.sequence, recordDigest: row.recordDigest, sourceFingerprint: row.sourceFingerprint });
+    tx.objectStore('heads').put({
+      conversationId: row.conversationId, sequence: row.sequence, recordDigest: row.recordDigest,
+      sourceFingerprint: row.sourceFingerprint,
+      ...(this.#identity ?? {}),
+    });
     await txDone(tx);
   }
   async enroll({ conversationId, sourceFingerprint, messages }) {
@@ -58,11 +80,18 @@ export class HostLifecycleJournal {
       if(this.#bad.has(conversationId)) throw Error('NON_READY: '+this.#bad.get(conversationId));
       const rows=await this.#records(conversationId), check=await this.#verifyStored(conversationId, rows);
       if(!check.ok) return this.#fail(conversationId,check.reason);
-      const eventDigest=await digest({conversationId,eventId,operation,payload,sourceFingerprint}), duplicate=rows.find(r=>r.eventId===eventId);
+      const eventDigest=await digest({
+        conversationId, eventId, operation, payload, sourceFingerprint,
+        ...(this.#identity ?? {}),
+      }), duplicate=rows.find(r=>r.eventId===eventId);
       if(duplicate) return duplicate.eventDigest===eventDigest?duplicate:this.#fail(conversationId,'event ID conflict: '+eventId);
       if(operation==='baseline'&&rows.length) return this.#fail(conversationId,'baseline already exists');
       if(operation!=='baseline'&&!rows.length) return this.#fail(conversationId,'event before baseline');
-      const p=rows.at(-1), base={id:conversationId+':'+String((p?.sequence||0)+1).padStart(12,'0'),schemaVersion:2,conversationId,sequence:(p?.sequence||0)+1,eventId,operation,sourceFingerprint,payload,eventDigest,previousRecordDigest:p?.recordDigest??null};
+      const p=rows.at(-1), base={
+        id:conversationId+':'+String((p?.sequence||0)+1).padStart(12,'0'),schemaVersion:3,
+        ...(this.#identity ?? {}), conversationId,sequence:(p?.sequence||0)+1,eventId,
+        operation,sourceFingerprint,payload,eventDigest,previousRecordDigest:p?.recordDigest??null
+      };
       const row={...base,recordDigest:await digest(base)};
       try { await this.#put(row); } catch(e) { this.#bad.set(conversationId,'durable append failed: '+(e?.message||e)); throw Error('NON_READY: durable append failed; caller MUST abort mutation ('+(e?.message||e)+')'); }
       return row;
@@ -143,7 +172,13 @@ export class HostLifecycleJournal {
   }
   async #verify(rows) {
     let previous=null;
-    for(let i=0;i<rows.length;i++) { const r=rows[i]; if(r.schemaVersion!==2)return {ok:false,reason:'unsupported journal schema at '+(i+1)}; if(r.sequence!==i+1)return {ok:false,reason:'sequence gap at '+(i+1)}; if(r.previousRecordDigest!==previous)return {ok:false,reason:'chain mismatch at '+r.sequence}; const {recordDigest,...base}=r; if(await digest(base)!==recordDigest)return {ok:false,reason:'record digest mismatch at '+r.sequence}; if(await digest({conversationId:r.conversationId,eventId:r.eventId,operation:r.operation,payload:r.payload,sourceFingerprint:r.sourceFingerprint})!==r.eventDigest)return {ok:false,reason:'event digest mismatch at '+r.sequence}; previous=recordDigest; }
+    for(let i=0;i<rows.length;i++) { const r=rows[i]; if(r.schemaVersion!==3)return {ok:false,reason:'unsupported journal schema at '+(i+1)};
+      if (this.#identity && (r.hostInstallationId !== this.#identity.hostInstallationId
+        || r.authenticatedAccountId !== this.#identity.authenticatedAccountId)) return {ok:false,reason:'Host installation/account identity mismatch at '+r.sequence}; if(r.sequence!==i+1)return {ok:false,reason:'sequence gap at '+(i+1)}; if(r.previousRecordDigest!==previous)return {ok:false,reason:'chain mismatch at '+r.sequence}; const {recordDigest,...base}=r; if(await digest(base)!==recordDigest)return {ok:false,reason:'record digest mismatch at '+r.sequence}; if(await digest({
+      conversationId:r.conversationId,eventId:r.eventId,operation:r.operation,payload:r.payload,
+      sourceFingerprint:r.sourceFingerprint,
+      ...(this.#identity ?? {}),
+    })!==r.eventDigest)return {ok:false,reason:'event digest mismatch at '+r.sequence}; previous=recordDigest; }
     return {ok:true};
   }
   #fail(cid,reason) { this.#bad.set(cid,reason); return {status:'NON_READY',reason}; }
@@ -163,4 +198,8 @@ export async function fingerprintSource(messages, sourceLocator = null) {
   }));
   return digest({ sourceLocator: sourceLocator ?? null, projection });
 }
-export const lifecycleJournalContract=Object.freeze({schemaVersion:2,requiredCoveragePaths:REQUIRED_COVERAGE});
+export const lifecycleJournalContract=Object.freeze({
+  schemaVersion:3,
+  requiredCoveragePaths:REQUIRED_COVERAGE,
+  identityBinding:'SERVER_ISSUED_INSTALLATION_AND_ACCOUNT_UUIDS',
+});
