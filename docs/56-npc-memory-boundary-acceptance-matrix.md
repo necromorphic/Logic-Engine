@@ -476,7 +476,7 @@ This is the current NPC execution record. Earlier dated sections above are histo
 
 The old PRs are closed. The comparison shows no Personality/Core/Memory/Host/Relationships/vectorization path to port from those historical heads. Their ancestry is not part of the new implementation diff.
 
-The clean replacement is [PR #769](https://github.com/necromorphic/Logic-Engine/pull/769), Draft, based exactly on `8c8b9059ae12af3a63e96eb7cb86851e12a6d925`. The implementation commit `ad71e151c4fc2fe63076483d4818d90db45d720a` passed Runtime workflow [#41034257820](https://github.com/necromorphic/Logic-Engine/actions/runs/41034257820); the later commits in this branch only clarify this acceptance matrix. Its four changed paths are:
+The clean replacement is [PR #769](https://github.com/necromorphic/Logic-Engine/pull/769), Draft, based exactly on `8c8b9059ae12af3a63e96eb7cb86851e12a6d925`. The implementation commit `527554733b2cf54847e5723af366d10f61afee25` contains the current reducer/mapping hardening; its exact-head Runtime workflow is pending at the time of this matrix update. Earlier code heads passed, but do not substitute those runs for this exact head. Its four changed paths are:
 - `.github/workflows/runtime-tests.yml` — NPC-owned boundary workflow adds the reducer test and repository test bootstrap;
 - `src/npc/epistemic-state.js` — NPC-owned reducer and conservative mapping;
 - `tests/npc-epistemic-state.test.js` — focused reducer/mapping regressions.
@@ -497,8 +497,8 @@ Current-main admission implementation remains unchanged by PR #769:
 ### P0.3 / P1.1 / P1.3 — NPC-local lifecycle and epistemic semantics
 
 PR #769 adds:
-- `createNpcEpistemicState()` and `applyNpcEpistemicEvent()` in `src/npc/epistemic-state.js`, blob `b7281496591e8ca865a9e7f46ba7587304ea8ceb`;
-- 38 focused tests in `tests/npc-epistemic-state.test.js`, blob `8672ec2e789862207d48f25974b3e9e45070b236`.
+- `createNpcEpistemicState()` and `applyNpcEpistemicEvent()` in `src/npc/epistemic-state.js`, blob `d207cf25fb0a31a793b05c50de1a53b55a0fd273`;
+- 40 focused tests in `tests/npc-epistemic-state.test.js`, blob `c6fbc1a92c3d0fb21b1dae9db9495efb084158d2`.
 
 The reducer keeps `information_received`, `evidence_admitted`, and `belief_updated` separate. Receipt does not create evidence or belief; admission does not establish delivery or receipt; invalidation requires review; canonical truth changes do not silently rewrite a subject-relative belief; forgetting is explicit. This is an NPC-local state machine, not evidence that Host delivery or Core acquisition occurred.
 
@@ -511,9 +511,9 @@ The Memory mapping implements the private contract in PR #747:
 - `supported` does not promote any of those classes to `confirmed`;
 - `canonical`, `authored_initial`, and `imported` are not Memory-to-belief mappings; Core assigned knowledge remains separate;
 - `suspicion` is NPC cognition output, not a Memory source class;
-- disputed evidence retains its class; an unresolved stance requires evidence on both sides.
+- disputed evidence retains its class and assessment in the NPC evidence record; it cannot support a directional stance, and an unresolved stance requires evidence on both sides. Restored state/history validation enforces the same rule.
 
-The reducer also validates exact event shape, own data descriptors for trusted scope, proxy/exotic-object rejection, dense arrays, restored state and history polarity, unique evidence references, and resistance to a polluted `Array.prototype[Symbol.iterator]`. It does not authenticate the evidence labels supplied by its caller.
+The reducer also validates exact event shape and an explicit evidence assessment, own data descriptors for trusted scope, proxy/exotic-object rejection, dense arrays, restored state and history polarity, unique evidence references, and resistance to a polluted `Array.prototype[Symbol.iterator]`. It does not authenticate the evidence labels supplied by its caller.
 
 **Disposition:** PASS for the bounded NPC-local reducer/mapping contract, subject to exact-head CI and independent NPC/Security review. No production caller is claimed.
 
@@ -546,7 +546,7 @@ No integrated real-path acceptance test can run against a path that does not exi
 | P0.2 pure admission boundary | **PASS** — current-main helper and 45 focused tests; no source edit in #769 |
 | P0.3 lifecycle separation | **PASS at NPC-local state level**; real delivery/receipt remains external |
 | P0.4 real-path handoff | **BLOCKED** — Core reader/authorizers and Host session/final egress are not accepted/implemented |
-| P1.1 reducer hardening | **CI PASS** on implementation commit `ad71e151c4fc2fe63076483d4818d90db45d720a` (Runtime #41034257820); independent NPC/Security review remains pending |
+| P1.1 reducer hardening | **PENDING exact-head CI** for implementation commit `527554733b2cf54847e5723af366d10f61afee25`; independent NPC/Security review remains pending |
 | P1.2 single matrix / review path | **PARTIAL** — this is the single acceptance matrix; #769 awaits review |
 | P1.3 epistemic semantics | **PASS at NPC-local mapping/reducer level**; production callsite remains blocked |
 | P2 capability expansion | **NOT STARTED** — intentionally outside P0/P1 |
