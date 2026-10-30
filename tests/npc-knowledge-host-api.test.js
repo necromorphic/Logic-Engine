@@ -46,6 +46,11 @@ async function setup(t, enabled = true) {
       entity_id: 'npc-canonical',
       entity_type: 'character',
       attributes: { name: 'Canonical NPC' },
+    }, {
+      kind: 'entity.create',
+      entity_id: 'npc-second',
+      entity_type: 'character',
+      attributes: { name: 'Second NPC' },
     }],
   });
   const server = createApiServer({
@@ -154,10 +159,15 @@ test('Core NPC Host context route denies an unbound conversation or ambiguous ac
   assert.equal((await unbound.json()).error.code, 'HOST_CONVERSATION_NOT_AUTHORIZED');
 
   await bindHost(base);
-  const actors = await fetch(base + '/v1/worlds/host-api-world/actor-bindings', {
+  const secondActor = await fetch(base + '/v1/worlds/host-api-world/actor-bindings', {
     method: 'POST',
     headers: { ...headers, 'x-admin-token': ADMIN },
-    body: json({ adapter_id: 'adapter-a', entity_id: 'npc-canonical' }),
+    body: json({ adapter_id: 'adapter-a', entity_id: 'npc-second' }),
   });
-  assert.equal(actors.status, 200, 'idempotent binding does not create a second active actor');
+  assert.equal(secondActor.status, 201);
+  const ambiguous = await fetch(path, {
+    method: 'POST', headers: adapterHeaders, body: json({ conversation_id: 'st-conversation-test' }),
+  });
+  assert.equal(ambiguous.status, 403);
+  assert.equal((await ambiguous.json()).error.code, 'HOST_CONVERSATION_NOT_AUTHORIZED');
 });
