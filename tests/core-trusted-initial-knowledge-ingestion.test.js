@@ -444,3 +444,52 @@ test('trusted importer rejects file source_kind mismatch before mutation', (t) =
   }), { code: 'UNSUPPORTED_TRUSTED_SOURCE_KIND' });
   assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM knowledge_acquisitions WHERE world_id=?').get('world-a').n, 0);
 });
+
+
+test('reapplying the same approved source after a fact replacement creates a distinct pinned acquisition identity', (t) => {
+  const { store, engine, bytes } = setup(t);
+  const first = engine.recordTrustedInitialKnowledgeSource({
+    world_id: 'world-a',
+    source_bytes: bytes,
+    idempotency_key: 'author-source-fact-version-a',
+    expected_revision: 1,
+    expected_commit_sequence: 1,
+  });
+  const firstEvent = store.events('world-a').find((event) => event.event_id === first.event_id);
+  const firstAcquisition = firstEvent.effects.find((effect) => effect.kind === 'knowledge.acquire');
+  assert.equal(firstAcquisition.acquired_value, 'source-backed-value');
+  assert.deepEqual(firstAcquisition.acquired_source_event_ids, ['author-seed']);
+
+  const rollback = engine.rollbackEvent('world-a', {
+    root_event_id: 'author-seed',
+    idempotency_key: 'rollback-fact-version-a',
+  });
+  assert.equal(rollback.accepted, true);
+  assert.ok(rollback.invalidated_event_ids.includes(first.event_id));
+
+  const replacement = engine.commitEvent('world-a', {
+    event_id: 'replacement-fact-b',
+    idempotency_key: 'replacement-fact-b',
+    turn_id: 'replacement-fact-b',
+    event_type: 'action.completed',
+    expected_revision: 2,
+    effects: [{ kind: 'fact.set', fact_id: 'fact-a', predicate: 'secret', value: 'replacement-value-b' }],
+  });
+  assert.equal(replacement.accepted, true);
+
+  const second = engine.recordTrustedInitialKnowledgeSource({
+    world_id: 'world-a',
+    source_bytes: bytes,
+    idempotency_key: 'author-source-fact-version-b',
+    expected_revision: 3,
+    expected_commit_sequence: 3,
+  });
+  const secondEvent = store.events('world-a').find((event) => event.event_id === second.event_id);
+  const secondAcquisition = secondEvent.effects.find((effect) => effect.kind === 'knowledge.acquire');
+
+  assert.equal(secondAcquisition.acquired_value, 'replacement-value-b');
+  assert.deepEqual(secondAcquisition.acquired_source_event_ids, ['replacement-fact-b']);
+  assert.notEqual(secondAcquisition.acquisition_id, firstAcquisition.acquisition_id,
+    'same authoring source identity must not reuse an acquisition ID for a different pinned fact version');
+  assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM knowledge_acquisitions WHERE world_id=?').get('world-a').n, 1);
+});
