@@ -59,12 +59,14 @@ export class DeploymentPolicyAuthority {
     if (!object(evidence)
       || evidence.authority_identity !== this.authorityIdentity
       || typeof evidence.policy_generation !== 'string'
-      || !evidence.policy_generation.trim()) return false;
+      || !evidence.policy_generation.trim()
+      || typeof evidence.policy_version !== 'string'
+      || !evidence.policy_version.trim()) return false;
     try {
       const current = this.capture();
       return current.authority_identity === evidence.authority_identity
         && current.policy_generation === evidence.policy_generation
-        && (evidence.policy_version === undefined || current.policy_version === evidence.policy_version);
+        && current.policy_version === evidence.policy_version;
     } catch {
       return false;
     }
