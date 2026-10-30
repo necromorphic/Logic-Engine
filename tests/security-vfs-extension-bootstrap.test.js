@@ -472,6 +472,26 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
       'a rejected main-DB deletion must leave the other role database intact');
   }
 
+  // Windows main-DB xDelete must reject a substituted hardlink by handle identity.
+  if (process.platform === 'win32') {
+    const deleteAliasPath = join(directory, 'windows-delete-main-alias.sqlite');
+    registerRole(deleteAliasPath, 'windows-delete-main-alias');
+    const deleteAliasDb = new DatabaseSync(deleteAliasPath);
+    try {
+      deleteAliasDb.exec('CREATE TABLE probe(value TEXT);');
+    } finally {
+      deleteAliasDb.close();
+    }
+    unlinkSync(deleteAliasPath);
+    linkSync(corePath, deleteAliasPath);
+    assert.throws(() => roleRegistrar.prepare(
+      'SELECT logic_engine_vfs_probe_delete_registered_role(?)'
+    ).get(deleteAliasPath),
+    'Windows xDelete must reject a hardlink replacement instead of deleting another role DB');
+    assert.equal(existsSync(corePath), true,
+      'a rejected Windows main-DB deletion must leave the other role database intact');
+  }
+
   // Exercise the rollback-journal sidecar independently of WAL mode.
   const journalPath = join(directory, 'journal.sqlite');
   registerRole(journalPath, 'journal-test');
