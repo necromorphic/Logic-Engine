@@ -7,10 +7,13 @@
  * test-only syscall wrappers compare later main/sidecar opens to registered
  * identities and inject deterministic hardlink replacements.
  *
- * Remaining production gaps include directory-handle anchoring, persistent
- * trusted identity across process restarts, sidecar-to-sidecar identity
- * ownership, complete sidecar replacement coverage, and startup/recovery
- * integration. Never use this probe for production databases.
+ * This branch has partial directory-handle-relative DB/sidecar operations:
+ * POSIX pins the final parent directory but its xDelete is not identity-safe
+ * against same-directory entry replacement; Windows uses a retained parent
+ * HANDLE for recognized opens, xAccess and handle-relative xDelete.
+ * Persistent trust, complete sidecar lifecycle, full VFS operation coverage,
+ * startup/recovery integration and independent review remain open. Never use
+ * this probe for production databases.
  */
 #include <string.h>
 #include <stdint.h>
