@@ -1,0 +1,34 @@
+name: Core accepted-head restore smoke
+
+on:
+  pull_request:
+    paths:
+      - 'tests/core-accepted-head-handshake.test.js'
+      - 'src/storage/sqlite-store.js'
+      - 'src/security/accepted-head-authority.js'
+      - '.github/workflows/core-accepted-head-restore-smoke.yml'
+  push:
+    branches:
+      - 'work/priority1-core-restore-*'
+    paths:
+      - 'tests/core-accepted-head-handshake.test.js'
+      - 'src/storage/sqlite-store.js'
+      - 'src/security/accepted-head-authority.js'
+      - '.github/workflows/core-accepted-head-restore-smoke.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  windows-core-restore:
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.13.0'
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Run Core accepted-head startup and restore tests
+        run: node --test tests/core-accepted-head-handshake.test.js
