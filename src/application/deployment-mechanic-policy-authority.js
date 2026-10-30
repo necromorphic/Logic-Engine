@@ -7,16 +7,23 @@
  */
 const object = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 const validPrincipal = (value) => object(value)
-  && Object.keys(value).every((key) => ['adapterId', 'actorEntityId', 'recipient', 'purpose'].includes(key))
+  && Object.keys(value).every((key) => ['adapterId', 'actorEntityId', 'recipient', 'purpose', 'bindingGeneration'].includes(key))
   && typeof value.adapterId === 'string' && value.adapterId.trim()
   && typeof value.actorEntityId === 'string' && value.actorEntityId.trim()
   && ['model', 'player', 'adapter'].includes(value.recipient)
-  && ['npc_decision', 'character_card', 'narrative'].includes(value.purpose);
+  && ['npc_decision', 'character_card', 'narrative'].includes(value.purpose)
+  && (value.bindingGeneration === undefined
+    || (Number.isSafeInteger(value.bindingGeneration) && value.bindingGeneration >= 1));
+const validPinnedPrincipal = (value) => validPrincipal(value)
+  && Number.isSafeInteger(value.bindingGeneration) && value.bindingGeneration >= 1;
 const samePrincipal = (left, right) => validPrincipal(left) && validPrincipal(right)
   && left.adapterId === right.adapterId
   && left.actorEntityId === right.actorEntityId
   && left.recipient === right.recipient
   && left.purpose === right.purpose;
+const samePinnedPrincipal = (left, right) => validPinnedPrincipal(left) && validPinnedPrincipal(right)
+  && samePrincipal(left, right)
+  && left.bindingGeneration === right.bindingGeneration;
 
 function validPolicyRecord(record) {
   return object(record)
@@ -84,10 +91,12 @@ export class DeploymentMechanicPolicyAuthority {
     active.contextProvider.assertPrincipalBound(args.worldId);
     const resolved = active.contextProvider.resolve(args);
     const after = this.resolveCurrentPolicy();
+    const afterBinding = after.contextProvider.assertPrincipalBound(args.worldId);
     if (!sameGeneration(active, after)
       || active.contextProvider.policyFingerprint !== after.contextProvider.policyFingerprint
       || active.contextProvider.authorizationScope !== after.contextProvider.authorizationScope
-      || !samePrincipal(active.contextProvider.authorizationPrincipal, after.contextProvider.authorizationPrincipal)) {
+      || !samePrincipal(active.contextProvider.authorizationPrincipal, after.contextProvider.authorizationPrincipal)
+      || resolved?.authorization_principal?.bindingGeneration !== afterBinding.binding_generation) {
       throw new Error('Mechanic policy changed during authorized context resolution.');
     }
     if (!object(resolved)
@@ -110,7 +119,7 @@ export class DeploymentMechanicPolicyAuthority {
       || !Number.isSafeInteger(identity.policyGeneration) || identity.policyGeneration < 1
       || typeof identity.policyVersion !== 'string' || !identity.policyVersion.trim()
       || typeof identity.authorizationScope !== 'string' || !identity.authorizationScope.trim()
-      || !validPrincipal(identity.authorizationPrincipal)
+      || !validPinnedPrincipal(identity.authorizationPrincipal)
       || !object(identity.snapshotIdentity)
       || identity.snapshotIdentity.world_id !== identity.worldId
       || !Number.isSafeInteger(identity.snapshotIdentity.world_revision)
@@ -122,7 +131,12 @@ export class DeploymentMechanicPolicyAuthority {
     try {
       current = this.resolveCurrentPolicy();
       if (typeof current.contextProvider.assertPrincipalBound !== 'function') return false;
-      current.contextProvider.assertPrincipalBound(identity.worldId);
+      const binding = current.contextProvider.assertPrincipalBound(identity.worldId);
+      const currentPrincipal = {
+        ...current.contextProvider.authorizationPrincipal,
+        bindingGeneration: binding.binding_generation,
+      };
+      if (!samePinnedPrincipal(identity.authorizationPrincipal, currentPrincipal)) return false;
     } catch {
       return false;
     }
@@ -130,6 +144,9 @@ export class DeploymentMechanicPolicyAuthority {
       && identity.policyGeneration === current.generation
       && identity.policyVersion === current.contextProvider.policyFingerprint
       && identity.authorizationScope === current.contextProvider.authorizationScope
-      && samePrincipal(identity.authorizationPrincipal, current.contextProvider.authorizationPrincipal);
+      && samePinnedPrincipal(identity.authorizationPrincipal, {
+        ...current.contextProvider.authorizationPrincipal,
+        bindingGeneration: current.contextProvider.assertPrincipalBound(identity.worldId).binding_generation,
+      });
   }
 }
