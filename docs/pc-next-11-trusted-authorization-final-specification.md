@@ -1,8 +1,8 @@
 # PC-NEXT-11 — Trusted authorization and protected egress specification
 
-**Status:** FINAL TECHNICAL SPECIFICATION / IMPLEMENTATION BLOCKED BY EXPLICIT OWNER GATES.  
+**Status:** FINAL TECHNICAL SPECIFICATION / IMPLEMENTATION EVIDENCE GATES OPEN.  
 **Version:** 1.1 — 2026-10-30.  
-**Normative baseline:** `main` `d11211401957576545ca9099d41bffa3936aaef3`.  
+**Normative baseline:** `main` `eaa9bcd66205b07c84d912b7680d4baf97fb918a`.  
 **Supersedes:** PC-NEXT-07 Draft v3 as the normative trusted-authorization specification. PC-NEXT-08 remains the implementation breakdown; PC-NEXT-09 remains the source inventory; PC-NEXT-10 remains the execution work order.  
 **Scope:** trusted identity, authorization, Host inventory, Memory evidence, revocation ordering, protected model egress, anti-replay and acceptance.  
 **Change class:** documentation only. This document does not authorize production code, API/schema changes, runtime wiring, database/ACL changes, PR merges, release, or feature activation.
@@ -57,9 +57,9 @@ No component may manufacture another component's authority. A signature or diges
 
 ## 3. First supported slice and evidence lanes
 
-### 3.1 First slice: Lane B only
+### 3.1 First Memory Provider consumer slice: Lane B
 
-The first end-to-end implementation slice is **Lane B: Memory Provider evidence for direct `canonical_entity` sources**, because this workstream is specifically the Memory Provider integration path.
+For the Memory Provider integration path, the first Provider consumer slice is **Lane B: Memory Provider evidence for direct `canonical_entity` sources**. This does not suspend the separate Core-owned Lane A acquisition work: Lane A may be implemented and validated independently. The lanes must remain separate and must not be silently combined in one model context.
 
 Lane B uses the exact purpose `npc_decision` and recipient `model`. It does not include summaries, derived copies, raw Host text capture, unsupported source kinds, or inferred source lineage.
 
@@ -67,7 +67,7 @@ Lane A is excluded from this first slice and remains independently gated:
 
 - Lane A: Core-owned `author_initial` / `imported` acquisition.
 - Lane A purposes: `npc_turn_context` or `npc_action_evaluation`, according to the operation.
-- Lane A requires acquisition-time value/source-event pins and per-acquisition visibility authorization.
+- Lane A requires acquisition-time value/source-event pins and per-acquisition visibility authorization. That visibility decision must bind the exact `acquisition_kind` to the trusted registry `source_kind`, and the stored acquisition authorization reference to the registry `authorization_ref`, in addition to the exact source reference and digest.
 - Lane A must not be silently mapped to Lane B's `npc_decision` purpose.
 
 The two lanes MUST NOT be combined in one model context until a separately reviewed purpose/recipient mapping and conflict-envelope contract is approved and tested.
@@ -379,7 +379,7 @@ No production activation follows automatically from ADR #809 or passing tests. A
 
 ## 16. Source and decision traceability
 
-This specification is grounded in the following current-main contracts and implementation findings, checked against main `d11211401957576545ca9099d41bffa3936aaef3`:
+This specification is grounded in the following current-main contracts and implementation findings, checked against main `eaa9bcd66205b07c84d912b7680d4baf97fb918a`:
 
 - `docs/57-private-host-core-memory-npc-adapter-contract.md`: ownership, separate Lane A/Lane B semantics, Host session and sole-Gateway responsibility, actor binding, source versions and existing fail-closed boundary contract.
 - `docs/architecture/core-final-disclosure-authorization-contract.md`: Core's required PC-side serialized final-disclosure/dispatch-start authority, exact request binding, all-writer participation, crash/retry and anti-rollback acceptance.
