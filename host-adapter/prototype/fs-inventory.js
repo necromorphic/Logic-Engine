@@ -40,6 +40,8 @@ export async function enumerateStableFileInventory(rootPath) {
     return fail('HOST_INVENTORY_ROOT_INVALID');
   }
 
+  if (process.platform === 'win32') return fail('HOST_INVENTORY_PLATFORM_REPARSE_UNVERIFIED');
+
   let root;
   try {
     const requestedRoot = resolve(rootPath);
@@ -126,6 +128,12 @@ export async function enumerateStableFileInventory(rootPath) {
   try {
     const first = await scanOnce();
     const second = await scanOnce();
+    const identities = new Set();
+    for (const entry of second) {
+      const key = entry.identity.dev + ':' + entry.identity.ino;
+      if (identities.has(key)) return fail('HOST_INVENTORY_DUPLICATE_FILE_IDENTITY');
+      identities.add(key);
+    }
     const firstDigest = sha256(JSON.stringify(first));
     const secondDigest = sha256(JSON.stringify(second));
     if (firstDigest !== secondDigest) return fail('HOST_INVENTORY_UNSTABLE');
