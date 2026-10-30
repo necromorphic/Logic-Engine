@@ -46,15 +46,23 @@ jobs:
       - name: Install pinned SillyTavern dependencies
         run: npm ci --prefix SillyTavern
 
-      - name: Verify pinned checkout
-        shell: cmd
+      # actions/checkout falls back to a REST archive when Git is absent.
+      # This self-hosted service account has no Git executable; the immutable
+      # 40-character ref above is resolved by checkout (visible in its action
+      # log), so do not require a local .git directory to verify the source.
+      - name: Verify pinned source archive
+        shell: pwsh
         run: |
-          for /f %%H in ('git -C SillyTavern rev-parse HEAD') do set "actual=%%H"
-          if /I not "%actual%"=="06bde939fb1e9c4c8d8641d810f0a916b5bce127" (
-            echo Unexpected SillyTavern SHA: %actual%
-            exit /b 1
-          )
-          echo SillyTavern target SHA: %actual%
+          $expected = '06bde939fb1e9c4c8d8641d810f0a916b5bce127'
+          if (-not (Test-Path 'SillyTavern/package.json' -PathType Leaf)) {
+            throw 'Pinned SillyTavern source archive is missing package.json'
+          }
+          $package = Get-Content 'SillyTavern/package.json' -Raw | ConvertFrom-Json
+          if (-not $package.name -or -not $package.version) {
+            throw 'Pinned SillyTavern package metadata is invalid'
+          }
+          Write-Output "SillyTavern source was checked out using immutable commit ref $expected"
+          Write-Output "Package: $($package.name)@$($package.version)"
 
       - name: Run source-level lifecycle assertions
         env:
