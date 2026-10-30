@@ -53,6 +53,7 @@ function setup(t) {
     adapterIds: ['adapter-st'],
     trustedInitialKnowledgeSources: [source, importedSource],
   });
+  engine.npcKnowledgePolicyAuthority = authorizers.policyAuthority;
   const snapshot = engine.getSnapshot('world-a');
   const scope = {
     world_id: 'world-a',
@@ -73,6 +74,7 @@ test('production NPC read authorization requires configured adapter, active Host
     status: 'authorized',
     ...scope,
     authorization_ref: 'core:host-conversation-actor-binding-v1',
+    ...authorizers.policyAuthority.getSnapshot(),
   });
   assert.equal(authorizers.readAuthorizer({ ...scope, conversation_id: 'other-session:installation:conversation' }), null);
   assert.equal(authorizers.readAuthorizer({ ...scope, adapter_id: 'unconfigured-adapter' }), null);
@@ -149,6 +151,7 @@ test('Core reader, belief writer, and belief-state reader reject caller-selected
   const { store, authorizers, scope, actors } = setup(t);
   const guardedEngine = new LogicEngine(store, {
     npcKnowledgeContextResolver: authorizers.resolveContext,
+    npcKnowledgePolicyAuthority: authorizers.policyAuthority,
     npcKnowledgeReadAuthorizer: authorizers.readAuthorizer,
     npcKnowledgeVisibilityAuthorizer: authorizers.visibilityAuthorizer,
   });
@@ -252,6 +255,7 @@ test('per-acquisition visibility requires exact trusted source provenance and th
   const acquisition = {
     ...scope,
     acquisition_id: 'acquisition-a',
+    ...authorizers.policyAuthority.getSnapshot(),
     fact_id: 'fact-a',
     subject_ref: 'entity:npc-a',
     predicate: 'secret',
@@ -272,6 +276,7 @@ test('per-acquisition visibility requires exact trusted source provenance and th
     commit_sequence: scope.commit_sequence,
     acquisition_id: 'acquisition-a',
     authorization_ref: source.authorization_ref,
+    ...authorizers.policyAuthority.getSnapshot(),
   });
   assert.equal(authorizers.visibilityAuthorizer({
     ...acquisition,
