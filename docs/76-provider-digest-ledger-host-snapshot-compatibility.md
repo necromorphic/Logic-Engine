@@ -33,7 +33,7 @@ The Provider draft expects a trusted verifier to establish, before reconciliatio
 - a canonical inventory digest computed over the same normalized version list;
 - explicit evidence that a missing version means deletion rather than partial enumeration, copy, or restore.
 
-The current Host prototype does not yet emit this approved envelope. In particular, its IndexedDB head is a Host-local integrity checkpoint, not a PC-side Provider authority; a list of instrumented paths does not prove runtime coverage; and the current `CURRENTLY_HOOKED_PATHS` excludes delete-chat, delete-group-chat, delete-character-chat-recursive, import/restore/branch, restart/replay and other required paths.
+The current Host bridge can now serialize a digest-only snapshot envelope to the Core reconciliation route, but it deliberately sends `complete: false`; it does not emit an approved complete snapshot or reach READY. Its IndexedDB head remains a Host-local integrity checkpoint, not a PC-side Provider authority; a list of instrumented paths does not prove runtime coverage; and `CURRENTLY_HOOKED_PATHS` still excludes delete-chat, delete-group-chat, delete-character-chat-recursive, import/restore/branch, restart/replay and other required paths.
 
 ## Provider draft behavior and limits
 
@@ -60,7 +60,7 @@ The original comparison above is historical (2026-10-26). Current main has since
 
 The combined pinned-ST patch candidate #787 successfully applies lifecycle hooks → file-inventory route → Direction A delete-safety overlay in CI (Host prototype tests 75/75, syntax checks and patch application pass). This does not change the snapshot contract or make `verifyInventorySnapshot` positive.
 
-**Disposition:** patch composition is validated; Host snapshot compatibility, complete inventory, restore/branch lineage and production reconciliation remain BLOCKED / NON_READY. Do not infer Provider readiness or Memory→NPC authorization from the current-file inventory endpoint or individual digest-capture responses. No new cursor, outbox, schema or raw-text retention is approved by this refresh.
+**Disposition:** patch composition is validated; Host snapshot compatibility, complete inventory, restore/branch lineage and production reconciliation remain BLOCKED / NON_READY. The new Host→Core reconciliation transport currently returns NON_READY because the bridge withholds `complete: true` and Core's production verifier is deny-only. Do not infer Provider readiness or Memory→NPC authorization from the current-file inventory endpoint or this transport response. No new cursor, outbox, schema or raw-text retention is approved by this refresh.
 
 
 ## Authenticated Host session identity update — 30 Oct 2026
