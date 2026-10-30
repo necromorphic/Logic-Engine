@@ -123,21 +123,23 @@ static HANDLE WINAPI probe_create_file_w(
 ) {
   HANDLE handle;
   BY_HANDLE_FILE_INFORMATION info;
+  int is_sidecar = (g_current_sidecar_open && !g_current_sidecar_captured)
+    || probe_wide_path_is_shm(name);
+  int needs_identity = is_sidecar
+    || (g_current_race_open && !g_current_race_captured)
+    || (g_current_role_index >= 0 && !g_current_role_captured);
   g_native_open_count += 1;
-  if ((g_current_race_open && !g_current_race_captured)
-      || (g_current_role_index >= 0 && !g_current_role_captured)) {
-    attributes |= FILE_FLAG_OPEN_REPARSE_POINT;
-  }
+  if (needs_identity) attributes |= FILE_FLAG_OPEN_REPARSE_POINT;
   handle = ((probe_create_file_w_fn)g_original_open_syscall)(
     name, access, share, security, creation, attributes, template_file
   );
-  if (handle == INVALID_HANDLE_VALUE) return handle;
-  if ((g_current_race_open && !g_current_race_captured)
-      || (g_current_role_index >= 0 && !g_current_role_captured)) {
+  if (handle == INVALID_HANDLE_VALUE || !needs_identity) return handle;
+
+  {
     int reject = !GetFileInformationByHandle(handle, &info)
       || (info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0
       || (info.nFileIndexHigh == 0 && info.nFileIndexLow == 0);
-    if (!reject && g_current_role_index >= 0) {
+    if (!reject && g_current_role_index >= 0 && !g_current_role_captured) {
       ProbeDatabaseRole *role = &g_database_roles[g_current_role_index];
       if (role->identity_set) {
         reject = info.dwVolumeSerialNumber != role->volume_serial
@@ -153,7 +155,17 @@ static HANDLE WINAPI probe_create_file_w(
         }
       }
     }
-    if (!reject && g_current_race_open && g_race_identity_set) {
+    if (!reject && is_sidecar) {
+      for (int i = 0; i < g_database_role_count; i++) {
+        ProbeDatabaseRole *role = &g_database_roles[i];
+        if (role->identity_set
+            && info.dwVolumeSerialNumber == role->volume_serial
+            && info.nFileIndexHigh == role->file_index_high
+            && info.nFileIndexLow == role->file_index_low) reject = 1;
+      }
+    }
+    if (!reject && g_current_race_open && !g_current_race_captured
+        && g_race_identity_set) {
       reject = info.dwVolumeSerialNumber != g_race_volume_serial
         || info.nFileIndexHigh != g_race_file_index_high
         || info.nFileIndexLow != g_race_file_index_low;
@@ -161,24 +173,30 @@ static HANDLE WINAPI probe_create_file_w(
     if (reject) {
       CloseHandle(handle);
       g_identity_reject_count += 1;
+      if (is_sidecar) g_sidecar_identity_reject_count += 1;
       SetLastError(ERROR_ACCESS_DENIED);
       return INVALID_HANDLE_VALUE;
     }
-    if (g_current_role_index >= 0 && !g_database_roles[g_current_role_index].identity_set) {
+    if (g_current_role_index >= 0 && !g_current_role_captured
+        && !g_database_roles[g_current_role_index].identity_set) {
       ProbeDatabaseRole *role = &g_database_roles[g_current_role_index];
       role->volume_serial = info.dwVolumeSerialNumber;
       role->file_index_high = info.nFileIndexHigh;
       role->file_index_low = info.nFileIndexLow;
       role->identity_set = 1;
     }
-    if (g_current_race_open && !g_race_identity_set) {
+    if (g_current_race_open && !g_current_race_captured && !g_race_identity_set) {
       g_race_volume_serial = info.dwVolumeSerialNumber;
       g_race_file_index_high = info.nFileIndexHigh;
       g_race_file_index_low = info.nFileIndexLow;
       g_race_identity_set = 1;
     }
-    g_current_role_captured = 1;
-    g_current_race_captured = 1;
+    if (is_sidecar) {
+      g_sidecar_identity_check_count += 1;
+      if (g_current_sidecar_open) g_current_sidecar_captured = 1;
+    }
+    if (g_current_role_index >= 0) g_current_role_captured = 1;
+    if (g_current_race_open) g_current_race_captured = 1;
   }
   return handle;
 }
