@@ -160,6 +160,21 @@ test('reconciliation rejects Proxy and accessor-backed inputs before invoking th
   assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id), null);
 });
 
+test('reconciliation enforces the version-count cap before verification or row traversal', async (t) => {
+  let verifierCalls = 0;
+  const ledger = setup(t, async () => { verifierCalls += 1; return true; });
+  const versions = Array.from({ length: 25001 }, () => ({}));
+  assert.deepEqual(await ledger.reconcileConversation({
+    world_id: tuple.world_id,
+    conversation_id: tuple.conversation_id,
+    complete: true,
+    versions,
+  }), { status: 'non_ready', code: 'HOST_INVENTORY_TOO_LARGE' });
+  assert.equal(verifierCalls, 0);
+  assert.equal(ledger.db.prepare('SELECT COUNT(*) AS n FROM host_version_digest_ledger').get().n, 0);
+  assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id), null);
+});
+
 test('reconciliation rejects metadata outside the current Provider snapshot shape before verification', async (t) => {
   let verifierCalls = 0;
   const ledger = setup(t, async () => { verifierCalls += 1; return true; });
@@ -254,6 +269,19 @@ test('untrusted inventory snapshot cannot make ledger ready', async (t) => {
   }), { status: 'non_ready', code: 'HOST_INVENTORY_NOT_AUTHORIZED' });
   assert.equal(ledger.db.prepare('SELECT COUNT(*) AS n FROM host_version_digest_ledger').get().n, 0);
   assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id), null);
+});
+
+test('complete:false snapshot cannot publish READY even with a positive verifier', async (t) => {
+  const ledger = setup(t, async () => true);
+  const result = await ledger.reconcileConversation({
+    world_id: tuple.world_id,
+    conversation_id: tuple.conversation_id,
+    complete: false,
+    versions: [entry()],
+  });
+  assert.deepEqual(result, { status: 'non_ready', code: 'HOST_INVENTORY_INCOMPLETE' });
+  assert.notEqual(ledger.getInventoryState(tuple.world_id, tuple.conversation_id)?.status, 'READY');
+  assert.equal(ledger.db.prepare('SELECT COUNT(*) AS n FROM host_version_digest_ledger').get().n, 0);
 });
 
 test('trusted complete snapshot recovers missed capture and publishes readiness', async (t) => {
@@ -844,4 +872,38 @@ test('Host version ledger rejects a coordinator path that is a hard link to its 
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
+});
+
+
+test('complete inventory revalidates binding synchronously while the shared Coordinator lease is held', async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-host-reconcile-binding-lock-'));
+  const coordinatorPath = join(directory, 'coordinator.sqlite');
+  const ledger = new HostVersionDigestLedger({
+    path: join(directory, 'host-versions.sqlite'),
+    coordinatorPath,
+    verifyInventorySnapshot: async () => true,
+  });
+  const competing = new DatabaseSync(coordinatorPath);
+  competing.exec('PRAGMA busy_timeout=0;');
+  t.after(() => {
+    try { competing.close(); } catch {}
+    try { ledger.close(); } catch {}
+    rmSync(directory, { recursive: true, force: true });
+  });
+
+  const result = await ledger.reconcileConversation({
+    world_id: tuple.world_id,
+    conversation_id: tuple.conversation_id,
+    complete: true,
+    versions: [entry()],
+  }, {
+    revalidateBinding: ({ world_id, conversation_id }) => {
+      assert.equal(world_id, tuple.world_id);
+      assert.equal(conversation_id, tuple.conversation_id);
+      assert.throws(() => competing.exec('BEGIN IMMEDIATE'), /locked|busy/i);
+      return { world_id, conversation_id, active: true };
+    },
+  });
+  assert.equal(result.status, 'ready');
+  assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).status, 'READY');
 });
