@@ -14,15 +14,14 @@ const MAX_TOTAL_LOGICAL_VERSIONS = 1_000_000;
 const HOST_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export class HostSourceInventoryError extends Error {
-  constructor(code, detail = null) {
-    super(detail ? code + ' [' + detail + ']' : code);
+  constructor(code) {
+    super(code);
     this.name = 'HostSourceInventoryError';
     this.code = code;
-    if (detail) this.detail = detail;
   }
 }
 
-const fail = (code, detail = null) => { throw new HostSourceInventoryError(code, detail); };
+const fail = code => { throw new HostSourceInventoryError(code); };
 const validLeaf = value => typeof value === 'string' && value.length > 0
   && value !== '.' && value !== '..'
   && !value.includes('/') && !value.includes('\\')
@@ -43,7 +42,10 @@ const identityOf = stat => {
   if (stat.ino === 0n) fail('FILE_IDENTITY_UNAVAILABLE');
   return stat.dev.toString() + ':' + stat.ino.toString();
 };
-const sameStat = (left, right) => left.dev === right.dev
+// On Windows, Node's path-based lstat may report st_dev as 0 or a
+// different volume value than fstat on a handle to the same file. The file
+// index (ino) remains stable; do not compare dev across Windows stat sources.
+const sameStat = (left, right) => (process.platform === 'win32' || left.dev === right.dev)
   && left.ino === right.ino
   && left.mode === right.mode
   && left.size === right.size
@@ -259,11 +261,7 @@ async function readStableFile(filePath, rootPath, maxBytes, snapshotMode = false
   try {
     const openedBefore = await handle.stat({ bigint: true });
     if (!openedBefore.isFile() || !sameStat(pathBefore, openedBefore)) {
-      const fields = ['dev', 'ino', 'mode', 'size', 'mtimeNs', 'ctimeNs'];
-      const detail = fields.filter(field => pathBefore[field] !== openedBefore[field])
-        .map(field => field + '=' + String(pathBefore[field]) + '!=' + String(openedBefore[field]))
-        .join(',');
-      fail('SOURCE_FILE_IDENTITY_CHANGED', detail || 'unknown-stat-difference');
+      fail('SOURCE_FILE_IDENTITY_CHANGED');
     }
     identityOf(openedBefore);
     if (openedBefore.size > BigInt(maxBytes)) fail('SOURCE_FILE_SIZE_LIMIT');
