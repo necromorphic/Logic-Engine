@@ -9,6 +9,7 @@ on:
   push:
     branches:
       - "work/priority1-combined-host-patch-stack-*"
+      - "work/host-258-current-main-integration-*"
       - "host/**"
     paths:
       - "host-adapter/prototype/**"
