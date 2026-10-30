@@ -28,9 +28,9 @@ jobs:
           cp host-adapter/prototype/st-lifecycle-bridge.mjs sillytavern-host-checkout/public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs
           cp host-adapter/prototype/conversation-identity.mjs sillytavern-host-checkout/public/scripts/logic-engine-lifecycle/conversation-identity.mjs
           cp host-adapter/prototype/st-server-digest-proxy.mjs sillytavern-host-checkout/src/endpoints/logic-engine-lifecycle-proxy.mjs
-      - name: Fetch the exact Host inventory candidate used by PR #780
+      - name: Fetch the exact Host inventory candidate used by PR #783
         run: |
-          git fetch origin 46b919086d0e9bfc129a8df9896d97373a1c6c50
+          git fetch origin bf38976e4f26b3944518161b993d6233c81b217e
           mkdir -p host-inventory-candidate
           git show FETCH_HEAD:host-adapter/prototype/st-source-inventory.mjs > host-inventory-candidate/st-source-inventory.mjs
           git show FETCH_HEAD:host-adapter/prototype/st-host-inventory-handler.mjs > host-inventory-candidate/st-host-inventory-handler.mjs
