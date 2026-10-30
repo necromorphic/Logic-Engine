@@ -20,7 +20,14 @@
         });
         await journal.append({
           conversationId,
-          eventId: 'browser-storage-restart-event',
+          eventId: 'browser-storage-restart-before-event',
+          operation: 'before:test',
+          sourceFingerprint: 'fingerprint-before',
+          payload: { affectedVersions: [], details: {} },
+        });
+        await journal.append({
+          conversationId,
+          eventId: 'browser-storage-restart-after-event',
           operation: 'after:test',
           sourceFingerprint: 'fingerprint-after',
           payload: { changes: [], versionPayloads: [], tombstones: [] },
