@@ -451,6 +451,15 @@ test('proposal policy validation delegates to the active context provider and re
   const { engine, worldId } = setup(t, 'executor-provider-policy-rotation-world');
   enableFixture(engine, worldId);
 
+  const actorBindings = new ActorBindingService(engine);
+  actorBindings.bind(worldId, 'test-adapter', 'entity.actor-context');
+  const authorizedReads = new AuthorizedReadService(engine, actorBindings, (context, entity, field) =>
+    context.authenticatedAdapterId === 'test-adapter'
+      && context.actor.entity_id === 'entity.actor-context'
+      && context.recipient === 'model'
+      && context.purpose === 'npc_decision'
+      && ((entity.entity_id === 'entity.world-context' && field === 'attributes.weather')
+        || (entity.entity_id === 'entity.actor-context' && field === 'attributes.hp')));
   const makeProvider = (policyVersion) => new CanonicalEntityAttributeContextProvider(engine, {
     policyVersion,
     authorizationScope: 'test-principal',
@@ -458,8 +467,11 @@ test('proposal policy validation delegates to the active context provider and re
       { path: 'world.weather', entity_id: 'entity.world-context', attribute: 'weather' },
       { path: 'actor.hp', entity_id: 'entity.actor-context', attribute: 'hp' },
     ],
-    canRead: () => true,
-    authorizationPrincipal: { adapterId: 'test-adapter', actorEntityId: 'entity.actor-context', recipient: 'model', purpose: 'npc_decision', bindingGeneration: 1 },
+    authorizedReadService: authorizedReads,
+    adapterId: 'test-adapter',
+    actorEntityId: 'entity.actor-context',
+    recipient: 'model',
+    purpose: 'npc_decision',
   });
 
   let activeProvider = makeProvider('visibility-policy-v1');
