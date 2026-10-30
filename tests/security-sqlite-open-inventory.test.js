@@ -31,7 +31,7 @@ async function collectJavaScriptFiles(directory, prefix = '') {
 }
 
 test('production node:sqlite DatabaseSync opens remain explicitly inventoried', async () => {
-  const sourceFiles = await collectJavaScriptFiles(path.join(repositoryRoot, 'src'));
+  const sourceFiles = await collectJavaScriptFiles(path.join(repositoryRoot, 'src'), 'src');
   const actual = new Set();
 
   for (const relative of sourceFiles) {
