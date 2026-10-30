@@ -7,10 +7,34 @@ import { resolve } from 'node:path';
 const root = process.env.SILLYTAVERN_DIR ?? resolve(process.cwd(), 'SillyTavern');
 const targetSha = '06bde939fb1e9c4c8d8641d810f0a916b5bce127';
 
-const [events, script] = await Promise.all([
+const mutationPaths = [
+  'src/endpoints/characters.js',
+  'src/endpoints/chats.js',
+  'src/endpoints/groups.js',
+  'src/endpoints/settings.js',
+  'src/endpoints/avatars.js',
+  'src/endpoints/backups.js',
+  'src/endpoints/files.js',
+  'src/endpoints/worldinfo.js',
+  'src/endpoints/presets.js',
+  'src/endpoints/quick-replies.js',
+  'src/endpoints/themes.js',
+  'src/endpoints/backgrounds.js',
+  'src/endpoints/assets.js',
+  'src/endpoints/data-maid.js',
+  'src/endpoints/vectors.js',
+  'src/endpoints/users-private.js',
+  'src/endpoints/users-admin.js',
+  'src/endpoints/extensions.js',
+];
+const [events, script, ...mutationContents] = await Promise.all([
   readFile(resolve(root, 'public/scripts/events.js'), 'utf8'),
   readFile(resolve(root, 'public/script.js'), 'utf8'),
+  ...mutationPaths.map(path => readFile(resolve(root, path), 'utf8')),
 ]);
+const mutationSources = Object.fromEntries(
+  mutationPaths.map((path, index) => [path, mutationContents[index]]),
+);
 
 test('audit input is the exact pinned SillyTavern commit', async () => {
   if (existsSync(resolve(root, '.git'))) {
@@ -74,4 +98,74 @@ test('swipe notification carries the host-local message index', () => {
 test('edit/update notifications use the current host-local edit index', () => {
   assert.match(script, /event_types\.MESSAGE_EDITED,\s*this_edit_mes_id/);
   assert.match(script, /event_types\.MESSAGE_UPDATED,\s*this_edit_mes_id/);
+});
+
+
+test('pinned server mutation routes remain in the reviewed inventory', () => {
+  const routeRequirements = {
+    'src/endpoints/characters.js': [
+      '/create', '/rename', '/edit', '/edit-avatar', '/edit-attribute',
+      '/merge-attributes', '/delete', '/import', '/duplicate', '/export',
+    ],
+    'src/endpoints/chats.js': [
+      '/save', '/rename', '/delete', '/export', '/group/import',
+      '/import', '/group/delete', '/group/save',
+    ],
+    'src/endpoints/groups.js': ['/create', '/edit', '/delete'],
+    'src/endpoints/settings.js': ['/save', '/load-snapshot', '/make-snapshot', '/restore-snapshot'],
+    'src/endpoints/avatars.js': ['/delete', '/upload'],
+    'src/endpoints/backups.js': ['/chat/delete'],
+    'src/endpoints/files.js': ['/upload', '/delete'],
+    'src/endpoints/worldinfo.js': ['/delete', '/import', '/edit'],
+    'src/endpoints/presets.js': ['/save', '/delete', '/restore'],
+    'src/endpoints/quick-replies.js': ['/save', '/delete'],
+    'src/endpoints/themes.js': ['/save', '/delete'],
+    'src/endpoints/backgrounds.js': ['/delete', '/rename', '/upload'],
+    'src/endpoints/assets.js': ['/delete', '/character'],
+    'src/endpoints/data-maid.js': ['/delete'],
+    'src/endpoints/vectors.js': ['/insert', '/delete', '/purge-all', '/purge'],
+    'src/endpoints/users-private.js': ['/reset-settings', '/reset-step2'],
+    'src/endpoints/users-admin.js': ['/delete'],
+    'src/endpoints/extensions.js': ['/install', '/update', '/switch', '/move', '/delete'],
+  };
+
+  for (const [file, routes] of Object.entries(routeRequirements)) {
+    const source = mutationSources[file];
+    assert.equal(typeof source, 'string', 'mutation source must be loaded: ' + file);
+    for (const route of routes) {
+      const escaped = route.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      assert.match(source, new RegExp('router\\.(?:post|put|delete|patch)\\([\\'"]' + escaped + '[\\'"]'),
+        file + ' must retain reviewed mutation route ' + route);
+    }
+  }
+});
+
+test('pinned high-impact mutation implementations retain their write/delete primitives', () => {
+  const requirements = {
+    'src/endpoints/characters.js': ['writeFileAtomicSync', 'fs.cpSync', 'fs.rmSync', 'fs.copyFileSync'],
+    'src/endpoints/chats.js': ['writeFileAtomicSync', 'fs.copyFileSync', 'fs.unlinkSync'],
+    'src/endpoints/groups.js': ['writeFileAtomic', 'fsPromises.copyFile', 'fs.unlinkSync'],
+    'src/endpoints/settings.js': ['writeFileAtomicSync', 'fs.copyFileSync'],
+    'src/endpoints/avatars.js': ['writeFileAtomicSync', 'fs.unlinkSync'],
+    'src/endpoints/backups.js': ['fsPromises.unlink'],
+    'src/endpoints/files.js': ['writeFileSyncAtomic', 'fs.unlinkSync'],
+    'src/endpoints/worldinfo.js': ['writeFileAtomicSync', 'fs.unlinkSync'],
+    'src/endpoints/presets.js': ['writeFileAtomicSync', 'fs.unlinkSync'],
+    'src/endpoints/quick-replies.js': ['writeFileAtomicSync', 'fs.unlinkSync'],
+    'src/endpoints/themes.js': ['writeFileAtomicSync', 'fs.unlinkSync'],
+    'src/endpoints/backgrounds.js': ['fs.copyFileSync', 'fs.unlinkSync'],
+    'src/endpoints/assets.js': ['fs.createWriteStream', 'fs.copyFileSync', 'fs.unlinkSync'],
+    'src/endpoints/data-maid.js': ['fs.promises.unlink'],
+    'src/endpoints/vectors.js': ['fs.promises.rm'],
+    'src/endpoints/users-private.js': ['fsPromises.rm'],
+    'src/endpoints/users-admin.js': ['fsPromises.rm'],
+    'src/endpoints/extensions.js': ['fs.promises.rm'],
+  };
+
+  for (const [file, primitives] of Object.entries(requirements)) {
+    for (const primitive of primitives) {
+      assert.ok(mutationSources[file].includes(primitive),
+        file + ' must retain reviewed mutation primitive ' + primitive);
+    }
+  }
 });
