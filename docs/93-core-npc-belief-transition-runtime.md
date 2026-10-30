@@ -17,13 +17,14 @@
 3. Validate every proposed evidence reference against the visible acquisition set.
 4. Require both support and contradiction references when the proposal marks an unresolved conflict. Contradictory evidence cannot be forced into a winning stance by this reducer.
 5. Recheck world revision and commit sequence immediately before returning the context.
-6. Persist an accepted transition through `recordNpcBeliefTransition()` as a typed `npc.belief.transition` effect inside the canonical Core event. The SQLite table is a derived projection rebuilt from valid canonical event effects; it is not the only copy of transition data. Generic event callers cannot forge this privileged effect.
+6. Immediately before the canonical write, `recordNpcBeliefTransition()` reruns the actor-scoped read and every per-acquisition visibility check against the same expected snapshot. If visibility was revoked after initial context preparation, the final check blocks the commit. The prepared transition must still match the final validated transition.
+7. Persist an accepted transition as a typed `npc.belief.transition` effect inside the canonical Core event. The SQLite table is a derived projection rebuilt from valid canonical event effects; it is not the only copy of transition data. Generic event callers cannot forge this privileged effect. The Core transaction's revision/sequence check rejects a canonical mutation racing the final authorization check.
 7. `getNpcBeliefState()` returns the latest valid transition only after per-acquisition visibility checks. If the proposition's current evidence is withheld, it returns a non-disclosing `unavailable` result with no stance or value. Source rollback/revocation makes support `unsupported` or `partially_supported`; it does not silently rewrite the character's stance or delete its history, and invalidated acquisition IDs are not exposed.
 
 ## API contract (internal Core methods only)
 
 - `prepareNpcBeliefContext(readRequest, proposal, currentBelief?)` returns a validated, actor/snapshot-bound context. It requires both trusted read and visibility authorizers. It is not registered as HTTP.
-- `recordNpcBeliefTransition(input)` validates evidence again, persists the transition, and requires an idempotency key plus the exact pre-transition revision and commit sequence.
+- `recordNpcBeliefTransition(input)` validates evidence, reruns read and per-acquisition visibility authorization immediately before the Core write, persists only an unchanged validated transition, and requires an idempotency key plus the exact pre-transition revision and commit sequence.
 - `getNpcBeliefState(input)` reads the latest valid belief transition and reports current evidence support.
 
 A proposal identifies both a canonical proposition reference (subject + predicate, or fact ID where no subject reference exists) and the explicit `proposition_value`. The reducer verifies that cited evidence belongs to that proposition and that every currently visible acquisition for the proposition is accounted for. Evidence matching the value supports the proposition; evidence with another value contradicts it. A conflict cannot be hidden by omitting the conflicting acquisition.
@@ -42,6 +43,8 @@ The model-facing context uses `belief_stance_class` (`believed`, `suspected`, or
 - Retrieved or unacquired evidence: reject.
 - Conflicting evidence with a non-conflict stance: reject.
 - Stale snapshot: reject and require a fresh read.
+- Visibility revoked between initial context preparation and the Core commit: final revalidation rejects the transition before persistence.
+- A revocation racing after the final authorization check is not made linearizable by this mechanism; the snapshot CAS protects canonical mutation, but no cross-store policy-version fence or cancellation is claimed.
 - Source invalidation: preserve transition history; mark support as unsupported/partial rather than auto-correcting the belief.
 - Replayed idempotency key with identical request: return the existing transition. Reuse with different request: reject.
 - Projection deletion/rebuild: reconstruct transition rows from canonical event effects. Rolling back the transition event removes it from the rebuilt projection; rolling back source evidence leaves valid belief history and reports reduced support.
