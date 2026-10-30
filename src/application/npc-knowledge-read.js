@@ -42,11 +42,11 @@ function exactKeys(value, keys) {
 export function validateNpcKnowledgeReadInput(input) {
   try {
     if (!exactKeys(input, [
-      "world_id", "adapter_id", "actor_id", "recipient", "purpose",
+      "world_id", "conversation_id", "adapter_id", "actor_id", "recipient", "purpose",
       "expected_revision", "expected_commit_sequence", "limit",
     ])) return nonReady("invalid_request_shape");
 
-    if (!validId(input.world_id) || !validId(input.adapter_id) || !validId(input.actor_id)
+    if (!validId(input.world_id) || !validId(input.conversation_id) || !validId(input.adapter_id) || !validId(input.actor_id)
       || !RECIPIENTS.has(input.recipient) || !PURPOSES.has(input.purpose)
       || !Number.isSafeInteger(input.expected_revision) || input.expected_revision < 0
       || !Number.isSafeInteger(input.expected_commit_sequence) || input.expected_commit_sequence < 0
@@ -59,6 +59,7 @@ export function validateNpcKnowledgeReadInput(input) {
       reason: null,
       request: Object.freeze({
         world_id: input.world_id,
+        conversation_id: input.conversation_id,
         adapter_id: input.adapter_id,
         actor_id: input.actor_id,
         recipient: input.recipient,
@@ -90,10 +91,11 @@ export function validateNpcKnowledgeRead(input, world, commitSequence, authoriza
     }
 
     if (!exactKeys(authorization, [
-      "status", "world_id", "adapter_id", "actor_id", "recipient", "purpose",
+      "status", "world_id", "conversation_id", "adapter_id", "actor_id", "recipient", "purpose",
       "world_revision", "commit_sequence", "authorization_ref",
     ]) || authorization.status !== "authorized"
       || authorization.world_id !== request.world_id
+      || authorization.conversation_id !== request.conversation_id
       || authorization.adapter_id !== request.adapter_id
       || authorization.actor_id !== request.actor_id
       || authorization.recipient !== request.recipient
@@ -109,6 +111,7 @@ export function validateNpcKnowledgeRead(input, world, commitSequence, authoriza
       reason: null,
       request: Object.freeze({
         world_id: request.world_id,
+        conversation_id: request.conversation_id,
         adapter_id: request.adapter_id,
         actor_id: request.actor_id,
         recipient: request.recipient,
