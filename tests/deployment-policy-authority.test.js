@@ -37,6 +37,10 @@ test('deployment policy authority fails closed for missing, malformed, or unavai
   });
 
   assert.equal(authority.authorizeField({}, {}, 'attributes.name'), true);
+  assert.equal(authority.isCurrent({
+    authority_identity: 'deployment.visibility',
+    policy_generation: 'generation-1',
+  }), false);
   active = { authority_identity: 'other.authority', generation: 'generation-2', authorizeField: () => true };
   assert.equal(authority.isCurrent({ authority_identity: 'deployment.visibility', policy_generation: 'generation-1' }), false);
   assert.equal(authority.authorizeField({}, {}, 'attributes.name'), false);
