@@ -352,7 +352,7 @@ static int probe_stat(const char *name, struct stat *info) {
       errno = EACCES;
       return -1;
     }
-    g_race_injection_count += 1;
+    probe_counter_increment(&g_race_injection_count);
   }
   return rc;
 }
@@ -371,12 +371,14 @@ static int probe_xOpen(sqlite3_vfs *vfs, const char *name, sqlite3_file *file,
     char *full_path = (char *)sqlite3_malloc64((sqlite3_uint64)parent->mxPathname + 1);
     if (!full_path) return SQLITE_NOMEM;
     if (parent->xFullPathname(parent, name, parent->mxPathname + 1, full_path) == SQLITE_OK) {
+      probe_registry_lock();
       for (int i = 0; i < g_database_role_count; i++) {
         if (strcmp(full_path, g_database_roles[i].path) == 0) {
           role_index = i;
           break;
         }
       }
+      probe_registry_unlock();
     }
     sqlite3_free(full_path);
   }
@@ -407,13 +409,14 @@ static int probe_xOpen(sqlite3_vfs *vfs, const char *name, sqlite3_file *file,
         g_current_sidecar_open = 0;
         return SQLITE_CANTOPEN;
       }
-      g_race_injection_count += 1;
+      probe_counter_increment(&g_race_injection_count);
     }
   }
   rc = parent->xOpen(parent, name, file, flags, out_flags);
   if (role_index >= 0) {
 #ifndef _WIN32
     if (rc == SQLITE_OK && !g_current_role_captured && g_current_role_stat_valid) {
+      probe_registry_lock();
       ProbeDatabaseRole *role = &g_database_roles[role_index];
       if (!role->identity_set) {
         role->device = g_current_role_stat_device;
@@ -422,6 +425,7 @@ static int probe_xOpen(sqlite3_vfs *vfs, const char *name, sqlite3_file *file,
       }
       g_reused_descriptor_accept_count += 1;
       g_current_role_captured = 1;
+      probe_registry_unlock();
     }
 #endif
     if (rc == SQLITE_OK && !g_current_role_captured) {
@@ -451,9 +455,9 @@ static int probe_xOpen(sqlite3_vfs *vfs, const char *name, sqlite3_file *file,
     g_current_race_captured = 0;
   }
   if (rc == SQLITE_OK) {
-    if ((flags & SQLITE_OPEN_MAIN_DB) != 0) g_main_db_open_count += 1;
-    if ((flags & SQLITE_OPEN_WAL) != 0) g_wal_open_count += 1;
-    if ((flags & SQLITE_OPEN_MAIN_JOURNAL) != 0) g_journal_open_count += 1;
+    if ((flags & SQLITE_OPEN_MAIN_DB) != 0) probe_counter_increment(&g_main_db_open_count);
+    if ((flags & SQLITE_OPEN_WAL) != 0) probe_counter_increment(&g_wal_open_count);
+    if ((flags & SQLITE_OPEN_MAIN_JOURNAL) != 0) probe_counter_increment(&g_journal_open_count);
   }
   return rc;
 }
