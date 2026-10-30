@@ -247,9 +247,9 @@ test('transport handoff begins while the shared coordinator is still held', asyn
       return { status: 200, body: 'accepted' };
     },
   });
-  t.after(() => {
+  t.after(async () => {
     try { contender?.close(); } catch {}
-    return fixture.cleanup();
+    await fixture.close();
   });
 
   contender = new DatabaseSync(fixture.coordinatorPath);
