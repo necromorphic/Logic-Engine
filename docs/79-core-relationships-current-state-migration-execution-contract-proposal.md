@@ -1,7 +1,7 @@
 # Core execution contract proposal — Relationships current-state migration B
 
 **Status:** proposal for review; not an approved runtime contract.  
-**Depends on:** Relationships domain policy in Section 14 of `docs/75-relationships-world-pack-version-semantics.md` (currently carried by PR #745).  
+**Depends on:** Relationships domain policy in Section 14 of `docs/75-relationships-world-pack-version-semantics.md` (approved and merged in PR #745).  
 **Scope:** Core execution and persistence only. This document does not define Relationships mapping semantics and does not authorize implementation.
 
 ## 1. Purpose and non-negotiable boundaries
@@ -175,7 +175,7 @@ A migration's lifecycle may become non-current or invalidated because its source
 - Same key + different request fails with a stable idempotency conflict.
 - The audit entry records the migration ID, artifact pin, source/target tuples, source cursor/digest, derived result ID/digest, trusted executor, and outcome.
 - Restart recovery must select the same valid migration head and rebuild the same effective projection.
-- A partially persisted migration is impossible: the derived result, head, world target pin, materialized projection, audit and idempotency record share one transaction.
+- A partially persisted migration is impossible: the derived result, head, active Relationships semantic head, materialized projection, audit and idempotency record share one transaction.
 - Corrupt/missing derived payload, digest mismatch, unavailable exact artifact, or inconsistent head lineage fails closed. Core must not fall back to latest mapping or silently rebuild from target semantics.
 - The original event log remains independently auditable and replayable under its original committed effects and pins.
 
@@ -227,7 +227,7 @@ All acceptance tests must exercise the real Core application/store path at the e
 
 Implementation is not authorized by this proposal. Before runtime work:
 
-1. Relationships reviews and merges the approved domain policy in PR #745.
+1. The approved Relationships domain policy in PR #745 is already merged; its constraints remain binding.
 2. Core reviews and approves this execution contract, including the derived-base/rebuild and rollback dependency semantics.
 3. The mapping artifact contract is finalized by Relationships; Core does not invent dimension/value mappings.
 4. Core implementation is split into storage/migration ledger, effective projection rebuild/read path, transition dependency integration, and rollback/recovery.
