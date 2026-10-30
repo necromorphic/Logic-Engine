@@ -5,6 +5,8 @@ import { hashRequest } from '../core/request-hash.js';
 const object = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 const validId = (value) => typeof value === 'string' && value === value.trim() && value.length > 0 && value.length <= 200;
 
+export const MECHANIC_POLICY_RUNTIME_CONTRACT_VERSION = 1;
+
 export function validateTrustedMechanicPolicyConfig(config) {
   const allowed = [
     'authority_id', 'generation', 'policy_version', 'authorization_scope',
@@ -66,6 +68,9 @@ export function loadTrustedMechanicPolicyConfig(path) {
 
 export function trustedMechanicPolicyRevision(config) {
   const validated = validateTrustedMechanicPolicyConfig(config);
-  return hashRequest(validated);
+  return hashRequest({
+    runtime_contract_version: MECHANIC_POLICY_RUNTIME_CONTRACT_VERSION,
+    policy: validated,
+  });
 }
 
