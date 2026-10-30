@@ -130,7 +130,6 @@ export class AuthorizedReadService {
     'INVALID_AUTHORIZED_READ_SNAPSHOT', 'Expected world revision and commit sequence are required.');
 
     const policyEvidence = this.capturePolicyEvidence();
-    const policyEvidence = this.capturePolicyEvidence();
     const binding = this.actorBindingService.resolve(
       request.worldId,
       request.adapterId,
@@ -196,6 +195,7 @@ export class AuthorizedReadService {
     assert(new Set(request.fields).size === request.fields.length,
       'INVALID_READ_FIELDS', 'fields must be unique.');
 
+    const policyEvidence = this.capturePolicyEvidence();
     const binding = this.actorBindingService.resolve(
       request.worldId,
       request.adapterId,
