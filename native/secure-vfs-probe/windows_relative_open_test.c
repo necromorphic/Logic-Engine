@@ -65,8 +65,10 @@ int wmain(void) {
       || logic_engine_win_map_create_options(FILE_FLAG_OVERLAPPED,
         &mapped_options, &mapped_attributes)
       || logic_engine_win_map_create_options(0x40000000UL,
+        &mapped_options, &mapped_attributes)
+      || logic_engine_win_map_create_options(FILE_FLAG_DELETE_ON_CLOSE,
         &mapped_options, &mapped_attributes)) {
-    fail(L"unsupported Win32 open flags were accepted");
+    fail(L"unsupported or destructive Win32 open flags were accepted");
     goto cleanup;
   }
   if (!logic_engine_win_map_create_options(FILE_FLAG_RANDOM_ACCESS
