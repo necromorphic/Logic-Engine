@@ -1108,47 +1108,86 @@ static int probe_xDelete(sqlite3_vfs *vfs, const char *name, int sync_dir) {
     }
     memcpy(relative_name, role->basename, base_length);
     memcpy(relative_name + base_length, suffix, suffix_length + 1);
-    if (unlinkat(role->trusted_parent_fd, relative_name, 0) != 0) {
-      if (errno == ENOENT) {
-        if (suffix[0] != '\0') {
-          int kind = strcmp(suffix, "-wal") == 0 ? 1
-            : strcmp(suffix, "-shm") == 0 ? 2
-            : strcmp(suffix, "-journal") == 0 ? 3 : 0;
+    {
+      int kind = suffix[0] == '\0' ? 0
+        : strcmp(suffix, "-wal") == 0 ? 1
+        : strcmp(suffix, "-shm") == 0 ? 2
+        : strcmp(suffix, "-journal") == 0 ? 3 : -1;
+      struct stat sidecar_info;
+      int sidecar_identity_found = 0;
+      if (kind < 0) return SQLITE_IOERR_DELETE;
+      if (kind > 0) {
+        if (fstatat(role->trusted_parent_fd, relative_name, &sidecar_info,
+              AT_SYMLINK_NOFOLLOW) != 0) {
+          if (errno != ENOENT) return SQLITE_IOERR_DELETE;
+          /* Missing path is not proof that a hardlinked object is gone. */
           probe_registry_lock();
           for (int i = 0; i < g_sidecar_identity_count; ++i) {
-            if (g_sidecar_identities[i].role_index == role_index
-                && g_sidecar_identities[i].kind == kind) {
+            ProbeSidecarIdentity *entry = &g_sidecar_identities[i];
+            if (entry->role_index == role_index && entry->kind == kind) {
+              entry->retired = 1;
+            }
+          }
+          probe_registry_unlock();
+          return SQLITE_OK;
+        }
+        if (!S_ISREG(sidecar_info.st_mode) || sidecar_info.st_dev == 0
+            || sidecar_info.st_ino == 0) return SQLITE_IOERR_DELETE;
+        probe_registry_lock();
+        for (int i = 0; i < g_sidecar_identity_count; ++i) {
+          ProbeSidecarIdentity *entry = &g_sidecar_identities[i];
+          if (entry->role_index == role_index && entry->kind == kind
+              && entry->device == sidecar_info.st_dev
+              && entry->inode == sidecar_info.st_ino) {
+            sidecar_identity_found = 1;
+            break;
+          }
+        }
+        probe_registry_unlock();
+        if (!sidecar_identity_found) return SQLITE_IOERR_DELETE;
+      }
+      if (unlinkat(role->trusted_parent_fd, relative_name, 0) != 0) {
+        if (errno == ENOENT) {
+          if (kind > 0) {
+            probe_registry_lock();
+            for (int i = 0; i < g_sidecar_identity_count; ++i) {
+              ProbeSidecarIdentity *entry = &g_sidecar_identities[i];
+              if (entry->role_index == role_index && entry->kind == kind
+                  && entry->device == sidecar_info.st_dev
+                  && entry->inode == sidecar_info.st_ino) {
+                entry->retired = 1;
+              }
+            }
+            probe_registry_unlock();
+          }
+          return SQLITE_OK;
+        }
+        return SQLITE_IOERR_DELETE;
+      }
+      if (kind > 0) {
+        probe_registry_lock();
+        for (int i = 0; i < g_sidecar_identity_count; ++i) {
+          ProbeSidecarIdentity *entry = &g_sidecar_identities[i];
+          if (entry->role_index == role_index && entry->kind == kind
+              && entry->device == sidecar_info.st_dev
+              && entry->inode == sidecar_info.st_ino) {
+            if (sidecar_info.st_nlink > 1) {
+              /* Keep ownership while any hardlink can still name this object. */
+              entry->retired = 1;
+            } else {
               g_sidecar_identity_count--;
               if (i < g_sidecar_identity_count) memmove(&g_sidecar_identities[i],
                 &g_sidecar_identities[i + 1],
                 (size_t)(g_sidecar_identity_count - i) * sizeof(g_sidecar_identities[0]));
-              break;
             }
+            break;
           }
-          probe_registry_unlock();
         }
-        return SQLITE_OK;
+        probe_registry_unlock();
       }
-      return SQLITE_IOERR_DELETE;
+      if (sync_dir && fsync(role->trusted_parent_fd) != 0) return SQLITE_IOERR_DIR_FSYNC;
+      return SQLITE_OK;
     }
-    if (suffix[0] != '\0') {
-      int kind = strcmp(suffix, "-wal") == 0 ? 1
-        : strcmp(suffix, "-shm") == 0 ? 2
-        : strcmp(suffix, "-journal") == 0 ? 3 : 0;
-      probe_registry_lock();
-      for (int i = 0; i < g_sidecar_identity_count; ++i) {
-        if (g_sidecar_identities[i].role_index == role_index
-            && g_sidecar_identities[i].kind == kind) {
-          g_sidecar_identity_count--;
-          if (i < g_sidecar_identity_count) memmove(&g_sidecar_identities[i],
-            &g_sidecar_identities[i + 1],
-            (size_t)(g_sidecar_identity_count - i) * sizeof(g_sidecar_identities[0]));
-          break;
-        }
-      }
-      probe_registry_unlock();
-    }
-    if (sync_dir && fsync(role->trusted_parent_fd) != 0) return SQLITE_IOERR_DIR_FSYNC;
     return SQLITE_OK;
   }
 #endif
