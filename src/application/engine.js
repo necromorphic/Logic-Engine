@@ -930,7 +930,7 @@ export class LogicEngine {
     ];
     assert(isSafeNpcInputRecord(input) && required.every((key) => Object.hasOwn(input, key)),
       'INVALID_NPC_BELIEF_TRANSITION', 'Belief transition request must be a plain data record with all required own fields.');
-    const limit = Object.hasOwn(input, 'limit') ? (limit) : 200;
+    const limit = Object.hasOwn(input, 'limit') ? (input.limit ?? 200) : 200;
     const allowed = [
       'world_id', 'adapter_id', 'actor_id', 'recipient', 'purpose', 'expected_revision', 'expected_commit_sequence',
       'limit', 'proposition_ref', 'proposition_value', 'stance', 'supporting_acquisition_ids',
@@ -1123,7 +1123,7 @@ export class LogicEngine {
     ];
     assert(isSafeNpcInputRecord(input) && required.every((key) => Object.hasOwn(input, key)),
       'INVALID_NPC_BELIEF_STATE_REQUEST', 'Belief state request must be a plain data record with all required own fields.');
-    const limit = Object.hasOwn(input, 'limit') ? (limit) : 200;
+    const limit = Object.hasOwn(input, 'limit') ? (input.limit ?? 200) : 200;
     const allowed = [
       'world_id', 'adapter_id', 'actor_id', 'recipient', 'purpose', 'expected_revision',
       'expected_commit_sequence', 'limit', 'proposition_ref',
