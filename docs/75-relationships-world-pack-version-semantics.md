@@ -278,3 +278,102 @@ This section supersedes earlier status notes in Sections 8–12 only for the bou
 Runtime CI #5924 passed on exact PR head `e59d329a821764c6605e2f1b3318b8a04672fce9` (all three jobs, including `npm test`). Codex code review on that exact head completed with no findings. The persisted-provenance corruption and full-record read-only assertions were added in merged Core PR #739; its exact-head Runtime CI #5983 also passed 3/3 jobs and Codex review found no issues. Projection rebuild remains a separate operation that reapplies the committed effect without executing the historical evaluator.
 
 Current tracker status during this follow-up: Core #146 is closed after the runtime merge; Relationships #143 remains open for the unresolved meaning-changing migration policy (PR #735 records the bounded evaluator evidence); Personality #73 was reopened for the traceability update, which merged in PR #736; it was then closed again for its completed Personality-owned traceability scope.
+
+
+## 14. Approved domain policy — current-state migration (30 October 2026)
+
+This section records the approved Relationships-owned meaning-changing migration policy. It supersedes earlier statements in this document that describe the source-to-target migration policy as undecided. It does not claim that a migration runtime, API, schema, or Core execution contract already exists.
+
+### 14.1 Selected migration model
+
+The selected model is **B — migration of the current Relationships projection state only**.
+
+- Migration transforms the current Relationships projection state from one exact semantic version to another.
+- Historical events, committed effects, evaluator snapshots, version pins, and provenance retain their original content and meaning.
+- Migration creates a separate auditable derived result.
+- Query-time projection selection may identify that derived result as the current state. This does not change or supersede source events.
+- Model C — semantic re-materialization or rewriting of historical events under target semantics — is outside the first-release scope and is not an approved capability.
+
+**Fail-closed default:** B may execute only when a complete approved mapping exists for the exact source-to-target version pair. Otherwise the entire operation is rejected. A is therefore the mandatory failure mode of B, not a separate migration model.
+
+### 14.2 Mapping completeness and atomic refusal
+
+Every source dimension and every source value present in the current state must have an explicit mapping in the approved migration artifact.
+
+- A missing dimension mapping rejects the entire migration.
+- A missing value mapping rejects the entire migration.
+- A missing mapping for a special state rejects the entire migration.
+- No neutral/default substitution, implicit dimension deletion, guessed conversion, or partial success is permitted.
+- No runtime `unsupported` or `unresolved` state may be introduced as a substitute for a missing mapping.
+- No out-of-band manual resolution is permitted during execution.
+
+If a case needs support, Relationships must explicitly define the mapping, version the migration artifact, and approve that artifact. The migration may then be retried against that artifact. This is a domain-policy update, not a runtime override.
+
+The states `unset`, `cleared`, `withheld`, `conflict`, and `insufficient` remain semantically distinct. Conversion is permitted only when the approved mapping explicitly defines it. In particular, the existence of a target-only dimension does not authorize Core to infer a neutral/default value for it; its initialization or exclusion must be explicitly defined by the approved mapping contract.
+
+### 14.3 Source immutability and derived results
+
+Source events, committed effects, snapshots, version pins, and provenance are immutable.
+
+- No source event is marked `superseded`.
+- No source event is rewritten, reinterpreted, or re-materialized under target rules.
+- Migration produces a separate derived result with explicit source/target versions and mapping identity.
+- Current-state selection belongs to the query-time projection boundary; it does not change the authority of historical source records for their original semantic version.
+
+The derived result must retain enough provenance to identify the source state, exact source and target versions, exact mapping artifact identity/version, and the migration execution. The concrete persistence shape is a Core execution-contract decision, not a Relationships schema decision.
+
+### 14.4 Version and direction constraints
+
+Every mapping must identify exact source and target World Pack identities/versions and exact source and target rule-module identities/versions.
+
+- No `latest` or nearest-version fallback.
+- No automatic traversal through intermediate versions.
+- Migration chains require explicit, separately approved mappings for each step.
+- Relationship direction is preserved. A mapping for `A → B` does not create or imply `B → A`.
+- Removed dimensions, target-only dimensions, and values with no direct counterpart require explicit domain mapping. No automatic deletion, neutralization, or inference is allowed.
+
+### 14.5 Historical candidate re-evaluation boundary
+
+The read-only historical candidate re-evaluation implemented in Core PRs #733 and #739 is an **audit/evidence input**, not a migration engine.
+
+It checks whether the captured source-semantic candidate agrees with the committed effect using the exact captured inputs and evaluator artifact. It does not produce target-semantic values and must not be used to transform historical events.
+
+Migration B operates on the current projection state using the approved source-to-target mapping. It does not rerun historical events under target rules, reinterpret their committed effects, or modify their historical snapshots.
+
+### 14.6 Cross-block ownership
+
+| Block | Responsibility |
+|---|---|
+| Relationships | Domain meaning and approval of dimension/value mappings, special-state mappings, removed/target-only dimension treatment, and migration eligibility |
+| Personality | Stable traits and Personality-owned semantic history remain unchanged; Relationships migration does not rewrite Personality state |
+| NPC | No new knowledge, beliefs, memories, or character-relative interpretations are created |
+| Core | Exact version resolution, validation, atomic execution, idempotency, derived-result provenance, audit, persistence, query-time selection, and recovery |
+
+### 14.7 Runtime status and acceptance boundary
+
+The domain policy is approved. This approval does **not** mean migration is executable today and does not authorize implementation before the Core execution contract is separately reviewed.
+
+Until an approved versioned mapping artifact and reviewed Core execution contract exist:
+
+- migration requests fail closed;
+- no canonical state is changed;
+- no partial derived result is persisted;
+- Memory→NPC remains `DISABLED / FAIL-CLOSED`.
+
+The Core execution contract must define and test complete mapping validation before writes, atomic rejection, immutable source history, auditable derived-result creation, idempotent retry, restart/recovery, and query-time selection of the derived current state.
+
+Historical candidate re-evaluation is not a prerequisite that performs transformation. It may be used as source-semantic audit evidence where available; its absence or unavailability must not be papered over by evaluating old events under target rules. The migration input is the current projection state and its exact source-version provenance.
+
+### 14.8 First-release exclusions
+
+The first release does not include:
+
+- semantic migration or re-materialization of historical events;
+- mutation or `superseded` marking of source events;
+- partial migration or runtime unresolved/unsupported placeholders for unmapped data;
+- manual per-record resolution outside the approved mapping artifact and atomic migration transaction;
+- automatic reciprocal relationship creation;
+- automatic migration chains or latest-version substitution;
+- changes to Personality traits or NPC knowledge.
+
+Any expansion beyond current-state migration requires a separate approved domain decision and reviewed execution contract.
