@@ -13,7 +13,7 @@ async function withTempRoot(run) {
   finally { await rm(parent, { recursive: true, force: true }); }
 }
 
-test('enumerates regular files recursively with deterministic digest and no content', async () => {
+test('enumerates regular files recursively with deterministic digest and no content', { skip: process.platform === 'win32' }, async () => {
   await withTempRoot(async ({ root }) => {
     await mkdir(join(root, 'chats'));
     await writeFile(join(root, 'chats', 'a.jsonl'), '{"role":"user","content":"secret"}\n');
@@ -57,7 +57,7 @@ test('rejects a symlink as the configured root', { skip: process.platform === 'w
   });
 });
 
-test('digest changes after an out-of-band file edit', async () => {
+test('digest changes after an out-of-band file edit', { skip: process.platform === 'win32' }, async () => {
   await withTempRoot(async ({ root }) => {
     const file = join(root, 'chat.jsonl');
     await writeFile(file, 'before');
@@ -71,7 +71,7 @@ test('digest changes after an out-of-band file edit', async () => {
   });
 });
 
-test('rejects non-regular filesystem entries', async () => {
+test('rejects non-regular filesystem entries', { skip: process.platform === 'win32' }, async () => {
   await withTempRoot(async ({ root }) => {
     await mkdir(join(root, 'nested'));
     const result = await enumerateStableFileInventory(resolve(root));
@@ -81,7 +81,7 @@ test('rejects non-regular filesystem entries', async () => {
 });
 
 
-test('delete and same-byte restore are distinct filesystem generations', async () => {
+test('delete and same-byte restore are distinct filesystem generations', { skip: process.platform === 'win32' }, async () => {
   await withTempRoot(async ({ root }) => {
     const file = join(root, 'chat.jsonl');
     const backup = join(root, '..', 'backup.tmp');
@@ -100,7 +100,7 @@ test('delete and same-byte restore are distinct filesystem generations', async (
   });
 });
 
-test('rejects hard-linked duplicate file identities', async () => {
+test('rejects hard-linked duplicate file identities', { skip: process.platform === 'win32' }, async () => {
   await withTempRoot(async ({ root }) => {
     const first = join(root, 'one.jsonl');
     const second = join(root, 'two.jsonl');
@@ -108,6 +108,15 @@ test('rejects hard-linked duplicate file identities', async () => {
     await link(first, second);
     assert.deepEqual(await enumerateStableFileInventory(resolve(root)), {
       status: 'non_ready', code: 'HOST_INVENTORY_DUPLICATE_FILE_IDENTITY'
+    });
+  });
+});
+
+
+test('Windows inventory remains fail-closed until reparse-point verification exists', { skip: process.platform !== 'win32' }, async () => {
+  await withTempRoot(async ({ root }) => {
+    assert.deepEqual(await enumerateStableFileInventory(resolve(root)), {
+      status: 'non_ready', code: 'HOST_INVENTORY_PLATFORM_REPARSE_UNVERIFIED'
     });
   });
 });
