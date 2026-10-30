@@ -20,7 +20,7 @@ const TRUSTED_IMPORT_CAPABILITY = Symbol('trusted-import-loader');
 const MAX_TRUSTED_IMPORT_BYTES = 1_000_000;
 const obj = (x) => x !== null && typeof x === 'object' && !Array.isArray(x);
 const exactDataRecord = (value, keys) => {
-  if (!obj(value) || utilTypes.isProxy(value)) return false;
+  if (value === null || typeof value !== 'object' || utilTypes.isProxy(value) || Array.isArray(value)) return false;
   try {
     const prototype = Object.getPrototypeOf(value);
     if (prototype !== Object.prototype && prototype !== null) return false;
@@ -31,7 +31,7 @@ const exactDataRecord = (value, keys) => {
   } catch { return false; }
 };
 const isSafeNpcInputRecord = (value, ancestors = new Set()) => {
-  if (value === null || typeof value !== 'object' || Array.isArray(value) || utilTypes.isProxy(value)) return false;
+  if (value === null || typeof value !== 'object' || utilTypes.isProxy(value) || Array.isArray(value)) return false;
   const visit = (node) => {
     if (node === null || typeof node === 'string' || typeof node === 'boolean') return true;
     if (typeof node === 'number') return Number.isFinite(node);
