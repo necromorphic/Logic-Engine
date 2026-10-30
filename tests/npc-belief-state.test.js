@@ -166,6 +166,27 @@ test('rejects proxy-backed and accessor-backed reducer inputs without invoking t
   assert.equal(accessorResult.status, 'non_ready');
   assert.equal(trapCalls, 0);
   assert.equal(getterCalls, 0);
+
+  const revokedObject = Proxy.revocable({}, {});
+  revokedObject.revoke();
+  assert.equal(reduceNpcBeliefTransition({
+    knowledgeRead: knowledgeRead(),
+    proposal: revokedObject.proxy,
+  }).status, 'non_ready');
+
+  const revokedArray = Proxy.revocable(['acq-support'], {});
+  revokedArray.revoke();
+  assert.equal(reduceNpcBeliefTransition({
+    knowledgeRead: knowledgeRead(),
+    proposal: proposal({ supporting_acquisition_ids: revokedArray.proxy }),
+  }).status, 'non_ready');
+
+  const revokedItems = Proxy.revocable([evidenceItems[0]], {});
+  revokedItems.revoke();
+  assert.equal(reduceNpcBeliefTransition({
+    knowledgeRead: knowledgeRead({ items: revokedItems.proxy }),
+    proposal: proposal(),
+  }).status, 'non_ready');
 });
 
 test('fails closed on non-JSON or cyclic Core evidence values without throwing', () => {
