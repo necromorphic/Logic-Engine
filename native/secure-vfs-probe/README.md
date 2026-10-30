@@ -113,3 +113,16 @@ Exact implementation/test head: `8fb9d945c338ad569e093158b408fecda7243fab`. [Win
 The dedicated VFS test now opens a file-backed `DatabaseSync` from a Node worker thread after the main thread has loaded the extension. The worker loads the extension again, opens its own file database, and queries the auto-extension probe function. This passes on both Windows and Linux at code head `24186ad43523611862130c4b8f5fd5467097347b`.
 
 This establishes that the tested Node 22.13.0 process shares the registered default VFS and SQLite auto-extension state with worker threads. It does not yet stress simultaneous opens from multiple threads or make the role registry thread-safe.
+
+
+## Sidecar identity, descriptor reuse and concurrent first-open
+
+The current probe checks the actual OS object for WAL and rollback-journal opens, and recognizes the `-shm` path used by the default VFS. Each sidecar open is rejected if its file identity aliases any registered main-database role. A dedicated WAL test replaces the `-wal` path with a hardlink to the registered Core database; the sidecar open is rejected on both Windows and Linux. This is a bounded check: sidecar-to-sidecar identity collisions and separate SHM/journal replacement races are not yet covered.
+
+The Linux test now forces SQLite's real `findReusableFd()` path: one connection holds a shared lock, a second connection closes while that lock remains, and a third connection reopens the database through SQLite's pending-descriptor list. The probe accepts that descriptor only after the wrapped `stat()` identity matches the registered role. This branch is not used by the Windows VFS.
+
+The process-wide role registry and counters are protected by SQLite's `SQLITE_MUTEX_STATIC_APP1` mutex. Two Node worker threads cross a barrier and concurrently establish first-open identities for separate registered database roles. The VFS also refuses replacement of its protected `open` / `CreateFileW` and Unix `stat` hooks through the registered VFS `xSetSystemCall` interface.
+
+Exact code/test head: `72ace856b6c431f0ba75b3da27a7bb86ea682b89`. [Windows/Linux VFS workflow run 41076207901](https://github.com/necromorphic/Logic-Engine/actions/runs/41076207901) — both jobs passed.
+
+The spike still is not a production secure VFS. It anchors each role to the first object opened in the current process; it does not persist a trusted identity ledger across restarts. Parent-directory replacement/reparse policy, sidecar-to-sidecar collisions, production startup integration, and migration/backup/recovery remain separate gates.
