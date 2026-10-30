@@ -160,7 +160,7 @@ deployment/
   logs/
   runtime/
   backup-staging/           # temporary only; not the protected backup vault
-` ```
+```
 
 The protected backup vault must be outside the runtime-writable data tree and preferably outside the runtime host/security domain in Hardened mode.
 
