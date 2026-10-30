@@ -16,11 +16,10 @@ const TRUSTED_IMPORT_CAPABILITY = Symbol('trusted-import-loader');
 const MAX_TRUSTED_IMPORT_BYTES = 1_000_000;
 const obj = (x) => x !== null && typeof x === 'object' && !Array.isArray(x);
 
-// Windows may expose an unusable zero inode through Node's Stats API. In that
-// case the importer still verifies path stability with metadata, then validates
-// the bytes read from the opened handle against the deployment-owned SHA-256
-// allowlist before any state mutation. A path race can therefore cause denial
-// of service, but cannot make unapproved bytes pass trusted-source validation.
+// Windows path-based lstat and handle-based fstat can report different st_dev
+// values for the same file. Use BigIntStats so the 64-bit file index is exact;
+// if a platform does not expose a stable file ID, metadata is only a fallback
+// because the bytes are still checked against the deployment-owned SHA-256 allowlist.
 function sameTrustedImportPath(left, right) {
   const normalize = (value) => {
     let path = resolve(value);
@@ -38,8 +37,8 @@ function sameTrustedImportPath(left, right) {
 }
 
 function sameTrustedImportFileIdentity(opened, pathStat) {
-  const hasStableFileId = Number.isSafeInteger(opened.ino) && Number.isSafeInteger(pathStat.ino)
-    && opened.ino !== 0 && pathStat.ino !== 0;
+  const hasStableFileId = typeof opened.ino === 'bigint' && typeof pathStat.ino === 'bigint'
+    && opened.ino !== 0n && pathStat.ino !== 0n;
   if (hasStableFileId) {
     // On Windows, Node's path-based lstat and handle-based fstat can report
     // different st_dev values for the same file. The NTFS file index remains
@@ -48,8 +47,8 @@ function sameTrustedImportFileIdentity(opened, pathStat) {
       && (process.platform === 'win32' || opened.dev === pathStat.dev);
   }
   return opened.size === pathStat.size
-    && opened.mtimeMs === pathStat.mtimeMs
-    && opened.ctimeMs === pathStat.ctimeMs;
+    && opened.mtimeNs === pathStat.mtimeNs
+    && opened.ctimeNs === pathStat.ctimeNs;
 }
 const strings = (x, name) => {
   x = x ?? [];
@@ -747,18 +746,18 @@ export class LogicEngine {
       let pathBefore;
       let resolvedBefore;
       if (!Number.isInteger(noFollow) || noFollow === 0) {
-        pathBefore = lstatSync(configured.source_path);
+        pathBefore = lstatSync(configured.source_path, { bigint: true });
         resolvedBefore = realpathSync(configured.source_path);
         assert(pathBefore.isFile() && !pathBefore.isSymbolicLink()
           && sameTrustedImportPath(resolvedBefore, configured.source_path),
         'TRUSTED_IMPORT_FILE_UNAVAILABLE', 'Trusted import path must resolve directly to a regular, non-link file.', 503);
       }
       fd = openSync(configured.source_path, fsConstants.O_RDONLY | (Number.isInteger(noFollow) && noFollow !== 0 ? noFollow : 0));
-      const stat = fstatSync(fd);
+      const stat = fstatSync(fd, { bigint: true });
       assert(stat.isFile() && stat.size > 0 && stat.size <= MAX_TRUSTED_IMPORT_BYTES,
         'INVALID_TRUSTED_IMPORT_FILE', 'Trusted import must be a regular file within the 1 MiB limit.');
       if (pathBefore) {
-        const pathAfter = lstatSync(configured.source_path);
+        const pathAfter = lstatSync(configured.source_path, { bigint: true });
         const resolvedAfter = realpathSync(configured.source_path);
         assert(pathAfter.isFile() && !pathAfter.isSymbolicLink()
           && sameTrustedImportPath(resolvedBefore, resolvedAfter)
