@@ -239,6 +239,7 @@ function validateIndependentSegment(events) {
 }
 
 export class LogicEngine {
+  #npcKnowledgeHostIdentityResolver;
   constructor(store, { trustedInitialKnowledgeSources = [], worldPackCatalog = null, npcKnowledgeReadAuthorizer = null, npcKnowledgeVisibilityAuthorizer = null, npcKnowledgeHostIdentityResolver = null } = {}) {
     if (!Array.isArray(trustedInitialKnowledgeSources)) throw new TypeError('trustedInitialKnowledgeSources must be a deployment-owned array');
     this.trustedInitialKnowledgeSources = trustedInitialKnowledgeSources.map((entry) => Object.freeze({ ...entry }));
@@ -252,7 +253,7 @@ export class LogicEngine {
     }
     this.npcKnowledgeReadAuthorizer = npcKnowledgeReadAuthorizer;
     this.npcKnowledgeVisibilityAuthorizer = npcKnowledgeVisibilityAuthorizer;
-    this.npcKnowledgeHostIdentityResolver = npcKnowledgeHostIdentityResolver;
+    this.#npcKnowledgeHostIdentityResolver = npcKnowledgeHostIdentityResolver;
     this.store = store;
     this.processStore = new ProcessStore(store);
     this.store.processStore = this.processStore;
@@ -703,11 +704,11 @@ export class LogicEngine {
     }
   }
 
-  resolveNpcHostScope(hostIdentity) {
-    assert(typeof this.npcKnowledgeHostIdentityResolver === 'function',
+  #resolveNpcHostScope(hostIdentity) {
+    assert(typeof this.#npcKnowledgeHostIdentityResolver === 'function',
       'NPC_HOST_IDENTITY_NOT_CONFIGURED', 'A trusted server-authenticated Host identity resolver is required.', 403);
     let scope = null;
-    try { scope = this.npcKnowledgeHostIdentityResolver(hostIdentity); } catch {}
+    try { scope = this.#npcKnowledgeHostIdentityResolver(hostIdentity); } catch {}
     assert(scope && isSafeNpcInputRecord(scope)
       && Object.keys(scope).length === 4
       && typeof scope.world_id === 'string' && scope.world_id.trim()
@@ -729,7 +730,7 @@ export class LogicEngine {
       assert(isSafeNpcInputRecord(options)
         && Object.keys(options).every(key => key === 'limit'),
       'INVALID_NPC_HOST_READ_OPTIONS', 'Host knowledge read accepts only an optional bounded limit.', 400);
-      const scope = this.resolveNpcHostScope(hostIdentity);
+      const scope = this.#resolveNpcHostScope(hostIdentity);
       const snapshot = this.getSnapshot(scope.world_id);
       assert(snapshot && snapshot.status === 'active',
         'NPC_KNOWLEDGE_READ_NOT_READY', 'The bound Core world is unavailable.', 403);
@@ -741,7 +742,7 @@ export class LogicEngine {
         expected_commit_sequence: snapshot.commit_sequence,
         limit: options.limit ?? 200,
       });
-      return this.authorizeNpcKnowledgeVisibility(read);
+      return this.#authorizeNpcKnowledgeVisibility(read);
     });
   }
 
@@ -777,7 +778,7 @@ export class LogicEngine {
     });
   }
 
-  authorizeNpcKnowledgeVisibility(read) {
+  #authorizeNpcKnowledgeVisibility(read) {
     assert(typeof this.npcKnowledgeVisibilityAuthorizer === 'function',
       'NPC_KNOWLEDGE_VISIBILITY_NOT_CONFIGURED',
       'A trusted deployment-owned per-acquisition visibility authorizer is required.', 403);
