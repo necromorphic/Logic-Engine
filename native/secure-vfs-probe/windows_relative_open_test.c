@@ -125,6 +125,21 @@ int wmain(void) {
   CloseHandle(handle);
   handle = INVALID_HANDLE_VALUE;
 
+  SetLastError(ERROR_SUCCESS);
+  handle = logic_engine_win_open_relative(anchor.parent, L"missing.sqlite",
+      GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+      FILE_OPEN, FILE_NON_DIRECTORY_FILE, FILE_ATTRIBUTE_NORMAL, NULL, NULL);
+  if (handle != INVALID_HANDLE_VALUE) {
+    CloseHandle(handle);
+    handle = INVALID_HANDLE_VALUE;
+    fail(L"missing child unexpectedly opened");
+    goto cleanup;
+  }
+  if (GetLastError() != ERROR_FILE_NOT_FOUND && GetLastError() != ERROR_PATH_NOT_FOUND) {
+    fail(L"missing child did not preserve the not-found status");
+    goto cleanup;
+  }
+
   if (!CreateDirectoryW(reparse_target, NULL)
       || !CreateSymbolicLinkW(reparse_parent, reparse_target,
           SYMBOLIC_LINK_FLAG_DIRECTORY | SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE)) {
