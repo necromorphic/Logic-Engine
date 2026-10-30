@@ -24,6 +24,19 @@ Related evidence:
 
 This document resolves the private adapter architecture and the semantic decisions required to plan implementation.
 
+### 1.1 Delegated decision record
+
+| Decision | Project decision |
+|---|---|
+| D1 — Prepare private adapter contract | **YES** |
+| D2 — Core owns authorization and canonical state/commit | **YES** |
+| D3 — Host owns session authentication and sole Gateway | **YES** |
+| D4 — NPC owns belief semantics and cognition | **YES**; Core owns durable authoritative persistence where enabled |
+| D5 — Change another block's API without explicit owner approval | **NO**; schema, semantics, guarantees and behavior are included |
+| D6 — Automatically enable production after tests | **NO** |
+
+The project owner delegated architectural decision authority for the four blocks to the coordinator. This document records the resulting decisions for this contract only. It does not grant blanket approval for unspecified future API/schema changes or production enablement.
+
 It does **not** claim that the end-to-end path exists. Current implementation evidence shows:
 - Trusted `author_initial` / `imported` source ingestion is implemented on main by PR #683. Core validates deployment-owned source material and emits canonical `knowledge.acquire` effects; this is source ingestion, not a knowledge reader or Memory dispatch.
 - Core stores acquisition effects in its canonical event lifecycle and maintains a rebuildable `knowledge_acquisitions` projection. The current writer's deterministic `acquisition_id` binds world, subject, fact, source kind/reference/digest and authorization reference, but does not yet pin the exact acquired fact value and sorted source-event set.
