@@ -1001,7 +1001,7 @@ export class LogicEngine {
       const read = this.readNpcKnowledge(input);
       assert(read.truncated !== true, 'NPC_KNOWLEDGE_READ_INCOMPLETE',
         'The actor knowledge read exceeded its bounded limit; belief context requires a complete acquisition window.', 409);
-      const visibleRead = this.authorizeNpcKnowledgeVisibility(read);
+      const visibleRead = this.#authorizeNpcKnowledgeVisibility(read);
       const reduced = reduceNpcBeliefTransition({
         knowledgeRead: visibleRead,
         currentBelief,
