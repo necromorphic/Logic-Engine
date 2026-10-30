@@ -1,11 +1,9 @@
 name: SQLite VFS extension bootstrap probe
 
+# Push-only runs validate the exact branch HEAD SHA used by the PR CI monitor.
+# A second pull_request merge-ref run duplicates the same native tests and queues
+# independently, so this probe deliberately avoids that duplicate execution.
 on:
-  pull_request:
-    paths:
-      - 'native/secure-vfs-probe/**'
-      - 'tests/security-vfs-extension-bootstrap.test.js'
-      - '.github/workflows/security-vfs-extension-bootstrap.yml'
   push:
     branches:
       - 'security/**'
