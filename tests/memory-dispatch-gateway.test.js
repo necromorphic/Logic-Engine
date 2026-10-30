@@ -17,6 +17,8 @@ import { createDispatchRequestSignature, verifyDispatchRequestSignature, MemoryD
 import { createMemoryDispatchGatewayServer } from '../src/security/memory-dispatch-gateway-server.js';
 import { SQLiteMemoryProvider } from '../src/application/sqlite-memory-provider.js';
 import { enrollAcceptedHeadDomain } from '../src/security/enroll-accepted-head-domain.js';
+import { SQLiteStore } from '../src/storage/sqlite-store.js';
+import { LogicEngine } from '../src/application/engine.js';
 
 const coreToken = 'core-token-for-dispatch-gateway-tests-00000000000000000000000000000001';
 const providerToken = 'provider-token-for-dispatch-gateway-tests-00000000000000000000000000000002';
@@ -719,5 +721,151 @@ test('real Provider revokeRecord committed before dispatch-start produces zero u
       else process.env[name] = value;
     }
     rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+
+test('real Core source mutation and Gateway dispatch-start share one cross-process ordering boundary', async () => {
+  let releaseTransport;
+  let markTransportStarted;
+  const transportStarted = new Promise((resolve) => { markTransportStarted = resolve; });
+  const transportGate = new Promise((resolve) => { releaseTransport = resolve; });
+  const calls = [];
+  const fixture = await createFixture();
+  const previousCoordinatorPath = process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH;
+  const corePath = join(fixture.directory, 'core.sqlite');
+  let coreStore;
+  let coreReader;
+  let gateway;
+  try {
+    fixture.gateway.close();
+    process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH = fixture.coordinatorPath;
+    coreStore = new SQLiteStore(corePath);
+    const core = new LogicEngine(coreStore);
+    core.createWorld({
+      world_id: 'world-1',
+      world_pack_id: 'test.world',
+      world_pack_version: '1.0.0',
+      game_time: '2026-01-01T00:00:00Z',
+    });
+    core.commitEvent('world-1', {
+      idempotency_key: 'dispatch-core-seed',
+      turn_id: 'dispatch-core-seed',
+      event_type: 'action.completed',
+      expected_revision: 0,
+      effects: [
+        { kind: 'entity.create', entity_id: 'npc-1', entity_type: 'character' },
+        { kind: 'entity.create', entity_id: 'entity-42', entity_type: 'character' },
+      ],
+    });
+    coreReader = openReadOnlySqliteDatabase(corePath);
+
+    const readCoreEvidence = ({ worldId, actorId, sources }) => {
+      const world = coreReader.prepare('SELECT status FROM worlds WHERE world_id=?').get(worldId);
+      if (!world || world.status !== 'active') {
+        return { head: 1, world_id: worldId, actor_id: actorId, readiness: 'NOT_READY', inventory_status: 'NOT_READY', sources: [] };
+      }
+      const currentSources = sources.map((source) => {
+        const entity = coreReader.prepare(
+          'SELECT status,updated_revision FROM entities WHERE world_id=? AND entity_id=?',
+        ).get(worldId, source.source_entity_id);
+        return entity && entity.status !== 'destroyed'
+          ? { source_kind: 'canonical_entity', source_entity_id: source.source_entity_id, source_version: String(entity.updated_revision) }
+          : { source_kind: 'canonical_entity', source_entity_id: source.source_entity_id, source_version: 'unavailable' };
+      });
+      return {
+        head: 1,
+        world_id: worldId,
+        actor_id: actorId,
+        readiness: 'READY',
+        inventory_status: 'READY',
+        sources: currentSources,
+      };
+    };
+    gateway = new MemoryDispatchGateway({
+      ledgerPath: fixture.ledgerPath,
+      coordinatorPath: fixture.coordinatorPath,
+      authorityPort: fixture.port,
+      readToken,
+      readCoreEvidence,
+      readProviderEvidence: ({ worldId, actorId, purpose, sources, candidates }) => ({
+        head: 1,
+        world_id: worldId,
+        actor_id: actorId,
+        purpose,
+        granted: true,
+        readiness: 'READY',
+        sources,
+        candidates,
+      }),
+      sendUpstream: async (request) => {
+        calls.push(request);
+        markTransportStarted();
+        await transportGate;
+        return { status: 200 };
+      },
+    });
+
+    const readCurrentVersion = () => String(coreReader.prepare(
+      'SELECT updated_revision FROM entities WHERE world_id=? AND entity_id=?',
+    ).get('world-1', 'entity-42').updated_revision);
+    const requestAtVersion = (requestId, version) => {
+      const base = validRequest(requestId);
+      const sources = [{ source_kind: 'canonical_entity', source_entity_id: 'entity-42', source_version: version }];
+      return {
+        ...base,
+        sources,
+        candidates: [{
+          ...base.candidates[0],
+          source_entity_id: 'entity-42',
+          source_version: version,
+        }],
+      };
+    };
+    const updateSource = (idempotencyKey) => {
+      const snapshot = core.getSnapshot('world-1');
+      return core.commitEvent('world-1', {
+        idempotency_key: idempotencyKey,
+        turn_id: idempotencyKey,
+        event_type: 'action.completed',
+        expected_revision: snapshot.world_revision,
+        expected_commit_sequence: snapshot.commit_sequence,
+        causal_links: [{ relation: 'REQUIRES', predicate: { kind: 'entity_exists', entity_id: 'entity-42' } }],
+        read_set: ['entity:entity-42'],
+        effects: [{ kind: 'entity.update', entity_id: 'entity-42', attributes: { updated_by: idempotencyKey } }],
+      });
+    };
+
+    const staleVersion = readCurrentVersion();
+    updateSource('core-update-before-dispatch');
+    await assert.rejects(
+      gateway.dispatchProtectedRequest(requestAtVersion('core-stale-before-start', staleVersion)),
+      /MEMORY_DISPATCH_NOT_READY/,
+    );
+    assert.equal(calls.length, 0, 'a Core source mutation ordered before dispatch-start must produce zero upstream calls');
+
+    const currentVersion = readCurrentVersion();
+    const inFlight = gateway.dispatchProtectedRequest(requestAtVersion('core-dispatch-start-wins', currentVersion));
+    await transportStarted;
+    updateSource('core-update-after-dispatch-start');
+    releaseTransport();
+    await inFlight;
+    assert.equal(calls.length, 1, 'a Core mutation ordered after durable dispatch-start cannot recall the in-flight request');
+
+    const ledger = new DatabaseSync(fixture.ledgerPath);
+    try {
+      assert.equal(ledger.prepare('SELECT status FROM dispatch_ledger WHERE request_id=?')
+        .get('core-dispatch-start-wins').status, 'COMPLETED');
+    } finally {
+      ledger.close();
+    }
+  } finally {
+    try { releaseTransport?.(); } catch {}
+    try { gateway?.close(); } catch {}
+    try { coreReader?.close(); } catch {}
+    try { coreStore?.close(); } catch {}
+    if (previousCoordinatorPath === undefined) delete process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH;
+    else process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH = previousCoordinatorPath;
+    await fixture.close();
   }
 });
