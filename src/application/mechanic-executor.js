@@ -70,7 +70,7 @@ const unknown = (reasonCode, reason, identity = null) => ({
   effect_provenance: [],
 });
 
-function snapshotIdentity(worldId, snapshot, instance, templateEntry) {
+function snapshotIdentity(worldId, snapshot, instance, templateEntry, activeMechanicSet = []) {
   return {
     world_id: worldId,
     world_revision: snapshot.world_revision,
@@ -79,6 +79,7 @@ function snapshotIdentity(worldId, snapshot, instance, templateEntry) {
     template_id: instance.template_id,
     template_version: instance.template_version,
     template_hash: templateEntry.template_hash,
+    active_mechanic_set: activeMechanicSet,
   };
 }
 
@@ -121,7 +122,29 @@ export class MechanicExecutor {
       return unknown('PINNED_TEMPLATE_NOT_FOUND', 'The exact pinned template is absent from the evaluation snapshot.');
     }
     const template = templateEntry.template;
-    const identity = snapshotIdentity(worldId, snapshot, instance, templateEntry);
+    const activeMechanicInstances = state.instances
+      .filter((candidate) => candidate.status === 'enabled' || candidate.status === 'needs_review')
+      .sort((a, b) => a.instance_id.localeCompare(b.instance_id));
+    const activeMechanicSet = [];
+    const activeTemplateByInstance = new Map();
+    for (const candidate of activeMechanicInstances) {
+      const entry = state.templates.find(({ template: candidateTemplate }) =>
+        candidateTemplate.template_id === candidate.template_id
+        && candidateTemplate.version === candidate.template_version);
+      if (!entry) {
+        return unknown('ACTIVE_MECHANIC_TEMPLATE_NOT_FOUND',
+          'An enabled or review-required mechanic references a missing pinned template.', identity);
+      }
+      activeTemplateByInstance.set(candidate.instance_id, entry.template);
+      activeMechanicSet.push({
+        instance_id: candidate.instance_id,
+        status: candidate.status,
+        template_id: candidate.template_id,
+        template_version: candidate.template_version,
+        template_hash: entry.template_hash,
+      });
+    }
+    const identity = snapshotIdentity(worldId, snapshot, instance, templateEntry, activeMechanicSet);
     const action = template.actions.find((candidate) => candidate.action_id === actionId);
     if (!action) return { status: 'rejected', reason_code: 'MECHANIC_ACTION_NOT_FOUND', snapshot_identity: identity, effects: [], effect_provenance: [] };
     const instanceParameters = instance.parameters;
@@ -134,6 +157,17 @@ export class MechanicExecutor {
     if (template.unknown_policy !== 'mark_unknown') {
       return unknown('UNSUPPORTED_UNKNOWN_POLICY',
         'This executor slice supports only unknown_policy=mark_unknown.', identity);
+    }
+    for (const candidate of activeMechanicInstances) {
+      if (candidate.instance_id === instanceId) continue;
+      const otherTemplate = activeTemplateByInstance.get(candidate.instance_id);
+      const referencesCurrentTemplate = (otherTemplate.interactions ?? []).some((interaction) =>
+        interaction.other_template_id === template.template_id
+        && (interaction.other_version === undefined || interaction.other_version === template.version));
+      if (referencesCurrentTemplate) {
+        return unknown('UNSUPPORTED_ACTIVE_MECHANIC_INTERACTION',
+          'Another enabled or review-required mechanic declares an interaction with the selected template; interaction semantics are not implemented.', identity);
+      }
     }
 
     // Read the current projection only for internal dependency/target checks.
