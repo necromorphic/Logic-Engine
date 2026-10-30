@@ -131,7 +131,7 @@ function makeFixture(chat = [{ is_user: true, mes: 'hello' }, { is_user: false, 
       if (!skipDiskWrite) persistedChat = structuredClone(chat);
     },
   });
-  return { db, journal, chat, bridge, setLocator(value) { sourceLocator = value; }, setFailSave(value) { failSave = value; }, setSkipDiskWrite(value) { skipDiskWrite = value; }, get saveCount() { return saveCount; } };
+  return { db, journal, chat, bridge, setLocator(value) { sourceLocator = value; }, setFailSave(value) { failSave = value; }, setSkipDiskWrite(value) { skipDiskWrite = value; }, setPersistedChat(value) { persistedChat = structuredClone(value); }, get saveCount() { return saveCount; } };
 }
 
 test('configured Core publisher receives digest-only baseline, replacement tombstone, and active version in order', async () => {
@@ -802,5 +802,17 @@ test('enrollment fails closed when independent JSONL readback does not contain t
   await assert.rejects(f.bridge.enrollCurrentConversation(),
     /native identity metadata or independent disk verification failed/);
   assert.equal((await f.journal.verifyIntegrity('chat-1')).status, 'INTEGRITY_OK');
+  assert.equal((await f.journal.pendingMutation('chat-1')).status, 'NO_PENDING_MUTATION');
+});
+
+
+test('before-mutation guard rejects an out-of-band persisted JSONL edit before the Host mutation starts', async () => {
+  const f = makeFixture();
+  await f.bridge.enrollCurrentConversation();
+  const externallyEdited = structuredClone(f.chat);
+  externallyEdited[0].mes = 'external disk edit';
+  f.setPersistedChat(externallyEdited);
+
+  await assert.rejects(f.bridge.beforeMutation('edit-message', [0]), /SOURCE_CHAT_VERSION_DIGEST_MISMATCH/);
   assert.equal((await f.journal.pendingMutation('chat-1')).status, 'NO_PENDING_MUTATION');
 });
