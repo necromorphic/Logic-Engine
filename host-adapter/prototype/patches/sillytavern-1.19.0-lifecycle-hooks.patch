@@ -494,12 +494,13 @@ diff --git a/src/endpoints/logic-engine-lifecycle.js b/src/endpoints/logic-engin
 new file mode 100644
 --- /dev/null
 +++ b/src/endpoints/logic-engine-lifecycle.js
-@@ -0,0 +1,5 @@
+@@ -0,0 +1,6 @@
 +import express from 'express';
-+import { createHostDigestProxyHandler } from './logic-engine-lifecycle-proxy.mjs';
++import { createHostDigestProxyHandler, createHostInventoryReconcileProxyHandler } from './logic-engine-lifecycle-proxy.mjs';
 +
 +export const router = express.Router();
 +router.post('/host-version-ledger/capture', createHostDigestProxyHandler());
++router.post('/host-version-ledger/reconcile', express.json({ limit: '9mb' }), createHostInventoryReconcileProxyHandler());
 
 diff --git a/src/endpoints/backends/chat-completions.js b/src/endpoints/backends/chat-completions.js
 --- a/src/endpoints/backends/chat-completions.js
