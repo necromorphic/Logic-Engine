@@ -45,7 +45,7 @@ export class HostLifecycleJournal {
     for (let i=0;i<messages.length;i++) {
       const m=messages[i], versions=Array.isArray(m.versions)&&m.versions.length?m.versions:[m.text ?? ''];
       mapping.push({ messageId:id(), messageIndex:i, role:String(m.role ?? 'unknown'), activeVersionIndex:Number.isInteger(m.activeVersionIndex)?m.activeVersionIndex:0,
-        versions: await Promise.all(versions.map(async (text,j)=>({versionId:id(), versionIndex:j, payloadDigest:await digest(String(text))}))) });
+        versions: await Promise.all(versions.map(async (text,j)=>({versionId:id(), versionIndex:j, payloadDigest:await contentDigest(text)}))) });
     }
     const row=await this.append({conversationId,eventId:id(),operation:'baseline',sourceFingerprint,payload:{captureBoundary:'enrollment-forward-only',messages:mapping}});
     if (row?.status === 'NON_READY') throw Error('NON_READY: baseline append rejected: ' + row.reason);
