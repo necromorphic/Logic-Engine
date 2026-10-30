@@ -14,6 +14,7 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
+#include <string.h>
 #include <winternl.h>
 #include <wchar.h>
 #include <stdint.h>
@@ -137,7 +138,6 @@ static inline HANDLE logic_engine_win_open_relative(
     LogicEngineWinFileIdentity observed;
     DWORD file_attributes = 0;
     if (!logic_engine_win_identity(result, &observed, &file_attributes)
-        || (file_attributes & FILE_ATTRIBUTE_DIRECTORY) != 0
         || (expected && !logic_engine_win_identity_equal(expected, &observed))) {
       CloseHandle(result);
       SetLastError(ERROR_ACCESS_DENIED);
