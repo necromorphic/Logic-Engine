@@ -343,6 +343,16 @@ test('belief transition and state APIs reject Proxy/accessor inputs before readi
     () => engine.getNpcBeliefState(hostileProxy),
     (error) => error.code === 'INVALID_NPC_BELIEF_STATE_REQUEST',
   );
+  const revoked = Proxy.revocable({}, {});
+  revoked.revoke();
+  assert.throws(
+    () => engine.recordNpcBeliefTransition(revoked.proxy),
+    (error) => error.code === 'INVALID_NPC_BELIEF_TRANSITION',
+  );
+  assert.throws(
+    () => engine.getNpcBeliefState(revoked.proxy),
+    (error) => error.code === 'INVALID_NPC_BELIEF_STATE_REQUEST',
+  );
 
   const transitionBase = {
     world_id: 'world-a',
