@@ -697,17 +697,18 @@ export class LogicEngine {
       'NPC_KNOWLEDGE_READER_NOT_ELIGIBLE',
       'The requesting NPC must be a non-destroyed character entity in this world.', 403);
 
+    const authorizationScope = Object.freeze({
+      world_id: request.world_id,
+      adapter_id: request.adapter_id,
+      actor_id: request.actor_id,
+      recipient: request.recipient,
+      purpose: request.purpose,
+      world_revision: world.world_revision,
+      commit_sequence: commitSequence,
+    });
     let authorization;
     try {
-      authorization = this.npcKnowledgeReadAuthorizer(Object.freeze({
-        world_id: request.world_id,
-        adapter_id: request.adapter_id,
-        actor_id: request.actor_id,
-        recipient: request.recipient,
-        purpose: request.purpose,
-        world_revision: world.world_revision,
-        commit_sequence: commitSequence,
-      }));
+      authorization = this.npcKnowledgeReadAuthorizer(authorizationScope);
     } catch {
       throw new EngineError('NPC_KNOWLEDGE_READ_NOT_AUTHORIZED',
         'The trusted read authorizer did not approve this request.', 403);
@@ -777,6 +778,23 @@ export class LogicEngine {
         source_event_ids: Object.freeze(sourceEventIds),
       });
     });
+
+    // Revalidate the trusted actor authorization after the acquisition rows have
+    // been read. This catches a binding revocation or policy change that races the
+    // SQL projection read; the final dispatch boundary must still revalidate under
+    // the shared Coordinator because a revocation can occur after this method returns.
+    let finalAuthorization;
+    try {
+      finalAuthorization = this.npcKnowledgeReadAuthorizer(authorizationScope);
+    } catch {
+      throw new EngineError('NPC_KNOWLEDGE_READ_NOT_AUTHORIZED',
+        'The trusted read authorization changed or failed during the read.', 403);
+    }
+    const finalChecked = validateNpcKnowledgeRead(request, world, commitSequence, finalAuthorization);
+    assert(finalChecked.status === 'ready'
+      && finalChecked.request.authorization_ref === checked.request.authorization_ref,
+    'NPC_KNOWLEDGE_READ_NOT_READY',
+    'Actor authorization changed while reading NPC knowledge; retry from a fresh authorization.', 403);
 
     // The authorizer and SQL read happen after the initial cursor capture. Re-read
     // the canonical cursor before returning so a concurrent commit cannot make
