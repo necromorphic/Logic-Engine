@@ -18,6 +18,7 @@
 #ifdef _WIN32
 #include <windows.h>
 #include <wchar.h>
+#include "windows_relative_open.h"
 #else
 #include <fcntl.h>
 #include <sys/stat.h>
