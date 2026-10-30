@@ -30,7 +30,7 @@ const resolver = async ({ locator = 'chat-file.jsonl', hostSessionId = SESSION_A
     ...rest,
   });
 
-test('creates and persists an installation-scoped stable conversation identity', async () => {
+test('creates and persists a session-and-installation-scoped stable conversation identity', async () => {
   const storage = new Storage();
   storage.setItem('logic-engine-host-installation-id', INSTALL_A);
   const metadata = {};
@@ -49,7 +49,7 @@ test('a locator binding prevents silent identity replacement or metadata deletio
   const storage = new Storage();
   storage.setItem('logic-engine-host-installation-id', INSTALL_A);
   const metadata = { logic_engine_conversation_id: CHAT_A };
-  storage.setItem(locatorKey('chat-file.jsonl'), SESSION_A + ':' + SESSION_A + ':' + INSTALL_A + ':' + CHAT_A);
+  storage.setItem(locatorKey('chat-file.jsonl'), SESSION_A + ':' + INSTALL_A + ':' + CHAT_A);
   metadata.logic_engine_conversation_id = CHAT_B;
   await assert.rejects(resolver({ metadata, storage }), /locator metadata is missing or inconsistent/);
   delete metadata.logic_engine_conversation_id;
@@ -60,7 +60,7 @@ test('an enrolled marker without a locator binding fails closed except during th
   const storage = new Storage();
   storage.setItem('logic-engine-host-installation-id', INSTALL_A);
   const metadata = { logic_engine_conversation_id: CHAT_A };
-  const resolvedId = INSTALL_A + ':' + CHAT_A;
+  const resolvedId = SESSION_A + ':' + INSTALL_A + ':' + CHAT_A;
   storage.setItem(prefix + resolvedId, 'enrolled:old-name.jsonl');
   await assert.rejects(resolver({ locator: 'new-name.jsonl', metadata, storage }), /no matching locator binding/);
   const renamed = await resolver({
@@ -101,7 +101,7 @@ test('legacy filename-based enrollment marker cannot be silently upgraded', asyn
 test('missing identity metadata with an existing enrollment marker is non-ready', async () => {
   const storage = new Storage();
   storage.setItem('logic-engine-host-installation-id', INSTALL_A);
-  storage.setItem(prefix + INSTALL_A + ':' + CHAT_A, 'enrolled:chat-file.jsonl');
+  storage.setItem(prefix + SESSION_A + ':' + INSTALL_A + ':' + CHAT_A, 'enrolled:chat-file.jsonl');
   await assert.rejects(
     resolver({ locator: 'chat-file.jsonl', metadata: {}, storage }),
     /enrolled Host locator has no stable metadata identity/,
