@@ -14,7 +14,7 @@ Status: repository-source audit; not a test-run report. Audited 2026-10-24 again
 
 ## Final disposition — Issue #73 (30 October 2026)
 
-Issue #73 was reopened on 30 October 2026 for this follow-up traceability update in PR #736. It remains open pending merge of that update; this does not mean every downstream runtime behavior is implemented.
+Issue #73 was reopened on 30 October 2026 for this follow-up traceability update in PR #736. The update merged, and the issue was then closed again for its completed Personality-owned specification/traceability scope; this does not mean every downstream runtime behavior is implemented.
 
 - PR #324 supplies the canonical per-case crosswalk and evidence classification.
 - Merged PR #722 updates the historical-version mapping for `PERS-SEM-024` and `PERS-SEM-029`, citing the merged Core projection-pin regression and the Relationships current-release decision.
@@ -388,4 +388,4 @@ Merged Core PR #733 (`cf61ad1`) changes the historical-version evidence boundary
 
 Runtime CI #5924 passed on exact PR #733 head `e59d329a821764c6605e2f1b3318b8a04672fce9` (3/3 jobs, including `npm test`); Codex review found no issues. Core PR #739's exact head `dfd554638d33d3803d62a2e8c0c4ff6b2cde24e4` passed Runtime CI #5983 (3/3 jobs) and Codex review with no findings. The snapshot SHA-256 values are consistency digests, not authentication signatures.
 
-Issue #73 was reopened for this follow-up traceability update; PR #736 carries the Personality-owned documentation changes. This follow-up does not resolve unrelated authorized-read, trusted import/correction, alternative-support, or Personality/NPC consumer blockers. Those retain their existing owners and trackers.
+Issue #73 was reopened for this follow-up traceability update and closed again after PR #736 merged. This follow-up does not resolve unrelated authorized-read, trusted import/correction, alternative-support, or Personality/NPC consumer blockers. Those retain their existing owners and trackers.
