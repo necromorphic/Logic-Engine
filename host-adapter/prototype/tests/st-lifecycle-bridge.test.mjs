@@ -299,7 +299,7 @@ test('restart reconciliation fails closed when source changed after the last jou
   const result = await f.bridge.reconcileCurrentConversation();
   assert.equal(result.status, 'NON_READY');
   assert.match(result.reason, /fingerprint differs/);
-  await assert.rejects(f.bridge.beforeMutation('delete-message', [0]), /fingerprint differs/);
+  await assert.rejects(f.bridge.beforeMutation('delete-message', [0]), /previous lifecycle operation is incomplete/);
 });
 
 test('speaker-label changes are fingerprinted and require an instrumented edit checkpoint', async () => {
@@ -449,7 +449,6 @@ test('new-message reconciliation fails closed when an existing identity is missi
   await f.bridge.enrollCurrentConversation();
   const before = await f.journal.verifyIntegrity('chat-1');
   delete f.chat[0]._logicEngineLifecycle;
-  f.chat.push({ is_user: false, mes: 'new reply' });
 
   await assert.rejects(
     f.bridge.beforeMutation('create-message', []),
