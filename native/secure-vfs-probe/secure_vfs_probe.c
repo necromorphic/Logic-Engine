@@ -955,7 +955,12 @@ static int probe_win_delete_role(int role_index, const wchar_t *relative_name,
       expected, &actual);
   if (handle == INVALID_HANDLE_VALUE) {
     error = GetLastError();
-    if (error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND) return SQLITE_OK;
+    if (error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND) {
+      if (!is_main && suffix) {
+        (void)probe_win_sidecar_identity_remove(role_index, suffix, expected);
+      }
+      return SQLITE_OK;
+    }
     return SQLITE_IOERR_DELETE;
   }
   if (!is_main && probe_win_identity_is_registered_database(&actual)) {
