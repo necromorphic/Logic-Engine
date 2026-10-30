@@ -270,27 +270,6 @@ export class ProposalService {
         && typeof evaluation.policy_authority.policy_version === 'string' && evaluation.policy_authority.policy_version.trim(),
       'INVALID_MECHANIC_POLICY_AUTHORITY', 'Policy authority evidence must include a trusted identity, generation, and version fingerprint.');
     }
-    if (typeof this.validateMechanicPolicy !== 'function') {
-      throw new EngineError('MECHANIC_POLICY_REVALIDATION_REQUIRED',
-        'Mechanic evaluations require a trusted current-policy validator before proposal creation.', 409, { stage: 'proposal' });
-    }
-    let policyCurrent = false;
-    try {
-      policyCurrent = this.validateMechanicPolicy(Object.freeze({
-        worldId,
-        policyVersion: evaluation.context_policy_version,
-        policyAuthority: evaluation.policy_authority ?? null,
-        authorizationScope: evaluation.authorization_scope,
-        snapshotIdentity: identity,
-        stage: 'proposal',
-      })) === true;
-    } catch {
-      policyCurrent = false;
-    }
-    if (!policyCurrent) {
-      throw new EngineError('STALE_MECHANIC_POLICY',
-        'The evaluation policy is no longer current; evaluate again before creating a proposal.', 409, { stage: 'proposal' });
-    }
     const mechanicExecution = {
       snapshot_identity: identity,
       action_id: evaluation.action_id,
@@ -344,6 +323,27 @@ export class ProposalService {
           current_commit_sequence: sequence,
         });
       }
+      if (typeof this.validateMechanicPolicy !== 'function') {
+        throw new EngineError('MECHANIC_POLICY_REVALIDATION_REQUIRED',
+          'Mechanic evaluations require a trusted current-policy validator before proposal creation.', 409, { stage: 'proposal' });
+      }
+      let policyCurrent = false;
+      try {
+        policyCurrent = this.validateMechanicPolicy(Object.freeze({
+          worldId,
+          policyVersion: evaluation.context_policy_version,
+          policyAuthority: evaluation.policy_authority ?? null,
+          authorizationScope: evaluation.authorization_scope,
+          snapshotIdentity: identity,
+          stage: 'proposal',
+        })) === true;
+      } catch {
+        policyCurrent = false;
+      }
+      if (!policyCurrent) {
+        throw new EngineError('STALE_MECHANIC_POLICY',
+          'The evaluation policy is no longer current; evaluate again before creating a proposal.', 409, { stage: 'proposal' });
+      }
       return this.create(worldId, {
         idempotency_key: idempotencyKey,
         source_text: sourceText,
@@ -361,9 +361,9 @@ export class ProposalService {
   /**
    * Revalidate deployment-owned visibility policy before a mechanic proposal
    * crosses an approval/commit boundary. The callback must synchronously compare
-   * the pinned policy fingerprint and authorization scope with the currently
-   * active policy; it must not mutate canonical state. Missing or non-true
-   * decisions fail closed. Ordinary non-mechanic proposals are unaffected.
+   * the pinned authority evidence, policy fingerprint, and authorization scope
+   * with the currently active policy; it must not mutate canonical state. Missing
+   * or non-true decisions fail closed. Ordinary non-mechanic proposals are unaffected.
    */
   assertMechanicPolicyCurrent(row, stage) {
     if (!row.mechanic_execution_json) return;
