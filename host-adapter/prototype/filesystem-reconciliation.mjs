@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { isVerifiedFileInventory } from './fs-inventory.js';
 
 /**
  * Conservative bridge between the generic filesystem scanner and the existing
@@ -22,7 +23,16 @@ export async function reconcileFilesystemInventory({
     || typeof expectedRoot !== 'string' || !expectedRoot) {
     return fail('invalid filesystem reconciliation arguments');
   }
-  if (!inventory || inventory.status !== 'complete'
+
+  // A digest supplied by the caller proves only that the supplied object is
+  // self-consistent. It does not prove that a filesystem scan produced it.
+  // Accept only the exact immutable manifest authenticated by the scanner
+  // module in this process; clones and caller-constructed manifests fail closed.
+  if (!isVerifiedFileInventory(inventory)) {
+    return fail('filesystem inventory was not produced by the trusted scanner in this process');
+  }
+
+  if (inventory.status !== 'complete'
     || inventory.scope !== 'single-root-regular-files-only'
     || inventory.root !== expectedRoot
     || !Array.isArray(inventory.entries)
