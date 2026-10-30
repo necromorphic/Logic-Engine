@@ -8,6 +8,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { EngineError } from '../core/errors.js';
 import { hashRequest } from '../core/request-hash.js';
 import { evaluateRelationshipCandidate } from '../relationship/evaluate-candidate.js';
+import { reevaluateHistoricalRelationshipSnapshot } from '../relationship/reevaluate-historical-snapshot.js';
 
 const now = () => new Date().toISOString();
 
@@ -1400,6 +1401,44 @@ export class SQLiteStore {
     }));
   }
 
+  reevaluateRelationshipEvent(worldId, eventId, effectIndex = null) {
+    if (typeof eventId !== 'string' || !eventId.trim()) throw new EngineError('INVALID_EVENT_ID', 'eventId must be a non-empty string.', 400);
+    if (effectIndex !== null && (!Number.isSafeInteger(effectIndex) || effectIndex < 0)) throw new EngineError('INVALID_RELATIONSHIP_EFFECT_INDEX', 'effectIndex must be a non-negative integer or null.', 400);
+    if (!this.world(worldId)) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
+    const event = this.db.prepare('SELECT event_id, validity, effects_json FROM world_events WHERE world_id=? AND event_id=?').get(worldId, eventId);
+    if (!event || event.validity !== 'valid') throw new EngineError('EVENT_NOT_FOUND', 'A valid committed event was not found.', 404);
+    const effects = dec(event.effects_json) || [];
+    let selected;
+    if (effectIndex === null) selected = effects.map((effect, index) => ({ effect, index })).filter(({ effect }) => effect?.kind === 'relationship.transition');
+    else {
+      const effect = effects[effectIndex];
+      if (!effect || effect.kind !== 'relationship.transition') return { status: 'unavailable', reason: 'selected_effect_is_not_relationship_transition', read_only: true, event_id: event.event_id };
+      selected = [{ effect, index: effectIndex }];
+    }
+    if (!selected.length) return { status: 'unavailable', reason: 'relationship_transition_effect_not_found', read_only: true, event_id: event.event_id };
+    const results = selected.map(({ effect, index }) => {
+      const snapshot = effect.relationship_evaluation_snapshot;
+      if (!snapshot) return { effect_index: index, status: 'unavailable', reason: 'historical_relationship_snapshot_missing', read_only: true };
+      if (snapshot.rule_module_id !== effect.rule_module_id || snapshot.rule_module_version !== effect.rule_module_version) {
+        return { effect_index: index, status: 'unavailable', reason: 'snapshot_effect_rule_pin_mismatch', read_only: true };
+      }
+      const input = snapshot.input;
+      if (!input || input.subjectId !== effect.subject_id || input.targetId !== effect.target_id
+          || !isDeepStrictEqual(input.evidence?.refs, effect.evidence_refs)
+          || input.ruleVersion !== effect.rule_module_id + '@' + effect.rule_module_version) {
+        return { effect_index: index, status: 'unavailable', reason: 'snapshot_effect_binding_mismatch', read_only: true };
+      }
+      const evaluated = reevaluateHistoricalRelationshipSnapshot(snapshot, { eventId: event.event_id });
+      if (evaluated.status !== 'evaluated') return { effect_index: index, ...evaluated };
+      const candidate = evaluated.candidate;
+      const matches = candidate?.status === 'candidate' && candidate.subjectId === effect.subject_id
+        && candidate.targetId === effect.target_id && candidate.ruleVersion === effect.rule_module_id + '@' + effect.rule_module_version
+        && isDeepStrictEqual(candidate.patch, effect.patch) && isDeepStrictEqual(candidate.evidenceRefs, effect.evidence_refs);
+      return { effect_index: index, ...evaluated, comparison: { matches_committed_effect: matches, candidate_status: candidate?.status ?? 'missing' } };
+    });
+    return { status: results.every((item) => item.status === 'evaluated') ? 'evaluated' : 'unavailable', read_only: true, event_id: event.event_id, results };
+  }
+
   audit(id) {
     if (!this.world(id)) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
     return this.db.prepare('SELECT * FROM audit_entries WHERE world_id=? ORDER BY audit_id').all(id).map((r) => ({
@@ -1761,7 +1800,10 @@ export class SQLiteStore {
               enumerable: true, configurable: true, writable: true,
             });
           }
-          const candidate = evaluateRelationshipCandidate({
+          // Persist the exact pure-evaluator inputs on the canonical effect while
+          // the commit transaction is still open. Never reconstruct these from a
+          // later projection or a mutable manifest during historical inspection.
+          const evaluationInput = {
             subjectId: effect.subject_id,
             targetId: effect.target_id,
             currentValues,
@@ -1769,12 +1811,26 @@ export class SQLiteStore {
             dimensionRules: domain.dimensions,
             evidence: { status: 'supported', refs: effect.evidence_refs },
             ruleVersion: effect.rule_module_id + '@' + effect.rule_module_version,
-          });
+          };
+          const relationshipEvaluationSnapshot = {
+            originating_event_id: eventId,
+            schema: 'relationship-evaluation-input/v2',
+            evaluator_contract: 'relationship-candidate/v1',
+            rule_module_id: effect.rule_module_id,
+            rule_module_version: effect.rule_module_version,
+            world_pack_id: w.world_pack_id,
+            world_pack_version: w.world_pack_version,
+            input: evaluationInput,
+            input_digest: hashRequest(evaluationInput),
+          };
+          relationshipEvaluationSnapshot.snapshot_digest = hashRequest(relationshipEvaluationSnapshot);
+          const candidate = evaluateRelationshipCandidate(evaluationInput);
           if (candidate.status !== 'candidate') {
             throw new EngineError('RELATIONSHIP_TRANSITION_REJECTED', 'Relationship candidate did not produce a committable transition.', 409, {
               candidate_status: candidate.status, reason: candidate.reason ?? null,
             });
           }
+          effect.relationship_evaluation_snapshot = relationshipEvaluationSnapshot;
           effect.patch = candidate.patch;
           continue;
         }
