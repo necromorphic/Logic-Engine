@@ -913,7 +913,7 @@ export class LogicEngine {
         action_id: metadata.action_id,
         context_fingerprint: metadata.context_fingerprint,
         context_policy_version: metadata.context_policy_version,
-        ...(metadata.policy_authority ? { policy_authority: metadata.policy_authority } : {}),
+        policy_authority: metadata.policy_authority,
         authorization_scope: metadata.authorization_scope,
         condition_result: metadata.condition_result,
         dependency_manifest: metadata.dependency_manifest,
