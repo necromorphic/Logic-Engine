@@ -196,6 +196,18 @@ function tx(database, operation) {
   }
 }
 
+function readTx(database, operation) {
+  database.exec("BEGIN");
+  try {
+    const value = operation();
+    database.exec("COMMIT");
+    return value;
+  } catch (error) {
+    try { database.exec("ROLLBACK"); } catch { /* keep original failure */ }
+    throw error;
+  }
+}
+
 function safe(operation) {
   try {
     return operation();
@@ -415,6 +427,7 @@ export function createNpcGoalPlanRepository({
       const params = goalId === undefined
         ? [scope.world_id, scope.npc_entity_id, limit]
         : [scope.world_id, scope.npc_entity_id, goalId, limit];
+      return readTx(database, () => {
       const goals = database.prepare(
         "SELECT goal_id,goal_json,goal_revision,status FROM npc_goals WHERE world_id = ? AND npc_entity_id = ?" +
         filter + " ORDER BY goal_id LIMIT ?",
@@ -475,6 +488,7 @@ export function createNpcGoalPlanRepository({
         }
       }
       return outcome("ready", response);
+      });
     });
   }
 
@@ -855,9 +869,14 @@ export function createNpcGoalPlanRepository({
           "UPDATE npc_goal_selection SET current_plan_revision = ?, plan_selection_revision = ? WHERE world_id = ? AND npc_entity_id = ? AND goal_id = ?",
         ).run(nextPlanRevision, nextSelectionRevision,
           scope.world_id, scope.npc_entity_id, attempt.goal_id);
+        const reconciledAttempt = {
+          ...attempt,
+          local_state: "reconciled",
+          reconciled_event_id: verified.event_id,
+        };
         database.prepare(
-          "UPDATE npc_action_attempts SET local_state = 'reconciled' WHERE world_id = ? AND npc_entity_id = ? AND attempt_id = ?",
-        ).run(scope.world_id, scope.npc_entity_id, attemptId);
+          "UPDATE npc_action_attempts SET local_state = 'reconciled', attempt_json = ? WHERE world_id = ? AND npc_entity_id = ? AND attempt_id = ?",
+        ).run(json(reconciledAttempt), scope.world_id, scope.npc_entity_id, attemptId);
         database.prepare(
           "INSERT INTO npc_core_reconciliations (world_id,npc_entity_id,attempt_id,proposal_id,event_id,goal_id,plan_id,step_id,result_hash,result_json,reconciled_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
         ).run(scope.world_id, scope.npc_entity_id, attemptId, verified.proposal_id,
