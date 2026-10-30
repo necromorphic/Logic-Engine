@@ -276,10 +276,13 @@ static inline int logic_engine_win_map_create_disposition(DWORD disposition, ULO
   if (!nt_disposition) return 0;
   switch (disposition) {
     case CREATE_NEW: *nt_disposition = FILE_CREATE; return 1;
-    case CREATE_ALWAYS: *nt_disposition = FILE_OVERWRITE_IF; return 1;
+    /* A destructive disposition mutates the opened object before its identity
+     * can be checked. Protected callers must use OPEN_ALWAYS/CREATE_NEW and
+     * perform any later mutation only through the validated handle. */
+    case CREATE_ALWAYS: return 0;
     case OPEN_EXISTING: *nt_disposition = FILE_OPEN; return 1;
     case OPEN_ALWAYS: *nt_disposition = FILE_OPEN_IF; return 1;
-    case TRUNCATE_EXISTING: *nt_disposition = FILE_OVERWRITE; return 1;
+    case TRUNCATE_EXISTING: return 0;
     default: return 0;
   }
 }
