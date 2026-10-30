@@ -38,6 +38,14 @@ export function createHostInventoryHandler({
     }
 
     try {
+      const requestedConversationUuid = request?.query?.conversation_uuid ?? null;
+      if (requestedConversationUuid !== null
+        && (typeof requestedConversationUuid !== 'string' || !HOST_SESSION_UUID.test(requestedConversationUuid))) {
+        return response.status(400).json({
+          status: 'NON_READY',
+          code: 'HOST_CONVERSATION_UUID_INVALID',
+        });
+      }
       const inventory = await enumerate({
         directories: {
           chats: directories.chats,
@@ -46,8 +54,17 @@ export function createHostInventoryHandler({
         },
         hostCommit: pinnedHostCommit,
       });
-      return response.status(200).json({
+      const responseInventory = requestedConversationUuid === null ? inventory : {
         ...inventory,
+        // The browser only needs the selected conversation's logical identities.
+        // Do not send every chat locator or file identity to the browser.
+        files: inventory.files.filter(file =>
+          file?.logical_identity?.conversation_uuid === requestedConversationUuid)
+          .map(file => ({ logical_identity: file.logical_identity })),
+        requested_conversation_uuid: requestedConversationUuid,
+      };
+      return response.status(200).json({
+        ...responseInventory,
         host_user_handle: userHandle,
         host_build_claim: hostBuildClaim,
         host_build_claim_type: 'DEPLOYMENT_ASSERTION_NOT_RUNTIME_ATTESTATION',
