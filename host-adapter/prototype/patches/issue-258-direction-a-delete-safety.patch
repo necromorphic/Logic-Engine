@@ -180,7 +180,7 @@ index 0c7eec5..ab60b1c 100644
 -    for (const message of messagesToDelete) {
 -        const index = chat.indexOf(message);
 -        if (index !== -1) {
--            console.debug(`/delname: Deleting message #${index}`, message);
+-            console.debug(`/delname: Deleting message #${index}`);
 -            chat.splice(index, 1);
 -        }
 +    const lifecycle = window.logicEngineHostLifecycle;
