@@ -843,7 +843,7 @@ export class LogicEngine {
       // Read the authorization cursor from one Core snapshot transaction. Separate
       // world/current-sequence reads can straddle a rollback because rollback advances
       // world_revision without advancing the event commit_sequence.
-      const snapshot = this.getSnapshot(request.world_id);
+      const snapshot = this.getNpcKnowledgeSnapshot(request.world_id);
       const world = snapshot;
       assert(world, 'WORLD_NOT_FOUND', 'World not found.', 404);
       const commitSequence = snapshot.commit_sequence;
@@ -943,7 +943,7 @@ export class LogicEngine {
       // commit_sequence, so two separate reads could observe the pre-rollback world
       // row and post-rollback sequence and incorrectly accept a stale result.
       let snapshotNow;
-      try { snapshotNow = this.getSnapshot(request.world_id); } catch { snapshotNow = null; }
+      try { snapshotNow = this.getNpcKnowledgeSnapshot(request.world_id); } catch { snapshotNow = null; }
       assert(snapshotNow && snapshotNow.status === 'active'
         && snapshotNow.world_revision === checked.request.world_revision
         && snapshotNow.commit_sequence === checked.request.commit_sequence,
