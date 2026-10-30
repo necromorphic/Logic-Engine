@@ -26,8 +26,9 @@ export function createStLifecycleBridge({ journal, getConversationId, getConvers
 
   async function assertPersistedChatMatches(conversationId, chat) {
     const conversationUuid = await getConversationUuid();
-    if (!HOST_UUID.test(conversationUuid ?? '')) {
-      throw Error('NON_READY: authenticated Host conversation UUID is unavailable for disk verification');
+    if (!HOST_UUID.test(conversationUuid ?? '') || typeof conversationId !== 'string'
+      || !conversationId.endsWith(':' + conversationUuid)) {
+      throw Error('NON_READY: authenticated Host conversation UUID is unavailable or does not match the conversation identity');
     }
     const inventory = await readPersistedInventory(conversationUuid);
     if (!inventory || inventory.status !== 'DOUBLE_SCAN_CANDIDATE'
@@ -538,7 +539,8 @@ export function createStLifecycleBridge({ journal, getConversationId, getConvers
       return { status: 'NON_READY', reason: 'current Host source differs from the durable journal checkpoint' };
     }
     await assertIdentitySnapshotMatches(conversationId, chat);
-    await assertPersistedChatMatches(conversationId, chat);
+    try { await assertPersistedChatMatches(conversationId, chat); }
+    catch (error) { return { status: 'NON_READY', reason: error?.message || 'persisted Host disk inventory verification failed' }; }
     const exported = await journal.exportCaptureLedger(conversationId);
     if (exported.status !== 'REVIEW_ONLY' || !Array.isArray(exported.records)) {
       return { status: 'NON_READY', reason: 'durable Host journal cannot provide a replayable digest ledger' };
