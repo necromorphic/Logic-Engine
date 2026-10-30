@@ -177,6 +177,10 @@ export class CanonicalEntityAttributeContextProvider {
     if (policyAuthority && !this.authorizedReadService.isPolicyEvidenceCurrent(policyAuthorityEvidence)) {
       throw new Error('Deployment policy authority changed during mechanic context resolution.');
     }
+    if (this.authorizedReadService
+      && !this.authorizedReadService.isActorBindingCurrent(worldId, this.adapterId, this.actorEntityId)) {
+      throw new Error('Actor binding changed during mechanic context resolution.');
+    }
     const policyVersion = policyAuthorityEvidence
       ? hashRequest({ provider_policy_fingerprint: this.policyFingerprint, policy_authority: policyAuthorityEvidence })
       : this.policyFingerprint;
@@ -219,7 +223,9 @@ export class CanonicalEntityAttributeContextProvider {
     if (!authority) return identity.policyVersion === this.policyFingerprint
       && identity.policyAuthority == null;
     const evidence = this.authorizedReadService.capturePolicyEvidence();
-    if (!evidence || !this.authorizedReadService.isPolicyEvidenceCurrent(evidence)) return false;
+    if (!evidence || !this.authorizedReadService.isPolicyEvidenceCurrent(evidence)
+      || !identity.worldId
+      || !this.authorizedReadService.isActorBindingCurrent(identity.worldId, this.adapterId, this.actorEntityId)) return false;
     const expectedPolicyVersion = hashRequest({
       provider_policy_fingerprint: this.policyFingerprint,
       policy_authority: evidence,
