@@ -4,6 +4,7 @@ import { evaluateMechanicActionConditions } from '../core/mechanics.js';
 import { translateMechanicEffectIntents } from '../core/mechanic-effect-translator.js';
 import { collectConditionDependencies } from '../core/rules.js';
 import { attestMechanicEvaluation } from './mechanic-evaluation-attestation.js';
+import { isMechanicPolicyAuthoritySnapshot } from './mechanic-policy-authority.js';
 
 const object = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 
@@ -187,7 +188,7 @@ export class MechanicExecutor {
       return unknown('SNAPSHOT_CHANGED_DURING_CONTEXT_RESOLUTION', 'World revision or commit sequence changed while resolving authorized context.', identity);
     }
 
-    const allowedResolvedKeys = new Set(['context', 'world_revision', 'commit_sequence', 'policy_version', 'authorization_scope', 'knownAbsentPaths', 'dependencyEvidence']);
+    const allowedResolvedKeys = new Set(['context', 'world_revision', 'commit_sequence', 'policy_version', 'authorization_scope', 'policy_authority', 'knownAbsentPaths', 'dependencyEvidence']);
     let resolvedShapeValid = false;
     try {
       resolvedShapeValid = object(resolved)
@@ -199,6 +200,9 @@ export class MechanicExecutor {
     }
     if (!resolvedShapeValid) {
       return unknown('INVALID_AUTHORIZED_CONTEXT', 'Trusted context must be a strict canonical JSON object with no unsupported fields or accessors.', identity);
+    }
+    if (!isMechanicPolicyAuthoritySnapshot(resolved.policy_authority)) {
+      return unknown('MECHANIC_POLICY_AUTHORITY_REQUIRED', 'Trusted context must be bound to a versioned deployment policy authority.', identity);
     }
     if (resolved.world_revision !== snapshot.world_revision
       || resolved.commit_sequence !== snapshot.commit_sequence
@@ -403,6 +407,7 @@ export class MechanicExecutor {
         dependency_evidence: [...resolved.dependencyEvidence].sort((a, b) => a.path.localeCompare(b.path)),
         policy_version: resolved.policy_version,
         authorization_scope: resolved.authorization_scope,
+        policy_authority: resolved.policy_authority,
       });
     } catch {
       return unknown('AUTHORIZED_CONTEXT_NOT_FINGERPRINTABLE', 'Trusted context is not a canonical JSON value; evaluation failed closed.', identity);
@@ -413,6 +418,7 @@ export class MechanicExecutor {
       context_fingerprint: contextFingerprint,
       context_policy_version: resolved.policy_version,
       authorization_scope: resolved.authorization_scope,
+      policy_authority: resolved.policy_authority,
       condition_result: conditionResult,
       dependency_manifest: dependencyManifest,
       effects: translated.effects,
