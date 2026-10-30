@@ -127,6 +127,46 @@ test('rejects sparse, accessor-backed, and extended process reference arrays', (
     }] })),
     (error) => error instanceof ProcessContractError && error.code === 'INVALID_PROCESS_REFERENCE_LIST',
   );
+
+  const nonEnumerable = [];
+  Object.defineProperty(nonEnumerable, '0', { value: 'arrival', enumerable: false });
+  nonEnumerable.length = 1;
+  assert.throws(
+    () => normalizeProcessDefinition(processDefinition({ milestones: [{
+      milestone_id: 'child', trigger_id: 'trigger-child', due_coordinate: 200,
+      prerequisites: nonEnumerable, event: {},
+    }, {
+      milestone_id: 'arrival', trigger_id: 'trigger-arrival', due_coordinate: 100,
+      prerequisites: [], event: {},
+    }] })),
+    (error) => error instanceof ProcessContractError && error.code === 'INVALID_PROCESS_REFERENCE_LIST',
+  );
+
+  const symbolExtended = ['arrival'];
+  symbolExtended[Symbol('extra')] = 'not-a-reference';
+  assert.throws(
+    () => normalizeProcessDefinition(processDefinition({ milestones: [{
+      milestone_id: 'child', trigger_id: 'trigger-child', due_coordinate: 200,
+      prerequisites: symbolExtended, event: {},
+    }, {
+      milestone_id: 'arrival', trigger_id: 'trigger-arrival', due_coordinate: 100,
+      prerequisites: [], event: {},
+    }] })),
+    (error) => error instanceof ProcessContractError && error.code === 'INVALID_PROCESS_REFERENCE_LIST',
+  );
+
+  const customPrototype = ['arrival'];
+  Object.setPrototypeOf(customPrototype, Object.create(Array.prototype));
+  assert.throws(
+    () => normalizeProcessDefinition(processDefinition({ milestones: [{
+      milestone_id: 'child', trigger_id: 'trigger-child', due_coordinate: 200,
+      prerequisites: customPrototype, event: {},
+    }, {
+      milestone_id: 'arrival', trigger_id: 'trigger-arrival', due_coordinate: 100,
+      prerequisites: [], event: {},
+    }] })),
+    (error) => error instanceof ProcessContractError && error.code === 'INVALID_PROCESS_REFERENCE_LIST',
+  );
 });
 
 test('rejects unsupported fields and non-JSON payloads', () => {
