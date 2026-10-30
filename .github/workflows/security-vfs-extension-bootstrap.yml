@@ -18,7 +18,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: sqlite-vfs-probe-${{ github.workflow }}-${{ github.ref }}
+  group: sqlite-vfs-probe-v2-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -58,6 +58,12 @@ jobs:
           $relativeCommand = 'call "' + $vcvars + '" && cl /nologo /O2 /I native\\secure-vfs-probe native\\secure-vfs-probe\\windows_relative_open_test.c /link /OUT:native\\secure-vfs-probe\\windows_relative_open_test.exe'
           cmd /c $relativeCommand
           if ($LASTEXITCODE -ne 0) { throw 'Windows relative-open test compilation failed' }
+      - name: Stop MSVC background helper processes
+        if: always()
+        shell: pwsh
+        run: |
+          $helpers = Get-Process -Name vctip -ErrorAction SilentlyContinue
+          if ($helpers) { $helpers | Stop-Process -Force -ErrorAction SilentlyContinue }
       - name: Verify Windows handle-relative directory anchoring
         shell: pwsh
         run: native/secure-vfs-probe/windows_relative_open_test.exe
