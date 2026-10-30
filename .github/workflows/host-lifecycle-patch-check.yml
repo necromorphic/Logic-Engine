@@ -4,6 +4,8 @@ on:
   pull_request:
     paths:
       - "host-adapter/prototype/**"
+      - "src/application/host-lifecycle-journal.js"
+      - "tests/host-lifecycle-journal.test.js"
       - ".github/workflows/host-lifecycle-patch-check.yml"
   push:
     branches:
@@ -87,5 +89,9 @@ jobs:
             exit 1
           fi
           grep -F 'request metadata:' sillytavern-host-checkout/src/endpoints/backends/chat-completions.js >/dev/null
-      - name: Run all Host prototype and inventory tests
-        run: node --test host-adapter/prototype/tests/*.test.mjs tests/host-source-inventory.test.js
+      - name: Run Core-backed append-only lifecycle journal tests
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22.13.0'
+      - name: Run all Host prototype, inventory, and Core lifecycle journal tests
+        run: node --test host-adapter/prototype/tests/*.test.mjs tests/host-source-inventory.test.js tests/host-lifecycle-journal.test.js
