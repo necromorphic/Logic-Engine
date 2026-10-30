@@ -762,6 +762,21 @@ test('projection rebuild preserves the exact historical rule-version pin when it
       .find((event) => event.event_id === committed.event_id);
     assert.equal(committedEvent.effects[0].rule_module_id, 'relationship-rules');
     assert.equal(committedEvent.effects[0].rule_module_version, '1.0.0');
+    const historicalSnapshot = committedEvent.effects[0].relationship_evaluation_snapshot;
+    assert.equal(historicalSnapshot.schema, 'relationship-evaluation-input/v1');
+    assert.equal(historicalSnapshot.evaluator_contract, 'relationship-candidate/v1');
+    assert.equal(historicalSnapshot.rule_module_id, 'relationship-rules');
+    assert.equal(historicalSnapshot.rule_module_version, '1.0.0');
+    assert.equal(historicalSnapshot.world_pack_id, 'test-pack');
+    assert.equal(historicalSnapshot.world_pack_version, '1.0.0');
+    assert.deepEqual(Object.keys(historicalSnapshot.input).sort(), [
+      'currentValues', 'dimensionRules', 'evidence', 'patch',
+      'ruleVersion', 'subjectId', 'targetId',
+    ]);
+    assert.equal(historicalSnapshot.input.evidence.status, 'supported');
+    assert.deepEqual(historicalSnapshot.input.evidence.refs, ['event:' + seed.event_id]);
+    assert.equal(historicalSnapshot.input.ruleVersion, 'relationship-rules@1.0.0');
+    assert.match(historicalSnapshot.input_digest, /^[a-f0-9]{64}$/);
     store.close();
     store = null;
 
