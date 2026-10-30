@@ -950,6 +950,17 @@ static int probe_xOpen(sqlite3_vfs *vfs, const char *name, sqlite3_file *file,
     open_name = canonical_name;
   }
 
+  /*
+   * SQLite owns the xOpen input string and only guarantees it for the call.
+   * Parent VFS implementations may retain zName in their file object too, so
+   * give every named file its own pinned copy, including WAL/journal files.
+   */
+  if (name && !canonical_name && !(flags & SQLITE_OPEN_MEMORY)) {
+    canonical_name = sqlite3_mprintf("%s", name);
+    if (!canonical_name) return SQLITE_NOMEM;
+    open_name = canonical_name;
+  }
+
   /* Every file-backed main DB must have an explicit trusted role. */
   if (name && (flags & SQLITE_OPEN_MAIN_DB)
       && !(flags & SQLITE_OPEN_MEMORY) && role_index < 0) {
