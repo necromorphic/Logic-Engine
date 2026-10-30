@@ -20,7 +20,7 @@ export class ActorBindingService {
           adapter_id TEXT NOT NULL,
           entity_id TEXT NOT NULL,
           active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)),
-          generation INTEGER NOT NULL DEFAULT 1,
+          generation INTEGER NOT NULL DEFAULT 1 CHECK(generation >= 1),
           created_at TEXT NOT NULL,
           updated_at TEXT NOT NULL,
           PRIMARY KEY(world_id, adapter_id, entity_id)
@@ -56,10 +56,16 @@ export class ActorBindingService {
         VALUES(?,?,?,1,1,?,?) ON CONFLICT(world_id,adapter_id,entity_id)
         DO UPDATE SET active=1,generation=actor_bindings.generation+1,updated_at=excluded.updated_at`)
         .run(worldId, adapterId.trim(), entityId.trim(), t, t);
+      const bindingGeneration = this.db.prepare(
+        'SELECT generation FROM actor_bindings WHERE world_id=? AND adapter_id=? AND entity_id=?',
+      ).get(worldId, adapterId.trim(), entityId.trim()).generation;
       this.db.prepare('INSERT INTO audit_entries(world_id,world_revision,action,target_id,payload_json,occurred_at) VALUES(?,?,?,?,?,?)')
         .run(worldId, this.engine.store.world(worldId).world_revision, 'actor.binding.created', entityId.trim(),
-          JSON.stringify({ adapter_id: adapterId.trim(), entity_id: entityId.trim() }), t);
-      return { world_id: worldId, adapter_id: adapterId.trim(), entity_id: entityId.trim(), active: true, already_bound: false };
+          JSON.stringify({ adapter_id: adapterId.trim(), entity_id: entityId.trim(), binding_generation: bindingGeneration }), t);
+      return {
+        world_id: worldId, adapter_id: adapterId.trim(), entity_id: entityId.trim(),
+        active: true, already_bound: false, binding_generation: bindingGeneration,
+      };
     });
   }
 
@@ -72,12 +78,18 @@ export class ActorBindingService {
       const t = now();
       const changed = this.db.prepare('UPDATE actor_bindings SET active=0,generation=generation+1,updated_at=? WHERE world_id=? AND adapter_id=? AND entity_id=? AND active=1')
         .run(t, worldId, adapterId.trim(), entityId.trim()).changes;
+      const binding = this.db.prepare(
+        'SELECT generation FROM actor_bindings WHERE world_id=? AND adapter_id=? AND entity_id=?',
+      ).get(worldId, adapterId.trim(), entityId.trim());
       if (changed) {
         this.db.prepare('INSERT INTO audit_entries(world_id,world_revision,action,target_id,payload_json,occurred_at) VALUES(?,?,?,?,?,?)')
           .run(worldId, this.engine.store.world(worldId).world_revision, 'actor.binding.revoked', entityId.trim(),
-            JSON.stringify({ adapter_id: adapterId.trim(), entity_id: entityId.trim() }), t);
+            JSON.stringify({ adapter_id: adapterId.trim(), entity_id: entityId.trim(), binding_generation: binding.generation }), t);
       }
-      return { world_id: worldId, adapter_id: adapterId.trim(), entity_id: entityId.trim(), active: false, changed: Boolean(changed) };
+      return {
+        world_id: worldId, adapter_id: adapterId.trim(), entity_id: entityId.trim(),
+        active: false, changed: Boolean(changed), binding_generation: binding?.generation ?? null,
+      };
     });
   }
 
