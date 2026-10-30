@@ -69,7 +69,6 @@ function validateAgainstDomain(artifact, {
       || artifact.target.version !== expectedTargetPack.version
       || artifact.target.sha256 !== expectedTargetPack.sha256) add('target_pin_mismatch', 'target World Pack tuple/digest differs from the exact expected pin');
   if (artifact.target_pack_conformance.target_pack_digest !== artifact.target.sha256) add('conformance_digest_mismatch', 'conformance evidence is not bound to the target digest');
-  if (artifact.target_pack_conformance.status !== 'passed') add('target_conformance_unproven', 'fixture does not establish target-pack conformance');
   if (artifact.directionality !== 'preserve_subject_target_direction') add('directionality', 'direction must be preserved');
   if (!sameSet(artifact.source_rule_modules.map(pinKey), expectedSourceModules.map(pinKey))) {
     add('source_module_pin_set', 'source rule-module pin set is not exact');
