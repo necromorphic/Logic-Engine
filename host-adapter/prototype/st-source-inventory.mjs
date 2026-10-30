@@ -6,6 +6,11 @@ const PINNED_SILLYTAVERN_COMMIT = '06bde939fb1e9c4c8d8641d810f0a916b5bce127';
 const MAX_CHAT_FILE_BYTES = 256 * 1024 * 1024;
 const MAX_GROUP_FILE_BYTES = 16 * 1024 * 1024;
 const MAX_TOTAL_BYTES = 2 * 1024 * 1024 * 1024;
+const MAX_JSONL_LINE_BYTES = 16 * 1024 * 1024;
+const MAX_CHAT_MESSAGES = 100_000;
+const MAX_CHAT_VERSIONS_PER_MESSAGE = 256;
+const MAX_TOTAL_LOGICAL_VERSIONS = 1_000_000;
+const HOST_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export class HostSourceInventoryError extends Error {
   constructor(code) {
@@ -48,6 +53,112 @@ const canonical = value => Array.isArray(value)
   : value && typeof value === 'object'
     ? '{' + Object.keys(value).sort().map(key => JSON.stringify(key) + ':' + canonical(value[key])).join(',') + '}'
     : JSON.stringify(value);
+
+
+function parseChatJsonlIdentity(bytes, seen) {
+  const records = [];
+  let start = 0;
+  for (let offset = 0; offset <= bytes.length; offset++) {
+    if (offset !== bytes.length && bytes[offset] !== 0x0a) continue;
+    let line = bytes.subarray(start, offset);
+    start = offset + 1;
+    if (line.length && line[line.length - 1] === 0x0d) line = line.subarray(0, line.length - 1);
+    if (!line.length) continue;
+    if (line.length > MAX_JSONL_LINE_BYTES) fail('SOURCE_CHAT_JSONL_LINE_LIMIT');
+    let value;
+    try {
+      value = JSON.parse(line.toString('utf8'));
+    } catch {
+      fail('SOURCE_CHAT_JSONL_INVALID');
+    }
+    if (!value || typeof value !== 'object' || Array.isArray(value)) fail('SOURCE_CHAT_RECORD_INVALID');
+    records.push(value);
+    if (records.length > MAX_CHAT_MESSAGES + 1) fail('SOURCE_CHAT_MESSAGE_LIMIT');
+  }
+  if (!records.length) fail('SOURCE_CHAT_JSONL_EMPTY');
+
+  const hasHeader = records[0].chat_metadata && typeof records[0].chat_metadata === 'object'
+    && !Array.isArray(records[0].chat_metadata);
+  const header = hasHeader ? records[0] : null;
+  const conversationUuid = header?.chat_metadata?.logic_engine_conversation_id ?? null;
+  if (conversationUuid !== null && !HOST_UUID.test(conversationUuid)) {
+    fail('SOURCE_CHAT_CONVERSATION_ID_INVALID');
+  }
+  if (conversationUuid) {
+    if (seen.conversationIds.has(conversationUuid)) fail('SOURCE_CHAT_CONVERSATION_ID_DUPLICATE');
+    seen.conversationIds.add(conversationUuid);
+  }
+
+  const messageRecords = hasHeader ? records.slice(1) : records;
+  const messages = [];
+  let missingMessageIdentityCount = 0;
+  for (const message of messageRecords) {
+    const versions = Array.isArray(message.swipes) && message.swipes.length
+      ? message.swipes : [message.mes ?? ''];
+    if (versions.length > MAX_CHAT_VERSIONS_PER_MESSAGE
+      || versions.some(value => typeof value !== 'string')) {
+      fail('SOURCE_CHAT_VERSION_LAYOUT_INVALID');
+    }
+    const activeVersionIndex = Number.isInteger(message.swipe_id) ? message.swipe_id : 0;
+    if (activeVersionIndex < 0 || activeVersionIndex >= versions.length) {
+      fail('SOURCE_CHAT_ACTIVE_VERSION_INVALID');
+    }
+
+    const identity = message._logicEngineLifecycle;
+    if (!identity) {
+      missingMessageIdentityCount++;
+      continue;
+    }
+    if (typeof identity.messageId !== 'string' || !HOST_UUID.test(identity.messageId)
+      || seen.messageIds.has(identity.messageId)
+      || !Array.isArray(identity.versions) || identity.versions.length !== versions.length
+      || identity.activeVersionIndex !== activeVersionIndex) {
+      fail('SOURCE_CHAT_MESSAGE_IDENTITY_INVALID');
+    }
+    seen.messageIds.add(identity.messageId);
+
+    const versionEntries = [];
+    for (let index = 0; index < versions.length; index++) {
+      const version = identity.versions[index];
+      if (!version || typeof version.versionId !== 'string' || !HOST_UUID.test(version.versionId)
+        || seen.versionIds.has(version.versionId)
+        || version.versionIndex !== index
+        || (version.parentVersionId !== null && version.parentVersionId !== undefined
+          && (typeof version.parentVersionId !== 'string' || !HOST_UUID.test(version.parentVersionId)))
+        || typeof version.payloadDigest !== 'string' || !/^[a-f0-9]{64}$/.test(version.payloadDigest)) {
+        fail('SOURCE_CHAT_VERSION_IDENTITY_INVALID');
+      }
+      const actualDigest = digest(Buffer.from(versions[index], 'utf8'));
+      if (actualDigest !== version.payloadDigest) fail('SOURCE_CHAT_VERSION_DIGEST_MISMATCH');
+      seen.versionIds.add(version.versionId);
+      seen.totalVersions++;
+      if (seen.totalVersions > MAX_TOTAL_LOGICAL_VERSIONS) fail('SOURCE_CHAT_VERSION_LIMIT');
+      versionEntries.push({
+        version_id: version.versionId,
+        version_index: index,
+        parent_version_id: version.parentVersionId ?? null,
+        content_sha256: actualDigest,
+        active: index === activeVersionIndex,
+      });
+    }
+    messages.push({
+      message_id: identity.messageId,
+      role: message.is_user === true ? 'user' : message.is_system === true ? 'system' : 'assistant',
+      active_version_index: activeVersionIndex,
+      versions: versionEntries,
+    });
+  }
+
+  const identityComplete = Boolean(conversationUuid) && missingMessageIdentityCount === 0;
+  return {
+    conversation_uuid: conversationUuid,
+    identity_status: identityComplete ? 'CURRENT_IDENTITIES_VERIFIED' : 'INCOMPLETE',
+    message_count: messageRecords.length,
+    identified_message_count: messages.length,
+    missing_message_identity_count: missingMessageIdentityCount,
+    messages,
+  };
+}
 
 async function assertNoReparseComponents(absolute) {
   const parsed = path.parse(absolute);
@@ -202,6 +313,12 @@ export async function enumeratePinnedSillyTavernChatFiles({
     kind: 'root:' + kind, absolute: value.absolute, identity: value.identity, stat: value.stat, names: value.names,
   }))];
   const physicalFiles = new Set();
+  const logicalIdentitySeen = {
+    conversationIds: new Set(),
+    messageIds: new Set(),
+    versionIds: new Set(),
+    totalVersions: 0,
+  };
   let totalBytes = 0n;
 
   const addFile = async (kind, locator, filePath, rootPath, maxBytes) => {
@@ -210,6 +327,9 @@ export async function enumeratePinnedSillyTavernChatFiles({
     physicalFiles.add(record.identity);
     totalBytes += BigInt(record.size);
     if (totalBytes > BigInt(MAX_TOTAL_BYTES)) fail('SOURCE_INVENTORY_SIZE_LIMIT');
+    const logicalIdentity = ['root-chat', 'character-chat', 'group-chat'].includes(kind)
+      ? parseChatJsonlIdentity(record.bytes, logicalIdentitySeen)
+      : null;
     files.push({
       kind,
       locator,
@@ -218,6 +338,7 @@ export async function enumeratePinnedSillyTavernChatFiles({
       mtime_ns: record.mtime_ns,
       ctime_ns: record.ctime_ns,
       content_sha256: record.sha256,
+      ...(logicalIdentity ? { logical_identity: logicalIdentity } : {}),
     });
     return record.bytes;
   };
@@ -335,6 +456,9 @@ export async function enumeratePinnedSillyTavernChatFiles({
   files.sort((a, b) => a.kind.localeCompare(b.kind) || a.locator.localeCompare(b.locator));
   const directoriesDigest = directoriesSeen.map(({ kind, identity, names }) => ({ kind, identity, names }))
     .sort((a, b) => a.kind.localeCompare(b.kind));
+  const chatFiles = files.filter(file => file.logical_identity);
+  const logicalIdentityComplete = chatFiles.length > 0
+    && chatFiles.every(file => file.logical_identity.identity_status === 'CURRENT_IDENTITIES_VERIFIED');
   const inventorySha256 = digest(Buffer.from(canonical({
     host_commit: hostCommit,
     files,
@@ -349,13 +473,19 @@ export async function enumeratePinnedSillyTavernChatFiles({
     historical_boundary: 'CURRENT_FILE_SET_ONLY_ENROLLMENT_BASELINE_REQUIRED',
     file_count: files.length,
     total_bytes: totalBytes.toString(),
+    logical_identity_status: logicalIdentityComplete ? 'CURRENT_FILE_IDENTITIES_VERIFIED' : 'INCOMPLETE',
+    conversation_identity_count: logicalIdentitySeen.conversationIds.size,
+    message_identity_count: logicalIdentitySeen.messageIds.size,
+    version_identity_count: logicalIdentitySeen.versionIds.size,
     files: Object.freeze(files),
     directories_sha256: digest(Buffer.from(canonical(directoriesDigest), 'utf8')),
     inventory_sha256: inventorySha256,
     completeness: 'DOUBLE_SCANNED_PATH_VIEW_ONLY',
     blockers: Object.freeze([
       'NO_PRE_ENROLLMENT_DELETED_HISTORY',
-      'NO_MESSAGE_OR_SWIPE_REVISION_LINEAGE',
+      'NO_COMPLETE_MESSAGE_OR_SWIPE_REVISION_HISTORY',
+      'NO_HOST_INSTALLATION_BINDING',
+      ...(logicalIdentityComplete ? [] : ['CURRENT_CHAT_LOGICAL_IDENTITY_INCOMPLETE']),
       'NO_CORE_WORLD_OR_SESSION_AUTHORIZATION',
       'NO_ACCEPTED_HEAD_AUTHORITY',
       'IMPORT_EXPORT_COPY_BRANCH_RESTORE_UNSUPPORTED',
