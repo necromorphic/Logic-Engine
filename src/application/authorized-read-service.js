@@ -1,4 +1,5 @@
 import { EngineError, assert } from '../core/errors.js';
+import { isMechanicPolicyAuthority, isMechanicPolicyAuthoritySnapshot } from './mechanic-policy-authority.js';
 
 const object = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 const validId = (value) => typeof value === 'string' && value === value.trim() && value.length > 0 && value.length <= 200;
@@ -22,19 +23,52 @@ const unavailable = () => new EngineError(
  * default public visibility policy. Do not pass model-produced policy functions.
  */
 export class AuthorizedReadService {
-  constructor(engine, actorBindingService, fieldPolicy) {
+  constructor(engine, actorBindingService, fieldPolicyOrAuthority) {
     if (typeof engine?.getSnapshot !== 'function') {
       throw new TypeError('AuthorizedReadService requires a LogicEngine');
     }
     if (typeof actorBindingService?.resolve !== 'function') {
       throw new TypeError('AuthorizedReadService requires an ActorBindingService');
     }
-    if (typeof fieldPolicy !== 'function') {
-      throw new TypeError('AuthorizedReadService requires an explicit trusted field policy');
+    if (!isMechanicPolicyAuthority(fieldPolicyOrAuthority) && typeof fieldPolicyOrAuthority !== 'function') {
+      throw new TypeError('AuthorizedReadService requires a trusted field policy or MechanicPolicyAuthority');
     }
     this.engine = engine;
     this.actorBindingService = actorBindingService;
-    this.fieldPolicy = fieldPolicy;
+    this.policyAuthority = isMechanicPolicyAuthority(fieldPolicyOrAuthority) ? fieldPolicyOrAuthority : null;
+    this.fieldPolicy = this.policyAuthority ? null : fieldPolicyOrAuthority;
+  }
+
+  getPolicyAuthoritySnapshot() {
+    if (!this.policyAuthority) return null;
+    const snapshot = this.policyAuthority.getSnapshot();
+    if (!isMechanicPolicyAuthoritySnapshot(snapshot)) throw unavailable();
+    return snapshot;
+  }
+
+  isPolicyAuthorityCurrent(snapshot) {
+    try {
+      return this.policyAuthority?.isCurrent(snapshot) === true;
+    } catch {
+      return false;
+    }
+  }
+
+  _fieldAllowed(context, entity, field, policySnapshot = null) {
+    if (this.policyAuthority) {
+      return this.policyAuthority.authorizeField(context, Object.freeze({ ...entity }), field, policySnapshot) === true;
+    }
+    try {
+      return this.fieldPolicy(context, Object.freeze({ ...entity }), field) === true;
+    } catch {
+      return false;
+    }
+  }
+
+  _assertPolicyAuthorityCurrent(snapshot) {
+    if (snapshot && !this.isPolicyAuthorityCurrent(snapshot)) {
+      throw new EngineError('STALE_AUTHORIZED_READ_POLICY', 'Authorized read policy changed during disclosure.', 409);
+    }
   }
 
   _assertDisclosureStillCurrent(request, snapshot, entityIds) {
@@ -84,7 +118,7 @@ export class AuthorizedReadService {
     assert(object(request), 'INVALID_AUTHORIZED_READ', 'Mechanic attribute read request must be an object.');
     const allowed = new Set([
       'worldId', 'adapterId', 'actorEntityId', 'recipient', 'purpose',
-      'entityId', 'attribute', 'expectedWorldRevision', 'expectedCommitSequence',
+      'entityId', 'attribute', 'expectedWorldRevision', 'expectedCommitSequence', 'expectedPolicyAuthority',
     ]);
     assert(Object.keys(request).every((key) => allowed.has(key)),
       'INVALID_AUTHORIZED_READ', 'Mechanic attribute read contains unsupported fields.');
@@ -100,6 +134,11 @@ export class AuthorizedReadService {
     assert(Number.isSafeInteger(request.expectedWorldRevision) && request.expectedWorldRevision >= 0
       && Number.isSafeInteger(request.expectedCommitSequence) && request.expectedCommitSequence >= 0,
     'INVALID_AUTHORIZED_READ_SNAPSHOT', 'Expected world revision and commit sequence are required.');
+    assert(this.policyAuthority && isMechanicPolicyAuthoritySnapshot(request.expectedPolicyAuthority),
+      'MECHANIC_POLICY_AUTHORITY_REQUIRED', 'Mechanic reads require an expected versioned policy authority.');
+    if (!this.isPolicyAuthorityCurrent(request.expectedPolicyAuthority)) {
+      throw new EngineError('STALE_AUTHORIZED_READ_POLICY', 'Mechanic read policy authority is stale.', 409);
+    }
 
     const binding = this.actorBindingService.resolve(
       request.worldId,
@@ -131,15 +170,11 @@ export class AuthorizedReadService {
 
     const entity = snapshot.entities[0];
     if (entity.status === 'destroyed') throw unavailable();
-    let allowedField = false;
-    try {
-      allowedField = this.fieldPolicy(context, Object.freeze({ ...entity }), 'attributes.' + request.attribute) === true;
-    } catch {
-      allowedField = false;
-    }
+    const allowedField = this._fieldAllowed(context, entity, 'attributes.' + request.attribute, request.expectedPolicyAuthority);
     if (!allowedField) throw unavailable();
 
     this._assertDisclosureStillCurrent(request, snapshot, [request.entityId]);
+    this._assertPolicyAuthorityCurrent(request.expectedPolicyAuthority);
     const present = object(entity.attributes) && Object.hasOwn(entity.attributes, request.attribute);
     return Object.freeze({
       world_id: snapshot.world_id,
@@ -147,6 +182,7 @@ export class AuthorizedReadService {
       commit_sequence: snapshot.commit_sequence,
       entity_id: entity.entity_id,
       attribute: request.attribute,
+      policy_authority: request.expectedPolicyAuthority,
       present,
       ...(present ? { value: entity.attributes[request.attribute] } : {}),
     });
@@ -198,16 +234,12 @@ export class AuthorizedReadService {
       throw unavailable();
     }
 
+    const policyAuthoritySnapshot = this.getPolicyAuthoritySnapshot();
     const entities = [];
     for (const entity of snapshot.entities) {
       const disclosed = {};
       for (const field of request.fields) {
-        let allowed = false;
-        try {
-          allowed = this.fieldPolicy(context, Object.freeze({ ...entity }), field) === true;
-        } catch {
-          allowed = false;
-        }
+        const allowed = this._fieldAllowed(context, entity, field, policyAuthoritySnapshot);
         if (!allowed) continue;
 
         if (field === 'entity_id' || field === 'entity_type' || field === 'status') {
@@ -228,6 +260,7 @@ export class AuthorizedReadService {
     }
 
     this._assertDisclosureStillCurrent(request, snapshot, request.entityIds);
+    this._assertPolicyAuthorityCurrent(policyAuthoritySnapshot);
 
     return Object.freeze({
       world_id: snapshot.world_id,
