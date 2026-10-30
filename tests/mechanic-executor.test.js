@@ -489,6 +489,94 @@ test('proposal lifecycle rejects a policy generation rotation after approval', (
   assert.equal(engine.getState(worldId).entities.some((entity) => entity.entity_id === 'entity.new'), false);
 });
 
+test('real policy authority rotation is revalidated at proposal creation, approval, and commit', (t) => {
+  const { engine, worldId } = setup(t, 'executor-policy-authority-lifecycle-world');
+  enableFixture(engine, worldId);
+  const actorBindings = new ActorBindingService(engine);
+  actorBindings.bind(worldId, 'test-adapter', 'entity.actor-context');
+  const authority = new MechanicPolicyAuthority({
+    authorityId: 'test-lifecycle-policy-authority',
+    generation: 1,
+    fieldPolicy: () => true,
+  });
+  const reads = new AuthorizedReadService(engine, actorBindings, authority);
+  const provider = new CanonicalEntityAttributeContextProvider(engine, {
+    policyVersion: 'visibility-policy-v1',
+    authorizationScope: 'test-adapter:entity.actor-context:model:npc_decision',
+    bindings: [
+      { path: 'world.weather', entity_id: 'entity.world-context', attribute: 'weather' },
+      { path: 'actor.hp', entity_id: 'entity.actor-context', attribute: 'hp' },
+    ],
+    authorizedReadService: reads,
+    adapterId: 'test-adapter',
+    actorEntityId: 'entity.actor-context',
+    recipient: 'model',
+    purpose: 'npc_decision',
+  });
+  const executor = new MechanicExecutor(engine, {
+    resolveAuthorizedContext: (args) => provider.resolve(args),
+  });
+  const proposals = new ProposalService(engine, {
+    validateMechanicPolicy: (identity) => provider.validateMechanicPolicy(identity),
+  });
+  const evaluate = () => executor.evaluate({
+    worldId, instanceId: 'instance.executor', actionId: 'wait',
+  });
+  const create = (evaluation, key) => proposals.createFromMechanicEvaluation(worldId, evaluation, {
+    idempotencyKey: key,
+    turnId: 'turn-' + key,
+    sourceText: 'A bounded mechanic proposal must remain bound to its policy generation.',
+    adapterId: 'test-adapter',
+  });
+
+  const firstEvaluation = evaluate();
+  assert.equal(firstEvaluation.status, 'ready');
+  authority.rotate(() => true);
+  assert.throws(
+    () => create(firstEvaluation, 'policy-stale-before-proposal'),
+    (error) => error.code === 'STALE_MECHANIC_POLICY' && error.status === 409,
+  );
+  assert.throws(
+    () => create(firstEvaluation, 'policy-old-evaluation-retry'),
+    (error) => error.code === 'STALE_MECHANIC_POLICY' && error.status === 409,
+  );
+  assert.equal(proposals.db.prepare('SELECT COUNT(*) AS count FROM event_proposals').get().count, 0);
+
+  const secondEvaluation = evaluate();
+  assert.equal(secondEvaluation.status, 'ready');
+  const pending = create(secondEvaluation, 'policy-stale-before-approval');
+  authority.rotate(() => true);
+  assert.throws(
+    () => proposals.approve(worldId, pending.proposal_id),
+    (error) => error.code === 'STALE_MECHANIC_POLICY' && error.status === 409,
+  );
+  assert.equal(proposals.get(worldId, pending.proposal_id).status, 'pending');
+
+  const thirdEvaluation = evaluate();
+  assert.equal(thirdEvaluation.status, 'ready');
+  const approved = create(thirdEvaluation, 'policy-stale-before-commit');
+  proposals.approve(worldId, approved.proposal_id);
+  authority.rotate(() => true);
+  assert.throws(
+    () => proposals.commit(worldId, approved.proposal_id),
+    (error) => error.code === 'STALE_MECHANIC_POLICY' && error.status === 409,
+  );
+  assert.equal(proposals.get(worldId, approved.proposal_id).status, 'approved');
+  assert.equal(engine.getState(worldId).world_revision, 2);
+  assert.equal(engine.getEvents(worldId).length, 2);
+  assert.equal(engine.getState(worldId).entities.some((entity) => entity.entity_id === 'entity.new'), false);
+
+  const freshEvaluation = evaluate();
+  assert.equal(freshEvaluation.status, 'ready');
+  assert.equal(freshEvaluation.policy_authority.generation, 4);
+  const freshProposal = create(freshEvaluation, 'policy-current-generation-commit');
+  proposals.approve(worldId, freshProposal.proposal_id);
+  const committed = proposals.commit(worldId, freshProposal.proposal_id);
+  assert.equal(committed.status, 'committed');
+  assert.equal(engine.getState(worldId).world_revision, 3);
+  assert.equal(engine.getState(worldId).entities.some((entity) => entity.entity_id === 'entity.new'), true);
+});
+
 test('mechanic proposal handoff rejects a stale evaluation before creating a proposal', (t) => {
   const { engine, worldId } = setup(t);
   enableFixture(engine, worldId);
