@@ -47,3 +47,17 @@ The current Host prototype does not yet emit this approved envelope. In particul
 ## Acceptance boundary
 
 PR #390 is a Provider-local draft and unit tests are not real Host-to-Provider integration evidence. Do not merge or wire it into Memory→NPC until Core and Host approve the exact envelope and the actual Host snapshot producer/validator is implemented and tested against the pinned ST build. Memory→NPC remains **DISABLED / FAIL-CLOSED**. Ollama/VectorService remains out of scope.
+
+
+## Current-main refresh — 30 Oct 2026
+
+The original comparison above is historical (2026-10-26). Current main has since evolved the Host ledger and ST lifecycle candidate, but the core compatibility gap remains:
+
+- `HostVersionDigestLedger.reconcileConversation()` still expects a complete message-version snapshot (`world_id`, `conversation_id`, `complete`, `versions[]`) with exact version IDs, parent lineage, digests, active and deleted flags.
+- The current ST lifecycle bridge can emit digest-only per-version captures for a bounded hooked subset, but its `CURRENTLY_HOOKED_PATHS` is not complete. It does not establish pre-enrollment history, whole-chat/group/character deletion, imports, branch/copy, restore, or external file mutation.
+- The new Host file-inventory route candidate in PR #780 inventories current chat files and persisted conversation UUIDs. It does **not** produce the required message-version envelope and its double scan is not an atomic filesystem snapshot.
+- Core startup continues to pass `verifyInventorySnapshot: async () => false`. No production snapshot attestor or Host→ledger reconciliation adapter exists.
+
+The combined pinned-ST patch candidate #787 successfully applies lifecycle hooks → file-inventory route → Direction A delete-safety overlay in CI (Host prototype tests 75/75, syntax checks and patch application pass). This does not change the snapshot contract or make `verifyInventorySnapshot` positive.
+
+**Disposition:** patch composition is validated; Host snapshot compatibility, complete inventory, restore/branch lineage and production reconciliation remain BLOCKED / NON_READY. Do not infer Provider readiness or Memory→NPC authorization from the current-file inventory endpoint or individual digest-capture responses. No new cursor, outbox, schema or raw-text retention is approved by this refresh.
