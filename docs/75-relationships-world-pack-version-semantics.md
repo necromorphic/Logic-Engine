@@ -226,3 +226,16 @@ A future implementation of social-interaction reasoning is not complete merely b
 6. the actual Core commit path and relevant integration tests enforce the behavior.
 
 Until the real approved integration path exists, these are domain acceptance criteria, not claims of implemented production behavior. Do not add guessed APIs/schemas or pure-helper tests as substitutes for production-path evidence.
+
+
+## Joint Personality traceability addendum — historical semantics (2026-10-30)
+
+Personality crosswalk: `docs/personality/10-issue-73-executable-evidence-audit.md`, section **Historical Relationship semantics — joint Relationships/Personality refresh**. This addendum links the Relationships domain contract to the current Personality acceptance evidence; it does not change runtime behavior.
+
+| Personality case | Relationships domain decision | Current implementation evidence / limit |
+|---|---|---|
+| `PERS-SEM-024` — deterministic behavior under identical pinned inputs/version | Preserve the committed effect and its exact `rule_module_id + rule_module_version`; projection rebuild must not substitute current rules. | Core #148 test proves projection pin preservation through restart/rebuild when the old manifest is unavailable. It does not perform semantic re-evaluation. |
+| `PERS-SEM-029` — meaning-changing version/migration/incompatibility | A meaning-changing World Pack update is not transparent. Migration must be explicit, version-to-version, reviewable, and separately auditable; otherwise refuse it. | No approved migration path or historical evaluator exists. Core #146 remains the runtime blocker; Core #153 is a documentation proposal, not an approved executable contract. |
+| Unknown/missing/incompatible historical version | Never fall back to latest. Preserve the original committed event; fail closed for any operation requiring historical semantic execution. | Exact module lookup failure and projection pin preservation are tested. Historical semantic execution failure/no-write behavior remains unimplemented because there is no approved execution entry point. |
+
+The domain-to-runtime split remains: Relationships decides domain compatibility; Personality maps the semantic acceptance criteria; Core implements exact-version resolution and approved execution. This document does not authorize Core to infer World Pack meaning from version strings or to create a migration contract unilaterally.
