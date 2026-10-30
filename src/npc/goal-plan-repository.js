@@ -687,6 +687,9 @@ export function createNpcGoalPlanRepository({
       if (planRevision < 1) throw new NpcGoalPlanRepositoryError("plan_revision must be positive", "invalid_input");
       const worldRevision = revision(attempt.world_revision, "world_revision");
       const commitSequence = revision(attempt.commit_sequence, "commit_sequence");
+      if (attempt.proposal_request.action_id !== attempt.action_id) {
+        return outcome("conflict", { reason: "proposal_request_action_mismatch" });
+      }
       const requestHash = hash(attempt.proposal_request);
       if (attempt.request_hash !== undefined && attempt.request_hash !== requestHash) {
         return outcome("conflict", { reason: "proposal_request_hash_mismatch" });
@@ -789,6 +792,8 @@ export function createNpcGoalPlanRepository({
         const attempt = parseJson(row.attempt_json);
         if (row.local_state === "reconciled") return outcome("non_ready", { reason: "reconciled_attempt_missing_result_record" });
         if (verified.world_id !== scope.world_id
+          || verified.world_revision < attempt.world_revision
+          || verified.commit_sequence <= attempt.commit_sequence
           || verified.idempotency_key !== attempt.proposal_idempotency_key
           || verified.request_hash !== attempt.request_hash
           || verified.goal_id !== attempt.goal_id || verified.plan_id !== attempt.plan_id
@@ -801,8 +806,9 @@ export function createNpcGoalPlanRepository({
         ).get(scope.world_id, verified.event_id, attempt.step_id);
         if (duplicate) return outcome("conflict", { reason: "core_event_already_reconciled_for_step" });
         const goalRow = getGoal(database, scope, attempt.goal_id);
-        if (!goalRow || goalRow.status !== "active") {
-          return outcome("review_required", { reason: "goal_not_active_during_reconciliation" });
+        if (!goalRow || goalRow.status !== "active"
+          || goalRow.goal_revision !== attempt.goal_revision) {
+          return outcome("review_required", { reason: "goal_changed_before_core_reconciliation" });
         }
         const selection = getSelection(database, scope, attempt.goal_id);
         if (!selection || selection.current_plan_id !== attempt.plan_id
