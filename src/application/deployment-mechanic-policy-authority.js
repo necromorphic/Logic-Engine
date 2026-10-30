@@ -114,6 +114,17 @@ export class DeploymentMechanicPolicyAuthority {
     });
   }
 
+  assertUsesAuthorizedReadService(authorizedReadService, actorBindingService) {
+    if (!authorizedReadService || !actorBindingService
+      || authorizedReadService.actorBindingService !== actorBindingService) return false;
+    try {
+      const current = this.resolveCurrentPolicy();
+      return current.contextProvider.authorizedReadService === authorizedReadService;
+    } catch {
+      return false;
+    }
+  }
+
   validateMechanicPolicy(identity) {
     if (!object(identity)
       || typeof identity.worldId !== 'string' || !identity.worldId.trim()
