@@ -31,7 +31,7 @@ Every evaluation request must be bound to one `world_id` and one consistent snap
 - expected `world_revision` and commit sequence;
 - normalized action intent and actor/target references, where supplied;
 - the exact read/context manifest available to the evaluator;
-- the enabled `MechanicInstance` IDs and their pinned template versions;
+- the exact enabled and review-required `MechanicInstance` IDs and their pinned template versions;
 - the exact registered module identifiers and versions eligible for the requested operation;
 - applicable trusted policy/configuration versions.
 
@@ -45,7 +45,7 @@ The application service must execute these steps in order:
 
 1. **Normalize and validate the request envelope.** Reject unknown fields, malformed IDs, oversized structures, unsupported operations, and invalid world references.
 2. **Capture a consistent snapshot.** Record the revision/commit sequence and all relevant immutable template/module versions. Evaluation is read-only.
-3. **Select applicable enabled instances.** Only instances whose status is `enabled` are candidates. `disabled` instances are excluded. `needs_review` instances cannot silently participate; return a review/unknown result if their possible relevance cannot be safely ruled out.
+3. **Select applicable enabled instances.** The bounded executor evaluates one requested enabled instance but pins the complete enabled/review-required instance set and exact template hashes in its snapshot identity. `disabled` instances are excluded. It rejects if another enabled or review-required template declares an interaction with the selected template, because interaction semantics are not implemented. `needs_review` instances cannot silently participate; unresolved pinned templates fail closed.
 4. **Validate instance and template contracts.** Confirm exact template version exists. The current executor accepts only empty instance `parameters` and `state`; non-empty values are rejected because no template-defined parameter/state schema or binding semantics are implemented. It also supports only `unknown_policy: mark_unknown`. Required capabilities, rule modules, and unsupported template semantics are rejected before evaluation. A registration manifest alone is not executable code.
 5. **Evaluate only the bounded declarative rule vocabulary.** Rule evaluation must be deterministic for the same snapshot and normalized input. Unknown operators, unsupported conditions, malformed values, and missing required context never evaluate as true.
 6. **Resolve conflicts under the declared policy.** The current executor accepts only `manual` and rejects other modes with `unknown`; it does not invoke automatic resolvers or choose a winner. Array order, incidental database order, or a generic numeric priority must not select a winner.
