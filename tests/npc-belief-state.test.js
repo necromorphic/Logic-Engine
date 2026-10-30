@@ -116,6 +116,58 @@ test('does not treat missing evidence as evidence for false or unknown propositi
   assert.equal(result.reason, 'belief_transition_requires_evidence');
 });
 
+test('rejects proxy-backed and accessor-backed reducer inputs without invoking traps or getters', () => {
+  let trapCalls = 0;
+  let getterCalls = 0;
+  const hostileObject = new Proxy({}, {
+    getPrototypeOf() { trapCalls += 1; throw new Error('proxy trap must not run'); },
+    ownKeys() { trapCalls += 1; throw new Error('proxy trap must not run'); },
+  });
+  const hostileArray = new Proxy(['acq-support'], {
+    get() { trapCalls += 1; throw new Error('proxy trap must not run'); },
+    getOwnPropertyDescriptor() { trapCalls += 1; throw new Error('proxy trap must not run'); },
+  });
+
+  const topLevelProxy = reduceNpcBeliefTransition({
+    knowledgeRead: knowledgeRead(),
+    proposal: hostileObject,
+  });
+  assert.equal(topLevelProxy.status, 'non_ready');
+
+  const nestedProxy = reduceNpcBeliefTransition({
+    knowledgeRead: knowledgeRead(),
+    proposal: proposal({ proposition_value: hostileObject }),
+  });
+  assert.equal(nestedProxy.status, 'non_ready');
+
+  const proxyReferences = reduceNpcBeliefTransition({
+    knowledgeRead: knowledgeRead(),
+    proposal: proposal({ supporting_acquisition_ids: hostileArray }),
+  });
+  assert.equal(proxyReferences.status, 'non_ready');
+
+  const proxyReadItems = reduceNpcBeliefTransition({
+    knowledgeRead: knowledgeRead({ items: new Proxy([evidenceItems[0]], {
+      getPrototypeOf() { trapCalls += 1; throw new Error('proxy trap must not run'); },
+    }) }),
+    proposal: proposal(),
+  });
+  assert.equal(proxyReadItems.status, 'non_ready');
+
+  const getterProposal = proposal();
+  Object.defineProperty(getterProposal, 'stance', {
+    enumerable: true,
+    get() { getterCalls += 1; return 'believes_true'; },
+  });
+  const accessorResult = reduceNpcBeliefTransition({
+    knowledgeRead: knowledgeRead(),
+    proposal: getterProposal,
+  });
+  assert.equal(accessorResult.status, 'non_ready');
+  assert.equal(trapCalls, 0);
+  assert.equal(getterCalls, 0);
+});
+
 test('fails closed on non-JSON or cyclic Core evidence values without throwing', () => {
   const cyclic = {};
   cyclic.self = cyclic;
@@ -325,6 +377,34 @@ test('context preserves the distinction between belief, suspicion, and unresolve
   });
   assert.equal(conflict.status, 'ready');
   assert.equal(buildNpcBeliefContext(conflictRead, conflict.transition).context.epistemic_status, 'conflicted');
+});
+
+test('context builder rejects proxy-backed and accessor-backed inputs without executing them', () => {
+  const read = knowledgeRead();
+  const reduced = reduceNpcBeliefTransition({ knowledgeRead: read, proposal: proposal() });
+  let trapCalls = 0;
+  let getterCalls = 0;
+  const hostileTransition = new Proxy(reduced.transition, {
+    getPrototypeOf() { trapCalls += 1; throw new Error('proxy trap must not run'); },
+  });
+  assert.equal(buildNpcBeliefContext(read, hostileTransition).status, 'non_ready');
+
+  const hostileValue = new Proxy({}, {
+    getPrototypeOf() { trapCalls += 1; throw new Error('proxy trap must not run'); },
+  });
+  const nestedRead = knowledgeRead({
+    items: [{ ...evidenceItems[0], value: hostileValue }],
+  });
+  assert.equal(buildNpcBeliefContext(nestedRead, reduced.transition).status, 'non_ready');
+
+  const accessorTransition = { ...reduced.transition };
+  Object.defineProperty(accessorTransition, 'stance', {
+    enumerable: true,
+    get() { getterCalls += 1; return 'believes_true'; },
+  });
+  assert.equal(buildNpcBeliefContext(read, accessorTransition).status, 'non_ready');
+  assert.equal(trapCalls, 0);
+  assert.equal(getterCalls, 0);
 });
 
 test('context refuses actor or snapshot mismatch and evidence removed after reduction', () => {
