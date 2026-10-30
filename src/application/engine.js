@@ -665,7 +665,9 @@ export class LogicEngine {
     try {
       authorization = this.npcKnowledgeReadAuthorizer(Object.freeze({
         world_id: request.world_id,
+        adapter_id: request.adapter_id,
         actor_id: request.actor_id,
+        recipient: request.recipient,
         purpose: request.purpose,
         world_revision: world.world_revision,
         commit_sequence: commitSequence,
