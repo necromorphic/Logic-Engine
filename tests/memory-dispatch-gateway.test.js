@@ -850,11 +850,10 @@ test('real Core source mutation and Gateway dispatch-start share one cross-proce
         sources,
         candidates,
       }),
-      sendUpstream: async (request) => {
+      sendUpstream: (request) => {
         calls.push(request);
         markTransportStarted();
-        await transportGate;
-        return { status: 200 };
+        return transportGate.then(() => ({ status: 200 }));
       },
     });
 
