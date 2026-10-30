@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { link, mkdtemp, mkdir, rm, symlink, writeFile } from 'node:fs/promises';
+import { link, mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { enumerateStableFileInventory } from '../fs-inventory.js';
@@ -83,13 +83,13 @@ test('rejects non-regular filesystem entries', async () => {
 test('delete and same-byte restore are distinct filesystem generations', async () => {
   await withTempRoot(async ({ root }) => {
     const file = join(root, 'chat.jsonl');
-    const backup = join(root, 'backup.tmp');
+    const backup = join(root, '..', 'backup.tmp');
     await writeFile(file, 'same bytes');
     const before = await enumerateStableFileInventory(resolve(root));
     await writeFile(backup, 'same bytes');
     await rm(file);
     const deleted = await enumerateStableFileInventory(resolve(root));
-    await writeFile(file, await (await import('node:fs/promises')).readFile(backup));
+    await writeFile(file, await readFile(backup));
     const restored = await enumerateStableFileInventory(resolve(root));
     assert.equal(before.status, 'complete');
     assert.equal(deleted.status, 'complete');
