@@ -91,6 +91,9 @@ export class ActorBindingService {
     if (!binding || binding.active !== 1) {
       throw new EngineError('ACTOR_NOT_AUTHORIZED', 'The authenticated adapter is not bound to this actor in this world.', 403);
     }
+    if (!Number.isSafeInteger(binding.generation) || binding.generation < 1) {
+      throw new EngineError('ACTOR_BINDING_INVALID', 'The active actor binding has an invalid generation.', 409);
+    }
     const entity = this.db.prepare('SELECT entity_id,entity_type,status FROM entities WHERE world_id=? AND entity_id=?')
       .get(worldId, entityId.trim());
     if (!entity || entity.status === 'destroyed') {
