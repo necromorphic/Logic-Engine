@@ -42,10 +42,11 @@ const identityOf = stat => {
   if (stat.ino === 0n) fail('FILE_IDENTITY_UNAVAILABLE');
   return stat.dev.toString() + ':' + stat.ino.toString();
 };
-// On Windows, Node's path-based lstat may report st_dev as 0 or a
-// different volume value than fstat on a handle to the same file. The file
-// index (ino) remains stable; do not compare dev across Windows stat sources.
-const sameStat = (left, right) => (process.platform === 'win32' || left.dev === right.dev)
+// On Windows, path-based lstat may report st_dev=0 while handle-based fstat
+// reports the volume serial. Compare dev when both sources provide it.
+const sameStat = (left, right) => (process.platform === 'win32'
+  ? left.dev === 0n || right.dev === 0n || left.dev === right.dev
+  : left.dev === right.dev)
   && left.ino === right.ino
   && left.mode === right.mode
   && left.size === right.size
