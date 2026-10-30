@@ -181,7 +181,7 @@ function idFrom(idFactory) {
 }
 
 function outcome(status, fields = {}) {
-  return Object.freeze({ status, ...fields });
+  return Object.freeze({ ...fields, status });
 }
 
 function tx(database, operation) {
@@ -543,7 +543,7 @@ export function createNpcGoalPlanRepository({
         );
         const saved = {
           candidate_id: candidateId, goal_id: candidate.goal_id, plan_id: planId,
-          plan_revision: planRevision, status: "candidate",
+          plan_revision: planRevision, candidate_status: "candidate",
         };
         audit(database, scope, {
           entity_type: "candidate", entity_id: candidateId, action: "candidate_created",
@@ -613,7 +613,7 @@ export function createNpcGoalPlanRepository({
         const saved = {
           candidate_id: candidateId, goal_id: row.goal_id, plan_id: row.plan_id,
           plan_revision: row.plan_revision, plan_selection_revision: nextSelectionRevision,
-          status: "accepted",
+          candidate_status: "accepted",
         };
         audit(database, scope, {
           entity_type: "plan", entity_id: row.plan_id, action: "candidate_accepted",
@@ -661,7 +661,7 @@ export function createNpcGoalPlanRepository({
           "UPDATE npc_goals SET goal_json = ?, status = ?, goal_revision = ?, updated_at = ? WHERE world_id = ? AND npc_entity_id = ? AND goal_id = ? AND goal_revision = ?",
         ).run(json(changed.goal), changed.goal.status, nextRevision, at,
           scope.world_id, scope.npc_entity_id, goalId, expectedGoalRevision);
-        const saved = { goal_id: goalId, goal_revision: nextRevision, status: changed.goal.status };
+        const saved = { goal_id: goalId, goal_revision: nextRevision, goal_status: changed.goal.status };
         audit(database, scope, {
           entity_type: "goal", entity_id: goalId, action: transitionName,
           revision: nextRevision, details: { evidence },
@@ -852,7 +852,7 @@ export function createNpcGoalPlanRepository({
         const saved = {
           attempt_id: attemptId, event_id: verified.event_id, plan_id: attempt.plan_id,
           plan_revision: nextPlanRevision, plan_selection_revision: nextSelectionRevision,
-          step_id: attempt.step_id, status: "reconciled",
+          step_id: attempt.step_id, local_state: "reconciled",
         };
         audit(database, scope, {
           entity_type: "plan", entity_id: attempt.plan_id, action: "core_result_reconciled",
