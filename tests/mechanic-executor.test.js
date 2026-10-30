@@ -7,6 +7,7 @@ import { SQLiteStore } from '../src/storage/sqlite-store.js';
 import { LogicEngine } from '../src/application/engine.js';
 import { MechanicExecutor } from '../src/application/mechanic-executor.js';
 import { DeploymentMechanicPolicyAuthority } from '../src/application/deployment-mechanic-policy-authority.js';
+import { createDeploymentMechanicPolicyRuntime } from '../src/application/deployment-mechanic-policy-runtime.js';
 import { CanonicalEntityAttributeContextProvider } from '../src/application/entity-attribute-context-provider.js';
 import { ActorBindingService } from '../src/application/actor-bindings.js';
 import { AuthorizedReadService } from '../src/application/authorized-read-service.js';
@@ -1486,6 +1487,104 @@ test('proposal commit rolls back canonical state when committed-audit insertion 
     "SELECT COUNT(*) AS count FROM audit_entries WHERE world_id=? AND action='proposal.committed'",
   ).get(worldId).count, beforeCommittedAudits + 1);
 });
+
+
+test('configured deployment policy runtime binds real authorized reads and rejects rotations at proposal, approval, and commit', (t) => {
+  const { engine, worldId } = setup(t, 'executor-configured-policy-runtime-world');
+  enableFixture(engine, worldId);
+  const actorBindings = new ActorBindingService(engine);
+  actorBindings.bind(worldId, 'test-adapter', 'entity.actor-context');
+
+  const makeConfig = (generation) => ({
+    authority_id: 'configured-deployment-mechanics',
+    generation,
+    policy_version: 'visibility-policy-v' + generation,
+    authorization_scope: 'npc-decision-scope',
+    adapter_id: 'test-adapter',
+    actor_entity_id: 'entity.actor-context',
+    recipient: 'model',
+    purpose: 'npc_decision',
+    bindings: [
+      { path: 'world.weather', entity_id: 'entity.world-context', attribute: 'weather' },
+      { path: 'actor.hp', entity_id: 'entity.actor-context', attribute: 'hp' },
+    ],
+    allowed_fields: [
+      { entity_id: 'entity.world-context', attribute: 'weather' },
+      { entity_id: 'entity.actor-context', attribute: 'hp' },
+    ],
+  });
+  let activeConfig = makeConfig(1);
+  const runtime = createDeploymentMechanicPolicyRuntime({
+    engine,
+    actorBindingService: actorBindings,
+    loadPolicyConfig: () => activeConfig,
+  });
+  const executor = new MechanicExecutor(engine, {
+    resolveAuthorizedContext: (args) => runtime.authority.resolveAuthorizedContext({
+      ...args,
+      authenticatedAdapterId: 'test-adapter',
+    }),
+  });
+  const proposals = new ProposalService(engine, {
+    validateMechanicPolicy: (identity) => runtime.authority.validateMechanicPolicy(identity),
+  });
+
+  const staleBeforeProposal = executor.evaluate({
+    worldId, instanceId: 'instance.executor', actionId: 'wait',
+  });
+  assert.equal(staleBeforeProposal.status, 'ready');
+  assert.equal(staleBeforeProposal.authorization_principal.adapterId, 'test-adapter');
+  activeConfig = makeConfig(2);
+  assert.throws(
+    () => proposals.createFromMechanicEvaluation(worldId, staleBeforeProposal, {
+      idempotencyKey: 'configured-policy-stale-before-proposal',
+      turnId: 'configured-policy-stale-before-proposal',
+      sourceText: 'The previous deployment policy generation must not create a proposal.',
+      adapterId: 'test-adapter',
+    }),
+    (error) => error.code === 'STALE_MECHANIC_POLICY' && error.details?.stage === 'proposal_creation',
+  );
+
+  const staleBeforeApproval = executor.evaluate({
+    worldId, instanceId: 'instance.executor', actionId: 'wait',
+  });
+  assert.equal(staleBeforeApproval.policy_generation, 2);
+  const pending = proposals.createFromMechanicEvaluation(worldId, staleBeforeApproval, {
+    idempotencyKey: 'configured-policy-stale-before-approval',
+    turnId: 'configured-policy-stale-before-approval',
+    sourceText: 'A generation-two proposal must not survive rotation before approval.',
+    adapterId: 'test-adapter',
+  });
+  activeConfig = makeConfig(3);
+  assert.throws(
+    () => proposals.approve(worldId, pending.proposal_id),
+    (error) => error.code === 'STALE_MECHANIC_POLICY' && error.details?.stage === 'approval',
+  );
+  assert.equal(proposals.get(worldId, pending.proposal_id).status, 'pending');
+
+  const staleBeforeCommit = executor.evaluate({
+    worldId, instanceId: 'instance.executor', actionId: 'wait',
+  });
+  assert.equal(staleBeforeCommit.policy_generation, 3);
+  const approved = proposals.createFromMechanicEvaluation(worldId, staleBeforeCommit, {
+    idempotencyKey: 'configured-policy-stale-before-commit',
+    turnId: 'configured-policy-stale-before-commit',
+    sourceText: 'A generation-three proposal must not commit after rotation.',
+    adapterId: 'test-adapter',
+  });
+  proposals.approve(worldId, approved.proposal_id);
+  activeConfig = makeConfig(4);
+  assert.throws(
+    () => proposals.commit(worldId, approved.proposal_id),
+    (error) => error.code === 'STALE_MECHANIC_POLICY' && error.details?.stage === 'commit',
+  );
+  assert.equal(proposals.get(worldId, approved.proposal_id).status, 'approved');
+  assert.equal(engine.getState(worldId).world_revision, 2);
+  assert.equal(engine.getState(worldId).commit_sequence, 1);
+  assert.equal(engine.getState(worldId).entities.some((entity) => entity.entity_id === 'entity.new'), false);
+  assert.equal(proposals.db.prepare('SELECT COUNT(*) AS count FROM event_proposals').get().count, 2);
+});
+
 
 test('one deployment authority pins context and invalidates stale proposals across policy generations', (t) => {
   const { engine, worldId } = setup(t, 'executor-shared-deployment-authority-world');
