@@ -25,6 +25,8 @@ test('delete-last, bulk-delete and swipe targets are revalidated after asynchron
   assert.ok(patch.includes('messageIds.some((messageId, index) => chat[messageId] !== deletedTargets[index])'));
   assert.ok(patch.includes('const swipeSnapshot = targetSwipes.slice();'));
   assert.ok(patch.includes('targetSwipes.some((value, index) => value !== swipeSnapshot[index])'));
+  assert.ok(patch.includes('message.swipe_info !== targetSwipeInfo'));
+  assert.ok(patch.includes('targetSwipeInfo.length !== swipeInfoSnapshot.length'));
   assert.ok(patch.includes('getCurrentChatId() !== targetLocator'));
 });
 
