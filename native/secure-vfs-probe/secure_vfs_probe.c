@@ -150,13 +150,14 @@ static HANDLE WINAPI probe_create_file_w(
   int needs_identity = is_sidecar
     || (g_current_race_open && !g_current_race_captured)
     || (g_current_role_index >= 0 && !g_current_role_captured);
-  g_native_open_count += 1;
+  probe_counter_increment(&g_native_open_count);
   if (needs_identity) attributes |= FILE_FLAG_OPEN_REPARSE_POINT;
   handle = ((probe_create_file_w_fn)g_original_open_syscall)(
     name, access, share, security, creation, attributes, template_file
   );
   if (handle == INVALID_HANDLE_VALUE || !needs_identity) return handle;
 
+  probe_registry_lock();
   {
     int reject = !GetFileInformationByHandle(handle, &info)
       || (info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0
@@ -196,6 +197,8 @@ static HANDLE WINAPI probe_create_file_w(
       CloseHandle(handle);
       g_identity_reject_count += 1;
       if (is_sidecar) g_sidecar_identity_reject_count += 1;
+      probe_registry_unlock();
+      CloseHandle(handle);
       SetLastError(ERROR_ACCESS_DENIED);
       return INVALID_HANDLE_VALUE;
     }
@@ -220,6 +223,7 @@ static HANDLE WINAPI probe_create_file_w(
     if (g_current_role_index >= 0) g_current_role_captured = 1;
     if (g_current_race_open) g_current_race_captured = 1;
   }
+  probe_registry_unlock();
   return handle;
 }
 #else
