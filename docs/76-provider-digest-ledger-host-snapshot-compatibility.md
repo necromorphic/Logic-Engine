@@ -47,3 +47,24 @@ The current Host prototype does not yet emit this approved envelope. In particul
 ## Acceptance boundary
 
 PR #390 is a Provider-local draft and unit tests are not real Host-to-Provider integration evidence. Do not merge or wire it into Memory→NPC until Core and Host approve the exact envelope and the actual Host snapshot producer/validator is implemented and tested against the pinned ST build. Memory→NPC remains **DISABLED / FAIL-CLOSED**. Ollama/VectorService remains out of scope.
+
+
+## Current-main refresh — 30 Oct 2026
+
+The original comparison above is historical (2026-10-26). Current main has since evolved the Host ledger and ST lifecycle candidate, but the core compatibility gap remains:
+
+- `HostVersionDigestLedger.reconcileConversation()` still expects a complete message-version snapshot (`world_id`, `conversation_id`, `complete`, `versions[]`) with exact version IDs, parent lineage, digests, active and deleted flags.
+- The current ST lifecycle bridge can emit digest-only per-version captures for a bounded hooked subset, but its `CURRENTLY_HOOKED_PATHS` is not complete. It does not establish pre-enrollment history, whole-chat/group/character deletion, imports, branch/copy, restore, or external file mutation.
+- The consolidated Host inventory candidate in PR #783 inventories current chat/group metadata files and returns file locators, identities, sizes, timestamps, hashes, and validated persisted conversation UUIDs. It rejects malformed/duplicate UUIDs and denies the route unless the authenticated SillyTavern account session handle matches the request user. Missing UUIDs keep current-file identity incomplete. It still does **not** produce the required message-version envelope, swipe/revision lineage, a durable installation/session identity, or an atomic filesystem snapshot.
+- `HostVersionDigestLedger.reconcileConversation()` accepts `world_id`, `conversation_id`, `complete`, and `versions[]`; it has no explicit installation ID, branch/restore lineage or monotonic snapshot sequence fields. A composite conversation ID can carry an installation prefix only if a trusted verifier proves that binding; the current file route does not provide that proof. The account-session check is an authentication gate, not a unique or durable session identifier. Core startup continues to pass `verifyInventorySnapshot: async () => false`. No production snapshot attestor or Host→ledger reconciliation adapter exists.
+
+The combined pinned-ST patch candidate #787 successfully applies lifecycle hooks → file-inventory route → Direction A delete-safety overlay in CI (Host prototype tests 75/75, syntax checks and patch application pass). This does not change the snapshot contract or make `verifyInventorySnapshot` positive.
+
+**Disposition:** patch composition is validated; Host snapshot compatibility, complete inventory, restore/branch lineage and production reconciliation remain BLOCKED / NON_READY. Do not infer Provider readiness or Memory→NPC authorization from the current-file inventory endpoint or individual digest-capture responses. No new cursor, outbox, schema or raw-text retention is approved by this refresh.
+
+
+## Authenticated Host session identity update — 30 Oct 2026
+
+The Host candidate now scopes its conversation identifier as `hostSessionId:installationId:conversationUuid`. The server-generated session UUID is stored in SillyTavern's signed cookie-session object after verifying that the authenticated session handle matches the authenticated user handle. This prevents reuse of a prior Core conversation binding by a different login session. Session reset, cookie loss, cookie-signing-secret rotation, or account change rotates the identifier and causes old local enrollment mappings to fail closed rather than silently rebind.
+
+This improves identity scoping but does not change the Provider snapshot envelope. `HostVersionDigestLedger.reconcileConversation()` still requires a trusted complete `versions[]` inventory, and Core startup still uses a deny-only inventory verifier. The session UUID is not a durable installation attestation, does not establish world/actor authorization, and does not supply branch/restore lineage or monotonic snapshot sequence. No Provider reconciliation or revocation claim is upgraded by this change; production Memory→NPC remains DISABLED / FAIL-CLOSED.
