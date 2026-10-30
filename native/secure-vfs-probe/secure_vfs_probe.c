@@ -120,6 +120,10 @@ static HANDLE WINAPI probe_create_file_w(
   return handle;
 }
 #else
+static int probe_replace_with_hardlink(const char *path, const char *target) {
+  if (unlink(path) != 0) return 0;
+  return link(target, path) == 0;
+}
 typedef int (*probe_open_fn)(const char *, int, int);
 static int probe_open(const char *name, int flags, int mode) {
   int fd;
