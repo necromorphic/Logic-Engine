@@ -17,7 +17,7 @@ class FakeStore {
         queueMicrotask(() => {
           request.result = [...this.db.rows.values()].filter(row => row.conversationId === range.only);
           request.onsuccess?.();
-          this.db.finish(this.tx);
+          if (this.tx.mode === 'readonly') this.db.finish(this.tx);
         });
         return request;
       },
@@ -28,7 +28,7 @@ class FakeStore {
     queueMicrotask(() => {
       request.result = this.db.heads.get(key);
       request.onsuccess?.();
-      this.db.finish(this.tx);
+      if (this.tx.mode === 'readonly') this.db.finish(this.tx);
     });
     return request;
   }
@@ -48,12 +48,13 @@ class FakeStore {
 }
 class FakeTransaction {
   error = null; oncomplete = null; onerror = null; onabort = null;
-  constructor(db, names) { this.db = db; this.names = names; }
+  constructor(db, names, mode) { this.db = db; this.names = names; this.mode = mode; }
   objectStore(name) { return new FakeStore(this.db, this, name); }
+  abort() { this.error = Error('transaction aborted'); setImmediate(() => this.onabort?.()); }
 }
 class FakeDB {
   rows = new Map(); heads = new Map(); failNextWrite = false;
-  transaction(names) { return new FakeTransaction(this, names); }
+  transaction(names, mode = 'readonly') { return new FakeTransaction(this, names, mode); }
   finish(tx) { setImmediate(() => tx.oncomplete?.()); }
 }
 
