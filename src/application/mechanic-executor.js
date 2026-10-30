@@ -327,6 +327,7 @@ export class MechanicExecutor {
     const existingEntities = new Set(entityById.keys());
     const existingFacts = new Map(targetFacts.map((fact) => [fact.fact_id, fact]));
     const createdEntities = new Set();
+    const entityStatusAfterEffects = new Map();
     const writtenEntityIds = new Set();
     const writtenFactIds = new Set();
     for (const effect of translated.effects) {
@@ -347,11 +348,13 @@ export class MechanicExecutor {
           return unknown('MECHANIC_EFFECT_TARGET_ALREADY_EXISTS', 'A create_entity target already exists in the snapshot or earlier in this effect batch.', identity);
         }
         createdEntities.add(effect.entity_id);
+        entityStatusAfterEffects.set(effect.entity_id, effect.status ?? 'active');
       } else if (effect.kind === 'entity.update') {
         const target = entityById.get(effect.entity_id);
         if (!target || target.status === 'destroyed') {
           return unknown('MECHANIC_EFFECT_TARGET_NOT_FOUND', 'An update_attribute target must be an existing, non-destroyed entity in the same-world snapshot.', identity);
         }
+        entityStatusAfterEffects.set(effect.entity_id, effect.status ?? target.status);
       } else if (effect.kind === 'fact.set') {
         const existingFact = existingFacts.get(effect.fact_id);
         if (existingFact
@@ -362,8 +365,12 @@ export class MechanicExecutor {
         }
         if (effect.subject_ref !== undefined && effect.subject_ref !== null) {
           const subject = entityById.get(effect.subject_ref);
-          if ((!subject || subject.status === 'destroyed') && !createdEntities.has(effect.subject_ref)) {
-            return unknown('MECHANIC_EFFECT_SUBJECT_NOT_FOUND', 'An assert_fact subject_ref must identify a non-destroyed entity in this world or an entity created earlier in this action.', identity);
+          const effectiveStatus = entityStatusAfterEffects.has(effect.subject_ref)
+            ? entityStatusAfterEffects.get(effect.subject_ref)
+            : subject?.status;
+          if (effectiveStatus === undefined || effectiveStatus === 'destroyed') {
+            return unknown('MECHANIC_EFFECT_SUBJECT_NOT_FOUND',
+              'An assert_fact subject_ref must identify a non-destroyed entity at the point the fact effect is applied.', identity);
           }
         }
       }
