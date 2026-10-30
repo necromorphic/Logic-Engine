@@ -411,7 +411,9 @@ test('empty chat enrollment is explicit and does not imply pre-enrollment histor
   const db = new FakeDB(), journal = new HostLifecycleJournal(db), chat = [];
   const bridge = createStLifecycleBridge({
     journal,
-    getConversationId: () => 'empty-chat',
+    getConversationId: () => TEST_CONVERSATION_ID,
+    getConversationUuid: () => TEST_CONVERSATION_UUID,
+    readPersistedInventory: uuid => makePersistedInventory(chat, uuid),
     getChat: () => chat,
     saveChat: async () => {},
   });
@@ -460,7 +462,7 @@ test('unavailable bridge re-checks enrollment marker for the current chat before
   });
 
   assert.deepEqual(await bridge.beforeMutation('delete-message', [0]), { status: 'NOT_ENROLLED' });
-  markers.set('logic-engine-host-lifecycle:chat-1', 'NON_READY');
+  markers.set('logic-engine-host-lifecycle:' + TEST_CONVERSATION_ID, 'NON_READY');
   await assert.rejects(
     bridge.beforeMutation('delete-message', [0]),
     /NON_READY: enrolled Host journal unavailable: IndexedDB unavailable/,
@@ -490,9 +492,10 @@ test('pre-mutation rejects duplicate or out-of-range indexes and reconciliation 
 
   f.chat[1]._logicEngineLifecycle.versions[0].versionId =
     f.chat[0]._logicEngineLifecycle.versions[0].versionId;
+  f.setPersistedChat(f.chat);
   const result = await f.bridge.reconcileCurrentConversation();
   assert.equal(result.status, 'NON_READY');
-  assert.match(result.reason, /duplicate logical version identity/);
+  assert.match(result.reason, /missing or duplicate logical version identity/);
 });
 
 test('reconciliation rejects identity metadata whose digest no longer matches native message content', async () => {
@@ -501,7 +504,7 @@ test('reconciliation rejects identity metadata whose digest no longer matches na
   f.chat[0]._logicEngineLifecycle.versions[0].payloadDigest = 'tampered-digest';
   const result = await f.bridge.reconcileCurrentConversation();
   assert.equal(result.status, 'NON_READY');
-  assert.match(result.reason, /version digest does not match native source content/);
+  assert.match(result.reason, /in-memory Host version identity or content digest is invalid during persisted-state verification/);
 });
 
 test('new-message reconciliation fails closed when an existing identity is missing', async () => {
@@ -592,8 +595,8 @@ test('reconciliation rejects copied/restored sidecar IDs even when native messag
 
   // Simulate a copied/restored metadata snapshot whose native message text is
   // identical, so the native-source fingerprint alone cannot detect the swap.
-  f.chat[0]._logicEngineLifecycle.messageId = 'copied-message-id';
-  f.chat[0]._logicEngineLifecycle.versions[0].versionId = 'copied-version-id';
+  f.chat[0]._logicEngineLifecycle.messageId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+  f.chat[0]._logicEngineLifecycle.versions[0].versionId = 'ffffffff-ffff-4fff-8fff-ffffffffffff';
 
   assert.equal(await f.bridge.currentFingerprint(), originalFingerprint);
   const result = await f.bridge.reconcileCurrentConversation();
@@ -724,6 +727,8 @@ test('fresh journal/bridge instances replay the persisted journal rows after res
   const restartedBridge = createStLifecycleBridge({
     journal: restartedJournal,
     getConversationId: () => TEST_CONVERSATION_ID,
+    getConversationUuid: () => TEST_CONVERSATION_UUID,
+    readPersistedInventory: uuid => makePersistedInventory(f.chat, uuid),
     getSourceLocator: () => 'chat-file-1',
     getChat: () => f.chat,
     saveChat: async () => {},
