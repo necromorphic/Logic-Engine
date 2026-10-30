@@ -320,28 +320,36 @@ typedef int (*probe_stat_fn)(const char *, struct stat *);
 static int probe_stat(const char *name, struct stat *info) {
   int rc = ((probe_stat_fn)g_original_stat_syscall)(name, info);
   if (rc != 0) return rc;
-  if (g_current_role_index >= 0 && !g_current_role_stat_valid
-      && strcmp(name, g_database_roles[g_current_role_index].path) == 0) {
-    ProbeDatabaseRole *role = &g_database_roles[g_current_role_index];
-    if (info->st_dev == 0 || info->st_ino == 0
-        || (role->identity_set
-          && (info->st_dev != role->device || info->st_ino != role->inode))) {
-      errno = EACCES;
-      return -1;
-    }
-    if (!role->identity_set) {
-      for (int i = 0; i < g_database_role_count; i++) {
-        ProbeDatabaseRole *other = &g_database_roles[i];
-        if (i != g_current_role_index && other->identity_set
-            && info->st_dev == other->device && info->st_ino == other->inode) {
-          errno = EACCES;
-          return -1;
+  if (g_current_role_index >= 0 && !g_current_role_stat_valid) {
+    int reject = 0;
+    probe_registry_lock();
+    {
+      ProbeDatabaseRole *role = &g_database_roles[g_current_role_index];
+      if (strcmp(name, role->path) == 0) {
+        if (info->st_dev == 0 || info->st_ino == 0
+            || (role->identity_set
+              && (info->st_dev != role->device || info->st_ino != role->inode))) {
+          reject = 1;
+        }
+        if (!reject && !role->identity_set) {
+          for (int i = 0; i < g_database_role_count; i++) {
+            ProbeDatabaseRole *other = &g_database_roles[i];
+            if (i != g_current_role_index && other->identity_set
+                && info->st_dev == other->device && info->st_ino == other->inode) reject = 1;
+          }
+        }
+        if (!reject) {
+          g_current_role_stat_device = info->st_dev;
+          g_current_role_stat_inode = info->st_ino;
+          g_current_role_stat_valid = 1;
         }
       }
     }
-    g_current_role_stat_device = info->st_dev;
-    g_current_role_stat_inode = info->st_ino;
-    g_current_role_stat_valid = 1;
+    probe_registry_unlock();
+    if (reject) {
+      errno = EACCES;
+      return -1;
+    }
   }
   // Deterministically replace the path after stat has returned its identity,
   // but before SQLite can reuse/open the file. The later fstat must detect it.
