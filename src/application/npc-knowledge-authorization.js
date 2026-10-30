@@ -43,12 +43,21 @@ export function createHostBoundNpcKnowledgeAuthorizers({
    * Ambiguity is a denial, not a caller-controlled selection opportunity.
    */
   function resolveContext(identity) {
-    if (!identity || !validId(identity.conversation_id)
-      || !validId(identity.adapter_id) || !configuredAdapters.has(identity.adapter_id)) return null;
     try {
+      if (!identity || typeof identity !== 'object' || Array.isArray(identity)
+        || ![Object.prototype, null].includes(Object.getPrototypeOf(identity))
+        || Reflect.ownKeys(identity).length !== 2
+        || !Reflect.ownKeys(identity).every(key => key === 'adapter_id' || key === 'conversation_id')
+        || ['adapter_id', 'conversation_id'].some(key => {
+          const descriptor = Object.getOwnPropertyDescriptor(identity, key);
+          return !descriptor || !Object.hasOwn(descriptor, 'value');
+        })) return null;
+      const adapterId = identity.adapter_id;
+      const conversationId = identity.conversation_id;
+      if (!validId(conversationId) || !validId(adapterId) || !configuredAdapters.has(adapterId)) return null;
       const host = store.db.prepare(
         'SELECT world_id,active FROM host_conversation_world_bindings WHERE adapter_id=? AND conversation_id=?'
-      ).get(identity.adapter_id, identity.conversation_id);
+      ).get(adapterId, conversationId);
       if (!host || host.active !== 1) return null;
       const world = store.world(host.world_id);
       if (!world || world.status !== 'active') return null;
@@ -64,8 +73,8 @@ export function createHostBoundNpcKnowledgeAuthorizers({
 
       return Object.freeze({
         world_id: host.world_id,
-        conversation_id: identity.conversation_id,
-        adapter_id: identity.adapter_id,
+        conversation_id: conversationId,
+        adapter_id: adapterId,
         actor_id: actor.entity_id,
       });
     } catch {
