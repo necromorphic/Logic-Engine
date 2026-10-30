@@ -148,6 +148,29 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
     );
   }
 
+  // POSIX deletion must re-check the pinned directory policy at the
+  // destructive boundary, not only when the database role is enrolled.
+  if (process.platform !== 'win32') {
+    const deletionParent = join(directory, 'delete-policy-parent');
+    mkdirSync(deletionParent);
+    const deletionPath = join(deletionParent, 'delete-policy.sqlite');
+    registerRole(deletionPath, 'delete-policy-recheck');
+    const deletionDb = new DatabaseSync(deletionPath);
+    try {
+      deletionDb.exec("PRAGMA journal_mode=DELETE; CREATE TABLE probe(value TEXT); BEGIN IMMEDIATE; INSERT INTO probe VALUES('pending');");
+      assert.equal(existsSync(`${deletionPath}-journal`), true,
+        'the rollback journal must exist before the directory policy changes');
+      chmodSync(deletionParent, 0o777);
+      assert.throws(() => deletionDb.exec('COMMIT;'),
+        'POSIX xDelete must fail closed when the pinned parent becomes writable by other UIDs');
+      assert.equal(existsSync(`${deletionPath}-journal`), true,
+        'a rejected delete must leave the rollback journal in place');
+    } finally {
+      chmodSync(deletionParent, 0o700);
+      deletionDb.close();
+    }
+  }
+
   if (process.platform !== 'win32') {
     const symlinkTarget = join(directory, 'symlink-target');
     const symlinkParent = join(directory, 'symlink-parent');
