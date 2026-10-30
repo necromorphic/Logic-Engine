@@ -110,6 +110,35 @@ test('pinned patch explicitly hooks core mutations but does not pretend uncovere
 });
 
 
+test('pinned SillyTavern patch uses the existing authenticated inventory and digest-only Core proxies', async () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const patch = await readFile(resolve(here, '../patches/sillytavern-1.19.0-lifecycle-hooks.patch'), 'utf8');
+  const proxy = await readFile(resolve(here, '../st-server-digest-proxy.mjs'), 'utf8');
+
+  assert.ok(patch.includes("import { router as logicEngineLifecycleRouter } from './endpoints/logic-engine-lifecycle.js';"));
+  assert.ok(patch.includes("app.use('/api/logic-engine', logicEngineLifecycleRouter);"));
+  assert.ok(patch.includes("import { createHostDigestProxyHandler, createHostInventoryReconcileProxyHandler } from './logic-engine-lifecycle-proxy.mjs';"));
+  assert.ok(patch.includes("router.post('/host-version-ledger/capture', createHostDigestProxyHandler());"));
+  assert.ok(patch.includes("router.post('/host-version-ledger/reconcile', createHostInventoryReconcileProxyHandler());"));
+  assert.ok(patch.includes("fetch('/api/logic-engine/host/session'"));
+  assert.ok(patch.includes("fetch('/api/logic-engine/host/inventory?conversation_uuid='"));
+  assert.ok(patch.includes("fetch('/api/logic-engine/host-version-ledger/reconcile'"));
+  assert.ok(patch.includes('getLogicEngineHostSessionId'));
+  assert.ok(patch.includes('getPersistedInventory: async'));
+  assert.ok(patch.includes('complete: false'));
+  assert.ok(patch.includes('logicEngineHostSessionPromise = null'));
+
+  // The server proxy uses only deployment-owned credentials and the existing
+  // digest-only Core route; no browser-selected upstream or world scope exists.
+  assert.ok(proxy.includes("'/v1/host-version-ledger/capture'"));
+  assert.ok(proxy.includes("'/v1/host-version-ledger/reconcile'"));
+  assert.ok(proxy.includes('LOGIC_ENGINE_API_TOKEN'));
+  assert.ok(proxy.includes('LOGIC_ENGINE_ADAPTER_TOKEN'));
+  assert.ok(proxy.includes('HOST_SESSION_SCOPE_REQUIRED'));
+  assert.ok(proxy.includes('requestMatchesAuthenticatedHostSession'));
+  assert.equal(proxy.includes("'world_id'"), false);
+});
+
 test('pinned patch journals edit and swipe deletion only after awaited native save', async () => {
   const here = dirname(fileURLToPath(import.meta.url));
   const patch = await readFile(resolve(here, '../patches/sillytavern-1.19.0-lifecycle-hooks.patch'), 'utf8');
