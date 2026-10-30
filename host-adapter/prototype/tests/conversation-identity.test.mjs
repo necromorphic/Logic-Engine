@@ -73,7 +73,7 @@ test('same-install copy with reused chat metadata is rejected by locator binding
   const storage = new Storage();
   storage.setItem('logic-engine-host-installation-id', INSTALL_A);
   const metadata = { logic_engine_conversation_id: CHAT_A };
-  const resolvedId = INSTALL_A + ':' + CHAT_A;
+  const resolvedId = SESSION_A + ':' + INSTALL_A + ':' + CHAT_A;
   storage.setItem(prefix + resolvedId, 'enrolled:original.jsonl');
   storage.setItem(locatorKey('original.jsonl'), resolvedId);
   await assert.rejects(
@@ -122,7 +122,7 @@ test('failed metadata persistence does not leave an in-memory identity assigned'
 test('locator enrollment lookup is conservative for single and bulk operations', () => {
   const storage = new Storage();
   storage.setItem('logic-engine-host-installation-id', INSTALL_A);
-  const conversationId = INSTALL_A + ':' + CHAT_A;
+  const conversationId = SESSION_A + ':' + INSTALL_A + ':' + CHAT_A;
   storage.setItem(locatorKey('enrolled-chat.jsonl'), conversationId);
   storage.setItem(prefix + conversationId, 'enrolled:enrolled-chat.jsonl');
   assert.equal(hostLocatorHasEnrollment('enrolled-chat.jsonl', storage), true);
@@ -160,7 +160,9 @@ test('authenticated Host session identity scopes conversation IDs and prevents s
   const first = await resolver({ hostSessionId: SESSION_A, locator: 'chat.jsonl', metadata, storage });
   assert.equal(first.conversationId, SESSION_A + ':' + INSTALL_A + ':' + CHAT_A);
   storage.setItem(locatorKey('chat.jsonl'), first.conversationId);
-  const secondSession = await resolver({ hostSessionId: SESSION_B, locator: 'chat.jsonl', metadata, storage });
+  const secondStorage = new Storage();
+  secondStorage.setItem('logic-engine-host-installation-id', INSTALL_A);
+  const secondSession = await resolver({ hostSessionId: SESSION_B, locator: 'chat.jsonl', metadata, storage: secondStorage });
   assert.notEqual(secondSession.conversationId, first.conversationId);
   assert.equal(secondSession.conversationId, SESSION_B + ':' + INSTALL_A + ':' + CHAT_A);
 });
