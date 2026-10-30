@@ -16,6 +16,7 @@ import { beginCoordinatorLock } from '../storage/coordinator-lock.js';
 import { addTimeDuration, createCalendarDefinition, projectCalendarDate } from '../time/model.js';
 import { createTimePolicy, resolveDurationDecision } from '../time/policy.js';
 
+const ASYNC_FUNCTION_PROTOTYPE = Object.getPrototypeOf(async function () {}).constructor;
 const INTERNAL_CORE_EFFECTS = Symbol('INTERNAL_CORE_EFFECTS');
 const TRUSTED_IMPORT_CAPABILITY = Symbol('trusted-import-loader');
 const MAX_TRUSTED_IMPORT_BYTES = 1_000_000;
@@ -242,8 +243,8 @@ export class LogicEngine {
     this.trustedInitialKnowledgeSources = trustedInitialKnowledgeSources.map((entry) => Object.freeze({ ...entry }));
     if (worldPackCatalog !== null && typeof worldPackCatalog.resolve !== 'function') throw new TypeError('worldPackCatalog must provide resolve(worldPackId, version)');
     this.worldPackCatalog = worldPackCatalog;
-    if (npcKnowledgeReadAuthorizer !== null && (typeof npcKnowledgeReadAuthorizer !== 'function' || npcKnowledgeReadAuthorizer.constructor?.name === 'AsyncFunction')) throw new TypeError('npcKnowledgeReadAuthorizer must be a synchronous deployment-owned function');
-    if (npcKnowledgeVisibilityAuthorizer !== null && (typeof npcKnowledgeVisibilityAuthorizer !== 'function' || npcKnowledgeVisibilityAuthorizer.constructor?.name === 'AsyncFunction')) throw new TypeError('npcKnowledgeVisibilityAuthorizer must be a synchronous deployment-owned function');
+    if (npcKnowledgeReadAuthorizer !== null && (typeof npcKnowledgeReadAuthorizer !== 'function' || npcKnowledgeReadAuthorizer instanceof ASYNC_FUNCTION_PROTOTYPE)) throw new TypeError('npcKnowledgeReadAuthorizer must be a synchronous deployment-owned function');
+    if (npcKnowledgeVisibilityAuthorizer !== null && (typeof npcKnowledgeVisibilityAuthorizer !== 'function' || npcKnowledgeVisibilityAuthorizer instanceof ASYNC_FUNCTION_PROTOTYPE)) throw new TypeError('npcKnowledgeVisibilityAuthorizer must be a synchronous deployment-owned function');
     this.npcKnowledgeReadAuthorizer = npcKnowledgeReadAuthorizer;
     this.npcKnowledgeVisibilityAuthorizer = npcKnowledgeVisibilityAuthorizer;
     this.store = store;
