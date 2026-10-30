@@ -411,3 +411,94 @@ test('belief transition and state APIs reject Proxy/accessor inputs before readi
   assert.equal(trapCalls, 0);
   assert.equal(getterCalls, 0);
 });
+
+
+test('belief transition revalidates visibility immediately before the Core commit', (t) => {
+  const store = new SQLiteStore(':memory:');
+  t.after(() => store.close());
+  let visibilityAllowed = true;
+  let visibilityCalls = 0;
+  const engine = new LogicEngine(store, {
+    trustedInitialKnowledgeSources: trustedSources,
+    npcKnowledgeReadAuthorizer: readAuthorization,
+    npcKnowledgeVisibilityAuthorizer: (scope) => {
+      visibilityCalls += 1;
+      return {
+        status: visibilityAllowed ? 'allowed' : 'denied',
+        world_id: scope.world_id,
+        adapter_id: scope.adapter_id,
+        actor_id: scope.actor_id,
+        recipient: scope.recipient,
+        purpose: scope.purpose,
+        world_revision: scope.world_revision,
+        commit_sequence: scope.commit_sequence,
+        acquisition_id: scope.acquisition_id,
+        authorization_ref: 'rule:npc-visibility-v1',
+      };
+    },
+  });
+
+  engine.createWorld({
+    world_id: 'world-belief-commit-boundary',
+    world_pack_id: 'test.belief-state-race',
+    world_pack_version: '1',
+    game_time: '2026-01-01T00:00:00Z',
+  });
+  engine.commitEvent('world-belief-commit-boundary', {
+    event_id: 'belief-commit-boundary-seed',
+    idempotency_key: 'belief-commit-boundary-seed',
+    turn_id: 'belief-commit-boundary-seed',
+    event_type: 'action.completed',
+    expected_revision: 0,
+    effects: [
+      { kind: 'entity.create', entity_id: 'npc-race', entity_type: 'character' },
+      { kind: 'fact.set', fact_id: 'fact-race', predicate: 'secret', value: 'private-value' },
+    ],
+  });
+  engine.recordTrustedInitialKnowledgeSource({
+    world_id: 'world-belief-commit-boundary',
+    source_bytes: sourceBytes,
+    idempotency_key: 'belief-commit-boundary-acquisition',
+    expected_revision: 1,
+    expected_commit_sequence: 1,
+  });
+
+  const snapshot = engine.getSnapshot('world-belief-commit-boundary');
+  const request = {
+    world_id: 'world-belief-commit-boundary',
+    adapter_id: 'adapter-st',
+    actor_id: 'npc-race',
+    recipient: 'model',
+    purpose: 'npc_turn_context',
+    expected_revision: snapshot.world_revision,
+    expected_commit_sequence: snapshot.commit_sequence,
+    limit: 20,
+    proposition_ref: 'proposition:fact/fact-race',
+    proposition_value: 'private-value',
+    stance: 'believes_true',
+    supporting_acquisition_ids: [],
+    contradicting_acquisition_ids: [],
+    reason_rule_ref: 'rule:belief-update-v1',
+    idempotency_key: 'belief-commit-boundary-transition',
+  };
+
+  const originalPrepare = engine.prepareNpcBeliefContext.bind(engine);
+  let preparationCalls = 0;
+  engine.prepareNpcBeliefContext = (...args) => {
+    const result = originalPrepare(...args);
+    preparationCalls += 1;
+    if (preparationCalls === 1) visibilityAllowed = false;
+    return result;
+  };
+
+  assert.throws(
+    () => engine.recordNpcBeliefTransition(request),
+    (error) => error.code === 'NPC_BELIEF_TRANSITION_NOT_READY',
+    'revocation after initial context preparation must block the Core belief commit',
+  );
+  assert.equal(preparationCalls, 2);
+  assert.equal(visibilityCalls, 2);
+  assert.equal(store.db.prepare(
+    'SELECT COUNT(*) AS count FROM npc_belief_transitions WHERE world_id=?',
+  ).get('world-belief-commit-boundary').count, 0);
+});
