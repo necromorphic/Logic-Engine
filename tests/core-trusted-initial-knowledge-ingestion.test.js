@@ -475,7 +475,10 @@ test('reapplying the same approved source after a fact replacement creates a dis
     event_type: 'action.completed',
     expected_revision: afterRollback.world_revision,
     expected_commit_sequence: afterRollback.commit_sequence,
-    effects: [{ kind: 'fact.set', fact_id: 'fact-a', predicate: 'secret', value: 'replacement-value-b' }],
+    effects: [
+      { kind: 'entity.create', entity_id: 'npc-a', entity_type: 'character' },
+      { kind: 'fact.set', fact_id: 'fact-a', predicate: 'secret', value: 'replacement-value-b' },
+    ],
   });
   assert.equal(replacement.accepted, true);
 
