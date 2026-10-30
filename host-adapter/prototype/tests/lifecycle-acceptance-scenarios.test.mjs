@@ -95,6 +95,8 @@ test('pinned patch explicitly hooks core mutations but does not pretend uncovere
     "beforeMutation('delete-message'",
     "beforeMutation('delete-swipe'",
     "beforeMutation('edit-message'",
+    "lifecycleOperation === 'create-message' ? [] : [chat.length - 1]",
+    "beforeMutation(lifecycleOperation",
     "afterMutation('delete-swipe'",
     "beforeMutation('select-swipe'",
     "afterMutation('select-swipe'",
@@ -152,6 +154,10 @@ test('branch creation from an enrolled conversation is rejected before branch pe
   assert.ok(branchEntry > branchHook, 'the guard must run at function entry, before branch processing or persistence');
   const bridge = await readFile(resolve(here, '../st-lifecycle-bridge.mjs'), 'utf8');
   assert.ok(bridge.includes('NON_READY: unsupported/uninstrumented Host lifecycle operation '), 'unsupported enrolled operations must reject at the bridge boundary');
+  assert.ok(bridge.includes('afterMutation has no matching durable beforeMutation'), 'after receipts must have a matching write-ahead record');
+  assert.ok(bridge.includes('previous lifecycle operation is incomplete'), 'a second mutation must not overtake an unfinished operation');
+  const journal = await readFile(resolve(here, '../lifecycle-journal.mjs'), 'utf8');
+  assert.ok(journal.includes('async pendingMutation(conversationId)'), 'pending operation state must be derived from the durable journal');
 });
 
 
