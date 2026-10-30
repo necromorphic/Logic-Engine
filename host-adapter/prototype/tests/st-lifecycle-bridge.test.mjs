@@ -452,8 +452,8 @@ test('new-message reconciliation fails closed when an existing identity is missi
   f.chat.push({ is_user: false, mes: 'new reply' });
 
   await assert.rejects(
-    f.bridge.afterMutation('create-message', { createdMessageIndex: 2 }),
-    /missing durable identity on pre-existing message/,
+    f.bridge.beforeMutation('create-message', []),
+    /identity metadata differs from journal/,
   );
   const after = await f.journal.verifyIntegrity('chat-1');
   assert.equal(after.sequence, before.sequence);
@@ -468,8 +468,8 @@ test('create-message checkpoint refuses to absorb an unhooked edit in earlier me
   f.chat.push({ is_user: false, mes: 'new reply' });
 
   await assert.rejects(
-    f.bridge.afterMutation('create-message', { createdMessageIndex: 2 }),
-    /pre-existing source changed before create-message checkpoint/,
+    f.bridge.beforeMutation('create-message', []),
+    /source fingerprint differs from journal/,
   );
   const after = await f.journal.verifyIntegrity('chat-1');
   assert.equal(after.sequence, before.sequence);
@@ -479,6 +479,7 @@ test('create-message assigns identity only to the explicitly appended tail messa
   const f = makeFixture();
   await f.bridge.enrollCurrentConversation();
   const oldMessageIds = f.chat.map(message => message._logicEngineLifecycle.messageId);
+  await f.bridge.beforeMutation('create-message', []);
   f.chat.push({ is_user: false, mes: 'new reply' });
 
   const result = await f.bridge.afterMutation('create-message', { createdMessageIndex: 2 });
@@ -499,6 +500,7 @@ test('message-send checkpoint records the inserted user message and receive pres
   assert.deepEqual(f.chat.slice(0, 2).map(message => message._logicEngineLifecycle.messageId), oldMessageIds);
   const sentMessageId = f.chat[2]._logicEngineLifecycle.messageId;
 
+  await f.bridge.beforeMutation('message-receive', []);
   f.chat.push({ is_user: false, mes: 'assistant reply' });
   const received = await f.bridge.afterMutation('message-receive', { createdMessageIndex: 3 });
   assert.equal(received.status, 'REVIEW_ONLY');
