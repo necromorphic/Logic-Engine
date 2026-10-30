@@ -24,7 +24,7 @@ diff --git a/public/script.js b/public/script.js
 +
      // Make sure all the data is loaded.
      await unshallowCharacter(characterId);
-@@ -1583,23 +1593,144 @@
+@@ -1583,23 +1593,176 @@
   * @param {object} [options] Options
   * @param {boolean} [options.clearData=false] Optionally clear the chat array's contents.
   */
@@ -51,7 +51,7 @@ diff --git a/public/script.js b/public/script.js
 +    }
 +    return logicEngineHostSessionPromise;
 +}
-++
++
 +async function getLogicEngineHostSessionId() {
 +    return (await getLogicEngineHostSession()).host_session_id;
 +}
