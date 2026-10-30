@@ -10,6 +10,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: host-lifecycle-patch-validation-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   pinned-sillytavern-patch:
     name: Apply-check and lint pinned SillyTavern patch (not runtime proof)
