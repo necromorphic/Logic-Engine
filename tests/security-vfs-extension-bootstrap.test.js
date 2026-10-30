@@ -32,6 +32,12 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
   try {
     assert.equal(first.prepare('SELECT sqlite_version() AS version').get().version, '3.47.2',
       'the native VFS ABI probe is pinned to the SQLite version bundled with Node 22.13.0');
+    const openSyscall = process.platform === 'win32' ? 'CreateFileW' : 'open';
+    assert.equal(
+      first.prepare('SELECT logic_engine_vfs_probe_has_syscall(?) AS available').get(openSyscall).available,
+      1,
+      `the pinned ${process.platform} SQLite VFS must expose its native file-open syscall hook for feasibility review`
+    );
     first.exec("PRAGMA journal_mode=WAL; CREATE TABLE probe(value TEXT); INSERT INTO probe VALUES('ok');");
     assert.equal(first.prepare('SELECT value FROM probe').get().value, 'ok');
     const opened = first.prepare('SELECT logic_engine_vfs_probe_open_count() AS count').get().count;
