@@ -1894,6 +1894,15 @@ test('active mechanic policy validator requires one current deployment authority
       deploymentPolicyAuthority: authority,
       authorizedReadFieldPolicy: () => true,
     }), /either deploymentPolicyAuthority or authorizedReadFieldPolicy/);
+    assert.throws(() => createApiServer({
+      engine: new LogicEngine(store),
+      token: TOKEN,
+      deploymentPolicyAuthority: {
+        capture() { throw new Error('authority unavailable'); },
+        isCurrent() { return false; },
+        authorizeField() { return false; },
+      },
+    }), /valid active policy at API startup/);
   } finally {
     store.close();
   }
