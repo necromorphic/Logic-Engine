@@ -402,4 +402,4 @@ For this integration's stated goal, **Option B is the approved target architectu
 
 ## 17. Change log
 
-- **v1.0 (2026-10-30):** finalizes the trusted authorization target; chooses Lane B as the first isolated slice; specifies Host-owned PC Gateway; defines caller identity rules, immutable request binding, policy fingerprint target, version dimensions, complete inventory, Core/Memory conflict behavior, shared dispatch-start ordering, revoke/write semantics, generic DENY, acceptance matrix and owner approval gates. No runtime behavior changed.
+- **v1.0 (2026-10-30):** finalizes the trusted authorization target; chooses Lane B as the first isolated slice; specifies Host-owned PC Gateway; defines caller identity rules, immutable request binding, policy fingerprint target, version dimensions, complete inventory, Core/Memory conflict behavior, shared dispatch-start ordering, revoke/write semantics, generic DENY, acceptance matrix and implementation/release gates. No runtime behavior changed.
