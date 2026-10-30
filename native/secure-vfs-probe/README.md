@@ -32,7 +32,7 @@ The probe still delegates SQLite file methods, locking and normal I/O to the par
 
 ## What remains unproven
 
-- **Parent-directory anchoring:** the POSIX spike pins the final parent directory descriptor and uses openat/fstatat/faccessat/unlinkat for registered database and sidecar paths. It passes a test that renames the parent directory, places a decoy at the original path, and verifies that the DB plus WAL/SHM stay in the moved directory. This does not yet prove a trusted root-to-parent component walk: the parent descriptor is initially acquired by pathname, so ancestor redirection before registration remains possible. Windows still lacks a RootDirectory-relative open implementation and equivalent parent-rename test.
+- **Parent-directory anchoring:** the POSIX spike pins the final parent directory descriptor and uses openat/fstatat/faccessat/unlinkat for registered database and sidecar paths. It passes a test that renames the parent directory, places a decoy at the original path, and verifies that the DB plus WAL/SHM stay in the moved directory. The component walk prevents symlink traversal and pins each directory already opened during acquisition. It does not authenticate the expected identity of each directory component against a separately protected manifest; an attacker who can replace a component before trusted registration may still cause the wrong directory tree to be enrolled. Windows still lacks a RootDirectory-relative open implementation and equivalent parent-rename test.
 - **Pre-registration trust:** role registration is the identity acquisition boundary. If an attacker can redirect the parent path before trusted registration runs, the registration may capture the wrong object. There is no persisted trusted identity ledger across process restarts.
 - **Sidecar-to-sidecar collisions:** sidecars are compared with registered main-database identities, but there is no complete sidecar identity registry. A WAL/SHM/journal hardlink collision with another sidecar is not comprehensively prevented.
 - **Sidecar lifecycle:** there is no persistent sidecar ownership ledger, complete delete/recreate policy, or crash-recovery reconciliation.
@@ -51,7 +51,7 @@ That is a feasibility decision, not a production security approval. Issue #770 r
 
 ## Remaining implementation gates
 
-1. Complete trusted root-to-parent component anchoring on POSIX and implement/test Windows handle-relative opens using a pinned directory HANDLE.
+1. Add a protected expected-identity manifest for the POSIX directory chain, and implement/test Windows handle-relative opens using a pinned directory HANDLE.
 2. Extend the directory-relative policy to every required VFS operation, temporary files, and all DB/sidecar lifecycle paths.
 3. Define the persisted trusted identity/role ledger and startup reconciliation policy.
 4. Add sidecar-to-sidecar identity ownership and complete WAL/SHM/journal lifecycle tests.
