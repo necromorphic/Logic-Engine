@@ -2,6 +2,14 @@
 
 Status: **draft deployment candidate; not deployed and not production approval**.
 
+## Current-main re-port provenance — 30 October 2026
+
+- Branch: `security/accepted-head-authority-acl-main-2026-10-30`.
+- Base: current `main` at `dde665cede1efec4e1fe3aff4a16ff9f05798c7a`.
+- Re-ported from PR #469, whose old branch was 37 commits ahead / 137 behind current main.
+- The accepted-head authority service and synchronous Core/Provider clients are already present on current main; this candidate adds only the Windows ACL deployment script, disposable-fixture tests, and workflow coverage.
+- The old PR #469 Windows smoke and Runtime checks are not transferable to this branch. Fresh exact-head checks are required.
+
 ## Purpose
 
 Provide a plan-first Windows ACL candidate for the dedicated file-backed store of the externally hosted accepted-head authority approved in Core decision #140. The authority database must be outside the joint Core + Provider data/backup restore domain and writable only by the authority's dedicated service identity, with SYSTEM and local Administrators retained as explicit recovery principals.
