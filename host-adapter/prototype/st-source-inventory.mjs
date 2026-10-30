@@ -43,6 +43,26 @@ const sameStat = (left, right) => left.dev === right.dev
   && left.mtimeNs === right.mtimeNs
   && left.ctimeNs === right.ctimeNs;
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
+const CONVERSATION_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const isChatFile = kind => kind === 'root-chat' || kind === 'character-chat' || kind === 'group-chat';
+
+function persistedConversationUuid(bytes) {
+  const newline = bytes.indexOf(0x0a);
+  const firstLine = (newline === -1 ? bytes : bytes.subarray(0, newline))
+    .toString('utf8').replace(/^\\uFEFF/, '').trim();
+  if (!firstLine) fail('SOURCE_CHAT_HEADER_INVALID');
+  let header;
+  try { header = JSON.parse(firstLine); } catch { fail('SOURCE_CHAT_HEADER_INVALID'); }
+  if (!header || typeof header !== 'object' || Array.isArray(header)) fail('SOURCE_CHAT_HEADER_INVALID');
+  const metadata = header.chat_metadata;
+  if (metadata !== undefined && (!metadata || typeof metadata !== 'object' || Array.isArray(metadata))) {
+    fail('SOURCE_CHAT_HEADER_INVALID');
+  }
+  const value = metadata?.logic_engine_conversation_id;
+  if (value === undefined || value === null) return null;
+  if (typeof value !== 'string' || !CONVERSATION_UUID.test(value)) fail('SOURCE_CONVERSATION_ID_INVALID');
+  return value.toLowerCase();
+}
 const canonical = value => Array.isArray(value)
   ? '[' + value.map(canonical).join(',') + ']'
   : value && typeof value === 'object'
@@ -202,6 +222,8 @@ export async function enumeratePinnedSillyTavernChatFiles({
     kind: 'root:' + kind, absolute: value.absolute, identity: value.identity, stat: value.stat, names: value.names,
   }))];
   const physicalFiles = new Set();
+  const conversationUuids = new Set();
+  let missingConversationUuid = false;
   let totalBytes = 0n;
 
   const addFile = async (kind, locator, filePath, rootPath, maxBytes) => {
@@ -210,15 +232,20 @@ export async function enumeratePinnedSillyTavernChatFiles({
     physicalFiles.add(record.identity);
     totalBytes += BigInt(record.size);
     if (totalBytes > BigInt(MAX_TOTAL_BYTES)) fail('SOURCE_INVENTORY_SIZE_LIMIT');
-    files.push({
-      kind,
-      locator,
-      file_identity: record.identity,
-      size_bytes: record.size,
-      mtime_ns: record.mtime_ns,
-      ctime_ns: record.ctime_ns,
-      content_sha256: record.sha256,
-    });
+    const file = {
+      kind, locator, file_identity: record.identity, size_bytes: record.size,
+      mtime_ns: record.mtime_ns, ctime_ns: record.ctime_ns, content_sha256: record.sha256,
+    };
+    if (isChatFile(kind)) {
+      const conversationUuid = persistedConversationUuid(record.bytes);
+      file.conversation_uuid = conversationUuid;
+      if (conversationUuid === null) missingConversationUuid = true;
+      else {
+        if (conversationUuids.has(conversationUuid)) fail('SOURCE_CONVERSATION_ID_DUPLICATE');
+        conversationUuids.add(conversationUuid);
+      }
+    }
+    files.push(file);
     return record.bytes;
   };
 
@@ -353,7 +380,11 @@ export async function enumeratePinnedSillyTavernChatFiles({
     directories_sha256: digest(Buffer.from(canonical(directoriesDigest), 'utf8')),
     inventory_sha256: inventorySha256,
     completeness: 'DOUBLE_SCANNED_PATH_VIEW_ONLY',
+    current_file_identity_status: missingConversationUuid
+      ? 'INCOMPLETE_MISSING_PERSISTED_UUID'
+      : 'ALL_CURRENT_CHAT_FILES_HAVE_UUID',
     blockers: Object.freeze([
+      ...(missingConversationUuid ? ['MISSING_PERSISTED_CONVERSATION_UUID'] : []),
       'NO_PRE_ENROLLMENT_DELETED_HISTORY',
       'NO_MESSAGE_OR_SWIPE_REVISION_LINEAGE',
       'NO_CORE_WORLD_OR_SESSION_AUTHORIZATION',
