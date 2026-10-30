@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const root = process.env.SILLYTAVERN_DIR ?? resolve(process.cwd(), 'SillyTavern');
@@ -12,9 +13,17 @@ const [events, script] = await Promise.all([
 ]);
 
 test('audit input is the exact pinned SillyTavern commit', async () => {
-  const { execFileSync } = await import('node:child_process');
-  const actual = execFileSync('git', ['-C', root, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
-  assert.equal(actual, targetSha, 'Do not run this audit against an unpinned or different checkout');
+  if (existsSync(resolve(root, '.git'))) {
+    const { execFileSync } = await import('node:child_process');
+    const actual = execFileSync('git', ['-C', root, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+    assert.equal(actual, targetSha, 'Do not run this audit against an unpinned or different checkout');
+    return;
+  }
+  // actions/checkout deliberately downloads a REST archive when the runner
+  // has no Git executable. In that mode the workflow passes the checkout
+  // action's resolved immutable ref as an explicit assertion.
+  assert.equal(process.env.SILLYTAVERN_CHECKED_OUT_REF, targetSha,
+    'REST archive audit requires the exact immutable checkout ref');
 });
 
 test('pinned event catalog declares lifecycle hooks under audit', () => {
