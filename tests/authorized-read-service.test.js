@@ -577,6 +577,7 @@ test('field policy receives a recursively isolated frozen entity snapshot', (t) 
     entity_id: 'target-a',
     'attributes.details': { classification: 'nested-classified' },
   }]);
+  assert.equal(Object.isFrozen(result.entities[0]['attributes.details']), true);
   assert.deepEqual(engine.getState('read-world').entities.find((item) => item.entity_id === 'target-a').attributes.details,
     { classification: 'nested-classified' });
 });
