@@ -993,6 +993,7 @@ export class LogicEngine {
             acquisition_authorization_ref: item.acquisition_authorization_ref,
             provenance_ref: item.provenance_ref,
             provenance_digest: item.provenance_digest,
+            ...(read.policy_authority ?? {}),
           }));
         } catch {
           throw new EngineError('NPC_KNOWLEDGE_VISIBILITY_NOT_AUTHORIZED',
@@ -1001,7 +1002,12 @@ export class LogicEngine {
         const allowedKeys = [
           'status', 'world_id', 'conversation_id', 'adapter_id', 'actor_id', 'recipient', 'purpose', 'world_revision',
           'commit_sequence', 'acquisition_id', 'authorization_ref',
+          ...(read.policy_authority ? ['authority_id', 'generation', 'snapshot_fingerprint'] : []),
         ];
+        const policyMatches = !read.policy_authority
+          || (decision?.authority_id === read.policy_authority.authority_id
+            && decision?.generation === read.policy_authority.generation
+            && decision?.snapshot_fingerprint === read.policy_authority.snapshot_fingerprint);
         const exactDecision = exactDataRecord(decision, allowedKeys);
         if (!exactDecision) {
           throw new EngineError('NPC_KNOWLEDGE_VISIBILITY_NOT_AUTHORIZED',
@@ -1015,6 +1021,7 @@ export class LogicEngine {
             || decision.world_revision !== read.snapshot.world_revision
             || decision.commit_sequence !== read.snapshot.commit_sequence
             || decision.acquisition_id !== item.acquisition_id
+            || !policyMatches
             || typeof decision.authorization_ref !== 'string' || !decision.authorization_ref.trim()) {
             throw new EngineError('NPC_KNOWLEDGE_VISIBILITY_NOT_AUTHORIZED',
               'The visibility denial was not bound to this actor and snapshot.', 403);
@@ -1031,6 +1038,7 @@ export class LogicEngine {
           || decision.world_revision !== read.snapshot.world_revision
           || decision.commit_sequence !== read.snapshot.commit_sequence
           || decision.acquisition_id !== item.acquisition_id
+          || !policyMatches
           || typeof decision.authorization_ref !== 'string' || !decision.authorization_ref.trim()) {
           throw new EngineError('NPC_KNOWLEDGE_VISIBILITY_NOT_AUTHORIZED',
             'The visibility decision did not authorize this exact acquisition, actor, purpose, and snapshot.', 403);
@@ -1061,7 +1069,9 @@ export class LogicEngine {
         && snapshotNow.commit_sequence === read.snapshot.commit_sequence,
       'NPC_BELIEF_CONTEXT_STALE',
       'World snapshot changed while preparing the NPC belief context; retry from a fresh snapshot.', 409);
-      revalidateNpcKnowledgeReadAuthorization(this, input, snapshotNow, read.authorization_ref);
+      revalidateNpcKnowledgeReadAuthorization(
+        this, input, snapshotNow, read.authorization_ref, read.policy_authority ?? null,
+      );
   
       const built = buildNpcBeliefContext(visibleRead, reduced.transition);
       assert(built.status === 'ready', 'NPC_BELIEF_CONTEXT_NOT_READY',
@@ -1069,6 +1079,7 @@ export class LogicEngine {
       return Object.freeze({
         status: 'ready',
         snapshot: visibleRead.snapshot,
+        ...(read.policy_authority ? { policy_authority: read.policy_authority } : {}),
         transition: reduced.transition,
         context: built.context,
       });
