@@ -27,6 +27,7 @@ function admit(state, overrides = {}) {
     source_version: "v1",
     polarity: "supports_true",
     epistemic_status: "confirmed",
+    evidence_assessment: "supported",
     ...overrides,
   });
 }
@@ -886,4 +887,56 @@ test("canonical, assigned, imported, and suspicion labels are not Memory-to-beli
     assert.equal(mapMemoryEvidenceToNpcEpistemicStatus(kind, "supported"), null);
   }
   assert.equal(mapMemoryEvidenceToNpcEpistemicStatus("acquired_report", "future-assessment"), null);
+});
+
+
+test("disputed evidence cannot produce a directional stance and requires both sides for unresolved", () => {
+  const disputed = admit(emptyState(), { evidence_assessment: "disputed" }).state;
+  const directional = apply(disputed, {
+    type: "belief_updated",
+    proposition_ref: "prop-secret-location",
+    stance: "suspects_true",
+    revision_rule_ref: "rule-disputed-directional",
+    evidence_refs: ["evidence-1"],
+  });
+  assert.equal(directional.status, "non_ready");
+
+  const opposite = apply(disputed, {
+    type: "evidence_admitted",
+    acquisition_ref: "acq-2",
+    proposition_ref: "prop-secret-location",
+    evidence_ref: "evidence-2",
+    evidence_version: "v1",
+    source_ref: "source-2",
+    source_version: "v1",
+    polarity: "supports_false",
+    epistemic_status: "unconfirmed_report",
+    evidence_assessment: "disputed",
+  });
+  assert.equal(opposite.status, "updated");
+  const unresolved = apply(opposite.state, {
+    type: "belief_updated",
+    proposition_ref: "prop-secret-location",
+    stance: "unresolved",
+    revision_rule_ref: "rule-disputed-unresolved",
+    evidence_refs: ["evidence-1", "evidence-2"],
+  });
+  assert.equal(unresolved.status, "updated");
+  assert.deepEqual(unresolved.state.beliefs[0].supporting_evidence_refs, ["evidence-1"]);
+  assert.deepEqual(unresolved.state.beliefs[0].conflicting_evidence_refs, ["evidence-2"]);
+});
+
+test("evidence admission requires an explicit recognized assessment", () => {
+  const missingAssessment = apply(emptyState(), {
+    type: "evidence_admitted",
+    acquisition_ref: "acq-1",
+    proposition_ref: "prop-secret-location",
+    evidence_ref: "evidence-1",
+    evidence_version: "v1",
+    source_ref: "source-1",
+    source_version: "v1",
+    polarity: "supports_true",
+    epistemic_status: "unconfirmed_report",
+  });
+  assert.equal(missingAssessment.status, "non_ready");
 });
