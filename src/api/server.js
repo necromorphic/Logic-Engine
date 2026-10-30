@@ -13,14 +13,17 @@ const MAX = 1048576;
 export function createActiveMechanicPolicyValidator(getActiveMechanicContextProvider, deploymentPolicyAuthority = null) {
   if (typeof getActiveMechanicContextProvider !== 'function') throw new TypeError('getActiveMechanicContextProvider must be a trusted application callback.');
   return (identity) => {
-    let provider;
-    try { provider = getActiveMechanicContextProvider(); } catch { return false; }
-    if (deploymentPolicyAuthority) {
-      if (provider?.getPolicyAuthority?.() !== deploymentPolicyAuthority
-        || !identity?.policyAuthority
-        || deploymentPolicyAuthority.isCurrent(identity.policyAuthority) !== true) return false;
+    try {
+      const provider = getActiveMechanicContextProvider();
+      if (deploymentPolicyAuthority) {
+        if (provider?.getPolicyAuthority?.() !== deploymentPolicyAuthority
+          || !identity?.policyAuthority
+          || deploymentPolicyAuthority.isCurrent(identity.policyAuthority) !== true) return false;
+      }
+      return provider?.validateMechanicPolicy?.(identity) === true;
+    } catch {
+      return false;
     }
-    try { return provider?.validateMechanicPolicy?.(identity) === true; } catch { return false; }
   };
 }
 
