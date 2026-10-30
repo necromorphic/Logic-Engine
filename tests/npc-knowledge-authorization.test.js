@@ -240,7 +240,12 @@ test('Core revalidates Host binding after the acquisition query before returning
     npcKnowledgeVisibilityAuthorizer: authorizers.visibilityAuthorizer,
   });
   const request = {
-    ...scope,
+    world_id: scope.world_id,
+    conversation_id: scope.conversation_id,
+    adapter_id: scope.adapter_id,
+    actor_id: scope.actor_id,
+    recipient: scope.recipient,
+    purpose: scope.purpose,
     expected_revision: scope.world_revision,
     expected_commit_sequence: scope.commit_sequence,
     limit: 20,
@@ -269,7 +274,12 @@ test('Core read rejects policy generation rotation after authorization but befor
     npcKnowledgeVisibilityAuthorizer: authorizers.visibilityAuthorizer,
   });
   const request = {
-    ...scope,
+    world_id: scope.world_id,
+    conversation_id: scope.conversation_id,
+    adapter_id: scope.adapter_id,
+    actor_id: scope.actor_id,
+    recipient: scope.recipient,
+    purpose: scope.purpose,
     expected_revision: scope.world_revision,
     expected_commit_sequence: scope.commit_sequence,
     limit: 20,
