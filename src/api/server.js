@@ -28,7 +28,8 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
   if (typeof getActiveMechanicContextProvider !== 'function') throw new TypeError('getActiveMechanicContextProvider must be a trusted application callback.');
   if (mechanicPolicyAuthority !== null
     && (typeof mechanicPolicyAuthority?.validateMechanicPolicy !== 'function'
-      || typeof mechanicPolicyAuthority?.resolveAuthorizedContext !== 'function')) {
+      || typeof mechanicPolicyAuthority?.resolveAuthorizedContext !== 'function'
+      || typeof mechanicPolicyAuthority?.assertUsesAuthorizedReadService !== 'function')) {
     throw new TypeError('mechanicPolicyAuthority must resolve authorized context and validate the same active policy.');
   }
   if (actorBindingService !== null && typeof actorBindingService?.resolve !== 'function') {
@@ -47,6 +48,10 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
   if (authorizedReadService !== null
     && authorizedReadService.actorBindingService !== actorBindingService) {
     throw new TypeError('AuthorizedReadService must use the exact actorBindingService instance supplied to the API.');
+  }
+  if (mechanicPolicyAuthority !== null
+    && !mechanicPolicyAuthority.assertUsesAuthorizedReadService(authorizedReadService, actorBindingService)) {
+    throw new TypeError('Mechanic policy authority must resolve context through the exact AuthorizedReadService used by this API.');
   }
   const configuredAdapterSecrets = Object.values(adapterTokens || {});
   if (!adapterTokens || typeof adapterTokens !== 'object' || Array.isArray(adapterTokens) || Object.entries(adapterTokens).some(([id, secret]) => !id.trim() || typeof secret !== 'string' || secret.length < 16 || [token, internalToken, approvalToken, adminToken].includes(secret)) || new Set(configuredAdapterSecrets).size !== configuredAdapterSecrets.length) {
