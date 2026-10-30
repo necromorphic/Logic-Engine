@@ -390,9 +390,6 @@ export class HostVersionDigestLedger {
     if (input.complete !== true || !Array.isArray(input.versions)) {
       return { status: 'non_ready', code: 'HOST_INVENTORY_INCOMPLETE' };
     }
-    if (input.versions.length > MAX_HOST_SNAPSHOT_VERSIONS) {
-      return { status: 'non_ready', code: 'HOST_INVENTORY_TOO_LARGE' };
-    }
     if (Object.keys(input).some((key) => !snapshotInputKeys.has(key))
       || typeof input.complete !== 'boolean' || !isPlainDataArray(input.versions)
       || input.versions.some((v) => !isPlainDataRecord(v)
@@ -400,6 +397,11 @@ export class HostVersionDigestLedger {
         || !Object.hasOwn(v, 'parent_version_id')
         || (v.parent_version_id !== null && !validId(v.parent_version_id)))) {
       return { status: 'non_ready', code: 'HOST_INVENTORY_INVALID' };
+    }
+    // isPlainDataArray rejects Proxies before any property access; only now is
+    // it safe to read length for the bounded-inventory check.
+    if (input.versions.length > MAX_HOST_SNAPSHOT_VERSIONS) {
+      return { status: 'non_ready', code: 'HOST_INVENTORY_TOO_LARGE' };
     }
     // Snapshot caller input synchronously before the first await. Validation,
     // trust verification, hashing and reconciliation must use the same immutable
