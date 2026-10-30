@@ -205,7 +205,7 @@ test('pinned SillyTavern patch wires the existing digest-only Core capture proxy
 
   assert.ok(patch.includes("import { router as logicEngineLifecycleRouter } from './endpoints/logic-engine-lifecycle.js';"));
   assert.ok(patch.includes("app.use('/api/logic-engine', logicEngineLifecycleRouter);"));
-  assert.ok(patch.includes("import { createHostDigestProxyHandler } from './logic-engine-lifecycle-proxy.mjs';"));
+  assert.ok(patch.includes("import { createHostDigestProxyHandler, createHostInventoryReconcileProxyHandler } from './logic-engine-lifecycle-proxy.mjs';"));
   assert.ok(patch.includes("router.post('/host-version-ledger/capture', createHostDigestProxyHandler());"));
   assert.ok(patch.includes("fetch('/api/logic-engine/host-version-ledger/capture'"));
   assert.ok(patch.includes("fetch('/api/logic-engine/host/session'"));
