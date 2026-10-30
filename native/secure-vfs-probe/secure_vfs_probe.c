@@ -14,6 +14,7 @@
 #include <errno.h>
 #ifdef _WIN32
 #include <windows.h>
+#include <wchar.h>
 #else
 #include <fcntl.h>
 #include <sys/stat.h>
