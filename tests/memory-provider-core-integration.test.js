@@ -9,7 +9,7 @@ import { MemoryNpcConsumer } from '../src/application/memory-npc-consumer.js';
 import { createCanonicalEntitySourceVersionValidator, createCanonicalEntityInventoryValidator } from '../src/application/canonical-entity-source-version.js';
 import { SQLiteMemoryProvider } from '../src/application/sqlite-memory-provider.js';
 
-function setup(t, { twoRecords = false, providerPath = null } = {}) {
+function setup(t, { twoRecords = false, providerPath = null, evidenceAssessment = 'supported' } = {}) {
   const testDb = createProviderTestDb(t, {
     path: providerPath && providerPath !== ':memory:' ? providerPath : null,
     prefix: 'logic-memory-core-integration-',
@@ -82,7 +82,7 @@ function setup(t, { twoRecords = false, providerPath = null } = {}) {
     epistemic_kind: 'acquired_report',
     producer_kind: 'memory-index',
     content_disposition: 'usable',
-    evidence_assessment: 'unassessed',
+    evidence_assessment: evidenceAssessment,
     lineage: [{ source_kind: 'canonical_entity', entity_id: sourceId, source_version: engine.getSnapshot(worldId, { entityIds: [sourceId], includeSourceVersions: true }).entities[0]?.source_version ?? 'unverifiable' }],
   }));
   for (const record of records) {
@@ -131,6 +131,23 @@ test('real SQLite provider flows through Core authorized read and NPC admission'
   assert.equal(result.candidates[0].record_ref, 'memory:record-a');
   assert.deepEqual(result.candidates[0].content, { 'attributes.public_note': 'visible source-a' });
   assert.equal(JSON.stringify(result).includes('never disclose'), false);
+});
+
+test('real SQLite Provider excludes unassessed, disputed, and insufficient evidence at NPC admission', async (t) => {
+  for (const evidenceAssessment of ['unassessed', 'disputed', 'insufficient']) {
+    const s = setup(t, { evidenceAssessment });
+    assert.equal((await s.prepare()).status, 'current');
+
+    const result = await s.consumer.retrieveForNpc({
+      worldId: s.scope.world_id, adapterId: 'provider-e2e-adapter', actorEntityId: s.scope.subject_id,
+    });
+
+    assert.equal(result.status, 'ready');
+    assert.deepEqual(result.admitted, []);
+    assert.deepEqual(result.candidates, []);
+    assert.equal(JSON.stringify(result).includes('memory:record-a'), false);
+    assert.equal(JSON.stringify(result).includes('visible source-a'), false);
+  }
 });
 
 test('real provider revocation during candidate B authorization excludes previously allowed A', async (t) => {
