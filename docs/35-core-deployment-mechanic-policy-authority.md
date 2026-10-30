@@ -91,4 +91,35 @@ Do not silently promote the existing `authorizedReadFieldPolicy` callback into t
 
 The exact-current tree now has a versioned authority and the Core integration path. The remaining deployment gap is a trusted context resolver and approved domain visibility mapping configured with that exact authority object. Do not mechanically rebase or merge #225/#270: their stale diff contains excluded executor, attestation, proposal-handoff, and storage changes. Implement a fresh current-main vertical slice against this contract, review its effective diff, run exact-head Runtime CI plus the recalculation harness, and keep production mechanics disabled until all applicable tests below pass.
 
+
+
+## 7. Future extension gates
+
+The following features are deliberately not part of the bounded executor. They require separate contracts and acceptance tests before their rejection guards may be relaxed.
+
+### Action inputs and instance parameters/state
+- Define template-owned input, parameter, and state schemas using the exact schema dialect the runtime can validate.
+- Define canonical binding paths and whether each value is read-only input or mutable world-local state.
+- Include schema/version hashes and actual consumed paths in the evaluation fingerprint and dependency manifest.
+- Prove missing, defaulted, malformed, and unknown fields have explicit semantics. No implicit defaults or model-authored executable expressions.
+
+### Registered modules
+- Bind a registered module manifest to a host-allowlisted implementation identifier and immutable implementation/build digest.
+- Enforce operation, capability, input/output schema, determinism, timeout, memory/resource, and failure-policy contracts.
+- Declare module reads/writes and verify runtime reads against the declared dependency set. Module registration alone never authorizes execution.
+- Keep all returned effects as proposals and validate them through the canonical Core path.
+
+### Participants and interactions
+- Define same-world participant resolution, role identity, eligibility constraints, visibility authorization, and snapshot binding.
+- Include all participant/interaction condition paths and resolved participant identities in dependency evidence and fingerprints.
+- Define how missing, ambiguous, or inaccessible participants map to `unknown` or `needs_review`; never infer a participant from narrative context.
+
+### Conflict resolution
+- `manual` remains the only supported executor policy.
+- Automatic resolution requires an exact-version allowlisted deterministic resolver module, explicit conflict graph inputs, declared dependencies, bounded resources, and an independently tested tie-break contract.
+- Resolver output remains a proposal; the resolver cannot commit or bypass approval.
+- No priority, array order, registration order, or incidental storage order may be used as an implicit winner rule.
+
+Until each extension gate is accepted and tested, the executor must continue returning a structured non-ready result with no effects for those cases.
+
 **Current verdict: shared versioned authority is implemented and wired to the production authorized-read path; production Mechanics remains DISABLED / FAIL-CLOSED because no trusted mechanic context resolver or approved domain visibility mapping is configured.**
