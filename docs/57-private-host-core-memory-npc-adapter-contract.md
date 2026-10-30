@@ -69,7 +69,7 @@ The contract deliberately separates two paths. They must not be collapsed into o
 `trusted author/import bundle → Core source validation → canonical knowledge.acquire event → Core acquisition projection → Core actor-scoped knowledge read → NPC`
 
 - The source ingestion foundation is implemented on main by PR #683.
-- The reader and acquisition-time value/source-event pins are represented by current-main draft PR #764, not main runtime.
+- The reader and acquisition-time value/source-event pins are present on current main. Historical PR #764 is closed without merge; the current-main implementation remains internal and has no production NPC caller.
 - `readNpcKnowledge()` is an internal Core read, not a disclosure result. Its raw values MUST NOT be serialized to Host/model context directly. A separate per-acquisition visibility decision and validated context builder (`prepareNpcBeliefContext()` or an approved equivalent) must run before any value leaves the Core boundary.
 - If any acquisition relevant to a proposition is withheld or visibility cannot be established, the belief/context builder must fail closed for that proposition without revealing the hidden value or which acquisition was withheld.
 - This lane does **not** require Memory Provider retrieval. It represents explicit `author_initial` / `imported` subject assignment.
@@ -96,7 +96,7 @@ The contract deliberately separates two paths. They must not be collapsed into o
 7. Immediately before model dispatch, Host performs the final revalidation and sends only the fresh context through the sole Gateway.
 8. Any canonical mutation or durable belief transition is a separate Core-owned event/commit. Retrieval, admission, inference or model output is never a canonical commit.
 
-The current `MemoryNpcConsumer.retrieveForNpc()` and `revalidateForFinalDispatch()` are implementation seams for Lane B. Draft PR #764 is the current Core reader candidate for Lane A. Neither is evidence that the production NPC callsite, Host serializer or sole-Gateway dispatch path is complete.
+The current `MemoryNpcConsumer.retrieveForNpc()` and `revalidateForFinalDispatch()` are implementation seams for Lane B. Mainline Core `readNpcKnowledge()` and its value/source-event pins implement the internal Lane A reader. Neither is evidence that the production NPC callsite, Host serializer or sole-Gateway dispatch path is complete.
 
 ## 4. Request binding and session scope
 
@@ -145,7 +145,7 @@ The required immutable acquisition pin therefore includes:
 
 The value and source-event pins must be captured from the same trusted Core snapshot used to validate the assignment. A digest of the author/import bundle is not a substitute for the acquired canonical value. A fact ID or event ID alone is not a source-version token.
 
-Draft PR #764 implements the missing acquisition-time value/source-event pins and corrects acquisition identity to bind the exact value and sorted source-event IDs. Until that change is merged and independently accepted, an acquisition without a valid pin is non-ready for NPC disclosure. Do not silently use the current value of a reused `fact_id`.
+The current-main Core reader implements acquisition-time value/source-event pins and binds acquisition identity to the exact value and sorted source-event IDs. Legacy acquisitions without a valid pin remain non-ready for NPC disclosure. Do not silently use the current value of a reused `fact_id`; the implementation still requires independent review and has no production NPC caller.
 
 The physical schema and identifier encoding remain Core decisions. Do not introduce an NPC-local acquisition ID or treat a Memory record ID/version as sufficient.
 
@@ -153,7 +153,7 @@ The physical schema and identifier encoding remain Core decisions. Do not introd
 
 - The trusted ingestion event already records canonical source-event dependencies and the acquisition projection is derived from valid Core events. The merged PR #683 tests cover rollback, independent supports, restart/rebuild and idempotent retry.
 - The acquisition-time pin is still essential: if source A is rolled back and the same `fact_id` is later reactivated with value B, the old acquisition for A must not silently follow the reused fact ID to B.
-- The required regression is: acquire A → roll back A's source → reactivate the same `fact_id` with B through an independent canonical claim → the reader returns no active NPC knowledge until B is explicitly acquired. Draft PR #764 contains this regression.
+- The required regression is: acquire A → roll back A's source → reactivate the same `fact_id` with B through an independent canonical claim → the reader returns no active NPC knowledge until B is explicitly acquired. The current-main Core reader tests cover this regression.
 - Replaying the same still-valid canonical assignment event with the same immutable payload is idempotent. Reusing an idempotency key with changed source bytes or assignment content is a conflict.
 - Re-acquisition of B requires a new trusted assignment event and an acquisition identity bound to B's exact value/source-event set. The invalidated acquisition for A remains historical and must not be reactivated.
 - If Core cannot prove the value/source-event pin and rollback validity for a source, that source is non-ready.
