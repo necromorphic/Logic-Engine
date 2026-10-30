@@ -197,14 +197,24 @@ test('destructive and import UI entry points invoke target-aware fail-closed Hos
 });
 
 
-test('pinned SillyTavern patch does not install an unapproved Core capture endpoint', async () => {
+
+test('pinned SillyTavern patch wires the existing digest-only Core capture proxy', async () => {
   const here = dirname(fileURLToPath(import.meta.url));
   const patch = await readFile(resolve(here, '../patches/sillytavern-1.19.0-lifecycle-hooks.patch'), 'utf8');
+  const proxy = await readFile(resolve(here, '../st-server-digest-proxy.mjs'), 'utf8');
 
-  // Issue #258 explicitly leaves the Provider handoff as a proposal pending
-  // Core/Memory owner approval. Do not ship an unresolved proxy import or
-  // invent a new Host-to-Core runtime endpoint/schema in the pinned ST patch.
-  assert.equal(patch.includes('logic-engine-lifecycle-proxy.mjs'), false);
-  assert.equal(patch.includes('/api/logic-engine/host-version-ledger/capture'), false);
-  assert.equal(patch.includes('createHostDigestProxyHandler'), false);
+  assert.ok(patch.includes("import { router as logicEngineLifecycleRouter } from './endpoints/logic-engine-lifecycle.js';"));
+  assert.ok(patch.includes("app.use('/api/logic-engine', logicEngineLifecycleRouter);"));
+  assert.ok(patch.includes("import { createHostDigestProxyHandler } from './logic-engine-lifecycle-proxy.mjs';"));
+  assert.ok(patch.includes("router.post('/host-version-ledger/capture', createHostDigestProxyHandler());"));
+  assert.ok(patch.includes("fetch('/api/logic-engine/host-version-ledger/capture'"));
+
+  // The endpoint delegates to the pre-existing, separately tested proxy.
+  // It must not accept caller-selected upstream URLs, world scope or raw text.
+  assert.ok(proxy.includes("'/v1/host-version-ledger/capture'"));
+  assert.ok(proxy.includes('LOGIC_ENGINE_API_TOKEN'));
+  assert.ok(proxy.includes('LOGIC_ENGINE_ADAPTER_TOKEN'));
+  assert.ok(proxy.includes('HOST_SESSION_SCOPE_REQUIRED'));
+  assert.ok(proxy.includes("'content_sha256'"));
+  assert.equal(proxy.includes("'world_id'"), false);
 });
