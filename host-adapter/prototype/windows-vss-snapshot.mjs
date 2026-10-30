@@ -72,10 +72,16 @@ if ($shadow) {
 
 async function runPowerShell(script, env, timeout = 120_000) {
   const encoded = Buffer.from(script, 'utf16le').toString('base64');
-  return execFileAsync('powershell.exe', [
-    '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
-    '-EncodedCommand', encoded,
-  ], { windowsHide: true, timeout, maxBuffer: 1024 * 1024, env: { ...process.env, ...env } });
+  try {
+    return await execFileAsync('powershell.exe', [
+      '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+      '-EncodedCommand', encoded,
+    ], { windowsHide: true, timeout, maxBuffer: 1024 * 1024, env: { ...process.env, ...env } });
+  } catch (error) {
+    const output = [error?.stdout, error?.stderr, error?.message].filter(Boolean).join('\\n');
+    const marker = output.match(/HOST_VSS_[A-Z0-9_]+(?::[0-9]+)?/);
+    throw new Error(marker?.[0] ?? 'HOST_VSS_POWERSHELL_FAILED');
+  }
 }
 
 /**
