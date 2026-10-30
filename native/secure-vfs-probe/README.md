@@ -85,3 +85,13 @@ This is a deterministic feasibility test for the narrow **same-path hardlink sub
 - the process-global syscall hook and test registry are not production-hardened for concurrent workers, recovery, or migrations.
 
 A passing result must not be reported as Issue #770 resolved. It establishes that the Node `node:sqlite` engine can be instrumented at the native open boundary and that the opened OS object can be inspected on both target platforms.
+
+
+## Exact-head CI evidence
+
+The deterministic hardlink-race implementation and test were present at code HEAD `7876c8bcde826fdf8f2e362fe0dda5891f0a1e36`.
+
+- Linux VFS probe and repository `npm test`: [Runtime workflow run 41073445395](https://github.com/necromorphic/Logic-Engine/actions/runs/41073445395) — passed.
+- Windows VFS build and deterministic race probe: [VFS workflow run 41073445244](https://github.com/necromorphic/Logic-Engine/actions/runs/41073445244) — passed.
+
+These results cover the test-only feasibility probe on the exact tested code head. They are not an independent Security approval and do not satisfy the remaining Issue #770 gates listed above.
