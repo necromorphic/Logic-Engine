@@ -247,6 +247,7 @@ test('application executor fails closed without trusted context or with a mismat
       policy_version: 'test-visibility-policy-v1',
       authority_id: 'test-mechanic-authority',
       policy_generation: 1,
+      authorization_principal: { adapterId: 'test-adapter', actorEntityId: 'entity.actor-context', recipient: 'model', purpose: 'npc_decision', bindingGeneration: 1 },
     }),
   }).evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
   assert.equal(mismatch.status, 'unknown');
@@ -700,6 +701,7 @@ test('application executor freezes the complete evaluation snapshot before trust
         policy_version: 'test-immutable-snapshot-v1',
         authority_id: 'test-mechanic-authority',
         policy_generation: 1,
+      authorization_principal: { adapterId: 'test-adapter', actorEntityId: 'entity.actor-context', recipient: 'model', purpose: 'npc_decision', bindingGeneration: 1 },
       };
     },
   }).evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
@@ -851,6 +853,7 @@ test('application executor refuses context whose canonical dependency evidence i
       policy_version: 'test-policy-v1',
       authority_id: 'test-mechanic-authority',
       policy_generation: 1,
+      authorization_principal: { adapterId: 'test-adapter', actorEntityId: 'entity.actor-context', recipient: 'model', purpose: 'npc_decision', bindingGeneration: 1 },
     }),
   }).evaluate({ worldId: missingSetup.worldId, instanceId: 'instance.executor', actionId: 'wait' });
   assert.equal(missing.status, 'unknown');
@@ -873,6 +876,7 @@ test('application executor refuses context whose canonical dependency evidence i
       policy_version: 'test-policy-v1',
       authority_id: 'test-mechanic-authority',
       policy_generation: 1,
+      authorization_principal: { adapterId: 'test-adapter', actorEntityId: 'entity.actor-context', recipient: 'model', purpose: 'npc_decision', bindingGeneration: 1 },
     }),
   }).evaluate({ worldId: mismatchSetup.worldId, instanceId: 'instance.executor', actionId: 'wait' });
   assert.equal(mismatch.status, 'unknown');
@@ -926,6 +930,7 @@ test('application executor accepts only same-snapshot canonical absence evidence
       policy_version: 'test-visibility-policy-v1',
       authority_id: 'test-mechanic-authority',
       policy_generation: 1,
+      authorization_principal: { adapterId: 'test-adapter', actorEntityId: 'entity.actor-context', recipient: 'model', purpose: 'npc_decision', bindingGeneration: 1 },
   });
   const provenAbsent = new MechanicExecutor(engine, { resolveAuthorizedContext: provider(['actor.injury']) })
     .evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
