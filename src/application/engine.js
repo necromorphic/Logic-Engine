@@ -1477,14 +1477,37 @@ export class LogicEngine {
         WHERE b.world_id=? AND b.actor_id=? AND b.proposition_ref=? AND e.validity='valid'
         ORDER BY e.commit_sequence DESC LIMIT 1
       `).get(input.world_id, input.actor_id, input.proposition_ref);
-      if (!row) return Object.freeze({
-        status: 'unknown',
-        actor_id: input.actor_id,
-        proposition_ref: input.proposition_ref,
-        ...(read.policy_authority ? { policy_authority: read.policy_authority } : {}),
-      });
+      const revalidateBeliefStateRead = () => {
+        const finalSnapshot = this.getNpcKnowledgeSnapshot(input.world_id);
+        assert(finalSnapshot && finalSnapshot.status === 'active'
+          && finalSnapshot.world_revision === read.snapshot.world_revision
+          && finalSnapshot.commit_sequence === read.snapshot.commit_sequence,
+        'NPC_KNOWLEDGE_READ_NOT_READY',
+        'World snapshot changed while reading NPC belief history; retry from a fresh snapshot.', 409);
+        revalidateNpcKnowledgeReadAuthorization(this, {
+          world_id: read.world_id,
+          conversation_id: read.conversation_id,
+          adapter_id: read.adapter_id,
+          actor_id: read.actor_id,
+          recipient: read.recipient,
+          purpose: read.purpose,
+          expected_revision: read.snapshot.world_revision,
+          expected_commit_sequence: read.snapshot.commit_sequence,
+          limit,
+        }, finalSnapshot, read.authorization_ref, read.policy_authority ?? null);
+      };
+      if (!row) {
+        revalidateBeliefStateRead();
+        return Object.freeze({
+          status: 'unknown',
+          actor_id: input.actor_id,
+          proposition_ref: input.proposition_ref,
+          ...(read.policy_authority ? { policy_authority: read.policy_authority } : {}),
+        });
+      }
       const evidence = JSON.parse(row.evidence_acquisition_ids_json);
       const surviving = evidence.filter((ref) => visibleAcquisitionIds.has(ref));
+      revalidateBeliefStateRead();
       return Object.freeze({
         status: 'ready',
         actor_id: input.actor_id,
