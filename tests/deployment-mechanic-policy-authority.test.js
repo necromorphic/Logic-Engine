@@ -6,8 +6,8 @@ function provider(version = 'policy-v1', scope = 'adapter-a:actor-a') {
   return {
     policyFingerprint: version,
     authorizationScope: scope,
-    authorizationPrincipal: { adapterId: 'adapter-a', actorEntityId: 'actor-a', recipient: 'model', purpose: 'npc_decision' },
-    assertPrincipalBound: () => true,
+    authorizationPrincipal: { adapterId: 'adapter-a', actorEntityId: 'actor-a', recipient: 'model', purpose: 'npc_decision', bindingGeneration: 1 },
+    assertPrincipalBound: () => ({ binding_generation: 1 }),
     resolve: () => ({
       context: { actor: { hp: 10 } },
       knownAbsentPaths: [],
@@ -16,7 +16,7 @@ function provider(version = 'policy-v1', scope = 'adapter-a:actor-a') {
       commit_sequence: 7,
       policy_version: version,
       authorization_scope: scope,
-      authorization_principal: { adapterId: 'adapter-a', actorEntityId: 'actor-a', recipient: 'model', purpose: 'npc_decision' },
+      authorization_principal: { adapterId: 'adapter-a', actorEntityId: 'actor-a', recipient: 'model', purpose: 'npc_decision', bindingGeneration: 1 },
     }),
   };
 }
