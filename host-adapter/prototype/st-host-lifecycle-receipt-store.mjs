@@ -88,8 +88,16 @@ function validOperationTransition(operation, before, after) {
     return exactlyOneChanged(left, right, (oldMessage, newMessage) => {
       if (oldMessage.message_id !== newMessage.message_id
         || newMessage.versions.length !== oldMessage.versions.length - 1) return false;
-      const retained = new Set(newMessage.versions.map(version => version.version_id));
-      return newMessage.versions.every(version => oldMessage.versions.some(old => old.version_id === version.version_id));
+      let priorIndex = -1;
+      return newMessage.versions.every(version => {
+        const nextIndex = oldMessage.versions.findIndex((old, index) => index > priorIndex
+          && old.version_id === version.version_id
+          && old.content_sha256 === version.content_sha256
+          && old.parent_version_id === version.parent_version_id);
+        if (nextIndex < 0) return false;
+        priorIndex = nextIndex;
+        return true;
+      });
     });
   }
   if (operation === 'delete-message') {
@@ -220,7 +228,8 @@ export class HostLifecycleReceiptStore {
       || locator.split('/').some(part => !part || part === '.' || part === '..')) {
       throw new Error('HOST_LIFECYCLE_RECEIPT_LOCATOR_INVALID');
     }
-    const absoluteTarget = path.resolve(directories.chats, ...locator.split('/'));
+    const sourceRoot = target.kind === 'group-chat' ? directories.groupChats : directories.chats;
+    const absoluteTarget = path.resolve(sourceRoot, ...locator.split('/'));
     const relativeTarget = path.relative(path.resolve(directories.root), absoluteTarget);
     if (!relativeTarget || relativeTarget === '..' || relativeTarget.startsWith('..' + path.sep)
       || path.isAbsolute(relativeTarget)) throw new Error('HOST_LIFECYCLE_RECEIPT_TARGET_OUTSIDE_ROOT');
@@ -291,6 +300,7 @@ export class HostLifecycleReceiptStore {
     }
     const terminalPath = this.#recordPath(scope, 'committed');
     const priorTerminal = await this.#read(terminalPath);
+    if (await this.#read(this.#recordPath(scope, 'aborted'))) throw new Error('HOST_LIFECYCLE_RECEIPT_TERMINAL_CONFLICT');
     if (priorTerminal) {
       if (priorTerminal.event_id !== scope.event_id
         || priorTerminal.receipt_digest !== priorTerminal.receipt.receipt_digest) {
@@ -354,6 +364,7 @@ export class HostLifecycleReceiptStore {
       || prepared.operation !== scope.operation) {
       throw new Error('HOST_LIFECYCLE_RECEIPT_PREPARE_MISSING');
     }
+    if (await this.#read(this.#recordPath(scope, 'committed'))) throw new Error('HOST_LIFECYCLE_RECEIPT_TERMINAL_CONFLICT');
     const terminalPath = this.#recordPath(scope, 'aborted');
     const priorTerminal = await this.#read(terminalPath);
     if (priorTerminal) {
