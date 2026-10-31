@@ -27,6 +27,7 @@ HEADER = struct.Struct("!IHHIQI")
 OP_PING = 1
 OP_OPEN_MAIN = 2
 OP_OPEN_SIDECAR = 3
+OP_DELETE_SIDECAR = 4
 STATUS_OK = 0
 STATUS_BAD_REQUEST = 1
 STATUS_UNAUTHORIZED = 2
@@ -118,7 +119,7 @@ def handle_connection(conn: socket.socket, allowed_uid: int, store: Any) -> None
             else:
                 _send_response(conn, operation, STATUS_OK, request_id)
             return
-        if operation not in (OP_OPEN_MAIN, OP_OPEN_SIDECAR):
+        if operation not in (OP_OPEN_MAIN, OP_OPEN_SIDECAR, OP_DELETE_SIDECAR):
             _send_response(conn, operation, STATUS_UNSUPPORTED, request_id)
             return
         try:
@@ -127,6 +128,10 @@ def handle_connection(conn: socket.socket, allowed_uid: int, store: Any) -> None
             _send_response(conn, operation, STATUS_BAD_REQUEST, request_id)
             return
         try:
+            if operation == OP_DELETE_SIDECAR:
+                store.delete_role_sidecar(role, kind)
+                _send_response(conn, operation, STATUS_OK, request_id)
+                return
             descriptor = store.open_role_file(role, kind)
         except StoreError:
             # Do not reveal whether a role is absent or its identity check failed.
