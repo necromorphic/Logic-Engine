@@ -92,7 +92,7 @@ async function bindHost(base, conversationId = CONVERSATION_ID, actorId = 'npc-c
   assert.equal(actor.status, 201);
 }
 
-test('Core NPC Host context route derives adapter, world and actor and accepts no caller selectors', async (t) => {
+test('Core NPC Host context route authenticates adapter and validates Host-selected actor while rejecting authority selectors', async (t) => {
   const { base, authorizers } = await setup(t);
   await bindHost(base);
   const path = base + '/v1/npc-knowledge/context';
@@ -185,7 +185,7 @@ test('Core NPC Host context route filters every acquisition through per-acquisit
   const response = await fetch(base + '/v1/npc-knowledge/context', {
     method: 'POST',
     headers: adapterHeaders,
-    body: json({ conversation_id: CONVERSATION_ID }),
+    body: json({ conversation_id: CONVERSATION_ID, actor_id: 'npc-canonical' }),
   });
   assert.equal(response.status, 200);
   const { context } = await response.json();
@@ -206,7 +206,7 @@ test('Core NPC Host context route is disabled unless explicitly enabled by deplo
   assert.equal((await response.json()).error.code, 'NPC_KNOWLEDGE_HOST_API_DISABLED');
 });
 
-test('Core NPC Host context route denies an unbound conversation or ambiguous actor scope', async (t) => {
+test('Core NPC Host context route denies unbound conversations and unbound actor selections', async (t) => {
   const { base } = await setup(t);
   const path = base + '/v1/npc-knowledge/context';
   const malformed = await fetch(path, {
