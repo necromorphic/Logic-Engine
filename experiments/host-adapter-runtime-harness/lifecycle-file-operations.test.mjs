@@ -387,7 +387,9 @@ test('pinned ST 1.19.0 chat create/edit/swipe/delete/import/export/restore mutat
     assert.ok(response.result.result.includes('Harness User'));
     return response;
   }, 'unchanged');
-  assert.equal(exportResult.result.status, 'UNCHANGED_REVIEW_ONLY');
+  assert.equal(exportResult.result.status, 'NON_READY');
+  assert.equal(exportResult.result.duplicate, true,
+    'an unchanged export cannot clear prior unresolved filesystem deltas');
 
   const renamedPath = join(directories.chats, 'Harness Character', 'chat-renamed.jsonl');
   const rename = await observe(async () => {
