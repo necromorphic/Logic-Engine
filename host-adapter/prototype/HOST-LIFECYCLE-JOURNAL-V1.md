@@ -176,7 +176,7 @@ For PENDING_MUTATION, pending contains mutation ID, operation, intent digest, PR
 | create-branch | createBranch() | parent metadata and new branch chat file | UNSUPPORTED until paired artifact atomicity |
 | group-metadata-migration | migrateGroupChatsMetadataFormat() | every rewritten group/chat JSON artifact | UNSUPPORTED until batch snapshot/receipt |
 
-The Core/proxy v1 mutation allowlist currently accepts only create-message, message-send, message-receive, create-swipe, select-swipe, delete-swipe, delete-message, edit-message and rename-chat. The other table rows document known Host paths but are explicitly rejected as unsupported; they are not accepted lifecycle operations. Rename remains candidate-only until its persisted rename/locator behavior is covered by a real file test.
+The Core/proxy v1 mutation allowlist currently accepts only create-message, message-send, message-receive, create-swipe, select-swipe, delete-swipe, delete-message, edit-message. The other table rows document known Host paths but are explicitly rejected as unsupported; they are not accepted lifecycle operations. Rename is explicitly unsupported in v1 until its persisted rename/locator behavior is covered by a real file test.
 
 A hook is not proof of persistence. Every supported operation requires PREPARED before first write, exact save completion, fresh disk read-back, artifact-set and digest match, durable local receipt, then Core COMMITTED. Any missing hook or artifact keeps the conversation NON_READY. Export must not fabricate a COMMITTED mutation for a download-only response.
 
