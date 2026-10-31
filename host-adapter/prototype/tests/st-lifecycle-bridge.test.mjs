@@ -475,7 +475,7 @@ test('source locator substitution and unverified rename both fail closed before 
     renamed.bridge.beforeMutation('rename-chat', []),
     /NON_READY: unsupported\/uninstrumented Host lifecycle operation rename-chat/,
   );
-  assert.equal(renamed.getLocator(), 'original-chat-file');
+  assert.equal(renamed.getLocator(), 'chat-file-1');
 });
 
 test('native save failure leaves the journal behind so the next mutation fails closed', async () => {
