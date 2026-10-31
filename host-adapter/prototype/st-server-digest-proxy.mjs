@@ -365,9 +365,9 @@ function normalizeRootInventoryResponse(upstream) {
     return { status: 'NON_READY', reason: 'HOST_ROOT_INVENTORY_INTEGRITY_UNVERIFIED' };
   }
   return {
-    status: reconciliation.status === 'BASELINED_REVIEW_ONLY'
-      || reconciliation.status === 'UNCHANGED_REVIEW_ONLY'
-      || reconciliation.status === 'duplicate' ? 'UNCHANGED_REVIEW_ONLY' : 'NON_READY',
+    status: reconciliation.status === 'BASELINED_REVIEW_ONLY' ? 'BASELINED_REVIEW_ONLY'
+      : reconciliation.status === 'UNCHANGED_REVIEW_ONLY' || reconciliation.status === 'duplicate'
+        ? 'UNCHANGED_REVIEW_ONLY' : 'NON_READY',
     integrity_status: reconciliation.integrity_status,
     ...(Number.isSafeInteger(reconciliation.sequence) ? { sequence: reconciliation.sequence } : {}),
     ...(typeof reconciliation.manifest_sha256 === 'string' ? { manifest_sha256: reconciliation.manifest_sha256 } : {}),
