@@ -267,7 +267,7 @@ test('pinned ST 1.19.0 chat create/edit/swipe/delete/import/export/restore mutat
   assert.equal(editedPersisted[1]._logicEngineLifecycle.versions[0].versionId, 'ffffffff-ffff-4fff-8fff-ffffffffffff');
   assert.equal(editedPersisted[1]._logicEngineLifecycle.versions[0].parentVersionId, 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb');
 
-  const swipeChat = [header(), userMessage('edited user message', 'ffffffff-ffff-4fff-8fff-ffffffffffff', 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'), {
+  const swipeChat = [header(), editedUserMessage(), {
     ...assistantMessage('second reply'),
     swipes: ['first reply', 'second reply'],
     swipe_id: 1,
@@ -300,7 +300,7 @@ test('pinned ST 1.19.0 chat create/edit/swipe/delete/import/export/restore mutat
 
   const deleteMessageChat = [
     header(),
-    userMessage('edited user message', 'ffffffff-ffff-4fff-8fff-ffffffffffff', 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'),
+    editedUserMessage(),
   ];
   const deleteMessage = await observe(async () => {
     const response = await post('/api/chats/save', {
