@@ -293,6 +293,48 @@ test('root file-level reconciliation classifies add, remove, modify, metadata, r
   assert.equal(journal.verifyRootInventory(baseline).status, 'INTEGRITY_OK');
 });
 
+test('root inventory delta chain survives close/reopen and rejects changed replay', (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-host-root-delta-restart-'));
+  const path = join(directory, 'host-journal.sqlite');
+  const coordinatorPath = join(directory, 'coordinator.sqlite');
+  const resolveIdentity = input => ({
+    authorized: true,
+    host_installation_id: input.host_installation_id,
+    authenticated_account_id: input.authenticated_account_id,
+    conversation_uuid: input.conversation_uuid,
+  });
+  const resolveRootIdentity = input => ({
+    authorized: true,
+    host_installation_id: input.host_installation_id,
+    authenticated_account_id: input.authenticated_account_id,
+    root_id: input.root_id,
+  });
+  const first = new HostLifecycleJournal({ path, coordinatorPath, resolveIdentity, resolveRootIdentity });
+  const baseline = rootInput();
+  first.enrollRootInventory(baseline);
+  const changed = rootInput({ event_id: 'root-delta-restart', entries: rootEntries(digest('after')) });
+  const observed = first.observeRootInventory(changed);
+  assert.equal(observed.status, 'NON_READY');
+  first.close();
+
+  const reopened = new HostLifecycleJournal({ path, coordinatorPath, resolveIdentity, resolveRootIdentity });
+  t.after(() => {
+    try { reopened.close(); } catch {}
+    rmSync(directory, { recursive: true, force: true });
+  });
+  const verified = reopened.verifyRootInventory(changed);
+  assert.equal(verified.status, 'INTEGRITY_OK');
+  assert.equal(verified.sequence, 2);
+  const replay = reopened.observeRootInventory(changed);
+  assert.equal(replay.status, 'NON_READY');
+  assert.equal(replay.duplicate, true);
+  assert.equal(replay.sequence, 2);
+  assert.throws(() => reopened.observeRootInventory({
+    ...changed,
+    entries: rootEntries(digest('conflicting-after')),
+  }), /HOST_ROOT_INVENTORY_EVENT_ID_CONFLICT/);
+});
+
 test('root inventory identity is isolated by installation, account and canonical root', (t) => {
   const { journal } = setup(t);
   const first = rootInput();
