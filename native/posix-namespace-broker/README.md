@@ -83,10 +83,10 @@ python3 native/posix-namespace-broker/broker_daemon.py \
 ```
 
 The C `broker_server` remains a transport smoke-test server and implements
-PING only. The Python daemon currently implements PING, OPEN_MAIN, OPEN_SIDECAR,
-CREATE_SIDECAR and DELETE_SIDECAR. It does not yet implement ACCESS/RENAME,
-complete automatic restart reconciliation, or integrate with the SQLite VFS. It is an incremental descriptor-broker implementation, not a
-production-ready SQLite namespace service.
+PING only. The Python daemon implements PING, OPEN_MAIN, OPEN_SIDECAR,
+CREATE_SIDECAR, OPEN_ROLE_PARENT, OPEN_OR_CREATE_SIDECAR, ACCESS_ROLE_FILE and
+DELETE_SIDECAR. RENAME, main-file deletion, broker-first role enrollment,
+production cross-UID socket permissions and full recovery remain open.
 
 ## Persistent role-manifest storage primitive
 
@@ -117,11 +117,16 @@ mount and persistent identity, and returns that exact descriptor to the caller.
 The caller owns the descriptor and may transfer it to the authenticated
 application process using `SCM_RIGHTS`.
 
-`broker_daemon.py` now calls this method for `OPEN_MAIN` and `OPEN_SIDECAR` and
-returns the validated descriptor to the authenticated client. The SQLite VFS
-does not yet request or consume these descriptors. Sidecar creation now uses durable creating/active manifest transitions and
-returns only after both commits; deletion uses durable deleting/retired
-transitions and a private quarantine. Broker/VFS integration remains open.
+`broker_daemon.py` returns validated descriptors to authenticated clients.
+The Linux VFS now has an opt-in client binding via
+`logic_engine_vfs_probe_bind_broker(role, socketPath)`: main opens use
+`OPEN_MAIN`, WAL/SHM/journal opens use `OPEN_OR_CREATE_SIDECAR`, access/stat
+checks use `ACCESS_ROLE_FILE` and broker-opened descriptors, and sidecar
+deletion uses `DELETE_SIDECAR`. The parent SQLite VFS still supplies its native
+`sqlite3_io_methods`, including I/O, locks, WAL and SHM. The end-to-end VFS
+test currently uses a same-UID fake broker; the production manifest store and
+daemon operations are tested separately. Cross-UID service deployment and
+broker-first enrollment are not yet integrated.
 
 The anchor replacement is the commit point. On restart, if the anchor references
 the staged manifest, verification completes the rename. A manifest that does not
@@ -223,7 +228,7 @@ This remains an incomplete broker/VFS increment. It does not yet implement:
 - main-file creation/deletion, `RENAME`, `SYNC_DIR` and complete crash/restart sidecar reconciliation;
 - full SQLite VFS integration on Windows and production cross-UID Linux deployment; Linux main/sidecar open/access/delete is now an opt-in partial path;
 - complete protected directory ownership and namespace mutation policy;
-- SQLite VFS integration, locking, WAL/SHM or recovery;
+- complete VFS callback coverage, production locking/WAL/SHM verification, and crash/restart recovery;
 - Windows support.
 
 ### Separate SQLite-engine inventory
