@@ -188,15 +188,25 @@ test('durable lifecycle journal survives close/reopen and replay remains idempot
     authenticated_account_id: input.authenticated_account_id,
     host_session_id: input.host_session_id,
     conversation_uuid: input.conversation_uuid,
+    adapter_id: 'test-adapter',
+    root_id: rootId,
     ...authority,
   });
-  let first = new HostLifecycleJournal({ path, coordinatorPath, resolveIdentity, verifyMutationReceipt: () => true });
+  const resolveRootIdentity = input => ({
+    authorized: true,
+    host_installation_id: input.host_installation_id,
+    authenticated_account_id: input.authenticated_account_id,
+    root_id: input.root_id,
+  });
+  let first = new HostLifecycleJournal({ path, coordinatorPath, resolveIdentity, resolveRootIdentity, verifyMutationReceipt: () => true });
+  first.enrollRootInventory({ host_installation_id: installation, authenticated_account_id: account,
+    root_id: rootId, event_id: 'root-restart-baseline', entries: rootEntries(digest('restart-baseline')) });
   const appended = first.append(event());
   assert.equal(appended.status, 'appended');
   assert.equal(first.verifyChain(installation, account).valid, true);
   first.close();
 
-  const reopened = new HostLifecycleJournal({ path, coordinatorPath, resolveIdentity, verifyMutationReceipt: () => true });
+  const reopened = new HostLifecycleJournal({ path, coordinatorPath, resolveIdentity, resolveRootIdentity, verifyMutationReceipt: () => true });
   t.after(() => {
     try { reopened.close(); } catch {}
     rmSync(directory, { recursive: true, force: true });
@@ -539,9 +549,19 @@ test('terminal receipt is rejected by default and leaves the mutation pending', 
     authenticated_account_id: input.authenticated_account_id,
     host_session_id: input.host_session_id,
     conversation_uuid: input.conversation_uuid,
+    adapter_id: 'test-adapter',
+    root_id: rootId,
     ...authority,
   });
-  const journal = new HostLifecycleJournal({ path, coordinatorPath, resolveIdentity });
+  const resolveRootIdentity = input => ({
+    authorized: true,
+    host_installation_id: input.host_installation_id,
+    authenticated_account_id: input.authenticated_account_id,
+    root_id: input.root_id,
+  });
+  const journal = new HostLifecycleJournal({ path, coordinatorPath, resolveIdentity, resolveRootIdentity });
+  journal.enrollRootInventory({ host_installation_id: installation, authenticated_account_id: account,
+    root_id: rootId, event_id: 'root-receipt-deny-baseline', entries: rootEntries(digest('receipt-deny-baseline')) });
   t.after(() => {
     try { journal.close(); } catch {}
     rmSync(directory, { recursive: true, force: true });
@@ -580,6 +600,8 @@ test('prepared Core mutation survives SQLite restart and can be completed by ide
     authenticated_account_id: input.authenticated_account_id,
     host_session_id: input.host_session_id,
     conversation_uuid: input.conversation_uuid,
+    adapter_id: 'test-adapter',
+    root_id: rootId,
     ...authority,
   });
   const prepared = {
@@ -595,7 +617,15 @@ test('prepared Core mutation survives SQLite restart and can be completed by ide
     operation: 'delete-message',
     mutation_digest: digest('before-delete'),
   };
-  const first = new HostLifecycleJournal({ path, coordinatorPath, resolveIdentity, verifyMutationReceipt: () => true });
+  const resolveRootIdentity = input => ({
+    authorized: true,
+    host_installation_id: input.host_installation_id,
+    authenticated_account_id: input.authenticated_account_id,
+    root_id: input.root_id,
+  });
+  const first = new HostLifecycleJournal({ path, coordinatorPath, resolveIdentity, resolveRootIdentity, verifyMutationReceipt: () => true });
+  first.enrollRootInventory({ host_installation_id: installation, authenticated_account_id: account,
+    root_id: rootId, event_id: 'root-pending-restart-baseline', entries: rootEntries(digest('pending-restart-baseline')) });
   first.append(prepared);
   first.close();
   const reopened = new HostLifecycleJournal({ path, coordinatorPath, resolveIdentity, verifyMutationReceipt: () => true });
