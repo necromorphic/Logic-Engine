@@ -238,7 +238,8 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
         } catch (error) {
           if (['HOST_LIFECYCLE_EVENT_ID_CONFLICT', 'HOST_LIFECYCLE_MUTATION_ALREADY_PENDING',
             'HOST_LIFECYCLE_MUTATION_PREPARE_MISSING', 'HOST_LIFECYCLE_MUTATION_TERMINAL_CONFLICT',
-            'HOST_LIFECYCLE_INTENT_DIGEST_MISMATCH'].includes(error?.message)) {
+            'HOST_LIFECYCLE_INTENT_DIGEST_MISMATCH', 'HOST_LIFECYCLE_AUTHORITY_STALE',
+            'HOST_LIFECYCLE_RECEIPT_MISMATCH', 'HOST_LIFECYCLE_STATE_MACHINE_CORRUPT'].includes(error?.message)) {
             throw new EngineError(error.message, 'Host lifecycle event conflicts with the durable journal state.', 409);
           }
           if (error instanceof TypeError) {
