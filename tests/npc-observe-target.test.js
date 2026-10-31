@@ -120,6 +120,12 @@ test("malformed or multi-target input is rejected before trusted context is requ
   assert.throws(() => cycle.observeTarget({ targetEntityId: "target-a", attribute: "name", actorEntityId: "forged" }), TypeError);
   assert.throws(() => cycle.observeTarget({ targetEntityId: ["target-a"], attribute: "name" }), TypeError);
   assert.throws(() => cycle.observeTarget({ targetEntityId: "target-a", attribute: "__proto__" }), TypeError);
+  const inherited = Object.create({ targetEntityId: "target-a", attribute: "name" });
+  assert.throws(() => cycle.observeTarget(inherited), TypeError);
+  const accessor = {};
+  Object.defineProperty(accessor, "targetEntityId", { enumerable: true, get: () => "target-a" });
+  Object.defineProperty(accessor, "attribute", { enumerable: true, value: "name" });
+  assert.throws(() => cycle.observeTarget(accessor), TypeError);
   assert.equal(contextCalls, 0);
 });
 
