@@ -514,7 +514,7 @@ test('durable Core journal records prepared mutations, blocks overlap, and clear
   assert.equal(journal.append(prepared).status, 'appended');
   assert.equal(journal.append(prepared).status, 'duplicate', 'exact retry is checked before pending-state validation');
   assert.throws(() => journal.append({ ...prepared, mutation_digest: digest('altered') }), /HOST_LIFECYCLE_EVENT_ID_CONFLICT/);
-  assert.equal(journal.getConversationStatus(installation, account, hostSession, conversation, authority).status, 'PENDING_MUTATION');
+  assert.equal(journal.getConversationStatus(installation, account, hostSession, conversation, { ...authority, adapter_id: 'test-adapter', root_id: rootId }).status, 'PENDING_MUTATION');
   assert.throws(() => journal.append({
     ...prepared,
     event_id: '00000000-0000-4000-8000-000000000013',
@@ -535,7 +535,7 @@ test('durable Core journal records prepared mutations, blocks overlap, and clear
     occurred_at: '2026-10-31T00:00:01.000Z',
   });
   assert.equal(committed.status, 'appended');
-  assert.equal(journal.getConversationStatus(installation, account, hostSession, conversation, authority).status, 'NO_PENDING_MUTATION');
+  assert.equal(journal.getConversationStatus(installation, account, hostSession, conversation, { ...authority, adapter_id: 'test-adapter', root_id: rootId }).status, 'NO_PENDING_MUTATION');
   assert.equal(journal.verifyChain(installation, account).valid, true);
 });
 
@@ -587,7 +587,7 @@ test('terminal receipt is rejected by default and leaves the mutation pending', 
     receipt_digest: digest('unverified-receipt'),
     occurred_at: '2026-10-31T00:00:01.000Z',
   }), /HOST_LIFECYCLE_RECEIPT_MISMATCH/);
-  assert.equal(journal.getConversationStatus(installation, account, hostSession, conversation, authority).status, 'PENDING_MUTATION');
+  assert.equal(journal.getConversationStatus(installation, account, hostSession, conversation, { ...authority, adapter_id: 'test-adapter', root_id: rootId }).status, 'PENDING_MUTATION');
 });
 
 test('prepared Core mutation survives SQLite restart and can be completed by idempotent replay', (t) => {
@@ -633,7 +633,7 @@ test('prepared Core mutation survives SQLite restart and can be completed by ide
     try { reopened.close(); } catch {}
     rmSync(directory, { recursive: true, force: true });
   });
-  const status = reopened.getConversationStatus(installation, account, hostSession, conversation, authority);
+  const status = reopened.getConversationStatus(installation, account, hostSession, conversation, { ...authority, adapter_id: 'test-adapter', root_id: rootId });
   assert.equal(status.status, 'PENDING_MUTATION');
   assert.equal(status.pending.mutation_id, prepared.mutation_id);
   const commit = {
