@@ -147,6 +147,32 @@ diff --git a/public/script.js b/public/script.js
 +                }
 +                return payload;
 +            },
++            publishLifecycleEvent: async event => {
++                const response = await fetch('/api/logic-engine/host-lifecycle/events', {
++                    method: 'POST',
++                    credentials: 'same-origin',
++                    headers: { 'Content-Type': 'application/json' },
++                    body: JSON.stringify(event),
++                });
++                const payload = await response.json().catch(() => null);
++                if (!response.ok) {
++                    const code = typeof payload?.error?.code === 'string' ? ' (' + payload.error.code + ')' : '';
++                    throw Error('Core lifecycle journal rejected event with HTTP ' + response.status + code);
++                }
++                return payload;
++            },
++            getLifecycleStatus: async conversationId => {
++                const response = await fetch('/api/logic-engine/host-lifecycle/status?conversation_id='
++                    + encodeURIComponent(conversationId), {
++                        credentials: 'same-origin',
++                        cache: 'no-store',
++                    });
++                const payload = await response.json().catch(() => null);
++                if (!response.ok || !payload?.lifecycle) {
++                    throw Error('Core lifecycle journal status unavailable');
++                }
++                return payload.lifecycle;
++            },
 +        })).catch(async error => {
 +            if (hasAnyHostEnrollment(localStorage)) throw Error('NON_READY: enrolled Host journal or authenticated session identity unavailable: ' + error.message);
 +            return createUnavailableStLifecycleBridge({
