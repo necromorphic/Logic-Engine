@@ -25,11 +25,12 @@ const message = (id, content, versionId) => ({
   active_version_index: 0,
   versions: [version(versionId, content)],
 });
+const receiptTestRoot = join(tmpdir(), 'host-lifecycle-receipt-fixture');
 const directories = {
-  root: '/tmp/st-root',
-  chats: '/tmp/st-root/chats',
-  groups: '/tmp/st-root/groups',
-  groupChats: '/tmp/st-root/groupChats',
+  root: receiptTestRoot,
+  chats: join(receiptTestRoot, 'chats'),
+  groups: join(receiptTestRoot, 'groups'),
+  groupChats: join(receiptTestRoot, 'groupChats'),
 };
 const scope = overrides => ({
   host_installation_id: INSTALLATION,
