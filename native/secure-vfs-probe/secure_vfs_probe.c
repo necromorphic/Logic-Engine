@@ -196,6 +196,28 @@ static int probe_pinned_path_add(sqlite3_file *file, char *path) {
   return added;
 }
 #if defined(__linux__)
+static int probe_broker_group_member(gid_t group_id) {
+  int count;
+  gid_t *groups;
+  int found = 0;
+  if (getegid() == group_id) return 1;
+  count = getgroups(0, NULL);
+  if (count < 0 || count > 65536) return 0;
+  if (count == 0) return 0;
+  groups = (gid_t *)sqlite3_malloc64((sqlite3_uint64)count * sizeof(gid_t));
+  if (!groups) return 0;
+  if (getgroups(count, groups) == count) {
+    for (int i = 0; i < count; ++i) {
+      if (groups[i] == group_id) {
+        found = 1;
+        break;
+      }
+    }
+  }
+  sqlite3_free(groups);
+  return found;
+}
+
 static uint64_t probe_broker_hton64(uint64_t value) {
 #if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
   return ((uint64_t)htonl((uint32_t)value) << 32)
@@ -241,8 +263,13 @@ static int probe_broker_exchange(
   if (payload_length > sizeof(payload)) return 0;
   if (strlen(socket_path) >= sizeof(address.sun_path)) return 0;
   if (lstat(socket_path, &socket_info) != 0 || !S_ISSOCK(socket_info.st_mode)
-      || (socket_info.st_mode & 077) != 0
-      || (socket_info.st_uid != geteuid() && socket_info.st_uid != 0)) return 0;
+      || (socket_info.st_mode & 007) != 0) return 0;
+  if (socket_info.st_uid == geteuid()) {
+    if ((socket_info.st_mode & 077) != 0) return 0;
+  } else if ((socket_info.st_mode & 077) != 020
+             || !probe_broker_group_member(socket_info.st_gid)) {
+    return 0;
+  }
 
   socket_fd = socket(AF_UNIX, SOCK_SEQPACKET, 0);
   if (socket_fd < 0) return 0;
