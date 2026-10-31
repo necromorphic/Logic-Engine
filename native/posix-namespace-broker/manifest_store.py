@@ -22,6 +22,7 @@ STAGED = "manifest.next"
 ANCHOR = "anchor.json"
 ANCHOR_NEXT = "anchor.next"
 MAX_BYTES = 1 << 20
+SUPPORTED_ROLE_FILESYSTEMS = frozenset({"ext4", "xfs", "btrfs"})
 DIR_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW
 FILE_FLAGS = os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW
 
@@ -153,8 +154,7 @@ def _validate_manifest(data: bytes) -> dict[str, Any]:
             or policy.get("identitySource") != "opened-handle"
             or policy.get("directoryMutationBoundary") not in
                ("broker-exclusive-owner", "dedicated-service-identity")
-            or not isinstance(policy.get("filesystem"), str)
-            or not policy["filesystem"]):
+            or policy.get("filesystem") not in SUPPORTED_ROLE_FILESYSTEMS):
         raise StoreError("manifest filesystemPolicy is invalid")
     def check_identity(value: Any, label: str) -> None:
         if (not isinstance(value, dict) or value.get("kind") != "posix"
@@ -230,25 +230,46 @@ def _parse_anchor(data: bytes) -> tuple[int, str]:
     return generation, digest
 
 
-def _fd_identity(fd: int) -> dict[str, str]:
-    info = os.fstat(fd)
-    mount_id = None
+def _fd_mount_id(fd: int) -> str:
     try:
         with open(f"/proc/self/fdinfo/{fd}", "r", encoding="ascii") as handle:
             for line in handle:
                 if line.startswith("mnt_id:"):
                     mount_id = line.split(":", 1)[1].strip()
+                    if mount_id.isdigit() and mount_id != "0":
+                        return mount_id
                     break
     except OSError as exc:
         raise StoreError(f"cannot read opened object mount identity: {exc}") from exc
-    if (not mount_id or not mount_id.isdigit() or mount_id == "0"
-            or info.st_dev == 0 or info.st_ino == 0):
-        raise StoreError("opened object has an unavailable or zero identity component")
+    raise StoreError("opened object mount identity is unavailable")
+
+
+def _fd_identity(fd: int) -> dict[str, str]:
+    info = os.fstat(fd)
+    mount_id = _fd_mount_id(fd)
+    if info.st_dev == 0 or info.st_ino == 0:
+        raise StoreError("opened object has a zero device or inode identity")
     return {"kind": "posix", "device": str(info.st_dev),
             "inode": str(info.st_ino), "mountId": mount_id}
 
 
-def _open_role_parent(components: list[str], identities: list[dict[str, str]]) -> int:
+def _fd_filesystem(fd: int) -> str:
+    mount_id = _fd_mount_id(fd)
+    try:
+        with open("/proc/self/mountinfo", "r", encoding="ascii") as handle:
+            for line in handle:
+                fields = line.split()
+                if fields and fields[0] == mount_id:
+                    separator = fields.index("-")
+                    if separator + 1 < len(fields):
+                        return fields[separator + 1]
+    except (OSError, ValueError) as exc:
+        raise StoreError(f"cannot resolve opened object filesystem: {exc}") from exc
+    raise StoreError("opened object filesystem type is unavailable")
+
+
+def _open_role_parent(components: list[str], identities: list[dict[str, str]],
+                      expected_filesystem: str) -> int:
     if len(components) != len(identities):
         raise StoreError("role parent component/identity count mismatch")
     fd = os.open("/", DIR_FLAGS)
@@ -270,6 +291,12 @@ def _open_role_parent(components: list[str], identities: list[dict[str, str]]) -
                 raise StoreError(f"role parent identity mismatch at component {component}")
         if os.fstat(fd).st_uid != os.geteuid() or stat.S_IMODE(os.fstat(fd).st_mode) != 0o700:
             raise StoreError("final role parent must be service-owned mode 0700")
+        actual_filesystem = _fd_filesystem(fd)
+        if actual_filesystem != expected_filesystem:
+            raise StoreError(
+                f"role parent filesystem mismatch: expected {expected_filesystem}, "
+                f"observed {actual_filesystem}"
+            )
         return fd
     except Exception:
         os.close(fd)
@@ -420,7 +447,10 @@ class ManifestStore:
                 continue
             if state != "active":
                 raise StoreError(f"role {role['role']} is not active; recovery/enrollment required")
-            parent_fd = _open_role_parent(role["parentComponents"], role["parentIdentities"])
+            parent_fd = _open_role_parent(
+                role["parentComponents"], role["parentIdentities"],
+                manifest["filesystemPolicy"]["filesystem"]
+            )
             try:
                 _verify_regular_at(parent_fd, role["databaseBasename"],
                                    role["databaseIdentity"], f"role {role['role']} database")
@@ -454,7 +484,10 @@ class ManifestStore:
                     continue
                 if role["state"] not in ("active", "recovery-required", "enrolling"):
                     raise StoreError(f"role {role['role']} has unsupported recovery state")
-                parent_fd = _open_role_parent(role["parentComponents"], role["parentIdentities"])
+                parent_fd = _open_role_parent(
+                role["parentComponents"], role["parentIdentities"],
+                manifest["filesystemPolicy"]["filesystem"]
+            )
                 try:
                     _verify_regular_at(parent_fd, role["databaseBasename"],
                                        role["databaseIdentity"], f"role {role['role']} database")
@@ -528,7 +561,10 @@ class ManifestStore:
                     continue
                 if role["state"] not in ("active", "recovery-required", "enrolling"):
                     raise StoreError(f"role {role['role']} has unsupported recovery state")
-                parent_fd = _open_role_parent(role["parentComponents"], role["parentIdentities"])
+                parent_fd = _open_role_parent(
+                role["parentComponents"], role["parentIdentities"],
+                manifest["filesystemPolicy"]["filesystem"]
+            )
                 try:
                     _verify_regular_at(parent_fd, role["databaseBasename"],
                                        role["databaseIdentity"], f"role {role['role']} database")
