@@ -114,13 +114,13 @@ test('chat imports, group bookmark copies and backup restore fail closed while a
   const groupImportEnd = groupChats.indexOf('\n}', groupImportStart);
   assert.ok(groupImportStart >= 0 && groupImportEnd > groupImportStart);
   assert.match(groupChats.slice(groupImportStart, groupImportEnd),
-    /logicEngineHostLifecycle(?:\?\.guardBulkMutation|\.guardBulkMutation)\(\)/);
+    /logicEngineHostLifecycle(?:\?\.|\.)guardBulkMutation(?:\?\.)?\(\)/);
 
   const bookmarkStart = groupChats.indexOf('export async function saveGroupBookmarkChat(');
   const bookmarkEnd = groupChats.indexOf('\n}', bookmarkStart);
   assert.ok(bookmarkStart >= 0 && bookmarkEnd > bookmarkStart);
   assert.match(groupChats.slice(bookmarkStart, bookmarkEnd),
-    /logicEngineHostLifecycle(?:\?\.guardBulkMutation|\.guardBulkMutation)\(\)/);
+    /logicEngineHostLifecycle(?:\?\.|\.)guardBulkMutation(?:\?\.)?\(\)/);
 
   const restoreStart = chatBackups.indexOf('async restoreBackup(name)');
   const restoreEnd = chatBackups.indexOf('\n    }', restoreStart);
