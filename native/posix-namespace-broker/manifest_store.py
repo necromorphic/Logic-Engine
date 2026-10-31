@@ -431,6 +431,8 @@ def main() -> int:
             finally:
                 os.close(fd)
             store.initialize(data)
+        if args.command == "verify":
+            store.verify_roles()
         manifest = store.load()
         if args.command == "show":
             sys.stdout.buffer.write(_canonical_json(manifest))
