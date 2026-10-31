@@ -711,17 +711,19 @@ export class HostLifecycleJournal {
   verifyRootInventory({ host_installation_id, authenticated_account_id, root_id }) {
     if (!validText(host_installation_id) || !validText(authenticated_account_id)
       || !validDigest(root_id)) throw new TypeError('Invalid Host root inventory identity.');
-    this.#assertRootIdentity({ host_installation_id, authenticated_account_id, root_id });
-    const rows = this.db.prepare(`
-      SELECT event_id,event_type,manifest_sha256,delta_sha256,sequence,event_sha256,
-        previous_sha256,canonical_event_json
-      FROM host_root_inventory_events
-      WHERE host_installation_id=? AND authenticated_account_id=? AND root_id=?
-      ORDER BY sequence
-    `).all(host_installation_id, authenticated_account_id, root_id);
-    const result = this.#verifyRootInventoryRows(host_installation_id, authenticated_account_id, root_id, rows);
-    return result.valid ? { ...result, status: 'INTEGRITY_OK' }
-      : { status: 'NON_READY', reason: result.reason };
+    return this.#withWrite(() => {
+      this.#assertRootIdentity({ host_installation_id, authenticated_account_id, root_id });
+      const rows = this.db.prepare(`
+        SELECT event_id,event_type,manifest_sha256,delta_sha256,sequence,event_sha256,
+          previous_sha256,canonical_event_json
+        FROM host_root_inventory_events
+        WHERE host_installation_id=? AND authenticated_account_id=? AND root_id=?
+        ORDER BY sequence
+      `).all(host_installation_id, authenticated_account_id, root_id);
+      const result = this.#verifyRootInventoryRows(host_installation_id, authenticated_account_id, root_id, rows);
+      return result.valid ? { ...result, status: 'INTEGRITY_OK' }
+        : { status: 'NON_READY', reason: result.reason };
+    });
   }
 
   close() {
