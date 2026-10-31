@@ -547,24 +547,25 @@ export class HostLifecycleJournal {
       const authority = {
         authority_id: authorityContext.authority_id,
         generation: authorityContext.generation,
-        adapter_id: authorityContext.adapter_id,
-        root_id: authorityContext.root_id,
         snapshot_fingerprint: authorityContext.snapshot_fingerprint,
       };
+      const integrity = this.verifyChain(hostInstallationId, authenticatedAccountId);
+      if (!integrity.valid) {
+        return { status: 'NON_READY', identity, authority,
+          journal: { integrity: 'INVALID', ...integrity }, pending: null, reason: integrity.reason };
+      }
       const currentAuthority = this.#authoritySnapshotFingerprint({
-        ...authority,
+        authority_id: authorityContext.authority_id,
+        generation: authorityContext.generation,
+        adapter_id: authorityContext.adapter_id,
+        root_id: authorityContext.root_id,
         host_installation_id: hostInstallationId,
         authenticated_account_id: authenticatedAccountId,
       });
       if (!currentAuthority || currentAuthority.snapshot_fingerprint !== authority.snapshot_fingerprint) {
         return { status: 'NON_READY', identity, authority,
-          journal: { integrity: 'INVALID', sequence: null, head_sha256: null },
+          journal: { integrity: 'VALID', sequence: integrity.sequence, head_sha256: integrity.head_sha256 },
           pending: null, reason: 'HOST_LIFECYCLE_AUTHORITY_STALE' };
-      }
-      const integrity = this.verifyChain(hostInstallationId, authenticatedAccountId);
-      if (!integrity.valid) {
-        return { status: 'NON_READY', identity, authority,
-          journal: { integrity: 'INVALID', ...integrity }, pending: null, reason: integrity.reason };
       }
       const rows = this.db.prepare(`
         SELECT canonical_event_json FROM host_lifecycle_events
