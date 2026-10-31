@@ -250,10 +250,12 @@ class ManifestStoreTests(unittest.TestCase):
 
     def test_rejects_zero_identity_components(self):
         import json
-        value = json.loads(self.data(1))
-        value["roles"][0]["databaseIdentity"]["inode"] = "0"
-        with self.assertRaises(StoreError):
-            self.store.initialize(_canonical_json(value))
+        for component in ("device", "inode", "mountId"):
+            with self.subTest(component=component):
+                value = json.loads(self.data(1))
+                value["roles"][0]["databaseIdentity"][component] = "0"
+                with self.assertRaises(StoreError):
+                    self.store.initialize(_canonical_json(value))
 
     def test_rejects_unqualified_filesystem_policy(self):
         import json
