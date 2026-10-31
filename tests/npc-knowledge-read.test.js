@@ -30,6 +30,27 @@ const trustedRegistry = [{
   sha256: createHash('sha256').update(sourceBytes).digest('hex'),
 }];
 
+function beliefWriteAuthorization(scope) {
+  return {
+    status: 'authorized',
+    world_id: scope.world_id,
+    conversation_id: scope.conversation_id,
+    adapter_id: scope.adapter_id,
+    actor_id: scope.actor_id,
+    recipient: scope.recipient,
+    purpose: scope.purpose,
+    operation: scope.operation,
+    expected_revision: scope.expected_revision,
+    expected_commit_sequence: scope.expected_commit_sequence,
+    authorization_ref: 'rule:npc-belief-write-v1',
+    ...(Object.hasOwn(scope, 'authority_id') ? {
+      authority_id: scope.authority_id,
+      generation: scope.generation,
+      snapshot_fingerprint: scope.snapshot_fingerprint,
+    } : {}),
+  };
+}
+
 function setup(t, authorizer = (scope) => ({
   status: 'authorized',
   world_id: scope.world_id,
@@ -59,24 +80,7 @@ function setup(t, authorizer = (scope) => ({
   const engine = new LogicEngine(store, {
     trustedInitialKnowledgeSources: trustedRegistry,
     npcKnowledgeReadAuthorizer: authorizer,
-    npcKnowledgeWriteAuthorizer: (scope) => ({
-      status: 'authorized',
-      world_id: scope.world_id,
-      conversation_id: scope.conversation_id,
-      adapter_id: scope.adapter_id,
-      actor_id: scope.actor_id,
-      recipient: scope.recipient,
-      purpose: scope.purpose,
-      operation: scope.operation,
-      expected_revision: scope.expected_revision,
-      expected_commit_sequence: scope.expected_commit_sequence,
-      authorization_ref: 'rule:npc-belief-write-v1',
-      ...(Object.hasOwn(scope, 'authority_id') ? {
-        authority_id: scope.authority_id,
-        generation: scope.generation,
-        snapshot_fingerprint: scope.snapshot_fingerprint,
-      } : {}),
-    }),
+    npcKnowledgeWriteAuthorizer: beliefWriteAuthorization,
     npcKnowledgeVisibilityAuthorizer: visibilityAuthorizer,
   });
   const binding = { adapter_id: 'adapter-st', conversation_id: 'conversation-a', world_id: 'world-a' };
@@ -365,7 +369,7 @@ test('canonical NPC belief event records the exact policy authority tuple used f
   assert.deepEqual(committed.policy_authority, read.policy_authority);
   const event = store.events('world-a').find((entry) => entry.event_id === committed.transition.event_id);
   assert.deepEqual(event.effects[0].policy_authority, read.policy_authority);
-  assert.equal(event.effects[0].write_authorization_ref, 'rule:npc-belief-write-v1');
+  assert.equal(event.effects[0].write_authorization_ref, 'core:npc-belief-transition-write-v1');
   assert.doesNotThrow(() => validateEffects(event.effects, { allowNpcBeliefTransition: true }));
   assert.throws(() => validateEffects([{
     ...event.effects[0],
@@ -1319,6 +1323,7 @@ test('NPC revises a belief from newly acquired independent evidence after the ol
   }];
   const independentEngine = new LogicEngine(store, {
     trustedInitialKnowledgeSources: independentRegistry,
+    npcKnowledgeWriteAuthorizer: beliefWriteAuthorization,
     npcKnowledgeReadAuthorizer: (scope) => ({
       status: 'authorized',
       world_id: scope.world_id,
@@ -1616,6 +1621,7 @@ test('NPC read and full belief-context authorization hold the shared Coordinator
   const engine = new LogicEngine(store, {
     trustedInitialKnowledgeSources: trustedRegistry,
     npcKnowledgeReadAuthorizer: readAuthorizer,
+    npcKnowledgeWriteAuthorizer: beliefWriteAuthorization,
     npcKnowledgeVisibilityAuthorizer: visibilityAuthorizer,
   });
   engine.createWorld({
