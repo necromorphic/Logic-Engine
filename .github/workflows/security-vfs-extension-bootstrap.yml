@@ -28,6 +28,8 @@ on:
       - 'docs/security/sqlite-database-role-inventory.md'
       - 'native/secure-vfs-probe/README.md'
       - 'deploy/sqlite-security/**'
+      - 'schemas/sqlite-role-manifest.schema.json'
+      - 'tests/sqlite-role-manifest-schema.test.js'
       - '.github/workflows/security-vfs-extension-bootstrap.yml'
 
 permissions:
