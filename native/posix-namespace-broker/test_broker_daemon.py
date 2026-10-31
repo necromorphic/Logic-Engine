@@ -10,7 +10,7 @@ import unittest
 from pathlib import Path
 
 from broker_daemon import (
-    HEADER, MAGIC, VERSION, OP_PING, OP_OPEN_MAIN, OP_OPEN_SIDECAR, OP_DELETE_SIDECAR, OP_CREATE_SIDECAR, OP_OPEN_ROLE_PARENT,
+    HEADER, MAGIC, VERSION, OP_PING, OP_OPEN_MAIN, OP_OPEN_SIDECAR, OP_DELETE_SIDECAR, OP_CREATE_SIDECAR, OP_OPEN_ROLE_PARENT, OP_OPEN_OR_CREATE_SIDECAR,
     STATUS_OK, STATUS_BAD_REQUEST, STATUS_UNAUTHORIZED,
     STATUS_UNSUPPORTED, STATUS_NOT_FOUND, handle_connection,
 )
@@ -37,6 +37,10 @@ class FakeManifestStore:
     def open_role_parent_directory(self, role):
         self.calls.append(("parent", role))
         return os.open(self.path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+
+    def open_or_create_role_sidecar(self, role, kind):
+        self.calls.append(("open-or-create", role, kind))
+        return os.open(self.path, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
 
 
 class BrokerDaemonTests(unittest.TestCase):
@@ -141,6 +145,17 @@ class BrokerDaemonTests(unittest.TestCase):
             self.assertEqual(len(fds), 1)
             self.assertEqual(os.read(fds[0], 64), b"manifest-verified-db")
             self.assertEqual(self.store.calls[-1], ("create", "core", "wal"))
+        finally:
+            for fd in fds:
+                os.close(fd)
+
+    def test_open_or_create_sidecar_returns_manifest_backed_descriptor(self):
+        response, fds = self.exchange(OP_OPEN_OR_CREATE_SIDECAR, b"core\\x00wal")
+        try:
+            self.assertEqual(response[3], STATUS_OK)
+            self.assertEqual(len(fds), 1)
+            self.assertEqual(os.read(fds[0], 64), b"manifest-verified-db")
+            self.assertEqual(self.store.calls[-1], ("open-or-create", "core", "wal"))
         finally:
             for fd in fds:
                 os.close(fd)
