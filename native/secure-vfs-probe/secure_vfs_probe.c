@@ -905,6 +905,7 @@ static int probe_open(const char *name, int flags, int mode) {
       if (!probe_broker_exchange(role, role->broker_socket_path, operation,
                                  kind, 1, &fd, &status)
           || status != LEB_STATUS_OK || fd < 0) {
+        probe_counter_increment(&g_broker_syscall_open_fail_count);
         if (fd >= 0) close(fd);
         errno = EACCES;
         return -1;
