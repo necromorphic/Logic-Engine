@@ -506,6 +506,8 @@ test('Core lifecycle API durably accepts authenticated prepare/commit receipts a
   const { base, rootJournal } = await setup(t, { withRootJournal: true });
   rootJournal.enrollRootInventory({ ...rootInventoryBody(), event_id: 'api-lifecycle-root-baseline' });
   HOST_AUTHORITY.snapshot_fingerprint = rootJournal.getAuthoritySnapshot({
+    authority_id: HOST_AUTHORITY.authority_id,
+    generation: HOST_AUTHORITY.generation,
     adapter_id: 'adapter-a',
     host_installation_id: rootInventoryBody().host_installation_id,
     authenticated_account_id: rootInventoryBody().authenticated_account_id,
