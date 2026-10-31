@@ -9,6 +9,7 @@ const CONFIG = {
   LOGIC_ENGINE_ADAPTER_ID: 'sillytavern-phone',
   LOGIC_ENGINE_ADAPTER_TOKEN: 'adapter-token-long-enough',
 };
+const canonical = value => Array.isArray(value) ? '[' + value.map(canonical).join(',') + ']' : value && typeof value === 'object' ? '{' + Object.keys(value).sort().map(key => JSON.stringify(key) + ':' + canonical(value[key])).join(',') + '}' : JSON.stringify(value);
 const SESSION_ID = '11111111-1111-4111-8111-111111111111';
 const HOST_CONVERSATION_ID = SESSION_ID + ':22222222-2222-4222-8222-222222222222:33333333-3333-4333-8333-333333333333';
 const LIFECYCLE_CONVERSATION_ID = SESSION_ID + ':aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa:33333333-3333-4333-8333-333333333333';
@@ -449,7 +450,7 @@ test('lifecycle journal proxy derives account identity and signs only server-ver
     receipt_digest: committedBody.receipt_digest,
   };
   const expectedSignature = createHmac('sha256', CONFIG.LOGIC_ENGINE_ADAPTER_TOKEN)
-    .update(JSON.stringify(proof), 'utf8').digest('hex');
+    .update(canonical(proof), 'utf8').digest('hex');
   assert.equal(committedBody.receipt_signature, expectedSignature);
   assert.equal(receiptCalls[1].type, 'commit');
 
