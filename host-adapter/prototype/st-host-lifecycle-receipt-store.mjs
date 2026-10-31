@@ -305,7 +305,7 @@ export class HostLifecycleReceiptStore {
     const targetRootEntries = rootEntries.filter(entry => entry.path === targetPath);
     if (targetRootEntries.length !== 1 || !DIGEST.test(target.content_sha256 ?? '')
       || typeof target.file_identity !== 'string') {
-      throw new Error('HOST_LIFECYCLE_RECEIPT_TARGET_FILE_MISSING:' + JSON.stringify({ targetPath, rootPaths: rootEntries.map(entry => entry.path), targetKind: target.kind, locator }));
+      throw new Error('HOST_LIFECYCLE_RECEIPT_TARGET_FILE_MISSING');
     }
     const otherRootEntries = rootEntries.filter(entry => entry.path !== targetPath);
     const otherSourceFiles = inventory.source.files.filter(file => file !== target).map(file => ({
