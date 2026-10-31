@@ -120,7 +120,7 @@ class BrokerDaemonTests(unittest.TestCase):
                 os.close(fd)
 
     def test_delete_sidecar_uses_quarantine_store_operation(self):
-        response, fds = self.exchange(OP_DELETE_SIDECAR, b"core\\x00wal")
+        response, fds = self.exchange(OP_DELETE_SIDECAR, b"core\x00wal")
         self.assertEqual(response[3], STATUS_OK)
         self.assertEqual(fds, [])
         self.assertEqual(self.store.calls[-1], ("delete", "core", "wal"))
