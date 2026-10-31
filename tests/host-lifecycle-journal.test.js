@@ -166,6 +166,13 @@ const rootEntries = (contentDigest, fileIdentity = '101') => [{
   identity: { dev: '1', ino: fileIdentity, mode: 33188, size: 64, mtimeMs: 1, ctimeMs: 1 },
   sha256: contentDigest,
 }];
+const rootFile = (path, ino, content, metadata = {}) => ({
+  path,
+  identity: {
+    dev: '1', ino, mode: 33188, size: 64, mtimeMs: 1, ctimeMs: 1, ...metadata,
+  },
+  sha256: digest(content),
+});
 const rootInput = (overrides = {}) => ({
   host_installation_id: installation,
   authenticated_account_id: account,
@@ -243,6 +250,46 @@ test('root file delta is durable, replay-idempotent and never accepted without a
   });
   assert.equal(restored.status, 'NON_READY');
   assert.match(restored.reason, /previously observed root inventory delta remains unresolved/);
+  assert.equal(journal.verifyRootInventory(baseline).status, 'INTEGRITY_OK');
+});
+
+test('root file-level reconciliation classifies add, remove, modify, metadata, replace and move', (t) => {
+  const { journal } = setup(t);
+  const baseline = rootInput({
+    entries: [
+      rootFile('chats/metadata.jsonl', '102', 'same', { mtimeMs: 2 }),
+      rootFile('chats/modify.jsonl', '103', 'before'),
+      rootFile('chats/move-from.jsonl', '104', 'move-before'),
+      rootFile('chats/remove.jsonl', '105', 'remove'),
+      rootFile('chats/replace.jsonl', '106', 'replace-before'),
+    ],
+  });
+  journal.enrollRootInventory(baseline);
+  const observed = journal.observeRootInventory(rootInput({
+    event_id: 'root-delta-classification',
+    entries: [
+      rootFile('chats/added.jsonl', '107', 'added'),
+      rootFile('chats/metadata.jsonl', '102', 'same', { mtimeMs: 3 }),
+      rootFile('chats/modify.jsonl', '103', 'after'),
+      rootFile('chats/move-to.jsonl', '104', 'move-after'),
+      rootFile('chats/replace.jsonl', '108', 'replace-after'),
+    ],
+  }));
+  assert.equal(observed.status, 'NON_READY');
+  assert.equal(observed.delta.added.length, 1);
+  assert.equal(observed.delta.added[0].path, 'chats/added.jsonl');
+  assert.equal(observed.delta.removed.length, 1);
+  assert.equal(observed.delta.removed[0].path, 'chats/remove.jsonl');
+  assert.equal(observed.delta.modified.length, 1);
+  assert.equal(observed.delta.modified[0].path, 'chats/modify.jsonl');
+  assert.equal(observed.delta.metadata_changed.length, 1);
+  assert.equal(observed.delta.metadata_changed[0].path, 'chats/metadata.jsonl');
+  assert.equal(observed.delta.replaced.length, 1);
+  assert.equal(observed.delta.replaced[0].path, 'chats/replace.jsonl');
+  assert.equal(observed.delta.moved.length, 1);
+  assert.equal(observed.delta.moved[0].from, 'chats/move-from.jsonl');
+  assert.equal(observed.delta.moved[0].to, 'chats/move-to.jsonl');
+  assert.equal(observed.delta.moved[0].content_changed, true);
   assert.equal(journal.verifyRootInventory(baseline).status, 'INTEGRITY_OK');
 });
 
