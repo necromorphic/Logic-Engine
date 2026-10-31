@@ -824,9 +824,9 @@ class ManifestStore:
                 raise StoreError("unknown or inactive database role")
             role = roles[0]
             sidecars = [entry for entry in role["sidecars"] if entry["kind"] == kind]
-            if len(sidecars) != 1 or sidecars[0]["state"] != "active":
-                raise StoreError("sidecar is not in the active state")
-            sidecar = sidecars[0]
+            if len(sidecars) > 1:
+                raise StoreError("sidecar manifest entry is ambiguous")
+            sidecar = sidecars[0] if sidecars else None
             basename = role["databaseBasename"] + suffixes[kind]
             parent_fd = _open_role_parent(
                 role["parentComponents"], role["parentIdentities"],
@@ -835,6 +835,16 @@ class ManifestStore:
             )
             try:
                 _require_empty_quarantine(parent_fd)
+                if sidecar is None:
+                    if _observe_regular_at(parent_fd, basename, f"sidecar {basename}") is None:
+                        return manifest
+                    raise StoreError("unmanifested sidecar blocks deletion")
+                if sidecar["state"] == "retired":
+                    if _observe_regular_at(parent_fd, basename, f"sidecar {basename}") is None:
+                        return manifest
+                    raise StoreError("retired sidecar path unexpectedly exists")
+                if sidecar["state"] != "active":
+                    raise StoreError("sidecar is not in the active state")
                 _verify_regular_at(parent_fd, basename, sidecar["identity"],
                                    f"role {role_name} {kind} sidecar")
                 deleting = json.loads(_canonical_json(manifest))
