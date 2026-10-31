@@ -133,6 +133,11 @@ test('serializes lifecycle append against competing Core writers under the share
   });
   journal.enrollRootInventory({ host_installation_id: installation, authenticated_account_id: account,
     root_id: rootId, event_id: 'root-lock-baseline', entries: rootEntries(digest('lock-baseline')) });
+  authority.snapshot_fingerprint = journal.getAuthoritySnapshot({
+    authority_id: authority.authority_id, generation: authority.generation, adapter_id: 'test-adapter',
+    host_installation_id: installation, authenticated_account_id: account, root_id: rootId,
+  }).snapshot_fingerprint;
+
   assert.equal(journal.append(event()).status, 'appended');
   competing.exec('BEGIN IMMEDIATE; ROLLBACK;');
 });
@@ -201,6 +206,11 @@ test('durable lifecycle journal survives close/reopen and replay remains idempot
   let first = new HostLifecycleJournal({ path, coordinatorPath, resolveIdentity, resolveRootIdentity, verifyMutationReceipt: () => true });
   first.enrollRootInventory({ host_installation_id: installation, authenticated_account_id: account,
     root_id: rootId, event_id: 'root-restart-baseline', entries: rootEntries(digest('restart-baseline')) });
+  authority.snapshot_fingerprint = first.getAuthoritySnapshot({
+    authority_id: authority.authority_id, generation: authority.generation, adapter_id: 'test-adapter',
+    host_installation_id: installation, authenticated_account_id: account, root_id: rootId,
+  }).snapshot_fingerprint;
+
   const appended = first.append(event());
   assert.equal(appended.status, 'appended');
   assert.equal(first.verifyChain(installation, account).valid, true);
@@ -242,6 +252,16 @@ function setupLifecycle(t, authorize = () => true) {
     event_id: 'root-authority-baseline',
     entries: rootEntries(digest('host-authority-root-baseline')),
   });
+  const snapshot = context.journal.getAuthoritySnapshot({
+    authority_id: authority.authority_id,
+    generation: authority.generation,
+    adapter_id: 'test-adapter',
+    host_installation_id: installation,
+    authenticated_account_id: account,
+    root_id: rootId,
+  });
+  if (snapshot.status !== 'INTEGRITY_OK') throw Error('Test Host authority snapshot unavailable');
+  authority.snapshot_fingerprint = snapshot.snapshot_fingerprint;
   return context;
 }
 
@@ -562,6 +582,11 @@ test('terminal receipt is rejected by default and leaves the mutation pending', 
   const journal = new HostLifecycleJournal({ path, coordinatorPath, resolveIdentity, resolveRootIdentity });
   journal.enrollRootInventory({ host_installation_id: installation, authenticated_account_id: account,
     root_id: rootId, event_id: 'root-receipt-deny-baseline', entries: rootEntries(digest('receipt-deny-baseline')) });
+  authority.snapshot_fingerprint = journal.getAuthoritySnapshot({
+    authority_id: authority.authority_id, generation: authority.generation, adapter_id: 'test-adapter',
+    host_installation_id: installation, authenticated_account_id: account, root_id: rootId,
+  }).snapshot_fingerprint;
+
   t.after(() => {
     try { journal.close(); } catch {}
     rmSync(directory, { recursive: true, force: true });
@@ -626,6 +651,11 @@ test('prepared Core mutation survives SQLite restart and can be completed by ide
   const first = new HostLifecycleJournal({ path, coordinatorPath, resolveIdentity, resolveRootIdentity, verifyMutationReceipt: () => true });
   first.enrollRootInventory({ host_installation_id: installation, authenticated_account_id: account,
     root_id: rootId, event_id: 'root-pending-restart-baseline', entries: rootEntries(digest('pending-restart-baseline')) });
+  authority.snapshot_fingerprint = first.getAuthoritySnapshot({
+    authority_id: authority.authority_id, generation: authority.generation, adapter_id: 'test-adapter',
+    host_installation_id: installation, authenticated_account_id: account, root_id: rootId,
+  }).snapshot_fingerprint;
+
   first.append(prepared);
   first.close();
   const reopened = new HostLifecycleJournal({ path, coordinatorPath, resolveIdentity, verifyMutationReceipt: () => true });
