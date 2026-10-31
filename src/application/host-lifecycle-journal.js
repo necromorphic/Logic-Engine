@@ -208,8 +208,10 @@ function validateEvent(event) {
  * This class stores identity and digest metadata only; it never stores raw chat
  * text. resolveIdentity is a trusted synchronous Core/Host integration seam and
  * must verify the server-authenticated installation/account binding. Caller
- * fields alone are never authority. This prototype is not wired to a public
- * route and cannot mark an inventory READY.
+ * fields alone are never authority. The public root-inventory API exposes
+ * only review-only baseline/observation operations; it cannot mark inventory
+ * READY. Lifecycle event append remains private until operation-specific
+ * authorization and mutation-receipt contracts are implemented.
  */
 export class HostLifecycleJournal {
   constructor({ path, coordinatorPath, resolveIdentity, resolveRootIdentity = null }) {
