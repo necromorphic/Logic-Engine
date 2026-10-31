@@ -646,6 +646,6 @@ test('prepared Core mutation survives SQLite restart and can be completed by ide
   };
   assert.equal(reopened.append(commit).status, 'appended');
   assert.equal(reopened.append(commit).status, 'duplicate');
-  assert.equal(reopened.getConversationStatus(installation, account, conversation).status, 'NO_PENDING_MUTATION');
+  assert.equal(reopened.getConversationStatus(installation, account, hostSession, conversation, { ...authority, adapter_id: 'test-adapter', root_id: rootId }).status, 'NO_PENDING_MUTATION');
   assert.equal(reopened.verifyChain(installation, account).valid, true);
 });
