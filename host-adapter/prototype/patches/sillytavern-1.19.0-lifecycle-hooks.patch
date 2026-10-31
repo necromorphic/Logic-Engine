@@ -626,28 +626,6 @@ diff --git a/src/endpoints/backends/chat-completions.js b/src/endpoints/backends
  
      try {
 
-diff --git a/public/script.js b/public/script.js
---- a/public/script.js
-+++ b/public/script.js
-@@ -9448,2 +9448,3 @@
- export async function importCharacterChat(formData, { refresh = true } = {}) {
-+    await window.logicEngineHostLifecycle?.guardBulkMutation?.();
-     const fetchResult = await fetch('/api/chats/import', {
-
-diff --git a/public/scripts/group-chats.js b/public/scripts/group-chats.js
---- a/public/scripts/group-chats.js
-+++ b/public/scripts/group-chats.js
-@@ -2319,2 +2319,3 @@
- export async function importGroupChat(formData, { refresh = true } = {}) {
-+    await window.logicEngineHostLifecycle?.guardBulkMutation?.();
-     const fetchResult = await fetch('/api/chats/group/import', {
-@@ -2359,4 +2360,5 @@
- export async function saveGroupBookmarkChat(groupId, name, metadata, mesId, chatData = undefined) {
-+    await window.logicEngineHostLifecycle?.guardBulkMutation?.();
-     const group = groups.find(x => x.id === groupId);
- 
-     if (!group) {
-
 diff --git a/src/endpoints/chats.js b/src/endpoints/chats.js
 --- a/src/endpoints/chats.js
 +++ b/src/endpoints/chats.js
