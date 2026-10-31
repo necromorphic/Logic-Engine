@@ -139,6 +139,7 @@ test('root inventory API persists adapter-bound baselines and file deltas as rev
   const baselineResult = await baseline.json();
   assert.equal(baselineResult.inventory_status, 'REVIEW_ONLY');
   assert.equal(baselineResult.reconciliation.status, 'BASELINED_REVIEW_ONLY');
+  assert.equal(baselineResult.reconciliation.integrity_status, 'INTEGRITY_OK');
   assert.equal(rootJournal.verifyRootInventory(baselineInput).status, 'INTEGRITY_OK');
 
   const changedInput = rootInventoryBody({
@@ -155,6 +156,7 @@ test('root inventory API persists adapter-bound baselines and file deltas as rev
   assert.equal(changed.status, 409);
   const changedResult = await changed.json();
   assert.equal(changedResult.inventory_status, 'NON_READY');
+  assert.equal(changedResult.reconciliation.integrity_status, 'INTEGRITY_OK');
   assert.deepEqual(changedResult.reconciliation.counts, {
     added: 0, removed: 0, modified: 1, metadata_changed: 0, replaced: 0, moved: 0,
   });
