@@ -389,6 +389,21 @@ test('lifecycle journal proxy derives account identity server-side and binds eve
     mutation_digest: event.mutation_digest,
     occurred_at: event.occurred_at,
   });
+  const committedEvent = {
+    ...event,
+    event_id: '66666666-6666-4666-8666-666666666666',
+    event_type: 'MUTATION_COMMITTED',
+    receipt_digest: 'f'.repeat(64),
+    occurred_at: '2026-10-31T00:00:01.000Z',
+  };
+  const committedResponse = responseRecorder();
+  await proxy.append(requestFor(committedEvent), committedResponse);
+  assert.equal(committedResponse.statusCode, 201);
+  const committedBody = JSON.parse(observed.options.body);
+  assert.equal(committedBody.host_session_id, SESSION_ID);
+  assert.equal(committedBody.receipt_digest, committedEvent.receipt_digest);
+  assert.equal(committedBody.mutation_digest, event.mutation_digest);
+
   const mismatchedInstallation = responseRecorder();
   await proxy.append(requestFor({ ...event, conversation_id: HOST_CONVERSATION_ID }), mismatchedInstallation);
   assert.equal(mismatchedInstallation.statusCode, 403);
@@ -414,6 +429,7 @@ test('lifecycle journal proxy status is session-bound and forwards only server-d
   await proxy.status(request, response);
   assert.equal(response.statusCode, 200);
   assert.equal(observed.url.startsWith('http://192.168.1.10:8787/v1/host-lifecycle/status?'), true);
+  assert.equal(new URL(observed.url).searchParams.get('host_session_id'), SESSION_ID);
   const wrongSession = responseRecorder();
   const wrongRequest = requestFor({});
   wrongRequest.query = { conversation_id: HOST_CONVERSATION_ID };
