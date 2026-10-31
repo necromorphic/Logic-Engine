@@ -50,6 +50,10 @@ typedef struct ProbePinnedPath {
 static ProbePinnedPath g_pinned_paths[PROBE_MAX_PINNED_PATHS];
 static const char *g_open_syscall_name = 0;
 static sqlite3_syscall_ptr g_original_open_syscall = 0;
+#ifdef _WIN32
+static const char *g_delete_syscall_name = 0;
+static sqlite3_syscall_ptr g_original_delete_syscall = 0;
+#endif
 #ifndef _WIN32
 static sqlite3_syscall_ptr g_original_stat_syscall = 0;
 #endif
@@ -1228,6 +1232,37 @@ static int probe_win_delete_role(int role_index, const wchar_t *relative_name,
     role_index, suffix, expected, standard_info.NumberOfLinks > 1);
   return SQLITE_OK;
 }
+
+static BOOL WINAPI probe_delete_file_w(LPCWSTR path) {
+  int role_index = -1;
+  const wchar_t *suffix = NULL;
+  wchar_t *relative_name;
+  int matched;
+  int rc;
+  if (!path) {
+    SetLastError(ERROR_INVALID_PARAMETER);
+    return FALSE;
+  }
+  matched = probe_match_role_entry_w(path, &role_index, &suffix);
+  if (matched <= 0) {
+    /* The default VFS is protected: unknown path deletes are never delegated. */
+    SetLastError(ERROR_ACCESS_DENIED);
+    return FALSE;
+  }
+  relative_name = probe_win_relative_name(&g_database_roles[role_index], suffix);
+  if (!relative_name) {
+    SetLastError(ERROR_ACCESS_DENIED);
+    return FALSE;
+  }
+  rc = probe_win_delete_role(role_index, relative_name, suffix[0] == L'\\0');
+  sqlite3_free(relative_name);
+  if (rc == SQLITE_OK) {
+    SetLastError(ERROR_SUCCESS);
+    return TRUE;
+  }
+  SetLastError(ERROR_ACCESS_DENIED);
+  return FALSE;
+}
 #endif
 
 #ifndef _WIN32
@@ -1458,6 +1493,11 @@ static int probe_xSetSystemCall(sqlite3_vfs *vfs, const char *name, sqlite3_sysc
   if (name && g_open_syscall_name && strcmp(name, g_open_syscall_name) == 0) {
     return SQLITE_PERM;
   }
+#ifdef _WIN32
+  if (name && g_delete_syscall_name && strcmp(name, g_delete_syscall_name) == 0) {
+    return SQLITE_PERM;
+  }
+#endif
 #ifndef _WIN32
   if (name && strcmp(name, "stat") == 0) return SQLITE_PERM;
 #endif
@@ -1481,9 +1521,16 @@ static void probe_hook_protection(sqlite3_context *context, int argc, sqlite3_va
     &g_probe_vfs, g_open_syscall_name, g_original_open_syscall
   );
 #ifdef _WIN32
-  protected_ok = open_rc == SQLITE_PERM
-    && g_parent_vfs->xGetSystemCall(g_parent_vfs, g_open_syscall_name)
-      == (sqlite3_syscall_ptr)probe_create_file_w;
+  {
+    int delete_rc = g_probe_vfs.xSetSystemCall(
+      &g_probe_vfs, g_delete_syscall_name, g_original_delete_syscall
+    );
+    protected_ok = open_rc == SQLITE_PERM && delete_rc == SQLITE_PERM
+      && g_parent_vfs->xGetSystemCall(g_parent_vfs, g_open_syscall_name)
+        == (sqlite3_syscall_ptr)probe_create_file_w
+      && g_parent_vfs->xGetSystemCall(g_parent_vfs, g_delete_syscall_name)
+        == (sqlite3_syscall_ptr)probe_delete_file_w;
+  }
 #else
   {
     int stat_rc = g_probe_vfs.xSetSystemCall(
@@ -2064,6 +2111,11 @@ int sqlite3_secure_vfs_probe_init(
 
 #ifdef _WIN32
   g_open_syscall_name = "CreateFileW";
+  g_delete_syscall_name = "DeleteFileW";
+  g_original_delete_syscall = g_parent_vfs->xGetSystemCall(
+    g_parent_vfs, g_delete_syscall_name
+  );
+  if (!g_original_delete_syscall) return SQLITE_ERROR;
 #else
   g_open_syscall_name = "open";
   g_original_stat_syscall = g_parent_vfs->xGetSystemCall(g_parent_vfs, "stat");
@@ -2086,13 +2138,27 @@ int sqlite3_secure_vfs_probe_init(
   rc = g_parent_vfs->xSetSystemCall(
     g_parent_vfs, g_open_syscall_name, (sqlite3_syscall_ptr)probe_create_file_w
   );
+  if (rc == SQLITE_OK) {
+    rc = g_parent_vfs->xSetSystemCall(
+      g_parent_vfs, g_delete_syscall_name, (sqlite3_syscall_ptr)probe_delete_file_w
+    );
+    if (rc != SQLITE_OK) {
+      g_parent_vfs->xSetSystemCall(
+        g_parent_vfs, g_open_syscall_name, g_original_open_syscall
+      );
+    }
+  }
 #else
   rc = g_parent_vfs->xSetSystemCall(
     g_parent_vfs, g_open_syscall_name, (sqlite3_syscall_ptr)probe_open
   );
 #endif
   if (rc != SQLITE_OK) {
-#ifndef _WIN32
+#ifdef _WIN32
+    g_parent_vfs->xSetSystemCall(
+      g_parent_vfs, g_delete_syscall_name, g_original_delete_syscall
+    );
+#else
     g_parent_vfs->xSetSystemCall(g_parent_vfs, "stat", g_original_stat_syscall);
 #endif
     return rc;
@@ -2128,7 +2194,9 @@ int sqlite3_secure_vfs_probe_init(
   rc = sqlite3_vfs_register(&g_probe_vfs, 1);
   if (rc != SQLITE_OK) {
     g_parent_vfs->xSetSystemCall(g_parent_vfs, g_open_syscall_name, g_original_open_syscall);
-#ifndef _WIN32
+#ifdef _WIN32
+    g_parent_vfs->xSetSystemCall(g_parent_vfs, g_delete_syscall_name, g_original_delete_syscall);
+#else
     g_parent_vfs->xSetSystemCall(g_parent_vfs, "stat", g_original_stat_syscall);
 #endif
     return rc;
@@ -2137,7 +2205,9 @@ int sqlite3_secure_vfs_probe_init(
   if (rc != SQLITE_OK) {
     sqlite3_vfs_unregister(&g_probe_vfs);
     g_parent_vfs->xSetSystemCall(g_parent_vfs, g_open_syscall_name, g_original_open_syscall);
-#ifndef _WIN32
+#ifdef _WIN32
+    g_parent_vfs->xSetSystemCall(g_parent_vfs, g_delete_syscall_name, g_original_delete_syscall);
+#else
     g_parent_vfs->xSetSystemCall(g_parent_vfs, "stat", g_original_stat_syscall);
 #endif
     return rc;
