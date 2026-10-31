@@ -115,7 +115,16 @@ test('Linux SQLite VFS obtains main and sidecar descriptors from the authenticat
 
   const reopened = new DatabaseSync(databasePath);
   try {
-    assert.equal(reopened.prepare('PRAGMA journal_mode=DELETE').get().journal_mode, 'delete');
+    try {
+      assert.equal(reopened.prepare('PRAGMA journal_mode=DELETE').get().journal_mode, 'delete');
+    } catch (error) {
+      const shmDiagnostics = registrar.prepare(
+        'SELECT logic_engine_vfs_probe_broker_shm_diagnostics() AS value'
+      ).get().value;
+      throw new Error(String(error?.message ?? error) + "\\nSHM diagnostics: " +
+        shmDiagnostics + "\\nBroker operations:\\n" +
+        (existsSync(logPath) ? readFileSync(logPath, 'utf8') : '<no broker log>'));
+    }
     assert.equal(reopened.prepare('PRAGMA journal_mode=WAL').get().journal_mode, 'wal');
     reopened.exec("INSERT INTO broker_probe VALUES('after-recreate');");
   } finally {
