@@ -62,6 +62,19 @@ const assistantMessage = (mes = 'first reply', versionId = 'dddddddd-dddd-4ddd-8
   name: 'Harness Character', is_user: false, mes, send_date: '2026-10-31T00:00:01.000Z',
   _logicEngineLifecycle: identity('eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', versionId, mes),
 });
+const editedUserMessage = () => ({
+  ...userMessage('edited user message'),
+  _logicEngineLifecycle: {
+    messageId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+    versions: [
+      { versionId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', versionIndex: 0,
+        payloadDigest: digest('ST_HARNESS_RAW_CHAT_SENTINEL'), parentVersionId: null },
+      { versionId: 'ffffffff-ffff-4fff-8fff-ffffffffffff', versionIndex: 1,
+        payloadDigest: digest('edited user message'), parentVersionId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' },
+    ],
+    activeVersionIndex: 1,
+  },
+});
 const identifiedHeader = (conversationId, name = 'Harness Character') => ({
   user_name: 'Harness User',
   name,
@@ -240,7 +253,7 @@ test('pinned ST 1.19.0 chat create/edit/swipe/delete/import/export/restore mutat
   }, 'added');
   assert.ok(create.result.delta.added.some(entry => entry.path.endsWith('chat-one.jsonl')));
 
-  const editedChat = [header(), userMessage('edited user message', 'ffffffff-ffff-4fff-8fff-ffffffffffff', 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'), assistantMessage()];
+  const editedChat = [header(), editedUserMessage(), assistantMessage()];
   const edit = await observe(async () => {
     const response = await post('/api/chats/save', {
       avatar_url: 'Harness Character.png', file_name: 'chat-one', chat: editedChat, force: true,
