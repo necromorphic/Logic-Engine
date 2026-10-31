@@ -223,6 +223,15 @@ test('root file delta is durable, replay-idempotent and never accepted without a
   assert.equal(observed.delta.modified.length, 1);
   assert.equal(journal.verifyRootInventory(changed).status, 'INTEGRITY_OK');
 
+  const sameEventReplay = journal.observeRootInventory(changed);
+  assert.equal(sameEventReplay.status, 'NON_READY');
+  assert.equal(sameEventReplay.duplicate, true);
+  assert.equal(sameEventReplay.sequence, observed.sequence);
+  assert.throws(() => journal.observeRootInventory({
+    ...changed,
+    entries: rootEntries(digest('different-payload')),
+  }), /HOST_ROOT_INVENTORY_EVENT_ID_CONFLICT/);
+
   const replay = journal.observeRootInventory({ ...changed, event_id: 'root-delta-replay' });
   assert.equal(replay.status, 'NON_READY');
   assert.equal(replay.duplicate, true);
