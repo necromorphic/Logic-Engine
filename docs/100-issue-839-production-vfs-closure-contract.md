@@ -82,7 +82,7 @@ The supplied archive inventory identifies `better-sqlite3@13.0.3`, a separate na
 
 The separate audit must verify the exact `better-sqlite3` binary's SQLite version/build options, whether its SQLite VFS is statically or dynamically linked, whether it exposes a supported way to register a custom VFS before `new Database(DB_PATH)`, and whether any global/default-VFS registration is isolated from or shared with other SQLite copies in the process. It must trace the service's main DB, WAL, SHM, temp files, checkpoint, close and crash/restart paths. A matching version string alone is not proof of matching ABI or VFS registration.
 
-The archive-level inventory already records the service's dynamic `ST_VECTOR_ROOT`, startup open order, WAL configuration and shutdown checkpoint. The 487 MB archive exceeds the available direct materialization limit, so the complete source/native binary audit remains pending until the extracted service source and exact native binding artifacts can be inspected. No database file should be opened or modified as part of this static audit.
+The archive-level inventory records the service's dynamic `ST_VECTOR_ROOT`, startup open order, WAL configuration and shutdown checkpoint. A source audit of the exact upstream `better-sqlite3@13.0.3` tag confirms a separate statically linked SQLite 3.53.4 engine, `sqlite3_open_v2(..., NULL)` in the constructor, and extension loading only after the database handle is open. The 487 MB archive exceeds the available direct materialization limit, so the exact deployed prebuild/native addon binary still needs to be extracted and fingerprinted. No database file should be opened or modified as part of this static audit.
 
 ## 7. Acceptance matrix
 
