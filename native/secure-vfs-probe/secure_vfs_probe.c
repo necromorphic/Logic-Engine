@@ -1859,7 +1859,10 @@ static int probe_xDelete(sqlite3_vfs *vfs, const char *name, int sync_dir) {
       uint32_t status = LEB_STATUS_INTERNAL;
       if (!kind || !probe_broker_exchange(role, role->broker_socket_path,
             LEB_OP_DELETE_SIDECAR, kind, 0, NULL, &status)
-          || status != LEB_STATUS_OK) return SQLITE_IOERR_DELETE;
+          || status != LEB_STATUS_OK) {
+        probe_counter_increment(&g_broker_delete_fail_count);
+        return SQLITE_IOERR_DELETE;
+      }
       {
         int sidecar_kind = strcmp(kind, "wal") == 0 ? 1
           : strcmp(kind, "shm") == 0 ? 2 : 3;
