@@ -9,6 +9,11 @@ const canonical = value => Array.isArray(value)
   : value && typeof value === 'object'
     ? '{' + Object.keys(value).sort().map(key => JSON.stringify(key) + ':' + canonical(value[key])).join(',') + '}'
     : JSON.stringify(value);
+const pathIsWithin = (parent, candidate) => {
+  const relative = pathModule.relative(pathModule.resolve(parent), pathModule.resolve(candidate));
+  return relative === '' || (!relative.startsWith('..' + pathModule.sep)
+    && relative !== '..' && !pathModule.isAbsolute(relative));
+};
 const HOST_SESSION_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const HOST_CONVERSATION_ID = new RegExp('^' + HOST_SESSION_UUID.source.slice(1, -1) + ':'
   + HOST_SESSION_UUID.source.slice(1, -1) + ':' + HOST_SESSION_UUID.source.slice(1, -1) + '$', 'i');
@@ -427,7 +432,8 @@ export function createHostLifecycleJournalProxy({
   }
   const durableReceiptStore = receiptStore ?? (typeof identityStore.directory === 'string'
     && pathModule.isAbsolute(identityStore.directory)
-    ? new HostLifecycleReceiptStore({ directory: pathModule.join(identityStore.directory, 'lifecycle-receipts') })
+    ? new HostLifecycleReceiptStore({ directory: typeof env.LOGIC_ENGINE_HOST_RECEIPT_DIR === 'string'
+      ? env.LOGIC_ENGINE_HOST_RECEIPT_DIR : pathModule.join(identityStore.directory, 'lifecycle-receipts') })
     : null);
 
   async function resolveRequestIdentity(request, conversationId) {
@@ -527,6 +533,14 @@ export function createHostLifecycleJournalProxy({
         || typeof body.occurred_at !== 'string' || !Number.isFinite(Date.parse(body.occurred_at))) {
         return response.status(400).json({
           error: { code: 'INVALID_HOST_LIFECYCLE_EVENT', message: 'Only bounded digest-only Host mutation lifecycle events are accepted.' },
+        });
+      }
+      const dataRoot = request?.user?.directories?.root;
+      if (typeof dataRoot !== 'string' || !pathModule.isAbsolute(dataRoot)
+        || (typeof durableReceiptStore?.directory === 'string'
+          && pathIsWithin(dataRoot, durableReceiptStore.directory))) {
+        return response.status(503).json({
+          error: { code: 'HOST_LIFECYCLE_RECEIPT_STORE_SCOPE_INVALID', message: 'Receipt storage must be outside the SillyTavern data root.' },
         });
       }
       if (!durableReceiptStore) return response.status(503).json({
