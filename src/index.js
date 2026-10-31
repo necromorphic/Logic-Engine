@@ -1,3 +1,4 @@
+import { createHmac, timingSafeEqual } from 'node:crypto';
 import { existsSync, mkdirSync, realpathSync, statSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { SQLiteStore } from './storage/sqlite-store.js';
@@ -147,6 +148,32 @@ let hostRootInventoryJournal = null;
 let resolveHostRootIdentity = null;
 const hostLifecycleAuthorityId = process.env.ENGINE_HOST_AUTHORITY_ID;
 const hostLifecycleAuthorityGeneration = Number(process.env.ENGINE_HOST_AUTHORITY_GENERATION || '0');
+const canonicalHostReceiptProof = value => value && typeof value === 'object'
+  ? '{' + Object.keys(value).sort().map(key => JSON.stringify(key) + ':' + canonicalHostReceiptProof(value[key])).join(',') + '}'
+  : JSON.stringify(value);
+function verifyHostLifecycleReceipt({ event, identity }) {
+  const secret = adapterTokens?.[identity?.adapter_id];
+  if (typeof secret !== 'string' || secret.length < 16
+    || !/^[a-f0-9]{64}$/.test(event?.receipt_signature ?? '')) return false;
+  const proof = {
+    protocol_version: 1,
+    adapter_id: identity.adapter_id,
+    host_installation_id: event.host_installation_id,
+    authenticated_account_id: event.authenticated_account_id,
+    host_session_id: event.host_session_id,
+    conversation_uuid: event.conversation_uuid,
+    event_id: event.event_id,
+    event_type: event.event_type,
+    mutation_id: event.mutation_id,
+    operation: event.operation,
+    mutation_digest: event.mutation_digest,
+    receipt_digest: event.receipt_digest,
+  };
+  const expected = createHmac('sha256', secret).update(canonicalHostReceiptProof(proof), 'utf8').digest();
+  const supplied = Buffer.from(event.receipt_signature, 'hex');
+  return supplied.length === expected.length && timingSafeEqual(supplied, expected);
+}
+
 function bindHostLifecycleAuthority(resolved) {
   if (!resolved || resolved.authorized !== true || !hostRootInventoryJournal
     || typeof hostLifecycleAuthorityId !== 'string' || !hostLifecycleAuthorityId.trim()
@@ -205,6 +232,7 @@ if (hostRootIdentityRegistry.length > 0) {
         : { authorized: false };
     },
     resolveRootIdentity: input => resolveRegisteredHostRootIdentity(hostRootIdentityRegistry, input),
+    verifyMutationReceipt: verifyHostLifecycleReceipt,
   });
   if (typeof hostLifecycleAuthorityId === 'string' && hostLifecycleAuthorityId.trim()
     && Number.isSafeInteger(hostLifecycleAuthorityGeneration) && hostLifecycleAuthorityGeneration > 0) {
