@@ -283,7 +283,6 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
               mutation_id: mutationId,
               operation: remote.operation,
               mutation_digest: mutationDigest,
-              receipt_digest: receiptDigest,
               occurred_at: occurredAt,
             });
           } catch {
