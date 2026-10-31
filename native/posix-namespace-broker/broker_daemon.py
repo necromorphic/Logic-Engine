@@ -179,9 +179,10 @@ def serve(
 ) -> None:
     global _STOP
     parent_fd, _basename = _open_socket_parent(socket_path, allowed_uid)
-    server = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET | socket.SOCK_CLOEXEC)
+    server: socket.socket | None = None
     bound_identity: tuple[int, int] | None = None
     try:
+        server = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET | socket.SOCK_CLOEXEC)
         try:
             os.lstat(socket_path)
         except FileNotFoundError:
@@ -189,11 +190,11 @@ def serve(
         else:
             raise RuntimeError("broker socket already exists; refusing to replace it")
         server.bind(socket_path)
-        os.chmod(socket_path, 0o600)
         socket_info = os.lstat(socket_path)
         if not stat.S_ISSOCK(socket_info.st_mode):
             raise RuntimeError("bound broker path is not a socket")
         bound_identity = (socket_info.st_dev, socket_info.st_ino)
+        os.chmod(socket_path, 0o600)
         server.listen(16)
         server.settimeout(0.5)
         signal.signal(signal.SIGINT, _signal_stop)
@@ -208,7 +209,8 @@ def serve(
             finally:
                 conn.close()
     finally:
-        server.close()
+        if server is not None:
+            server.close()
         try:
             info = os.lstat(socket_path)
             if bound_identity == (info.st_dev, info.st_ino) and stat.S_ISSOCK(info.st_mode):
