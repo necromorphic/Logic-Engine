@@ -211,13 +211,18 @@ int main(int argc, char **argv) {
         cleanup();
         return 1;
     }
-    if (chmod(socket_path, 0600) != 0 || lstat(socket_path, &st) != 0) {
-        perror("secure socket");
+    if (lstat(socket_path, &st) != 0) {
+        perror("inspect bound socket");
         cleanup();
         return 1;
     }
     socket_dev = st.st_dev;
     socket_ino = st.st_ino;
+    if (chmod(socket_path, 0600) != 0) {
+        perror("secure socket permissions");
+        cleanup();
+        return 1;
+    }
     if (listen(listener_fd, 16) != 0) {
         perror("listen");
         cleanup();
