@@ -45,10 +45,17 @@ class BrokerDaemonTests(unittest.TestCase):
         packet = HEADER.pack(
             MAGIC, VERSION, operation, flags, request_id, len(payload)
         ) + payload
-        thread = threading.Thread(
-            target=handle_connection,
-            args=(server, os.getuid() if allowed_uid is None else allowed_uid, self.store),
-        )
+        def run_handler():
+            try:
+                handle_connection(
+                    server,
+                    os.getuid() if allowed_uid is None else allowed_uid,
+                    self.store,
+                )
+            finally:
+                server.close()
+
+        thread = threading.Thread(target=run_handler)
         thread.start()
         try:
             if ancillary_fd is None:
@@ -100,7 +107,7 @@ class BrokerDaemonTests(unittest.TestCase):
                 os.close(fd)
 
     def test_open_sidecar_uses_role_and_kind_not_a_path(self):
-        response, fds = self.exchange(OP_OPEN_SIDECAR, b"core\\x00wal")
+        response, fds = self.exchange(OP_OPEN_SIDECAR, b"core\x00wal")
         try:
             self.assertEqual(response[3], STATUS_OK)
             self.assertEqual(len(fds), 1)
