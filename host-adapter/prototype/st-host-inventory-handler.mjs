@@ -6,10 +6,12 @@ export function createHostInventoryHandler({
   enumerate,
   pinnedHostCommit,
   hostBuildClaim,
+  persistRootInventory = null,
 }) {
   if (typeof enumerate !== 'function'
     || typeof pinnedHostCommit !== 'string' || !/^[a-f0-9]{40}$/.test(pinnedHostCommit)
-    || typeof hostBuildClaim !== 'string') {
+    || typeof hostBuildClaim !== 'string'
+    || (persistRootInventory !== null && typeof persistRootInventory !== 'function')) {
     throw new TypeError('Host inventory handler configuration is invalid.');
   }
 
@@ -64,10 +66,30 @@ export function createHostInventoryHandler({
       }
       const source = inventory.source;
       const filesystem = inventory.filesystem;
+      let rootInventory = null;
+      if (typeof persistRootInventory === 'function') {
+        try {
+          rootInventory = await persistRootInventory({
+            userHandle,
+            rootPath: directories.root,
+            entries: filesystem.entries,
+          });
+        } catch {
+          rootInventory = { status: 'NON_READY', reason: 'ROOT_INVENTORY_PERSISTENCE_FAILED' };
+        }
+      }
+      const rootInventoryPersisted = Number.isSafeInteger(rootInventory?.sequence)
+        && rootInventory.sequence > 0
+        && typeof rootInventory.manifest_sha256 === 'string'
+        && /^[a-f0-9]{64}$/.test(rootInventory.manifest_sha256);
       const blockers = [
         ...source.blockers,
-        'NO_DURABLE_FULL_ROOT_BASELINE',
-        'NO_FULL_ROOT_PER_FILE_DIFF',
+        ...(rootInventoryPersisted ? [] : [
+          'NO_DURABLE_FULL_ROOT_BASELINE',
+          'NO_FULL_ROOT_PER_FILE_DIFF',
+        ]),
+        ...(rootInventoryPersisted && rootInventory.status === 'NON_READY'
+          ? ['ROOT_INVENTORY_DELTA_UNRESOLVED'] : []),
         'NO_GLOBAL_SILLYTAVERN_DATA_ROOT_COVERAGE',
         'NO_SEMANTIC_CHARACTER_PERSONA_IDENTITY',
         'UNVERIFIED_MUTATION_ROUTE_COVERAGE',
@@ -96,6 +118,21 @@ export function createHostInventoryHandler({
           file?.logical_identity?.conversation_uuid === requestedConversationUuid)
           .map(file => ({ logical_identity: file.logical_identity })),
         requested_conversation_uuid: requestedConversationUuid,
+        ...(rootInventoryPersisted ? {
+          root_inventory_reconciliation: {
+            status: rootInventory.status,
+            sequence: rootInventory.sequence,
+            manifest_sha256: rootInventory.manifest_sha256,
+            ...(rootInventory.delta_sha256 ? { delta_sha256: rootInventory.delta_sha256 } : {}),
+            ...(rootInventory.counts ? { counts: rootInventory.counts } : {}),
+            ...(rootInventory.reason ? { reason: rootInventory.reason } : {}),
+          },
+        } : {
+          root_inventory_reconciliation: {
+            status: 'NON_READY',
+            reason: rootInventory?.reason ?? 'ROOT_INVENTORY_PERSISTENCE_UNAVAILABLE',
+          },
+        }),
       };
       return response.status(200).json({
         ...responseInventory,
