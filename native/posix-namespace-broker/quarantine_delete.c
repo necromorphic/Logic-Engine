@@ -111,6 +111,16 @@ static int quarantine_delete_impl(int parent_fd, int quarantine_fd,
     }
 
     moved_to_quarantine = true;
+
+    /*
+     * Make the cross-directory rename durable before inspecting or deleting
+     * the moved entry. If either sync fails, leave the entry quarantined.
+     */
+    if (fsync_fn(quarantine_fd) != 0 || fsync_fn(parent_fd) != 0) {
+        result = LEB_QUARANTINE_RETAINED;
+        goto done;
+    }
+
     moved_fd = openat(quarantine_fd, quarantine_name,
                       O_PATH | O_NOFOLLOW | O_CLOEXEC);
     if (moved_fd < 0) {
@@ -130,16 +140,6 @@ static int quarantine_delete_impl(int parent_fd, int quarantine_fd,
         moved_id.mount_id != expected->mount_id) {
         errno = ESTALE;
         result = LEB_QUARANTINE_IDENTITY_MISMATCH;
-        goto done;
-    }
-
-    /*
-     * Persist the quarantine insertion before unlinking. Sync quarantine first:
-     * if the second sync fails, the object remains retained rather than being
-     * deleted without a durable quarantine entry.
-     */
-    if (fsync_fn(quarantine_fd) != 0 || fsync_fn(parent_fd) != 0) {
-        result = LEB_QUARANTINE_RETAINED;
         goto done;
     }
 
