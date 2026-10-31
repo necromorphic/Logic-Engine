@@ -269,14 +269,19 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
             sourceFingerprint: replay.sourceFingerprint,
             payload: replay.payload,
           }));
-          const replayResult = await publishLifecycleEvent({
-            conversation_id: conversationId,
-            event_id: replay.eventId,
-            event_type: 'MUTATION_COMMITTED',
-            mutation_id: remote.mutation_id,
-            operation: remote.operation,
-            mutation_digest: mutationDigest,
-          });
+          let replayResult;
+          try {
+            replayResult = await publishLifecycleEvent({
+              conversation_id: conversationId,
+              event_id: replay.eventId,
+              event_type: 'MUTATION_COMMITTED',
+              mutation_id: remote.mutation_id,
+              operation: remote.operation,
+              mutation_digest: mutationDigest,
+            });
+          } catch {
+            throw Error('NON_READY: Core lifecycle receipt replay failed; abort mutation');
+          }
           if (!replayResult || !['appended', 'duplicate'].includes(replayResult?.lifecycle?.status)) {
             throw Error('NON_READY: Core lifecycle receipt replay was rejected; abort mutation');
           }
@@ -349,14 +354,19 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
         operation, sourceFingerprint: fingerprint,
         payload: { affectedVersions, details: details ?? {} },
       }));
-      const result = await publishLifecycleEvent({
-        conversation_id: conversationId,
-        event_id: prepared.eventId,
-        event_type: 'MUTATION_PREPARED',
-        mutation_id: prepared.eventId,
-        operation,
-        mutation_digest: mutationDigest,
-      });
+      let result;
+      try {
+        result = await publishLifecycleEvent({
+          conversation_id: conversationId,
+          event_id: prepared.eventId,
+          event_type: 'MUTATION_PREPARED',
+          mutation_id: prepared.eventId,
+          operation,
+          mutation_digest: mutationDigest,
+        });
+      } catch {
+        throw Error('NON_READY: Core did not durably accept the prepared Host mutation');
+      }
       if (!result || !['appended', 'duplicate'].includes(result?.lifecycle?.status)) {
         throw Error('NON_READY: Core did not durably accept the prepared Host mutation');
       }
@@ -529,14 +539,19 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
       const mutationDigest = await contentDigest(JSON.stringify({
         operation, sourceFingerprint: fingerprint, payload: event.payload,
       }));
-      const result = await publishLifecycleEvent({
-        conversation_id: conversationId,
-        event_id: event.eventId,
-        event_type: 'MUTATION_COMMITTED',
-        mutation_id: pending.eventId,
-        operation,
-        mutation_digest: mutationDigest,
-      });
+      let result;
+      try {
+        result = await publishLifecycleEvent({
+          conversation_id: conversationId,
+          event_id: event.eventId,
+          event_type: 'MUTATION_COMMITTED',
+          mutation_id: pending.eventId,
+          operation,
+          mutation_digest: mutationDigest,
+        });
+      } catch {
+        throw Error('NON_READY: Core did not durably accept the completed Host mutation');
+      }
       if (!result || !['appended', 'duplicate'].includes(result?.lifecycle?.status)) {
         throw Error('NON_READY: Core did not durably accept the completed Host mutation');
       }
