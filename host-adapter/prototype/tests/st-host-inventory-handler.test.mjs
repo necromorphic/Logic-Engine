@@ -297,7 +297,7 @@ test('Host identity route returns installation/account IDs only for the matching
     identityStore: {
       resolveAuthenticatedAccount: async handle => {
         observedHandle = handle;
-        return { installation_id: '11111111-1111-4111-8111-111111111111', account_id: '22222222-2222-4222-8222-222222222222' };
+        return { host_installation_id: '11111111-1111-4111-8111-111111111111', authenticated_account_id: '22222222-2222-4222-8222-222222222222' };
       },
     },
   });
@@ -312,8 +312,8 @@ test('Host identity route returns installation/account IDs only for the matching
   }, response);
   assert.equal(response.statusCode, 200);
   assert.equal(observedHandle, 'alice');
-  assert.equal(response.body.installation_id, '11111111-1111-4111-8111-111111111111');
-  assert.equal(response.body.account_id, '22222222-2222-4222-8222-222222222222');
+  assert.equal(response.body.host_installation_id, '11111111-1111-4111-8111-111111111111');
+  assert.equal(response.body.authenticated_account_id, '22222222-2222-4222-8222-222222222222');
   assert.equal(response.body.host_session_id, '33333333-3333-4333-8333-333333333333');
   assert.equal(response.headers['cache-control'], 'no-store, private');
   assert.equal(response.headers.vary, 'Cookie');
