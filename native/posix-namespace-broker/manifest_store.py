@@ -70,8 +70,8 @@ def _open_trusted_dir(path: str) -> int:
         info = os.fstat(fd)
         if info.st_uid != os.geteuid():
             raise StoreError("trusted directory must be owned by the broker service UID")
-        if info.st_mode & 0o077:
-            raise StoreError("trusted directory must have mode 0700")
+        if stat.S_IMODE(info.st_mode) != 0o700:
+            raise StoreError("trusted directory must have exact mode 0700")
         return fd
     except Exception:
         os.close(fd)
@@ -309,7 +309,7 @@ class ManifestStore:
         canonical = _canonical_json(candidate)
         digest = hashlib.sha256(canonical).hexdigest()
         # Stage durable manifest first. Advancing the separate anchor is the commit point.
-        _write_atomic(self.manifest_fd, STAGED, STAGED, canonical)
+        _write_atomic(self.manifest_fd, "manifest.tmp", STAGED, canonical)
         _write_atomic(self.anchor_fd, ANCHOR_NEXT, ANCHOR,
                       _anchor_bytes(generation + 1, digest))
         # If interrupted here, load() completes the staged generation after hash verification.
