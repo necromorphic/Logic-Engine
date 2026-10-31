@@ -53,7 +53,7 @@ def _read_fd(fd: int, limit: int = MAX_BYTES) -> bytes:
         chunks.append(part)
 
 
-def _open_trusted_dir(path: str) -> int:
+def _open_trusted_dir(path: str, application_uid: int) -> int:
     if not os.path.isabs(path):
         raise StoreError("trusted directory path must be absolute")
     parts = PurePosixPath(path).parts[1:]
@@ -70,6 +70,8 @@ def _open_trusted_dir(path: str) -> int:
                 raise StoreError("trusted path component is not a directory")
             if info.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
                 raise StoreError("trusted path contains group/other-writable directory")
+            if application_uid != os.geteuid() and info.st_uid == application_uid and info.st_mode & stat.S_IWUSR:
+                raise StoreError("trusted path contains an application-writable ancestor")
         info = os.fstat(fd)
         if info.st_uid != os.geteuid():
             raise StoreError("trusted directory must be owned by the broker service UID")
@@ -154,7 +156,11 @@ def _validate_manifest(data: bytes) -> dict[str, Any]:
             or policy.get("identitySource") != "opened-handle"
             or policy.get("directoryMutationBoundary") not in
                ("broker-exclusive-owner", "dedicated-service-identity")
-            or policy.get("filesystem") not in SUPPORTED_ROLE_FILESYSTEMS):
+            or policy.get("filesystem") not in SUPPORTED_ROLE_FILESYSTEMS
+            or not isinstance(policy.get("applicationUid"), int)
+            or isinstance(policy.get("applicationUid"), bool)
+            or policy.get("applicationUid") < 0
+            or policy.get("applicationUid") == os.geteuid()):
         raise StoreError("manifest filesystemPolicy is invalid")
     def check_identity(value: Any, label: str) -> None:
         if (not isinstance(value, dict) or value.get("kind") != "posix"
@@ -269,7 +275,7 @@ def _fd_filesystem(fd: int) -> str:
 
 
 def _open_role_parent(components: list[str], identities: list[dict[str, str]],
-                      expected_filesystem: str) -> int:
+                      expected_filesystem: str, application_uid: int) -> int:
     if len(components) != len(identities):
         raise StoreError("role parent component/identity count mismatch")
     fd = os.open("/", DIR_FLAGS)
@@ -287,6 +293,8 @@ def _open_role_parent(components: list[str], identities: list[dict[str, str]],
                 raise StoreError("role parent component is not a directory")
             if info.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
                 raise StoreError("role parent component is group/other writable")
+            if application_uid != os.geteuid() and info.st_uid == application_uid and info.st_mode & stat.S_IWUSR:
+                raise StoreError("role parent component is application-writable")
             if _fd_identity(fd) != identities[index]:
                 raise StoreError(f"role parent identity mismatch at component {component}")
         if os.fstat(fd).st_uid != os.geteuid() or stat.S_IMODE(os.fstat(fd).st_mode) != 0o700:
@@ -363,10 +371,14 @@ def _locked_roots(manifest_fd: int, anchor_fd: int, *, exclusive: bool):
 
 
 class ManifestStore:
-    def __init__(self, manifest_root: str, anchor_root: str):
-        self.manifest_fd = _open_trusted_dir(manifest_root)
+    def __init__(self, manifest_root: str, anchor_root: str, application_uid: int):
+        if (not isinstance(application_uid, int) or isinstance(application_uid, bool)
+                or application_uid < 0 or application_uid == os.geteuid()):
+            raise StoreError("application UID must be a non-negative UID distinct from broker service UID")
+        self.application_uid = application_uid
+        self.manifest_fd = _open_trusted_dir(manifest_root, application_uid)
         try:
-            self.anchor_fd = _open_trusted_dir(anchor_root)
+            self.anchor_fd = _open_trusted_dir(anchor_root, application_uid)
             manifest_info = os.fstat(self.manifest_fd)
             anchor_info = os.fstat(self.anchor_fd)
             if (manifest_info.st_dev, manifest_info.st_ino) == (anchor_info.st_dev, anchor_info.st_ino):
@@ -455,7 +467,8 @@ class ManifestStore:
                 raise StoreError(f"role {role['role']} is not active; recovery/enrollment required")
             parent_fd = _open_role_parent(
                 role["parentComponents"], role["parentIdentities"],
-                manifest["filesystemPolicy"]["filesystem"]
+                manifest["filesystemPolicy"]["filesystem"],
+                manifest["filesystemPolicy"]["applicationUid"]
             )
             try:
                 _verify_regular_at(parent_fd, role["databaseBasename"],
@@ -492,7 +505,8 @@ class ManifestStore:
                     raise StoreError(f"role {role['role']} has unsupported recovery state")
                 parent_fd = _open_role_parent(
                     role["parentComponents"], role["parentIdentities"],
-                    manifest["filesystemPolicy"]["filesystem"]
+                    manifest["filesystemPolicy"]["filesystem"],
+                    manifest["filesystemPolicy"]["applicationUid"]
                 )
                 try:
                     _verify_regular_at(parent_fd, role["databaseBasename"],
@@ -639,10 +653,12 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest-root", required=True)
     parser.add_argument("--anchor-root", required=True)
+    parser.add_argument("--app-uid", required=True, type=int,
+                        help="application UID; must differ from broker service UID")
     parser.add_argument("command", choices=("init", "verify", "recovery-plan", "reconcile-absent", "show"))
     parser.add_argument("--input", help="manifest JSON for init")
     args = parser.parse_args()
-    store = ManifestStore(args.manifest_root, args.anchor_root)
+    store = ManifestStore(args.manifest_root, args.anchor_root, args.app_uid)
     try:
         if args.command == "init":
             if not args.input:
