@@ -10,6 +10,16 @@ For every main database, WAL, SHM, rollback journal, temporary database/journal 
 
 A process-local registry is not trust. Registration must be based on a separately protected persistent manifest and a pinned parent directory chain. Missing, malformed, stale, unsupported or inconsistent identity data means fail closed before SQLite schema writes or listeners start.
 
+### Internal SQLite sidecar deletion paths found in source audit
+
+SQLite 3.47.2's platform VFSes have internal sidecar-deletion paths that bypass the public VFS `xDelete` callback:
+- Windows `winShmPurge() → winDelete() → DeleteFileW`.
+- POSIX `unixShmUnmap() → osUnlink() → unlink`.
+
+The probe now intercepts both low-level delete syscalls in addition to its VFS `xDelete` callback. The Windows wrapper opens the exact child relative to the retained parent HANDLE, checks the recorded file identity, and deletes through `SetFileInformationByHandle`. The POSIX wrapper routes the internal `unlink` request through the same registered-role/sidecar checks in `probe_xDelete`, which uses the pinned parent dirfd and `fstatat`/ `unlinkat`. A WAL-to-DELETE integration test exercises both internal cleanup paths on Windows and Linux.
+
+This closes the identified **callback bypass**; it does not make POSIX `fstatat→unlinkat` atomic against a same-directory writer. The separate namespace broker described below is still required for that threat model.
+
 ## 2. POSIX deletion: why a direct VFS fix is not available
 
 Linux/POSIX exposes name-based `unlinkat(dirfd, name)`, not a standard unlink-by-open-file-descriptor primitive. The current `fstatat(dirfd,name) → unlinkat(dirfd,name)` sequence therefore has a replacement window. Repeating the stat, opening the child first, using `openat2`, or moving the name into a quarantine directory does not by itself make the final unlink target object-bound when an attacker can mutate that directory.
