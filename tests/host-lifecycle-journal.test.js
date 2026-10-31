@@ -422,3 +422,83 @@ test('over-limit root drift is durably recorded and cannot disappear after a res
   assert.equal(restored.status, 'NON_READY');
   assert.match(restored.reason, /previously observed root inventory delta remains unresolved/);
 });
+
+
+test('durable Core journal records prepared mutations, blocks overlap, and clears only on a matching commit', (t) => {
+  const { journal } = setup(t);
+  const prepared = {
+    event_id: '00000000-0000-4000-8000-000000000011',
+    host_installation_id: installation,
+    authenticated_account_id: account,
+    conversation_uuid: conversation,
+    event_type: 'MUTATION_PREPARED',
+    mutation_id: '00000000-0000-4000-8000-000000000012',
+    operation: 'edit-message',
+    mutation_digest: digest('before-state'),
+  };
+  assert.equal(journal.append(prepared).status, 'appended');
+  assert.equal(journal.getConversationStatus(installation, account, conversation).status, 'PENDING_MUTATION');
+  assert.throws(() => journal.append({
+    ...prepared,
+    event_id: '00000000-0000-4000-8000-000000000013',
+    mutation_id: '00000000-0000-4000-8000-000000000014',
+  }), /HOST_LIFECYCLE_MUTATION_ALREADY_PENDING/);
+  assert.throws(() => journal.append({
+    ...prepared,
+    event_id: '00000000-0000-4000-8000-000000000015',
+    event_type: 'MUTATION_COMMITTED',
+    mutation_id: '00000000-0000-4000-8000-000000000099',
+  }), /HOST_LIFECYCLE_MUTATION_PREPARE_MISSING/);
+  const committed = journal.append({
+    ...prepared,
+    event_id: '00000000-0000-4000-8000-000000000016',
+    event_type: 'MUTATION_COMMITTED',
+    mutation_digest: digest('after-state'),
+  });
+  assert.equal(committed.status, 'appended');
+  assert.equal(journal.getConversationStatus(installation, account, conversation).status, 'NO_PENDING_MUTATION');
+  assert.equal(journal.verifyChain(installation, account).valid, true);
+});
+
+test('prepared Core mutation survives SQLite restart and can be completed by idempotent replay', (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-host-lifecycle-pending-restart-'));
+  const path = join(directory, 'host-journal.sqlite');
+  const coordinatorPath = join(directory, 'coordinator.sqlite');
+  const resolveIdentity = input => ({
+    authorized: true,
+    host_installation_id: input.host_installation_id,
+    authenticated_account_id: input.authenticated_account_id,
+    conversation_uuid: input.conversation_uuid,
+  });
+  const prepared = {
+    event_id: '00000000-0000-4000-8000-000000000021',
+    host_installation_id: installation,
+    authenticated_account_id: account,
+    conversation_uuid: conversation,
+    event_type: 'MUTATION_PREPARED',
+    mutation_id: '00000000-0000-4000-8000-000000000022',
+    operation: 'delete-message',
+    mutation_digest: digest('before-delete'),
+  };
+  const first = new HostLifecycleJournal({ path, coordinatorPath, resolveIdentity });
+  first.append(prepared);
+  first.close();
+  const reopened = new HostLifecycleJournal({ path, coordinatorPath, resolveIdentity });
+  t.after(() => {
+    try { reopened.close(); } catch {}
+    rmSync(directory, { recursive: true, force: true });
+  });
+  const status = reopened.getConversationStatus(installation, account, conversation);
+  assert.equal(status.status, 'PENDING_MUTATION');
+  assert.equal(status.mutation_id, prepared.mutation_id);
+  const commit = {
+    ...prepared,
+    event_id: '00000000-0000-4000-8000-000000000023',
+    event_type: 'MUTATION_COMMITTED',
+    mutation_digest: digest('after-delete'),
+  };
+  assert.equal(reopened.append(commit).status, 'appended');
+  assert.equal(reopened.append(commit).status, 'duplicate');
+  assert.equal(reopened.getConversationStatus(installation, account, conversation).status, 'NO_PENDING_MUTATION');
+  assert.equal(reopened.verifyChain(installation, account).valid, true);
+});
