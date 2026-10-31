@@ -158,6 +158,23 @@ export class HostLifecycleReceiptStore {
     if (!stat?.isDirectory() || stat.isSymbolicLink()) throw new Error('HOST_LIFECYCLE_RECEIPT_DIRECTORY_UNSAFE');
   }
 
+  async assertOutsideRoot(root) {
+    if (typeof root !== 'string' || !path.isAbsolute(root)) {
+      throw new Error('HOST_LIFECYCLE_RECEIPT_DATA_ROOT_INVALID');
+    }
+    await this.#prepareDirectory();
+    const [realRoot, realDirectory] = await Promise.all([
+      fs.realpath(root),
+      fs.realpath(this.directory),
+    ]);
+    const relative = path.relative(realRoot, realDirectory);
+    if (relative === '' || relative === '..' || relative.startsWith('..' + path.sep)
+      || path.isAbsolute(relative)) {
+      throw new Error('HOST_LIFECYCLE_RECEIPT_DIRECTORY_INSIDE_DATA_ROOT');
+    }
+    return true;
+  }
+
   #recordPath(scope, suffix) {
     const key = sha256(Buffer.from(canonical({
       host_installation_id: scope.host_installation_id,
