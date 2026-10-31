@@ -7,6 +7,19 @@
  */
 
 const object = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
+const plainDataObject = (value) => {
+  if (!object(value)) return false;
+  try {
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) return false;
+    return Reflect.ownKeys(value).every((key) => {
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      return typeof key === "string" && descriptor !== undefined && Object.hasOwn(descriptor, "value");
+    });
+  } catch {
+    return false;
+  }
+};
 const validId = (value) => typeof value === "string"
   && value === value.trim()
   && value.length > 0
@@ -25,7 +38,7 @@ const TRUSTED_CONTEXT_KEYS = new Set([
 ]);
 
 function trustedContextOf(value) {
-  if (!object(value) || !Object.keys(value).every((key) => TRUSTED_CONTEXT_KEYS.has(key))) {
+  if (!plainDataObject(value) || !Reflect.ownKeys(value).every((key) => TRUSTED_CONTEXT_KEYS.has(key))) {
     throw new TypeError("Trusted NPC read context is invalid.");
   }
   if (!validId(value.worldId) || !validId(value.adapterId) || !validId(value.actorEntityId)) {
