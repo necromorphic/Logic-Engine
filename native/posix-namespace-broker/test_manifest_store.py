@@ -1,19 +1,26 @@
 #!/usr/bin/env python3
 import hashlib
-import json
 import os
 import tempfile
 import unittest
 from pathlib import Path
 
-from manifest_store import ManifestStore, StoreError, _anchor_bytes, _canonical_json, _write_atomic
+from manifest_store import (
+    ManifestStore, StoreError, _anchor_bytes, _canonical_json, _write_atomic
+)
 
 
-def identity(inode: int) -> dict:
-    return {"kind": "posix", "device": "1", "inode": str(inode), "mountId": "1"}
+def fd_identity(fd: int) -> dict:
+    info = os.fstat(fd)
+    with open(f"/proc/self/fdinfo/{fd}", "r", encoding="ascii") as handle:
+        mount_id = next(line.split(":", 1)[1].strip()
+                        for line in handle if line.startswith("mnt_id:"))
+    return {"kind": "posix", "device": str(info.st_dev),
+            "inode": str(info.st_ino), "mountId": mount_id}
 
 
-def manifest(generation: int, root_identity: dict) -> bytes:
+def manifest(generation: int, root_identity: dict, components: list,
+             parent_identities: list, database_identity: dict) -> bytes:
     return _canonical_json({
         "schemaVersion": 1,
         "generation": generation,
@@ -26,10 +33,10 @@ def manifest(generation: int, root_identity: dict) -> bytes:
         },
         "roles": [{
             "role": "core",
-            "parentComponents": ["data"],
-            "parentIdentities": [identity(11)],
+            "parentComponents": components,
+            "parentIdentities": parent_identities,
             "databaseBasename": "core.sqlite",
-            "databaseIdentity": identity(12),
+            "databaseIdentity": database_identity,
             "state": "active",
             "sidecars": []
         }]
@@ -46,6 +53,12 @@ class ManifestStoreTests(unittest.TestCase):
         self.anchor_root.mkdir(mode=0o700)
         os.chmod(self.manifest_root, 0o700)
         os.chmod(self.anchor_root, 0o700)
+        self.role_parent = base / "role-data"
+        self.role_parent.mkdir(mode=0o700)
+        os.chmod(self.role_parent, 0o700)
+        self.database = self.role_parent / "core.sqlite"
+        self.database.write_bytes(b"sqlite-test-placeholder")
+        os.chmod(self.database, 0o600)
         self.store = ManifestStore(str(self.manifest_root), str(self.anchor_root))
 
     def tearDown(self):
@@ -53,7 +66,25 @@ class ManifestStoreTests(unittest.TestCase):
         self.temp.cleanup()
 
     def data(self, generation: int) -> bytes:
-        return manifest(generation, self.store.metadata_identity())
+        components = list(self.role_parent.parts[1:])
+        identities = []
+        fd = os.open("/", os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+        try:
+            for component in components:
+                next_fd = os.open(component, os.O_RDONLY | os.O_DIRECTORY |
+                                   os.O_CLOEXEC | os.O_NOFOLLOW, dir_fd=fd)
+                os.close(fd)
+                fd = next_fd
+                identities.append(fd_identity(fd))
+        finally:
+            os.close(fd)
+        db_fd = os.open(self.database, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
+        try:
+            db_identity = fd_identity(db_fd)
+        finally:
+            os.close(db_fd)
+        return manifest(generation, self.store.metadata_identity(),
+                        components, identities, db_identity)
 
     def test_initialize_and_load(self):
         self.store.initialize(self.data(1))
@@ -102,6 +133,19 @@ class ManifestStoreTests(unittest.TestCase):
         bad = b'{"schemaVersion":1,"schemaVersion":1}'
         with self.assertRaises(StoreError):
             self.store.commit(bad)
+
+    def test_verifies_database_identity_from_open_descriptor(self):
+        self.store.initialize(self.data(1))
+        self.store.verify_roles()
+
+    def test_rejects_replaced_database_identity(self):
+        self.store.initialize(self.data(1))
+        replacement = self.role_parent / "replacement"
+        replacement.write_bytes(b"replacement")
+        os.chmod(replacement, 0o600)
+        os.replace(replacement, self.database)
+        with self.assertRaises(StoreError):
+            self.store.verify_roles()
 
 
 if __name__ == "__main__":
