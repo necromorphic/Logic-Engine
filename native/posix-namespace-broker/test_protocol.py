@@ -14,6 +14,7 @@ REQUEST = struct.Struct("!IHHIQI")
 RESPONSE = struct.Struct("!IHHIQI")
 OK = 0
 BAD_REQUEST = 1
+UNAUTHORIZED = 2
 UNSUPPORTED = 3
 
 
@@ -83,7 +84,47 @@ def main():
                 os.close(write_fd)
 
             assert proc.poll() is None, "broker exited after rejected request"
-            print("POSIX broker protocol tests: PASS (PING, unknown op, bad flags/version, SCM_RIGHTS rejection)")
+
+            denied_path = str(Path(temp) / "broker-denied.sock")
+            denied_uid = os.getuid() ^ 1
+            denied_proc = subprocess.Popen(
+                [str(ROOT / "broker_server"), "--socket", denied_path,
+                 "--app-uid", str(denied_uid)],
+                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True,
+            )
+            try:
+                deadline = time.monotonic() + 5
+                while time.monotonic() < deadline:
+                    if denied_proc.poll() is not None:
+                        raise AssertionError(
+                            f"denial-test broker exited early: {denied_proc.stderr.read()}"
+                        )
+                    if os.path.exists(denied_path):
+                        break
+                    time.sleep(0.02)
+                else:
+                    raise AssertionError("denial-test broker socket did not appear")
+
+                denied = exchange(denied_path, 1)
+                assert denied == (
+                    MAGIC, VERSION, 0, UNAUTHORIZED, 0, 0
+                ), denied
+            finally:
+                denied_proc.terminate()
+                try:
+                    denied_proc.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    denied_proc.kill()
+                    denied_proc.wait(timeout=3)
+            assert not os.path.exists(denied_path), (
+                "denial-test broker did not remove its socket on shutdown"
+            )
+
+            print(
+                "POSIX broker protocol tests: PASS "
+                "(PING, peer UID rejection, unknown op, bad flags/version, "
+                "SCM_RIGHTS rejection)"
+            )
         finally:
             proc.terminate()
             try:
