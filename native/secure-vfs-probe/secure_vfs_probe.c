@@ -1556,7 +1556,8 @@ static int probe_backend_ShmLock(sqlite3_file *file, int offset, int count, int 
   int rc;
   probe_counter_increment(&g_broker_shm_lock_count);
   rc = parent_file->pMethods->xShmLock(parent_file, offset, count, flags);
-  if (rc != SQLITE_OK) probe_counter_increment(&g_broker_shm_lock_fail_count);
+  /* SQLITE_BUSY is a normal WAL lock-contention result, not a backend failure. */
+  if (rc != SQLITE_OK && rc != SQLITE_BUSY) probe_counter_increment(&g_broker_shm_lock_fail_count);
   return rc;
 }
 
