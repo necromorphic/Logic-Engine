@@ -281,7 +281,8 @@
                 "parentIdentities": {
                   "items": {
                     "$ref": "#/$defs/posixIdentity"
-                  }
+                  },
+                  "type": "array"
                 },
                 "databaseIdentity": {
                   "$ref": "#/$defs/posixIdentity"
@@ -293,7 +294,8 @@
                         "$ref": "#/$defs/posixIdentity"
                       }
                     }
-                  }
+                  },
+                  "type": "array"
                 }
               }
             },
@@ -324,7 +326,8 @@
                 "parentIdentities": {
                   "items": {
                     "$ref": "#/$defs/windowsIdentity"
-                  }
+                  },
+                  "type": "array"
                 },
                 "databaseIdentity": {
                   "$ref": "#/$defs/windowsIdentity"
@@ -336,7 +339,8 @@
                         "$ref": "#/$defs/windowsIdentity"
                       }
                     }
-                  }
+                  },
+                  "type": "array"
                 }
               }
             },
