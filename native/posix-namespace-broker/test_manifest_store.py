@@ -190,6 +190,63 @@ class ManifestStoreTests(unittest.TestCase):
         with self.assertRaises(StoreError):
             self.store.plan_recovery()
 
+    def test_reconcile_absent_transitional_sidecar_commits_retired_state(self):
+        wal = self.role_parent / "core.sqlite-wal"
+        wal.write_bytes(b"wal-placeholder")
+        os.chmod(wal, 0o600)
+        wal_fd = os.open(wal, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
+        try:
+            wal_identity = fd_identity(wal_fd)
+        finally:
+            os.close(wal_fd)
+        wal.unlink()
+
+        import json
+        value = json.loads(self.data(1))
+        value["generation"] = 2
+        value["roles"][0]["sidecars"] = [{
+            "kind": "wal",
+            "identity": wal_identity,
+            "state": "deleting",
+            "generation": 2,
+        }]
+        self.store.initialize(self.data(1))
+        self.store.commit(_canonical_json(value))
+
+        result = self.store.retire_absent_sidecars()
+        self.assertEqual(result["generation"], 3)
+        self.assertEqual(result["roles"][0]["sidecars"][0]["state"], "retired")
+        self.assertEqual(result["roles"][0]["sidecars"][0]["generation"], 3)
+        self.assertFalse(wal.exists())
+        self.assertEqual(self.store.load()["generation"], 3)
+
+    def test_reconcile_does_not_retire_present_transitional_sidecar(self):
+        wal = self.role_parent / "core.sqlite-wal"
+        wal.write_bytes(b"wal-placeholder")
+        os.chmod(wal, 0o600)
+        wal_fd = os.open(wal, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
+        try:
+            wal_identity = fd_identity(wal_fd)
+        finally:
+            os.close(wal_fd)
+
+        import json
+        value = json.loads(self.data(1))
+        value["generation"] = 2
+        value["roles"][0]["sidecars"] = [{
+            "kind": "wal",
+            "identity": wal_identity,
+            "state": "deleting",
+            "generation": 2,
+        }]
+        self.store.initialize(self.data(1))
+        self.store.commit(_canonical_json(value))
+
+        result = self.store.retire_absent_sidecars()
+        self.assertEqual(result["generation"], 2)
+        self.assertEqual(result["roles"][0]["sidecars"][0]["state"], "deleting")
+        self.assertTrue(wal.exists())
+
     def test_rejects_generation_skip(self):
         self.store.initialize(self.data(1))
         with self.assertRaises(StoreError):
