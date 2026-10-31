@@ -351,16 +351,6 @@ test('pinned ST 1.19.0 chat create/edit/swipe/delete/import/export/restore mutat
   }, 'removed');
   assert.ok(groupDelete.result.delta.removed.some(entry => entry.path.endsWith('group-harness.jsonl')));
 
-  const deleteChat = await observe(async () => {
-    const response = await post('/api/chats/delete', {
-      avatar_url: 'Harness Character.png', chatfile: 'chat-renamed.jsonl',
-    });
-    assert.equal(response.status, 200);
-    assert.equal(response.result.ok, true);
-    return response;
-  }, 'removed');
-  assert.ok(deleteChat.result.delta.removed.some(entry => entry.path.endsWith('chat-renamed.jsonl')));
-
   const sessionIdentity = await get('/api/logic-engine/host/session');
   assert.equal(sessionIdentity.status, 200);
   assert.equal(sessionIdentity.result.host_session_id, '99999999-9999-4999-8999-999999999999');
@@ -377,6 +367,20 @@ test('pinned ST 1.19.0 chat create/edit/swipe/delete/import/export/restore mutat
   assert.equal(inventory.status, 200, JSON.stringify(inventory.result));
   assert.equal(inventory.result.filesystem_inventory.status, 'complete');
   assert.equal(inventory.result.filesystem_inventory.snapshot_alignment, 'SHARED_VSS_SNAPSHOT');
+
   assert.ok(inventory.result.blockers.includes('NO_DURABLE_FULL_ROOT_BASELINE'));
   assert.ok(inventory.result.blockers.includes('NO_FULL_ROOT_PER_FILE_DIFF'));
+  assert.equal(inventory.result.files.length, 1);
+  assert.equal(inventory.result.files[0].logical_identity.conversation_uuid,
+    'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
+
+  const deleteChat = await observe(async () => {
+    const response = await post('/api/chats/delete', {
+      avatar_url: 'Harness Character.png', chatfile: 'chat-renamed.jsonl',
+    });
+    assert.equal(response.status, 200);
+    assert.equal(response.result.ok, true);
+    return response;
+  }, 'removed');
+  assert.ok(deleteChat.result.delta.removed.some(entry => entry.path.endsWith('chat-renamed.jsonl')));
 });
