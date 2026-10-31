@@ -24,7 +24,7 @@ diff --git a/public/script.js b/public/script.js
 +
      // Make sure all the data is loaded.
      await unshallowCharacter(characterId);
-@@ -1583,23 +1593,207 @@
+@@ -1583,23 +1593,233 @@
   * @param {object} [options] Options
   * @param {boolean} [options.clearData=false] Optionally clear the chat array's contents.
   */
@@ -258,7 +258,7 @@ diff --git a/public/script.js b/public/script.js
  
      if (clearData) chat.length = 0;
  }
-@@ -1607,6 +1720,12 @@
+@@ -1607,6 +1746,12 @@
  export async function deleteLastMessage() {
 +    const lifecycleBridge = await getLogicEngineLifecycleBridge();
 +    const lifecycleBefore = chat.length
@@ -271,7 +271,7 @@ diff --git a/public/script.js b/public/script.js
      chatElement.children('.mes').last().remove();
      await eventSource.emit(event_types.MESSAGE_DELETED, chat.length);
  }
-@@ -1677,19 +1796,23 @@
+@@ -1677,19 +1822,23 @@
      const firstMessageId = getMessageDeletionStartId(id, deleteToolCalls);
      const messageIds = Array.from({ length: id - firstMessageId + 1 }, (_, index) => id - index);
 +    const lifecycleBridge = await getLogicEngineLifecycleBridge();
@@ -295,7 +295,7 @@ diff --git a/public/script.js b/public/script.js
      if (this_edit_mes_id === id) {
          this_edit_mes_id = undefined;
      }
-@@ -5905,16 +6028,21 @@
+@@ -5905,16 +6054,21 @@
      chat_metadata.tainted = true;
  
 +    const lifecycleBridge = await getLogicEngineLifecycleBridge();
@@ -317,7 +317,7 @@ diff --git a/public/script.js b/public/script.js
          addOneMessage(message);
          await eventSource.emit(event_types.USER_MESSAGE_RENDERED, chat_id);
      }
-@@ -6653,3 +6781,12 @@
+@@ -6653,3 +6807,12 @@
          type = 'normal';
      }
 +
@@ -330,14 +330,14 @@ diff --git a/public/script.js b/public/script.js
 +        await lifecycleBridge.beforeMutation(lifecycleOperation, [chat.length - 1]);
 +    }
  
-@@ -6827,3 +6964,6 @@
+@@ -6827,3 +6990,6 @@
  
 +    await lifecycleBridge.afterMutation(lifecycleOperation, {
 +        createdMessageIndex: lifecycleOperation === 'create-message' ? lifecycleOriginalChatLength : null,
 +    });
      statMesProcess(item, type, characters, this_chid, oldMessage);
      return { type, getMessage };
-@@ -8400,35 +8540,38 @@
+@@ -8400,35 +8566,38 @@
          return;
      }
  
@@ -376,7 +376,7 @@ diff --git a/public/script.js b/public/script.js
      await saveChatConditional();
 +    await lifecycleBridge.afterMutation('edit-message');
      showSwipeButtons();
-@@ -9363,7 +9506,9 @@
+@@ -9363,7 +9532,9 @@
          toastr.warning(t`Invalid swipe ID: ${swipeId + 1}`);
          return;
      }
@@ -386,7 +386,7 @@ diff --git a/public/script.js b/public/script.js
      message.swipes.splice(swipeId, 1);
  
      if (Array.isArray(message.swipe_info) && message.swipe_info.length) {
-@@ -9395,11 +9540,12 @@
+@@ -9395,11 +9566,12 @@
          await updateSwipeCounter(messageId);
          if (messageId !== chat.length - 1) {
              await updateSwipeCounter(chat.length - 1);
@@ -399,12 +399,12 @@ diff --git a/public/script.js b/public/script.js
 +    await lifecycleBridge.afterMutation('delete-swipe', { removedSwipeIndex: swipeId, selectedMessageIndex: messageId });
  
      return newSwipeId;
-@@ -9448,2 +9594,4 @@
+@@ -9448,2 +9620,4 @@
  export async function importCharacterChat(formData, { refresh = true } = {}) {
 +    await window.logicEngineHostLifecycle?.guardBulkMutation();
 +
      const fetchResult = await fetch('/api/chats/import', {
-@@ -10090,11 +10238,16 @@
+@@ -10090,11 +10264,16 @@
                  await reloadCurrentChat();
              }
              //Out of bounds swipes should not be saved.
@@ -421,7 +421,7 @@ diff --git a/public/script.js b/public/script.js
          //Allow for another swipe.
          swipeState = SWIPE_STATE.NONE;
          delete document.body.dataset.swiping;
-@@ -10104,5 +10257,13 @@
+@@ -10104,5 +10283,13 @@
      async function standardSwipe(newSwipeId) {
          //If swipe_id has changed, or the source is being deleted.
          if (newSwipeId !== originalSwipeId || source == SWIPE_SOURCE.DELETE || source == SWIPE_SOURCE.BACK) {
@@ -435,7 +435,7 @@ diff --git a/public/script.js b/public/script.js
 +            }
              //Update the chat.
              await loadFromSwipeId(mesId, newSwipeId);
-@@ -10731,9 +10892,27 @@
+@@ -10731,9 +10918,27 @@
  export async function renameChat(oldFileName, newName) {
 -    return await renameGroupOrCharacterChat({
 +    const lifecycleBridge = await getLogicEngineLifecycleBridge();
@@ -470,7 +470,7 @@ diff --git a/public/script.js b/public/script.js
 +        logicEngineLifecyclePendingRenameId = null;
 +    }
  }
-@@ -10828,2 +11007,4 @@
+@@ -10828,2 +11033,4 @@
  export async function deleteCharacter(characterKey, { deleteChats = true } = {}) {
 +    if (deleteChats) await window.logicEngineHostLifecycle?.guardBulkMutation();
 +
