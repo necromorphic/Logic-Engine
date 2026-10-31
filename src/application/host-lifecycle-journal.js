@@ -654,11 +654,8 @@ export class HostLifecycleJournal {
           changed_files: changed, maximum_changed_files: MAX_ROOT_DELTA_FILES };
       }
       const deltaSha256 = sha256(canonical(delta));
-      const reusedEventId = rows.find((row) => row.event_id === input.event_id);
       if (reusedEventId) {
-        if (reusedEventId.event_type !== 'DELTA_OBSERVED'
-          || reusedEventId.manifest_sha256 !== manifestSha256
-          || reusedEventId.delta_sha256 !== deltaSha256) {
+        if (reusedEventId.delta_sha256 !== deltaSha256) {
           throw new Error('HOST_ROOT_INVENTORY_EVENT_ID_CONFLICT');
         }
         return { status: 'NON_READY', duplicate: true, sequence: reusedEventId.sequence,
