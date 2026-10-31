@@ -122,3 +122,34 @@ test('event validation rejects mutable or incomplete Host version identities', (
   assert.throws(() => journal.append(event({ parent_version_id: 'not-a-uuid' })), /immutable parent and payload digest/);
   assert.throws(() => journal.append(event({ payload_sha256: 'not-a-digest' })), /immutable parent and payload digest/);
 });
+
+
+test('durable lifecycle journal survives close/reopen and replay remains idempotent', (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-host-lifecycle-restart-'));
+  const path = join(directory, 'host-journal.sqlite');
+  const coordinatorPath = join(directory, 'coordinator.sqlite');
+  const resolveIdentity = input => ({
+    authorized: true,
+    host_installation_id: input.host_installation_id,
+    authenticated_account_id: input.authenticated_account_id,
+    conversation_uuid: input.conversation_uuid,
+  });
+  let first = new HostLifecycleJournal({ path, coordinatorPath, resolveIdentity });
+  const appended = first.append(event());
+  assert.equal(appended.status, 'appended');
+  assert.equal(first.verifyChain(installation, account).valid, true);
+  first.close();
+
+  const reopened = new HostLifecycleJournal({ path, coordinatorPath, resolveIdentity });
+  t.after(() => {
+    try { reopened.close(); } catch {}
+    rmSync(directory, { recursive: true, force: true });
+  });
+  assert.deepEqual(reopened.getHead(installation, account), {
+    sequence: 1,
+    head_sha256: appended.event_sha256,
+  });
+  assert.equal(reopened.verifyChain(installation, account).valid, true);
+  assert.equal(reopened.append(event()).status, 'duplicate');
+  assert.equal(reopened.getHead(installation, account).sequence, 1);
+});
