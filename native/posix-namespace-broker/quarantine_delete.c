@@ -54,6 +54,7 @@ static int quarantine_delete_impl(int parent_fd, int quarantine_fd,
     struct leb_file_identity parent_id, quarantine_id, opened_id, moved_id;
     char quarantine_name[96];
     int opened_fd = -1, moved_fd = -1, result = LEB_QUARANTINE_ERROR;
+    bool moved_to_quarantine = false;
     unsigned int attempt;
 
     if (parent_fd < 0 || quarantine_fd < 0 || !name || name[0] == '\0' ||
@@ -68,9 +69,12 @@ static int quarantine_delete_impl(int parent_fd, int quarantine_fd,
         return LEB_QUARANTINE_ERROR;
     if (!S_ISDIR(parent_stat.st_mode) || !S_ISDIR(quarantine_stat.st_mode) ||
         quarantine_stat.st_uid != geteuid() ||
-        (quarantine_stat.st_mode & 0077) != 0 ||
+        (quarantine_stat.st_mode & 0777) != 0700 ||
         parent_id.device != quarantine_id.device ||
-        parent_id.mount_id != quarantine_id.mount_id) {
+        parent_id.mount_id != quarantine_id.mount_id ||
+        (parent_id.device == quarantine_id.device &&
+         parent_id.inode == quarantine_id.inode &&
+         parent_id.mount_id == quarantine_id.mount_id)) {
         errno = EPERM;
         return LEB_QUARANTINE_ERROR;
     }
@@ -104,10 +108,17 @@ static int quarantine_delete_impl(int parent_fd, int quarantine_fd,
         goto done;
     }
 
+    moved_to_quarantine = true;
     moved_fd = openat(quarantine_fd, quarantine_name,
                       O_PATH | O_NOFOLLOW | O_CLOEXEC);
-    if (moved_fd < 0) goto done;
-    if (identity_from_fd(moved_fd, &moved_id, &moved_stat) != 0) goto done;
+    if (moved_fd < 0) {
+        result = LEB_QUARANTINE_RETAINED;
+        goto done;
+    }
+    if (identity_from_fd(moved_fd, &moved_id, &moved_stat) != 0) {
+        result = LEB_QUARANTINE_RETAINED;
+        goto done;
+    }
     if (!S_ISREG(moved_stat.st_mode) || moved_stat.st_nlink != 1 ||
         moved_id.device != opened_id.device ||
         moved_id.inode != opened_id.inode ||
@@ -120,11 +131,29 @@ static int quarantine_delete_impl(int parent_fd, int quarantine_fd,
         goto done;
     }
 
-    if (unlinkat(quarantine_fd, quarantine_name, 0) != 0) goto done;
-    if (fsync(quarantine_fd) != 0 || fsync(parent_fd) != 0) goto done;
+    /*
+     * Persist the quarantine insertion before unlinking. Sync quarantine first:
+     * if the second sync fails, the object remains retained rather than being
+     * deleted without a durable quarantine entry.
+     */
+    if (fsync(quarantine_fd) != 0 || fsync(parent_fd) != 0) {
+        result = LEB_QUARANTINE_RETAINED;
+        goto done;
+    }
+
+    if (unlinkat(quarantine_fd, quarantine_name, 0) != 0) {
+        result = LEB_QUARANTINE_RETAINED;
+        goto done;
+    }
+    if (fsync(quarantine_fd) != 0) {
+        result = LEB_QUARANTINE_DURABILITY_UNCERTAIN;
+        goto done;
+    }
     result = LEB_QUARANTINE_OK;
 
 done:
+    if (moved_to_quarantine && result == LEB_QUARANTINE_ERROR)
+        result = LEB_QUARANTINE_RETAINED;
     if (moved_fd >= 0) close(moved_fd);
     if (opened_fd >= 0) close(opened_fd);
     return result;
