@@ -1,0 +1,32 @@
+[Unit]
+Description=Logic-Engine (dedicated SQLite owner identity)
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+DynamicUser=yes
+StateDirectory=logic-engine
+StateDirectoryMode=0700
+WorkingDirectory=/opt/logic-engine
+Environment=NODE_ENV=production
+Environment=LOGIC_ENGINE_STATE_DIR=/var/lib/logic-engine
+EnvironmentFile=-/etc/logic-engine/logic-engine.env
+ExecStart=/usr/bin/node /opt/logic-engine/src/index.js
+Restart=on-failure
+RestartSec=3
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+ReadWritePaths=/var/lib/logic-engine
+
+[Install]
+WantedBy=multi-user.target

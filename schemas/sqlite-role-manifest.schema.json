@@ -1,0 +1,377 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://logic-engine.invalid/schemas/sqlite-role-manifest.schema.json",
+  "title": "Logic-Engine SQLite trusted role manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "generation",
+    "platform",
+    "metadataRootIdentity",
+    "filesystemPolicy",
+    "roles"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "generation": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "platform": {
+      "enum": [
+        "linux",
+        "windows"
+      ]
+    },
+    "metadataRootIdentity": {
+      "$ref": "#/$defs/identity"
+    },
+    "filesystemPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "filesystem",
+        "identitySource",
+        "directoryMutationBoundary"
+      ],
+      "properties": {
+        "filesystem": {
+          "type": "string",
+          "minLength": 1
+        },
+        "identitySource": {
+          "const": "opened-handle"
+        },
+        "directoryMutationBoundary": {
+          "enum": [
+            "broker-exclusive-owner",
+            "dedicated-service-identity"
+          ]
+        },
+        "applicationUid": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "roles": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/role"
+      }
+    }
+  },
+  "$defs": {
+    "component": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255,
+      "pattern": "^(?![.]{1,2}$)[^/\\\\\\u0000]+$"
+    },
+    "identity": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "device",
+            "inode",
+            "mountId"
+          ],
+          "properties": {
+            "kind": {
+              "const": "posix"
+            },
+            "device": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]*)$"
+            },
+            "inode": {
+              "type": "string",
+              "pattern": "^[1-9][0-9]*$"
+            },
+            "mountId": {
+              "type": "string",
+              "pattern": "^[1-9][0-9]*$"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "volumeSerial",
+            "fileId"
+          ],
+          "properties": {
+            "kind": {
+              "const": "windows"
+            },
+            "volumeSerial": {
+              "type": "string",
+              "pattern": "^[0-9A-Fa-f]{16}$"
+            },
+            "fileId": {
+              "type": "string",
+              "pattern": "^[0-9A-Fa-f]{32}$"
+            }
+          }
+        }
+      ]
+    },
+    "sidecar": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "identity",
+        "state",
+        "generation"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "wal",
+            "shm",
+            "journal"
+          ]
+        },
+        "identity": {
+          "$ref": "#/$defs/identity"
+        },
+        "state": {
+          "enum": [
+            "creating",
+            "active",
+            "deleting",
+            "retired"
+          ]
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "role": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "role",
+        "parentComponents",
+        "parentIdentities",
+        "databaseBasename",
+        "databaseIdentity",
+        "state",
+        "sidecars"
+      ],
+      "properties": {
+        "role": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+        },
+        "parentComponents": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/component"
+          }
+        },
+        "parentIdentities": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/identity"
+          }
+        },
+        "databaseBasename": {
+          "$ref": "#/$defs/component"
+        },
+        "databaseIdentity": {
+          "$ref": "#/$defs/identity"
+        },
+        "state": {
+          "enum": [
+            "enrolling",
+            "active",
+            "disabled",
+            "recovery-required"
+          ]
+        },
+        "sidecars": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/sidecar"
+          }
+        }
+      }
+    },
+    "posixIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "device",
+        "inode",
+        "mountId"
+      ],
+      "properties": {
+        "kind": {
+          "const": "posix"
+        },
+        "device": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)$"
+        },
+        "inode": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*$"
+        },
+        "mountId": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*$"
+        }
+      }
+    },
+    "windowsIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "volumeSerial",
+        "fileId"
+      ],
+      "properties": {
+        "kind": {
+          "const": "windows"
+        },
+        "volumeSerial": {
+          "type": "string",
+          "pattern": "^[0-9A-Fa-f]{16}$"
+        },
+        "fileId": {
+          "type": "string",
+          "pattern": "^[0-9A-Fa-f]{32}$"
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "platform": {
+            "const": "linux"
+          }
+        },
+        "required": [
+          "platform"
+        ],
+        "type": "object"
+      },
+      "then": {
+        "properties": {
+          "filesystemPolicy": {
+            "type": "object",
+            "required": [
+              "applicationUid"
+            ],
+            "properties": {
+              "applicationUid": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          },
+          "metadataRootIdentity": {
+            "$ref": "#/$defs/posixIdentity"
+          },
+          "roles": {
+            "items": {
+              "properties": {
+                "parentIdentities": {
+                  "items": {
+                    "$ref": "#/$defs/posixIdentity"
+                  },
+                  "type": "array"
+                },
+                "databaseIdentity": {
+                  "$ref": "#/$defs/posixIdentity"
+                },
+                "sidecars": {
+                  "items": {
+                    "properties": {
+                      "identity": {
+                        "$ref": "#/$defs/posixIdentity"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "type": "array"
+                }
+              },
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "platform": {
+            "const": "windows"
+          }
+        },
+        "required": [
+          "platform"
+        ],
+        "type": "object"
+      },
+      "then": {
+        "properties": {
+          "metadataRootIdentity": {
+            "$ref": "#/$defs/windowsIdentity"
+          },
+          "roles": {
+            "items": {
+              "properties": {
+                "parentIdentities": {
+                  "items": {
+                    "$ref": "#/$defs/windowsIdentity"
+                  },
+                  "type": "array"
+                },
+                "databaseIdentity": {
+                  "$ref": "#/$defs/windowsIdentity"
+                },
+                "sidecars": {
+                  "items": {
+                    "properties": {
+                      "identity": {
+                        "$ref": "#/$defs/windowsIdentity"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "type": "array"
+                }
+              },
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      }
+    }
+  ]
+}

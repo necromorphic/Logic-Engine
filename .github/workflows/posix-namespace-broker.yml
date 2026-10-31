@@ -1,0 +1,27 @@
+name: POSIX namespace broker prototype
+
+on:
+  push:
+    paths:
+      - "native/posix-namespace-broker/**"
+      - ".github/workflows/posix-namespace-broker.yml"
+  pull_request:
+    paths:
+      - "native/posix-namespace-broker/**"
+      - ".github/workflows/posix-namespace-broker.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  protocol:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build with strict compiler warnings
+        run: make -C native/posix-namespace-broker
+      - name: Run protocol integration tests
+        run: make -C native/posix-namespace-broker test
+      - name: Run manifest store security tests
+        run: python3 -m unittest discover -s native/posix-namespace-broker -p 'test_manifest_store.py'
