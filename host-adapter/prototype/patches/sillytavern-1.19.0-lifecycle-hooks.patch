@@ -641,7 +641,7 @@ diff --git a/public/scripts/group-chats.js b/public/scripts/group-chats.js
  export async function importGroupChat(formData, { refresh = true } = {}) {
 +    await window.logicEngineHostLifecycle?.guardBulkMutation?.();
      const fetchResult = await fetch('/api/chats/group/import', {
-@@ -2359,6 +2360,7 @@
+@@ -2359,4 +2360,5 @@
  export async function saveGroupBookmarkChat(groupId, name, metadata, mesId, chatData = undefined) {
 +    await window.logicEngineHostLifecycle?.guardBulkMutation?.();
      const group = groups.find(x => x.id === groupId);
@@ -651,7 +651,7 @@ diff --git a/public/scripts/group-chats.js b/public/scripts/group-chats.js
 diff --git a/src/endpoints/chats.js b/src/endpoints/chats.js
 --- a/src/endpoints/chats.js
 +++ b/src/endpoints/chats.js
-@@ -25,6 +25,9 @@
+@@ -24,4 +24,7 @@
      isPathUnderParent,
  } from '../util.js';
  
