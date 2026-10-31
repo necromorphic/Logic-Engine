@@ -4,9 +4,9 @@ import {
     createHostIdentityHandler,
     createHostInventoryHandler,
     createHostSessionHandler,
-} from './logic-engine-host-inventory-handler.mjs';
-import { HostIdentityStore } from './logic-engine-host-identity-store.mjs';
-import { createHostRootInventoryPersistence, createHostLifecycleJournalProxy } from './logic-engine-lifecycle-proxy.mjs';
+} from './st-host-inventory-handler.mjs';
+import { HostIdentityStore } from './st-host-identity-store.mjs';
+import { createHostRootInventoryPersistence, createHostLifecycleJournalProxy } from './st-server-digest-proxy.mjs';
 
 const PINNED_SILLYTAVERN_COMMIT = '06bde939fb1e9c4c8d8641d810f0a916b5bce127';
 
