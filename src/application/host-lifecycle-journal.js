@@ -304,6 +304,11 @@ export class HostLifecycleJournal {
           BEFORE DELETE ON host_lifecycle_events BEGIN
             SELECT RAISE(ABORT, 'HOST_LIFECYCLE_JOURNAL_APPEND_ONLY');
           END;
+        CREATE TABLE IF NOT EXISTS host_lifecycle_authority_state (
+          singleton_id INTEGER PRIMARY KEY CHECK(singleton_id=1),
+          authority_id TEXT NOT NULL,
+          generation INTEGER NOT NULL CHECK(generation > 0)
+        );
         CREATE TABLE IF NOT EXISTS host_root_inventory_heads (
           host_installation_id TEXT NOT NULL,
           authenticated_account_id TEXT NOT NULL,
@@ -603,6 +608,35 @@ export class HostLifecycleJournal {
       pending: unresolved,
       reason: null,
     };
+  }
+
+  setAuthorityGeneration(authorityId, generation) {
+    if (!validText(authorityId) || !Number.isSafeInteger(generation) || generation < 1) {
+      throw new TypeError('A stable Host authority ID and positive generation are required.');
+    }
+    return this.#withWrite(() => {
+      const current = this.db.prepare(`
+        SELECT authority_id,generation FROM host_lifecycle_authority_state WHERE singleton_id=1
+      `).get();
+      if (!current) {
+        this.db.prepare(`
+          INSERT INTO host_lifecycle_authority_state(singleton_id,authority_id,generation)
+          VALUES(1,?,?)
+        `).run(authorityId, generation);
+        return { status: 'INITIALIZED', authority_id: authorityId, generation };
+      }
+      if (current.authority_id === authorityId && generation < current.generation) {
+        throw new Error('HOST_LIFECYCLE_AUTHORITY_GENERATION_ROLLBACK');
+      }
+      if (current.authority_id === authorityId && generation === current.generation) {
+        return { status: 'UNCHANGED', authority_id: authorityId, generation };
+      }
+      this.db.prepare(`
+        UPDATE host_lifecycle_authority_state SET authority_id=?,generation=? WHERE singleton_id=1
+      `).run(authorityId, generation);
+      return { status: current.authority_id === authorityId ? 'ADVANCED' : 'ROTATED',
+        authority_id: authorityId, generation };
+    });
   }
 
   getHead(hostInstallationId, authenticatedAccountId) {
