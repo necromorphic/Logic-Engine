@@ -28,6 +28,7 @@ async function setup(t, enabled = true) {
   });
   const engine = new LogicEngine(store, {
     npcKnowledgeContextResolver: authorizers.resolveContext,
+    npcKnowledgeWriteAuthorizer: authorizers.writeAuthorizer,
     npcKnowledgePolicyAuthority: authorizers.policyAuthority,
     npcKnowledgeReadAuthorizer: authorizers.readAuthorizer,
     npcKnowledgeVisibilityAuthorizer: authorizers.visibilityAuthorizer,
