@@ -46,9 +46,26 @@ Source files inspected:
 - The same file's `JS_loadExtension` calls `sqlite3_load_extension(db->db_handle, ...)` on an already-created database handle. Loading an extension through this API is therefore too late to secure the initial `new Database(DB_PATH)` open.
 - [`lib/binding.js`](https://github.com/WiseLibs/better-sqlite3/blob/v13.0.3/lib/binding.js): runtime loads a platform prebuild when present, otherwise the package's compiled `build/Release/better_sqlite3.node`. The VFS and SQLite build used by the actual installed binary must be verified, not inferred from Node's `node:sqlite` version.
 
+### Exact archive prebuild audit
+
+The supplied archive's native prebuilds were extracted individually (the full 487 MB archive did not need to be materialized). These are the exact SHA-256 fingerprints of the packaged platform binaries:
+
+| Prebuild | Size | SHA-256 | Evidence |
+|---|---:|---|---|
+| `prebuilds/win32-x64.node` | 1,989,632 bytes | `e21e5efd71fba66578e95b62554d9028064a80dafd7221bf8a8ef155de8d240a` | PE32+ x64; embedded SQLite version string `3.53.4` |
+| `prebuilds/linux-x64.node` | 2,226,168 bytes | `6fd4292c6c5f352436cd85c9e1cb286978efa43c20ae350973f83414ced9991d` | ELF x64; loaded and queried at runtime |
+
+The Linux x64 prebuild was loaded directly by Node.js v22.16.0 from the extracted archive package. Runtime queries returned:
+
+- `sqlite_version()`: `3.53.4`
+- `sqlite_source_id()`: `2026-07-24 19:02:57 bf7c7f30031888f4e796e429ab3978879485813aaca6f641c7b33e4e09459bcc`
+- Relevant compile options: `THREADSAFE=2`, `MUTEX_PTHREADS`, `USE_URI`, `OMIT_SHARED_CACHE`, `DEFAULT_WAL_AUTOCHECKPOINT=1000`, `DEFAULT_WAL_SYNCHRONOUS=1`, `DEFAULT_SYNCHRONOUS=2`, `TEMP_STORE=1`, `MAX_ATTACHED=10`, `MAX_MMAP_SIZE=0x7fff0000`.
+
+The Windows x64 binary was fingerprinted and its embedded version string inspected, but it could not be executed on the Linux audit host. The archive contains several platform prebuilds; the exact binary selected by the user's deployed host still depends on that host's OS/architecture and the installed package layout. Therefore the packaged Windows x64 artifact is identified, while runtime source-ID/compile-option confirmation for Windows remains open.
+
 ### Audit conclusion
 
-The ST-VectorService `better-sqlite3` connection is **not covered** by the Node 22.13.0 / SQLite 3.47.2 VFS registration. The upstream v13.0.3 source embeds a distinct SQLite 3.53.4 engine in its native addon. SQLite VFS registrations are local to the SQLite library instance; the secure VFS must be compiled/registered inside this addon before its first `sqlite3_open_v2`, and the open call must select the secure VFS explicitly (or the secure VFS must be made the verified default before any connection opens). The current `loadExtension()` route cannot protect the first open.
+The ST-VectorService `better-sqlite3` connection is **not covered** by the Node 22.13.0 / SQLite 3.47.2 VFS registration. The supplied Linux x64 prebuild was runtime-confirmed to embed SQLite 3.53.4 with the source ID above; the packaged Windows x64 binary contains the same version string. SQLite VFS registrations are local to the SQLite library instance; the secure VFS must be compiled/registered inside this addon before its first `sqlite3_open_v2`, and the open call must select the secure VFS explicitly (or the secure VFS must be made the verified default before any connection opens). The current `loadExtension()` route cannot protect the first open.
 
 A valid integration therefore requires a controlled fork/rebuild of `better-sqlite3` v13.0.3 (or a reviewed replacement binding) that:
 1. builds the secure backend against the exact SQLite 3.53.4 amalgamation and compile options used by the deployed addon;
@@ -57,7 +74,7 @@ A valid integration therefore requires a controlled fork/rebuild of `better-sqli
 4. fails closed if registration or role-manifest validation did not complete;
 5. runs the same DB/WAL/SHM/locking/restart/crash adversarial suite on the addon-specific engine.
 
-**Remaining evidence gap:** the uploaded ST-VectorService archive is 487,558,036 bytes and exceeded the available 100 MiB materialization limit. The upstream source tag is audited, and the earlier archive inventory confirms the declared package/driver/startup configuration, but the exact `prebuilds/*.node` or installed `better_sqlite3.node` binary inside that archive has not been extracted and hashed. The actual deployed binary's SQLite version/source ID/compile options must be queried from that binary before calling this audit complete. No database contents were opened or changed.
+**Remaining evidence gap:** the packaged Linux and Windows x64 prebuilds have now been extracted and fingerprinted; the Linux binary's SQLite source ID and compile options were queried at runtime. The exact binary selected by the deployed Windows host has not been runtime-queried on Windows, and the installed service's actual loaded module path has not been captured from a running process. No SQLite database contents were opened or changed.
 
 ## Security consequences for Issue #770
 
