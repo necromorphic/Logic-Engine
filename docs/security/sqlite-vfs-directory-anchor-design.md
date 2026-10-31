@@ -1,7 +1,7 @@
 # SQLite VFS: directory anchoring and persistent identity design
 
 **Status:** proposed implementation direction; not production approval  
-**Related:** Issue #770; Draft PR #798  
+**Related:** Issue #770; Draft PR #839  
 **Scope:** Core, Coordinator, Host version ledger, and any other trusted SQLite database opened through the Node.js `node:sqlite` engine.
 
 ## 1. Decision boundary
@@ -125,7 +125,7 @@ Tests must assert the identity of the object actually opened, not merely a count
 
 ## 9. Exit criteria
 
-Issue #770 can be considered resolved only when the implementation and exact-head Windows/Linux CI demonstrate all tests in §7, the supported platform/filesystem matrix is documented, and an independent Security review accepts the exact implementation commit. Until then PR #798 remains Draft and unmerged.
+Issue #770 can be considered resolved only when the implementation and exact-head Windows/Linux CI demonstrate all tests in §7, the supported platform/filesystem matrix is documented, and an independent Security review accepts the exact implementation commit. Until then PR #839 remains Draft and unmerged.
 
 
 ## 10. POSIX deletion decision: no in-process unlink workaround
