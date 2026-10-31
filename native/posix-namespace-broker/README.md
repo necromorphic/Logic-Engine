@@ -63,9 +63,10 @@ The update sequence is:
 
 The anchor replacement is the commit point. On restart, if the anchor references
 the staged manifest, verification completes the rename. A manifest that does not
-match the anchor fails closed. Generation must advance by exactly one. The
-manifest's metadata-root device/inode/mount ID is checked against the opened
-directory.
+match the anchor fails closed. Generation must advance by exactly one. Both initialization and every subsequent
+commit verify that the candidate manifest's metadata-root device/inode/mount ID
+matches the already-opened manifest directory, preventing a commit that would
+make the next load unrecoverable.
 
 **Trust boundary:** this prevents an application UID from silently rolling back
 only the manifest when the anchor directory remains inaccessible to it. It is
