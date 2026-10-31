@@ -305,8 +305,10 @@ export function createHostRootInventoryPersistence({
     let identity;
     try { identity = await identityStore.resolveAuthenticatedAccount(userHandle); }
     catch { return { status: 'NON_READY', reason: 'HOST_ROOT_IDENTITY_UNAVAILABLE' }; }
-    if (!identity || !validId(identity.host_installation_id)
-      || !validId(identity.authenticated_account_id)) {
+    if (!identity || typeof identity.host_installation_id !== 'string'
+      || !HOST_SESSION_UUID.test(identity.host_installation_id)
+      || typeof identity.authenticated_account_id !== 'string'
+      || !HOST_SESSION_UUID.test(identity.authenticated_account_id)) {
       return { status: 'NON_READY', reason: 'HOST_ROOT_IDENTITY_INVALID' };
     }
     const root_id = createHash('sha256').update(pathModule.resolve(rootPath), 'utf8').digest('hex');
