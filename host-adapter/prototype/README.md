@@ -168,6 +168,58 @@ The pinned Host route exposes `GET /api/logic-engine/host/session`. It requires 
 
 `hostSessionId:installationId:conversationUuid`
 
-This prevents two different authenticated ST sessions from silently reusing the same Core conversation binding. The session ID is not a credential and does not authenticate a request to Core; Core still trusts only the configured server-side adapter credential and its own conversation/world binding. The browser's localStorage installation ID remains a client-side namespace, not an installation attestation.
+This prevents two different authenticated ST sessions from silently reusing the same Core conversation binding. The session ID is not a credential and does not authenticate a request to Core; Core still trusts only the configured server-side adapter credential and its own conversation/world binding. The browser's localStorage installation ID remains a client-side conversation namespace, not an installation identity.
 
 The session ID survives a SillyTavern process restart only while the signed session cookie and the ST cookie-signing secret remain valid and unchanged. Logout/login, cookie loss, secret rotation, or account change rotates the identity. Existing enrollments created with the old `installationId:conversationUuid` format are not migrated automatically; the old marker/mapping mismatch fails closed and requires explicit re-binding. This is still not a durable server installation identity, a complete inventory proof, or Core world/actor authorization.
+
+
+## Server-persisted installation/account identity — approved contract implementation slice
+
+The current branch adds a second authenticated route, `GET /api/logic-engine/host/identity`, backed by `HostIdentityStore`. Configure `LOGIC_ENGINE_HOST_IDENTITY_DIR` to an absolute, server-controlled directory that is not writable by the browser or ordinary chat data operations. If the variable is absent, the route is not mounted and the browser lifecycle journal cannot open; enrolled operations fail closed.
+
+The store creates:
+- one server-generated installation UUID in `installation.json`;
+- one opaque server-generated account UUID per authenticated SillyTavern account handle. The handle itself is not stored; its SHA-256 digest names the account record.
+
+The identity endpoint is available only after the signed session's account handle matches the authenticated server account. It returns installation ID, account ID, and the current session UUID. The browser verifies the session UUID matches the preceding `/session` response, then opens an IndexedDB journal namespaced by installation/account and includes both IDs in each journal record and head checkpoint. Existing v2 browser journal databases are not silently adopted; the v3 identity-bound journal uses a new database namespace.
+
+Operational constraints:
+- Account rename produces a new opaque account ID and requires explicit re-enrollment; no implicit identity migration is attempted.
+- Loss or replacement of the identity directory creates a new installation identity and requires explicit recovery/re-enrollment.
+- The directory must be backed up/restored only together with the independently administered accepted-head recovery procedure. This local file store and browser IndexedDB chain are not independently rollback-resistant.
+- This does not provide runtime source attestation. `LOGIC_ENGINE_HOST_BUILD_SHA` remains an operator deployment assertion only.
+- The Core-side append-only journal prototype currently has a trusted identity-resolver seam but is not yet connected to this ST endpoint. The identity route and browser journal changes therefore remain an integration candidate, not production authority.
+
+Run the expanded pinned-host checks with:
+```sh
+node --test host-adapter/prototype/tests/*.test.mjs tests/host-source-inventory.test.js tests/host-lifecycle-journal.test.js
+```
+
+
+## Coordinator approval and release boundary — 30 Oct 2026
+
+The delegated project-level contract now explicitly approves this metadata-only identity/lifecycle direction. The journal is evidence of operations observed by the instrumented Host; it is not, by itself, proof that every SillyTavern mutation path is instrumented or that the filesystem inventory is complete.
+
+For the first slice:
+- Persist only installation/account/conversation/message/version identifiers, parent/active relationships, operation type, monotonic sequence, and content digests. Never persist message text, prompts, summaries, or provider credentials.
+- A missing journal event, unsupported operation, out-of-band filesystem change, invalid hash chain, or uncertain restore makes the affected conversation NON_READY.
+- The baseline starts at explicit enrollment. Deleted history from before enrollment is unknown and must not be represented as captured.
+- Browser IndexedDB and the local server identity directory are not anti-rollback authorities. The external accepted-head/restore domain remains a separate release gate.
+- This branch does not authorize Provider raw capture, Core READY publication, protected model disclosure, or production Memory→NPC activation.
+
+
+## Full-root VSS inventory and per-file reconciliation candidate
+
+This candidate ports the pinned-ST 1.19.0 full-root scanner, Windows VSS snapshot lease, authenticated manifest object check, and file-level delta journal. The server inventory response remains explicitly review-only: it reports the current source blockers and does not publish READY.
+
+The full-root baseline is stored in the enrollment-forward Host lifecycle journal. A later scan compares each relative path, physical file identity and SHA-256 digest, classifying added, removed, modified, replaced and moved files. The exact delta is journaled without file contents. A recorded delta is **not** accepted as legitimate until a matching operation-specific persisted receipt proves the same before/after file transition. Restoring bytes to the old baseline does not erase an unresolved delta observation.
+
+The current source still does not prove operation-specific file receipts for every mutation endpoint. In particular, imports, exports, restore, copy/branch, external edits, recursive deletes and group metadata changes must remain NON_READY until the pinned Host server routes are instrumented and tested against real persisted files. The VSS snapshot is crash-consistent, not an application-level ST transaction. The local identity directory and browser IndexedDB are not independent anti-rollback authorities.
+
+The full-root scanner, source inventory and VSS provider are separate evidence layers:
+- generic file manifest: complete file-set/content view of the authenticated per-user data root;
+- semantic source inventory: current chat/group logical identities and retained versions;
+- lifecycle journal: post-enrollment operations and immutable event history;
+- per-file reconciliation: exact file delta, fail-closed absent a matching operation receipt.
+
+No raw chat content is copied into the journal. No Provider, vectorization, Ollama or Memory→NPC production wiring is enabled by this candidate.
