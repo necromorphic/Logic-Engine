@@ -51,6 +51,7 @@ static sqlite3_mutex *g_registry_mutex = 0;
 #if defined(__linux__)
 static uint64_t g_broker_request_id = 1;
 static int g_broker_backend_io_count = 0;
+static _Thread_local int g_current_broker_fd = -1;
 #endif
 #define PROBE_MAX_PINNED_PATHS 256
 typedef struct ProbePinnedPath {
@@ -1014,6 +1015,11 @@ static int probe_open(const char *name, int flags, int mode) {
     g_current_race_open = 0;
     g_current_race_captured = 0;
   }
+#if defined(__linux__)
+  if (has_anchor && g_database_roles[anchored_role_index].broker_socket_path) {
+    g_current_broker_fd = fd;
+  }
+#endif
   return fd;
 }
 typedef int (*probe_stat_fn)(const char *, struct stat *);
@@ -1384,10 +1390,8 @@ static int probe_backend_close(sqlite3_file *file) {
   if (parent_file->pMethods && parent_file->pMethods->xClose) {
     rc = parent_file->pMethods->xClose(parent_file);
   }
-  if (backend->broker_fd >= 0) {
-    if (close(backend->broker_fd) != 0 && rc == SQLITE_OK) rc = SQLITE_IOERR_CLOSE;
-    backend->broker_fd = -1;
-  }
+  /* The descriptor is borrowed from the embedded parent VFS file. */
+  backend->broker_fd = -1;
   file->pMethods = NULL;
   return rc;
 }
@@ -1543,36 +1547,30 @@ static int probe_xOpen(sqlite3_vfs *vfs, const char *name, sqlite3_file *file,
   int rc;
   int role_index = -1;
   const char *suffix = NULL;
+  int requires_broker_fd = name
+    && probe_match_role_entry(name, &role_index, &suffix)
+    && role_index >= 0 && g_database_roles[role_index].broker_socket_path
+    && (flags & (SQLITE_OPEN_MAIN_DB | SQLITE_OPEN_WAL | SQLITE_OPEN_MAIN_JOURNAL)) != 0;
   memset(backend, 0, PROBE_PARENT_FILE_OFFSET);
   backend->broker_fd = -1;
+  g_current_broker_fd = -1;
   rc = probe_xOpen_parent(vfs, name, parent_file, flags, out_flags);
-  if (rc != SQLITE_OK) return rc;
-
-  if (name && probe_match_role_entry(name, &role_index, &suffix)
-      && role_index >= 0 && g_database_roles[role_index].broker_socket_path
-      && (flags & (SQLITE_OPEN_MAIN_DB | SQLITE_OPEN_WAL | SQLITE_OPEN_MAIN_JOURNAL)) != 0) {
-    ProbeDatabaseRole *role = &g_database_roles[role_index];
-    uint16_t operation = LEB_OP_OPEN_MAIN;
-    const char *kind = NULL;
-    uint32_t status = LEB_STATUS_INTERNAL;
-    if (suffix[0] != '\0') {
-      if (strcmp(suffix, "-wal") == 0) kind = "wal";
-      else if (strcmp(suffix, "-shm") == 0) kind = "shm";
-      else if (strcmp(suffix, "-journal") == 0) kind = "journal";
-      else {
+  if (rc != SQLITE_OK) {
+    g_current_broker_fd = -1;
+    return rc;
+  }
+  if (requires_broker_fd) {
+    if (g_current_broker_fd < 0) {
+      g_current_broker_fd = -1;
+      if (parent_file->pMethods && parent_file->pMethods->xClose) {
         parent_file->pMethods->xClose(parent_file);
-        return SQLITE_CANTOPEN;
       }
-      operation = LEB_OP_OPEN_SIDECAR;
-    }
-    if (!probe_broker_exchange(role, role->broker_socket_path, operation,
-          kind, 1, &backend->broker_fd, &status) || status != LEB_STATUS_OK
-        || backend->broker_fd < 0) {
-      if (backend->broker_fd >= 0) close(backend->broker_fd);
-      backend->broker_fd = -1;
-      parent_file->pMethods->xClose(parent_file);
       return SQLITE_CANTOPEN;
     }
+    /* Reuse the exact descriptor SQLite's parent VFS opened through broker IPC.
+       A second open/dup would interfere with POSIX process-associated locks. */
+    backend->broker_fd = g_current_broker_fd;
+    g_current_broker_fd = -1;
   }
 
   backend->methods = *parent_file->pMethods;
