@@ -11,6 +11,7 @@ const CONFIG = {
 };
 const SESSION_ID = '11111111-1111-4111-8111-111111111111';
 const HOST_CONVERSATION_ID = SESSION_ID + ':22222222-2222-4222-8222-222222222222:33333333-3333-4333-8333-333333333333';
+const LIFECYCLE_CONVERSATION_ID = SESSION_ID + ':aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa:33333333-3333-4333-8333-333333333333';
 const requestFor = (body, { sessionId = SESSION_ID, userHandle = 'alice', sessionHandle = userHandle } = {}) => ({
   body,
   user: { profile: { handle: userHandle } },
@@ -362,7 +363,7 @@ test('lifecycle journal proxy derives account identity server-side and binds eve
     },
   });
   const event = {
-    conversation_id: HOST_CONVERSATION_ID,
+    conversation_id: LIFECYCLE_CONVERSATION_ID,
     event_id: '44444444-4444-4444-8444-444444444444',
     event_type: 'MUTATION_PREPARED',
     mutation_id: '55555555-5555-4555-8555-555555555555',
@@ -385,6 +386,10 @@ test('lifecycle journal proxy derives account identity server-side and binds eve
     operation: event.operation,
     mutation_digest: event.mutation_digest,
   });
+  const mismatchedInstallation = responseRecorder();
+  await proxy.append(requestFor({ ...event, conversation_id: HOST_CONVERSATION_ID }), mismatchedInstallation);
+  assert.equal(mismatchedInstallation.statusCode, 403);
+  assert.equal(mismatchedInstallation.payload.error.code, 'HOST_SESSION_SCOPE_REQUIRED');
 });
 
 test('lifecycle journal proxy status is session-bound and forwards only server-derived identity', async () => {
@@ -402,7 +407,7 @@ test('lifecycle journal proxy status is session-bound and forwards only server-d
   });
   const response = responseRecorder();
   const request = requestFor({});
-  request.query = { conversation_id: HOST_CONVERSATION_ID };
+  request.query = { conversation_id: LIFECYCLE_CONVERSATION_ID };
   await proxy.status(request, response);
   assert.equal(response.statusCode, 200);
   assert.equal(observed.url.startsWith('http://192.168.1.10:8787/v1/host-lifecycle/status?'), true);
