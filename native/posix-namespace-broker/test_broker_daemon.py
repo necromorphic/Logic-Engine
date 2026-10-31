@@ -154,18 +154,18 @@ class BrokerDaemonTests(unittest.TestCase):
                 os.close(fd)
 
     def test_access_role_file_reports_identity_checked_presence(self):
-        response, fds = self.exchange(OP_ACCESS_ROLE_FILE, b"core\\x00main")
+        response, fds = self.exchange(OP_ACCESS_ROLE_FILE, b"core\x00main")
         self.assertEqual(response[3], STATUS_OK)
         self.assertEqual(fds, [])
         self.assertEqual(self.store.calls[-1], ("access", "core", "main"))
 
     def test_access_role_file_reports_absent_sidecar_without_descriptor(self):
-        response, fds = self.exchange(OP_ACCESS_ROLE_FILE, b"core\\x00wal")
+        response, fds = self.exchange(OP_ACCESS_ROLE_FILE, b"core\x00main")
         self.assertEqual(response[3], STATUS_NOT_FOUND)
         self.assertEqual(fds, [])
 
     def test_open_or_create_sidecar_returns_manifest_backed_descriptor(self):
-        response, fds = self.exchange(OP_OPEN_OR_CREATE_SIDECAR, b"core\\x00wal")
+        response, fds = self.exchange(OP_OPEN_OR_CREATE_SIDECAR, b"core\x00wal")
         try:
             self.assertEqual(response[3], STATUS_OK)
             self.assertEqual(len(fds), 1)
