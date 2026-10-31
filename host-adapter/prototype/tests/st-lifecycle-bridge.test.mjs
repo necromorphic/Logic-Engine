@@ -955,12 +955,13 @@ test('Core pending mutation is recovered by replaying the local durable after re
   failCommit = false;
 
   const resumed = await f.bridge.beforeMutation('create-swipe', [0]);
-  const replay = events.find(event => event.event_type === 'MUTATION_COMMITTED');
-  assert.ok(replay);
+  const commitEvents = events.filter(event => event.event_type === 'MUTATION_COMMITTED');
+  assert.equal(commitEvents.length, 2, 'the lost response is retried with the exact persisted event envelope');
+  const [firstCommit, replay] = commitEvents;
+  assert.deepEqual(replay, firstCommit);
   assert.equal(replay.mutation_id, before.payload.details.hostLifecycle.mutationId);
   assert.equal(replay.mutation_digest, events[0].mutation_digest);
   assert.match(replay.receipt_digest, /^[a-f0-9]{64}$/);
-  assert.equal(replay.occurred_at, events.find(event => event.event_type === 'MUTATION_COMMITTED').occurred_at);
   assert.equal(replay.operation, 'edit-message');
   assert.equal(remote.status, 'PENDING_MUTATION');
   assert.equal(resumed.operation, 'before:create-swipe');
