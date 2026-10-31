@@ -1758,6 +1758,17 @@ static int probe_xAccess(sqlite3_vfs *vfs, const char *name, int flags, int *res
 }
 static int probe_xFullPathname(sqlite3_vfs *vfs, const char *name, int n, char *out) {
   sqlite3_vfs *p = (sqlite3_vfs *)vfs->pAppData;
+#if defined(__linux__)
+  int role_index = -1;
+  const char *suffix = NULL;
+  if (name && probe_match_role_entry(name, &role_index, &suffix)
+      && g_database_roles[role_index].broker_socket_path) {
+    size_t length = strlen(name);
+    if (length + 1 > (size_t)n) return SQLITE_CANTOPEN;
+    memcpy(out, name, length + 1);
+    return SQLITE_OK;
+  }
+#endif
   return p->xFullPathname(p, name, n, out);
 }
 static void *probe_xDlOpen(sqlite3_vfs *vfs, const char *name) {
