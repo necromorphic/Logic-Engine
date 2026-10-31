@@ -112,9 +112,20 @@ export async function reconcileFilesystemInventory({ journal, conversationId, in
   if (finalPending?.status !== 'NO_PENDING_MUTATION') return fail('Host lifecycle mutation started during filesystem reconciliation', {
     pendingOperation: finalPending?.operation ?? null, pendingSequence: finalPending?.sequence ?? null,
   });
+  const unresolvedObservations = records.filter(record => record.operation === 'filesystem-inventory-delta-observed');
+  if (!changed && previous.snapshotSha256 === current.snapshotSha256 && unresolvedObservations.length) {
+    return fail('a previously observed filesystem delta remains unresolved; restoring baseline bytes does not erase lifecycle history', {
+      unresolvedDeltaCount: unresolvedObservations.length,
+      lastObservationSequence: unresolvedObservations.at(-1).sequence,
+      snapshotSha256: current.snapshotSha256,
+    });
+  }
   if (!changed && previous.snapshotSha256 === current.snapshotSha256) {
     return { status: 'UNCHANGED_REVIEW_ONLY', sequence: checkpoints.at(-1).sequence, snapshotSha256: current.snapshotSha256, fileCount: current.fileCount };
   }
+  if (changed > 5000) return fail('file-level delta exceeds the bounded durable journal limit', {
+    counts, maximumChangedFiles: 5000, snapshotSha256: current.snapshotSha256,
+  });
 
   const deltaRecord = {
     schemaVersion: 1, baselineSequence: checkpoints.at(-1).sequence,
