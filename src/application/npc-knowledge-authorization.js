@@ -118,6 +118,45 @@ export function createHostBoundNpcKnowledgeAuthorizers({
     });
   }
 
+  function writeAuthorizer(scope) {
+    try {
+      if (!scope || scope.operation !== 'npc.belief.transition'
+        || !validId(scope.world_id) || !validId(scope.conversation_id)
+        || !validId(scope.adapter_id) || !validId(scope.actor_id)
+        || scope.recipient !== 'model'
+        || !['npc_turn_context', 'npc_action_evaluation'].includes(scope.purpose)
+        || !Number.isSafeInteger(scope.expected_revision) || scope.expected_revision < 0
+        || !Number.isSafeInteger(scope.expected_commit_sequence) || scope.expected_commit_sequence < 0) return null;
+      const binding = activeHostAndActorBinding(scope);
+      const expectedPolicy = {
+        authority_id: scope.authority_id,
+        generation: scope.generation,
+        snapshot_fingerprint: scope.snapshot_fingerprint,
+      };
+      const currentPolicy = policyAuthority.getSnapshot();
+      if (!binding || !policyAuthority.isCurrent(expectedPolicy)
+        || currentPolicy.authority_id !== expectedPolicy.authority_id
+        || currentPolicy.generation !== expectedPolicy.generation
+        || currentPolicy.snapshot_fingerprint !== expectedPolicy.snapshot_fingerprint) return null;
+      return Object.freeze({
+        status: 'authorized',
+        world_id: binding.world_id,
+        conversation_id: binding.conversation_id,
+        adapter_id: binding.adapter_id,
+        actor_id: binding.actor_id,
+        recipient: scope.recipient,
+        purpose: scope.purpose,
+        operation: scope.operation,
+        expected_revision: scope.expected_revision,
+        expected_commit_sequence: scope.expected_commit_sequence,
+        authorization_ref: 'core:npc-belief-transition-write-v1',
+        ...currentPolicy,
+      });
+    } catch {
+      return null;
+    }
+  }
+
   function visibilityAuthorizer(scope) {
     let source = null;
     const currentPolicy = policyAuthority.getSnapshot();
@@ -159,5 +198,5 @@ export function createHostBoundNpcKnowledgeAuthorizers({
     });
   }
 
-  return Object.freeze({ resolveContext, readAuthorizer, visibilityAuthorizer, policyAuthority });
+  return Object.freeze({ resolveContext, readAuthorizer, writeAuthorizer, visibilityAuthorizer, policyAuthority });
 }
