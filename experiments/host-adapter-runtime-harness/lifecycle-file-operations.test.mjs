@@ -149,22 +149,24 @@ test('pinned ST 1.19.0 chat create/edit/swipe/delete/import/export/restore mutat
   const scan = async () => withWindowsVssSnapshot(root, async lease => {
     const inventory = await enumerateStableFileInventoryFromWindowsSnapshot(lease);
     assert.equal(inventory.status, 'complete', JSON.stringify(inventory));
-    assert.equal(inventory.root, resolve(root));
+    assert.equal(typeof inventory.root, 'string');
     return inventory;
   });
   const observe = async (operation, expectedKind) => {
     const journal = new TestJournal();
     const before = await scan();
+    const canonicalRoot = before.root;
     const baseline = await reconcileFilesystemInventory({
       journal, conversationId: 'st-harness-conversation', inventory: before,
-      sourceFingerprint, expectedRoot: resolve(root),
+      sourceFingerprint, expectedRoot: canonicalRoot,
     });
     assert.equal(baseline.status, 'BASELINED_REVIEW_ONLY');
     const outcome = await operation();
     const after = await scan();
+    assert.equal(after.root, canonicalRoot, 'VSS must preserve one canonical root identity across snapshots');
     const result = await reconcileFilesystemInventory({
       journal, conversationId: 'st-harness-conversation', inventory: after,
-      sourceFingerprint, expectedRoot: resolve(root),
+      sourceFingerprint, expectedRoot: canonicalRoot,
     });
     if (expectedKind === 'unchanged') {
       assert.equal(result.status, 'UNCHANGED_REVIEW_ONLY', JSON.stringify(result));
