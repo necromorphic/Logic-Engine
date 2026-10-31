@@ -700,8 +700,9 @@ export class HostLifecycleJournal {
       if (existing) return { status: 'NON_READY', duplicate: true,
         sequence: existing.sequence, manifest_sha256: manifestSha256,
         delta_sha256: deltaSha256, delta };
-      return this.#appendRootInventoryEvent({ ...input, event_type: 'DELTA_OBSERVED',
+      const recorded = this.#appendRootInventoryEvent({ ...input, event_type: 'DELTA_OBSERVED',
         entries, manifest_sha256: manifestSha256, delta, delta_sha256: deltaSha256 });
+      return { ...recorded, delta };
     });
   }
 
