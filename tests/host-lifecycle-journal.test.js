@@ -516,6 +516,28 @@ test('over-limit root drift is durably recorded and cannot disappear after a res
 });
 
 
+test('Host lifecycle authority fingerprint is invalidated by unresolved root inventory drift', (t) => {
+  const { journal } = setupLifecycle(t);
+  const trusted = {
+    authority_id: authority.authority_id,
+    generation: authority.generation,
+    adapter_id: 'test-adapter',
+    host_installation_id: installation,
+    authenticated_account_id: account,
+    root_id: rootId,
+  };
+  assert.equal(journal.getAuthoritySnapshot(trusted).status, 'INTEGRITY_OK');
+  const drift = journal.observeRootInventory({
+    host_installation_id: installation,
+    authenticated_account_id: account,
+    root_id: rootId,
+    event_id: 'root-authority-drift',
+    entries: rootEntries(digest('changed-root')),
+  });
+  assert.equal(drift.status, 'NON_READY');
+  assert.equal(journal.getAuthoritySnapshot(trusted).status, 'NON_READY');
+});
+
 test('durable Core journal records prepared mutations, blocks overlap, and clears only on a matching commit', (t) => {
   const { journal } = setupLifecycle(t);
   const prepared = {
