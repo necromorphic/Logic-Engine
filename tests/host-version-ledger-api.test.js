@@ -15,6 +15,8 @@ const TOKEN = 'test-token-long-enough-123456';
 const ADMIN = 'admin-token-long-enough-123456';
 const ADAPTER = 'adapter-a-token-long-enough-123456';
 const OTHER_ADAPTER = 'adapter-b-token-long-enough-123456';
+const HOST_SESSION = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+const HOST_AUTHORITY = { authority_id: 'api-test-host-authority', generation: 3, snapshot_fingerprint: 'c'.repeat(64) };
 const headers = { authorization: 'Bearer ' + TOKEN, 'content-type': 'application/json' };
 const json = (body) => JSON.stringify(body);
 
@@ -54,7 +56,9 @@ async function setup(t, {
       authorized: true,
       host_installation_id: input.host_installation_id,
       authenticated_account_id: input.authenticated_account_id,
+      host_session_id: input.host_session_id,
       conversation_uuid: input.conversation_uuid,
+      ...HOST_AUTHORITY,
     }),
     resolveRootIdentity: input => ({
       authorized: authorizeRootIdentity(input) === true,
@@ -79,7 +83,9 @@ async function setup(t, {
       authorized: input.adapterId === 'adapter-a' && authorizeLifecycleIdentity(input) === true,
       host_installation_id: input.host_installation_id,
       authenticated_account_id: input.authenticated_account_id,
+      host_session_id: input.host_session_id,
       conversation_uuid: input.conversation_uuid,
+      ...HOST_AUTHORITY,
     }) : null,
   });
   server.listen(0, '127.0.0.1');
@@ -501,7 +507,10 @@ test('Core lifecycle API durably accepts authenticated prepare/commit receipts a
   const prepared = {
     host_installation_id: installation,
     authenticated_account_id: account,
+    host_session_id: HOST_SESSION,
     conversation_uuid: conversation,
+    ...HOST_AUTHORITY,
+    occurred_at: '2026-10-31T00:00:00.000Z',
     event_id: '55555555-5555-4555-8555-555555555555',
     event_type: 'MUTATION_PREPARED',
     mutation_id: mutation,
@@ -523,6 +532,7 @@ test('Core lifecycle API durably accepts authenticated prepare/commit receipts a
   const statusUrl = base + '/v1/host-lifecycle/status?' + new URLSearchParams({
     host_installation_id: installation,
     authenticated_account_id: account,
+    host_session_id: HOST_SESSION,
     conversation_uuid: conversation,
   });
   const pending = await fetch(statusUrl, { headers: adapterHeaders });
@@ -540,7 +550,8 @@ test('Core lifecycle API durably accepts authenticated prepare/commit receipts a
   const committed = await fetch(base + '/v1/host-lifecycle/events', {
     method: 'POST', headers: adapterHeaders,
     body: json({ ...prepared, event_id: '88888888-8888-4888-8888-888888888888',
-      event_type: 'MUTATION_COMMITTED', mutation_digest: 'b'.repeat(64) }),
+      event_type: 'MUTATION_COMMITTED', mutation_digest: prepared.mutation_digest,
+      receipt_digest: 'd'.repeat(64), occurred_at: '2026-10-31T00:00:01.000Z' }),
   });
   assert.equal(committed.status, 201);
   assert.equal((await committed.json()).lifecycle.status, 'appended');
