@@ -112,6 +112,20 @@ class ManifestStoreTests(unittest.TestCase):
         with self.assertRaises(StoreError):
             _validate_manifest(_canonical_json(value))
 
+    def test_retired_sidecar_identity_may_be_reused_by_live_role_file(self):
+        import json
+        value = json.loads(self.data(1))
+        second = dict(value["roles"][0])
+        second["role"] = "vectors"
+        value["roles"][0]["sidecars"] = [{
+            "kind": "wal", "identity": second["databaseIdentity"],
+            "state": "retired", "generation": 1
+        }]
+        value["roles"].append(second)
+        # A retired identity is historical evidence; the filesystem may reuse
+        # its inode after deletion, so it must not block a new live role.
+        _validate_manifest(_canonical_json(value))
+
     def test_initialize_and_load(self):
         self.store.initialize(self.data(1))
         self.assertEqual(self.store.load()["generation"], 1)
