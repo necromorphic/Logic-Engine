@@ -91,7 +91,7 @@ class ManifestStoreTests(unittest.TestCase):
         self.store.initialize(self.data(1))
         (self.manifest_root / "manifest.json").unlink()
         target = self.manifest_root / "target"
-        target.write_bytes(manifest(1))
+        target.write_bytes(self.data(1))
         os.chmod(target, 0o600)
         (self.manifest_root / "manifest.json").symlink_to(target)
         with self.assertRaises(OSError):
