@@ -1,0 +1,298 @@
+#!/usr/bin/env python3
+"""Protected POSIX SQLite role-manifest store (enrollment/recovery primitive).
+
+The broker does not consume this module yet. Both roots must be provisioned
+for the broker service identity and must not be writable by the application.
+"""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import stat
+import sys
+from pathlib import PurePosixPath
+from typing import Any
+
+MANIFEST = "manifest.json"
+STAGED = "manifest.next"
+ANCHOR = "anchor.json"
+ANCHOR_NEXT = "anchor.next"
+MAX_BYTES = 1 << 20
+DIR_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW
+FILE_FLAGS = os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW
+
+
+class StoreError(RuntimeError):
+    pass
+
+
+def _unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise StoreError(f"duplicate JSON key: {key}")
+        result[key] = value
+    return result
+
+
+def _read_fd(fd: int, limit: int = MAX_BYTES) -> bytes:
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        part = os.read(fd, min(65536, limit + 1 - total))
+        if not part:
+            return b"".join(chunks)
+        total += len(part)
+        if total > limit:
+            raise StoreError("metadata file exceeds size limit")
+        chunks.append(part)
+
+
+def _open_trusted_dir(path: str) -> int:
+    if not os.path.isabs(path):
+        raise StoreError("trusted directory path must be absolute")
+    parts = PurePosixPath(path).parts[1:]
+    fd = os.open("/", DIR_FLAGS)
+    try:
+        for part in parts:
+            if part in ("", ".", ".."):
+                raise StoreError("invalid trusted directory component")
+            next_fd = os.open(part, DIR_FLAGS, dir_fd=fd)
+            os.close(fd)
+            fd = next_fd
+            info = os.fstat(fd)
+            if not stat.S_ISDIR(info.st_mode):
+                raise StoreError("trusted path component is not a directory")
+            if info.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
+                raise StoreError("trusted path contains group/other-writable directory")
+        info = os.fstat(fd)
+        if info.st_uid not in (0, os.geteuid()):
+            raise StoreError("trusted directory is not owned by root or service UID")
+        if info.st_uid == os.geteuid() and info.st_mode & 0o077:
+            raise StoreError("service-owned trusted directory must have mode 0700")
+        return fd
+    except Exception:
+        os.close(fd)
+        raise
+
+
+def _read_named(dir_fd: int, name: str) -> bytes | None:
+    try:
+        fd = os.open(name, FILE_FLAGS, dir_fd=dir_fd)
+    except FileNotFoundError:
+        return None
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+            raise StoreError(f"{name} is not a single-link regular file")
+        if info.st_uid != os.geteuid() or info.st_mode & 0o077:
+            raise StoreError(f"{name} has unexpected owner or permissions")
+        return _read_fd(fd)
+    finally:
+        os.close(fd)
+
+
+def _write_atomic(dir_fd: int, temp_name: str, final_name: str, data: bytes) -> None:
+    try:
+        os.unlink(temp_name, dir_fd=dir_fd)
+    except FileNotFoundError:
+        pass
+    fd = os.open(temp_name, os.O_WRONLY | os.O_CREAT | os.O_EXCL |
+                 os.O_CLOEXEC | os.O_NOFOLLOW, 0o600, dir_fd=dir_fd)
+    try:
+        view = memoryview(data)
+        while view:
+            written = os.write(fd, view)
+            if written <= 0:
+                raise StoreError("short write to metadata file")
+            view = view[written:]
+        os.fsync(fd)
+    except Exception:
+        os.close(fd)
+        try:
+            os.unlink(temp_name, dir_fd=dir_fd)
+        except OSError:
+            pass
+        raise
+    os.close(fd)
+    os.replace(temp_name, final_name, src_dir_fd=dir_fd, dst_dir_fd=dir_fd)
+    os.fsync(dir_fd)
+
+
+def _canonical_json(value: Any) -> bytes:
+    return (json.dumps(value, sort_keys=True, separators=(",", ":"),
+                       ensure_ascii=True) + "\n").encode("ascii")
+
+
+def _parse(data: bytes, label: str) -> dict[str, Any]:
+    try:
+        value = json.loads(data.decode("utf-8"), object_pairs_hook=_unique_object)
+    except (UnicodeError, json.JSONDecodeError) as exc:
+        raise StoreError(f"{label} is invalid JSON: {exc}") from exc
+    if not isinstance(value, dict):
+        raise StoreError(f"{label} must be a JSON object")
+    return value
+
+
+def _validate_manifest(data: bytes) -> dict[str, Any]:
+    obj = _parse(data, "manifest")
+    if obj.get("schemaVersion") != 1 or obj.get("platform") != "linux":
+        raise StoreError("manifest schemaVersion/platform is unsupported")
+    generation = obj.get("generation")
+    if not isinstance(generation, int) or isinstance(generation, bool) or generation < 1:
+        raise StoreError("manifest generation must be a positive integer")
+    if not isinstance(obj.get("metadataRootIdentity"), dict):
+        raise StoreError("manifest metadataRootIdentity is missing")
+    roles = obj.get("roles")
+    if not isinstance(roles, list) or not roles:
+        raise StoreError("manifest roles must be a non-empty array")
+    seen: set[str] = set()
+    for role in roles:
+        if not isinstance(role, dict):
+            raise StoreError("role entry must be an object")
+        name = role.get("role")
+        if not isinstance(name, str) or not name or name in seen:
+            raise StoreError("role names must be unique non-empty strings")
+        seen.add(name)
+        components = role.get("parentComponents")
+        identities = role.get("parentIdentities")
+        if not isinstance(components, list) or not isinstance(identities, list):
+            raise StoreError(f"role {name}: parent components/identities are required")
+        if len(components) != len(identities):
+            raise StoreError(f"role {name}: parent component/identity count mismatch")
+        for component in components + [role.get("databaseBasename")]:
+            if (not isinstance(component, str) or not component or component in (".", "..")
+                    or "/" in component or "\\x00" in component or "\\\\" in component):
+                raise StoreError(f"role {name}: invalid path component")
+        if not isinstance(role.get("databaseIdentity"), dict):
+            raise StoreError(f"role {name}: database identity is required")
+        if role.get("state") not in ("enrolling", "active", "disabled", "recovery-required"):
+            raise StoreError(f"role {name}: invalid state")
+        if not isinstance(role.get("sidecars"), list):
+            raise StoreError(f"role {name}: sidecars must be an array")
+    return obj
+
+
+def _anchor_bytes(generation: int, digest: str) -> bytes:
+    return _canonical_json({"schemaVersion": 1, "generation": generation,
+                            "manifestSha256": digest})
+
+
+def _parse_anchor(data: bytes) -> tuple[int, str]:
+    obj = _parse(data, "anchor")
+    generation = obj.get("generation")
+    digest = obj.get("manifestSha256")
+    if (obj.get("schemaVersion") != 1 or not isinstance(generation, int)
+            or isinstance(generation, bool) or generation < 1
+            or not isinstance(digest, str) or len(digest) != 64
+            or any(ch not in "0123456789abcdef" for ch in digest)):
+        raise StoreError("anchor fields are invalid")
+    return generation, digest
+
+
+class ManifestStore:
+    def __init__(self, manifest_root: str, anchor_root: str):
+        self.manifest_fd = _open_trusted_dir(manifest_root)
+        try:
+            self.anchor_fd = _open_trusted_dir(anchor_root)
+        except Exception:
+            os.close(self.manifest_fd)
+            raise
+
+    def close(self) -> None:
+        os.close(self.manifest_fd)
+        os.close(self.anchor_fd)
+
+    def _load_pair(self) -> tuple[dict[str, Any], bytes, int, str]:
+        anchor_data = _read_named(self.anchor_fd, ANCHOR)
+        if anchor_data is None:
+            raise StoreError("anchor is not initialized")
+        generation, expected_digest = _parse_anchor(anchor_data)
+        current = _read_named(self.manifest_fd, MANIFEST)
+        staged = _read_named(self.manifest_fd, STAGED)
+        for candidate, is_staged in ((current, False), (staged, True)):
+            if candidate is None:
+                continue
+            digest = hashlib.sha256(candidate).hexdigest()
+            if digest == expected_digest:
+                manifest = _validate_manifest(candidate)
+                if manifest["generation"] != generation:
+                    raise StoreError("manifest/anchor generation mismatch")
+                if is_staged:
+                    os.replace(STAGED, MANIFEST, src_dir_fd=self.manifest_fd,
+                               dst_dir_fd=self.manifest_fd)
+                    os.fsync(self.manifest_fd)
+                return manifest, candidate, generation, expected_digest
+        raise StoreError("manifest does not match protected anchor; recovery required")
+
+    def initialize(self, manifest_data: bytes) -> None:
+        if _read_named(self.anchor_fd, ANCHOR) is not None:
+            raise StoreError("anchor already initialized")
+        manifest = _validate_manifest(manifest_data)
+        if manifest["generation"] != 1:
+            raise StoreError("initial manifest generation must be 1")
+        canonical = _canonical_json(manifest)
+        digest = hashlib.sha256(canonical).hexdigest()
+        _write_atomic(self.manifest_fd, STAGED, STAGED, canonical)
+        _write_atomic(self.anchor_fd, ANCHOR_NEXT, ANCHOR,
+                      _anchor_bytes(1, digest))
+        os.replace(STAGED, MANIFEST, src_dir_fd=self.manifest_fd,
+                   dst_dir_fd=self.manifest_fd)
+        os.fsync(self.manifest_fd)
+
+    def load(self) -> dict[str, Any]:
+        return self._load_pair()[0]
+
+    def commit(self, manifest_data: bytes) -> dict[str, Any]:
+        current, _, generation, _ = self._load_pair()
+        candidate = _validate_manifest(manifest_data)
+        if candidate["generation"] != generation + 1:
+            raise StoreError("new manifest generation must be exactly current + 1")
+        canonical = _canonical_json(candidate)
+        digest = hashlib.sha256(canonical).hexdigest()
+        # Stage durable manifest first. Advancing the separate anchor is the commit point.
+        _write_atomic(self.manifest_fd, STAGED, STAGED, canonical)
+        _write_atomic(self.anchor_fd, ANCHOR_NEXT, ANCHOR,
+                      _anchor_bytes(generation + 1, digest))
+        # If interrupted here, load() completes the staged generation after hash verification.
+        os.replace(STAGED, MANIFEST, src_dir_fd=self.manifest_fd,
+                   dst_dir_fd=self.manifest_fd)
+        os.fsync(self.manifest_fd)
+        return candidate
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--manifest-root", required=True)
+    parser.add_argument("--anchor-root", required=True)
+    parser.add_argument("command", choices=("init", "verify", "show"))
+    parser.add_argument("--input", help="manifest JSON for init")
+    args = parser.parse_args()
+    store = ManifestStore(args.manifest_root, args.anchor_root)
+    try:
+        if args.command == "init":
+            if not args.input:
+                parser.error("init requires --input")
+            fd = os.open(args.input, FILE_FLAGS)
+            try:
+                data = _read_fd(fd)
+            finally:
+                os.close(fd)
+            store.initialize(data)
+        manifest = store.load()
+        if args.command == "show":
+            sys.stdout.buffer.write(_canonical_json(manifest))
+        else:
+            print(f"manifest verified: generation={manifest['generation']}")
+        return 0
+    except StoreError as exc:
+        print(f"manifest-store: {exc}", file=sys.stderr)
+        return 2
+    finally:
+        store.close()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
