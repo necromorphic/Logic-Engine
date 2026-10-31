@@ -293,11 +293,13 @@
                       "identity": {
                         "$ref": "#/$defs/posixIdentity"
                       }
-                    }
+                    },
+                    "type": "object"
                   },
                   "type": "array"
                 }
-              }
+              },
+              "type": "object"
             },
             "type": "array"
           }
@@ -338,11 +340,13 @@
                       "identity": {
                         "$ref": "#/$defs/windowsIdentity"
                       }
-                    }
+                    },
+                    "type": "object"
                   },
                   "type": "array"
                 }
-              }
+              },
+              "type": "object"
             },
             "type": "array"
           }
