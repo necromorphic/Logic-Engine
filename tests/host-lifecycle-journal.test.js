@@ -357,6 +357,18 @@ test('root file delta is durable, replay-idempotent and never accepted without a
   });
   assert.equal(restored.status, 'NON_READY');
   assert.match(restored.reason, /previously observed root inventory delta remains unresolved/);
+  assert.equal(restored.delta.added.length, 0);
+  assert.equal(restored.delta.removed.length, 1);
+  assert.equal(journal.verifyRootInventory(baseline).status, 'INTEGRITY_OK');
+
+  const repeatedTransition = journal.observeRootInventory({
+    ...changed,
+    event_id: 'root-delta-repeat-after-restore',
+  });
+  assert.equal(repeatedTransition.status, 'NON_READY');
+  assert.equal(repeatedTransition.sequence, 5,
+    'the same file delta after a distinct intervening state is a new journal event');
+  assert.equal(repeatedTransition.delta.modified.length, 1);
   assert.equal(journal.verifyRootInventory(baseline).status, 'INTEGRITY_OK');
 });
 
