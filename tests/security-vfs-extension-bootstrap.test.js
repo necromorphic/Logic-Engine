@@ -932,7 +932,11 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
     const registry = new DatabaseSync(':memory:');
     registry.prepare('SELECT logic_engine_vfs_probe_register_database_role(?, ?)').get(process.argv[1], 'wal-crash-recovery-child');
     const db = new DatabaseSync(process.argv[1]);
-    db.exec("PRAGMA journal_mode=WAL; BEGIN IMMEDIATE; INSERT INTO crash_probe VALUES('uncommitted-after-crash');");
+    db.exec('PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0; PRAGMA cache_size=1; BEGIN IMMEDIATE;');
+    const insert = db.prepare('INSERT INTO crash_probe(value) VALUES (?)');
+    for (let i = 0; i < 256; i += 1) {
+      insert.run('uncommitted-after-crash-' + i + '-' + 'x'.repeat(512));
+    }
     fs.writeSync(1, 'READY\\n');
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 60000);
   `;
@@ -957,6 +961,8 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
     });
   });
   await ready;
+  assert.ok(statSync(`${crashPath}-wal`).size > 32,
+    'the killed writer must have emitted WAL frames before the transaction commit marker');
   const childExit = once(child, 'exit');
   child.kill('SIGKILL');
   await childExit;
