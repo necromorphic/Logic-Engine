@@ -168,6 +168,7 @@ function verifyHostLifecycleReceipt({ event, identity }) {
     operation: event.operation,
     mutation_digest: event.mutation_digest,
     receipt_digest: event.receipt_digest,
+    occurred_at: event.occurred_at,
   };
   const expected = createHmac('sha256', secret).update(canonicalHostReceiptProof(proof), 'utf8').digest();
   const supplied = Buffer.from(event.receipt_signature, 'hex');
