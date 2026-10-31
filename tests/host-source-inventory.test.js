@@ -75,8 +75,14 @@ test('enumerates root, character and group chat files as a non-authoritative dou
   assert.equal(result.status, 'DOUBLE_SCAN_CANDIDATE');
   assert.equal(result.authority, 'NON_AUTHORITATIVE');
   assert.equal(result.completeness, 'DOUBLE_SCANNED_PATH_VIEW_ONLY');
-  assert.ok(result.blockers.includes('NO_ATOMIC_DIRECTORY_SNAPSHOT'));
-  assert.ok(result.blockers.includes('PATH_BASED_DIRECTORY_REPLACEMENT_RACE_REMAINS'));
+  if (process.platform === 'win32') {
+    assert.ok(result.blockers.includes('NO_APPLICATION_LEVEL_ATOMIC_SNAPSHOT'));
+    assert.ok(!result.blockers.includes('NO_ATOMIC_DIRECTORY_SNAPSHOT'));
+    assert.ok(!result.blockers.includes('PATH_BASED_DIRECTORY_REPLACEMENT_RACE_REMAINS'));
+  } else {
+    assert.ok(result.blockers.includes('NO_ATOMIC_DIRECTORY_SNAPSHOT'));
+    assert.ok(result.blockers.includes('PATH_BASED_DIRECTORY_REPLACEMENT_RACE_REMAINS'));
+  }
   assert.equal(result.file_count, 4);
   assert.deepEqual(result.files.map(file => file.kind).sort(), [
     'character-chat', 'group-chat', 'group-metadata', 'root-chat',
