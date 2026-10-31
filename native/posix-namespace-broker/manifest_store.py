@@ -410,7 +410,7 @@ def _renameat2_noreplace(old_dir_fd: int, old_name: str,
 
 def _quarantine_delete_at(parent_fd: int, name: str,
                           expected: dict[str, str]) -> None:
-    if (not name or name in (".", "..") or "/" in name or "\\x00" in name):
+    if (not name or name in (".", "..") or "/" in name or "\x00" in name):
         raise StoreError("invalid sidecar basename for quarantine deletion")
     quarantine_fd = _open_quarantine_dir(parent_fd, create=True)
     if quarantine_fd is None:

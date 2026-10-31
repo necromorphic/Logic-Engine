@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 from manifest_store import (
     ManifestStore, StoreError, _anchor_bytes, _canonical_json, _open_role_parent,
-    _write_atomic
+    _write_atomic, _quarantine_delete_at
 )
 
 
@@ -575,6 +575,15 @@ class ManifestStoreTests(unittest.TestCase):
         self.assertEqual(retained[0].read_bytes(), b"attacker-replacement")
         with self.assertRaises(StoreError):
             self.store.plan_recovery()
+
+
+    def test_quarantine_delete_rejects_nul_in_basename(self):
+        parent_fd = os.open(self.role_parent, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+        try:
+            with self.assertRaises(StoreError):
+                _quarantine_delete_at(parent_fd, "bad\x00name", {})
+        finally:
+            os.close(parent_fd)
 
 
 if __name__ == "__main__":
