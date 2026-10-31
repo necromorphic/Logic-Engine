@@ -9,7 +9,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from manifest_store import (
-    ManifestStore, StoreError, _anchor_bytes, _canonical_json, _open_role_parent,
+    ManifestStore, StoreError, _anchor_bytes, _canonical_json, _open_role_parent, _validate_manifest,
     _write_atomic, _quarantine_delete_at
 )
 
@@ -91,6 +91,26 @@ class ManifestStoreTests(unittest.TestCase):
             os.close(db_fd)
         return manifest(generation, self.store.metadata_identity(),
                         components, identities, db_identity)
+
+    def test_rejects_database_identity_aliased_across_roles(self):
+        import json
+        value = json.loads(self.data(1))
+        second = dict(value["roles"][0])
+        second["role"] = "vectors"
+        value["roles"].append(second)
+        with self.assertRaises(StoreError):
+            _validate_manifest(_canonical_json(value))
+
+    def test_rejects_sidecar_identity_aliased_to_database(self):
+        import json
+        value = json.loads(self.data(1))
+        value["generation"] = 2
+        value["roles"][0]["sidecars"] = [{
+            "kind": "wal", "identity": value["roles"][0]["databaseIdentity"],
+            "state": "active", "generation": 2
+        }]
+        with self.assertRaises(StoreError):
+            _validate_manifest(_canonical_json(value))
 
     def test_initialize_and_load(self):
         self.store.initialize(self.data(1))
