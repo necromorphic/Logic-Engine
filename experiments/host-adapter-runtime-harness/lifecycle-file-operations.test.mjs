@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -40,17 +41,25 @@ class TestJournal {
   }
 }
 
+const digest = value => createHash('sha256').update(value, 'utf8').digest('hex');
+const identity = (messageId, versionId, mes, parentVersionId = null, versionIndex = 0) => ({
+  messageId,
+  versions: [{ versionId, versionIndex, payloadDigest: digest(mes), parentVersionId }],
+  activeVersionIndex: versionIndex,
+});
 const header = () => ({
   user_name: 'Harness User',
   character_name: 'Harness Character',
   create_date: '2026-10-31 @00h 00m 00s 000ms',
-  chat_metadata: {},
+  chat_metadata: { logic_engine_conversation_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' },
 });
-const userMessage = (mes = 'first user message') => ({
+const userMessage = (mes = 'first user message', versionId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', parentVersionId = null) => ({
   name: 'Harness User', is_user: true, mes, send_date: '2026-10-31T00:00:00.000Z',
+  _logicEngineLifecycle: identity('cccccccc-cccc-4ccc-8ccc-cccccccccccc', versionId, mes, parentVersionId),
 });
-const assistantMessage = (mes = 'first reply') => ({
+const assistantMessage = (mes = 'first reply', versionId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd') => ({
   name: 'Harness Character', is_user: false, mes, send_date: '2026-10-31T00:00:01.000Z',
+  _logicEngineLifecycle: identity('eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', versionId, mes),
 });
 
 test('pinned ST 1.19.0 chat create/edit/swipe/delete/import/export/restore mutate real files and produce file-level deltas', {
@@ -144,14 +153,24 @@ test('pinned ST 1.19.0 chat create/edit/swipe/delete/import/export/restore mutat
   };
 
   const chatPath = join(directories.chats, 'Harness Character', 'chat-one.jsonl');
-  const initialChat = [header(), userMessage('ST_HARNESS_RAW_CHAT_SENTINEL'), assistantMessage()];
+  const initialChat = [
+    header(),
+    userMessage('ST_HARNESS_RAW_CHAT_SENTINEL'),
+    assistantMessage(),
+  ];
   const create = await observe(async () => {
     const response = await post('/api/chats/save', {
       avatar_url: 'Harness Character.png', file_name: 'chat-one', chat: initialChat, force: true,
     });
     assert.equal(response.status, 200, JSON.stringify(response));
     assert.equal(response.result.ok, true);
-    assert.equal((await readFile(chatPath, 'utf8')).includes('ST_HARNESS_RAW_CHAT_SENTINEL'), true);
+    const persisted = (await readFile(chatPath, 'utf8')).trim().split('\\n').map(line => JSON.parse(line));
+    assert.equal(persisted[1]._logicEngineLifecycle.messageId, 'cccccccc-cccc-4ccc-8ccc-cccccccccccc');
+    assert.equal(persisted[1]._logicEngineLifecycle.versions.length, 1);
+    assert.equal(Object.hasOwn(persisted[1], 'swipe_info'), false,
+      'user-message identity must live on the message, not an absent swipe_info array');
+    assert.equal(persisted[2]._logicEngineLifecycle.messageId, 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee');
+    assert.equal(persisted[1].mes, 'ST_HARNESS_RAW_CHAT_SENTINEL');
     return response;
   }, 'added');
   assert.ok(create.result.delta.added.some(entry => entry.path.endsWith('chat-one.jsonl')));
@@ -166,12 +185,23 @@ test('pinned ST 1.19.0 chat create/edit/swipe/delete/import/export/restore mutat
     return response;
   }, 'modified');
   assert.ok(edit.result.delta.modified.some(entry => entry.path.endsWith('chat-one.jsonl')));
+  const editedPersisted = (await readFile(chatPath, 'utf8')).trim().split('\\n').map(line => JSON.parse(line));
+  assert.equal(editedPersisted[1]._logicEngineLifecycle.versions[0].versionId, 'ffffffff-ffff-4fff-8fff-ffffffffffff');
+  assert.equal(editedPersisted[1]._logicEngineLifecycle.versions[0].parentVersionId, 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb');
 
   const swipeChat = [header(), userMessage('edited user message'), {
     ...assistantMessage('second reply'),
     swipes: ['first reply', 'second reply'],
     swipe_id: 1,
     swipe_info: [{ send_date: '2026-10-31T00:00:01.000Z' }, { send_date: '2026-10-31T00:00:02.000Z' }],
+    _logicEngineLifecycle: {
+      messageId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+      versions: [
+        { versionId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd', versionIndex: 0, payloadDigest: digest('first reply'), parentVersionId: null },
+        { versionId: '11111111-1111-4111-8111-111111111111', versionIndex: 1, payloadDigest: digest('second reply'), parentVersionId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd' },
+      ],
+      activeVersionIndex: 1,
+    },
   }];
   const swipe = await observe(async () => {
     const response = await post('/api/chats/save', {
@@ -182,11 +212,18 @@ test('pinned ST 1.19.0 chat create/edit/swipe/delete/import/export/restore mutat
     const saved = await readFile(chatPath, 'utf8');
     assert.ok(saved.includes('"swipes":["first reply","second reply"]'));
     assert.ok(saved.includes('"swipe_id":1'));
+    const persisted = saved.trim().split('\\n').map(line => JSON.parse(line));
+    assert.equal(persisted[2]._logicEngineLifecycle.versions.length, 2);
+    assert.equal(persisted[2]._logicEngineLifecycle.activeVersionIndex, 1);
+    assert.equal(persisted[2]._logicEngineLifecycle.versions[1].parentVersionId, 'dddddddd-dddd-4ddd-8ddd-dddddddddddd');
     return response;
   }, 'modified');
   assert.ok(swipe.result.delta.modified.some(entry => entry.path.endsWith('chat-one.jsonl')));
 
-  const deleteMessageChat = [header(), userMessage('edited user message')];
+  const deleteMessageChat = [
+    header(),
+    userMessage('edited user message', 'ffffffff-ffff-4fff-8fff-ffffffffffff', 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'),
+  ];
   const deleteMessage = await observe(async () => {
     const response = await post('/api/chats/save', {
       avatar_url: 'Harness Character.png', file_name: 'chat-one', chat: deleteMessageChat, force: true,
