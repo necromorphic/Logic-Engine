@@ -55,6 +55,9 @@ static _Thread_local int g_current_broker_fd = -1;
 static _Thread_local int g_current_broker_expected_role = -1;
 static _Thread_local int g_current_broker_expected_kind = -1;
 static int g_broker_backend_open_fail_count = 0;
+static int g_broker_shm_map_count = 0;
+static int g_broker_shm_map_fail_count = 0;
+static int g_shm_open_hook_count = 0;
 #endif
 #define PROBE_MAX_PINNED_PATHS 256
 typedef struct ProbePinnedPath {
@@ -840,6 +843,9 @@ static int probe_open(const char *name, int flags, int mode) {
   struct stat info;
   int is_sidecar = (g_current_sidecar_open && !g_current_sidecar_captured)
     || probe_path_is_shm(name);
+#if defined(__linux__)
+  if (probe_path_is_shm(name)) probe_counter_increment(&g_shm_open_hook_count);
+#endif
   int anchored_role_index = -1;
   const char *anchored_suffix = 0;
   int has_anchor = probe_match_role_entry(name, &anchored_role_index, &anchored_suffix);
@@ -1520,7 +1526,15 @@ PROBE_BACKEND_DELEGATE_INT(CheckReservedLock, (sqlite3_file *file, int *result),
 PROBE_BACKEND_DELEGATE_INT(FileControl, (sqlite3_file *file, int op, void *arg), (parent_file, op, arg))
 PROBE_BACKEND_DELEGATE_INT(SectorSize, (sqlite3_file *file), (parent_file))
 PROBE_BACKEND_DELEGATE_INT(DeviceCharacteristics, (sqlite3_file *file), (parent_file))
-PROBE_BACKEND_DELEGATE_INT(ShmMap, (sqlite3_file *file, int page, int page_size, int extend, void volatile **out), (parent_file, page, page_size, extend, out))
+static int probe_backend_ShmMap(sqlite3_file *file, int page, int page_size,
+                                  int extend, void volatile **out) {
+  sqlite3_file *parent_file = probe_backend_parent_file(file);
+  int rc;
+  probe_counter_increment(&g_broker_shm_map_count);
+  rc = parent_file->pMethods->xShmMap(parent_file, page, page_size, extend, out);
+  if (rc != SQLITE_OK) probe_counter_increment(&g_broker_shm_map_fail_count);
+  return rc;
+}
 PROBE_BACKEND_DELEGATE_INT(ShmLock, (sqlite3_file *file, int offset, int count, int flags), (parent_file, offset, count, flags))
 
 static void probe_backend_shm_barrier(sqlite3_file *file) {
@@ -2212,6 +2226,13 @@ static void probe_temp_file_class_rejected(sqlite3_context *context, int argc, s
 }
 
 #if defined(__linux__)
+static void probe_broker_shm_diagnostics(sqlite3_context *context, int argc, sqlite3_value **argv) {
+  (void)argc;
+  (void)argv;
+  sqlite3_result_int(context, probe_counter_read(&g_broker_shm_map_count) * 1000000
+    + probe_counter_read(&g_broker_shm_map_fail_count) * 1000
+    + probe_counter_read(&g_shm_open_hook_count));
+}
 static void probe_broker_backend_open_fail_count(sqlite3_context *context, int argc, sqlite3_value **argv) {
   (void)argc;
   (void)argv;
@@ -2945,6 +2966,9 @@ static int probe_auto_extension(sqlite3 *db, char **error, const sqlite3_api_rou
   if (rc != SQLITE_OK) return rc;
 #endif
 #if defined(__linux__)
+  rc = sqlite3_create_function(db, "logic_engine_vfs_probe_broker_shm_diagnostics", 0,
+    SQLITE_UTF8 | SQLITE_DETERMINISTIC, 0, probe_broker_shm_diagnostics, 0, 0);
+  if (rc != SQLITE_OK) return rc;
   rc = sqlite3_create_function(db, "logic_engine_vfs_probe_broker_backend_open_fail_count", 0,
     SQLITE_UTF8 | SQLITE_DETERMINISTIC, 0, probe_broker_backend_open_fail_count, 0, 0);
   if (rc != SQLITE_OK) return rc;
