@@ -107,6 +107,31 @@ Run the manifest-store tests with:
 python3 native/posix-namespace-broker/test_manifest_store.py
 ```
 
+## POSIX quarantine-delete primitive (standalone prototype)
+
+`quarantine_delete.c` adds a Linux-only deletion primitive for a pinned parent
+directory. It opens the expected entry without following symlinks, validates
+its opened-object identity and single-link regular-file status, atomically
+moves the current directory entry into a broker-private 0700 quarantine
+directory with `renameat2(RENAME_NOREPLACE)`, then opens the moved object and
+compares its identity to the original descriptor and manifest expectation.
+Only an exact match is unlinked. A replacement detected after the move is
+retained in quarantine and reported as an identity mismatch.
+
+The quarantine directory must be owned by the broker effective UID, have no
+group/other permissions, and reside on the same mount as the role parent.
+Missing `statx` mount identity or unsupported `renameat2` fails closed. The
+test injects a deterministic name replacement precisely between the initial
+open and rename, and also covers successful deletion, hard links and symlinks.
+
+This is a standalone primitive and is not yet called by `broker_server` or a
+SQLite VFS. It does not protect file contents from a process that already has
+a writable descriptor, and it is not a complete SQLite `xDelete` integration.
+On an identity mismatch, the substituted entry is moved into quarantine but
+never unlinked; operators must inspect it. Production use still requires
+broker-owned namespace policy, durable quarantine lifecycle, SQLite callback
+integration, and Windows parity.
+
 ## Explicit limitations
 
 This is only the first transport increment. It does not yet implement:
