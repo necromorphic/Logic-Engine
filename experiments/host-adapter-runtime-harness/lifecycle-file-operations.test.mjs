@@ -475,14 +475,19 @@ test('pinned ST 1.19.0 chat create/edit/swipe/delete/rename mutate real files; b
   assert.equal(groupImport.result.code, 'HOST_LIFECYCLE_BULK_MUTATION_BLOCKED',
     'group import must fail closed while lifecycle-identified chats exist');
   const groupChatPath = join(directories.groupChats, 'group-harness.jsonl');
-  await writeFile(groupChatPath, JSON.stringify(identifiedHeader(
-    'dddddddd-dddd-4ddd-8ddd-dddddddddddd', 'Harness Group'
-  )) + '\n' + JSON.stringify(identifiedMessage({
-    name: 'Harness User', mes: 'existing group chat',
-    messageId: '66666666-6666-4666-8666-666666666666',
-    versionId: '77777777-7777-4777-8777-777777777777',
-  })) + '\n');
-  await writeFile(groupMetadataPath, JSON.stringify({ id: 'group-harness', chats: [] }));
+  const groupSeed = await observe(async () => {
+    await writeFile(groupChatPath, JSON.stringify(identifiedHeader(
+      'dddddddd-dddd-4ddd-8ddd-dddddddddddd', 'Harness Group'
+    )) + '\\n' + JSON.stringify(identifiedMessage({
+      name: 'Harness User', mes: 'existing group chat',
+      messageId: '66666666-6666-4666-8666-666666666666',
+      versionId: '77777777-7777-4777-8777-777777777777',
+    })) + '\\n');
+    await writeFile(groupMetadataPath, JSON.stringify({ id: 'group-harness', chats: [] }));
+    return { status: 'SEEDED_GROUP_FIXTURE' };
+  }, 'added');
+  assert.ok(groupSeed.result.delta.added.some(entry => entry.path.endsWith('group-harness.jsonl')));
+  assert.ok(groupSeed.result.delta.added.some(entry => entry.path.endsWith('group-harness.json')));
 
   const groupSave = await observe(async () => {
     const response = await post('/api/chats/group/save', {
