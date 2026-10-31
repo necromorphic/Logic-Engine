@@ -131,6 +131,51 @@ class ManifestStoreTests(unittest.TestCase):
         # its inode after deletion, so it must not block a new live role.
         _validate_manifest(_canonical_json(value))
 
+    def test_commit_rejects_database_identity_replacement(self):
+        import json
+        self.store.initialize(self.data(1))
+        value = json.loads(self.data(2))
+        value["roles"][0]["databaseIdentity"] = {
+            "kind": "posix", "device": "99999999",
+            "inode": "99999998", "mountId": "99999997"
+        }
+        with self.assertRaises(StoreError):
+            self.store.commit(_canonical_json(value))
+        self.assertEqual(self.store.load()["generation"], 1)
+
+    def test_commit_rejects_active_sidecar_directly_retired(self):
+        _wal, _identity = self._enroll_active_wal()
+        import json
+        value = json.loads(self.data(5))
+        current = self.store.load()
+        value = json.loads(_canonical_json(current))
+        value["generation"] = current["generation"] + 1
+        value["roles"][0]["sidecars"][0]["state"] = "retired"
+        value["roles"][0]["sidecars"][0]["generation"] = value["generation"]
+        with self.assertRaises(StoreError):
+            self.store.commit(_canonical_json(value))
+        self.assertEqual(self.store.load()["generation"], current["generation"])
+
+    def test_commit_allows_retired_sidecar_replacement_in_creating_state(self):
+        import json
+        self.store.initialize(self.data(1))
+        value = json.loads(self.data(2))
+        identity = {
+            "kind": "posix", "device": "99999999",
+            "inode": "99999998", "mountId": "99999997"
+        }
+        value["roles"][0]["sidecars"] = [{
+            "kind": "wal", "identity": identity,
+            "state": "retired", "generation": 2
+        }]
+        self.store.commit(_canonical_json(value))
+        value = json.loads(_canonical_json(self.store.load()))
+        value["generation"] = 3
+        value["roles"][0]["sidecars"][0]["state"] = "creating"
+        value["roles"][0]["sidecars"][0]["generation"] = 3
+        self.store.commit(_canonical_json(value))
+        self.assertEqual(self.store.load()["roles"][0]["sidecars"][0]["state"], "creating")
+
     def test_initialize_and_load(self):
         self.store.initialize(self.data(1))
         self.assertEqual(self.store.load()["generation"], 1)
