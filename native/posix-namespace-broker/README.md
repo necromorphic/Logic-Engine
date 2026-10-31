@@ -16,15 +16,19 @@ The build uses the system C compiler and Linux Unix-domain socket APIs.
 
 ## Run a local protocol smoke test
 
-Create a private directory owned by the account running the broker:
+For a production deployment, provision the socket directory under a service-owned
+path (not inside an application-owned home directory):
 
 ```sh
-install -d -m 0700 "$HOME/.local/state/logic-engine-broker"
-uid="$(id -u)"
+sudo install -d -o logic-broker -g logic-broker -m 0700 /var/lib/logic-engine-broker
+uid="$(id -u logic-app)"
 native/posix-namespace-broker/broker_server \
-  --socket "$HOME/.local/state/logic-engine-broker/broker.sock" \
+  --socket /var/lib/logic-engine-broker/broker.sock \
   --app-uid "$uid"
 ```
+
+For a same-UID local smoke test, a private directory under the current home
+directory can be used; that does not demonstrate production UID separation.
 
 In a second terminal, as the configured application UID:
 
@@ -35,7 +39,14 @@ native/posix-namespace-broker/broker_ping \
 
 Expected output: `broker PING: OK`. Stop the broker with Ctrl+C.
 
-The smoke test uses the same UID for convenience. It does **not** demonstrate the required production separation between broker and application identities. Production deployment must run the broker under a dedicated unprivileged UID and configure the exact application UID.
+The server walks the absolute socket-parent path from `/` using
+`openat(O_DIRECTORY|O_NOFOLLOW)`. It rejects symlink components, group/other
+writable ancestors, and ancestors owned and writable by a distinct application
+UID; the final directory must be broker-owned. This protects the later pathname
+`bind()` from application-controlled parent replacement. The same-UID smoke
+test necessarily cannot demonstrate this UID separation. Production deployment
+must run the broker under a dedicated unprivileged UID and configure the exact
+application UID.
 
 ## Protocol v1 increment
 
