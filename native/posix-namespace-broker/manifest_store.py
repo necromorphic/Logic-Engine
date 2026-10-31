@@ -622,6 +622,51 @@ class ManifestStore:
             finally:
                 os.close(parent_fd)
 
+    def role_file_exists(self, role_name: str, file_kind: str = "main") -> bool:
+        """Check an enrolled role file without treating an untrusted path as absent."""
+        suffixes = {"wal": "-wal", "shm": "-shm", "journal": "-journal"}
+        if file_kind != "main" and file_kind not in suffixes:
+            raise StoreError("unsupported role file kind")
+        with _locked_roots(self.manifest_fd, self.anchor_fd, exclusive=False):
+            manifest = self._load_pair()[0]
+            matches = [entry for entry in manifest["roles"] if entry["role"] == role_name]
+            if len(matches) != 1 or matches[0]["state"] != "active":
+                raise StoreError("unknown or inactive database role")
+            role = matches[0]
+            if file_kind == "main":
+                basename = role["databaseBasename"]
+                expected = role["databaseIdentity"]
+            else:
+                sidecars = [entry for entry in role["sidecars"] if entry["kind"] == file_kind]
+                if len(sidecars) != 1 or sidecars[0]["state"] != "active":
+                    return False
+                basename = role["databaseBasename"] + suffixes[file_kind]
+                expected = sidecars[0]["identity"]
+            parent_fd = _open_role_parent(
+                role["parentComponents"], role["parentIdentities"],
+                manifest["filesystemPolicy"]["filesystem"],
+                manifest["filesystemPolicy"]["applicationUid"],
+            )
+            try:
+                try:
+                    fd = os.open(basename, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK,
+                                 dir_fd=parent_fd)
+                except FileNotFoundError:
+                    return False
+                try:
+                    info = os.fstat(fd)
+                    actual = _fd_identity(fd)
+                    if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1
+                            or info.st_uid != os.geteuid()
+                            or actual["mountId"] != _fd_mount_id(parent_fd)
+                            or actual != expected):
+                        raise StoreError("role file identity or type mismatch")
+                    return True
+                finally:
+                    os.close(fd)
+            finally:
+                os.close(parent_fd)
+
     def open_role_parent_directory(self, role_name: str) -> int:
         """Return a verified directory descriptor for VFS-relative file operations."""
         with _locked_roots(self.manifest_fd, self.anchor_fd, exclusive=False):
