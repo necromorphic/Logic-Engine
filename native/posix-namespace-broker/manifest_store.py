@@ -68,10 +68,10 @@ def _open_trusted_dir(path: str) -> int:
             if info.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
                 raise StoreError("trusted path contains group/other-writable directory")
         info = os.fstat(fd)
-        if info.st_uid not in (0, os.geteuid()):
-            raise StoreError("trusted directory is not owned by root or service UID")
-        if info.st_uid == os.geteuid() and info.st_mode & 0o077:
-            raise StoreError("service-owned trusted directory must have mode 0700")
+        if info.st_uid != os.geteuid():
+            raise StoreError("trusted directory must be owned by the broker service UID")
+        if info.st_mode & 0o077:
+            raise StoreError("trusted directory must have mode 0700")
         return fd
     except Exception:
         os.close(fd)
@@ -143,8 +143,28 @@ def _validate_manifest(data: bytes) -> dict[str, Any]:
     generation = obj.get("generation")
     if not isinstance(generation, int) or isinstance(generation, bool) or generation < 1:
         raise StoreError("manifest generation must be a positive integer")
-    if not isinstance(obj.get("metadataRootIdentity"), dict):
+    root_identity = obj.get("metadataRootIdentity")
+    if not isinstance(root_identity, dict):
         raise StoreError("manifest metadataRootIdentity is missing")
+    policy = obj.get("filesystemPolicy")
+    if (not isinstance(policy, dict)
+            or policy.get("identitySource") != "opened-handle"
+            or policy.get("directoryMutationBoundary") not in
+               ("broker-exclusive-owner", "dedicated-service-identity")
+            or not isinstance(policy.get("filesystem"), str)
+            or not policy["filesystem"]):
+        raise StoreError("manifest filesystemPolicy is invalid")
+    def check_identity(value: Any, label: str) -> None:
+        if (not isinstance(value, dict) or value.get("kind") != "posix"
+                or set(value) != {"kind", "device", "inode", "mountId"}):
+            raise StoreError(f"{label}: invalid POSIX identity shape")
+        for key in ("device", "inode", "mountId"):
+            raw = value.get(key)
+            if not isinstance(raw, str) or not raw.isascii() or not raw.isdigit():
+                raise StoreError(f"{label}: invalid {key}")
+            if (key != "device" and raw == "0") or (len(raw) > 1 and raw[0] == "0"):
+                raise StoreError(f"{label}: non-canonical {key}")
+    check_identity(root_identity, "metadataRootIdentity")
     roles = obj.get("roles")
     if not isinstance(roles, list) or not roles:
         raise StoreError("manifest roles must be a non-empty array")
@@ -166,12 +186,23 @@ def _validate_manifest(data: bytes) -> dict[str, Any]:
             if (not isinstance(component, str) or not component or component in (".", "..")
                     or "/" in component or "\\x00" in component or "\\\\" in component):
                 raise StoreError(f"role {name}: invalid path component")
-        if not isinstance(role.get("databaseIdentity"), dict):
-            raise StoreError(f"role {name}: database identity is required")
+        for index, value in enumerate(identities):
+            check_identity(value, f"role {name} parent identity {index}")
+        check_identity(role.get("databaseIdentity"), f"role {name} database identity")
         if role.get("state") not in ("enrolling", "active", "disabled", "recovery-required"):
             raise StoreError(f"role {name}: invalid state")
-        if not isinstance(role.get("sidecars"), list):
+        sidecars = role.get("sidecars")
+        if not isinstance(sidecars, list):
             raise StoreError(f"role {name}: sidecars must be an array")
+        for sidecar in sidecars:
+            if (not isinstance(sidecar, dict)
+                    or sidecar.get("kind") not in ("wal", "shm", "journal")
+                    or sidecar.get("state") not in ("creating", "active", "deleting", "retired")
+                    or not isinstance(sidecar.get("generation"), int)
+                    or isinstance(sidecar.get("generation"), bool)
+                    or sidecar["generation"] < 1):
+                raise StoreError(f"role {name}: invalid sidecar entry")
+            check_identity(sidecar.get("identity"), f"role {name} sidecar identity")
     return obj
 
 
@@ -205,6 +236,22 @@ class ManifestStore:
         os.close(self.manifest_fd)
         os.close(self.anchor_fd)
 
+    def metadata_identity(self) -> dict[str, str]:
+        info = os.fstat(self.manifest_fd)
+        mount_id = None
+        try:
+            with open(f"/proc/self/fdinfo/{self.manifest_fd}", "r", encoding="ascii") as handle:
+                for line in handle:
+                    if line.startswith("mnt_id:"):
+                        mount_id = line.split(":", 1)[1].strip()
+                        break
+        except OSError as exc:
+            raise StoreError(f"cannot read metadata directory mount identity: {exc}") from exc
+        if not mount_id or not mount_id.isdigit() or mount_id == "0":
+            raise StoreError("metadata directory mount identity is unavailable")
+        return {"kind": "posix", "device": str(info.st_dev),
+                "inode": str(info.st_ino), "mountId": mount_id}
+
     def _load_pair(self) -> tuple[dict[str, Any], bytes, int, str]:
         anchor_data = _read_named(self.anchor_fd, ANCHOR)
         if anchor_data is None:
@@ -218,6 +265,8 @@ class ManifestStore:
             digest = hashlib.sha256(candidate).hexdigest()
             if digest == expected_digest:
                 manifest = _validate_manifest(candidate)
+                if manifest["metadataRootIdentity"] != self.metadata_identity():
+                    raise StoreError("manifest metadata root identity mismatch")
                 if manifest["generation"] != generation:
                     raise StoreError("manifest/anchor generation mismatch")
                 if is_staged:
@@ -233,6 +282,8 @@ class ManifestStore:
         manifest = _validate_manifest(manifest_data)
         if manifest["generation"] != 1:
             raise StoreError("initial manifest generation must be 1")
+        if manifest["metadataRootIdentity"] != self.metadata_identity():
+            raise StoreError("manifest metadata root identity does not match opened directory")
         canonical = _canonical_json(manifest)
         digest = hashlib.sha256(canonical).hexdigest()
         _write_atomic(self.manifest_fd, STAGED, STAGED, canonical)
