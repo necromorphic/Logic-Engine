@@ -35,12 +35,14 @@ int leb_quarantine_delete_at(int parent_fd, int quarantine_fd,
                              const struct leb_file_identity *expected);
 
 typedef int (*leb_renameat2_fn)(int, const char *, int, const char *, unsigned int);
+typedef int (*leb_fsync_fn)(int);
 
 #ifdef LEB_TESTING
 int leb_quarantine_delete_at_test(int parent_fd, int quarantine_fd,
                                   const char *name,
                                   const struct leb_file_identity *expected,
-                                  leb_renameat2_fn rename_fn);
+                                  leb_renameat2_fn rename_fn,
+                                  leb_fsync_fn fsync_fn);
 #endif
 
 #endif
