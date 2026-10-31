@@ -61,6 +61,6 @@ test('SQLite role manifest rejects path traversal components and unusable identi
   assert.equal(validate(zeroInode), false, 'zero inode must fail closed');
 
   const mixedPlatform = manifest('linux', windowsIdentity);
-  assert.equal(validate(mixedPlatform), true,
-    'the structural schema accepts either identity shape; runtime must enforce platform equality');
+  assert.equal(validate(mixedPlatform), false,
+    'a Linux manifest must not contain Windows file identities');
 });
