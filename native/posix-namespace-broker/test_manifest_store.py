@@ -96,6 +96,35 @@ class ManifestStoreTests(unittest.TestCase):
         self.assertEqual(self.store.commit(self.data(2))["generation"], 2)
         self.assertEqual(self.store.load()["generation"], 2)
 
+    def test_concurrent_commits_are_serialized(self):
+        self.store.initialize(self.data(1))
+        barrier = threading.Barrier(2)
+        outcomes = []
+        failures = []
+
+        def writer():
+            local_store = ManifestStore(str(self.manifest_root), str(self.anchor_root))
+            try:
+                barrier.wait(timeout=5)
+                local_store.commit(self.data(2))
+                outcomes.append("committed")
+            except StoreError:
+                outcomes.append("rejected")
+            except Exception as exc:
+                failures.append(repr(exc))
+            finally:
+                local_store.close()
+
+        threads = [threading.Thread(target=writer) for _ in range(2)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=10)
+        self.assertTrue(all(not thread.is_alive() for thread in threads))
+        self.assertEqual(failures, [])
+        self.assertCountEqual(outcomes, ["committed", "rejected"])
+        self.assertEqual(self.store.load()["generation"], 2)
+
     def test_rejects_generation_skip(self):
         self.store.initialize(self.data(1))
         with self.assertRaises(StoreError):
