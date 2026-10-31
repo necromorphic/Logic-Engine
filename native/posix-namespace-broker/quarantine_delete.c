@@ -29,7 +29,8 @@ static int identity_from_fd(int fd, struct leb_file_identity *identity,
     if (statx(fd, "", AT_EMPTY_PATH | AT_SYMLINK_NOFOLLOW,
               STATX_TYPE | STATX_INO | STATX_MNT_ID, &sx) != 0) return -1;
     if ((sx.stx_mask & (STATX_INO | STATX_MNT_ID)) !=
-        (STATX_INO | STATX_MNT_ID)) {
+        (STATX_INO | STATX_MNT_ID) ||
+        file_stat->st_dev == 0 || sx.stx_ino == 0 || sx.stx_mnt_id == 0) {
         errno = ENOTSUP;
         return -1;
     }
