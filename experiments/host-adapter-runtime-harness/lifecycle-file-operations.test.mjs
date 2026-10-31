@@ -444,6 +444,15 @@ test('pinned ST 1.19.0 chat create/edit/swipe/delete/import/export/restore mutat
   assert.equal(repeatedIdentity.result.host_installation_id, accountIdentity.result.host_installation_id);
   assert.equal(repeatedIdentity.result.authenticated_account_id, accountIdentity.result.authenticated_account_id);
 
+  const { enumerateHostDataInventory } = await import(
+    pathToFileURL(resolve(stRoot, 'src/endpoints/host-data-inventory.mjs')).href + '?inventory-diagnostic'
+  );
+  const diagnosticInventory = await enumerateHostDataInventory({
+    directories,
+    hostCommit: expectedSha,
+  });
+  assert.equal(diagnosticInventory.source.status, 'complete',
+    JSON.stringify(diagnosticInventory.source));
   const inventory = await get('/api/logic-engine/host/inventory?conversation_uuid=aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
   assert.equal(inventory.status, 200, JSON.stringify(inventory.result));
   assert.equal(inventory.result.filesystem_inventory.status, 'complete');
