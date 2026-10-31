@@ -149,10 +149,32 @@ test('Core validates the exact Host-selected actor binding without selecting an 
   assert.equal(authorizers.readAuthorizer(scope).status, 'authorized');
 });
 
+test('Core write authorization is separate from read authorization and binds the exact belief operation', (t) => {
+  const { authorizers, scope } = setup(t);
+  const writeScope = {
+    ...scope,
+    operation: 'npc.belief.transition',
+    expected_revision: scope.world_revision,
+    expected_commit_sequence: scope.commit_sequence,
+    ...authorizers.policyAuthority.getSnapshot(),
+  };
+  const decision = authorizers.writeAuthorizer(writeScope);
+  assert.equal(decision.status, 'authorized');
+  assert.equal(decision.operation, 'npc.belief.transition');
+  assert.equal(decision.authorization_ref, 'core:npc-belief-transition-write-v1');
+  assert.equal(authorizers.writeAuthorizer({ ...writeScope, operation: 'npc.knowledge.read' }), null);
+  assert.equal(authorizers.writeAuthorizer({ ...writeScope, actor_id: 'attacker-actor' }), null);
+  assert.equal(authorizers.writeAuthorizer({
+    ...writeScope,
+    generation: writeScope.generation + 1,
+  }), null);
+});
+
 test('Core reader, belief writer, and belief-state reader reject caller-selected world or actor scope', (t) => {
   const { store, authorizers, scope, actors } = setup(t);
   const guardedEngine = new LogicEngine(store, {
     npcKnowledgeContextResolver: authorizers.resolveContext,
+    npcKnowledgeWriteAuthorizer: authorizers.writeAuthorizer,
     npcKnowledgePolicyAuthority: authorizers.policyAuthority,
     npcKnowledgeReadAuthorizer: authorizers.readAuthorizer,
     npcKnowledgeVisibilityAuthorizer: authorizers.visibilityAuthorizer,
@@ -237,6 +259,7 @@ test('Core revalidates Host binding after the acquisition query before returning
   };
   const engine = new LogicEngine(store, {
     npcKnowledgeContextResolver: authorizers.resolveContext,
+    npcKnowledgeWriteAuthorizer: authorizers.writeAuthorizer,
     npcKnowledgePolicyAuthority: authorizers.policyAuthority,
     npcKnowledgeReadAuthorizer: readAuthorizer,
     npcKnowledgeVisibilityAuthorizer: authorizers.visibilityAuthorizer,
@@ -271,6 +294,7 @@ test('Core read rejects policy generation rotation after authorization but befor
   };
   const engine = new LogicEngine(store, {
     npcKnowledgeContextResolver: authorizers.resolveContext,
+    npcKnowledgeWriteAuthorizer: authorizers.writeAuthorizer,
     npcKnowledgePolicyAuthority: authorizers.policyAuthority,
     npcKnowledgeReadAuthorizer: readAuthorizer,
     npcKnowledgeVisibilityAuthorizer: authorizers.visibilityAuthorizer,
