@@ -2,7 +2,7 @@
 
 **Status: prototype only; not production security approved.**
 
-This directory contains the incremental Linux/POSIX broker implementation required by Issue #770 / PR #839. The C `broker_server` is retained as a PING-only transport smoke test. The Python `broker_daemon.py` now verifies the persistent manifest and supports role-based descriptor opens for existing main databases and active sidecars, plus quarantine-backed deletion of active sidecars. It does not yet create sidecars, delete main databases, rename entries, or fully manage SQLite files.
+This directory contains the incremental Linux/POSIX broker implementation required by Issue #770 / PR #839. The C `broker_server` is retained as a PING-only transport smoke test. The Python `broker_daemon.py` now verifies the persistent manifest and supports role-based descriptor opens for existing main databases and active sidecars, plus durable creation and quarantine-backed deletion of active sidecars. It does not yet delete main databases, rename entries, or fully manage SQLite files.
 
 ## Build
 
@@ -54,8 +54,8 @@ application UID.
 - Peer authentication: kernel-provided `SO_PEERCRED`; request payload cannot claim an identity.
 - Fixed-size network-byte-order request and response headers.
 - Unknown operations, flags, malformed payloads and unsupported protocol versions are rejected.
-- Client-supplied ancillary descriptors are rejected. `OPEN_MAIN` and `OPEN_SIDECAR` return one broker-opened descriptor with outbound `SCM_RIGHTS`.
-- The C `broker_server` implements only `PING`; the Python daemon implements `PING`, `OPEN_MAIN`, `OPEN_SIDECAR` and `DELETE_SIDECAR.
+- Client-supplied ancillary descriptors are rejected. `OPEN_MAIN`, `OPEN_SIDECAR` and `CREATE_SIDECAR` return one broker-opened descriptor with outbound `SCM_RIGHTS`; `DELETE_SIDECAR` performs a manifest-backed quarantine deletion.
+- The C `broker_server` implements only `PING`; the Python daemon implements `PING`, `OPEN_MAIN`, `OPEN_SIDECAR`, `CREATE_SIDECAR` and `DELETE_SIDECAR`.
 
 
 ## Manifest-backed descriptor broker increment
@@ -65,7 +65,7 @@ At startup it verifies every enrolled database role and active sidecar, then
 accepts authenticated `AF_UNIX/SOCK_SEQPACKET` requests from the configured
 application UID. Requests contain a logical role name and, for sidecars, one of
 `wal`, `shm`, or `journal`; arbitrary filesystem paths are never accepted.
-`OPEN_MAIN` and `OPEN_SIDECAR` return the exact identity-verified descriptor
+`OPEN_MAIN` and `OPEN_SIDECAR` return the exact identity-verified descriptor; `CREATE_SIDECAR` creates a new empty sidecar with `O_EXCL`, fsyncs it, commits `creating` and then `active` manifest generations, and only then returns its descriptor
 through outbound `SCM_RIGHTS`. Client-supplied descriptors are rejected. The
 server processes one bounded request at a time so the manifest store's
 cross-process flock serialization is not weakened by shared in-process lock
@@ -83,8 +83,8 @@ python3 native/posix-namespace-broker/broker_daemon.py \
 ```
 
 The C `broker_server` remains a transport smoke-test server and implements
-PING only. The Python daemon currently implements PING, OPEN_MAIN, OPEN_SIDECAR
-and DELETE_SIDECAR. It does not yet create sidecars, implement ACCESS/RENAME,
+PING only. The Python daemon currently implements PING, OPEN_MAIN, OPEN_SIDECAR,
+CREATE_SIDECAR and DELETE_SIDECAR. It does not yet implement ACCESS/RENAME,
 complete automatic restart reconciliation, or integrate with the SQLite VFS. It is an incremental descriptor-broker implementation, not a
 production-ready SQLite namespace service.
 
@@ -119,9 +119,9 @@ application process using `SCM_RIGHTS`.
 
 `broker_daemon.py` now calls this method for `OPEN_MAIN` and `OPEN_SIDECAR` and
 returns the validated descriptor to the authenticated client. The SQLite VFS
-does not yet request or consume these descriptors. Sidecar creation and
-broker/VFS integration remain open; deletion uses durable deleting/retired
-manifest transitions and a private quarantine.
+does not yet request or consume these descriptors. Sidecar creation now uses durable creating/active manifest transitions and
+returns only after both commits; deletion uses durable deleting/retired
+transitions and a private quarantine. Broker/VFS integration remains open.
 
 The anchor replacement is the commit point. On restart, if the anchor references
 the staged manifest, verification completes the rename. A manifest that does not
@@ -164,7 +164,7 @@ store or runs with the broker service UID.
 
 The `recovery-plan` command provides an inspect-only sidecar recovery pass. It verifies database and parent identities, checks declared WAL/SHM/journal entries against opened-file identities, and rejects unmanifested sidecars or duplicate sidecar kinds. For interrupted creating/deleting states it reports presence and a possible manifest transition. It never deletes, renames, checkpoints, or opens a database through SQLite. A still-present deleting sidecar is retained and requires SQLite-aware recovery; the planner does not infer that unlinking a WAL or journal is safe.
 
-The broker operation set remains incomplete: sidecar creation, general namespace mutation, SQLite VFS integration and automatic crash-time mutation recovery are not implemented. Sidecar deletion is implemented as a role-scoped quarantine operation. A successful verification is a point-in-time integrity check, not a lease preventing later mutation. The OS ownership boundary must keep the application from mutating these directories after verification.
+The broker operation set remains incomplete: main-file creation/deletion, ACCESS/RENAME, SQLite VFS integration and automatic crash-time namespace mutation recovery are not implemented. Sidecar deletion is implemented as a role-scoped quarantine operation. A successful verification is a point-in-time integrity check, not a lease preventing later mutation. The OS ownership boundary must keep the application from mutating these directories after verification.
 
 Run the manifest-store tests with:
 
