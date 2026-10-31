@@ -20,11 +20,13 @@ const newId = () => {
  * Opt-in adapter boundary for explicit native ST hooks.
  * This is not a complete inventory until every mutation path is wired and tested.
  */
-export function createStLifecycleBridge({ journal, getConversationId, getSourceLocator = () => null, getChat, saveChat, publishDigest = null, publishSnapshot = null, getPersistedInventory = null }) {
+export function createStLifecycleBridge({ journal, getConversationId, getSourceLocator = () => null, getChat, saveChat, publishDigest = null, publishSnapshot = null, getPersistedInventory = null, publishLifecycleEvent = null, getLifecycleStatus = null }) {
   if (!journal || !getConversationId || !getChat || !saveChat) throw TypeError('Missing Host lifecycle bridge dependency');
   if (publishDigest !== null && typeof publishDigest !== 'function') throw TypeError('publishDigest must be a trusted callback');
   if (publishSnapshot !== null && typeof publishSnapshot !== 'function') throw TypeError('publishSnapshot must be a trusted callback');
   if (getPersistedInventory !== null && typeof getPersistedInventory !== 'function') throw TypeError('getPersistedInventory must be a trusted callback');
+  if (publishLifecycleEvent !== null && typeof publishLifecycleEvent !== 'function') throw TypeError('publishLifecycleEvent must be a trusted callback');
+  if (getLifecycleStatus !== null && typeof getLifecycleStatus !== 'function') throw TypeError('getLifecycleStatus must be a trusted callback');
   const publishQueues = new Map();
   const coreCaptureStates = new Map();
 
@@ -246,6 +248,48 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
   async function beforeMutation(operation, messageIndexes, details = {}) {
     const conversationId = await getConversationId();
     if (!conversationId || !(await enrolledOrFailClosed(conversationId))) return { status: 'NOT_ENROLLED' };
+    if (getLifecycleStatus) {
+      let remote;
+      try { remote = await getLifecycleStatus(conversationId); }
+      catch { throw Error('NON_READY: Core lifecycle journal status is unavailable; abort mutation'); }
+      if (!remote || remote.status === 'NON_READY') {
+        throw Error('NON_READY: Core lifecycle journal integrity is unavailable; abort mutation');
+      }
+      if (remote.status === 'PENDING_MUTATION') {
+        // A crash may have occurred after the local after-receipt was committed
+        // but before Core received it. Replay that exact digest-only receipt.
+        let ledger;
+        try { ledger = await journal.exportCaptureLedger(conversationId); } catch {}
+        const replay = ledger?.records?.find(row =>
+          row.operation === 'after:' + remote.operation
+          && row.payload?.mutationId === remote.mutation_id);
+        if (replay && publishLifecycleEvent) {
+          const mutationDigest = await contentDigest(JSON.stringify({
+            operation: remote.operation,
+            sourceFingerprint: replay.sourceFingerprint,
+            payload: replay.payload,
+          }));
+          const replayResult = await publishLifecycleEvent({
+            conversation_id: conversationId,
+            event_id: replay.eventId,
+            event_type: 'MUTATION_COMMITTED',
+            mutation_id: remote.mutation_id,
+            operation: remote.operation,
+            mutation_digest: mutationDigest,
+          });
+          if (!replayResult || !['appended', 'duplicate'].includes(replayResult?.lifecycle?.status)) {
+            throw Error('NON_READY: Core lifecycle receipt replay was rejected; abort mutation');
+          }
+          remote = await getLifecycleStatus(conversationId);
+        }
+        if (remote?.status !== 'NO_PENDING_MUTATION') {
+          throw Error('NON_READY: Core has an unresolved Host mutation (' + remote.operation + '); abort mutation');
+        }
+      }
+      if (remote.status !== 'NO_PENDING_MUTATION') {
+        throw Error('NON_READY: Core lifecycle journal is not in an accepted state; abort mutation');
+      }
+    }
     const pending = await journal.pendingMutation(conversationId);
     if (pending.status === 'NON_READY') throw Error('NON_READY: lifecycle journal integrity failed: ' + pending.reason);
     if (pending.status === 'PENDING_MUTATION') {
@@ -292,7 +336,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
     }
     // eventId was previously omitted here, making every enrolled mutation fail
     // with "Invalid event" before reaching the journal.
-    return journal.beforeMutation({
+    const prepared = await journal.beforeMutation({
       conversationId,
       eventId: newId(),
       operation,
@@ -300,6 +344,24 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
       sourceFingerprint: fingerprint,
       details,
     });
+    if (publishLifecycleEvent) {
+      const mutationDigest = await contentDigest(JSON.stringify({
+        operation, sourceFingerprint: fingerprint,
+        payload: { affectedVersions, details: details ?? {} },
+      }));
+      const result = await publishLifecycleEvent({
+        conversation_id: conversationId,
+        event_id: prepared.eventId,
+        event_type: 'MUTATION_PREPARED',
+        mutation_id: prepared.eventId,
+        operation,
+        mutation_digest: mutationDigest,
+      });
+      if (!result || !['appended', 'duplicate'].includes(result?.lifecycle?.status)) {
+        throw Error('NON_READY: Core did not durably accept the prepared Host mutation');
+      }
+    }
+    return prepared;
   }
 
   async function afterMutation(operation, { removedSwipeIndex = null, selectedMessageIndex = null, createdMessageIndex = null } = {}) {
@@ -460,9 +522,25 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
       eventId: newId(),
       operation: 'after:' + operation,
       sourceFingerprint: fingerprint,
-      payload: { changes, removedSwipeIndex, selectedMessageIndex, versionPayloads, tombstones },
+      payload: { changes, removedSwipeIndex, selectedMessageIndex, versionPayloads, tombstones, mutationId: pending.eventId },
     });
     if (event?.status === 'NON_READY') throw Error('NON_READY: post-mutation journal append rejected: ' + event.reason);
+    if (publishLifecycleEvent) {
+      const mutationDigest = await contentDigest(JSON.stringify({
+        operation, sourceFingerprint: fingerprint, payload: event.payload,
+      }));
+      const result = await publishLifecycleEvent({
+        conversation_id: conversationId,
+        event_id: event.eventId,
+        event_type: 'MUTATION_COMMITTED',
+        mutation_id: pending.eventId,
+        operation,
+        mutation_digest: mutationDigest,
+      });
+      if (!result || !['appended', 'duplicate'].includes(result?.lifecycle?.status)) {
+        throw Error('NON_READY: Core did not durably accept the completed Host mutation');
+      }
+    }
     const coreCapture = await publishCurrentDigestInventory(conversationId, chat, tombstones);
     return { sequence: event.sequence, messageCount: chat.length, status: 'REVIEW_ONLY', coreCaptureStatus: coreCapture.status };
   }
