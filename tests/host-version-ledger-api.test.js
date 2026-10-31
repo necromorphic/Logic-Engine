@@ -59,6 +59,8 @@ async function setup(t, {
       authenticated_account_id: input.authenticated_account_id,
       host_session_id: input.host_session_id,
       conversation_uuid: input.conversation_uuid,
+      adapter_id: 'adapter-a',
+      root_id: createHash('sha256').update('canonical-host-data-root').digest('hex'),
       ...HOST_AUTHORITY,
     }),
     resolveRootIdentity: input => ({
@@ -86,6 +88,8 @@ async function setup(t, {
       authenticated_account_id: input.authenticated_account_id,
       host_session_id: input.host_session_id,
       conversation_uuid: input.conversation_uuid,
+      adapter_id: input.adapterId,
+      root_id: createHash('sha256').update('canonical-host-data-root').digest('hex'),
       ...HOST_AUTHORITY,
     }) : null,
   });
@@ -139,6 +143,7 @@ test('root inventory API persists adapter-bound baselines and file deltas as rev
   assert.equal((await unauthorizedResponse.json()).error.code, 'HOST_ROOT_INVENTORY_NOT_AUTHORIZED');
 
   const { base, rootJournal } = await setup(t, { withRootJournal: true });
+  rootJournal.enrollRootInventory({ ...rootInventoryBody(), event_id: 'api-lifecycle-root-baseline' });
   const adapterHeaders = { ...headers, 'x-adapter-id': 'adapter-a', 'x-adapter-token': ADAPTER };
   const noAdapter = await fetch(base + '/v1/host-root-inventory/baseline', {
     method: 'POST', headers, body: json(rootInventoryBody()),
