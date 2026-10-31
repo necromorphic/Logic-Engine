@@ -5,6 +5,7 @@ import tempfile
 import threading
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from manifest_store import (
     ManifestStore, StoreError, _anchor_bytes, _canonical_json, _write_atomic
@@ -253,6 +254,19 @@ class ManifestStoreTests(unittest.TestCase):
         value["roles"][0]["databaseIdentity"]["inode"] = "0"
         with self.assertRaises(StoreError):
             self.store.initialize(_canonical_json(value))
+
+    def test_rejects_unqualified_filesystem_policy(self):
+        import json
+        value = json.loads(self.data(1))
+        value["filesystemPolicy"]["filesystem"] = "overlay"
+        with self.assertRaises(StoreError):
+            self.store.initialize(_canonical_json(value))
+
+    def test_rejects_runtime_filesystem_policy_mismatch(self):
+        self.store.initialize(self.data(1))
+        with patch("manifest_store._fd_filesystem", return_value="xfs"):
+            with self.assertRaises(StoreError):
+                self.store.verify_roles()
 
     def test_rejects_generation_skip(self):
         self.store.initialize(self.data(1))
