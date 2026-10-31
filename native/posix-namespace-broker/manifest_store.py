@@ -457,6 +457,61 @@ class ManifestStore:
                    dst_dir_fd=self.manifest_fd)
         os.fsync(self.manifest_fd)
 
+    def open_role_file(self, role_name: str, file_kind: str = "main") -> int:
+        """Return an identity-verified descriptor for an enrolled DB or active sidecar.
+
+        The returned descriptor is pinned to the verified object and may be
+        transferred to an authorized application process with SCM_RIGHTS.
+        The caller owns the returned descriptor and must close it.
+        """
+        suffixes = {"wal": "-wal", "shm": "-shm", "journal": "-journal"}
+        if file_kind != "main" and file_kind not in suffixes:
+            raise StoreError("unsupported role file kind")
+        with _locked_roots(self.manifest_fd, self.anchor_fd, exclusive=False):
+            manifest = self._load_pair()[0]
+            matches = [entry for entry in manifest["roles"] if entry["role"] == role_name]
+            if len(matches) != 1:
+                raise StoreError("unknown or ambiguous database role")
+            role = matches[0]
+            if role["state"] != "active":
+                raise StoreError(f"role {role_name} is not active")
+            if file_kind == "main":
+                basename = role["databaseBasename"]
+                expected = role["databaseIdentity"]
+                label = f"role {role_name} database"
+            else:
+                sidecars = [entry for entry in role["sidecars"] if entry["kind"] == file_kind]
+                if len(sidecars) != 1 or sidecars[0]["state"] != "active":
+                    raise StoreError(f"role {role_name} {file_kind} sidecar is not active")
+                basename = role["databaseBasename"] + suffixes[file_kind]
+                expected = sidecars[0]["identity"]
+                label = f"role {role_name} {file_kind} sidecar"
+            parent_fd = _open_role_parent(
+                role["parentComponents"], role["parentIdentities"],
+                manifest["filesystemPolicy"]["filesystem"],
+                manifest["filesystemPolicy"]["applicationUid"],
+            )
+            try:
+                flags = os.O_RDWR | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK
+                try:
+                    fd = os.open(basename, flags, dir_fd=parent_fd)
+                except OSError as exc:
+                    raise StoreError(f"{label} secure open failed: {exc}") from exc
+                try:
+                    info = os.fstat(fd)
+                    actual = _fd_identity(fd)
+                    if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1
+                            or info.st_uid != os.geteuid()
+                            or actual["mountId"] != _fd_mount_id(parent_fd)
+                            or actual != expected):
+                        raise StoreError(f"{label} identity or file type mismatch")
+                    return fd
+                except Exception:
+                    os.close(fd)
+                    raise
+            finally:
+                os.close(parent_fd)
+
     def verify_roles(self) -> None:
         with _locked_roots(self.manifest_fd, self.anchor_fd, exclusive=True):
             manifest = self._load_pair()[0]
