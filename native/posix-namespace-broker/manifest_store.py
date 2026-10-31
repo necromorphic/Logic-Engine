@@ -218,6 +218,26 @@ def _validate_manifest(data: bytes) -> dict[str, Any]:
         kinds = [entry["kind"] for entry in sidecars]
         if len(kinds) != len(set(kinds)):
             raise StoreError(f"role {name}: duplicate sidecar kind")
+    # Physical file identities must be unique across protected roles. A manifest
+    # that aliases one inode under multiple logical names makes ownership and
+    # sidecar lifecycle transitions ambiguous.
+    parent_identity_keys: set[tuple[str, str, str]] = set()
+    file_identity_keys: set[tuple[str, str, str]] = set()
+    for role in roles:
+        for identity in role["parentIdentities"]:
+            parent_identity_keys.add((identity["device"], identity["inode"], identity["mountId"]))
+    for role in roles:
+        database_identity = role["databaseIdentity"]
+        key = (database_identity["device"], database_identity["inode"], database_identity["mountId"])
+        if key in parent_identity_keys or key in file_identity_keys:
+            raise StoreError("database identity aliases a directory or another role file")
+        file_identity_keys.add(key)
+        for sidecar in role["sidecars"]:
+            identity = sidecar["identity"]
+            key = (identity["device"], identity["inode"], identity["mountId"])
+            if key in parent_identity_keys or key in file_identity_keys:
+                raise StoreError("sidecar identity aliases a directory or another role file")
+            file_identity_keys.add(key)
     return obj
 
 
