@@ -3,13 +3,14 @@ import array
 import os
 import socket
 import struct
+import stat
 import tempfile
 import threading
 import unittest
 from pathlib import Path
 
 from broker_daemon import (
-    HEADER, MAGIC, VERSION, OP_PING, OP_OPEN_MAIN, OP_OPEN_SIDECAR, OP_DELETE_SIDECAR, OP_CREATE_SIDECAR,
+    HEADER, MAGIC, VERSION, OP_PING, OP_OPEN_MAIN, OP_OPEN_SIDECAR, OP_DELETE_SIDECAR, OP_CREATE_SIDECAR, OP_OPEN_ROLE_PARENT,
     STATUS_OK, STATUS_BAD_REQUEST, STATUS_UNAUTHORIZED,
     STATUS_UNSUPPORTED, STATUS_NOT_FOUND, handle_connection,
 )
@@ -32,6 +33,10 @@ class FakeManifestStore:
     def create_role_sidecar(self, role, kind):
         self.calls.append(("create", role, kind))
         return os.open(self.path, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
+
+    def open_role_parent_directory(self, role):
+        self.calls.append(("parent", role))
+        return os.open(self.path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
 
 
 class BrokerDaemonTests(unittest.TestCase):
@@ -136,6 +141,17 @@ class BrokerDaemonTests(unittest.TestCase):
             self.assertEqual(len(fds), 1)
             self.assertEqual(os.read(fds[0], 64), b"manifest-verified-db")
             self.assertEqual(self.store.calls[-1], ("create", "core", "wal"))
+        finally:
+            for fd in fds:
+                os.close(fd)
+
+    def test_open_role_parent_returns_verified_directory_descriptor(self):
+        response, fds = self.exchange(OP_OPEN_ROLE_PARENT, b"core")
+        try:
+            self.assertEqual(response[3], STATUS_OK)
+            self.assertEqual(len(fds), 1)
+            self.assertTrue(stat.S_ISDIR(os.fstat(fds[0]).st_mode))
+            self.assertEqual(self.store.calls[-1], ("parent", "core"))
         finally:
             for fd in fds:
                 os.close(fd)
