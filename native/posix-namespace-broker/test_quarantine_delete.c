@@ -1,5 +1,4 @@
 #define _GNU_SOURCE
-#define LEB_TESTING
 #include "quarantine_delete.h"
 
 #include <assert.h>
