@@ -207,6 +207,141 @@
           }
         }
       }
+    },
+    "posixIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "device",
+        "inode",
+        "mountId"
+      ],
+      "properties": {
+        "kind": {
+          "const": "posix"
+        },
+        "device": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)$"
+        },
+        "inode": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*$"
+        },
+        "mountId": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*$"
+        }
+      }
+    },
+    "windowsIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "volumeSerial",
+        "fileId"
+      ],
+      "properties": {
+        "kind": {
+          "const": "windows"
+        },
+        "volumeSerial": {
+          "type": "string",
+          "pattern": "^[0-9A-Fa-f]{16}$"
+        },
+        "fileId": {
+          "type": "string",
+          "pattern": "^[0-9A-Fa-f]{32}$"
+        }
+      }
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "platform": {
+            "const": "linux"
+          }
+        },
+        "required": [
+          "platform"
+        ]
+      },
+      "then": {
+        "properties": {
+          "metadataRootIdentity": {
+            "$ref": "#/$defs/posixIdentity"
+          },
+          "roles": {
+            "items": {
+              "properties": {
+                "parentIdentities": {
+                  "items": {
+                    "$ref": "#/$defs/posixIdentity"
+                  }
+                },
+                "databaseIdentity": {
+                  "$ref": "#/$defs/posixIdentity"
+                },
+                "sidecars": {
+                  "items": {
+                    "properties": {
+                      "identity": {
+                        "$ref": "#/$defs/posixIdentity"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "platform": {
+            "const": "windows"
+          }
+        },
+        "required": [
+          "platform"
+        ]
+      },
+      "then": {
+        "properties": {
+          "metadataRootIdentity": {
+            "$ref": "#/$defs/windowsIdentity"
+          },
+          "roles": {
+            "items": {
+              "properties": {
+                "parentIdentities": {
+                  "items": {
+                    "$ref": "#/$defs/windowsIdentity"
+                  }
+                },
+                "databaseIdentity": {
+                  "$ref": "#/$defs/windowsIdentity"
+                },
+                "sidecars": {
+                  "items": {
+                    "properties": {
+                      "identity": {
+                        "$ref": "#/$defs/windowsIdentity"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
 }
