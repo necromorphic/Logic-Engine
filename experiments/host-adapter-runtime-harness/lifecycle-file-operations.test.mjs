@@ -175,7 +175,7 @@ test('pinned ST 1.19.0 chat create/edit/swipe/delete/import/export/restore mutat
   }, 'added');
   assert.ok(create.result.delta.added.some(entry => entry.path.endsWith('chat-one.jsonl')));
 
-  const editedChat = [header(), userMessage('edited user message'), assistantMessage()];
+  const editedChat = [header(), userMessage('edited user message', 'ffffffff-ffff-4fff-8fff-ffffffffffff', 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'), assistantMessage()];
   const edit = await observe(async () => {
     const response = await post('/api/chats/save', {
       avatar_url: 'Harness Character.png', file_name: 'chat-one', chat: editedChat, force: true,
