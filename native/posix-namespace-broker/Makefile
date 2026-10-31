@@ -11,5 +11,8 @@ broker_server: broker_server.c broker_protocol.h
 broker_ping: broker_ping.c broker_protocol.h
 	$(CC) $(CFLAGS) $(LDFLAGS) broker_ping.c -o $@
 
+test: all
+	python3 test_protocol.py
+
 clean:
 	rm -f broker_server broker_ping
