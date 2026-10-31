@@ -572,7 +572,7 @@ test('Core lifecycle API durably accepts authenticated prepare/commit receipts a
     method: 'POST', headers: adapterHeaders,
     body: json({ ...prepared, event_id: '88888888-8888-4888-8888-888888888888',
       event_type: 'MUTATION_COMMITTED', mutation_digest: prepared.mutation_digest,
-      receipt_digest: 'd'.repeat(64), occurred_at: '2026-10-31T00:00:01.000Z' }),
+      receipt_digest: 'd'.repeat(64), receipt_signature: 'e'.repeat(64), occurred_at: '2026-10-31T00:00:01.000Z' }),
   });
   assert.equal(committed.status, 201);
   assert.equal((await committed.json()).lifecycle.status, 'appended');
