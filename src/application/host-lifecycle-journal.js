@@ -965,7 +965,8 @@ export class HostLifecycleJournal {
       if (manifestSha256 === integrity.latest_manifest_sha256) {
         if (rows.length > 1) return { status: 'NON_READY', duplicate: true,
           reason: 'previously observed root inventory delta remains unresolved',
-          sequence: integrity.sequence, manifest_sha256: manifestSha256 };
+          sequence: integrity.sequence, manifest_sha256: manifestSha256,
+          ...(rows.at(-1).delta_sha256 ? { delta_sha256: rows.at(-1).delta_sha256 } : {}) };
         return { status: 'UNCHANGED_REVIEW_ONLY', sequence: integrity.sequence,
           manifest_sha256: manifestSha256 };
       }
