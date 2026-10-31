@@ -120,7 +120,7 @@ test('pinned ST 1.19.0 chat create/edit/swipe/delete/import/export/restore mutat
     chats: join(root, 'chats'),
     groups: join(root, 'groups'),
     groupChats: join(root, 'group chats'),
-    backups: join(parent, 'st-backups-outside-root'),
+    backups: join(root, 'backups'),
     characters: join(root, 'characters'),
   };
   await Promise.all([
@@ -137,11 +137,14 @@ test('pinned ST 1.19.0 chat create/edit/swipe/delete/import/export/restore mutat
   const app = express();
   app.use(express.json({ limit: '5mb' }));
   app.use((request, _response, next) => {
-    request.user = { profile: { handle: 'logic-engine-harness' }, directories };
+    const operationHandle = typeof request.headers['x-harness-operation'] === 'string'
+      ? 'logic-engine-harness-' + request.headers['x-harness-operation']
+      : 'logic-engine-harness';
+    request.user = { profile: { handle: operationHandle }, directories };
     request.session = {
-      handle: 'logic-engine-harness',
+      handle: operationHandle,
       logicEngineSessionId: '99999999-9999-4999-8999-999999999999',
-      logicEngineSessionHandle: 'logic-engine-harness',
+      logicEngineSessionHandle: operationHandle,
     };
     const uploadName = request.headers['x-harness-upload'];
     if (typeof uploadName === 'string' && uploadName && !uploadName.includes('..') && !uploadName.includes('/') && !uploadName.includes('\\')) {
@@ -239,7 +242,7 @@ test('pinned ST 1.19.0 chat create/edit/swipe/delete/import/export/restore mutat
   const create = await observe(async () => {
     const response = await post('/api/chats/save', {
       avatar_url: 'Harness Character.png', file_name: 'chat-one', chat: initialChat, force: true,
-    });
+    }, { 'x-harness-operation': 'create' });
     assert.equal(response.status, 200, JSON.stringify(response));
     assert.equal(response.result.ok, true);
     const persisted = (await readFile(chatPath, 'utf8')).trim().split('\n').map(line => JSON.parse(line));
@@ -257,7 +260,7 @@ test('pinned ST 1.19.0 chat create/edit/swipe/delete/import/export/restore mutat
   const edit = await observe(async () => {
     const response = await post('/api/chats/save', {
       avatar_url: 'Harness Character.png', file_name: 'chat-one', chat: editedChat, force: true,
-    });
+    }, { 'x-harness-operation': 'edit' });
     assert.equal(response.status, 200);
     assert.equal(response.result.ok, true);
     return response;
@@ -285,7 +288,7 @@ test('pinned ST 1.19.0 chat create/edit/swipe/delete/import/export/restore mutat
   const swipe = await observe(async () => {
     const response = await post('/api/chats/save', {
       avatar_url: 'Harness Character.png', file_name: 'chat-one', chat: swipeChat, force: true,
-    });
+    }, { 'x-harness-operation': 'swipe' });
     assert.equal(response.status, 200);
     assert.equal(response.result.ok, true);
     const saved = await readFile(chatPath, 'utf8');
@@ -306,7 +309,7 @@ test('pinned ST 1.19.0 chat create/edit/swipe/delete/import/export/restore mutat
   const deleteMessage = await observe(async () => {
     const response = await post('/api/chats/save', {
       avatar_url: 'Harness Character.png', file_name: 'chat-one', chat: deleteMessageChat, force: true,
-    });
+    }, { 'x-harness-operation': 'delete-message' });
     assert.equal(response.status, 200);
     assert.equal(response.result.ok, true);
     return response;
@@ -349,7 +352,7 @@ test('pinned ST 1.19.0 chat create/edit/swipe/delete/import/export/restore mutat
     const response = await post('/api/chats/import', {
       file_type: 'jsonl', avatar_url: 'Harness Character.png',
       user_name: 'Harness User', character_name: 'Harness Character',
-    }, { 'x-harness-upload': importUpload });
+    }, { 'x-harness-upload': importUpload, 'x-harness-operation': 'import' });
     assert.equal(response.status, 200, JSON.stringify(response));
     assert.equal(response.result.res, true);
     assert.equal(response.result.fileNames.length, 1);
@@ -358,11 +361,7 @@ test('pinned ST 1.19.0 chat create/edit/swipe/delete/import/export/restore mutat
   assert.ok(imported.result.delta.added.some(entry => entry.path.startsWith('chats/Harness Character/')));
 
   const backupName = 'chat_harness_restore.jsonl';
-  const restoreBackupDirectory = join(root, 'backups');
-  await mkdir(restoreBackupDirectory, { recursive: true });
-  const asynchronousBackupDirectory = directories.backups;
-  directories.backups = restoreBackupDirectory;
-  await writeFile(join(restoreBackupDirectory, backupName), JSON.stringify(identifiedHeader(
+  await writeFile(join(directories.backups, backupName), JSON.stringify(identifiedHeader(
     'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
   )) + '\n' + JSON.stringify(identifiedMessage({
     mes: 'restored backup message',
@@ -372,13 +371,12 @@ test('pinned ST 1.19.0 chat create/edit/swipe/delete/import/export/restore mutat
   const restored = await observe(async () => {
     const download = await post('/api/backups/chat/download', { name: backupName });
     assert.equal(download.status, 200);
-    directories.backups = asynchronousBackupDirectory;
     const restoreUpload = 'restore-chat.jsonl';
     await writeFile(join(uploads, restoreUpload), download.result);
     const response = await post('/api/chats/import', {
       file_type: 'jsonl', avatar_url: 'Harness Character.png',
       user_name: 'Harness User', character_name: 'Harness Character',
-    }, { 'x-harness-upload': restoreUpload });
+    }, { 'x-harness-upload': restoreUpload, 'x-harness-operation': 'restore' });
     assert.equal(response.status, 200, JSON.stringify(response));
     assert.equal(response.result.res, true);
     return response;
@@ -413,7 +411,7 @@ test('pinned ST 1.19.0 chat create/edit/swipe/delete/import/export/restore mutat
   const groupSave = await observe(async () => {
     const response = await post('/api/chats/group/save', {
       id: 'group-harness', chat: [header(), userMessage('group save'), assistantMessage()], force: true,
-    });
+    }, { 'x-harness-operation': 'group-save' });
     assert.equal(response.status, 200);
     assert.equal(response.result.ok, true);
     const metadata = JSON.parse(await readFile(groupMetadataPath, 'utf8'));
