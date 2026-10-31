@@ -548,7 +548,7 @@ export class HostLifecycleJournal {
       WHERE host_installation_id=? AND authenticated_account_id=? AND event_id=?
     `).get(host_installation_id, authenticated_account_id, event_id);
     if (existing) {
-      if (existing.event_type !== event_type || existing.manifest_sha256 !== manifest_sha256
+      if (existing.root_id !== root_id || existing.event_type !== event_type || existing.manifest_sha256 !== manifest_sha256
         || existing.delta_sha256 !== delta_sha256) throw new Error('HOST_ROOT_INVENTORY_EVENT_ID_CONFLICT');
       return { status: 'duplicate', sequence: existing.sequence, event_sha256: existing.event_sha256 };
     }
@@ -627,6 +627,11 @@ export class HostLifecycleJournal {
       const integrity = this.#verifyRootInventoryRows(input.host_installation_id,
         input.authenticated_account_id, input.root_id, rows);
       if (!integrity.valid) throw new Error(integrity.reason);
+      const reusedEventId = rows.find((row) => row.event_id === input.event_id);
+      if (reusedEventId && (reusedEventId.event_type !== 'DELTA_OBSERVED'
+        || reusedEventId.manifest_sha256 !== manifestSha256)) {
+        throw new Error('HOST_ROOT_INVENTORY_EVENT_ID_CONFLICT');
+      }
       const baseline = JSON.parse(rows[0].canonical_event_json);
       if (manifestSha256 === integrity.baseline_manifest_sha256) {
         if (rows.length > 1) return { status: 'NON_READY',
