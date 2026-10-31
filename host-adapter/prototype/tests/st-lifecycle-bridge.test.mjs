@@ -17,7 +17,7 @@ class FakeStore {
         queueMicrotask(() => {
           request.result = [...this.db.rows.values()].filter(row => row.conversationId === range.only);
           request.onsuccess?.();
-          this.db.finish(this.tx);
+          if (this.tx.mode === 'readonly') this.db.finish(this.tx);
         });
         return request;
       },
@@ -28,7 +28,7 @@ class FakeStore {
     queueMicrotask(() => {
       request.result = this.db.heads.get(key);
       request.onsuccess?.();
-      this.db.finish(this.tx);
+      if (this.tx.mode === 'readonly') this.db.finish(this.tx);
     });
     return request;
   }
@@ -48,12 +48,13 @@ class FakeStore {
 }
 class FakeTransaction {
   error = null; oncomplete = null; onerror = null; onabort = null;
-  constructor(db, names) { this.db = db; this.names = names; }
+  constructor(db, names, mode) { this.db = db; this.names = names; this.mode = mode; }
   objectStore(name) { return new FakeStore(this.db, this, name); }
+  abort() { this.error = Error('transaction aborted'); setImmediate(() => this.onabort?.()); }
 }
 class FakeDB {
   rows = new Map(); heads = new Map(); failNextWrite = false;
-  transaction(names) { return new FakeTransaction(this, names); }
+  transaction(names, mode = 'readonly') { return new FakeTransaction(this, names, mode); }
   finish(tx) { setImmediate(() => tx.oncomplete?.()); }
 }
 
@@ -134,6 +135,33 @@ async function makePersistedInventory(chat, { sessionId, conversationUuid, userH
     }],
   };
 }
+
+test('lifecycle mutations require a matching durable before/after pair', async () => {
+  const f = makeFixture();
+  await f.bridge.enrollCurrentConversation();
+
+  const before = await f.bridge.beforeMutation('edit-message', [0]);
+  assert.equal(before.operation, 'before:edit-message');
+  await assert.rejects(
+    () => f.bridge.beforeMutation('delete-message', [1]),
+    /previous lifecycle operation is incomplete/,
+  );
+
+  f.chat[0].mes = 'hello edited';
+  const after = await f.bridge.afterMutation('edit-message');
+  assert.equal(after.status, 'REVIEW_ONLY');
+  await assert.rejects(
+    () => f.bridge.afterMutation('edit-message'),
+    /afterMutation has no matching durable beforeMutation/,
+  );
+
+  const ledger = await f.journal.exportCaptureLedger('chat-1');
+  assert.deepEqual(
+    ledger.records.filter(record => record.operation.startsWith('before:') || record.operation.startsWith('after:'))
+      .map(record => record.operation),
+    ['before:edit-message', 'after:edit-message'],
+  );
+});
 
 test('persisted ST inventory is cross-checked against the session-bound conversation without claiming authority', async () => {
   const sessionId = '2e6b0a80-4e73-4c66-aaf3-7a6e62c7f401';
@@ -453,7 +481,7 @@ test('native save failure leaves the journal behind so the next mutation fails c
   f.setFailSave(true);
   await assert.rejects(f.bridge.afterMutation('edit-message'), /simulated native chat save failure/);
   f.setFailSave(false);
-  await assert.rejects(f.bridge.beforeMutation('delete-message', [0]), /fingerprint differs/);
+  await assert.rejects(f.bridge.beforeMutation('delete-message', [0]), /previous lifecycle operation is incomplete/);
 });
 
 test('empty chat enrollment is explicit and does not imply pre-enrollment history', async () => {
@@ -556,6 +584,7 @@ test('reconciliation rejects identity metadata whose digest no longer matches na
 test('new-message reconciliation fails closed when an existing identity is missing', async () => {
   const f = makeFixture();
   await f.bridge.enrollCurrentConversation();
+  await f.bridge.beforeMutation('create-message', []);
   const before = await f.journal.verifyIntegrity('chat-1');
   delete f.chat[0]._logicEngineLifecycle;
   f.chat.push({ is_user: false, mes: 'new reply' });
@@ -572,6 +601,7 @@ test('new-message reconciliation fails closed when an existing identity is missi
 test('create-message checkpoint refuses to absorb an unhooked edit in earlier messages', async () => {
   const f = makeFixture();
   await f.bridge.enrollCurrentConversation();
+  await f.bridge.beforeMutation('create-message', []);
   const before = await f.journal.verifyIntegrity('chat-1');
   f.chat[0].mes = 'external edit before new message';
   f.chat.push({ is_user: false, mes: 'new reply' });
@@ -588,6 +618,7 @@ test('create-message assigns identity only to the explicitly appended tail messa
   const f = makeFixture();
   await f.bridge.enrollCurrentConversation();
   const oldMessageIds = f.chat.map(message => message._logicEngineLifecycle.messageId);
+  await f.bridge.beforeMutation('create-message', []);
   f.chat.push({ is_user: false, mes: 'new reply' });
 
   const result = await f.bridge.afterMutation('create-message', { createdMessageIndex: 2 });
@@ -608,6 +639,7 @@ test('message-send checkpoint records the inserted user message and receive pres
   assert.deepEqual(f.chat.slice(0, 2).map(message => message._logicEngineLifecycle.messageId), oldMessageIds);
   const sentMessageId = f.chat[2]._logicEngineLifecycle.messageId;
 
+  await f.bridge.beforeMutation('message-receive', []);
   f.chat.push({ is_user: false, mes: 'assistant reply' });
   const received = await f.bridge.afterMutation('message-receive', { createdMessageIndex: 3 });
   assert.equal(received.status, 'REVIEW_ONLY');
