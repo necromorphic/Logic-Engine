@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { SQLiteStore } from '../src/storage/sqlite-store.js';
 import { LogicEngine } from '../src/application/engine.js';
 import { HostVersionDigestLedger } from '../src/application/host-version-digest-ledger.js';
+import { HostLifecycleJournal } from '../src/application/host-lifecycle-journal.js';
 import { createApiServer } from '../src/api/server.js';
 
 const TOKEN = 'test-token-long-enough-123456';
@@ -20,6 +21,8 @@ async function setup(t, {
   withLedger = true,
   verifyInventorySnapshot = async () => false,
   sharedCoordinator = false,
+  withRootJournal = false,
+  authorizeRootIdentity = () => true,
 } = {}) {
   const directory = mkdtempSync(join(tmpdir(), 'logic-host-ledger-api-'));
   const coordinatorPath = join(directory, 'coordinator.sqlite');
@@ -42,20 +45,44 @@ async function setup(t, {
     coordinatorPath,
     verifyInventorySnapshot,
   }) : null;
+  const rootJournal = withRootJournal ? new HostLifecycleJournal({
+    path: join(directory, 'host-root-inventory.sqlite'),
+    coordinatorPath,
+    resolveIdentity: input => ({
+      authorized: true,
+      host_installation_id: input.host_installation_id,
+      authenticated_account_id: input.authenticated_account_id,
+      conversation_uuid: input.conversation_uuid,
+    }),
+    resolveRootIdentity: input => ({
+      authorized: authorizeRootIdentity(input) === true,
+      host_installation_id: input.host_installation_id,
+      authenticated_account_id: input.authenticated_account_id,
+      root_id: input.root_id,
+    }),
+  }) : null;
   const server = createApiServer({
     engine, token: TOKEN, adminToken: ADMIN,
     adapterTokens: { 'adapter-a': ADAPTER, 'adapter-b': OTHER_ADAPTER },
     hostVersionLedger: ledger,
+    hostRootInventoryJournal: rootJournal,
+    resolveHostRootIdentity: withRootJournal ? input => ({
+      authorized: input.adapterId === 'adapter-a' && authorizeRootIdentity(input) === true,
+      host_installation_id: input.host_installation_id,
+      authenticated_account_id: input.authenticated_account_id,
+      root_id: input.root_id,
+    }) : null,
   });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   t.after(async () => {
     await new Promise((resolve) => server.close(resolve));
     ledger?.close();
+    rootJournal?.close();
     store.close();
     rmSync(directory, { recursive: true, force: true });
   });
-  return { base: 'http://127.0.0.1:' + server.address().port, ledger };
+  return { base: 'http://127.0.0.1:' + server.address().port, ledger, rootJournal };
 }
 
 async function bind(base, adapterId = 'adapter-a') {
@@ -64,6 +91,94 @@ async function bind(base, adapterId = 'adapter-a') {
     body: json({ adapter_id: adapterId, conversation_id: 'stable-host-chat', world_id: 'host-ledger-api-world' }),
   });
 }
+
+const rootInventoryBody = (overrides = {}) => ({
+  host_installation_id: '11111111-1111-4111-8111-111111111111',
+  authenticated_account_id: '22222222-2222-4222-8222-222222222222',
+  root_id: createHash('sha256').update('canonical-host-data-root').digest('hex'),
+  event_id: 'root-baseline-event',
+  entries: [{
+    path: 'chats/main.jsonl',
+    identity: { dev: '1', ino: '2', mode: 33188, size: 64, mtimeMs: 1, ctimeMs: 1 },
+    sha256: createHash('sha256').update('baseline').digest('hex'),
+  }],
+  ...overrides,
+});
+
+test('root inventory API persists adapter-bound baselines and file deltas as review-only evidence', async (t) => {
+  const unavailable = await setup(t);
+  const unavailableResponse = await fetch(unavailable.base + '/v1/host-root-inventory/baseline', {
+    method: 'POST', headers, body: json(rootInventoryBody()),
+  });
+  assert.equal(unavailableResponse.status, 503);
+  assert.equal((await unavailableResponse.json()).error.code, 'HOST_ROOT_INVENTORY_UNAVAILABLE');
+
+  const unauthorized = await setup(t, { withRootJournal: true, authorizeRootIdentity: () => false });
+  const unauthorizedResponse = await fetch(unauthorized.base + '/v1/host-root-inventory/baseline', {
+    method: 'POST',
+    headers: { ...headers, 'x-adapter-id': 'adapter-a', 'x-adapter-token': ADAPTER },
+    body: json(rootInventoryBody()),
+  });
+  assert.equal(unauthorizedResponse.status, 403);
+  assert.equal((await unauthorizedResponse.json()).error.code, 'HOST_ROOT_INVENTORY_NOT_AUTHORIZED');
+
+  const { base, rootJournal } = await setup(t, { withRootJournal: true });
+  const adapterHeaders = { ...headers, 'x-adapter-id': 'adapter-a', 'x-adapter-token': ADAPTER };
+  const noAdapter = await fetch(base + '/v1/host-root-inventory/baseline', {
+    method: 'POST', headers, body: json(rootInventoryBody()),
+  });
+  assert.equal(noAdapter.status, 403);
+  assert.equal((await noAdapter.json()).error.code, 'ADAPTER_REQUIRED');
+
+  const baselineInput = rootInventoryBody();
+  const baseline = await fetch(base + '/v1/host-root-inventory/baseline', {
+    method: 'POST', headers: adapterHeaders, body: json(baselineInput),
+  });
+  assert.equal(baseline.status, 200);
+  const baselineResult = await baseline.json();
+  assert.equal(baselineResult.inventory_status, 'REVIEW_ONLY');
+  assert.equal(baselineResult.reconciliation.status, 'BASELINED_REVIEW_ONLY');
+  assert.equal(rootJournal.verifyRootInventory(baselineInput).status, 'INTEGRITY_OK');
+
+  const changedInput = rootInventoryBody({
+    event_id: 'root-delta-event',
+    entries: [{
+      path: 'chats/main.jsonl',
+      identity: { dev: '1', ino: '2', mode: 33188, size: 64, mtimeMs: 2, ctimeMs: 2 },
+      sha256: createHash('sha256').update('edited').digest('hex'),
+    }],
+  });
+  const changed = await fetch(base + '/v1/host-root-inventory/observe', {
+    method: 'POST', headers: adapterHeaders, body: json(changedInput),
+  });
+  assert.equal(changed.status, 409);
+  const changedResult = await changed.json();
+  assert.equal(changedResult.inventory_status, 'NON_READY');
+  assert.deepEqual(changedResult.reconciliation.counts, {
+    added: 0, removed: 0, modified: 1, metadata_changed: 0, replaced: 0, moved: 0,
+  });
+  assert.equal(rootJournal.verifyRootInventory(changedInput).status, 'INTEGRITY_OK');
+
+  const replay = await fetch(base + '/v1/host-root-inventory/observe', {
+    method: 'POST', headers: adapterHeaders, body: json(changedInput),
+  });
+  assert.equal(replay.status, 409);
+  assert.equal((await replay.json()).reconciliation.duplicate, true);
+
+  const conflict = await fetch(base + '/v1/host-root-inventory/observe', {
+    method: 'POST', headers: adapterHeaders,
+    body: json({ ...changedInput, entries: [{ ...changedInput.entries[0], sha256: 'f'.repeat(64) }] }),
+  });
+  assert.equal(conflict.status, 409);
+  assert.equal((await conflict.json()).error.code, 'HOST_ROOT_INVENTORY_EVENT_ID_CONFLICT');
+
+  const rawContent = await fetch(base + '/v1/host-root-inventory/observe', {
+    method: 'POST', headers: adapterHeaders,
+    body: json({ ...changedInput, content: 'raw chat text' }),
+  });
+  assert.equal(rawContent.status, 400);
+  assert.equal((await rawContent.json()).error.code, 'INVALID_HOST_ROOT_INVENTORY');
+});
 
 test('digest-only Host capture requires configured ledger, authenticated adapter and canonical Core binding', async (t) => {
   const unavailable = await setup(t, { withLedger: false });
