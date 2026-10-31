@@ -162,19 +162,21 @@ For PENDING_MUTATION, pending contains mutation ID, operation, intent digest, PR
 
 | Operation | Pinned Host path/hook | Persisted artifact set | V1 disposition |
 |---|---|---|---|
-| message-create | saveReply() create/append | target chat JSONL + version identity receipt | supported only after disk read-back |
-| swipe-create | saveReply() swipe append | chat JSONL + lineage + active swipe metadata | supported only after disk read-back |
+| create-message | saveReply() create/append | target chat JSONL + version identity receipt | supported only after disk read-back |
+| create-swipe | saveReply() swipe append | chat JSONL + lineage + active swipe metadata | supported only after disk read-back |
 | message-edit | messageEditDone() | chat JSONL + old/new version ancestry | supported only after disk read-back |
-| swipe-select | endSwipe() | chat JSONL active swipe/index metadata | supported only after disk read-back |
-| swipe-delete | deleteSwipe() | chat JSONL + deleted version tombstone | supported only after disk read-back |
-| message-delete | deleteMessage(), deleteLastMessage() | chat JSONL + deleted message/version tombstones | supported only after disk read-back |
-| chat-delete | delChat(), deleteCharacterChatByName(), group/recursive delete routes | every affected chat file and metadata | UNSUPPORTED until multi-artifact receipt exists |
-| chat-import | importCharacterChat(), importGroupChat() | destination file, lineage map, group metadata | UNSUPPORTED until source/destination receipts exist |
-| chat-export | export/download route | immutable export snapshot and destination receipt | UNSUPPORTED; download-only response is not a mutation |
-| chat-restore | backup restore routes | full restored artifact set plus prior-state manifest | UNSUPPORTED until restore isolation/rollback proof |
-| chat-copy | copy/duplicate routes | source and destination artifacts plus identity remapping | UNSUPPORTED until both sides are receipted |
-| chat-branch | createBranch() | parent metadata and new branch chat file | UNSUPPORTED until paired artifact atomicity |
-| group-metadata-migrate | migrateGroupChatsMetadataFormat() | every rewritten group/chat JSON artifact | UNSUPPORTED until batch snapshot/receipt |
+| select-swipe | endSwipe() | chat JSONL active swipe/index metadata | supported only after disk read-back |
+| delete-swipe | deleteSwipe() | chat JSONL + deleted version tombstone | supported only after disk read-back |
+| delete-message | deleteMessage(), deleteLastMessage() | chat JSONL + deleted message/version tombstones | supported only after disk read-back |
+| delete-chat / delete-group-chat / delete-character-chat-recursive | delChat(), deleteCharacterChatByName(), group/recursive delete routes | every affected chat file and metadata | UNSUPPORTED until multi-artifact receipt exists |
+| import / import-character-chat / import-group-chat | destination file, lineage map, group metadata | UNSUPPORTED until source/destination receipts exist |
+| export | export/download route | immutable export snapshot and destination receipt | UNSUPPORTED; download-only response is not a mutation |
+| restore / backup-restore | backup restore routes | full restored artifact set plus prior-state manifest | UNSUPPORTED until restore isolation/rollback proof |
+| copy-branch | copy/duplicate routes | source and destination artifacts plus identity remapping | UNSUPPORTED until both sides are receipted |
+| create-branch | createBranch() | parent metadata and new branch chat file | UNSUPPORTED until paired artifact atomicity |
+| group-metadata-migration | migrateGroupChatsMetadataFormat() | every rewritten group/chat JSON artifact | UNSUPPORTED until batch snapshot/receipt |
+
+The Core/proxy v1 mutation allowlist currently accepts only create-message, message-send, message-receive, create-swipe, select-swipe, delete-swipe, delete-message, edit-message and rename-chat. The other table rows document known Host paths but are explicitly rejected as unsupported; they are not accepted lifecycle operations. Rename remains candidate-only until its persisted rename/locator behavior is covered by a real file test.
 
 A hook is not proof of persistence. Every supported operation requires PREPARED before first write, exact save completion, fresh disk read-back, artifact-set and digest match, durable local receipt, then Core COMMITTED. Any missing hook or artifact keeps the conversation NON_READY. Export must not fabricate a COMMITTED mutation for a download-only response.
 
