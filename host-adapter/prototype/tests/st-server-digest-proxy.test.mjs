@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHostDigestProxyHandler, createHostInventoryReconcileProxyHandler, createHostRootInventoryPersistence, createHostLifecycleJournalProxy } from '../st-server-digest-proxy.mjs';
-import { createHash } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
 
 const CONFIG = {
   LOGIC_ENGINE_CORE_URL: 'http://192.168.1.10:8787',
@@ -14,7 +14,7 @@ const HOST_CONVERSATION_ID = SESSION_ID + ':22222222-2222-4222-8222-222222222222
 const LIFECYCLE_CONVERSATION_ID = SESSION_ID + ':aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa:33333333-3333-4333-8333-333333333333';
 const requestFor = (body, { sessionId = SESSION_ID, userHandle = 'alice', sessionHandle = userHandle } = {}) => ({
   body,
-  user: { profile: { handle: userHandle } },
+  user: { profile: { handle: userHandle }, directories: { root: '/tmp/st-root', chats: '/tmp/st-root/chats', groups: '/tmp/st-root/groups', groupChats: '/tmp/st-root/groupChats' } },
   session: { handle: sessionHandle, logicEngineSessionId: sessionId, logicEngineSessionHandle: userHandle },
 });
 const capture = {
@@ -343,8 +343,9 @@ test('reconciliation proxy rejects raw text, caller world scope, oversized row s
 });
 
 
-test('lifecycle journal proxy derives account identity server-side and binds event to signed session conversation', async () => {
+test('lifecycle journal proxy derives account identity and signs only server-verified persisted receipts', async () => {
   let observed;
+  const receiptCalls = [];
   const identityStore = {
     resolveAuthenticatedAccount: async handle => {
       assert.equal(handle, 'alice');
@@ -354,9 +355,24 @@ test('lifecycle journal proxy derives account identity server-side and binds eve
       };
     },
   };
+  const receiptStore = {
+    prepare: async (scope, directories) => {
+      receiptCalls.push({ type: 'prepare', scope, directories });
+      return { status: 'appended', prepared: { occurred_at: '2026-10-31T00:00:00.000Z' } };
+    },
+    commit: async (scope, directories) => {
+      receiptCalls.push({ type: 'commit', scope, directories });
+      return { status: 'appended', receipt_digest: 'f'.repeat(64), occurred_at: '2026-10-31T00:00:01.000Z' };
+    },
+    abort: async (scope, directories) => {
+      receiptCalls.push({ type: 'abort', scope, directories });
+      return { status: 'appended', receipt_digest: 'e'.repeat(64), occurred_at: '2026-10-31T00:00:01.000Z' };
+    },
+  };
   const proxy = createHostLifecycleJournalProxy({
     env: CONFIG,
     identityStore,
+    receiptStore,
     fetchImpl: async (url, options) => {
       observed = { url: String(url), options };
       return { status: 201, json: async () => ({ lifecycle: { status: 'appended' } }) };
@@ -369,7 +385,7 @@ test('lifecycle journal proxy derives account identity server-side and binds eve
     mutation_id: '55555555-5555-4555-8555-555555555555',
     operation: 'edit-message',
     mutation_digest: 'a'.repeat(64),
-    occurred_at: '2026-10-31T00:00:00.000Z',
+    occurred_at: '2000-01-01T00:00:00.000Z',
   };
   const response = responseRecorder();
   await proxy.append(requestFor(event), response);
@@ -377,7 +393,19 @@ test('lifecycle journal proxy derives account identity server-side and binds eve
   assert.equal(observed.url, 'http://192.168.1.10:8787/v1/host-lifecycle/events');
   assert.equal(observed.options.headers['x-adapter-id'], CONFIG.LOGIC_ENGINE_ADAPTER_ID);
   assert.equal(observed.options.headers['x-adapter-token'], CONFIG.LOGIC_ENGINE_ADAPTER_TOKEN);
-  assert.deepEqual(JSON.parse(observed.options.body), {
+  const preparedBody = JSON.parse(observed.options.body);
+  assert.deepEqual({
+    host_installation_id: preparedBody.host_installation_id,
+    authenticated_account_id: preparedBody.authenticated_account_id,
+    host_session_id: preparedBody.host_session_id,
+    conversation_uuid: preparedBody.conversation_uuid,
+    event_id: preparedBody.event_id,
+    event_type: preparedBody.event_type,
+    mutation_id: preparedBody.mutation_id,
+    operation: preparedBody.operation,
+    mutation_digest: preparedBody.mutation_digest,
+    occurred_at: preparedBody.occurred_at,
+  }, {
     host_installation_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
     authenticated_account_id: '22222222-2222-4222-8222-222222222222',
     host_session_id: SESSION_ID,
@@ -387,22 +415,47 @@ test('lifecycle journal proxy derives account identity server-side and binds eve
     mutation_id: event.mutation_id,
     operation: event.operation,
     mutation_digest: event.mutation_digest,
-    occurred_at: event.occurred_at,
+    occurred_at: '2026-10-31T00:00:00.000Z',
   });
+  assert.equal(receiptCalls[0].type, 'prepare');
+  assert.equal(receiptCalls[0].directories.root, '/tmp/st-root');
+
   const committedEvent = {
     ...event,
     event_id: '66666666-6666-4666-8666-666666666666',
     event_type: 'MUTATION_COMMITTED',
-    receipt_digest: 'f'.repeat(64),
-    occurred_at: '2026-10-31T00:00:01.000Z',
+    occurred_at: '2000-01-01T00:00:01.000Z',
   };
   const committedResponse = responseRecorder();
   await proxy.append(requestFor(committedEvent), committedResponse);
   assert.equal(committedResponse.statusCode, 201);
   const committedBody = JSON.parse(observed.options.body);
   assert.equal(committedBody.host_session_id, SESSION_ID);
-  assert.equal(committedBody.receipt_digest, committedEvent.receipt_digest);
+  assert.equal(committedBody.receipt_digest, 'f'.repeat(64));
   assert.equal(committedBody.mutation_digest, event.mutation_digest);
+  assert.equal(committedBody.occurred_at, '2026-10-31T00:00:01.000Z');
+  const proof = {
+    protocol_version: 1,
+    adapter_id: CONFIG.LOGIC_ENGINE_ADAPTER_ID,
+    host_installation_id: committedBody.host_installation_id,
+    authenticated_account_id: committedBody.authenticated_account_id,
+    host_session_id: committedBody.host_session_id,
+    conversation_uuid: committedBody.conversation_uuid,
+    event_id: committedBody.event_id,
+    event_type: committedBody.event_type,
+    mutation_id: committedBody.mutation_id,
+    operation: committedBody.operation,
+    mutation_digest: committedBody.mutation_digest,
+    receipt_digest: committedBody.receipt_digest,
+  };
+  const expectedSignature = createHmac('sha256', CONFIG.LOGIC_ENGINE_ADAPTER_TOKEN)
+    .update(JSON.stringify(proof), 'utf8').digest('hex');
+  assert.equal(committedBody.receipt_signature, expectedSignature);
+  assert.equal(receiptCalls[1].type, 'commit');
+
+  const forgedReceipt = responseRecorder();
+  await proxy.append(requestFor({ ...committedEvent, receipt_digest: 'b'.repeat(64) }), forgedReceipt);
+  assert.equal(forgedReceipt.statusCode, 400);
 
   const mismatchedInstallation = responseRecorder();
   await proxy.append(requestFor({ ...event, conversation_id: HOST_CONVERSATION_ID }), mismatchedInstallation);
