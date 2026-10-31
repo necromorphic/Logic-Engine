@@ -74,7 +74,7 @@ Startup order:
 7. Open the DB through that VFS. SQLite performs normal hot-journal/WAL recovery through the same secured file and lock methods.
 8. Only after successful recovery and integrity checks may the component perform schema writes or start listeners.
 
-The backend must preserve SQLite locking semantics across processes, not just threads. WAL tests must cover shared-memory mapping and locks, concurrent readers/writers, checkpoint/restart, abrupt process termination at each durable sidecar transition, hot-journal rollback, WAL replay, disk-full and I/O-error handling. `synchronous=NORMAL` and checkpoint-on-shutdown do not replace crash tests.
+The backend must preserve SQLite locking semantics across processes, not just threads. WAL tests must cover shared-memory mapping and locks, concurrent readers/writers, checkpoint/restart, abrupt process termination at each durable sidecar transition, hot-journal rollback, WAL replay, disk-full and I/O-error handling. `synchronous=NORMAL` and checkpoint-on-shutdown do not replace crash tests. The current feasibility test now characterizes cross-process `BEGIN IMMEDIATE` contention and kills a writer after forcing uncommitted WAL frames to disk, then verifies reopen, rollback of uncommitted rows and `PRAGMA integrity_check`. These tests exercise the parent VFS locking/WAL implementation; they do not prove a future custom secure file backend or persistent-manifest recovery.
 
 ## 6. ST-VectorService / better-sqlite3 separate audit
 
