@@ -25,6 +25,18 @@ const message = (id, content, versionId) => ({
   active_version_index: 0,
   versions: [version(versionId, content)],
 });
+const logicalMessage = (id, activeIndex, versions) => ({
+  message_id: id,
+  active_version_index: activeIndex,
+  versions,
+});
+const logicalVersion = (id, content, index, parent = null, active = false) => ({
+  version_id: id,
+  version_index: index,
+  parent_version_id: parent,
+  content_sha256: digest(content),
+  active,
+});
 const receiptTestRoot = join(tmpdir(), 'host-lifecycle-receipt-fixture');
 const directories = {
   root: receiptTestRoot,
@@ -156,6 +168,67 @@ test('server receipt store rejects unrelated root drift and an invalid logical t
     event_id: TERMINAL_EVENT, prepared_event_id: PREPARED_EVENT,
     occurred_at: '2026-10-31T00:00:01.000Z',
   }), directories), /HOST_LIFECYCLE_RECEIPT_PERSISTED_STATE_MISMATCH/);
+});
+
+test('server receipt store verifies swipe selection/deletion, message deletion and edit transitions', async t => {
+  const cases = [
+    {
+      operation: 'create-swipe',
+      before: [logicalMessage('m1', 0, [logicalVersion('v1', 'one', 0, null, true)])],
+      after: [logicalMessage('m1', 1, [
+        logicalVersion('v1', 'one', 0, null, false),
+        logicalVersion('v2', 'two', 1, 'v1', true),
+      ])],
+    },
+    {
+      operation: 'select-swipe',
+      before: [logicalMessage('m1', 0, [
+        logicalVersion('v1', 'one', 0, null, true),
+        logicalVersion('v2', 'two', 1, 'v1', false),
+      ])],
+      after: [logicalMessage('m1', 1, [
+        logicalVersion('v1', 'one', 0, null, false),
+        logicalVersion('v2', 'two', 1, 'v1', true),
+      ])],
+    },
+    {
+      operation: 'delete-swipe',
+      before: [logicalMessage('m1', 1, [
+        logicalVersion('v1', 'one', 0, null, false),
+        logicalVersion('v2', 'two', 1, 'v1', true),
+      ])],
+      after: [logicalMessage('m1', 0, [logicalVersion('v1', 'one', 0, null, true)])],
+    },
+    {
+      operation: 'delete-message',
+      before: [message('m1', 'one', 'v1'), message('m2', 'two', 'v2')],
+      after: [message('m1', 'one', 'v1')],
+    },
+    {
+      operation: 'edit-message',
+      before: [message('m1', 'old', 'v1')],
+      after: [logicalMessage('m1', 0, [logicalVersion('v2', 'edited', 0, 'v1', true)])],
+    },
+  ];
+  for (const [index, item] of cases.entries()) {
+    const f = fixture(t, [
+      { fileIdentity: '101', content: 'before-' + item.operation, messages: item.before },
+      { fileIdentity: '102', content: 'after-' + item.operation, messages: item.after },
+    ]);
+    const preparedScope = scope({
+      operation: item.operation,
+      mutation_id: `55555555-5555-4555-8555-55555555555${index}`,
+      event_id: `66666666-6666-4666-8666-66666666666${index}`,
+    });
+    await f.store.prepare(preparedScope, directories);
+    const committed = await f.store.commit({
+      ...preparedScope,
+      event_id: `77777777-7777-4777-8777-77777777777${index}`,
+      prepared_event_id: preparedScope.event_id,
+      occurred_at: '2026-10-31T00:00:01.000Z',
+    }, directories);
+    assert.equal(committed.status, 'appended', item.operation);
+  }
 });
 
 test('ABORTED receipt requires exact unchanged persisted state and is mutually exclusive with COMMITTED', async t => {
