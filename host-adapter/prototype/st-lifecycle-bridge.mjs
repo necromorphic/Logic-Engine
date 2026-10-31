@@ -551,29 +551,33 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
       activeVersionIndex: message._logicEngineLifecycle.activeVersionIndex,
       versions: message._logicEngineLifecycle.versions,
     }));
+    const occurredAt = new Date().toISOString();
+    const afterPayload = {
+      changes, removedSwipeIndex, selectedMessageIndex, versionPayloads, tombstones,
+      mutationId: preparedMetadata.mutationId,
+      mutationDigest: preparedMetadata.mutationDigest,
+    };
+    const receiptDigest = await contentDigest(JSON.stringify({
+      protocolVersion: 1,
+      mutationId: preparedMetadata.mutationId,
+      mutationDigest: preparedMetadata.mutationDigest,
+      operation,
+      sourceFingerprint: fingerprint,
+      payload: afterPayload,
+    }));
+    afterPayload.lifecycleOccurredAt = occurredAt;
+    afterPayload.receiptDigest = receiptDigest;
     const event = await journal.append({
       conversationId,
       eventId: newId(),
       operation: 'after:' + operation,
       sourceFingerprint: fingerprint,
-      payload: { changes, removedSwipeIndex, selectedMessageIndex, versionPayloads, tombstones,
-        mutationId: preparedMetadata.mutationId, mutationDigest: preparedMetadata.mutationDigest },
+      payload: afterPayload,
     });
     if (event?.status === 'NON_READY') throw Error('NON_READY: post-mutation journal append rejected: ' + event.reason);
     if (publishLifecycleEvent) {
-      const occurredAt = new Date().toISOString();
-      const receiptDigest = await contentDigest(JSON.stringify({
-        protocolVersion: 1,
-        mutationId: preparedMetadata.mutationId,
-        mutationDigest: preparedMetadata.mutationDigest,
-        operation,
-        sourceFingerprint: fingerprint,
-        payload: event.payload,
-      }));
-      event.payload.lifecycleOccurredAt = occurredAt;
-      event.payload.receiptDigest = receiptDigest;
-      // The current prototype has not yet proven a fresh disk read-back for every
-      // affected artifact. Core's production receipt verifier remains deny-only.
+      // This receipt currently proves a local journal checkpoint, not a fresh
+      // disk read-back for every artifact. Core production verification stays deny-only.
       let result;
       try {
         result = await publishLifecycleEvent({
