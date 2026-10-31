@@ -117,6 +117,7 @@ function revalidateNpcKnowledgeReadAuthorization(engine, request, snapshot, expe
       binding = engine.npcKnowledgeContextResolver(Object.freeze({
         adapter_id: request.adapter_id,
         conversation_id: request.conversation_id,
+        actor_id: request.actor_id,
       }));
     } catch {
       binding = null;
@@ -821,6 +822,7 @@ export class LogicEngine {
           binding = this.npcKnowledgeContextResolver(Object.freeze({
             adapter_id: requestInput.adapter_id,
             conversation_id: requestInput.conversation_id,
+            actor_id: requestInput.actor_id,
           }));
         } catch {
           binding = null;
@@ -1243,6 +1245,7 @@ export class LogicEngine {
           binding = this.npcKnowledgeContextResolver(Object.freeze({
             adapter_id: input.adapter_id,
             conversation_id: input.conversation_id,
+            actor_id: input.actor_id,
           }));
         } catch {
           binding = null;
