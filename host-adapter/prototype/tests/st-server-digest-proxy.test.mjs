@@ -369,6 +369,7 @@ test('lifecycle journal proxy derives account identity and signs only server-ver
       receiptCalls.push({ type: 'abort', scope, directories });
       return { status: 'appended', receipt_digest: 'e'.repeat(64), occurred_at: '2026-10-31T00:00:01.000Z' };
     },
+    recover: async () => ({ status: 'RECOVERY_REQUIRED' }),
   };
   const proxy = createHostLifecycleJournalProxy({
     env: CONFIG,
