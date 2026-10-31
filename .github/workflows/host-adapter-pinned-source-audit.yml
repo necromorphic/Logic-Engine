@@ -65,21 +65,24 @@ jobs:
 
       - name: Install candidate lifecycle and full-root inventory modules; apply pinned patches
         run: |
-          mkdir SillyTavern/public/scripts/logic-engine-lifecycle
-          copy /Y host-adapter/prototype/lifecycle-journal.mjs SillyTavern/public/scripts/logic-engine-lifecycle/lifecycle-journal.mjs
-          copy /Y host-adapter/prototype/st-lifecycle-bridge.mjs SillyTavern/public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs
-          copy /Y host-adapter/prototype/conversation-identity.mjs SillyTavern/public/scripts/logic-engine-lifecycle/conversation-identity.mjs
-          copy /Y host-adapter/prototype/st-server-digest-proxy.mjs SillyTavern/src/endpoints/logic-engine-lifecycle-proxy.mjs
-          copy /Y host-adapter/prototype/st-source-inventory.mjs SillyTavern/src/endpoints/st-source-inventory.mjs
-          copy /Y host-adapter/prototype/fs-inventory.js SillyTavern/src/endpoints/fs-inventory.js
-          copy /Y host-adapter/prototype/windows-vss-snapshot.mjs SillyTavern/src/endpoints/windows-vss-snapshot.mjs
-          copy /Y host-adapter/prototype/host-data-inventory.mjs SillyTavern/src/endpoints/host-data-inventory.mjs
-          copy /Y host-adapter/prototype/st-host-inventory-handler.mjs SillyTavern/src/endpoints/logic-engine-host-inventory-handler.mjs
-          copy /Y host-adapter/prototype/st-host-identity-store.mjs SillyTavern/src/endpoints/logic-engine-host-identity-store.mjs
-          copy /Y host-adapter/prototype/st-host-inventory-route.js SillyTavern/src/endpoints/logic-engine-host-inventory.js
-          git -C SillyTavern apply ../host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch
-          git -C SillyTavern apply host-adapter/prototype/patches/sillytavern-1.19.0-source-inventory-route.patch
-          git -C SillyTavern apply host-adapter/prototype/patches/issue-258-direction-a-delete-safety.patch
+          mkdir SillyTavern\public\scripts\logic-engine-lifecycle
+          copy /Y host-adapter\prototype\lifecycle-journal.mjs SillyTavern\public\scripts\logic-engine-lifecycle\lifecycle-journal.mjs
+          copy /Y host-adapter\prototype\st-lifecycle-bridge.mjs SillyTavern\public\scripts\logic-engine-lifecycle\st-lifecycle-bridge.mjs
+          copy /Y host-adapter\prototype\conversation-identity.mjs SillyTavern\public\scripts\logic-engine-lifecycle\conversation-identity.mjs
+          copy /Y host-adapter\prototype\st-server-digest-proxy.mjs SillyTavern\src\endpoints\logic-engine-lifecycle-proxy.mjs
+          copy /Y host-adapter\prototype\st-source-inventory.mjs SillyTavern\src\endpoints\st-source-inventory.mjs
+          copy /Y host-adapter\prototype\fs-inventory.js SillyTavern\src\endpoints\fs-inventory.js
+          copy /Y host-adapter\prototype\windows-vss-snapshot.mjs SillyTavern\src\endpoints\windows-vss-snapshot.mjs
+          copy /Y host-adapter\prototype\host-data-inventory.mjs SillyTavern\src\endpoints\host-data-inventory.mjs
+          copy /Y host-adapter\prototype\st-host-inventory-handler.mjs SillyTavern\src\endpoints\logic-engine-host-inventory-handler.mjs
+          copy /Y host-adapter\prototype\st-host-identity-store.mjs SillyTavern\src\endpoints\logic-engine-host-identity-store.mjs
+          copy /Y host-adapter\prototype\st-host-inventory-route.js SillyTavern\src\endpoints\logic-engine-host-inventory.js
+          git -C SillyTavern apply --check ..\host-adapter\prototype\patches\sillytavern-1.19.0-lifecycle-hooks.patch
+          git -C SillyTavern apply ..\host-adapter\prototype\patches\sillytavern-1.19.0-lifecycle-hooks.patch
+          git -C SillyTavern apply --check ..\host-adapter\prototype\patches\sillytavern-1.19.0-source-inventory-route.patch
+          git -C SillyTavern apply ..\host-adapter\prototype\patches\sillytavern-1.19.0-source-inventory-route.patch
+          git -C SillyTavern apply --check ..\host-adapter\prototype\patches\issue-258-direction-a-delete-safety.patch
+          git -C SillyTavern apply ..\host-adapter\prototype\patches\issue-258-direction-a-delete-safety.patch
           git -C SillyTavern diff --check
 
       - name: Install pinned SillyTavern dependencies
