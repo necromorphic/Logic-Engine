@@ -164,7 +164,7 @@ test('pinned ST 1.19.0 chat create/edit/swipe/delete/import/export/restore mutat
     });
     assert.equal(response.status, 200, JSON.stringify(response));
     assert.equal(response.result.ok, true);
-    const persisted = (await readFile(chatPath, 'utf8')).trim().split('\\n').map(line => JSON.parse(line));
+    const persisted = (await readFile(chatPath, 'utf8')).trim().split('\n').map(line => JSON.parse(line));
     assert.equal(persisted[1]._logicEngineLifecycle.messageId, 'cccccccc-cccc-4ccc-8ccc-cccccccccccc');
     assert.equal(persisted[1]._logicEngineLifecycle.versions.length, 1);
     assert.equal(Object.hasOwn(persisted[1], 'swipe_info'), false,
@@ -185,7 +185,7 @@ test('pinned ST 1.19.0 chat create/edit/swipe/delete/import/export/restore mutat
     return response;
   }, 'modified');
   assert.ok(edit.result.delta.modified.some(entry => entry.path.endsWith('chat-one.jsonl')));
-  const editedPersisted = (await readFile(chatPath, 'utf8')).trim().split('\\n').map(line => JSON.parse(line));
+  const editedPersisted = (await readFile(chatPath, 'utf8')).trim().split('\n').map(line => JSON.parse(line));
   assert.equal(editedPersisted[1]._logicEngineLifecycle.versions[0].versionId, 'ffffffff-ffff-4fff-8fff-ffffffffffff');
   assert.equal(editedPersisted[1]._logicEngineLifecycle.versions[0].parentVersionId, 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb');
 
@@ -212,7 +212,7 @@ test('pinned ST 1.19.0 chat create/edit/swipe/delete/import/export/restore mutat
     const saved = await readFile(chatPath, 'utf8');
     assert.ok(saved.includes('"swipes":["first reply","second reply"]'));
     assert.ok(saved.includes('"swipe_id":1'));
-    const persisted = saved.trim().split('\\n').map(line => JSON.parse(line));
+    const persisted = saved.trim().split('\n').map(line => JSON.parse(line));
     assert.equal(persisted[2]._logicEngineLifecycle.versions.length, 2);
     assert.equal(persisted[2]._logicEngineLifecycle.activeVersionIndex, 1);
     assert.equal(persisted[2]._logicEngineLifecycle.versions[1].parentVersionId, 'dddddddd-dddd-4ddd-8ddd-dddddddddddd');
