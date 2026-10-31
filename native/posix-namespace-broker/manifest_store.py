@@ -752,6 +752,21 @@ class ManifestStore:
             finally:
                 os.close(parent_fd)
 
+    def open_or_create_role_sidecar(self, role_name: str, kind: str) -> int:
+        """Return an identity-verified sidecar FD, durably enrolling it if absent."""
+        try:
+            return self.open_role_file(role_name, kind)
+        except StoreError as initial_error:
+            try:
+                return self.create_role_sidecar(role_name, kind)
+            except StoreError:
+                # Another broker request may have won the create race. Re-open
+                # only through the active manifest identity; never adopt by name.
+                try:
+                    return self.open_role_file(role_name, kind)
+                except StoreError:
+                    raise initial_error
+
     def delete_role_sidecar(self, role_name: str, kind: str) -> dict[str, Any]:
         """Delete one active sidecar through durable manifest transitions and quarantine."""
         suffixes = {"wal": "-wal", "shm": "-shm", "journal": "-journal"}
