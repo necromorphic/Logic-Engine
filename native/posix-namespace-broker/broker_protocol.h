@@ -14,7 +14,8 @@ enum leb_operation {
     LEB_OP_DELETE_SIDECAR = 4,
     LEB_OP_CREATE_SIDECAR = 5,
     LEB_OP_OPEN_ROLE_PARENT = 6,
-    LEB_OP_OPEN_OR_CREATE_SIDECAR = 7
+    LEB_OP_OPEN_OR_CREATE_SIDECAR = 7,
+    LEB_OP_ACCESS_ROLE_FILE = 8
 };
 
 enum leb_status {
