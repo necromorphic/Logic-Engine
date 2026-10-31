@@ -49,7 +49,8 @@ static int renameat2_call(int olddirfd, const char *oldpath,
 static int quarantine_delete_impl(int parent_fd, int quarantine_fd,
                                   const char *name,
                                   const struct leb_file_identity *expected,
-                                  leb_renameat2_fn rename_fn) {
+                                  leb_renameat2_fn rename_fn,
+                                  leb_fsync_fn fsync_fn) {
     struct stat parent_stat, quarantine_stat, opened_stat, moved_stat;
     struct leb_file_identity parent_id, quarantine_id, opened_id, moved_id;
     char quarantine_name[96];
@@ -59,7 +60,7 @@ static int quarantine_delete_impl(int parent_fd, int quarantine_fd,
 
     if (parent_fd < 0 || quarantine_fd < 0 || !name || name[0] == '\0' ||
         strchr(name, '/') != NULL || strcmp(name, ".") == 0 ||
-        strcmp(name, "..") == 0 || !expected || !rename_fn) {
+        strcmp(name, "..") == 0 || !expected || !rename_fn || !fsync_fn) {
         errno = EINVAL;
         return LEB_QUARANTINE_ERROR;
     }
@@ -136,7 +137,7 @@ static int quarantine_delete_impl(int parent_fd, int quarantine_fd,
      * if the second sync fails, the object remains retained rather than being
      * deleted without a durable quarantine entry.
      */
-    if (fsync(quarantine_fd) != 0 || fsync(parent_fd) != 0) {
+    if (fsync_fn(quarantine_fd) != 0 || fsync_fn(parent_fd) != 0) {
         result = LEB_QUARANTINE_RETAINED;
         goto done;
     }
@@ -145,7 +146,7 @@ static int quarantine_delete_impl(int parent_fd, int quarantine_fd,
         result = LEB_QUARANTINE_RETAINED;
         goto done;
     }
-    if (fsync(quarantine_fd) != 0) {
+    if (fsync_fn(quarantine_fd) != 0) {
         result = LEB_QUARANTINE_DURABILITY_UNCERTAIN;
         goto done;
     }
@@ -163,15 +164,16 @@ int leb_quarantine_delete_at(int parent_fd, int quarantine_fd,
                              const char *name,
                              const struct leb_file_identity *expected) {
     return quarantine_delete_impl(parent_fd, quarantine_fd, name, expected,
-                                  renameat2_call);
+                                  renameat2_call, fsync);
 }
 
 #ifdef LEB_TESTING
 int leb_quarantine_delete_at_test(int parent_fd, int quarantine_fd,
                                   const char *name,
                                   const struct leb_file_identity *expected,
-                                  leb_renameat2_fn rename_fn) {
+                                  leb_renameat2_fn rename_fn,
+                                  leb_fsync_fn fsync_fn) {
     return quarantine_delete_impl(parent_fd, quarantine_fd, name, expected,
-                                  rename_fn);
+                                  rename_fn, fsync_fn);
 }
 #endif
