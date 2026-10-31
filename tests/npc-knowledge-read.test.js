@@ -59,6 +59,24 @@ function setup(t, authorizer = (scope) => ({
   const engine = new LogicEngine(store, {
     trustedInitialKnowledgeSources: trustedRegistry,
     npcKnowledgeReadAuthorizer: authorizer,
+    npcKnowledgeWriteAuthorizer: (scope) => ({
+      status: 'authorized',
+      world_id: scope.world_id,
+      conversation_id: scope.conversation_id,
+      adapter_id: scope.adapter_id,
+      actor_id: scope.actor_id,
+      recipient: scope.recipient,
+      purpose: scope.purpose,
+      operation: scope.operation,
+      expected_revision: scope.expected_revision,
+      expected_commit_sequence: scope.expected_commit_sequence,
+      authorization_ref: 'rule:npc-belief-write-v1',
+      ...(Object.hasOwn(scope, 'authority_id') ? {
+        authority_id: scope.authority_id,
+        generation: scope.generation,
+        snapshot_fingerprint: scope.snapshot_fingerprint,
+      } : {}),
+    }),
     npcKnowledgeVisibilityAuthorizer: visibilityAuthorizer,
   });
   const binding = { adapter_id: 'adapter-st', conversation_id: 'conversation-a', world_id: 'world-a' };
@@ -324,6 +342,7 @@ test('canonical NPC belief event records the exact policy authority tuple used f
   const guardedEngine = new LogicEngine(store, {
     trustedInitialKnowledgeSources: trustedRegistry,
     npcKnowledgeContextResolver: authorizers.resolveContext,
+    npcKnowledgeWriteAuthorizer: authorizers.writeAuthorizer,
     npcKnowledgePolicyAuthority: authorizers.policyAuthority,
     npcKnowledgeReadAuthorizer: authorizers.readAuthorizer,
     npcKnowledgeVisibilityAuthorizer: authorizers.visibilityAuthorizer,
@@ -395,6 +414,7 @@ test('belief write revalidates actor binding inside the Core write transaction',
   const guardedEngine = new LogicEngine(store, {
     trustedInitialKnowledgeSources: trustedRegistry,
     npcKnowledgeContextResolver: authorizers.resolveContext,
+    npcKnowledgeWriteAuthorizer: authorizers.writeAuthorizer,
     npcKnowledgePolicyAuthority: authorizers.policyAuthority,
     npcKnowledgeReadAuthorizer: authorizers.readAuthorizer,
     npcKnowledgeVisibilityAuthorizer: (scope) => {
@@ -427,6 +447,34 @@ test('belief write revalidates actor binding inside the Core write transaction',
   assert.throws(() => actors.resolve('world-a', 'adapter-st', 'npc-a'), {
     code: 'ACTOR_NOT_AUTHORIZED',
   }, 'the independent revocation commits before the protected write transaction');
+});
+
+test('read permission alone cannot authorize a belief-state write', (t) => {
+  const { store, engine, acquisition } = setup(t);
+  const readRequest = request(store);
+  const read = engine.readNpcKnowledge(readRequest);
+  const item = read.items[0];
+  const deniedWriter = new LogicEngine(store, {
+    trustedInitialKnowledgeSources: trustedRegistry,
+    npcKnowledgeReadAuthorizer: engine.npcKnowledgeReadAuthorizer,
+    npcKnowledgeWriteAuthorizer: () => null,
+    npcKnowledgeVisibilityAuthorizer: engine.npcKnowledgeVisibilityAuthorizer,
+  });
+  const write = {
+    ...readRequest,
+    proposition_ref: propositionRefFor(item),
+    proposition_value: item.value,
+    stance: 'believes_true',
+    supporting_acquisition_ids: [item.acquisition_id],
+    contradicting_acquisition_ids: [],
+    reason_rule_ref: 'rule:belief-update-v1',
+    idempotency_key: 'read-does-not-imply-write',
+  };
+  assert.throws(() => deniedWriter.recordNpcBeliefTransition(write), {
+    code: 'NPC_KNOWLEDGE_WRITE_NOT_AUTHORIZED',
+  });
+  assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM npc_belief_transitions').get().n, 0);
+  assert.ok(acquisition.event_id);
 });
 
 test('Core prepares an actor-bound belief context only after per-acquisition visibility authorization', (t) => {
