@@ -16,7 +16,6 @@ import socket
 import stat
 import struct
 import sys
-from pathlib import Path
 from typing import Any
 
 from manifest_store import ManifestStore, StoreError, _open_trusted_dir
@@ -141,16 +140,39 @@ def handle_connection(conn: socket.socket, allowed_uid: int, store: Any) -> None
 def _open_socket_parent(path: str, application_uid: int) -> tuple[int, str]:
     if not os.path.isabs(path):
         raise ValueError("socket path must be absolute")
-    parent, basename = os.path.split(path)
-    if not basename or basename in (".", "..") or "/" in basename or "\\x00" in basename:
+    components = path.split("/")[1:]
+    if not components or any(part in ("", ".", "..") for part in components):
+        raise ValueError("socket path must not contain empty, dot, or parent components")
+    basename = components[-1]
+    if "/" in basename or "\\x00" in basename:
         raise ValueError("socket path must end in a basename")
-    parent_fd = _open_trusted_dir(parent, application_uid)
-    return parent_fd, basename
+    directory_components = components[:-1]
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW
+    fd = os.open("/", flags)
+    try:
+        for index, component in enumerate(directory_components):
+            next_fd = os.open(component, flags, dir_fd=fd)
+            info = os.fstat(next_fd)
+            os.close(fd)
+            fd = next_fd
+            if (not stat.S_ISDIR(info.st_mode)
+                    or info.st_uid not in (0, os.geteuid())
+                    or info.st_mode & (stat.S_IWGRP | stat.S_IWOTH)
+                    or (info.st_uid == application_uid and info.st_mode & stat.S_IWUSR)):
+                raise StoreError("socket path has an untrusted or application-writable ancestor")
+            if index == len(directory_components) - 1:
+                if info.st_uid != os.geteuid() or stat.S_IMODE(info.st_mode) != 0o700:
+                    raise StoreError("socket parent must be broker-owned mode 0700")
+        if not directory_components:
+            raise StoreError("socket parent directory is not configured")
+        return fd, basename
+    except Exception:
+        os.close(fd)
+        raise
 
 
 def serve(
     socket_path: str, allowed_uid: int, store: ManifestStore,
-    manifest_root: str, anchor_root: str,
 ) -> None:
     global _STOP
     parent_fd, _basename = _open_socket_parent(socket_path, allowed_uid)
@@ -208,7 +230,7 @@ def main() -> int:
         # Startup is fail-closed: no service until every enrolled role and active
         # sidecar is identity-verified against the protected manifest.
         store.verify_roles()
-        serve(args.socket, args.app_uid, store, args.manifest_root, args.anchor_root)
+        serve(args.socket, args.app_uid, store)
         return 0
     except (OSError, ValueError, RuntimeError, StoreError) as exc:
         print(f"sqlite-broker: {exc}", file=sys.stderr)
