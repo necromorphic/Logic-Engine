@@ -148,52 +148,28 @@ let hostRootInventoryJournal = null;
 let resolveHostRootIdentity = null;
 const hostLifecycleAuthorityId = process.env.ENGINE_HOST_AUTHORITY_ID;
 const hostLifecycleAuthorityGeneration = Number(process.env.ENGINE_HOST_AUTHORITY_GENERATION || '0');
-const hostLifecycleAuthorityCache = new Map();
-const hostLifecycleAuthorityCacheKey = identity => JSON.stringify([
-  identity?.adapter_id, identity?.host_installation_id, identity?.authenticated_account_id, identity?.root_id,
-]);
 function bindHostLifecycleAuthority(resolved) {
   if (!resolved || resolved.authorized !== true || !hostRootInventoryJournal
     || typeof hostLifecycleAuthorityId !== 'string' || !hostLifecycleAuthorityId.trim()
     || !Number.isSafeInteger(hostLifecycleAuthorityGeneration) || hostLifecycleAuthorityGeneration < 1
-    || !resolved.root_id) return { authorized: false };
-  let rootHead;
+    || !resolved.root_id || !resolved.adapter_id) return { authorized: false };
+  let snapshot;
   try {
-    rootHead = hostRootInventoryJournal.verifyRootInventory({
-      host_installation_id: resolved.host_installation_id,
-      authenticated_account_id: resolved.authenticated_account_id,
-      root_id: resolved.root_id,
+    snapshot = hostRootInventoryJournal.getAuthoritySnapshot({
+      ...resolved,
+      authority_id: hostLifecycleAuthorityId.trim(),
+      generation: hostLifecycleAuthorityGeneration,
     });
   } catch { return { authorized: false }; }
-  if (rootHead?.status !== 'INTEGRITY_OK' || !Number.isSafeInteger(rootHead.sequence)
-    || typeof rootHead.head_sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(rootHead.head_sha256)
-    || typeof rootHead.latest_manifest_sha256 !== 'string'
-    || !/^[a-f0-9]{64}$/.test(rootHead.latest_manifest_sha256)) return { authorized: false };
-  const authoritySnapshot = {
+  if (snapshot?.status !== 'INTEGRITY_OK' || !/^[a-f0-9]{64}$/.test(snapshot.snapshot_fingerprint ?? '')) {
+    return { authorized: false };
+  }
+  return {
+    ...resolved,
     authority_id: hostLifecycleAuthorityId.trim(),
     generation: hostLifecycleAuthorityGeneration,
-    adapter_id: resolved.adapter_id ?? null,
-    host_installation_id: resolved.host_installation_id,
-    authenticated_account_id: resolved.authenticated_account_id,
-    root_id: resolved.root_id,
-    root_inventory_sequence: rootHead.sequence,
-    root_manifest_sha256: rootHead.latest_manifest_sha256,
-    root_journal_head_sha256: rootHead.head_sha256,
+    snapshot_fingerprint: snapshot.snapshot_fingerprint,
   };
-  const snapshotFingerprint = createHash('sha256')
-    .update(JSON.stringify(authoritySnapshot), 'utf8').digest('hex');
-  const trusted = {
-    authority_id: hostLifecycleAuthorityId.trim(),
-    generation: hostLifecycleAuthorityGeneration,
-    snapshot_fingerprint: snapshotFingerprint,
-  };
-  hostLifecycleAuthorityCache.set(hostLifecycleAuthorityCacheKey(resolved), trusted);
-  return { ...resolved, ...trusted };
-}
-function resolveCachedHostLifecycleAuthority(resolved) {
-  if (!resolved || resolved.authorized !== true) return { authorized: false };
-  const trusted = hostLifecycleAuthorityCache.get(hostLifecycleAuthorityCacheKey(resolved));
-  return trusted ? { ...resolved, ...trusted } : { authorized: false };
 }
 if (hostRootIdentityRegistry.length > 0) {
   for (const record of hostRootIdentityRegistry) {
@@ -221,7 +197,14 @@ if (hostRootIdentityRegistry.length > 0) {
     // The authenticated adapter route checks the exact adapter/installation/account
     // tuple; the journal independently rechecks the deployment-owned installation
     // and account binding before appending any event.
-    resolveIdentity: input => resolveCachedHostLifecycleAuthority(resolveRegisteredHostLifecycleIdentity(hostRootIdentityRegistry, input)),
+    resolveIdentity: input => {
+      const resolved = resolveRegisteredHostLifecycleIdentity(hostRootIdentityRegistry, input);
+      return resolved.authorized && typeof hostLifecycleAuthorityId === 'string'
+        && hostLifecycleAuthorityId.trim() && Number.isSafeInteger(hostLifecycleAuthorityGeneration)
+        && hostLifecycleAuthorityGeneration > 0
+        ? { ...resolved, authority_id: hostLifecycleAuthorityId.trim(), generation: hostLifecycleAuthorityGeneration }
+        : { authorized: false };
+    },
     resolveRootIdentity: input => resolveRegisteredHostRootIdentity(hostRootIdentityRegistry, input),
   });
   if (typeof hostLifecycleAuthorityId === 'string' && hostLifecycleAuthorityId.trim()
