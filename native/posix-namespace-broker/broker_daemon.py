@@ -1,0 +1,222 @@
+#!/usr/bin/env python3
+"""Manifest-backed POSIX SQLite descriptor broker (Linux prototype).
+
+Requests identify logical database roles and sidecar kinds only. Clients never
+supply filesystem paths. Returned descriptors are the exact handles validated
+against the persistent role manifest.
+"""
+from __future__ import annotations
+
+import argparse
+import array
+import os
+import re
+import signal
+import socket
+import stat
+import struct
+import sys
+from pathlib import Path
+from typing import Any
+
+from manifest_store import ManifestStore, StoreError, _open_trusted_dir
+
+MAGIC = 0x4C454256  # LEBV
+VERSION = 2
+MAX_PACKET = 4096
+HEADER = struct.Struct("!IHHIQI")
+OP_PING = 1
+OP_OPEN_MAIN = 2
+OP_OPEN_SIDECAR = 3
+STATUS_OK = 0
+STATUS_BAD_REQUEST = 1
+STATUS_UNAUTHORIZED = 2
+STATUS_UNSUPPORTED = 3
+STATUS_INTERNAL = 4
+STATUS_NOT_FOUND = 5
+ROLE_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+SIDECAR_KINDS = frozenset({"wal", "shm", "journal"})
+_STOP = False
+
+
+def _signal_stop(_signum: int, _frame: Any) -> None:
+    global _STOP
+    _STOP = True
+
+
+def _close_ancillary_fds(ancillary: list[tuple[int, int, bytes]]) -> bool:
+    found = False
+    for level, kind, data in ancillary:
+        found = True
+        if level == socket.SOL_SOCKET and kind == socket.SCM_RIGHTS:
+            values = array.array("i")
+            usable = len(data) - (len(data) % values.itemsize)
+            values.frombytes(data[:usable])
+            for fd in values:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+    return found
+
+
+def _send_response(
+    conn: socket.socket, operation: int, status: int, request_id: int,
+    descriptor: int | None = None,
+) -> None:
+    packet = HEADER.pack(MAGIC, VERSION, operation, status, request_id, 0)
+    if descriptor is None:
+        conn.send(packet)
+        return
+    rights = array.array("i", [descriptor])
+    sent = conn.sendmsg([packet], [(socket.SOL_SOCKET, socket.SCM_RIGHTS, rights)])
+    if sent != len(packet):
+        raise OSError("short broker response")
+
+
+def _parse_role_payload(payload: bytes, operation: int) -> tuple[str, str]:
+    try:
+        decoded = payload.decode("ascii")
+    except UnicodeDecodeError as exc:
+        raise ValueError("role payload must be ASCII") from exc
+    if operation == OP_OPEN_MAIN:
+        role, separator, kind = decoded, "", "main"
+        if separator:
+            raise ValueError("main-open payload must contain only a role")
+    else:
+        parts = decoded.split("\\x00")
+        if len(parts) != 2:
+            raise ValueError("sidecar-open payload must contain role and kind")
+        role, kind = parts
+    if not ROLE_PATTERN.fullmatch(role) or (kind != "main" and kind not in SIDECAR_KINDS):
+        raise ValueError("invalid role or sidecar kind")
+    return role, kind
+
+
+def handle_connection(conn: socket.socket, allowed_uid: int, store: Any) -> None:
+    """Handle one bounded request; sequential service avoids shared-flock races."""
+    try:
+        conn.settimeout(1.0)
+        credentials = conn.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12)
+        _pid, peer_uid, _gid = struct.unpack("3i", credentials)
+        packet, ancillary, flags, _address = conn.recvmsg(
+            MAX_PACKET, socket.CMSG_SPACE(16 * array.array("i").itemsize)
+        )
+        if _close_ancillary_fds(ancillary) or flags & (socket.MSG_TRUNC | socket.MSG_CTRUNC):
+            return
+        if len(packet) < HEADER.size:
+            return
+        magic, version, operation, request_flags, request_id, payload_length = HEADER.unpack_from(packet)
+        payload = packet[HEADER.size:]
+        if (magic != MAGIC or version != VERSION or request_flags != 0
+                or payload_length != len(payload) or len(packet) > MAX_PACKET):
+            _send_response(conn, operation, STATUS_BAD_REQUEST, request_id)
+            return
+        if peer_uid != allowed_uid:
+            _send_response(conn, operation, STATUS_UNAUTHORIZED, request_id)
+            return
+        if operation == OP_PING:
+            if payload:
+                _send_response(conn, operation, STATUS_BAD_REQUEST, request_id)
+            else:
+                _send_response(conn, operation, STATUS_OK, request_id)
+            return
+        if operation not in (OP_OPEN_MAIN, OP_OPEN_SIDECAR):
+            _send_response(conn, operation, STATUS_UNSUPPORTED, request_id)
+            return
+        try:
+            role, kind = _parse_role_payload(payload, operation)
+            descriptor = store.open_role_file(role, kind)
+        except (ValueError, StoreError):
+            _send_response(conn, operation, STATUS_NOT_FOUND, request_id)
+            return
+        try:
+            _send_response(conn, operation, STATUS_OK, request_id, descriptor)
+        finally:
+            os.close(descriptor)
+    except (OSError, struct.error, socket.timeout):
+        return
+
+
+def _open_socket_parent(path: str, application_uid: int) -> tuple[int, str]:
+    if not os.path.isabs(path):
+        raise ValueError("socket path must be absolute")
+    parent, basename = os.path.split(path)
+    if not basename or basename in (".", "..") or "/" in basename or "\\x00" in basename:
+        raise ValueError("socket path must end in a basename")
+    parent_fd = _open_trusted_dir(parent, application_uid)
+    return parent_fd, basename
+
+
+def serve(
+    socket_path: str, allowed_uid: int, store: ManifestStore,
+    manifest_root: str, anchor_root: str,
+) -> None:
+    global _STOP
+    parent_fd, _basename = _open_socket_parent(socket_path, allowed_uid)
+    server = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET | socket.SOCK_CLOEXEC)
+    bound_identity: tuple[int, int] | None = None
+    try:
+        try:
+            os.lstat(socket_path)
+        except FileNotFoundError:
+            pass
+        else:
+            raise RuntimeError("broker socket already exists; refusing to replace it")
+        server.bind(socket_path)
+        os.chmod(socket_path, 0o600)
+        socket_info = os.lstat(socket_path)
+        if not stat.S_ISSOCK(socket_info.st_mode):
+            raise RuntimeError("bound broker path is not a socket")
+        bound_identity = (socket_info.st_dev, socket_info.st_ino)
+        server.listen(16)
+        server.settimeout(0.5)
+        signal.signal(signal.SIGINT, _signal_stop)
+        signal.signal(signal.SIGTERM, _signal_stop)
+        while not _STOP:
+            try:
+                conn, _ = server.accept()
+            except socket.timeout:
+                continue
+            try:
+                handle_connection(conn, allowed_uid, store)
+            finally:
+                conn.close()
+    finally:
+        server.close()
+        try:
+            info = os.lstat(socket_path)
+            if bound_identity == (info.st_dev, info.st_ino) and stat.S_ISSOCK(info.st_mode):
+                os.unlink(socket_path)
+        except FileNotFoundError:
+            pass
+        os.close(parent_fd)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--socket", required=True)
+    parser.add_argument("--manifest-root", required=True)
+    parser.add_argument("--anchor-root", required=True)
+    parser.add_argument("--app-uid", required=True, type=int)
+    args = parser.parse_args()
+    store: ManifestStore | None = None
+    try:
+        store = ManifestStore(args.manifest_root, args.anchor_root, args.app_uid)
+        if store.application_uid != args.app_uid:
+            raise StoreError("broker application UID does not match manifest store")
+        # Startup is fail-closed: no service until every enrolled role and active
+        # sidecar is identity-verified against the protected manifest.
+        store.verify_roles()
+        serve(args.socket, args.app_uid, store, args.manifest_root, args.anchor_root)
+        return 0
+    except (OSError, ValueError, RuntimeError, StoreError) as exc:
+        print(f"sqlite-broker: {exc}", file=sys.stderr)
+        return 2
+    finally:
+        if store is not None:
+            store.close()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
