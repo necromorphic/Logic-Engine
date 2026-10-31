@@ -78,7 +78,8 @@ export function createHostInventoryHandler({
           rootInventory = { status: 'NON_READY', reason: 'ROOT_INVENTORY_PERSISTENCE_FAILED' };
         }
       }
-      const rootInventoryPersisted = Number.isSafeInteger(rootInventory?.sequence)
+      const rootInventoryPersisted = rootInventory?.integrity_status === 'INTEGRITY_OK'
+        && Number.isSafeInteger(rootInventory?.sequence)
         && rootInventory.sequence > 0
         && typeof rootInventory.manifest_sha256 === 'string'
         && /^[a-f0-9]{64}$/.test(rootInventory.manifest_sha256);
@@ -121,6 +122,7 @@ export function createHostInventoryHandler({
         ...(rootInventoryPersisted ? {
           root_inventory_reconciliation: {
             status: rootInventory.status,
+            integrity_status: rootInventory.integrity_status,
             sequence: rootInventory.sequence,
             manifest_sha256: rootInventory.manifest_sha256,
             ...(rootInventory.delta_sha256 ? { delta_sha256: rootInventory.delta_sha256 } : {}),
