@@ -69,7 +69,7 @@ static int quarantine_delete_impl(int parent_fd, int quarantine_fd,
         return LEB_QUARANTINE_ERROR;
     if (!S_ISDIR(parent_stat.st_mode) || !S_ISDIR(quarantine_stat.st_mode) ||
         quarantine_stat.st_uid != geteuid() ||
-        (quarantine_stat.st_mode & 0777) != 0700 ||
+        (quarantine_stat.st_mode & 07777) != 0700 ||
         parent_id.device != quarantine_id.device ||
         parent_id.mount_id != quarantine_id.mount_id ||
         (parent_id.device == quarantine_id.device &&
