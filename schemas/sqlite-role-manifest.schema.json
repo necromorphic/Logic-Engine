@@ -278,6 +278,7 @@
       "then": {
         "properties": {
           "filesystemPolicy": {
+            "type": "object",
             "required": [
               "applicationUid"
             ]
