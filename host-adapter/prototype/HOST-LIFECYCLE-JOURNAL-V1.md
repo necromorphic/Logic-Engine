@@ -165,13 +165,13 @@ Import and group-import server routes are guarded by a full pinned Host inventor
 | message-send | sendMessage() / saveReply() request path | target chat JSONL + version identity receipt | supported only when the send hook reaches the same durable save boundary |
 | message-receive | receive/saveReply() response path | target chat JSONL + version identity receipt | supported only when the response hook reaches the same durable save boundary |
 | create-swipe | saveReply() swipe append | chat JSONL + lineage + active swipe metadata | supported only after disk read-back |
-| message-edit | messageEditDone() | chat JSONL + old/new version ancestry | supported only after disk read-back |
+| edit-message | messageEditDone() | chat JSONL + old/new version ancestry | supported only after disk read-back |
 | select-swipe | endSwipe() | chat JSONL active swipe/index metadata | supported only after disk read-back |
 | delete-swipe | deleteSwipe() | chat JSONL + deleted version tombstone | supported only after disk read-back |
 | delete-message | deleteMessage(), deleteLastMessage() | chat JSONL + deleted message/version tombstones | supported only after disk read-back |
 | delete-chat / delete-group-chat / delete-character-chat-recursive | delChat(), deleteCharacterChatByName(), group/recursive delete routes | every affected chat file and metadata | UNSUPPORTED until multi-artifact receipt exists |
 | import / import-character-chat / import-group-chat | destination file, lineage map, group metadata | UNSUPPORTED until source/destination receipts exist |
-| export | export/download route | immutable export snapshot and destination receipt | UNSUPPORTED; download-only response is not a mutation |
+| export | export/download route | read-only source access | READ_ONLY; no lifecycle mutation event is required |
 | restore / backup-restore | backup restore routes | full restored artifact set plus prior-state manifest | UNSUPPORTED until restore isolation/rollback proof |
 | copy-branch | copy/duplicate routes | source and destination artifacts plus identity remapping | UNSUPPORTED until both sides are receipted |
 | create-branch | createBranch() | parent metadata and new branch chat file | UNSUPPORTED until paired artifact atomicity |
