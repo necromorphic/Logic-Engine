@@ -466,6 +466,63 @@ test('lifecycle journal proxy derives account identity and signs only server-ver
   assert.equal(mismatchedInstallation.payload.error.code, 'HOST_SESSION_SCOPE_REQUIRED');
 });
 
+test('lifecycle status performs durable server-side crash recovery before allowing the next mutation', async () => {
+  const calls = [];
+  let recoveredScope;
+  const receiptStore = {
+    prepare: async () => ({ status: 'appended', prepared: { occurred_at: '2026-10-31T00:00:00.000Z' } }),
+    commit: async () => ({ status: 'appended' }),
+    abort: async () => ({ status: 'appended' }),
+    recover: async (scope, directories) => {
+      recoveredScope = { scope, directories };
+      return {
+        status: 'COMMITTED',
+        event_id: '77777777-7777-4777-8777-777777777777',
+        receipt_digest: 'f'.repeat(64),
+        occurred_at: '2026-10-31T00:00:02.000Z',
+      };
+    },
+  };
+  const proxy = createHostLifecycleJournalProxy({
+    env: CONFIG,
+    identityStore: { resolveAuthenticatedAccount: async () => ({
+      host_installation_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      authenticated_account_id: '22222222-2222-4222-8222-222222222222',
+    }) },
+    receiptStore,
+    fetchImpl: async (url, options) => {
+      calls.push({ url: String(url), options });
+      if (options.method === 'GET' && calls.filter(call => call.options.method === 'GET').length === 1) {
+        return { status: 200, json: async () => ({ lifecycle: {
+          status: 'PENDING_MUTATION',
+          pending: {
+            mutation_id: '55555555-5555-4555-8555-555555555555',
+            operation: 'edit-message',
+            mutation_digest: 'a'.repeat(64),
+            prepared_event_id: '66666666-6666-4666-8666-666666666666',
+          },
+        } }) };
+      }
+      if (options.method === 'POST') return { status: 201, json: async () => ({ lifecycle: { status: 'appended' } }) };
+      return { status: 200, json: async () => ({ lifecycle: { status: 'NO_PENDING_MUTATION' } }) };
+    },
+  });
+  const request = requestFor({});
+  request.query = { conversation_id: LIFECYCLE_CONVERSATION_ID };
+  const response = responseRecorder();
+  await proxy.status(request, response);
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.payload.lifecycle.status, 'NO_PENDING_MUTATION');
+  assert.equal(calls.length, 3);
+  assert.equal(recoveredScope.scope.mutation_id, '55555555-5555-4555-8555-555555555555');
+  assert.equal(recoveredScope.scope.prepared_event_id, '66666666-6666-4666-8666-666666666666');
+  assert.equal(recoveredScope.directories.root, '/tmp/st-root');
+  const eventBody = JSON.parse(calls[1].options.body);
+  assert.equal(eventBody.event_type, 'MUTATION_COMMITTED');
+  assert.equal(eventBody.receipt_digest, 'f'.repeat(64));
+  assert.match(eventBody.receipt_signature, /^[a-f0-9]{64}$/);
+});
+
 test('lifecycle journal proxy status is session-bound and forwards only server-derived identity', async () => {
   let observed;
   const proxy = createHostLifecycleJournalProxy({
