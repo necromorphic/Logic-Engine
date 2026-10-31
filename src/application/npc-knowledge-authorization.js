@@ -41,10 +41,10 @@ export function createHostBoundNpcKnowledgeAuthorizers({
   const policyAuthority = createNpcKnowledgePolicyAuthority({ adapterIds, trustedInitialKnowledgeSources });
 
   /**
-   * Resolve canonical scope from Core-owned bindings. Request world/actor values
-   * are never used to select rows: Host binding selects the world, then the
-   * adapter's active actor binding must resolve to exactly one eligible actor.
-   * Ambiguity is a denial, not a caller-controlled selection opportunity.
+   * Resolve canonical scope from Core-owned bindings. Host supplies the actor
+   * selected from authenticated server-side session state; that ID is only a
+   * selector. Core derives the world from the conversation binding and validates
+   * the exact active adapter/world/actor binding before returning canonical scope.
    */
   function resolveContext(identity) {
     try {
