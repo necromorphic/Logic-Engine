@@ -42,19 +42,61 @@ static void on_signal(int signo) {
     stop_requested = 1;
 }
 
-static int validate_socket_directory(const char *path) {
+static int validate_socket_directory(const char *path, uid_t app_uid) {
     char copy[PATH_MAX];
     char *slash;
+    char *component;
+    char *saveptr = NULL;
     struct stat st;
+    int dir_fd = -1;
+    int next_fd = -1;
 
-    if (!path || strlen(path) >= sizeof(copy)) return -1;
+    if (!path || strlen(path) >= sizeof(copy) || path[0] != '/') return -1;
     strcpy(copy, path);
     slash = strrchr(copy, '/');
     if (!slash || slash == copy) return -1;
     *slash = '\0';
 
-    if (lstat(copy, &st) != 0 || !S_ISDIR(st.st_mode)) return -1;
-    if (st.st_uid != geteuid() || (st.st_mode & 0022) != 0) return -1;
+    /*
+     * Walk every component without following symlinks. The final bind() still
+     * uses a pathname, so every ancestor must be outside the application's
+     * mutation authority before that pathname can be trusted.
+     */
+    dir_fd = open("/", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+    if (dir_fd < 0) return -1;
+
+    component = strtok_r(copy + 1, "/", &saveptr);
+    if (!component) {
+        close(dir_fd);
+        return -1;
+    }
+    while (component) {
+        char *next_component = strtok_r(NULL, "/", &saveptr);
+        if (strcmp(component, ".") == 0 || strcmp(component, "..") == 0) {
+            close(dir_fd);
+            return -1;
+        }
+        next_fd = openat(dir_fd, component,
+                         O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
+        if (next_fd < 0 || fstat(next_fd, &st) != 0 ||
+            !S_ISDIR(st.st_mode) || (st.st_mode & 0022) != 0 ||
+            (app_uid != geteuid() && st.st_uid == app_uid &&
+             (st.st_mode & S_IWUSR) != 0)) {
+            if (next_fd >= 0) close(next_fd);
+            close(dir_fd);
+            return -1;
+        }
+        close(dir_fd);
+        dir_fd = next_fd;
+        next_fd = -1;
+        if (!next_component &&
+            (st.st_uid != geteuid() || (st.st_mode & 0022) != 0)) {
+            close(dir_fd);
+            return -1;
+        }
+        component = next_component;
+    }
+    close(dir_fd);
     return 0;
 }
 
@@ -194,7 +236,7 @@ int main(int argc, char **argv) {
     allowed_uid = (uid_t)parsed_uid;
 
     if (argv[2][0] != '/' || strlen(argv[2]) >= sizeof(socket_path) ||
-        validate_socket_directory(argv[2]) != 0) {
+        validate_socket_directory(argv[2], allowed_uid) != 0) {
         fprintf(stderr, "socket parent must be an existing broker-owned directory without group/other write permission\n");
         return 2;
     }
