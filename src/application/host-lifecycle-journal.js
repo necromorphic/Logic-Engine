@@ -56,6 +56,7 @@ function validateRootEntries(entries) {
     throw new TypeError('HOST_ROOT_INVENTORY_ENTRY_LIMIT');
   }
   const seen = new Set();
+  const physicalIds = new Set();
   let previous = null;
   const normalized = entries.map((entry) => {
     if (!isPlainRecord(entry) || Object.keys(entry).some((key) => !['path', 'identity', 'sha256'].includes(key))
@@ -68,7 +69,12 @@ function validateRootEntries(entries) {
       || (previous !== null && entry.path.localeCompare(previous) < 0)) {
       throw new TypeError('HOST_ROOT_INVENTORY_ENTRY_INVALID');
     }
+    const physicalId = process.platform === 'win32'
+      ? 'win:' + entry.identity.ino
+      : 'posix:' + entry.identity.dev + ':' + entry.identity.ino;
+    if (physicalIds.has(physicalId)) throw new TypeError('HOST_ROOT_INVENTORY_PHYSICAL_IDENTITY_DUPLICATE');
     seen.add(entry.path);
+    physicalIds.add(physicalId);
     previous = entry.path;
     return {
       path: entry.path,
@@ -556,6 +562,9 @@ export class HostLifecycleJournal {
     const sequence = (head?.sequence ?? 0) + 1;
     const previous_sha256 = head?.head_sha256 ?? '0'.repeat(64);
     const event = { event_id, event_type, root_id, manifest_sha256, entries, delta, delta_sha256 };
+    if (Buffer.byteLength(canonical(event), 'utf8') > MAX_ROOT_INVENTORY_BYTES) {
+      throw new Error('HOST_ROOT_INVENTORY_BYTE_LIMIT');
+    }
     const eventSha = sha256(canonical({
       host_installation_id, authenticated_account_id, root_id, sequence, previous_sha256, event,
     }));
@@ -591,14 +600,6 @@ export class HostLifecycleJournal {
     const manifestSha256 = sha256(canonical(entries));
     return this.#withWrite(() => {
       this.#assertRootIdentity(input);
-      const rows = this.db.prepare(`
-        SELECT event_id,event_type,manifest_sha256,delta_sha256,sequence,event_sha256,
-          previous_sha256,canonical_event_json
-        FROM host_root_inventory_events
-        WHERE host_installation_id=? AND authenticated_account_id=? AND root_id=?
-        ORDER BY sequence
-      `).all(input.host_installation_id, input.authenticated_account_id, input.root_id);
-      if (rows.length) throw new Error('HOST_ROOT_INVENTORY_ALREADY_ENROLLED');
       return this.#appendRootInventoryEvent({ ...input, event_type: 'BASELINE',
         entries, manifest_sha256: manifestSha256 });
     });
@@ -639,6 +640,16 @@ export class HostLifecycleJournal {
           changed_files: changed, maximum_changed_files: MAX_ROOT_DELTA_FILES };
       }
       const deltaSha256 = sha256(canonical(delta));
+      const reusedEventId = rows.find((row) => row.event_id === input.event_id);
+      if (reusedEventId) {
+        if (reusedEventId.event_type !== 'DELTA_OBSERVED'
+          || reusedEventId.manifest_sha256 !== manifestSha256
+          || reusedEventId.delta_sha256 !== deltaSha256) {
+          throw new Error('HOST_ROOT_INVENTORY_EVENT_ID_CONFLICT');
+        }
+        return { status: 'NON_READY', duplicate: true, sequence: reusedEventId.sequence,
+          manifest_sha256: manifestSha256, delta_sha256: deltaSha256, delta };
+      }
       const existing = rows.find((row) => row.event_type === 'DELTA_OBSERVED'
         && row.manifest_sha256 === manifestSha256 && row.delta_sha256 === deltaSha256);
       if (existing) return { status: 'NON_READY', duplicate: true,
