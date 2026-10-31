@@ -50,6 +50,10 @@
             "broker-exclusive-owner",
             "dedicated-service-identity"
           ]
+        },
+        "applicationUid": {
+          "type": "integer",
+          "minimum": 0
         }
       }
     },
@@ -273,6 +277,11 @@
       },
       "then": {
         "properties": {
+          "filesystemPolicy": {
+            "required": [
+              "applicationUid"
+            ]
+          },
           "metadataRootIdentity": {
             "$ref": "#/$defs/posixIdentity"
           },
