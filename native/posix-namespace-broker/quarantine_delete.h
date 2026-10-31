@@ -20,12 +20,15 @@ enum leb_quarantine_result {
 /*
  * Atomically moves the named entry into a broker-private quarantine directory,
  * verifies the moved object against the expected opened-object identity, and
- * only then unlinks it. The quarantine directory must be broker-owned, mode
- * 0700, and on the same mount as parent_fd.
+ * only then unlinks it. The quarantine directory must be owned by the broker
+ * effective UID, have exactly mode 0700, be distinct from parent_fd, and be
+ * on the same mount.
  *
- * Returns IDENTITY_MISMATCH without unlinking when the name was replaced
- * between the initial open and atomic rename. The unexpected object remains
- * in quarantine for investigation.
+ * IDENTITY_MISMATCH means the moved object did not match the opened object;
+ * it remains in quarantine. RETAINED means the object was moved but not
+ * unlinked (for example, because a directory sync failed). DURABILITY_UNCERTAIN
+ * means unlink succeeded but syncing the quarantine directory failed; callers
+ * must not assume the deletion is durable.
  */
 int leb_quarantine_delete_at(int parent_fd, int quarantine_fd,
                              const char *name,
