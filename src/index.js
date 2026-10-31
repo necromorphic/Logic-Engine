@@ -144,6 +144,11 @@ try {
 let hostRootInventoryJournal = null;
 let resolveHostRootIdentity = null;
 if (hostRootIdentityRegistry.length > 0) {
+  for (const record of hostRootIdentityRegistry) {
+    if (!Object.hasOwn(adapterTokens, record.adapter_id)) {
+      throw new Error('ENGINE_HOST_ROOT_IDENTITIES references an adapter that is not configured in ENGINE_ADAPTER_TOKENS.');
+    }
+  }
   const hostLifecyclePath = process.env.ENGINE_HOST_LIFECYCLE_DB_PATH
     ? resolve(process.env.ENGINE_HOST_LIFECYCLE_DB_PATH)
     : resolve('./data/logic-engine-host-lifecycle.sqlite');
