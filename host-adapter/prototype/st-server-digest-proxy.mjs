@@ -538,16 +538,26 @@ export function createHostLifecycleJournalProxy({
         });
       }
       const dataRoot = request?.user?.directories?.root;
-      if (typeof dataRoot !== 'string' || !pathModule.isAbsolute(dataRoot)
-        || (typeof durableReceiptStore?.directory === 'string'
-          && pathIsWithin(dataRoot, durableReceiptStore.directory))) {
+      if (!durableReceiptStore) return response.status(503).json({
+        error: { code: 'HOST_LIFECYCLE_RECEIPT_STORE_UNAVAILABLE', message: 'Server-side persisted mutation receipt verification is unavailable.' },
+      });
+      if (typeof dataRoot !== 'string' || !pathModule.isAbsolute(dataRoot)) {
         return response.status(503).json({
           error: { code: 'HOST_LIFECYCLE_RECEIPT_STORE_SCOPE_INVALID', message: 'Receipt storage must be outside the SillyTavern data root.' },
         });
       }
-      if (!durableReceiptStore) return response.status(503).json({
-        error: { code: 'HOST_LIFECYCLE_RECEIPT_STORE_UNAVAILABLE', message: 'Server-side persisted mutation receipt verification is unavailable.' },
-      });
+      try {
+        if (typeof durableReceiptStore.assertOutsideRoot === 'function') {
+          await durableReceiptStore.assertOutsideRoot(dataRoot);
+        } else if (typeof durableReceiptStore.directory === 'string'
+          && pathIsWithin(dataRoot, durableReceiptStore.directory)) {
+          throw new Error('Receipt directory is inside the data root');
+        }
+      } catch {
+        return response.status(503).json({
+          error: { code: 'HOST_LIFECYCLE_RECEIPT_STORE_SCOPE_INVALID', message: 'Receipt storage must be outside the SillyTavern data root.' },
+        });
+      }
       const scope = {
         host_installation_id: resolved.identity.host_installation_id,
         authenticated_account_id: resolved.identity.authenticated_account_id,
@@ -617,13 +627,25 @@ export function createHostLifecycleJournalProxy({
         || !HOST_SESSION_UUID.test(pending.prepared_event_id ?? '')
         || !HOST_LIFECYCLE_OPERATIONS.has(pending.operation)
         || !/^[a-f0-9]{64}$/.test(pending.mutation_digest ?? '')
-        || typeof directories?.root !== 'string' || !pathModule.isAbsolute(directories.root)
-        || (typeof durableReceiptStore.directory === 'string'
-          && pathIsWithin(directories.root, durableReceiptStore.directory))) {
+        || typeof directories?.root !== 'string' || !pathModule.isAbsolute(directories.root)) {
         return response.status(200).json({ lifecycle: {
           ...lifecycle,
           status: 'RECOVERY_REQUIRED',
           reason: 'HOST_LIFECYCLE_RECEIPT_STORE_UNAVAILABLE',
+        } });
+      }
+      try {
+        if (typeof durableReceiptStore.assertOutsideRoot === 'function') {
+          await durableReceiptStore.assertOutsideRoot(directories.root);
+        } else if (typeof durableReceiptStore.directory === 'string'
+          && pathIsWithin(directories.root, durableReceiptStore.directory)) {
+          throw new Error('Receipt directory is inside the data root');
+        }
+      } catch {
+        return response.status(200).json({ lifecycle: {
+          ...lifecycle,
+          status: 'RECOVERY_REQUIRED',
+          reason: 'HOST_LIFECYCLE_RECEIPT_STORE_SCOPE_INVALID',
         } });
       }
       let recovered;
