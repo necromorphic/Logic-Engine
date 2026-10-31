@@ -113,19 +113,19 @@ Acknowledge only after SQLite COMMIT succeeds. If HTTP response is lost after co
 
 ## 8. Crash recovery protocol
 
-A pending mutation is never auto-resolved on startup.
+A pending mutation is never auto-resolved merely because a process starts. On bridge activation or the first authenticated status check before another mutation, the server may resolve it only from the durable receipt store and a fresh persisted-file scan.
 
-1. On startup, bridge activation and before the next mutation, read Core status and verify the complete journal chain and authority context.
+1. On startup/status check and before the next mutation, read Core status and verify the complete journal chain and authority context.
 2. If no pending mutation exists, compare local journal head with Core status. Continue only when they agree.
 3. If Core reports PENDING, load the exact local PREPARED record and receipt by mutation ID. Missing local evidence is NON_READY.
 4. Enumerate the exact affected persisted artifacts. Read bytes from disk and compute presence, normalized path, file identity and SHA-256. Never infer persistence from in-memory arrays or a successful save callback alone.
 5. Compare observed artifacts with expected pre/post state:
-   - exact post-state plus verified save/read-back receipt: replay exact COMMITTED event;
-   - exact pre-state plus proof no target changed: append/replay ABORTED;
+   - exact post-state plus a verified operation-specific disk transition: persist/replay the server-generated COMMITTED receipt;
+   - exact pre-state plus proof no target changed: persist/replay ABORTED;
    - partial, mixed, unexpected, missing, changed-authority or unreadable state: leave PREPARED unresolved and return RECOVERY_REQUIRED / NON_READY.
 6. Recovery never silently rewrites files, deletes evidence, auto-restores a backup or infers user intent. Repair requires a separately authorized operation.
 
-If Core is unavailable, no new mutation executes. A native save already completed may remain on disk, but the conversation stays NON_READY until the exact terminal event is durably replayed.
+If Core is unavailable, no new mutation executes. A native save already completed may remain on disk; the server receipt is retained and replayed when Core is reachable again. The conversation stays NON_READY until Core durably records the exact terminal event.
 
 ## 9. getConversationStatus() response
 
