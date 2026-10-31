@@ -31,7 +31,8 @@ def manifest(generation: int, root_identity: dict, components: list,
         "filesystemPolicy": {
             "filesystem": "ext4",
             "identitySource": "opened-handle",
-            "directoryMutationBoundary": "dedicated-service-identity"
+            "directoryMutationBoundary": "dedicated-service-identity",
+            "applicationUid": os.getuid() ^ 1
         },
         "roles": [{
             "role": "core",
@@ -61,7 +62,8 @@ class ManifestStoreTests(unittest.TestCase):
         self.database = self.role_parent / "core.sqlite"
         self.database.write_bytes(b"sqlite-test-placeholder")
         os.chmod(self.database, 0o600)
-        self.store = ManifestStore(str(self.manifest_root), str(self.anchor_root))
+        self.application_uid = os.getuid() ^ 1
+        self.store = ManifestStore(str(self.manifest_root), str(self.anchor_root), self.application_uid)
 
     def tearDown(self):
         self.store.close()
@@ -104,7 +106,7 @@ class ManifestStoreTests(unittest.TestCase):
         failures = []
 
         def writer():
-            local_store = ManifestStore(str(self.manifest_root), str(self.anchor_root))
+            local_store = ManifestStore(str(self.manifest_root), str(self.anchor_root), self.application_uid)
             try:
                 barrier.wait(timeout=5)
                 local_store.commit(self.data(2))
