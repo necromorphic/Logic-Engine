@@ -410,5 +410,71 @@ class ManifestStoreTests(unittest.TestCase):
             os.close(fd)
 
 
+    def _enroll_active_wal(self):
+        wal = self.role_parent / "core.sqlite-wal"
+        wal.write_bytes(b"wal-placeholder")
+        os.chmod(wal, 0o600)
+        wal_fd = os.open(wal, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
+        try:
+            wal_identity = fd_identity(wal_fd)
+        finally:
+            os.close(wal_fd)
+        import json
+        value = json.loads(self.data(1))
+        value["generation"] = 2
+        value["roles"][0]["sidecars"] = [{
+            "kind": "wal", "identity": wal_identity, "state": "active", "generation": 2
+        }]
+        self.store.initialize(self.data(1))
+        self.store.commit(_canonical_json(value))
+        return wal, wal_identity
+
+    def test_delete_role_sidecar_quarantines_and_commits_retired_state(self):
+        wal, _identity = self._enroll_active_wal()
+        result = self.store.delete_role_sidecar("core", "wal")
+        self.assertEqual(result["generation"], 4)
+        sidecar = result["roles"][0]["sidecars"][0]
+        self.assertEqual(sidecar["state"], "retired")
+        self.assertEqual(sidecar["generation"], 4)
+        self.assertFalse(wal.exists())
+        quarantine = self.role_parent / ".le-quarantine"
+        self.assertTrue(quarantine.is_dir())
+        self.assertEqual(list(quarantine.iterdir()), [])
+
+    def test_delete_role_sidecar_retains_replacement_in_quarantine(self):
+        import manifest_store
+        wal, _identity = self._enroll_active_wal()
+        original_rename = manifest_store._renameat2_noreplace
+
+        def replace_before_atomic_rename(parent_fd, old_name, quarantine_fd, new_name):
+            os.unlink(old_name, dir_fd=parent_fd)
+            replacement_fd = os.open(
+                old_name,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC | os.O_NOFOLLOW,
+                0o600,
+                dir_fd=parent_fd,
+            )
+            try:
+                os.write(replacement_fd, b"attacker-replacement")
+            finally:
+                os.close(replacement_fd)
+            return original_rename(parent_fd, old_name, quarantine_fd, new_name)
+
+        with patch("manifest_store._renameat2_noreplace",
+                   side_effect=replace_before_atomic_rename):
+            with self.assertRaises(StoreError):
+                self.store.delete_role_sidecar("core", "wal")
+
+        self.assertFalse(wal.exists())
+        manifest = self.store.load()
+        self.assertEqual(manifest["roles"][0]["sidecars"][0]["state"], "deleting")
+        quarantine = self.role_parent / ".le-quarantine"
+        retained = list(quarantine.iterdir())
+        self.assertEqual(len(retained), 1)
+        self.assertEqual(retained[0].read_bytes(), b"attacker-replacement")
+        with self.assertRaises(StoreError):
+            self.store.plan_recovery()
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
