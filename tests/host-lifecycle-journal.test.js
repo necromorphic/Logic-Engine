@@ -337,6 +337,20 @@ test('root file delta is durable, replay-idempotent and never accepted without a
   assert.equal(replay.duplicate, true);
   assert.equal(replay.sequence, 2);
 
+  const changedAgain = rootInput({
+    event_id: 'root-delta-2',
+    entries: rootEntries(digest('edited-again')),
+  });
+  const secondObservation = journal.observeRootInventory(changedAgain);
+  assert.equal(secondObservation.status, 'NON_READY');
+  assert.equal(secondObservation.sequence, 3);
+  assert.equal(secondObservation.delta.modified.length, 1);
+  const replayEarlierEvent = journal.observeRootInventory(changed);
+  assert.equal(replayEarlierEvent.status, 'NON_READY');
+  assert.equal(replayEarlierEvent.duplicate, true);
+  assert.equal(replayEarlierEvent.sequence, 2,
+    'replaying an earlier event ID with identical content remains idempotent after later observations');
+
   const restored = journal.observeRootInventory({
     ...baseline,
     event_id: 'root-restored-after-observation',
