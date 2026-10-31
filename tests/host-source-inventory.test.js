@@ -140,6 +140,60 @@ test('rejects a persisted swipe digest that does not match the exact JSONL paylo
     error instanceof HostSourceInventoryError && error.code === 'SOURCE_CHAT_VERSION_DIGEST_MISMATCH');
 });
 
+test('accepts lifecycle edit revisions that are not represented as native swipe alternatives', async t => {
+  const value = await fixture();
+  t.after(value.cleanup);
+  const previous = 'previous logical edit';
+  const active = 'current persisted edit';
+  const records = [
+    { chat_metadata: { logic_engine_conversation_id: uuid(20) } },
+    {
+      is_user: true,
+      mes: active,
+      _logicEngineLifecycle: {
+        messageId: uuid(21),
+        activeVersionIndex: 1,
+        versions: [
+          { versionId: uuid(22), versionIndex: 0, parentVersionId: null, payloadDigest: sha256(previous) },
+          { versionId: uuid(23), versionIndex: 1, parentVersionId: uuid(22), payloadDigest: sha256(active) },
+        ],
+      },
+    },
+  ];
+  await writeFile(path.join(value.directories.chats, 'root-chat.jsonl'),
+    records.map(record => JSON.stringify(record)).join('\\n') + '\\n');
+  const result = await scan(value.directories);
+  const root = result.files.find(file => file.locator === 'root-chat.jsonl');
+  assert.equal(root.logical_identity.messages[0].active_version_index, 1);
+  assert.deepEqual(root.logical_identity.messages[0].versions.map(version => version.active), [false, true]);
+  assert.equal(root.logical_identity.messages[0].versions[1].content_sha256, sha256(active));
+});
+
+test('rejects an edit revision whose active digest differs from the persisted message body', async t => {
+  const value = await fixture();
+  t.after(value.cleanup);
+  const active = 'current persisted edit';
+  const records = [
+    { chat_metadata: { logic_engine_conversation_id: uuid(30) } },
+    {
+      is_user: true,
+      mes: active,
+      _logicEngineLifecycle: {
+        messageId: uuid(31),
+        activeVersionIndex: 1,
+        versions: [
+          { versionId: uuid(32), versionIndex: 0, parentVersionId: null, payloadDigest: sha256('previous edit') },
+          { versionId: uuid(33), versionIndex: 1, parentVersionId: uuid(32), payloadDigest: sha256('tampered active edit') },
+        ],
+      },
+    },
+  ];
+  await writeFile(path.join(value.directories.chats, 'root-chat.jsonl'),
+    records.map(record => JSON.stringify(record)).join('\\n') + '\\n');
+  await assert.rejects(scan(value.directories), error =>
+    error instanceof HostSourceInventoryError && error.code === 'SOURCE_CHAT_VERSION_DIGEST_MISMATCH');
+});
+
 test('rejects duplicate stable conversation UUIDs across different chat files', async t => {
   const value = await fixture();
   t.after(value.cleanup);
