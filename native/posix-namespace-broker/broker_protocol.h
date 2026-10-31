@@ -11,7 +11,8 @@ enum leb_operation {
     LEB_OP_PING = 1,
     LEB_OP_OPEN_MAIN = 2,
     LEB_OP_OPEN_SIDECAR = 3,
-    LEB_OP_DELETE_SIDECAR = 4
+    LEB_OP_DELETE_SIDECAR = 4,
+    LEB_OP_CREATE_SIDECAR = 5
 };
 
 enum leb_status {
