@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { once } from 'node:events';
@@ -152,6 +152,27 @@ test('pinned ST 1.19.0 chat create/edit/swipe/delete/import/export/restore mutat
     assert.equal(typeof inventory.root, 'string');
     return inventory;
   });
+  const settleBackups = async () => {
+    // ST schedules backup writes independently of the save response. Wait for
+    // those real files to settle so the next baseline cannot race a prior save.
+    await new Promise(resolveDelay => setTimeout(resolveDelay, 1200));
+    let previous = null;
+    let stable = 0;
+    for (let attempt = 0; attempt < 30; attempt++) {
+      const names = (await readdir(directories.backups)).sort();
+      const metadata = await Promise.all(names.map(async name => {
+        const fileStat = await stat(join(directories.backups, name));
+        return [name, fileStat.size, fileStat.mtimeMs, fileStat.ctimeMs];
+      }));
+      const fingerprint = JSON.stringify(metadata);
+      if (fingerprint === previous) stable += 1;
+      else stable = 0;
+      if (stable >= 3) return;
+      previous = fingerprint;
+      await new Promise(resolveDelay => setTimeout(resolveDelay, 100));
+    }
+    throw new Error('ST chat backup directory did not become stable');
+  };
   const observe = async (operation, expectedKind) => {
     const journal = new TestJournal();
     const before = await scan();
@@ -162,6 +183,7 @@ test('pinned ST 1.19.0 chat create/edit/swipe/delete/import/export/restore mutat
     });
     assert.equal(baseline.status, 'BASELINED_REVIEW_ONLY');
     const outcome = await operation();
+    await settleBackups();
     const after = await scan();
     assert.equal(after.root, canonicalRoot, 'VSS must preserve one canonical root identity across snapshots');
     const result = await reconcileFilesystemInventory({
