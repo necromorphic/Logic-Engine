@@ -101,11 +101,11 @@ The broker serializes namespace transitions, not ordinary database reads/writes.
 
 ## 6. Manifest durability and anti-rollback
 
-The broker is the sole writer of the role manifest. It opens the manifest directory once, pins it, and performs updates using directory-relative temporary-file creation, complete write, file `fsync`, atomic replacement within that broker-owned directory, then directory `fsync`. The implementation must not assume rename alone is durable.
+The broker is the sole writer of the role manifest. The current Linux prototype pins two distinct service-owned 0700 directories: one for the manifest and one for the rollback anchor. It performs updates using directory-relative temporary-file creation, complete write, file `fsync`, atomic replacement within the relevant directory, then directory `fsync`. The anchor stores the next generation and SHA-256 digest; advancing the anchor is the commit point. On restart, a staged manifest matching the anchor is promoted, while a manifest that does not match the anchor fails closed.
 
-Every committed update increments a monotonic generation. Startup rejects a lower generation than the trusted broker state, malformed schema, duplicate role/name/identity, unknown filesystem policy, missing parent identity, or any mismatch between the manifest and opened handles.
+Every committed update increments the generation by exactly one. The current transition validator freezes the metadata-root identity, filesystem policy, role set, each enrolled parent chain, database basename and database identity after initialization. It enforces sidecar lifecycle transitions (`creating → active/deleting/retired`, `active → deleting`, `deleting → retired`), requires transition generations to match the manifest generation, and permits a retired sidecar kind to be replaced only through a new `creating` generation. Live DB/sidecar identities cannot alias each other or enrolled directory identities; retired sidecar identities are historical and may be reused by the filesystem.
 
-A plain writable JSON file is not anti-rollback protection if the attacker can replace it. Protection derives from broker-only OS permissions plus a separately protected monotonic state anchor. The concrete anchor (e.g. broker-owned append-only journal or OS-backed monotonic storage) must be selected and reviewed before implementation. V1 must not claim anti-rollback until this anchor is present and crash-tested.
+This separate service-owned anchor prevents an application UID that cannot write either root from silently rolling back only the manifest. It is **not** a hardware monotonic counter: an attacker able to execute as the broker UID or restore both roots can roll back both. The prototype must not claim protection against broker-identity compromise or coordinated backup restoration.
 
 ## 7. Restart and crash recovery state machine
 
