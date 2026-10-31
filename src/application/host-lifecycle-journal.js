@@ -398,8 +398,12 @@ export class HostLifecycleJournal {
         || identity.conversation_uuid !== event.conversation_uuid
         || identity.authority_id !== event.authority_id
         || identity.generation !== event.generation
-        || identity.snapshot_fingerprint !== event.snapshot_fingerprint) {
+        || !validText(identity.adapter_id) || !validDigest(identity.root_id)) {
         throw new Error('HOST_LIFECYCLE_IDENTITY_NOT_AUTHORIZED');
+      }
+      const currentAuthority = this.#authoritySnapshotFingerprint(identity);
+      if (!currentAuthority || currentAuthority.snapshot_fingerprint !== event.snapshot_fingerprint) {
+        throw new Error('HOST_LIFECYCLE_AUTHORITY_STALE');
       }
 
       // Idempotency must precede state-machine validation. A lost HTTP response
@@ -524,90 +528,105 @@ export class HostLifecycleJournal {
       || !isPlainRecord(authorityContext)
       || !validText(authorityContext.authority_id)
       || !Number.isSafeInteger(authorityContext.generation) || authorityContext.generation < 1
-      || !validDigest(authorityContext.snapshot_fingerprint)) {
+      || !validDigest(authorityContext.snapshot_fingerprint)
+      || !validText(authorityContext.adapter_id) || !validDigest(authorityContext.root_id)) {
       throw new TypeError('Valid Host installation, account, session, conversation and trusted authority context are required.');
     }
-    const integrity = this.verifyChain(hostInstallationId, authenticatedAccountId);
-    const identity = {
-      host_installation_id: hostInstallationId,
-      authenticated_account_id: authenticatedAccountId,
-      host_session_id: hostSessionId,
-      conversation_uuid: conversationUuid,
-    };
-    const authority = {
-      authority_id: authorityContext.authority_id,
-      generation: authorityContext.generation,
-      snapshot_fingerprint: authorityContext.snapshot_fingerprint,
-    };
-    if (!integrity.valid) {
-      return { status: 'NON_READY', identity, authority, journal: { integrity: 'INVALID', ...integrity },
-        pending: null, reason: integrity.reason };
-    }
-    const rows = this.db.prepare(`
-      SELECT canonical_event_json FROM host_lifecycle_events
-      WHERE host_installation_id=? AND authenticated_account_id=?
-        AND host_session_id=? AND conversation_uuid=?
-      ORDER BY sequence
-    `).all(hostInstallationId, authenticatedAccountId, hostSessionId, conversationUuid);
-    const pending = new Map();
-    for (const row of rows) {
-      let event;
-      try { event = JSON.parse(row.canonical_event_json); } catch {
+    return this.#withWrite(() => {
+      const identity = {
+        host_installation_id: hostInstallationId,
+        authenticated_account_id: authenticatedAccountId,
+        host_session_id: hostSessionId,
+        conversation_uuid: conversationUuid,
+      };
+      const authority = {
+        authority_id: authorityContext.authority_id,
+        generation: authorityContext.generation,
+        adapter_id: authorityContext.adapter_id,
+        root_id: authorityContext.root_id,
+        snapshot_fingerprint: authorityContext.snapshot_fingerprint,
+      };
+      const currentAuthority = this.#authoritySnapshotFingerprint({
+        ...authority,
+        host_installation_id: hostInstallationId,
+        authenticated_account_id: authenticatedAccountId,
+      });
+      if (!currentAuthority || currentAuthority.snapshot_fingerprint !== authority.snapshot_fingerprint) {
         return { status: 'NON_READY', identity, authority,
-          journal: { integrity: 'INVALID', ...integrity }, pending: null,
-          reason: 'HOST_LIFECYCLE_EVENT_JSON_INVALID' };
+          journal: { integrity: 'INVALID', sequence: null, head_sha256: null },
+          pending: null, reason: 'HOST_LIFECYCLE_AUTHORITY_STALE' };
       }
-      if (event.authority_id !== authority.authority_id
-        || event.generation !== authority.generation
-        || event.snapshot_fingerprint !== authority.snapshot_fingerprint) {
+      const integrity = this.verifyChain(hostInstallationId, authenticatedAccountId);
+      if (!integrity.valid) {
+        return { status: 'NON_READY', identity, authority,
+          journal: { integrity: 'INVALID', ...integrity }, pending: null, reason: integrity.reason };
+      }
+      const rows = this.db.prepare(`
+        SELECT canonical_event_json FROM host_lifecycle_events
+        WHERE host_installation_id=? AND authenticated_account_id=?
+          AND host_session_id=? AND conversation_uuid=?
+        ORDER BY sequence
+      `).all(hostInstallationId, authenticatedAccountId, hostSessionId, conversationUuid);
+      const pending = new Map();
+      for (const row of rows) {
+        let event;
+        try { event = JSON.parse(row.canonical_event_json); } catch {
+          return { status: 'NON_READY', identity, authority,
+            journal: { integrity: 'INVALID', ...integrity }, pending: null,
+            reason: 'HOST_LIFECYCLE_EVENT_JSON_INVALID' };
+        }
+        if (event.authority_id !== authority.authority_id
+          || event.generation !== authority.generation
+          || event.snapshot_fingerprint !== authority.snapshot_fingerprint) {
+          return { status: 'NON_READY', identity, authority,
+            journal: { integrity: 'VALID', ...integrity }, pending: null,
+            reason: 'HOST_LIFECYCLE_AUTHORITY_STALE' };
+        }
+        if (event.event_type === 'MUTATION_PREPARED') {
+          if (pending.has(event.mutation_id)) {
+            return { status: 'NON_READY', identity, authority,
+              journal: { integrity: 'VALID', ...integrity }, pending: null,
+              reason: 'HOST_LIFECYCLE_DUPLICATE_PENDING_MUTATION' };
+          }
+          pending.set(event.mutation_id, {
+            mutation_id: event.mutation_id,
+            operation: event.operation,
+            mutation_digest: event.mutation_digest,
+            authority_id: event.authority_id,
+            generation: event.generation,
+            snapshot_fingerprint: event.snapshot_fingerprint,
+            prepared_event_id: event.event_id,
+            occurred_at: event.occurred_at,
+          });
+        } else if (event.event_type === 'MUTATION_COMMITTED' || event.event_type === 'MUTATION_ABORTED') {
+          const prior = pending.get(event.mutation_id);
+          if (!prior || prior.operation !== event.operation
+            || prior.mutation_digest !== event.mutation_digest
+            || prior.authority_id !== event.authority_id
+            || prior.generation !== event.generation
+            || prior.snapshot_fingerprint !== event.snapshot_fingerprint) {
+            return { status: 'NON_READY', identity, authority,
+              journal: { integrity: 'VALID', ...integrity }, pending: null,
+              reason: 'HOST_LIFECYCLE_MUTATION_TERMINAL_WITHOUT_PREPARE' };
+          }
+          pending.delete(event.mutation_id);
+        }
+      }
+      if (pending.size > 1) {
         return { status: 'NON_READY', identity, authority,
           journal: { integrity: 'VALID', ...integrity }, pending: null,
-          reason: 'HOST_LIFECYCLE_AUTHORITY_STALE' };
+          reason: 'HOST_LIFECYCLE_MULTIPLE_PENDING_MUTATIONS' };
       }
-      if (event.event_type === 'MUTATION_PREPARED') {
-        if (pending.has(event.mutation_id)) {
-          return { status: 'NON_READY', identity, authority,
-            journal: { integrity: 'VALID', ...integrity }, pending: null,
-            reason: 'HOST_LIFECYCLE_DUPLICATE_PENDING_MUTATION' };
-        }
-        pending.set(event.mutation_id, {
-          mutation_id: event.mutation_id,
-          operation: event.operation,
-          mutation_digest: event.mutation_digest,
-          authority_id: event.authority_id,
-          generation: event.generation,
-          snapshot_fingerprint: event.snapshot_fingerprint,
-          prepared_event_id: event.event_id,
-          occurred_at: event.occurred_at,
-        });
-      } else if (event.event_type === 'MUTATION_COMMITTED' || event.event_type === 'MUTATION_ABORTED') {
-        const prior = pending.get(event.mutation_id);
-        if (!prior || prior.operation !== event.operation
-          || prior.mutation_digest !== event.mutation_digest
-          || pending.get(event.mutation_id).authority_id !== event.authority_id
-          || pending.get(event.mutation_id).generation !== event.generation
-          || pending.get(event.mutation_id).snapshot_fingerprint !== event.snapshot_fingerprint) {
-          return { status: 'NON_READY', identity, authority,
-            journal: { integrity: 'VALID', ...integrity }, pending: null,
-            reason: 'HOST_LIFECYCLE_MUTATION_TERMINAL_WITHOUT_PREPARE' };
-        }
-        pending.delete(event.mutation_id);
-      }
-    }
-    if (pending.size > 1) {
-      return { status: 'NON_READY', identity, authority,
-        journal: { integrity: 'VALID', ...integrity }, pending: null,
-        reason: 'HOST_LIFECYCLE_MULTIPLE_PENDING_MUTATIONS' };
-    }
-    const unresolved = pending.values().next().value ?? null;
-    return {
-      status: unresolved ? 'PENDING_MUTATION' : 'NO_PENDING_MUTATION',
-      identity,
-      authority,
-      journal: { integrity: 'VALID', sequence: integrity.sequence, head_sha256: integrity.head_sha256 },
-      pending: unresolved,
-      reason: null,
-    };
+      const unresolved = pending.values().next().value ?? null;
+      return {
+        status: unresolved ? 'PENDING_MUTATION' : 'NO_PENDING_MUTATION',
+        identity,
+        authority,
+        journal: { integrity: 'VALID', sequence: integrity.sequence, head_sha256: integrity.head_sha256 },
+        pending: unresolved,
+        reason: null,
+      };
+    });
   }
 
   setAuthorityGeneration(authorityId, generation) {
@@ -790,6 +809,40 @@ export class HostLifecycleJournal {
       status: head.status };
   }
 
+  #authoritySnapshotFingerprint(identity) {
+    if (!isPlainRecord(identity) || !validText(identity.authority_id)
+      || !Number.isSafeInteger(identity.generation) || identity.generation < 1
+      || !validText(identity.adapter_id) || !validText(identity.host_installation_id)
+      || !validText(identity.authenticated_account_id) || !validDigest(identity.root_id)) return null;
+    const rows = this.db.prepare(`
+      SELECT event_id,event_type,manifest_sha256,delta_sha256,sequence,event_sha256,
+        previous_sha256,canonical_event_json
+      FROM host_root_inventory_events
+      WHERE host_installation_id=? AND authenticated_account_id=? AND root_id=?
+      ORDER BY sequence
+    `).all(identity.host_installation_id, identity.authenticated_account_id, identity.root_id);
+    const root = this.#verifyRootInventoryRows(identity.host_installation_id,
+      identity.authenticated_account_id, identity.root_id, rows);
+    if (!root.valid) return null;
+    const snapshot = {
+      authority_id: identity.authority_id,
+      generation: identity.generation,
+      adapter_id: identity.adapter_id,
+      host_installation_id: identity.host_installation_id,
+      authenticated_account_id: identity.authenticated_account_id,
+      root_id: identity.root_id,
+      root_inventory_sequence: root.sequence,
+      root_manifest_sha256: root.latest_manifest_sha256,
+      root_journal_head_sha256: root.head_sha256,
+    };
+    return {
+      sequence: root.sequence,
+      manifest_sha256: root.latest_manifest_sha256,
+      journal_head_sha256: root.head_sha256,
+      snapshot_fingerprint: sha256(canonical(snapshot)),
+    };
+  }
+
   #appendRootInventoryEvent({ host_installation_id, authenticated_account_id, root_id,
     event_id, event_type, entries, manifest_sha256, delta = null, delta_sha256 = null }) {
     const existing = this.db.prepare(`
@@ -929,6 +982,21 @@ export class HostLifecycleJournal {
       const recorded = this.#appendRootInventoryEvent({ ...input, event_type: 'DELTA_OBSERVED',
         entries, manifest_sha256: manifestSha256, delta, delta_sha256: deltaSha256 });
       return { ...recorded, delta };
+    });
+  }
+
+  getAuthoritySnapshot(input) {
+    if (!isPlainRecord(input) || !validText(input.authority_id)
+      || !Number.isSafeInteger(input.generation) || input.generation < 1
+      || !validText(input.adapter_id) || !validText(input.host_installation_id)
+      || !validText(input.authenticated_account_id) || !validDigest(input.root_id)) {
+      throw new TypeError('Invalid Host lifecycle authority snapshot request.');
+    }
+    return this.#withWrite(() => {
+      this.#assertRootIdentity(input);
+      const snapshot = this.#authoritySnapshotFingerprint(input);
+      return snapshot ? { status: 'INTEGRITY_OK', ...snapshot }
+        : { status: 'NON_READY', reason: 'HOST_LIFECYCLE_AUTHORITY_ROOT_HEAD_UNAVAILABLE' };
     });
   }
 
