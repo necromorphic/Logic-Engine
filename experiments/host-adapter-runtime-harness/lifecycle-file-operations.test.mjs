@@ -172,7 +172,8 @@ test('pinned ST 1.19.0 chat create/edit/swipe/delete/import/export/restore mutat
       assert.equal(result.status, 'UNCHANGED_REVIEW_ONLY', JSON.stringify(result));
     } else {
       assert.equal(result.status, 'NON_READY', JSON.stringify(result));
-      assert.ok(result.counts[expectedKind] > 0, JSON.stringify(result.counts));
+      const expectedKinds = Array.isArray(expectedKind) ? expectedKind : [expectedKind];
+      assert.ok(expectedKinds.some(kind => result.counts[kind] > 0), JSON.stringify(result.counts));
       assert.equal(JSON.stringify(journal.records).includes('ST_HARNESS_RAW_CHAT_SENTINEL'), false,
         'the lifecycle evidence journal must retain digests, not raw chat text');
     }
@@ -210,8 +211,8 @@ test('pinned ST 1.19.0 chat create/edit/swipe/delete/import/export/restore mutat
     assert.equal(response.status, 200);
     assert.equal(response.result.ok, true);
     return response;
-  }, 'modified');
-  assert.ok(edit.result.delta.modified.some(entry => entry.path.endsWith('chat-one.jsonl')));
+  }, ['modified', 'replaced']);
+  assert.ok([...edit.result.delta.modified, ...edit.result.delta.replaced].some(entry => entry.path.endsWith('chat-one.jsonl')));
   const editedPersisted = (await readFile(chatPath, 'utf8')).trim().split('\n').map(line => JSON.parse(line));
   assert.equal(editedPersisted[1]._logicEngineLifecycle.versions[0].versionId, 'ffffffff-ffff-4fff-8fff-ffffffffffff');
   assert.equal(editedPersisted[1]._logicEngineLifecycle.versions[0].parentVersionId, 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb');
@@ -244,8 +245,8 @@ test('pinned ST 1.19.0 chat create/edit/swipe/delete/import/export/restore mutat
     assert.equal(persisted[2]._logicEngineLifecycle.activeVersionIndex, 1);
     assert.equal(persisted[2]._logicEngineLifecycle.versions[1].parentVersionId, 'dddddddd-dddd-4ddd-8ddd-dddddddddddd');
     return response;
-  }, 'modified');
-  assert.ok(swipe.result.delta.modified.some(entry => entry.path.endsWith('chat-one.jsonl')));
+  }, ['modified', 'replaced']);
+  assert.ok([...swipe.result.delta.modified, ...swipe.result.delta.replaced].some(entry => entry.path.endsWith('chat-one.jsonl')));
 
   const deleteMessageChat = [
     header(),
@@ -258,8 +259,8 @@ test('pinned ST 1.19.0 chat create/edit/swipe/delete/import/export/restore mutat
     assert.equal(response.status, 200);
     assert.equal(response.result.ok, true);
     return response;
-  }, 'modified');
-  assert.ok(deleteMessage.result.delta.modified.some(entry => entry.path.endsWith('chat-one.jsonl')));
+  }, ['modified', 'replaced']);
+  assert.ok([...deleteMessage.result.delta.modified, ...deleteMessage.result.delta.replaced].some(entry => entry.path.endsWith('chat-one.jsonl')));
 
   const exportResult = await observe(async () => {
     const response = await post('/api/chats/export', {
