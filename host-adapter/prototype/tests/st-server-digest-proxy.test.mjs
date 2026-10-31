@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createHostDigestProxyHandler, createHostInventoryReconcileProxyHandler, createHostRootInventoryPersistence } from '../st-server-digest-proxy.mjs';
+import { createHostDigestProxyHandler, createHostInventoryReconcileProxyHandler, createHostRootInventoryPersistence, createHostLifecycleJournalProxy } from '../st-server-digest-proxy.mjs';
 import { createHash } from 'node:crypto';
 
 const CONFIG = {
@@ -14,7 +14,7 @@ const HOST_CONVERSATION_ID = SESSION_ID + ':22222222-2222-4222-8222-222222222222
 const requestFor = (body, { sessionId = SESSION_ID, userHandle = 'alice', sessionHandle = userHandle } = {}) => ({
   body,
   user: { profile: { handle: userHandle } },
-  session: { handle: sessionHandle, logicEngineSessionId: sessionId },
+  session: { handle: sessionHandle, logicEngineSessionId: sessionId, logicEngineSessionHandle: userHandle },
 });
 const capture = {
   conversation_id: HOST_CONVERSATION_ID,
@@ -339,4 +339,78 @@ test('reconciliation proxy rejects raw text, caller world scope, oversized row s
   assert.equal(byteResponse.statusCode, 413);
   assert.equal(byteResponse.payload.error.code, 'HOST_INVENTORY_TOO_LARGE');
   assert.equal(calls, 0);
+});
+
+
+test('lifecycle journal proxy derives account identity server-side and binds event to signed session conversation', async () => {
+  let observed;
+  const identityStore = {
+    resolveAuthenticatedAccount: async handle => {
+      assert.equal(handle, 'alice');
+      return {
+        host_installation_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        authenticated_account_id: '22222222-2222-4222-8222-222222222222',
+      };
+    },
+  };
+  const proxy = createHostLifecycleJournalProxy({
+    env: CONFIG,
+    identityStore,
+    fetchImpl: async (url, options) => {
+      observed = { url: String(url), options };
+      return { status: 201, json: async () => ({ lifecycle: { status: 'appended' } }) };
+    },
+  });
+  const event = {
+    conversation_id: HOST_CONVERSATION_ID,
+    event_id: '44444444-4444-4444-8444-444444444444',
+    event_type: 'MUTATION_PREPARED',
+    mutation_id: '55555555-5555-4555-8555-555555555555',
+    operation: 'edit-message',
+    mutation_digest: 'a'.repeat(64),
+  };
+  const response = responseRecorder();
+  await proxy.append(requestFor(event), response);
+  assert.equal(response.statusCode, 201);
+  assert.equal(observed.url, 'http://192.168.1.10:8787/v1/host-lifecycle/events');
+  assert.equal(observed.options.headers['x-adapter-id'], CONFIG.LOGIC_ENGINE_ADAPTER_ID);
+  assert.equal(observed.options.headers['x-adapter-token'], CONFIG.LOGIC_ENGINE_ADAPTER_TOKEN);
+  assert.deepEqual(JSON.parse(observed.options.body), {
+    host_installation_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    authenticated_account_id: '22222222-2222-4222-8222-222222222222',
+    conversation_uuid: '33333333-3333-4333-8333-333333333333',
+    event_id: event.event_id,
+    event_type: event.event_type,
+    mutation_id: event.mutation_id,
+    operation: event.operation,
+    mutation_digest: event.mutation_digest,
+  });
+});
+
+test('lifecycle journal proxy status is session-bound and forwards only server-derived identity', async () => {
+  let observed;
+  const proxy = createHostLifecycleJournalProxy({
+    env: CONFIG,
+    identityStore: { resolveAuthenticatedAccount: async () => ({
+      host_installation_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      authenticated_account_id: '22222222-2222-4222-8222-222222222222',
+    }) },
+    fetchImpl: async (url, options) => {
+      observed = { url: String(url), options };
+      return { status: 200, json: async () => ({ lifecycle: { status: 'NO_PENDING_MUTATION' } }) };
+    },
+  });
+  const response = responseRecorder();
+  const request = requestFor({});
+  request.query = { conversation_id: HOST_CONVERSATION_ID };
+  await proxy.status(request, response);
+  assert.equal(response.statusCode, 200);
+  assert.equal(observed.url.startsWith('http://192.168.1.10:8787/v1/host-lifecycle/status?'), true);
+  const wrongSession = responseRecorder();
+  const wrongRequest = requestFor({});
+  wrongRequest.query = { conversation_id: HOST_CONVERSATION_ID };
+  wrongRequest.session.logicEngineSessionId = '66666666-6666-4666-8666-666666666666';
+  await proxy.status(wrongRequest, wrongSession);
+  assert.equal(wrongSession.statusCode, 403);
+  assert.equal(wrongSession.payload.error.code, 'HOST_SESSION_SCOPE_REQUIRED');
 });
