@@ -1,4 +1,6 @@
 import test from 'node:test';
+import { spawn, spawnSync } from 'node:child_process';
+import { once } from 'node:events';
 import assert from 'node:assert/strict';
 import { chmodSync, existsSync, linkSync, mkdirSync, mkdtempSync, renameSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -855,5 +857,117 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
     }
   } finally {
     second.close();
+  }
+
+  // Cross-process SQLite locking must remain effective when each process
+  // independently loads the secure-open probe and registers the same role.
+  const lockPath = join(directory, 'cross-process-lock.sqlite');
+  registerRole(lockPath, 'cross-process-lock-parent');
+  const lockOwner = new DatabaseSync(lockPath);
+  try {
+    lockOwner.exec('CREATE TABLE lock_probe(value INTEGER); BEGIN IMMEDIATE;');
+    const lockChild = `
+      const { DatabaseSync } = require('node:sqlite');
+      const bootstrap = new DatabaseSync(':memory:', { allowExtension: true });
+      bootstrap.loadExtension(process.env.LOGIC_ENGINE_VFS_PROBE_PATH, 'sqlite3_secure_vfs_probe_init');
+      bootstrap.enableLoadExtension(false);
+      bootstrap.close();
+      const registry = new DatabaseSync(':memory:');
+      registry.prepare('SELECT logic_engine_vfs_probe_register_database_role(?, ?)').get(process.argv[1], 'cross-process-lock-child');
+      const db = new DatabaseSync(process.argv[1]);
+      db.exec('PRAGMA busy_timeout=100;');
+      try {
+        db.exec('BEGIN IMMEDIATE;');
+        process.stderr.write('unexpected lock acquisition\\n');
+        process.exitCode = 3;
+      } catch (error) {
+        if (!/locked|busy/i.test(String(error.message))) {
+          process.stderr.write(String(error.stack || error) + '\\n');
+          process.exitCode = 4;
+        } else {
+          process.stdout.write('LOCKED\\n');
+        }
+      } finally {
+        try { db.exec('ROLLBACK;'); } catch {}
+        db.close();
+        registry.close();
+      }
+    `;
+    const lockResult = spawnSync(process.execPath, ['-e', lockChild, lockPath], {
+      encoding: 'utf8',
+      env: process.env,
+      timeout: 10000,
+    });
+    assert.equal(lockResult.status, 0, lockResult.stderr || lockResult.stdout);
+    assert.match(lockResult.stdout, /LOCKED/,
+      'a second process must not acquire BEGIN IMMEDIATE while the first process holds the writer lock');
+  } finally {
+    try { lockOwner.exec('ROLLBACK;'); } catch {}
+    lockOwner.close();
+  }
+
+  // Simulate process death after WAL pages are written but before COMMIT.
+  // SQLite must ignore the uncommitted frames and recover the committed row.
+  const crashPath = join(directory, 'wal-crash-recovery.sqlite');
+  registerRole(crashPath, 'wal-crash-recovery');
+  const seed = new DatabaseSync(crashPath);
+  try {
+    seed.exec('PRAGMA journal_mode=WAL; CREATE TABLE crash_probe(value TEXT); INSERT INTO crash_probe VALUES(\'committed\');');
+  } finally {
+    seed.close();
+  }
+  const crashChild = `
+    const fs = require('node:fs');
+    const { DatabaseSync } = require('node:sqlite');
+    const bootstrap = new DatabaseSync(':memory:', { allowExtension: true });
+    bootstrap.loadExtension(process.env.LOGIC_ENGINE_VFS_PROBE_PATH, 'sqlite3_secure_vfs_probe_init');
+    bootstrap.enableLoadExtension(false);
+    bootstrap.close();
+    const registry = new DatabaseSync(':memory:');
+    registry.prepare('SELECT logic_engine_vfs_probe_register_database_role(?, ?)').get(process.argv[1], 'wal-crash-recovery-child');
+    const db = new DatabaseSync(process.argv[1]);
+    db.exec("PRAGMA journal_mode=WAL; BEGIN IMMEDIATE; INSERT INTO crash_probe VALUES('uncommitted-after-crash');");
+    fs.writeSync(1, 'READY\\n');
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 60000);
+  `;
+  const child = spawn(process.execPath, ['-e', crashChild, crashPath], {
+    env: process.env,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let childOutput = '';
+  const ready = new Promise((resolve, reject) => {
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
+    child.stdout.on('data', (chunk) => {
+      childOutput += chunk;
+      if (childOutput.includes('READY')) resolve();
+    });
+    child.stderr.on('data', (chunk) => { childOutput += chunk; });
+    child.once('error', reject);
+    child.once('exit', (code, signal) => {
+      if (!childOutput.includes('READY')) {
+        reject(new Error(`WAL crash child exited before writing: code=${code}, signal=${signal}, output=${childOutput}`));
+      }
+    });
+  });
+  await ready;
+  const childExit = once(child, 'exit');
+  child.kill('SIGKILL');
+  await childExit;
+  const recovered = new DatabaseSync(crashPath);
+  try {
+    assert.deepEqual(
+      recovered.prepare('SELECT value FROM crash_probe ORDER BY rowid').all().map((row) => row.value),
+      ['committed'],
+      'WAL recovery must discard the transaction that was interrupted before COMMIT',
+    );
+    assert.equal(
+      recovered.prepare('PRAGMA integrity_check').get().integrity_check,
+      'ok',
+      'the database must pass integrity_check after abrupt writer termination',
+    );
+    recovered.exec('PRAGMA wal_checkpoint(TRUNCATE);');
+  } finally {
+    recovered.close();
   }
 });
