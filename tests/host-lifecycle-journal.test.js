@@ -358,7 +358,7 @@ test('root file delta is durable, replay-idempotent and never accepted without a
   assert.equal(restored.status, 'NON_READY');
   assert.match(restored.reason, /previously observed root inventory delta remains unresolved/);
   assert.equal(restored.delta.added.length, 0);
-  assert.equal(restored.delta.removed.length, 1);
+  assert.equal(restored.delta.modified.length, 1);
   assert.equal(journal.verifyRootInventory(baseline).status, 'INTEGRITY_OK');
 
   const repeatedTransition = journal.observeRootInventory({
