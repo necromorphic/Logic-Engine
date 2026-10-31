@@ -401,12 +401,12 @@ class ManifestStoreTests(unittest.TestCase):
         decoy = self.role_parent / "core.sqlite"
         decoy.write_bytes(b"decoy-database")
         os.chmod(decoy, 0o600)
+        decoy_fd = os.open(decoy, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
         try:
             self.assertEqual(os.read(fd, 64), b"sqlite-test-placeholder")
-            self.assertNotEqual(fd_identity(fd), fd_identity(
-                os.open(decoy, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
-            ))
+            self.assertNotEqual(fd_identity(fd), fd_identity(decoy_fd))
         finally:
+            os.close(decoy_fd)
             os.close(fd)
 
 
