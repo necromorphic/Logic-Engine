@@ -198,7 +198,8 @@ int main(int argc, char **argv) {
         return 2;
     }
 
-    umask(0077);\n    listener_fd = socket(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0);
+    umask(0077);
+    listener_fd = socket(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0);
     if (listener_fd < 0) {
         perror("socket");
         return 1;
