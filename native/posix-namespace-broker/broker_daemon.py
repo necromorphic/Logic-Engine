@@ -30,6 +30,7 @@ OP_OPEN_SIDECAR = 3
 OP_DELETE_SIDECAR = 4
 OP_CREATE_SIDECAR = 5
 OP_OPEN_ROLE_PARENT = 6
+OP_OPEN_OR_CREATE_SIDECAR = 7
 STATUS_OK = 0
 STATUS_BAD_REQUEST = 1
 STATUS_UNAUTHORIZED = 2
@@ -121,7 +122,7 @@ def handle_connection(conn: socket.socket, allowed_uid: int, store: Any) -> None
             else:
                 _send_response(conn, operation, STATUS_OK, request_id)
             return
-        if operation not in (OP_OPEN_MAIN, OP_OPEN_SIDECAR, OP_DELETE_SIDECAR, OP_CREATE_SIDECAR, OP_OPEN_ROLE_PARENT):
+        if operation not in (OP_OPEN_MAIN, OP_OPEN_SIDECAR, OP_DELETE_SIDECAR, OP_CREATE_SIDECAR, OP_OPEN_ROLE_PARENT, OP_OPEN_OR_CREATE_SIDECAR):
             _send_response(conn, operation, STATUS_UNSUPPORTED, request_id)
             return
         try:
@@ -136,6 +137,8 @@ def handle_connection(conn: socket.socket, allowed_uid: int, store: Any) -> None
                 return
             if operation == OP_CREATE_SIDECAR:
                 descriptor = store.create_role_sidecar(role, kind)
+            elif operation == OP_OPEN_OR_CREATE_SIDECAR:
+                descriptor = store.open_or_create_role_sidecar(role, kind)
             elif operation == OP_OPEN_ROLE_PARENT:
                 descriptor = store.open_role_parent_directory(role)
             else:
