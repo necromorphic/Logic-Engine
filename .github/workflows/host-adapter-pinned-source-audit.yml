@@ -74,3 +74,8 @@ jobs:
         env:
           SILLYTAVERN_DIR: SillyTavern
         run: node --test experiments/host-adapter-runtime-harness/harness.mjs
+
+      - name: Run real pinned SillyTavern file-operation and full-root delta harness
+        env:
+          SILLYTAVERN_DIR: SillyTavern
+        run: node --test experiments/host-adapter-runtime-harness/lifecycle-file-operations.test.mjs
