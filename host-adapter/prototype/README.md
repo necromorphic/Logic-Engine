@@ -223,3 +223,17 @@ The full-root scanner, source inventory and VSS provider are separate evidence l
 - per-file reconciliation: exact file delta, fail-closed absent a matching operation receipt.
 
 No raw chat content is copied into the journal. No Provider, vectorization, Ollama or Memory→NPC production wiring is enabled by this candidate.
+
+
+### Real SillyTavern file-operation harness
+
+`experiments/host-adapter-runtime-harness/lifecycle-file-operations.test.mjs` mounts the actual pinned SillyTavern 1.19.0 `src/endpoints/chats.js` and `src/endpoints/backups.js` routers against disposable real directories. It exercises:
+- chat create, edit, swipe update and message removal through `POST /api/chats/save`;
+- chat rename and whole-chat deletion;
+- JSONL export and import;
+- backup download followed by import, matching the native restore workflow;
+- group chat import, save and delete.
+
+Before and after each operation, the harness takes a Windows VSS snapshot of the temporary user data root and runs the real file inventory and per-file reconciliation code. It asserts the expected added/removed/modified file delta and that the journal observation contains no raw chat text. The harness checks the exact SillyTavern commit SHA.
+
+This is real Host route/file-operation evidence, but it is not yet an end-to-end trusted receipt: the test journal is an isolated adapter, and the production ST route does not yet forward operation-specific file receipts to the Core SQLite journal. The current route must therefore remain NON_READY.
