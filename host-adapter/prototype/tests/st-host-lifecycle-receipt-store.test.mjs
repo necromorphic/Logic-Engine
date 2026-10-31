@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -103,6 +103,19 @@ function fixture(t, states) {
   const store = new HostLifecycleReceiptStore({ directory, enumerate });
   return { directory, store, get scans() { return index; } };
 }
+
+test('receipt store must be outside the scanned data root before it creates any files', async t => {
+  const base = mkdtempSync(join(tmpdir(), 'host-lifecycle-receipt-scope-'));
+  t.after(() => rmSync(base, { recursive: true, force: true }));
+  const dataRoot = join(base, 'data');
+  mkdirSync(dataRoot);
+  const outside = new HostLifecycleReceiptStore({ directory: join(base, 'receipts') });
+  assert.equal(await outside.assertOutsideRoot(dataRoot), true);
+  const insidePath = join(dataRoot, 'receipts');
+  const inside = new HostLifecycleReceiptStore({ directory: insidePath });
+  await assert.rejects(inside.assertOutsideRoot(dataRoot), /HOST_LIFECYCLE_RECEIPT_DIRECTORY_INSIDE_DATA_ROOT/);
+  assert.equal(existsSync(insidePath), false, 'invalid in-root receipt path is rejected before directory creation');
+});
 
 test('server receipt store persists prepare and verifies a real logical create-message transition', async t => {
   const before = { fileIdentity: '101', content: 'before', messages: [message('m1', 'old', 'v1')] };
