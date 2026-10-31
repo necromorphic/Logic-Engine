@@ -187,18 +187,22 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
         });
         const body = await readBody(req);
         const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-        const allowed = ['host_installation_id', 'authenticated_account_id', 'conversation_uuid',
-          'event_id', 'event_type', 'mutation_id', 'operation', 'mutation_digest'];
+        const allowed = ['host_installation_id', 'authenticated_account_id', 'host_session_id', 'conversation_uuid',
+          'event_id', 'event_type', 'mutation_id', 'operation', 'mutation_digest', 'receipt_digest', 'occurred_at'];
         if (!body || typeof body !== 'object' || Array.isArray(body)
           || Object.keys(body).some(key => !allowed.includes(key))
           || !UUID.test(body.host_installation_id ?? '')
           || !UUID.test(body.authenticated_account_id ?? '')
+          || !UUID.test(body.host_session_id ?? '')
           || !UUID.test(body.conversation_uuid ?? '')
           || !UUID.test(body.event_id ?? '')
           || !['MUTATION_PREPARED', 'MUTATION_COMMITTED', 'MUTATION_ABORTED'].includes(body.event_type)
           || !UUID.test(body.mutation_id ?? '')
           || typeof body.operation !== 'string' || !/^[a-z][a-z0-9-]{0,63}$/.test(body.operation)
-          || typeof body.mutation_digest !== 'string' || !/^[a-f0-9]{64}$/.test(body.mutation_digest)) {
+          || typeof body.mutation_digest !== 'string' || !/^[a-f0-9]{64}$/.test(body.mutation_digest)
+          || (body.event_type !== 'MUTATION_PREPARED' && !/^[a-f0-9]{64}$/.test(body.receipt_digest ?? ''))
+          || (body.event_type === 'MUTATION_PREPARED' && body.receipt_digest !== undefined)
+          || typeof body.occurred_at !== 'string' || !Number.isFinite(Date.parse(body.occurred_at))) {
           throw new EngineError('INVALID_HOST_LIFECYCLE_EVENT', 'A bounded, digest-only Host mutation lifecycle event is required.', 400);
         }
         let trustedIdentity;
@@ -207,6 +211,7 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
             adapterId,
             host_installation_id: body.host_installation_id,
             authenticated_account_id: body.authenticated_account_id,
+            host_session_id: body.host_session_id,
             conversation_uuid: body.conversation_uuid,
           });
         } catch {
@@ -215,17 +220,25 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
         if (!trustedIdentity || trustedIdentity.authorized !== true
           || trustedIdentity.host_installation_id !== body.host_installation_id
           || trustedIdentity.authenticated_account_id !== body.authenticated_account_id
-          || trustedIdentity.conversation_uuid !== body.conversation_uuid) {
+          || trustedIdentity.host_session_id !== body.host_session_id
+          || trustedIdentity.conversation_uuid !== body.conversation_uuid
+          || typeof trustedIdentity.authority_id !== 'string'
+          || !Number.isSafeInteger(trustedIdentity.generation) || trustedIdentity.generation < 1
+          || !/^[a-f0-9]{64}$/.test(trustedIdentity.snapshot_fingerprint ?? '')) {
           return send(res, 403, { error: { code: 'HOST_LIFECYCLE_NOT_AUTHORIZED', message: 'Host lifecycle identity is not authorized.' } });
         }
         try {
           const result = hostLifecycleJournal.append({
             ...body,
+            authority_id: trustedIdentity.authority_id,
+            generation: trustedIdentity.generation,
+            snapshot_fingerprint: trustedIdentity.snapshot_fingerprint,
           });
           return send(res, result.status === 'duplicate' ? 200 : 201, { lifecycle: result });
         } catch (error) {
           if (['HOST_LIFECYCLE_EVENT_ID_CONFLICT', 'HOST_LIFECYCLE_MUTATION_ALREADY_PENDING',
-            'HOST_LIFECYCLE_MUTATION_PREPARE_MISSING'].includes(error?.message)) {
+            'HOST_LIFECYCLE_MUTATION_PREPARE_MISSING', 'HOST_LIFECYCLE_MUTATION_TERMINAL_CONFLICT',
+            'HOST_LIFECYCLE_INTENT_DIGEST_MISMATCH'].includes(error?.message)) {
             throw new EngineError(error.message, 'Host lifecycle event conflicts with the durable journal state.', 409);
           }
           if (error instanceof TypeError) {
@@ -250,6 +263,7 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
         const identity = {
           host_installation_id: url.searchParams.get('host_installation_id'),
           authenticated_account_id: url.searchParams.get('authenticated_account_id'),
+          host_session_id: url.searchParams.get('host_session_id'),
           conversation_uuid: url.searchParams.get('conversation_uuid'),
         };
         let trustedIdentity;
@@ -257,12 +271,17 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
         if (!trustedIdentity || trustedIdentity.authorized !== true
           || trustedIdentity.host_installation_id !== identity.host_installation_id
           || trustedIdentity.authenticated_account_id !== identity.authenticated_account_id
-          || trustedIdentity.conversation_uuid !== identity.conversation_uuid) {
+          || trustedIdentity.host_session_id !== identity.host_session_id
+          || trustedIdentity.conversation_uuid !== identity.conversation_uuid
+          || typeof trustedIdentity.authority_id !== 'string'
+          || !Number.isSafeInteger(trustedIdentity.generation) || trustedIdentity.generation < 1
+          || !/^[a-f0-9]{64}$/.test(trustedIdentity.snapshot_fingerprint ?? '')) {
           return send(res, 403, { error: { code: 'HOST_LIFECYCLE_NOT_AUTHORIZED', message: 'Host lifecycle identity is not authorized.' } });
         }
         try {
           return send(res, 200, { lifecycle: hostLifecycleJournal.getConversationStatus(
-            identity.host_installation_id, identity.authenticated_account_id, identity.conversation_uuid,
+            identity.host_installation_id, identity.authenticated_account_id, identity.host_session_id,
+            identity.conversation_uuid, trustedIdentity,
           ) });
         } catch (error) {
           if (error instanceof TypeError) throw new EngineError('INVALID_HOST_LIFECYCLE_IDENTITY', 'Host lifecycle identity is malformed.', 400);
