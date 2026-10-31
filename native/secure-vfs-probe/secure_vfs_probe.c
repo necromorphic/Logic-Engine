@@ -978,16 +978,54 @@ static int probe_stat(const char *name, struct stat *info) {
   const char *anchored_suffix = 0;
   if (probe_match_role_entry(name, &anchored_role_index, &anchored_suffix)) {
     ProbeDatabaseRole *role = &g_database_roles[anchored_role_index];
-    char relative_name[4096];
-    size_t base_length = strlen(role->basename);
-    size_t suffix_length = strlen(anchored_suffix);
-    if (base_length + suffix_length + 1 > sizeof(relative_name)) {
-      errno = ENAMETOOLONG;
-      return -1;
+#if defined(__linux__)
+    if (role->broker_socket_path) {
+      const char *kind = anchored_suffix[0] == '\0' ? "main"
+        : strcmp(anchored_suffix, "-wal") == 0 ? "wal"
+        : strcmp(anchored_suffix, "-shm") == 0 ? "shm"
+        : strcmp(anchored_suffix, "-journal") == 0 ? "journal" : NULL;
+      uint32_t status = LEB_STATUS_INTERNAL;
+      int descriptor = -1;
+      uint16_t operation = anchored_suffix[0] == '\0'
+        ? LEB_OP_OPEN_MAIN : LEB_OP_OPEN_SIDECAR;
+      if (!kind || !probe_broker_exchange(role, role->broker_socket_path,
+            LEB_OP_ACCESS_ROLE_FILE, kind, 0, NULL, &status)) {
+        errno = EACCES;
+        return -1;
+      }
+      if (status == LEB_STATUS_NOT_FOUND) {
+        errno = ENOENT;
+        return -1;
+      }
+      if (status != LEB_STATUS_OK
+          || !probe_broker_exchange(role, role->broker_socket_path, operation,
+               anchored_suffix[0] == '\0' ? NULL : kind, 1, &descriptor, &status)
+          || status != LEB_STATUS_OK || descriptor < 0) {
+        if (descriptor >= 0) close(descriptor);
+        errno = EACCES;
+        return -1;
+      }
+      if (fstat(descriptor, info) != 0) {
+        close(descriptor);
+        errno = EACCES;
+        return -1;
+      }
+      close(descriptor);
+      rc = 0;
+    } else
+#endif
+    {
+      char relative_name[4096];
+      size_t base_length = strlen(role->basename);
+      size_t suffix_length = strlen(anchored_suffix);
+      if (base_length + suffix_length + 1 > sizeof(relative_name)) {
+        errno = ENAMETOOLONG;
+        return -1;
+      }
+      memcpy(relative_name, role->basename, base_length);
+      memcpy(relative_name + base_length, anchored_suffix, suffix_length + 1);
+      rc = fstatat(role->trusted_parent_fd, relative_name, info, AT_SYMLINK_NOFOLLOW);
     }
-    memcpy(relative_name, role->basename, base_length);
-    memcpy(relative_name + base_length, anchored_suffix, suffix_length + 1);
-    rc = fstatat(role->trusted_parent_fd, relative_name, info, AT_SYMLINK_NOFOLLOW);
   } else {
     rc = ((probe_stat_fn)g_original_stat_syscall)(name, info);
   }
