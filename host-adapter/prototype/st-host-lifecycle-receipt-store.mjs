@@ -174,19 +174,16 @@ export class HostLifecycleReceiptStore {
         probe = parent;
       }
     }
+    const isWithinRoot = relative => relative === ''
+      || (relative !== '..' && !relative.startsWith('..' + path.sep) && !path.isAbsolute(relative));
     const parentRelative = path.relative(realRoot, realParent);
-    if (parentRelative === '' || parentRelative === '..'
-      || parentRelative.startsWith('..' + path.sep) === false && path.isAbsolute(parentRelative)) {
-      if (parentRelative === '' || (!parentRelative.startsWith('..' + path.sep)
-        && parentRelative !== '..' && !path.isAbsolute(parentRelative))) {
-        throw new Error('HOST_LIFECYCLE_RECEIPT_DIRECTORY_INSIDE_DATA_ROOT');
-      }
+    if (isWithinRoot(parentRelative)) {
+      throw new Error('HOST_LIFECYCLE_RECEIPT_DIRECTORY_INSIDE_DATA_ROOT');
     }
     await this.#prepareDirectory();
     const realDirectory = await fs.realpath(this.directory);
     const relative = path.relative(realRoot, realDirectory);
-    if (relative === '' || (!relative.startsWith('..' + path.sep)
-      && relative !== '..' && !path.isAbsolute(relative))) {
+    if (isWithinRoot(relative)) {
       throw new Error('HOST_LIFECYCLE_RECEIPT_DIRECTORY_INSIDE_DATA_ROOT');
     }
     return true;
