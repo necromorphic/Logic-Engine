@@ -425,7 +425,9 @@ export function createHostLifecycleJournalProxy({
     if (!identity || !HOST_SESSION_UUID.test(identity.host_installation_id ?? '')
       || !HOST_SESSION_UUID.test(identity.authenticated_account_id ?? '')) return null;
     const conversationUuid = parseBoundConversation(request, conversationId, identity);
-    return conversationUuid ? { identity, conversationUuid } : null;
+    const hostSessionId = request?.session?.logicEngineSessionId;
+    if (!HOST_SESSION_UUID.test(hostSessionId ?? '')) return null;
+    return conversationUuid ? { identity, conversationUuid, hostSessionId } : null;
   }
 
   async function upstream(pathname, method, body, identity) {
@@ -438,6 +440,7 @@ export function createHostLifecycleJournalProxy({
       target.url.search = new URLSearchParams({
         host_installation_id: identity.host_installation_id,
         authenticated_account_id: identity.authenticated_account_id,
+        host_session_id: identity.host_session_id,
         conversation_uuid: identity.conversation_uuid,
       }).toString();
     }
@@ -453,6 +456,7 @@ export function createHostLifecycleJournalProxy({
         ...(method === 'POST' ? { body: JSON.stringify({
           host_installation_id: identity.host_installation_id,
           authenticated_account_id: identity.authenticated_account_id,
+          host_session_id: identity.host_session_id,
           conversation_uuid: identity.conversation_uuid,
           ...body,
         }) } : {}),
@@ -480,14 +484,17 @@ export function createHostLifecycleJournalProxy({
       if (!resolved) return response.status(403).json({
         error: { code: 'HOST_SESSION_SCOPE_REQUIRED', message: 'The Host conversation is not bound to this authenticated SillyTavern session.' },
       });
-      const allowed = ['conversation_id', 'event_id', 'event_type', 'mutation_id', 'operation', 'mutation_digest'];
+      const allowed = ['conversation_id', 'event_id', 'event_type', 'mutation_id', 'operation', 'mutation_digest', 'receipt_digest', 'occurred_at'];
       if (!body || typeof body !== 'object' || Array.isArray(body)
         || Object.keys(body).some(key => !allowed.includes(key))
         || !HOST_SESSION_UUID.test(body.event_id ?? '')
         || !HOST_LIFECYCLE_EVENT_TYPES.has(body.event_type)
         || !HOST_SESSION_UUID.test(body.mutation_id ?? '')
         || !HOST_LIFECYCLE_OPERATIONS.has(body.operation)
-        || typeof body.mutation_digest !== 'string' || !/^[a-f0-9]{64}$/.test(body.mutation_digest)) {
+        || typeof body.mutation_digest !== 'string' || !/^[a-f0-9]{64}$/.test(body.mutation_digest)
+        || (body.event_type !== 'MUTATION_PREPARED' && (typeof body.receipt_digest !== 'string' || !/^[a-f0-9]{64}$/.test(body.receipt_digest)))
+        || (body.event_type === 'MUTATION_PREPARED' && body.receipt_digest !== undefined)
+        || typeof body.occurred_at !== 'string' || !Number.isFinite(Date.parse(body.occurred_at))) {
         return response.status(400).json({
           error: { code: 'INVALID_HOST_LIFECYCLE_EVENT', message: 'Only bounded digest-only Host mutation lifecycle events are accepted.' },
         });
@@ -498,9 +505,12 @@ export function createHostLifecycleJournalProxy({
         mutation_id: body.mutation_id,
         operation: body.operation,
         mutation_digest: body.mutation_digest,
+        ...(body.receipt_digest ? { receipt_digest: body.receipt_digest } : {}),
+        occurred_at: body.occurred_at,
       }, {
         host_installation_id: resolved.identity.host_installation_id,
         authenticated_account_id: resolved.identity.authenticated_account_id,
+        host_session_id: resolved.hostSessionId,
         conversation_uuid: resolved.conversationUuid,
       });
       return response.status(result.status).json(result.payload);
@@ -515,6 +525,7 @@ export function createHostLifecycleJournalProxy({
       const result = await upstream('/v1/host-lifecycle/status', 'GET', null, {
         host_installation_id: resolved.identity.host_installation_id,
         authenticated_account_id: resolved.identity.authenticated_account_id,
+        host_session_id: resolved.hostSessionId,
         conversation_uuid: resolved.conversationUuid,
       });
       return response.status(result.status).json(result.payload);
