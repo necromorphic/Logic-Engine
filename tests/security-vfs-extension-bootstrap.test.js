@@ -125,7 +125,7 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
     assert.equal(
       first.prepare('SELECT logic_engine_vfs_probe_hook_protection() AS protected').get().protected,
       1,
-      'the VFS must refuse attempts to replace its protected native open/stat hooks'
+      'the VFS must refuse attempts to replace its protected native open/delete or open/stat hooks'
     );
 
     // Keep a reader transaction open while the writer appends another WAL frame.
@@ -881,7 +881,7 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
       hookDb.close();
     }
     assert.ok(
-      first.prepare('SELECT logic_engine_vfs_probe_delete_file_hook_count() AS count').get().count > 0,
+      second.prepare('SELECT logic_engine_vfs_probe_delete_file_hook_count() AS count').get().count > 0,
       'the internal Windows SHM deletion path must route through the handle-relative DeleteFileW hook',
     );
   }
