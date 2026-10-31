@@ -429,6 +429,33 @@ class ManifestStoreTests(unittest.TestCase):
         self.store.commit(_canonical_json(value))
         return wal, wal_identity
 
+    def test_create_role_sidecar_persists_identity_before_returning_descriptor(self):
+        self.store.initialize(self.data(1))
+        fd = self.store.create_role_sidecar("core", "wal")
+        try:
+            self.assertEqual(os.fstat(fd).st_size, 0)
+            manifest_after = self.store.load()
+            self.assertEqual(manifest_after["generation"], 3)
+            sidecar = manifest_after["roles"][0]["sidecars"][0]
+            self.assertEqual(sidecar["kind"], "wal")
+            self.assertEqual(sidecar["state"], "active")
+            self.assertEqual(sidecar["identity"], fd_identity(fd))
+            self.assertEqual(
+                self.store.open_role_file("core", "wal") >= 0,
+                True,
+            )
+        finally:
+            os.close(fd)
+
+    def test_create_role_sidecar_never_adopts_an_existing_path(self):
+        self.store.initialize(self.data(1))
+        wal = self.role_parent / "core.sqlite-wal"
+        wal.write_bytes(b"untrusted")
+        with self.assertRaises(StoreError):
+            self.store.create_role_sidecar("core", "wal")
+        self.assertEqual(wal.read_bytes(), b"untrusted")
+        self.assertEqual(self.store.load()["generation"], 1)
+
     def test_delete_role_sidecar_quarantines_and_commits_retired_state(self):
         wal, _identity = self._enroll_active_wal()
         result = self.store.delete_role_sidecar("core", "wal")
