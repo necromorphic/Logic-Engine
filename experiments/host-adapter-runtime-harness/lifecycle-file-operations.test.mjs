@@ -78,7 +78,7 @@ const identifiedMessage = ({ name = 'Harness User', isUser = true, mes, messageI
   _logicEngineLifecycle: identity(messageId, versionId, mes),
 });
 
-test('pinned ST 1.19.0 chat create/edit/swipe/delete/import/export/restore mutate real files and produce file-level deltas', {
+test('pinned ST 1.19.0 chat create/edit/swipe/delete/rename mutate real files; bulk import and restore fail closed', {
   skip: process.platform !== 'win32' || !runPinnedSTHarness,
   timeout: 600_000,
 }, async t => {
