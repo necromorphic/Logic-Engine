@@ -188,7 +188,7 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
         const body = await readBody(req);
         const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
         const allowed = ['host_installation_id', 'authenticated_account_id', 'host_session_id', 'conversation_uuid',
-          'event_id', 'event_type', 'mutation_id', 'operation', 'mutation_digest', 'receipt_digest', 'occurred_at'];
+          'event_id', 'event_type', 'mutation_id', 'operation', 'mutation_digest', 'receipt_digest', 'receipt_signature', 'occurred_at'];
         if (!body || typeof body !== 'object' || Array.isArray(body)
           || Object.keys(body).some(key => !allowed.includes(key))
           || !UUID.test(body.host_installation_id ?? '')
