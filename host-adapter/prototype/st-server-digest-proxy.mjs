@@ -378,3 +378,146 @@ function normalizeRootInventoryResponse(upstream) {
     upstream_status: upstream.status,
   };
 }
+
+
+const HOST_LIFECYCLE_EVENT_TYPES = new Set(['MUTATION_PREPARED', 'MUTATION_COMMITTED', 'MUTATION_ABORTED']);
+const HOST_LIFECYCLE_OPERATIONS = new Set([
+  'create-message', 'message-send', 'message-receive', 'create-swipe', 'select-swipe',
+  'delete-swipe', 'delete-message', 'edit-message', 'rename-chat', 'import',
+  'import-character-chat', 'import-group-chat', 'export', 'copy-branch', 'restore',
+  'backup-restore', 'create-branch', 'group-metadata-migration',
+]);
+
+function parseBoundConversation(request, conversationId, identity) {
+  if (!requestMatchesAuthenticatedHostSession(request, conversationId)) return null;
+  const parts = conversationId.split(':');
+  if (parts.length !== 3 || parts[0] !== request.session.logicEngineSessionId
+    || parts[1] !== identity.authenticated_account_id
+    || !HOST_SESSION_UUID.test(parts[2])
+    || request.session.logicEngineSessionHandle !== request.user.profile.handle) return null;
+  return parts[2];
+}
+
+/**
+ * Same-origin proxy for Core's durable mutation journal. Installation/account
+ * IDs are resolved server-side; the browser can supply neither identity nor
+ * upstream credentials. The signed ST session must bind the conversation UUID.
+ */
+export function createHostLifecycleJournalProxy({
+  env = process.env,
+  fetchImpl = globalThis.fetch,
+  identityStore,
+  timeoutMs = 5000,
+} = {}) {
+  if (typeof fetchImpl !== 'function') throw new TypeError('A fetch implementation is required');
+  if (!identityStore || typeof identityStore.resolveAuthenticatedAccount !== 'function') {
+    throw new TypeError('A server-owned Host identity store is required');
+  }
+  if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 30000) {
+    throw new TypeError('timeoutMs must be an integer between 1 and 30000');
+  }
+
+  async function resolveRequestIdentity(request, conversationId) {
+    const handle = request?.user?.profile?.handle;
+    if (!validId(handle)) return null;
+    let identity;
+    try { identity = await identityStore.resolveAuthenticatedAccount(handle); } catch { return null; }
+    if (!identity || !HOST_SESSION_UUID.test(identity.host_installation_id ?? '')
+      || !HOST_SESSION_UUID.test(identity.authenticated_account_id ?? '')) return null;
+    const conversationUuid = parseBoundConversation(request, conversationId, identity);
+    return conversationUuid ? { identity, conversationUuid } : null;
+  }
+
+  async function upstream(pathname, method, body, identity) {
+    const target = configuredTarget(env);
+    if (!target) return { status: 503, payload: {
+      error: { code: 'LOGIC_ENGINE_PROXY_UNCONFIGURED', message: 'The server-side Logic-Engine bridge is not configured.' },
+    } };
+    target.url.pathname = pathname;
+    if (method === 'GET') {
+      target.url.search = new URLSearchParams({
+        host_installation_id: identity.host_installation_id,
+        authenticated_account_id: identity.authenticated_account_id,
+        conversation_uuid: identity.conversation_uuid,
+      }).toString();
+    }
+    try {
+      const response = await fetchImpl(target.url, {
+        method,
+        headers: {
+          authorization: 'Bearer ' + target.apiToken,
+          'content-type': 'application/json',
+          'x-adapter-id': target.adapterId,
+          'x-adapter-token': target.adapterToken,
+        },
+        ...(method === 'POST' ? { body: JSON.stringify({
+          host_installation_id: identity.host_installation_id,
+          authenticated_account_id: identity.authenticated_account_id,
+          conversation_uuid: identity.conversation_uuid,
+          ...body,
+        }) } : {}),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      let payload;
+      try { payload = await response.json(); } catch {
+        return { status: 502, payload: {
+          error: { code: 'LOGIC_ENGINE_INVALID_RESPONSE', message: 'Logic-Engine returned an invalid response.' },
+        } };
+      }
+      return { status: response.status, payload };
+    } catch {
+      return { status: 502, payload: {
+        error: { code: 'LOGIC_ENGINE_UNREACHABLE', message: 'Logic-Engine lifecycle journal is unavailable.' },
+      } };
+    }
+  }
+
+  return {
+    append: async function hostLifecycleAppend(request, response) {
+      const body = request?.body;
+      const conversationId = body?.conversation_id;
+      const resolved = await resolveRequestIdentity(request, conversationId);
+      if (!resolved) return response.status(403).json({
+        error: { code: 'HOST_SESSION_SCOPE_REQUIRED', message: 'The Host conversation is not bound to this authenticated SillyTavern session.' },
+      });
+      const allowed = ['conversation_id', 'event_id', 'event_type', 'mutation_id', 'operation', 'mutation_digest'];
+      if (!body || typeof body !== 'object' || Array.isArray(body)
+        || Object.keys(body).some(key => !allowed.includes(key))
+        || !HOST_SESSION_UUID.test(body.event_id ?? '')
+        || !HOST_LIFECYCLE_EVENT_TYPES.has(body.event_type)
+        || !HOST_SESSION_UUID.test(body.mutation_id ?? '')
+        || !HOST_LIFECYCLE_OPERATIONS.has(body.operation)
+        || typeof body.mutation_digest !== 'string' || !/^[a-f0-9]{64}$/.test(body.mutation_digest)) {
+        return response.status(400).json({
+          error: { code: 'INVALID_HOST_LIFECYCLE_EVENT', message: 'Only bounded digest-only Host mutation lifecycle events are accepted.' },
+        });
+      }
+      const result = await upstream('/v1/host-lifecycle/events', 'POST', {
+        event_id: body.event_id,
+        event_type: body.event_type,
+        mutation_id: body.mutation_id,
+        operation: body.operation,
+        mutation_digest: body.mutation_digest,
+      }, {
+        host_installation_id: resolved.identity.host_installation_id,
+        authenticated_account_id: resolved.identity.authenticated_account_id,
+        conversation_uuid: resolved.conversationUuid,
+      });
+      return response.status(result.status).json(result.payload);
+    },
+
+    status: async function hostLifecycleStatus(request, response) {
+      const conversationId = request?.query?.conversation_id;
+      const resolved = await resolveRequestIdentity(request, conversationId);
+      if (!resolved) return response.status(403).json({
+        error: { code: 'HOST_SESSION_SCOPE_REQUIRED', message: 'The Host conversation is not bound to this authenticated SillyTavern session.' },
+      });
+      const result = await upstream('/v1/host-lifecycle/status', 'GET', null, {
+        host_installation_id: resolved.identity.host_installation_id,
+        authenticated_account_id: resolved.identity.authenticated_account_id,
+        conversation_uuid: resolved.conversationUuid,
+      });
+      return response.status(result.status).json(result.payload);
+    },
+  };
+}
