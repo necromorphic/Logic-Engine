@@ -581,6 +581,67 @@ test('durable Core journal records prepared mutations, blocks overlap, and clear
   assert.equal(journal.verifyChain(installation, account).valid, true);
 });
 
+test('ABORTED is terminal and cannot be reversed to COMMITTED', (t) => {
+  const { journal } = setupLifecycle(t);
+  const prepared = {
+    event_id: '00000000-0000-4000-8000-000000000041',
+    host_installation_id: installation,
+    authenticated_account_id: account,
+    host_session_id: hostSession,
+    conversation_uuid: conversation,
+    ...authority,
+    occurred_at: '2026-10-31T00:00:00.000Z',
+    event_type: 'MUTATION_PREPARED',
+    mutation_id: '00000000-0000-4000-8000-000000000042',
+    operation: 'delete-message',
+    mutation_digest: digest('abort-intent'),
+  };
+  journal.append(prepared);
+  const aborted = {
+    ...prepared,
+    event_id: '00000000-0000-4000-8000-000000000043',
+    event_type: 'MUTATION_ABORTED',
+    receipt_digest: digest('verified-no-change-receipt'),
+    occurred_at: '2026-10-31T00:00:01.000Z',
+  };
+  assert.equal(journal.append(aborted).status, 'appended');
+  assert.equal(journal.getConversationStatus(installation, account, hostSession, conversation,
+    { ...authority, adapter_id: 'test-adapter', root_id: rootId }).status, 'NO_PENDING_MUTATION');
+  assert.throws(() => journal.append({
+    ...aborted,
+    event_id: '00000000-0000-4000-8000-000000000044',
+    event_type: 'MUTATION_COMMITTED',
+    receipt_digest: digest('commit-after-abort'),
+    occurred_at: '2026-10-31T00:00:02.000Z',
+  }), /HOST_LIFECYCLE_MUTATION_TERMINAL_CONFLICT/);
+});
+
+test('pending mutation isolation is per authenticated session, not account-wide', (t) => {
+  const { journal } = setupLifecycle(t);
+  const secondSession = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+  const first = {
+    ...event(),
+    event_type: 'MUTATION_PREPARED',
+    mutation_id: '00000000-0000-4000-8000-000000000051',
+    operation: 'edit-message',
+    mutation_digest: digest('session-one-intent'),
+  };
+  const second = {
+    ...first,
+    event_id: '00000000-0000-4000-8000-000000000052',
+    host_session_id: secondSession,
+    mutation_id: '00000000-0000-4000-8000-000000000053',
+    mutation_digest: digest('session-two-intent'),
+  };
+  assert.equal(journal.append(first).status, 'appended');
+  assert.equal(journal.append(second).status, 'appended');
+  const trusted = { ...authority, adapter_id: 'test-adapter', root_id: rootId };
+  assert.equal(journal.getConversationStatus(installation, account, hostSession, conversation, trusted).status,
+    'PENDING_MUTATION');
+  assert.equal(journal.getConversationStatus(installation, account, secondSession, conversation, trusted).status,
+    'PENDING_MUTATION');
+});
+
 test('terminal receipt is rejected by default and leaves the mutation pending', (t) => {
   const directory = mkdtempSync(join(tmpdir(), 'logic-host-lifecycle-receipt-deny-'));
   const path = join(directory, 'host-journal.sqlite');
