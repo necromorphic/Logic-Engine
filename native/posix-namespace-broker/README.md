@@ -2,7 +2,7 @@
 
 **Status: prototype only; not production security approved.**
 
-This directory begins the Linux/POSIX broker implementation required by Issue #770 / PR #839. The first increment deliberately implements only authenticated local IPC and `PING`. It does not open, create, delete, rename, or otherwise manage SQLite files.
+This directory contains the incremental Linux/POSIX broker implementation required by Issue #770 / PR #839. The C `broker_server` is retained as a PING-only transport smoke test. The Python `broker_daemon.py` now verifies the persistent manifest and supports role-based descriptor opens for existing main databases and active sidecars. It does not yet create, delete, rename, or fully manage SQLite files.
 
 ## Build
 
@@ -53,8 +53,9 @@ application UID.
 - Transport: `AF_UNIX` + `SOCK_SEQPACKET` + `SOCK_CLOEXEC`.
 - Peer authentication: kernel-provided `SO_PEERCRED`; request payload cannot claim an identity.
 - Fixed-size network-byte-order request and response headers.
-- Unknown operation, flags, payload, version, malformed packet and ancillary descriptors are rejected.
-- v1 defines only `PING`. No file descriptors are accepted from clients and no descriptors are returned.
+- Unknown operations, flags, malformed payloads and unsupported protocol versions are rejected.
+- Client-supplied ancillary descriptors are rejected. `OPEN_MAIN` and `OPEN_SIDECAR` return one broker-opened descriptor with outbound `SCM_RIGHTS`.
+- The C `broker_server` implements only `PING`; the Python daemon implements `PING`, `OPEN_MAIN` and `OPEN_SIDECAR.
 
 
 ## Manifest-backed descriptor broker increment
@@ -90,8 +91,8 @@ production-ready SQLite namespace service.
 
 ## Persistent role-manifest storage primitive
 
-`manifest_store.py` is an enrollment/recovery storage primitive, not yet called by
-`broker_server`. It stores a canonical Linux role manifest in one service-owned
+`manifest_store.py` provides enrollment/recovery storage and is consumed by
+`broker_daemon.py`; the C `broker_server` remains PING-only. It stores a canonical Linux role manifest in one service-owned
 0700 directory and a separate generation+SHA-256 anchor in another service-owned
 0700 directory. Both directory paths are opened component-by-component with
 `O_DIRECTORY|O_NOFOLLOW`; writable-by-group/other ancestors and ancestors
@@ -117,10 +118,10 @@ mount and persistent identity, and returns that exact descriptor to the caller.
 The caller owns the descriptor and may transfer it to the authenticated
 application process using `SCM_RIGHTS`.
 
-This is the first descriptor-returning secure-open primitive, not yet a broker
-operation: `broker_server.c` still implements PING only, and the VFS does not
-yet request or consume these descriptors. Sidecar creation/deletion transitions
-and broker/VFS integration remain open.
+`broker_daemon.py` now calls this method for `OPEN_MAIN` and `OPEN_SIDECAR` and
+returns the validated descriptor to the authenticated client. The SQLite VFS
+does not yet request or consume these descriptors. Sidecar creation/deletion
+transitions and broker/VFS integration remain open.
 
 The anchor replacement is the commit point. On restart, if the anchor references
 the staged manifest, verification completes the rename. A manifest that does not
@@ -163,10 +164,7 @@ store or runs with the broker service UID.
 
 The `recovery-plan` command provides an inspect-only sidecar recovery pass. It verifies database and parent identities, checks declared WAL/SHM/journal entries against opened-file identities, and rejects unmanifested sidecars or duplicate sidecar kinds. For interrupted creating/deleting states it reports presence and a possible manifest transition. It never deletes, renames, checkpoints, or opens a database through SQLite. A still-present deleting sidecar is retained and requires SQLite-aware recovery; the planner does not infer that unlinking a WAL or journal is safe.
 
-This is still not a namespace broker operation: there is no broker IPC integration,
-no SQLite VFS or sidecar lifecycle transition implementation. A successful verification is a point-in-time
-integrity check, not a lease preventing later mutation. The OS ownership boundary
-must keep the application from mutating these directories after verification.
+The broker operation set remains incomplete: sidecar creation/deletion, namespace mutation, SQLite VFS integration and crash-time mutation recovery are not implemented. A successful verification is a point-in-time integrity check, not a lease preventing later mutation. The OS ownership boundary must keep the application from mutating these directories after verification.
 
 Run the manifest-store tests with:
 
@@ -218,13 +216,13 @@ integration, and Windows parity.
 
 ## Explicit limitations
 
-This is only the first transport increment. It does not yet implement:
+This remains an incomplete broker/VFS increment. It does not yet implement:
 
 - a dedicated service account, service manager integration or authenticated administrative enrollment;
-- broker-integrated role authorization and a platform-backed monotonic anti-rollback anchor;
-- `OPEN_MAIN`, `OPEN_SIDECAR`, `ACCESS`, `DELETE`, `SYNC_DIR`;
-- descriptor passing with `SCM_RIGHTS`;
-- protected directory ownership and namespace mutation;
+- a platform-backed monotonic anti-rollback anchor;
+- `CREATE_SIDECAR`, `ACCESS`, `DELETE`, `RENAME`, `SYNC_DIR` and durable sidecar lifecycle transitions;
+- integration of broker-returned descriptors into the SQLite VFS;
+- complete protected directory ownership and namespace mutation policy;
 - SQLite VFS integration, locking, WAL/SHM or recovery;
 - Windows support.
 
@@ -239,4 +237,4 @@ SQLite engine used by `better-sqlite3`; until then it remains outside the
 proven identity boundary. No ST-VectorService source or runtime behavior is
 changed by this branch.
 
-The server processes one accepted connection at a time and applies a one-second receive deadline to each accepted client so an idle peer cannot hold the request loop indefinitely. It is a protocol skeleton, not a hardened production daemon. Do not point Logic-Engine or any production database at it.
+The Python daemon processes one accepted connection at a time and applies a one-second receive deadline so an idle peer cannot hold the request loop indefinitely. It is still an incremental broker, not a hardened production SQLite namespace service. Do not point Logic-Engine or any production database at it.
