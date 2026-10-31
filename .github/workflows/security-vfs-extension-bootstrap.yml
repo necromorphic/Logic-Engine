@@ -62,7 +62,7 @@ jobs:
       - name: Verify persistent VFS registration through node:sqlite
         env:
           LOGIC_ENGINE_VFS_PROBE_PATH: native/secure-vfs-probe/secure_vfs_probe.so
-        run: node --test tests/security-vfs-extension-bootstrap.test.js
+        run: node --test tests/security-vfs-extension-bootstrap.test.js tests/security-vfs-broker-integration.test.js
 
   windows:
     runs-on: windows-latest
