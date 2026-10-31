@@ -383,7 +383,7 @@ function normalizeRootInventoryResponse(upstream) {
 const HOST_LIFECYCLE_EVENT_TYPES = new Set(['MUTATION_PREPARED', 'MUTATION_COMMITTED', 'MUTATION_ABORTED']);
 const HOST_LIFECYCLE_OPERATIONS = new Set([
   'create-message', 'message-send', 'message-receive', 'create-swipe', 'select-swipe',
-  'delete-swipe', 'delete-message', 'edit-message', 'rename-chat',
+  'delete-swipe', 'delete-message', 'edit-message',
 ]);
 
 function parseBoundConversation(request, conversationId, identity) {
