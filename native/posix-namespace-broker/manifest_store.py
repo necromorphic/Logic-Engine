@@ -205,6 +205,11 @@ def _validate_manifest(data: bytes) -> dict[str, Any]:
                     or sidecar["generation"] < 1):
                 raise StoreError(f"role {name}: invalid sidecar entry")
             check_identity(sidecar.get("identity"), f"role {name} sidecar identity")
+            if sidecar["generation"] > generation:
+                raise StoreError(f"role {name}: sidecar generation exceeds manifest generation")
+        kinds = [entry["kind"] for entry in sidecars]
+        if len(kinds) != len(set(kinds)):
+            raise StoreError(f"role {name}: duplicate sidecar kind")
     return obj
 
 
@@ -268,6 +273,22 @@ def _open_role_parent(components: list[str], identities: list[dict[str, str]]) -
     except Exception:
         os.close(fd)
         raise
+
+
+def _observe_regular_at(parent_fd: int, name: str, label: str) -> dict[str, str] | None:
+    try:
+        fd = os.open(name, FILE_FLAGS, dir_fd=parent_fd)
+    except FileNotFoundError:
+        return None
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+            raise StoreError(f"{label} is not a single-link regular file")
+        if info.st_uid != os.geteuid():
+            raise StoreError(f"{label} is not owned by the broker service UID")
+        return _fd_identity(fd)
+    finally:
+        os.close(fd)
 
 
 def _verify_regular_at(parent_fd: int, name: str,
@@ -421,6 +442,75 @@ class ManifestStore:
             finally:
                 os.close(parent_fd)
 
+    def plan_recovery(self) -> dict[str, Any]:
+        """Inspect interrupted sidecar transitions without mutating SQLite files."""
+        with _locked_roots(self.manifest_fd, self.anchor_fd, exclusive=True):
+            manifest = self._load_pair()[0]
+            roles: list[dict[str, Any]] = []
+            suffixes = {"wal": "-wal", "shm": "-shm", "journal": "-journal"}
+            for role in manifest["roles"]:
+                if role["state"] == "disabled":
+                    continue
+                if role["state"] not in ("active", "recovery-required", "enrolling"):
+                    raise StoreError(f"role {role['role']} has unsupported recovery state")
+                parent_fd = _open_role_parent(role["parentComponents"], role["parentIdentities"])
+                try:
+                    _verify_regular_at(parent_fd, role["databaseBasename"],
+                                       role["databaseIdentity"], f"role {role['role']} database")
+                    declared = {entry["kind"]: entry for entry in role["sidecars"]}
+                    observed: list[dict[str, Any]] = []
+                    for kind, suffix in suffixes.items():
+                        name = role["databaseBasename"] + suffix
+                        entry = declared.get(kind)
+                        actual = _observe_regular_at(parent_fd, name, f"sidecar {name}")
+                        if entry is None:
+                            if actual is not None:
+                                raise StoreError(f"unmanifested sidecar exists: {name}")
+                            continue
+                        expected = entry["identity"]
+                        if actual is not None and actual != expected:
+                            raise StoreError(f"sidecar identity mismatch: {name}")
+                        state = entry["state"]
+                        if state == "active":
+                            if actual is None:
+                                raise StoreError(f"active sidecar is missing: {name}")
+                            disposition = "stable"
+                        elif state == "retired":
+                            if actual is not None:
+                                raise StoreError(f"retired sidecar still exists: {name}")
+                            disposition = "stable"
+                        elif state == "creating":
+                            disposition = ("created-before-crash; validate with SQLite before promotion"
+                                           if actual is not None else
+                                           "not-created; may be retired in a manifest commit")
+                        elif state == "deleting":
+                            disposition = ("still-present; retain and run SQLite recovery before any deletion"
+                                           if actual is not None else
+                                           "deletion-completed; may be retired in a manifest commit")
+                        else:
+                            raise StoreError(f"unknown sidecar state for {name}")
+                        observed.append({
+                            "kind": kind,
+                            "name": name,
+                            "manifestState": state,
+                            "present": actual is not None,
+                            "disposition": disposition,
+                        })
+                    roles.append({
+                        "role": role["role"],
+                        "roleState": role["state"],
+                        "database": "identity-verified",
+                        "sidecars": observed,
+                    })
+                finally:
+                    os.close(parent_fd)
+            return {
+                "manifestGeneration": manifest["generation"],
+                "mode": "inspect-only",
+                "roles": roles,
+                "warning": "No sidecar is deleted, renamed, checkpointed, or opened by SQLite.",
+            }
+
     def load(self) -> dict[str, Any]:
         with _locked_roots(self.manifest_fd, self.anchor_fd, exclusive=False):
             return self._load_pair()[0]
@@ -453,7 +543,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest-root", required=True)
     parser.add_argument("--anchor-root", required=True)
-    parser.add_argument("command", choices=("init", "verify", "show"))
+    parser.add_argument("command", choices=("init", "verify", "recovery-plan", "show"))
     parser.add_argument("--input", help="manifest JSON for init")
     args = parser.parse_args()
     store = ManifestStore(args.manifest_root, args.anchor_root)
@@ -469,6 +559,9 @@ def main() -> int:
             store.initialize(data)
         if args.command == "verify":
             store.verify_roles()
+        if args.command == "recovery-plan":
+            sys.stdout.buffer.write(_canonical_json(store.plan_recovery()))
+            return 0
         manifest = store.load()
         if args.command == "show":
             sys.stdout.buffer.write(_canonical_json(manifest))
