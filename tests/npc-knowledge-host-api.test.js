@@ -140,6 +140,61 @@ test('Core NPC Host context route derives adapter, world and actor and accepts n
   assert.deepEqual(context.policy_authority, authorizers.policyAuthority.getSnapshot());
 });
 
+test('Core NPC Host context route filters every acquisition through per-acquisition visibility before disclosure', async (t) => {
+  const { base, engine, authorizers } = await setup(t);
+  await bindHost(base);
+  const secretItem = Object.freeze({
+    acquisition_id: 'acquisition-secret',
+    fact_id: 'fact-secret',
+    subject_ref: 'entity:npc-canonical',
+    predicate: 'private_detail',
+    value: 'must-not-leak',
+    acquisition_kind: 'author_initial',
+    provenance_ref: 'authoring:private',
+    provenance_digest: 'a'.repeat(64),
+    acquisition_authorization_ref: 'rule:private',
+    source_event_ids: Object.freeze(['event-private']),
+  });
+  const originalRead = engine.readNpcKnowledge.bind(engine);
+  engine.readNpcKnowledge = (input) => Object.freeze({
+    ...originalRead(input),
+    items: Object.freeze([secretItem]),
+    truncated: false,
+  });
+  let visibilityCalls = 0;
+  engine.npcKnowledgeVisibilityAuthorizer = (scope) => {
+    visibilityCalls += 1;
+    return Object.freeze({
+      status: 'denied',
+      world_id: scope.world_id,
+      conversation_id: scope.conversation_id,
+      adapter_id: scope.adapter_id,
+      actor_id: scope.actor_id,
+      recipient: scope.recipient,
+      purpose: scope.purpose,
+      world_revision: scope.world_revision,
+      commit_sequence: scope.commit_sequence,
+      acquisition_id: scope.acquisition_id,
+      authorization_ref: 'core:deny',
+      authority_id: scope.authority_id,
+      generation: scope.generation,
+      snapshot_fingerprint: scope.snapshot_fingerprint,
+    });
+  };
+
+  const response = await fetch(base + '/v1/npc-knowledge/context', {
+    method: 'POST',
+    headers: adapterHeaders,
+    body: json({ conversation_id: CONVERSATION_ID }),
+  });
+  assert.equal(response.status, 200);
+  const { context } = await response.json();
+  assert.equal(visibilityCalls, 1);
+  assert.deepEqual(context.items, []);
+  assert.equal(JSON.stringify(context).includes('must-not-leak'), false);
+  assert.deepEqual(context.policy_authority, authorizers.policyAuthority.getSnapshot());
+});
+
 test('Core NPC Host context route is disabled unless explicitly enabled by deployment', async (t) => {
   const { base } = await setup(t, false);
   const response = await fetch(base + '/v1/npc-knowledge/context', {
