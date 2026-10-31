@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 
 from broker_daemon import (
-    HEADER, MAGIC, VERSION, OP_PING, OP_OPEN_MAIN, OP_OPEN_SIDECAR, OP_DELETE_SIDECAR,
+    HEADER, MAGIC, VERSION, OP_PING, OP_OPEN_MAIN, OP_OPEN_SIDECAR, OP_DELETE_SIDECAR, OP_CREATE_SIDECAR,
     STATUS_OK, STATUS_BAD_REQUEST, STATUS_UNAUTHORIZED,
     STATUS_UNSUPPORTED, STATUS_NOT_FOUND, handle_connection,
 )
@@ -28,6 +28,10 @@ class FakeManifestStore:
 
     def delete_role_sidecar(self, role, kind):
         self.calls.append(("delete", role, kind))
+
+    def create_role_sidecar(self, role, kind):
+        self.calls.append(("create", role, kind))
+        return os.open(self.path, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
 
 
 class BrokerDaemonTests(unittest.TestCase):
@@ -124,6 +128,17 @@ class BrokerDaemonTests(unittest.TestCase):
         self.assertEqual(response[3], STATUS_OK)
         self.assertEqual(fds, [])
         self.assertEqual(self.store.calls[-1], ("delete", "core", "wal"))
+
+    def test_create_sidecar_returns_broker_created_descriptor(self):
+        response, fds = self.exchange(OP_CREATE_SIDECAR, b"core\\x00wal")
+        try:
+            self.assertEqual(response[3], STATUS_OK)
+            self.assertEqual(len(fds), 1)
+            self.assertEqual(os.read(fds[0], 64), b"manifest-verified-db")
+            self.assertEqual(self.store.calls[-1], ("create", "core", "wal"))
+        finally:
+            for fd in fds:
+                os.close(fd)
 
     def test_invalid_role_payload_fails_closed(self):
         response, fds = self.exchange(OP_OPEN_MAIN, b"../escape")
