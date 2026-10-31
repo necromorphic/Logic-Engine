@@ -24,7 +24,8 @@ const EVENT_TYPES = new Set([
   'MUTATION_ABORTED',
 ]);
 const EVENT_KEYS = new Set([
-  'event_id', 'host_installation_id', 'authenticated_account_id', 'conversation_uuid',
+  'event_id', 'host_installation_id', 'authenticated_account_id', 'host_session_id', 'conversation_uuid',
+  'authority_id', 'generation', 'snapshot_fingerprint', 'receipt_digest',
   'event_type', 'message_id', 'version_id', 'parent_version_id', 'payload_sha256',
   'active', 'mutation_digest', 'mutation_id', 'operation', 'occurred_at',
 ]);
@@ -160,10 +161,14 @@ function aliasesSameFile(left, right) {
 
 function validateEvent(event) {
   if (!isPlainRecord(event) || Object.keys(event).some((key) => !EVENT_KEYS.has(key))
-    || !validText(event.event_id, 200)
-    || !validText(event.host_installation_id, 200)
-    || !validText(event.authenticated_account_id, 200)
-    || !UUID.test(event.conversation_uuid)
+    || !UUID.test(event.event_id ?? '')
+    || !UUID.test(event.host_installation_id ?? '')
+    || !UUID.test(event.authenticated_account_id ?? '')
+    || !UUID.test(event.host_session_id ?? '')
+    || !UUID.test(event.conversation_uuid ?? '')
+    || !validText(event.authority_id)
+    || !Number.isSafeInteger(event.generation) || event.generation < 1
+    || !validDigest(event.snapshot_fingerprint)
     || !EVENT_TYPES.has(event.event_type)) {
     throw new TypeError('Invalid Host lifecycle event envelope.');
   }
@@ -195,11 +200,14 @@ function validateEvent(event) {
     throw new TypeError('Invalid Host lifecycle mutation digest.');
   }
   const mutationEvent = ['MUTATION_PREPARED', 'MUTATION_COMMITTED', 'MUTATION_ABORTED'].includes(event.event_type);
-  if (mutationEvent && (!UUID.test(event.mutation_id ?? '') || !validText(event.operation) || !validDigest(event.mutation_digest))) {
-    throw new TypeError('Host mutation lifecycle events require mutation UUID, operation and digest.');
+  if (mutationEvent && (!UUID.test(event.mutation_id ?? '') || !validText(event.operation)
+    || !validDigest(event.mutation_digest)
+    || (event.event_type === 'MUTATION_PREPARED' && event.receipt_digest !== undefined)
+    || (event.event_type !== 'MUTATION_PREPARED' && !validDigest(event.receipt_digest)))) {
+    throw new TypeError('Host mutation lifecycle events require mutation UUID, operation, intent digest and terminal receipt digest.');
   }
-  if (!mutationEvent && (event.mutation_id !== undefined || event.operation !== undefined)) {
-    throw new TypeError('Mutation identity fields are reserved for mutation lifecycle events.');
+  if (!mutationEvent && (event.mutation_id !== undefined || event.operation !== undefined || event.receipt_digest !== undefined)) {
+    throw new TypeError('Mutation identity and receipt fields are reserved for mutation lifecycle events.');
   }
   if (event.occurred_at !== undefined && (typeof event.occurred_at !== 'string' || !Number.isFinite(Date.parse(event.occurred_at)))) {
     throw new TypeError('Invalid Host lifecycle event timestamp.');
@@ -258,6 +266,7 @@ export class HostLifecycleJournal {
         CREATE TABLE IF NOT EXISTS host_lifecycle_events (
           host_installation_id TEXT NOT NULL,
           authenticated_account_id TEXT NOT NULL,
+          host_session_id TEXT NOT NULL,
           sequence INTEGER NOT NULL CHECK(sequence > 0),
           event_id TEXT NOT NULL,
           conversation_uuid TEXT NOT NULL,
@@ -267,6 +276,7 @@ export class HostLifecycleJournal {
           parent_version_id TEXT,
           payload_sha256 TEXT,
           mutation_digest TEXT,
+          receipt_digest TEXT,
           occurred_at TEXT NOT NULL,
           previous_sha256 TEXT NOT NULL CHECK(length(previous_sha256)=64),
           event_sha256 TEXT NOT NULL CHECK(length(event_sha256)=64),
@@ -319,6 +329,13 @@ export class HostLifecycleJournal {
             SELECT RAISE(ABORT, 'HOST_ROOT_INVENTORY_APPEND_ONLY');
           END;
       `);
+      const lifecycleColumns = new Set(this.db.prepare('PRAGMA table_info(host_lifecycle_events)').all().map(column => column.name));
+      for (const [column, definition] of [
+        ['host_session_id', "TEXT NOT NULL DEFAULT '00000000-0000-4000-8000-000000000000'"],
+        ['receipt_digest', 'TEXT'],
+      ]) {
+        if (!lifecycleColumns.has(column)) this.db.exec('ALTER TABLE host_lifecycle_events ADD COLUMN ' + column + ' ' + definition);
+      }
     } catch (error) {
       try { this.db?.close(); } catch {}
       try { this.coordinator?.close(); } catch {}
@@ -353,6 +370,7 @@ export class HostLifecycleJournal {
         identity = this.resolveIdentity({
           host_installation_id: event.host_installation_id,
           authenticated_account_id: event.authenticated_account_id,
+          host_session_id: event.host_session_id,
           conversation_uuid: event.conversation_uuid,
         });
       } catch {
@@ -361,50 +379,23 @@ export class HostLifecycleJournal {
       if (!isPlainRecord(identity) || identity.authorized !== true
         || identity.host_installation_id !== event.host_installation_id
         || identity.authenticated_account_id !== event.authenticated_account_id
-        || identity.conversation_uuid !== event.conversation_uuid) {
+        || identity.host_session_id !== event.host_session_id
+        || identity.conversation_uuid !== event.conversation_uuid
+        || identity.authority_id !== event.authority_id
+        || identity.generation !== event.generation
+        || identity.snapshot_fingerprint !== event.snapshot_fingerprint) {
         throw new Error('HOST_LIFECYCLE_IDENTITY_NOT_AUTHORIZED');
       }
 
-      if (['MUTATION_PREPARED', 'MUTATION_COMMITTED', 'MUTATION_ABORTED'].includes(event.event_type)) {
-        const priorRows = this.db.prepare(`
-          SELECT canonical_event_json FROM host_lifecycle_events
-          WHERE host_installation_id=? AND authenticated_account_id=? AND conversation_uuid=?
-          ORDER BY sequence
-        `).all(event.host_installation_id, event.authenticated_account_id, event.conversation_uuid);
-        const prepared = new Map();
-        for (const row of priorRows) {
-          let prior;
-          try { prior = JSON.parse(row.canonical_event_json); } catch {
-            throw new Error('HOST_LIFECYCLE_EVENT_STORED_JSON_INVALID');
-          }
-          if (prior.event_type === 'MUTATION_PREPARED') prepared.set(prior.mutation_id, prior);
-          if (prior.event_type === 'MUTATION_COMMITTED' || prior.event_type === 'MUTATION_ABORTED') prepared.delete(prior.mutation_id);
-        }
-        if (event.event_type === 'MUTATION_PREPARED' && prepared.size) {
-          throw new Error('HOST_LIFECYCLE_MUTATION_ALREADY_PENDING');
-        }
-        if (event.event_type !== 'MUTATION_PREPARED') {
-          const prior = prepared.get(event.mutation_id);
-          if (!prior || prior.operation !== event.operation) {
-            throw new Error('HOST_LIFECYCLE_MUTATION_PREPARE_MISSING');
-          }
-        }
-      }
-
-      const canonicalEvent = canonical(event);
-      const { occurred_at: _occurredAt, ...eventContent } = event;
-      const eventDigest = sha256(canonical(eventContent));
+      // Idempotency must precede state-machine validation. A lost HTTP response
+      // can cause an exact retry while a later mutation is pending.
       const existing = this.db.prepare(`
         SELECT sequence,event_sha256,canonical_event_json FROM host_lifecycle_events
         WHERE host_installation_id=? AND authenticated_account_id=? AND event_id=?
       `).get(event.host_installation_id, event.authenticated_account_id, event.event_id);
+      const canonicalEvent = canonical(event);
       if (existing) {
-        let priorEvent;
-        try { priorEvent = JSON.parse(existing.canonical_event_json); } catch {
-          throw new Error('HOST_LIFECYCLE_EVENT_STORED_JSON_INVALID');
-        }
-        const { occurred_at: _priorOccurredAt, ...priorEventContent } = priorEvent;
-        if (sha256(canonical(priorEventContent)) !== eventDigest) {
+        if (existing.canonical_event_json !== canonicalEvent) {
           throw new Error('HOST_LIFECYCLE_EVENT_ID_CONFLICT');
         }
         return {
@@ -412,6 +403,58 @@ export class HostLifecycleJournal {
           sequence: existing.sequence,
           event_sha256: existing.event_sha256,
         };
+      }
+
+      const mutationEvent = ['MUTATION_PREPARED', 'MUTATION_COMMITTED', 'MUTATION_ABORTED'].includes(event.event_type);
+      if (mutationEvent) {
+        const priorRows = this.db.prepare(`
+          SELECT canonical_event_json FROM host_lifecycle_events
+          WHERE host_installation_id=? AND authenticated_account_id=?
+            AND host_session_id=? AND conversation_uuid=?
+          ORDER BY sequence
+        `).all(event.host_installation_id, event.authenticated_account_id,
+          event.host_session_id, event.conversation_uuid);
+        const prepared = new Map();
+        const terminal = new Map();
+        for (const row of priorRows) {
+          let prior;
+          try { prior = JSON.parse(row.canonical_event_json); } catch {
+            throw new Error('HOST_LIFECYCLE_EVENT_STORED_JSON_INVALID');
+          }
+          if (prior.event_type === 'MUTATION_PREPARED') {
+            if (prepared.has(prior.mutation_id) || terminal.has(prior.mutation_id)) {
+              throw new Error('HOST_LIFECYCLE_STATE_MACHINE_CORRUPT');
+            }
+            prepared.set(prior.mutation_id, prior);
+          } else if (prior.event_type === 'MUTATION_COMMITTED' || prior.event_type === 'MUTATION_ABORTED') {
+            const intent = prepared.get(prior.mutation_id);
+            if (!intent || intent.operation !== prior.operation
+              || intent.mutation_digest !== prior.mutation_digest
+              || intent.authority_id !== prior.authority_id
+              || intent.generation !== prior.generation
+              || intent.snapshot_fingerprint !== prior.snapshot_fingerprint
+              || terminal.has(prior.mutation_id)) {
+              throw new Error('HOST_LIFECYCLE_STATE_MACHINE_CORRUPT');
+            }
+            prepared.delete(prior.mutation_id);
+            terminal.set(prior.mutation_id, prior.event_type);
+          }
+        }
+        if (event.event_type === 'MUTATION_PREPARED') {
+          if (prepared.size) throw new Error('HOST_LIFECYCLE_MUTATION_ALREADY_PENDING');
+          if (terminal.has(event.mutation_id)) throw new Error('HOST_LIFECYCLE_MUTATION_TERMINAL_CONFLICT');
+        } else {
+          const intent = prepared.get(event.mutation_id);
+          if (!intent) {
+            if (terminal.has(event.mutation_id)) throw new Error('HOST_LIFECYCLE_MUTATION_TERMINAL_CONFLICT');
+            throw new Error('HOST_LIFECYCLE_MUTATION_PREPARE_MISSING');
+          }
+          if (intent.operation !== event.operation || intent.mutation_digest !== event.mutation_digest
+            || intent.authority_id !== event.authority_id || intent.generation !== event.generation
+            || intent.snapshot_fingerprint !== event.snapshot_fingerprint) {
+            throw new Error('HOST_LIFECYCLE_INTENT_DIGEST_MISMATCH');
+          }
+        }
       }
 
       const head = this.db.prepare(`
@@ -430,14 +473,15 @@ export class HostLifecycleJournal {
       }));
       this.db.prepare(`
         INSERT INTO host_lifecycle_events (
-          host_installation_id,authenticated_account_id,sequence,event_id,conversation_uuid,
-          event_type,message_id,version_id,parent_version_id,payload_sha256,mutation_digest,
+          host_installation_id,authenticated_account_id,host_session_id,sequence,event_id,conversation_uuid,
+          event_type,message_id,version_id,parent_version_id,payload_sha256,mutation_digest,receipt_digest,
           occurred_at,previous_sha256,event_sha256,canonical_event_json
-        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
       `).run(
-        event.host_installation_id, event.authenticated_account_id, sequence, event.event_id,
-        event.conversation_uuid, event.event_type, event.message_id ?? null, event.version_id ?? null,
-        event.parent_version_id ?? null, event.payload_sha256 ?? null, event.mutation_digest ?? null,
+        event.host_installation_id, event.authenticated_account_id, event.host_session_id,
+        sequence, event.event_id, event.conversation_uuid, event.event_type,
+        event.message_id ?? null, event.version_id ?? null, event.parent_version_id ?? null,
+        event.payload_sha256 ?? null, event.mutation_digest ?? null, event.receipt_digest ?? null,
         event.occurred_at, head.head_sha256, eventSha, canonicalEvent,
       );
       this.db.prepare(`
