@@ -21,8 +21,22 @@ function fileDelta(beforeEntries, afterEntries) {
     const next = after.get(path);
     if (!next) {
       const moved = afterIds.get(physicalId(old));
-      if (moved && moved.path !== path) delta.moved.push({ from: path, to: moved.path, sha256: old.sha256 });
-      else delta.removed.push({ path, identity: old.identity, sha256: old.sha256 });
+      if (moved && moved.path !== path) {
+        delta.moved.push({
+          from: path,
+          to: moved.path,
+          identity: physicalId(old),
+          beforeIdentity: old.identity,
+          afterIdentity: moved.identity,
+          // A native rename can be followed by a write before the next scan.
+          // Preserve both digests so the move record cannot hide that edit.
+          sha256: old.sha256,
+          beforeSha256: old.sha256,
+          afterSha256: moved.sha256,
+          contentChanged: old.sha256 !== moved.sha256,
+          metadataChanged: canonical(old.identity) !== canonical(moved.identity),
+        });
+      } else delta.removed.push({ path, identity: old.identity, sha256: old.sha256 });
     } else if (physicalId(old) !== physicalId(next)) {
       delta.replaced.push({ path, before: { identity: old.identity, sha256: old.sha256 }, after: { identity: next.identity, sha256: next.sha256 } });
     } else if (old.sha256 !== next.sha256) {
