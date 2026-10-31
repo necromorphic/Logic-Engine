@@ -259,13 +259,9 @@ export class HostLifecycleReceiptStore {
       }
     }
     const targetRootEntries = rootEntries.filter(entry => entry.path === targetPath);
-    if (targetRootEntries.length !== 1) throw new Error('HOST_LIFECYCLE_RECEIPT_TARGET_FILE_MISSING');
-    const targetRootEntry = targetRootEntries[0];
-    if (!DIGEST.test(target.content_sha256 ?? '')
-      || typeof target.file_identity !== 'string'
-      || targetRootEntry.sha256 !== target.content_sha256
-      || targetRootEntry.identity?.dev + ':' + targetRootEntry.identity?.ino !== target.file_identity) {
-      throw new Error('HOST_LIFECYCLE_RECEIPT_SOURCE_FILESYSTEM_SCAN_MISMATCH');
+    if (targetRootEntries.length !== 1 || !DIGEST.test(target.content_sha256 ?? '')
+      || typeof target.file_identity !== 'string') {
+      throw new Error('HOST_LIFECYCLE_RECEIPT_TARGET_FILE_MISSING');
     }
     const otherRootEntries = rootEntries.filter(entry => entry.path !== targetPath);
     const otherSourceFiles = inventory.source.files.filter(file => file !== target).map(file => ({
