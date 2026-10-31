@@ -45,13 +45,51 @@ The smoke test uses the same UID for convenience. It does **not** demonstrate th
 - Unknown operation, flags, payload, version, malformed packet and ancillary descriptors are rejected.
 - v1 defines only `PING`. No file descriptors are accepted from clients and no descriptors are returned.
 
+## Persistent role-manifest storage primitive
+
+`manifest_store.py` is an enrollment/recovery storage primitive, not yet called by
+`broker_server`. It stores a canonical Linux role manifest in one service-owned
+0700 directory and a separate generation+SHA-256 anchor in another service-owned
+0700 directory. Both directory paths are opened component-by-component with
+`O_DIRECTORY|O_NOFOLLOW`; writable-by-group/other ancestors are rejected.
+Metadata files are opened without following symlinks, must be single-link regular
+files owned by the service UID, and are capped at 1 MiB.
+
+The update sequence is:
+
+1. Write and fsync `manifest.next`.
+2. Atomically replace and fsync `anchor.json` with the next generation and digest.
+3. Rename `manifest.next` to `manifest.json` and fsync the manifest directory.
+
+The anchor replacement is the commit point. On restart, if the anchor references
+the staged manifest, verification completes the rename. A manifest that does not
+match the anchor fails closed. Generation must advance by exactly one. The
+manifest's metadata-root device/inode/mount ID is checked against the opened
+directory.
+
+**Trust boundary:** this prevents an application UID from silently rolling back
+only the manifest when the anchor directory remains inaccessible to it. It is
+not a hardware monotonic counter. An attacker able to restore or modify both
+service-owned roots (or execute as the broker service UID) can roll back both.
+Production deployment still needs an independently protected backup/restore
+policy or platform monotonic anchor, plus privileged enrollment and broker-side
+validation before this store can be treated as authoritative. It currently
+validates manifest structure and metadata-root identity; it does not yet walk
+and verify every database parent/file identity or reconcile SQLite sidecars.
+
+Run the manifest-store tests with:
+
+```sh
+python3 native/posix-namespace-broker/test_manifest_store.py
+```
+
 ## Explicit limitations
 
 This is only the first transport increment. It does not yet implement:
 
 - a dedicated service account, service manager integration or authenticated administrative enrollment;
 - a complete race-resistant socket-directory component walk;
-- role manifest, anti-rollback anchor or persistent state;
+- broker-integrated role authorization and a platform-backed monotonic anti-rollback anchor;
 - `OPEN_MAIN`, `OPEN_SIDECAR`, `ACCESS`, `DELETE`, `SYNC_DIR`;
 - descriptor passing with `SCM_RIGHTS`;
 - protected directory ownership and namespace mutation;
