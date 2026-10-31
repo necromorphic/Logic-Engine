@@ -160,7 +160,7 @@ class BrokerDaemonTests(unittest.TestCase):
         self.assertEqual(self.store.calls[-1], ("access", "core", "main"))
 
     def test_access_role_file_reports_absent_sidecar_without_descriptor(self):
-        response, fds = self.exchange(OP_ACCESS_ROLE_FILE, b"core\x00main")
+        response, fds = self.exchange(OP_ACCESS_ROLE_FILE, b"core\x00wal")
         self.assertEqual(response[3], STATUS_NOT_FOUND)
         self.assertEqual(fds, [])
 
