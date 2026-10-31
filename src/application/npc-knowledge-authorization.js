@@ -50,15 +50,17 @@ export function createHostBoundNpcKnowledgeAuthorizers({
     try {
       if (!identity || typeof identity !== 'object' || utilTypes.isProxy(identity) || Array.isArray(identity)
         || ![Object.prototype, null].includes(Object.getPrototypeOf(identity))
-        || Reflect.ownKeys(identity).length !== 2
-        || !Reflect.ownKeys(identity).every(key => key === 'adapter_id' || key === 'conversation_id')
-        || ['adapter_id', 'conversation_id'].some(key => {
+        || Reflect.ownKeys(identity).length !== 3
+        || !Reflect.ownKeys(identity).every(key => ['adapter_id', 'conversation_id', 'actor_id'].includes(key))
+        || ['adapter_id', 'conversation_id', 'actor_id'].some(key => {
           const descriptor = Object.getOwnPropertyDescriptor(identity, key);
           return !descriptor || !Object.hasOwn(descriptor, 'value');
         })) return null;
       const adapterId = identity.adapter_id;
       const conversationId = identity.conversation_id;
-      if (!validId(conversationId) || !validId(adapterId) || !configuredAdapters.has(adapterId)) return null;
+      const actorId = identity.actor_id;
+      if (!validId(conversationId) || !validId(adapterId) || !validId(actorId)
+        || !configuredAdapters.has(adapterId)) return null;
       const host = store.db.prepare(
         'SELECT world_id,active FROM host_conversation_world_bindings WHERE adapter_id=? AND conversation_id=?'
       ).get(adapterId, conversationId);
@@ -66,13 +68,13 @@ export function createHostBoundNpcKnowledgeAuthorizers({
       const world = store.world(host.world_id);
       if (!world || world.status !== 'active') return null;
 
-      const actors = store.db.prepare(
-        'SELECT entity_id FROM actor_bindings WHERE world_id=? AND adapter_id=? AND active=1 ORDER BY entity_id'
-      ).all(host.world_id, adapterId);
-      if (actors.length !== 1) return null;
+      const actorBinding = store.db.prepare(
+        'SELECT active FROM actor_bindings WHERE world_id=? AND adapter_id=? AND entity_id=?'
+      ).get(host.world_id, adapterId, actorId);
+      if (!actorBinding || actorBinding.active !== 1) return null;
       const actor = store.db.prepare(
         "SELECT entity_id,status FROM entities WHERE world_id=? AND entity_id=?"
-      ).get(host.world_id, actors[0].entity_id);
+      ).get(host.world_id, actorId);
       if (!actor || actor.status === 'destroyed') return null;
 
       return Object.freeze({
@@ -92,6 +94,7 @@ export function createHostBoundNpcKnowledgeAuthorizers({
     const binding = resolveContext({
       adapter_id: scope.adapter_id,
       conversation_id: scope.conversation_id,
+      actor_id: scope.actor_id,
     });
     if (!binding || binding.world_id !== scope.world_id || binding.actor_id !== scope.actor_id) return null;
     return binding;
