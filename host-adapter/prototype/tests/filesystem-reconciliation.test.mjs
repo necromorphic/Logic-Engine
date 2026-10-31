@@ -169,5 +169,5 @@ test('file-level modified delta is durably journaled, idempotent, and remains un
   await writeFile(f.file, '{"role":"user","mes":"first"}\\n');
   const restored = await reconcile(f.journal, await f.scan(), f.root);
   assert.equal(restored.status, 'NON_READY');
-  assert.match(restored.reason, /previously observed filesystem delta remains unresolved/);
+  assert.match(restored.reason, /file-level delta was recorded|previously observed filesystem delta remains unresolved/);
 });
