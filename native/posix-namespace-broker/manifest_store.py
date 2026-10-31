@@ -511,6 +511,68 @@ class ManifestStore:
                 "warning": "No sidecar is deleted, renamed, checkpointed, or opened by SQLite.",
             }
 
+    def retire_absent_sidecars(self) -> dict[str, Any]:
+        """Commit only absent creating/deleting sidecars as retired.
+
+        Caller must quiesce the application and all namespace mutators. This
+        primitive is not a substitute for broker-enforced namespace locking.
+        """
+        with _locked_roots(self.manifest_fd, self.anchor_fd, exclusive=True):
+            manifest = self._load_pair()[0]
+            candidate = json.loads(_canonical_json(manifest))
+            suffixes = {"wal": "-wal", "shm": "-shm", "journal": "-journal"}
+            changed = False
+            for role in candidate["roles"]:
+                if role["state"] == "disabled":
+                    continue
+                if role["state"] not in ("active", "recovery-required", "enrolling"):
+                    raise StoreError(f"role {role['role']} has unsupported recovery state")
+                parent_fd = _open_role_parent(role["parentComponents"], role["parentIdentities"])
+                try:
+                    _verify_regular_at(parent_fd, role["databaseBasename"],
+                                       role["databaseIdentity"], f"role {role['role']} database")
+                    declared = {entry["kind"]: entry for entry in role["sidecars"]}
+                    for kind, suffix in suffixes.items():
+                        name = role["databaseBasename"] + suffix
+                        entry = declared.get(kind)
+                        actual = _observe_regular_at(parent_fd, name, f"sidecar {name}")
+                        if entry is None:
+                            if actual is not None:
+                                raise StoreError(f"unmanifested sidecar exists: {name}")
+                            continue
+                        if actual is not None and actual != entry["identity"]:
+                            raise StoreError(f"sidecar identity mismatch: {name}")
+                        state = entry["state"]
+                        if state == "active" and actual is None:
+                            raise StoreError(f"active sidecar is missing: {name}")
+                        if state == "retired" and actual is not None:
+                            raise StoreError(f"retired sidecar still exists: {name}")
+                        if state in ("creating", "deleting") and actual is None:
+                            entry["state"] = "retired"
+                            changed = True
+                finally:
+                    os.close(parent_fd)
+            if not changed:
+                return manifest
+            next_generation = manifest["generation"] + 1
+            candidate["generation"] = next_generation
+            for role in candidate["roles"]:
+                for sidecar in role["sidecars"]:
+                    if sidecar["state"] == "retired" and sidecar["generation"] > manifest["generation"]:
+                        continue
+                    if sidecar["state"] == "retired" and sidecar["generation"] == manifest["generation"]:
+                        # Preserve the original transition generation for already-retired entries.
+                        continue
+                    if sidecar["state"] == "retired" and sidecar["generation"] < manifest["generation"]:
+                        continue
+            for role_old, role_new in zip(manifest["roles"], candidate["roles"]):
+                old_by_kind = {entry["kind"]: entry for entry in role_old["sidecars"]}
+                for entry in role_new["sidecars"]:
+                    old = old_by_kind[entry["kind"]]
+                    if old["state"] in ("creating", "deleting") and entry["state"] == "retired":
+                        entry["generation"] = next_generation
+            return self._commit_locked(_canonical_json(candidate))
+
     def load(self) -> dict[str, Any]:
         with _locked_roots(self.manifest_fd, self.anchor_fd, exclusive=False):
             return self._load_pair()[0]
