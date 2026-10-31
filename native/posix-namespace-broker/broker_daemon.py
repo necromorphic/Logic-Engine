@@ -79,9 +79,7 @@ def _parse_role_payload(payload: bytes, operation: int) -> tuple[str, str]:
     except UnicodeDecodeError as exc:
         raise ValueError("role payload must be ASCII") from exc
     if operation == OP_OPEN_MAIN:
-        role, separator, kind = decoded, "", "main"
-        if separator:
-            raise ValueError("main-open payload must contain only a role")
+        role, kind = decoded, "main"
     else:
         parts = decoded.split("\x00")
         if len(parts) != 2:
