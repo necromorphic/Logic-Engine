@@ -20,6 +20,7 @@
 #include <string.h>
 #include <stdint.h>
 #include <errno.h>
+#include <limits.h>
 #ifdef _WIN32
 #include <windows.h>
 #include <wchar.h>
@@ -49,6 +50,7 @@ static int g_registered = 0;
 static sqlite3_mutex *g_registry_mutex = 0;
 #if defined(__linux__)
 static uint64_t g_broker_request_id = 1;
+static int g_broker_backend_io_count = 0;
 #endif
 #define PROBE_MAX_PINNED_PATHS 256
 typedef struct ProbePinnedPath {
@@ -1393,6 +1395,7 @@ static int probe_backend_close(sqlite3_file *file) {
 static int probe_backend_read(sqlite3_file *file, void *buffer, int amount,
                               sqlite3_int64 offset) {
   ProbeBackendFile *backend = (ProbeBackendFile *)file;
+  if (backend->broker_fd >= 0) probe_counter_increment(&g_broker_backend_io_count);
   sqlite3_file *parent_file = probe_backend_parent_file(file);
   if (backend->broker_fd < 0) {
     return parent_file->pMethods->xRead(parent_file, buffer, amount, offset);
@@ -1423,6 +1426,7 @@ static int probe_backend_read(sqlite3_file *file, void *buffer, int amount,
 static int probe_backend_write(sqlite3_file *file, const void *buffer, int amount,
                                sqlite3_int64 offset) {
   ProbeBackendFile *backend = (ProbeBackendFile *)file;
+  if (backend->broker_fd >= 0) probe_counter_increment(&g_broker_backend_io_count);
   sqlite3_file *parent_file = probe_backend_parent_file(file);
   if (backend->broker_fd < 0) {
     return parent_file->pMethods->xWrite(parent_file, buffer, amount, offset);
@@ -1448,6 +1452,7 @@ static int probe_backend_write(sqlite3_file *file, const void *buffer, int amoun
 
 static int probe_backend_truncate(sqlite3_file *file, sqlite3_int64 size) {
   ProbeBackendFile *backend = (ProbeBackendFile *)file;
+  if (backend->broker_fd >= 0) probe_counter_increment(&g_broker_backend_io_count);
   sqlite3_file *parent_file = probe_backend_parent_file(file);
   if (backend->broker_fd < 0) {
     return parent_file->pMethods->xTruncate(parent_file, size);
@@ -1461,6 +1466,7 @@ static int probe_backend_truncate(sqlite3_file *file, sqlite3_int64 size) {
 
 static int probe_backend_sync(sqlite3_file *file, int flags) {
   ProbeBackendFile *backend = (ProbeBackendFile *)file;
+  if (backend->broker_fd >= 0) probe_counter_increment(&g_broker_backend_io_count);
   sqlite3_file *parent_file = probe_backend_parent_file(file);
   if (backend->broker_fd < 0) {
     return parent_file->pMethods->xSync(parent_file, flags);
@@ -1475,6 +1481,7 @@ static int probe_backend_sync(sqlite3_file *file, int flags) {
 
 static int probe_backend_file_size(sqlite3_file *file, sqlite3_int64 *size) {
   ProbeBackendFile *backend = (ProbeBackendFile *)file;
+  if (backend->broker_fd >= 0) probe_counter_increment(&g_broker_backend_io_count);
   sqlite3_file *parent_file = probe_backend_parent_file(file);
   if (backend->broker_fd < 0) {
     return parent_file->pMethods->xFileSize(parent_file, size);
@@ -2188,6 +2195,14 @@ static void probe_temp_file_class_rejected(sqlite3_context *context, int argc, s
   sqlite3_free(file);
   sqlite3_result_int(context, rc == SQLITE_CANTOPEN);
 }
+
+#if defined(__linux__)
+static void probe_broker_backend_io_count(sqlite3_context *context, int argc, sqlite3_value **argv) {
+  (void)argc;
+  (void)argv;
+  sqlite3_result_int(context, probe_counter_read(&g_broker_backend_io_count));
+}
+#endif
 
 static void probe_open_count(sqlite3_context *context, int argc, sqlite3_value **argv) {
   (void)argc;
@@ -2907,6 +2922,11 @@ static int probe_auto_extension(sqlite3 *db, char **error, const sqlite3_api_rou
 #if defined(__linux__)
   rc = sqlite3_create_function(db, "logic_engine_vfs_probe_register_broker_role", 3,
     SQLITE_UTF8, 0, probe_register_broker_role, 0, 0);
+  if (rc != SQLITE_OK) return rc;
+#endif
+#if defined(__linux__)
+  rc = sqlite3_create_function(db, "logic_engine_vfs_probe_broker_backend_io_count", 0,
+    SQLITE_UTF8 | SQLITE_DETERMINISTIC, 0, probe_broker_backend_io_count, 0, 0);
   if (rc != SQLITE_OK) return rc;
 #endif
   rc = sqlite3_create_function(db, "logic_engine_vfs_probe_hook_protection", 0,
