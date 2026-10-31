@@ -74,6 +74,7 @@ test('Linux SQLite VFS obtains main and sidecar descriptors from the authenticat
 
   const writer = new DatabaseSync(databasePath);
   let reader;
+  let readerTransactionActive = false;
   try {
     writer.exec('CREATE TABLE broker_probe(value TEXT);');
     assert.equal(
@@ -107,6 +108,7 @@ test('Linux SQLite VFS obtains main and sidecar descriptors from the authenticat
     }
     reader = new DatabaseSync(databasePath);
     reader.exec('BEGIN; SELECT value FROM broker_probe;');
+    readerTransactionActive = true;
     writer.exec("INSERT INTO broker_probe VALUES('second');");
     assert.equal(
       reader.prepare('SELECT count(*) AS count FROM broker_probe').get().count,
@@ -118,6 +120,7 @@ test('Linux SQLite VFS obtains main and sidecar descriptors from the authenticat
       2,
     );
     reader.exec('COMMIT;');
+    readerTransactionActive = false;
     assert.equal(
       reader.prepare('SELECT count(*) AS count FROM broker_probe').get().count,
       2,
@@ -147,7 +150,7 @@ test('Linux SQLite VFS obtains main and sidecar descriptors from the authenticat
       'WAL must be opened through the broker descriptor path',
     );
   } finally {
-    reader?.exec('ROLLBACK;');
+    if (readerTransactionActive) reader?.exec('ROLLBACK;');
     reader?.close();
     writer.close();
   }
