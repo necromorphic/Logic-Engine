@@ -86,9 +86,15 @@ replaced, symlinked, multiply-linked or non-regular database files. Roles marked
 disabled are skipped; roles or sidecars in transitional/recovery states fail
 closed. The CLI `verify` command performs this pass.
 
+All store operations now take advisory `flock` locks on both retained metadata
+directories in a stable device/inode order. Reads take the exclusive lock too,
+because loading may complete an interrupted staged-manifest rename. This
+serializes cooperating store processes and prevents two commits from advancing
+the same generation concurrently. It does not constrain code that bypasses this
+store or runs with the broker service UID.
+
 This is still not a namespace broker operation: there is no broker IPC integration,
-no concurrent-writer serialization, and no SQLite VFS or sidecar lifecycle
-transition implementation. A successful verification is a point-in-time
+no SQLite VFS or sidecar lifecycle transition implementation. A successful verification is a point-in-time
 integrity check, not a lease preventing later mutation. The OS ownership boundary
 must keep the application from mutating these directories after verification.
 
