@@ -1512,6 +1512,18 @@ static int probe_xDelete(sqlite3_vfs *vfs, const char *name, int sync_dir) {
       if (!kind || !probe_broker_exchange(role, role->broker_socket_path,
             LEB_OP_DELETE_SIDECAR, kind, 0, NULL, &status)
           || status != LEB_STATUS_OK) return SQLITE_IOERR_DELETE;
+      {
+        int sidecar_kind = strcmp(kind, "wal") == 0 ? 1
+          : strcmp(kind, "shm") == 0 ? 2 : 3;
+        probe_registry_lock();
+        for (int i = 0; i < g_sidecar_identity_count; ++i) {
+          ProbeSidecarIdentity *entry = &g_sidecar_identities[i];
+          if (entry->role_index == role_index && entry->kind == sidecar_kind) {
+            entry->retired = 1;
+          }
+        }
+        probe_registry_unlock();
+      }
       return SQLITE_OK;
     }
     if (suffix[0] == '\0' && role->broker_socket_path) {
