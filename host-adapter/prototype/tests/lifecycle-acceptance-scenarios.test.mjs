@@ -13,19 +13,20 @@ globalThis.IDBKeyRange = { only: value => ({ only: value }) };
 class Request { result; error = null; onsuccess = null; onerror = null; }
 class Store {
   constructor(db, tx, name) { this.db = db; this.tx = tx; this.name = name; }
-  index() { return { getAll: range => { const r = new Request(); queueMicrotask(() => { r.result = [...this.db.rows.values()].filter(x => x.conversationId === range.only); r.onsuccess?.(); this.db.finish(this.tx); }); return r; } }; }
-  get(key) { const r = new Request(); queueMicrotask(() => { r.result = this.db.heads.get(key); r.onsuccess?.(); this.db.finish(this.tx); }); return r; }
+  index() { return { getAll: range => { const r = new Request(); queueMicrotask(() => { r.result = [...this.db.rows.values()].filter(x => x.conversationId === range.only); r.onsuccess?.(); if (this.tx.mode === 'readonly') this.db.finish(this.tx); }); return r; } }; }
+  get(key) { const r = new Request(); queueMicrotask(() => { r.result = this.db.heads.get(key); r.onsuccess?.(); if (this.tx.mode === 'readonly') this.db.finish(this.tx); }); return r; }
   add(row) { if (this.db.failNextWrite) { this.db.failNextWrite = false; throw Error('simulated disk full'); } if (this.db.rows.has(row.id)) throw Error('duplicate key'); this.db.rows.set(row.id, structuredClone(row)); queueMicrotask(() => this.db.finish(this.tx)); }
   put(row) { this.db.heads.set(row.conversationId, structuredClone(row)); queueMicrotask(() => this.db.finish(this.tx)); }
 }
 class Transaction {
   error = null; oncomplete = null; onerror = null; onabort = null;
-  constructor(db) { this.db = db; }
+  constructor(db, mode) { this.db = db; this.mode = mode; }
   objectStore(name) { return new Store(this.db, this, name); }
+  abort() { this.error = Error('transaction aborted'); setImmediate(() => this.onabort?.()); }
 }
 class FakeDB {
   rows = new Map(); heads = new Map(); failNextWrite = false;
-  transaction() { return new Transaction(this); }
+  transaction(names, mode = 'readonly') { return new Transaction(this, mode); }
   finish(tx) { setImmediate(() => tx.oncomplete?.()); }
 }
 function fixture() {
@@ -108,6 +109,38 @@ test('pinned patch explicitly hooks core mutations but does not pretend uncovere
   }
 });
 
+
+test('pinned SillyTavern patch uses the existing authenticated inventory and digest-only Core proxies', async () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const patch = await readFile(resolve(here, '../patches/sillytavern-1.19.0-lifecycle-hooks.patch'), 'utf8');
+  const proxy = await readFile(resolve(here, '../st-server-digest-proxy.mjs'), 'utf8');
+
+  assert.ok(patch.includes("import { router as logicEngineLifecycleRouter } from './endpoints/logic-engine-lifecycle.js';"));
+  assert.ok(patch.includes("app.use('/api/logic-engine', logicEngineLifecycleRouter);"));
+  assert.ok(patch.includes("import { createHostDigestProxyHandler, createHostInventoryReconcileProxyHandler } from './logic-engine-lifecycle-proxy.mjs';"));
+  assert.ok(patch.includes("router.post('/host-version-ledger/capture', createHostDigestProxyHandler());"));
+  assert.ok(patch.includes("router.post('/host-version-ledger/reconcile', createHostInventoryReconcileProxyHandler());"));
+  assert.ok(patch.includes("fetch('/api/logic-engine/host/session'"));
+  assert.ok(patch.includes("fetch('/api/logic-engine/host/inventory?conversation_uuid='"));
+  assert.ok(patch.includes("fetch('/api/logic-engine/host-version-ledger/reconcile'"));
+  assert.ok(patch.includes('getLogicEngineHostSessionId'));
+  assert.ok(patch.includes('getPersistedInventory: async'));
+  assert.ok(patch.includes("throw Error('Persisted Host inventory unavailable')"),
+    'missing persisted inventory must fail closed');
+  assert.ok(patch.includes("inventory?.host_user_handle !== session.host_user_handle"),
+    'persisted inventory must remain bound to the authenticated ST account');
+  assert.ok(patch.includes('logicEngineHostSessionPromise = null'));
+
+  // The server proxy uses only deployment-owned credentials and the existing
+  // digest-only Core route; no browser-selected upstream or world scope exists.
+  assert.ok(proxy.includes("'/v1/host-version-ledger/capture'"));
+  assert.ok(proxy.includes("'/v1/host-version-ledger/reconcile'"));
+  assert.ok(proxy.includes('LOGIC_ENGINE_API_TOKEN'));
+  assert.ok(proxy.includes('LOGIC_ENGINE_ADAPTER_TOKEN'));
+  assert.ok(proxy.includes('HOST_SESSION_SCOPE_REQUIRED'));
+  assert.ok(proxy.includes('requestMatchesAuthenticatedHostSession'));
+  assert.equal(proxy.includes("'world_id'"), false);
+});
 
 test('pinned patch journals edit and swipe deletion only after awaited native save', async () => {
   const here = dirname(fileURLToPath(import.meta.url));
