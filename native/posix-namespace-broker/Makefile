@@ -18,6 +18,7 @@ test: all quarantine_delete_test
 	./quarantine_delete_test
 	python3 test_protocol.py
 	python3 test_manifest_store.py
+	python3 test_broker_daemon.py
 
 clean:
 	rm -f broker_server broker_ping quarantine_delete_test
