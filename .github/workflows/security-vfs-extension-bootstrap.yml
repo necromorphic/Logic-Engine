@@ -10,6 +10,8 @@ on:
       - 'native/secure-vfs-probe/*.c'
       - 'native/secure-vfs-probe/*.h'
       - 'tests/security-vfs-extension-bootstrap.test.js'
+      - 'tests/security-vfs-broker-integration.test.js'
+      - 'native/posix-namespace-broker/test_vfs_fake_server.py'
       - 'docs/97-issue-770-windows-vfs-integration-contract.md'
       - 'docs/security/sqlite-vfs-directory-anchor-design.md'
       - 'docs/security/sqlite-database-role-inventory.md'
