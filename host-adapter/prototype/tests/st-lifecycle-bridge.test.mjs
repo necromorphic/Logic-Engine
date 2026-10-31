@@ -922,7 +922,7 @@ test('Core receives a durable prepare before mutation and a matching commit afte
   assert.equal(events[1].event_type, 'MUTATION_COMMITTED');
   assert.equal(events[1].mutation_id, before.payload.details.hostLifecycle.mutationId);
   assert.equal(events[1].mutation_digest, events[0].mutation_digest);
-  assert.match(events[1].receipt_digest, /^[a-f0-9]{64}$/);
+  assert.equal(events[1].receipt_digest, undefined, 'browser must not submit a trusted persisted-state receipt');
   assert.equal(typeof events[1].occurred_at, 'string');
   assert.equal(events[1].operation, 'edit-message');
   assert.equal(remote.status, 'NO_PENDING_MUTATION');
@@ -962,7 +962,7 @@ test('Core pending mutation is recovered by replaying the local durable after re
   assert.deepEqual(replay, firstCommit);
   assert.equal(replay.mutation_id, before.payload.details.hostLifecycle.mutationId);
   assert.equal(replay.mutation_digest, events[0].mutation_digest);
-  assert.match(replay.receipt_digest, /^[a-f0-9]{64}$/);
+  assert.equal(replay.receipt_digest, undefined, 'replay asks the server to reuse its durable receipt');
   assert.equal(replay.operation, 'edit-message');
   assert.equal(remote.status, 'PENDING_MUTATION');
   assert.equal(resumed.operation, 'before:create-swipe');
