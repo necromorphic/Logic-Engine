@@ -976,6 +976,111 @@ export class LogicEngine {
       });
     });
   }  /**
+   * Prepare a model-facing Host context only after per-acquisition visibility
+   * authorization. The internal reader alone is not a disclosure grant.
+   */
+  readNpcKnowledgeContext(input) {
+    return withNpcAuthorizationLease(this.store, () => {
+      assert(typeof this.npcKnowledgeVisibilityAuthorizer === 'function',
+        'NPC_KNOWLEDGE_VISIBILITY_NOT_CONFIGURED',
+        'A trusted deployment-owned per-acquisition visibility authorizer is required.', 403);
+      const read = this.readNpcKnowledge(input);
+      assert(read.truncated !== true, 'NPC_KNOWLEDGE_READ_INCOMPLETE',
+        'The actor knowledge read exceeded its bounded limit; Host context requires a complete acquisition window.', 409);
+      const visibleItems = [];
+      for (const item of read.items) {
+        let decision;
+        try {
+          decision = this.npcKnowledgeVisibilityAuthorizer(Object.freeze({
+            world_id: read.world_id,
+            conversation_id: read.conversation_id,
+            adapter_id: read.adapter_id,
+            actor_id: read.actor_id,
+            recipient: read.recipient,
+            purpose: read.purpose,
+            world_revision: read.snapshot.world_revision,
+            commit_sequence: read.snapshot.commit_sequence,
+            acquisition_id: item.acquisition_id,
+            fact_id: item.fact_id,
+            subject_ref: item.subject_ref,
+            predicate: item.predicate,
+            acquisition_kind: item.acquisition_kind,
+            acquisition_authorization_ref: item.acquisition_authorization_ref,
+            provenance_ref: item.provenance_ref,
+            provenance_digest: item.provenance_digest,
+            ...(read.policy_authority ?? {}),
+          }));
+        } catch {
+          throw new EngineError('NPC_KNOWLEDGE_VISIBILITY_NOT_AUTHORIZED',
+            'The trusted visibility authorizer failed; no Host context was returned.', 403);
+        }
+        const allowedKeys = [
+          'status', 'world_id', 'conversation_id', 'adapter_id', 'actor_id', 'recipient', 'purpose',
+          'world_revision', 'commit_sequence', 'acquisition_id', 'authorization_ref',
+          ...(read.policy_authority ? ['authority_id', 'generation', 'snapshot_fingerprint'] : []),
+        ];
+        const policyMatches = !read.policy_authority
+          || (decision?.authority_id === read.policy_authority.authority_id
+            && decision?.generation === read.policy_authority.generation
+            && decision?.snapshot_fingerprint === read.policy_authority.snapshot_fingerprint);
+        if (!exactDataRecord(decision, allowedKeys)
+          || !['allowed', 'denied'].includes(decision.status)
+          || decision.world_id !== read.world_id
+          || decision.conversation_id !== read.conversation_id
+          || decision.adapter_id !== read.adapter_id
+          || decision.actor_id !== read.actor_id
+          || decision.recipient !== read.recipient
+          || decision.purpose !== read.purpose
+          || decision.world_revision !== read.snapshot.world_revision
+          || decision.commit_sequence !== read.snapshot.commit_sequence
+          || decision.acquisition_id !== item.acquisition_id
+          || !policyMatches
+          || typeof decision.authorization_ref !== 'string'
+          || !decision.authorization_ref.trim()) {
+          throw new EngineError('NPC_KNOWLEDGE_VISIBILITY_NOT_AUTHORIZED',
+            'The visibility decision did not authorize this exact acquisition, actor, purpose, and snapshot.', 403);
+        }
+        if (decision.status === 'allowed') visibleItems.push(item);
+      }
+
+      const snapshotNow = this.getNpcKnowledgeSnapshot(read.world_id);
+      assert(snapshotNow && snapshotNow.status === 'active'
+        && snapshotNow.world_revision === read.snapshot.world_revision
+        && snapshotNow.commit_sequence === read.snapshot.commit_sequence,
+      'NPC_KNOWLEDGE_READ_NOT_READY',
+      'World snapshot changed while preparing the Host context; retry from a fresh snapshot.', 409);
+      const authorizationRequest = {
+        world_id: read.world_id,
+        conversation_id: read.conversation_id,
+        adapter_id: read.adapter_id,
+        actor_id: read.actor_id,
+        recipient: read.recipient,
+        purpose: read.purpose,
+        expected_revision: read.snapshot.world_revision,
+        expected_commit_sequence: read.snapshot.commit_sequence,
+      };
+      revalidateNpcKnowledgeReadAuthorization(
+        this, authorizationRequest, snapshotNow, read.authorization_ref, read.policy_authority ?? null,
+      );
+
+      return Object.freeze({
+        status: 'ready',
+        world_id: read.world_id,
+        conversation_id: read.conversation_id,
+        adapter_id: read.adapter_id,
+        actor_id: read.actor_id,
+        recipient: read.recipient,
+        purpose: read.purpose,
+        snapshot: read.snapshot,
+        authorization_ref: read.authorization_ref,
+        ...(read.policy_authority ? { policy_authority: read.policy_authority } : {}),
+        truncated: false,
+        items: Object.freeze(visibleItems),
+      });
+    });
+  }
+
+  /**
    * Build an actor-specific belief context from Core-authorized acquisitions.
    * This is an internal, non-HTTP method. Visibility is checked per acquisition;
    * model proposals cannot create evidence or commit world effects.
