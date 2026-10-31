@@ -77,6 +77,21 @@ validation before this store can be treated as authoritative. It currently
 validates manifest structure and metadata-root identity; it does not yet walk
 and verify every database parent/file identity or reconcile SQLite sidecars.
 
+`ManifestStore.verify_roles()` adds a read-only verification pass: it walks
+each enrolled parent from the filesystem root with directory FDs and
+`O_NOFOLLOW`, compares each opened directory's device/inode/mount ID to the
+manifest, then opens the main database and active sidecars relative to the pinned
+parent FD and compares their opened-handle identities. It rejects missing,
+replaced, symlinked, multiply-linked or non-regular database files. Roles marked
+disabled are skipped; roles or sidecars in transitional/recovery states fail
+closed. The CLI `verify` command performs this pass.
+
+This is still not a namespace broker operation: there is no broker IPC integration,
+no concurrent-writer serialization, and no SQLite VFS or sidecar lifecycle
+transition implementation. A successful verification is a point-in-time
+integrity check, not a lease preventing later mutation. The OS ownership boundary
+must keep the application from mutating these directories after verification.
+
 Run the manifest-store tests with:
 
 ```sh
