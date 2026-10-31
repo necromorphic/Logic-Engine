@@ -18,7 +18,7 @@ import struct
 import sys
 from typing import Any
 
-from manifest_store import ManifestStore, StoreError, _open_trusted_dir
+from manifest_store import ManifestStore, StoreError
 
 MAGIC = 0x4C454256  # LEBV
 VERSION = 2
@@ -123,9 +123,14 @@ def handle_connection(conn: socket.socket, allowed_uid: int, store: Any) -> None
             return
         try:
             role, kind = _parse_role_payload(payload, operation)
+        except ValueError:
+            _send_response(conn, operation, STATUS_BAD_REQUEST, request_id)
+            return
+        try:
             descriptor = store.open_role_file(role, kind)
-        except (ValueError, StoreError):
-            _send_response(conn, operation, STATUS_NOT_FOUND, request_id)
+        except StoreError:
+            # Do not reveal whether a role is absent or its identity check failed.
+            _send_response(conn, operation, STATUS_INTERNAL, request_id)
             return
         try:
             _send_response(conn, operation, STATUS_OK, request_id, descriptor)
