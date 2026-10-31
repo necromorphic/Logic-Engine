@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHostDigestProxyHandler, createHostInventoryReconcileProxyHandler, createHostRootInventoryPersistence, createHostLifecycleJournalProxy } from '../st-server-digest-proxy.mjs';
 import { createHash, createHmac } from 'node:crypto';
+import { resolve } from 'node:path';
 
 const CONFIG = {
   LOGIC_ENGINE_CORE_URL: 'http://192.168.1.10:8787',
