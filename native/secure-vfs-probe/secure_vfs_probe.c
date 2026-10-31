@@ -50,10 +50,8 @@ typedef struct ProbePinnedPath {
 static ProbePinnedPath g_pinned_paths[PROBE_MAX_PINNED_PATHS];
 static const char *g_open_syscall_name = 0;
 static sqlite3_syscall_ptr g_original_open_syscall = 0;
-#ifdef _WIN32
 static const char *g_delete_syscall_name = 0;
 static sqlite3_syscall_ptr g_original_delete_syscall = 0;
-#endif
 #ifndef _WIN32
 static sqlite3_syscall_ptr g_original_stat_syscall = 0;
 #endif
@@ -107,6 +105,7 @@ typedef struct ProbeSidecarIdentity {
 } ProbeSidecarIdentity;
 static ProbeSidecarIdentity g_sidecar_identities[PROBE_MAX_SIDECAR_IDENTITIES];
 static int g_sidecar_identity_count = 0;
+static int g_unlink_hook_count = 0;
 #endif
 #ifdef _WIN32
 static LogicEngineWinFileIdentity g_race_identity;
@@ -1393,6 +1392,26 @@ static int probe_xDelete(sqlite3_vfs *vfs, const char *name, int sync_dir) {
   /* Protected default VFS: never delegate an unregistered delete by pathname. */
   return SQLITE_IOERR_DELETE;
 }
+#ifndef _WIN32
+static int probe_unlink(const char *path) {
+  int rc;
+  if (!path) {
+    errno = EINVAL;
+    return -1;
+  }
+  probe_counter_increment(&g_unlink_hook_count);
+  /*
+   * SQLite's Unix VFS calls osUnlink() directly from unixShmUnmap() when
+   * deleteFlag is set. Route that internal path through the same role and
+   * sidecar identity checks as xDelete instead of allowing a pathname unlink.
+   */
+  rc = probe_xDelete(&g_probe_vfs, path, 0);
+  if (rc == SQLITE_OK) return 0;
+  errno = rc == SQLITE_IOERR_DELETE_NOENT ? ENOENT : EACCES;
+  return -1;
+}
+#endif
+
 static int probe_xAccess(sqlite3_vfs *vfs, const char *name, int flags, int *result) {
   sqlite3_vfs *p = (sqlite3_vfs *)vfs->pAppData;
 #ifdef _WIN32
@@ -1495,11 +1514,9 @@ static int probe_xSetSystemCall(sqlite3_vfs *vfs, const char *name, sqlite3_sysc
   if (name && g_open_syscall_name && strcmp(name, g_open_syscall_name) == 0) {
     return SQLITE_PERM;
   }
-#ifdef _WIN32
   if (name && g_delete_syscall_name && strcmp(name, g_delete_syscall_name) == 0) {
     return SQLITE_PERM;
   }
-#endif
 #ifndef _WIN32
   if (name && strcmp(name, "stat") == 0) return SQLITE_PERM;
 #endif
@@ -1538,11 +1555,17 @@ static void probe_hook_protection(sqlite3_context *context, int argc, sqlite3_va
     int stat_rc = g_probe_vfs.xSetSystemCall(
       &g_probe_vfs, "stat", g_original_stat_syscall
     );
+    int unlink_rc = g_probe_vfs.xSetSystemCall(
+      &g_probe_vfs, g_delete_syscall_name, g_original_delete_syscall
+    );
     protected_ok = open_rc == SQLITE_PERM && stat_rc == SQLITE_PERM
+      && unlink_rc == SQLITE_PERM
       && g_parent_vfs->xGetSystemCall(g_parent_vfs, g_open_syscall_name)
         == (sqlite3_syscall_ptr)probe_open
       && g_parent_vfs->xGetSystemCall(g_parent_vfs, "stat")
-        == (sqlite3_syscall_ptr)probe_stat;
+        == (sqlite3_syscall_ptr)probe_stat
+      && g_parent_vfs->xGetSystemCall(g_parent_vfs, g_delete_syscall_name)
+        == (sqlite3_syscall_ptr)probe_unlink;
   }
 #endif
   sqlite3_result_int(context, protected_ok);
