@@ -49,6 +49,7 @@ jobs:
           cp host-adapter/prototype/windows-vss-snapshot.mjs sillytavern-host-checkout/src/endpoints/windows-vss-snapshot.mjs
           cp host-adapter/prototype/host-data-inventory.mjs sillytavern-host-checkout/src/endpoints/host-data-inventory.mjs
           cp host-adapter/prototype/st-host-inventory-handler.mjs sillytavern-host-checkout/src/endpoints/logic-engine-host-inventory-handler.mjs
+          cp host-adapter/prototype/st-host-identity-store.mjs sillytavern-host-checkout/src/endpoints/logic-engine-host-identity-store.mjs
           cp host-adapter/prototype/st-host-inventory-route.js sillytavern-host-checkout/src/endpoints/logic-engine-host-inventory.js
       - name: Apply-check and apply lifecycle, inventory, then delete-safety patches
         run: |
