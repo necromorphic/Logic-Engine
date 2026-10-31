@@ -231,7 +231,7 @@ test('pinned ST 1.19.0 chat create/edit/swipe/delete/import/export/restore mutat
   const observe = async (operation, expectedKind) => {
     const before = await scan();
     const canonicalRoot = before.root;
-    assert.equal(digest(canonicalRoot), rootId, 'Core root identity must be bound to the exact data root');
+    assert.equal(digest(resolve(canonicalRoot)), rootId, 'Core root identity must be bound to the exact data root');
     if (!baselineCreated) {
       const baseline = journal.enrollRootInventory({
         host_installation_id: hostInstallationId,
