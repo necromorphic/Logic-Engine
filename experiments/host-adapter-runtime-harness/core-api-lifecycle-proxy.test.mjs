@@ -182,14 +182,14 @@ test('SillyTavern lifecycle proxy authenticates PREPARED/COMMITTED receipts and 
     ...rootIdentity,
   });
 
-  const resolveTrustedLifecycleIdentity = input => {
+  const resolveJournalLifecycleIdentity = input => {
     const authorized = input.adapterId === ADAPTER_ID
       && input.host_installation_id === identity.host_installation_id
       && input.authenticated_account_id === identity.authenticated_account_id
       && input.host_session_id === SESSION_ID
       && input.conversation_uuid === CONVERSATION_UUID;
     if (!authorized) return { authorized: false };
-    const trusted = {
+    return {
       authorized: true,
       adapter_id: ADAPTER_ID,
       ...rootIdentity,
@@ -198,6 +198,10 @@ test('SillyTavern lifecycle proxy authenticates PREPARED/COMMITTED receipts and 
       authority_id: AUTHORITY_ID,
       generation: 1,
     };
+  };
+  const resolveTrustedLifecycleIdentity = input => {
+    const trusted = resolveJournalLifecycleIdentity(input);
+    if (trusted.authorized !== true) return trusted;
     const snapshot = coreJournal.getAuthoritySnapshot(trusted);
     if (snapshot.status !== 'INTEGRITY_OK') return { authorized: false };
     return { ...trusted, snapshot_fingerprint: snapshot.snapshot_fingerprint };
@@ -230,7 +234,7 @@ test('SillyTavern lifecycle proxy authenticates PREPARED/COMMITTED receipts and 
     coreJournal = new HostLifecycleJournal({
       path: coreDbPath,
       coordinatorPath,
-      resolveIdentity: input => resolveTrustedLifecycleIdentity({ ...input, adapterId: ADAPTER_ID }),
+      resolveIdentity: input => resolveJournalLifecycleIdentity({ ...input, adapterId: ADAPTER_ID }),
       resolveRootIdentity: input => ({
         authorized: input.host_installation_id === identity.host_installation_id
           && input.authenticated_account_id === identity.authenticated_account_id
