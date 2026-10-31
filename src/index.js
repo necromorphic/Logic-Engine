@@ -224,6 +224,10 @@ if (hostRootIdentityRegistry.length > 0) {
     resolveIdentity: input => resolveCachedHostLifecycleAuthority(resolveRegisteredHostLifecycleIdentity(hostRootIdentityRegistry, input)),
     resolveRootIdentity: input => resolveRegisteredHostRootIdentity(hostRootIdentityRegistry, input),
   });
+  if (typeof hostLifecycleAuthorityId === 'string' && hostLifecycleAuthorityId.trim()
+    && Number.isSafeInteger(hostLifecycleAuthorityGeneration) && hostLifecycleAuthorityGeneration > 0) {
+    hostRootInventoryJournal.setAuthorityGeneration(hostLifecycleAuthorityId.trim(), hostLifecycleAuthorityGeneration);
+  }
   resolveHostRootIdentity = input => resolveAdapterHostRootIdentity(hostRootIdentityRegistry, input);
 }
 
