@@ -13,12 +13,12 @@ def identity(inode: int) -> dict:
     return {"kind": "posix", "device": "1", "inode": str(inode), "mountId": "1"}
 
 
-def manifest(generation: int) -> bytes:
+def manifest(generation: int, root_identity: dict) -> bytes:
     return _canonical_json({
         "schemaVersion": 1,
         "generation": generation,
         "platform": "linux",
-        "metadataRootIdentity": identity(10),
+        "metadataRootIdentity": root_identity,
         "filesystemPolicy": {
             "filesystem": "ext4",
             "identitySource": "opened-handle",
@@ -52,23 +52,26 @@ class ManifestStoreTests(unittest.TestCase):
         self.store.close()
         self.temp.cleanup()
 
+    def data(self, generation: int) -> bytes:
+        return manifest(generation, self.store.metadata_identity())
+
     def test_initialize_and_load(self):
-        self.store.initialize(manifest(1))
+        self.store.initialize(self.data(1))
         self.assertEqual(self.store.load()["generation"], 1)
 
     def test_commit_advances_generation(self):
-        self.store.initialize(manifest(1))
-        self.assertEqual(self.store.commit(manifest(2))["generation"], 2)
+        self.store.initialize(self.data(1))
+        self.assertEqual(self.store.commit(self.data(2))["generation"], 2)
         self.assertEqual(self.store.load()["generation"], 2)
 
     def test_rejects_generation_skip(self):
-        self.store.initialize(manifest(1))
+        self.store.initialize(self.data(1))
         with self.assertRaises(StoreError):
-            self.store.commit(manifest(3))
+            self.store.commit(self.data(3))
 
     def test_recovers_crash_after_anchor_commit(self):
-        self.store.initialize(manifest(1))
-        staged = manifest(2)
+        self.store.initialize(self.data(1))
+        staged = self.data(2)
         digest = hashlib.sha256(staged).hexdigest()
         _write_atomic(self.store.manifest_fd, "manifest.tmp", "manifest.next", staged)
         _write_atomic(self.store.anchor_fd, "anchor.tmp", "anchor.json",
@@ -78,14 +81,14 @@ class ManifestStoreTests(unittest.TestCase):
         self.assertFalse((self.manifest_root / "manifest.next").exists())
 
     def test_rejects_manifest_rollback_or_tampering(self):
-        self.store.initialize(manifest(1))
-        self.store.commit(manifest(2))
-        (self.manifest_root / "manifest.json").write_bytes(manifest(1))
+        self.store.initialize(self.data(1))
+        self.store.commit(self.data(2))
+        (self.manifest_root / "manifest.json").write_bytes(self.data(1))
         with self.assertRaises(StoreError):
             self.store.load()
 
     def test_rejects_symlinked_manifest(self):
-        self.store.initialize(manifest(1))
+        self.store.initialize(self.data(1))
         (self.manifest_root / "manifest.json").unlink()
         target = self.manifest_root / "target"
         target.write_bytes(manifest(1))
@@ -95,7 +98,7 @@ class ManifestStoreTests(unittest.TestCase):
             self.store.load()
 
     def test_rejects_duplicate_json_keys(self):
-        self.store.initialize(manifest(1))
+        self.store.initialize(self.data(1))
         bad = b'{"schemaVersion":1,"schemaVersion":1}'
         with self.assertRaises(StoreError):
             self.store.commit(bad)
