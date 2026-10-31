@@ -23,3 +23,5 @@ jobs:
         run: make -C native/posix-namespace-broker
       - name: Run protocol integration tests
         run: make -C native/posix-namespace-broker test
+      - name: Run manifest store security tests
+        run: python3 -m unittest discover -s native/posix-namespace-broker -p 'test_manifest_store.py'
