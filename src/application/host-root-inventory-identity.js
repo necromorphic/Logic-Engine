@@ -69,3 +69,47 @@ export function resolveRegisteredHostRootIdentity(registry, input) {
     root_id: match.root_id,
   }) : Object.freeze({ authorized: false });
 }
+
+
+/**
+ * Resolve the installation/account identity for durable lifecycle events.
+ * The adapter credential is checked by the API boundary; the SillyTavern
+ * same-origin proxy separately binds the conversation UUID to its signed
+ * session and authenticated account before forwarding the event.
+ */
+export function resolveAdapterHostLifecycleIdentity(registry, input) {
+  if (!Array.isArray(registry) || !input || typeof input !== 'object'
+    || !validText(input.adapterId)
+    || !UUID.test(input.host_installation_id ?? '')
+    || !UUID.test(input.authenticated_account_id ?? '')
+    || !UUID.test(input.conversation_uuid ?? '')) {
+    return Object.freeze({ authorized: false });
+  }
+  const match = registry.find(record => record.adapter_id === input.adapterId
+    && record.host_installation_id === input.host_installation_id
+    && record.authenticated_account_id === input.authenticated_account_id);
+  return match ? Object.freeze({
+    authorized: true,
+    host_installation_id: match.host_installation_id,
+    authenticated_account_id: match.authenticated_account_id,
+    conversation_uuid: input.conversation_uuid,
+  }) : Object.freeze({ authorized: false });
+}
+
+/** Independent journal-side check after the API's adapter authentication. */
+export function resolveRegisteredHostLifecycleIdentity(registry, input) {
+  if (!Array.isArray(registry) || !input || typeof input !== 'object'
+    || !UUID.test(input.host_installation_id ?? '')
+    || !UUID.test(input.authenticated_account_id ?? '')
+    || !UUID.test(input.conversation_uuid ?? '')) {
+    return Object.freeze({ authorized: false });
+  }
+  const match = registry.find(record => record.host_installation_id === input.host_installation_id
+    && record.authenticated_account_id === input.authenticated_account_id);
+  return match ? Object.freeze({
+    authorized: true,
+    host_installation_id: match.host_installation_id,
+    authenticated_account_id: match.authenticated_account_id,
+    conversation_uuid: input.conversation_uuid,
+  }) : Object.freeze({ authorized: false });
+}
