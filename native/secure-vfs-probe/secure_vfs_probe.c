@@ -57,6 +57,8 @@ static _Thread_local int g_current_broker_expected_kind = -1;
 static int g_broker_backend_open_fail_count = 0;
 static int g_broker_shm_map_count = 0;
 static int g_broker_shm_map_fail_count = 0;
+static int g_broker_shm_lock_count = 0;
+static int g_broker_shm_lock_fail_count = 0;
 static int g_shm_open_hook_count = 0;
 static int g_broker_syscall_open_fail_count = 0;
 static int g_broker_delete_fail_count = 0;
@@ -1549,7 +1551,14 @@ static int probe_backend_ShmMap(sqlite3_file *file, int page, int page_size,
   if (rc != SQLITE_OK) probe_counter_increment(&g_broker_shm_map_fail_count);
   return rc;
 }
-PROBE_BACKEND_DELEGATE_INT(ShmLock, (sqlite3_file *file, int offset, int count, int flags), (parent_file, offset, count, flags))
+static int probe_backend_ShmLock(sqlite3_file *file, int offset, int count, int flags) {
+  sqlite3_file *parent_file = probe_backend_parent_file(file);
+  int rc;
+  probe_counter_increment(&g_broker_shm_lock_count);
+  rc = parent_file->pMethods->xShmLock(parent_file, offset, count, flags);
+  if (rc != SQLITE_OK) probe_counter_increment(&g_broker_shm_lock_fail_count);
+  return rc;
+}
 
 static void probe_backend_shm_barrier(sqlite3_file *file) {
   sqlite3_file *parent_file = probe_backend_parent_file(file);
@@ -2266,6 +2275,13 @@ static void probe_broker_shm_diagnostics(sqlite3_context *context, int argc, sql
   sqlite3_result_int(context, probe_counter_read(&g_broker_shm_map_count) * 1000000
     + probe_counter_read(&g_broker_shm_map_fail_count) * 1000
     + probe_counter_read(&g_shm_open_hook_count));
+}
+static void probe_broker_shm_lock_diagnostics(sqlite3_context *context, int argc, sqlite3_value **argv) {
+  (void)argc;
+  (void)argv;
+  sqlite3_result_int(context,
+    probe_counter_read(&g_broker_shm_lock_count) * 1000
+    + probe_counter_read(&g_broker_shm_lock_fail_count));
 }
 static void probe_broker_backend_open_fail_count(sqlite3_context *context, int argc, sqlite3_value **argv) {
   (void)argc;
@@ -3008,6 +3024,9 @@ static int probe_auto_extension(sqlite3 *db, char **error, const sqlite3_api_rou
   if (rc != SQLITE_OK) return rc;
   rc = sqlite3_create_function(db, "logic_engine_vfs_probe_broker_shm_diagnostics", 0,
     SQLITE_UTF8 | SQLITE_DETERMINISTIC, 0, probe_broker_shm_diagnostics, 0, 0);
+  if (rc != SQLITE_OK) return rc;
+  rc = sqlite3_create_function(db, "logic_engine_vfs_probe_broker_shm_lock_diagnostics", 0,
+    SQLITE_UTF8 | SQLITE_DETERMINISTIC, 0, probe_broker_shm_lock_diagnostics, 0, 0);
   if (rc != SQLITE_OK) return rc;
   rc = sqlite3_create_function(db, "logic_engine_vfs_probe_broker_backend_open_fail_count", 0,
     SQLITE_UTF8 | SQLITE_DETERMINISTIC, 0, probe_broker_backend_open_fail_count, 0, 0);
