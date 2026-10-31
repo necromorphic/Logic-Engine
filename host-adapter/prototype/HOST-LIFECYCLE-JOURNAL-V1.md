@@ -61,7 +61,7 @@ Every accepted lifecycle event is bound to this immutable trusted snapshot:
 
 The existing MechanicPolicyAuthority is a field-visibility policy authority, not a Host storage authority. Do not reuse or relabel it. The lifecycle implementation must connect to the deployment-owned Host root registry and durable root-inventory head. If no accepted trusted root head exists, return NON_READY rather than fabricate one.
 
-### 3.3 Durable root inventory reconciliation
+### 3.1 Durable root inventory reconciliation
 
 - The first complete digest-only scan is an immutable `BASELINE`.
 - Each subsequent `DELTA_OBSERVED` or `DELTA_LIMIT_EXCEEDED` compares the new manifest with the immediately preceding durable manifest, not repeatedly with the original baseline. This preserves file-level add, modify, metadata-change, replace, move and delete transitions across successive operations.
