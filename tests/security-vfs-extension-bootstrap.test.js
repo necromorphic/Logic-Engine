@@ -111,9 +111,10 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
       'the native syscall wrapper must observe the actual OS file-open calls made by node:sqlite'
     );
     first.exec("CREATE TABLE probe(value TEXT);");
-    assert.throws(
-      () => first.exec("PRAGMA temp_store=FILE; CREATE TEMP TABLE unanchored_temp_probe(value TEXT);"),
-      'file-backed temporary databases must fail closed until a pinned temporary namespace exists',
+    assert.equal(
+      first.prepare('SELECT logic_engine_vfs_probe_temp_file_class_rejected() AS rejected').get().rejected,
+      1,
+      'the VFS must reject SQLITE_OPEN_TEMP_DB before it can delegate to an unanchored parent path',
     );
     const journalMode = first.prepare("PRAGMA journal_mode=WAL").get().journal_mode;
     assert.equal(journalMode, "wal", "the registered VFS must permit WAL activation");
