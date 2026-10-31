@@ -73,6 +73,20 @@ test('pinned ST 1.19.0 chat create/edit/swipe/delete/import/export/restore mutat
   const parent = await mkdtemp(join(tmpdir(), 'logic-engine-st-1.19-real-ops-'));
   const root = join(parent, 'data');
   const uploads = join(parent, 'uploads');
+  const identityDirectory = join(parent, 'host-identity');
+  const previousIdentityDirectory = process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR;
+  const previousBuildClaim = process.env.LOGIC_ENGINE_HOST_BUILD_SHA;
+  process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR = identityDirectory;
+  process.env.LOGIC_ENGINE_HOST_BUILD_SHA = expectedSha;
+  t.after(() => {
+    if (previousIdentityDirectory === undefined) delete process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR;
+    else process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR = previousIdentityDirectory;
+    if (previousBuildClaim === undefined) delete process.env.LOGIC_ENGINE_HOST_BUILD_SHA;
+    else process.env.LOGIC_ENGINE_HOST_BUILD_SHA = previousBuildClaim;
+  });
+  const { router: hostInventoryRouter } = await import(
+    pathToFileURL(resolve(stRoot, 'src/endpoints/logic-engine-host-inventory.js')).href + '?lifecycle-harness'
+  );
   const directories = {
     root,
     chats: join(root, 'chats'),
@@ -88,6 +102,7 @@ test('pinned ST 1.19.0 chat create/edit/swipe/delete/import/export/restore mutat
     mkdir(directories.backups, { recursive: true }),
     mkdir(directories.characters, { recursive: true }),
     mkdir(uploads, { recursive: true }),
+    mkdir(identityDirectory, { recursive: true }),
     mkdir(join(directories.chats, 'Harness Character'), { recursive: true }),
   ]);
 
@@ -95,6 +110,11 @@ test('pinned ST 1.19.0 chat create/edit/swipe/delete/import/export/restore mutat
   app.use(express.json({ limit: '5mb' }));
   app.use((request, _response, next) => {
     request.user = { profile: { handle: 'logic-engine-harness' }, directories };
+    request.session = {
+      handle: 'logic-engine-harness',
+      logicEngineSessionId: '99999999-9999-4999-8999-999999999999',
+      logicEngineSessionHandle: 'logic-engine-harness',
+    };
     const uploadName = request.headers['x-harness-upload'];
     if (typeof uploadName === 'string' && uploadName && !uploadName.includes('..') && !uploadName.includes('/') && !uploadName.includes('\\')) {
       request.file = { destination: uploads, filename: uploadName };
@@ -103,6 +123,7 @@ test('pinned ST 1.19.0 chat create/edit/swipe/delete/import/export/restore mutat
   });
   app.use('/api/chats', chatsRouter);
   app.use('/api/backups', backupsRouter);
+  app.use('/api/logic-engine/host', hostInventoryRouter);
   const server = app.listen(0, '127.0.0.1');
   await once(server, 'listening');
   const address = server.address();
@@ -111,6 +132,10 @@ test('pinned ST 1.19.0 chat create/edit/swipe/delete/import/export/restore mutat
     await new Promise(resolveClose => server.close(resolveClose));
     await rm(parent, { recursive: true, force: true });
   });
+  const get = async path => {
+    const response = await fetch('http://127.0.0.1:' + address.port + path);
+    return { status: response.status, result: await response.json() };
+  };
   const post = async (path, body, headers = {}) => {
     const response = await fetch('http://127.0.0.1:' + address.port + path, {
       method: 'POST',
@@ -332,4 +357,23 @@ test('pinned ST 1.19.0 chat create/edit/swipe/delete/import/export/restore mutat
     return response;
   }, 'removed');
   assert.ok(deleteChat.result.delta.removed.some(entry => entry.path.endsWith('chat-renamed.jsonl')));
+
+  const sessionIdentity = await get('/api/logic-engine/host/session');
+  assert.equal(sessionIdentity.status, 200);
+  assert.equal(sessionIdentity.result.host_session_id, '99999999-9999-4999-8999-999999999999');
+  const accountIdentity = await get('/api/logic-engine/host/identity');
+  assert.equal(accountIdentity.status, 200);
+  assert.match(accountIdentity.result.installation_id, /^[0-9a-f-]{36}$/i);
+  assert.match(accountIdentity.result.account_id, /^[0-9a-f-]{36}$/i);
+  assert.equal(accountIdentity.result.host_session_id, sessionIdentity.result.host_session_id);
+  const repeatedIdentity = await get('/api/logic-engine/host/identity');
+  assert.equal(repeatedIdentity.result.installation_id, accountIdentity.result.installation_id);
+  assert.equal(repeatedIdentity.result.account_id, accountIdentity.result.account_id);
+
+  const inventory = await get('/api/logic-engine/host/inventory?conversation_uuid=aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
+  assert.equal(inventory.status, 200, JSON.stringify(inventory.result));
+  assert.equal(inventory.result.filesystem_inventory.status, 'complete');
+  assert.equal(inventory.result.filesystem_inventory.snapshot_alignment, 'SHARED_VSS_SNAPSHOT');
+  assert.ok(inventory.result.blockers.includes('NO_DURABLE_FULL_ROOT_BASELINE'));
+  assert.ok(inventory.result.blockers.includes('NO_FULL_ROOT_PER_FILE_DIFF'));
 });
