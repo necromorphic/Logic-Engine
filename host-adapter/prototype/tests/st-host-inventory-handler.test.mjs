@@ -166,6 +166,7 @@ test('host inventory persists the full root manifest server-side and removes onl
       observed = input;
       return {
         status: 'BASELINED_REVIEW_ONLY',
+        integrity_status: 'INTEGRITY_OK',
         sequence: 1,
         manifest_sha256: 'd'.repeat(64),
         upstream_status: 200,
@@ -222,6 +223,7 @@ test('persisted but unexplained root drift remains an explicit NON_READY blocker
     }),
     persistRootInventory: async () => ({
       status: 'NON_READY',
+      integrity_status: 'INTEGRITY_OK',
       sequence: 2,
       manifest_sha256: 'd'.repeat(64),
       delta_sha256: 'e'.repeat(64),
