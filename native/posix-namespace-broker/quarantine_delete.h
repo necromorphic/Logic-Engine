@@ -12,7 +12,9 @@ struct leb_file_identity {
 enum leb_quarantine_result {
     LEB_QUARANTINE_OK = 0,
     LEB_QUARANTINE_ERROR = -1,
-    LEB_QUARANTINE_IDENTITY_MISMATCH = -2
+    LEB_QUARANTINE_IDENTITY_MISMATCH = -2,
+    LEB_QUARANTINE_RETAINED = -3,
+    LEB_QUARANTINE_DURABILITY_UNCERTAIN = -4
 };
 
 /*
