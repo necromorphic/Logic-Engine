@@ -146,7 +146,6 @@ class ManifestStoreTests(unittest.TestCase):
     def test_commit_rejects_active_sidecar_directly_retired(self):
         _wal, _identity = self._enroll_active_wal()
         import json
-        value = json.loads(self.data(5))
         current = self.store.load()
         value = json.loads(_canonical_json(current))
         value["generation"] = current["generation"] + 1
@@ -465,8 +464,12 @@ class ManifestStoreTests(unittest.TestCase):
         value = json.loads(self.data(1))
         value["generation"] = 2
         value["roles"][0]["sidecars"] = [{
-            "kind": "wal", "identity": wal_identity, "state": "active", "generation": 2
+            "kind": "wal", "identity": wal_identity, "state": "creating", "generation": 2
         }]
+        self.store.commit(_canonical_json(value))
+        value["generation"] = 3
+        value["roles"][0]["sidecars"][0]["state"] = "active"
+        value["roles"][0]["sidecars"][0]["generation"] = 3
         self.store.commit(_canonical_json(value))
         fd = self.store.open_role_file("core", "wal")
         try:
@@ -507,9 +510,13 @@ class ManifestStoreTests(unittest.TestCase):
         value = json.loads(self.data(1))
         value["generation"] = 2
         value["roles"][0]["sidecars"] = [{
-            "kind": "wal", "identity": wal_identity, "state": "active", "generation": 2
+            "kind": "wal", "identity": wal_identity, "state": "creating", "generation": 2
         }]
         self.store.initialize(self.data(1))
+        self.store.commit(_canonical_json(value))
+        value["generation"] = 3
+        value["roles"][0]["sidecars"][0]["state"] = "active"
+        value["roles"][0]["sidecars"][0]["generation"] = 3
         self.store.commit(_canonical_json(value))
         return wal, wal_identity
 
