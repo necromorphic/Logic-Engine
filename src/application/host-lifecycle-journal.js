@@ -494,39 +494,90 @@ export class HostLifecycleJournal {
     });
   }
 
-  getConversationStatus(hostInstallationId, authenticatedAccountId, conversationUuid) {
-    if (!validText(hostInstallationId) || !validText(authenticatedAccountId) || !UUID.test(conversationUuid ?? '')) {
-      throw new TypeError('Valid Host installation, account and conversation UUIDs are required.');
+  getConversationStatus(hostInstallationId, authenticatedAccountId, hostSessionId, conversationUuid, authorityContext) {
+    if (!UUID.test(hostInstallationId ?? '') || !UUID.test(authenticatedAccountId ?? '')
+      || !UUID.test(hostSessionId ?? '') || !UUID.test(conversationUuid ?? '')
+      || !isPlainRecord(authorityContext)
+      || !validText(authorityContext.authority_id)
+      || !Number.isSafeInteger(authorityContext.generation) || authorityContext.generation < 1
+      || !validDigest(authorityContext.snapshot_fingerprint)) {
+      throw new TypeError('Valid Host installation, account, session, conversation and trusted authority context are required.');
     }
     const integrity = this.verifyChain(hostInstallationId, authenticatedAccountId);
-    if (!integrity.valid) return { status: 'NON_READY', reason: integrity.reason, integrity };
+    const identity = {
+      host_installation_id: hostInstallationId,
+      authenticated_account_id: authenticatedAccountId,
+      host_session_id: hostSessionId,
+      conversation_uuid: conversationUuid,
+    };
+    const authority = {
+      authority_id: authorityContext.authority_id,
+      generation: authorityContext.generation,
+      snapshot_fingerprint: authorityContext.snapshot_fingerprint,
+    };
+    if (!integrity.valid) {
+      return { status: 'NON_READY', identity, authority, journal: { integrity: 'INVALID', ...integrity },
+        pending: null, reason: integrity.reason };
+    }
     const rows = this.db.prepare(`
       SELECT canonical_event_json FROM host_lifecycle_events
-      WHERE host_installation_id=? AND authenticated_account_id=? AND conversation_uuid=?
+      WHERE host_installation_id=? AND authenticated_account_id=?
+        AND host_session_id=? AND conversation_uuid=?
       ORDER BY sequence
-    `).all(hostInstallationId, authenticatedAccountId, conversationUuid);
+    `).all(hostInstallationId, authenticatedAccountId, hostSessionId, conversationUuid);
     const pending = new Map();
     for (const row of rows) {
       let event;
       try { event = JSON.parse(row.canonical_event_json); } catch {
-        return { status: 'NON_READY', reason: 'HOST_LIFECYCLE_EVENT_JSON_INVALID', integrity };
+        return { status: 'NON_READY', identity, authority,
+          journal: { integrity: 'INVALID', ...integrity }, pending: null,
+          reason: 'HOST_LIFECYCLE_EVENT_JSON_INVALID' };
+      }
+      if (event.authority_id !== authority.authority_id
+        || event.generation !== authority.generation
+        || event.snapshot_fingerprint !== authority.snapshot_fingerprint) {
+        return { status: 'NON_READY', identity, authority,
+          journal: { integrity: 'VALID', ...integrity }, pending: null,
+          reason: 'HOST_LIFECYCLE_AUTHORITY_STALE' };
       }
       if (event.event_type === 'MUTATION_PREPARED') {
-        if (pending.has(event.mutation_id)) return { status: 'NON_READY', reason: 'HOST_LIFECYCLE_DUPLICATE_PENDING_MUTATION', integrity };
-        pending.set(event.mutation_id, { mutation_id: event.mutation_id, operation: event.operation, event_id: event.event_id });
+        if (pending.has(event.mutation_id)) {
+          return { status: 'NON_READY', identity, authority,
+            journal: { integrity: 'VALID', ...integrity }, pending: null,
+            reason: 'HOST_LIFECYCLE_DUPLICATE_PENDING_MUTATION' };
+        }
+        pending.set(event.mutation_id, {
+          mutation_id: event.mutation_id,
+          operation: event.operation,
+          mutation_digest: event.mutation_digest,
+          prepared_event_id: event.event_id,
+          occurred_at: event.occurred_at,
+        });
       } else if (event.event_type === 'MUTATION_COMMITTED' || event.event_type === 'MUTATION_ABORTED') {
         const prior = pending.get(event.mutation_id);
-        if (!prior || prior.operation !== event.operation) {
-          return { status: 'NON_READY', reason: 'HOST_LIFECYCLE_MUTATION_TERMINAL_WITHOUT_PREPARE', integrity };
+        if (!prior || prior.operation !== event.operation
+          || prior.mutation_digest !== event.mutation_digest) {
+          return { status: 'NON_READY', identity, authority,
+            journal: { integrity: 'VALID', ...integrity }, pending: null,
+            reason: 'HOST_LIFECYCLE_MUTATION_TERMINAL_WITHOUT_PREPARE' };
         }
         pending.delete(event.mutation_id);
       }
     }
-    if (pending.size > 1) return { status: 'NON_READY', reason: 'HOST_LIFECYCLE_MULTIPLE_PENDING_MUTATIONS', integrity };
-    const unresolved = pending.values().next().value;
-    return unresolved
-      ? { status: 'PENDING_MUTATION', ...unresolved, integrity }
-      : { status: 'NO_PENDING_MUTATION', integrity };
+    if (pending.size > 1) {
+      return { status: 'NON_READY', identity, authority,
+        journal: { integrity: 'VALID', ...integrity }, pending: null,
+        reason: 'HOST_LIFECYCLE_MULTIPLE_PENDING_MUTATIONS' };
+    }
+    const unresolved = pending.values().next().value ?? null;
+    return {
+      status: unresolved ? 'PENDING_MUTATION' : 'NO_PENDING_MUTATION',
+      identity,
+      authority,
+      journal: { integrity: 'VALID', sequence: integrity.sequence, head_sha256: integrity.head_sha256 },
+      pending: unresolved,
+      reason: null,
+    };
   }
 
   getHead(hostInstallationId, authenticatedAccountId) {
