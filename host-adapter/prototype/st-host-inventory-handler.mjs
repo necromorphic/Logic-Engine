@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 
 const HOST_SESSION_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -117,21 +117,7 @@ export function createHostInventoryHandler({
         // Do not send every chat locator or file identity to the browser.
         files: source.files.filter(file =>
           file?.logical_identity?.conversation_uuid === requestedConversationUuid)
-          .map(file => ({
-            logical_identity: file.logical_identity,
-            artifact: {
-              kind: file.kind,
-              file_identity: file.file_identity,
-              size_bytes: file.size_bytes,
-              mtime_ns: file.mtime_ns,
-              ctime_ns: file.ctime_ns,
-              content_sha256: file.content_sha256,
-              locator_sha256: createHash('sha256').update(file.locator, 'utf8').digest('hex'),
-              filesystem_snapshot_sha256: filesystem.snapshot_sha256,
-              snapshot_id: filesystem.snapshot_id ?? null,
-              snapshot_alignment: inventory.snapshot_alignment ?? 'UNKNOWN',
-            },
-          })),
+          .map(file => ({ logical_identity: file.logical_identity })),
         requested_conversation_uuid: requestedConversationUuid,
         ...(rootInventoryPersisted ? {
           root_inventory_reconciliation: {
