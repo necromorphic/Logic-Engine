@@ -440,10 +440,11 @@ class ManifestStoreTests(unittest.TestCase):
             self.assertEqual(sidecar["kind"], "wal")
             self.assertEqual(sidecar["state"], "active")
             self.assertEqual(sidecar["identity"], fd_identity(fd))
-            self.assertEqual(
-                self.store.open_role_file("core", "wal") >= 0,
-                True,
-            )
+            reopened_fd = self.store.open_role_file("core", "wal")
+            try:
+                self.assertEqual(fd_identity(reopened_fd), sidecar["identity"])
+            finally:
+                os.close(reopened_fd)
         finally:
             os.close(fd)
 
