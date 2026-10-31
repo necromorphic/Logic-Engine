@@ -52,6 +52,9 @@ static sqlite3_mutex *g_registry_mutex = 0;
 static uint64_t g_broker_request_id = 1;
 static int g_broker_backend_io_count = 0;
 static _Thread_local int g_current_broker_fd = -1;
+static _Thread_local int g_current_broker_expected_role = -1;
+static _Thread_local int g_current_broker_expected_kind = -1;
+static int g_broker_backend_open_fail_count = 0;
 #endif
 #define PROBE_MAX_PINNED_PATHS 256
 typedef struct ProbePinnedPath {
@@ -1016,8 +1019,13 @@ static int probe_open(const char *name, int flags, int mode) {
     g_current_race_captured = 0;
   }
 #if defined(__linux__)
-  if (has_anchor && g_database_roles[anchored_role_index].broker_socket_path) {
-    g_current_broker_fd = fd;
+  if (has_anchor && g_database_roles[anchored_role_index].broker_socket_path
+      && anchored_role_index == g_current_broker_expected_role) {
+    int actual_kind = anchored_suffix[0] == '\0' ? 0
+      : strcmp(anchored_suffix, "-wal") == 0 ? 1
+      : strcmp(anchored_suffix, "-shm") == 0 ? 2
+      : strcmp(anchored_suffix, "-journal") == 0 ? 3 : -1;
+    if (actual_kind == g_current_broker_expected_kind) g_current_broker_fd = fd;
   }
 #endif
   return fd;
@@ -1554,13 +1562,22 @@ static int probe_xOpen(sqlite3_vfs *vfs, const char *name, sqlite3_file *file,
   memset(backend, 0, PROBE_PARENT_FILE_OFFSET);
   backend->broker_fd = -1;
   g_current_broker_fd = -1;
+  g_current_broker_expected_role = requires_broker_fd ? role_index : -1;
+  g_current_broker_expected_kind = !requires_broker_fd ? -1
+    : suffix[0] == '\0' ? 0
+    : strcmp(suffix, "-wal") == 0 ? 1
+    : strcmp(suffix, "-shm") == 0 ? 2
+    : strcmp(suffix, "-journal") == 0 ? 3 : -1;
   rc = probe_xOpen_parent(vfs, name, parent_file, flags, out_flags);
+  g_current_broker_expected_role = -1;
+  g_current_broker_expected_kind = -1;
   if (rc != SQLITE_OK) {
     g_current_broker_fd = -1;
     return rc;
   }
   if (requires_broker_fd) {
     if (g_current_broker_fd < 0) {
+      probe_counter_increment(&g_broker_backend_open_fail_count);
       g_current_broker_fd = -1;
       if (parent_file->pMethods && parent_file->pMethods->xClose) {
         parent_file->pMethods->xClose(parent_file);
@@ -2195,6 +2212,11 @@ static void probe_temp_file_class_rejected(sqlite3_context *context, int argc, s
 }
 
 #if defined(__linux__)
+static void probe_broker_backend_open_fail_count(sqlite3_context *context, int argc, sqlite3_value **argv) {
+  (void)argc;
+  (void)argv;
+  sqlite3_result_int(context, probe_counter_read(&g_broker_backend_open_fail_count));
+}
 static void probe_broker_backend_io_count(sqlite3_context *context, int argc, sqlite3_value **argv) {
   (void)argc;
   (void)argv;
@@ -2923,6 +2945,9 @@ static int probe_auto_extension(sqlite3 *db, char **error, const sqlite3_api_rou
   if (rc != SQLITE_OK) return rc;
 #endif
 #if defined(__linux__)
+  rc = sqlite3_create_function(db, "logic_engine_vfs_probe_broker_backend_open_fail_count", 0,
+    SQLITE_UTF8 | SQLITE_DETERMINISTIC, 0, probe_broker_backend_open_fail_count, 0, 0);
+  if (rc != SQLITE_OK) return rc;
   rc = sqlite3_create_function(db, "logic_engine_vfs_probe_broker_backend_io_count", 0,
     SQLITE_UTF8 | SQLITE_DETERMINISTIC, 0, probe_broker_backend_io_count, 0, 0);
   if (rc != SQLITE_OK) return rc;
