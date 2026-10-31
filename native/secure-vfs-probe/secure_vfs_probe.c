@@ -336,9 +336,9 @@ static int probe_broker_exchange(
     if (expect_fd) {
       if (received_fd < 0 || fcntl(received_fd, F_SETFD, FD_CLOEXEC) != 0
           || fstat(received_fd, &descriptor_info) != 0
-          || !S_ISREG(descriptor_info.st_mode) || descriptor_info.st_nlink != 1
-          || descriptor_info.st_dev != role->device) goto done;
-      if (operation == LEB_OP_OPEN_MAIN
+          || !S_ISREG(descriptor_info.st_mode) || descriptor_info.st_nlink != 1) goto done;
+      if (role->identity_set && descriptor_info.st_dev != role->device) goto done;
+      if (operation == LEB_OP_OPEN_MAIN && role->identity_set
           && (descriptor_info.st_dev != role->device
               || descriptor_info.st_ino != role->inode)) goto done;
       if (out_fd) {
@@ -2226,6 +2226,137 @@ static void probe_bind_broker(sqlite3_context *context, int argc, sqlite3_value 
 }
 #endif
 
+#if defined(__linux__)
+static int probe_valid_role_name(const char *value) {
+  size_t length;
+  if (!value) return 0;
+  length = strlen(value);
+  if (length == 0 || length > 128) return 0;
+  for (size_t i = 0; i < length; ++i) {
+    unsigned char ch = (unsigned char)value[i];
+    if (!((ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z')
+          || (ch >= '0' && ch <= '9') || ch == '.' || ch == '_' || ch == '-')) return 0;
+  }
+  return value[0] != '.' && value[0] != '-';
+}
+
+static int probe_valid_absolute_role_path(const char *value) {
+  const char *component;
+  if (!value || value[0] != '/' || !value[1]) return 0;
+  component = value + 1;
+  if (strstr(value, "//") || value[strlen(value) - 1] == '/') return 0;
+  while (*component) {
+    const char *end = strchr(component, '/');
+    size_t length = end ? (size_t)(end - component) : strlen(component);
+    if (length == 0 || (length == 1 && component[0] == '.')
+        || (length == 2 && component[0] == '.' && component[1] == '.')) return 0;
+    if (!end) break;
+    component = end + 1;
+  }
+  return 1;
+}
+
+static void probe_register_broker_role(sqlite3_context *context, int argc, sqlite3_value **argv) {
+  const unsigned char *path_value = sqlite3_value_text(argv[0]);
+  const unsigned char *role_value = sqlite3_value_text(argv[1]);
+  const unsigned char *socket_value = sqlite3_value_text(argv[2]);
+  ProbeDatabaseRole candidate;
+  char *stored_path = NULL, *stored_role = NULL, *stored_socket = NULL, *basename = NULL;
+  int descriptor = -1, full = 0, duplicate = 0, duplicate_identity = 0;
+  uint32_t status = LEB_STATUS_INTERNAL;
+  struct stat info;
+  const char *separator;
+  (void)argc;
+  memset(&candidate, 0, sizeof(candidate));
+  if (!path_value || !role_value || !socket_value
+      || !probe_valid_absolute_role_path((const char *)path_value)
+      || !probe_valid_role_name((const char *)role_value)
+      || socket_value[0] != '/') {
+    sqlite3_result_error(context, "canonical absolute database path, role and broker socket are required", -1);
+    return;
+  }
+  if (strlen((const char *)path_value) > (size_t)g_parent_vfs->mxPathname
+      || strlen((const char *)socket_value) >= sizeof(((struct sockaddr_un *)0)->sun_path)) {
+    sqlite3_result_error(context, "database or broker socket path is too long", -1);
+    return;
+  }
+  separator = strrchr((const char *)path_value, '/');
+  if (!separator || !separator[1]) {
+    sqlite3_result_error(context, "database path must include a basename", -1);
+    return;
+  }
+  stored_path = sqlite3_mprintf("%s", (const char *)path_value);
+  stored_role = sqlite3_mprintf("%s", (const char *)role_value);
+  stored_socket = sqlite3_mprintf("%s", (const char *)socket_value);
+  basename = sqlite3_mprintf("%s", separator + 1);
+  if (!stored_path || !stored_role || !stored_socket || !basename) {
+    sqlite3_free(stored_path);
+    sqlite3_free(stored_role);
+    sqlite3_free(stored_socket);
+    sqlite3_free(basename);
+    sqlite3_result_error_nomem(context);
+    return;
+  }
+  candidate.role = stored_role;
+  if (!probe_broker_exchange(&candidate, stored_socket, LEB_OP_OPEN_MAIN,
+                             NULL, 1, &descriptor, &status)
+      || status != LEB_STATUS_OK || descriptor < 0
+      || fstat(descriptor, &info) != 0 || !S_ISREG(info.st_mode)
+      || info.st_nlink != 1) {
+    if (descriptor >= 0) close(descriptor);
+    sqlite3_free(stored_path);
+    sqlite3_free(stored_role);
+    sqlite3_free(stored_socket);
+    sqlite3_free(basename);
+    sqlite3_result_error(context, "broker role enrollment handshake failed", -1);
+    return;
+  }
+  close(descriptor);
+  candidate.device = info.st_dev;
+  candidate.inode = info.st_ino;
+  candidate.identity_set = 1;
+
+  probe_registry_lock();
+  if (g_database_role_count >= PROBE_MAX_DATABASE_ROLES) full = 1;
+  for (int i = 0; !full && i < g_database_role_count; ++i) {
+    ProbeDatabaseRole *other = &g_database_roles[i];
+    if (strcmp(stored_path, other->path) == 0
+        || strcmp(stored_role, other->role) == 0) {
+      duplicate = 1;
+      break;
+    }
+    if (other->identity_set && candidate.device == other->device
+        && candidate.inode == other->inode) duplicate_identity = 1;
+  }
+  if (!full && !duplicate && !duplicate_identity) {
+    ProbeDatabaseRole *entry = &g_database_roles[g_database_role_count++];
+    entry->path = stored_path;
+    entry->role = stored_role;
+    entry->device = candidate.device;
+    entry->inode = candidate.inode;
+    entry->identity_set = 1;
+    entry->trusted_fd = -1;
+    entry->trusted_parent_fd = -1;
+    entry->basename = basename;
+    entry->broker_socket_path = stored_socket;
+    stored_path = stored_role = stored_socket = basename = NULL;
+  }
+  probe_registry_unlock();
+
+  sqlite3_free(stored_path);
+  sqlite3_free(stored_role);
+  sqlite3_free(stored_socket);
+  sqlite3_free(basename);
+  if (full || duplicate || duplicate_identity) {
+    sqlite3_result_error(context, full ? "database role registry is full"
+      : (duplicate_identity ? "database identity is already registered"
+                            : "database role or path already registered"), -1);
+    return;
+  }
+  sqlite3_result_int(context, 1);
+}
+#endif
+
 static void probe_delete_registered_role(sqlite3_context *context, int argc, sqlite3_value **argv) {
   const unsigned char *path = sqlite3_value_text(argv[0]);
   int rc;
@@ -2481,6 +2612,11 @@ static int probe_auto_extension(sqlite3 *db, char **error, const sqlite3_api_rou
 #if defined(__linux__)
   rc = sqlite3_create_function(db, "logic_engine_vfs_probe_bind_broker", 2,
     SQLITE_UTF8, 0, probe_bind_broker, 0, 0);
+  if (rc != SQLITE_OK) return rc;
+#endif
+#if defined(__linux__)
+  rc = sqlite3_create_function(db, "logic_engine_vfs_probe_register_broker_role", 3,
+    SQLITE_UTF8, 0, probe_register_broker_role, 0, 0);
   if (rc != SQLITE_OK) return rc;
 #endif
   rc = sqlite3_create_function(db, "logic_engine_vfs_probe_hook_protection", 0,
