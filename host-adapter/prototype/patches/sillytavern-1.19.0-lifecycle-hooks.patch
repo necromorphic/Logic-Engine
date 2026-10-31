@@ -522,7 +522,7 @@ diff --git a/public/scripts/group-chats.js b/public/scripts/group-chats.js
 @@ -2359,2 +2393,3 @@
  export async function saveGroupBookmarkChat(groupId, name, metadata, mesId, chatData = undefined) {
 +    await window.logicEngineHostLifecycle?.guardBulkMutation?.();
-
+     const group = groups.find(x => x.id === groupId);
 diff --git a/public/scripts/chat-backups.js b/public/scripts/chat-backups.js
 --- a/public/scripts/chat-backups.js
 +++ b/public/scripts/chat-backups.js
