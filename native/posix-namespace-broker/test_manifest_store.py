@@ -128,6 +128,13 @@ class ManifestStoreTests(unittest.TestCase):
         self.assertCountEqual(outcomes, ["committed", "rejected"])
         self.assertEqual(self.store.load()["generation"], 2)
 
+    def test_rejects_manifest_for_different_application_uid(self):
+        import json
+        value = json.loads(self.data(1))
+        value["filesystemPolicy"]["applicationUid"] = self.application_uid + 1
+        with self.assertRaises(StoreError):
+            self.store.initialize(_canonical_json(value))
+
     def test_rejects_commit_for_different_metadata_root(self):
         self.store.initialize(self.data(1))
         other = self.manifest_root.parent / "other-metadata-root"
