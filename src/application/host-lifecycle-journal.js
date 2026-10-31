@@ -963,7 +963,7 @@ export class HostLifecycleJournal {
       }
       const latest = JSON.parse(rows.at(-1).canonical_event_json);
       if (manifestSha256 === integrity.latest_manifest_sha256) {
-        if (rows.length > 1) return { status: 'NON_READY',
+        if (rows.length > 1) return { status: 'NON_READY', duplicate: true,
           reason: 'previously observed root inventory delta remains unresolved',
           sequence: integrity.sequence, manifest_sha256: manifestSha256 };
         return { status: 'UNCHANGED_REVIEW_ONLY', sequence: integrity.sequence,
@@ -974,19 +974,6 @@ export class HostLifecycleJournal {
       const changed = Object.values(delta).reduce((sum, items) => sum + items.length, 0);
       const deltaSha256 = sha256(canonical(delta));
       if (changed > MAX_ROOT_DELTA_FILES) {
-        if (reusedEventId) {
-          if (reusedEventId.event_type !== 'DELTA_LIMIT_EXCEEDED' || reusedEventId.delta_sha256 !== deltaSha256) {
-            throw new Error('HOST_ROOT_INVENTORY_EVENT_ID_CONFLICT');
-          }
-          return { status: 'NON_READY', duplicate: true, sequence: reusedEventId.sequence,
-            manifest_sha256: manifestSha256, reason: 'HOST_ROOT_INVENTORY_DELTA_LIMIT',
-            delta_sha256: deltaSha256 };
-        }
-        const existingLimit = rows.find((row) => row.event_type === 'DELTA_LIMIT_EXCEEDED'
-          && row.manifest_sha256 === manifestSha256 && row.delta_sha256 === deltaSha256);
-        if (existingLimit) return { status: 'NON_READY', duplicate: true,
-          sequence: existingLimit.sequence, manifest_sha256: manifestSha256,
-          reason: 'HOST_ROOT_INVENTORY_DELTA_LIMIT', delta_sha256: deltaSha256 };
         const recorded = this.#appendRootInventoryEvent({ ...input, event_type: 'DELTA_LIMIT_EXCEEDED',
           entries, manifest_sha256: manifestSha256, delta: null, delta_sha256: deltaSha256 });
         return { ...recorded, reason: restoringBaseline
@@ -994,18 +981,6 @@ export class HostLifecycleJournal {
           : 'HOST_ROOT_INVENTORY_DELTA_LIMIT',
         changed_files: changed, maximum_changed_files: MAX_ROOT_DELTA_FILES };
       }
-      if (reusedEventId) {
-        if (reusedEventId.event_type !== 'DELTA_OBSERVED' || reusedEventId.delta_sha256 !== deltaSha256) {
-          throw new Error('HOST_ROOT_INVENTORY_EVENT_ID_CONFLICT');
-        }
-        return { status: 'NON_READY', duplicate: true, sequence: reusedEventId.sequence,
-          manifest_sha256: manifestSha256, delta_sha256: deltaSha256, delta };
-      }
-      const existing = rows.find((row) => row.event_type === 'DELTA_OBSERVED'
-        && row.manifest_sha256 === manifestSha256 && row.delta_sha256 === deltaSha256);
-      if (existing) return { status: 'NON_READY', duplicate: true,
-        sequence: existing.sequence, manifest_sha256: manifestSha256,
-        delta_sha256: deltaSha256, delta };
       const recorded = this.#appendRootInventoryEvent({ ...input, event_type: 'DELTA_OBSERVED',
         entries, manifest_sha256: manifestSha256, delta, delta_sha256: deltaSha256 });
       return { ...recorded, delta, ...(restoringBaseline ? {
