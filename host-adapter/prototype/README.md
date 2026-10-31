@@ -29,6 +29,14 @@ Before capture can succeed, an administrator must bind the authenticated adapter
 
 **Production remains fail-closed.** Core currently composes the digest ledger with a deny-only inventory verifier, so capture can persist digests but reconciliation cannot publish `READY`. This path does not persist raw message text, create semantic Memory records, admit Memory→NPC context, or authorize outbound model dispatch. Do not infer readiness from a successful HTTP response.
 
+## Host Lifecycle Journal v1 contract
+
+[HOST-LIFECYCLE-JOURNAL-V1.md](./HOST-LIFECYCLE-JOURNAL-V1.md) is the consolidated v1 implementation specification for the eleven independent-review findings: installation/account/session/conversation scope, authority snapshot, mutation IDs and event idempotency, state machine, digest/receipt semantics, SQLite atomicity, concurrency, status response, crash recovery and pinned SillyTavern operation mapping.
+
+The current Core integration is deliberately fail-closed for terminal mutation receipts. HostLifecycleJournal defaults to a deny-only receipt verifier; the production composition does not install a verifier until real persisted-file read-back and operation-specific receipts are implemented. A local browser journal checkpoint or a successful save callback is not sufficient evidence for COMMITTED.
+
+The deployment authority context requires deployment-owned ENGINE_HOST_AUTHORITY_ID and positive ENGINE_HOST_AUTHORITY_GENERATION, plus a verified durable Host root-inventory head. These values are not browser inputs. Generation must be durably monotonic; if that cannot be guaranteed across restart, rotate the authority ID. Missing authority configuration or root-inventory evidence denies lifecycle API access.
+
 ## Pinned-source hook patch
 
 The candidate patch also replaces a provider sender's raw request-body debug log with metadata-only logging (`model`, `stream`, and message count). The pinned-source CI fails if the raw-body log returns and syntax-checks/lints the changed endpoint. This is a patch-artifact mitigation only; it is not installed into a live ST instance and does not create a final-send authorization gateway.
