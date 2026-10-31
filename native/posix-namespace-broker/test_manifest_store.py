@@ -247,6 +247,13 @@ class ManifestStoreTests(unittest.TestCase):
         self.assertEqual(result["roles"][0]["sidecars"][0]["state"], "deleting")
         self.assertTrue(wal.exists())
 
+    def test_rejects_zero_identity_components(self):
+        import json
+        value = json.loads(self.data(1))
+        value["roles"][0]["databaseIdentity"]["inode"] = "0"
+        with self.assertRaises(StoreError):
+            self.store.initialize(_canonical_json(value))
+
     def test_rejects_generation_skip(self):
         self.store.initialize(self.data(1))
         with self.assertRaises(StoreError):
