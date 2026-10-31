@@ -451,6 +451,7 @@ test('durable Core journal records prepared mutations, blocks overlap, and clear
     mutation_digest: digest('before-state'),
   };
   assert.equal(journal.append(prepared).status, 'appended');
+  assert.equal(journal.append(prepared).status, 'duplicate', 'exact retry is checked before pending-state validation');
   assert.equal(journal.getConversationStatus(installation, account, hostSession, conversation, authority).status, 'PENDING_MUTATION');
   assert.throws(() => journal.append({
     ...prepared,
@@ -472,7 +473,7 @@ test('durable Core journal records prepared mutations, blocks overlap, and clear
     occurred_at: '2026-10-31T00:00:01.000Z',
   });
   assert.equal(committed.status, 'appended');
-  assert.equal(journal.getConversationStatus(installation, account, conversation).status, 'NO_PENDING_MUTATION');
+  assert.equal(journal.getConversationStatus(installation, account, hostSession, conversation, authority).status, 'NO_PENDING_MUTATION');
   assert.equal(journal.verifyChain(installation, account).valid, true);
 });
 
@@ -484,13 +485,18 @@ test('prepared Core mutation survives SQLite restart and can be completed by ide
     authorized: true,
     host_installation_id: input.host_installation_id,
     authenticated_account_id: input.authenticated_account_id,
+    host_session_id: input.host_session_id,
     conversation_uuid: input.conversation_uuid,
+    ...authority,
   });
   const prepared = {
     event_id: '00000000-0000-4000-8000-000000000021',
     host_installation_id: installation,
     authenticated_account_id: account,
+    host_session_id: hostSession,
     conversation_uuid: conversation,
+    ...authority,
+    occurred_at: '2026-10-31T00:00:00.000Z',
     event_type: 'MUTATION_PREPARED',
     mutation_id: '00000000-0000-4000-8000-000000000022',
     operation: 'delete-message',
@@ -504,14 +510,16 @@ test('prepared Core mutation survives SQLite restart and can be completed by ide
     try { reopened.close(); } catch {}
     rmSync(directory, { recursive: true, force: true });
   });
-  const status = reopened.getConversationStatus(installation, account, conversation);
+  const status = reopened.getConversationStatus(installation, account, hostSession, conversation, authority);
   assert.equal(status.status, 'PENDING_MUTATION');
-  assert.equal(status.mutation_id, prepared.mutation_id);
+  assert.equal(status.pending.mutation_id, prepared.mutation_id);
   const commit = {
     ...prepared,
     event_id: '00000000-0000-4000-8000-000000000023',
     event_type: 'MUTATION_COMMITTED',
-    mutation_digest: digest('after-delete'),
+    mutation_digest: digest('before-delete'),
+    receipt_digest: digest('persisted-delete-receipt'),
+    occurred_at: '2026-10-31T00:00:01.000Z',
   };
   assert.equal(reopened.append(commit).status, 'appended');
   assert.equal(reopened.append(commit).status, 'duplicate');
