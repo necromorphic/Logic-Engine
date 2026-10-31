@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
+import { HostLifecycleJournal } from '../../src/application/host-lifecycle-journal.js';
 import { createRequire } from 'node:module';
 import { mkdtemp, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -10,7 +11,6 @@ import { pathToFileURL } from 'node:url';
 
 import { withWindowsVssSnapshot } from '../../host-adapter/prototype/windows-vss-snapshot.mjs';
 import { enumerateStableFileInventoryFromWindowsSnapshot } from '../../host-adapter/prototype/fs-inventory.js';
-import { reconcileFilesystemInventory } from '../../host-adapter/prototype/filesystem-reconciliation.mjs';
 
 const stRoot = resolve(process.env.SILLYTAVERN_DIR ?? 'SillyTavern');
 const expectedSha = '06bde939fb1e9c4c8d8641d810f0a916b5bce127';
@@ -28,24 +28,6 @@ if (runPinnedSTHarness) {
 }
 
 const sourceFingerprint = 'st-1.19.0-real-file-operation-harness';
-
-class TestJournal {
-  records = [];
-  async verifyIntegrity() {
-    return { status: 'INTEGRITY_OK', sourceFingerprint };
-  }
-  async pendingMutation() {
-    return { status: 'NO_PENDING_MUTATION' };
-  }
-  async exportCaptureLedger() {
-    return { records: structuredClone(this.records), sequence: this.records.length };
-  }
-  async append({ operation, payload }) {
-    const row = { sequence: this.records.length + 1, operation, payload: structuredClone(payload) };
-    this.records.push(row);
-    return row;
-  }
-}
 
 const digest = value => createHash('sha256').update(value, 'utf8').digest('hex');
 const identity = (messageId, versionId, mes, parentVersionId = null, versionIndex = 0) => ({
@@ -210,33 +192,103 @@ test('pinned ST 1.19.0 chat create/edit/swipe/delete/import/export/restore mutat
     }
     throw new Error('ST chat backup directory did not become stable');
   };
+  const coreStateDirectory = join(parent, 'core-state');
+  await mkdir(coreStateDirectory, { recursive: true });
+  const hostInstallationId = '11111111-1111-4111-8111-111111111111';
+  const authenticatedAccountId = '22222222-2222-4222-8222-222222222222';
+  const rootId = digest(resolve(root));
+  const coreJournalPath = join(coreStateDirectory, 'host-lifecycle.sqlite');
+  const coordinatorPath = join(coreStateDirectory, 'coordinator.sqlite');
+  const createCoreJournal = () => new HostLifecycleJournal({
+    path: coreJournalPath,
+    coordinatorPath,
+    resolveIdentity: input => ({
+      authorized: input.host_installation_id === hostInstallationId
+        && input.authenticated_account_id === authenticatedAccountId,
+      host_installation_id: input.host_installation_id,
+      authenticated_account_id: input.authenticated_account_id,
+      host_session_id: input.host_session_id,
+      conversation_uuid: input.conversation_uuid,
+      adapter_id: 'st-1.19-harness',
+      root_id: rootId,
+      authority_id: 'st-1.19-harness-authority',
+      generation: 1,
+      snapshot_fingerprint: 'a'.repeat(64),
+    }),
+    resolveRootIdentity: input => ({
+      authorized: input.host_installation_id === hostInstallationId
+        && input.authenticated_account_id === authenticatedAccountId
+        && input.root_id === rootId,
+      host_installation_id: input.host_installation_id,
+      authenticated_account_id: input.authenticated_account_id,
+      root_id: input.root_id,
+    }),
+    verifyMutationReceipt: () => true,
+  });
+  let journal = createCoreJournal();
+  let baselineCreated = false;
+  t.after(() => { try { journal.close(); } catch {} });
   const observe = async (operation, expectedKind) => {
-    const journal = new TestJournal();
     const before = await scan();
     const canonicalRoot = before.root;
-    const baseline = await reconcileFilesystemInventory({
-      journal, conversationId: 'st-harness-conversation', inventory: before,
-      sourceFingerprint, expectedRoot: canonicalRoot,
-    });
-    assert.equal(baseline.status, 'BASELINED_REVIEW_ONLY');
+    assert.equal(digest(canonicalRoot), rootId, 'Core root identity must be bound to the exact data root');
+    if (!baselineCreated) {
+      const baseline = journal.enrollRootInventory({
+        host_installation_id: hostInstallationId,
+        authenticated_account_id: authenticatedAccountId,
+        root_id: rootId,
+        event_id: randomUUID(),
+        entries: before.entries,
+      });
+      assert.equal(baseline.status, 'BASELINED_REVIEW_ONLY', JSON.stringify(baseline));
+      baselineCreated = true;
+    } else {
+      const integrity = journal.verifyRootInventory({
+        host_installation_id: hostInstallationId,
+        authenticated_account_id: authenticatedAccountId,
+        root_id: rootId,
+      });
+      assert.equal(integrity.valid, true, JSON.stringify(integrity));
+      journal.close();
+      journal = createCoreJournal();
+      const afterRestart = journal.verifyRootInventory({
+        host_installation_id: hostInstallationId,
+        authenticated_account_id: authenticatedAccountId,
+        root_id: rootId,
+      });
+      assert.equal(afterRestart.valid, true, 'SQLite baseline and hash chain must survive Core journal restart');
+    }
     const outcome = await operation();
     await settleBackups();
     const after = await scan();
     assert.equal(after.root, canonicalRoot, 'VSS must preserve one canonical root identity across snapshots');
-    const result = await reconcileFilesystemInventory({
-      journal, conversationId: 'st-harness-conversation', inventory: after,
-      sourceFingerprint, expectedRoot: canonicalRoot,
+    const result = journal.observeRootInventory({
+      host_installation_id: hostInstallationId,
+      authenticated_account_id: authenticatedAccountId,
+      root_id: rootId,
+      event_id: randomUUID(),
+      entries: after.entries,
     });
+    const counts = result.delta
+      ? Object.fromEntries(Object.entries(result.delta).map(([key, rows]) => [key, rows.length]))
+      : {};
     if (expectedKind === 'unchanged') {
       assert.equal(result.status, 'UNCHANGED_REVIEW_ONLY', JSON.stringify(result));
     } else {
       assert.equal(result.status, 'NON_READY', JSON.stringify(result));
       const expectedKinds = Array.isArray(expectedKind) ? expectedKind : [expectedKind];
-      assert.ok(expectedKinds.some(kind => result.counts[kind] > 0), JSON.stringify(result.counts));
-      assert.equal(JSON.stringify(journal.records).includes('ST_HARNESS_RAW_CHAT_SENTINEL'), false,
-        'the lifecycle evidence journal must retain digests, not raw chat text');
+      assert.ok(expectedKinds.some(kind => counts[kind] > 0), JSON.stringify(counts));
+      const journalRows = journal.db.prepare('SELECT canonical_event_json FROM host_root_inventory_events').all();
+      assert.equal(JSON.stringify(journalRows).includes('ST_HARNESS_RAW_CHAT_SENTINEL'), false,
+        'Core SQLite inventory journal must retain file digests, not raw chat text');
     }
-    return { outcome, result };
+    const verified = journal.verifyRootInventory({
+      host_installation_id: hostInstallationId,
+      authenticated_account_id: authenticatedAccountId,
+      root_id: rootId,
+    });
+    assert.equal(verified.valid, true, JSON.stringify(verified));
+    return { outcome, result: { ...result, counts } };
   };
 
   const chatPath = join(directories.chats, 'Harness Character', 'chat-one.jsonl');
