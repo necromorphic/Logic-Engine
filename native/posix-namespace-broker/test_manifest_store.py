@@ -683,6 +683,40 @@ class ManifestStoreTests(unittest.TestCase):
         self.assertEqual(second["roles"][0]["sidecars"][0]["state"], "retired")
         self.assertFalse(wal.exists())
 
+    def test_create_role_sidecar_recreates_retired_kind_after_delete(self):
+        self.store.initialize(self.data(1))
+        first_fd = self.store.create_role_sidecar("core", "wal")
+        try:
+            first_identity = fd_identity(first_fd)
+        finally:
+            os.close(first_fd)
+
+        retired = self.store.delete_role_sidecar("core", "wal")
+        self.assertEqual(retired["generation"], 5)
+        self.assertEqual(retired["roles"][0]["sidecars"][0]["state"], "retired")
+        self.assertFalse((self.role_parent / "core.sqlite-wal").exists())
+
+        replacement_fd = self.store.create_role_sidecar("core", "wal")
+        try:
+            replacement_identity = fd_identity(replacement_fd)
+            active = self.store.load()
+            self.assertEqual(active["generation"], 7)
+            replacement = active["roles"][0]["sidecars"][0]
+            self.assertEqual(replacement["kind"], "wal")
+            self.assertEqual(replacement["state"], "active")
+            self.assertEqual(replacement["identity"], replacement_identity)
+            self.assertTrue((self.role_parent / "core.sqlite-wal").exists())
+            # Filesystems may legitimately reuse the retired inode number.
+            self.assertEqual(first_identity["mountId"], replacement_identity["mountId"])
+        finally:
+            os.close(replacement_fd)
+
+        reopened_fd = self.store.open_role_file("core", "wal")
+        try:
+            self.assertEqual(fd_identity(reopened_fd), replacement_identity)
+        finally:
+            os.close(reopened_fd)
+
     def test_delete_absent_unmanifested_sidecar_is_idempotent(self):
         self.store.initialize(self.data(1))
         result = self.store.delete_role_sidecar("core", "wal")
