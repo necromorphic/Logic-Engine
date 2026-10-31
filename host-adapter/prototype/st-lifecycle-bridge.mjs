@@ -586,7 +586,6 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
           mutation_id: preparedMetadata.mutationId,
           operation,
           mutation_digest: preparedMetadata.mutationDigest,
-          receipt_digest: receiptDigest,
           occurred_at: occurredAt,
         });
       } catch {
