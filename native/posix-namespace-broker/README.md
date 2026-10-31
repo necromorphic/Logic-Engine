@@ -48,13 +48,45 @@ test necessarily cannot demonstrate this UID separation. Production deployment
 must run the broker under a dedicated unprivileged UID and configure the exact
 application UID.
 
-## Protocol v1 increment
+## Protocol v2 increment
 
 - Transport: `AF_UNIX` + `SOCK_SEQPACKET` + `SOCK_CLOEXEC`.
 - Peer authentication: kernel-provided `SO_PEERCRED`; request payload cannot claim an identity.
 - Fixed-size network-byte-order request and response headers.
 - Unknown operation, flags, payload, version, malformed packet and ancillary descriptors are rejected.
 - v1 defines only `PING`. No file descriptors are accepted from clients and no descriptors are returned.
+
+
+## Manifest-backed descriptor broker increment
+
+`broker_daemon.py` is the first service path that consumes the manifest store.
+At startup it verifies every enrolled database role and active sidecar, then
+accepts authenticated `AF_UNIX/SOCK_SEQPACKET` requests from the configured
+application UID. Requests contain a logical role name and, for sidecars, one of
+`wal`, `shm`, or `journal`; arbitrary filesystem paths are never accepted.
+`OPEN_MAIN` and `OPEN_SIDECAR` return the exact identity-verified descriptor
+through outbound `SCM_RIGHTS`. Client-supplied descriptors are rejected. The
+server processes one bounded request at a time so the manifest store's
+cross-process flock serialization is not weakened by shared in-process lock
+descriptors.
+
+Example invocation after trusted roots and the role manifest have been
+provisioned:
+
+```sh
+python3 native/posix-namespace-broker/broker_daemon.py \
+  --socket /var/lib/logic-engine-broker/broker.sock \
+  --manifest-root /var/lib/logic-engine-broker/manifest \
+  --anchor-root /var/lib/logic-engine-broker/anchor \
+  --app-uid "$(id -u logic-app)"
+```
+
+The C `broker_server` remains a transport smoke-test server and implements
+PING only. The Python daemon currently implements PING, OPEN_MAIN and
+OPEN_SIDECAR only. It does not yet create sidecars, implement ACCESS/DELETE/
+RENAME, reconcile crash-interrupted namespace mutations, or integrate with the
+SQLite VFS. It is an incremental descriptor-broker implementation, not a
+production-ready SQLite namespace service.
 
 ## Persistent role-manifest storage primitive
 
