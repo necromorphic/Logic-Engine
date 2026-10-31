@@ -148,6 +148,10 @@ let hostRootInventoryJournal = null;
 let resolveHostRootIdentity = null;
 const hostLifecycleAuthorityId = process.env.ENGINE_HOST_AUTHORITY_ID;
 const hostLifecycleAuthorityGeneration = Number(process.env.ENGINE_HOST_AUTHORITY_GENERATION || '0');
+const hostLifecycleAuthorityCache = new Map();
+const hostLifecycleAuthorityCacheKey = identity => JSON.stringify([
+  identity?.adapter_id, identity?.host_installation_id, identity?.authenticated_account_id, identity?.root_id,
+]);
 function bindHostLifecycleAuthority(resolved) {
   if (!resolved || resolved.authorized !== true || !hostRootInventoryJournal
     || typeof hostLifecycleAuthorityId !== 'string' || !hostLifecycleAuthorityId.trim()
@@ -178,12 +182,18 @@ function bindHostLifecycleAuthority(resolved) {
   };
   const snapshotFingerprint = createHash('sha256')
     .update(JSON.stringify(authoritySnapshot), 'utf8').digest('hex');
-  return {
-    ...resolved,
+  const trusted = {
     authority_id: hostLifecycleAuthorityId.trim(),
     generation: hostLifecycleAuthorityGeneration,
     snapshot_fingerprint: snapshotFingerprint,
   };
+  hostLifecycleAuthorityCache.set(hostLifecycleAuthorityCacheKey(resolved), trusted);
+  return { ...resolved, ...trusted };
+}
+function resolveCachedHostLifecycleAuthority(resolved) {
+  if (!resolved || resolved.authorized !== true) return { authorized: false };
+  const trusted = hostLifecycleAuthorityCache.get(hostLifecycleAuthorityCacheKey(resolved));
+  return trusted ? { ...resolved, ...trusted } : { authorized: false };
 }
 if (hostRootIdentityRegistry.length > 0) {
   for (const record of hostRootIdentityRegistry) {
@@ -211,7 +221,7 @@ if (hostRootIdentityRegistry.length > 0) {
     // The authenticated adapter route checks the exact adapter/installation/account
     // tuple; the journal independently rechecks the deployment-owned installation
     // and account binding before appending any event.
-    resolveIdentity: input => bindHostLifecycleAuthority(resolveRegisteredHostLifecycleIdentity(hostRootIdentityRegistry, input)),
+    resolveIdentity: input => resolveCachedHostLifecycleAuthority(resolveRegisteredHostLifecycleIdentity(hostRootIdentityRegistry, input)),
     resolveRootIdentity: input => resolveRegisteredHostRootIdentity(hostRootIdentityRegistry, input),
   });
   resolveHostRootIdentity = input => resolveAdapterHostRootIdentity(hostRootIdentityRegistry, input);
