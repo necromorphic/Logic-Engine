@@ -9,7 +9,7 @@ const OPERATIONS = new Set([
   'create-message', 'message-send', 'message-receive', 'create-swipe',
   'select-swipe', 'delete-swipe', 'delete-message', 'edit-message',
 ]);
-const MAX_RECORD_BYTES = 256 * 1024;
+const MAX_RECORD_BYTES = 8 * 1024 * 1024;
 const canonical = value => Array.isArray(value)
   ? '[' + value.map(canonical).join(',') + ']'
   : value && typeof value === 'object'
@@ -23,7 +23,10 @@ const validScope = scope => scope && UUID.test(scope.host_installation_id ?? '')
   && UUID.test(scope.mutation_id ?? '')
   && UUID.test(scope.event_id ?? '')
   && OPERATIONS.has(scope.operation)
-  && DIGEST.test(scope.mutation_digest ?? '');
+  && DIGEST.test(scope.mutation_digest ?? '')
+  && typeof scope.occurred_at === 'string'
+  && /^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$/.test(scope.occurred_at)
+  && Number.isFinite(Date.parse(scope.occurred_at));
 
 async function syncDirectory(directory) {
   let handle;
@@ -299,11 +302,10 @@ export class HostLifecycleReceiptStore {
       || prepared.operation !== scope.operation) {
       throw new Error('HOST_LIFECYCLE_RECEIPT_PREPARE_MISSING');
     }
-    const terminalPath = this.#recordPath(scope, 'committed');
+    const terminalPath = this.#recordPath(scope, 'terminal');
     const priorTerminal = await this.#read(terminalPath);
-    if (await this.#read(this.#recordPath(scope, 'aborted'))) throw new Error('HOST_LIFECYCLE_RECEIPT_TERMINAL_CONFLICT');
     if (priorTerminal) {
-      if (priorTerminal.event_id !== scope.event_id
+      if (priorTerminal.event_type !== 'MUTATION_COMMITTED' || priorTerminal.event_id !== scope.event_id
         || !priorTerminal.receipt || priorTerminal.receipt_digest !== sha256(Buffer.from(canonical(priorTerminal.receipt), 'utf8'))) {
         throw new Error('HOST_LIFECYCLE_RECEIPT_CONFLICT');
       }
@@ -348,6 +350,7 @@ export class HostLifecycleReceiptStore {
     const receiptDigest = sha256(Buffer.from(canonical(receipt), 'utf8'));
     const record = {
       schema_version: 1,
+      event_type: 'MUTATION_COMMITTED',
       event_id: scope.event_id,
       receipt_digest: receiptDigest,
       occurred_at: scope.occurred_at,
@@ -366,11 +369,10 @@ export class HostLifecycleReceiptStore {
       || prepared.operation !== scope.operation) {
       throw new Error('HOST_LIFECYCLE_RECEIPT_PREPARE_MISSING');
     }
-    if (await this.#read(this.#recordPath(scope, 'committed'))) throw new Error('HOST_LIFECYCLE_RECEIPT_TERMINAL_CONFLICT');
-    const terminalPath = this.#recordPath(scope, 'aborted');
+    const terminalPath = this.#recordPath(scope, 'terminal');
     const priorTerminal = await this.#read(terminalPath);
     if (priorTerminal) {
-      if (priorTerminal.event_id !== scope.event_id || !priorTerminal.receipt
+      if (priorTerminal.event_type !== 'MUTATION_ABORTED' || priorTerminal.event_id !== scope.event_id || !priorTerminal.receipt
         || priorTerminal.receipt_digest !== sha256(Buffer.from(canonical(priorTerminal.receipt), 'utf8'))) {
         throw new Error('HOST_LIFECYCLE_RECEIPT_CONFLICT');
       }
@@ -397,6 +399,7 @@ export class HostLifecycleReceiptStore {
     const receiptDigest = sha256(Buffer.from(canonical(receipt), 'utf8'));
     await this.#writeOnce(terminalPath, {
       schema_version: 1,
+      event_type: 'MUTATION_ABORTED',
       event_id: scope.event_id,
       receipt_digest: receiptDigest,
       occurred_at: scope.occurred_at,
