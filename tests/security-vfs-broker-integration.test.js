@@ -109,9 +109,36 @@ test('Linux SQLite VFS obtains main and sidecar descriptors from the authenticat
     reader.exec('BEGIN; SELECT value FROM broker_probe;');
     writer.exec("INSERT INTO broker_probe VALUES('second');");
     assert.equal(
+      reader.prepare('SELECT count(*) AS count FROM broker_probe').get().count,
+      1,
+      'the WAL reader must retain its snapshot while a concurrent writer commits',
+    );
+    assert.equal(
       writer.prepare('SELECT count(*) AS count FROM broker_probe').get().count,
       2,
     );
+    reader.exec('COMMIT;');
+    assert.equal(
+      reader.prepare('SELECT count(*) AS count FROM broker_probe').get().count,
+      2,
+      'the reader must observe the committed row after releasing its WAL read lock',
+    );
+    const shmDiagnostics = writer.prepare(
+      'SELECT logic_engine_vfs_probe_broker_shm_diagnostics() AS value'
+    ).get().value;
+    assert.equal(Math.floor(shmDiagnostics / 1_000_000) > 0, true,
+      'SQLite must map the broker-provisioned SHM file');
+    assert.equal(Math.floor((shmDiagnostics % 1_000_000) / 1_000), 0,
+      'SHM mapping must not fail');
+    assert.equal(shmDiagnostics % 1_000 > 0, true,
+      'the SHM file must be opened through the broker syscall hook');
+    const shmLockDiagnostics = writer.prepare(
+      'SELECT logic_engine_vfs_probe_broker_shm_lock_diagnostics() AS value'
+    ).get().value;
+    assert.equal(Math.floor(shmLockDiagnostics / 1_000) > 0, true,
+      'SQLite WAL read/write locks must exercise the SHM locking interface');
+    assert.equal(shmLockDiagnostics % 1_000, 0,
+      'the delegated SQLite SHM lock operations must succeed');
     assert.equal(existsSync(databasePath + '-wal'), true);
     assert.equal(existsSync(databasePath + '-shm'), true);
     assert.equal(
