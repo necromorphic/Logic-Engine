@@ -1,5 +1,7 @@
-import test from 'node:test';
+import nodeTest from 'node:test';
 import assert from 'node:assert/strict';
+const test = nodeTest;
+
 import { createHostInventoryHandler, createHostSessionHandler } from '../st-host-inventory-handler.mjs';
 
 function makeResponse() {
@@ -65,12 +67,25 @@ test('host inventory route fails closed unless the deployment build claim matche
 test('host inventory route passes only the authenticated user data roots and returns a non-authoritative manifest', async () => {
   let observed;
   const inventory = {
-    status: 'STABLE_SCAN_CANDIDATE',
-    authority: 'NON_AUTHORITATIVE',
-    file_count: 2,
-    inventory_sha256: 'a'.repeat(64),
-    blockers: ['NO_PRE_ENROLLMENT_DELETED_HISTORY'],
-    files: [],
+    filesystem: {
+      status: 'complete',
+      snapshot_sha256: 'b'.repeat(64),
+      file_count: 12,
+      total_bytes: '3456',
+      snapshot_id: 'snapshot-id',
+      snapshot_provider: 'windows-vss-client-accessible',
+      snapshot_consistency: 'VSS_POINT_IN_TIME_READ_ONLY',
+      reparse_points: 'ALL_FILE_ATTRIBUTE_REPARSE_POINT_ENTRIES_REJECTED',
+      entries: [{ path: 'characters/private-card.json' }],
+    },
+    source: {
+      status: 'DOUBLE_SCAN_CANDIDATE',
+      authority: 'NON_AUTHORITATIVE',
+      inventory_sha256: 'a'.repeat(64),
+      blockers: ['NO_PRE_ENROLLMENT_DELETED_HISTORY'],
+      files: [],
+    },
+    snapshot_alignment: 'SHARED_VSS_SNAPSHOT',
   };
   const handler = createHostInventoryHandler({
     enumerate: async input => { observed = input; return inventory; },
@@ -79,6 +94,7 @@ test('host inventory route passes only the authenticated user data roots and ret
   });
   const response = makeResponse();
   const directories = {
+    root: 'C:\\st\\data',
     chats: 'C:\\st\\data\\chats',
     groups: 'C:\\st\\data\\groups',
     groupChats: 'C:\\st\\data\\group chats',
@@ -95,6 +111,7 @@ test('host inventory route passes only the authenticated user data roots and ret
   assert.equal(response.headers.vary, 'Cookie');
   assert.deepEqual(observed, {
     directories: {
+      root: directories.root,
       chats: directories.chats,
       groups: directories.groups,
       groupChats: directories.groupChats,
@@ -102,6 +119,17 @@ test('host inventory route passes only the authenticated user data roots and ret
     hostCommit: pinned,
   });
   assert.equal(response.body.authority, 'NON_AUTHORITATIVE');
+  assert.equal(response.body.filesystem_inventory.snapshot_sha256, 'b'.repeat(64));
+  assert.equal(response.body.filesystem_inventory.file_count, 12);
+  assert.equal(response.body.filesystem_inventory.scope, 'single-root-regular-files-only');
+  assert.equal(response.body.filesystem_inventory.snapshot_alignment, 'SHARED_VSS_SNAPSHOT');
+  assert.ok(response.body.blockers.includes('NO_DURABLE_FULL_ROOT_BASELINE'));
+  assert.ok(response.body.blockers.includes('NO_FULL_ROOT_PER_FILE_DIFF'));
+  assert.ok(response.body.blockers.includes('NO_GLOBAL_SILLYTAVERN_DATA_ROOT_COVERAGE'));
+  assert.ok(response.body.blockers.includes('NO_SEMANTIC_CHARACTER_PERSONA_IDENTITY'));
+  assert.ok(response.body.blockers.includes('UNVERIFIED_MUTATION_ROUTE_COVERAGE'));
+  assert.ok(response.body.blockers.includes('UNVERIFIED_MUTATION_RUNTIME_ACCEPTANCE'));
+  assert.equal(response.body.filesystem_inventory.entries, undefined);
   assert.equal(response.body.host_user_handle, 'alice');
   assert.equal(response.body.requested_conversation_uuid, '4e6b0a80-4e73-4c66-aaf3-7a6e62c7f403');
   assert.equal(response.body.host_build_claim_type, 'DEPLOYMENT_ASSERTION_NOT_RUNTIME_ATTESTATION');
@@ -115,26 +143,45 @@ test('host inventory route filters the response to the requested conversation lo
   const other = { conversation_uuid: otherUuid, identity_status: 'CURRENT_IDENTITIES_VERIFIED', messages: [] };
   const handler = createHostInventoryHandler({
     enumerate: async () => ({
-      status: 'DOUBLE_SCAN_CANDIDATE',
-      authority: 'NON_AUTHORITATIVE',
-      files: [
-        { locator: 'private-chat-path.jsonl', file_identity: 'private-file-identity', logical_identity: selected },
-        { locator: 'other-chat-path.jsonl', file_identity: 'other-file-identity', logical_identity: other },
-      ],
-      inventory_sha256: 'a'.repeat(64),
+      filesystem: {
+        status: 'complete',
+        snapshot_sha256: 'c'.repeat(64),
+        file_count: 2,
+        total_bytes: '10',
+      },
+      source: {
+        status: 'DOUBLE_SCAN_CANDIDATE',
+        authority: 'NON_AUTHORITATIVE',
+        files: [
+          { locator: 'private-chat-path.jsonl', file_identity: 'private-file-identity', logical_identity: selected },
+          { locator: 'other-chat-path.jsonl', file_identity: 'other-file-identity', logical_identity: other },
+        ],
+        inventory_sha256: 'a'.repeat(64),
+        blockers: [],
+      },
+      snapshot_alignment: 'INDEPENDENT_DOUBLE_SCAN',
     }),
     pinnedHostCommit: pinned,
     hostBuildClaim: pinned,
   });
   const response = makeResponse();
   await handler({
-    user: { profile: { handle: 'alice' }, directories: {} },
+    user: {
+      profile: { handle: 'alice' },
+      directories: {
+        root: 'C:\\st\\data',
+        chats: 'C:\\st\\data\\chats',
+        groups: 'C:\\st\\data\\groups',
+        groupChats: 'C:\\st\\data\\group chats',
+      },
+    },
     session: { handle: 'alice', logicEngineSessionId: '2e6b0a80-4e73-4c66-aaf3-7a6e62c7f401', logicEngineSessionHandle: 'alice' },
     query: { conversation_uuid: conversationUuid },
   }, response);
   assert.equal(response.statusCode, 200);
   assert.equal(response.body.requested_conversation_uuid, conversationUuid);
   assert.deepEqual(response.body.files, [{ logical_identity: selected }]);
+  assert.ok(response.body.blockers.includes('NO_SHARED_POINT_IN_TIME_SNAPSHOT'));
   assert.equal(JSON.stringify(response.body).includes('private-chat-path'), false);
   assert.equal(JSON.stringify(response.body).includes('private-file-identity'), false);
 });
