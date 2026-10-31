@@ -211,7 +211,8 @@ function validateEvent(event) {
     || (event.event_type !== 'MUTATION_PREPARED' && (!validDigest(event.receipt_digest) || !validDigest(event.receipt_signature))))) {
     throw new TypeError('Host mutation lifecycle events require mutation UUID, operation, intent digest and terminal receipt digest.');
   }
-  if (!mutationEvent && (event.mutation_id !== undefined || event.operation !== undefined || event.receipt_digest !== undefined)) {
+  if (!mutationEvent && (event.mutation_id !== undefined || event.operation !== undefined
+    || event.receipt_digest !== undefined || event.receipt_signature !== undefined)) {
     throw new TypeError('Mutation identity and receipt fields are reserved for mutation lifecycle events.');
   }
   if (typeof event.occurred_at !== 'string'
