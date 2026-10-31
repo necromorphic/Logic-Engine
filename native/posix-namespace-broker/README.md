@@ -20,11 +20,15 @@ For a production deployment, provision the socket directory under a service-owne
 path (not inside an application-owned home directory):
 
 ```sh
-sudo install -d -o logic-broker -g logic-broker -m 0700 /var/lib/logic-engine-broker
+app_group="$(id -g logic-app)"
 uid="$(id -u logic-app)"
-native/posix-namespace-broker/broker_server \
+# The broker service must be root or a member of the application group.
+sudo install -d -o logic-broker -g "$app_group" -m 0710 /var/lib/logic-engine-broker
+python3 native/posix-namespace-broker/broker_daemon.py \
   --socket /var/lib/logic-engine-broker/broker.sock \
-  --app-uid "$uid"
+  --manifest-root /var/lib/logic-engine-broker/manifest \
+  --anchor-root /var/lib/logic-engine-broker/anchor \
+  --app-uid "$uid" --app-gid "$app_group"
 ```
 
 For a same-UID local smoke test, a private directory under the current home
@@ -41,12 +45,15 @@ Expected output: `broker PING: OK`. Stop the broker with Ctrl+C.
 
 The server walks the absolute socket-parent path from `/` using
 `openat(O_DIRECTORY|O_NOFOLLOW)`. It rejects symlink components, group/other
-writable ancestors, and ancestors owned and writable by a distinct application
-UID; the final directory must be broker-owned. This protects the later pathname
-`bind()` from application-controlled parent replacement. The same-UID smoke
-test necessarily cannot demonstrate this UID separation. Production deployment
-must run the broker under a dedicated unprivileged UID and configure the exact
-application UID.
+writable ancestors, and ancestors owned and writable by the application UID.
+For distinct service/application UIDs, the final directory must be service-owned,
+group-owned by the application's dedicated group and exactly mode `0710`.
+The socket is service-owned, group-owned by that application group and mode
+`0620`: the application group can connect but cannot list the directory or
+replace the socket. The broker service must be root or belong to that group to
+set the socket group. Kernel `SO_PEERCRED` still authenticates the exact
+application UID; other group members are rejected. Use a dedicated group with
+no unrelated members to limit connection-level denial-of-service exposure.
 
 ## Protocol v2 increment
 
