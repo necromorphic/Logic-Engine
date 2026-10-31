@@ -38,6 +38,7 @@ function lifecycleReceiptSignature(event, adapterId = 'adapter-a') {
     operation: event.operation,
     mutation_digest: event.mutation_digest,
     receipt_digest: event.receipt_digest,
+    occurred_at: event.occurred_at,
   };
   return createHmac('sha256', ADAPTER).update(canonical(proof), 'utf8').digest('hex');
 }
