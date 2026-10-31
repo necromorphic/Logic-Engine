@@ -163,6 +163,8 @@ For PENDING_MUTATION, pending contains mutation ID, operation, intent digest, PR
 | Operation | Pinned Host path/hook | Persisted artifact set | V1 disposition |
 |---|---|---|---|
 | create-message | saveReply() create/append | target chat JSONL + version identity receipt | supported only after disk read-back |
+| message-send | sendMessage() / saveReply() request path | target chat JSONL + version identity receipt | supported only when the send hook reaches the same durable save boundary |
+| message-receive | receive/saveReply() response path | target chat JSONL + version identity receipt | supported only when the response hook reaches the same durable save boundary |
 | create-swipe | saveReply() swipe append | chat JSONL + lineage + active swipe metadata | supported only after disk read-back |
 | message-edit | messageEditDone() | chat JSONL + old/new version ancestry | supported only after disk read-back |
 | select-swipe | endSwipe() | chat JSONL active swipe/index metadata | supported only after disk read-back |
