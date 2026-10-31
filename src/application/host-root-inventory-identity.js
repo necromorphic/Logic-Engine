@@ -92,6 +92,7 @@ export function resolveAdapterHostLifecycleIdentity(registry, input) {
     && record.authenticated_account_id === input.authenticated_account_id);
   return match ? Object.freeze({
     authorized: true,
+    adapter_id: match.adapter_id,
     host_installation_id: match.host_installation_id,
     authenticated_account_id: match.authenticated_account_id,
     host_session_id: input.host_session_id,
