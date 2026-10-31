@@ -304,7 +304,7 @@ export class HostLifecycleReceiptStore {
     if (await this.#read(this.#recordPath(scope, 'aborted'))) throw new Error('HOST_LIFECYCLE_RECEIPT_TERMINAL_CONFLICT');
     if (priorTerminal) {
       if (priorTerminal.event_id !== scope.event_id
-        || priorTerminal.receipt_digest !== priorTerminal.receipt.receipt_digest) {
+        || !priorTerminal.receipt || priorTerminal.receipt_digest !== sha256(Buffer.from(canonical(priorTerminal.receipt), 'utf8'))) {
         throw new Error('HOST_LIFECYCLE_RECEIPT_CONFLICT');
       }
       return { status: 'duplicate', receipt_digest: priorTerminal.receipt_digest, occurred_at: priorTerminal.occurred_at };
@@ -370,7 +370,10 @@ export class HostLifecycleReceiptStore {
     const terminalPath = this.#recordPath(scope, 'aborted');
     const priorTerminal = await this.#read(terminalPath);
     if (priorTerminal) {
-      if (priorTerminal.event_id !== scope.event_id) throw new Error('HOST_LIFECYCLE_RECEIPT_CONFLICT');
+      if (priorTerminal.event_id !== scope.event_id || !priorTerminal.receipt
+        || priorTerminal.receipt_digest !== sha256(Buffer.from(canonical(priorTerminal.receipt), 'utf8'))) {
+        throw new Error('HOST_LIFECYCLE_RECEIPT_CONFLICT');
+      }
       return { status: 'duplicate', receipt_digest: priorTerminal.receipt_digest, occurred_at: priorTerminal.occurred_at };
     }
     const after = await this.#snapshot(scope, directories);
