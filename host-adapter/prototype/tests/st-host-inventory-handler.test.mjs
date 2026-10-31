@@ -1,8 +1,10 @@
 import nodeTest from 'node:test';
 import assert from 'node:assert/strict';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 const test = nodeTest;
 
-import { createHostIdentityHandler, createHostInventoryHandler, createHostSessionHandler } from '../st-host-inventory-handler.mjs';
+import { createHostBulkMutationGuard, createHostIdentityHandler, createHostInventoryHandler, createHostSessionHandler } from '../st-host-inventory-handler.mjs';
 
 function makeResponse() {
   return {
@@ -17,6 +19,81 @@ function makeResponse() {
 }
 
 const pinned = '06bde939fb1e9c4c8d8641d810f0a916b5bce127';
+
+test('server bulk mutation guard blocks imports when any enrolled conversation exists', async () => {
+  const root = join(tmpdir(), 'st-host-bulk-guard');
+  const directories = {
+    root,
+    chats: join(root, 'chats'),
+    groups: join(root, 'groups'),
+    groupChats: join(root, 'groupChats'),
+  };
+  let nextCalls = 0;
+  const guard = createHostBulkMutationGuard({
+    pinnedHostCommit: pinned,
+    enumerate: async input => {
+      assert.deepEqual(input.directories, directories);
+      return {
+        filesystem: { status: 'complete' },
+        source: {
+          status: 'DOUBLE_SCAN_CANDIDATE',
+          files: [{
+            logical_identity: {
+              conversation_uuid: '11111111-1111-4111-8111-111111111111',
+            },
+          }],
+        },
+      };
+    },
+  });
+  const blocked = makeResponse();
+  await guard({ user: { directories } }, blocked, () => { nextCalls++; });
+  assert.equal(blocked.statusCode, 409);
+  assert.equal(blocked.body.code, 'HOST_LIFECYCLE_BULK_MUTATION_BLOCKED');
+  assert.equal(nextCalls, 0);
+});
+
+test('server bulk mutation guard permits imports only when a complete scan finds no enrolled chats', async () => {
+  const root = join(tmpdir(), 'st-host-bulk-guard-empty');
+  const directories = {
+    root,
+    chats: join(root, 'chats'),
+    groups: join(root, 'groups'),
+    groupChats: join(root, 'groupChats'),
+  };
+  let nextCalls = 0;
+  const guard = createHostBulkMutationGuard({
+    pinnedHostCommit: pinned,
+    enumerate: async () => ({
+      filesystem: { status: 'complete' },
+      source: { status: 'DOUBLE_SCAN_CANDIDATE', files: [{ logical_identity: null }] },
+    }),
+  });
+  const response = makeResponse();
+  await guard({ user: { directories } }, response, () => { nextCalls++; });
+  assert.equal(response.statusCode, null);
+  assert.equal(nextCalls, 1);
+});
+
+test('server bulk mutation guard fails closed when inventory is incomplete', async () => {
+  const root = join(tmpdir(), 'st-host-bulk-guard-incomplete');
+  const directories = {
+    root,
+    chats: join(root, 'chats'),
+    groups: join(root, 'groups'),
+    groupChats: join(root, 'groupChats'),
+  };
+  let nextCalls = 0;
+  const guard = createHostBulkMutationGuard({
+    pinnedHostCommit: pinned,
+    enumerate: async () => ({ filesystem: { status: 'incomplete' }, source: { status: 'NON_READY', files: [] } }),
+  });
+  const response = makeResponse();
+  await guard({ user: { directories } }, response, () => { nextCalls++; });
+  assert.equal(response.statusCode, 503);
+  assert.equal(response.body.code, 'HOST_BULK_MUTATION_INVENTORY_INCOMPLETE');
+  assert.equal(nextCalls, 0);
+});
 
 test('host inventory route rejects unauthenticated and incomplete user sessions', async () => {
   let calls = 0;
