@@ -4,11 +4,13 @@
 #include <stdint.h>
 
 #define LEB_PROTOCOL_MAGIC 0x4c454256u /* LEBV */
-#define LEB_PROTOCOL_VERSION 1u
+#define LEB_PROTOCOL_VERSION 2u
 #define LEB_MAX_PACKET_SIZE 4096u
 
 enum leb_operation {
-    LEB_OP_PING = 1
+    LEB_OP_PING = 1,
+    LEB_OP_OPEN_MAIN = 2,
+    LEB_OP_OPEN_SIDECAR = 3
 };
 
 enum leb_status {
@@ -16,7 +18,8 @@ enum leb_status {
     LEB_STATUS_BAD_REQUEST = 1,
     LEB_STATUS_UNAUTHORIZED = 2,
     LEB_STATUS_UNSUPPORTED = 3,
-    LEB_STATUS_INTERNAL = 4
+    LEB_STATUS_INTERNAL = 4,
+    LEB_STATUS_NOT_FOUND = 5
 };
 
 /* All integer fields are encoded in network byte order. */
