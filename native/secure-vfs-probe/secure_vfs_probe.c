@@ -1119,8 +1119,8 @@ static int probe_stat(const char *name, struct stat *info) {
 }
 #endif
 
-static int probe_xOpen(sqlite3_vfs *vfs, const char *name, sqlite3_file *file,
-                       int flags, int *out_flags) {
+static int probe_xOpen_parent(sqlite3_vfs *vfs, const char *name, sqlite3_file *file,
+                              int flags, int *out_flags) {
   sqlite3_vfs *parent = (sqlite3_vfs *)vfs->pAppData;
   int is_sidecar = (flags & (SQLITE_OPEN_WAL | SQLITE_OPEN_MAIN_JOURNAL)) != 0;
   int is_race_target = 0;
@@ -1350,6 +1350,253 @@ static int probe_xOpen(sqlite3_vfs *vfs, const char *name, sqlite3_file *file,
   }
   return rc;
 }
+
+
+#if defined(__linux__)
+/*
+ * Incremental descriptor-backed sqlite3_file backend.
+ *
+ * The parent VFS remains responsible for SQLite's platform locking and
+ * shared-memory protocol. Main/WAL/journal byte I/O and durability operations
+ * use a second descriptor returned directly by the authenticated namespace
+ * broker. This is deliberately a hybrid step, not the final independent
+ * locking/SHM implementation.
+ */
+typedef struct ProbeBackendFile {
+  sqlite3_file base;
+  sqlite3_io_methods methods;
+  int broker_fd;
+} ProbeBackendFile;
+
+#define PROBE_PARENT_FILE_OFFSET \
+  ((sizeof(ProbeBackendFile) + _Alignof(max_align_t) - 1) & ~((size_t)_Alignof(max_align_t) - 1))
+
+static sqlite3_file *probe_backend_parent_file(sqlite3_file *file) {
+  return (sqlite3_file *)((unsigned char *)file + PROBE_PARENT_FILE_OFFSET);
+}
+
+static int probe_backend_close(sqlite3_file *file) {
+  ProbeBackendFile *backend = (ProbeBackendFile *)file;
+  sqlite3_file *parent_file = probe_backend_parent_file(file);
+  int rc = SQLITE_OK;
+  if (parent_file->pMethods && parent_file->pMethods->xClose) {
+    rc = parent_file->pMethods->xClose(parent_file);
+  }
+  if (backend->broker_fd >= 0) {
+    if (close(backend->broker_fd) != 0 && rc == SQLITE_OK) rc = SQLITE_IOERR_CLOSE;
+    backend->broker_fd = -1;
+  }
+  file->pMethods = NULL;
+  return rc;
+}
+
+static int probe_backend_read(sqlite3_file *file, void *buffer, int amount,
+                              sqlite3_int64 offset) {
+  ProbeBackendFile *backend = (ProbeBackendFile *)file;
+  sqlite3_file *parent_file = probe_backend_parent_file(file);
+  if (backend->broker_fd < 0) {
+    return parent_file->pMethods->xRead(parent_file, buffer, amount, offset);
+  }
+  if (amount < 0 || offset < 0 || (sqlite3_int64)(off_t)offset != offset) {
+    return SQLITE_IOERR_READ;
+  }
+  {
+    unsigned char *out = (unsigned char *)buffer;
+    int remaining = amount;
+    off_t position = (off_t)offset;
+    while (remaining > 0) {
+      ssize_t count = pread(backend->broker_fd, out, (size_t)remaining, position);
+      if (count < 0 && errno == EINTR) continue;
+      if (count < 0) return SQLITE_IOERR_READ;
+      if (count == 0) {
+        memset(out, 0, (size_t)remaining);
+        return SQLITE_IOERR_SHORT_READ;
+      }
+      out += count;
+      remaining -= (int)count;
+      position += (off_t)count;
+    }
+  }
+  return SQLITE_OK;
+}
+
+static int probe_backend_write(sqlite3_file *file, const void *buffer, int amount,
+                               sqlite3_int64 offset) {
+  ProbeBackendFile *backend = (ProbeBackendFile *)file;
+  sqlite3_file *parent_file = probe_backend_parent_file(file);
+  if (backend->broker_fd < 0) {
+    return parent_file->pMethods->xWrite(parent_file, buffer, amount, offset);
+  }
+  if (amount < 0 || offset < 0 || (sqlite3_int64)(off_t)offset != offset) {
+    return SQLITE_IOERR_WRITE;
+  }
+  {
+    const unsigned char *in = (const unsigned char *)buffer;
+    int remaining = amount;
+    off_t position = (off_t)offset;
+    while (remaining > 0) {
+      ssize_t count = pwrite(backend->broker_fd, in, (size_t)remaining, position);
+      if (count < 0 && errno == EINTR) continue;
+      if (count <= 0) return SQLITE_IOERR_WRITE;
+      in += count;
+      remaining -= (int)count;
+      position += (off_t)count;
+    }
+  }
+  return SQLITE_OK;
+}
+
+static int probe_backend_truncate(sqlite3_file *file, sqlite3_int64 size) {
+  ProbeBackendFile *backend = (ProbeBackendFile *)file;
+  sqlite3_file *parent_file = probe_backend_parent_file(file);
+  if (backend->broker_fd < 0) {
+    return parent_file->pMethods->xTruncate(parent_file, size);
+  }
+  if (size < 0 || (sqlite3_int64)(off_t)size != size
+      || ftruncate(backend->broker_fd, (off_t)size) != 0) {
+    return SQLITE_IOERR_TRUNCATE;
+  }
+  return SQLITE_OK;
+}
+
+static int probe_backend_sync(sqlite3_file *file, int flags) {
+  ProbeBackendFile *backend = (ProbeBackendFile *)file;
+  sqlite3_file *parent_file = probe_backend_parent_file(file);
+  if (backend->broker_fd < 0) {
+    return parent_file->pMethods->xSync(parent_file, flags);
+  }
+  if ((flags & SQLITE_SYNC_FULL) != 0) {
+    if (fsync(backend->broker_fd) != 0) return SQLITE_IOERR_FSYNC;
+  } else {
+    if (fdatasync(backend->broker_fd) != 0) return SQLITE_IOERR_FSYNC;
+  }
+  return SQLITE_OK;
+}
+
+static int probe_backend_file_size(sqlite3_file *file, sqlite3_int64 *size) {
+  ProbeBackendFile *backend = (ProbeBackendFile *)file;
+  sqlite3_file *parent_file = probe_backend_parent_file(file);
+  if (backend->broker_fd < 0) {
+    return parent_file->pMethods->xFileSize(parent_file, size);
+  }
+  {
+    struct stat info;
+    if (fstat(backend->broker_fd, &info) != 0 || info.st_size < 0) {
+      return SQLITE_IOERR_FSTAT;
+    }
+    *size = (sqlite3_int64)info.st_size;
+  }
+  return SQLITE_OK;
+}
+
+#define PROBE_BACKEND_DELEGATE_INT(name, signature, args) \
+  static int probe_backend_##name signature { \
+    sqlite3_file *parent_file = probe_backend_parent_file(file); \
+    return parent_file->pMethods->x##name args; \
+  }
+
+PROBE_BACKEND_DELEGATE_INT(Lock, (sqlite3_file *file, int level), (parent_file, level))
+PROBE_BACKEND_DELEGATE_INT(Unlock, (sqlite3_file *file, int level), (parent_file, level))
+PROBE_BACKEND_DELEGATE_INT(CheckReservedLock, (sqlite3_file *file, int *result), (parent_file, result))
+PROBE_BACKEND_DELEGATE_INT(FileControl, (sqlite3_file *file, int op, void *arg), (parent_file, op, arg))
+PROBE_BACKEND_DELEGATE_INT(SectorSize, (sqlite3_file *file), (parent_file))
+PROBE_BACKEND_DELEGATE_INT(DeviceCharacteristics, (sqlite3_file *file), (parent_file))
+PROBE_BACKEND_DELEGATE_INT(ShmMap, (sqlite3_file *file, int page, int page_size, int extend, void volatile **out), (parent_file, page, page_size, extend, out))
+PROBE_BACKEND_DELEGATE_INT(ShmLock, (sqlite3_file *file, int offset, int count, int flags), (parent_file, offset, count, flags))
+
+static void probe_backend_shm_barrier(sqlite3_file *file) {
+  sqlite3_file *parent_file = probe_backend_parent_file(file);
+  if (parent_file->pMethods->xShmBarrier) parent_file->pMethods->xShmBarrier(parent_file);
+}
+
+static int probe_backend_shm_unmap(sqlite3_file *file, int delete_flag) {
+  sqlite3_file *parent_file = probe_backend_parent_file(file);
+  return parent_file->pMethods->xShmUnmap
+    ? parent_file->pMethods->xShmUnmap(parent_file, delete_flag) : SQLITE_OK;
+}
+
+static int probe_backend_fetch(sqlite3_file *file, sqlite3_int64 offset,
+                               int amount, void **out) {
+  sqlite3_file *parent_file = probe_backend_parent_file(file);
+  return parent_file->pMethods->iVersion >= 3 && parent_file->pMethods->xFetch
+    ? parent_file->pMethods->xFetch(parent_file, offset, amount, out)
+    : (*out = NULL, SQLITE_OK);
+}
+
+static int probe_backend_unfetch(sqlite3_file *file, sqlite3_int64 offset, void *page) {
+  sqlite3_file *parent_file = probe_backend_parent_file(file);
+  return parent_file->pMethods->iVersion >= 3 && parent_file->pMethods->xUnfetch
+    ? parent_file->pMethods->xUnfetch(parent_file, offset, page) : SQLITE_OK;
+}
+
+static int probe_xOpen(sqlite3_vfs *vfs, const char *name, sqlite3_file *file,
+                       int flags, int *out_flags) {
+  ProbeBackendFile *backend = (ProbeBackendFile *)file;
+  sqlite3_file *parent_file = probe_backend_parent_file(file);
+  int rc;
+  int role_index = -1;
+  const char *suffix = NULL;
+  memset(backend, 0, PROBE_PARENT_FILE_OFFSET);
+  backend->broker_fd = -1;
+  rc = probe_xOpen_parent(vfs, name, parent_file, flags, out_flags);
+  if (rc != SQLITE_OK) return rc;
+
+  if (name && probe_match_role_entry(name, &role_index, &suffix)
+      && role_index >= 0 && g_database_roles[role_index].broker_socket_path
+      && (flags & (SQLITE_OPEN_MAIN_DB | SQLITE_OPEN_WAL | SQLITE_OPEN_MAIN_JOURNAL)) != 0) {
+    ProbeDatabaseRole *role = &g_database_roles[role_index];
+    uint16_t operation = LEB_OP_OPEN_MAIN;
+    const char *kind = NULL;
+    uint32_t status = LEB_STATUS_INTERNAL;
+    if (suffix[0] != '\0') {
+      if (strcmp(suffix, "-wal") == 0) kind = "wal";
+      else if (strcmp(suffix, "-shm") == 0) kind = "shm";
+      else if (strcmp(suffix, "-journal") == 0) kind = "journal";
+      else {
+        parent_file->pMethods->xClose(parent_file);
+        return SQLITE_CANTOPEN;
+      }
+      operation = LEB_OP_OPEN_SIDECAR;
+    }
+    if (!probe_broker_exchange(role, role->broker_socket_path, operation,
+          kind, 1, &backend->broker_fd, &status) || status != LEB_STATUS_OK
+        || backend->broker_fd < 0) {
+      if (backend->broker_fd >= 0) close(backend->broker_fd);
+      backend->broker_fd = -1;
+      parent_file->pMethods->xClose(parent_file);
+      return SQLITE_CANTOPEN;
+    }
+  }
+
+  backend->methods = *parent_file->pMethods;
+  backend->methods.xClose = probe_backend_close;
+  backend->methods.xRead = probe_backend_read;
+  backend->methods.xWrite = probe_backend_write;
+  backend->methods.xTruncate = probe_backend_truncate;
+  backend->methods.xSync = probe_backend_sync;
+  backend->methods.xFileSize = probe_backend_file_size;
+  backend->methods.xLock = probe_backend_Lock;
+  backend->methods.xUnlock = probe_backend_Unlock;
+  backend->methods.xCheckReservedLock = probe_backend_CheckReservedLock;
+  backend->methods.xFileControl = probe_backend_FileControl;
+  backend->methods.xSectorSize = probe_backend_SectorSize;
+  backend->methods.xDeviceCharacteristics = probe_backend_DeviceCharacteristics;
+  if (backend->methods.iVersion >= 2) {
+    backend->methods.xShmMap = probe_backend_ShmMap;
+    backend->methods.xShmLock = probe_backend_ShmLock;
+    backend->methods.xShmBarrier = probe_backend_shm_barrier;
+    backend->methods.xShmUnmap = probe_backend_shm_unmap;
+  }
+  if (backend->methods.iVersion >= 3) {
+    backend->methods.xFetch = probe_backend_fetch;
+    backend->methods.xUnfetch = probe_backend_unfetch;
+  }
+  file->pMethods = &backend->methods;
+  return SQLITE_OK;
+}
+#else
+#define probe_xOpen probe_xOpen_parent
+#endif
 
 #ifdef _WIN32
 static int probe_win_path_role(const char *path, int *role_index, wchar_t **relative_name,
@@ -2776,7 +3023,14 @@ int sqlite3_secure_vfs_probe_init(
 
   memset(&g_probe_vfs, 0, sizeof(g_probe_vfs));
   g_probe_vfs.iVersion = g_parent_vfs->iVersion;
+#if defined(__linux__)
+  if ((size_t)g_parent_vfs->szOsFile > (size_t)INT_MAX - PROBE_PARENT_FILE_OFFSET) {
+    return SQLITE_TOOBIG;
+  }
+  g_probe_vfs.szOsFile = (int)(PROBE_PARENT_FILE_OFFSET + (size_t)g_parent_vfs->szOsFile);
+#else
   g_probe_vfs.szOsFile = g_parent_vfs->szOsFile;
+#endif
   g_probe_vfs.mxPathname = g_parent_vfs->mxPathname;
   g_probe_vfs.zName = "logic-engine-vfs-registration-probe";
   g_probe_vfs.pAppData = g_parent_vfs;
