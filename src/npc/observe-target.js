@@ -83,8 +83,8 @@ export function createObserveTargetCycle({ authorizedReadService, getTrustedRead
   }
 
   function observeTarget(input) {
-    if (!object(input)
-      || Object.keys(input).some((key) => key !== "targetEntityId" && key !== "attribute")
+    if (!plainDataObject(input)
+      || !Reflect.ownKeys(input).every((key) => key === "targetEntityId" || key === "attribute")
       || !validId(input.targetEntityId)
       || !validAttribute(input.attribute)) {
       throw new TypeError("Observation requires exactly one targetEntityId and one valid attribute.");
