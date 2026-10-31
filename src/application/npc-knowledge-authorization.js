@@ -1,3 +1,6 @@
+import { types as utilTypes } from 'node:util';
+import { createNpcKnowledgePolicyAuthority } from './npc-knowledge-policy-authority.js';
+
 const validId = value => typeof value === 'string' && value === value.trim()
   && value.length > 0 && value.length <= 200
   && ![...value].some(character => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127);
@@ -35,45 +38,135 @@ export function createHostBoundNpcKnowledgeAuthorizers({
 
   const configuredAdapters = new Set(adapterIds);
   const trustedSources = trustedInitialKnowledgeSources.map(source => Object.freeze({ ...source }));
+  const policyAuthority = createNpcKnowledgePolicyAuthority({ adapterIds, trustedInitialKnowledgeSources });
 
-  function activeHostAndActorBinding(scope) {
-    if (!scope || !validId(scope.world_id) || !validId(scope.conversation_id)
-      || !validId(scope.adapter_id) || !validId(scope.actor_id)
-      || !configuredAdapters.has(scope.adapter_id)) return false;
+  /**
+   * Resolve canonical scope from Core-owned bindings. Host supplies the actor
+   * selected from authenticated server-side session state; that ID is only a
+   * selector. Core derives the world from the conversation binding and validates
+   * the exact active adapter/world/actor binding before returning canonical scope.
+   */
+  function resolveContext(identity) {
     try {
+      if (!identity || typeof identity !== 'object' || utilTypes.isProxy(identity) || Array.isArray(identity)
+        || ![Object.prototype, null].includes(Object.getPrototypeOf(identity))
+        || Reflect.ownKeys(identity).length !== 3
+        || !Reflect.ownKeys(identity).every(key => ['adapter_id', 'conversation_id', 'actor_id'].includes(key))
+        || ['adapter_id', 'conversation_id', 'actor_id'].some(key => {
+          const descriptor = Object.getOwnPropertyDescriptor(identity, key);
+          return !descriptor || !Object.hasOwn(descriptor, 'value');
+        })) return null;
+      const adapterId = identity.adapter_id;
+      const conversationId = identity.conversation_id;
+      const actorId = identity.actor_id;
+      if (!validId(conversationId) || !validId(adapterId) || !validId(actorId)
+        || !configuredAdapters.has(adapterId)) return null;
       const host = store.db.prepare(
         'SELECT world_id,active FROM host_conversation_world_bindings WHERE adapter_id=? AND conversation_id=?'
-      ).get(scope.adapter_id, scope.conversation_id);
-      if (!host || host.active !== 1 || host.world_id !== scope.world_id) return false;
-      const actor = store.db.prepare(
+      ).get(adapterId, conversationId);
+      if (!host || host.active !== 1) return null;
+      const world = store.world(host.world_id);
+      if (!world || world.status !== 'active') return null;
+
+      const actorBinding = store.db.prepare(
         'SELECT active FROM actor_bindings WHERE world_id=? AND adapter_id=? AND entity_id=?'
-      ).get(scope.world_id, scope.adapter_id, scope.actor_id);
-      return actor?.active === 1;
+      ).get(host.world_id, adapterId, actorId);
+      if (!actorBinding || actorBinding.active !== 1) return null;
+      const actor = store.db.prepare(
+        "SELECT entity_id,status FROM entities WHERE world_id=? AND entity_id=?"
+      ).get(host.world_id, actorId);
+      if (!actor || actor.status === 'destroyed') return null;
+
+      return Object.freeze({
+        world_id: host.world_id,
+        conversation_id: conversationId,
+        adapter_id: adapterId,
+        actor_id: actor.entity_id,
+      });
     } catch {
       // Missing migrations, missing rows, and storage errors all deny.
-      return false;
+      return null;
     }
   }
 
+  function activeHostAndActorBinding(scope) {
+    if (!scope) return null;
+    const binding = resolveContext({
+      adapter_id: scope.adapter_id,
+      conversation_id: scope.conversation_id,
+      actor_id: scope.actor_id,
+    });
+    if (!binding || binding.world_id !== scope.world_id || binding.actor_id !== scope.actor_id) return null;
+    return binding;
+  }
+
   function readAuthorizer(scope) {
-    if (!activeHostAndActorBinding(scope)) return null;
+    const binding = activeHostAndActorBinding(scope);
+    if (!binding) return null;
     return Object.freeze({
       status: 'authorized',
-      world_id: scope.world_id,
-      conversation_id: scope.conversation_id,
-      adapter_id: scope.adapter_id,
-      actor_id: scope.actor_id,
+      world_id: binding.world_id,
+      conversation_id: binding.conversation_id,
+      adapter_id: binding.adapter_id,
+      actor_id: binding.actor_id,
       recipient: scope.recipient,
       purpose: scope.purpose,
       world_revision: scope.world_revision,
       commit_sequence: scope.commit_sequence,
       authorization_ref: READ_AUTHORIZATION_REF,
+      ...policyAuthority.getSnapshot(),
     });
+  }
+
+  function writeAuthorizer(scope) {
+    try {
+      if (!scope || scope.operation !== 'npc.belief.transition'
+        || !validId(scope.world_id) || !validId(scope.conversation_id)
+        || !validId(scope.adapter_id) || !validId(scope.actor_id)
+        || scope.recipient !== 'model'
+        || !['npc_turn_context', 'npc_action_evaluation'].includes(scope.purpose)
+        || !Number.isSafeInteger(scope.expected_revision) || scope.expected_revision < 0
+        || !Number.isSafeInteger(scope.expected_commit_sequence) || scope.expected_commit_sequence < 0) return null;
+      const binding = activeHostAndActorBinding(scope);
+      const expectedPolicy = {
+        authority_id: scope.authority_id,
+        generation: scope.generation,
+        snapshot_fingerprint: scope.snapshot_fingerprint,
+      };
+      const currentPolicy = policyAuthority.getSnapshot();
+      if (!binding || !policyAuthority.isCurrent(expectedPolicy)
+        || currentPolicy.authority_id !== expectedPolicy.authority_id
+        || currentPolicy.generation !== expectedPolicy.generation
+        || currentPolicy.snapshot_fingerprint !== expectedPolicy.snapshot_fingerprint) return null;
+      return Object.freeze({
+        status: 'authorized',
+        world_id: binding.world_id,
+        conversation_id: binding.conversation_id,
+        adapter_id: binding.adapter_id,
+        actor_id: binding.actor_id,
+        recipient: scope.recipient,
+        purpose: scope.purpose,
+        operation: scope.operation,
+        expected_revision: scope.expected_revision,
+        expected_commit_sequence: scope.expected_commit_sequence,
+        authorization_ref: 'core:npc-belief-transition-write-v1',
+        ...currentPolicy,
+      });
+    } catch {
+      return null;
+    }
   }
 
   function visibilityAuthorizer(scope) {
     let source = null;
-    if (activeHostAndActorBinding(scope)
+    const currentPolicy = policyAuthority.getSnapshot();
+    const expectedPolicy = {
+      authority_id: scope.authority_id,
+      generation: scope.generation,
+      snapshot_fingerprint: scope.snapshot_fingerprint,
+    };
+    const policyCurrent = policyAuthority.isCurrent(expectedPolicy);
+    if (policyCurrent && activeHostAndActorBinding(scope)
       && validId(scope.acquisition_kind)
       && validId(scope.acquisition_authorization_ref)
       && validId(scope.provenance_ref)
@@ -90,7 +183,7 @@ export function createHostBoundNpcKnowledgeAuthorizers({
         && validId(candidate.authorization_ref)) ?? null;
     }
     return Object.freeze({
-      status: source ? 'allowed' : 'denied',
+      status: source && policyCurrent ? 'allowed' : 'denied',
       world_id: scope.world_id,
       conversation_id: scope.conversation_id,
       adapter_id: scope.adapter_id,
@@ -101,8 +194,9 @@ export function createHostBoundNpcKnowledgeAuthorizers({
       commit_sequence: scope.commit_sequence,
       acquisition_id: scope.acquisition_id,
       authorization_ref: source?.authorization_ref ?? DENY_VISIBILITY_REF,
+      ...currentPolicy,
     });
   }
 
-  return Object.freeze({ readAuthorizer, visibilityAuthorizer });
+  return Object.freeze({ resolveContext, readAuthorizer, writeAuthorizer, visibilityAuthorizer, policyAuthority });
 }

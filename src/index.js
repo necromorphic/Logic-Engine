@@ -131,16 +131,21 @@ const hostVersionLedger = new HostVersionDigestLedger({
 const server = createApiServer({
   engine: new LogicEngine(store, {
     trustedInitialKnowledgeSources, worldPackCatalog,
+    npcKnowledgeContextResolver: npcKnowledgeAuthorizers.resolveContext,
+    npcKnowledgePolicyAuthority: npcKnowledgeAuthorizers.policyAuthority,
     npcKnowledgeReadAuthorizer: npcKnowledgeAuthorizers.readAuthorizer,
+    npcKnowledgeWriteAuthorizer: npcKnowledgeAuthorizers.writeAuthorizer,
     npcKnowledgeVisibilityAuthorizer: npcKnowledgeAuthorizers.visibilityAuthorizer,
   }), token, internalToken, approvalToken, adminToken, adapterTokens,
   hostVersionLedger,
   mechanicPolicyAuthority,
+  npcKnowledgeHostApiEnabled: process.env.ENGINE_NPC_KNOWLEDGE_HOST_API_ENABLED === 'true',
 });
 server.listen(port, host, () => process.stdout.write(
   'Logic-Engine API listening on http://' + host + ':' + port + '\nDatabase: ' + dbPath +
   '\nDirect commit: ' + (internalToken ? 'enabled for internal credential' : 'disabled') +
-  '\nProposal approval: ' + (approvalToken ? 'enabled' : 'disabled') + '\nAdmin registry: ' + (adminToken ? 'enabled' : 'disabled') + '\nConfigured adapters: ' + Object.keys(adapterTokens).length + '\n',
+  '\nProposal approval: ' + (approvalToken ? 'enabled' : 'disabled') + '\nAdmin registry: ' + (adminToken ? 'enabled' : 'disabled') + '\nConfigured adapters: ' + Object.keys(adapterTokens).length +
+  '\nNPC knowledge Host API: ' + (process.env.ENGINE_NPC_KNOWLEDGE_HOST_API_ENABLED === 'true' ? 'disabled-by-default override enabled' : 'DISABLED') + '\n',
 ));
 function stop() { server.close(() => { try { hostVersionLedger.close(); } finally { store.close(); process.exit(0); } }); }
 process.on('SIGINT', stop);

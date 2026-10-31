@@ -8,6 +8,9 @@ import { SQLiteStore } from '../src/storage/sqlite-store.js';
 import { LogicEngine } from '../src/application/engine.js';
 import { validateNpcKnowledgeRead, validateNpcKnowledgeReadInput } from '../src/application/npc-knowledge-read.js';
 import { buildNpcBeliefContext, reduceNpcBeliefTransition } from '../src/application/npc-belief-state.js';
+import { ActorBindingService } from '../src/application/actor-bindings.js';
+import { createHostBoundNpcKnowledgeAuthorizers } from '../src/application/npc-knowledge-authorization.js';
+import { validateEffects } from '../src/core/rules.js';
 
 const sourceBytes = JSON.stringify({
   schema_version: 1,
@@ -26,6 +29,27 @@ const trustedRegistry = [{
   authorization_ref: 'rule:initial-knowledge-v1',
   sha256: createHash('sha256').update(sourceBytes).digest('hex'),
 }];
+
+function beliefWriteAuthorization(scope) {
+  return {
+    status: 'authorized',
+    world_id: scope.world_id,
+    conversation_id: scope.conversation_id,
+    adapter_id: scope.adapter_id,
+    actor_id: scope.actor_id,
+    recipient: scope.recipient,
+    purpose: scope.purpose,
+    operation: scope.operation,
+    expected_revision: scope.expected_revision,
+    expected_commit_sequence: scope.expected_commit_sequence,
+    authorization_ref: 'rule:npc-belief-write-v1',
+    ...(Object.hasOwn(scope, 'authority_id') ? {
+      authority_id: scope.authority_id,
+      generation: scope.generation,
+      snapshot_fingerprint: scope.snapshot_fingerprint,
+    } : {}),
+  };
+}
 
 function setup(t, authorizer = (scope) => ({
   status: 'authorized',
@@ -56,6 +80,7 @@ function setup(t, authorizer = (scope) => ({
   const engine = new LogicEngine(store, {
     trustedInitialKnowledgeSources: trustedRegistry,
     npcKnowledgeReadAuthorizer: authorizer,
+    npcKnowledgeWriteAuthorizer: beliefWriteAuthorization,
     npcKnowledgeVisibilityAuthorizer: visibilityAuthorizer,
   });
   const binding = { adapter_id: 'adapter-st', conversation_id: 'conversation-a', world_id: 'world-a' };
@@ -303,6 +328,158 @@ test('pure read contract rejects extra keys and authorization from another snaps
   assert.equal(validateNpcKnowledgeRead(input, world, commitSequence, {
     ...authorization, commit_sequence: commitSequence - 1,
   }).reason, 'read_not_authorized');
+});
+
+
+
+test('canonical NPC belief event records the exact policy authority tuple used for authorization', (t) => {
+  const { store, engine: baseEngine } = setup(t);
+  const actors = new ActorBindingService(baseEngine);
+  const authorizers = createHostBoundNpcKnowledgeAuthorizers({
+    store,
+    adapterIds: ['adapter-st'],
+    trustedInitialKnowledgeSources: trustedRegistry,
+  });
+  baseEngine.npcKnowledgePolicyAuthority = authorizers.policyAuthority;
+  actors.bind('world-a', 'adapter-st', 'npc-a');
+
+  const guardedEngine = new LogicEngine(store, {
+    trustedInitialKnowledgeSources: trustedRegistry,
+    npcKnowledgeContextResolver: authorizers.resolveContext,
+    npcKnowledgeWriteAuthorizer: authorizers.writeAuthorizer,
+    npcKnowledgePolicyAuthority: authorizers.policyAuthority,
+    npcKnowledgeReadAuthorizer: authorizers.readAuthorizer,
+    npcKnowledgeVisibilityAuthorizer: authorizers.visibilityAuthorizer,
+  });
+  const readRequest = request(store);
+  const read = guardedEngine.readNpcKnowledge(readRequest);
+  const item = read.items[0];
+  const write = {
+    ...readRequest,
+    proposition_ref: propositionRefFor(item),
+    proposition_value: item.value,
+    stance: 'believes_true',
+    supporting_acquisition_ids: [item.acquisition_id],
+    contradicting_acquisition_ids: [],
+    reason_rule_ref: 'rule:belief-update-v1',
+    idempotency_key: 'policy-authority-bound-belief-transition',
+  };
+
+  const committed = guardedEngine.recordNpcBeliefTransition(write);
+  assert.deepEqual(committed.policy_authority, read.policy_authority);
+  const event = store.events('world-a').find((entry) => entry.event_id === committed.transition.event_id);
+  assert.deepEqual(event.effects[0].policy_authority, read.policy_authority);
+  assert.equal(event.effects[0].write_authorization_ref, 'core:npc-belief-transition-write-v1');
+  assert.doesNotThrow(() => validateEffects(event.effects, { allowNpcBeliefTransition: true }));
+  assert.throws(() => validateEffects([{
+    ...event.effects[0],
+    policy_authority: { ...event.effects[0].policy_authority, generation: 0 },
+  }], { allowNpcBeliefTransition: true }), {
+    code: 'INVALID_NPC_BELIEF_TRANSITION',
+  });
+
+  const replay = guardedEngine.recordNpcBeliefTransition(write);
+  assert.equal(replay.idempotent_replay, true);
+  assert.deepEqual(replay.policy_authority, read.policy_authority);
+
+  authorizers.policyAuthority.advanceGeneration();
+  assert.throws(() => guardedEngine.recordNpcBeliefTransition(write), {
+    code: 'IDEMPOTENCY_KEY_REUSED',
+  }, 'an idempotency replay under a different policy generation is not the same authorized operation');
+});
+
+test('belief write revalidates actor binding inside the Core write transaction', (t) => {
+  const { store, engine: baseEngine } = setup(t);
+  const actors = new ActorBindingService(baseEngine);
+  const authorizers = createHostBoundNpcKnowledgeAuthorizers({
+    store,
+    adapterIds: ['adapter-st'],
+    trustedInitialKnowledgeSources: trustedRegistry,
+  });
+  baseEngine.npcKnowledgePolicyAuthority = authorizers.policyAuthority;
+  actors.bind('world-a', 'adapter-st', 'npc-a');
+  let visibilityCalls = 0;
+  let revokeBeforeNextTransaction = false;
+  let revoking = false;
+  const originalTx = store.tx.bind(store);
+  store.tx = (callback) => {
+    if (revokeBeforeNextTransaction && !revoking) {
+      revokeBeforeNextTransaction = false;
+      revoking = true;
+      try {
+        // Commit a separate Core binding revocation after preflight returns but
+        // immediately before the final belief-write transaction begins.
+        actors.revoke('world-a', 'adapter-st', 'npc-a');
+      } finally {
+        revoking = false;
+      }
+    }
+    return originalTx(callback);
+  };
+  const guardedEngine = new LogicEngine(store, {
+    trustedInitialKnowledgeSources: trustedRegistry,
+    npcKnowledgeContextResolver: authorizers.resolveContext,
+    npcKnowledgeWriteAuthorizer: authorizers.writeAuthorizer,
+    npcKnowledgePolicyAuthority: authorizers.policyAuthority,
+    npcKnowledgeReadAuthorizer: authorizers.readAuthorizer,
+    npcKnowledgeVisibilityAuthorizer: (scope) => {
+      const decision = authorizers.visibilityAuthorizer(scope);
+      visibilityCalls += 1;
+      if (visibilityCalls === 1) revokeBeforeNextTransaction = true;
+      return decision;
+    },
+  });
+
+  const readRequest = request(store);
+  const read = guardedEngine.readNpcKnowledge(readRequest);
+  const item = read.items[0];
+  const write = {
+    ...readRequest,
+    proposition_ref: propositionRefFor(item),
+    proposition_value: item.value,
+    stance: 'believes_true',
+    supporting_acquisition_ids: [item.acquisition_id],
+    contradicting_acquisition_ids: [],
+    reason_rule_ref: 'rule:belief-update-v1',
+    idempotency_key: 'binding-revoked-during-final-write-check',
+  };
+
+  assert.throws(() => guardedEngine.recordNpcBeliefTransition(write), {
+    code: 'NPC_KNOWLEDGE_READ_NOT_AUTHORIZED',
+  });
+  assert.equal(visibilityCalls, 1);
+  assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM npc_belief_transitions').get().n, 0);
+  assert.throws(() => actors.resolve('world-a', 'adapter-st', 'npc-a'), {
+    code: 'ACTOR_NOT_AUTHORIZED',
+  }, 'the independent revocation commits before the protected write transaction');
+});
+
+test('read permission alone cannot authorize a belief-state write', (t) => {
+  const { store, engine, acquisition } = setup(t);
+  const readRequest = request(store);
+  const read = engine.readNpcKnowledge(readRequest);
+  const item = read.items[0];
+  const deniedWriter = new LogicEngine(store, {
+    trustedInitialKnowledgeSources: trustedRegistry,
+    npcKnowledgeReadAuthorizer: engine.npcKnowledgeReadAuthorizer,
+    npcKnowledgeWriteAuthorizer: () => null,
+    npcKnowledgeVisibilityAuthorizer: engine.npcKnowledgeVisibilityAuthorizer,
+  });
+  const write = {
+    ...readRequest,
+    proposition_ref: propositionRefFor(item),
+    proposition_value: item.value,
+    stance: 'believes_true',
+    supporting_acquisition_ids: [item.acquisition_id],
+    contradicting_acquisition_ids: [],
+    reason_rule_ref: 'rule:belief-update-v1',
+    idempotency_key: 'read-does-not-imply-write',
+  };
+  assert.throws(() => deniedWriter.recordNpcBeliefTransition(write), {
+    code: 'NPC_KNOWLEDGE_WRITE_NOT_AUTHORIZED',
+  });
+  assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM npc_belief_transitions').get().n, 0);
+  assert.ok(acquisition.event_id);
 });
 
 test('Core prepares an actor-bound belief context only after per-acquisition visibility authorization', (t) => {
@@ -1146,6 +1323,7 @@ test('NPC revises a belief from newly acquired independent evidence after the ol
   }];
   const independentEngine = new LogicEngine(store, {
     trustedInitialKnowledgeSources: independentRegistry,
+    npcKnowledgeWriteAuthorizer: beliefWriteAuthorization,
     npcKnowledgeReadAuthorizer: (scope) => ({
       status: 'authorized',
       world_id: scope.world_id,
@@ -1443,6 +1621,7 @@ test('NPC read and full belief-context authorization hold the shared Coordinator
   const engine = new LogicEngine(store, {
     trustedInitialKnowledgeSources: trustedRegistry,
     npcKnowledgeReadAuthorizer: readAuthorizer,
+    npcKnowledgeWriteAuthorizer: beliefWriteAuthorization,
     npcKnowledgeVisibilityAuthorizer: visibilityAuthorizer,
   });
   engine.createWorld({
@@ -1478,7 +1657,7 @@ test('NPC read and full belief-context authorization hold the shared Coordinator
   const readRequest = request(store);
   const read = engine.readNpcKnowledge(readRequest);
   assert.equal(read.status, 'ready');
-  assert.equal(blockedRevocationAttempts, 1);
+  assert.equal(blockedRevocationAttempts, 2);
 
   const proposal = {
     world_id: read.world_id,
@@ -1493,14 +1672,14 @@ test('NPC read and full belief-context authorization hold the shared Coordinator
   };
   const prepared = engine.prepareNpcBeliefContext(readRequest, proposal);
   assert.equal(prepared.status, 'ready');
-  assert.equal(blockedRevocationAttempts, 3);
+  assert.equal(blockedRevocationAttempts, 6);
 
   const beliefState = engine.getNpcBeliefState({
     ...readRequest,
     proposition_ref: proposal.proposition_ref,
   });
   assert.equal(beliefState.status, 'unknown');
-  assert.equal(blockedRevocationAttempts, 5);
+  assert.equal(blockedRevocationAttempts, 11);
 
   const recorded = engine.recordNpcBeliefTransition({
     ...readRequest,
@@ -1514,7 +1693,7 @@ test('NPC read and full belief-context authorization hold the shared Coordinator
   });
   assert.equal(recorded.status, 'ready');
   assert.equal(recorded.idempotent_replay, false);
-  assert.equal(blockedRevocationAttempts, 10);
+  assert.equal(blockedRevocationAttempts, 21);
   assert.equal(store.db.prepare(
     'SELECT active FROM host_conversation_world_bindings WHERE adapter_id=? AND conversation_id=?'
   ).get(binding.adapter_id, binding.conversation_id).active, 1);

@@ -36,7 +36,7 @@ export class HostConversationWorldBindingService {
       throw new EngineError('INVALID_HOST_CONVERSATION_BINDING',
         'Valid adapter, conversation and world identifiers are required; rebind requires an audit reason.', 400);
     }
-    return this.engine.store.tx(() => {
+    const result = this.engine.store.tx(() => {
       if (!this.engine.store.world(worldId)) {
         throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
       }
@@ -75,6 +75,8 @@ export class HostConversationWorldBindingService {
         already_bound: false,
       });
     });
+    if (!result.already_bound) this.engine.npcKnowledgePolicyAuthority?.advanceGeneration();
+    return result;
   }
 
   revoke({ adapterId, conversationId, reason }) {
@@ -82,7 +84,7 @@ export class HostConversationWorldBindingService {
       throw new EngineError('INVALID_HOST_CONVERSATION_BINDING',
         'Valid adapter and conversation identifiers plus an audit reason of at least 8 characters are required.', 400);
     }
-    return this.engine.store.tx(() => {
+    const result = this.engine.store.tx(() => {
       const existing = this.db.prepare('SELECT adapter_id,conversation_id,world_id,active,created_at,updated_at FROM host_conversation_world_bindings WHERE adapter_id=? AND conversation_id=?')
         .get(adapterId, conversationId);
       if (!existing) throw new EngineError('HOST_CONVERSATION_BINDING_NOT_FOUND', 'Host conversation binding not found.', 404);
@@ -96,6 +98,8 @@ export class HostConversationWorldBindingService {
           JSON.stringify({ adapter_id: adapterId, conversation_id: conversationId, reason: reason.trim() }), timestamp);
       return Object.freeze({ ...existing, active: false, updated_at: timestamp, changed: true });
     });
+    if (result.changed) this.engine.npcKnowledgePolicyAuthority?.advanceGeneration();
+    return result;
   }
 
   resolve(input) {

@@ -8,6 +8,7 @@ import { isMechanicPolicyAuthoritySnapshot } from './mechanic-policy-authority.j
 import { validateEffects } from '../core/rules.js';
 import { validateTrustedInitialKnowledgeSource } from './trusted-initial-knowledge-source.js';
 import { validateNpcKnowledgeRead, validateNpcKnowledgeReadInput } from './npc-knowledge-read.js';
+import { isNpcKnowledgePolicyAuthority, isNpcKnowledgePolicyAuthoritySnapshot } from './npc-knowledge-policy-authority.js';
 import { buildNpcBeliefContext, npcPropositionRefFor, reduceNpcBeliefTransition } from './npc-belief-state.js';
 import { validateMechanicTemplate, validateRuleModuleManifest } from '../core/mechanics.js';
 import { normalizeTimeTrigger, planDueWork } from '../time/scheduler.js';
@@ -82,6 +83,80 @@ function withNpcAuthorizationLease(store, callback) {
     store.coordinatorLeaseDepth = 0;
     release();
   }
+}
+
+function revalidateNpcKnowledgeReadAuthorization(engine, request, snapshot, expectedAuthorizationRef, expectedPolicyAuthority = null) {
+  if (!snapshot || snapshot.status !== 'active'
+    || snapshot.world_id !== request.world_id
+    || snapshot.world_revision !== request.expected_revision
+    || snapshot.commit_sequence !== request.expected_commit_sequence) {
+    throw new EngineError('NPC_KNOWLEDGE_READ_NOT_READY',
+      'NPC knowledge snapshot changed during authorization; retry from a fresh snapshot.', 409);
+  }
+
+  if (expectedPolicyAuthority !== null) {
+    let currentPolicy = null;
+    try {
+      currentPolicy = engine.npcKnowledgePolicyAuthority?.getSnapshot();
+    } catch {
+      currentPolicy = null;
+    }
+    if (!isNpcKnowledgePolicyAuthoritySnapshot(currentPolicy)
+      || !engine.npcKnowledgePolicyAuthority.isCurrent(expectedPolicyAuthority)
+      || currentPolicy.authority_id !== expectedPolicyAuthority.authority_id
+      || currentPolicy.generation !== expectedPolicyAuthority.generation
+      || currentPolicy.snapshot_fingerprint !== expectedPolicyAuthority.snapshot_fingerprint) {
+      throw new EngineError('NPC_KNOWLEDGE_READ_NOT_AUTHORIZED',
+        'NPC knowledge policy authority changed during the read.', 403);
+    }
+  }
+
+  if (typeof engine.npcKnowledgeContextResolver === 'function') {
+    let binding = null;
+    try {
+      binding = engine.npcKnowledgeContextResolver(Object.freeze({
+        adapter_id: request.adapter_id,
+        conversation_id: request.conversation_id,
+        actor_id: request.actor_id,
+      }));
+    } catch {
+      binding = null;
+    }
+    if (!exactDataRecord(binding, ['world_id', 'conversation_id', 'adapter_id', 'actor_id'])
+      || binding.world_id !== request.world_id
+      || binding.conversation_id !== request.conversation_id
+      || binding.adapter_id !== request.adapter_id
+      || binding.actor_id !== request.actor_id) {
+      throw new EngineError('NPC_KNOWLEDGE_READ_NOT_AUTHORIZED',
+        'Host conversation or canonical actor binding changed during the read.', 403);
+    }
+  }
+
+  let authorization = null;
+  try {
+    authorization = engine.npcKnowledgeReadAuthorizer(Object.freeze({
+      world_id: request.world_id,
+      conversation_id: request.conversation_id,
+      adapter_id: request.adapter_id,
+      actor_id: request.actor_id,
+      recipient: request.recipient,
+      purpose: request.purpose,
+      world_revision: snapshot.world_revision,
+      commit_sequence: snapshot.commit_sequence,
+    }));
+  } catch {
+    authorization = null;
+  }
+  const checked = validateNpcKnowledgeRead(
+    request, snapshot, snapshot.commit_sequence, authorization, expectedPolicyAuthority,
+  );
+  if (checked.status !== 'ready'
+    || (expectedAuthorizationRef !== undefined
+      && checked.request.authorization_ref !== expectedAuthorizationRef)) {
+    throw new EngineError('NPC_KNOWLEDGE_READ_NOT_AUTHORIZED',
+      'NPC knowledge authorization changed during the read.', 403);
+  }
+  return checked.request.authorization_ref;
 }
 
 const strings = (x, name) => {
@@ -239,14 +314,22 @@ function validateIndependentSegment(events) {
 }
 
 export class LogicEngine {
-  constructor(store, { trustedInitialKnowledgeSources = [], worldPackCatalog = null, npcKnowledgeReadAuthorizer = null, npcKnowledgeVisibilityAuthorizer = null } = {}) {
+  constructor(store, { trustedInitialKnowledgeSources = [], worldPackCatalog = null, npcKnowledgeContextResolver = null, npcKnowledgePolicyAuthority = null, npcKnowledgeReadAuthorizer = null, npcKnowledgeWriteAuthorizer = null, npcKnowledgeVisibilityAuthorizer = null } = {}) {
     if (!Array.isArray(trustedInitialKnowledgeSources)) throw new TypeError('trustedInitialKnowledgeSources must be a deployment-owned array');
     this.trustedInitialKnowledgeSources = trustedInitialKnowledgeSources.map((entry) => Object.freeze({ ...entry }));
     if (worldPackCatalog !== null && typeof worldPackCatalog.resolve !== 'function') throw new TypeError('worldPackCatalog must provide resolve(worldPackId, version)');
     this.worldPackCatalog = worldPackCatalog;
+    if (npcKnowledgeContextResolver !== null && (typeof npcKnowledgeContextResolver !== 'function' || npcKnowledgeContextResolver instanceof ASYNC_FUNCTION_PROTOTYPE)) throw new TypeError('npcKnowledgeContextResolver must be a synchronous deployment-owned function');
+    if (npcKnowledgePolicyAuthority !== null && !isNpcKnowledgePolicyAuthority(npcKnowledgePolicyAuthority)) throw new TypeError('npcKnowledgePolicyAuthority must be a trusted versioned Core policy authority');
+    if (npcKnowledgeContextResolver !== null && npcKnowledgePolicyAuthority === null) throw new TypeError('npcKnowledgePolicyAuthority is required with npcKnowledgeContextResolver');
     if (npcKnowledgeReadAuthorizer !== null && (typeof npcKnowledgeReadAuthorizer !== 'function' || npcKnowledgeReadAuthorizer instanceof ASYNC_FUNCTION_PROTOTYPE)) throw new TypeError('npcKnowledgeReadAuthorizer must be a synchronous deployment-owned function');
+    if (npcKnowledgeWriteAuthorizer !== null && (typeof npcKnowledgeWriteAuthorizer !== 'function' || npcKnowledgeWriteAuthorizer instanceof ASYNC_FUNCTION_PROTOTYPE)) throw new TypeError('npcKnowledgeWriteAuthorizer must be a synchronous deployment-owned function');
     if (npcKnowledgeVisibilityAuthorizer !== null && (typeof npcKnowledgeVisibilityAuthorizer !== 'function' || npcKnowledgeVisibilityAuthorizer instanceof ASYNC_FUNCTION_PROTOTYPE)) throw new TypeError('npcKnowledgeVisibilityAuthorizer must be a synchronous deployment-owned function');
+    if (npcKnowledgeContextResolver !== null && npcKnowledgeWriteAuthorizer === null) throw new TypeError('npcKnowledgeWriteAuthorizer is required with npcKnowledgeContextResolver');
+    this.npcKnowledgeContextResolver = npcKnowledgeContextResolver;
+    this.npcKnowledgePolicyAuthority = npcKnowledgePolicyAuthority;
     this.npcKnowledgeReadAuthorizer = npcKnowledgeReadAuthorizer;
+    this.npcKnowledgeWriteAuthorizer = npcKnowledgeWriteAuthorizer;
     this.npcKnowledgeVisibilityAuthorizer = npcKnowledgeVisibilityAuthorizer;
     this.store = store;
     this.processStore = new ProcessStore(store);
@@ -573,6 +656,23 @@ export class LogicEngine {
 
   getState(id) { return this.store.state(id); }
   getSnapshot(id, request = {}) { return this.store.readSnapshot(id, request); }
+  /**
+   * NPC authorization may need a final check while the Core write transaction
+   * is held. In that case, read the world row and event cursor through the same
+   * SQLite transaction instead of nesting readSnapshot(), which intentionally
+   * rejects reads from inside a write transaction.
+   */
+  getNpcKnowledgeSnapshot(id) {
+    if (this.store.txDepth > 0) {
+      const currentWorld = this.store.world(id);
+      if (!currentWorld) return null;
+      return Object.freeze({
+        ...currentWorld,
+        commit_sequence: this.store.currentCommitSequence(id),
+      });
+    }
+    return this.getSnapshot(id);
+  }
   /** @internal Provider reconciliation only; not an HTTP/client authorization API. */
   getCanonicalEntityInventory(id, request = {}) { return this.store.readCanonicalEntityInventory(id, request); }
   getEvents(id, includeInvalid = false) { return this.store.events(id, includeInvalid); }
@@ -704,13 +804,51 @@ export class LogicEngine {
       assert(inputCheck.status === 'ready', 'NPC_KNOWLEDGE_READ_NOT_READY',
         'NPC knowledge read request is malformed or unsupported.', 400,
         { reason: inputCheck.reason });
-      const request = inputCheck.request;
+      const requestInput = inputCheck.request;
       assert(typeof this.npcKnowledgeReadAuthorizer === 'function',
         'NPC_KNOWLEDGE_READ_NOT_CONFIGURED', 'A trusted deployment-owned NPC knowledge read authorizer is required.', 403);
+      let policySnapshot = null;
+      if (typeof this.npcKnowledgeContextResolver === 'function') {
+        try {
+          policySnapshot = this.npcKnowledgePolicyAuthority?.getSnapshot();
+        } catch {
+          policySnapshot = null;
+        }
+        assert(isNpcKnowledgePolicyAuthoritySnapshot(policySnapshot)
+          && this.npcKnowledgePolicyAuthority.isCurrent(policySnapshot) === true,
+        'NPC_KNOWLEDGE_READ_NOT_AUTHORIZED',
+        'The Core NPC disclosure policy authority is unavailable or malformed.', 403);
+      }
+      let binding = null;
+      if (typeof this.npcKnowledgeContextResolver === 'function') {
+        try {
+          binding = this.npcKnowledgeContextResolver(Object.freeze({
+            adapter_id: requestInput.adapter_id,
+            conversation_id: requestInput.conversation_id,
+            actor_id: requestInput.actor_id,
+          }));
+        } catch {
+          binding = null;
+        }
+        assert(binding && binding.adapter_id === requestInput.adapter_id
+          && binding.conversation_id === requestInput.conversation_id
+          && binding.world_id === requestInput.world_id
+          && binding.actor_id === requestInput.actor_id,
+        'NPC_KNOWLEDGE_READ_NOT_AUTHORIZED',
+        'World and actor scope must match the unique active Core Host and actor bindings.', 403);
+      }
+      // When the production resolver is configured, use its canonical identities,
+      // never the request labels, for subsequent world and actor reads. The
+      // deployment authorizer remains mandatory on every path, including tests
+      // that inject an isolated authorizer contract.
+      const request = Object.freeze({
+        ...requestInput,
+        ...(binding ? { world_id: binding.world_id, actor_id: binding.actor_id } : {}),
+      });
       // Read the authorization cursor from one Core snapshot transaction. Separate
       // world/current-sequence reads can straddle a rollback because rollback advances
       // world_revision without advancing the event commit_sequence.
-      const snapshot = this.getSnapshot(request.world_id);
+      const snapshot = this.getNpcKnowledgeSnapshot(request.world_id);
       const world = snapshot;
       assert(world, 'WORLD_NOT_FOUND', 'World not found.', 404);
       const commitSequence = snapshot.commit_sequence;
@@ -731,12 +869,13 @@ export class LogicEngine {
           purpose: request.purpose,
           world_revision: world.world_revision,
           commit_sequence: commitSequence,
+          ...(policySnapshot ?? {}),
         }));
       } catch {
         throw new EngineError('NPC_KNOWLEDGE_READ_NOT_AUTHORIZED',
           'The trusted read authorizer did not approve this request.', 403);
       }
-      const checked = validateNpcKnowledgeRead(request, world, commitSequence, authorization);
+      const checked = validateNpcKnowledgeRead(request, world, commitSequence, authorization, policySnapshot);
       if (checked.status !== 'ready') {
         const status = checked.reason === 'stale_snapshot' ? 409
           : checked.reason === 'world_not_found' ? 404 : 403;
@@ -809,12 +948,19 @@ export class LogicEngine {
       // commit_sequence, so two separate reads could observe the pre-rollback world
       // row and post-rollback sequence and incorrectly accept a stale result.
       let snapshotNow;
-      try { snapshotNow = this.getSnapshot(request.world_id); } catch { snapshotNow = null; }
+      try { snapshotNow = this.getNpcKnowledgeSnapshot(request.world_id); } catch { snapshotNow = null; }
       assert(snapshotNow && snapshotNow.status === 'active'
         && snapshotNow.world_revision === checked.request.world_revision
         && snapshotNow.commit_sequence === checked.request.commit_sequence,
       'NPC_KNOWLEDGE_READ_NOT_READY',
       'World snapshot changed while reading NPC knowledge; retry from a fresh snapshot.', 409);
+
+      // The final authorization check is deliberately after the acquisition query.
+      // Binding revocation does not necessarily advance the world revision, so a
+      // snapshot-only check cannot establish that the reader is still authorized.
+      revalidateNpcKnowledgeReadAuthorization(
+        this, request, snapshotNow, checked.request.authorization_ref, policySnapshot,
+      );
   
       return Object.freeze({
         status: 'ready',
@@ -829,11 +975,118 @@ export class LogicEngine {
           commit_sequence: checked.request.commit_sequence,
         }),
         authorization_ref: checked.request.authorization_ref,
+        ...(checked.request.policy_authority ? { policy_authority: checked.request.policy_authority } : {}),
         truncated,
         items: Object.freeze(items),
       });
     });
   }  /**
+   * Prepare a model-facing Host context only after per-acquisition visibility
+   * authorization. The internal reader alone is not a disclosure grant.
+   */
+  readNpcKnowledgeContext(input) {
+    return withNpcAuthorizationLease(this.store, () => {
+      assert(typeof this.npcKnowledgeVisibilityAuthorizer === 'function',
+        'NPC_KNOWLEDGE_VISIBILITY_NOT_CONFIGURED',
+        'A trusted deployment-owned per-acquisition visibility authorizer is required.', 403);
+      const read = this.readNpcKnowledge(input);
+      assert(read.truncated !== true, 'NPC_KNOWLEDGE_READ_INCOMPLETE',
+        'The actor knowledge read exceeded its bounded limit; Host context requires a complete acquisition window.', 409);
+      const visibleItems = [];
+      for (const item of read.items) {
+        let decision;
+        try {
+          decision = this.npcKnowledgeVisibilityAuthorizer(Object.freeze({
+            world_id: read.world_id,
+            conversation_id: read.conversation_id,
+            adapter_id: read.adapter_id,
+            actor_id: read.actor_id,
+            recipient: read.recipient,
+            purpose: read.purpose,
+            world_revision: read.snapshot.world_revision,
+            commit_sequence: read.snapshot.commit_sequence,
+            acquisition_id: item.acquisition_id,
+            fact_id: item.fact_id,
+            subject_ref: item.subject_ref,
+            predicate: item.predicate,
+            acquisition_kind: item.acquisition_kind,
+            acquisition_authorization_ref: item.acquisition_authorization_ref,
+            provenance_ref: item.provenance_ref,
+            provenance_digest: item.provenance_digest,
+            ...(read.policy_authority ?? {}),
+          }));
+        } catch {
+          throw new EngineError('NPC_KNOWLEDGE_VISIBILITY_NOT_AUTHORIZED',
+            'The trusted visibility authorizer failed; no Host context was returned.', 403);
+        }
+        const allowedKeys = [
+          'status', 'world_id', 'conversation_id', 'adapter_id', 'actor_id', 'recipient', 'purpose',
+          'world_revision', 'commit_sequence', 'acquisition_id', 'authorization_ref',
+          ...(read.policy_authority ? ['authority_id', 'generation', 'snapshot_fingerprint'] : []),
+        ];
+        const policyMatches = !read.policy_authority
+          || (decision?.authority_id === read.policy_authority.authority_id
+            && decision?.generation === read.policy_authority.generation
+            && decision?.snapshot_fingerprint === read.policy_authority.snapshot_fingerprint);
+        if (!exactDataRecord(decision, allowedKeys)
+          || !['allowed', 'denied'].includes(decision.status)
+          || decision.world_id !== read.world_id
+          || decision.conversation_id !== read.conversation_id
+          || decision.adapter_id !== read.adapter_id
+          || decision.actor_id !== read.actor_id
+          || decision.recipient !== read.recipient
+          || decision.purpose !== read.purpose
+          || decision.world_revision !== read.snapshot.world_revision
+          || decision.commit_sequence !== read.snapshot.commit_sequence
+          || decision.acquisition_id !== item.acquisition_id
+          || !policyMatches
+          || typeof decision.authorization_ref !== 'string'
+          || !decision.authorization_ref.trim()) {
+          throw new EngineError('NPC_KNOWLEDGE_VISIBILITY_NOT_AUTHORIZED',
+            'The visibility decision did not authorize this exact acquisition, actor, purpose, and snapshot.', 403);
+        }
+        if (decision.status === 'allowed') visibleItems.push(item);
+      }
+
+      const snapshotNow = this.getNpcKnowledgeSnapshot(read.world_id);
+      assert(snapshotNow && snapshotNow.status === 'active'
+        && snapshotNow.world_revision === read.snapshot.world_revision
+        && snapshotNow.commit_sequence === read.snapshot.commit_sequence,
+      'NPC_KNOWLEDGE_READ_NOT_READY',
+      'World snapshot changed while preparing the Host context; retry from a fresh snapshot.', 409);
+      const authorizationRequest = {
+        world_id: read.world_id,
+        conversation_id: read.conversation_id,
+        adapter_id: read.adapter_id,
+        actor_id: read.actor_id,
+        recipient: read.recipient,
+        purpose: read.purpose,
+        expected_revision: read.snapshot.world_revision,
+        expected_commit_sequence: read.snapshot.commit_sequence,
+        limit: input.limit,
+      };
+      revalidateNpcKnowledgeReadAuthorization(
+        this, authorizationRequest, snapshotNow, read.authorization_ref, read.policy_authority ?? null,
+      );
+
+      return Object.freeze({
+        status: 'ready',
+        world_id: read.world_id,
+        conversation_id: read.conversation_id,
+        adapter_id: read.adapter_id,
+        actor_id: read.actor_id,
+        recipient: read.recipient,
+        purpose: read.purpose,
+        snapshot: read.snapshot,
+        authorization_ref: read.authorization_ref,
+        ...(read.policy_authority ? { policy_authority: read.policy_authority } : {}),
+        truncated: false,
+        items: Object.freeze(visibleItems),
+      });
+    });
+  }
+
+  /**
    * Build an actor-specific belief context from Core-authorized acquisitions.
    * This is an internal, non-HTTP method. Visibility is checked per acquisition;
    * model proposals cannot create evidence or commit world effects.
@@ -868,6 +1121,7 @@ export class LogicEngine {
             acquisition_authorization_ref: item.acquisition_authorization_ref,
             provenance_ref: item.provenance_ref,
             provenance_digest: item.provenance_digest,
+            ...(read.policy_authority ?? {}),
           }));
         } catch {
           throw new EngineError('NPC_KNOWLEDGE_VISIBILITY_NOT_AUTHORIZED',
@@ -876,7 +1130,12 @@ export class LogicEngine {
         const allowedKeys = [
           'status', 'world_id', 'conversation_id', 'adapter_id', 'actor_id', 'recipient', 'purpose', 'world_revision',
           'commit_sequence', 'acquisition_id', 'authorization_ref',
+          ...(read.policy_authority ? ['authority_id', 'generation', 'snapshot_fingerprint'] : []),
         ];
+        const policyMatches = !read.policy_authority
+          || (decision?.authority_id === read.policy_authority.authority_id
+            && decision?.generation === read.policy_authority.generation
+            && decision?.snapshot_fingerprint === read.policy_authority.snapshot_fingerprint);
         const exactDecision = exactDataRecord(decision, allowedKeys);
         if (!exactDecision) {
           throw new EngineError('NPC_KNOWLEDGE_VISIBILITY_NOT_AUTHORIZED',
@@ -890,6 +1149,7 @@ export class LogicEngine {
             || decision.world_revision !== read.snapshot.world_revision
             || decision.commit_sequence !== read.snapshot.commit_sequence
             || decision.acquisition_id !== item.acquisition_id
+            || !policyMatches
             || typeof decision.authorization_ref !== 'string' || !decision.authorization_ref.trim()) {
             throw new EngineError('NPC_KNOWLEDGE_VISIBILITY_NOT_AUTHORIZED',
               'The visibility denial was not bound to this actor and snapshot.', 403);
@@ -906,6 +1166,7 @@ export class LogicEngine {
           || decision.world_revision !== read.snapshot.world_revision
           || decision.commit_sequence !== read.snapshot.commit_sequence
           || decision.acquisition_id !== item.acquisition_id
+          || !policyMatches
           || typeof decision.authorization_ref !== 'string' || !decision.authorization_ref.trim()) {
           throw new EngineError('NPC_KNOWLEDGE_VISIBILITY_NOT_AUTHORIZED',
             'The visibility decision did not authorize this exact acquisition, actor, purpose, and snapshot.', 403);
@@ -930,12 +1191,15 @@ export class LogicEngine {
       // Use one atomic snapshot read: rollback advances world_revision without
       // advancing commit_sequence, so separate reads can straddle a rollback and
       // accidentally accept a stale context.
-      const snapshotNow = this.getSnapshot(read.world_id);
+      const snapshotNow = this.getNpcKnowledgeSnapshot(read.world_id);
       assert(snapshotNow && snapshotNow.status === 'active'
         && snapshotNow.world_revision === read.snapshot.world_revision
         && snapshotNow.commit_sequence === read.snapshot.commit_sequence,
       'NPC_BELIEF_CONTEXT_STALE',
       'World snapshot changed while preparing the NPC belief context; retry from a fresh snapshot.', 409);
+      revalidateNpcKnowledgeReadAuthorization(
+        this, input, snapshotNow, read.authorization_ref, read.policy_authority ?? null,
+      );
   
       const built = buildNpcBeliefContext(visibleRead, reduced.transition);
       assert(built.status === 'ready', 'NPC_BELIEF_CONTEXT_NOT_READY',
@@ -943,6 +1207,7 @@ export class LogicEngine {
       return Object.freeze({
         status: 'ready',
         snapshot: visibleRead.snapshot,
+        ...(read.policy_authority ? { policy_authority: read.policy_authority } : {}),
         transition: reduced.transition,
         context: built.context,
       });
@@ -977,7 +1242,34 @@ export class LogicEngine {
       assert(Number.isSafeInteger(input.expected_revision) && input.expected_revision >= 0
         && Number.isSafeInteger(input.expected_commit_sequence) && input.expected_commit_sequence >= 0,
       'INVALID_NPC_BELIEF_TRANSITION', 'A current world revision and commit sequence are required.');
-      const requestHash = hashRequest({
+      if (typeof this.npcKnowledgeContextResolver === 'function') {
+        let binding;
+        try {
+          binding = this.npcKnowledgeContextResolver(Object.freeze({
+            adapter_id: input.adapter_id,
+            conversation_id: input.conversation_id,
+            actor_id: input.actor_id,
+          }));
+        } catch {
+          binding = null;
+        }
+        assert(binding && binding.adapter_id === input.adapter_id
+          && binding.conversation_id === input.conversation_id
+          && binding.world_id === input.world_id
+          && binding.actor_id === input.actor_id,
+        'NPC_KNOWLEDGE_READ_NOT_AUTHORIZED',
+        'Belief transition world and actor must match the unique active Core Host and actor bindings.', 403);
+        // Canonical identities returned by Core are used for replay lookup,
+        // request hashing, belief reads, and the eventual canonical write.
+        input = {
+          ...input,
+          world_id: binding.world_id,
+          conversation_id: binding.conversation_id,
+          adapter_id: binding.adapter_id,
+          actor_id: binding.actor_id,
+        };
+      }
+      const requestHashBase = {
         operation: 'npc.belief.transition',
         world_id: input.world_id,
         conversation_id: input.conversation_id,
@@ -994,7 +1286,12 @@ export class LogicEngine {
         supporting_acquisition_ids: input.supporting_acquisition_ids,
         contradicting_acquisition_ids: input.contradicting_acquisition_ids,
         reason_rule_ref: input.reason_rule_ref,
+      };
+      const requestHashForPolicy = (policyAuthority) => hashRequest({
+        ...requestHashBase,
+        policy_authority: policyAuthority ?? null,
       });
+      let requestHash;
   
       // Canonical snapshot reads and deployment authorizers must run outside the
       // store's write transaction. Authenticate replays against the current cursor
@@ -1008,7 +1305,7 @@ export class LogicEngine {
         const currentWorld = this.store.world(input.world_id);
         assert(currentWorld && currentWorld.status === 'active',
           'WORLD_NOT_FOUND', 'World not found or inactive.', 404);
-        this.readNpcKnowledge({
+        const replayRead = this.readNpcKnowledge({
           world_id: input.world_id,
           conversation_id: input.conversation_id,
           adapter_id: input.adapter_id,
@@ -1019,11 +1316,13 @@ export class LogicEngine {
           expected_commit_sequence: this.store.currentCommitSequence(input.world_id),
           limit: limit,
         });
+        requestHash = requestHashForPolicy(replayRead.policy_authority);
         assert(existingReplay.request_hash === requestHash, 'IDEMPOTENCY_KEY_REUSED',
           'Belief transition idempotency key was already used for a different request.', 409);
         return {
           status: 'ready',
           idempotent_replay: true,
+          ...(replayRead.policy_authority ? { policy_authority: replayRead.policy_authority } : {}),
           transition: {
             transition_id: existingReplay.transition_id,
             event_id: existingReplay.event_id,
@@ -1044,6 +1343,7 @@ export class LogicEngine {
         limit: limit,
       };
       const read = this.readNpcKnowledge(readRequest);
+      requestHash = requestHashForPolicy(read.policy_authority);
       const currentRow = this.store.db.prepare(`
         SELECT b.stance, b.evidence_acquisition_ids_json
         FROM npc_belief_transitions AS b
@@ -1070,25 +1370,77 @@ export class LogicEngine {
         reason_rule_ref: input.reason_rule_ref,
       };
       const prepared = this.prepareNpcBeliefContext(readRequest, proposal, currentBelief);
+      if (typeof this.npcKnowledgeContextResolver === 'function') {
+        assert(isNpcKnowledgePolicyAuthoritySnapshot(prepared.policy_authority),
+          'NPC_KNOWLEDGE_READ_NOT_AUTHORIZED',
+          'Core belief writes require a complete versioned NPC policy authority tuple.', 403);
+      }
       const transitionId = 'npc-belief:' + hashRequest({
         world_id: input.world_id,
         idempotency_key: input.idempotency_key,
       }).slice(0, 40);
   
-      // Revalidate every acquisition's visibility at the Core commit boundary.
-      // The first preparation builds the proposal; this second pass is the final
-      // fail-closed authorization check immediately before the canonical write.
-      // Snapshot CAS below still rejects any Core mutation racing this check.
-      const commitPrepared = this.prepareNpcBeliefContext(readRequest, proposal, currentBelief);
-      assert(hashRequest(commitPrepared.transition) === hashRequest(prepared.transition),
-        'NPC_BELIEF_CONTEXT_STALE',
-        'NPC belief evidence or stance changed during final commit authorization; retry from a fresh snapshot.', 409);
-      const transition = commitPrepared.transition;
-  
       return this.store.tx(() => {
-        // A concurrent write between the authorized read and this transaction
-        // must not let a stale proposal be committed. commitEvent performs the
-        // canonical revision/sequence compare-and-swap.
+        // Final authorization is performed after BEGIN IMMEDIATE and inside the
+        // same Core transaction as the canonical event. Binding revocation and
+        // canonical writes on this database cannot interleave between this check
+        // and commitEvent's revision/sequence compare-and-swap.
+        const commitPrepared = this.prepareNpcBeliefContext(readRequest, proposal, currentBelief);
+        if (typeof this.npcKnowledgeContextResolver === 'function') {
+          assert(isNpcKnowledgePolicyAuthoritySnapshot(commitPrepared.policy_authority)
+            && this.npcKnowledgePolicyAuthority.isCurrent(commitPrepared.policy_authority),
+          'NPC_KNOWLEDGE_READ_NOT_AUTHORIZED',
+          'The Core NPC policy authority changed or became unavailable before the canonical write.', 403);
+        }
+        assert(hashRequest(commitPrepared.transition) === hashRequest(prepared.transition)
+          && hashRequest(commitPrepared.policy_authority ?? null) === hashRequest(prepared.policy_authority ?? null),
+          'NPC_BELIEF_CONTEXT_STALE',
+          'NPC belief evidence, policy authority, or stance changed during final commit authorization; retry from a fresh snapshot.', 409);
+        assert(typeof this.npcKnowledgeWriteAuthorizer === 'function',
+          'NPC_KNOWLEDGE_WRITE_NOT_CONFIGURED',
+          'A separate trusted Core write authorizer is required for NPC belief transitions.', 403);
+        let writeAuthorization = null;
+        try {
+          writeAuthorization = this.npcKnowledgeWriteAuthorizer(Object.freeze({
+            world_id: input.world_id,
+            conversation_id: input.conversation_id,
+            adapter_id: input.adapter_id,
+            actor_id: input.actor_id,
+            recipient: input.recipient,
+            purpose: input.purpose,
+            operation: 'npc.belief.transition',
+            expected_revision: input.expected_revision,
+            expected_commit_sequence: input.expected_commit_sequence,
+            ...(commitPrepared.policy_authority ?? {}),
+          }));
+        } catch {
+          writeAuthorization = null;
+        }
+        const writeAuthorizationKeys = [
+          'status', 'world_id', 'conversation_id', 'adapter_id', 'actor_id', 'recipient', 'purpose',
+          'operation', 'expected_revision', 'expected_commit_sequence', 'authorization_ref',
+          ...(commitPrepared.policy_authority ? ['authority_id', 'generation', 'snapshot_fingerprint'] : []),
+        ];
+        assert(exactDataRecord(writeAuthorization, writeAuthorizationKeys)
+          && writeAuthorization.status === 'authorized'
+          && writeAuthorization.world_id === input.world_id
+          && writeAuthorization.conversation_id === input.conversation_id
+          && writeAuthorization.adapter_id === input.adapter_id
+          && writeAuthorization.actor_id === input.actor_id
+          && writeAuthorization.recipient === input.recipient
+          && writeAuthorization.purpose === input.purpose
+          && writeAuthorization.operation === 'npc.belief.transition'
+          && writeAuthorization.expected_revision === input.expected_revision
+          && writeAuthorization.expected_commit_sequence === input.expected_commit_sequence
+          && typeof writeAuthorization.authorization_ref === 'string'
+          && writeAuthorization.authorization_ref.trim()
+          && (!commitPrepared.policy_authority
+            || (writeAuthorization.authority_id === commitPrepared.policy_authority.authority_id
+              && writeAuthorization.generation === commitPrepared.policy_authority.generation
+              && writeAuthorization.snapshot_fingerprint === commitPrepared.policy_authority.snapshot_fingerprint)),
+        'NPC_KNOWLEDGE_WRITE_NOT_AUTHORIZED',
+        'The separate Core write authority did not approve this exact actor, operation, policy, and expected revision.', 403);
+        const transition = commitPrepared.transition;
         const replay = this.store.db.prepare(`
           SELECT transition_id, request_hash, event_id, committed_revision
           FROM npc_belief_transitions
@@ -1137,6 +1489,8 @@ export class LogicEngine {
             surviving_prior_evidence: [...transition.surviving_prior_evidence],
             invalidated_prior_evidence: [...transition.invalidated_prior_evidence],
             prior_stance_preserved_despite_invalidation: transition.prior_stance_preserved_despite_invalidation,
+            ...(commitPrepared.policy_authority ? { policy_authority: commitPrepared.policy_authority } : {}),
+            write_authorization_ref: writeAuthorization.authorization_ref,
           }],
         }, { [INTERNAL_CORE_EFFECTS]: true, allowNpcBeliefTransition: true });
         assert(event.idempotent_replay !== true, 'NPC_BELIEF_PROJECTION_MISSING',
@@ -1144,6 +1498,7 @@ export class LogicEngine {
         return {
           status: 'ready',
           idempotent_replay: false,
+          ...(commitPrepared.policy_authority ? { policy_authority: commitPrepared.policy_authority } : {}),
           transition: {
             ...transition,
             transition_id: transitionId,
@@ -1214,6 +1569,7 @@ export class LogicEngine {
             acquisition_authorization_ref: item.acquisition_authorization_ref,
             provenance_ref: item.provenance_ref,
             provenance_digest: item.provenance_digest,
+            ...(read.policy_authority ?? {}),
           }));
         } catch {
           throw new EngineError('NPC_KNOWLEDGE_VISIBILITY_NOT_AUTHORIZED',
@@ -1222,6 +1578,7 @@ export class LogicEngine {
         const allowedKeys = [
           'status', 'world_id', 'conversation_id', 'adapter_id', 'actor_id', 'recipient', 'purpose', 'world_revision',
           'commit_sequence', 'acquisition_id', 'authorization_ref',
+          ...(read.policy_authority ? ['authority_id', 'generation', 'snapshot_fingerprint'] : []),
         ];
         const exactDecision = exactDataRecord(decision, allowedKeys);
         if (!exactDecision || !['allowed', 'denied'].includes(decision.status)
@@ -1232,6 +1589,9 @@ export class LogicEngine {
           || decision.world_revision !== read.snapshot.world_revision
           || decision.commit_sequence !== read.snapshot.commit_sequence
           || decision.acquisition_id !== item.acquisition_id
+          || (read.policy_authority && (decision.authority_id !== read.policy_authority.authority_id
+            || decision.generation !== read.policy_authority.generation
+            || decision.snapshot_fingerprint !== read.policy_authority.snapshot_fingerprint))
           || typeof decision.authorization_ref !== 'string' || !decision.authorization_ref.trim()) {
           throw new EngineError('NPC_KNOWLEDGE_VISIBILITY_NOT_AUTHORIZED',
             'The visibility decision did not bind to this actor, acquisition, purpose, and snapshot.', 403);
@@ -1247,17 +1607,33 @@ export class LogicEngine {
       // advances world_revision without advancing commit_sequence, so separate
       // reads can accidentally combine values from opposite sides of a rollback.
       let snapshotNow;
-      try { snapshotNow = this.getSnapshot(input.world_id); } catch { snapshotNow = null; }
+      try { snapshotNow = this.getNpcKnowledgeSnapshot(input.world_id); } catch { snapshotNow = null; }
       assert(snapshotNow && snapshotNow.status === 'active'
         && snapshotNow.world_revision === read.snapshot.world_revision
         && snapshotNow.commit_sequence === read.snapshot.commit_sequence,
       'NPC_KNOWLEDGE_READ_NOT_READY',
       'World snapshot changed while reconciling NPC belief state; retry from a fresh snapshot.', 409);
+      revalidateNpcKnowledgeReadAuthorization(this, {
+        world_id: read.world_id,
+        conversation_id: read.conversation_id,
+        adapter_id: read.adapter_id,
+        actor_id: read.actor_id,
+        recipient: read.recipient,
+        purpose: read.purpose,
+        expected_revision: read.snapshot.world_revision,
+        expected_commit_sequence: read.snapshot.commit_sequence,
+        limit,
+      }, snapshotNow, read.authorization_ref, read.policy_authority ?? null);
   
       // Check visibility before querying belief history. Otherwise, unknown vs.
       // unavailable could reveal whether a hidden proposition has a stored belief.
       if (propositionWithheld) {
-        return Object.freeze({ status: 'unavailable', actor_id: input.actor_id, proposition_ref: input.proposition_ref });
+        return Object.freeze({
+          status: 'unavailable',
+          actor_id: input.actor_id,
+          proposition_ref: input.proposition_ref,
+          ...(read.policy_authority ? { policy_authority: read.policy_authority } : {}),
+        });
       }
       const row = this.store.db.prepare(`
         SELECT b.transition_id, b.proposition_ref, b.proposition_value_json, b.stance,
@@ -1269,12 +1645,41 @@ export class LogicEngine {
         WHERE b.world_id=? AND b.actor_id=? AND b.proposition_ref=? AND e.validity='valid'
         ORDER BY e.commit_sequence DESC LIMIT 1
       `).get(input.world_id, input.actor_id, input.proposition_ref);
-      if (!row) return Object.freeze({ status: 'unknown', actor_id: input.actor_id, proposition_ref: input.proposition_ref });
+      const revalidateBeliefStateRead = () => {
+        const finalSnapshot = this.getNpcKnowledgeSnapshot(input.world_id);
+        assert(finalSnapshot && finalSnapshot.status === 'active'
+          && finalSnapshot.world_revision === read.snapshot.world_revision
+          && finalSnapshot.commit_sequence === read.snapshot.commit_sequence,
+        'NPC_KNOWLEDGE_READ_NOT_READY',
+        'World snapshot changed while reading NPC belief history; retry from a fresh snapshot.', 409);
+        revalidateNpcKnowledgeReadAuthorization(this, {
+          world_id: read.world_id,
+          conversation_id: read.conversation_id,
+          adapter_id: read.adapter_id,
+          actor_id: read.actor_id,
+          recipient: read.recipient,
+          purpose: read.purpose,
+          expected_revision: read.snapshot.world_revision,
+          expected_commit_sequence: read.snapshot.commit_sequence,
+          limit,
+        }, finalSnapshot, read.authorization_ref, read.policy_authority ?? null);
+      };
+      if (!row) {
+        revalidateBeliefStateRead();
+        return Object.freeze({
+          status: 'unknown',
+          actor_id: input.actor_id,
+          proposition_ref: input.proposition_ref,
+          ...(read.policy_authority ? { policy_authority: read.policy_authority } : {}),
+        });
+      }
       const evidence = JSON.parse(row.evidence_acquisition_ids_json);
       const surviving = evidence.filter((ref) => visibleAcquisitionIds.has(ref));
+      revalidateBeliefStateRead();
       return Object.freeze({
         status: 'ready',
         actor_id: input.actor_id,
+        ...(read.policy_authority ? { policy_authority: read.policy_authority } : {}),
         proposition_ref: row.proposition_ref,
         ...(surviving.length > 0 ? { proposition_value: JSON.parse(row.proposition_value_json) } : {}),
         stance: row.stance,
