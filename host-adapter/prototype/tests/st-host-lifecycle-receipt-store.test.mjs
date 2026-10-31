@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createHash } from 'node:crypto';
 import { HostLifecycleReceiptStore } from '../st-host-lifecycle-receipt-store.mjs';
 
 const INSTALLATION = '11111111-1111-4111-8111-111111111111';
@@ -12,7 +13,7 @@ const CONVERSATION = '44444444-4444-4444-8444-444444444444';
 const MUTATION = '55555555-5555-4555-8555-555555555555';
 const PREPARED_EVENT = '66666666-6666-4666-8666-666666666666';
 const TERMINAL_EVENT = '77777777-7777-4777-8777-777777777777';
-const digest = value => value.repeat(64).slice(0, 64);
+const digest = value => createHash('sha256').update(String(value)).digest('hex');
 const version = (id, content, active = true) => ({
   version_id: id,
   version_index: 0,
