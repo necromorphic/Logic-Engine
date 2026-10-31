@@ -141,6 +141,31 @@ test('event validation rejects mutable or incomplete Host version identities', (
 });
 
 
+test('Host authority generation is durable and cannot roll back without authority rotation', (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-host-authority-generation-'));
+  const path = join(directory, 'host-journal.sqlite');
+  const coordinatorPath = join(directory, 'coordinator.sqlite');
+  const makeJournal = () => new HostLifecycleJournal({
+    path, coordinatorPath, resolveIdentity: () => ({ authorized: false }),
+  });
+  let journal = makeJournal();
+  assert.equal(journal.setAuthorityGeneration('host-authority-a', 4).status, 'INITIALIZED');
+  assert.equal(journal.setAuthorityGeneration('host-authority-a', 4).status, 'UNCHANGED');
+  assert.equal(journal.setAuthorityGeneration('host-authority-a', 5).status, 'ADVANCED');
+  assert.throws(() => journal.setAuthorityGeneration('host-authority-a', 3),
+    /HOST_LIFECYCLE_AUTHORITY_GENERATION_ROLLBACK/);
+  journal.close();
+
+  journal = makeJournal();
+  t.after(() => {
+    try { journal.close(); } catch {}
+    rmSync(directory, { recursive: true, force: true });
+  });
+  assert.throws(() => journal.setAuthorityGeneration('host-authority-a', 4),
+    /HOST_LIFECYCLE_AUTHORITY_GENERATION_ROLLBACK/);
+  assert.equal(journal.setAuthorityGeneration('host-authority-b', 1).status, 'ROTATED');
+});
+
 test('durable lifecycle journal survives close/reopen and replay remains idempotent', (t) => {
   const directory = mkdtempSync(join(tmpdir(), 'logic-host-lifecycle-restart-'));
   const path = join(directory, 'host-journal.sqlite');
