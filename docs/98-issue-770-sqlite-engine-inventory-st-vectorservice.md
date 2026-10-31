@@ -4,6 +4,10 @@
 **Purpose:** identify SQLite engines and files that are outside the Node.js `node:sqlite` VFS probe.  
 **Scope:** static archive inspection only. No SQLite database was opened, modified, checkpointed, or migrated.
 
+## SillyTavern host boundary
+
+The separately supplied `SillyTavern-release.zip` identifies the host release as **SillyTavern 1.19.0** (Node engine requirement `>=20`). A static search of its packaged JavaScript/JSON files found no `node:sqlite`, `better-sqlite3`, or `sqlite3` imports/references, and its root `package.json` has no SQLite driver dependency. The SQLite database under review therefore belongs to the separately packaged `ST-VectorService` process, not the SillyTavern core process. This does not make it out of scope: the service's own `better-sqlite3` VFS must be secured before its database constructor runs.
+
 ## Confirmed implementation
 
 - Package: `st-vectorservice` version `1.0.0`.
