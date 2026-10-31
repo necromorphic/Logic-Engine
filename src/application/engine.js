@@ -1058,6 +1058,7 @@ export class LogicEngine {
         purpose: read.purpose,
         expected_revision: read.snapshot.world_revision,
         expected_commit_sequence: read.snapshot.commit_sequence,
+        limit: input.limit,
       };
       revalidateNpcKnowledgeReadAuthorization(
         this, authorizationRequest, snapshotNow, read.authorization_ref, read.policy_authority ?? null,
