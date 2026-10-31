@@ -454,6 +454,7 @@ test('durable Core journal records prepared mutations, blocks overlap, and clear
   };
   assert.equal(journal.append(prepared).status, 'appended');
   assert.equal(journal.append(prepared).status, 'duplicate', 'exact retry is checked before pending-state validation');
+  assert.throws(() => journal.append({ ...prepared, mutation_digest: digest('altered') }), /HOST_LIFECYCLE_EVENT_ID_CONFLICT/);
   assert.equal(journal.getConversationStatus(installation, account, hostSession, conversation, authority).status, 'PENDING_MUTATION');
   assert.throws(() => journal.append({
     ...prepared,
@@ -477,6 +478,47 @@ test('durable Core journal records prepared mutations, blocks overlap, and clear
   assert.equal(committed.status, 'appended');
   assert.equal(journal.getConversationStatus(installation, account, hostSession, conversation, authority).status, 'NO_PENDING_MUTATION');
   assert.equal(journal.verifyChain(installation, account).valid, true);
+});
+
+test('terminal receipt is rejected by default and leaves the mutation pending', (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-host-lifecycle-receipt-deny-'));
+  const path = join(directory, 'host-journal.sqlite');
+  const coordinatorPath = join(directory, 'coordinator.sqlite');
+  const resolveIdentity = input => ({
+    authorized: true,
+    host_installation_id: input.host_installation_id,
+    authenticated_account_id: input.authenticated_account_id,
+    host_session_id: input.host_session_id,
+    conversation_uuid: input.conversation_uuid,
+    ...authority,
+  });
+  const journal = new HostLifecycleJournal({ path, coordinatorPath, resolveIdentity });
+  t.after(() => {
+    try { journal.close(); } catch {}
+    rmSync(directory, { recursive: true, force: true });
+  });
+  const prepared = {
+    event_id: '00000000-0000-4000-8000-000000000031',
+    host_installation_id: installation,
+    authenticated_account_id: account,
+    host_session_id: hostSession,
+    conversation_uuid: conversation,
+    ...authority,
+    occurred_at: '2026-10-31T00:00:00.000Z',
+    event_type: 'MUTATION_PREPARED',
+    mutation_id: '00000000-0000-4000-8000-000000000032',
+    operation: 'edit-message',
+    mutation_digest: digest('intent'),
+  };
+  journal.append(prepared);
+  assert.throws(() => journal.append({
+    ...prepared,
+    event_id: '00000000-0000-4000-8000-000000000033',
+    event_type: 'MUTATION_COMMITTED',
+    receipt_digest: digest('unverified-receipt'),
+    occurred_at: '2026-10-31T00:00:01.000Z',
+  }), /HOST_LIFECYCLE_RECEIPT_MISMATCH/);
+  assert.equal(journal.getConversationStatus(installation, account, hostSession, conversation, authority).status, 'PENDING_MUTATION');
 });
 
 test('prepared Core mutation survives SQLite restart and can be completed by idempotent replay', (t) => {
@@ -507,7 +549,7 @@ test('prepared Core mutation survives SQLite restart and can be completed by ide
   const first = new HostLifecycleJournal({ path, coordinatorPath, resolveIdentity, verifyMutationReceipt: () => true });
   first.append(prepared);
   first.close();
-  const reopened = new HostLifecycleJournal({ path, coordinatorPath, resolveIdentity });
+  const reopened = new HostLifecycleJournal({ path, coordinatorPath, resolveIdentity, verifyMutationReceipt: () => true });
   t.after(() => {
     try { reopened.close(); } catch {}
     rmSync(directory, { recursive: true, force: true });
