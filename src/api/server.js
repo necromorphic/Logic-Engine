@@ -298,27 +298,32 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
         if (!adapterId) return send(res, 403, { error: { code: 'ADAPTER_REQUIRED', message: 'An authenticated adapter identity is required.' } });
         const body = await readBody(req);
         if (!body || typeof body !== 'object' || Array.isArray(body)
-          || Object.keys(body).some((key) => !['conversation_id', 'limit'].includes(key))
+          || Object.keys(body).some((key) => !['conversation_id', 'actor_id', 'limit'].includes(key))
           || typeof body.conversation_id !== 'string'
           || body.conversation_id !== body.conversation_id.trim()
           || !HOST_CONVERSATION_ID.test(body.conversation_id)
+          || typeof body.actor_id !== 'string' || body.actor_id !== body.actor_id.trim()
+          || body.actor_id.length < 1 || body.actor_id.length > 200
+          || [...body.actor_id].some((character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127)
           || body.conversation_id.length > 200
           || [...body.conversation_id].some((character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127)
           || (Object.hasOwn(body, 'limit') && (!Number.isInteger(body.limit) || body.limit < 1 || body.limit > 200))) {
           throw new EngineError('INVALID_NPC_KNOWLEDGE_HOST_REQUEST',
-            'Host context accepts only a bounded conversation_id and optional limit; world, actor, adapter, recipient, purpose, and snapshot fields are Core-owned.', 400);
+            'Host context accepts only a bounded conversation_id, Host-selected actor_id, and optional limit; actor_id is validated against Core binding and never establishes authority.', 400);
         }
         let binding = null;
         try {
           binding = engine.npcKnowledgeContextResolver(Object.freeze({
             adapter_id: adapterId,
             conversation_id: body.conversation_id,
+            actor_id: body.actor_id,
           }));
         } catch {
           binding = null;
         }
         if (!binding || binding.adapter_id !== adapterId
           || binding.conversation_id !== body.conversation_id
+          || binding.actor_id !== body.actor_id
           || typeof binding.world_id !== 'string' || typeof binding.actor_id !== 'string') {
           return send(res, 403, { error: { code: 'HOST_CONVERSATION_NOT_AUTHORIZED', message: 'No unique active Core-owned world and actor binding exists for this authenticated Host conversation.' } });
         }
@@ -330,7 +335,7 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
           world_id: binding.world_id,
           conversation_id: body.conversation_id,
           adapter_id: adapterId,
-          actor_id: binding.actor_id,
+          actor_id: body.actor_id,
           recipient: 'model',
           purpose: 'npc_turn_context',
           expected_revision: snapshot.world_revision,
