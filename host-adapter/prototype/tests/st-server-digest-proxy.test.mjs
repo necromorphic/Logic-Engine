@@ -369,6 +369,7 @@ test('lifecycle journal proxy derives account identity server-side and binds eve
     mutation_id: '55555555-5555-4555-8555-555555555555',
     operation: 'edit-message',
     mutation_digest: 'a'.repeat(64),
+    occurred_at: '2026-10-31T00:00:00.000Z',
   };
   const response = responseRecorder();
   await proxy.append(requestFor(event), response);
@@ -379,12 +380,14 @@ test('lifecycle journal proxy derives account identity server-side and binds eve
   assert.deepEqual(JSON.parse(observed.options.body), {
     host_installation_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
     authenticated_account_id: '22222222-2222-4222-8222-222222222222',
+    host_session_id: SESSION_ID,
     conversation_uuid: '33333333-3333-4333-8333-333333333333',
     event_id: event.event_id,
     event_type: event.event_type,
     mutation_id: event.mutation_id,
     operation: event.operation,
     mutation_digest: event.mutation_digest,
+    occurred_at: event.occurred_at,
   });
   const mismatchedInstallation = responseRecorder();
   await proxy.append(requestFor({ ...event, conversation_id: HOST_CONVERSATION_ID }), mismatchedInstallation);
