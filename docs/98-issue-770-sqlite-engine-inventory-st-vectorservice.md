@@ -34,6 +34,31 @@ The archive contains several `vector_storage_backup_*` directories with Vectra `
 
 The archive also contains large `index.json.backup` and `index.json.pre-optimization.backup` files under a Vectra index directory. These are not SQLite backups.
 
+## Separate source audit: upstream better-sqlite3 v13.0.3
+
+**Audit basis:** exact upstream tag `WiseLibs/better-sqlite3@v13.0.3`, not an assumption based on the Node.js SQLite version.
+
+Source files inspected:
+- `package.json`: package version 13.0.3; Node engine requirement >=22.
+- `binding.gyp` and `deps/sqlite3.gyp`: when building from source, `deps/sqlite3/sqlite3.c` is compiled as a static SQLite library and linked into the `better_sqlite3` native addon.
+- `deps/sqlite3/sqlite3.h`: exact tag reports SQLite 3.53.4, source ID `2026-07-24 19:02:57 bf7c7f30031888f4e796e429ab3978879485813aaca6f641c7b33e4e09459bcc`.
+- `src/objects/database.cpp`: `Database::JS_new` calls `sqlite3_open_v2(filename, ..., mask, NULL)`; the VFS argument is hard-coded to NULL, selecting that SQLite instance's default VFS.
+- The same file's `JS_loadExtension` calls `sqlite3_load_extension(db->db_handle, ...)` on an already-created database handle. Loading an extension through this API is therefore too late to secure the initial `new Database(DB_PATH)` open.
+- `lib/binding.js`: runtime loads a platform prebuild when present, otherwise the package's compiled `build/Release/better_sqlite3.node`. The VFS and SQLite build used by the actual installed binary must be verified, not inferred from Node's `node:sqlite` version.
+
+### Audit conclusion
+
+The ST-VectorService `better-sqlite3` connection is **not covered** by the Node 22.13.0 / SQLite 3.47.2 VFS registration. The upstream v13.0.3 source embeds a distinct SQLite 3.53.4 engine in its native addon. SQLite VFS registrations are local to the SQLite library instance; the secure VFS must be compiled/registered inside this addon before its first `sqlite3_open_v2`, and the open call must select the secure VFS explicitly (or the secure VFS must be made the verified default before any connection opens). The current `loadExtension()` route cannot protect the first open.
+
+A valid integration therefore requires a controlled fork/rebuild of `better-sqlite3` v13.0.3 (or a reviewed replacement binding) that:
+1. builds the secure backend against the exact SQLite 3.53.4 amalgamation and compile options used by the deployed addon;
+2. registers it during addon initialization before any Database object can be constructed;
+3. changes the database open path to select the secure VFS explicitly;
+4. fails closed if registration or role-manifest validation did not complete;
+5. runs the same DB/WAL/SHM/locking/restart/crash adversarial suite on the addon-specific engine.
+
+**Remaining evidence gap:** the uploaded ST-VectorService archive is 487,558,036 bytes and exceeded the available 100 MiB materialization limit. The upstream source tag is audited, and the earlier archive inventory confirms the declared package/driver/startup configuration, but the exact `prebuilds/*.node` or installed `better_sqlite3.node` binary inside that archive has not been extracted and hashed. The actual deployed binary's SQLite version/source ID/compile options must be queried from that binary before calling this audit complete. No database contents were opened or changed.
+
 ## Security consequences for Issue #770
 
 1. The deployment inventory must treat ST-VectorService as a separate protected SQLite engine/role, not as a database already covered by the Node `node:sqlite` VFS proof.
