@@ -29,6 +29,16 @@ Before capture can succeed, an administrator must bind the authenticated adapter
 
 **Production remains fail-closed.** Core currently composes the digest ledger with a deny-only inventory verifier, so capture can persist digests but reconciliation cannot publish `READY`. This path does not persist raw message text, create semantic Memory records, admit Memory→NPC context, or authorize outbound model dispatch. Do not infer readiness from a successful HTTP response.
 
+## Host Lifecycle Journal v1 contract
+
+[HOST-LIFECYCLE-JOURNAL-V1.md](./HOST-LIFECYCLE-JOURNAL-V1.md) is the consolidated v1 implementation specification for the eleven independent-review findings: installation/account/session/conversation scope, authority snapshot, mutation IDs and event idempotency, state machine, digest/receipt semantics, SQLite atomicity, concurrency, status response, crash recovery and pinned SillyTavern operation mapping.
+
+The terminal receipt path now has a server-side persisted-state verifier candidate. Before forwarding PREPARED, the authenticated ST server proxy snapshots the selected conversation's logical message/version identities and the full-root file inventory into immutable, fsynced receipt records. Before forwarding COMMITTED, it rescans the pinned ST data roots, requires the target chat file to have changed according to the operation-specific transition (create/edit/swipe-select/swipe-delete/message-delete), and requires every non-target root entry and other chat file to remain unchanged. It then computes a receipt digest and signs the terminal envelope with the server-held adapter token. Core verifies that HMAC using its configured adapter secret; the browser cannot supply receipt digests or signatures. ABORTED is accepted only when the server proves the exact pre-state remains unchanged. The local receipt directory must be outside the scanned ST data root; configure `LOGIC_ENGINE_HOST_RECEIPT_DIR` to an absolute protected directory when the identity-store directory is inside that root.
+
+This is still a review-only candidate, not production readiness. Linux uses independent stable scans rather than one shared point-in-time snapshot; Windows VSS alignment is available but still requires exact runtime evidence. Crash recovery is evidence-driven: the first authenticated status check can replay a durable terminal receipt or issue COMMITTED/ABORTED only when a fresh server scan proves the exact post-state or unchanged pre-state. Missing, partial or mixed evidence remains RECOVERY_REQUIRED / NON_READY. Chat import and group-chat import are blocked by both browser hooks and server middleware whenever an enrolled conversation exists; backup restore routes through those guarded imports. Export is read-only. Bulk deletion, branch/copy, rename, group metadata migration, and other uninstrumented paths remain explicitly unsupported and fail closed. No browser journal checkpoint or successful save callback alone is accepted as evidence for COMMITTED.
+
+The deployment authority context requires deployment-owned ENGINE_HOST_AUTHORITY_ID and positive ENGINE_HOST_AUTHORITY_GENERATION, plus a verified durable Host root-inventory head. These values are not browser inputs. Core persists the authority generation high-water mark and rejects rollback for the same authority ID; rotating the authority ID starts a new, explicitly invalidating lineage. Missing authority configuration or root-inventory evidence denies lifecycle API access.
+
 ## Pinned-source hook patch
 
 The candidate patch also replaces a provider sender's raw request-body debug log with metadata-only logging (`model`, `stream`, and message count). The pinned-source CI fails if the raw-body log returns and syntax-checks/lints the changed endpoint. This is a patch-artifact mitigation only; it is not installed into a live ST instance and does not create a final-send authorization gateway.
@@ -168,6 +178,98 @@ The pinned Host route exposes `GET /api/logic-engine/host/session`. It requires 
 
 `hostSessionId:installationId:conversationUuid`
 
-This prevents two different authenticated ST sessions from silently reusing the same Core conversation binding. The session ID is not a credential and does not authenticate a request to Core; Core still trusts only the configured server-side adapter credential and its own conversation/world binding. The browser's localStorage installation ID remains a client-side namespace, not an installation attestation.
+This prevents two different authenticated ST sessions from silently reusing the same Core conversation binding. The session ID is not a credential and does not authenticate a request to Core; Core still trusts only the configured server-side adapter credential and its own conversation/world binding. The browser's localStorage installation ID remains a client-side conversation namespace, not an installation identity.
 
 The session ID survives a SillyTavern process restart only while the signed session cookie and the ST cookie-signing secret remain valid and unchanged. Logout/login, cookie loss, secret rotation, or account change rotates the identity. Existing enrollments created with the old `installationId:conversationUuid` format are not migrated automatically; the old marker/mapping mismatch fails closed and requires explicit re-binding. This is still not a durable server installation identity, a complete inventory proof, or Core world/actor authorization.
+
+
+## Server-persisted installation/account identity — approved contract implementation slice
+
+The current branch adds a second authenticated route, `GET /api/logic-engine/host/identity`, backed by `HostIdentityStore`. Configure `LOGIC_ENGINE_HOST_IDENTITY_DIR` to an absolute, server-controlled directory that is not writable by the browser or ordinary chat data operations. If the variable is absent, the route is not mounted and the browser lifecycle journal cannot open; enrolled operations fail closed.
+
+The store creates:
+- one server-generated installation UUID in `installation.json`;
+- one opaque server-generated account UUID per authenticated SillyTavern account handle. The handle itself is not stored; its SHA-256 digest names the account record.
+
+The identity endpoint is available only after the signed session's account handle matches the authenticated server account. It returns installation ID, account ID, and the current session UUID. The browser verifies the session UUID matches the preceding `/session` response, then opens an IndexedDB journal namespaced by installation/account and includes both IDs in each journal record and head checkpoint. Existing v2 browser journal databases are not silently adopted; the v3 identity-bound journal uses a new database namespace.
+
+Operational constraints:
+- Account rename produces a new opaque account ID and requires explicit re-enrollment; no implicit identity migration is attempted.
+- Loss or replacement of the identity directory creates a new installation identity and requires explicit recovery/re-enrollment.
+- The directory must be backed up/restored only together with the independently administered accepted-head recovery procedure. This local file store and browser IndexedDB chain are not independently rollback-resistant.
+- This does not provide runtime source attestation. `LOGIC_ENGINE_HOST_BUILD_SHA` remains an operator deployment assertion only.
+- The Core-side append-only journal prototype currently has a trusted identity-resolver seam but is not yet connected to this ST endpoint. The identity route and browser journal changes therefore remain an integration candidate, not production authority.
+
+Run the expanded pinned-host checks with:
+```sh
+node --test host-adapter/prototype/tests/*.test.mjs tests/host-source-inventory.test.js tests/host-lifecycle-journal.test.js
+```
+
+
+## Coordinator approval and release boundary — 30 Oct 2026
+
+The delegated project-level contract now explicitly approves this metadata-only identity/lifecycle direction. The journal is evidence of operations observed by the instrumented Host; it is not, by itself, proof that every SillyTavern mutation path is instrumented or that the filesystem inventory is complete.
+
+For the first slice:
+- Persist only installation/account/conversation/message/version identifiers, parent/active relationships, operation type, monotonic sequence, and content digests. Never persist message text, prompts, summaries, or provider credentials.
+- A missing journal event, unsupported operation, out-of-band filesystem change, invalid hash chain, or uncertain restore makes the affected conversation NON_READY.
+- The baseline starts at explicit enrollment. Deleted history from before enrollment is unknown and must not be represented as captured.
+- Browser IndexedDB and the local server identity directory are not anti-rollback authorities. The external accepted-head/restore domain remains a separate release gate.
+- This branch does not authorize Provider raw capture, Core READY publication, protected model disclosure, or production Memory→NPC activation.
+
+
+## Full-root VSS inventory and per-file reconciliation candidate
+
+This candidate ports the pinned-ST 1.19.0 full-root scanner, Windows VSS snapshot lease, authenticated manifest object check, and file-level delta journal. The server inventory response remains explicitly review-only: it reports the current source blockers and does not publish READY.
+
+The standalone reconciliation module now supports an enrollment-forward baseline, path/physical-identity/SHA-256 comparison, and durable observation of added, removed, modified, replaced and moved files without storing file contents. A recorded delta is **not** accepted as legitimate until a matching operation-specific persisted receipt proves the same before/after file transition. Restoring bytes to the old baseline does not erase an unresolved delta observation. The module is not yet connected to the authenticated ST inventory route or a server-owned accepted-head authority; the route therefore continues to report `NO_DURABLE_FULL_ROOT_BASELINE` and `NO_FULL_ROOT_PER_FILE_DIFF`.
+
+The current source still does not prove operation-specific file receipts for every mutation endpoint. In particular, imports, exports, restore, copy/branch, external edits, recursive deletes and group metadata changes must remain NON_READY until the pinned Host server routes are instrumented and tested against real persisted files. The Host identity route returns a session UUID to the browser, but the current Core SQLite event envelope does not persist that session UUID and has no filesystem-baseline/delta event types; those are explicit schema/API additions for the next reviewed diff. The VSS snapshot is crash-consistent, not an application-level ST transaction. The local identity directory and browser IndexedDB are not independent anti-rollback authorities.
+
+The full-root scanner, source inventory and VSS provider are separate evidence layers:
+- generic file manifest: complete file-set/content view of the authenticated per-user data root;
+- semantic source inventory: current chat/group logical identities and retained versions;
+- lifecycle journal: post-enrollment operations and immutable event history;
+- per-file reconciliation: exact file delta, fail-closed absent a matching operation receipt.
+
+No raw chat content is copied into the journal. No Provider, vectorization, Ollama or Memory→NPC production wiring is enabled by this candidate.
+
+
+### Real SillyTavern file-operation harness
+
+`experiments/host-adapter-runtime-harness/lifecycle-file-operations.test.mjs` mounts the actual pinned SillyTavern 1.19.0 `src/endpoints/chats.js` and `src/endpoints/backups.js` routers against disposable real directories. It exercises:
+- chat create, edit, swipe update and message removal through `POST /api/chats/save`;
+- chat rename and whole-chat deletion;
+- JSONL export and import;
+- backup download followed by import, matching the native restore workflow;
+- group chat import, save and delete.
+
+Before and after each operation, the harness takes a Windows VSS snapshot of the temporary user data root and runs the real file inventory and per-file reconciliation code. It asserts the expected added/removed/modified/replaced file delta and that the journal observation contains no raw chat text. It also calls the mounted Host `/session`, `/identity` and `/inventory` routes, checks stable installation/account/session IDs, and verifies shared-VSS full-root inventory while asserting the known baseline/reconciliation blockers. The harness checks the exact SillyTavern commit SHA.
+
+This is real Host route/file-operation evidence, but it is not yet an end-to-end trusted receipt: the test journal is an isolated adapter, and the production ST route does not yet forward operation-specific file receipts to the Core SQLite journal. The current route must therefore remain NON_READY.
+
+
+## Exact-head CI and reconciliation boundary — 31 Oct 2026
+
+Validated candidate HEAD: `d9e099dd11553369f664d8633bed083d095e6484`.
+
+Exact-head CI:
+- Runtime tests: SUCCESS; full `npm test` reports 1,383 passed, 0 failed. The Windows Host prototype suite and recalculation oracle also passed.
+- Host Adapter pinned SillyTavern source audit: SUCCESS, including the real pinned 1.19.0 file-operation harness.
+- Chromium IndexedDB restart: SUCCESS. A persistent profile was closed and reopened; the metadata-only filesystem baseline and file-level delta records remained present, journal integrity verified, and no raw-text sentinel was present.
+- Pinned Host source audit, patch apply/lint validation and patch check: SUCCESS.
+- Linux/Windows security, Core trusted acquisition, Host inventory reconciliation, NPC boundary, Process contract and mechanics-policy authority jobs: SUCCESS.
+
+The Chromium restart test proves that these records survive a browser process restart with the same profile. It does **not** prove rollback resistance, server ownership, Android/Termux persistence, or a trusted accepted-head authority.
+
+### Explicit limitations found in the reconciliation path
+
+The current `reconcileFilesystemInventory()` implementation is observation-only for changed file sets:
+- It persists the initial baseline and later `filesystem-inventory-delta-observed` records in the supplied journal.
+- It currently has **no operation-receipt verification implementation**. It does not accept any changed delta, even if a caller appends a record labelled as an operation receipt; every changed delta remains `NON_READY`.
+- It does not append a `filesystem-inventory-reconciled` checkpoint. The checkpoint name is reserved in the lookup but there is no successful receipt-authorized transition yet.
+- The browser restart test validates persistence of the baseline/delta metadata at the IndexedDB layer, not integration with the pinned SillyTavern route or Core SQLite journal.
+
+There is also a scope mismatch to resolve before integration: the generic inventory is for the authenticated account's entire SillyTavern data root, but the current reconciliation API keys its journal by `conversationId`. A per-conversation journal does not establish one shared baseline for the whole installation/account root. The next Core-reviewed contract must decide and enforce the root-baseline scope (installation + authenticated account + canonical root identity), separately from conversation-level message lifecycle evidence.
+
+These are not implementation details to silently infer. They require a separate exact Core approval before adding Core event types, tables, API fields, receipt schemas, or production Host wiring. Until then, all file deltas remain review-only and fail closed; the route must continue returning `NO_DURABLE_FULL_ROOT_BASELINE` and `NO_FULL_ROOT_PER_FILE_DIFF`.

@@ -159,6 +159,7 @@ index 88d815b..f237371 100644
 +        const canDeleteSwipe = power_user.confirm_message_delete && !fromSlashCommand && !message.is_user && swipesArray.length > 1 && editIndex === chat.length - 1 && selectedSwipe !== undefined;
 +        await deleteMessage(editIndex, canDeleteSwipe ? selectedSwipe : undefined, power_user.confirm_message_delete && fromSlashCommand !== true, true, this_edit_mes_target);
      });
+ 
 diff --git a/public/scripts/slash-commands.js b/public/scripts/slash-commands.js
 index 0c7eec5..ab60b1c 100644
 --- a/public/scripts/slash-commands.js

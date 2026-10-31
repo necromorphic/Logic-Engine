@@ -31,8 +31,10 @@ jobs:
         run: node --import ./tests/configure-test-env.js --test tests/npc-memory-candidate-eligibility.test.js tests/memory-npc-consumer.test.js tests/trusted-initial-knowledge-source.test.js tests/npc-epistemic-state.test.js tests/npc-knowledge-read.test.js tests/npc-belief-state.test.js tests/npc-knowledge-snapshot-race.test.js tests/npc-belief-state-snapshot-race.test.js
 
   test:
-    runs-on: [self-hosted, Windows, X64]
-    timeout-minutes: 10
+    # VSS-backed Host inventory tests require the hosted Windows image's VSS provider;
+    # keep this portable CI job independent of the local self-hosted runner service.
+    runs-on: windows-latest
+    timeout-minutes: 20
     permissions:
       contents: read
     defaults:
@@ -52,7 +54,7 @@ jobs:
           node -e "const [major, minor] = process.versions.node.split('.').map(Number); if (major < 22 || (major === 22 && minor < 13)) { console.error('Node.js 22.13.0 or newer is required; found ' + process.versions.node); process.exit(1); }"
       - run: npm test
       - name: Run Host lifecycle prototype tests on Windows
-        run: node --test host-adapter/prototype/tests/*.test.mjs
+        run: node --test --test-concurrency=1 host-adapter/prototype/tests/*.test.mjs
       - run: node --test experiments/recalculation-oracle/harness.test.mjs
 
   core-trusted-acquisition:

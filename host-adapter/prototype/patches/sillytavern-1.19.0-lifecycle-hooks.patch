@@ -24,7 +24,7 @@ diff --git a/public/script.js b/public/script.js
 +
      // Make sure all the data is loaded.
      await unshallowCharacter(characterId);
-@@ -1583,23 +1593,180 @@
+@@ -1583,23 +1593,233 @@
   * @param {object} [options] Options
   * @param {boolean} [options.clearData=false] Optionally clear the chat array's contents.
   */
@@ -56,6 +56,30 @@ diff --git a/public/script.js b/public/script.js
 +    return (await getLogicEngineHostSession()).host_session_id;
 +}
 +
++let logicEngineHostIdentityPromise;
++async function getLogicEngineHostIdentity() {
++    if (!logicEngineHostIdentityPromise) {
++        logicEngineHostIdentityPromise = getLogicEngineHostSession().then(async session => {
++            const response = await fetch('/api/logic-engine/host/identity', {
++                credentials: 'same-origin',
++                cache: 'no-store',
++            });
++            if (!response.ok) throw Error('Server-persisted Host identity unavailable');
++            const identity = await response.json();
++            if (identity?.host_session_id !== session.host_session_id
++                || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(identity.host_installation_id)
++                || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(identity.authenticated_account_id)
++                || identity.identity_source !== 'SERVER_PERSISTED_OPAQUE_IDENTITY') {
++                throw Error('Server-persisted Host identity is malformed or belongs to another session');
++            }
++            return identity;
++        }).catch(error => {
++            logicEngineHostIdentityPromise = null;
++            throw error;
++        });
++    }
++    return logicEngineHostIdentityPromise;
++}
 +let logicEngineLifecyclePendingRenameId = null;
 +async function getLogicEngineConversationId() {
 +    const hostSessionId = await getLogicEngineHostSessionId();
@@ -75,7 +99,10 @@ diff --git a/public/script.js b/public/script.js
 +let logicEngineLifecycleBridgePromise;
 +async function getLogicEngineLifecycleBridge() {
 +    if (!logicEngineLifecycleBridgePromise) {
-+        logicEngineLifecycleBridgePromise = HostLifecycleJournal.open().then(journal => createStLifecycleBridge({
++        logicEngineLifecycleBridgePromise = getLogicEngineHostIdentity().then(identity => HostLifecycleJournal.open({
++            hostInstallationId: identity.host_installation_id,
++            authenticatedAccountId: identity.authenticated_account_id,
++        })).then(journal => createStLifecycleBridge({
 +            journal,
 +            getConversationId: getLogicEngineConversationId,
 +            getSourceLocator: getCurrentChatId,
@@ -119,6 +146,32 @@ diff --git a/public/script.js b/public/script.js
 +                    throw Error('Core inventory reconciliation rejected with HTTP ' + response.status + code);
 +                }
 +                return payload;
++            },
++            publishLifecycleEvent: async event => {
++                const response = await fetch('/api/logic-engine/host-lifecycle/events', {
++                    method: 'POST',
++                    credentials: 'same-origin',
++                    headers: { 'Content-Type': 'application/json' },
++                    body: JSON.stringify(event),
++                });
++                const payload = await response.json().catch(() => null);
++                if (!response.ok) {
++                    const code = typeof payload?.error?.code === 'string' ? ' (' + payload.error.code + ')' : '';
++                    throw Error('Core lifecycle journal rejected event with HTTP ' + response.status + code);
++                }
++                return payload;
++            },
++            getLifecycleStatus: async conversationId => {
++                const response = await fetch('/api/logic-engine/host-lifecycle/status?conversation_id='
++                    + encodeURIComponent(conversationId), {
++                    credentials: 'same-origin',
++                    cache: 'no-store',
++                });
++                const payload = await response.json().catch(() => null);
++                if (!response.ok || !payload?.lifecycle) {
++                    throw Error('Core lifecycle journal status unavailable');
++                }
++                return payload.lifecycle;
 +            },
 +        })).catch(async error => {
 +            if (hasAnyHostEnrollment(localStorage)) throw Error('NON_READY: enrolled Host journal or authenticated session identity unavailable: ' + error.message);
@@ -205,7 +258,7 @@ diff --git a/public/script.js b/public/script.js
  
      if (clearData) chat.length = 0;
  }
-@@ -1607,6 +1693,12 @@
+@@ -1607,6 +1746,12 @@
  export async function deleteLastMessage() {
 +    const lifecycleBridge = await getLogicEngineLifecycleBridge();
 +    const lifecycleBefore = chat.length
@@ -218,7 +271,7 @@ diff --git a/public/script.js b/public/script.js
      chatElement.children('.mes').last().remove();
      await eventSource.emit(event_types.MESSAGE_DELETED, chat.length);
  }
-@@ -1677,19 +1769,23 @@
+@@ -1677,19 +1822,23 @@
      const firstMessageId = getMessageDeletionStartId(id, deleteToolCalls);
      const messageIds = Array.from({ length: id - firstMessageId + 1 }, (_, index) => id - index);
 +    const lifecycleBridge = await getLogicEngineLifecycleBridge();
@@ -242,7 +295,7 @@ diff --git a/public/script.js b/public/script.js
      if (this_edit_mes_id === id) {
          this_edit_mes_id = undefined;
      }
-@@ -5905,16 +6001,21 @@
+@@ -5905,16 +6054,21 @@
      chat_metadata.tainted = true;
  
 +    const lifecycleBridge = await getLogicEngineLifecycleBridge();
@@ -264,7 +317,7 @@ diff --git a/public/script.js b/public/script.js
          addOneMessage(message);
          await eventSource.emit(event_types.USER_MESSAGE_RENDERED, chat_id);
      }
-@@ -6653,3 +6754,12 @@
+@@ -6653,3 +6807,12 @@
          type = 'normal';
      }
 +
@@ -277,14 +330,14 @@ diff --git a/public/script.js b/public/script.js
 +        await lifecycleBridge.beforeMutation(lifecycleOperation, [chat.length - 1]);
 +    }
  
-@@ -6827,3 +6937,6 @@
+@@ -6827,3 +6990,6 @@
  
 +    await lifecycleBridge.afterMutation(lifecycleOperation, {
 +        createdMessageIndex: lifecycleOperation === 'create-message' ? lifecycleOriginalChatLength : null,
 +    });
      statMesProcess(item, type, characters, this_chid, oldMessage);
      return { type, getMessage };
-@@ -8400,35 +8513,38 @@
+@@ -8400,35 +8566,38 @@
          return;
      }
  
@@ -323,7 +376,7 @@ diff --git a/public/script.js b/public/script.js
      await saveChatConditional();
 +    await lifecycleBridge.afterMutation('edit-message');
      showSwipeButtons();
-@@ -9363,7 +9479,9 @@
+@@ -9363,7 +9532,9 @@
          toastr.warning(t`Invalid swipe ID: ${swipeId + 1}`);
          return;
      }
@@ -333,7 +386,7 @@ diff --git a/public/script.js b/public/script.js
      message.swipes.splice(swipeId, 1);
  
      if (Array.isArray(message.swipe_info) && message.swipe_info.length) {
-@@ -9395,11 +9513,12 @@
+@@ -9395,11 +9566,12 @@
          await updateSwipeCounter(messageId);
          if (messageId !== chat.length - 1) {
              await updateSwipeCounter(chat.length - 1);
@@ -346,12 +399,12 @@ diff --git a/public/script.js b/public/script.js
 +    await lifecycleBridge.afterMutation('delete-swipe', { removedSwipeIndex: swipeId, selectedMessageIndex: messageId });
  
      return newSwipeId;
-@@ -9448,2 +9567,4 @@
+@@ -9448,2 +9620,4 @@
  export async function importCharacterChat(formData, { refresh = true } = {}) {
 +    await window.logicEngineHostLifecycle?.guardBulkMutation();
 +
      const fetchResult = await fetch('/api/chats/import', {
-@@ -10090,11 +10211,16 @@
+@@ -10090,11 +10264,16 @@
                  await reloadCurrentChat();
              }
              //Out of bounds swipes should not be saved.
@@ -368,7 +421,7 @@ diff --git a/public/script.js b/public/script.js
          //Allow for another swipe.
          swipeState = SWIPE_STATE.NONE;
          delete document.body.dataset.swiping;
-@@ -10104,5 +10230,13 @@
+@@ -10104,5 +10283,13 @@
      async function standardSwipe(newSwipeId) {
          //If swipe_id has changed, or the source is being deleted.
          if (newSwipeId !== originalSwipeId || source == SWIPE_SOURCE.DELETE || source == SWIPE_SOURCE.BACK) {
@@ -382,7 +435,7 @@ diff --git a/public/script.js b/public/script.js
 +            }
              //Update the chat.
              await loadFromSwipeId(mesId, newSwipeId);
-@@ -10731,9 +10865,27 @@
+@@ -10731,9 +10918,27 @@
  export async function renameChat(oldFileName, newName) {
 -    return await renameGroupOrCharacterChat({
 +    const lifecycleBridge = await getLogicEngineLifecycleBridge();
@@ -417,7 +470,7 @@ diff --git a/public/script.js b/public/script.js
 +        logicEngineLifecyclePendingRenameId = null;
 +    }
  }
-@@ -10828,2 +10980,4 @@
+@@ -10828,2 +11033,4 @@
  export async function deleteCharacter(characterKey, { deleteChats = true } = {}) {
 +    if (deleteChats) await window.logicEngineHostLifecycle?.guardBulkMutation();
 +
@@ -425,7 +478,7 @@ diff --git a/public/script.js b/public/script.js
 diff --git a/public/scripts/bookmarks.js b/public/scripts/bookmarks.js
 --- a/public/scripts/bookmarks.js
 +++ b/public/scripts/bookmarks.js
-@@ -127,3 +127,7 @@
+@@ -127,3 +154,7 @@
  // Export is used by Timelines extension. Do not remove.
  export async function createBranch(mesId, { swipeId = null } = {}) {
 +    if (typeof window !== 'undefined' && window.logicEngineHostLifecycle?.guardOperation) {
@@ -437,15 +490,15 @@ diff --git a/public/scripts/bookmarks.js b/public/scripts/bookmarks.js
 diff --git a/public/scripts/group-chats.js b/public/scripts/group-chats.js
 --- a/public/scripts/group-chats.js
 +++ b/public/scripts/group-chats.js
-@@ -1323,2 +1323,3 @@
+@@ -1323,2 +1350,3 @@
  async function deleteGroup(id) {
 +    await window.logicEngineHostLifecycle?.guardBulkMutation?.();
      const group = groups.find((x) => x.id === id);
-@@ -2219,2 +2220,3 @@
+@@ -2219,2 +2247,3 @@
  export async function renameGroupChat(groupId, oldChatId, newChatId) {
 +    await window.logicEngineHostLifecycle?.guardChatLocatorMutation?.(oldChatId);
      const group = groups.find(x => x.id === groupId);
-@@ -2242,5 +2244,9 @@
+@@ -2242,5 +2271,9 @@
  export async function deleteGroupChatByName(groupId, chatName) {
 +    if (typeof window !== 'undefined' && window.logicEngineHostLifecycle?.guardChatLocatorDeletion) {
 +        await window.logicEngineHostLifecycle.guardChatLocatorDeletion(chatName);
@@ -455,21 +508,25 @@ diff --git a/public/scripts/group-chats.js b/public/scripts/group-chats.js
      if (!group || !group.chats.includes(chatName)) {
          return;
      }
-@@ -2279,2 +2285,3 @@
+@@ -2279,2 +2312,3 @@
  export async function deleteGroupChat(groupId, chatId, { jumpToNewChat = true } = {}) {
 +    await window.logicEngineHostLifecycle?.guardChatLocatorDeletion?.(chatId);
      const group = groups.find(x => x.id === groupId);
-@@ -2319,2 +2326,6 @@
+@@ -2319,2 +2353,6 @@
  export async function importGroupChat(formData, { refresh = true } = {}) {
 +    if (typeof window !== 'undefined' && window.logicEngineHostLifecycle?.guardBulkMutation) {
 +        await window.logicEngineHostLifecycle.guardBulkMutation();
 +    }
 +
      const fetchResult = await fetch('/api/chats/group/import', {
+@@ -2359,2 +2393,3 @@
+ export async function saveGroupBookmarkChat(groupId, name, metadata, mesId, chatData = undefined) {
++    await window.logicEngineHostLifecycle?.guardBulkMutation?.();
+     const group = groups.find(x => x.id === groupId);
 diff --git a/public/scripts/chat-backups.js b/public/scripts/chat-backups.js
 --- a/public/scripts/chat-backups.js
 +++ b/public/scripts/chat-backups.js
-@@ -73,2 +73,6 @@
+@@ -73,2 +100,6 @@
      async restoreBackup(name) {
 +        if (typeof window !== 'undefined' && window.logicEngineHostLifecycle?.guardBulkMutation) {
 +            await window.logicEngineHostLifecycle.guardBulkMutation();
@@ -480,7 +537,7 @@ diff --git a/public/scripts/chat-backups.js b/public/scripts/chat-backups.js
 diff --git a/public/scripts/slash-commands.js b/public/scripts/slash-commands.js
 --- a/public/scripts/slash-commands.js
 +++ b/public/scripts/slash-commands.js
-@@ -5838,5 +5838,7 @@ async function messageRoleCallback(args, role) {
+@@ -5838,5 +5865,7 @@ async function messageRoleCallback(args, role) {
              ? 'system'
              : message.is_user ? 'user' : 'assistant';
      }
@@ -488,13 +545,13 @@ diff --git a/public/scripts/slash-commands.js b/public/scripts/slash-commands.js
 +    const lifecycle = window.logicEngineHostLifecycle;
 +    await lifecycle.guardOperation('edit-message', [modifyAt]);
      message.extra = message.extra || {};
-@@ -5857,4 +5859,5 @@ async function messageRoleCallback(args, role) {
+@@ -5857,4 +5886,5 @@ async function messageRoleCallback(args, role) {
      await eventSource.emit(event_types.MESSAGE_UPDATED, modifyAt);
      await saveChatConditional();
 +    await window.logicEngineHostLifecycle.completeOperation('edit-message');
  
      return role;
-@@ -5886,5 +5889,7 @@ async function messageNameCallback(args, name) {
+@@ -5886,5 +5916,7 @@ async function messageNameCallback(args, name) {
          return message.name;
      }
  
@@ -502,7 +559,7 @@ diff --git a/public/scripts/slash-commands.js b/public/scripts/slash-commands.js
 +    await lifecycle.guardOperation('edit-message', [modifyAt]);
      let newName = '';
  
-@@ -5923,4 +5928,5 @@ async function messageNameCallback(args, name) {
+@@ -5923,4 +5955,5 @@ async function messageNameCallback(args, name) {
      await eventSource.emit(event_types.MESSAGE_UPDATED, modifyAt);
      await saveChatConditional();
 +    await window.logicEngineHostLifecycle.completeOperation('edit-message');
@@ -513,7 +570,7 @@ diff --git a/public/scripts/slash-commands.js b/public/scripts/slash-commands.js
 diff --git a/src/server-main.js b/src/server-main.js
 --- a/src/server-main.js
 +++ b/src/server-main.js
-@@ -107,5 +107,11 @@
+@@ -107,5 +134,11 @@
  app.use(compression());
  app.use(responseTime());
  
@@ -529,7 +586,7 @@ diff --git a/src/server-main.js b/src/server-main.js
 diff --git a/src/server-startup.js b/src/server-startup.js
 --- a/src/server-startup.js
 +++ b/src/server-startup.js
-@@ -51,6 +51,7 @@ import { router as dataMaidRouter } from './endpoints/data-maid.js';
+@@ -51,6 +78,7 @@ import { router as dataMaidRouter } from './endpoints/data-maid.js';
  import { router as backupsRouter } from './endpoints/backups.js';
  import { router as imageMetadataRouter } from './endpoints/image-metadata.js';
  import { router as volcengineRouter } from './endpoints/volcengine.js';
@@ -537,7 +594,7 @@ diff --git a/src/server-startup.js b/src/server-startup.js
  
  /**
   * @typedef {object} ServerStartupResult
-@@ -185,5 +186,6 @@ export function setupPrivateEndpoints(app) {
+@@ -185,5 +213,6 @@ export function setupPrivateEndpoints(app) {
      app.use('/api/data-maid', dataMaidRouter);
      app.use('/api/backups', backupsRouter);
      app.use('/api/image-metadata', imageMetadataRouter);
@@ -548,7 +605,7 @@ diff --git a/src/endpoints/logic-engine-lifecycle.js b/src/endpoints/logic-engin
 new file mode 100644
 --- /dev/null
 +++ b/src/endpoints/logic-engine-lifecycle.js
-@@ -0,0 +1,6 @@
+@@ -0,0 +28,6 @@
 +import express from 'express';
 +import { createHostDigestProxyHandler, createHostInventoryReconcileProxyHandler } from './logic-engine-lifecycle-proxy.mjs';
 +
@@ -559,7 +616,7 @@ new file mode 100644
 diff --git a/src/endpoints/backends/chat-completions.js b/src/endpoints/backends/chat-completions.js
 --- a/src/endpoints/backends/chat-completions.js
 +++ b/src/endpoints/backends/chat-completions.js
-@@ -666,7 +666,11 @@ async function sendMakerSuiteRequest(request, response) {
+@@ -666,7 +693,11 @@ async function sendMakerSuiteRequest(request, response) {
          return body;
      }
  
@@ -572,3 +629,35 @@ diff --git a/src/endpoints/backends/chat-completions.js b/src/endpoints/backends
 +    });
  
      try {
+
+diff --git a/src/endpoints/chats.js b/src/endpoints/chats.js
+--- a/src/endpoints/chats.js
++++ b/src/endpoints/chats.js
+@@ -24,4 +24,7 @@
+     isPathUnderParent,
+ } from '../util.js';
+ 
++import { createHostBulkMutationGuard } from './logic-engine-host-inventory-handler.mjs';
++const hostBulkMutationGuard = createHostBulkMutationGuard({ pinnedHostCommit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127' });
++
+ const isBackupEnabled = !!getConfigValue('backups.chat.enabled', true, 'boolean');
+@@ -748,8 +751,8 @@
+         console.error('chat export failed.', err);
+         return response.sendStatus(400);
+     }
+ });
+ 
+-router.post('/group/import', function (request, response) {
++router.post('/group/import', hostBulkMutationGuard, function (request, response) {
+     try {
+         const filedata = request.file;
+@@ -768,7 +771,7 @@
+         return response.send({ error: true });
+     }
+ });
+ 
+-router.post('/import', validateAvatarUrlMiddleware, function (request, response) {
++router.post('/import', hostBulkMutationGuard, validateAvatarUrlMiddleware, function (request, response) {
+     if (!request.body) return response.sendStatus(400);
+ 
+     const format = request.body.file_type;

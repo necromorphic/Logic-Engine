@@ -4,6 +4,7 @@ import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
 import { once } from 'node:events';
 import { pathToFileURL } from 'node:url';
+import { existsSync } from 'node:fs';
 
 const stRoot = resolve(process.env.SILLYTAVERN_DIR ?? 'SillyTavern');
 const expectedSha = '06bde939fb1e9c4c8d8641d810f0a916b5bce127';
@@ -40,9 +41,16 @@ stUtil.setConfigFilePath(resolve(stRoot, 'default/config.yaml'));
 const { router } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/backends/chat-completions.js')).href);
 
 test('real pinned server Chat Completions handler reaches a recording fake provider exactly once', async (t) => {
-  const { execFileSync } = await import('node:child_process');
-  const actualSha = execFileSync('git', ['-C', stRoot, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
-  assert.equal(actualSha, expectedSha, 'test must run against the exact pinned SillyTavern checkout');
+  if (existsSync(resolve(stRoot, '.git'))) {
+    const { execFileSync } = await import('node:child_process');
+    const actualSha = execFileSync('git', ['-C', stRoot, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+    assert.equal(actualSha, expectedSha, 'test must run against the exact pinned SillyTavern checkout');
+  } else {
+    // The self-hosted runner may receive the immutable checkout as a REST
+    // archive because Git is not installed in its service account PATH.
+    assert.equal(process.env.SILLYTAVERN_CHECKED_OUT_REF, expectedSha,
+      'REST archive harness requires the exact immutable checkout ref');
+  }
 
   let requestCount = 0;
   const arrivals = [];

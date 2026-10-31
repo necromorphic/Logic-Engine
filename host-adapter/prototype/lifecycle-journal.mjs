@@ -32,11 +32,91 @@ export class HostLifecycleJournal {
     if (tail && (!head || head.sequence !== tail.sequence || head.recordDigest !== tail.recordDigest)) return { ok: false, reason: 'head checkpoint mismatch' };
     return { ok: true };
   }
-  async #put(row) {
+  async #put(row, { requireNoPendingMutation = false, requirePendingMutationOperation = null } = {}) {
     const tx = this.#db.transaction(['records','heads'], 'readwrite', { durability: 'strict' });
-    tx.objectStore('records').add(row);
-    tx.objectStore('heads').put({ conversationId: row.conversationId, sequence: row.sequence, recordDigest: row.recordDigest, sourceFingerprint: row.sourceFingerprint });
-    await txDone(tx);
+    const done = txDone(tx);
+    const records = tx.objectStore('records');
+    const heads = tx.objectStore('heads');
+    let rowsReady = false;
+    let headReady = false;
+    let currentRows = [];
+    let currentHead;
+    let validationFailure = null;
+    let expectedFailure = false;
+
+    const abortWith = (reason, expected = false) => {
+      if (validationFailure) return;
+      validationFailure = reason;
+      expectedFailure = expected;
+      try { tx.abort(); } catch {}
+    };
+    const commitIfReady = () => {
+      if (!rowsReady || !headReady || validationFailure) return;
+      currentRows.sort((a, b) => a.sequence - b.sequence);
+      const tail = currentRows.at(-1) ?? null;
+      if (currentRows.length !== row.sequence - 1
+        || (tail?.recordDigest ?? null) !== row.previousRecordDigest) {
+        abortWith('journal changed during append; retry from the verified head', true);
+        return;
+      }
+      if (tail
+        ? (!currentHead || currentHead.sequence !== tail.sequence || currentHead.recordDigest !== tail.recordDigest)
+        : Boolean(currentHead)) {
+        abortWith('journal head checkpoint changed during append', true);
+        return;
+      }
+      const lifecycleRows = currentRows.filter(record =>
+        typeof record.operation === 'string'
+        && (record.operation.startsWith('before:') || record.operation.startsWith('after:')));
+      const latestLifecycle = lifecycleRows.at(-1);
+      if (requireNoPendingMutation && latestLifecycle?.operation.startsWith('before:')) {
+        abortWith('cannot append checkpoint while Host lifecycle mutation is pending: '
+          + latestLifecycle.operation.slice('before:'.length), true);
+        return;
+      }
+      if (requirePendingMutationOperation !== null
+        && latestLifecycle?.operation !== 'before:' + requirePendingMutationOperation) {
+        abortWith('after receipt has no matching durable beforeMutation for '
+          + requirePendingMutationOperation, true);
+        return;
+      }
+      try {
+        records.add(row);
+        heads.put({
+          conversationId: row.conversationId,
+          sequence: row.sequence,
+          recordDigest: row.recordDigest,
+          sourceFingerprint: row.sourceFingerprint,
+        });
+      } catch (error) {
+        abortWith(error?.message || 'journal append transaction failed');
+      }
+    };
+
+    const rowsRequest = records.index('conversationId').getAll(IDBKeyRange.only(row.conversationId));
+    rowsRequest.onsuccess = () => {
+      currentRows = rowsRequest.result ?? [];
+      rowsReady = true;
+      commitIfReady();
+    };
+    rowsRequest.onerror = () => abortWith('journal records could not be read in append transaction');
+
+    const headRequest = heads.get(row.conversationId);
+    headRequest.onsuccess = () => {
+      currentHead = headRequest.result;
+      headReady = true;
+      commitIfReady();
+    };
+    headRequest.onerror = () => abortWith('journal head could not be read in append transaction');
+
+    try {
+      await done;
+    } catch (error) {
+      if (validationFailure && expectedFailure) return { status: 'NON_READY', reason: validationFailure };
+      if (validationFailure) throw Error(validationFailure);
+      throw error;
+    }
+    return null;
   }
   async enroll({ conversationId, sourceFingerprint, messages }) {
     if (!conversationId || !sourceFingerprint || !Array.isArray(messages)) throw TypeError('Invalid baseline');
@@ -51,20 +131,47 @@ export class HostLifecycleJournal {
     if (row?.status === 'NON_READY') throw Error('NON_READY: baseline append rejected: ' + row.reason);
     return {mapping, baselineSequence:row.sequence, preEnrollmentHistory:'UNKNOWN_UNRECOVERABLE'};
   }
-  async append({conversationId,eventId,operation,payload,sourceFingerprint=null}) {
-    if (!conversationId||!eventId||!operation||!payload||typeof payload!=='object') throw TypeError('Invalid event');
+  async append({conversationId,eventId,operation,payload,sourceFingerprint=null,requireNoPendingMutation=false}) {
+    if (!conversationId || !eventId || typeof operation !== 'string' || !operation || !payload || typeof payload !== 'object') throw TypeError('Invalid event');
     const prev=this.#locks.get(conversationId)||Promise.resolve(); let release; const hold=new Promise(r=>release=r), chain=prev.then(()=>hold); this.#locks.set(conversationId,chain); await prev;
     try {
       if(this.#bad.has(conversationId)) throw Error('NON_READY: '+this.#bad.get(conversationId));
       const rows=await this.#records(conversationId), check=await this.#verifyStored(conversationId, rows);
       if(!check.ok) return this.#fail(conversationId,check.reason);
+      if (typeof requireNoPendingMutation !== 'boolean') throw TypeError('requireNoPendingMutation must be a boolean');
       const eventDigest=await digest({conversationId,eventId,operation,payload,sourceFingerprint}), duplicate=rows.find(r=>r.eventId===eventId);
       if(duplicate) return duplicate.eventDigest===eventDigest?duplicate:this.#fail(conversationId,'event ID conflict: '+eventId);
+      const lifecycleRows = rows.filter(row =>
+        typeof row.operation === 'string'
+        && (row.operation.startsWith('before:') || row.operation.startsWith('after:')));
+      const latestLifecycle = lifecycleRows.at(-1);
+      if ((requireNoPendingMutation || operation.startsWith('before:'))
+        && latestLifecycle?.operation.startsWith('before:')) {
+        return { status: 'NON_READY', reason: 'cannot append checkpoint while Host lifecycle mutation is pending: '
+          + latestLifecycle.operation.slice('before:'.length) };
+      }
+      if (operation.startsWith('after:')
+        && latestLifecycle?.operation !== 'before:' + operation.slice('after:'.length)) {
+        return { status: 'NON_READY', reason: 'after receipt has no matching durable beforeMutation for '
+          + operation.slice('after:'.length) };
+      }
       if(operation==='baseline'&&rows.length) return this.#fail(conversationId,'baseline already exists');
       if(operation!=='baseline'&&!rows.length) return this.#fail(conversationId,'event before baseline');
       const p=rows.at(-1), base={id:conversationId+':'+String((p?.sequence||0)+1).padStart(12,'0'),schemaVersion:2,conversationId,sequence:(p?.sequence||0)+1,eventId,operation,sourceFingerprint,payload,eventDigest,previousRecordDigest:p?.recordDigest??null};
       const row={...base,recordDigest:await digest(base)};
-      try { await this.#put(row); } catch(e) { this.#bad.set(conversationId,'durable append failed: '+(e?.message||e)); throw Error('NON_READY: durable append failed; caller MUST abort mutation ('+(e?.message||e)+')'); }
+      const requiredPendingOperation = operation.startsWith('after:') ? operation.slice('after:'.length) : null;
+      let putResult;
+      try {
+        putResult = await this.#put(row, {
+          requireNoPendingMutation: requireNoPendingMutation || operation.startsWith('before:'),
+          requirePendingMutationOperation: requiredPendingOperation,
+        });
+      } catch (error) {
+        this.#bad.set(conversationId, 'durable append failed: ' + (error?.message || error));
+        throw Error('NON_READY: durable append failed; caller MUST abort mutation ('
+          + (error?.message || error) + ')');
+      }
+      if (putResult?.status === 'NON_READY') return putResult;
       return row;
     } finally { release(); if(this.#locks.get(conversationId)===chain) this.#locks.delete(conversationId); }
   }
@@ -111,6 +218,36 @@ export class HostLifecycleJournal {
     if(result?.status==='NON_READY') throw Error('NON_READY: '+result.reason+'; caller MUST abort mutation');
     return result;
   }
+  async pendingMutation(conversationId) {
+    if (this.#bad.has(conversationId)) {
+      return { status: 'NON_READY', reason: this.#bad.get(conversationId) };
+    }
+    let rows;
+    try {
+      rows = await this.#records(conversationId);
+    } catch (error) {
+      return this.#fail(conversationId, 'journal unreadable: ' + (error?.message || error));
+    }
+    const check = await this.#verifyStored(conversationId, rows);
+    if (!check.ok) return this.#fail(conversationId, check.reason);
+    if (!rows.length || rows[0].operation !== 'baseline') {
+      return { status: 'NON_READY', reason: 'missing baseline' };
+    }
+    const lifecycleRows = rows.filter(row =>
+      typeof row.operation === 'string'
+      && (row.operation.startsWith('before:') || row.operation.startsWith('after:')));
+    const latest = lifecycleRows.at(-1);
+    if (!latest || !latest.operation.startsWith('before:')) {
+      return { status: 'NO_PENDING_MUTATION' };
+    }
+    return {
+      status: 'PENDING_MUTATION',
+      operation: latest.operation.slice('before:'.length),
+      eventId: latest.eventId,
+      sequence: latest.sequence,
+    };
+  }
+
   async verifyIntegrity(cid) {
     if (this.#bad.has(cid)) return { status: 'NON_READY', reason: this.#bad.get(cid) };
     let rows;

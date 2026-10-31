@@ -3,14 +3,18 @@ name: Host Adapter pinned SillyTavern source audit
 on:
   pull_request:
     paths:
-      - ".github/workflows/host-adapter-pinned-source-audit.yml"
+      - ".github/workflows/**"
       - "host-adapter/prototype/**"
       - "experiments/host-adapter-source-audit/harness.mjs"
-      - "experiments/host-adapter-runtime-harness/harness.mjs"
+      - "experiments/host-adapter-runtime-harness/**"
   workflow_dispatch:
 
 permissions:
   contents: read
+
+concurrency:
+  group: host-adapter-pinned-source-audit-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 defaults:
   run:
@@ -18,16 +22,24 @@ defaults:
 
 jobs:
   pinned-source-audit:
-    runs-on: [self-hosted, Windows, X64]
-    timeout-minutes: 15
+    # This audit only checks a pinned public source checkout; it needs no local
+    # SillyTavern installation or user data, so use a clean hosted Windows runner.
+    runs-on: windows-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout Logic-Engine
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      - name: Verify installed Node.js
+      # Pin Node so the source audit uses the same runtime on every runner.
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22.13.0'
+
+      - name: Verify installed Node.js and npm
         shell: cmd
         run: |
           node --version
+          npm --version
           node -e "const [major, minor] = process.versions.node.split('.').map(Number); if (major < 22 || (major === 22 && minor < 13)) { console.error('Node.js 22.13.0 or newer is required; found ' + process.versions.node); process.exit(1); }"
 
       - name: Checkout exact SillyTavern target
@@ -37,25 +49,64 @@ jobs:
           ref: 06bde939fb1e9c4c8d8641d810f0a916b5bce127
           path: SillyTavern
 
+      - name: Verify pinned SillyTavern checkout
+        shell: powershell
+        run: |
+          $expected = '06bde939fb1e9c4c8d8641d810f0a916b5bce127'
+          $actual = (git -C SillyTavern rev-parse HEAD).Trim()
+          if ($actual -ne $expected) {
+            throw "Unexpected SillyTavern checkout SHA: $actual"
+          }
+          if (-not (Test-Path 'SillyTavern/package.json' -PathType Leaf)) {
+            throw 'Pinned SillyTavern checkout is missing package.json'
+          }
+          Write-Output "SillyTavern target SHA: $actual"
+
+
+      - name: Install candidate lifecycle and full-root inventory modules; apply pinned patches
+        run: |
+          mkdir SillyTavern\public\scripts\logic-engine-lifecycle
+          copy /Y host-adapter\prototype\lifecycle-journal.mjs SillyTavern\public\scripts\logic-engine-lifecycle\lifecycle-journal.mjs
+          copy /Y host-adapter\prototype\st-lifecycle-bridge.mjs SillyTavern\public\scripts\logic-engine-lifecycle\st-lifecycle-bridge.mjs
+          copy /Y host-adapter\prototype\conversation-identity.mjs SillyTavern\public\scripts\logic-engine-lifecycle\conversation-identity.mjs
+          copy /Y host-adapter\prototype\st-server-digest-proxy.mjs SillyTavern\src\endpoints\logic-engine-lifecycle-proxy.mjs
+          copy /Y host-adapter\prototype\st-host-lifecycle-receipt-store.mjs SillyTavern\src\endpoints\st-host-lifecycle-receipt-store.mjs
+          copy /Y host-adapter\prototype\st-source-inventory.mjs SillyTavern\src\endpoints\st-source-inventory.mjs
+          copy /Y host-adapter\prototype\fs-inventory.js SillyTavern\src\endpoints\fs-inventory.js
+          copy /Y host-adapter\prototype\windows-vss-snapshot.mjs SillyTavern\src\endpoints\windows-vss-snapshot.mjs
+          copy /Y host-adapter\prototype\host-data-inventory.mjs SillyTavern\src\endpoints\host-data-inventory.mjs
+          copy /Y host-adapter\prototype\st-host-inventory-handler.mjs SillyTavern\src\endpoints\logic-engine-host-inventory-handler.mjs
+          copy /Y host-adapter\prototype\st-host-identity-store.mjs SillyTavern\src\endpoints\logic-engine-host-identity-store.mjs
+          copy /Y host-adapter\prototype\st-host-inventory-route.js SillyTavern\src\endpoints\logic-engine-host-inventory.js
+          git -C SillyTavern apply --check ..\host-adapter\prototype\patches\sillytavern-1.19.0-lifecycle-hooks.patch
+          git -C SillyTavern apply ..\host-adapter\prototype\patches\sillytavern-1.19.0-lifecycle-hooks.patch
+          git -C SillyTavern apply --check ..\host-adapter\prototype\patches\sillytavern-1.19.0-source-inventory-route.patch
+          git -C SillyTavern apply ..\host-adapter\prototype\patches\sillytavern-1.19.0-source-inventory-route.patch
+          git -C SillyTavern apply --check ..\host-adapter\prototype\patches\issue-258-direction-a-delete-safety.patch
+          git -C SillyTavern apply ..\host-adapter\prototype\patches\issue-258-direction-a-delete-safety.patch
+          git -C SillyTavern diff --check
+
       - name: Install pinned SillyTavern dependencies
         run: npm ci --prefix SillyTavern
-
-      - name: Verify pinned checkout
-        shell: cmd
-        run: |
-          for /f %%H in ('git -C SillyTavern rev-parse HEAD') do set "actual=%%H"
-          if /I not "%actual%"=="06bde939fb1e9c4c8d8641d810f0a916b5bce127" (
-            echo Unexpected SillyTavern SHA: %actual%
-            exit /b 1
-          )
-          echo SillyTavern target SHA: %actual%
 
       - name: Run source-level lifecycle assertions
         env:
           SILLYTAVERN_DIR: SillyTavern
         run: node --test experiments/host-adapter-source-audit/harness.mjs
 
+      - name: Run authenticated Core API root-inventory persistence integration
+        run: node --test experiments/host-adapter-runtime-harness/core-api-root-inventory.test.mjs
+
+      - name: Run authenticated Core API lifecycle receipt and crash-recovery integration
+        run: node --test experiments/host-adapter-runtime-harness/core-api-lifecycle-proxy.test.mjs
+
       - name: Run bounded fake-provider integration harness
         env:
           SILLYTAVERN_DIR: SillyTavern
         run: node --test experiments/host-adapter-runtime-harness/harness.mjs
+
+      - name: Run real pinned SillyTavern file-operation and full-root delta harness
+        env:
+          SILLYTAVERN_DIR: SillyTavern
+          LOGIC_ENGINE_RUN_ST_LIFECYCLE_HARNESS: '1'
+        run: node --test experiments/host-adapter-runtime-harness/lifecycle-file-operations.test.mjs

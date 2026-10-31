@@ -1,9 +1,18 @@
+import { createHmac, timingSafeEqual } from 'node:crypto';
 import { existsSync, mkdirSync, realpathSync, statSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { SQLiteStore } from './storage/sqlite-store.js';
 import { LogicEngine } from './application/engine.js';
 import { createApiServer } from './api/server.js';
 import { HostVersionDigestLedger } from './application/host-version-digest-ledger.js';
+import { HostLifecycleJournal } from './application/host-lifecycle-journal.js';
+import {
+  parseHostRootIdentityRegistry,
+  resolveAdapterHostRootIdentity,
+  resolveRegisteredHostRootIdentity,
+  resolveAdapterHostLifecycleIdentity,
+  resolveRegisteredHostLifecycleIdentity,
+} from './application/host-root-inventory-identity.js';
 import { loadTrustedWorldPackCatalog } from './application/world-pack-catalog.js';
 import { createHostBoundNpcKnowledgeAuthorizers } from './application/npc-knowledge-authorization.js';
 import { createProcessScopedMechanicPolicyAuthority, defaultMechanicPolicyFieldPolicy } from './application/mechanic-policy-authority.js';
@@ -128,6 +137,111 @@ const hostVersionLedger = new HostVersionDigestLedger({
   coordinatorPath,
   verifyInventorySnapshot: async () => false,
 });
+let hostRootIdentityRegistry;
+try {
+  hostRootIdentityRegistry = parseHostRootIdentityRegistry(process.env.ENGINE_HOST_ROOT_IDENTITIES || '[]');
+} catch (error) {
+  process.stderr.write((error?.message || 'ENGINE_HOST_ROOT_IDENTITIES is invalid.') + '\\n');
+  process.exit(1);
+}
+let hostRootInventoryJournal = null;
+let resolveHostRootIdentity = null;
+const hostLifecycleAuthorityId = process.env.ENGINE_HOST_AUTHORITY_ID;
+const hostLifecycleAuthorityGeneration = Number(process.env.ENGINE_HOST_AUTHORITY_GENERATION || '0');
+const canonicalHostReceiptProof = value => value && typeof value === 'object'
+  ? '{' + Object.keys(value).sort().map(key => JSON.stringify(key) + ':' + canonicalHostReceiptProof(value[key])).join(',') + '}'
+  : JSON.stringify(value);
+function verifyHostLifecycleReceipt({ event, identity }) {
+  const secret = adapterTokens?.[identity?.adapter_id];
+  if (typeof secret !== 'string' || secret.length < 16
+    || !/^[a-f0-9]{64}$/.test(event?.receipt_signature ?? '')) return false;
+  const proof = {
+    protocol_version: 1,
+    adapter_id: identity.adapter_id,
+    host_installation_id: event.host_installation_id,
+    authenticated_account_id: event.authenticated_account_id,
+    host_session_id: event.host_session_id,
+    conversation_uuid: event.conversation_uuid,
+    event_id: event.event_id,
+    event_type: event.event_type,
+    mutation_id: event.mutation_id,
+    operation: event.operation,
+    mutation_digest: event.mutation_digest,
+    receipt_digest: event.receipt_digest,
+    occurred_at: event.occurred_at,
+  };
+  const expected = createHmac('sha256', secret).update(canonicalHostReceiptProof(proof), 'utf8').digest();
+  const supplied = Buffer.from(event.receipt_signature, 'hex');
+  return supplied.length === expected.length && timingSafeEqual(supplied, expected);
+}
+
+function bindHostLifecycleAuthority(resolved) {
+  if (!resolved || resolved.authorized !== true || !hostRootInventoryJournal
+    || typeof hostLifecycleAuthorityId !== 'string' || !hostLifecycleAuthorityId.trim()
+    || !Number.isSafeInteger(hostLifecycleAuthorityGeneration) || hostLifecycleAuthorityGeneration < 1
+    || !resolved.root_id || !resolved.adapter_id) return { authorized: false };
+  let snapshot;
+  try {
+    snapshot = hostRootInventoryJournal.getAuthoritySnapshot({
+      ...resolved,
+      authority_id: hostLifecycleAuthorityId.trim(),
+      generation: hostLifecycleAuthorityGeneration,
+    });
+  } catch { return { authorized: false }; }
+  if (snapshot?.status !== 'INTEGRITY_OK' || !/^[a-f0-9]{64}$/.test(snapshot.snapshot_fingerprint ?? '')) {
+    return { authorized: false };
+  }
+  return {
+    ...resolved,
+    authority_id: hostLifecycleAuthorityId.trim(),
+    generation: hostLifecycleAuthorityGeneration,
+    snapshot_fingerprint: snapshot.snapshot_fingerprint,
+  };
+}
+if (hostRootIdentityRegistry.length > 0) {
+  for (const record of hostRootIdentityRegistry) {
+    if (!Object.hasOwn(adapterTokens, record.adapter_id)) {
+      throw new Error('ENGINE_HOST_ROOT_IDENTITIES references an adapter that is not configured in ENGINE_ADAPTER_TOKENS.');
+    }
+  }
+  const hostLifecyclePath = process.env.ENGINE_HOST_LIFECYCLE_DB_PATH
+    ? resolve(process.env.ENGINE_HOST_LIFECYCLE_DB_PATH)
+    : resolve('./data/logic-engine-host-lifecycle.sqlite');
+  for (const [name, candidate] of [
+    ['ENGINE_HOST_LIFECYCLE_DB_PATH', hostLifecyclePath],
+    ['ENGINE_HOST_VERSION_LEDGER_DB_PATH', hostVersionLedgerPath],
+    ['ENGINE_DB_PATH', dbPath],
+    ['LOGIC_ENGINE_COORDINATOR_DB_PATH', coordinatorPath],
+  ]) {
+    if (candidate !== ':memory:' && aliasesSameFile(hostLifecyclePath, candidate)) {
+      throw new Error('ENGINE_HOST_LIFECYCLE_DB_PATH must be separate from ' + name + ', including filesystem aliases.');
+    }
+  }
+  mkdirSync(dirname(hostLifecyclePath), { recursive: true });
+  hostRootInventoryJournal = new HostLifecycleJournal({
+    path: hostLifecyclePath,
+    coordinatorPath,
+    // The authenticated adapter route checks the exact adapter/installation/account
+    // tuple; the journal independently rechecks the deployment-owned installation
+    // and account binding before appending any event.
+    resolveIdentity: input => {
+      const resolved = resolveRegisteredHostLifecycleIdentity(hostRootIdentityRegistry, input);
+      return resolved.authorized && typeof hostLifecycleAuthorityId === 'string'
+        && hostLifecycleAuthorityId.trim() && Number.isSafeInteger(hostLifecycleAuthorityGeneration)
+        && hostLifecycleAuthorityGeneration > 0
+        ? { ...resolved, authority_id: hostLifecycleAuthorityId.trim(), generation: hostLifecycleAuthorityGeneration }
+        : { authorized: false };
+    },
+    resolveRootIdentity: input => resolveRegisteredHostRootIdentity(hostRootIdentityRegistry, input),
+    verifyMutationReceipt: verifyHostLifecycleReceipt,
+  });
+  if (typeof hostLifecycleAuthorityId === 'string' && hostLifecycleAuthorityId.trim()
+    && Number.isSafeInteger(hostLifecycleAuthorityGeneration) && hostLifecycleAuthorityGeneration > 0) {
+    hostRootInventoryJournal.setAuthorityGeneration(hostLifecycleAuthorityId.trim(), hostLifecycleAuthorityGeneration);
+  }
+  resolveHostRootIdentity = input => resolveAdapterHostRootIdentity(hostRootIdentityRegistry, input);
+}
+
 const server = createApiServer({
   engine: new LogicEngine(store, {
     trustedInitialKnowledgeSources, worldPackCatalog,
@@ -135,6 +249,10 @@ const server = createApiServer({
     npcKnowledgeVisibilityAuthorizer: npcKnowledgeAuthorizers.visibilityAuthorizer,
   }), token, internalToken, approvalToken, adminToken, adapterTokens,
   hostVersionLedger,
+  hostRootInventoryJournal,
+  resolveHostRootIdentity,
+  resolveHostLifecycleIdentity: input => bindHostLifecycleAuthority(resolveAdapterHostLifecycleIdentity(hostRootIdentityRegistry, input)),
+  hostLifecycleJournal: hostRootInventoryJournal,
   mechanicPolicyAuthority,
 });
 server.listen(port, host, () => process.stdout.write(
@@ -142,6 +260,14 @@ server.listen(port, host, () => process.stdout.write(
   '\nDirect commit: ' + (internalToken ? 'enabled for internal credential' : 'disabled') +
   '\nProposal approval: ' + (approvalToken ? 'enabled' : 'disabled') + '\nAdmin registry: ' + (adminToken ? 'enabled' : 'disabled') + '\nConfigured adapters: ' + Object.keys(adapterTokens).length + '\n',
 ));
-function stop() { server.close(() => { try { hostVersionLedger.close(); } finally { store.close(); process.exit(0); } }); }
+function stop() {
+  server.close(() => {
+    try { hostRootInventoryJournal?.close(); }
+    finally {
+      try { hostVersionLedger.close(); }
+      finally { store.close(); process.exit(0); }
+    }
+  });
+}
 process.on('SIGINT', stop);
 process.on('SIGTERM', stop);

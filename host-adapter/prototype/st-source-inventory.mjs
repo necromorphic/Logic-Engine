@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { constants as fsConstants, promises as fs } from 'node:fs';
 import path from 'node:path';
+import { isActiveWindowsVssSnapshot, withWindowsVssSnapshot } from './windows-vss-snapshot.mjs';
 
 const PINNED_SILLYTAVERN_COMMIT = '06bde939fb1e9c4c8d8641d810f0a916b5bce127';
 const MAX_CHAT_FILE_BYTES = 256 * 1024 * 1024;
@@ -41,7 +42,11 @@ const identityOf = stat => {
   if (stat.ino === 0n) fail('FILE_IDENTITY_UNAVAILABLE');
   return stat.dev.toString() + ':' + stat.ino.toString();
 };
-const sameStat = (left, right) => left.dev === right.dev
+// On Windows, path-based lstat may report st_dev=0 while handle-based fstat
+// reports the volume serial. Compare dev when both sources provide it.
+const sameStat = (left, right) => (process.platform === 'win32'
+  ? left.dev === 0n || right.dev === 0n || left.dev === right.dev
+  : left.dev === right.dev)
   && left.ino === right.ino
   && left.mode === right.mode
   && left.size === right.size
@@ -113,16 +118,25 @@ function parseChatJsonlIdentity(bytes, seen) {
       missingMessageIdentityCount++;
       continue;
     }
-    if (typeof identity.messageId !== 'string' || !HOST_UUID.test(identity.messageId)
-      || seen.messageIds.has(identity.messageId)
-      || !Array.isArray(identity.versions) || identity.versions.length !== versions.length
-      || identity.activeVersionIndex !== activeVersionIndex) {
-      fail('SOURCE_CHAT_MESSAGE_IDENTITY_INVALID');
+    if (typeof identity.messageId !== 'string' || !HOST_UUID.test(identity.messageId)) {
+      fail('SOURCE_CHAT_MESSAGE_ID_INVALID');
     }
+    if (seen.messageIds.has(identity.messageId)) fail('SOURCE_CHAT_MESSAGE_ID_DUPLICATE');
+    if (!Array.isArray(identity.versions) || identity.versions.length === 0
+      || identity.versions.length > MAX_CHAT_VERSIONS_PER_MESSAGE) {
+      fail('SOURCE_CHAT_MESSAGE_VERSION_LAYOUT_MISMATCH');
+    }
+    const logicalActiveVersionIndex = identity.activeVersionIndex;
+    if (!Number.isInteger(logicalActiveVersionIndex) || logicalActiveVersionIndex < 0
+      || logicalActiveVersionIndex >= identity.versions.length) {
+      fail('SOURCE_CHAT_MESSAGE_ACTIVE_VERSION_MISMATCH');
+    }
+    const swipeLayoutAligned = identity.versions.length === versions.length
+      && logicalActiveVersionIndex === activeVersionIndex;
     seen.messageIds.add(identity.messageId);
 
     const versionEntries = [];
-    for (let index = 0; index < versions.length; index++) {
+    for (let index = 0; index < identity.versions.length; index++) {
       const version = identity.versions[index];
       if (!version || typeof version.versionId !== 'string' || !HOST_UUID.test(version.versionId)
         || seen.versionIds.has(version.versionId)
@@ -132,7 +146,15 @@ function parseChatJsonlIdentity(bytes, seen) {
         || typeof version.payloadDigest !== 'string' || !/^[a-f0-9]{64}$/.test(version.payloadDigest)) {
         fail('SOURCE_CHAT_VERSION_IDENTITY_INVALID');
       }
-      const actualDigest = digest(Buffer.from(versions[index], 'utf8'));
+      // Edit revisions may exist only in the lifecycle identity ledger,
+      // while native swipe alternatives are stored separately. Always verify
+      // the active logical revision against persisted message text. Verify all
+      // revisions against native swipe text only when both layouts align.
+      const actualDigest = index === logicalActiveVersionIndex
+        ? digest(Buffer.from(message.mes, 'utf8'))
+        : swipeLayoutAligned
+          ? digest(Buffer.from(versions[index], 'utf8'))
+          : version.payloadDigest;
       if (actualDigest !== version.payloadDigest) fail('SOURCE_CHAT_VERSION_DIGEST_MISMATCH');
       seen.versionIds.add(version.versionId);
       seen.totalVersions++;
@@ -142,13 +164,13 @@ function parseChatJsonlIdentity(bytes, seen) {
         version_index: index,
         parent_version_id: version.parentVersionId ?? null,
         content_sha256: actualDigest,
-        active: index === activeVersionIndex,
+        active: index === logicalActiveVersionIndex,
       });
     }
     messages.push({
       message_id: identity.messageId,
       role: message.is_user === true ? 'user' : message.is_system === true ? 'system' : 'assistant',
-      active_version_index: activeVersionIndex,
+      active_version_index: logicalActiveVersionIndex,
       versions: versionEntries,
     });
   }
@@ -177,12 +199,17 @@ async function assertNoReparseComponents(absolute) {
   }
 }
 
-async function inspectDirectory(directory, expectedParent = null) {
-  const absolute = path.resolve(directory);
-  if (expectedParent && !isWithin(normalizePath(expectedParent), normalizePath(absolute))) {
-    fail('SOURCE_PATH_ESCAPE_OR_REPARSE');
+async function inspectDirectory(directory, expectedParent = null, snapshotMode = false) {
+  const absolute = snapshotMode ? directory : path.resolve(directory);
+  if (expectedParent) {
+    const parent = snapshotMode ? expectedParent : normalizePath(expectedParent);
+    const candidate = snapshotMode ? absolute : normalizePath(absolute);
+    if (!isWithin(parent, candidate)) fail('SOURCE_PATH_ESCAPE_OR_REPARSE');
   }
-  await assertNoReparseComponents(absolute);
+  // A live Windows path is unsafe without a native reparse verifier. In
+  // snapshot mode the VSS provider has already audited every component and
+  // descendant before the immutable device tree is exposed to this scanner.
+  if (!snapshotMode) await assertNoReparseComponents(absolute);
 
   let before;
   try {
@@ -228,8 +255,8 @@ export async function readBoundedFileHandle(handle, maxBytes) {
   return Buffer.concat(chunks, total);
 }
 
-async function readStableFile(filePath, rootPath, maxBytes) {
-  const absolute = path.resolve(filePath);
+async function readStableFile(filePath, rootPath, maxBytes, snapshotMode = false) {
+  const absolute = snapshotMode ? filePath : path.resolve(filePath);
   if (!isWithin(rootPath, absolute)) fail('SOURCE_PATH_ESCAPE_OR_REPARSE');
 
   let pathBefore;
@@ -241,6 +268,7 @@ async function readStableFile(filePath, rootPath, maxBytes) {
   if (!pathBefore.isFile() || pathBefore.isSymbolicLink()) fail('SOURCE_FILE_TYPE_INVALID');
 
   const noFollow = typeof fsConstants.O_NOFOLLOW === 'number' ? fsConstants.O_NOFOLLOW : 0;
+  if (!snapshotMode && noFollow === 0) fail('SOURCE_WINDOWS_REPARSE_VERIFICATION_UNAVAILABLE');
   let handle;
   try {
     handle = await fs.open(absolute, fsConstants.O_RDONLY | noFollow);
@@ -286,10 +314,10 @@ async function readStableFile(filePath, rootPath, maxBytes) {
  * Character chat directories are enumerated directly under chats, rather than
  * discovered from the recent-chat endpoint's avatar-only traversal.
  */
-export async function enumeratePinnedSillyTavernChatFiles({
+async function enumeratePinnedSillyTavernChatFilesInternal({
   directories,
   hostCommit = PINNED_SILLYTAVERN_COMMIT,
-}) {
+}, snapshotLease = null) {
   if (!directories || typeof directories !== 'object' || Array.isArray(directories)
     || !['chats', 'groups', 'groupChats'].every(key => typeof directories[key] === 'string'
       && path.isAbsolute(directories[key]))
@@ -297,9 +325,68 @@ export async function enumeratePinnedSillyTavernChatFiles({
     fail('SOURCE_LAYOUT_OR_HOST_BUILD_UNSUPPORTED');
   }
 
+  const configuredPaths = ['chats', 'groups', 'groupChats'].map(key =>
+    snapshotLease ? directories[key] : path.resolve(directories[key]));
+  const configuredNormalized = configuredPaths.map(value =>
+    snapshotLease ? path.normalize(value).toLowerCase() : normalizePath(value));
+  if (snapshotLease) {
+    for (const directory of configuredPaths) {
+      const relative = path.relative(snapshotLease.snapshotRoot, directory);
+      if (!relative || relative === '..' || relative.startsWith('..' + path.sep)
+        || path.isAbsolute(relative)) fail('SOURCE_WINDOWS_VSS_PATH_OUTSIDE_SNAPSHOT');
+    }
+  }
+  if (new Set(configuredNormalized).size !== configuredNormalized.length) fail('SOURCE_ROOT_ALIAS');
+  for (let left = 0; left < configuredPaths.length; left++) {
+    for (let right = left + 1; right < configuredPaths.length; right++) {
+      if (isWithin(configuredPaths[left], configuredPaths[right])
+        || isWithin(configuredPaths[right], configuredPaths[left])) fail('SOURCE_ROOT_OVERLAP');
+    }
+  }
+
+  if (process.platform === 'win32' && !snapshotLease) {
+    const sourcePaths = ['chats', 'groups', 'groupChats'].map(key => path.resolve(directories[key]));
+    let commonRoot = sourcePaths[0];
+    for (const candidate of sourcePaths.slice(1)) {
+      while (!isWithin(commonRoot, candidate)) {
+        const parent = path.dirname(commonRoot);
+        if (parent === commonRoot) fail('SOURCE_COMMON_ROOT_UNAVAILABLE');
+        commonRoot = parent;
+      }
+    }
+    const volumeRoot = path.parse(commonRoot).root;
+    if (normalizePath(commonRoot) === normalizePath(volumeRoot)) fail('SOURCE_COMMON_ROOT_TOO_BROAD');
+    const relativeRoots = {};
+    for (const key of ['chats', 'groups', 'groupChats']) {
+      const relativeRoot = path.relative(commonRoot, path.resolve(directories[key]));
+      if (!relativeRoot || relativeRoot === '..' || relativeRoot.startsWith('..' + path.sep)
+        || path.isAbsolute(relativeRoot)) fail('SOURCE_COMMON_ROOT_INVALID');
+      relativeRoots[key] = relativeRoot;
+    }
+    try {
+      return await withWindowsVssSnapshot(commonRoot, lease => {
+        const snapshotDirectories = Object.fromEntries(
+          Object.entries(relativeRoots).map(([key, relativeRoot]) => [
+            key, path.join(lease.snapshotRoot, relativeRoot),
+          ]),
+        );
+        return enumeratePinnedSillyTavernChatFilesInternal({
+          directories: snapshotDirectories,
+          hostCommit,
+        }, lease);
+      });
+    } catch (error) {
+      if (error instanceof HostSourceInventoryError) throw error;
+      const code = typeof error?.message === 'string' && error.message.startsWith('HOST_VSS_')
+        ? error.message : 'SOURCE_WINDOWS_VSS_UNAVAILABLE';
+      fail(code);
+    }
+  }
+
+  const snapshotMode = Boolean(snapshotLease);
   const roots = {};
   for (const key of ['chats', 'groups', 'groupChats']) {
-    roots[key] = await inspectDirectory(directories[key]);
+    roots[key] = await inspectDirectory(directories[key], null, snapshotMode);
   }
   const rootIdentities = Object.values(roots).map(root => root.identity);
   if (new Set(rootIdentities).size !== rootIdentities.length) fail('SOURCE_ROOT_ALIAS');
@@ -326,7 +413,7 @@ export async function enumeratePinnedSillyTavernChatFiles({
   let totalBytes = 0n;
 
   const addFile = async (kind, locator, filePath, rootPath, maxBytes) => {
-    const record = await readStableFile(filePath, rootPath, maxBytes);
+    const record = await readStableFile(filePath, rootPath, maxBytes, snapshotMode);
     if (physicalFiles.has(record.identity)) fail('SOURCE_FILE_IDENTITY_DUPLICATE');
     physicalFiles.add(record.identity);
     totalBytes += BigInt(record.size);
@@ -358,7 +445,7 @@ export async function enumeratePinnedSillyTavernChatFiles({
     const entryPath = path.join(chatRoot.absolute, entry.name);
     if (entry.isSymbolicLink()) fail('SOURCE_REPARSE_ENTRY');
     if (entry.isDirectory()) {
-      const child = await inspectDirectory(entryPath, chatRoot.absolute);
+      const child = await inspectDirectory(entryPath, chatRoot.absolute, snapshotMode);
       directoriesSeen.push({
         kind: 'character-chat-directory',
         absolute: child.absolute,
@@ -449,7 +536,7 @@ export async function enumeratePinnedSillyTavernChatFiles({
     const relativeFile = file.kind === 'group-chat' ? file.locator + '.jsonl' : file.locator;
     const absolute = path.join(root.absolute, relativeFile);
     const second = await readStableFile(absolute, root.absolute,
-      file.kind === 'group-metadata' ? MAX_GROUP_FILE_BYTES : MAX_CHAT_FILE_BYTES);
+      file.kind === 'group-metadata' ? MAX_GROUP_FILE_BYTES : MAX_CHAT_FILE_BYTES, snapshotMode);
     if (second.identity !== file.file_identity || second.sha256 !== file.content_sha256
       || second.size !== file.size_bytes || second.mtime_ns !== file.mtime_ns
       || second.ctime_ns !== file.ctime_ns) {
@@ -485,6 +572,12 @@ export async function enumeratePinnedSillyTavernChatFiles({
     directories_sha256: digest(Buffer.from(canonical(directoriesDigest), 'utf8')),
     inventory_sha256: inventorySha256,
     completeness: 'DOUBLE_SCANNED_PATH_VIEW_ONLY',
+    ...(snapshotLease ? {
+      snapshot_id: snapshotLease.snapshotId,
+      snapshot_provider: snapshotLease.provider,
+      snapshot_consistency: snapshotLease.consistency,
+      reparse_points: snapshotLease.reparsePoints,
+    } : {}),
     blockers: Object.freeze([
       'NO_PRE_ENROLLMENT_DELETED_HISTORY',
       'NO_COMPLETE_MESSAGE_OR_SWIPE_REVISION_HISTORY',
@@ -493,9 +586,21 @@ export async function enumeratePinnedSillyTavernChatFiles({
       'NO_CORE_WORLD_OR_SESSION_AUTHORIZATION',
       'NO_ACCEPTED_HEAD_AUTHORITY',
       'IMPORT_EXPORT_COPY_BRANCH_RESTORE_UNSUPPORTED',
-      'NO_ATOMIC_DIRECTORY_SNAPSHOT',
-      'PATH_BASED_DIRECTORY_REPLACEMENT_RACE_REMAINS',
+      ...(snapshotLease ? ['NO_APPLICATION_LEVEL_ATOMIC_SNAPSHOT'] : [
+        'NO_ATOMIC_DIRECTORY_SNAPSHOT',
+        'PATH_BASED_DIRECTORY_REPLACEMENT_RACE_REMAINS',
+      ]),
       'PLATFORM_SPECIFIC_RACE_RESISTANCE_REQUIRES_SECURITY_REVIEW',
     ]),
   });
+}
+
+
+export async function enumeratePinnedSillyTavernChatFiles(options) {
+  return enumeratePinnedSillyTavernChatFilesInternal(options);
+}
+
+export async function enumeratePinnedSillyTavernChatFilesFromWindowsSnapshot(options, lease) {
+  if (!isActiveWindowsVssSnapshot(lease)) fail('SOURCE_WINDOWS_VSS_LEASE_INVALID');
+  return enumeratePinnedSillyTavernChatFilesInternal(options, lease);
 }

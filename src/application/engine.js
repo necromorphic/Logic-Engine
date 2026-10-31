@@ -21,6 +21,19 @@ const ASYNC_FUNCTION_PROTOTYPE = Object.getPrototypeOf(async function () {}).con
 const INTERNAL_CORE_EFFECTS = Symbol('INTERNAL_CORE_EFFECTS');
 const TRUSTED_IMPORT_CAPABILITY = Symbol('trusted-import-loader');
 const MAX_TRUSTED_IMPORT_BYTES = 1_000_000;
+function sameTrustedImportPath(left, right) {
+  const normalize = value => {
+    let path = resolve(value);
+    if (process.platform === 'win32') {
+      if (path.startsWith('\\\\?\\UNC\\')) path = '\\\\' + path.slice(8);
+      else if (path.startsWith('\\\\?\\')) path = path.slice(4);
+      path = path.toLowerCase();
+    }
+    return path;
+  };
+  return normalize(left) === normalize(right);
+}
+
 const obj = (x) => x !== null && typeof x === 'object' && !Array.isArray(x);
 const exactDataRecord = (value, keys) => {
   if (value === null || typeof value !== 'object' || utilTypes.isProxy(value) || Array.isArray(value)) return false;
@@ -1330,7 +1343,7 @@ export class LogicEngine {
         pathBefore = lstatSync(configured.source_path, { bigint: true });
         resolvedBefore = realpathSync(configured.source_path);
         assert(pathBefore.isFile() && !pathBefore.isSymbolicLink()
-          && resolve(resolvedBefore) === resolve(configured.source_path),
+          && sameTrustedImportPath(resolvedBefore, configured.source_path),
         'TRUSTED_IMPORT_FILE_UNAVAILABLE', 'Trusted import path must resolve directly to a regular, non-link file.', 503);
       }
       fd = openSync(configured.source_path, fsConstants.O_RDONLY | (Number.isInteger(noFollow) && noFollow !== 0 ? noFollow : 0));
@@ -1346,8 +1359,8 @@ export class LogicEngine {
         const resolvedFinal = realpathSync(configured.source_path);
         assert(pathAfter.isFile() && !pathAfter.isSymbolicLink()
           && pathFinal.isFile() && !pathFinal.isSymbolicLink()
-          && resolve(resolvedBefore) === resolve(resolvedAfter)
-          && resolve(resolvedBefore) === resolve(resolvedFinal)
+          && sameTrustedImportPath(resolvedBefore, resolvedAfter)
+          && sameTrustedImportPath(resolvedBefore, resolvedFinal)
           && stat.ino === pathBefore.ino && stat.ino === pathAfter.ino
           && stat.ino === pathFinal.ino
           && stat.dev === identityStat.dev && stat.ino === identityStat.ino,

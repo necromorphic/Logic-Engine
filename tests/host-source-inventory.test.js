@@ -1,4 +1,4 @@
-import test from 'node:test';
+import nodeTest from 'node:test';
 import { createHash } from 'node:crypto';
 import assert from 'node:assert/strict';
 import os from 'node:os';
@@ -9,6 +9,19 @@ import {
   HostSourceInventoryError,
   readBoundedFileHandle,
 } from '../host-adapter/prototype/st-source-inventory.mjs';
+
+
+// Windows source inventory uses the VSS-backed path. The symlink-specific
+// assertion remains covered by the dedicated VSS reparse/junction integration test.
+const test = (name, optionsOrFn, maybeFn) => {
+  const options = typeof optionsOrFn === 'function' ? {} : optionsOrFn;
+  const fn = typeof optionsOrFn === 'function' ? optionsOrFn : maybeFn;
+  const windowsSymlinkTest = name === 'rejects symbolic links in enumerated roots';
+  const skip = process.platform === 'win32' && windowsSymlinkTest
+    ? 'VSS integration test separately verifies rejection of Windows reparse points.'
+    : options?.skip;
+  return nodeTest(name, { ...options, ...(skip ? { skip } : {}) }, fn);
+};
 
 const PINNED = '06bde939fb1e9c4c8d8641d810f0a916b5bce127';
 
@@ -62,8 +75,14 @@ test('enumerates root, character and group chat files as a non-authoritative dou
   assert.equal(result.status, 'DOUBLE_SCAN_CANDIDATE');
   assert.equal(result.authority, 'NON_AUTHORITATIVE');
   assert.equal(result.completeness, 'DOUBLE_SCANNED_PATH_VIEW_ONLY');
-  assert.ok(result.blockers.includes('NO_ATOMIC_DIRECTORY_SNAPSHOT'));
-  assert.ok(result.blockers.includes('PATH_BASED_DIRECTORY_REPLACEMENT_RACE_REMAINS'));
+  if (process.platform === 'win32') {
+    assert.ok(result.blockers.includes('NO_APPLICATION_LEVEL_ATOMIC_SNAPSHOT'));
+    assert.ok(!result.blockers.includes('NO_ATOMIC_DIRECTORY_SNAPSHOT'));
+    assert.ok(!result.blockers.includes('PATH_BASED_DIRECTORY_REPLACEMENT_RACE_REMAINS'));
+  } else {
+    assert.ok(result.blockers.includes('NO_ATOMIC_DIRECTORY_SNAPSHOT'));
+    assert.ok(result.blockers.includes('PATH_BASED_DIRECTORY_REPLACEMENT_RACE_REMAINS'));
+  }
   assert.equal(result.file_count, 4);
   assert.deepEqual(result.files.map(file => file.kind).sort(), [
     'character-chat', 'group-chat', 'group-metadata', 'root-chat',
@@ -117,6 +136,60 @@ test('rejects a persisted swipe digest that does not match the exact JSONL paylo
   const records = [JSON.parse(chatJsonl(1, 'root').split('\n')[0]), JSON.parse(chatJsonl(1, 'root').split('\n')[1])];
   records[1]._logicEngineLifecycle.versions[0].payloadDigest = '0'.repeat(64);
   await writeFile(file, records.map(record => JSON.stringify(record)).join('\n') + '\n');
+  await assert.rejects(scan(value.directories), error =>
+    error instanceof HostSourceInventoryError && error.code === 'SOURCE_CHAT_VERSION_DIGEST_MISMATCH');
+});
+
+test('accepts lifecycle edit revisions that are not represented as native swipe alternatives', async t => {
+  const value = await fixture();
+  t.after(value.cleanup);
+  const previous = 'previous logical edit';
+  const active = 'current persisted edit';
+  const records = [
+    { chat_metadata: { logic_engine_conversation_id: uuid(20) } },
+    {
+      is_user: true,
+      mes: active,
+      _logicEngineLifecycle: {
+        messageId: uuid(21),
+        activeVersionIndex: 1,
+        versions: [
+          { versionId: uuid(22), versionIndex: 0, parentVersionId: null, payloadDigest: sha256(previous) },
+          { versionId: uuid(23), versionIndex: 1, parentVersionId: uuid(22), payloadDigest: sha256(active) },
+        ],
+      },
+    },
+  ];
+  await writeFile(path.join(value.directories.chats, 'root-chat.jsonl'),
+    JSON.stringify(records[0]) + String.fromCharCode(10) + JSON.stringify(records[1]) + String.fromCharCode(10));
+  const result = await scan(value.directories);
+  const root = result.files.find(file => file.locator === 'root-chat.jsonl');
+  assert.equal(root.logical_identity.messages[0].active_version_index, 1);
+  assert.deepEqual(root.logical_identity.messages[0].versions.map(version => version.active), [false, true]);
+  assert.equal(root.logical_identity.messages[0].versions[1].content_sha256, sha256(active));
+});
+
+test('rejects an edit revision whose active digest differs from the persisted message body', async t => {
+  const value = await fixture();
+  t.after(value.cleanup);
+  const active = 'current persisted edit';
+  const records = [
+    { chat_metadata: { logic_engine_conversation_id: uuid(30) } },
+    {
+      is_user: true,
+      mes: active,
+      _logicEngineLifecycle: {
+        messageId: uuid(31),
+        activeVersionIndex: 1,
+        versions: [
+          { versionId: uuid(32), versionIndex: 0, parentVersionId: null, payloadDigest: sha256('previous edit') },
+          { versionId: uuid(33), versionIndex: 1, parentVersionId: uuid(32), payloadDigest: sha256('tampered active edit') },
+        ],
+      },
+    },
+  ];
+  await writeFile(path.join(value.directories.chats, 'root-chat.jsonl'),
+    JSON.stringify(records[0]) + String.fromCharCode(10) + JSON.stringify(records[1]) + String.fromCharCode(10));
   await assert.rejects(scan(value.directories), error =>
     error instanceof HostSourceInventoryError && error.code === 'SOURCE_CHAT_VERSION_DIGEST_MISMATCH');
 });
@@ -276,3 +349,22 @@ test('rejects a message body that disagrees with the persisted active swipe inde
     error instanceof HostSourceInventoryError && error.code === 'SOURCE_CHAT_ACTIVE_MESSAGE_MISMATCH');
 });
 
+
+
+test('Windows pinned-source inventory uses an audited VSS point-in-time snapshot', {
+  skip: process.platform !== 'win32',
+  timeout: 240_000,
+}, async t => {
+  const value = await fixture();
+  t.after(value.cleanup);
+  const result = await scan(value.directories);
+  assert.equal(result.status, 'DOUBLE_SCAN_CANDIDATE', JSON.stringify(result));
+  assert.equal(result.authority, 'NON_AUTHORITATIVE');
+  assert.equal(result.snapshot_provider, 'windows-vss-client-accessible');
+  assert.equal(result.snapshot_consistency, 'VSS_POINT_IN_TIME_READ_ONLY');
+  assert.equal(result.reparse_points, 'ALL_FILE_ATTRIBUTE_REPARSE_POINT_ENTRIES_REJECTED');
+  assert.equal(result.file_count, 4);
+  assert.ok(result.blockers.includes('NO_APPLICATION_LEVEL_ATOMIC_SNAPSHOT'));
+  assert.ok(!result.blockers.includes('NO_ATOMIC_DIRECTORY_SNAPSHOT'));
+  assert.ok(!result.blockers.includes('PATH_BASED_DIRECTORY_REPLACEMENT_RACE_REMAINS'));
+});

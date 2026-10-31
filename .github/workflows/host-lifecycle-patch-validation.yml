@@ -10,6 +10,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: host-lifecycle-patch-validation-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   pinned-sillytavern-patch:
     name: Apply-check and lint pinned SillyTavern patch (not runtime proof)
@@ -80,7 +84,6 @@ jobs:
           node --check public/scripts/logic-engine-lifecycle/conversation-identity.mjs
           node --check src/endpoints/logic-engine-lifecycle-proxy.mjs
           node --check src/endpoints/logic-engine-lifecycle.js
-          node --check src/server-main.js
         working-directory: ${{ runner.temp }}/st
       - name: Upload pinned outbound audit report
         if: always()

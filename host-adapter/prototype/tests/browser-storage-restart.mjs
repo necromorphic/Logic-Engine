@@ -35,8 +35,11 @@ const readResult = async (context, url, expectedMode) => {
   const result = JSON.parse(await page.locator('body').getAttribute('data-result'));
   assert.equal(result.mode, expectedMode);
   assert.equal(result.integrity, 'INTEGRITY_OK', JSON.stringify(result));
-  assert.equal(result.sequence, 2, JSON.stringify(result));
-  assert.equal(result.recordCount, 2, JSON.stringify(result));
+  assert.equal(result.sequence, 5, JSON.stringify(result));
+  assert.equal(result.recordCount, 5, JSON.stringify(result));
+  assert.equal(result.filesystemBaselinePresent, true, JSON.stringify(result));
+  assert.equal(result.filesystemDeltaPresent, true, JSON.stringify(result));
+  assert.equal(result.filesystemDeltaPath, 'chats/a.jsonl', JSON.stringify(result));
   assert.equal(result.rawTextPresent, false, JSON.stringify(result));
   await page.close();
   return result;

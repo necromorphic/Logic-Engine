@@ -20,19 +20,73 @@
         });
         await journal.append({
           conversationId,
-          eventId: 'browser-storage-restart-event',
+          eventId: 'browser-storage-restart-before-event',
+          operation: 'before:test',
+          sourceFingerprint: 'fingerprint-before',
+          payload: { affectedVersions: [], details: {} },
+        });
+        await journal.append({
+          conversationId,
+          eventId: 'browser-storage-restart-after-event',
           operation: 'after:test',
           sourceFingerprint: 'fingerprint-after',
           payload: { changes: [], versionPayloads: [], tombstones: [] },
         });
+        await journal.append({
+          conversationId,
+          eventId: 'browser-storage-restart-filesystem-baseline',
+          operation: 'filesystem-inventory-baseline',
+          sourceFingerprint: 'fingerprint-after',
+          requireNoPendingMutation: true,
+          payload: {
+            schemaVersion: 2,
+            inventory: {
+              root: 'test-data-root',
+              snapshotSha256: 'a'.repeat(64),
+              fileCount: 1,
+              entries: [{
+                path: 'chats/a.jsonl',
+                identity: { dev: '1', ino: '2' },
+                sha256: 'b'.repeat(64),
+              }],
+            },
+          },
+        });
+        await journal.append({
+          conversationId,
+          eventId: 'browser-storage-restart-filesystem-delta',
+          operation: 'filesystem-inventory-delta-observed',
+          sourceFingerprint: 'fingerprint-after',
+          requireNoPendingMutation: true,
+          payload: {
+            schemaVersion: 1,
+            baselineSequence: 4,
+            previousSnapshotSha256: 'a'.repeat(64),
+            currentSnapshotSha256: 'c'.repeat(64),
+            counts: { added: 0, removed: 0, modified: 1, metadataChanged: 0, replaced: 0, moved: 0 },
+            deltaSha256: 'd'.repeat(64),
+            delta: {
+              modified: [{
+                path: 'chats/a.jsonl',
+                beforeSha256: 'b'.repeat(64),
+                afterSha256: 'c'.repeat(64),
+              }],
+            },
+          },
+        });
       }
       const integrity = await journal.verifyIntegrity(conversationId);
       const ledger = await journal.exportCaptureLedger(conversationId);
+      const filesystemBaseline = ledger.records.find(record => record.operation === 'filesystem-inventory-baseline');
+      const filesystemDelta = ledger.records.find(record => record.operation === 'filesystem-inventory-delta-observed');
       document.body.dataset.result = JSON.stringify({
         mode,
         integrity: integrity.status,
         sequence: ledger.sequence,
         recordCount: ledger.records.length,
+        filesystemBaselinePresent: Boolean(filesystemBaseline?.payload?.inventory?.entries?.length === 1),
+        filesystemDeltaPresent: Boolean(filesystemDelta?.payload?.delta?.modified?.length === 1),
+        filesystemDeltaPath: filesystemDelta?.payload?.delta?.modified?.[0]?.path ?? null,
         rawTextPresent: JSON.stringify(ledger).includes(secret),
         sourceFingerprint: integrity.sourceFingerprint,
       });
