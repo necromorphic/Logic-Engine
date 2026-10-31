@@ -716,7 +716,7 @@ export class HostLifecycleJournal {
       ORDER BY sequence
     `).all(host_installation_id, authenticated_account_id, root_id);
     const result = this.#verifyRootInventoryRows(host_installation_id, authenticated_account_id, root_id, rows);
-    return result.valid ? { status: 'INTEGRITY_OK', ...result }
+    return result.valid ? { ...result, status: 'INTEGRITY_OK' }
       : { status: 'NON_READY', reason: result.reason };
   }
 
