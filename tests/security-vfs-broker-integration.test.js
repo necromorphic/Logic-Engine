@@ -58,15 +58,12 @@ test('Linux SQLite VFS obtains main and sidecar descriptors from the authenticat
 
   const registrar = new DatabaseSync(':memory:');
   t.after(() => registrar.close());
-  registrar.prepare(
-    'SELECT logic_engine_vfs_probe_register_database_role(?, ?) AS registered'
-  ).get(databasePath, 'core');
   assert.equal(
     registrar.prepare(
-      'SELECT logic_engine_vfs_probe_bind_broker(?, ?) AS bound'
-    ).get('core', socketPath).bound,
+      'SELECT logic_engine_vfs_probe_register_broker_role(?, ?, ?) AS registered'
+    ).get(databasePath, 'core', socketPath).registered,
     1,
-    'role binding must complete a broker-authenticated main-file identity handshake',
+    'broker-first enrollment must validate the manifest-owned main file without a local path open',
   );
 
   const writer = new DatabaseSync(databasePath);
