@@ -866,6 +866,26 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
     second.close();
   }
 
+  // SQLite 3.47.2's Windows VFS calls winDelete() directly from
+  // winShmPurge() when the last WAL SHM mapping is unmapped. That path bypasses
+  // the VFS xDelete callback, so the DeleteFileW system-call hook must anchor it.
+  if (process.platform === 'win32') {
+    const winDeleteHookPath = join(directory, 'win-delete-hook.sqlite');
+    registerRole(winDeleteHookPath, 'win-delete-hook');
+    const hookDb = new DatabaseSync(winDeleteHookPath);
+    try {
+      hookDb.exec('PRAGMA journal_mode=WAL; CREATE TABLE hook_probe(value INTEGER); INSERT INTO hook_probe VALUES(1);');
+      hookDb.prepare('PRAGMA wal_checkpoint(TRUNCATE)').get();
+      hookDb.prepare('PRAGMA journal_mode=DELETE').get();
+    } finally {
+      hookDb.close();
+    }
+    assert.ok(
+      first.prepare('SELECT logic_engine_vfs_probe_delete_file_hook_count() AS count').get().count > 0,
+      'the internal Windows SHM deletion path must route through the handle-relative DeleteFileW hook',
+    );
+  }
+
   // Cross-process SQLite locking must remain effective when each process
   // independently loads the secure-open probe and registers the same role.
   const lockPath = join(directory, 'cross-process-lock.sqlite');
