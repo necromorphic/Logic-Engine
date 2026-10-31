@@ -143,3 +143,31 @@ test('journal atomically refuses an inventory checkpoint while a mutation is pen
   const ledger = await journal.exportCaptureLedger('chat');
   assert.equal(ledger.records.some(record => record.operation === 'filesystem-inventory-baseline'), false);
 });
+
+
+test('file-level modified delta is durably journaled, idempotent, and remains unresolved after restore', { skip: process.platform === 'win32' }, async (t) => {
+  const f = await fixture(t);
+  await reconcile(f.journal, await f.scan(), f.root);
+  await writeFile(f.file, '{"role":"user","mes":"edited"}\\n');
+
+  const changedInventory = await f.scan();
+  const changed = await reconcile(f.journal, changedInventory, f.root);
+  assert.equal(changed.status, 'NON_READY');
+  assert.equal(changed.counts.modified, 1);
+  assert.equal(changed.delta.modified[0].path, 'chats/a.jsonl');
+
+  const afterFirst = await f.journal.exportCaptureLedger('chat');
+  const observation = afterFirst.records.at(-1);
+  assert.equal(observation.operation, 'filesystem-inventory-delta-observed');
+  assert.equal(observation.payload.delta.modified[0].path, 'chats/a.jsonl');
+
+  const repeated = await reconcile(f.journal, await f.scan(), f.root);
+  assert.equal(repeated.status, 'NON_READY');
+  const afterRepeat = await f.journal.exportCaptureLedger('chat');
+  assert.equal(afterRepeat.sequence, afterFirst.sequence);
+
+  await writeFile(f.file, '{"role":"user","mes":"first"}\\n');
+  const restored = await reconcile(f.journal, await f.scan(), f.root);
+  assert.equal(restored.status, 'NON_READY');
+  assert.match(restored.reason, /previously observed filesystem delta remains unresolved/);
+});
