@@ -448,6 +448,7 @@ test('lifecycle journal proxy derives account identity and signs only server-ver
     operation: committedBody.operation,
     mutation_digest: committedBody.mutation_digest,
     receipt_digest: committedBody.receipt_digest,
+    occurred_at: committedBody.occurred_at,
   };
   const expectedSignature = createHmac('sha256', CONFIG.LOGIC_ENGINE_ADAPTER_TOKEN)
     .update(canonical(proof), 'utf8').digest('hex');
