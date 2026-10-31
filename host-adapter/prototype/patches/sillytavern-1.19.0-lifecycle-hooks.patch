@@ -164,9 +164,9 @@ diff --git a/public/script.js b/public/script.js
 +            getLifecycleStatus: async conversationId => {
 +                const response = await fetch('/api/logic-engine/host-lifecycle/status?conversation_id='
 +                    + encodeURIComponent(conversationId), {
-+                        credentials: 'same-origin',
-+                        cache: 'no-store',
-+                    });
++                    credentials: 'same-origin',
++                    cache: 'no-store',
++                });
 +                const payload = await response.json().catch(() => null);
 +                if (!response.ok || !payload?.lifecycle) {
 +                    throw Error('Core lifecycle journal status unavailable');
