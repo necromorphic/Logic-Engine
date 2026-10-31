@@ -52,6 +52,7 @@ async function setup(t, {
   const rootJournal = withRootJournal ? new HostLifecycleJournal({
     path: join(directory, 'host-root-inventory.sqlite'),
     coordinatorPath,
+    verifyMutationReceipt: () => true,
     resolveIdentity: input => ({
       authorized: true,
       host_installation_id: input.host_installation_id,
