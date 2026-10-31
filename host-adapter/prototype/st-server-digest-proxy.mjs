@@ -485,6 +485,7 @@ export function createHostLifecycleJournalProxy({
           operation: outgoingBody.operation,
           mutation_digest: outgoingBody.mutation_digest,
           receipt_digest: outgoingBody.receipt_digest,
+          occurred_at: outgoingBody.occurred_at,
         };
         outgoingBody.receipt_signature = createHmac('sha256', target.adapterToken)
           .update(canonical(proof), 'utf8').digest('hex');
