@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync, realpathSync, statSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { SQLiteStore } from './storage/sqlite-store.js';
 import { LogicEngine } from './application/engine.js';
@@ -145,6 +146,45 @@ try {
 }
 let hostRootInventoryJournal = null;
 let resolveHostRootIdentity = null;
+const hostLifecycleAuthorityId = process.env.ENGINE_HOST_AUTHORITY_ID;
+const hostLifecycleAuthorityGeneration = Number(process.env.ENGINE_HOST_AUTHORITY_GENERATION || '0');
+function bindHostLifecycleAuthority(resolved) {
+  if (!resolved || resolved.authorized !== true || !hostRootInventoryJournal
+    || typeof hostLifecycleAuthorityId !== 'string' || !hostLifecycleAuthorityId.trim()
+    || !Number.isSafeInteger(hostLifecycleAuthorityGeneration) || hostLifecycleAuthorityGeneration < 1
+    || !resolved.root_id) return { authorized: false };
+  let rootHead;
+  try {
+    rootHead = hostRootInventoryJournal.verifyRootInventory({
+      host_installation_id: resolved.host_installation_id,
+      authenticated_account_id: resolved.authenticated_account_id,
+      root_id: resolved.root_id,
+    });
+  } catch { return { authorized: false }; }
+  if (rootHead?.status !== 'INTEGRITY_OK' || !Number.isSafeInteger(rootHead.sequence)
+    || typeof rootHead.head_sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(rootHead.head_sha256)
+    || typeof rootHead.latest_manifest_sha256 !== 'string'
+    || !/^[a-f0-9]{64}$/.test(rootHead.latest_manifest_sha256)) return { authorized: false };
+  const authoritySnapshot = {
+    authority_id: hostLifecycleAuthorityId.trim(),
+    generation: hostLifecycleAuthorityGeneration,
+    adapter_id: resolved.adapter_id ?? null,
+    host_installation_id: resolved.host_installation_id,
+    authenticated_account_id: resolved.authenticated_account_id,
+    root_id: resolved.root_id,
+    root_inventory_sequence: rootHead.sequence,
+    root_manifest_sha256: rootHead.latest_manifest_sha256,
+    root_journal_head_sha256: rootHead.head_sha256,
+  };
+  const snapshotFingerprint = createHash('sha256')
+    .update(JSON.stringify(authoritySnapshot), 'utf8').digest('hex');
+  return {
+    ...resolved,
+    authority_id: hostLifecycleAuthorityId.trim(),
+    generation: hostLifecycleAuthorityGeneration,
+    snapshot_fingerprint: snapshotFingerprint,
+  };
+}
 if (hostRootIdentityRegistry.length > 0) {
   for (const record of hostRootIdentityRegistry) {
     if (!Object.hasOwn(adapterTokens, record.adapter_id)) {
@@ -171,7 +211,7 @@ if (hostRootIdentityRegistry.length > 0) {
     // The authenticated adapter route checks the exact adapter/installation/account
     // tuple; the journal independently rechecks the deployment-owned installation
     // and account binding before appending any event.
-    resolveIdentity: input => resolveRegisteredHostLifecycleIdentity(hostRootIdentityRegistry, input),
+    resolveIdentity: input => bindHostLifecycleAuthority(resolveRegisteredHostLifecycleIdentity(hostRootIdentityRegistry, input)),
     resolveRootIdentity: input => resolveRegisteredHostRootIdentity(hostRootIdentityRegistry, input),
   });
   resolveHostRootIdentity = input => resolveAdapterHostRootIdentity(hostRootIdentityRegistry, input);
@@ -186,7 +226,7 @@ const server = createApiServer({
   hostVersionLedger,
   hostRootInventoryJournal,
   resolveHostRootIdentity,
-  resolveHostLifecycleIdentity: input => resolveAdapterHostLifecycleIdentity(hostRootIdentityRegistry, input),
+  resolveHostLifecycleIdentity: input => bindHostLifecycleAuthority(resolveAdapterHostLifecycleIdentity(hostRootIdentityRegistry, input)),
   hostLifecycleJournal: hostRootInventoryJournal,
   mechanicPolicyAuthority,
 });
