@@ -504,7 +504,8 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
   // POSIX xDelete must refuse to delete a replacement object at a registered main-DB path.
   if (process.platform !== 'win32') {
     const deleteMainPath = join(directory, 'delete-main.sqlite');
-    registerRole(deleteMainPath, 'delete-main');
+    assert.equal(registerRole(deleteMainPath, 'delete-main').registered, 1,
+      'the main-delete test role must be enrolled before its first open');
     const deleteMainDb = new DatabaseSync(deleteMainPath);
     try {
       deleteMainDb.exec('CREATE TABLE probe(value TEXT);');
@@ -519,7 +520,8 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
       'xDelete must remove the enrolled main DB when its identity matches');
 
     const deleteAliasPath = join(directory, 'delete-main-alias.sqlite');
-    registerRole(deleteAliasPath, 'delete-main-alias');
+    assert.equal(registerRole(deleteAliasPath, 'delete-main-alias').registered, 1,
+      'the main-delete alias test role must be enrolled before its first open');
     const deleteAliasDb = new DatabaseSync(deleteAliasPath);
     try {
       deleteAliasDb.exec('CREATE TABLE probe(value TEXT);');
@@ -541,7 +543,8 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
   // Windows main-DB xDelete must reject a substituted hardlink by handle identity.
   if (process.platform === 'win32') {
     const deleteAliasPath = join(directory, 'windows-delete-main-alias.sqlite');
-    registerRole(deleteAliasPath, 'windows-delete-main-alias');
+    assert.equal(registerRole(deleteAliasPath, 'windows-delete-main-alias').registered, 1,
+      'the Windows main-delete alias test role must be enrolled before its first open');
     const deleteAliasDb = new DatabaseSync(deleteAliasPath);
     try {
       deleteAliasDb.exec('CREATE TABLE probe(value TEXT);');
