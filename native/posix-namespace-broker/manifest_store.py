@@ -387,7 +387,7 @@ class ManifestStore:
         os.fsync(self.manifest_fd)
 
     def verify_roles(self) -> None:
-        with _locked_roots(self.manifest_fd, self.anchor_fd, exclusive=False):
+        with _locked_roots(self.manifest_fd, self.anchor_fd, exclusive=True):
             manifest = self._load_pair()[0]
             self._verify_roles_locked(manifest)
 
@@ -430,7 +430,7 @@ class ManifestStore:
             return self._commit_locked(manifest_data)
 
     def _commit_locked(self, manifest_data: bytes) -> dict[str, Any]:
-        current, _, generation, _ = self._load_pair()
+        _, _, generation, _ = self._load_pair()
         candidate = _validate_manifest(manifest_data)
         if candidate["generation"] != generation + 1:
             raise StoreError("new manifest generation must be exactly current + 1")
