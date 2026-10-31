@@ -392,5 +392,23 @@ class ManifestStoreTests(unittest.TestCase):
             os.close(fd)
 
 
+    def test_open_role_file_descriptor_survives_parent_path_replacement(self):
+        self.store.initialize(self.data(1))
+        fd = self.store.open_role_file("core")
+        moved_parent = self.role_parent.with_name("role-data-original")
+        os.rename(self.role_parent, moved_parent)
+        self.role_parent.mkdir(mode=0o700)
+        decoy = self.role_parent / "core.sqlite"
+        decoy.write_bytes(b"decoy-database")
+        os.chmod(decoy, 0o600)
+        try:
+            self.assertEqual(os.read(fd, 64), b"sqlite-test-placeholder")
+            self.assertNotEqual(fd_identity(fd), fd_identity(
+                os.open(decoy, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
+            ))
+        finally:
+            os.close(fd)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
