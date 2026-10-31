@@ -109,7 +109,14 @@ async function runPowerShell(script, env, timeout = 120_000) {
     const output = [error?.stdout, error?.stderr, error?.message].filter(Boolean).join('\\n');
     const markers = [...output.matchAll(/HOST_VSS_[A-Z0-9_]+(?::[0-9]+)?/g)].map(match => match[0]);
     const marker = markers.find(value => value !== 'HOST_VSS_SNAPSHOT_ID');
-    throw new Error(marker ?? 'HOST_VSS_POWERSHELL_FAILED');
+    if (marker) throw new Error(marker);
+    // Preserve a short, path-scrubbed diagnostic for CI and deployment review;
+    // never include the encoded command or environment values.
+    const diagnostic = String(error?.stderr || error?.message || error?.code || 'unknown')
+      .replace(/[A-Z]:\\\\[^\\r\\n"]+/gi, '<path>')
+      .replace(/\\s+/g, ' ')
+      .slice(0, 320);
+    throw new Error('HOST_VSS_POWERSHELL_FAILED: ' + diagnostic);
   }
 }
 
