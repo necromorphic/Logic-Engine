@@ -19,11 +19,14 @@ const EVENT_TYPES = new Set([
   'BRANCH_CREATED',
   'RESTORE_APPLIED',
   'MIGRATION_APPLIED',
+  'MUTATION_PREPARED',
+  'MUTATION_COMMITTED',
+  'MUTATION_ABORTED',
 ]);
 const EVENT_KEYS = new Set([
   'event_id', 'host_installation_id', 'authenticated_account_id', 'conversation_uuid',
   'event_type', 'message_id', 'version_id', 'parent_version_id', 'payload_sha256',
-  'active', 'mutation_digest', 'occurred_at',
+  'active', 'mutation_digest', 'mutation_id', 'operation', 'occurred_at',
 ]);
 
 const validText = (value, max = 200) => typeof value === 'string'
@@ -191,6 +194,13 @@ function validateEvent(event) {
   if (event.mutation_digest !== undefined && !validDigest(event.mutation_digest)) {
     throw new TypeError('Invalid Host lifecycle mutation digest.');
   }
+  const mutationEvent = ['MUTATION_PREPARED', 'MUTATION_COMMITTED', 'MUTATION_ABORTED'].includes(event.event_type);
+  if (mutationEvent && (!UUID.test(event.mutation_id ?? '') || !validText(event.operation) || !validDigest(event.mutation_digest))) {
+    throw new TypeError('Host mutation lifecycle events require mutation UUID, operation and digest.');
+  }
+  if (!mutationEvent && (event.mutation_id !== undefined || event.operation !== undefined)) {
+    throw new TypeError('Mutation identity fields are reserved for mutation lifecycle events.');
+  }
   if (event.occurred_at !== undefined && (typeof event.occurred_at !== 'string' || !Number.isFinite(Date.parse(event.occurred_at)))) {
     throw new TypeError('Invalid Host lifecycle event timestamp.');
   }
@@ -355,6 +365,32 @@ export class HostLifecycleJournal {
         throw new Error('HOST_LIFECYCLE_IDENTITY_NOT_AUTHORIZED');
       }
 
+      if (['MUTATION_PREPARED', 'MUTATION_COMMITTED', 'MUTATION_ABORTED'].includes(event.event_type)) {
+        const priorRows = this.db.prepare(`
+          SELECT canonical_event_json FROM host_lifecycle_events
+          WHERE host_installation_id=? AND authenticated_account_id=? AND conversation_uuid=?
+          ORDER BY sequence
+        `).all(event.host_installation_id, event.authenticated_account_id, event.conversation_uuid);
+        const prepared = new Map();
+        for (const row of priorRows) {
+          let prior;
+          try { prior = JSON.parse(row.canonical_event_json); } catch {
+            throw new Error('HOST_LIFECYCLE_EVENT_STORED_JSON_INVALID');
+          }
+          if (prior.event_type === 'MUTATION_PREPARED') prepared.set(prior.mutation_id, prior);
+          if (prior.event_type === 'MUTATION_COMMITTED' || prior.event_type === 'MUTATION_ABORTED') prepared.delete(prior.mutation_id);
+        }
+        if (event.event_type === 'MUTATION_PREPARED' && prepared.size) {
+          throw new Error('HOST_LIFECYCLE_MUTATION_ALREADY_PENDING');
+        }
+        if (event.event_type !== 'MUTATION_PREPARED') {
+          const prior = prepared.get(event.mutation_id);
+          if (!prior || prior.operation !== event.operation) {
+            throw new Error('HOST_LIFECYCLE_MUTATION_PREPARE_MISSING');
+          }
+        }
+      }
+
       const canonicalEvent = canonical(event);
       const { occurred_at: _occurredAt, ...eventContent } = event;
       const eventDigest = sha256(canonical(eventContent));
@@ -372,11 +408,10 @@ export class HostLifecycleJournal {
           throw new Error('HOST_LIFECYCLE_EVENT_ID_CONFLICT');
         }
         return {
-        status: 'duplicate', sequence: existing.sequence,
-        manifest_sha256: existing.manifest_sha256,
-        ...(existing.delta_sha256 ? { delta_sha256: existing.delta_sha256 } : {}),
-        event_sha256: existing.event_sha256,
-      };
+          status: 'duplicate',
+          sequence: existing.sequence,
+          event_sha256: existing.event_sha256,
+        };
       }
 
       const head = this.db.prepare(`
@@ -413,6 +448,41 @@ export class HostLifecycleJournal {
       `).run(event.host_installation_id, event.authenticated_account_id, sequence, eventSha);
       return { status: 'appended', sequence, event_sha256: eventSha, previous_sha256: head.head_sha256 };
     });
+  }
+
+  getConversationStatus(hostInstallationId, authenticatedAccountId, conversationUuid) {
+    if (!validText(hostInstallationId) || !validText(authenticatedAccountId) || !UUID.test(conversationUuid ?? '')) {
+      throw new TypeError('Valid Host installation, account and conversation UUIDs are required.');
+    }
+    const integrity = this.verifyChain(hostInstallationId, authenticatedAccountId);
+    if (!integrity.valid) return { status: 'NON_READY', reason: integrity.reason, integrity };
+    const rows = this.db.prepare(`
+      SELECT canonical_event_json FROM host_lifecycle_events
+      WHERE host_installation_id=? AND authenticated_account_id=? AND conversation_uuid=?
+      ORDER BY sequence
+    `).all(hostInstallationId, authenticatedAccountId, conversationUuid);
+    const pending = new Map();
+    for (const row of rows) {
+      let event;
+      try { event = JSON.parse(row.canonical_event_json); } catch {
+        return { status: 'NON_READY', reason: 'HOST_LIFECYCLE_EVENT_JSON_INVALID', integrity };
+      }
+      if (event.event_type === 'MUTATION_PREPARED') {
+        if (pending.has(event.mutation_id)) return { status: 'NON_READY', reason: 'HOST_LIFECYCLE_DUPLICATE_PENDING_MUTATION', integrity };
+        pending.set(event.mutation_id, { mutation_id: event.mutation_id, operation: event.operation, event_id: event.event_id });
+      } else if (event.event_type === 'MUTATION_COMMITTED' || event.event_type === 'MUTATION_ABORTED') {
+        const prior = pending.get(event.mutation_id);
+        if (!prior || prior.operation !== event.operation) {
+          return { status: 'NON_READY', reason: 'HOST_LIFECYCLE_MUTATION_TERMINAL_WITHOUT_PREPARE', integrity };
+        }
+        pending.delete(event.mutation_id);
+      }
+    }
+    if (pending.size > 1) return { status: 'NON_READY', reason: 'HOST_LIFECYCLE_MULTIPLE_PENDING_MUTATIONS', integrity };
+    const unresolved = pending.values().next().value;
+    return unresolved
+      ? { status: 'PENDING_MUTATION', ...unresolved, integrity }
+      : { status: 'NO_PENDING_MUTATION', integrity };
   }
 
   getHead(hostInstallationId, authenticatedAccountId) {
