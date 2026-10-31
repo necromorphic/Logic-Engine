@@ -326,7 +326,7 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
         if (!snapshot || snapshot.status !== 'active') {
           return send(res, 409, { error: { code: 'NPC_KNOWLEDGE_WORLD_NOT_READY', message: 'The bound Core world is not active.' } });
         }
-        const context = engine.readNpcKnowledge({
+        const context = engine.readNpcKnowledgeContext({
           world_id: binding.world_id,
           conversation_id: body.conversation_id,
           adapter_id: adapterId,
