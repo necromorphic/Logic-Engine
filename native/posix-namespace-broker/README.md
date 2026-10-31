@@ -120,9 +120,15 @@ compares its identity to the original descriptor and manifest expectation.
 Only an exact match is unlinked. A replacement detected after the move is
 retained in quarantine and reported as an identity mismatch.
 
-The quarantine directory must be owned by the broker effective UID, have no
-group/other permissions, and reside on the same mount as the role parent.
-Missing `statx` mount identity or unsupported `renameat2` fails closed. The
+The quarantine directory must be owned by the broker effective UID, have
+exactly mode `0700`, be distinct from the role parent, and reside on the same
+mount. The primitive fsyncs the quarantine directory and then the parent after
+the rename, before unlinking; after unlink it fsyncs quarantine again. If a
+pre-unlink sync fails, the object is retained and the API reports
+`LEB_QUARANTINE_RETAINED`. If unlink succeeds but the final sync fails, it
+reports `LEB_QUARANTINE_DURABILITY_UNCERTAIN`; callers must treat the outcome
+as potentially non-durable rather than retrying blindly. Missing `statx`
+mount identity or unsupported `renameat2` fails closed. The
 test injects a deterministic name replacement precisely between the initial
 open and rename, and also covers successful deletion, hard links and symlinks.
 
