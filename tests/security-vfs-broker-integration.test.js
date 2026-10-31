@@ -92,7 +92,7 @@ test('Linux SQLite VFS obtains main and sidecar descriptors from the authenticat
       const failureDiagnostics = registrar.prepare('SELECT logic_engine_vfs_probe_failure_diagnostics() AS value').get().value;
       const parentOpenDiagnostics = registrar.prepare('SELECT logic_engine_vfs_probe_parent_xopen_diagnostics() AS value').get().value;
       throw new Error(String(error?.message ?? error) + "\\nFailure diagnostics: " +
-        failureDiagnostics + "\\nBackend open failures: " + backendFailures +
+        failureDiagnostics + "\\nParent xOpen diagnostics: " + parentOpenDiagnostics + "\\nBackend open failures: " + backendFailures +
         "\\nSHM diagnostics: " + shmDiagnostics + "\\nBroker operations:\\n" +
         (existsSync(logPath) ? readFileSync(logPath, 'utf8') : '<no broker log>'));
     }
