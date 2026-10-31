@@ -63,6 +63,7 @@ test('root inventory persistence forwards only bounded digest metadata with serv
           inventory_status: 'REVIEW_ONLY',
           reconciliation: {
             status: 'BASELINED_REVIEW_ONLY',
+            integrity_status: 'INTEGRITY_OK',
             sequence: 1,
             manifest_sha256: 'd'.repeat(64),
           },
@@ -111,7 +112,7 @@ test('root inventory persistence falls back from first baseline to observation o
         json: async () => ({
           inventory_status: 'NON_READY',
           reconciliation: {
-            status: 'NON_READY', sequence: 2,
+            status: 'NON_READY', integrity_status: 'INTEGRITY_OK', sequence: 2,
             manifest_sha256: 'e'.repeat(64), delta_sha256: 'f'.repeat(64),
             counts: { added: 0, removed: 0, modified: 1, metadata_changed: 0, replaced: 0, moved: 0 },
           },
