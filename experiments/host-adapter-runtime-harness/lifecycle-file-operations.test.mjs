@@ -275,7 +275,7 @@ test('pinned ST 1.19.0 chat create/edit/swipe/delete/import/export/restore mutat
     if (expectedKind === 'unchanged') {
       assert.ok(['UNCHANGED_REVIEW_ONLY', 'NON_READY'].includes(result.status), JSON.stringify(result));
       if (result.status === 'NON_READY') {
-        assert.equal(result.duplicate, true,
+        assert.match(result.reason ?? '', /previously observed root inventory delta remains unresolved/,
           'unchanged bytes after a previously observed delta must remain unresolved, not erase history');
       }
     } else {
@@ -388,7 +388,7 @@ test('pinned ST 1.19.0 chat create/edit/swipe/delete/import/export/restore mutat
     return response;
   }, 'unchanged');
   assert.equal(exportResult.result.status, 'NON_READY');
-  assert.equal(exportResult.result.duplicate, true,
+  assert.match(exportResult.result.reason ?? '', /previously observed root inventory delta remains unresolved/,
     'an unchanged export cannot clear prior unresolved filesystem deltas');
 
   const renamedPath = join(directories.chats, 'Harness Character', 'chat-renamed.jsonl');
