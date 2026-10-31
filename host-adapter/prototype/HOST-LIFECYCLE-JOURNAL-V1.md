@@ -157,6 +157,8 @@ For PENDING_MUTATION, pending contains mutation ID, operation, intent digest, PR
 
 ## 10. Operation allowlist and SillyTavern 1.19.0 mapping
 
+Import and group-import server routes are guarded by a full pinned Host inventory scan and return NON_READY while any enrolled conversation exists. Backup restore is routed through those imports. Export is read-only and does not create a lifecycle mutation. These guards are fail-closed containment, not lifecycle support for import/restore into an enrolled conversation.
+
 | Operation | Pinned Host path/hook | Persisted artifact set | V1 disposition |
 |---|---|---|---|
 | create-message | saveReply() create/append | target chat JSONL + version identity receipt | supported only after disk read-back |
