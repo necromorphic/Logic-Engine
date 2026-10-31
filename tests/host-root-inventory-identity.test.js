@@ -75,26 +75,31 @@ test('lifecycle identity resolver binds adapter, installation and account before
     adapterId: binding.adapter_id,
     host_installation_id: binding.host_installation_id,
     authenticated_account_id: binding.authenticated_account_id,
+    host_session_id: '33333333-3333-4333-8333-333333333333',
     conversation_uuid: '33333333-3333-4333-8333-333333333333',
   });
   assert.equal(accepted.authorized, true);
+  assert.equal(accepted.host_session_id, '33333333-3333-4333-8333-333333333333');
   assert.equal(accepted.conversation_uuid, '33333333-3333-4333-8333-333333333333');
   assert.equal(resolveAdapterHostLifecycleIdentity(registry, {
     adapterId: 'other-adapter',
     host_installation_id: binding.host_installation_id,
     authenticated_account_id: binding.authenticated_account_id,
+    host_session_id: '33333333-3333-4333-8333-333333333333',
     conversation_uuid: '33333333-3333-4333-8333-333333333333',
   }).authorized, false);
   assert.equal(resolveAdapterHostLifecycleIdentity(registry, {
     adapterId: binding.adapter_id,
     host_installation_id: binding.host_installation_id,
     authenticated_account_id: '44444444-4444-4444-8444-444444444444',
+    host_session_id: '33333333-3333-4333-8333-333333333333',
     conversation_uuid: '33333333-3333-4333-8333-333333333333',
   }).authorized, false);
   assert.equal(resolveAdapterHostLifecycleIdentity(registry, {
     adapterId: binding.adapter_id,
     host_installation_id: binding.host_installation_id,
     authenticated_account_id: binding.authenticated_account_id,
+    host_session_id: '33333333-3333-4333-8333-333333333333',
     conversation_uuid: 'not-a-uuid',
   }).authorized, false);
 });
