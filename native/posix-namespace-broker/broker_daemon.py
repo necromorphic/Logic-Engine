@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import array
 import os
+import pwd
 import re
 import signal
 import socket
@@ -160,7 +161,7 @@ def handle_connection(conn: socket.socket, allowed_uid: int, store: Any) -> None
         return
 
 
-def _open_socket_parent(path: str, application_uid: int) -> tuple[int, str]:
+def _open_socket_parent(path: str, application_uid: int, application_gid: int) -> tuple[int, str]:
     if not os.path.isabs(path):
         raise ValueError("socket path must be absolute")
     components = path.split("/")[1:]
@@ -184,8 +185,11 @@ def _open_socket_parent(path: str, application_uid: int) -> tuple[int, str]:
                     or (info.st_uid == application_uid and info.st_mode & stat.S_IWUSR)):
                 raise StoreError("socket path has an untrusted or application-writable ancestor")
             if index == len(directory_components) - 1:
-                if info.st_uid != os.geteuid() or stat.S_IMODE(info.st_mode) != 0o700:
-                    raise StoreError("socket parent must be broker-owned mode 0700")
+                expected_mode = 0o700 if application_uid == os.geteuid() else 0o710
+                if (info.st_uid != os.geteuid()
+                        or (application_uid != os.geteuid() and info.st_gid != application_gid)
+                        or stat.S_IMODE(info.st_mode) != expected_mode):
+                    raise StoreError("socket parent must be broker-owned and traversable only by the application group")
         if not directory_components:
             raise StoreError("socket parent directory is not configured")
         return fd, basename
@@ -195,10 +199,10 @@ def _open_socket_parent(path: str, application_uid: int) -> tuple[int, str]:
 
 
 def serve(
-    socket_path: str, allowed_uid: int, store: ManifestStore,
+    socket_path: str, allowed_uid: int, allowed_gid: int, store: ManifestStore,
 ) -> None:
     global _STOP
-    parent_fd, _basename = _open_socket_parent(socket_path, allowed_uid)
+    parent_fd, _basename = _open_socket_parent(socket_path, allowed_uid, allowed_gid)
     server: socket.socket | None = None
     bound_identity: tuple[int, int] | None = None
     try:
@@ -214,7 +218,11 @@ def serve(
         if not stat.S_ISSOCK(socket_info.st_mode):
             raise RuntimeError("bound broker path is not a socket")
         bound_identity = (socket_info.st_dev, socket_info.st_ino)
-        os.chmod(socket_path, 0o600)
+        if allowed_uid == os.geteuid():
+            os.chmod(socket_path, 0o600)
+        else:
+            os.chown(socket_path, -1, allowed_gid, follow_symlinks=False)
+            os.chmod(socket_path, 0o620)
         server.listen(16)
         server.settimeout(0.5)
         signal.signal(signal.SIGINT, _signal_stop)
@@ -246,7 +254,14 @@ def main() -> int:
     parser.add_argument("--manifest-root", required=True)
     parser.add_argument("--anchor-root", required=True)
     parser.add_argument("--app-uid", required=True, type=int)
+    parser.add_argument("--app-gid", type=int, default=None,
+                        help="application primary group; defaults from the UID database")
     args = parser.parse_args()
+    try:
+        application_gid = args.app_gid if args.app_gid is not None else pwd.getpwuid(args.app_uid).pw_gid
+    except KeyError:
+        print("sqlite-broker: application UID has no passwd entry; specify --app-gid", file=sys.stderr)
+        return 2
     store: ManifestStore | None = None
     try:
         store = ManifestStore(args.manifest_root, args.anchor_root, args.app_uid)
@@ -255,7 +270,7 @@ def main() -> int:
         # Startup is fail-closed: no service until every enrolled role and active
         # sidecar is identity-verified against the protected manifest.
         store.verify_roles()
-        serve(args.socket, args.app_uid, store)
+        serve(args.socket, args.app_uid, application_gid, store)
         return 0
     except (OSError, ValueError, RuntimeError, StoreError) as exc:
         print(f"sqlite-broker: {exc}", file=sys.stderr)
