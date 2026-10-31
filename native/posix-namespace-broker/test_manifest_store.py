@@ -355,5 +355,42 @@ class ManifestStoreTests(unittest.TestCase):
             self.store.verify_roles()
 
 
+    def test_open_role_file_returns_verified_main_database_descriptor(self):
+        self.store.initialize(self.data(1))
+        fd = self.store.open_role_file("core")
+        try:
+            self.assertEqual(os.read(fd, 64), b"sqlite-test-placeholder")
+            self.assertEqual(fd_identity(fd), self.store.load()["roles"][0]["databaseIdentity"])
+        finally:
+            os.close(fd)
+
+    def test_open_role_file_requires_manifested_active_sidecar(self):
+        self.store.initialize(self.data(1))
+        wal = self.role_parent / "core.sqlite-wal"
+        wal.write_bytes(b"wal-placeholder")
+        os.chmod(wal, 0o600)
+        with self.assertRaises(StoreError):
+            self.store.open_role_file("core", "wal")
+
+        wal_fd = os.open(wal, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
+        try:
+            wal_identity = fd_identity(wal_fd)
+        finally:
+            os.close(wal_fd)
+        import json
+        value = json.loads(self.data(1))
+        value["generation"] = 2
+        value["roles"][0]["sidecars"] = [{
+            "kind": "wal", "identity": wal_identity, "state": "active", "generation": 2
+        }]
+        self.store.commit(_canonical_json(value))
+        fd = self.store.open_role_file("core", "wal")
+        try:
+            self.assertEqual(os.read(fd, 64), b"wal-placeholder")
+            self.assertEqual(fd_identity(fd), wal_identity)
+        finally:
+            os.close(fd)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
