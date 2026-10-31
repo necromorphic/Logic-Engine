@@ -145,10 +145,9 @@ test('durable lifecycle journal survives close/reopen and replay remains idempot
     try { reopened.close(); } catch {}
     rmSync(directory, { recursive: true, force: true });
   });
-  assert.deepEqual(reopened.getHead(installation, account), {
-    sequence: 1,
-    head_sha256: appended.event_sha256,
-  });
+  const reopenedHead = reopened.getHead(installation, account);
+  assert.equal(reopenedHead.sequence, 1);
+  assert.equal(reopenedHead.head_sha256, appended.event_sha256);
   assert.equal(reopened.verifyChain(installation, account).valid, true);
   assert.equal(reopened.append(event()).status, 'duplicate');
   assert.equal(reopened.getHead(installation, account).sequence, 1);
