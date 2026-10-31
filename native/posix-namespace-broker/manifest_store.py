@@ -583,7 +583,8 @@ class ManifestStore:
                     raise StoreError(f"role {role['role']} has unsupported recovery state")
                 parent_fd = _open_role_parent(
                     role["parentComponents"], role["parentIdentities"],
-                    manifest["filesystemPolicy"]["filesystem"]
+                    manifest["filesystemPolicy"]["filesystem"],
+                    manifest["filesystemPolicy"]["applicationUid"]
                 )
                 try:
                     _verify_regular_at(parent_fd, role["databaseBasename"],
