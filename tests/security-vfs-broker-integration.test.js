@@ -89,6 +89,7 @@ test('Linux SQLite VFS obtains main and sidecar descriptors from the authenticat
         'SELECT logic_engine_vfs_probe_broker_backend_open_fail_count() AS count'
       ).get().count;
       const shmDiagnostics = registrar.prepare('SELECT logic_engine_vfs_probe_broker_shm_diagnostics() AS value').get().value;
+      const failureDiagnostics = registrar.prepare('SELECT logic_engine_vfs_probe_failure_diagnostics() AS value').get().value;
       throw new Error(String(error?.message ?? error) + "\\nBackend open failures: " +
         backendFailures + "\\nSHM diagnostics: " + shmDiagnostics + "\\nBroker operations:\\n" +
         (existsSync(logPath) ? readFileSync(logPath, 'utf8') : '<no broker log>'));
@@ -122,7 +123,7 @@ test('Linux SQLite VFS obtains main and sidecar descriptors from the authenticat
         'SELECT logic_engine_vfs_probe_broker_shm_diagnostics() AS value'
       ).get().value;
       throw new Error(String(error?.message ?? error) + "\\nSHM diagnostics: " +
-        shmDiagnostics + "\\nBroker operations:\\n" +
+        shmDiagnostics + "\\nFailure diagnostics: " + failureDiagnostics + "\\nBroker operations:\\n" +
         (existsSync(logPath) ? readFileSync(logPath, 'utf8') : '<no broker log>'));
     }
     assert.equal(reopened.prepare('PRAGMA journal_mode=WAL').get().journal_mode, 'wal');
