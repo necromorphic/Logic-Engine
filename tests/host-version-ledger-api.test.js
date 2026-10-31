@@ -144,6 +144,13 @@ test('root inventory API persists adapter-bound baselines and file deltas as rev
 
   const { base, rootJournal } = await setup(t, { withRootJournal: true });
   rootJournal.enrollRootInventory({ ...rootInventoryBody(), event_id: 'api-lifecycle-root-baseline' });
+  HOST_AUTHORITY.snapshot_fingerprint = rootJournal.getAuthoritySnapshot({
+    ...HOST_AUTHORITY,
+    adapter_id: 'adapter-a',
+    host_installation_id: rootInventoryBody().host_installation_id,
+    authenticated_account_id: rootInventoryBody().authenticated_account_id,
+    root_id: rootInventoryBody().root_id,
+  }).snapshot_fingerprint;
   const adapterHeaders = { ...headers, 'x-adapter-id': 'adapter-a', 'x-adapter-token': ADAPTER };
   const noAdapter = await fetch(base + '/v1/host-root-inventory/baseline', {
     method: 'POST', headers, body: json(rootInventoryBody()),
