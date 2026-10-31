@@ -16,7 +16,7 @@ function fileDelta(beforeEntries, afterEntries) {
   const after = new Map(afterEntries.map(entry => [entry.path, entry]));
   const beforeIds = new Map(beforeEntries.map(entry => [physicalId(entry), entry]).filter(([id]) => id));
   const afterIds = new Map(afterEntries.map(entry => [physicalId(entry), entry]).filter(([id]) => id));
-  const delta = { added: [], removed: [], modified: [], replaced: [], moved: [] };
+  const delta = { added: [], removed: [], modified: [], metadataChanged: [], replaced: [], moved: [] };
   for (const [path, old] of before) {
     const next = after.get(path);
     if (!next) {
@@ -27,6 +27,8 @@ function fileDelta(beforeEntries, afterEntries) {
       delta.replaced.push({ path, before: { identity: old.identity, sha256: old.sha256 }, after: { identity: next.identity, sha256: next.sha256 } });
     } else if (old.sha256 !== next.sha256) {
       delta.modified.push({ path, identity: next.identity, beforeSha256: old.sha256, afterSha256: next.sha256 });
+    } else if (canonical(old.identity) !== canonical(next.identity)) {
+      delta.metadataChanged.push({ path, beforeIdentity: old.identity, afterIdentity: next.identity, sha256: next.sha256 });
     }
   }
   for (const [path, next] of after) {
