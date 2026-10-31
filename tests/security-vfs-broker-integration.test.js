@@ -95,6 +95,15 @@ test('Linux SQLite VFS obtains main and sidecar descriptors from the authenticat
     writer.close();
   }
 
+  const reopened = new DatabaseSync(databasePath);
+  try {
+    assert.equal(reopened.prepare('PRAGMA journal_mode=DELETE').get().journal_mode, 'delete');
+    assert.equal(reopened.prepare('PRAGMA journal_mode=WAL').get().journal_mode, 'wal');
+    reopened.exec("INSERT INTO broker_probe VALUES('after-recreate');");
+  } finally {
+    reopened.close();
+  }
+
   const operations = readFileSync(logPath, 'utf8');
   assert.match(operations, /open:core:main/,
     'the broker must provide the main database descriptor');
