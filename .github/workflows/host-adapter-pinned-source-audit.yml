@@ -94,6 +94,9 @@ jobs:
           SILLYTAVERN_DIR: SillyTavern
         run: node --test experiments/host-adapter-source-audit/harness.mjs
 
+      - name: Run authenticated Core API root-inventory persistence integration
+        run: node --test experiments/host-adapter-runtime-harness/core-api-root-inventory.test.mjs
+
       - name: Run bounded fake-provider integration harness
         env:
           SILLYTAVERN_DIR: SillyTavern
