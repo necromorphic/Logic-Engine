@@ -5,6 +5,7 @@
 #include <assert.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <dirent.h>
 #include <linux/fs.h>
 #include <linux/stat.h>
 #include <stdio.h>
@@ -142,14 +143,25 @@ int main(void) {
     unlinkat(parent_fd, "hardlink.db", 0);
     unlinkat(parent_fd, "hardlink-alias.db", 0);
     unlinkat(parent_fd, "symlink.db", 0);
+    {
+        int qdup = dup(quarantine_fd);
+        DIR *dir;
+        struct dirent *entry;
+        assert(qdup >= 0);
+        dir = fdopendir(qdup);
+        assert(dir != NULL);
+        while ((entry = readdir(dir)) != NULL) {
+            if (entry->d_name[0] == '.') continue;
+            assert(unlinkat(quarantine_fd, entry->d_name, 0) == 0);
+        }
+        closedir(dir);
+    }
+    assert(unlinkat(root_fd, "parent", AT_REMOVEDIR) == 0);
+    assert(unlinkat(root_fd, "quarantine", AT_REMOVEDIR) == 0);
     close(parent_fd);
     close(quarantine_fd);
     close(root_fd);
-    {
-        char command[600];
-        assert(snprintf(command, sizeof(command), "rm -rf -- '%s'", root) > 0);
-        assert(system(command) == 0);
-    }
+    assert(rmdir(root) == 0);
     puts("POSIX quarantine delete tests: PASS (identity match, deterministic name-swap race, hard-link, symlink)");
     return 0;
 }
