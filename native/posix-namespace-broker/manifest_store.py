@@ -622,6 +622,29 @@ class ManifestStore:
             finally:
                 os.close(parent_fd)
 
+    def open_role_parent_directory(self, role_name: str) -> int:
+        """Return a verified directory descriptor for VFS-relative file operations."""
+        with _locked_roots(self.manifest_fd, self.anchor_fd, exclusive=False):
+            manifest = self._load_pair()[0]
+            matches = [entry for entry in manifest["roles"] if entry["role"] == role_name]
+            if len(matches) != 1 or matches[0]["state"] != "active":
+                raise StoreError("unknown or inactive database role")
+            role = matches[0]
+            parent_fd = _open_role_parent(
+                role["parentComponents"], role["parentIdentities"],
+                manifest["filesystemPolicy"]["filesystem"],
+                manifest["filesystemPolicy"]["applicationUid"],
+            )
+            try:
+                _verify_regular_at(
+                    parent_fd, role["databaseBasename"],
+                    role["databaseIdentity"], f"role {role_name} database",
+                )
+                return parent_fd
+            except Exception:
+                os.close(parent_fd)
+                raise
+
     def verify_roles(self) -> None:
         with _locked_roots(self.manifest_fd, self.anchor_fd, exclusive=True):
             manifest = self._load_pair()[0]
