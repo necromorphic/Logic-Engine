@@ -829,7 +829,7 @@ export class HostLifecycleJournal {
     `).all(identity.host_installation_id, identity.authenticated_account_id, identity.root_id);
     const root = this.#verifyRootInventoryRows(identity.host_installation_id,
       identity.authenticated_account_id, identity.root_id, rows);
-    if (!root.valid) return null;
+    if (!root.valid || root.status !== 'BASELINED_REVIEW_ONLY') return null;
     const snapshot = {
       authority_id: identity.authority_id,
       generation: identity.generation,
