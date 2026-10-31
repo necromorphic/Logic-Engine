@@ -165,7 +165,6 @@ integration, and Windows parity.
 This is only the first transport increment. It does not yet implement:
 
 - a dedicated service account, service manager integration or authenticated administrative enrollment;
-- a complete race-resistant socket-directory component walk;
 - broker-integrated role authorization and a platform-backed monotonic anti-rollback anchor;
 - `OPEN_MAIN`, `OPEN_SIDECAR`, `ACCESS`, `DELETE`, `SYNC_DIR`;
 - descriptor passing with `SCM_RIGHTS`;
