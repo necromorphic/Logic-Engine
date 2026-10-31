@@ -60,7 +60,12 @@ def main():
             else:
                 raise AssertionError("broker socket did not appear")
 
+            # An idle authorized client must not block the sequential broker.
+            idle = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+            idle.connect(path)
+            time.sleep(0.1)
             ping = exchange(path, 1)
+            idle.close()
             assert ping == (MAGIC, VERSION, 1, OK, 0x1020304050607080, 0), ping
 
             unsupported = exchange(path, 99)
