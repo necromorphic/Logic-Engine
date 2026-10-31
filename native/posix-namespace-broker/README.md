@@ -74,9 +74,13 @@ not a hardware monotonic counter. An attacker able to restore or modify both
 service-owned roots (or execute as the broker service UID) can roll back both.
 Production deployment still needs an independently protected backup/restore
 policy or platform monotonic anchor, plus privileged enrollment and broker-side
-validation before this store can be treated as authoritative. It currently
-validates manifest structure and metadata-root identity; it does not yet walk
-and verify every database parent/file identity or reconcile SQLite sidecars.
+validation before this store can be treated as authoritative. The current POSIX role-manifest implementation accepts only the explicitly
+qualified local filesystems `ext4`, `xfs`, and `btrfs`; verification resolves
+the opened role-parent descriptor's mount ID through `/proc/self/mountinfo`
+and requires the observed filesystem type to match the manifest policy. Other
+filesystems, unavailable mount metadata, and zero device/inode/mount identities
+fail closed. This allowlist is intentionally conservative and must be expanded
+only after identity semantics are qualified with adversarial tests.
 
 `ManifestStore.verify_roles()` adds a read-only verification pass: it walks
 each enrolled parent from the filesystem root with directory FDs and
