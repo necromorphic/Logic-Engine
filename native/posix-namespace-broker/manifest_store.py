@@ -7,11 +7,13 @@ for the broker service identity and must not be writable by the application.
 from __future__ import annotations
 
 import argparse
+import fcntl
 import hashlib
 import json
 import os
 import stat
 import sys
+from contextlib import contextmanager
 from pathlib import PurePosixPath
 from typing import Any
 
@@ -286,6 +288,25 @@ def _verify_regular_at(parent_fd: int, name: str,
         os.close(fd)
 
 
+@contextmanager
+def _locked_roots(manifest_fd: int, anchor_fd: int, *, exclusive: bool):
+    """Lock both retained metadata directories in a stable global order."""
+    descriptors = sorted(
+        (manifest_fd, anchor_fd),
+        key=lambda fd: (os.fstat(fd).st_dev, os.fstat(fd).st_ino),
+    )
+    operation = fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH
+    acquired: list[int] = []
+    try:
+        for fd in descriptors:
+            fcntl.flock(fd, operation)
+            acquired.append(fd)
+        yield
+    finally:
+        for fd in reversed(acquired):
+            fcntl.flock(fd, fcntl.LOCK_UN)
+
+
 class ManifestStore:
     def __init__(self, manifest_root: str, anchor_root: str):
         self.manifest_fd = _open_trusted_dir(manifest_root)
@@ -345,6 +366,10 @@ class ManifestStore:
         raise StoreError("manifest does not match protected anchor; recovery required")
 
     def initialize(self, manifest_data: bytes) -> None:
+        with _locked_roots(self.manifest_fd, self.anchor_fd, exclusive=True):
+            self._initialize_locked(manifest_data)
+
+    def _initialize_locked(self, manifest_data: bytes) -> None:
         if _read_named(self.anchor_fd, ANCHOR) is not None:
             raise StoreError("anchor already initialized")
         manifest = _validate_manifest(manifest_data)
@@ -362,7 +387,11 @@ class ManifestStore:
         os.fsync(self.manifest_fd)
 
     def verify_roles(self) -> None:
-        manifest = self.load()
+        with _locked_roots(self.manifest_fd, self.anchor_fd, exclusive=False):
+            manifest = self._load_pair()[0]
+            self._verify_roles_locked(manifest)
+
+    def _verify_roles_locked(self, manifest: dict[str, Any]) -> None:
         for role in manifest["roles"]:
             state = role["state"]
             if state == "disabled":
@@ -393,9 +422,14 @@ class ManifestStore:
                 os.close(parent_fd)
 
     def load(self) -> dict[str, Any]:
-        return self._load_pair()[0]
+        with _locked_roots(self.manifest_fd, self.anchor_fd, exclusive=False):
+            return self._load_pair()[0]
 
     def commit(self, manifest_data: bytes) -> dict[str, Any]:
+        with _locked_roots(self.manifest_fd, self.anchor_fd, exclusive=True):
+            return self._commit_locked(manifest_data)
+
+    def _commit_locked(self, manifest_data: bytes) -> dict[str, Any]:
         current, _, generation, _ = self._load_pair()
         candidate = _validate_manifest(manifest_data)
         if candidate["generation"] != generation + 1:
