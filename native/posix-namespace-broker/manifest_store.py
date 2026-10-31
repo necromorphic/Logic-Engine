@@ -556,15 +556,6 @@ class ManifestStore:
                 return manifest
             next_generation = manifest["generation"] + 1
             candidate["generation"] = next_generation
-            for role in candidate["roles"]:
-                for sidecar in role["sidecars"]:
-                    if sidecar["state"] == "retired" and sidecar["generation"] > manifest["generation"]:
-                        continue
-                    if sidecar["state"] == "retired" and sidecar["generation"] == manifest["generation"]:
-                        # Preserve the original transition generation for already-retired entries.
-                        continue
-                    if sidecar["state"] == "retired" and sidecar["generation"] < manifest["generation"]:
-                        continue
             for role_old, role_new in zip(manifest["roles"], candidate["roles"]):
                 old_by_kind = {entry["kind"]: entry for entry in role_old["sidecars"]}
                 for entry in role_new["sidecars"]:
@@ -605,7 +596,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest-root", required=True)
     parser.add_argument("--anchor-root", required=True)
-    parser.add_argument("command", choices=("init", "verify", "recovery-plan", "show"))
+    parser.add_argument("command", choices=("init", "verify", "recovery-plan", "reconcile-absent", "show"))
     parser.add_argument("--input", help="manifest JSON for init")
     args = parser.parse_args()
     store = ManifestStore(args.manifest_root, args.anchor_root)
@@ -623,6 +614,10 @@ def main() -> int:
             store.verify_roles()
         if args.command == "recovery-plan":
             sys.stdout.buffer.write(_canonical_json(store.plan_recovery()))
+            return 0
+        if args.command == "reconcile-absent":
+            manifest = store.retire_absent_sidecars()
+            print(f"manifest reconciled: generation={manifest['generation']}")
             return 0
         manifest = store.load()
         if args.command == "show":
