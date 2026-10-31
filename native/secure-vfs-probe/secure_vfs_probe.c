@@ -1142,7 +1142,30 @@ static int probe_xOpen(sqlite3_vfs *vfs, const char *name, sqlite3_file *file,
   if (name && (flags & SQLITE_OPEN_MAIN_DB) && !(flags & SQLITE_OPEN_MEMORY)) {
 #ifndef _WIN32
     const char *suffix = NULL;
+    int broker_path_match = 0;
+#if defined(__linux__)
+    if (probe_match_role_entry(name, &role_index, &suffix)
+        && suffix[0] == '\0' && g_database_roles[role_index].broker_socket_path) {
+      canonical_name = sqlite3_mprintf("%s", name);
+      if (!canonical_name) return SQLITE_NOMEM;
+      broker_path_match = 1;
+    }
 #endif
+    if (!broker_path_match) {
+      canonical_name = (char *)sqlite3_malloc64((sqlite3_uint64)parent->mxPathname + 1);
+      if (!canonical_name) return SQLITE_NOMEM;
+      if (parent->xFullPathname(parent, name, parent->mxPathname + 1,
+                                canonical_name) != SQLITE_OK) {
+        sqlite3_free(canonical_name);
+        return SQLITE_CANTOPEN;
+      }
+      if (!probe_match_role_entry(canonical_name, &role_index, &suffix)
+          || suffix[0] != '\0') {
+        sqlite3_free(canonical_name);
+        return SQLITE_CANTOPEN;
+      }
+    }
+#else
     canonical_name = (char *)sqlite3_malloc64((sqlite3_uint64)parent->mxPathname + 1);
     if (!canonical_name) return SQLITE_NOMEM;
     if (parent->xFullPathname(parent, name, parent->mxPathname + 1,
@@ -1150,7 +1173,6 @@ static int probe_xOpen(sqlite3_vfs *vfs, const char *name, sqlite3_file *file,
       sqlite3_free(canonical_name);
       return SQLITE_CANTOPEN;
     }
-#ifdef _WIN32
     {
       wchar_t *wide_path = probe_utf8_to_wide(canonical_name);
       const wchar_t *wide_suffix = NULL;
@@ -1162,12 +1184,6 @@ static int probe_xOpen(sqlite3_vfs *vfs, const char *name, sqlite3_file *file,
         return SQLITE_CANTOPEN;
       }
       sqlite3_free(wide_path);
-    }
-#else
-    if (!probe_match_role_entry(canonical_name, &role_index, &suffix)
-        || suffix[0] != '\0') {
-      sqlite3_free(canonical_name);
-      return SQLITE_CANTOPEN;
     }
 #endif
     open_name = canonical_name;
