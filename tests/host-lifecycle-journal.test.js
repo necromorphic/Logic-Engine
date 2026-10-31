@@ -21,6 +21,7 @@ function setup(t, authorize = () => true) {
   const journal = new HostLifecycleJournal({
     path: join(directory, 'host-journal.sqlite'),
     coordinatorPath: join(directory, 'coordinator.sqlite'),
+    verifyMutationReceipt: () => true,
     resolveIdentity: (input) => ({
       authorized: authorize(input) === true,
       host_installation_id: input.host_installation_id,
@@ -102,6 +103,7 @@ test('serializes lifecycle append against competing Core writers under the share
   const journal = new HostLifecycleJournal({
     path: join(directory, 'host-journal.sqlite'),
     coordinatorPath,
+    verifyMutationReceipt: () => true,
     resolveIdentity: (input) => {
       assert.throws(() => competing.exec('BEGIN IMMEDIATE'), /locked|busy/i);
       return {
@@ -151,13 +153,13 @@ test('durable lifecycle journal survives close/reopen and replay remains idempot
     conversation_uuid: input.conversation_uuid,
     ...authority,
   });
-  let first = new HostLifecycleJournal({ path, coordinatorPath, resolveIdentity });
+  let first = new HostLifecycleJournal({ path, coordinatorPath, resolveIdentity, verifyMutationReceipt: () => true });
   const appended = first.append(event());
   assert.equal(appended.status, 'appended');
   assert.equal(first.verifyChain(installation, account).valid, true);
   first.close();
 
-  const reopened = new HostLifecycleJournal({ path, coordinatorPath, resolveIdentity });
+  const reopened = new HostLifecycleJournal({ path, coordinatorPath, resolveIdentity, verifyMutationReceipt: () => true });
   t.after(() => {
     try { reopened.close(); } catch {}
     rmSync(directory, { recursive: true, force: true });
@@ -502,7 +504,7 @@ test('prepared Core mutation survives SQLite restart and can be completed by ide
     operation: 'delete-message',
     mutation_digest: digest('before-delete'),
   };
-  const first = new HostLifecycleJournal({ path, coordinatorPath, resolveIdentity });
+  const first = new HostLifecycleJournal({ path, coordinatorPath, resolveIdentity, verifyMutationReceipt: () => true });
   first.append(prepared);
   first.close();
   const reopened = new HostLifecycleJournal({ path, coordinatorPath, resolveIdentity });
