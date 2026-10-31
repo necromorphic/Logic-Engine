@@ -29,7 +29,7 @@ const MUTATION_OPERATIONS = new Set([
 ]);
 const EVENT_KEYS = new Set([
   'event_id', 'host_installation_id', 'authenticated_account_id', 'host_session_id', 'conversation_uuid',
-  'authority_id', 'generation', 'snapshot_fingerprint', 'receipt_digest',
+  'authority_id', 'generation', 'snapshot_fingerprint', 'receipt_digest', 'receipt_signature',
   'event_type', 'message_id', 'version_id', 'parent_version_id', 'payload_sha256',
   'active', 'mutation_digest', 'mutation_id', 'operation', 'occurred_at',
 ]);
@@ -207,8 +207,8 @@ function validateEvent(event) {
   if (mutationEvent && (!UUID.test(event.mutation_id ?? '') || !validText(event.operation)
     || !MUTATION_OPERATIONS.has(event.operation)
     || !validDigest(event.mutation_digest)
-    || (event.event_type === 'MUTATION_PREPARED' && event.receipt_digest !== undefined)
-    || (event.event_type !== 'MUTATION_PREPARED' && !validDigest(event.receipt_digest)))) {
+    || (event.event_type === 'MUTATION_PREPARED' && (event.receipt_digest !== undefined || event.receipt_signature !== undefined))
+    || (event.event_type !== 'MUTATION_PREPARED' && (!validDigest(event.receipt_digest) || !validDigest(event.receipt_signature))))) {
     throw new TypeError('Host mutation lifecycle events require mutation UUID, operation, intent digest and terminal receipt digest.');
   }
   if (!mutationEvent && (event.mutation_id !== undefined || event.operation !== undefined || event.receipt_digest !== undefined)) {
