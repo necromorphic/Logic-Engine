@@ -457,6 +457,25 @@ class ManifestStoreTests(unittest.TestCase):
         self.assertEqual(wal.read_bytes(), b"untrusted")
         self.assertEqual(self.store.load()["generation"], 1)
 
+    def test_open_role_parent_directory_verifies_database_and_returns_parent_fd(self):
+        self.store.initialize(self.data(1))
+        fd = self.store.open_role_parent_directory("core")
+        try:
+            info = os.fstat(fd)
+            self.assertTrue(stat.S_ISDIR(info.st_mode))
+            self.assertEqual((info.st_dev, info.st_ino),
+                             (self.role_parent.stat().st_dev, self.role_parent.stat().st_ino))
+        finally:
+            os.close(fd)
+
+    def test_open_role_parent_rejects_replaced_database(self):
+        self.store.initialize(self.data(1))
+        replacement = self.role_parent / "replacement.sqlite"
+        replacement.write_bytes(b"replacement")
+        replacement.replace(self.database)
+        with self.assertRaises(StoreError):
+            self.store.open_role_parent_directory("core")
+
     def test_delete_role_sidecar_quarantines_and_commits_retired_state(self):
         wal, _identity = self._enroll_active_wal()
         result = self.store.delete_role_sidecar("core", "wal")
