@@ -17,15 +17,11 @@ This layer does not make the current VFS probe production-ready. Production data
 
 The unit uses DynamicUser, a private StateDirectory with mode 0700, UMask=0077 and systemd filesystem sandboxing. Do not manually chown the state directory to a guessed numeric UID.
 
-## Windows service
+## Windows service — blocked
 
-Run elevated PowerShell from a trusted installation directory. First use -WhatIf, inspect the paths, then rerun without -WhatIf:
+The Windows installer is intentionally fail-closed. The earlier prototype registered `node.exe` directly with the Service Control Manager; Node is not an SCM-aware service host, and the optional environment file was ACL-protected but never loaded into the child process. That adapter was not operationally correct.
 
-    .\install-windows-service.ps1 -ServiceName LogicEngine -InstallDirectory C:\LogicEngine -StateDirectory C:\ProgramData\LogicEngine\State -WhatIf
-
-The script refuses to replace an existing service, creates a virtual service account (NT SERVICE\<ServiceName>), enables its service SID, removes inherited ACLs from the SQLite state directory, and grants access only to that service SID, SYSTEM and local Administrators. An optional environment file is readable by the service SID and writable by SYSTEM/Administrators. If provisioning fails, the script deletes the partially created service.
-
-Configure all Logic-Engine SQLite paths beneath the protected state directory. Keep application binaries read-only to the service identity. Do not grant Users, Authenticated Users or unrelated service SIDs write/delete access to the DB directory.
+Do not run the installer expecting a service to be created. Before Windows deployment is supported, this project needs a reviewed SCM-aware host (or a pinned, reviewed third-party wrapper), explicit environment-variable loading, service recovery/stop behavior, and Windows integration tests that exercise service creation and lifecycle. The current script only explains the block and makes no system changes.
 
 ## Operational constraints
 
@@ -33,5 +29,5 @@ Configure all Logic-Engine SQLite paths beneath the protected state directory. K
 - Do not run SillyTavern, ST-VectorService or unrelated extensions under the Logic-Engine service identity. Each independently writable SQLite store needs its own owner boundary.
 - Backups/restores require an authorized maintenance identity and a quiesced/checkpointed procedure; do not grant backup agents general write access to the live DB directory.
 - A service identity is not a sandbox against code already executing as that identity.
-- The Windows script does not install Node, application files, secrets, firewall rules or the native VFS.
+- Windows service deployment is not implemented; the installer is a fail-closed guard, not a provisioning tool.
 - This is a deployment building block, not proof that current DB opens route through a secure VFS.
