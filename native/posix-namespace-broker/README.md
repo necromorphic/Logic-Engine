@@ -121,9 +121,14 @@ Only an exact match is unlinked. A replacement detected after the move is
 retained in quarantine and reported as an identity mismatch.
 
 The quarantine directory must be owned by the broker effective UID, have
-exactly mode `0700`, be distinct from the role parent, and reside on the same
-mount. The primitive fsyncs the quarantine directory and then the parent after
-the rename, before unlinking; after unlink it fsyncs quarantine again. If a
+exactly mode `0700` (including no special permission bits), be distinct from
+the role parent, and reside on the same mount. The caller must obtain its
+descriptor from a service-private directory tree whose ancestors cannot be
+renamed or replaced by the application UID; checking the final directory's
+mode alone cannot establish that provisioning boundary. The parent descriptor
+must also be a trusted, already-pinned directory handle. The primitive fsyncs
+the quarantine directory and then the parent after the rename, before
+unlinking; after unlink it fsyncs quarantine again. If a
 pre-unlink sync fails, the object is retained and the API reports
 `LEB_QUARANTINE_RETAINED`. If unlink succeeds but the final sync fails, it
 reports `LEB_QUARANTINE_DURABILITY_UNCERTAIN`; callers must treat the outcome
