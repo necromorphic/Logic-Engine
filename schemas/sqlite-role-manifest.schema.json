@@ -281,7 +281,13 @@
             "type": "object",
             "required": [
               "applicationUid"
-            ]
+            ],
+            "properties": {
+              "applicationUid": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
           },
           "metadataRootIdentity": {
             "$ref": "#/$defs/posixIdentity"
