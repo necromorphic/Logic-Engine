@@ -13,6 +13,7 @@ broker_ping: broker_ping.c broker_protocol.h
 
 test: all
 	python3 test_protocol.py
+	python3 test_manifest_store.py
 
 clean:
 	rm -f broker_server broker_ping
