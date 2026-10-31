@@ -378,12 +378,12 @@ test('pinned ST 1.19.0 chat create/edit/swipe/delete/import/export/restore mutat
   assert.equal(sessionIdentity.result.host_session_id, '99999999-9999-4999-8999-999999999999');
   const accountIdentity = await get('/api/logic-engine/host/identity');
   assert.equal(accountIdentity.status, 200);
-  assert.match(accountIdentity.result.installation_id, /^[0-9a-f-]{36}$/i);
-  assert.match(accountIdentity.result.account_id, /^[0-9a-f-]{36}$/i);
+  assert.match(accountIdentity.result.host_installation_id, /^[0-9a-f-]{36}$/i);
+  assert.match(accountIdentity.result.authenticated_account_id, /^[0-9a-f-]{36}$/i);
   assert.equal(accountIdentity.result.host_session_id, sessionIdentity.result.host_session_id);
   const repeatedIdentity = await get('/api/logic-engine/host/identity');
-  assert.equal(repeatedIdentity.result.installation_id, accountIdentity.result.installation_id);
-  assert.equal(repeatedIdentity.result.account_id, accountIdentity.result.account_id);
+  assert.equal(repeatedIdentity.result.host_installation_id, accountIdentity.result.host_installation_id);
+  assert.equal(repeatedIdentity.result.authenticated_account_id, accountIdentity.result.authenticated_account_id);
 
   const inventory = await get('/api/logic-engine/host/inventory?conversation_uuid=aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
   assert.equal(inventory.status, 200, JSON.stringify(inventory.result));
