@@ -120,7 +120,7 @@ test('pinned ST 1.19.0 chat create/edit/swipe/delete/import/export/restore mutat
     chats: join(root, 'chats'),
     groups: join(root, 'groups'),
     groupChats: join(root, 'group chats'),
-    backups: join(root, 'backups'),
+    backups: join(parent, 'st-backups-outside-root'),
     characters: join(root, 'characters'),
   };
   await Promise.all([
@@ -264,8 +264,9 @@ test('pinned ST 1.19.0 chat create/edit/swipe/delete/import/export/restore mutat
   }, ['modified', 'replaced']);
   assert.ok([...edit.result.delta.modified, ...edit.result.delta.replaced].some(entry => entry.path.endsWith('chat-one.jsonl')));
   const editedPersisted = (await readFile(chatPath, 'utf8')).trim().split('\n').map(line => JSON.parse(line));
-  assert.equal(editedPersisted[1]._logicEngineLifecycle.versions[0].versionId, 'ffffffff-ffff-4fff-8fff-ffffffffffff');
-  assert.equal(editedPersisted[1]._logicEngineLifecycle.versions[0].parentVersionId, 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb');
+  assert.equal(editedPersisted[1]._logicEngineLifecycle.versions.length, 2);
+  assert.equal(editedPersisted[1]._logicEngineLifecycle.versions[1].versionId, 'ffffffff-ffff-4fff-8fff-ffffffffffff');
+  assert.equal(editedPersisted[1]._logicEngineLifecycle.versions[1].parentVersionId, 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb');
 
   const swipeChat = [header(), editedUserMessage(), {
     ...assistantMessage('second reply'),
@@ -357,7 +358,11 @@ test('pinned ST 1.19.0 chat create/edit/swipe/delete/import/export/restore mutat
   assert.ok(imported.result.delta.added.some(entry => entry.path.startsWith('chats/Harness Character/')));
 
   const backupName = 'chat_harness_restore.jsonl';
-  await writeFile(join(directories.backups, backupName), JSON.stringify(identifiedHeader(
+  const restoreBackupDirectory = join(root, 'backups');
+  await mkdir(restoreBackupDirectory, { recursive: true });
+  const asynchronousBackupDirectory = directories.backups;
+  directories.backups = restoreBackupDirectory;
+  await writeFile(join(restoreBackupDirectory, backupName), JSON.stringify(identifiedHeader(
     'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
   )) + '\n' + JSON.stringify(identifiedMessage({
     mes: 'restored backup message',
@@ -367,6 +372,7 @@ test('pinned ST 1.19.0 chat create/edit/swipe/delete/import/export/restore mutat
   const restored = await observe(async () => {
     const download = await post('/api/backups/chat/download', { name: backupName });
     assert.equal(download.status, 200);
+    directories.backups = asynchronousBackupDirectory;
     const restoreUpload = 'restore-chat.jsonl';
     await writeFile(join(uploads, restoreUpload), download.result);
     const response = await post('/api/chats/import', {
