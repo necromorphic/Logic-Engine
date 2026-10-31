@@ -101,4 +101,5 @@ jobs:
       - name: Run real pinned SillyTavern file-operation and full-root delta harness
         env:
           SILLYTAVERN_DIR: SillyTavern
+          LOGIC_ENGINE_RUN_ST_LIFECYCLE_HARNESS: '1'
         run: node --test experiments/host-adapter-runtime-harness/lifecycle-file-operations.test.mjs
