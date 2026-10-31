@@ -62,6 +62,8 @@ static int g_broker_syscall_open_fail_count = 0;
 static int g_broker_delete_fail_count = 0;
 static int g_broker_access_fail_count = 0;
 static int g_sidecar_capture_fail_count = 0;
+static int g_parent_xopen_fail_count = 0;
+static int g_last_parent_xopen_rc = SQLITE_OK;
 #endif
 #define PROBE_MAX_PINNED_PATHS 256
 typedef struct ProbePinnedPath {
@@ -1376,6 +1378,10 @@ static int probe_xOpen_parent(sqlite3_vfs *vfs, const char *name, sqlite3_file *
     if ((flags & SQLITE_OPEN_WAL) != 0) probe_counter_increment(&g_wal_open_count);
     if ((flags & SQLITE_OPEN_MAIN_JOURNAL) != 0) probe_counter_increment(&g_journal_open_count);
   }
+#if defined(__linux__)
+  g_last_parent_xopen_rc = rc;
+  if (rc != SQLITE_OK) probe_counter_increment(&g_parent_xopen_fail_count);
+#endif
   return rc;
 }
 
@@ -2237,6 +2243,12 @@ static void probe_temp_file_class_rejected(sqlite3_context *context, int argc, s
 }
 
 #if defined(__linux__)
+static void probe_parent_xopen_diagnostics(sqlite3_context *context, int argc, sqlite3_value **argv) {
+  (void)argc;
+  (void)argv;
+  sqlite3_result_int(context, probe_counter_read(&g_parent_xopen_fail_count) * 1000
+    + g_last_parent_xopen_rc);
+}
 static void probe_broker_vfs_failure_diagnostics(sqlite3_context *context, int argc, sqlite3_value **argv) {
   (void)argc;
   (void)argv;
@@ -2986,6 +2998,9 @@ static int probe_auto_extension(sqlite3 *db, char **error, const sqlite3_api_rou
   if (rc != SQLITE_OK) return rc;
 #endif
 #if defined(__linux__)
+  rc = sqlite3_create_function(db, "logic_engine_vfs_probe_parent_xopen_diagnostics", 0,
+    SQLITE_UTF8 | SQLITE_DETERMINISTIC, 0, probe_parent_xopen_diagnostics, 0, 0);
+  if (rc != SQLITE_OK) return rc;
   rc = sqlite3_create_function(db, "logic_engine_vfs_probe_failure_diagnostics", 0,
     SQLITE_UTF8 | SQLITE_DETERMINISTIC, 0, probe_broker_vfs_failure_diagnostics, 0, 0);
   if (rc != SQLITE_OK) return rc;
