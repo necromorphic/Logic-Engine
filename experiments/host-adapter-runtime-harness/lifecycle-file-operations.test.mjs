@@ -14,12 +14,18 @@ import { reconcileFilesystemInventory } from '../../host-adapter/prototype/files
 
 const stRoot = resolve(process.env.SILLYTAVERN_DIR ?? 'SillyTavern');
 const expectedSha = '06bde939fb1e9c4c8d8641d810f0a916b5bce127';
-const requireFromST = createRequire(resolve(stRoot, 'package.json'));
-const express = requireFromST('express');
-const stUtil = await import(pathToFileURL(resolve(stRoot, 'src/util.js')).href);
-stUtil.setConfigFilePath(resolve(stRoot, 'default/config.yaml'));
-const { router: chatsRouter } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/chats.js')).href);
-const { router: backupsRouter } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/backups.js')).href);
+const runPinnedSTHarness = process.env.LOGIC_ENGINE_RUN_ST_LIFECYCLE_HARNESS === '1';
+let express;
+let chatsRouter;
+let backupsRouter;
+if (runPinnedSTHarness) {
+  const requireFromST = createRequire(resolve(stRoot, 'package.json'));
+  express = requireFromST('express');
+  const stUtil = await import(pathToFileURL(resolve(stRoot, 'src/util.js')).href);
+  stUtil.setConfigFilePath(resolve(stRoot, 'default/config.yaml'));
+  ({ router: chatsRouter } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/chats.js')).href));
+  ({ router: backupsRouter } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/backups.js')).href));
+}
 
 const sourceFingerprint = 'st-1.19.0-real-file-operation-harness';
 
@@ -91,7 +97,7 @@ const identifiedMessage = ({ name = 'Harness User', isUser = true, mes, messageI
 });
 
 test('pinned ST 1.19.0 chat create/edit/swipe/delete/import/export/restore mutate real files and produce file-level deltas', {
-  skip: process.platform !== 'win32',
+  skip: process.platform !== 'win32' || !runPinnedSTHarness,
   timeout: 600_000,
 }, async t => {
   const { execFileSync } = await import('node:child_process');
