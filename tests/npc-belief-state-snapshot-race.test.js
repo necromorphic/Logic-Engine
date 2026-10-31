@@ -34,6 +34,25 @@ const readAuthorization = (scope) => ({
   commit_sequence: scope.commit_sequence,
   authorization_ref: 'rule:npc-read-v1',
 });
+const writeAuthorization = (scope) => ({
+  status: 'authorized',
+  world_id: scope.world_id,
+  conversation_id: scope.conversation_id,
+  adapter_id: scope.adapter_id,
+  actor_id: scope.actor_id,
+  recipient: scope.recipient,
+  purpose: scope.purpose,
+  operation: scope.operation,
+  expected_revision: scope.expected_revision,
+  expected_commit_sequence: scope.expected_commit_sequence,
+  authorization_ref: 'rule:npc-belief-write-v1',
+  ...(Object.hasOwn(scope, 'authority_id') ? {
+    authority_id: scope.authority_id,
+    generation: scope.generation,
+    snapshot_fingerprint: scope.snapshot_fingerprint,
+  } : {}),
+});
+
 const visibilityAuthorization = (scope) => ({
   status: 'allowed',
   world_id: scope.world_id,
@@ -54,6 +73,7 @@ test('belief replay reauthorizes the adapter and recipient before exposing an id
   let authorized = true;
   const engine = new LogicEngine(store, {
     trustedInitialKnowledgeSources: trustedSources,
+    npcKnowledgeWriteAuthorizer: writeAuthorization,
     npcKnowledgeReadAuthorizer: (scope) => ({
       ...readAuthorization(scope),
       status: authorized ? 'authorized' : 'denied',
@@ -134,6 +154,7 @@ test('belief-state read fails closed if visibility authorization races a canonic
   const engine = new LogicEngine(store, {
     trustedInitialKnowledgeSources: trustedSources,
     npcKnowledgeReadAuthorizer: readAuthorization,
+    npcKnowledgeWriteAuthorizer: writeAuthorization,
     npcKnowledgeVisibilityAuthorizer: visibilityAuthorization,
   });
 
@@ -191,6 +212,7 @@ test('belief-state read fails closed if visibility authorization races a canonic
   racedEngine = new LogicEngine(store, {
     trustedInitialKnowledgeSources: trustedSources,
     npcKnowledgeReadAuthorizer: readAuthorization,
+    npcKnowledgeWriteAuthorizer: writeAuthorization,
     npcKnowledgeVisibilityAuthorizer: (scope) => {
       if (!mutated) {
         mutated = true;
@@ -223,6 +245,7 @@ test('belief-state read rejects rollback between visibility evaluation and final
   const engine = new LogicEngine(store, {
     trustedInitialKnowledgeSources: trustedSources,
     npcKnowledgeReadAuthorizer: readAuthorization,
+    npcKnowledgeWriteAuthorizer: writeAuthorization,
     npcKnowledgeVisibilityAuthorizer: visibilityAuthorization,
   });
 
@@ -430,6 +453,7 @@ test('belief transition revalidates visibility immediately before the Core commi
   const engine = new LogicEngine(store, {
     trustedInitialKnowledgeSources: trustedSources,
     npcKnowledgeReadAuthorizer: readAuthorization,
+    npcKnowledgeWriteAuthorizer: writeAuthorization,
     npcKnowledgeVisibilityAuthorizer: (scope) => {
       visibilityCalls += 1;
       return {
