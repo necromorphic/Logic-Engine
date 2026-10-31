@@ -149,6 +149,7 @@ test('pinned ST 1.19.0 chat create/edit/swipe/delete/import/export/restore mutat
   assert.ok(address && typeof address === 'object');
   t.after(async () => {
     await new Promise(resolveClose => server.close(resolveClose));
+    try { journal?.close(); } catch {}
     await rm(parent, { recursive: true, force: true });
   });
   const get = async path => {
@@ -227,7 +228,6 @@ test('pinned ST 1.19.0 chat create/edit/swipe/delete/import/export/restore mutat
   });
   let journal = createCoreJournal();
   let baselineCreated = false;
-  t.after(() => { try { journal.close(); } catch {} });
   const observe = async (operation, expectedKind) => {
     const before = await scan();
     const canonicalRoot = before.root;
