@@ -47,7 +47,80 @@ const canonical = (value) => Array.isArray(value)
     : JSON.stringify(value);
 const sha256 = (value) => createHash('sha256').update(value, 'utf8').digest('hex');
 
-function canonicalFilePath(path) {
+const MAX_ROOT_INVENTORY_ENTRIES = 25_000;
+const MAX_ROOT_INVENTORY_BYTES = 8 * 1024 * 1024;
+const MAX_ROOT_DELTA_FILES = 5_000;
+
+function validateRootEntries(entries) {
+  if (!Array.isArray(entries) || entries.length > MAX_ROOT_INVENTORY_ENTRIES) {
+    throw new TypeError('HOST_ROOT_INVENTORY_ENTRY_LIMIT');
+  }
+  const seen = new Set();
+  let previous = null;
+  const normalized = entries.map((entry) => {
+    if (!isPlainRecord(entry) || Object.keys(entry).some((key) => !['path', 'identity', 'sha256'].includes(key))
+      || !validText(entry.path, 4096) || entry.path.startsWith('/') || entry.path.includes('\\')
+      || entry.path.split('/').some((part) => !part || part === '.' || part === '..')
+      || !isPlainRecord(entry.identity) || !validText(entry.identity.dev, 100)
+      || !validText(entry.identity.ino, 100) || !/^\\d+$/.test(entry.identity.dev)
+      || !/^\\d+$/.test(entry.identity.ino) || entry.identity.ino === '0'
+      || !validDigest(entry.sha256) || seen.has(entry.path)
+      || (previous !== null && entry.path.localeCompare(previous) < 0)) {
+      throw new TypeError('HOST_ROOT_INVENTORY_ENTRY_INVALID');
+    }
+    seen.add(entry.path);
+    previous = entry.path;
+    return {
+      path: entry.path,
+      identity: { ...entry.identity },
+      sha256: entry.sha256,
+    };
+  });
+  if (Buffer.byteLength(canonical(normalized), 'utf8') > MAX_ROOT_INVENTORY_BYTES) {
+    throw new TypeError('HOST_ROOT_INVENTORY_BYTE_LIMIT');
+  }
+  return normalized;
+}
+
+function rootPhysicalId(entry) {
+  return process.platform === 'win32'
+    ? 'win:' + entry.identity.ino
+    : 'posix:' + entry.identity.dev + ':' + entry.identity.ino;
+}
+
+function rootInventoryDelta(beforeEntries, afterEntries) {
+  const before = new Map(beforeEntries.map((entry) => [entry.path, entry]));
+  const after = new Map(afterEntries.map((entry) => [entry.path, entry]));
+  const beforeIds = new Map(beforeEntries.map((entry) => [rootPhysicalId(entry), entry]));
+  const afterIds = new Map(afterEntries.map((entry) => [rootPhysicalId(entry), entry]));
+  const delta = { added: [], removed: [], modified: [], metadata_changed: [], replaced: [], moved: [] };
+  for (const [filePath, oldEntry] of before) {
+    const next = after.get(filePath);
+    if (!next) {
+      const moved = afterIds.get(rootPhysicalId(oldEntry));
+      if (moved && moved.path !== filePath) {
+        delta.moved.push({
+          from: filePath, to: moved.path,
+          before_sha256: oldEntry.sha256, after_sha256: moved.sha256,
+          content_changed: oldEntry.sha256 !== moved.sha256,
+        });
+      } else delta.removed.push({ path: filePath, sha256: oldEntry.sha256 });
+    } else if (rootPhysicalId(oldEntry) !== rootPhysicalId(next)) {
+      delta.replaced.push({ path: filePath, before_sha256: oldEntry.sha256, after_sha256: next.sha256 });
+    } else if (oldEntry.sha256 !== next.sha256) {
+      delta.modified.push({ path: filePath, before_sha256: oldEntry.sha256, after_sha256: next.sha256 });
+    } else if (canonical(oldEntry.identity) !== canonical(next.identity)) {
+      delta.metadata_changed.push({ path: filePath });
+    }
+  }
+  for (const [filePath, next] of after) {
+    if (before.has(filePath)) continue;
+    const moved = beforeIds.get(rootPhysicalId(next));
+    if (!moved || moved.path === filePath) delta.added.push({ path: filePath, sha256: next.sha256 });
+  }
+  return delta;
+}
+\nfunction canonicalFilePath(path) {
   let candidate = resolve(path);
   const suffix = [];
   while (!existsSync(candidate)) {
@@ -125,15 +198,18 @@ function validateEvent(event) {
  * route and cannot mark an inventory READY.
  */
 export class HostLifecycleJournal {
-  constructor({ path, coordinatorPath, resolveIdentity }) {
+  constructor({ path, coordinatorPath, resolveIdentity, resolveRootIdentity = null }) {
     if (!validText(path) || !isAbsolute(path) || path === ':memory:'
       || !validText(coordinatorPath) || !isAbsolute(coordinatorPath)
       || typeof resolveIdentity !== 'function' || isProxy(resolveIdentity)
-      || Object.getPrototypeOf(resolveIdentity) === Object.getPrototypeOf(async function () {})) {
-      throw new TypeError('HostLifecycleJournal requires absolute file paths and a trusted synchronous identity resolver.');
+      || Object.getPrototypeOf(resolveIdentity) === Object.getPrototypeOf(async function () {})
+      || (resolveRootIdentity !== null && (typeof resolveRootIdentity !== 'function'
+        || isProxy(resolveRootIdentity)
+        || Object.getPrototypeOf(resolveRootIdentity) === Object.getPrototypeOf(async function () {})))) {
+      throw new TypeError('HostLifecycleJournal requires absolute file paths and trusted synchronous identity resolvers.');
     }
     if (aliasesSameFile(path, coordinatorPath)) throw new Error('HOST_JOURNAL_COORDINATOR_PATH_ALIAS');
-    this.resolveIdentity = resolveIdentity;
+    this.resolveIdentity = resolveIdentity;\n    this.resolveRootIdentity = resolveRootIdentity;
     this.coordinator = openCoordinatorDatabase(coordinatorPath);
     this.db = null;
     let release = null;
@@ -180,6 +256,40 @@ export class HostLifecycleJournal {
         CREATE TRIGGER IF NOT EXISTS host_lifecycle_events_no_delete
           BEFORE DELETE ON host_lifecycle_events BEGIN
             SELECT RAISE(ABORT, 'HOST_LIFECYCLE_JOURNAL_APPEND_ONLY');
+          END;
+        CREATE TABLE IF NOT EXISTS host_root_inventory_heads (
+          host_installation_id TEXT NOT NULL,
+          authenticated_account_id TEXT NOT NULL,
+          root_id TEXT NOT NULL CHECK(length(root_id)=64),
+          sequence INTEGER NOT NULL CHECK(sequence > 0),
+          baseline_manifest_sha256 TEXT NOT NULL CHECK(length(baseline_manifest_sha256)=64),
+          latest_manifest_sha256 TEXT NOT NULL CHECK(length(latest_manifest_sha256)=64),
+          head_sha256 TEXT NOT NULL CHECK(length(head_sha256)=64),
+          status TEXT NOT NULL CHECK(status IN ('BASELINED_REVIEW_ONLY','NON_READY')),
+          PRIMARY KEY(host_installation_id,authenticated_account_id,root_id)
+        );
+        CREATE TABLE IF NOT EXISTS host_root_inventory_events (
+          host_installation_id TEXT NOT NULL,
+          authenticated_account_id TEXT NOT NULL,
+          root_id TEXT NOT NULL CHECK(length(root_id)=64),
+          sequence INTEGER NOT NULL CHECK(sequence > 0),
+          event_id TEXT NOT NULL,
+          event_type TEXT NOT NULL CHECK(event_type IN ('BASELINE','DELTA_OBSERVED')),
+          manifest_sha256 TEXT NOT NULL CHECK(length(manifest_sha256)=64),
+          delta_sha256 TEXT,
+          previous_sha256 TEXT NOT NULL CHECK(length(previous_sha256)=64),
+          event_sha256 TEXT NOT NULL CHECK(length(event_sha256)=64),
+          canonical_event_json TEXT NOT NULL,
+          PRIMARY KEY(host_installation_id,authenticated_account_id,root_id,sequence),
+          UNIQUE(host_installation_id,authenticated_account_id,event_id)
+        );
+        CREATE TRIGGER IF NOT EXISTS host_root_inventory_events_no_update
+          BEFORE UPDATE ON host_root_inventory_events BEGIN
+            SELECT RAISE(ABORT, 'HOST_ROOT_INVENTORY_APPEND_ONLY');
+          END;
+        CREATE TRIGGER IF NOT EXISTS host_root_inventory_events_no_delete
+          BEFORE DELETE ON host_root_inventory_events BEGIN
+            SELECT RAISE(ABORT, 'HOST_ROOT_INVENTORY_APPEND_ONLY');
           END;
       `);
     } catch (error) {
@@ -336,6 +446,223 @@ export class HostLifecycleJournal {
       return { valid: false, reason: 'HOST_LIFECYCLE_HEAD_MISMATCH', verified_events: sequence };
     }
     return { valid: true, sequence, head_sha256: previous, verified_events: sequence };
+  }
+
+  #assertRootIdentity({ host_installation_id, authenticated_account_id, root_id }) {
+    if (typeof this.resolveRootIdentity !== 'function') {
+      throw new Error('HOST_ROOT_INVENTORY_IDENTITY_RESOLVER_UNAVAILABLE');
+    }
+    let identity;
+    try {
+      identity = this.resolveRootIdentity({ host_installation_id, authenticated_account_id, root_id });
+    } catch {
+      throw new Error('HOST_ROOT_INVENTORY_IDENTITY_NOT_AUTHORIZED');
+    }
+    if (!isPlainRecord(identity) || identity.authorized !== true
+      || identity.host_installation_id !== host_installation_id
+      || identity.authenticated_account_id !== authenticated_account_id
+      || identity.root_id !== root_id) {
+      throw new Error('HOST_ROOT_INVENTORY_IDENTITY_NOT_AUTHORIZED');
+    }
+  }
+
+  #verifyRootInventoryRows(hostInstallationId, accountId, rootId, rows) {
+    let previous = '0'.repeat(64);
+    let baselineManifestSha256 = null;
+    let latestManifestSha256 = null;
+    for (let index = 0; index < rows.length; index++) {
+      const row = rows[index];
+      if (row.sequence !== index + 1 || row.previous_sha256 !== previous) {
+        return { valid: false, reason: 'HOST_ROOT_INVENTORY_SEQUENCE_OR_PREVIOUS_HASH_MISMATCH' };
+      }
+      let event;
+      try { event = JSON.parse(row.canonical_event_json); } catch {
+        return { valid: false, reason: 'HOST_ROOT_INVENTORY_EVENT_JSON_INVALID' };
+      }
+      if (canonical(event) !== row.canonical_event_json
+        || event.event_id !== row.event_id || event.event_type !== row.event_type
+        || event.root_id !== rootId || !Array.isArray(event.entries)) {
+        return { valid: false, reason: 'HOST_ROOT_INVENTORY_EVENT_CANONICALIZATION_MISMATCH' };
+      }
+      let entries;
+      try { entries = validateRootEntries(event.entries); } catch {
+        return { valid: false, reason: 'HOST_ROOT_INVENTORY_MANIFEST_INVALID' };
+      }
+      const manifestSha256 = sha256(canonical(entries));
+      if (manifestSha256 !== row.manifest_sha256 || manifestSha256 !== event.manifest_sha256) {
+        return { valid: false, reason: 'HOST_ROOT_INVENTORY_MANIFEST_DIGEST_MISMATCH' };
+      }
+      if (row.event_type === 'BASELINE') {
+        if (index !== 0 || baselineManifestSha256 !== null || row.delta_sha256 !== null) {
+          return { valid: false, reason: 'HOST_ROOT_INVENTORY_BASELINE_LAYOUT_INVALID' };
+        }
+        baselineManifestSha256 = manifestSha256;
+      } else if (row.event_type === 'DELTA_OBSERVED') {
+        if (index === 0 || !validDigest(row.delta_sha256)
+          || sha256(canonical(event.delta)) !== row.delta_sha256
+          || event.delta_sha256 !== row.delta_sha256) {
+          return { valid: false, reason: 'HOST_ROOT_INVENTORY_DELTA_DIGEST_MISMATCH' };
+        }
+      } else return { valid: false, reason: 'HOST_ROOT_INVENTORY_EVENT_TYPE_INVALID' };
+      const expected = sha256(canonical({
+        host_installation_id: hostInstallationId,
+        authenticated_account_id: accountId,
+        root_id: rootId,
+        sequence: row.sequence,
+        previous_sha256: previous,
+        event,
+      }));
+      if (expected !== row.event_sha256) return { valid: false, reason: 'HOST_ROOT_INVENTORY_HASH_MISMATCH' };
+      previous = expected;
+      latestManifestSha256 = manifestSha256;
+    }
+    const head = this.db.prepare(`
+      SELECT sequence,baseline_manifest_sha256,latest_manifest_sha256,head_sha256,status
+      FROM host_root_inventory_heads
+      WHERE host_installation_id=? AND authenticated_account_id=? AND root_id=?
+    `).get(hostInstallationId, accountId, rootId);
+    if (!rows.length || !head || head.sequence !== rows.length || head.head_sha256 !== previous
+      || head.baseline_manifest_sha256 !== baselineManifestSha256
+      || head.latest_manifest_sha256 !== latestManifestSha256
+      || head.status !== (rows.length === 1 ? 'BASELINED_REVIEW_ONLY' : 'NON_READY')) {
+      return { valid: false, reason: 'HOST_ROOT_INVENTORY_HEAD_MISMATCH' };
+    }
+    return { valid: true, sequence: rows.length, head_sha256: previous,
+      baseline_manifest_sha256: baselineManifestSha256, latest_manifest_sha256: latestManifestSha256,
+      status: head.status };
+  }
+
+  #appendRootInventoryEvent({ host_installation_id, authenticated_account_id, root_id,
+    event_id, event_type, entries, manifest_sha256, delta = null, delta_sha256 = null }) {
+    const existing = this.db.prepare(`
+      SELECT event_id,event_type,manifest_sha256,delta_sha256,sequence,event_sha256
+      FROM host_root_inventory_events
+      WHERE host_installation_id=? AND authenticated_account_id=? AND event_id=?
+    `).get(host_installation_id, authenticated_account_id, event_id);
+    if (existing) {
+      if (existing.event_type !== event_type || existing.manifest_sha256 !== manifest_sha256
+        || existing.delta_sha256 !== delta_sha256) throw new Error('HOST_ROOT_INVENTORY_EVENT_ID_CONFLICT');
+      return { status: 'duplicate', sequence: existing.sequence, event_sha256: existing.event_sha256 };
+    }
+    const head = this.db.prepare(`
+      SELECT sequence,head_sha256,baseline_manifest_sha256
+      FROM host_root_inventory_heads
+      WHERE host_installation_id=? AND authenticated_account_id=? AND root_id=?
+    `).get(host_installation_id, authenticated_account_id, root_id);
+    if (event_type === 'BASELINE' ? Boolean(head) : !head) {
+      throw new Error(event_type === 'BASELINE'
+        ? 'HOST_ROOT_INVENTORY_ALREADY_ENROLLED' : 'HOST_ROOT_INVENTORY_BASELINE_MISSING');
+    }
+    const sequence = (head?.sequence ?? 0) + 1;
+    const previous_sha256 = head?.head_sha256 ?? '0'.repeat(64);
+    const event = { event_id, event_type, root_id, manifest_sha256, entries, delta, delta_sha256 };
+    const eventSha = sha256(canonical({
+      host_installation_id, authenticated_account_id, root_id, sequence, previous_sha256, event,
+    }));
+    this.db.prepare(`
+      INSERT INTO host_root_inventory_events (
+        host_installation_id,authenticated_account_id,root_id,sequence,event_id,event_type,
+        manifest_sha256,delta_sha256,previous_sha256,event_sha256,canonical_event_json
+      ) VALUES(?,?,?,?,?,?,?,?,?,?,?)
+    `).run(host_installation_id, authenticated_account_id, root_id, sequence, event_id,
+      event_type, manifest_sha256, delta_sha256, previous_sha256, eventSha, canonical(event));
+    this.db.prepare(`
+      INSERT INTO host_root_inventory_heads (
+        host_installation_id,authenticated_account_id,root_id,sequence,
+        baseline_manifest_sha256,latest_manifest_sha256,head_sha256,status
+      ) VALUES(?,?,?,?,?,?,?,?)
+      ON CONFLICT(host_installation_id,authenticated_account_id,root_id)
+      DO UPDATE SET sequence=excluded.sequence,latest_manifest_sha256=excluded.latest_manifest_sha256,
+        head_sha256=excluded.head_sha256,status=excluded.status
+    `).run(host_installation_id, authenticated_account_id, root_id, sequence,
+      head?.baseline_manifest_sha256 ?? manifest_sha256, manifest_sha256, eventSha,
+      event_type === 'BASELINE' ? 'BASELINED_REVIEW_ONLY' : 'NON_READY');
+    return { status: event_type === 'BASELINE' ? 'BASELINED_REVIEW_ONLY' : 'NON_READY',
+      sequence, manifest_sha256: manifest_sha256, event_sha256: eventSha };
+  }
+
+  enrollRootInventory(input) {
+    if (!isPlainRecord(input) || !validText(input.host_installation_id)
+      || !validText(input.authenticated_account_id) || !validDigest(input.root_id)
+      || !validText(input.event_id) || !Array.isArray(input.entries)) {
+      throw new TypeError('Invalid Host root inventory baseline envelope.');
+    }
+    const entries = validateRootEntries(input.entries);
+    const manifestSha256 = sha256(canonical(entries));
+    return this.#withWrite(() => {
+      this.#assertRootIdentity(input);
+      const rows = this.db.prepare(`
+        SELECT event_id,event_type,manifest_sha256,delta_sha256,sequence,event_sha256,
+          previous_sha256,canonical_event_json
+        FROM host_root_inventory_events
+        WHERE host_installation_id=? AND authenticated_account_id=? AND root_id=?
+        ORDER BY sequence
+      `).all(input.host_installation_id, input.authenticated_account_id, input.root_id);
+      if (rows.length) throw new Error('HOST_ROOT_INVENTORY_ALREADY_ENROLLED');
+      return this.#appendRootInventoryEvent({ ...input, event_type: 'BASELINE',
+        entries, manifest_sha256: manifestSha256 });
+    });
+  }
+
+  observeRootInventory(input) {
+    if (!isPlainRecord(input) || !validText(input.host_installation_id)
+      || !validText(input.authenticated_account_id) || !validDigest(input.root_id)
+      || !validText(input.event_id) || !Array.isArray(input.entries)) {
+      throw new TypeError('Invalid Host root inventory observation envelope.');
+    }
+    const entries = validateRootEntries(input.entries);
+    const manifestSha256 = sha256(canonical(entries));
+    return this.#withWrite(() => {
+      this.#assertRootIdentity(input);
+      const rows = this.db.prepare(`
+        SELECT event_id,event_type,manifest_sha256,delta_sha256,sequence,event_sha256,
+          previous_sha256,canonical_event_json
+        FROM host_root_inventory_events
+        WHERE host_installation_id=? AND authenticated_account_id=? AND root_id=?
+        ORDER BY sequence
+      `).all(input.host_installation_id, input.authenticated_account_id, input.root_id);
+      const integrity = this.#verifyRootInventoryRows(input.host_installation_id,
+        input.authenticated_account_id, input.root_id, rows);
+      if (!integrity.valid) throw new Error(integrity.reason);
+      const baseline = JSON.parse(rows[0].canonical_event_json);
+      if (manifestSha256 === integrity.baseline_manifest_sha256) {
+        if (rows.length > 1) return { status: 'NON_READY',
+          reason: 'previously observed root inventory delta remains unresolved',
+          sequence: integrity.sequence, manifest_sha256: manifestSha256 };
+        return { status: 'UNCHANGED_REVIEW_ONLY', sequence: integrity.sequence,
+          manifest_sha256: manifestSha256 };
+      }
+      const delta = rootInventoryDelta(baseline.entries, entries);
+      const changed = Object.values(delta).reduce((sum, items) => sum + items.length, 0);
+      if (changed > MAX_ROOT_DELTA_FILES) {
+        return { status: 'NON_READY', reason: 'HOST_ROOT_INVENTORY_DELTA_LIMIT',
+          changed_files: changed, maximum_changed_files: MAX_ROOT_DELTA_FILES };
+      }
+      const deltaSha256 = sha256(canonical(delta));
+      const existing = rows.find((row) => row.event_type === 'DELTA_OBSERVED'
+        && row.manifest_sha256 === manifestSha256 && row.delta_sha256 === deltaSha256);
+      if (existing) return { status: 'NON_READY', duplicate: true,
+        sequence: existing.sequence, manifest_sha256: manifestSha256,
+        delta_sha256: deltaSha256, delta };
+      return this.#appendRootInventoryEvent({ ...input, event_type: 'DELTA_OBSERVED',
+        entries, manifest_sha256: manifestSha256, delta, delta_sha256: deltaSha256 });
+    });
+  }
+
+  verifyRootInventory({ host_installation_id, authenticated_account_id, root_id }) {
+    if (!validText(host_installation_id) || !validText(authenticated_account_id)
+      || !validDigest(root_id)) throw new TypeError('Invalid Host root inventory identity.');
+    this.#assertRootIdentity({ host_installation_id, authenticated_account_id, root_id });
+    const rows = this.db.prepare(`
+      SELECT event_id,event_type,manifest_sha256,delta_sha256,sequence,event_sha256,
+        previous_sha256,canonical_event_json
+      FROM host_root_inventory_events
+      WHERE host_installation_id=? AND authenticated_account_id=? AND root_id=?
+      ORDER BY sequence
+    `).all(host_installation_id, authenticated_account_id, root_id);
+    const result = this.#verifyRootInventoryRows(host_installation_id, authenticated_account_id, root_id, rows);
+    return result.valid ? { status: 'INTEGRITY_OK', ...result }
+      : { status: 'NON_READY', reason: result.reason };
   }
 
   close() {
