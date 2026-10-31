@@ -2032,6 +2032,7 @@ static int probe_xAccess(sqlite3_vfs *vfs, const char *name, int flags, int *res
       uint32_t status = LEB_STATUS_INTERNAL;
       if (!kind || !probe_broker_exchange(role, role->broker_socket_path,
             LEB_OP_ACCESS_ROLE_FILE, kind, 0, NULL, &status)) {
+        probe_counter_increment(&g_broker_access_fail_count);
         return SQLITE_IOERR_ACCESS;
       }
       if (status == LEB_STATUS_OK) {
@@ -2042,6 +2043,7 @@ static int probe_xAccess(sqlite3_vfs *vfs, const char *name, int flags, int *res
         *result = 0;
         return SQLITE_OK;
       }
+      probe_counter_increment(&g_broker_access_fail_count);
       return SQLITE_IOERR_ACCESS;
     }
 #endif
