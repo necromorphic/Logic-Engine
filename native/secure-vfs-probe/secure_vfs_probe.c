@@ -2237,6 +2237,15 @@ static void probe_temp_file_class_rejected(sqlite3_context *context, int argc, s
 }
 
 #if defined(__linux__)
+static void probe_broker_vfs_failure_diagnostics(sqlite3_context *context, int argc, sqlite3_value **argv) {
+  (void)argc;
+  (void)argv;
+  sqlite3_result_int64(context,
+    (sqlite3_int64)probe_counter_read(&g_broker_syscall_open_fail_count) * 1000000000
+    + (sqlite3_int64)probe_counter_read(&g_broker_delete_fail_count) * 1000000
+    + (sqlite3_int64)probe_counter_read(&g_broker_access_fail_count) * 1000
+    + probe_counter_read(&g_sidecar_capture_fail_count));
+}
 static void probe_broker_shm_diagnostics(sqlite3_context *context, int argc, sqlite3_value **argv) {
   (void)argc;
   (void)argv;
@@ -2977,6 +2986,9 @@ static int probe_auto_extension(sqlite3 *db, char **error, const sqlite3_api_rou
   if (rc != SQLITE_OK) return rc;
 #endif
 #if defined(__linux__)
+  rc = sqlite3_create_function(db, "logic_engine_vfs_probe_failure_diagnostics", 0,
+    SQLITE_UTF8 | SQLITE_DETERMINISTIC, 0, probe_broker_vfs_failure_diagnostics, 0, 0);
+  if (rc != SQLITE_OK) return rc;
   rc = sqlite3_create_function(db, "logic_engine_vfs_probe_broker_shm_diagnostics", 0,
     SQLITE_UTF8 | SQLITE_DETERMINISTIC, 0, probe_broker_shm_diagnostics, 0, 0);
   if (rc != SQLITE_OK) return rc;
