@@ -10,7 +10,7 @@ import unittest
 from pathlib import Path
 
 from broker_daemon import (
-    HEADER, MAGIC, VERSION, OP_PING, OP_OPEN_MAIN, OP_OPEN_SIDECAR, OP_DELETE_SIDECAR, OP_CREATE_SIDECAR, OP_OPEN_ROLE_PARENT, OP_OPEN_OR_CREATE_SIDECAR,
+    HEADER, MAGIC, VERSION, OP_PING, OP_OPEN_MAIN, OP_OPEN_SIDECAR, OP_DELETE_SIDECAR, OP_CREATE_SIDECAR, OP_OPEN_ROLE_PARENT, OP_OPEN_OR_CREATE_SIDECAR, OP_ACCESS_ROLE_FILE,
     STATUS_OK, STATUS_BAD_REQUEST, STATUS_UNAUTHORIZED,
     STATUS_UNSUPPORTED, STATUS_NOT_FOUND, handle_connection,
 )
@@ -41,6 +41,10 @@ class FakeManifestStore:
     def open_or_create_role_sidecar(self, role, kind):
         self.calls.append(("open-or-create", role, kind))
         return os.open(self.path, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
+
+    def role_file_exists(self, role, kind):
+        self.calls.append(("access", role, kind))
+        return kind == "main"
 
 
 class BrokerDaemonTests(unittest.TestCase):
@@ -148,6 +152,17 @@ class BrokerDaemonTests(unittest.TestCase):
         finally:
             for fd in fds:
                 os.close(fd)
+
+    def test_access_role_file_reports_identity_checked_presence(self):
+        response, fds = self.exchange(OP_ACCESS_ROLE_FILE, b"core\\x00main")
+        self.assertEqual(response[3], STATUS_OK)
+        self.assertEqual(fds, [])
+        self.assertEqual(self.store.calls[-1], ("access", "core", "main"))
+
+    def test_access_role_file_reports_absent_sidecar_without_descriptor(self):
+        response, fds = self.exchange(OP_ACCESS_ROLE_FILE, b"core\\x00wal")
+        self.assertEqual(response[3], STATUS_NOT_FOUND)
+        self.assertEqual(fds, [])
 
     def test_open_or_create_sidecar_returns_manifest_backed_descriptor(self):
         response, fds = self.exchange(OP_OPEN_OR_CREATE_SIDECAR, b"core\\x00wal")
