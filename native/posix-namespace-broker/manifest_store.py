@@ -662,6 +662,58 @@ class ManifestStore:
             finally:
                 os.close(parent_fd)
 
+    def delete_role_sidecar(self, role_name: str, kind: str) -> dict[str, Any]:
+        """Delete one active sidecar through durable manifest transitions and quarantine."""
+        suffixes = {"wal": "-wal", "shm": "-shm", "journal": "-journal"}
+        if kind not in suffixes:
+            raise StoreError("unsupported sidecar kind")
+        with _locked_roots(self.manifest_fd, self.anchor_fd, exclusive=True):
+            manifest = self._load_pair()[0]
+            roles = [entry for entry in manifest["roles"] if entry["role"] == role_name]
+            if len(roles) != 1 or roles[0]["state"] != "active":
+                raise StoreError("unknown or inactive database role")
+            role = roles[0]
+            sidecars = [entry for entry in role["sidecars"] if entry["kind"] == kind]
+            if len(sidecars) != 1 or sidecars[0]["state"] != "active":
+                raise StoreError("sidecar is not in the active state")
+            sidecar = sidecars[0]
+            basename = role["databaseBasename"] + suffixes[kind]
+            parent_fd = _open_role_parent(
+                role["parentComponents"], role["parentIdentities"],
+                manifest["filesystemPolicy"]["filesystem"],
+                manifest["filesystemPolicy"]["applicationUid"],
+            )
+            try:
+                _require_empty_quarantine(parent_fd)
+                _verify_regular_at(parent_fd, basename, sidecar["identity"],
+                                   f"role {role_name} {kind} sidecar")
+                deleting = json.loads(_canonical_json(manifest))
+                deleting["generation"] = manifest["generation"] + 1
+                deleting_role = next(entry for entry in deleting["roles"]
+                                     if entry["role"] == role_name)
+                deleting_sidecar = next(entry for entry in deleting_role["sidecars"]
+                                        if entry["kind"] == kind)
+                deleting_sidecar["state"] = "deleting"
+                deleting_sidecar["generation"] = deleting["generation"]
+                self._commit_locked(_canonical_json(deleting))
+
+                # If this fails after the rename, the durable "deleting" state
+                # and non-empty quarantine force restart recovery to fail closed.
+                _quarantine_delete_at(parent_fd, basename, sidecar["identity"])
+
+                current = self._load_pair()[0]
+                retired = json.loads(_canonical_json(current))
+                retired["generation"] = current["generation"] + 1
+                retired_role = next(entry for entry in retired["roles"]
+                                    if entry["role"] == role_name)
+                retired_sidecar = next(entry for entry in retired_role["sidecars"]
+                                       if entry["kind"] == kind)
+                retired_sidecar["state"] = "retired"
+                retired_sidecar["generation"] = retired["generation"]
+                return self._commit_locked(_canonical_json(retired))
+            finally:
+                os.close(parent_fd)
+
     def plan_recovery(self) -> dict[str, Any]:
         """Inspect interrupted sidecar transitions without mutating SQLite files."""
         with _locked_roots(self.manifest_fd, self.anchor_fd, exclusive=True):
