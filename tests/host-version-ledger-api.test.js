@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
 import { once } from 'node:events';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -19,6 +19,28 @@ const HOST_SESSION = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const HOST_AUTHORITY = { authority_id: 'api-test-host-authority', generation: 3, snapshot_fingerprint: 'c'.repeat(64) };
 const headers = { authorization: 'Bearer ' + TOKEN, 'content-type': 'application/json' };
 const json = (body) => JSON.stringify(body);
+const canonical = value => Array.isArray(value)
+  ? '[' + value.map(canonical).join(',') + ']'
+  : value && typeof value === 'object'
+    ? '{' + Object.keys(value).sort().map(key => JSON.stringify(key) + ':' + canonical(value[key])).join(',') + '}'
+    : JSON.stringify(value);
+function lifecycleReceiptSignature(event, adapterId = 'adapter-a') {
+  const proof = {
+    protocol_version: 1,
+    adapter_id: adapterId,
+    host_installation_id: event.host_installation_id,
+    authenticated_account_id: event.authenticated_account_id,
+    host_session_id: event.host_session_id,
+    conversation_uuid: event.conversation_uuid,
+    event_id: event.event_id,
+    event_type: event.event_type,
+    mutation_id: event.mutation_id,
+    operation: event.operation,
+    mutation_digest: event.mutation_digest,
+    receipt_digest: event.receipt_digest,
+  };
+  return createHmac('sha256', ADAPTER).update(canonical(proof), 'utf8').digest('hex');
+}
 
 async function setup(t, {
   withLedger = true,
@@ -52,7 +74,7 @@ async function setup(t, {
   const rootJournal = withRootJournal ? new HostLifecycleJournal({
     path: join(directory, 'host-root-inventory.sqlite'),
     coordinatorPath,
-    verifyMutationReceipt: () => true,
+    verifyMutationReceipt: ({ event, identity }) => event.receipt_signature === lifecycleReceiptSignature(event, identity.adapter_id),
     resolveIdentity: input => ({
       authorized: true,
       host_installation_id: input.host_installation_id,
@@ -568,11 +590,17 @@ test('Core lifecycle API durably accepts authenticated prepare/commit receipts a
   assert.equal(overlap.status, 409);
   assert.equal((await overlap.json()).error.code, 'HOST_LIFECYCLE_MUTATION_ALREADY_PENDING');
 
+  const commitEvent = {
+    ...prepared,
+    event_id: '88888888-8888-4888-8888-888888888888',
+    event_type: 'MUTATION_COMMITTED',
+    mutation_digest: prepared.mutation_digest,
+    receipt_digest: 'd'.repeat(64),
+    occurred_at: '2026-10-31T00:00:01.000Z',
+  };
+  commitEvent.receipt_signature = lifecycleReceiptSignature(commitEvent);
   const committed = await fetch(base + '/v1/host-lifecycle/events', {
-    method: 'POST', headers: adapterHeaders,
-    body: json({ ...prepared, event_id: '88888888-8888-4888-8888-888888888888',
-      event_type: 'MUTATION_COMMITTED', mutation_digest: prepared.mutation_digest,
-      receipt_digest: 'd'.repeat(64), receipt_signature: 'e'.repeat(64), occurred_at: '2026-10-31T00:00:01.000Z' }),
+    method: 'POST', headers: adapterHeaders, body: json(commitEvent),
   });
   assert.equal(committed.status, 201);
   assert.equal((await committed.json()).lifecycle.status, 'appended');
