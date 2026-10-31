@@ -60,7 +60,7 @@ function validateRootEntries(entries) {
   let previous = null;
   const normalized = entries.map((entry) => {
     if (!isPlainRecord(entry) || Object.keys(entry).some((key) => !['path', 'identity', 'sha256'].includes(key))
-      || !validText(entry.path, 4096) || entry.path.startsWith('/') || entry.path.includes('\\')
+      || !validText(entry.path, 4096) || entry.path.startsWith('/') || entry.path.startsWith('//') || /^[a-z]:/i.test(entry.path) || entry.path.includes('\\')
       || entry.path.split('/').some((part) => !part || part === '.' || part === '..')
       || !isPlainRecord(entry.identity) || !validText(entry.identity.dev, 100)
       || !validText(entry.identity.ino, 100) || !/^[0-9]+$/.test(entry.identity.dev)
