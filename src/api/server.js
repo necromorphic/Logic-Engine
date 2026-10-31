@@ -245,6 +245,17 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
           }
           throw error;
         }
+        const integrity = hostRootInventoryJournal.verifyRootInventory(input);
+        if (integrity?.status !== 'INTEGRITY_OK') {
+          return send(res, 409, {
+            inventory_status: 'NON_READY',
+            reconciliation: {
+              status: 'NON_READY',
+              integrity_status: integrity?.status ?? 'NON_READY',
+              reason: integrity?.reason ?? 'HOST_ROOT_INVENTORY_INTEGRITY_UNVERIFIED',
+            },
+          });
+        }
         const counts = result.delta
           ? Object.fromEntries(Object.entries(result.delta).map(([key, rows]) => [key, rows.length]))
           : undefined;
@@ -254,6 +265,7 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
           inventory_status: reviewOnly ? 'REVIEW_ONLY' : 'NON_READY',
           reconciliation: {
             status: result.status,
+            integrity_status: integrity.status,
             ...(result.sequence !== undefined ? { sequence: result.sequence } : {}),
             ...(result.manifest_sha256 ? { manifest_sha256: result.manifest_sha256 } : {}),
             ...(result.delta_sha256 ? { delta_sha256: result.delta_sha256 } : {}),
