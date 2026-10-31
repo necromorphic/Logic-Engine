@@ -402,7 +402,19 @@ test('over-limit root drift is durably recorded and cannot disappear after a res
   assert.equal(observed.status, 'NON_READY');
   assert.equal(observed.reason, 'HOST_ROOT_INVENTORY_DELTA_LIMIT');
   assert.equal(observed.changed_files, 5_001);
+  assert.match(observed.manifest_sha256, /^[a-f0-9]{64}$/);
+  assert.match(observed.delta_sha256, /^[a-f0-9]{64}$/);
   assert.equal(journal.verifyRootInventory(baseline).status, 'INTEGRITY_OK');
+  const sameEventReplay = journal.observeRootInventory({ ...baseline, event_id: 'root-over-limit-delta', entries });
+  assert.equal(sameEventReplay.duplicate, true);
+  assert.equal(sameEventReplay.sequence, observed.sequence);
+  assert.equal(sameEventReplay.manifest_sha256, observed.manifest_sha256);
+  assert.equal(sameEventReplay.delta_sha256, observed.delta_sha256);
+  const newEventReplay = journal.observeRootInventory({ ...baseline, event_id: 'root-over-limit-replay', entries });
+  assert.equal(newEventReplay.duplicate, true);
+  assert.equal(newEventReplay.sequence, observed.sequence);
+  assert.equal(newEventReplay.manifest_sha256, observed.manifest_sha256);
+  assert.equal(newEventReplay.delta_sha256, observed.delta_sha256);
   const restored = journal.observeRootInventory({
     ...baseline,
     event_id: 'root-over-limit-restored',
