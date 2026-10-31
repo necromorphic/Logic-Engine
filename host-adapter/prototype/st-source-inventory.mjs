@@ -122,16 +122,21 @@ function parseChatJsonlIdentity(bytes, seen) {
       fail('SOURCE_CHAT_MESSAGE_ID_INVALID');
     }
     if (seen.messageIds.has(identity.messageId)) fail('SOURCE_CHAT_MESSAGE_ID_DUPLICATE');
-    if (!Array.isArray(identity.versions) || identity.versions.length !== versions.length) {
+    if (!Array.isArray(identity.versions) || identity.versions.length === 0
+      || identity.versions.length > MAX_CHAT_VERSIONS_PER_MESSAGE) {
       fail('SOURCE_CHAT_MESSAGE_VERSION_LAYOUT_MISMATCH');
     }
-    if (identity.activeVersionIndex !== activeVersionIndex) {
+    const logicalActiveVersionIndex = identity.activeVersionIndex;
+    if (!Number.isInteger(logicalActiveVersionIndex) || logicalActiveVersionIndex < 0
+      || logicalActiveVersionIndex >= identity.versions.length) {
       fail('SOURCE_CHAT_MESSAGE_ACTIVE_VERSION_MISMATCH');
     }
+    const swipeLayoutAligned = identity.versions.length === versions.length
+      && logicalActiveVersionIndex === activeVersionIndex;
     seen.messageIds.add(identity.messageId);
 
     const versionEntries = [];
-    for (let index = 0; index < versions.length; index++) {
+    for (let index = 0; index < identity.versions.length; index++) {
       const version = identity.versions[index];
       if (!version || typeof version.versionId !== 'string' || !HOST_UUID.test(version.versionId)
         || seen.versionIds.has(version.versionId)
@@ -141,7 +146,15 @@ function parseChatJsonlIdentity(bytes, seen) {
         || typeof version.payloadDigest !== 'string' || !/^[a-f0-9]{64}$/.test(version.payloadDigest)) {
         fail('SOURCE_CHAT_VERSION_IDENTITY_INVALID');
       }
-      const actualDigest = digest(Buffer.from(versions[index], 'utf8'));
+      // Edit revisions may exist only in the lifecycle identity ledger,
+      // while native swipe alternatives are stored separately. Always verify
+      // the active logical revision against persisted message text. Verify all
+      // revisions against native swipe text only when both layouts align.
+      const actualDigest = index === logicalActiveVersionIndex
+        ? digest(Buffer.from(message.mes, 'utf8'))
+        : swipeLayoutAligned
+          ? digest(Buffer.from(versions[index], 'utf8'))
+          : version.payloadDigest;
       if (actualDigest !== version.payloadDigest) fail('SOURCE_CHAT_VERSION_DIGEST_MISMATCH');
       seen.versionIds.add(version.versionId);
       seen.totalVersions++;
@@ -151,13 +164,13 @@ function parseChatJsonlIdentity(bytes, seen) {
         version_index: index,
         parent_version_id: version.parentVersionId ?? null,
         content_sha256: actualDigest,
-        active: index === activeVersionIndex,
+        active: index === logicalActiveVersionIndex,
       });
     }
     messages.push({
       message_id: identity.messageId,
       role: message.is_user === true ? 'user' : message.is_system === true ? 'system' : 'assistant',
-      active_version_index: activeVersionIndex,
+      active_version_index: logicalActiveVersionIndex,
       versions: versionEntries,
     });
   }
@@ -405,17 +418,9 @@ async function enumeratePinnedSillyTavernChatFilesInternal({
     physicalFiles.add(record.identity);
     totalBytes += BigInt(record.size);
     if (totalBytes > BigInt(MAX_TOTAL_BYTES)) fail('SOURCE_INVENTORY_SIZE_LIMIT');
-    let logicalIdentity = null;
-    if (['root-chat', 'character-chat', 'group-chat'].includes(kind)) {
-      try {
-        logicalIdentity = parseChatJsonlIdentity(record.bytes, logicalIdentitySeen);
-      } catch (error) {
-        if (error instanceof HostSourceInventoryError) {
-          error.message = error.code + ':' + kind + ':' + locator;
-        }
-        throw error;
-      }
-    }
+    const logicalIdentity = ['root-chat', 'character-chat', 'group-chat'].includes(kind)
+      ? parseChatJsonlIdentity(record.bytes, logicalIdentitySeen)
+      : null;
     files.push({
       kind,
       locator,
