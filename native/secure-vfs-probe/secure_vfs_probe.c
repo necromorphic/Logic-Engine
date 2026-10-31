@@ -864,6 +864,22 @@ static int probe_xOpen(sqlite3_vfs *vfs, const char *name, sqlite3_file *file,
   sqlite3_vfs *parent = (sqlite3_vfs *)vfs->pAppData;
   int is_sidecar = (flags & (SQLITE_OPEN_WAL | SQLITE_OPEN_MAIN_JOURNAL)) != 0;
   int is_race_target = 0;
+  /*
+   * This feasibility VFS has no separately pinned temporary-file namespace.
+   * Do not silently let SQLite create temp DBs, temp journals, subjournals,
+   * super-journals or transient DB files through the parent VFS. Pure
+   * SQLITE_OPEN_MEMORY databases remain supported.
+   */
+  const int unhandled_file_classes = SQLITE_OPEN_TEMP_DB
+    | SQLITE_OPEN_TEMP_JOURNAL | SQLITE_OPEN_SUBJOURNAL
+    | SQLITE_OPEN_SUPER_JOURNAL | SQLITE_OPEN_TRANSIENT_DB;
+  if ((flags & unhandled_file_classes) != 0
+      && (flags & SQLITE_OPEN_MEMORY) == 0) {
+    return SQLITE_CANTOPEN;
+  }
+  if (!name && (flags & SQLITE_OPEN_MEMORY) == 0) {
+    return SQLITE_CANTOPEN;
+  }
   int rc;
   int role_index = -1;
   char *canonical_name = NULL;
