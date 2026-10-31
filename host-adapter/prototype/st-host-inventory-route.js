@@ -4,8 +4,8 @@ import {
     createHostIdentityHandler,
     createHostInventoryHandler,
     createHostSessionHandler,
-} from './st-host-inventory-handler.mjs';
-import { HostIdentityStore } from './st-host-identity-store.mjs';
+} from './logic-engine-host-inventory-handler.mjs';
+import { HostIdentityStore } from './logic-engine-host-identity-store.mjs';
 
 const PINNED_SILLYTAVERN_COMMIT = '06bde939fb1e9c4c8d8641d810f0a916b5bce127';
 
