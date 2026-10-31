@@ -866,13 +866,14 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
     second.close();
   }
 
-  // SQLite 3.47.2's Windows VFS calls winDelete() directly from
-  // winShmPurge() when the last WAL SHM mapping is unmapped. That path bypasses
-  // the VFS xDelete callback, so the DeleteFileW system-call hook must anchor it.
-  if (process.platform === 'win32') {
-    const winDeleteHookPath = join(directory, 'win-delete-hook.sqlite');
-    registerRole(winDeleteHookPath, 'win-delete-hook');
-    const hookDb = new DatabaseSync(winDeleteHookPath);
+  // SQLite 3.47.2 bypasses VFS xDelete for WAL SHM cleanup on both
+  // platforms: Windows winShmPurge() calls winDelete()/DeleteFileW directly;
+  // Unix unixShmUnmap() calls osUnlink()/unlink directly. Both syscall paths
+  // must route through the role/sidecar identity checks.
+  if (process.platform === 'win32' || process.platform === 'linux') {
+    const deleteHookPath = join(directory, 'sidecar-delete-hook.sqlite');
+    registerRole(deleteHookPath, 'sidecar-delete-hook');
+    const hookDb = new DatabaseSync(deleteHookPath);
     try {
       hookDb.exec('PRAGMA journal_mode=WAL; CREATE TABLE hook_probe(value INTEGER); INSERT INTO hook_probe VALUES(1);');
       hookDb.prepare('PRAGMA wal_checkpoint(TRUNCATE)').get();
@@ -880,10 +881,17 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
     } finally {
       hookDb.close();
     }
-    assert.ok(
-      roleRegistrar.prepare('SELECT logic_engine_vfs_probe_delete_file_hook_count() AS count').get().count > 0,
-      'the internal Windows SHM deletion path must route through the handle-relative DeleteFileW hook',
-    );
+    if (process.platform === 'win32') {
+      assert.ok(
+        roleRegistrar.prepare('SELECT logic_engine_vfs_probe_delete_file_hook_count() AS count').get().count > 0,
+        'the internal Windows SHM deletion path must route through the handle-relative DeleteFileW hook',
+      );
+    } else {
+      assert.ok(
+        roleRegistrar.prepare('SELECT logic_engine_vfs_probe_unlink_hook_count() AS count').get().count > 0,
+        'the internal POSIX SHM deletion path must route through the identity-checked unlink hook',
+      );
+    }
   }
 
   // Cross-process SQLite locking must remain effective when each process
