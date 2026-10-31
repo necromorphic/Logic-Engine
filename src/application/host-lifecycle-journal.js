@@ -369,7 +369,12 @@ export class HostLifecycleJournal {
         if (sha256(canonical(priorEventContent)) !== eventDigest) {
           throw new Error('HOST_LIFECYCLE_EVENT_ID_CONFLICT');
         }
-        return { status: 'duplicate', sequence: existing.sequence, event_sha256: existing.event_sha256 };
+        return {
+        status: 'duplicate', sequence: existing.sequence,
+        manifest_sha256: existing.manifest_sha256,
+        ...(existing.delta_sha256 ? { delta_sha256: existing.delta_sha256 } : {}),
+        event_sha256: existing.event_sha256,
+      };
       }
 
       const head = this.db.prepare(`
@@ -608,7 +613,8 @@ export class HostLifecycleJournal {
       head?.baseline_manifest_sha256 ?? manifest_sha256, manifest_sha256, eventSha,
       event_type === 'BASELINE' ? 'BASELINED_REVIEW_ONLY' : 'NON_READY');
     return { status: event_type === 'BASELINE' ? 'BASELINED_REVIEW_ONLY' : 'NON_READY',
-      sequence, manifest_sha256: manifest_sha256, event_sha256: eventSha };
+      sequence, manifest_sha256: manifest_sha256,
+      ...(delta_sha256 ? { delta_sha256 } : {}), event_sha256: eventSha };
   }
 
   enrollRootInventory(input) {
@@ -668,13 +674,14 @@ export class HostLifecycleJournal {
             throw new Error('HOST_ROOT_INVENTORY_EVENT_ID_CONFLICT');
           }
           return { status: 'NON_READY', duplicate: true, sequence: reusedEventId.sequence,
-            reason: 'HOST_ROOT_INVENTORY_DELTA_LIMIT', delta_sha256: deltaSha256 };
+            manifest_sha256: manifestSha256, reason: 'HOST_ROOT_INVENTORY_DELTA_LIMIT',
+            delta_sha256: deltaSha256 };
         }
         const existingLimit = rows.find((row) => row.event_type === 'DELTA_LIMIT_EXCEEDED'
           && row.manifest_sha256 === manifestSha256 && row.delta_sha256 === deltaSha256);
         if (existingLimit) return { status: 'NON_READY', duplicate: true,
-          sequence: existingLimit.sequence, reason: 'HOST_ROOT_INVENTORY_DELTA_LIMIT',
-          delta_sha256: deltaSha256 };
+          sequence: existingLimit.sequence, manifest_sha256: manifestSha256,
+          reason: 'HOST_ROOT_INVENTORY_DELTA_LIMIT', delta_sha256: deltaSha256 };
         const recorded = this.#appendRootInventoryEvent({ ...input, event_type: 'DELTA_LIMIT_EXCEEDED',
           entries, manifest_sha256: manifestSha256, delta: null, delta_sha256: deltaSha256 });
         return { ...recorded, reason: 'HOST_ROOT_INVENTORY_DELTA_LIMIT',
