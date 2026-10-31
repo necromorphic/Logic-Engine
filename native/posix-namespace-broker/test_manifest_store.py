@@ -457,6 +457,30 @@ class ManifestStoreTests(unittest.TestCase):
         self.assertEqual(wal.read_bytes(), b"untrusted")
         self.assertEqual(self.store.load()["generation"], 1)
 
+    def test_open_or_create_sidecar_durably_creates_then_reopens_same_identity(self):
+        self.store.initialize(self.data(1))
+        first_fd = self.store.open_or_create_role_sidecar("core", "wal")
+        try:
+            first_identity = fd_identity(first_fd)
+            self.assertEqual(self.store.load()["generation"], 3)
+            second_fd = self.store.open_or_create_role_sidecar("core", "wal")
+            try:
+                self.assertEqual(fd_identity(second_fd), first_identity)
+                self.assertEqual(self.store.load()["generation"], 3)
+            finally:
+                os.close(second_fd)
+        finally:
+            os.close(first_fd)
+
+    def test_open_or_create_sidecar_does_not_adopt_unmanifested_existing_file(self):
+        self.store.initialize(self.data(1))
+        wal = self.role_parent / "core.sqlite-wal"
+        wal.write_bytes(b"untrusted")
+        with self.assertRaises(StoreError):
+            self.store.open_or_create_role_sidecar("core", "wal")
+        self.assertEqual(wal.read_bytes(), b"untrusted")
+        self.assertEqual(self.store.load()["generation"], 1)
+
     def test_open_role_parent_directory_verifies_database_and_returns_parent_fd(self):
         self.store.initialize(self.data(1))
         fd = self.store.open_role_parent_directory("core")
