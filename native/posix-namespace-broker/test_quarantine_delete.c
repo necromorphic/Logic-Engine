@@ -18,6 +18,18 @@ static int race_parent_fd = -1;
 static int race_triggered;
 static const char *race_original_backup = "original-held";
 
+static int injected_fsync_call;
+static int injected_fsync_failure_at;
+
+static int injected_fsync(int fd) {
+    injected_fsync_call++;
+    if (injected_fsync_call == injected_fsync_failure_at) {
+        errno = EIO;
+        return -1;
+    }
+    return fsync(fd);
+}
+
 static int real_renameat2(int olddirfd, const char *oldpath,
                           int newdirfd, const char *newpath,
                           unsigned int flags) {
@@ -94,6 +106,27 @@ int main(void) {
     assert(result == LEB_QUARANTINE_OK);
     assert(fstatat(parent_fd, "expected.db", &st, AT_SYMLINK_NOFOLLOW) != 0 && errno == ENOENT);
 
+
+    /* A pre-unlink directory-sync failure must retain the moved file. */
+    write_file_at(parent_fd, "retained.db", "retained");
+    expected = identity_at(parent_fd, "retained.db");
+    injected_fsync_call = 0;
+    injected_fsync_failure_at = 1;
+    result = leb_quarantine_delete_at_test(parent_fd, quarantine_fd, "retained.db",
+                                           &expected, real_renameat2, injected_fsync);
+    assert(result == LEB_QUARANTINE_RETAINED);
+    assert(fstatat(parent_fd, "retained.db", &st, AT_SYMLINK_NOFOLLOW) != 0 && errno == ENOENT);
+
+    /* A post-unlink sync failure is explicitly an uncertain durability result. */
+    write_file_at(parent_fd, "uncertain.db", "uncertain");
+    expected = identity_at(parent_fd, "uncertain.db");
+    injected_fsync_call = 0;
+    injected_fsync_failure_at = 3;
+    result = leb_quarantine_delete_at_test(parent_fd, quarantine_fd, "uncertain.db",
+                                           &expected, real_renameat2, injected_fsync);
+    assert(result == LEB_QUARANTINE_DURABILITY_UNCERTAIN);
+    assert(fstatat(parent_fd, "uncertain.db", &st, AT_SYMLINK_NOFOLLOW) != 0 && errno == ENOENT);
+
     /* The quarantine directory must be private with exactly mode 0700. */
     write_file_at(parent_fd, "mode-check.db", "mode");
     expected = identity_at(parent_fd, "mode-check.db");
@@ -113,7 +146,7 @@ int main(void) {
     race_parent_fd = parent_fd;
     race_triggered = 0;
     result = leb_quarantine_delete_at_test(parent_fd, quarantine_fd, "race.db",
-                                           &expected, replacing_renameat2);
+                                           &expected, replacing_renameat2, fsync);
     assert(result == LEB_QUARANTINE_IDENTITY_MISMATCH);
     assert(race_triggered);
     assert(fstatat(parent_fd, race_original_backup, &st, AT_SYMLINK_NOFOLLOW) == 0);
