@@ -23,6 +23,12 @@ const EVENT_TYPES = new Set([
   'MUTATION_COMMITTED',
   'MUTATION_ABORTED',
 ]);
+const MUTATION_OPERATIONS = new Set([
+  'create-message', 'message-send', 'message-receive', 'create-swipe', 'select-swipe',
+  'delete-swipe', 'delete-message', 'edit-message', 'rename-chat', 'import',
+  'import-character-chat', 'import-group-chat', 'export', 'copy-branch', 'restore',
+  'backup-restore', 'create-branch', 'group-metadata-migration',
+]);
 const EVENT_KEYS = new Set([
   'event_id', 'host_installation_id', 'authenticated_account_id', 'host_session_id', 'conversation_uuid',
   'authority_id', 'generation', 'snapshot_fingerprint', 'receipt_digest',
@@ -201,6 +207,7 @@ function validateEvent(event) {
   }
   const mutationEvent = ['MUTATION_PREPARED', 'MUTATION_COMMITTED', 'MUTATION_ABORTED'].includes(event.event_type);
   if (mutationEvent && (!UUID.test(event.mutation_id ?? '') || !validText(event.operation)
+    || !MUTATION_OPERATIONS.has(event.operation)
     || !validDigest(event.mutation_digest)
     || (event.event_type === 'MUTATION_PREPARED' && event.receipt_digest !== undefined)
     || (event.event_type !== 'MUTATION_PREPARED' && !validDigest(event.receipt_digest)))) {
@@ -209,7 +216,7 @@ function validateEvent(event) {
   if (!mutationEvent && (event.mutation_id !== undefined || event.operation !== undefined || event.receipt_digest !== undefined)) {
     throw new TypeError('Mutation identity and receipt fields are reserved for mutation lifecycle events.');
   }
-  if (event.occurred_at !== undefined && (typeof event.occurred_at !== 'string' || !Number.isFinite(Date.parse(event.occurred_at)))) {
+  if (typeof event.occurred_at !== 'string' || !Number.isFinite(Date.parse(event.occurred_at))) {
     throw new TypeError('Invalid Host lifecycle event timestamp.');
   }
   const normalized = {};
