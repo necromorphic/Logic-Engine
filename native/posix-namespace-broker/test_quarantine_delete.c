@@ -190,6 +190,14 @@ int main(void) {
         assert(found_decoy);
     }
 
+    /* A zero expected identity must never authorize deletion of a regular file. */
+    write_file_at(parent_fd, "zero-identity.db", "zero");
+    expected = (struct leb_file_identity){0};
+    result = leb_quarantine_delete_at(parent_fd, quarantine_fd, "zero-identity.db", &expected);
+    assert(result == LEB_QUARANTINE_IDENTITY_MISMATCH);
+    assert(fstatat(parent_fd, "zero-identity.db", &st, AT_SYMLINK_NOFOLLOW) == 0);
+    assert(unlinkat(parent_fd, "zero-identity.db", 0) == 0);
+
     write_file_at(parent_fd, "hardlink.db", "linked");
     assert(linkat(parent_fd, "hardlink.db", parent_fd, "hardlink-alias.db", 0) == 0);
     expected = identity_at(parent_fd, "hardlink.db");
