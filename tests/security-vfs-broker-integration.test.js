@@ -80,7 +80,11 @@ test('Linux SQLite VFS obtains main and sidecar descriptors from the authenticat
     try {
       writer.exec("INSERT INTO broker_probe VALUES('first');");
     } catch (error) {
-      throw new Error(String(error?.message ?? error) + "\\nBroker operations:\\n" +
+      const backendFailures = registrar.prepare(
+        'SELECT logic_engine_vfs_probe_broker_backend_open_fail_count() AS count'
+      ).get().count;
+      throw new Error(String(error?.message ?? error) + "\\nBackend open failures: " +
+        backendFailures + "\\nBroker operations:\\n" +
         (existsSync(logPath) ? readFileSync(logPath, 'utf8') : '<no broker log>'));
     }
     assert.equal(writer.prepare('SELECT logic_engine_vfs_probe_broker_backend_io_count() AS count').get().count > 0, true, 'broker descriptor I/O backend must be active');
