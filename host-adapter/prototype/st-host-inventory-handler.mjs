@@ -199,6 +199,61 @@ export function createHostSessionHandler({ createId = randomUUID } = {}) {
   };
 }
 
+export function createHostBulkMutationGuard({
+  enumerate = enumerateHostDataInventory,
+  pinnedHostCommit,
+} = {}) {
+  if (typeof enumerate !== 'function' || typeof pinnedHostCommit !== 'string'
+    || !/^[a-f0-9]{40}$/.test(pinnedHostCommit)) {
+    throw new TypeError('Host bulk mutation guard configuration is invalid.');
+  }
+  return async function hostBulkMutationGuard(request, response, next) {
+    response.set('Cache-Control', 'no-store, private');
+    response.set('Vary', 'Cookie');
+    const directories = request?.user?.directories;
+    if (!directories || !['root', 'chats', 'groups', 'groupChats'].every(key =>
+      typeof directories[key] === 'string' && path.isAbsolute(directories[key]))) {
+      return response.sendStatus(403);
+    }
+    let inventory;
+    try {
+      inventory = await enumerate({
+        directories: {
+          root: directories.root,
+          chats: directories.chats,
+          groups: directories.groups,
+          groupChats: directories.groupChats,
+        },
+        hostCommit: pinnedHostCommit,
+      });
+    } catch {
+      return response.status(503).json({
+        status: 'NON_READY',
+        code: 'HOST_BULK_MUTATION_INVENTORY_UNAVAILABLE',
+      });
+    }
+    if (inventory?.filesystem?.status !== 'complete'
+      || inventory?.source?.status !== 'DOUBLE_SCAN_CANDIDATE'
+      || !Array.isArray(inventory?.source?.files)) {
+      return response.status(503).json({
+        status: 'NON_READY',
+        code: 'HOST_BULK_MUTATION_INVENTORY_INCOMPLETE',
+      });
+    }
+    const hasEnrolledConversation = inventory.source.files.some(file =>
+      typeof file?.logical_identity?.conversation_uuid === 'string'
+      && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+        .test(file.logical_identity.conversation_uuid));
+    if (hasEnrolledConversation) {
+      return response.status(409).json({
+        status: 'NON_READY',
+        code: 'HOST_LIFECYCLE_BULK_MUTATION_BLOCKED',
+      });
+    }
+    return next();
+  };
+}
+
 export function createHostIdentityHandler({ identityStore }) {
   if (!identityStore || typeof identityStore.resolveAuthenticatedAccount !== 'function') {
     throw new TypeError('A server-owned Host identity store is required.');
