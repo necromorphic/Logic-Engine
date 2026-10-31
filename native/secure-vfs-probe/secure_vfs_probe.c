@@ -952,7 +952,8 @@ static int probe_open(const char *name, int flags, int mode) {
             && info.st_ino == role->inode) reject = 1;
       }
     }
-    if (!reject && is_sidecar && has_anchor && anchored_suffix[0] != '\0') {
+    if (!reject && is_sidecar && has_anchor && anchored_suffix[0] != '\0'
+        && !g_database_roles[anchored_role_index].broker_socket_path) {
       int kind = strcmp(anchored_suffix, "-wal") == 0 ? 1
         : strcmp(anchored_suffix, "-shm") == 0 ? 2
         : strcmp(anchored_suffix, "-journal") == 0 ? 3 : 0;
