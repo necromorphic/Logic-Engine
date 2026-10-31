@@ -114,11 +114,6 @@ static void serve_client(int fd) {
     if (getsockopt(fd, SOL_SOCKET, SO_PEERCRED, &peer, &peer_len) != 0 ||
         peer_len != sizeof(peer)) return;
 
-    if (peer.uid != allowed_uid) {
-        (void)send_status(fd, 0, 0, LEB_STATUS_UNAUTHORIZED);
-        return;
-    }
-
     memset(&message, 0, sizeof(message));
     memset(control, 0, sizeof(control));
     message.msg_iov = &iov;
@@ -132,6 +127,10 @@ static void serve_client(int fd) {
 
     if (received < 0) return;
     if (reject_ancillary_and_close_fds(&message)) return;
+    if (peer.uid != allowed_uid) {
+        (void)send_status(fd, 0, 0, LEB_STATUS_UNAUTHORIZED);
+        return;
+    }
     if ((message.msg_flags & (MSG_TRUNC | MSG_CTRUNC)) != 0 ||
         received != (ssize_t)sizeof(request)) return;
 
