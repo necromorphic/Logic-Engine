@@ -662,6 +662,73 @@ class ManifestStore:
             finally:
                 os.close(parent_fd)
 
+    def create_role_sidecar(self, role_name: str, kind: str) -> int:
+        """Create, enroll and return one new sidecar descriptor; never adopt an existing name."""
+        suffixes = {"wal": "-wal", "shm": "-shm", "journal": "-journal"}
+        if kind not in suffixes:
+            raise StoreError("unsupported sidecar kind")
+        with _locked_roots(self.manifest_fd, self.anchor_fd, exclusive=True):
+            manifest = self._load_pair()[0]
+            roles = [entry for entry in manifest["roles"] if entry["role"] == role_name]
+            if len(roles) != 1 or roles[0]["state"] != "active":
+                raise StoreError("unknown or inactive database role")
+            role = roles[0]
+            existing = [entry for entry in role["sidecars"] if entry["kind"] == kind]
+            if existing and existing[0]["state"] != "retired":
+                raise StoreError("sidecar already has a non-retired manifest entry")
+            parent_fd = _open_role_parent(
+                role["parentComponents"], role["parentIdentities"],
+                manifest["filesystemPolicy"]["filesystem"],
+                manifest["filesystemPolicy"]["applicationUid"],
+            )
+            fd = -1
+            try:
+                _require_empty_quarantine(parent_fd)
+                basename = role["databaseBasename"] + suffixes[kind]
+                flags = os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK
+                try:
+                    fd = os.open(basename, flags, 0o600, dir_fd=parent_fd)
+                except FileExistsError as exc:
+                    raise StoreError("unmanifested or existing sidecar blocks secure creation") from exc
+                info = os.fstat(fd)
+                identity = _fd_identity(fd)
+                if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1
+                        or info.st_uid != os.geteuid()
+                        or identity["mountId"] != _fd_mount_id(parent_fd)):
+                    raise StoreError("new sidecar failed opened-handle validation")
+                os.fchmod(fd, 0o600)
+                os.fsync(fd)
+                os.fsync(parent_fd)
+
+                creating = json.loads(_canonical_json(manifest))
+                creating["generation"] = manifest["generation"] + 1
+                creating_role = next(entry for entry in creating["roles"] if entry["role"] == role_name)
+                creating_role["sidecars"] = [entry for entry in creating_role["sidecars"]
+                                               if entry["kind"] != kind]
+                creating_role["sidecars"].append({
+                    "kind": kind, "identity": identity, "state": "creating",
+                    "generation": creating["generation"],
+                })
+                self._commit_locked(_canonical_json(creating))
+
+                current = self._load_pair()[0]
+                active = json.loads(_canonical_json(current))
+                active["generation"] = current["generation"] + 1
+                active_role = next(entry for entry in active["roles"] if entry["role"] == role_name)
+                active_sidecar = next(entry for entry in active_role["sidecars"]
+                                      if entry["kind"] == kind)
+                active_sidecar["state"] = "active"
+                active_sidecar["generation"] = active["generation"]
+                self._commit_locked(_canonical_json(active))
+                return fd
+            except Exception:
+                if fd >= 0:
+                    os.close(fd)
+                    fd = -1
+                raise
+            finally:
+                os.close(parent_fd)
+
     def delete_role_sidecar(self, role_name: str, kind: str) -> dict[str, Any]:
         """Delete one active sidecar through durable manifest transitions and quarantine."""
         suffixes = {"wal": "-wal", "shm": "-shm", "journal": "-journal"}
