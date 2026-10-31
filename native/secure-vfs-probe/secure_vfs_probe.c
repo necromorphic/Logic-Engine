@@ -28,6 +28,13 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#if defined(__linux__)
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <arpa/inet.h>
+#include <stddef.h>
+#include "../posix-namespace-broker/broker_protocol.h"
+#endif
 #endif
 #include "sqlite3ext.h"
 SQLITE_EXTENSION_INIT1
@@ -40,6 +47,9 @@ static int g_journal_open_count = 0;
 static int g_native_open_count = 0;
 static int g_registered = 0;
 static sqlite3_mutex *g_registry_mutex = 0;
+#if defined(__linux__)
+static uint64_t g_broker_request_id = 1;
+#endif
 #define PROBE_MAX_PINNED_PATHS 256
 typedef struct ProbePinnedPath {
   sqlite3_file *file;
@@ -79,6 +89,9 @@ typedef struct ProbeDatabaseRole {
   int trusted_fd;
   int trusted_parent_fd;
   char *basename;
+#if defined(__linux__)
+  char *broker_socket_path;
+#endif
 #endif
 } ProbeDatabaseRole;
 static ProbeDatabaseRole g_database_roles[PROBE_MAX_DATABASE_ROLES];
@@ -182,6 +195,141 @@ static int probe_pinned_path_add(sqlite3_file *file, char *path) {
   probe_registry_unlock();
   return added;
 }
+#if defined(__linux__)
+static uint64_t probe_broker_hton64(uint64_t value) {
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+  return ((uint64_t)htonl((uint32_t)value) << 32)
+    | (uint64_t)htonl((uint32_t)(value >> 32));
+#else
+  return value;
+#endif
+}
+
+/* A broker response is accepted only with the exact protocol envelope and FD count. */
+static int probe_broker_exchange(
+    ProbeDatabaseRole *role, const char *socket_path, uint16_t operation,
+    const char *kind, int expect_fd, int *out_fd, uint32_t *out_status) {
+  struct sockaddr_un address;
+  struct stat socket_info, descriptor_info, parent_info;
+  struct leb_request request;
+  struct leb_response response;
+  struct iovec vectors[2];
+  struct msghdr message;
+  struct cmsghdr *control;
+  char payload[260];
+  char response_control[CMSG_SPACE(sizeof(int) * 2)];
+  char response_packet[sizeof(response)];
+  size_t role_length, payload_length;
+  ssize_t sent, received;
+  int socket_fd = -1, received_fd = -1, fd_count = 0, valid = 0;
+  int peer_credentials[3];
+  socklen_t credentials_length = (socklen_t)sizeof(peer_credentials);
+  if (out_fd) *out_fd = -1;
+  if (out_status) *out_status = LEB_STATUS_INTERNAL;
+  if (!role || !socket_path || !socket_path[0] || !out_status) return 0;
+  role_length = strlen(role->role);
+  if (role_length == 0 || role_length > 128) return 0;
+  if (kind && (strcmp(kind, "wal") != 0 && strcmp(kind, "shm") != 0
+               && strcmp(kind, "journal") != 0 && strcmp(kind, "main") != 0)) return 0;
+  payload_length = role_length;
+  memcpy(payload, role->role, role_length);
+  if (kind) {
+    payload[payload_length++] = '\0';
+    memcpy(payload + payload_length, kind, strlen(kind));
+    payload_length += strlen(kind);
+  }
+  if (payload_length > sizeof(payload)) return 0;
+  if (strlen(socket_path) >= sizeof(address.sun_path)) return 0;
+  if (lstat(socket_path, &socket_info) != 0 || !S_ISSOCK(socket_info.st_mode)
+      || (socket_info.st_mode & 077) != 0
+      || (socket_info.st_uid != geteuid() && socket_info.st_uid != 0)) return 0;
+
+  socket_fd = socket(AF_UNIX, SOCK_SEQPACKET, 0);
+  if (socket_fd < 0) return 0;
+  if (fcntl(socket_fd, F_SETFD, FD_CLOEXEC) != 0) goto done;
+  memset(&address, 0, sizeof(address));
+  address.sun_family = AF_UNIX;
+  memcpy(address.sun_path, socket_path, strlen(socket_path) + 1);
+  if (connect(socket_fd, (struct sockaddr *)&address, sizeof(address)) != 0) goto done;
+  if (getsockopt(socket_fd, SOL_SOCKET, SO_PEERCRED,
+                 peer_credentials, &credentials_length) != 0
+      || credentials_length != sizeof(peer_credentials)
+      || peer_credentials[0] <= 0 || (uid_t)peer_credentials[1] != socket_info.st_uid) {
+    goto done;
+  }
+
+  memset(&request, 0, sizeof(request));
+  request.magic = htonl(LEB_PROTOCOL_MAGIC);
+  request.version = htons(LEB_PROTOCOL_VERSION);
+  request.operation = htons(operation);
+  request.flags = htonl(0);
+  probe_registry_lock();
+  request.request_id = probe_broker_hton64(g_broker_request_id++);
+  if (g_broker_request_id == 0) g_broker_request_id = 1;
+  probe_registry_unlock();
+  request.payload_length = htonl((uint32_t)payload_length);
+
+  memset(&message, 0, sizeof(message));
+  vectors[0].iov_base = &request;
+  vectors[0].iov_len = sizeof(request);
+  vectors[1].iov_base = payload;
+  vectors[1].iov_len = payload_length;
+  message.msg_iov = vectors;
+  message.msg_iovlen = kind ? 2u : 2u;
+  sent = sendmsg(socket_fd, &message, 0);
+  if (sent != (ssize_t)(sizeof(request) + payload_length)) goto done;
+
+  memset(&message, 0, sizeof(message));
+  memset(response_control, 0, sizeof(response_control));
+  message.msg_iov = vectors;
+  message.msg_iovlen = 1;
+  vectors[0].iov_base = response_packet;
+  vectors[0].iov_len = sizeof(response_packet);
+  message.msg_control = response_control;
+  message.msg_controllen = sizeof(response_control);
+  received = recvmsg(socket_fd, &message, MSG_CMSG_CLOEXEC);
+  if (received != (ssize_t)sizeof(response)
+      || (message.msg_flags & (MSG_TRUNC | MSG_CTRUNC)) != 0) goto done;
+  memcpy(&response, response_packet, sizeof(response));
+  if (ntohl(response.magic) != LEB_PROTOCOL_MAGIC
+      || ntohs(response.version) != LEB_PROTOCOL_VERSION
+      || ntohs(response.operation) != operation
+      || response.request_id != request.request_id
+      || ntohl(response.payload_length) != 0) goto done;
+  for (control = CMSG_FIRSTHDR(&message); control;
+       control = CMSG_NXTHDR(&message, control)) {
+    if (control->cmsg_level != SOL_SOCKET || control->cmsg_type != SCM_RIGHTS
+        || control->cmsg_len != CMSG_LEN(sizeof(int))) goto done;
+    memcpy(&received_fd, CMSG_DATA(control), sizeof(received_fd));
+    fd_count += 1;
+  }
+  *out_status = ntohl(response.status);
+  if (*out_status == LEB_STATUS_OK) {
+    if (expect_fd != (fd_count == 1)) goto done;
+    if (expect_fd) {
+      if (received_fd < 0 || fcntl(received_fd, F_SETFD, FD_CLOEXEC) != 0
+          || fstat(received_fd, &descriptor_info) != 0
+          || !S_ISREG(descriptor_info.st_mode) || descriptor_info.st_nlink != 1
+          || descriptor_info.st_dev != role->device) goto done;
+      if (operation == LEB_OP_OPEN_MAIN
+          && (descriptor_info.st_dev != role->device
+              || descriptor_info.st_ino != role->inode)) goto done;
+      if (out_fd) {
+        *out_fd = received_fd;
+        received_fd = -1;
+      }
+    }
+  } else if (fd_count != 0) {
+    goto done;
+  }
+  valid = 1;
+done:
+  if (received_fd >= 0) close(received_fd);
+  if (socket_fd >= 0) close(socket_fd);
+  return valid;
+}
+#endif
+
 static void probe_counter_increment(int *counter) {
   probe_registry_lock();
   *counter += 1;
