@@ -77,10 +77,12 @@ class FakeStore:
 
 def main():
     socket_path, database_path, log_path = sys.argv[1:4]
+    allowed_uid, allowed_gid = int(sys.argv[4]), int(sys.argv[5])
     Path(database_path).touch(mode=0o600, exist_ok=True)
     server = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
     server.bind(socket_path)
-    os.chmod(socket_path, 0o600)
+    os.chown(socket_path, -1, allowed_gid, follow_symlinks=False)
+    os.chmod(socket_path, 0o620)
     server.listen(8)
     store = FakeStore(database_path, log_path)
     signal.signal(signal.SIGTERM, stop)
@@ -92,7 +94,7 @@ def main():
             except InterruptedError:
                 continue
             try:
-                handle_connection(conn, os.getuid(), store)
+                handle_connection(conn, allowed_uid, store)
             finally:
                 conn.close()
     finally:
