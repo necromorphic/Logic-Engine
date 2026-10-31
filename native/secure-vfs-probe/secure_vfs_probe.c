@@ -58,6 +58,10 @@ static int g_broker_backend_open_fail_count = 0;
 static int g_broker_shm_map_count = 0;
 static int g_broker_shm_map_fail_count = 0;
 static int g_shm_open_hook_count = 0;
+static int g_broker_syscall_open_fail_count = 0;
+static int g_broker_delete_fail_count = 0;
+static int g_broker_access_fail_count = 0;
+static int g_sidecar_capture_fail_count = 0;
 #endif
 #define PROBE_MAX_PINNED_PATHS 256
 typedef struct ProbePinnedPath {
