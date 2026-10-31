@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { constants as fsConstants, promises as fs } from 'node:fs';
 import path from 'node:path';
 import { enumerateHostDataInventory } from './host-data-inventory.mjs';
@@ -394,6 +394,69 @@ export class HostLifecycleReceiptStore {
     };
     await this.#writeOnce(terminalPath, record);
     return { status: 'appended', receipt_digest: receiptDigest, occurred_at: record.occurred_at };
+  }
+
+  async recover(scope, directories) {
+    if (!validScope(scope) || !UUID.test(scope.prepared_event_id ?? '')) {
+      throw new TypeError('Invalid Host lifecycle recovery scope.');
+    }
+    await this.#prepareDirectory();
+    const prepared = await this.#read(this.#recordPath(scope, 'prepared'));
+    if (!prepared || prepared.event_id !== scope.prepared_event_id
+      || prepared.mutation_digest !== scope.mutation_digest
+      || prepared.operation !== scope.operation) {
+      return { status: 'RECOVERY_REQUIRED', reason: 'HOST_LIFECYCLE_RECEIPT_PREPARE_MISSING' };
+    }
+    const terminal = await this.#read(this.#recordPath(scope, 'terminal'));
+    if (terminal) {
+      if (!['MUTATION_COMMITTED', 'MUTATION_ABORTED'].includes(terminal.event_type)
+        || !UUID.test(terminal.event_id ?? '')
+        || !DIGEST.test(terminal.receipt_digest ?? '')
+        || typeof terminal.occurred_at !== 'string'
+        || !terminal.receipt
+        || terminal.receipt_digest !== sha256(Buffer.from(canonical(terminal.receipt), 'utf8'))) {
+        return { status: 'RECOVERY_REQUIRED', reason: 'HOST_LIFECYCLE_RECEIPT_TERMINAL_CORRUPT' };
+      }
+      return {
+        status: terminal.event_type === 'MUTATION_COMMITTED' ? 'COMMITTED' : 'ABORTED',
+        event_id: terminal.event_id,
+        receipt_digest: terminal.receipt_digest,
+        occurred_at: terminal.occurred_at,
+      };
+    }
+    let current;
+    try { current = await this.#snapshot(scope, directories); }
+    catch { return { status: 'RECOVERY_REQUIRED', reason: 'HOST_LIFECYCLE_RECEIPT_CURRENT_STATE_UNAVAILABLE' }; }
+    const terminalScope = {
+      ...scope,
+      event_id: randomUUID(),
+      occurred_at: new Date().toISOString(),
+    };
+    if (canonical(current) === canonical(prepared.before)) {
+      const result = await this.abort(terminalScope, directories);
+      return {
+        status: 'ABORTED',
+        event_id: terminalScope.event_id,
+        receipt_digest: result.receipt_digest,
+        occurred_at: result.occurred_at,
+      };
+    }
+    const matchesExpectedPostState = current.target_path === prepared.before.target_path
+      && current.target_locator === prepared.before.target_locator
+      && current.target_content_sha256 !== prepared.before.target_content_sha256
+      && current.other_root_entries_sha256 === prepared.before.other_root_entries_sha256
+      && current.other_source_files_sha256 === prepared.before.other_source_files_sha256
+      && validOperationTransition(scope.operation, prepared.before.logical_identity, current.logical_identity);
+    if (!matchesExpectedPostState) {
+      return { status: 'RECOVERY_REQUIRED', reason: 'HOST_LIFECYCLE_RECEIPT_PERSISTED_STATE_AMBIGUOUS' };
+    }
+    const result = await this.commit(terminalScope, directories);
+    return {
+      status: 'COMMITTED',
+      event_id: terminalScope.event_id,
+      receipt_digest: result.receipt_digest,
+      occurred_at: result.occurred_at,
+    };
   }
 
   async abort(scope, directories) {
