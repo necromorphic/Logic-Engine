@@ -881,7 +881,7 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
       hookDb.close();
     }
     assert.ok(
-      second.prepare('SELECT logic_engine_vfs_probe_delete_file_hook_count() AS count').get().count > 0,
+      roleRegistrar.prepare('SELECT logic_engine_vfs_probe_delete_file_hook_count() AS count').get().count > 0,
       'the internal Windows SHM deletion path must route through the handle-relative DeleteFileW hook',
     );
   }
