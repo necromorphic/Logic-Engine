@@ -741,7 +741,7 @@ export class HostLifecycleJournal {
   #verifyRootInventoryRows(hostInstallationId, accountId, rootId, rows) {
     let previous = '0'.repeat(64);
     let baselineManifestSha256 = null;
-    let baselineEntries = null;
+    let previousEntries = null;
     let latestManifestSha256 = null;
     for (let index = 0; index < rows.length; index++) {
       const row = rows[index];
@@ -771,13 +771,13 @@ export class HostLifecycleJournal {
           return { valid: false, reason: 'HOST_ROOT_INVENTORY_BASELINE_LAYOUT_INVALID' };
         }
         baselineManifestSha256 = manifestSha256;
-        baselineEntries = entries;
+        previousEntries = entries;
       } else if (row.event_type === 'DELTA_OBSERVED' || row.event_type === 'DELTA_LIMIT_EXCEEDED') {
         if (index === 0 || !validDigest(row.delta_sha256)
           || event.delta_sha256 !== row.delta_sha256) {
           return { valid: false, reason: 'HOST_ROOT_INVENTORY_DELTA_DIGEST_MISMATCH' };
         }
-        const expectedDelta = rootInventoryDelta(baselineEntries, entries);
+        const expectedDelta = rootInventoryDelta(previousEntries, entries);
         const expectedDeltaSha256 = sha256(canonical(expectedDelta));
         const changed = Object.values(expectedDelta).reduce((sum, items) => sum + items.length, 0);
         if (expectedDeltaSha256 !== row.delta_sha256
@@ -798,6 +798,7 @@ export class HostLifecycleJournal {
       }));
       if (expected !== row.event_sha256) return { valid: false, reason: 'HOST_ROOT_INVENTORY_HASH_MISMATCH' };
       previous = expected;
+      previousEntries = entries;
       latestManifestSha256 = manifestSha256;
     }
     const head = this.db.prepare(`
@@ -944,15 +945,16 @@ export class HostLifecycleJournal {
         || reusedEventId.manifest_sha256 !== manifestSha256)) {
         throw new Error('HOST_ROOT_INVENTORY_EVENT_ID_CONFLICT');
       }
-      const baseline = JSON.parse(rows[0].canonical_event_json);
-      if (manifestSha256 === integrity.baseline_manifest_sha256) {
+      const latest = JSON.parse(rows.at(-1).canonical_event_json);
+      if (manifestSha256 === integrity.latest_manifest_sha256) {
         if (rows.length > 1) return { status: 'NON_READY',
           reason: 'previously observed root inventory delta remains unresolved',
           sequence: integrity.sequence, manifest_sha256: manifestSha256 };
         return { status: 'UNCHANGED_REVIEW_ONLY', sequence: integrity.sequence,
           manifest_sha256: manifestSha256 };
       }
-      const delta = rootInventoryDelta(baseline.entries, entries);
+      const restoringBaseline = manifestSha256 === integrity.baseline_manifest_sha256 && rows.length > 1;
+      const delta = rootInventoryDelta(latest.entries, entries);
       const changed = Object.values(delta).reduce((sum, items) => sum + items.length, 0);
       const deltaSha256 = sha256(canonical(delta));
       if (changed > MAX_ROOT_DELTA_FILES) {
@@ -988,7 +990,9 @@ export class HostLifecycleJournal {
         delta_sha256: deltaSha256, delta };
       const recorded = this.#appendRootInventoryEvent({ ...input, event_type: 'DELTA_OBSERVED',
         entries, manifest_sha256: manifestSha256, delta, delta_sha256: deltaSha256 });
-      return { ...recorded, delta };
+      return { ...recorded, delta, ...(restoringBaseline ? {
+        reason: 'previously observed root inventory delta remains unresolved',
+      } : {}) };
     });
   }
 
