@@ -9,6 +9,8 @@ import {
   parseHostRootIdentityRegistry,
   resolveAdapterHostRootIdentity,
   resolveRegisteredHostRootIdentity,
+  resolveAdapterHostLifecycleIdentity,
+  resolveRegisteredHostLifecycleIdentity,
 } from './application/host-root-inventory-identity.js';
 import { loadTrustedWorldPackCatalog } from './application/world-pack-catalog.js';
 import { createHostBoundNpcKnowledgeAuthorizers } from './application/npc-knowledge-authorization.js';
@@ -166,14 +168,10 @@ if (hostRootIdentityRegistry.length > 0) {
   hostRootInventoryJournal = new HostLifecycleJournal({
     path: hostLifecyclePath,
     coordinatorPath,
-    // Raw lifecycle events remain disabled until a separate event authority
-    // resolver is wired. Root inventory has its own exact deployment allowlist.
-    resolveIdentity: input => ({
-      authorized: false,
-      host_installation_id: input.host_installation_id,
-      authenticated_account_id: input.authenticated_account_id,
-      conversation_uuid: input.conversation_uuid,
-    }),
+    // The authenticated adapter route checks the exact adapter/installation/account
+    // tuple; the journal independently rechecks the deployment-owned installation
+    // and account binding before appending any event.
+    resolveIdentity: input => resolveRegisteredHostLifecycleIdentity(hostRootIdentityRegistry, input),
     resolveRootIdentity: input => resolveRegisteredHostRootIdentity(hostRootIdentityRegistry, input),
   });
   resolveHostRootIdentity = input => resolveAdapterHostRootIdentity(hostRootIdentityRegistry, input);
@@ -188,6 +186,8 @@ const server = createApiServer({
   hostVersionLedger,
   hostRootInventoryJournal,
   resolveHostRootIdentity,
+  resolveHostLifecycleIdentity: input => resolveAdapterHostLifecycleIdentity(hostRootIdentityRegistry, input),
+  hostLifecycleJournal: hostRootInventoryJournal,
   mechanicPolicyAuthority,
 });
 server.listen(port, host, () => process.stdout.write(
