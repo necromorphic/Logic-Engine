@@ -1499,6 +1499,28 @@ static void probe_hook_protection(sqlite3_context *context, int argc, sqlite3_va
   sqlite3_result_int(context, protected_ok);
 }
 
+static void probe_temp_file_class_rejected(sqlite3_context *context, int argc, sqlite3_value **argv) {
+  sqlite3_file *file;
+  int out_flags = 0;
+  int rc;
+  (void)argc;
+  (void)argv;
+  file = (sqlite3_file *)sqlite3_malloc64((sqlite3_uint64)g_probe_vfs.szOsFile);
+  if (!file) {
+    sqlite3_result_error_nomem(context);
+    return;
+  }
+  memset(file, 0, (size_t)g_probe_vfs.szOsFile);
+  rc = probe_xOpen(&g_probe_vfs, "probe-temp-file",
+    file, SQLITE_OPEN_TEMP_DB | SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE,
+    &out_flags);
+  if (rc == SQLITE_OK && file->pMethods && file->pMethods->xClose) {
+    file->pMethods->xClose(file);
+  }
+  sqlite3_free(file);
+  sqlite3_result_int(context, rc == SQLITE_CANTOPEN);
+}
+
 static void probe_open_count(sqlite3_context *context, int argc, sqlite3_value **argv) {
   (void)argc;
   (void)argv;
@@ -1945,6 +1967,9 @@ static void probe_has_syscall(sqlite3_context *context, int argc, sqlite3_value 
 static int probe_auto_extension(sqlite3 *db, char **error, const sqlite3_api_routines *api) {
   (void)error;
   SQLITE_EXTENSION_INIT2(api);
+  int rc = sqlite3_create_function(db, "logic_engine_vfs_probe_temp_file_class_rejected",
+    0, SQLITE_UTF8 | SQLITE_DETERMINISTIC, 0, probe_temp_file_class_rejected, 0, 0);
+  if (rc != SQLITE_OK) return rc;
   int rc = sqlite3_create_function(
     db,
     "logic_engine_vfs_probe_open_count",
