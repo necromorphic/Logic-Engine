@@ -1514,6 +1514,10 @@ static int probe_xDelete(sqlite3_vfs *vfs, const char *name, int sync_dir) {
           || status != LEB_STATUS_OK) return SQLITE_IOERR_DELETE;
       return SQLITE_OK;
     }
+    if (suffix[0] == '\0' && role->broker_socket_path) {
+      /* Main-file deletion needs its own durable manifest transition. */
+      return SQLITE_IOERR_DELETE;
+    }
 #endif
     char relative_name[4096];
     size_t base_length = strlen(role->basename);
