@@ -70,6 +70,7 @@ jobs:
           copy /Y host-adapter\prototype\st-lifecycle-bridge.mjs SillyTavern\public\scripts\logic-engine-lifecycle\st-lifecycle-bridge.mjs
           copy /Y host-adapter\prototype\conversation-identity.mjs SillyTavern\public\scripts\logic-engine-lifecycle\conversation-identity.mjs
           copy /Y host-adapter\prototype\st-server-digest-proxy.mjs SillyTavern\src\endpoints\logic-engine-lifecycle-proxy.mjs
+          copy /Y host-adapter\prototype\st-host-lifecycle-receipt-store.mjs SillyTavern\src\endpoints\st-host-lifecycle-receipt-store.mjs
           copy /Y host-adapter\prototype\st-source-inventory.mjs SillyTavern\src\endpoints\st-source-inventory.mjs
           copy /Y host-adapter\prototype\fs-inventory.js SillyTavern\src\endpoints\fs-inventory.js
           copy /Y host-adapter\prototype\windows-vss-snapshot.mjs SillyTavern\src\endpoints\windows-vss-snapshot.mjs
