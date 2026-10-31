@@ -523,7 +523,6 @@ test('Core lifecycle API durably accepts authenticated prepare/commit receipts a
     authenticated_account_id: account,
     host_session_id: HOST_SESSION,
     conversation_uuid: conversation,
-    ...HOST_AUTHORITY,
     occurred_at: '2026-10-31T00:00:00.000Z',
     event_id: '55555555-5555-4555-8555-555555555555',
     event_type: 'MUTATION_PREPARED',
