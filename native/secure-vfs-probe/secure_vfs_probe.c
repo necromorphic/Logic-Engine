@@ -95,6 +95,7 @@ typedef struct ProbeSidecarIdentity {
 } ProbeSidecarIdentity;
 static ProbeSidecarIdentity g_sidecar_identities[PROBE_MAX_SIDECAR_IDENTITIES];
 static int g_sidecar_identity_count = 0;
+static int g_delete_file_hook_count = 0;
 #else
 #define PROBE_MAX_SIDECAR_IDENTITIES (PROBE_MAX_DATABASE_ROLES * 12)
 typedef struct ProbeSidecarIdentity {
@@ -1254,6 +1255,7 @@ static BOOL WINAPI probe_delete_file_w(LPCWSTR path) {
     SetLastError(ERROR_ACCESS_DENIED);
     return FALSE;
   }
+  probe_counter_increment(&g_delete_file_hook_count);
   rc = probe_win_delete_role(role_index, relative_name, suffix[0] == L'\\0');
   sqlite3_free(relative_name);
   if (rc == SQLITE_OK) {
@@ -1545,6 +1547,14 @@ static void probe_hook_protection(sqlite3_context *context, int argc, sqlite3_va
 #endif
   sqlite3_result_int(context, protected_ok);
 }
+
+#ifdef _WIN32
+static void probe_delete_file_hook_count(sqlite3_context *context, int argc, sqlite3_value **argv) {
+  (void)argc;
+  (void)argv;
+  sqlite3_result_int(context, probe_counter_read(&g_delete_file_hook_count));
+}
+#endif
 
 static void probe_temp_file_class_rejected(sqlite3_context *context, int argc, sqlite3_value **argv) {
   sqlite3_file *file;
@@ -2018,6 +2028,11 @@ static int probe_auto_extension(sqlite3 *db, char **error, const sqlite3_api_rou
     db, "logic_engine_vfs_probe_temp_file_class_rejected",
     0, SQLITE_UTF8 | SQLITE_DETERMINISTIC, 0, probe_temp_file_class_rejected, 0, 0);
   if (rc != SQLITE_OK) return rc;
+#ifdef _WIN32
+  rc = sqlite3_create_function(db, "logic_engine_vfs_probe_delete_file_hook_count",
+    0, SQLITE_UTF8 | SQLITE_DETERMINISTIC, 0, probe_delete_file_hook_count, 0, 0);
+  if (rc != SQLITE_OK) return rc;
+#endif
   rc = sqlite3_create_function(
     db,
     "logic_engine_vfs_probe_open_count",
