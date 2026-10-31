@@ -967,20 +967,39 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
   const childExit = once(child, 'exit');
   child.kill('SIGKILL');
   await childExit;
-  const recovered = new DatabaseSync(crashPath);
-  try {
-    assert.deepEqual(
-      recovered.prepare('SELECT value FROM crash_probe ORDER BY rowid').all().map((row) => row.value),
-      ['committed'],
-      'WAL recovery must discard the transaction that was interrupted before COMMIT',
-    );
-    assert.equal(
-      recovered.prepare('PRAGMA integrity_check').get().integrity_check,
-      'ok',
-      'the database must pass integrity_check after abrupt writer termination',
-    );
-    recovered.exec('PRAGMA wal_checkpoint(TRUNCATE);');
-  } finally {
-    recovered.close();
-  }
+  // Reopen in a fresh process so the test exercises restart-time identity
+  // enrollment rather than reusing the killed writer's process-local registry.
+  const recoveryChild = `
+    const { DatabaseSync } = require('node:sqlite');
+    const bootstrap = new DatabaseSync(':memory:', { allowExtension: true });
+    bootstrap.loadExtension(process.env.LOGIC_ENGINE_VFS_PROBE_PATH, 'sqlite3_secure_vfs_probe_init');
+    bootstrap.enableLoadExtension(false);
+    bootstrap.close();
+    const registry = new DatabaseSync(':memory:');
+    registry.prepare('SELECT logic_engine_vfs_probe_register_database_role(?, ?)').get(process.argv[1], 'wal-crash-recovery-restart');
+    const db = new DatabaseSync(process.argv[1]);
+    const rows = db.prepare('SELECT value FROM crash_probe ORDER BY rowid').all().map((row) => row.value);
+    const integrity = db.prepare('PRAGMA integrity_check').get().integrity_check;
+    db.exec('PRAGMA wal_checkpoint(TRUNCATE);');
+    db.close();
+    registry.close();
+    process.stdout.write(JSON.stringify({ rows, integrity }));
+  `;
+  const recovery = spawnSync(process.execPath, ['-e', recoveryChild, crashPath], {
+    encoding: 'utf8',
+    env: process.env,
+    timeout: 10000,
+  });
+  assert.equal(recovery.status, 0, recovery.stderr || recovery.stdout);
+  const recoveryResult = JSON.parse(recovery.stdout.trim());
+  assert.deepEqual(
+    recoveryResult.rows,
+    ['committed'],
+    'WAL recovery must discard the transaction that was interrupted before COMMIT',
+  );
+  assert.equal(
+    recoveryResult.integrity,
+    'ok',
+    'the database must pass integrity_check after abrupt writer termination',
+  );
 });
