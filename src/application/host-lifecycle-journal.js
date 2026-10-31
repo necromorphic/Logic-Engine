@@ -25,9 +25,7 @@ const EVENT_TYPES = new Set([
 ]);
 const MUTATION_OPERATIONS = new Set([
   'create-message', 'message-send', 'message-receive', 'create-swipe', 'select-swipe',
-  'delete-swipe', 'delete-message', 'edit-message', 'rename-chat', 'import',
-  'import-character-chat', 'import-group-chat', 'export', 'copy-branch', 'restore',
-  'backup-restore', 'create-branch', 'group-metadata-migration',
+  'delete-swipe', 'delete-message', 'edit-message', 'rename-chat',
 ]);
 const EVENT_KEYS = new Set([
   'event_id', 'host_installation_id', 'authenticated_account_id', 'host_session_id', 'conversation_uuid',
