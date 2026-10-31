@@ -223,6 +223,69 @@ def _parse_anchor(data: bytes) -> tuple[int, str]:
     return generation, digest
 
 
+def _fd_identity(fd: int) -> dict[str, str]:
+    info = os.fstat(fd)
+    mount_id = None
+    try:
+        with open(f"/proc/self/fdinfo/{fd}", "r", encoding="ascii") as handle:
+            for line in handle:
+                if line.startswith("mnt_id:"):
+                    mount_id = line.split(":", 1)[1].strip()
+                    break
+    except OSError as exc:
+        raise StoreError(f"cannot read opened object mount identity: {exc}") from exc
+    if not mount_id or not mount_id.isdigit() or mount_id == "0":
+        raise StoreError("opened object mount identity is unavailable")
+    return {"kind": "posix", "device": str(info.st_dev),
+            "inode": str(info.st_ino), "mountId": mount_id}
+
+
+def _open_role_parent(components: list[str], identities: list[dict[str, str]]) -> int:
+    if len(components) != len(identities):
+        raise StoreError("role parent component/identity count mismatch")
+    fd = os.open("/", DIR_FLAGS)
+    try:
+        for index, component in enumerate(components):
+            if (not isinstance(component, str) or not component or
+                    component in (".", "..") or "/" in component or
+                    "\\x00" in component or "\\\\" in component):
+                raise StoreError("role parent contains an invalid path component")
+            next_fd = os.open(component, DIR_FLAGS, dir_fd=fd)
+            os.close(fd)
+            fd = next_fd
+            info = os.fstat(fd)
+            if not stat.S_ISDIR(info.st_mode):
+                raise StoreError("role parent component is not a directory")
+            if info.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
+                raise StoreError("role parent component is group/other writable")
+            if _fd_identity(fd) != identities[index]:
+                raise StoreError(f"role parent identity mismatch at component {component}")
+        if os.fstat(fd).st_uid != os.geteuid() or stat.S_IMODE(os.fstat(fd).st_mode) != 0o700:
+            raise StoreError("final role parent must be service-owned mode 0700")
+        return fd
+    except Exception:
+        os.close(fd)
+        raise
+
+
+def _verify_regular_at(parent_fd: int, name: str,
+                       expected: dict[str, str], label: str) -> None:
+    try:
+        fd = os.open(name, FILE_FLAGS, dir_fd=parent_fd)
+    except FileNotFoundError as exc:
+        raise StoreError(f"{label} is missing") from exc
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+            raise StoreError(f"{label} is not a single-link regular file")
+        if info.st_uid != os.geteuid():
+            raise StoreError(f"{label} is not owned by the broker service UID")
+        if _fd_identity(fd) != expected:
+            raise StoreError(f"{label} identity mismatch")
+    finally:
+        os.close(fd)
+
+
 class ManifestStore:
     def __init__(self, manifest_root: str, anchor_root: str):
         self.manifest_fd = _open_trusted_dir(manifest_root)
@@ -297,6 +360,37 @@ class ManifestStore:
         os.replace(STAGED, MANIFEST, src_dir_fd=self.manifest_fd,
                    dst_dir_fd=self.manifest_fd)
         os.fsync(self.manifest_fd)
+
+    def verify_roles(self) -> None:
+        manifest = self.load()
+        for role in manifest["roles"]:
+            state = role["state"]
+            if state == "disabled":
+                continue
+            if state != "active":
+                raise StoreError(f"role {role['role']} is not active; recovery/enrollment required")
+            parent_fd = _open_role_parent(role["parentComponents"], role["parentIdentities"])
+            try:
+                _verify_regular_at(parent_fd, role["databaseBasename"],
+                                   role["databaseIdentity"], f"role {role['role']} database")
+                suffixes = {"wal": "-wal", "shm": "-shm", "journal": "-journal"}
+                for sidecar in role["sidecars"]:
+                    sidecar_state = sidecar["state"]
+                    sidecar_name = role["databaseBasename"] + suffixes[sidecar["kind"]]
+                    if sidecar_state == "retired":
+                        try:
+                            unexpected_fd = os.open(sidecar_name, FILE_FLAGS, dir_fd=parent_fd)
+                        except FileNotFoundError:
+                            continue
+                        else:
+                            os.close(unexpected_fd)
+                            raise StoreError(f"retired sidecar still exists: {sidecar_name}")
+                    if sidecar_state != "active":
+                        raise StoreError(f"sidecar {sidecar_name} requires recovery")
+                    _verify_regular_at(parent_fd, sidecar_name, sidecar["identity"],
+                                       f"role {role['role']} sidecar {sidecar_name}")
+            finally:
+                os.close(parent_fd)
 
     def load(self) -> dict[str, Any]:
         return self._load_pair()[0]
