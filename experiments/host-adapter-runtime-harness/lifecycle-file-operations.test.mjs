@@ -61,6 +61,20 @@ const assistantMessage = (mes = 'first reply', versionId = 'dddddddd-dddd-4ddd-8
   name: 'Harness Character', is_user: false, mes, send_date: '2026-10-31T00:00:01.000Z',
   _logicEngineLifecycle: identity('eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', versionId, mes),
 });
+const identifiedHeader = (conversationId, name = 'Harness Character') => ({
+  user_name: 'Harness User',
+  name,
+  character_name: name,
+  create_date: '2026-10-31 @00h 00m 00s 000ms',
+  chat_metadata: { logic_engine_conversation_id: conversationId },
+});
+const identifiedMessage = ({ name = 'Harness User', isUser = true, mes, messageId, versionId }) => ({
+  name,
+  is_user: isUser,
+  mes,
+  send_date: '2026-10-31T00:00:03.000Z',
+  _logicEngineLifecycle: identity(messageId, versionId, mes),
+});
 
 test('pinned ST 1.19.0 chat create/edit/swipe/delete/import/export/restore mutate real files and produce file-level deltas', {
   skip: process.platform !== 'win32',
@@ -309,9 +323,13 @@ test('pinned ST 1.19.0 chat create/edit/swipe/delete/import/export/restore mutat
   assert.ok(rename.result.delta.added.some(entry => entry.path.endsWith('chat-renamed.jsonl')));
 
   const importUpload = 'import-chat.jsonl';
-  await writeFile(join(uploads, importUpload), JSON.stringify({
-    user_name: 'Harness User', name: 'Harness Character', chat_metadata: {},
-  }) + '\n' + JSON.stringify(userMessage('imported message')) + '\n');
+  await writeFile(join(uploads, importUpload), JSON.stringify(identifiedHeader(
+    'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+  )) + '\n' + JSON.stringify(identifiedMessage({
+    mes: 'imported message',
+    messageId: '22222222-2222-4222-8222-222222222222',
+    versionId: '33333333-3333-4333-8333-333333333333',
+  })) + '\n');
   const imported = await observe(async () => {
     const response = await post('/api/chats/import', {
       file_type: 'jsonl', avatar_url: 'Harness Character.png',
@@ -325,9 +343,13 @@ test('pinned ST 1.19.0 chat create/edit/swipe/delete/import/export/restore mutat
   assert.ok(imported.result.delta.added.some(entry => entry.path.startsWith('chats/Harness Character/')));
 
   const backupName = 'chat_harness_restore.jsonl';
-  await writeFile(join(directories.backups, backupName), JSON.stringify({
-    user_name: 'Harness User', name: 'Harness Character', chat_metadata: {},
-  }) + '\n' + JSON.stringify(userMessage('restored backup message')) + '\n');
+  await writeFile(join(directories.backups, backupName), JSON.stringify(identifiedHeader(
+    'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+  )) + '\n' + JSON.stringify(identifiedMessage({
+    mes: 'restored backup message',
+    messageId: '44444444-4444-4444-8444-444444444444',
+    versionId: '55555555-5555-4555-8555-555555555555',
+  })) + '\n');
   const restored = await observe(async () => {
     const download = await post('/api/backups/chat/download', { name: backupName });
     assert.equal(download.status, 200);
@@ -344,9 +366,14 @@ test('pinned ST 1.19.0 chat create/edit/swipe/delete/import/export/restore mutat
   assert.ok(restored.result.delta.added.some(entry => entry.path.startsWith('chats/Harness Character/')));
 
   const groupUpload = 'group-chat.jsonl';
-  await writeFile(join(uploads, groupUpload), JSON.stringify({
-    user_name: 'Harness User', name: 'Harness Group', chat_metadata: {},
-  }) + '\n' + JSON.stringify(userMessage('group imported message')) + '\n');
+  await writeFile(join(uploads, groupUpload), JSON.stringify(identifiedHeader(
+    'dddddddd-dddd-4ddd-8ddd-dddddddddddd', 'Harness Group'
+  )) + '\n' + JSON.stringify(identifiedMessage({
+    name: 'Harness User',
+    mes: 'group imported message',
+    messageId: '66666666-6666-4666-8666-666666666666',
+    versionId: '77777777-7777-4777-8777-777777777777',
+  })) + '\n');
   const groupImport = await observe(async () => {
     const response = await post('/api/chats/group/import', {}, { 'x-harness-upload': groupUpload });
     assert.equal(response.status, 200, JSON.stringify(response));
