@@ -249,7 +249,11 @@ function validRootEntries(entries) {
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)
       || Object.getPrototypeOf(entry) !== Object.prototype
       || Object.keys(entry).some(key => !ROOT_ENTRY_KEYS.has(key))
-      || !validId(entry.path) || entry.path.startsWith('/') || entry.path.includes('\\\\')
+      || typeof entry.path !== 'string' || entry.path.length === 0 || entry.path.length > 4096
+      || entry.path !== entry.path.trim()
+      || [...entry.path].some(character => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127)
+      || entry.path.startsWith('/') || entry.path.startsWith('//') || /^[a-z]:/i.test(entry.path)
+      || entry.path.includes('\\\\')
       || entry.path.split('/').some(part => !part || part === '.' || part === '..')
       || (previous !== null && entry.path.localeCompare(previous) < 0)
       || !entry.identity || typeof entry.identity !== 'object' || Array.isArray(entry.identity)
