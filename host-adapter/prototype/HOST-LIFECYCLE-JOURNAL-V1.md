@@ -53,8 +53,8 @@ Every accepted lifecycle event is bound to this immutable trusted snapshot:
     }
 
 - authority_id identifies the deployment-owned Host authorization/root authority, not a browser, conversation, or adapter token.
-- generation is a positive safe integer, monotonically advanced whenever an authorized installation/account/root binding changes or is revoked. It must not roll back after restart. If durable generation recovery cannot be proven, rotate authority_id so all old contexts become stale.
-- snapshot_fingerprint is SHA-256 over canonical JSON of authority ID, generation, adapter ID, installation ID, account principal, root ID, and accepted durable root-inventory authority head (sequence, manifest digest and journal-head digest). Core computes it from deployment-owned state; the browser never supplies trusted authority data.
+- generation is a positive safe integer, monotonically advanced whenever an authorized installation/account/root binding changes or is revoked. Core persists the high-water mark in its lifecycle SQLite database and rejects a lower generation for the same authority ID, including after restart. Rotating authority_id explicitly invalidates the previous authority lineage.
+- snapshot_fingerprint is SHA-256 over canonical JSON of authority ID, generation, adapter ID, installation ID, account principal, root ID, and verified durable root-inventory head (sequence, manifest digest and journal-head digest). Core computes it from deployment-owned SQLite state and rechecks it inside the append transaction; the browser never supplies trusted authority data.
 - The ST proxy resolves signed session identity. Core independently resolves the configured adapter/installation/account/root binding and obtains the trusted inventory head. Both must agree on the session/conversation scope.
 - Every event stores all three authority fields. Core rejects events whose context is no longer current.
 - If authority changes while a mutation is pending, the conversation becomes NON_READY. Recovery cannot commit under stale authority.
