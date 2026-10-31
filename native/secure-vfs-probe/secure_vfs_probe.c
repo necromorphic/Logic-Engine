@@ -1359,7 +1359,9 @@ static int probe_xOpen_parent(sqlite3_vfs *vfs, const char *name, sqlite3_file *
   }
   if (is_sidecar) {
     if (rc == SQLITE_OK && !g_current_sidecar_captured) {
+#if defined(__linux__)
       probe_counter_increment(&g_sidecar_capture_fail_count);
+#endif
       if (file->pMethods && file->pMethods->xClose) file->pMethods->xClose(file);
       rc = SQLITE_CANTOPEN;
     }
