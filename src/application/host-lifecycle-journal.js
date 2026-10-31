@@ -309,6 +309,11 @@ export class HostLifecycleJournal {
           authority_id TEXT NOT NULL,
           generation INTEGER NOT NULL CHECK(generation > 0)
         );
+        CREATE TRIGGER IF NOT EXISTS host_lifecycle_authority_generation_no_rollback
+          BEFORE UPDATE ON host_lifecycle_authority_state
+          WHEN OLD.authority_id=NEW.authority_id AND NEW.generation<OLD.generation BEGIN
+            SELECT RAISE(ABORT, 'HOST_LIFECYCLE_AUTHORITY_GENERATION_ROLLBACK');
+          END;
         CREATE TABLE IF NOT EXISTS host_root_inventory_heads (
           host_installation_id TEXT NOT NULL,
           authenticated_account_id TEXT NOT NULL,
