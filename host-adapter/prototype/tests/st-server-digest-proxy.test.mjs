@@ -75,7 +75,7 @@ test('root inventory persistence forwards only bounded digest metadata with serv
   });
   const result = await persist({
     userHandle: 'alice',
-    rootPath: '/srv/st/data',
+    rootPath: resolve('/srv/st/data'),
     entries: rootEntries,
   });
   assert.equal(result.status, 'BASELINED_REVIEW_ONLY');
@@ -88,7 +88,7 @@ test('root inventory persistence forwards only bounded digest metadata with serv
   const body = JSON.parse(observed.options.body);
   assert.equal(body.host_installation_id, 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
   assert.equal(body.authenticated_account_id, 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb');
-  assert.equal(body.root_id, createHash('sha256').update('/srv/st/data').digest('hex'));
+  assert.equal(body.root_id, createHash('sha256').update(resolve('/srv/st/data')).digest('hex'));
   assert.deepEqual(body.entries, rootEntries);
   assert.equal(observed.options.body.includes('raw chat text'), false);
 });
