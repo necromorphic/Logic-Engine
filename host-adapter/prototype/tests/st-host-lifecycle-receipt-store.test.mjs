@@ -245,6 +245,31 @@ test('server receipt store verifies swipe selection/deletion, message deletion a
   }
 });
 
+test('concurrent exact prepare and terminal retries remain idempotent across timestamps', async t => {
+  const before = { fileIdentity: '101', content: 'before', messages: [message('m1', 'old', 'v1')] };
+  const after = { fileIdentity: '102', content: 'after', messages: [
+    message('m1', 'old', 'v1'), message('m2', 'new', 'v2'),
+  ] };
+  const f = fixture(t, [before, before, after, after]);
+  const [firstPrepare, retryPrepare] = await Promise.all([
+    f.store.prepare(scope({ occurred_at: '2026-10-31T00:00:00.000Z' }), directories),
+    f.store.prepare(scope({ occurred_at: '2026-10-31T00:00:00.001Z' }), directories),
+  ]);
+  assert.deepEqual([firstPrepare.status, retryPrepare.status].sort(), ['appended', 'duplicate']);
+  const terminalBase = scope({
+    event_id: TERMINAL_EVENT,
+    prepared_event_id: PREPARED_EVENT,
+    occurred_at: '2026-10-31T00:00:01.000Z',
+  });
+  const [firstCommit, retryCommit] = await Promise.all([
+    f.store.commit(terminalBase, directories),
+    f.store.commit({ ...terminalBase, occurred_at: '2026-10-31T00:00:01.001Z' }, directories),
+  ]);
+  assert.deepEqual([firstCommit.status, retryCommit.status].sort(), ['appended', 'duplicate']);
+  assert.equal(firstCommit.receipt_digest, retryCommit.receipt_digest);
+  assert.equal(firstCommit.occurred_at, retryCommit.occurred_at);
+});
+
 test('server recovery commits exact post-state, aborts exact pre-state, and leaves partial state unresolved', async t => {
   const before = { fileIdentity: '101', content: 'before', messages: [message('m1', 'old', 'v1')] };
   const after = { fileIdentity: '102', content: 'after', messages: [
