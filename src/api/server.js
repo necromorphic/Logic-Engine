@@ -325,7 +325,7 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
           || binding.conversation_id !== body.conversation_id
           || binding.actor_id !== body.actor_id
           || typeof binding.world_id !== 'string' || typeof binding.actor_id !== 'string') {
-          return send(res, 403, { error: { code: 'HOST_CONVERSATION_NOT_AUTHORIZED', message: 'No unique active Core-owned world and actor binding exists for this authenticated Host conversation.' } });
+          return send(res, 403, { error: { code: 'HOST_CONVERSATION_NOT_AUTHORIZED', message: 'No active Core-owned world binding and exact Host-selected actor binding exists for this authenticated adapter conversation.' } });
         }
         const snapshot = engine.getNpcKnowledgeSnapshot(binding.world_id);
         if (!snapshot || snapshot.status !== 'active') {
