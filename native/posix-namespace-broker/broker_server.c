@@ -13,6 +13,7 @@
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <sys/time.h>
 #include <sys/un.h>
 #include <unistd.h>
 
@@ -120,6 +121,12 @@ static void serve_client(int fd) {
     message.msg_iovlen = 1;
     message.msg_control = control;
     message.msg_controllen = sizeof(control);
+
+    {
+        const struct timeval receive_timeout = { .tv_sec = 2, .tv_usec = 0 };
+        if (setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &receive_timeout,
+                       sizeof(receive_timeout)) != 0) return;
+    }
 
     do {
         received = recvmsg(fd, &message, MSG_CMSG_CLOEXEC);
