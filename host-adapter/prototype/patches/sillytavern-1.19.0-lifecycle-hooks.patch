@@ -637,9 +637,23 @@ diff --git a/src/endpoints/chats.js b/src/endpoints/chats.js
 +const hostBulkMutationGuard = createHostBulkMutationGuard({ pinnedHostCommit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127' });
 +
  const isBackupEnabled = !!getConfigValue('backups.chat.enabled', true, 'boolean');
-@@ -751,1 +754,1 @@
+@@ -748,7 +751,7 @@
+         console.error('chat export failed.', err);
+         return response.sendStatus(400);
+     }
+ });
+ 
 -router.post('/group/import', function (request, response) {
 +router.post('/group/import', hostBulkMutationGuard, function (request, response) {
-@@ -771,1 +774,1 @@
+     try {
+         const filedata = request.file;
+@@ -768,7 +771,7 @@
+         return response.send({ error: true });
+     }
+ });
+ 
 -router.post('/import', validateAvatarUrlMiddleware, function (request, response) {
 +router.post('/import', hostBulkMutationGuard, validateAvatarUrlMiddleware, function (request, response) {
+     if (!request.body) return response.sendStatus(400);
+ 
+     const format = request.body.file_type;
