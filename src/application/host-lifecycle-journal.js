@@ -941,9 +941,25 @@ export class HostLifecycleJournal {
         input.authenticated_account_id, input.root_id, rows);
       if (!integrity.valid) throw new Error(integrity.reason);
       const reusedEventId = rows.find((row) => row.event_id === input.event_id);
-      if (reusedEventId && (!['DELTA_OBSERVED', 'DELTA_LIMIT_EXCEEDED'].includes(reusedEventId.event_type)
-        || reusedEventId.manifest_sha256 !== manifestSha256)) {
-        throw new Error('HOST_ROOT_INVENTORY_EVENT_ID_CONFLICT');
+      if (reusedEventId) {
+        const eventIndex = rows.indexOf(reusedEventId);
+        if (eventIndex < 1 || !['DELTA_OBSERVED', 'DELTA_LIMIT_EXCEEDED'].includes(reusedEventId.event_type)
+          || reusedEventId.manifest_sha256 !== manifestSha256) {
+          throw new Error('HOST_ROOT_INVENTORY_EVENT_ID_CONFLICT');
+        }
+        const priorSnapshot = JSON.parse(rows[eventIndex - 1].canonical_event_json);
+        const replayDelta = rootInventoryDelta(priorSnapshot.entries, entries);
+        const replayDeltaSha256 = sha256(canonical(replayDelta));
+        if (replayDeltaSha256 !== reusedEventId.delta_sha256) {
+          throw new Error('HOST_ROOT_INVENTORY_EVENT_ID_CONFLICT');
+        }
+        return {
+          status: 'NON_READY', duplicate: true, sequence: reusedEventId.sequence,
+          manifest_sha256: manifestSha256, delta_sha256: replayDeltaSha256,
+          ...(reusedEventId.event_type === 'DELTA_OBSERVED' ? { delta: replayDelta } : {}),
+          ...(reusedEventId.event_type === 'DELTA_LIMIT_EXCEEDED'
+            ? { reason: 'HOST_ROOT_INVENTORY_DELTA_LIMIT' } : {}),
+        };
       }
       const latest = JSON.parse(rows.at(-1).canonical_event_json);
       if (manifestSha256 === integrity.latest_manifest_sha256) {
