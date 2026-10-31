@@ -877,6 +877,10 @@ static int probe_xOpen(sqlite3_vfs *vfs, const char *name, sqlite3_file *file,
       && (flags & SQLITE_OPEN_MEMORY) == 0) {
     return SQLITE_CANTOPEN;
   }
+  if ((flags & (SQLITE_OPEN_MAIN_DB | SQLITE_OPEN_WAL | SQLITE_OPEN_MAIN_JOURNAL
+        | SQLITE_OPEN_MEMORY)) == 0) {
+    return SQLITE_CANTOPEN;
+  }
   if (!name && (flags & SQLITE_OPEN_MEMORY) == 0) {
     return SQLITE_CANTOPEN;
   }
@@ -1349,7 +1353,8 @@ static int probe_xDelete(sqlite3_vfs *vfs, const char *name, int sync_dir) {
     return SQLITE_OK;
   }
 #endif
-  return p->xDelete(p, name, sync_dir);
+  /* Protected default VFS: never delegate an unregistered delete by pathname. */
+  return SQLITE_IOERR_DELETE;
 }
 static int probe_xAccess(sqlite3_vfs *vfs, const char *name, int flags, int *result) {
   sqlite3_vfs *p = (sqlite3_vfs *)vfs->pAppData;
@@ -1402,7 +1407,8 @@ static int probe_xAccess(sqlite3_vfs *vfs, const char *name, int flags, int *res
     return SQLITE_IOERR_ACCESS;
   }
 #endif
-  return p->xAccess(p, name, flags, result);
+  /* Unknown paths are not part of the trusted role inventory. */
+  return SQLITE_IOERR_ACCESS;
 }
 static int probe_xFullPathname(sqlite3_vfs *vfs, const char *name, int n, char *out) {
   sqlite3_vfs *p = (sqlite3_vfs *)vfs->pAppData;
