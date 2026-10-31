@@ -655,6 +655,7 @@ test('prepared Core mutation survives SQLite restart and can be completed by ide
     authority_id: authority.authority_id, generation: authority.generation, adapter_id: 'test-adapter',
     host_installation_id: installation, authenticated_account_id: account, root_id: rootId,
   }).snapshot_fingerprint;
+  prepared.snapshot_fingerprint = authority.snapshot_fingerprint;
 
   first.append(prepared);
   first.close();
