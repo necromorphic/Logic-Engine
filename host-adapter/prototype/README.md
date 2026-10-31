@@ -237,3 +237,29 @@ No raw chat content is copied into the journal. No Provider, vectorization, Olla
 Before and after each operation, the harness takes a Windows VSS snapshot of the temporary user data root and runs the real file inventory and per-file reconciliation code. It asserts the expected added/removed/modified/replaced file delta and that the journal observation contains no raw chat text. It also calls the mounted Host `/session`, `/identity` and `/inventory` routes, checks stable installation/account/session IDs, and verifies shared-VSS full-root inventory while asserting the known baseline/reconciliation blockers. The harness checks the exact SillyTavern commit SHA.
 
 This is real Host route/file-operation evidence, but it is not yet an end-to-end trusted receipt: the test journal is an isolated adapter, and the production ST route does not yet forward operation-specific file receipts to the Core SQLite journal. The current route must therefore remain NON_READY.
+
+
+## Exact-head CI and reconciliation boundary — 31 Oct 2026
+
+Validated candidate HEAD: `d9e099dd11553369f664d8633bed083d095e6484`.
+
+Exact-head CI:
+- Runtime tests: SUCCESS; full `npm test` reports 1,383 passed, 0 failed. The Windows Host prototype suite and recalculation oracle also passed.
+- Host Adapter pinned SillyTavern source audit: SUCCESS, including the real pinned 1.19.0 file-operation harness.
+- Chromium IndexedDB restart: SUCCESS. A persistent profile was closed and reopened; the metadata-only filesystem baseline and file-level delta records remained present, journal integrity verified, and no raw-text sentinel was present.
+- Pinned Host source audit, patch apply/lint validation and patch check: SUCCESS.
+- Linux/Windows security, Core trusted acquisition, Host inventory reconciliation, NPC boundary, Process contract and mechanics-policy authority jobs: SUCCESS.
+
+The Chromium restart test proves that these records survive a browser process restart with the same profile. It does **not** prove rollback resistance, server ownership, Android/Termux persistence, or a trusted accepted-head authority.
+
+### Explicit limitations found in the reconciliation path
+
+The current `reconcileFilesystemInventory()` implementation is observation-only for changed file sets:
+- It persists the initial baseline and later `filesystem-inventory-delta-observed` records in the supplied journal.
+- It currently has **no operation-receipt verification implementation**. It does not accept any changed delta, even if a caller appends a record labelled as an operation receipt; every changed delta remains `NON_READY`.
+- It does not append a `filesystem-inventory-reconciled` checkpoint. The checkpoint name is reserved in the lookup but there is no successful receipt-authorized transition yet.
+- The browser restart test validates persistence of the baseline/delta metadata at the IndexedDB layer, not integration with the pinned SillyTavern route or Core SQLite journal.
+
+There is also a scope mismatch to resolve before integration: the generic inventory is for the authenticated account's entire SillyTavern data root, but the current reconciliation API keys its journal by `conversationId`. A per-conversation journal does not establish one shared baseline for the whole installation/account root. The next Core-reviewed contract must decide and enforce the root-baseline scope (installation + authenticated account + canonical root identity), separately from conversation-level message lifecycle evidence.
+
+These are not implementation details to silently infer. They require a separate exact Core approval before adding Core event types, tables, API fields, receipt schemas, or production Host wiring. Until then, all file deltas remain review-only and fail closed; the route must continue returning `NO_DURABLE_FULL_ROOT_BASELINE` and `NO_FULL_ROOT_PER_FILE_DIFF`.
