@@ -118,7 +118,7 @@ class BrokerDaemonTests(unittest.TestCase):
 
     def test_invalid_role_payload_fails_closed(self):
         response, fds = self.exchange(OP_OPEN_MAIN, b"../escape")
-        self.assertEqual(response[3], STATUS_NOT_FOUND)
+        self.assertEqual(response[3], STATUS_BAD_REQUEST)
         self.assertEqual(fds, [])
 
     def test_peer_uid_mismatch_is_rejected(self):
