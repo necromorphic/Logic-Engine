@@ -248,7 +248,7 @@ test('pinned ST 1.19.0 chat create/edit/swipe/delete/import/export/restore mutat
         authenticated_account_id: authenticatedAccountId,
         root_id: rootId,
       });
-      assert.equal(integrity.valid, true, JSON.stringify(integrity));
+      assert.equal(integrity.status, 'INTEGRITY_OK', JSON.stringify(integrity));
       journal.close();
       journal = createCoreJournal();
       const afterRestart = journal.verifyRootInventory({
@@ -256,7 +256,7 @@ test('pinned ST 1.19.0 chat create/edit/swipe/delete/import/export/restore mutat
         authenticated_account_id: authenticatedAccountId,
         root_id: rootId,
       });
-      assert.equal(afterRestart.valid, true, 'SQLite baseline and hash chain must survive Core journal restart');
+      assert.equal(afterRestart.status, 'INTEGRITY_OK', 'SQLite baseline and hash chain must survive Core journal restart');
     }
     const outcome = await operation();
     await settleBackups();
@@ -273,7 +273,11 @@ test('pinned ST 1.19.0 chat create/edit/swipe/delete/import/export/restore mutat
       ? Object.fromEntries(Object.entries(result.delta).map(([key, rows]) => [key, rows.length]))
       : {};
     if (expectedKind === 'unchanged') {
-      assert.equal(result.status, 'UNCHANGED_REVIEW_ONLY', JSON.stringify(result));
+      assert.ok(['UNCHANGED_REVIEW_ONLY', 'NON_READY'].includes(result.status), JSON.stringify(result));
+      if (result.status === 'NON_READY') {
+        assert.equal(result.duplicate, true,
+          'unchanged bytes after a previously observed delta must remain unresolved, not erase history');
+      }
     } else {
       assert.equal(result.status, 'NON_READY', JSON.stringify(result));
       const expectedKinds = Array.isArray(expectedKind) ? expectedKind : [expectedKind];
@@ -287,7 +291,7 @@ test('pinned ST 1.19.0 chat create/edit/swipe/delete/import/export/restore mutat
       authenticated_account_id: authenticatedAccountId,
       root_id: rootId,
     });
-    assert.equal(verified.valid, true, JSON.stringify(verified));
+    assert.equal(verified.status, 'INTEGRITY_OK', JSON.stringify(verified));
     return { outcome, result: { ...result, counts } };
   };
 
