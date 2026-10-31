@@ -185,6 +185,44 @@ class ManifestStoreTests(unittest.TestCase):
         self.store.commit(_canonical_json(value))
         self.assertEqual(self.store.load()["roles"][0]["sidecars"][0]["state"], "creating")
 
+    def test_commit_rejects_filesystem_policy_change(self):
+        import json
+        self.store.initialize(self.data(1))
+        value = json.loads(self.data(2))
+        value["filesystemPolicy"]["directoryMutationBoundary"] = "broker-exclusive-owner"
+        with self.assertRaises(StoreError):
+            self.store.commit(_canonical_json(value))
+        self.assertEqual(self.store.load()["generation"], 1)
+
+    def test_commit_rejects_role_parent_retarget(self):
+        import json
+        self.store.initialize(self.data(1))
+        value = json.loads(self.data(2))
+        value["roles"][0]["parentComponents"][-1] = "other-directory"
+        with self.assertRaises(StoreError):
+            self.store.commit(_canonical_json(value))
+        self.assertEqual(self.store.load()["generation"], 1)
+
+    def test_commit_rejects_role_removal(self):
+        import json
+        self.store.initialize(self.data(1))
+        value = json.loads(self.data(2))
+        value["roles"] = []
+        with self.assertRaises(StoreError):
+            self.store.commit(_canonical_json(value))
+        self.assertEqual(self.store.load()["generation"], 1)
+
+    def test_commit_rejects_sidecar_generation_rewrite_without_transition(self):
+        _wal, _identity = self._enroll_active_wal()
+        import json
+        current = self.store.load()
+        value = json.loads(_canonical_json(current))
+        value["generation"] += 1
+        value["roles"][0]["sidecars"][0]["generation"] = value["generation"]
+        with self.assertRaises(StoreError):
+            self.store.commit(_canonical_json(value))
+        self.assertEqual(self.store.load()["generation"], current["generation"])
+
     def test_initialize_and_load(self):
         self.store.initialize(self.data(1))
         self.assertEqual(self.store.load()["generation"], 1)
