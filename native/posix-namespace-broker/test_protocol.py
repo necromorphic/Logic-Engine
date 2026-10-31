@@ -9,7 +9,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 MAGIC = 0x4C454256
-VERSION = 1
+VERSION = 2
 REQUEST = struct.Struct("!IHHIQI")
 RESPONSE = struct.Struct("!IHHIQI")
 OK = 0
