@@ -130,7 +130,7 @@ class BrokerDaemonTests(unittest.TestCase):
         self.assertEqual(self.store.calls[-1], ("delete", "core", "wal"))
 
     def test_create_sidecar_returns_broker_created_descriptor(self):
-        response, fds = self.exchange(OP_CREATE_SIDECAR, b"core\\x00wal")
+        response, fds = self.exchange(OP_CREATE_SIDECAR, b"core\x00wal")
         try:
             self.assertEqual(response[3], STATUS_OK)
             self.assertEqual(len(fds), 1)
