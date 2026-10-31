@@ -567,6 +567,8 @@ test('durable Core journal records prepared mutations, blocks overlap, and clear
     event_id: '00000000-0000-4000-8000-000000000015',
     event_type: 'MUTATION_COMMITTED',
     mutation_id: '00000000-0000-4000-8000-000000000099',
+    receipt_digest: digest('missing-prepare-receipt'),
+    receipt_signature: digest('server-signature'),
   }), /HOST_LIFECYCLE_MUTATION_PREPARE_MISSING/);
   const committed = journal.append({
     ...prepared,
