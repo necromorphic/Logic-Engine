@@ -63,21 +63,18 @@ The existing MechanicPolicyAuthority is a field-visibility policy authority, not
 
 ## 4. Mutation manifest and digest semantics
 
-mutation_digest is SHA-256 of canonical UTF-8 JSON (sorted object keys, no insignificant whitespace) for the immutable intent manifest. It contains protocol version, operation allowlist value, mutation ID and full identity scope, sorted affected artifacts, normalized root-relative paths, stable logical artifact IDs, expected pre-state and expected post-state for every artifact (present/absent plus SHA-256 of persisted bytes), lineage references, and the trusted authorization tuple.
+mutation_digest is a SHA-256 intent correlation digest produced by the bridge from protocol version, mutation ID, operation, pre-mutation chat fingerprint, affected logical message/version IDs and an opaque details digest. It contains no raw bytes or text. It is not accepted as proof of persistence and does not replace server-side artifact verification.
 
-The manifest MUST NOT contain raw bytes, message text, prompt content, absolute paths, secrets, or arbitrary caller metadata. Paths are normalized by the server relative to the authorized data root.
+Before PREPARED, the authenticated ST server proxy independently enumerates the pinned ST data roots and durably records the selected conversation's logical identity, target file path/identity/content digest, and digests of all non-target root entries and other chat files. The operation allowlist defines the expected logical transition predicate (for example, one appended message, one added swipe, one changed active swipe, one removed swipe/message, or one edited version). Root-relative paths and detailed file identities remain in the protected ST receipt store and are never sent to Core.
 
-The same mutation_digest is repeated in PREPARED and its terminal event. The bridge computes expected post-state before the first write. For deletion the expected state is absence; for import/restore it hashes source bytes locally without sending or storing those bytes in Core.
-
-COMMITTED and ABORTED additionally require receipt_digest: SHA-256 of a canonical persisted-state receipt containing mutation ID, intent digest, observed pre/post artifact identities and digests, read-back result, operation-specific save evidence and authority snapshot. The receipt is stored in the local append-only Host journal; Core receives only its digest. COMMITTED is accepted only when observed post-state exactly matches the intent manifest. ABORTED is accepted only when no target artifact changed or a separately verified rollback restored the exact pre-state. Otherwise return RECOVERY_REQUIRED / NON_READY.
-
+COMMITTED and ABORTED require receipt_digest: SHA-256 of a canonical server-generated persisted-state receipt. COMMITTED requires a fresh server-side re-enumeration, an exact target file change, a valid operation-specific logical transition, and unchanged non-target root entries and other chat files. ABORTED requires the complete observed snapshot to equal the durable pre-state. The ST server persists PREPARED and terminal receipt records immutably with file and directory fsync; the terminal record is one exclusive outcome so COMMITTED and ABORTED cannot both win. The proxy signs the terminal event envelope with HMAC-SHA256 using the server-held adapter token; Core verifies the signature using its own configured adapter secret and stores only receipt_digest plus signature. A browser-supplied receipt digest/signature is rejected. Any partial, mixed, unreadable or changed-authority state remains NON_READY.
 A digest mismatch is never normalized or retried with changed content under the same mutation ID. It freezes the conversation and requires reconciliation.
 
 ## 5. Event envelope and API
 
 Every event is a strict allowlisted JSON object. Unknown fields are rejected.
 
-Required common fields: event_id, event_type, occurred_at, host_installation_id, authenticated_account_id, host_session_id, conversation_uuid, authority_id, generation, snapshot_fingerprint, mutation_id, operation and mutation_digest. Terminal events additionally require receipt_digest. occurred_at is trusted-server RFC 3339 UTC. The bridge persists the exact envelope locally before sending, so retries preserve timestamp and event ID.
+Required common fields: event_id, event_type, occurred_at, host_installation_id, authenticated_account_id, host_session_id, conversation_uuid, authority_id, generation, snapshot_fingerprint, mutation_id, operation and mutation_digest. Terminal events additionally require server-generated receipt_digest and receipt_signature. The ST proxy generates occurred_at in trusted-server RFC 3339 UTC; the browser timestamp is not authoritative. The bridge persists the exact envelope locally before sending, so retries preserve timestamp and event ID.
 
 Core endpoints:
 - POST /v1/host-lifecycle/events — append one validated event.
@@ -110,7 +107,7 @@ Rules:
 
 V1 is single-writer per conversation, not global single-writer. The bridge serializes mutations within a conversation. Core serializes append transactions with the shared coordinator lock and SQLite BEGIN IMMEDIATE. Different conversations can have independent pending mutations.
 
-SQLite requirements: WAL, synchronous=FULL, foreign keys enabled, bounded busy timeout with fail-closed behavior, append-only event triggers, and event insert plus chain-head update in one transaction. Startup verifies sequence continuity, hash chain, canonical encoding, authority snapshot and state-machine consistency.
+SQLite requirements for the Core journal: WAL, synchronous=FULL, foreign keys enabled, bounded busy timeout with fail-closed behavior, append-only event triggers, and event insert plus chain-head update in one transaction. The ST server receipt store is a separate protected append-only file ledger: each record is created exclusively, fsynced, and followed by a directory fsync where supported. Its directory must be outside the scanned ST data root. Startup verifies Core sequence continuity, hash chain, canonical encoding, authority snapshot and state-machine consistency; missing local receipt records never imply success.
 
 Acknowledge only after SQLite COMMIT succeeds. If HTTP response is lost after commit, exact retry returns duplicate. If process crashes before commit, rollback leaves no event and retry appends. If it crashes after commit, retry finds the durable event.
 
