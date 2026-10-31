@@ -17,7 +17,7 @@ class Store {
 class Tx {oncomplete=null;onerror=null;onabort=null;constructor(db){this.db=db;}objectStore(){return new Store(this.db,this);}}
 class DB {rows=new Map();heads=new Map();transaction(){return new Tx(this);}finish(tx){setImmediate(()=>tx.oncomplete?.());}}
 
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { enumerateStableFileInventory } from '../fs-inventory.js';
@@ -170,4 +170,28 @@ test('file-level modified delta is durably journaled, idempotent, and remains un
   const restored = await reconcile(f.journal, await f.scan(), f.root);
   assert.equal(restored.status, 'NON_READY');
   assert.match(restored.reason, /file-level delta was recorded|previously observed filesystem delta remains unresolved/);
+});
+
+
+test('file rename followed by content edit records both path and digest transitions', { skip: process.platform === 'win32' }, async (t) => {
+  const f = await fixture(t);
+  const baselineInventory = await f.scan();
+  await reconcile(f.journal, baselineInventory, f.root);
+  const before = baselineInventory.entries.find(entry => entry.path === 'chats/a.jsonl');
+  const renamedPath = join(f.root, 'chats', 'renamed.jsonl');
+  await rename(f.file, renamedPath);
+  await writeFile(renamedPath, '{"role":"user","mes":"renamed and edited"}\\n');
+
+  const afterInventory = await f.scan();
+  const result = await reconcile(f.journal, afterInventory, f.root);
+  assert.equal(result.status, 'NON_READY');
+  assert.equal(result.delta.moved.length, 1);
+  assert.equal(result.delta.added.length, 0);
+  assert.equal(result.delta.removed.length, 0);
+  assert.equal(result.delta.moved[0].from, 'chats/a.jsonl');
+  assert.equal(result.delta.moved[0].to, 'chats/renamed.jsonl');
+  assert.equal(result.delta.moved[0].beforeSha256, before.sha256);
+  assert.equal(result.delta.moved[0].afterSha256,
+    afterInventory.entries.find(entry => entry.path === 'chats/renamed.jsonl').sha256);
+  assert.equal(result.delta.moved[0].contentChanged, true);
 });
