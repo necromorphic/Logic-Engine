@@ -2,7 +2,7 @@ import nodeTest from 'node:test';
 import assert from 'node:assert/strict';
 const test = nodeTest;
 
-import { createHostInventoryHandler, createHostSessionHandler } from '../st-host-inventory-handler.mjs';
+import { createHostIdentityHandler, createHostInventoryHandler, createHostSessionHandler } from '../st-host-inventory-handler.mjs';
 
 function makeResponse() {
   return {
@@ -288,4 +288,51 @@ test('Host session identity responses are private and never expose cookie materi
   assert.equal(response.headers['cache-control'], 'no-store, private');
   assert.equal(response.headers.vary, 'Cookie');
   assert.equal(JSON.stringify(response.body).includes('secret-cookie-value'), false);
+});
+
+
+test('Host identity route returns installation/account IDs only for the matching signed ST session', async () => {
+  let observedHandle = null;
+  const handler = createHostIdentityHandler({
+    identityStore: {
+      resolveAuthenticatedAccount: async handle => {
+        observedHandle = handle;
+        return { installation_id: '11111111-1111-4111-8111-111111111111', account_id: '22222222-2222-4222-8222-222222222222' };
+      },
+    },
+  });
+  const response = makeResponse();
+  await handler({
+    user: { profile: { handle: 'alice' } },
+    session: {
+      handle: 'alice',
+      logicEngineSessionId: '33333333-3333-4333-8333-333333333333',
+      logicEngineSessionHandle: 'alice',
+    },
+  }, response);
+  assert.equal(response.statusCode, 200);
+  assert.equal(observedHandle, 'alice');
+  assert.equal(response.body.installation_id, '11111111-1111-4111-8111-111111111111');
+  assert.equal(response.body.account_id, '22222222-2222-4222-8222-222222222222');
+  assert.equal(response.body.host_session_id, '33333333-3333-4333-8333-333333333333');
+  assert.equal(response.headers['cache-control'], 'no-store, private');
+  assert.equal(response.headers.vary, 'Cookie');
+});
+
+test('Host identity route rejects a session/account mismatch before resolving identity', async () => {
+  let calls = 0;
+  const handler = createHostIdentityHandler({
+    identityStore: { resolveAuthenticatedAccount: async () => { calls += 1; return {}; } },
+  });
+  const response = makeResponse();
+  await handler({
+    user: { profile: { handle: 'alice' } },
+    session: {
+      handle: 'bob',
+      logicEngineSessionId: '33333333-3333-4333-8333-333333333333',
+      logicEngineSessionHandle: 'bob',
+    },
+  }, response);
+  assert.equal(response.statusCode, 403);
+  assert.equal(calls, 0);
 });
