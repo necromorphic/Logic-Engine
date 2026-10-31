@@ -86,7 +86,7 @@ function makeFixture(chat = [{ is_user: true, mes: 'hello' }, { is_user: false, 
       if (failSave) throw Error('simulated native chat save failure');
     },
   });
-  return { db, journal, chat, bridge, setLocator(value) { sourceLocator = value; }, setFailSave(value) { failSave = value; }, get saveCount() { return saveCount; } };
+  return { db, journal, chat, bridge, setLocator(value) { sourceLocator = value; }, getLocator() { return sourceLocator; }, setFailSave(value) { failSave = value; }, get saveCount() { return saveCount; } };
 }
 
 
