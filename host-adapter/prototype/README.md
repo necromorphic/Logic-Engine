@@ -35,7 +35,7 @@ Before capture can succeed, an administrator must bind the authenticated adapter
 
 The current Core integration is deliberately fail-closed for terminal mutation receipts. HostLifecycleJournal defaults to a deny-only receipt verifier; the production composition does not install a verifier until real persisted-file read-back and operation-specific receipts are implemented. A local browser journal checkpoint or a successful save callback is not sufficient evidence for COMMITTED.
 
-The deployment authority context requires deployment-owned ENGINE_HOST_AUTHORITY_ID and positive ENGINE_HOST_AUTHORITY_GENERATION, plus a verified durable Host root-inventory head. These values are not browser inputs. Generation must be durably monotonic; if that cannot be guaranteed across restart, rotate the authority ID. Missing authority configuration or root-inventory evidence denies lifecycle API access.
+The deployment authority context requires deployment-owned ENGINE_HOST_AUTHORITY_ID and positive ENGINE_HOST_AUTHORITY_GENERATION, plus a verified durable Host root-inventory head. These values are not browser inputs. Core persists the authority generation high-water mark and rejects rollback for the same authority ID; rotating the authority ID starts a new, explicitly invalidating lineage. Missing authority configuration or root-inventory evidence denies lifecycle API access.
 
 ## Pinned-source hook patch
 
