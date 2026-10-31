@@ -1,8 +1,14 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, createHmac, randomUUID } from 'node:crypto';
 import pathModule from 'node:path';
+import { HostLifecycleReceiptStore } from './st-host-lifecycle-receipt-store.mjs';
 const validId = (value) => typeof value === 'string' && value === value.trim()
   && value.length > 0 && value.length <= 200
   && ![...value].some((character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127);
+const canonical = value => Array.isArray(value)
+  ? '[' + value.map(canonical).join(',') + ']'
+  : value && typeof value === 'object'
+    ? '{' + Object.keys(value).sort().map(key => JSON.stringify(key) + ':' + canonical(value[key])).join(',') + '}'
+    : JSON.stringify(value);
 const HOST_SESSION_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const HOST_CONVERSATION_ID = new RegExp('^' + HOST_SESSION_UUID.source.slice(1, -1) + ':'
   + HOST_SESSION_UUID.source.slice(1, -1) + ':' + HOST_SESSION_UUID.source.slice(1, -1) + '$', 'i');
@@ -405,15 +411,24 @@ export function createHostLifecycleJournalProxy({
   env = process.env,
   fetchImpl = globalThis.fetch,
   identityStore,
+  receiptStore = null,
   timeoutMs = 5000,
 } = {}) {
   if (typeof fetchImpl !== 'function') throw new TypeError('A fetch implementation is required');
   if (!identityStore || typeof identityStore.resolveAuthenticatedAccount !== 'function') {
     throw new TypeError('A server-owned Host identity store is required');
   }
+  if (receiptStore !== null && (typeof receiptStore.prepare !== 'function'
+    || typeof receiptStore.commit !== 'function' || typeof receiptStore.abort !== 'function')) {
+    throw new TypeError('A durable Host lifecycle receipt store is required');
+  }
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 30000) {
     throw new TypeError('timeoutMs must be an integer between 1 and 30000');
   }
+  const durableReceiptStore = receiptStore ?? (typeof identityStore.directory === 'string'
+    && pathModule.isAbsolute(identityStore.directory)
+    ? new HostLifecycleReceiptStore({ directory: pathModule.join(identityStore.directory, 'lifecycle-receipts') })
+    : null);
 
   async function resolveRequestIdentity(request, conversationId) {
     const handle = request?.user?.profile?.handle;
@@ -443,6 +458,31 @@ export function createHostLifecycleJournalProxy({
       }).toString();
     }
     try {
+      const outgoingBody = method === 'POST' ? {
+        host_installation_id: identity.host_installation_id,
+        authenticated_account_id: identity.authenticated_account_id,
+        host_session_id: identity.host_session_id,
+        conversation_uuid: identity.conversation_uuid,
+        ...body,
+      } : null;
+      if (outgoingBody?.receipt_digest) {
+        const proof = {
+          protocol_version: 1,
+          adapter_id: target.adapterId,
+          host_installation_id: outgoingBody.host_installation_id,
+          authenticated_account_id: outgoingBody.authenticated_account_id,
+          host_session_id: outgoingBody.host_session_id,
+          conversation_uuid: outgoingBody.conversation_uuid,
+          event_id: outgoingBody.event_id,
+          event_type: outgoingBody.event_type,
+          mutation_id: outgoingBody.mutation_id,
+          operation: outgoingBody.operation,
+          mutation_digest: outgoingBody.mutation_digest,
+          receipt_digest: outgoingBody.receipt_digest,
+        };
+        outgoingBody.receipt_signature = createHmac('sha256', target.adapterToken)
+          .update(canonical(proof), 'utf8').digest('hex');
+      }
       const response = await fetchImpl(target.url, {
         method,
         headers: {
@@ -451,13 +491,7 @@ export function createHostLifecycleJournalProxy({
           'x-adapter-id': target.adapterId,
           'x-adapter-token': target.adapterToken,
         },
-        ...(method === 'POST' ? { body: JSON.stringify({
-          host_installation_id: identity.host_installation_id,
-          authenticated_account_id: identity.authenticated_account_id,
-          host_session_id: identity.host_session_id,
-          conversation_uuid: identity.conversation_uuid,
-          ...body,
-        }) } : {}),
+        ...(method === 'POST' ? { body: JSON.stringify(outgoingBody) } : {}),
         signal: AbortSignal.timeout(timeoutMs),
       });
       let payload;
@@ -482,7 +516,7 @@ export function createHostLifecycleJournalProxy({
       if (!resolved) return response.status(403).json({
         error: { code: 'HOST_SESSION_SCOPE_REQUIRED', message: 'The Host conversation is not bound to this authenticated SillyTavern session.' },
       });
-      const allowed = ['conversation_id', 'event_id', 'event_type', 'mutation_id', 'operation', 'mutation_digest', 'receipt_digest', 'occurred_at'];
+      const allowed = ['conversation_id', 'event_id', 'event_type', 'mutation_id', 'operation', 'mutation_digest', 'occurred_at'];
       if (!body || typeof body !== 'object' || Array.isArray(body)
         || Object.keys(body).some(key => !allowed.includes(key))
         || !HOST_SESSION_UUID.test(body.event_id ?? '')
@@ -490,11 +524,40 @@ export function createHostLifecycleJournalProxy({
         || !HOST_SESSION_UUID.test(body.mutation_id ?? '')
         || !HOST_LIFECYCLE_OPERATIONS.has(body.operation)
         || typeof body.mutation_digest !== 'string' || !/^[a-f0-9]{64}$/.test(body.mutation_digest)
-        || (body.event_type !== 'MUTATION_PREPARED' && (typeof body.receipt_digest !== 'string' || !/^[a-f0-9]{64}$/.test(body.receipt_digest)))
-        || (body.event_type === 'MUTATION_PREPARED' && body.receipt_digest !== undefined)
         || typeof body.occurred_at !== 'string' || !Number.isFinite(Date.parse(body.occurred_at))) {
         return response.status(400).json({
           error: { code: 'INVALID_HOST_LIFECYCLE_EVENT', message: 'Only bounded digest-only Host mutation lifecycle events are accepted.' },
+        });
+      }
+      if (!durableReceiptStore) return response.status(503).json({
+        error: { code: 'HOST_LIFECYCLE_RECEIPT_STORE_UNAVAILABLE', message: 'Server-side persisted mutation receipt verification is unavailable.' },
+      });
+      const scope = {
+        host_installation_id: resolved.identity.host_installation_id,
+        authenticated_account_id: resolved.identity.authenticated_account_id,
+        host_session_id: resolved.hostSessionId,
+        conversation_uuid: resolved.conversationUuid,
+        mutation_id: body.mutation_id,
+        event_id: body.event_id,
+        operation: body.operation,
+        mutation_digest: body.mutation_digest,
+        occurred_at: new Date().toISOString(),
+      };
+      let receipt;
+      try {
+        if (body.event_type === 'MUTATION_PREPARED') {
+          receipt = await durableReceiptStore.prepare(scope, request?.user?.directories);
+          scope.occurred_at = receipt.prepared.occurred_at;
+        } else if (body.event_type === 'MUTATION_COMMITTED') {
+          receipt = await durableReceiptStore.commit(scope, request?.user?.directories);
+          scope.occurred_at = receipt.occurred_at;
+        } else {
+          receipt = await durableReceiptStore.abort(scope, request?.user?.directories);
+          scope.occurred_at = receipt.occurred_at;
+        }
+      } catch {
+        return response.status(409).json({
+          error: { code: 'HOST_LIFECYCLE_PERSISTED_RECEIPT_REJECTED', message: 'Persisted Host state did not satisfy the lifecycle receipt contract.' },
         });
       }
       const result = await upstream('/v1/host-lifecycle/events', 'POST', {
@@ -503,8 +566,8 @@ export function createHostLifecycleJournalProxy({
         mutation_id: body.mutation_id,
         operation: body.operation,
         mutation_digest: body.mutation_digest,
-        ...(body.receipt_digest ? { receipt_digest: body.receipt_digest } : {}),
-        occurred_at: body.occurred_at,
+        ...(body.event_type === 'MUTATION_PREPARED' ? {} : { receipt_digest: receipt.receipt_digest }),
+        occurred_at: scope.occurred_at,
       }, {
         host_installation_id: resolved.identity.host_installation_id,
         authenticated_account_id: resolved.identity.authenticated_account_id,
