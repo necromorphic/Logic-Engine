@@ -149,6 +149,8 @@ int main(void) {
         assert(qdup >= 0);
         dir = fdopendir(qdup);
         assert(dir != NULL);
+        /* dup() shares the directory offset; the earlier scan reached EOF. */
+        rewinddir(dir);
         while ((entry = readdir(dir)) != NULL) {
             if (entry->d_name[0] == '.') continue;
             assert(unlinkat(quarantine_fd, entry->d_name, 0) == 0);
