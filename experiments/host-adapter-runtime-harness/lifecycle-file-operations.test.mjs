@@ -49,6 +49,7 @@ const identity = (messageId, versionId, mes, parentVersionId = null, versionInde
 });
 const header = () => ({
   user_name: 'Harness User',
+  name: 'Harness Character',
   character_name: 'Harness Character',
   create_date: '2026-10-31 @00h 00m 00s 000ms',
   chat_metadata: { logic_engine_conversation_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' },
