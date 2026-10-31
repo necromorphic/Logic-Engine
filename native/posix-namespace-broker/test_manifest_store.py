@@ -21,7 +21,7 @@ def fd_identity(fd: int) -> dict:
 
 
 def manifest(generation: int, root_identity: dict, components: list,
-             parent_identities: list, database_identity: dict) -> bytes:
+             parent_identities: list, database_identity: dict, sidecars: list | None = None) -> bytes:
     return _canonical_json({
         "schemaVersion": 1,
         "generation": generation,
@@ -39,7 +39,7 @@ def manifest(generation: int, root_identity: dict, components: list,
             "databaseBasename": "core.sqlite",
             "databaseIdentity": database_identity,
             "state": "active",
-            "sidecars": []
+            "sidecars": sidecars or []
         }]
     })
 
@@ -142,6 +142,53 @@ class ManifestStoreTests(unittest.TestCase):
         with self.assertRaises(StoreError):
             self.store.commit(_canonical_json(value))
         self.assertEqual(self.store.load()["generation"], 1)
+
+    def test_recovery_plan_inspects_transitional_sidecars_without_mutation(self):
+        wal = self.role_parent / "core.sqlite-wal"
+        wal.write_bytes(b"wal-placeholder")
+        os.chmod(wal, 0o600)
+        wal_fd = os.open(wal, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
+        try:
+            wal_identity = fd_identity(wal_fd)
+        finally:
+            os.close(wal_fd)
+
+        shm = self.role_parent / "core.sqlite-shm"
+        shm.write_bytes(b"shm-placeholder")
+        os.chmod(shm, 0o600)
+        shm_fd = os.open(shm, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
+        try:
+            shm_identity = fd_identity(shm_fd)
+        finally:
+            os.close(shm_fd)
+        shm.unlink()
+
+        # Reuse the enrolled role's exact directory and database identities.
+        import json
+        value = json.loads(self.data(1))
+        value["generation"] = 2
+        value["roles"][0]["sidecars"] = [
+            {"kind": "wal", "identity": wal_identity, "state": "creating", "generation": 2},
+            {"kind": "shm", "identity": shm_identity, "state": "deleting", "generation": 2},
+        ]
+        self.store.initialize(self.data(1))
+        self.store.commit(_canonical_json(value))
+
+        plan = self.store.plan_recovery()
+        self.assertEqual(plan["mode"], "inspect-only")
+        states = {entry["kind"]: entry for entry in plan["roles"][0]["sidecars"]}
+        self.assertTrue(states["wal"]["present"])
+        self.assertIn("validate with SQLite", states["wal"]["disposition"])
+        self.assertFalse(states["shm"]["present"])
+        self.assertIn("deletion-completed", states["shm"]["disposition"])
+        self.assertTrue(wal.exists())
+        self.assertFalse(shm.exists())
+
+    def test_recovery_plan_rejects_unmanifested_sidecar(self):
+        self.store.initialize(self.data(1))
+        (self.role_parent / "core.sqlite-wal").write_bytes(b"unexpected")
+        with self.assertRaises(StoreError):
+            self.store.plan_recovery()
 
     def test_rejects_generation_skip(self):
         self.store.initialize(self.data(1))
