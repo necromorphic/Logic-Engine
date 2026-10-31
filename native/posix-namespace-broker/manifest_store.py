@@ -280,8 +280,10 @@ def _validate_manifest_transition(current: dict[str, Any], candidate: dict[str, 
                 continue
             old_state, new_state = old_entry["state"], new_entry["state"]
             same_identity = old_entry["identity"] == new_entry["identity"]
-            if old_state == "retired" and not same_identity:
-                if new_state != "creating" or new_entry["generation"] != generation:
+            if old_state == "retired" and new_state == "creating":
+                # A deleted inode number may be reused by the filesystem. The
+                # new creating generation is the authoritative ownership claim.
+                if new_entry["generation"] != generation:
                     raise StoreError(f"role {name} {kind}: replacement must begin in creating state")
                 continue
             if not same_identity:
