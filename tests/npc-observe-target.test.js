@@ -44,7 +44,7 @@ function setup(t, fieldPolicy = (_context, _entity, field) => field === "attribu
   });
   const cycle = createObserveTargetCycle({ authorizedReadService, getTrustedReadContext });
   t.after(() => store.close());
-  return { store, engine, bindings, authority, cycle };
+  return { store, engine, bindings, authority, authorizedReadService, getTrustedReadContext, cycle };
 }
 
 test("observes one policy-authorized target attribute and returns a scoped receipt without world mutation", (t) => {
@@ -121,32 +121,26 @@ test("malformed or multi-target input is rejected before trusted context is requ
 });
 
 test("stale trusted world cursor prevents an observation from a changed snapshot", (t) => {
-  const { cycle, engine } = setup(t);
-  const revision = engine.getState("observe-world").world_revision;
+  const { cycle, engine, store, authority, authorizedReadService } = setup(t);
+  const staleRevision = engine.getState("observe-world").world_revision;
+  const staleSequence = store.currentCommitSequence("observe-world");
   const changed = engine.commitEvent("observe-world", {
     idempotency_key: "mutate-before-observation",
     turn_id: "mutate-before-observation",
     event_type: "action.completed",
-    expected_revision: revision,
+    expected_revision: staleRevision,
     effects: [{ kind: "entity.create", entity_id: "new-entity", entity_type: "object" }],
   });
   assert.equal(changed.accepted, true);
-  // The provider supplies the latest cursor. A stale cursor is tested by pinning
-  // the original snapshot in a deliberately stale trusted provider.
   const staleCycle = createObserveTargetCycle({
-    authorizedReadService: cycle ? {
-      readEntityAttributeForMechanic: (request) => {
-        const { authorizedReadService } = setupDependencies;
-        return authorizedReadService.readEntityAttributeForMechanic(request);
-      },
-    } : null,
+    authorizedReadService,
     getTrustedReadContext: () => ({
       worldId: "observe-world",
       adapterId: "adapter-a",
       actorEntityId: "actor-a",
-      expectedWorldRevision: revision,
-      expectedCommitSequence: 1,
-      expectedPolicyAuthority: setupDependencies.authority.getSnapshot(),
+      expectedWorldRevision: staleRevision,
+      expectedCommitSequence: staleSequence,
+      expectedPolicyAuthority: authority.getSnapshot(),
     }),
   });
   assert.throws(
