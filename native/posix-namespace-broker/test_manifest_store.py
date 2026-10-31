@@ -457,6 +457,22 @@ class ManifestStoreTests(unittest.TestCase):
         self.assertEqual(wal.read_bytes(), b"untrusted")
         self.assertEqual(self.store.load()["generation"], 1)
 
+    def test_role_file_exists_checks_main_and_manifested_sidecars(self):
+        self.store.initialize(self.data(1))
+        self.assertTrue(self.store.role_file_exists("core", "main"))
+        self.assertFalse(self.store.role_file_exists("core", "wal"))
+        fd = self.store.open_or_create_role_sidecar("core", "wal")
+        os.close(fd)
+        self.assertTrue(self.store.role_file_exists("core", "wal"))
+
+    def test_role_file_exists_rejects_replaced_database_identity(self):
+        self.store.initialize(self.data(1))
+        replacement = self.role_parent / "replacement.sqlite"
+        replacement.write_bytes(b"replacement")
+        replacement.replace(self.database)
+        with self.assertRaises(StoreError):
+            self.store.role_file_exists("core", "main")
+
     def test_open_or_create_sidecar_durably_creates_then_reopens_same_identity(self):
         self.store.initialize(self.data(1))
         first_fd = self.store.open_or_create_role_sidecar("core", "wal")
