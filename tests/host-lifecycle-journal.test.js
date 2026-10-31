@@ -7,8 +7,10 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { HostLifecycleJournal } from '../src/application/host-lifecycle-journal.js';
 
-const installation = 'host-installation-001';
-const account = 'account-principal-001';
+const installation = '11111111-1111-4111-8111-111111111111';
+const account = '22222222-2222-4222-8222-222222222222';
+const hostSession = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+const authority = { authority_id: 'test-host-authority', generation: 1, snapshot_fingerprint: 'b'.repeat(64) };
 const conversation = '00000000-0000-4000-8000-000000000001';
 const message = '00000000-0000-4000-8000-000000000002';
 const version = '00000000-0000-4000-8000-000000000003';
@@ -23,7 +25,9 @@ function setup(t, authorize = () => true) {
       authorized: authorize(input) === true,
       host_installation_id: input.host_installation_id,
       authenticated_account_id: input.authenticated_account_id,
+      host_session_id: input.host_session_id,
       conversation_uuid: input.conversation_uuid,
+      ...authority,
     }),
     resolveRootIdentity: (input) => ({
       authorized: authorize(input) === true,
@@ -40,10 +44,13 @@ function setup(t, authorize = () => true) {
 }
 function event(overrides = {}) {
   return {
-    event_id: 'event-1',
+    event_id: '00000000-0000-4000-8000-000000000010',
     host_installation_id: installation,
     authenticated_account_id: account,
+    host_session_id: hostSession,
     conversation_uuid: conversation,
+    ...authority,
+    occurred_at: '2026-10-31T00:00:00.000Z',
     event_type: 'VERSION_CREATED',
     message_id: message,
     version_id: version,
@@ -60,7 +67,7 @@ test('appends lifecycle events with a monotonic sequence and verifiable hash cha
   assert.equal(first.status, 'appended');
   assert.equal(first.sequence, 1);
   const second = journal.append(event({
-    event_id: 'event-2',
+    event_id: '00000000-0000-4000-8000-000000000020',
     event_type: 'VERSION_SELECTED',
     parent_version_id: undefined,
     payload_sha256: undefined,
@@ -101,7 +108,9 @@ test('serializes lifecycle append against competing Core writers under the share
         authorized: true,
         host_installation_id: input.host_installation_id,
         authenticated_account_id: input.authenticated_account_id,
+        host_session_id: input.host_session_id,
         conversation_uuid: input.conversation_uuid,
+        ...authority,
       };
     },
   });
@@ -138,7 +147,9 @@ test('durable lifecycle journal survives close/reopen and replay remains idempot
     authorized: true,
     host_installation_id: input.host_installation_id,
     authenticated_account_id: input.authenticated_account_id,
+    host_session_id: input.host_session_id,
     conversation_uuid: input.conversation_uuid,
+    ...authority,
   });
   let first = new HostLifecycleJournal({ path, coordinatorPath, resolveIdentity });
   const appended = first.append(event());
@@ -430,14 +441,17 @@ test('durable Core journal records prepared mutations, blocks overlap, and clear
     event_id: '00000000-0000-4000-8000-000000000011',
     host_installation_id: installation,
     authenticated_account_id: account,
+    host_session_id: hostSession,
     conversation_uuid: conversation,
+    ...authority,
+    occurred_at: '2026-10-31T00:00:00.000Z',
     event_type: 'MUTATION_PREPARED',
     mutation_id: '00000000-0000-4000-8000-000000000012',
     operation: 'edit-message',
     mutation_digest: digest('before-state'),
   };
   assert.equal(journal.append(prepared).status, 'appended');
-  assert.equal(journal.getConversationStatus(installation, account, conversation).status, 'PENDING_MUTATION');
+  assert.equal(journal.getConversationStatus(installation, account, hostSession, conversation, authority).status, 'PENDING_MUTATION');
   assert.throws(() => journal.append({
     ...prepared,
     event_id: '00000000-0000-4000-8000-000000000013',
@@ -453,7 +467,9 @@ test('durable Core journal records prepared mutations, blocks overlap, and clear
     ...prepared,
     event_id: '00000000-0000-4000-8000-000000000016',
     event_type: 'MUTATION_COMMITTED',
-    mutation_digest: digest('after-state'),
+    mutation_digest: digest('before-state'),
+    receipt_digest: digest('persisted-after-receipt'),
+    occurred_at: '2026-10-31T00:00:01.000Z',
   });
   assert.equal(committed.status, 'appended');
   assert.equal(journal.getConversationStatus(installation, account, conversation).status, 'NO_PENDING_MUTATION');
