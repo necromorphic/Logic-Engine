@@ -421,6 +421,8 @@ class ManifestStore:
             digest = hashlib.sha256(candidate).hexdigest()
             if digest == expected_digest:
                 manifest = _validate_manifest(candidate)
+                if manifest["filesystemPolicy"]["applicationUid"] != self.application_uid:
+                    raise StoreError("manifest application UID does not match broker configuration")
                 if manifest["metadataRootIdentity"] != self.metadata_identity():
                     raise StoreError("manifest metadata root identity mismatch")
                 if manifest["generation"] != generation:
@@ -440,6 +442,8 @@ class ManifestStore:
         if _read_named(self.anchor_fd, ANCHOR) is not None:
             raise StoreError("anchor already initialized")
         manifest = _validate_manifest(manifest_data)
+        if manifest["filesystemPolicy"]["applicationUid"] != self.application_uid:
+            raise StoreError("manifest application UID does not match broker configuration")
         if manifest["generation"] != 1:
             raise StoreError("initial manifest generation must be 1")
         if manifest["metadataRootIdentity"] != self.metadata_identity():
@@ -633,6 +637,8 @@ class ManifestStore:
     def _commit_locked(self, manifest_data: bytes) -> dict[str, Any]:
         _, _, generation, _ = self._load_pair()
         candidate = _validate_manifest(manifest_data)
+        if candidate["filesystemPolicy"]["applicationUid"] != self.application_uid:
+            raise StoreError("manifest application UID does not match broker configuration")
         if candidate["metadataRootIdentity"] != self.metadata_identity():
             raise StoreError("new manifest metadata root identity does not match opened directory")
         if candidate["generation"] != generation + 1:
