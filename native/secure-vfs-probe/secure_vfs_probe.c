@@ -1618,6 +1618,28 @@ static int probe_xAccess(sqlite3_vfs *vfs, const char *name, int flags, int *res
   const char *suffix = 0;
   if (name && probe_match_role_entry(name, &role_index, &suffix)) {
     ProbeDatabaseRole *role = &g_database_roles[role_index];
+#if defined(__linux__)
+    if (role->broker_socket_path) {
+      const char *kind = suffix[0] == '\0' ? "main"
+        : strcmp(suffix, "-wal") == 0 ? "wal"
+        : strcmp(suffix, "-shm") == 0 ? "shm"
+        : strcmp(suffix, "-journal") == 0 ? "journal" : NULL;
+      uint32_t status = LEB_STATUS_INTERNAL;
+      if (!kind || !probe_broker_exchange(role, role->broker_socket_path,
+            LEB_OP_ACCESS_ROLE_FILE, kind, 0, NULL, &status)) {
+        return SQLITE_IOERR_ACCESS;
+      }
+      if (status == LEB_STATUS_OK) {
+        *result = 1;
+        return SQLITE_OK;
+      }
+      if (status == LEB_STATUS_NOT_FOUND) {
+        *result = 0;
+        return SQLITE_OK;
+      }
+      return SQLITE_IOERR_ACCESS;
+    }
+#endif
     char relative_name[4096];
     struct stat info;
     size_t base_length = strlen(role->basename);
