@@ -63,6 +63,8 @@ function makeFixture(chat = [{ is_user: true, mes: 'hello' }, { is_user: false, 
   publishSnapshot = null,
   conversationId = 'chat-1',
   getPersistedInventory = null,
+  publishLifecycleEvent = null,
+  getLifecycleStatus = null,
 } = {}) {
   let failSave = false;
   const db = new FakeDB();
@@ -77,6 +79,8 @@ function makeFixture(chat = [{ is_user: true, mes: 'hello' }, { is_user: false, 
     publishDigest,
     publishSnapshot,
     getPersistedInventory,
+    publishLifecycleEvent,
+    getLifecycleStatus,
     saveChat: async () => {
       saveCount++;
       if (failSave) throw Error('simulated native chat save failure');
@@ -886,4 +890,70 @@ test('Host sends a digest-only Core snapshot through reconcile while explicitly 
   assert.equal(JSON.stringify(observed[0]).includes('answer'), false);
   assert.equal(enrolled.coreCaptureStatus, 'NON_READY');
   assert.equal((await f.bridge.getCoreCaptureStatus()).status, 'NON_READY');
+});
+
+
+test('Core receives a durable prepare before mutation and a matching commit after native persistence', async () => {
+  const events = [];
+  let remote = { status: 'NO_PENDING_MUTATION' };
+  const f = makeFixture(undefined, {
+    publishLifecycleEvent: async event => {
+      events.push(structuredClone(event));
+      if (event.event_type === 'MUTATION_PREPARED') {
+        remote = { status: 'PENDING_MUTATION', mutation_id: event.mutation_id, operation: event.operation };
+      } else {
+        remote = { status: 'NO_PENDING_MUTATION' };
+      }
+      return { lifecycle: { status: 'appended' } };
+    },
+    getLifecycleStatus: async () => structuredClone(remote),
+  });
+  await f.bridge.enrollCurrentConversation();
+  const before = await f.bridge.beforeMutation('edit-message', [0]);
+  assert.equal(events[0].event_type, 'MUTATION_PREPARED');
+  assert.equal(events[0].mutation_id, before.eventId);
+  assert.equal(remote.status, 'PENDING_MUTATION');
+
+  f.chat[0].mes = 'edited and persisted';
+  await f.bridge.afterMutation('edit-message');
+  assert.equal(events[1].event_type, 'MUTATION_COMMITTED');
+  assert.equal(events[1].mutation_id, before.eventId);
+  assert.equal(events[1].operation, 'edit-message');
+  assert.equal(remote.status, 'NO_PENDING_MUTATION');
+  assert.equal(JSON.stringify(events).includes('edited and persisted'), false);
+});
+
+test('Core pending mutation is recovered by replaying the local durable after receipt after restart', async () => {
+  const events = [];
+  let remote = { status: 'NO_PENDING_MUTATION' };
+  let failCommit = true;
+  const f = makeFixture(undefined, {
+    publishLifecycleEvent: async event => {
+      events.push(structuredClone(event));
+      if (event.event_type === 'MUTATION_PREPARED') {
+        remote = { status: 'PENDING_MUTATION', mutation_id: event.mutation_id, operation: event.operation };
+      } else if (failCommit) {
+        throw Error('simulated Core transport interruption after local persistence');
+      } else {
+        remote = { status: 'NO_PENDING_MUTATION' };
+      }
+      return { lifecycle: { status: 'appended' } };
+    },
+    getLifecycleStatus: async () => structuredClone(remote),
+  });
+  await f.bridge.enrollCurrentConversation();
+  const before = await f.bridge.beforeMutation('edit-message', [0]);
+  f.chat[0].mes = 'persisted before Core reconnect';
+  await assert.rejects(() => f.bridge.afterMutation('edit-message'),
+    /Core did not durably accept the completed Host mutation/);
+  assert.equal(remote.status, 'PENDING_MUTATION');
+  failCommit = false;
+
+  const resumed = await f.bridge.beforeMutation('create-swipe', [0]);
+  const replay = events.find(event => event.event_type === 'MUTATION_COMMITTED');
+  assert.ok(replay);
+  assert.equal(replay.mutation_id, before.eventId);
+  assert.equal(replay.operation, 'edit-message');
+  assert.equal(remote.status, 'PENDING_MUTATION');
+  assert.equal(resumed.operation, 'before:create-swipe');
 });
