@@ -306,7 +306,7 @@ export function validateEffects(effects, options = {}) {
       'entity.delete': ['kind', 'entity_id'],
       'fact.set': ['kind', 'fact_id', 'subject_ref', 'predicate', 'value'],
       'knowledge.acquire': ['kind', 'acquisition_id', 'subject_id', 'fact_id', 'acquisition_kind', 'provenance_ref', 'provenance_digest', 'authorization_ref', 'acquired_value', 'acquired_source_event_ids'],
-      'npc.belief.transition': ['kind', 'transition_id', 'actor_id', 'purpose', 'proposition_ref', 'proposition_value', 'stance', 'supporting_acquisition_ids', 'contradicting_acquisition_ids', 'evidence_acquisition_ids', 'reason_rule_ref', 'idempotency_key', 'request_hash', 'snapshot_revision', 'snapshot_commit_sequence', 'previous_stance', 'surviving_prior_evidence', 'invalidated_prior_evidence', 'prior_stance_preserved_despite_invalidation', 'policy_authority'],
+      'npc.belief.transition': ['kind', 'transition_id', 'actor_id', 'purpose', 'proposition_ref', 'proposition_value', 'stance', 'supporting_acquisition_ids', 'contradicting_acquisition_ids', 'evidence_acquisition_ids', 'reason_rule_ref', 'idempotency_key', 'request_hash', 'snapshot_revision', 'snapshot_commit_sequence', 'previous_stance', 'surviving_prior_evidence', 'invalidated_prior_evidence', 'prior_stance_preserved_despite_invalidation', 'policy_authority', 'write_authorization_ref'],
       'mechanic.instance.create': ['kind', 'instance_id', 'template_id', 'template_version', 'parameters', 'state'],
       'mechanic.instance.enable': ['kind', 'instance_id'],
       'mechanic.instance.disable': ['kind', 'instance_id'],
@@ -415,6 +415,12 @@ export function validateEffects(effects, options = {}) {
           || typeof policy.snapshot_fingerprint !== 'string' || !/^[a-f0-9]{64}$/.test(policy.snapshot_fingerprint)) {
           throw new EngineError('INVALID_NPC_BELIEF_TRANSITION', 'NPC policy authority tuple is malformed.');
         }
+      }
+      if (Object.hasOwn(effect, 'write_authorization_ref')
+        && (typeof effect.write_authorization_ref !== 'string' || !effect.write_authorization_ref.trim()
+          || effect.write_authorization_ref !== effect.write_authorization_ref.trim()
+          || effect.write_authorization_ref.length > 200)) {
+        throw new EngineError('INVALID_NPC_BELIEF_TRANSITION', 'write_authorization_ref must be a non-empty canonical authorization reference.');
       }
       for (const key of ['transition_id', 'actor_id', 'proposition_ref', 'reason_rule_ref', 'idempotency_key']) {
         if (typeof effect[key] !== 'string' || !effect[key].trim()
