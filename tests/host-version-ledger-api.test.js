@@ -24,6 +24,7 @@ async function setup(t, {
   sharedCoordinator = false,
   withRootJournal = false,
   authorizeRootIdentity = () => true,
+  authorizeLifecycleIdentity = () => true,
 } = {}) {
   const directory = mkdtempSync(join(tmpdir(), 'logic-host-ledger-api-'));
   const coordinatorPath = join(directory, 'coordinator.sqlite');
@@ -72,6 +73,13 @@ async function setup(t, {
       host_installation_id: input.host_installation_id,
       authenticated_account_id: input.authenticated_account_id,
       root_id: input.root_id,
+    }) : null,
+    hostLifecycleJournal: rootJournal,
+    resolveHostLifecycleIdentity: withRootJournal ? input => ({
+      authorized: input.adapterId === 'adapter-a' && authorizeLifecycleIdentity(input) === true,
+      host_installation_id: input.host_installation_id,
+      authenticated_account_id: input.authenticated_account_id,
+      conversation_uuid: input.conversation_uuid,
     }) : null,
   });
   server.listen(0, '127.0.0.1');
@@ -480,4 +488,72 @@ test('bound incomplete API snapshot invalidates prior READY before verifier invo
   assert.equal(afterIncomplete.status, 'NON_READY');
   assert.equal(afterIncomplete.failure_code, 'HOST_INVENTORY_INCOMPLETE');
   assert.notEqual(afterIncomplete.updated_at, readyBefore.updated_at);
+});
+
+
+test('Core lifecycle API durably accepts authenticated prepare/commit receipts and exposes restart-safe pending state', async (t) => {
+  const { base, rootJournal } = await setup(t, { withRootJournal: true });
+  const adapterHeaders = { ...headers, 'x-adapter-id': 'adapter-a', 'x-adapter-token': ADAPTER };
+  const installation = '11111111-1111-4111-8111-111111111111';
+  const account = '22222222-2222-4222-8222-222222222222';
+  const conversation = '33333333-3333-4333-8333-333333333333';
+  const mutation = '44444444-4444-4444-8444-444444444444';
+  const prepared = {
+    host_installation_id: installation,
+    authenticated_account_id: account,
+    conversation_uuid: conversation,
+    event_id: '55555555-5555-4555-8555-555555555555',
+    event_type: 'MUTATION_PREPARED',
+    mutation_id: mutation,
+    operation: 'edit-message',
+    mutation_digest: 'a'.repeat(64),
+  };
+  const noAdapter = await fetch(base + '/v1/host-lifecycle/events', {
+    method: 'POST', headers, body: json(prepared),
+  });
+  assert.equal(noAdapter.status, 403);
+  assert.equal((await noAdapter.json()).error.code, 'ADAPTER_REQUIRED');
+
+  const accepted = await fetch(base + '/v1/host-lifecycle/events', {
+    method: 'POST', headers: adapterHeaders, body: json(prepared),
+  });
+  assert.equal(accepted.status, 201);
+  assert.equal((await accepted.json()).lifecycle.status, 'appended');
+
+  const statusUrl = base + '/v1/host-lifecycle/status?' + new URLSearchParams({
+    host_installation_id: installation,
+    authenticated_account_id: account,
+    conversation_uuid: conversation,
+  });
+  const pending = await fetch(statusUrl, { headers: adapterHeaders });
+  assert.equal(pending.status, 200);
+  assert.equal((await pending.json()).lifecycle.status, 'PENDING_MUTATION');
+
+  const overlap = await fetch(base + '/v1/host-lifecycle/events', {
+    method: 'POST', headers: adapterHeaders,
+    body: json({ ...prepared, event_id: '66666666-6666-4666-8666-666666666666',
+      mutation_id: '77777777-7777-4777-8777-777777777777' }),
+  });
+  assert.equal(overlap.status, 409);
+  assert.equal((await overlap.json()).error.code, 'HOST_LIFECYCLE_MUTATION_ALREADY_PENDING');
+
+  const committed = await fetch(base + '/v1/host-lifecycle/events', {
+    method: 'POST', headers: adapterHeaders,
+    body: json({ ...prepared, event_id: '88888888-8888-4888-8888-888888888888',
+      event_type: 'MUTATION_COMMITTED', mutation_digest: 'b'.repeat(64) }),
+  });
+  assert.equal(committed.status, 201);
+  assert.equal((await committed.json()).lifecycle.status, 'appended');
+
+  const clear = await fetch(statusUrl, { headers: adapterHeaders });
+  assert.equal(clear.status, 200);
+  assert.equal((await clear.json()).lifecycle.status, 'NO_PENDING_MUTATION');
+  assert.equal(rootJournal.verifyChain(installation, account).valid, true);
+
+  const raw = await fetch(base + '/v1/host-lifecycle/events', {
+    method: 'POST', headers: adapterHeaders,
+    body: json({ ...prepared, content: 'raw chat text' }),
+  });
+  assert.equal(raw.status, 400);
+  assert.equal((await raw.json()).error.code, 'INVALID_HOST_LIFECYCLE_EVENT');
 });
