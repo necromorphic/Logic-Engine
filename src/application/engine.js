@@ -314,7 +314,7 @@ function validateIndependentSegment(events) {
 }
 
 export class LogicEngine {
-  constructor(store, { trustedInitialKnowledgeSources = [], worldPackCatalog = null, npcKnowledgeContextResolver = null, npcKnowledgePolicyAuthority = null, npcKnowledgeReadAuthorizer = null, npcKnowledgeVisibilityAuthorizer = null } = {}) {
+  constructor(store, { trustedInitialKnowledgeSources = [], worldPackCatalog = null, npcKnowledgeContextResolver = null, npcKnowledgePolicyAuthority = null, npcKnowledgeReadAuthorizer = null, npcKnowledgeWriteAuthorizer = null, npcKnowledgeVisibilityAuthorizer = null } = {}) {
     if (!Array.isArray(trustedInitialKnowledgeSources)) throw new TypeError('trustedInitialKnowledgeSources must be a deployment-owned array');
     this.trustedInitialKnowledgeSources = trustedInitialKnowledgeSources.map((entry) => Object.freeze({ ...entry }));
     if (worldPackCatalog !== null && typeof worldPackCatalog.resolve !== 'function') throw new TypeError('worldPackCatalog must provide resolve(worldPackId, version)');
@@ -323,10 +323,13 @@ export class LogicEngine {
     if (npcKnowledgePolicyAuthority !== null && !isNpcKnowledgePolicyAuthority(npcKnowledgePolicyAuthority)) throw new TypeError('npcKnowledgePolicyAuthority must be a trusted versioned Core policy authority');
     if (npcKnowledgeContextResolver !== null && npcKnowledgePolicyAuthority === null) throw new TypeError('npcKnowledgePolicyAuthority is required with npcKnowledgeContextResolver');
     if (npcKnowledgeReadAuthorizer !== null && (typeof npcKnowledgeReadAuthorizer !== 'function' || npcKnowledgeReadAuthorizer instanceof ASYNC_FUNCTION_PROTOTYPE)) throw new TypeError('npcKnowledgeReadAuthorizer must be a synchronous deployment-owned function');
+    if (npcKnowledgeWriteAuthorizer !== null && (typeof npcKnowledgeWriteAuthorizer !== 'function' || npcKnowledgeWriteAuthorizer instanceof ASYNC_FUNCTION_PROTOTYPE)) throw new TypeError('npcKnowledgeWriteAuthorizer must be a synchronous deployment-owned function');
     if (npcKnowledgeVisibilityAuthorizer !== null && (typeof npcKnowledgeVisibilityAuthorizer !== 'function' || npcKnowledgeVisibilityAuthorizer instanceof ASYNC_FUNCTION_PROTOTYPE)) throw new TypeError('npcKnowledgeVisibilityAuthorizer must be a synchronous deployment-owned function');
+    if (npcKnowledgeContextResolver !== null && npcKnowledgeWriteAuthorizer === null) throw new TypeError('npcKnowledgeWriteAuthorizer is required with npcKnowledgeContextResolver');
     this.npcKnowledgeContextResolver = npcKnowledgeContextResolver;
     this.npcKnowledgePolicyAuthority = npcKnowledgePolicyAuthority;
     this.npcKnowledgeReadAuthorizer = npcKnowledgeReadAuthorizer;
+    this.npcKnowledgeWriteAuthorizer = npcKnowledgeWriteAuthorizer;
     this.npcKnowledgeVisibilityAuthorizer = npcKnowledgeVisibilityAuthorizer;
     this.store = store;
     this.processStore = new ProcessStore(store);
@@ -1393,6 +1396,50 @@ export class LogicEngine {
           && hashRequest(commitPrepared.policy_authority ?? null) === hashRequest(prepared.policy_authority ?? null),
           'NPC_BELIEF_CONTEXT_STALE',
           'NPC belief evidence, policy authority, or stance changed during final commit authorization; retry from a fresh snapshot.', 409);
+        assert(typeof this.npcKnowledgeWriteAuthorizer === 'function',
+          'NPC_KNOWLEDGE_WRITE_NOT_CONFIGURED',
+          'A separate trusted Core write authorizer is required for NPC belief transitions.', 403);
+        let writeAuthorization = null;
+        try {
+          writeAuthorization = this.npcKnowledgeWriteAuthorizer(Object.freeze({
+            world_id: input.world_id,
+            conversation_id: input.conversation_id,
+            adapter_id: input.adapter_id,
+            actor_id: input.actor_id,
+            recipient: input.recipient,
+            purpose: input.purpose,
+            operation: 'npc.belief.transition',
+            expected_revision: input.expected_revision,
+            expected_commit_sequence: input.expected_commit_sequence,
+            ...(commitPrepared.policy_authority ?? {}),
+          }));
+        } catch {
+          writeAuthorization = null;
+        }
+        const writeAuthorizationKeys = [
+          'status', 'world_id', 'conversation_id', 'adapter_id', 'actor_id', 'recipient', 'purpose',
+          'operation', 'expected_revision', 'expected_commit_sequence', 'authorization_ref',
+          ...(commitPrepared.policy_authority ? ['authority_id', 'generation', 'snapshot_fingerprint'] : []),
+        ];
+        assert(exactDataRecord(writeAuthorization, writeAuthorizationKeys)
+          && writeAuthorization.status === 'authorized'
+          && writeAuthorization.world_id === input.world_id
+          && writeAuthorization.conversation_id === input.conversation_id
+          && writeAuthorization.adapter_id === input.adapter_id
+          && writeAuthorization.actor_id === input.actor_id
+          && writeAuthorization.recipient === input.recipient
+          && writeAuthorization.purpose === input.purpose
+          && writeAuthorization.operation === 'npc.belief.transition'
+          && writeAuthorization.expected_revision === input.expected_revision
+          && writeAuthorization.expected_commit_sequence === input.expected_commit_sequence
+          && typeof writeAuthorization.authorization_ref === 'string'
+          && writeAuthorization.authorization_ref.trim()
+          && (!commitPrepared.policy_authority
+            || (writeAuthorization.authority_id === commitPrepared.policy_authority.authority_id
+              && writeAuthorization.generation === commitPrepared.policy_authority.generation
+              && writeAuthorization.snapshot_fingerprint === commitPrepared.policy_authority.snapshot_fingerprint)),
+        'NPC_KNOWLEDGE_WRITE_NOT_AUTHORIZED',
+        'The separate Core write authority did not approve this exact actor, operation, policy, and expected revision.', 403);
         const transition = commitPrepared.transition;
         const replay = this.store.db.prepare(`
           SELECT transition_id, request_hash, event_id, committed_revision
@@ -1443,6 +1490,7 @@ export class LogicEngine {
             invalidated_prior_evidence: [...transition.invalidated_prior_evidence],
             prior_stance_preserved_despite_invalidation: transition.prior_stance_preserved_despite_invalidation,
             ...(commitPrepared.policy_authority ? { policy_authority: commitPrepared.policy_authority } : {}),
+            write_authorization_ref: writeAuthorization.authorization_ref,
           }],
         }, { [INTERNAL_CORE_EFFECTS]: true, allowNpcBeliefTransition: true });
         assert(event.idempotent_replay !== true, 'NPC_BELIEF_PROJECTION_MISSING',
