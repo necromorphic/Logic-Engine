@@ -81,8 +81,11 @@ def main():
     Path(database_path).touch(mode=0o600, exist_ok=True)
     server = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
     server.bind(socket_path)
-    os.chown(socket_path, -1, allowed_gid, follow_symlinks=False)
-    os.chmod(socket_path, 0o620)
+    if allowed_uid == os.geteuid():
+        os.chmod(socket_path, 0o600)
+    else:
+        os.chown(socket_path, -1, allowed_gid, follow_symlinks=False)
+        os.chmod(socket_path, 0o620)
     server.listen(8)
     store = FakeStore(database_path, log_path)
     signal.signal(signal.SIGTERM, stop)
