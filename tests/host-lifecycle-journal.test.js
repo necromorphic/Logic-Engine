@@ -474,7 +474,7 @@ test('root inventory identity is isolated by installation, account and canonical
 });
 
 test('root inventory rejects unauthorized root identity and hard-link aliases', (t) => {
-  const { journal } = setup(t, input => input.root_id !== digest('forged-root'));
+  const { journal } = setup(t, undefined, input => input.root_id !== digest('forged-root'));
   assert.throws(() => journal.enrollRootInventory(rootInput({
     root_id: digest('forged-root'),
   })), /HOST_ROOT_INVENTORY_IDENTITY_NOT_AUTHORIZED/);
@@ -650,8 +650,16 @@ test('ABORTED is terminal and cannot be reversed to COMMITTED', (t) => {
 test('pending mutation isolation is per authenticated session, not account-wide', (t) => {
   const { journal } = setupLifecycle(t);
   const secondSession = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+  const {
+    message_id: _messageId,
+    version_id: _versionId,
+    parent_version_id: _parentVersionId,
+    payload_sha256: _payloadSha256,
+    active: _active,
+    ...baseEvent
+  } = event();
   const first = {
-    ...event(),
+    ...baseEvent,
     event_type: 'MUTATION_PREPARED',
     mutation_id: '00000000-0000-4000-8000-000000000051',
     operation: 'edit-message',
