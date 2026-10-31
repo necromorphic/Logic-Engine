@@ -126,7 +126,8 @@ function rootInventoryDelta(beforeEntries, afterEntries) {
   }
   return delta;
 }
-\nfunction canonicalFilePath(path) {
+
+function canonicalFilePath(path) {
   let candidate = resolve(path);
   const suffix = [];
   while (!existsSync(candidate)) {
@@ -215,7 +216,8 @@ export class HostLifecycleJournal {
       throw new TypeError('HostLifecycleJournal requires absolute file paths and trusted synchronous identity resolvers.');
     }
     if (aliasesSameFile(path, coordinatorPath)) throw new Error('HOST_JOURNAL_COORDINATOR_PATH_ALIAS');
-    this.resolveIdentity = resolveIdentity;\n    this.resolveRootIdentity = resolveRootIdentity;
+    this.resolveIdentity = resolveIdentity;
+    this.resolveRootIdentity = resolveRootIdentity;
     this.coordinator = openCoordinatorDatabase(coordinatorPath);
     this.db = null;
     let release = null;
