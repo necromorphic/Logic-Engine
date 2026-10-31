@@ -42,7 +42,7 @@ The backend must not pass protected names to a parent VFS implementation unless 
 
 Schema: `schemas/sqlite-role-manifest.schema.json`.
 
-The manifest is outside the DB directory and protected by the broker identity (preferred) or the explicitly declared dedicated service identity. POSIX device/inode/mount IDs and Windows volume serial/full 128-bit file IDs are serialized as strings to avoid integer precision loss.
+The manifest is outside the DB directory and protected by the broker identity (preferred) or the explicitly declared dedicated service identity. POSIX device/inode/mount IDs and Windows volume serial/full 128-bit file IDs are serialized as strings to avoid integer precision loss. The JSON Schema enforces the record shape and platform-specific identity encoding; runtime validation must additionally enforce unique role names and physical identities, equal parent-component/parent-identity chain lengths, monotonic generation, sidecar uniqueness, and valid lifecycle transitions. JSON Schema validation alone is not an enrollment or trust decision.
 
 Enrollment is a privileged provisioning operation, not an automatic consequence of opening a configured path. It must:
 - open the trusted root and every parent component without following symlinks/reparse points;
