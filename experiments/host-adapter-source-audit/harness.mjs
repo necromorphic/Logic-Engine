@@ -129,6 +129,13 @@ test('chat imports, group bookmark copies and backup restore fail closed while a
   assert.match(chatBackups.slice(restoreStart, restoreEnd), /await importFn\(formData/);
 });
 
+test('pinned server import routes reject bulk imports while any enrolled conversation exists', () => {
+  const chats = mutationSources['src/endpoints/chats.js'];
+  assert.match(chats, /createHostBulkMutationGuard/);
+  assert.match(chats, /router\.post\('\/group\/import', hostBulkMutationGuard,/);
+  assert.match(chats, /router\.post\('\/import', hostBulkMutationGuard,/);
+});
+
 test('pinned server mutation routes remain in the reviewed inventory', () => {
   const routeRequirements = {
     'src/endpoints/characters.js': [
