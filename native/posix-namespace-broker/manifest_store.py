@@ -164,7 +164,7 @@ def _validate_manifest(data: bytes) -> dict[str, Any]:
             raw = value.get(key)
             if not isinstance(raw, str) or not raw.isascii() or not raw.isdigit():
                 raise StoreError(f"{label}: invalid {key}")
-            if (key != "device" and raw == "0") or (len(raw) > 1 and raw[0] == "0"):
+            if raw == "0" or (len(raw) > 1 and raw[0] == "0"):
                 raise StoreError(f"{label}: non-canonical {key}")
     check_identity(root_identity, "metadataRootIdentity")
     roles = obj.get("roles")
@@ -241,8 +241,9 @@ def _fd_identity(fd: int) -> dict[str, str]:
                     break
     except OSError as exc:
         raise StoreError(f"cannot read opened object mount identity: {exc}") from exc
-    if not mount_id or not mount_id.isdigit() or mount_id == "0":
-        raise StoreError("opened object mount identity is unavailable")
+    if (not mount_id or not mount_id.isdigit() or mount_id == "0"
+            or info.st_dev == 0 or info.st_ino == 0):
+        raise StoreError("opened object has an unavailable or zero identity component")
     return {"kind": "posix", "device": str(info.st_dev),
             "inode": str(info.st_ino), "mountId": mount_id}
 
