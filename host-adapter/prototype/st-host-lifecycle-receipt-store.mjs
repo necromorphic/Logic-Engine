@@ -71,8 +71,15 @@ function validOperationTransition(operation, before, after) {
     return exactlyOneChanged(left, right, (oldMessage, newMessage) =>
       oldMessage.message_id === newMessage.message_id
       && newMessage.versions.length === oldMessage.versions.length + 1
-      && oldMessage.versions.every((version, index) =>
-        canonical(version) === canonical(newMessage.versions[index])));
+      && oldMessage.versions.every((version, index) => {
+        const next = newMessage.versions[index];
+        return version.version_id === next.version_id
+          && version.version_index === next.version_index
+          && version.parent_version_id === next.parent_version_id
+          && version.content_sha256 === next.content_sha256;
+      })
+      && newMessage.versions.at(-1).parent_version_id
+        === oldMessage.versions[oldMessage.active_version_index]?.version_id);
   }
   if (operation === 'select-swipe') {
     return exactlyOneChanged(left, right, (oldMessage, newMessage) =>
@@ -115,8 +122,14 @@ function validOperationTransition(operation, before, after) {
     return exactlyOneChanged(left, right, (oldMessage, newMessage) =>
       oldMessage.message_id === newMessage.message_id
       && oldMessage.versions.length === newMessage.versions.length
-      && oldMessage.versions.filter((version, index) =>
-        canonical(version) !== canonical(newMessage.versions[index])).length === 1);
+      && oldMessage.versions.filter((version, index) => {
+        const next = newMessage.versions[index];
+        return version.version_id !== next.version_id
+          || version.content_sha256 !== next.content_sha256;
+      }).length === 1
+      && oldMessage.versions.some((version, index) =>
+        version.version_id !== newMessage.versions[index].version_id
+        && version.content_sha256 !== newMessage.versions[index].content_sha256));
   }
   return false;
 }
