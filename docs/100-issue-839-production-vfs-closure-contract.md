@@ -27,7 +27,7 @@ The broker process and its IPC protocol are not implemented yet. Until the broke
 
 ## 3. Windows: required all-file handle-relative backend
 
-The current probe's `CreateFileW` interception covers registered main DB names and recognized `-wal`, `-shm`, and `-journal` names. This is not yet proof for every SQLite-created file or every VFS callback.
+The current probe's `CreateFileW` interception covers registered main DB names and recognized `-wal`, `-shm`, and `-journal` names. This is not yet proof for every SQLite-created file or every VFS callback. A source audit of SQLite 3.47.2's Windows VFS found an additional bypass: `winShmPurge()` calls internal `winDelete()` directly for the SHM file, bypassing the registered VFS `xDelete` callback. The probe now also intercepts the Windows VFS `DeleteFileW` system-call hook and routes that internal deletion through the same parent-HANDLE-relative identity check. The Windows test explicitly switches a WAL database back to DELETE mode and asserts that this internal DeleteFileW hook is exercised. This closes that identified Windows sidecar-delete bypass in the probe; it does not establish full production VFS coverage.
 
 The production Windows backend must own the protected `sqlite3_file` object and use a retained parent-directory HANDLE plus `NtCreateFile(OBJECT_ATTRIBUTES.RootDirectory)` for every protected child. It must cover:
 
