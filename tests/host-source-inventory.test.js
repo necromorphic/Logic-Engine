@@ -161,7 +161,7 @@ test('accepts lifecycle edit revisions that are not represented as native swipe 
     },
   ];
   await writeFile(path.join(value.directories.chats, 'root-chat.jsonl'),
-    records.map(record => JSON.stringify(record)).join('\n') + '\n');
+    JSON.stringify(records[0]) + String.fromCharCode(10) + JSON.stringify(records[1]) + String.fromCharCode(10));
   const result = await scan(value.directories);
   const root = result.files.find(file => file.locator === 'root-chat.jsonl');
   assert.equal(root.logical_identity.messages[0].active_version_index, 1);
@@ -189,7 +189,7 @@ test('rejects an edit revision whose active digest differs from the persisted me
     },
   ];
   await writeFile(path.join(value.directories.chats, 'root-chat.jsonl'),
-    records.map(record => JSON.stringify(record)).join('\n') + '\n');
+    JSON.stringify(records[0]) + String.fromCharCode(10) + JSON.stringify(records[1]) + String.fromCharCode(10));
   await assert.rejects(scan(value.directories), error =>
     error instanceof HostSourceInventoryError && error.code === 'SOURCE_CHAT_VERSION_DIGEST_MISMATCH');
 });
