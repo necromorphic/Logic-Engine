@@ -178,13 +178,16 @@ int main(void) {
         assert(dir != NULL);
         while ((entry = readdir(dir)) != NULL) {
             char buffer[32] = {0};
+            ssize_t bytes_read;
             int fd;
             if (strncmp(entry->d_name, "entry-", 6) != 0) continue;
             fd = openat(quarantine_fd, entry->d_name, O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
             assert(fd >= 0);
-            assert(read(fd, buffer, sizeof(buffer)) == 5);
+            bytes_read = read(fd, buffer, sizeof(buffer));
+            assert(bytes_read >= 0);
             close(fd);
-            if (memcmp(buffer, "decoy", 5) == 0) found_decoy = 1;
+            if (bytes_read == 5 && memcmp(buffer, "decoy", 5) == 0)
+                found_decoy = 1;
         }
         closedir(dir);
         assert(found_decoy);
