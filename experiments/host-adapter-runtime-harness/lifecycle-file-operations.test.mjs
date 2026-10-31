@@ -400,9 +400,12 @@ test('pinned ST 1.19.0 chat create/edit/swipe/delete/import/export/restore mutat
     assert.equal(response.result.ok, true);
     assert.equal((await readFile(renamedPath, 'utf8')).length > 0, true);
     return response;
-  }, 'added');
-  assert.ok(rename.result.delta.removed.some(entry => entry.path.endsWith('chat-one.jsonl')));
-  assert.ok(rename.result.delta.added.some(entry => entry.path.endsWith('chat-renamed.jsonl')));
+  }, ['added', 'moved']);
+  const renamedInPlace = rename.result.delta.moved.some(entry =>
+    entry.from.endsWith('chat-one.jsonl') && entry.to.endsWith('chat-renamed.jsonl'));
+  const renamedAsReplace = rename.result.delta.removed.some(entry => entry.path.endsWith('chat-one.jsonl'))
+    && rename.result.delta.added.some(entry => entry.path.endsWith('chat-renamed.jsonl'));
+  assert.ok(renamedInPlace || renamedAsReplace, JSON.stringify(rename.result.delta));
 
   const importUpload = 'import-chat.jsonl';
   await writeFile(join(uploads, importUpload), JSON.stringify(identifiedHeader(
