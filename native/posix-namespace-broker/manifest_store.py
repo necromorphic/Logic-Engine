@@ -233,10 +233,14 @@ def _validate_manifest(data: bytes) -> dict[str, Any]:
             raise StoreError("database identity aliases a directory or another role file")
         file_identity_keys.add(key)
         for sidecar in role["sidecars"]:
+            # Retired records are historical lifecycle evidence, not live namespace
+            # ownership. Their inode numbers may legitimately be reused by the OS.
+            if sidecar["state"] == "retired":
+                continue
             identity = sidecar["identity"]
             key = (identity["device"], identity["inode"], identity["mountId"])
             if key in parent_identity_keys or key in file_identity_keys:
-                raise StoreError("sidecar identity aliases a directory or another role file")
+                raise StoreError("sidecar identity aliases a directory or another live role file")
             file_identity_keys.add(key)
     return obj
 
