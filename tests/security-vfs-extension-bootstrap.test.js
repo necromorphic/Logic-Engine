@@ -47,6 +47,12 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
   const unregisteredPath = join(directory, 'unregistered.sqlite');
   assert.throws(() => new DatabaseSync(unregisteredPath),
     'an unregistered file-backed main database must fail closed');
+  assert.throws(
+    () => roleRegistrar.prepare(
+      'SELECT logic_engine_vfs_probe_delete_registered_role(?)'
+    ).get(unregisteredPath),
+    'an unregistered delete must not fall through to the parent VFS by pathname',
+  );
 
   const workerResult = await new Promise((resolve, reject) => {
     const worker = new Worker(`
