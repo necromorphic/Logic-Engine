@@ -543,7 +543,7 @@ export class HostLifecycleJournal {
   #appendRootInventoryEvent({ host_installation_id, authenticated_account_id, root_id,
     event_id, event_type, entries, manifest_sha256, delta = null, delta_sha256 = null }) {
     const existing = this.db.prepare(`
-      SELECT event_id,event_type,manifest_sha256,delta_sha256,sequence,event_sha256
+      SELECT root_id,event_id,event_type,manifest_sha256,delta_sha256,sequence,event_sha256
       FROM host_root_inventory_events
       WHERE host_installation_id=? AND authenticated_account_id=? AND event_id=?
     `).get(host_installation_id, authenticated_account_id, event_id);
