@@ -136,6 +136,119 @@ test('host inventory route passes only the authenticated user data roots and ret
   assert.equal(JSON.stringify(response.body).includes('raw-chat-message'), false);
 });
 
+test('host inventory persists the full root manifest server-side and removes only the completed baseline blockers', async () => {
+  let observed;
+  const inventory = {
+    filesystem: {
+      status: 'complete',
+      root: '/srv/st/data',
+      snapshot_sha256: 'b'.repeat(64),
+      file_count: 1,
+      total_bytes: 64,
+      entries: [{
+        path: 'chats/main.jsonl',
+        identity: { dev: '1', ino: '2', mode: 33188, size: 64, mtimeMs: 1, ctimeMs: 1 },
+        sha256: 'c'.repeat(64),
+      }],
+    },
+    source: {
+      status: 'DOUBLE_SCAN_CANDIDATE',
+      authority: 'NON_AUTHORITATIVE',
+      inventory_sha256: 'a'.repeat(64),
+      blockers: ['NO_PRE_ENROLLMENT_DELETED_HISTORY'],
+      files: [],
+    },
+    snapshot_alignment: 'SHARED_VSS_SNAPSHOT',
+  };
+  const handler = createHostInventoryHandler({
+    enumerate: async () => inventory,
+    persistRootInventory: async input => {
+      observed = input;
+      return {
+        status: 'BASELINED_REVIEW_ONLY',
+        sequence: 1,
+        manifest_sha256: 'd'.repeat(64),
+        upstream_status: 200,
+      };
+    },
+    pinnedHostCommit: pinned,
+    hostBuildClaim: pinned,
+  });
+  const response = makeResponse();
+  const directories = {
+    root: '/srv/st/data',
+    chats: '/srv/st/data/chats',
+    groups: '/srv/st/data/groups',
+    groupChats: '/srv/st/data/group chats',
+  };
+  await handler({
+    user: { profile: { handle: 'alice' }, directories },
+    session: {
+      handle: 'alice',
+      logicEngineSessionId: '2e6b0a80-4e73-4c66-aaf3-7a6e62c7f401',
+      logicEngineSessionHandle: 'alice',
+    },
+    query: { conversation_uuid: '4e6b0a80-4e73-4c66-aaf3-7a6e62c7f403' },
+  }, response);
+  assert.equal(response.statusCode, 200);
+  assert.equal(observed.userHandle, 'alice');
+  assert.equal(observed.rootPath, directories.root);
+  assert.deepEqual(observed.entries, inventory.filesystem.entries);
+  assert.ok(!response.body.blockers.includes('NO_DURABLE_FULL_ROOT_BASELINE'));
+  assert.ok(!response.body.blockers.includes('NO_FULL_ROOT_PER_FILE_DIFF'));
+  assert.equal(response.body.root_inventory_reconciliation.status, 'BASELINED_REVIEW_ONLY');
+  assert.equal(response.body.root_inventory_reconciliation.sequence, 1);
+  assert.equal(response.body.filesystem_inventory.entries, undefined);
+  assert.equal(JSON.stringify(response.body).includes('chats/main.jsonl'), false);
+});
+
+test('persisted but unexplained root drift remains an explicit NON_READY blocker', async () => {
+  const handler = createHostInventoryHandler({
+    enumerate: async () => ({
+      filesystem: {
+        status: 'complete',
+        root: '/srv/st/data',
+        snapshot_sha256: 'b'.repeat(64),
+        file_count: 1,
+        total_bytes: 64,
+        entries: [{
+          path: 'chats/main.jsonl',
+          identity: { dev: '1', ino: '2', mode: 33188, size: 64, mtimeMs: 2, ctimeMs: 2 },
+          sha256: 'c'.repeat(64),
+        }],
+      },
+      source: { status: 'DOUBLE_SCAN_CANDIDATE', authority: 'NON_AUTHORITATIVE', blockers: [], files: [] },
+      snapshot_alignment: 'SHARED_VSS_SNAPSHOT',
+    }),
+    persistRootInventory: async () => ({
+      status: 'NON_READY',
+      sequence: 2,
+      manifest_sha256: 'd'.repeat(64),
+      delta_sha256: 'e'.repeat(64),
+      counts: { added: 0, removed: 0, modified: 1, metadata_changed: 0, replaced: 0, moved: 0 },
+    }),
+    pinnedHostCommit: pinned,
+    hostBuildClaim: pinned,
+  });
+  const response = makeResponse();
+  await handler({
+    user: { profile: { handle: 'alice' }, directories: {
+      root: '/srv/st/data', chats: '/srv/st/data/chats',
+      groups: '/srv/st/data/groups', groupChats: '/srv/st/data/group chats',
+    } },
+    session: {
+      handle: 'alice', logicEngineSessionId: '2e6b0a80-4e73-4c66-aaf3-7a6e62c7f401',
+      logicEngineSessionHandle: 'alice',
+    },
+    query: { conversation_uuid: '4e6b0a80-4e73-4c66-aaf3-7a6e62c7f403' },
+  }, response);
+  assert.equal(response.statusCode, 200);
+  assert.ok(!response.body.blockers.includes('NO_DURABLE_FULL_ROOT_BASELINE'));
+  assert.ok(!response.body.blockers.includes('NO_FULL_ROOT_PER_FILE_DIFF'));
+  assert.ok(response.body.blockers.includes('ROOT_INVENTORY_DELTA_UNRESOLVED'));
+  assert.equal(response.body.root_inventory_reconciliation.delta_sha256, 'e'.repeat(64));
+});
+
 test('host inventory route filters the response to the requested conversation logical identity', async () => {
   const conversationUuid = '2e6b0a80-4e73-4c66-aaf3-7a6e62c7f401';
   const otherUuid = '3e6b0a80-4e73-4c66-aaf3-7a6e62c7f402';
