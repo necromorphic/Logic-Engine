@@ -2016,6 +2016,74 @@ static void probe_close_captured_role_identity(ProbeDatabaseRole *captured) {
 #endif
 }
 
+#if defined(__linux__)
+static void probe_bind_broker(sqlite3_context *context, int argc, sqlite3_value **argv) {
+  const unsigned char *role_name = sqlite3_value_text(argv[0]);
+  const unsigned char *socket_value = sqlite3_value_text(argv[1]);
+  ProbeDatabaseRole *role = NULL;
+  char *stored_socket = NULL;
+  int descriptor = -1;
+  uint32_t status = LEB_STATUS_INTERNAL;
+  struct stat actual;
+  int busy = 0;
+  (void)argc;
+  if (!role_name || !role_name[0] || !socket_value || !socket_value[0]
+      || socket_value[0] != '/') {
+    sqlite3_result_error(context, "role and absolute broker socket path are required", -1);
+    return;
+  }
+  stored_socket = sqlite3_mprintf("%s", (const char *)socket_value);
+  if (!stored_socket) {
+    sqlite3_result_error_nomem(context);
+    return;
+  }
+  probe_registry_lock();
+  for (int i = 0; i < g_database_role_count; ++i) {
+    if (strcmp(g_database_roles[i].role, (const char *)role_name) == 0) {
+      role = &g_database_roles[i];
+      break;
+    }
+  }
+  if (!role || role->broker_socket_path) busy = 1;
+  if (g_main_db_open_count || g_wal_open_count || g_journal_open_count) busy = 1;
+  for (int i = 0; i < PROBE_MAX_PINNED_PATHS; ++i) {
+    if (g_pinned_paths[i].file) busy = 1;
+  }
+  probe_registry_unlock();
+  if (!role || busy) {
+    sqlite3_free(stored_socket);
+    sqlite3_result_error(context, "role missing, already broker-bound, or VFS already opened files", -1);
+    return;
+  }
+  if (!probe_broker_exchange(role, stored_socket, LEB_OP_OPEN_MAIN,
+                             NULL, 1, &descriptor, &status)
+      || status != LEB_STATUS_OK || descriptor < 0
+      || fstat(descriptor, &actual) != 0
+      || actual.st_dev != role->device || actual.st_ino != role->inode) {
+    if (descriptor >= 0) close(descriptor);
+    sqlite3_free(stored_socket);
+    sqlite3_result_error(context, "broker main-file identity handshake failed", -1);
+    return;
+  }
+  close(descriptor);
+  probe_registry_lock();
+  if (role->broker_socket_path || g_main_db_open_count || g_wal_open_count
+      || g_journal_open_count) {
+    busy = 1;
+  } else {
+    role->broker_socket_path = stored_socket;
+    stored_socket = NULL;
+  }
+  probe_registry_unlock();
+  sqlite3_free(stored_socket);
+  if (busy) {
+    sqlite3_result_error(context, "VFS became active during broker binding", -1);
+    return;
+  }
+  sqlite3_result_int(context, 1);
+}
+#endif
+
 static void probe_delete_registered_role(sqlite3_context *context, int argc, sqlite3_value **argv) {
   const unsigned char *path = sqlite3_value_text(argv[0]);
   int rc;
@@ -2268,6 +2336,11 @@ static int probe_auto_extension(sqlite3 *db, char **error, const sqlite3_api_rou
   rc = sqlite3_create_function(db, "logic_engine_vfs_probe_delete_registered_role", 1,
     SQLITE_UTF8, 0, probe_delete_registered_role, 0, 0);
   if (rc != SQLITE_OK) return rc;
+#if defined(__linux__)
+  rc = sqlite3_create_function(db, "logic_engine_vfs_probe_bind_broker", 2,
+    SQLITE_UTF8, 0, probe_bind_broker, 0, 0);
+  if (rc != SQLITE_OK) return rc;
+#endif
   rc = sqlite3_create_function(db, "logic_engine_vfs_probe_hook_protection", 0,
     SQLITE_UTF8 | SQLITE_DETERMINISTIC, 0, probe_hook_protection, 0, 0);
   if (rc != SQLITE_OK) return rc;
