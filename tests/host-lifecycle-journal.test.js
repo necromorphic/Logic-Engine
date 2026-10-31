@@ -214,6 +214,7 @@ test('root inventory baseline is installation/account/root scoped and survives S
   assert.equal(verified.status, 'INTEGRITY_OK');
   assert.equal(verified.sequence, 1);
   assert.equal(verified.status === 'INTEGRITY_OK' && verified.baseline_manifest_sha256, enrolled.manifest_sha256);
+  assert.equal(reopened.enrollRootInventory(rootInput()).status, 'duplicate');
 });
 
 test('root file delta is durable, replay-idempotent and never accepted without an operation receipt', (t) => {
@@ -378,4 +379,34 @@ test('root inventory append-only events and independent head detect tampering', 
     /HOST_ROOT_INVENTORY_APPEND_ONLY/);
   journal.db.exec("UPDATE host_root_inventory_heads SET head_sha256='" + 'f'.repeat(64) + "'");
   assert.equal(journal.verifyRootInventory(rootInput()).status, 'NON_READY');
+});
+
+
+test('over-limit root drift is durably recorded and cannot disappear after a restore', (t) => {
+  const { journal } = setup(t);
+  const baseline = rootInput({ entries: [] });
+  journal.enrollRootInventory(baseline);
+  const entries = Array.from({ length: 5_001 }, (_, index) => ({
+    path: 'files/' + String(index).padStart(5, '0') + '.bin',
+    identity: {
+      dev: '1', ino: String(index + 1), mode: 33188, size: 1,
+      mtimeMs: 1, ctimeMs: 1,
+    },
+    sha256: digest('file-' + index),
+  }));
+  const observed = journal.observeRootInventory({
+    ...baseline,
+    event_id: 'root-over-limit-delta',
+    entries,
+  });
+  assert.equal(observed.status, 'NON_READY');
+  assert.equal(observed.reason, 'HOST_ROOT_INVENTORY_DELTA_LIMIT');
+  assert.equal(observed.changed_files, 5_001);
+  assert.equal(journal.verifyRootInventory(baseline).status, 'INTEGRITY_OK');
+  const restored = journal.observeRootInventory({
+    ...baseline,
+    event_id: 'root-over-limit-restored',
+  });
+  assert.equal(restored.status, 'NON_READY');
+  assert.match(restored.reason, /previously observed root inventory delta remains unresolved/);
 });
