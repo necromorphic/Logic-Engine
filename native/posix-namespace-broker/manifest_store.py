@@ -432,6 +432,8 @@ class ManifestStore:
     def _commit_locked(self, manifest_data: bytes) -> dict[str, Any]:
         _, _, generation, _ = self._load_pair()
         candidate = _validate_manifest(manifest_data)
+        if candidate["metadataRootIdentity"] != self.metadata_identity():
+            raise StoreError("new manifest metadata root identity does not match opened directory")
         if candidate["generation"] != generation + 1:
             raise StoreError("new manifest generation must be exactly current + 1")
         canonical = _canonical_json(candidate)
