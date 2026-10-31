@@ -4,6 +4,12 @@ import { SQLiteStore } from './storage/sqlite-store.js';
 import { LogicEngine } from './application/engine.js';
 import { createApiServer } from './api/server.js';
 import { HostVersionDigestLedger } from './application/host-version-digest-ledger.js';
+import { HostLifecycleJournal } from './application/host-lifecycle-journal.js';
+import {
+  parseHostRootIdentityRegistry,
+  resolveAdapterHostRootIdentity,
+  resolveRegisteredHostRootIdentity,
+} from './application/host-root-inventory-identity.js';
 import { loadTrustedWorldPackCatalog } from './application/world-pack-catalog.js';
 import { createHostBoundNpcKnowledgeAuthorizers } from './application/npc-knowledge-authorization.js';
 import { createProcessScopedMechanicPolicyAuthority, defaultMechanicPolicyFieldPolicy } from './application/mechanic-policy-authority.js';
@@ -128,6 +134,46 @@ const hostVersionLedger = new HostVersionDigestLedger({
   coordinatorPath,
   verifyInventorySnapshot: async () => false,
 });
+let hostRootIdentityRegistry;
+try {
+  hostRootIdentityRegistry = parseHostRootIdentityRegistry(process.env.ENGINE_HOST_ROOT_IDENTITIES || '[]');
+} catch (error) {
+  process.stderr.write((error?.message || 'ENGINE_HOST_ROOT_IDENTITIES is invalid.') + '\\n');
+  process.exit(1);
+}
+let hostRootInventoryJournal = null;
+let resolveHostRootIdentity = null;
+if (hostRootIdentityRegistry.length > 0) {
+  const hostLifecyclePath = process.env.ENGINE_HOST_LIFECYCLE_DB_PATH
+    ? resolve(process.env.ENGINE_HOST_LIFECYCLE_DB_PATH)
+    : resolve('./data/logic-engine-host-lifecycle.sqlite');
+  for (const [name, candidate] of [
+    ['ENGINE_HOST_LIFECYCLE_DB_PATH', hostLifecyclePath],
+    ['ENGINE_HOST_VERSION_LEDGER_DB_PATH', hostVersionLedgerPath],
+    ['ENGINE_DB_PATH', dbPath],
+    ['LOGIC_ENGINE_COORDINATOR_DB_PATH', coordinatorPath],
+  ]) {
+    if (candidate !== ':memory:' && aliasesSameFile(hostLifecyclePath, candidate)) {
+      throw new Error('ENGINE_HOST_LIFECYCLE_DB_PATH must be separate from ' + name + ', including filesystem aliases.');
+    }
+  }
+  mkdirSync(dirname(hostLifecyclePath), { recursive: true });
+  hostRootInventoryJournal = new HostLifecycleJournal({
+    path: hostLifecyclePath,
+    coordinatorPath,
+    // Raw lifecycle events remain disabled until a separate event authority
+    // resolver is wired. Root inventory has its own exact deployment allowlist.
+    resolveIdentity: input => ({
+      authorized: false,
+      host_installation_id: input.host_installation_id,
+      authenticated_account_id: input.authenticated_account_id,
+      conversation_uuid: input.conversation_uuid,
+    }),
+    resolveRootIdentity: input => resolveRegisteredHostRootIdentity(hostRootIdentityRegistry, input),
+  });
+  resolveHostRootIdentity = input => resolveAdapterHostRootIdentity(hostRootIdentityRegistry, input);
+}
+
 const server = createApiServer({
   engine: new LogicEngine(store, {
     trustedInitialKnowledgeSources, worldPackCatalog,
@@ -135,6 +181,8 @@ const server = createApiServer({
     npcKnowledgeVisibilityAuthorizer: npcKnowledgeAuthorizers.visibilityAuthorizer,
   }), token, internalToken, approvalToken, adminToken, adapterTokens,
   hostVersionLedger,
+  hostRootInventoryJournal,
+  resolveHostRootIdentity,
   mechanicPolicyAuthority,
 });
 server.listen(port, host, () => process.stdout.write(
@@ -142,6 +190,14 @@ server.listen(port, host, () => process.stdout.write(
   '\nDirect commit: ' + (internalToken ? 'enabled for internal credential' : 'disabled') +
   '\nProposal approval: ' + (approvalToken ? 'enabled' : 'disabled') + '\nAdmin registry: ' + (adminToken ? 'enabled' : 'disabled') + '\nConfigured adapters: ' + Object.keys(adapterTokens).length + '\n',
 ));
-function stop() { server.close(() => { try { hostVersionLedger.close(); } finally { store.close(); process.exit(0); } }); }
+function stop() {
+  server.close(() => {
+    try { hostRootInventoryJournal?.close(); }
+    finally {
+      try { hostVersionLedger.close(); }
+      finally { store.close(); process.exit(0); }
+    }
+  });
+}
 process.on('SIGINT', stop);
 process.on('SIGTERM', stop);
