@@ -82,6 +82,8 @@ export function resolveAdapterHostLifecycleIdentity(registry, input) {
     || !validText(input.adapterId)
     || !UUID.test(input.host_installation_id ?? '')
     || !UUID.test(input.authenticated_account_id ?? '')
+    || !UUID.test(input.host_session_id ?? '')
+    || !UUID.test(input.host_session_id ?? '')
     || !UUID.test(input.conversation_uuid ?? '')) {
     return Object.freeze({ authorized: false });
   }
@@ -92,7 +94,9 @@ export function resolveAdapterHostLifecycleIdentity(registry, input) {
     authorized: true,
     host_installation_id: match.host_installation_id,
     authenticated_account_id: match.authenticated_account_id,
+    host_session_id: input.host_session_id,
     conversation_uuid: input.conversation_uuid,
+    root_id: match.root_id,
   }) : Object.freeze({ authorized: false });
 }
 
@@ -110,6 +114,8 @@ export function resolveRegisteredHostLifecycleIdentity(registry, input) {
     authorized: true,
     host_installation_id: match.host_installation_id,
     authenticated_account_id: match.authenticated_account_id,
+    host_session_id: input.host_session_id,
     conversation_uuid: input.conversation_uuid,
+    root_id: match.root_id,
   }) : Object.freeze({ authorized: false });
 }
