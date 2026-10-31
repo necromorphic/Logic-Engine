@@ -6,7 +6,7 @@ import {
     createHostSessionHandler,
 } from './logic-engine-host-inventory-handler.mjs';
 import { HostIdentityStore } from './logic-engine-host-identity-store.mjs';
-import { createHostRootInventoryPersistence } from './logic-engine-lifecycle-proxy.mjs';
+import { createHostRootInventoryPersistence, createHostLifecycleJournalProxy } from './logic-engine-lifecycle-proxy.mjs';
 
 const PINNED_SILLYTAVERN_COMMIT = '06bde939fb1e9c4c8d8641d810f0a916b5bce127';
 
@@ -31,4 +31,7 @@ router.get('/session', createHostSessionHandler());
 
 if (identityStore) {
     router.get('/identity', createHostIdentityHandler({ identityStore }));
+    const lifecycleProxy = createHostLifecycleJournalProxy({ identityStore });
+    router.post('/host-lifecycle/events', lifecycleProxy.append);
+    router.get('/host-lifecycle/status', lifecycleProxy.status);
 }
