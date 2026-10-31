@@ -245,6 +245,62 @@ def _validate_manifest(data: bytes) -> dict[str, Any]:
     return obj
 
 
+def _validate_manifest_transition(current: dict[str, Any], candidate: dict[str, Any]) -> None:
+    """Reject manifest edits that bypass role enrollment or sidecar lifecycle."""
+    if (candidate["metadataRootIdentity"] != current["metadataRootIdentity"]
+            or candidate["filesystemPolicy"] != current["filesystemPolicy"]):
+        raise StoreError("metadata root and filesystem trust policy are immutable after enrollment")
+    old_roles = {entry["role"]: entry for entry in current["roles"]}
+    new_roles = {entry["role"]: entry for entry in candidate["roles"]}
+    if old_roles.keys() != new_roles.keys():
+        raise StoreError("role set is immutable; use privileged enrollment")
+    generation = candidate["generation"]
+    role_state_transitions = {
+        "enrolling": {"enrolling", "active", "disabled", "recovery-required"},
+        "active": {"active", "disabled", "recovery-required"},
+        "disabled": {"disabled"},
+        "recovery-required": {"recovery-required", "active", "disabled"},
+    }
+    for name, old in old_roles.items():
+        new = new_roles[name]
+        immutable_fields = ("parentComponents", "parentIdentities", "databaseBasename", "databaseIdentity")
+        if any(new[field] != old[field] for field in immutable_fields):
+            raise StoreError(f"role {name}: enrolled path and database identity are immutable")
+        if new["state"] not in role_state_transitions[old["state"]]:
+            raise StoreError(f"role {name}: invalid state transition {old['state']} -> {new['state']}")
+        old_sidecars = {entry["kind"]: entry for entry in old["sidecars"]}
+        new_sidecars = {entry["kind"]: entry for entry in new["sidecars"]}
+        if old_sidecars.keys() - new_sidecars.keys():
+            raise StoreError(f"role {name}: sidecar lifecycle records cannot be removed")
+        for kind, new_entry in new_sidecars.items():
+            old_entry = old_sidecars.get(kind)
+            if old_entry is None:
+                if new_entry["state"] != "creating" or new_entry["generation"] != generation:
+                    raise StoreError(f"role {name} {kind}: new sidecar must begin in creating state")
+                continue
+            old_state, new_state = old_entry["state"], new_entry["state"]
+            same_identity = old_entry["identity"] == new_entry["identity"]
+            if old_state == "retired" and not same_identity:
+                if new_state != "creating" or new_entry["generation"] != generation:
+                    raise StoreError(f"role {name} {kind}: replacement must begin in creating state")
+                continue
+            if not same_identity:
+                raise StoreError(f"role {name} {kind}: sidecar identity changed outside retired replacement")
+            allowed = {
+                "creating": {"creating", "active", "deleting", "retired"},
+                "active": {"active", "deleting"},
+                "deleting": {"deleting", "retired"},
+                "retired": {"retired"},
+            }
+            if new_state not in allowed[old_state]:
+                raise StoreError(f"role {name} {kind}: invalid sidecar transition {old_state} -> {new_state}")
+            if new_state == old_state:
+                if new_entry["generation"] != old_entry["generation"]:
+                    raise StoreError(f"role {name} {kind}: stable sidecar generation cannot change")
+            elif new_entry["generation"] != generation:
+                raise StoreError(f"role {name} {kind}: transition generation must match manifest generation")
+
+
 def _anchor_bytes(generation: int, digest: str) -> bytes:
     return _canonical_json({"schemaVersion": 1, "generation": generation,
                             "manifestSha256": digest})
@@ -1039,7 +1095,7 @@ class ManifestStore:
             return self._commit_locked(manifest_data)
 
     def _commit_locked(self, manifest_data: bytes) -> dict[str, Any]:
-        _, _, generation, _ = self._load_pair()
+        current, _, generation, _ = self._load_pair()
         candidate = _validate_manifest(manifest_data)
         if candidate["filesystemPolicy"]["applicationUid"] != self.application_uid:
             raise StoreError("manifest application UID does not match broker configuration")
@@ -1047,6 +1103,7 @@ class ManifestStore:
             raise StoreError("new manifest metadata root identity does not match opened directory")
         if candidate["generation"] != generation + 1:
             raise StoreError("new manifest generation must be exactly current + 1")
+        _validate_manifest_transition(current, candidate)
         canonical = _canonical_json(candidate)
         digest = hashlib.sha256(canonical).hexdigest()
         # Stage durable manifest first. Advancing the separate anchor is the commit point.
