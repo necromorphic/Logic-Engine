@@ -2,7 +2,7 @@
 
 **Status: prototype only; not production security approved.**
 
-This directory contains the incremental Linux/POSIX broker implementation required by Issue #770 / PR #839. The C `broker_server` is retained as a PING-only transport smoke test. The Python `broker_daemon.py` now verifies the persistent manifest and supports role-based descriptor opens for existing main databases and active sidecars, plus durable creation and quarantine-backed deletion of active sidecars. It does not yet delete main databases, rename entries, or fully manage SQLite files.
+This directory contains the incremental Linux/POSIX broker implementation required by Issue #770 / PR #839. The C `broker_server` is retained as a PING-only transport smoke test. The Python `broker_daemon.py` now verifies the persistent manifest and supports role-based main/sidecar descriptor opens, durable sidecar open-or-create, identity-checked access, and quarantine-backed deletion. It does not yet delete main databases, rename entries, or fully manage SQLite files.
 
 ## Build
 
@@ -54,7 +54,7 @@ application UID.
 - Peer authentication: kernel-provided `SO_PEERCRED`; request payload cannot claim an identity.
 - Fixed-size network-byte-order request and response headers.
 - Unknown operations, flags, malformed payloads and unsupported protocol versions are rejected.
-- Client-supplied ancillary descriptors are rejected. `OPEN_MAIN`, `OPEN_SIDECAR` and `CREATE_SIDECAR` return one broker-opened descriptor with outbound `SCM_RIGHTS`; `DELETE_SIDECAR` performs a manifest-backed quarantine deletion.
+- Client-supplied ancillary descriptors are rejected. `OPEN_MAIN`, `OPEN_SIDECAR`, `CREATE_SIDECAR`, `OPEN_ROLE_PARENT` and `OPEN_OR_CREATE_SIDECAR` return one broker-opened descriptor with outbound `SCM_RIGHTS`; `ACCESS_ROLE_FILE` performs a manifest identity check without returning a descriptor; `DELETE_SIDECAR` performs a manifest-backed quarantine deletion.
 - The C `broker_server` implements only `PING`; the Python daemon implements `PING`, `OPEN_MAIN`, `OPEN_SIDECAR`, `CREATE_SIDECAR` and `DELETE_SIDECAR`.
 
 
@@ -164,7 +164,7 @@ store or runs with the broker service UID.
 
 The `recovery-plan` command provides an inspect-only sidecar recovery pass. It verifies database and parent identities, checks declared WAL/SHM/journal entries against opened-file identities, and rejects unmanifested sidecars or duplicate sidecar kinds. For interrupted creating/deleting states it reports presence and a possible manifest transition. It never deletes, renames, checkpoints, or opens a database through SQLite. A still-present deleting sidecar is retained and requires SQLite-aware recovery; the planner does not infer that unlinking a WAL or journal is safe.
 
-The broker operation set remains incomplete: main-file creation/deletion, ACCESS/RENAME, SQLite VFS integration and automatic crash-time namespace mutation recovery are not implemented. Sidecar deletion is implemented as a role-scoped quarantine operation. A successful verification is a point-in-time integrity check, not a lease preventing later mutation. The OS ownership boundary must keep the application from mutating these directories after verification.
+The broker operation set remains incomplete: main-file creation/deletion, RENAME, broker-first role enrollment, production cross-UID socket policy, complete SQLite VFS coverage and automatic crash-time namespace mutation recovery are not implemented. Sidecar deletion is implemented as a role-scoped quarantine operation. A successful verification is a point-in-time integrity check, not a lease preventing later mutation. The OS ownership boundary must keep the application from mutating these directories after verification.
 
 Run the manifest-store tests with:
 
@@ -220,8 +220,8 @@ This remains an incomplete broker/VFS increment. It does not yet implement:
 
 - a dedicated service account, service manager integration or authenticated administrative enrollment;
 - a platform-backed monotonic anti-rollback anchor;
-- `CREATE_SIDECAR`, `ACCESS`, `RENAME`, `SYNC_DIR` and durable sidecar creation transitions;
-- integration of broker-returned descriptors into the SQLite VFS;
+- main-file creation/deletion, `RENAME`, `SYNC_DIR` and complete crash/restart sidecar reconciliation;
+- full SQLite VFS integration on Windows and production cross-UID Linux deployment; Linux main/sidecar open/access/delete is now an opt-in partial path;
 - complete protected directory ownership and namespace mutation policy;
 - SQLite VFS integration, locking, WAL/SHM or recovery;
 - Windows support.
