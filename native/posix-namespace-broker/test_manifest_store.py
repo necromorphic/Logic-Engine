@@ -165,13 +165,23 @@ class ManifestStoreTests(unittest.TestCase):
         }
         value["roles"][0]["sidecars"] = [{
             "kind": "wal", "identity": identity,
-            "state": "retired", "generation": 2
+            "state": "creating", "generation": 2
         }]
         self.store.commit(_canonical_json(value))
         value = json.loads(_canonical_json(self.store.load()))
         value["generation"] = 3
-        value["roles"][0]["sidecars"][0]["state"] = "creating"
+        value["roles"][0]["sidecars"][0]["state"] = "deleting"
         value["roles"][0]["sidecars"][0]["generation"] = 3
+        self.store.commit(_canonical_json(value))
+        value = json.loads(_canonical_json(self.store.load()))
+        value["generation"] = 4
+        value["roles"][0]["sidecars"][0]["state"] = "retired"
+        value["roles"][0]["sidecars"][0]["generation"] = 4
+        self.store.commit(_canonical_json(value))
+        value = json.loads(_canonical_json(self.store.load()))
+        value["generation"] = 5
+        value["roles"][0]["sidecars"][0]["state"] = "creating"
+        value["roles"][0]["sidecars"][0]["generation"] = 5
         self.store.commit(_canonical_json(value))
         self.assertEqual(self.store.load()["roles"][0]["sidecars"][0]["state"], "creating")
 
@@ -285,9 +295,13 @@ class ManifestStoreTests(unittest.TestCase):
         value["generation"] = 2
         value["roles"][0]["sidecars"] = [
             {"kind": "wal", "identity": wal_identity, "state": "creating", "generation": 2},
-            {"kind": "shm", "identity": shm_identity, "state": "deleting", "generation": 2},
+            {"kind": "shm", "identity": shm_identity, "state": "creating", "generation": 2},
         ]
         self.store.initialize(self.data(1))
+        self.store.commit(_canonical_json(value))
+        value["generation"] = 3
+        value["roles"][0]["sidecars"][1]["state"] = "deleting"
+        value["roles"][0]["sidecars"][1]["generation"] = 3
         self.store.commit(_canonical_json(value))
 
         plan = self.store.plan_recovery()
@@ -321,20 +335,22 @@ class ManifestStoreTests(unittest.TestCase):
         value = json.loads(self.data(1))
         value["generation"] = 2
         value["roles"][0]["sidecars"] = [{
-            "kind": "wal",
-            "identity": wal_identity,
-            "state": "deleting",
-            "generation": 2,
+            "kind": "wal", "identity": wal_identity,
+            "state": "creating", "generation": 2,
         }]
         self.store.initialize(self.data(1))
         self.store.commit(_canonical_json(value))
+        value["generation"] = 3
+        value["roles"][0]["sidecars"][0]["state"] = "deleting"
+        value["roles"][0]["sidecars"][0]["generation"] = 3
+        self.store.commit(_canonical_json(value))
 
         result = self.store.retire_absent_sidecars()
-        self.assertEqual(result["generation"], 3)
+        self.assertEqual(result["generation"], 4)
         self.assertEqual(result["roles"][0]["sidecars"][0]["state"], "retired")
-        self.assertEqual(result["roles"][0]["sidecars"][0]["generation"], 3)
+        self.assertEqual(result["roles"][0]["sidecars"][0]["generation"], 4)
         self.assertFalse(wal.exists())
-        self.assertEqual(self.store.load()["generation"], 3)
+        self.assertEqual(self.store.load()["generation"], 4)
 
     def test_reconcile_does_not_retire_present_transitional_sidecar(self):
         wal = self.role_parent / "core.sqlite-wal"
@@ -350,16 +366,18 @@ class ManifestStoreTests(unittest.TestCase):
         value = json.loads(self.data(1))
         value["generation"] = 2
         value["roles"][0]["sidecars"] = [{
-            "kind": "wal",
-            "identity": wal_identity,
-            "state": "deleting",
-            "generation": 2,
+            "kind": "wal", "identity": wal_identity,
+            "state": "creating", "generation": 2,
         }]
         self.store.initialize(self.data(1))
         self.store.commit(_canonical_json(value))
+        value["generation"] = 3
+        value["roles"][0]["sidecars"][0]["state"] = "deleting"
+        value["roles"][0]["sidecars"][0]["generation"] = 3
+        self.store.commit(_canonical_json(value))
 
         result = self.store.retire_absent_sidecars()
-        self.assertEqual(result["generation"], 2)
+        self.assertEqual(result["generation"], 3)
         self.assertEqual(result["roles"][0]["sidecars"][0]["state"], "deleting")
         self.assertTrue(wal.exists())
 
