@@ -238,6 +238,26 @@ export class HostLifecycleReceiptStore {
       || path.isAbsolute(relativeTarget)) throw new Error('HOST_LIFECYCLE_RECEIPT_TARGET_OUTSIDE_ROOT');
     const targetPath = relativeTarget.split(path.sep).join('/');
     const rootEntries = inventory.filesystem.entries;
+    const rootEntriesByPath = new Map(rootEntries.map(entry => [entry.path, entry]));
+    for (const sourceFile of inventory.source.files) {
+      const sourceRoot = sourceFile.kind === 'group-chat' ? directories.groupChats
+        : sourceFile.kind === 'group-metadata' ? directories.groups
+          : ['root-chat', 'character-chat'].includes(sourceFile.kind) ? directories.chats : null;
+      if (!sourceRoot || typeof sourceFile.locator !== 'string' || !sourceFile.locator
+        || sourceFile.locator.includes('\\')
+        || sourceFile.locator.split('/').some(part => !part || part === '.' || part === '..')) {
+        throw new Error('HOST_LIFECYCLE_RECEIPT_SOURCE_LOCATOR_INVALID');
+      }
+      const sourceAbsolute = path.resolve(sourceRoot, ...sourceFile.locator.split('/'));
+      const sourceRelative = path.relative(path.resolve(directories.root), sourceAbsolute);
+      if (!sourceRelative || sourceRelative === '..' || sourceRelative.startsWith('..' + path.sep)
+        || path.isAbsolute(sourceRelative)) throw new Error('HOST_LIFECYCLE_RECEIPT_SOURCE_OUTSIDE_ROOT');
+      const rootEntry = rootEntriesByPath.get(sourceRelative.split(path.sep).join('/'));
+      if (!rootEntry || rootEntry.sha256 !== sourceFile.content_sha256
+        || rootEntry.identity?.dev + ':' + rootEntry.identity?.ino !== sourceFile.file_identity) {
+        throw new Error('HOST_LIFECYCLE_RECEIPT_SOURCE_FILESYSTEM_SCAN_MISMATCH');
+      }
+    }
     const targetRootEntries = rootEntries.filter(entry => entry.path === targetPath);
     if (targetRootEntries.length !== 1) throw new Error('HOST_LIFECYCLE_RECEIPT_TARGET_FILE_MISSING');
     const targetRootEntry = targetRootEntries[0];
