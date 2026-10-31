@@ -1465,6 +1465,18 @@ static int probe_xDelete(sqlite3_vfs *vfs, const char *name, int sync_dir) {
   const char *suffix = 0;
   if (name && probe_match_role_entry(name, &role_index, &suffix)) {
     ProbeDatabaseRole *role = &g_database_roles[role_index];
+#if defined(__linux__)
+    if (suffix[0] != '\0' && role->broker_socket_path) {
+      const char *kind = strcmp(suffix, "-wal") == 0 ? "wal"
+        : strcmp(suffix, "-shm") == 0 ? "shm"
+        : strcmp(suffix, "-journal") == 0 ? "journal" : NULL;
+      uint32_t status = LEB_STATUS_INTERNAL;
+      if (!kind || !probe_broker_exchange(role, role->broker_socket_path,
+            LEB_OP_DELETE_SIDECAR, kind, 0, NULL, &status)
+          || status != LEB_STATUS_OK) return SQLITE_IOERR_DELETE;
+      return SQLITE_OK;
+    }
+#endif
     char relative_name[4096];
     size_t base_length = strlen(role->basename);
     size_t suffix_length = strlen(suffix);
