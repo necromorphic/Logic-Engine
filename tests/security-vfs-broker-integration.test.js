@@ -29,8 +29,14 @@ test('Linux SQLite VFS obtains main and sidecar descriptors from the authenticat
   });
   t.after(async () => {
     if (broker.exitCode === null && !broker.killed) {
+      const exited = once(broker, 'exit');
       broker.kill('SIGTERM');
-      await Promise.race([once(broker, 'exit'), delay(1000)]);
+      await Promise.race([exited, delay(1000)]);
+      if (broker.exitCode === null) {
+        const forcedExit = once(broker, 'exit');
+        broker.kill('SIGKILL');
+        await forcedExit;
+      }
     }
     rmSync(directory, { recursive: true, force: true });
   });
