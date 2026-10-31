@@ -58,4 +58,4 @@ This is only the first transport increment. It does not yet implement:
 - SQLite VFS integration, locking, WAL/SHM or recovery;
 - Windows support.
 
-The server processes one accepted connection at a time. It is a protocol skeleton, not a hardened production daemon. Do not point Logic-Engine or any production database at it.
+The server processes one accepted connection at a time and applies a one-second receive deadline to each accepted client so an idle peer cannot hold the request loop indefinitely. It is a protocol skeleton, not a hardened production daemon. Do not point Logic-Engine or any production database at it.
