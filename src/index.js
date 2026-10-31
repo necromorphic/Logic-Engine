@@ -134,6 +134,7 @@ const server = createApiServer({
     npcKnowledgeContextResolver: npcKnowledgeAuthorizers.resolveContext,
     npcKnowledgePolicyAuthority: npcKnowledgeAuthorizers.policyAuthority,
     npcKnowledgeReadAuthorizer: npcKnowledgeAuthorizers.readAuthorizer,
+    npcKnowledgeWriteAuthorizer: npcKnowledgeAuthorizers.writeAuthorizer,
     npcKnowledgeVisibilityAuthorizer: npcKnowledgeAuthorizers.visibilityAuthorizer,
   }), token, internalToken, approvalToken, adminToken, adapterTokens,
   hostVersionLedger,
