@@ -268,7 +268,8 @@
         },
         "required": [
           "platform"
-        ]
+        ],
+        "type": "object"
       },
       "then": {
         "properties": {
@@ -303,7 +304,8 @@
             },
             "type": "array"
           }
-        }
+        },
+        "type": "object"
       }
     },
     {
@@ -315,7 +317,8 @@
         },
         "required": [
           "platform"
-        ]
+        ],
+        "type": "object"
       },
       "then": {
         "properties": {
@@ -350,7 +353,8 @@
             },
             "type": "array"
           }
-        }
+        },
+        "type": "object"
       }
     }
   ]
