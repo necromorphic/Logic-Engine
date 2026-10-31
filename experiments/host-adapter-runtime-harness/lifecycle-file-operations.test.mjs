@@ -394,7 +394,7 @@ test('pinned ST 1.19.0 chat create/edit/swipe/delete/import/export/restore mutat
     const response = await post('/api/chats/group/import', {}, { 'x-harness-upload': groupUpload });
     assert.equal(response.status, 200, JSON.stringify(response));
     assert.equal(typeof response.result.res, 'string');
-    importedGroupChatId = response.result.res.replace(/\\.jsonl$/i, '');
+    importedGroupChatId = response.result.res.replace(/\.jsonl$/i, '');
     await writeFile(groupMetadataPath, JSON.stringify({
       id: 'group-harness',
       chats: [importedGroupChatId],
