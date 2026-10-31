@@ -239,11 +239,13 @@ function validateEvent(event) {
  * authorization and mutation-receipt contracts are implemented.
  */
 export class HostLifecycleJournal {
-  constructor({ path, coordinatorPath, resolveIdentity, resolveRootIdentity = null }) {
+  constructor({ path, coordinatorPath, resolveIdentity, resolveRootIdentity = null, verifyMutationReceipt = () => false }) {
     if (!validText(path) || !isAbsolute(path) || path === ':memory:'
       || !validText(coordinatorPath) || !isAbsolute(coordinatorPath)
       || typeof resolveIdentity !== 'function' || isProxy(resolveIdentity)
       || Object.getPrototypeOf(resolveIdentity) === Object.getPrototypeOf(async function () {})
+      || typeof verifyMutationReceipt !== 'function' || isProxy(verifyMutationReceipt)
+      || Object.getPrototypeOf(verifyMutationReceipt) === Object.getPrototypeOf(async function () {})
       || (resolveRootIdentity !== null && (typeof resolveRootIdentity !== 'function'
         || isProxy(resolveRootIdentity)
         || Object.getPrototypeOf(resolveRootIdentity) === Object.getPrototypeOf(async function () {})))) {
@@ -252,6 +254,7 @@ export class HostLifecycleJournal {
     if (aliasesSameFile(path, coordinatorPath)) throw new Error('HOST_JOURNAL_COORDINATOR_PATH_ALIAS');
     this.resolveIdentity = resolveIdentity;
     this.resolveRootIdentity = resolveRootIdentity;
+    this.verifyMutationReceipt = verifyMutationReceipt;
     this.coordinator = openCoordinatorDatabase(coordinatorPath);
     this.db = null;
     let release = null;
@@ -461,6 +464,15 @@ export class HostLifecycleJournal {
             || intent.snapshot_fingerprint !== event.snapshot_fingerprint) {
             throw new Error('HOST_LIFECYCLE_INTENT_DIGEST_MISMATCH');
           }
+          let receiptVerified = false;
+          try {
+            receiptVerified = this.verifyMutationReceipt({
+              event,
+              prepared: intent,
+              identity,
+            }) === true;
+          } catch {}
+          if (!receiptVerified) throw new Error('HOST_LIFECYCLE_RECEIPT_MISMATCH');
         }
       }
 
