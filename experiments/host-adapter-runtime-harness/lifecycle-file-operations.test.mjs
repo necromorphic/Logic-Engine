@@ -455,8 +455,9 @@ test('pinned ST 1.19.0 chat create/edit/swipe/delete/import/export/restore mutat
     directories,
     hostCommit: expectedSha,
   });
-  assert.equal(diagnosticInventory.source.status, 'complete',
+  assert.equal(diagnosticInventory.source.status, 'DOUBLE_SCAN_CANDIDATE',
     JSON.stringify(diagnosticInventory.source));
+  assert.equal(diagnosticInventory.source.authority, 'NON_AUTHORITATIVE');
   const inventory = await get('/api/logic-engine/host/inventory?conversation_uuid=aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
   assert.equal(inventory.status, 200, JSON.stringify(inventory.result));
   assert.equal(inventory.result.filesystem_inventory.status, 'complete');
