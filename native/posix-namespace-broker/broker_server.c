@@ -123,7 +123,7 @@ static void serve_client(int fd) {
     message.msg_controllen = sizeof(control);
 
     {
-        const struct timeval receive_timeout = { .tv_sec = 2, .tv_usec = 0 };
+        const struct timeval receive_timeout = { .tv_sec = 1, .tv_usec = 0 };
         if (setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &receive_timeout,
                        sizeof(receive_timeout)) != 0) return;
     }
