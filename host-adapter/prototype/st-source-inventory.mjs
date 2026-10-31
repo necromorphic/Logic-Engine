@@ -405,9 +405,17 @@ async function enumeratePinnedSillyTavernChatFilesInternal({
     physicalFiles.add(record.identity);
     totalBytes += BigInt(record.size);
     if (totalBytes > BigInt(MAX_TOTAL_BYTES)) fail('SOURCE_INVENTORY_SIZE_LIMIT');
-    const logicalIdentity = ['root-chat', 'character-chat', 'group-chat'].includes(kind)
-      ? parseChatJsonlIdentity(record.bytes, logicalIdentitySeen)
-      : null;
+    let logicalIdentity = null;
+    if (['root-chat', 'character-chat', 'group-chat'].includes(kind)) {
+      try {
+        logicalIdentity = parseChatJsonlIdentity(record.bytes, logicalIdentitySeen);
+      } catch (error) {
+        if (error instanceof HostSourceInventoryError) {
+          error.message = error.code + ':' + kind + ':' + locator;
+        }
+        throw error;
+      }
+    }
     files.push({
       kind,
       locator,
