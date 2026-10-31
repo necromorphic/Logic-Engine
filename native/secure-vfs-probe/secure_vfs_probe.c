@@ -1586,7 +1586,7 @@ static int probe_xOpen(sqlite3_vfs *vfs, const char *name, sqlite3_file *file,
   int requires_broker_fd = name
     && probe_match_role_entry(name, &role_index, &suffix)
     && role_index >= 0 && g_database_roles[role_index].broker_socket_path
-    && (flags & (SQLITE_OPEN_MAIN_DB | SQLITE_OPEN_MAIN_JOURNAL)) != 0;
+    && (flags & (SQLITE_OPEN_MAIN_DB | SQLITE_OPEN_MAIN_JOURNAL | SQLITE_OPEN_WAL)) != 0;
   memset(backend, 0, PROBE_PARENT_FILE_OFFSET);
   backend->broker_fd = -1;
   g_current_broker_fd = -1;
