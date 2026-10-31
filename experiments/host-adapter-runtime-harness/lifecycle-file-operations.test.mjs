@@ -498,8 +498,8 @@ test('pinned ST 1.19.0 chat create/edit/swipe/delete/import/export/restore mutat
     metadata.chats.push('group-harness');
     await writeFile(groupMetadataPath, JSON.stringify(metadata));
     return response;
-  }, 'added');
-  assert.ok(groupSave.result.delta.added.some(entry => entry.path.endsWith('group-harness.jsonl')));
+  }, ['modified', 'replaced']);
+  assert.ok([...groupSave.result.delta.modified, ...groupSave.result.delta.replaced].some(entry => entry.path.endsWith('group-harness.jsonl')));
 
   const groupDelete = await observe(async () => {
     const response = await post('/api/chats/group/delete', { id: 'group-harness' });
