@@ -181,13 +181,13 @@ int main(int argc, char **argv) {
     errno = 0;
     parsed_uid = strtoul(argv[4], &end, 10);
     if (errno != 0 || end == argv[4] || *end != '\0' ||
-        parsed_uid > (unsigned long)(uid_t)-1) {
+        parsed_uid > (unsigned long)((uid_t)-1)) {
         fprintf(stderr, "invalid --app-uid\n");
         return 2;
     }
     allowed_uid = (uid_t)parsed_uid;
 
-    if (strlen(argv[2]) >= sizeof(socket_path) ||
+    if (argv[2][0] != '/' || strlen(argv[2]) >= sizeof(socket_path) ||
         validate_socket_directory(argv[2]) != 0) {
         fprintf(stderr, "socket parent must be an existing broker-owned directory without group/other write permission\n");
         return 2;
@@ -198,7 +198,7 @@ int main(int argc, char **argv) {
         return 2;
     }
 
-    listener_fd = socket(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0);
+    umask(0077);\n    listener_fd = socket(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0);
     if (listener_fd < 0) {
         perror("socket");
         return 1;
