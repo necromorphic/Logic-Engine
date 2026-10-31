@@ -416,17 +416,21 @@ test('pinned ST 1.19.0 chat create/edit/swipe/delete/import/export/restore mutat
     messageId: '22222222-2222-4222-8222-222222222222',
     versionId: '33333333-3333-4333-8333-333333333333',
   })) + '\n');
-  const imported = await observe(async () => {
-    const response = await post('/api/chats/import', {
-      file_type: 'jsonl', avatar_url: 'Harness Character.png',
-      user_name: 'Harness User', character_name: 'Harness Character',
-    }, { 'x-harness-upload': importUpload, 'x-harness-operation': 'import' });
-    assert.equal(response.status, 200, JSON.stringify(response));
-    assert.equal(response.result.res, true);
-    assert.equal(response.result.fileNames.length, 1);
-    return response;
-  }, 'added');
-  assert.ok(imported.result.delta.added.some(entry => entry.path.startsWith('chats/Harness Character/')));
+  const chatFilesBeforeImport = (await readdir(join(directories.chats, 'Harness Character'))).sort();
+  const journalEventsBeforeImport = journal.db.prepare(
+    'SELECT COUNT(*) AS count FROM host_root_inventory_events'
+  ).get().count;
+  const imported = await post('/api/chats/import', {
+    file_type: 'jsonl', avatar_url: 'Harness Character.png',
+    user_name: 'Harness User', character_name: 'Harness Character',
+  }, { 'x-harness-upload': importUpload, 'x-harness-operation': 'import' });
+  assert.equal(imported.status, 409, JSON.stringify(imported));
+  assert.equal(imported.result.code, 'HOST_LIFECYCLE_BULK_MUTATION_BLOCKED');
+  assert.deepEqual((await readdir(join(directories.chats, 'Harness Character'))).sort(), chatFilesBeforeImport,
+    'blocked bulk import must not create or alter chat files');
+  assert.equal(journal.db.prepare(
+    'SELECT COUNT(*) AS count FROM host_root_inventory_events'
+  ).get().count, journalEventsBeforeImport, 'blocked import must not append a filesystem event');
 
   const backupName = 'chat_harness_restore.jsonl';
   await writeFile(join(directories.backups, backupName), JSON.stringify(identifiedHeader(
@@ -436,20 +440,25 @@ test('pinned ST 1.19.0 chat create/edit/swipe/delete/import/export/restore mutat
     messageId: '44444444-4444-4444-8444-444444444444',
     versionId: '55555555-5555-4555-8555-555555555555',
   })) + '\n');
-  const restored = await observe(async () => {
-    const download = await post('/api/backups/chat/download', { name: backupName });
-    assert.equal(download.status, 200);
-    const restoreUpload = 'restore-chat.jsonl';
-    await writeFile(join(uploads, restoreUpload), download.result);
-    const response = await post('/api/chats/import', {
-      file_type: 'jsonl', avatar_url: 'Harness Character.png',
-      user_name: 'Harness User', character_name: 'Harness Character',
-    }, { 'x-harness-upload': restoreUpload, 'x-harness-operation': 'restore' });
-    assert.equal(response.status, 200, JSON.stringify(response));
-    assert.equal(response.result.res, true);
-    return response;
-  }, 'added');
-  assert.ok(restored.result.delta.added.some(entry => entry.path.startsWith('chats/Harness Character/')));
+  const restoreDownload = await post('/api/backups/chat/download', { name: backupName });
+  assert.equal(restoreDownload.status, 200);
+  const restoreUpload = 'restore-chat.jsonl';
+  await writeFile(join(uploads, restoreUpload), restoreDownload.result);
+  const chatFilesBeforeRestore = (await readdir(join(directories.chats, 'Harness Character'))).sort();
+  const journalEventsBeforeRestore = journal.db.prepare(
+    'SELECT COUNT(*) AS count FROM host_root_inventory_events'
+  ).get().count;
+  const restored = await post('/api/chats/import', {
+    file_type: 'jsonl', avatar_url: 'Harness Character.png',
+    user_name: 'Harness User', character_name: 'Harness Character',
+  }, { 'x-harness-upload': restoreUpload, 'x-harness-operation': 'restore' });
+  assert.equal(restored.status, 409, JSON.stringify(restored));
+  assert.equal(restored.result.code, 'HOST_LIFECYCLE_BULK_MUTATION_BLOCKED');
+  assert.deepEqual((await readdir(join(directories.chats, 'Harness Character'))).sort(), chatFilesBeforeRestore,
+    'blocked backup restore must not create or alter chat files');
+  assert.equal(journal.db.prepare(
+    'SELECT COUNT(*) AS count FROM host_root_inventory_events'
+  ).get().count, journalEventsBeforeRestore, 'blocked restore must not append a filesystem event');
 
   const groupUpload = 'group-chat.jsonl';
   await writeFile(join(uploads, groupUpload), JSON.stringify(identifiedHeader(
