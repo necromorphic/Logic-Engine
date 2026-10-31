@@ -226,7 +226,7 @@ export class HostLifecycleReceiptStore {
     } finally { await handle?.close().catch(() => {}); }
   }
 
-  async #writeOnce(filePath, record) {
+  async #writeOnce(filePath, record, duplicateMatches = existing => canonical(existing) === canonical(record)) {
     const encoded = canonical(record);
     if (Buffer.byteLength(encoded) > MAX_RECORD_BYTES) throw new Error('HOST_LIFECYCLE_RECEIPT_RECORD_TOO_LARGE');
     let handle;
@@ -241,7 +241,12 @@ export class HostLifecycleReceiptStore {
     } catch (error) {
       if (error?.code !== 'EEXIST') throw error;
       const existing = await this.#read(filePath);
-      if (!existing || canonical(existing) !== encoded) throw new Error('HOST_LIFECYCLE_RECEIPT_CONFLICT');
+      if (!existing || !duplicateMatches(existing)) {
+        if (existing?.event_type && record.event_type && existing.event_type !== record.event_type) {
+          throw new Error('HOST_LIFECYCLE_RECEIPT_TERMINAL_CONFLICT');
+        }
+        throw new Error('HOST_LIFECYCLE_RECEIPT_CONFLICT');
+      }
       return { status: 'duplicate', record: existing };
     } finally { await handle?.close().catch(() => {}); }
   }
@@ -356,7 +361,12 @@ export class HostLifecycleReceiptStore {
       occurred_at: scope.occurred_at,
       before,
     };
-    const result = await this.#writeOnce(filePath, record);
+    const result = await this.#writeOnce(filePath, record, existing =>
+      existing.schema_version === record.schema_version
+      && existing.event_id === record.event_id
+      && existing.operation === record.operation
+      && existing.mutation_digest === record.mutation_digest
+      && canonical(existing.before) === canonical(record.before));
     return { status: result.status, prepared: result.record };
   }
 
@@ -426,8 +436,13 @@ export class HostLifecycleReceiptStore {
       occurred_at: scope.occurred_at,
       receipt,
     };
-    await this.#writeOnce(terminalPath, record);
-    return { status: 'appended', receipt_digest: receiptDigest, occurred_at: record.occurred_at };
+    const stored = await this.#writeOnce(terminalPath, record, existing =>
+      existing.schema_version === record.schema_version
+      && existing.event_type === record.event_type
+      && existing.event_id === record.event_id
+      && existing.receipt_digest === record.receipt_digest
+      && canonical(existing.receipt) === canonical(record.receipt));
+    return { status: stored.status, receipt_digest: stored.record.receipt_digest, occurred_at: stored.record.occurred_at };
   }
 
   async recover(scope, directories) {
@@ -533,14 +548,20 @@ export class HostLifecycleReceiptStore {
       outcome: 'VERIFIED_NO_CHANGE',
     };
     const receiptDigest = sha256(Buffer.from(canonical(receipt), 'utf8'));
-    await this.#writeOnce(terminalPath, {
+    const record = {
       schema_version: 1,
       event_type: 'MUTATION_ABORTED',
       event_id: scope.event_id,
       receipt_digest: receiptDigest,
       occurred_at: scope.occurred_at,
       receipt,
-    });
-    return { status: 'appended', receipt_digest: receiptDigest, occurred_at: scope.occurred_at };
+    };
+    const stored = await this.#writeOnce(terminalPath, record, existing =>
+      existing.schema_version === record.schema_version
+      && existing.event_type === record.event_type
+      && existing.event_id === record.event_id
+      && existing.receipt_digest === record.receipt_digest
+      && canonical(existing.receipt) === canonical(record.receipt));
+    return { status: stored.status, receipt_digest: stored.record.receipt_digest, occurred_at: stored.record.occurred_at };
   }
 }
