@@ -125,6 +125,24 @@ class ManifestStoreTests(unittest.TestCase):
         self.assertCountEqual(outcomes, ["committed", "rejected"])
         self.assertEqual(self.store.load()["generation"], 2)
 
+    def test_rejects_commit_for_different_metadata_root(self):
+        self.store.initialize(self.data(1))
+        other = self.manifest_root.parent / "other-metadata-root"
+        other.mkdir(mode=0o700)
+        os.chmod(other, 0o700)
+        other_fd = os.open(other, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+        try:
+            other_identity = fd_identity(other_fd)
+        finally:
+            os.close(other_fd)
+        candidate = self.data(2)
+        import json
+        value = json.loads(candidate)
+        value["metadataRootIdentity"] = other_identity
+        with self.assertRaises(StoreError):
+            self.store.commit(_canonical_json(value))
+        self.assertEqual(self.store.load()["generation"], 1)
+
     def test_rejects_generation_skip(self):
         self.store.initialize(self.data(1))
         with self.assertRaises(StoreError):
