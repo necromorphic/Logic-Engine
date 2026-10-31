@@ -3,6 +3,7 @@
 
 #include <arpa/inet.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <limits.h>
 #include <signal.h>
 #include <stddef.h>
@@ -237,7 +238,7 @@ int main(int argc, char **argv) {
 
     if (argv[2][0] != '/' || strlen(argv[2]) >= sizeof(socket_path) ||
         validate_socket_directory(argv[2], allowed_uid) != 0) {
-        fprintf(stderr, "socket parent must be an existing broker-owned directory without group/other write permission\n");
+        fprintf(stderr, "socket parent path must contain no symlinks or application-writable ancestors and end in a broker-owned directory\n");
         return 2;
     }
     strcpy(socket_path, argv[2]);
