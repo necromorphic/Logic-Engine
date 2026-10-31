@@ -117,6 +117,18 @@ int main(void) {
     assert(result == LEB_QUARANTINE_RETAINED);
     assert(fstatat(parent_fd, "retained.db", &st, AT_SYMLINK_NOFOLLOW) != 0 && errno == ENOENT);
 
+    /* Failure of the second sync is also fail-closed and keeps the file. */
+    write_file_at(parent_fd, "retained-parent-sync.db", "retained-parent-sync");
+    expected = identity_at(parent_fd, "retained-parent-sync.db");
+    injected_fsync_call = 0;
+    injected_fsync_failure_at = 2;
+    result = leb_quarantine_delete_at_test(parent_fd, quarantine_fd,
+                                           "retained-parent-sync.db", &expected,
+                                           real_renameat2, injected_fsync);
+    assert(result == LEB_QUARANTINE_RETAINED);
+    assert(fstatat(parent_fd, "retained-parent-sync.db", &st, AT_SYMLINK_NOFOLLOW) != 0 &&
+           errno == ENOENT);
+
     /* A post-unlink sync failure is explicitly an uncertain durability result. */
     write_file_at(parent_fd, "uncertain.db", "uncertain");
     expected = identity_at(parent_fd, "uncertain.db");
@@ -131,6 +143,10 @@ int main(void) {
     write_file_at(parent_fd, "mode-check.db", "mode");
     expected = identity_at(parent_fd, "mode-check.db");
     assert(fchmod(quarantine_fd, 0500) == 0);
+    result = leb_quarantine_delete_at(parent_fd, quarantine_fd, "mode-check.db", &expected);
+    assert(result == LEB_QUARANTINE_ERROR);
+    assert(fchmod(quarantine_fd, 0700) == 0);
+    assert(fchmod(quarantine_fd, 01700) == 0);
     result = leb_quarantine_delete_at(parent_fd, quarantine_fd, "mode-check.db", &expected);
     assert(result == LEB_QUARANTINE_ERROR);
     assert(fchmod(quarantine_fd, 0700) == 0);
@@ -210,6 +226,6 @@ int main(void) {
     close(quarantine_fd);
     close(root_fd);
     assert(rmdir(root) == 0);
-    puts("POSIX quarantine delete tests: PASS (identity match, deterministic name-swap race, hard-link, symlink)");
+    puts("POSIX quarantine delete tests: PASS (identity, name-swap race, fsync failures, directory policy, hard-link, symlink)");
     return 0;
 }
