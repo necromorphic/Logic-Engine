@@ -827,7 +827,34 @@ static int probe_open(const char *name, int flags, int mode) {
 #endif
   }
   if (has_anchor) {
-    fd = probe_open_anchored(anchored_role_index, anchored_suffix, flags, mode);
+#if defined(__linux__)
+    ProbeDatabaseRole *role = &g_database_roles[anchored_role_index];
+    if (role->broker_socket_path) {
+      uint16_t operation = LEB_OP_OPEN_MAIN;
+      const char *kind = NULL;
+      uint32_t status = LEB_STATUS_INTERNAL;
+      if (anchored_suffix[0] != '\0') {
+        if (strcmp(anchored_suffix, "-wal") == 0) kind = "wal";
+        else if (strcmp(anchored_suffix, "-shm") == 0) kind = "shm";
+        else if (strcmp(anchored_suffix, "-journal") == 0) kind = "journal";
+        else {
+          errno = EACCES;
+          return -1;
+        }
+        operation = LEB_OP_OPEN_OR_CREATE_SIDECAR;
+      }
+      if (!probe_broker_exchange(role, role->broker_socket_path, operation,
+                                 kind, 1, &fd, &status)
+          || status != LEB_STATUS_OK || fd < 0) {
+        if (fd >= 0) close(fd);
+        errno = EACCES;
+        return -1;
+      }
+    } else
+#endif
+    {
+      fd = probe_open_anchored(anchored_role_index, anchored_suffix, flags, mode);
+    }
   } else {
     fd = ((probe_open_fn)g_original_open_syscall)(name, flags, mode);
   }
