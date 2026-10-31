@@ -61,6 +61,14 @@ Every accepted lifecycle event is bound to this immutable trusted snapshot:
 
 The existing MechanicPolicyAuthority is a field-visibility policy authority, not a Host storage authority. Do not reuse or relabel it. The lifecycle implementation must connect to the deployment-owned Host root registry and durable root-inventory head. If no accepted trusted root head exists, return NON_READY rather than fabricate one.
 
+### 3.3 Durable root inventory reconciliation
+
+- The first complete digest-only scan is an immutable `BASELINE`.
+- Each subsequent `DELTA_OBSERVED` or `DELTA_LIMIT_EXCEEDED` compares the new manifest with the immediately preceding durable manifest, not repeatedly with the original baseline. This preserves file-level add, modify, metadata-change, replace, move and delete transitions across successive operations.
+- Every observation stores the complete bounded digest-only manifest and its transition delta in the same append-only SQLite hash chain. Verification recomputes each delta from the preceding row before trusting the head.
+- A later scan that restores an earlier manifest is still a new reverse transition. It never clears prior unresolved evidence or returns the root to READY.
+- Replaying an earlier event ID with the same canonical contents remains idempotent after later observations. Reusing that ID with different contents is a hard conflict. A new event ID that observes the already-current manifest does not append another state transition and leaves prior drift NON_READY.
+
 ## 4. Mutation manifest and digest semantics
 
 mutation_digest is a SHA-256 intent correlation digest produced by the bridge from protocol version, mutation ID, operation, pre-mutation chat fingerprint, affected logical message/version IDs and an opaque details digest. It contains no raw bytes or text. It is not accepted as proof of persistence and does not replace server-side artifact verification.
