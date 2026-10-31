@@ -81,9 +81,18 @@ test('Linux SQLite VFS obtains main and sidecar descriptors from the authenticat
       true,
       'main database byte I/O must use the broker-returned descriptor backend',
     );
+    const brokerIoBeforeWal = writer.prepare(
+      'SELECT logic_engine_vfs_probe_broker_backend_io_count() AS count'
+    ).get().count;
     assert.equal(writer.prepare('PRAGMA journal_mode=WAL').get().journal_mode, 'wal');
     try {
       writer.exec("INSERT INTO broker_probe VALUES('first');");
+      assert.equal(
+        writer.prepare('SELECT logic_engine_vfs_probe_broker_backend_io_count() AS count').get().count
+          > brokerIoBeforeWal,
+        true,
+        'WAL byte I/O must use the broker-returned descriptor backend, not only broker-mediated xOpen',
+      );
     } catch (error) {
       const backendFailures = registrar.prepare(
         'SELECT logic_engine_vfs_probe_broker_backend_open_fail_count() AS count'
