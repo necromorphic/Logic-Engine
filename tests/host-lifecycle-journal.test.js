@@ -25,6 +25,12 @@ function setup(t, authorize = () => true) {
       authenticated_account_id: input.authenticated_account_id,
       conversation_uuid: input.conversation_uuid,
     }),
+    resolveRootIdentity: (input) => ({
+      authorized: authorize(input) === true,
+      host_installation_id: input.host_installation_id,
+      authenticated_account_id: input.authenticated_account_id,
+      root_id: input.root_id,
+    }),
   });
   t.after(() => {
     try { journal.close(); } catch {}
@@ -151,4 +157,127 @@ test('durable lifecycle journal survives close/reopen and replay remains idempot
   assert.equal(reopened.verifyChain(installation, account).valid, true);
   assert.equal(reopened.append(event()).status, 'duplicate');
   assert.equal(reopened.getHead(installation, account).sequence, 1);
+});
+
+
+const rootId = digest('installation/account/canonical-data-root');
+const rootEntries = (contentDigest, fileIdentity = '101') => [{
+  path: 'chats/main.jsonl',
+  identity: { dev: '1', ino: fileIdentity, mode: 33188, size: 64, mtimeMs: 1, ctimeMs: 1 },
+  sha256: contentDigest,
+}];
+const rootInput = (overrides = {}) => ({
+  host_installation_id: installation,
+  authenticated_account_id: account,
+  root_id: rootId,
+  event_id: 'root-event-1',
+  entries: rootEntries(digest('first')),
+  ...overrides,
+});
+
+test('root inventory baseline is installation/account/root scoped and survives SQLite restart', (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-host-root-inventory-restart-'));
+  const path = join(directory, 'host-journal.sqlite');
+  const coordinatorPath = join(directory, 'coordinator.sqlite');
+  const resolveIdentity = input => ({
+    authorized: true,
+    host_installation_id: input.host_installation_id,
+    authenticated_account_id: input.authenticated_account_id,
+    conversation_uuid: input.conversation_uuid,
+  });
+  const resolveRootIdentity = input => ({
+    authorized: true,
+    host_installation_id: input.host_installation_id,
+    authenticated_account_id: input.authenticated_account_id,
+    root_id: input.root_id,
+  });
+  const first = new HostLifecycleJournal({ path, coordinatorPath, resolveIdentity, resolveRootIdentity });
+  const enrolled = first.enrollRootInventory(rootInput());
+  assert.equal(enrolled.status, 'BASELINED_REVIEW_ONLY');
+  assert.equal(enrolled.sequence, 1);
+  assert.equal(first.verifyRootInventory(rootInput()).status, 'INTEGRITY_OK');
+  first.close();
+
+  const reopened = new HostLifecycleJournal({ path, coordinatorPath, resolveIdentity, resolveRootIdentity });
+  t.after(() => {
+    try { reopened.close(); } catch {}
+    rmSync(directory, { recursive: true, force: true });
+  });
+  const verified = reopened.verifyRootInventory(rootInput());
+  assert.equal(verified.status, 'INTEGRITY_OK');
+  assert.equal(verified.sequence, 1);
+  assert.equal(verified.status === 'INTEGRITY_OK' && verified.baseline_manifest_sha256, enrolled.manifest_sha256);
+});
+
+test('root file delta is durable, replay-idempotent and never accepted without an operation receipt', (t) => {
+  const { journal } = setup(t);
+  const baseline = rootInput();
+  journal.enrollRootInventory(baseline);
+  const changed = rootInput({
+    event_id: 'root-delta-1',
+    entries: rootEntries(digest('edited')),
+  });
+  const observed = journal.observeRootInventory(changed);
+  assert.equal(observed.status, 'NON_READY');
+  assert.equal(observed.sequence, 2);
+  assert.equal(observed.delta.modified.length, 1);
+  assert.equal(journal.verifyRootInventory(changed).status, 'INTEGRITY_OK');
+
+  const replay = journal.observeRootInventory({ ...changed, event_id: 'root-delta-replay' });
+  assert.equal(replay.status, 'NON_READY');
+  assert.equal(replay.duplicate, true);
+  assert.equal(replay.sequence, 2);
+
+  const restored = journal.observeRootInventory({
+    ...baseline,
+    event_id: 'root-restored-after-observation',
+  });
+  assert.equal(restored.status, 'NON_READY');
+  assert.match(restored.reason, /previously observed root inventory delta remains unresolved/);
+  assert.equal(journal.verifyRootInventory(baseline).status, 'INTEGRITY_OK');
+});
+
+test('root inventory identity is isolated by installation, account and canonical root', (t) => {
+  const { journal } = setup(t);
+  const first = rootInput();
+  journal.enrollRootInventory(first);
+  const otherAccount = rootInput({
+    authenticated_account_id: 'account-principal-002',
+    event_id: 'other-account-baseline',
+  });
+  assert.equal(journal.enrollRootInventory(otherAccount).status, 'BASELINED_REVIEW_ONLY');
+  const otherRoot = rootInput({
+    root_id: digest('another-canonical-root'),
+    event_id: 'other-root-baseline',
+  });
+  assert.equal(journal.enrollRootInventory(otherRoot).status, 'BASELINED_REVIEW_ONLY');
+  assert.equal(journal.verifyRootInventory(first).status, 'INTEGRITY_OK');
+  assert.equal(journal.verifyRootInventory(otherAccount).status, 'INTEGRITY_OK');
+  assert.equal(journal.verifyRootInventory(otherRoot).status, 'INTEGRITY_OK');
+});
+
+test('root inventory rejects unauthorized root identity and hard-link aliases', (t) => {
+  const { journal } = setup(t, input => input.root_id !== digest('forged-root'));
+  assert.throws(() => journal.enrollRootInventory(rootInput({
+    root_id: digest('forged-root'),
+  })), /HOST_ROOT_INVENTORY_IDENTITY_NOT_AUTHORIZED/);
+  assert.throws(() => journal.enrollRootInventory(rootInput({
+    entries: [
+      ...rootEntries(digest('one'), '101'),
+      { path: 'chats/alias.jsonl',
+        identity: { dev: '1', ino: '101', mode: 33188, size: 64, mtimeMs: 1, ctimeMs: 1 },
+        sha256: digest('two') },
+    ],
+  })), /HOST_ROOT_INVENTORY_PHYSICAL_IDENTITY_DUPLICATE/);
+});
+
+test('root inventory append-only events and independent head detect tampering', (t) => {
+  const { journal } = setup(t);
+  journal.enrollRootInventory(rootInput());
+  assert.throws(() => journal.db.exec("UPDATE host_root_inventory_events SET event_type='DELTA_OBSERVED'"),
+    /HOST_ROOT_INVENTORY_APPEND_ONLY/);
+  assert.throws(() => journal.db.exec('DELETE FROM host_root_inventory_events'),
+    /HOST_ROOT_INVENTORY_APPEND_ONLY/);
+  journal.db.exec("UPDATE host_root_inventory_heads SET head_sha256='" + 'f'.repeat(64) + "'");
+  assert.equal(journal.verifyRootInventory(rootInput()).status, 'NON_READY');
 });
