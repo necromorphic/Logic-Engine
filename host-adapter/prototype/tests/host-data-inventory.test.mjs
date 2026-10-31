@@ -59,7 +59,14 @@ test('full host data inventory covers character, avatar and settings files outsi
     directories: value.directories,
     hostCommit: PINNED,
   });
-  assert.equal(result.snapshot_alignment, 'INDEPENDENT_DOUBLE_SCAN');
+  if (process.platform === 'win32') {
+    assert.equal(result.snapshot_alignment, 'SHARED_VSS_SNAPSHOT');
+    assert.equal(result.filesystem.snapshot_id, result.source.snapshot_id);
+    assert.equal(result.filesystem.snapshot_provider, 'windows-vss-client-accessible');
+    assert.ok(result.source.blockers.includes('NO_APPLICATION_LEVEL_ATOMIC_SNAPSHOT'));
+  } else {
+    assert.equal(result.snapshot_alignment, 'INDEPENDENT_DOUBLE_SCAN');
+  }
   assert.equal(result.filesystem.status, 'complete');
   assert.equal(isVerifiedFileInventory(result.filesystem), true);
   assert.equal(result.filesystem.file_count, 7);
