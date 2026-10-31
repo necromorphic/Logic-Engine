@@ -7,11 +7,13 @@ for the broker service identity and must not be writable by the application.
 from __future__ import annotations
 
 import argparse
+import ctypes
 import fcntl
 import hashlib
 import json
 import os
 import stat
+import secrets
 import sys
 from contextlib import contextmanager
 from pathlib import PurePosixPath
@@ -349,6 +351,114 @@ def _verify_regular_at(parent_fd: int, name: str,
             raise StoreError(f"{label} identity mismatch")
     finally:
         os.close(fd)
+
+
+QUARANTINE_DIR = ".le-quarantine"
+
+
+def _open_quarantine_dir(parent_fd: int, *, create: bool) -> int | None:
+    if create:
+        try:
+            os.mkdir(QUARANTINE_DIR, 0o700, dir_fd=parent_fd)
+        except FileExistsError:
+            pass
+    try:
+        fd = os.open(QUARANTINE_DIR, DIR_FLAGS, dir_fd=parent_fd)
+    except FileNotFoundError:
+        return None
+    try:
+        info = os.fstat(fd)
+        parent_info = os.fstat(parent_fd)
+        if (not stat.S_ISDIR(info.st_mode) or info.st_uid != os.geteuid()
+                or stat.S_IMODE(info.st_mode) != 0o700
+                or _fd_mount_id(fd) != _fd_mount_id(parent_fd)
+                or (info.st_dev, info.st_ino) == (parent_info.st_dev, parent_info.st_ino)):
+            raise StoreError("sidecar quarantine directory has an untrusted identity or policy")
+        return fd
+    except Exception:
+        os.close(fd)
+        raise
+
+
+def _require_empty_quarantine(parent_fd: int) -> None:
+    fd = _open_quarantine_dir(parent_fd, create=False)
+    if fd is None:
+        return
+    try:
+        if os.listdir(fd):
+            raise StoreError("sidecar quarantine contains retained entries; operator recovery required")
+    finally:
+        os.close(fd)
+
+
+def _renameat2_noreplace(old_dir_fd: int, old_name: str,
+                         new_dir_fd: int, new_name: str) -> None:
+    libc = ctypes.CDLL(None, use_errno=True)
+    try:
+        renameat2 = libc.renameat2
+    except AttributeError as exc:
+        raise StoreError("renameat2(RENAME_NOREPLACE) is unavailable") from exc
+    renameat2.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int,
+                          ctypes.c_char_p, ctypes.c_uint]
+    renameat2.restype = ctypes.c_int
+    result = renameat2(old_dir_fd, os.fsencode(old_name), new_dir_fd,
+                       os.fsencode(new_name), 1)  # RENAME_NOREPLACE
+    if result != 0:
+        error = ctypes.get_errno()
+        raise OSError(error, os.strerror(error), old_name)
+
+
+def _quarantine_delete_at(parent_fd: int, name: str,
+                          expected: dict[str, str]) -> None:
+    if (not name or name in (".", "..") or "/" in name or "\\\\x00" in name):
+        raise StoreError("invalid sidecar basename for quarantine deletion")
+    quarantine_fd = _open_quarantine_dir(parent_fd, create=True)
+    if quarantine_fd is None:
+        raise StoreError("failed to create sidecar quarantine directory")
+    opened_fd = -1
+    moved_fd = -1
+    moved_name: str | None = None
+    try:
+        _require_empty_quarantine(parent_fd)
+        opened_fd = os.open(name, os.O_PATH | os.O_NOFOLLOW | os.O_CLOEXEC,
+                            dir_fd=parent_fd)
+        opened_info = os.fstat(opened_fd)
+        opened_identity = _fd_identity(opened_fd)
+        if (not stat.S_ISREG(opened_info.st_mode) or opened_info.st_nlink != 1
+                or opened_info.st_uid != os.geteuid()
+                or opened_identity["mountId"] != _fd_mount_id(parent_fd)
+                or opened_identity != expected):
+            raise StoreError("sidecar identity mismatch before quarantine rename")
+        for _attempt in range(16):
+            candidate = "entry-" + secrets.token_hex(16)
+            try:
+                _renameat2_noreplace(parent_fd, name, quarantine_fd, candidate)
+                moved_name = candidate
+                break
+            except FileExistsError:
+                continue
+        if moved_name is None:
+            raise StoreError("unable to allocate a unique quarantine name")
+        # Persist both sides of the cross-directory rename before inspecting or unlinking.
+        os.fsync(quarantine_fd)
+        os.fsync(parent_fd)
+        moved_fd = os.open(moved_name, os.O_PATH | os.O_NOFOLLOW | os.O_CLOEXEC,
+                           dir_fd=quarantine_fd)
+        moved_info = os.fstat(moved_fd)
+        moved_identity = _fd_identity(moved_fd)
+        if (not stat.S_ISREG(moved_info.st_mode) or moved_info.st_nlink != 1
+                or moved_info.st_uid != os.geteuid()
+                or moved_identity["mountId"] != _fd_mount_id(quarantine_fd)
+                or moved_identity != opened_identity or moved_identity != expected):
+            raise StoreError("quarantined sidecar identity mismatch; retained for operator recovery")
+        os.unlink(moved_name, dir_fd=quarantine_fd)
+        os.fsync(quarantine_fd)
+    finally:
+        if moved_fd >= 0:
+            os.close(moved_fd)
+        if opened_fd >= 0:
+            os.close(opened_fd)
+        os.close(quarantine_fd)
 
 
 @contextmanager
