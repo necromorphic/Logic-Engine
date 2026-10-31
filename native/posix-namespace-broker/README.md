@@ -94,6 +94,8 @@ serializes cooperating store processes and prevents two commits from advancing
 the same generation concurrently. It does not constrain code that bypasses this
 store or runs with the broker service UID.
 
+The `recovery-plan` command provides an inspect-only sidecar recovery pass. It verifies database and parent identities, checks declared WAL/SHM/journal entries against opened-file identities, and rejects unmanifested sidecars or duplicate sidecar kinds. For interrupted creating/deleting states it reports presence and a possible manifest transition. It never deletes, renames, checkpoints, or opens a database through SQLite. A still-present deleting sidecar is retained and requires SQLite-aware recovery; the planner does not infer that unlinking a WAL or journal is safe.
+
 This is still not a namespace broker operation: there is no broker IPC integration,
 no SQLite VFS or sidecar lifecycle transition implementation. A successful verification is a point-in-time
 integrity check, not a lease preventing later mutation. The OS ownership boundary
