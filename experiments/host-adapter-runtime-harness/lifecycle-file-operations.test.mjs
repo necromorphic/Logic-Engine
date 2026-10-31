@@ -410,7 +410,7 @@ test('pinned ST 1.19.0 chat create/edit/swipe/delete/import/export/restore mutat
 
   const groupSave = await observe(async () => {
     const response = await post('/api/chats/group/save', {
-      id: 'group-harness', chat: [header(), userMessage('group save'), assistantMessage()], force: true,
+      id: 'group-harness', chat: [identifiedHeader('88888888-8888-4888-8888-888888888888', 'Harness Group'), userMessage('group save'), assistantMessage()], force: true,
     }, { 'x-harness-operation': 'group-save' });
     assert.equal(response.status, 200);
     assert.equal(response.result.ok, true);
