@@ -162,14 +162,31 @@ export class HostLifecycleReceiptStore {
     if (typeof root !== 'string' || !path.isAbsolute(root)) {
       throw new Error('HOST_LIFECYCLE_RECEIPT_DATA_ROOT_INVALID');
     }
+    const realRoot = await fs.realpath(root);
+    let probe = this.directory;
+    let realParent;
+    while (!realParent) {
+      try { realParent = await fs.realpath(probe); }
+      catch (error) {
+        if (error?.code !== 'ENOENT' && error?.code !== 'ENOTDIR') throw error;
+        const parent = path.dirname(probe);
+        if (parent === probe) throw error;
+        probe = parent;
+      }
+    }
+    const parentRelative = path.relative(realRoot, realParent);
+    if (parentRelative === '' || parentRelative === '..'
+      || parentRelative.startsWith('..' + path.sep) === false && path.isAbsolute(parentRelative)) {
+      if (parentRelative === '' || (!parentRelative.startsWith('..' + path.sep)
+        && parentRelative !== '..' && !path.isAbsolute(parentRelative))) {
+        throw new Error('HOST_LIFECYCLE_RECEIPT_DIRECTORY_INSIDE_DATA_ROOT');
+      }
+    }
     await this.#prepareDirectory();
-    const [realRoot, realDirectory] = await Promise.all([
-      fs.realpath(root),
-      fs.realpath(this.directory),
-    ]);
+    const realDirectory = await fs.realpath(this.directory);
     const relative = path.relative(realRoot, realDirectory);
-    if (relative === '' || relative === '..' || relative.startsWith('..' + path.sep)
-      || path.isAbsolute(relative)) {
+    if (relative === '' || (!relative.startsWith('..' + path.sep)
+      && relative !== '..' && !path.isAbsolute(relative))) {
       throw new Error('HOST_LIFECYCLE_RECEIPT_DIRECTORY_INSIDE_DATA_ROOT');
     }
     return true;
