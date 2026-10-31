@@ -162,4 +162,15 @@ This is only the first transport increment. It does not yet implement:
 - SQLite VFS integration, locking, WAL/SHM or recovery;
 - Windows support.
 
+### Separate SQLite-engine inventory
+
+The supplied ST-VectorService source uses `better-sqlite3` and opens
+`vector_storage/vectors.sqlite` through its own native binding. It is not
+covered automatically by a VFS registered inside Node's built-in
+`node:sqlite` engine, nor by this standalone POSIX broker prototype. Its
+WAL-backed database requires a separately tested integration path for the
+SQLite engine used by `better-sqlite3`; until then it remains outside the
+proven identity boundary. No ST-VectorService source or runtime behavior is
+changed by this branch.
+
 The server processes one accepted connection at a time and applies a one-second receive deadline to each accepted client so an idle peer cannot hold the request loop indefinitely. It is a protocol skeleton, not a hardened production daemon. Do not point Logic-Engine or any production database at it.
