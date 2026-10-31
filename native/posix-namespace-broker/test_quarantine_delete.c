@@ -94,6 +94,20 @@ int main(void) {
     assert(result == LEB_QUARANTINE_OK);
     assert(fstatat(parent_fd, "expected.db", &st, AT_SYMLINK_NOFOLLOW) != 0 && errno == ENOENT);
 
+    /* The quarantine directory must be private with exactly mode 0700. */
+    write_file_at(parent_fd, "mode-check.db", "mode");
+    expected = identity_at(parent_fd, "mode-check.db");
+    assert(fchmod(quarantine_fd, 0500) == 0);
+    result = leb_quarantine_delete_at(parent_fd, quarantine_fd, "mode-check.db", &expected);
+    assert(result == LEB_QUARANTINE_ERROR);
+    assert(fchmod(quarantine_fd, 0700) == 0);
+    assert(fstatat(parent_fd, "mode-check.db", &st, AT_SYMLINK_NOFOLLOW) == 0);
+
+    /* Parent and quarantine must be distinct directory identities. */
+    result = leb_quarantine_delete_at(parent_fd, parent_fd, "mode-check.db", &expected);
+    assert(result == LEB_QUARANTINE_ERROR);
+    assert(unlinkat(parent_fd, "mode-check.db", 0) == 0);
+
     write_file_at(parent_fd, "race.db", "original");
     expected = identity_at(parent_fd, "race.db");
     race_parent_fd = parent_fd;
