@@ -24,7 +24,7 @@ test('Linux SQLite VFS obtains main and sidecar descriptors from the authenticat
   const logPath = join(directory, 'broker.log');
   const python = process.env.PYTHON ?? 'python3';
   const brokerScript = resolve('native/posix-namespace-broker/test_vfs_fake_server.py');
-  const broker = spawn(python, [brokerScript, socketPath, databasePath, logPath], {
+  const broker = spawn(python, [brokerScript, socketPath, databasePath, logPath, String(process.getuid()), String(process.getgid())], {
     stdio: 'ignore',
   });
   t.after(async () => {
