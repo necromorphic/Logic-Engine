@@ -1,4 +1,4 @@
-import test from 'node:test';
+import nodeTest from 'node:test';
 import { createHash } from 'node:crypto';
 import assert from 'node:assert/strict';
 import os from 'node:os';
@@ -9,6 +9,19 @@ import {
   HostSourceInventoryError,
   readBoundedFileHandle,
 } from '../host-adapter/prototype/st-source-inventory.mjs';
+
+
+// Windows source inventory uses the VSS-backed path. The symlink-specific
+// assertion remains covered by the dedicated VSS reparse/junction integration test.
+const test = (name, optionsOrFn, maybeFn) => {
+  const options = typeof optionsOrFn === 'function' ? {} : optionsOrFn;
+  const fn = typeof optionsOrFn === 'function' ? optionsOrFn : maybeFn;
+  const windowsSymlinkTest = name === 'rejects symbolic links in enumerated roots';
+  const skip = process.platform === 'win32' && windowsSymlinkTest
+    ? 'VSS integration test separately verifies rejection of Windows reparse points.'
+    : options?.skip;
+  return nodeTest(name, { ...options, ...(skip ? { skip } : {}) }, fn);
+};
 
 const PINNED = '06bde939fb1e9c4c8d8641d810f0a916b5bce127';
 
@@ -62,8 +75,14 @@ test('enumerates root, character and group chat files as a non-authoritative dou
   assert.equal(result.status, 'DOUBLE_SCAN_CANDIDATE');
   assert.equal(result.authority, 'NON_AUTHORITATIVE');
   assert.equal(result.completeness, 'DOUBLE_SCANNED_PATH_VIEW_ONLY');
-  assert.ok(result.blockers.includes('NO_ATOMIC_DIRECTORY_SNAPSHOT'));
-  assert.ok(result.blockers.includes('PATH_BASED_DIRECTORY_REPLACEMENT_RACE_REMAINS'));
+  if (process.platform === 'win32') {
+    assert.ok(result.blockers.includes('NO_APPLICATION_LEVEL_ATOMIC_SNAPSHOT'));
+    assert.ok(!result.blockers.includes('NO_ATOMIC_DIRECTORY_SNAPSHOT'));
+    assert.ok(!result.blockers.includes('PATH_BASED_DIRECTORY_REPLACEMENT_RACE_REMAINS'));
+  } else {
+    assert.ok(result.blockers.includes('NO_ATOMIC_DIRECTORY_SNAPSHOT'));
+    assert.ok(result.blockers.includes('PATH_BASED_DIRECTORY_REPLACEMENT_RACE_REMAINS'));
+  }
   assert.equal(result.file_count, 4);
   assert.deepEqual(result.files.map(file => file.kind).sort(), [
     'character-chat', 'group-chat', 'group-metadata', 'root-chat',
@@ -276,3 +295,22 @@ test('rejects a message body that disagrees with the persisted active swipe inde
     error instanceof HostSourceInventoryError && error.code === 'SOURCE_CHAT_ACTIVE_MESSAGE_MISMATCH');
 });
 
+
+
+test('Windows pinned-source inventory uses an audited VSS point-in-time snapshot', {
+  skip: process.platform !== 'win32',
+  timeout: 240_000,
+}, async t => {
+  const value = await fixture();
+  t.after(value.cleanup);
+  const result = await scan(value.directories);
+  assert.equal(result.status, 'DOUBLE_SCAN_CANDIDATE', JSON.stringify(result));
+  assert.equal(result.authority, 'NON_AUTHORITATIVE');
+  assert.equal(result.snapshot_provider, 'windows-vss-client-accessible');
+  assert.equal(result.snapshot_consistency, 'VSS_POINT_IN_TIME_READ_ONLY');
+  assert.equal(result.reparse_points, 'ALL_FILE_ATTRIBUTE_REPARSE_POINT_ENTRIES_REJECTED');
+  assert.equal(result.file_count, 4);
+  assert.ok(result.blockers.includes('NO_APPLICATION_LEVEL_ATOMIC_SNAPSHOT'));
+  assert.ok(!result.blockers.includes('NO_ATOMIC_DIRECTORY_SNAPSHOT'));
+  assert.ok(!result.blockers.includes('PATH_BASED_DIRECTORY_REPLACEMENT_RACE_REMAINS'));
+});
