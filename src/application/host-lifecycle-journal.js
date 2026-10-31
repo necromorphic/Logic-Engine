@@ -62,9 +62,16 @@ function validateRootEntries(entries) {
     if (!isPlainRecord(entry) || Object.keys(entry).some((key) => !['path', 'identity', 'sha256'].includes(key))
       || !validText(entry.path, 4096) || entry.path.startsWith('/') || entry.path.startsWith('//') || /^[a-z]:/i.test(entry.path) || entry.path.includes('\\')
       || entry.path.split('/').some((part) => !part || part === '.' || part === '..')
-      || !isPlainRecord(entry.identity) || !validText(entry.identity.dev, 100)
-      || !validText(entry.identity.ino, 100) || !/^[0-9]+$/.test(entry.identity.dev)
-      || !/^[0-9]+$/.test(entry.identity.ino) || entry.identity.ino === '0'
+      || !isPlainRecord(entry.identity)
+      || Object.keys(entry.identity).length !== 6
+      || Object.keys(entry.identity).some((key) => !['dev', 'ino', 'mode', 'size', 'mtimeMs', 'ctimeMs'].includes(key))
+      || !validText(entry.identity.dev, 100) || !validText(entry.identity.ino, 100)
+      || !/^[0-9]+$/.test(entry.identity.dev) || !/^[0-9]+$/.test(entry.identity.ino)
+      || entry.identity.ino === '0'
+      || !Number.isSafeInteger(entry.identity.mode) || entry.identity.mode < 0
+      || !Number.isSafeInteger(entry.identity.size) || entry.identity.size < 0
+      || !Number.isFinite(entry.identity.mtimeMs) || entry.identity.mtimeMs < 0
+      || !Number.isFinite(entry.identity.ctimeMs) || entry.identity.ctimeMs < 0
       || !validDigest(entry.sha256) || seen.has(entry.path)
       || (previous !== null && entry.path.localeCompare(previous) < 0)) {
       throw new TypeError('HOST_ROOT_INVENTORY_ENTRY_INVALID');
