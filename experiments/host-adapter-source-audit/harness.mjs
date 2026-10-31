@@ -27,9 +27,11 @@ const mutationPaths = [
   'src/endpoints/users-admin.js',
   'src/endpoints/extensions.js',
 ];
-const [events, script, ...mutationContents] = await Promise.all([
+const [events, script, groupChats, chatBackups, ...mutationContents] = await Promise.all([
   readFile(resolve(root, 'public/scripts/events.js'), 'utf8'),
   readFile(resolve(root, 'public/script.js'), 'utf8'),
+  readFile(resolve(root, 'public/scripts/group-chats.js'), 'utf8'),
+  readFile(resolve(root, 'public/scripts/chat-backups.js'), 'utf8'),
   ...mutationPaths.map(path => readFile(resolve(root, path), 'utf8')),
 ]);
 const mutationSources = Object.fromEntries(
@@ -100,6 +102,32 @@ test('edit/update notifications use the current host-local edit index', () => {
   assert.match(script, /event_types\.MESSAGE_UPDATED,\s*this_edit_mes_id/);
 });
 
+
+test('chat imports, group bookmark copies and backup restore fail closed while any chat is enrolled', () => {
+  const characterImportStart = script.indexOf('export async function importCharacterChat(');
+  const characterImportEnd = script.indexOf('\n}', characterImportStart);
+  assert.ok(characterImportStart >= 0 && characterImportEnd > characterImportStart);
+  assert.match(script.slice(characterImportStart, characterImportEnd),
+    /logicEngineHostLifecycle\?\.guardBulkMutation\?\.\(\)/);
+
+  const groupImportStart = groupChats.indexOf('export async function importGroupChat(');
+  const groupImportEnd = groupChats.indexOf('\n}', groupImportStart);
+  assert.ok(groupImportStart >= 0 && groupImportEnd > groupImportStart);
+  assert.match(groupChats.slice(groupImportStart, groupImportEnd),
+    /logicEngineHostLifecycle\?\.guardBulkMutation\?\.\(\)/);
+
+  const bookmarkStart = groupChats.indexOf('export async function saveGroupBookmarkChat(');
+  const bookmarkEnd = groupChats.indexOf('\n}', bookmarkStart);
+  assert.ok(bookmarkStart >= 0 && bookmarkEnd > bookmarkStart);
+  assert.match(groupChats.slice(bookmarkStart, bookmarkEnd),
+    /logicEngineHostLifecycle\?\.guardBulkMutation\?\.\(\)/);
+
+  const restoreStart = chatBackups.indexOf('async restoreBackup(name)');
+  const restoreEnd = chatBackups.indexOf('\n    }', restoreStart);
+  assert.ok(restoreStart >= 0 && restoreEnd > restoreStart);
+  assert.match(chatBackups.slice(restoreStart, restoreEnd), /const importFn = context\.groupId \? importGroupChat : importCharacterChat/);
+  assert.match(chatBackups.slice(restoreStart, restoreEnd), /await importFn\(formData/);
+});
 
 test('pinned server mutation routes remain in the reviewed inventory', () => {
   const routeRequirements = {
