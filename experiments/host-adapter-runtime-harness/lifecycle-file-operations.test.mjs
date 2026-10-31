@@ -147,6 +147,7 @@ test('pinned ST 1.19.0 chat create/edit/swipe/delete/import/export/restore mutat
   await once(server, 'listening');
   const address = server.address();
   assert.ok(address && typeof address === 'object');
+  let journal = null;
   t.after(async () => {
     await new Promise(resolveClose => server.close(resolveClose));
     try { journal?.close(); } catch {}
@@ -226,7 +227,7 @@ test('pinned ST 1.19.0 chat create/edit/swipe/delete/import/export/restore mutat
     }),
     verifyMutationReceipt: () => true,
   });
-  let journal = createCoreJournal();
+  journal = createCoreJournal();
   let baselineCreated = false;
   const observe = async (operation, expectedKind) => {
     const before = await scan();
