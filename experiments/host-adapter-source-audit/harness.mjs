@@ -108,7 +108,7 @@ test('chat imports, group bookmark copies and backup restore fail closed while a
   const characterImportEnd = script.indexOf('\n}', characterImportStart);
   assert.ok(characterImportStart >= 0 && characterImportEnd > characterImportStart);
   assert.match(script.slice(characterImportStart, characterImportEnd),
-    /logicEngineHostLifecycle(?:\?\.guardBulkMutation|\.guardBulkMutation)\(\)/);
+    /logicEngineHostLifecycle(?:\?\.|\.)guardBulkMutation(?:\?\.)?\(\)/);
 
   const groupImportStart = groupChats.indexOf('export async function importGroupChat(');
   const groupImportEnd = groupChats.indexOf('\n}', groupImportStart);
