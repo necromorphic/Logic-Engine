@@ -6,6 +6,7 @@ import { LogicEngine } from '../src/application/engine.js';
 import { ProposalService } from '../src/application/proposals.js';
 import { createApiServer, createActiveMechanicPolicyValidator } from '../src/api/server.js';
 import { MechanicPolicyAuthority } from '../src/application/mechanic-policy-authority.js';
+import { createHostBoundNpcKnowledgeAuthorizers } from '../src/application/npc-knowledge-authorization.js';
 
 const TOKEN = 'test-token-long-enough-123456';
 const INTERNAL = 'internal-token-long-enough-123456';
@@ -18,7 +19,20 @@ const json = (body) => JSON.stringify(body);
 
 async function setup(t, options = {}) {
   const store = new SQLiteStore(':memory:');
-  const server = createApiServer({ engine: new LogicEngine(store), token: TOKEN, adminToken: ADMIN, adapterTokens: { 'adapter-a': ADAPTER_A, 'adapter-b': ADAPTER_B }, ...options });
+  const adapterTokens = { 'adapter-a': ADAPTER_A, 'adapter-b': ADAPTER_B };
+  const npcKnowledgeAuthorizers = createHostBoundNpcKnowledgeAuthorizers({
+    store,
+    adapterIds: Object.keys(adapterTokens),
+    trustedInitialKnowledgeSources: [],
+  });
+  const server = createApiServer({
+    engine: new LogicEngine(store),
+    token: TOKEN,
+    adminToken: ADMIN,
+    adapterTokens,
+    npcKnowledgeAuthorizers,
+    ...options,
+  });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   t.after(() => { server.close(); store.close(); });
@@ -1135,11 +1149,20 @@ test('authorized-read HTTP route requires a configured adapter and keeps the def
     body: json({ adapter_id: 'adapter-a', entity_id: 'bound-actor' }),
   });
   assert.equal(bind.status, 201);
+  const conversationBind = await fetch(base + '/v1/host-conversation-bindings', {
+    method: 'POST',
+    headers: { ...headers, 'x-admin-token': ADMIN },
+    body: json({
+      adapter_id: 'adapter-a',
+      conversation_id: 'authorized-read-api-conversation',
+      world_id: 'authorized-read-api-world',
+    }),
+  });
+  assert.equal(conversationBind.status, 201);
 
-  const readUrl = base + '/v1/worlds/authorized-read-api-world/authorized-read';
+  const readUrl = base + '/v1/host/authorized-read';
   const readBody = {
-    actor_entity_id: 'bound-actor',
-    purpose: 'npc_decision',
+    conversation_id: 'authorized-read-api-conversation',
     entity_ids: ['bound-actor'],
     fields: ['entity_id', 'entity_type', 'status', 'attributes.name', 'attributes.secret'],
   };
@@ -1183,12 +1206,9 @@ test('authorized-read HTTP route requires a configured adapter and keeps the def
 test('authorized-read HTTP route rejects caller-supplied policy and identity overrides', async (t) => {
   const base = await setup(t);
   assert.equal((await createWorld(base, 'authorized-read-no-policy-injection')).status, 201);
-  const url = base + '/v1/worlds/authorized-read-no-policy-injection/authorized-read';
+  const url = base + '/v1/host/authorized-read';
   const baseBody = {
-    actor_entity_id: 'actor-a',
-    purpose: 'npc_decision',
-    entity_ids: ['actor-a'],
-    fields: ['entity_id'],
+    conversation_id: 'unbound-conversation',
   };
 
   for (const extra of [
@@ -1244,11 +1264,20 @@ test('authorized-read HTTP route requires a configured adapter and keeps the def
     body: json({ adapter_id: 'adapter-a', entity_id: 'bound-actor' }),
   });
   assert.equal(bind.status, 201);
+  const conversationBind = await fetch(base + '/v1/host-conversation-bindings', {
+    method: 'POST',
+    headers: { ...headers, 'x-admin-token': ADMIN },
+    body: json({
+      adapter_id: 'adapter-a',
+      conversation_id: 'authorized-read-api-conversation',
+      world_id: 'authorized-read-api-world',
+    }),
+  });
+  assert.equal(conversationBind.status, 201);
 
-  const readUrl = base + '/v1/worlds/authorized-read-api-world/authorized-read';
+  const readUrl = base + '/v1/host/authorized-read';
   const readBody = {
-    actor_entity_id: 'bound-actor',
-    purpose: 'npc_decision',
+    conversation_id: 'authorized-read-api-conversation',
     entity_ids: ['bound-actor'],
     fields: ['entity_id', 'entity_type', 'status', 'attributes.name', 'attributes.secret'],
   };
@@ -1292,12 +1321,9 @@ test('authorized-read HTTP route requires a configured adapter and keeps the def
 test('authorized-read HTTP route rejects caller-supplied policy and identity overrides', async (t) => {
   const base = await setup(t);
   assert.equal((await createWorld(base, 'authorized-read-no-policy-injection')).status, 201);
-  const url = base + '/v1/worlds/authorized-read-no-policy-injection/authorized-read';
+  const url = base + '/v1/host/authorized-read';
   const baseBody = {
-    actor_entity_id: 'actor-a',
-    purpose: 'npc_decision',
-    entity_ids: ['actor-a'],
-    fields: ['entity_id'],
+    conversation_id: 'unbound-conversation',
   };
 
   for (const extra of [
@@ -1760,10 +1786,10 @@ test('credential checks reject malformed and length-mismatched request secrets',
   });
   assert.equal(validInternal.status, 200);
 
-  const wrongAdapter = await fetch(base + '/v1/worlds/credential-check-world/authorized-read', {
+  const wrongAdapter = await fetch(base + '/v1/host/npc-knowledge/read', {
     method: 'POST',
     headers: { ...headers, 'x-adapter-token': 'x' },
-    body: json({ actor_entity_id: 'npc', purpose: 'credential-check', fields: ['entity_id'] }),
+    body: json({ conversation_id: 'credential-check-conversation' }),
   });
   assert.equal(wrongAdapter.status, 403);
   assert.equal((await wrongAdapter.json()).error.code, 'ADAPTER_REQUIRED');

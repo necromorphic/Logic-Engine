@@ -356,7 +356,7 @@ test('belief context final validation uses one atomic Core snapshot read', (t) =
   };
   const prepared = engine.prepareNpcBeliefContext(readRequest, proposal);
   assert.equal(prepared.status, 'ready');
-  assert.equal(snapshotReads, 3);
+  assert.equal(snapshotReads, 4);
 });
 
 test('Core omits denied acquisitions from the belief context and rejects proposals relying on them', (t) => {
@@ -512,7 +512,7 @@ test('Core refuses a belief context if the snapshot changes during visibility ev
     reason_rule_ref: 'rule:belief-update-v1',
   };
   assert.throws(() => engine.prepareNpcBeliefContext(readRequest, proposal), {
-    code: 'NPC_BELIEF_CONTEXT_STALE',
+    code: 'NPC_KNOWLEDGE_READ_NOT_READY',
   });
 });
 

@@ -56,7 +56,7 @@ function send(res, status, data) {
   res.end(body);
 }
 
-export function createApiServer({ engine, token, internalToken = null, approvalToken = null, adminToken = null, adapterTokens = {}, authorizedReadFieldPolicy = null, mechanicPolicyAuthority = null, getActiveMechanicContextProvider = () => null, hostVersionLedger = null }) {
+export function createApiServer({ engine, token, internalToken = null, approvalToken = null, adminToken = null, adapterTokens = {}, authorizedReadFieldPolicy = null, mechanicPolicyAuthority = null, getActiveMechanicContextProvider = () => null, hostVersionLedger = null, npcKnowledgeAuthorizers = null }) {
   if (!engine) throw new TypeError('engine required');
   if (typeof token !== 'string' || token.length < 16) throw new TypeError('API token must be at least 16 characters');
   if (internalToken !== null && (typeof internalToken !== 'string' || internalToken.length < 16 || internalToken === token)) {
@@ -87,6 +87,11 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
     const secret = req.headers['x-adapter-token'];
     return typeof id === 'string' && Object.hasOwn(adapterTokens, id) && secretMatches(secret, adapterTokens[id]) ? id : null;
   };
+  if (npcKnowledgeAuthorizers !== null
+    && (typeof npcKnowledgeAuthorizers.createHostIdentity !== 'function'
+      || typeof npcKnowledgeAuthorizers.resolveHostScope !== 'function')) {
+    throw new TypeError('npcKnowledgeAuthorizers must come from the Core Host-bound authorization composition.');
+  }
   const proposals = new ProposalService(engine, {
     validateMechanicPolicy: createActiveMechanicPolicyValidator(getActiveMechanicContextProvider, mechanicPolicyAuthority),
   });
@@ -149,6 +154,123 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
       if (req.method === 'GET' && registryParts[0] === 'v1' && registryParts[1] === 'rule-modules' && registryParts.length === 4) {
         return send(res, 200, engine.getRuleModuleManifest(decodeURIComponent(registryParts[2]), decodeURIComponent(registryParts[3])));
       }
+      if (req.method === 'POST' && url.pathname === '/v1/host/authorized-read') {
+        const adapterId = adapterIdFor(req);
+        if (!adapterId) return send(res, 403, { error: { code: 'ADAPTER_REQUIRED', message: 'An authenticated Host identity is required.' } });
+        if (!npcKnowledgeAuthorizers || typeof npcKnowledgeAuthorizers.resolveHostScope !== 'function') {
+          return send(res, 503, { error: { code: 'AUTHORIZED_READ_NOT_READY', message: 'Host-bound authorization is not configured.' } });
+        }
+        const body = await readBody(req);
+        if (!body || typeof body !== 'object' || Array.isArray(body)
+          || Object.keys(body).some(key => !['conversation_id', 'entity_ids', 'fields'].includes(key))
+          || typeof body.conversation_id !== 'string') {
+          throw new EngineError('INVALID_AUTHORIZED_READ',
+            'Host authorized read accepts only conversation_id, optional entity_ids and fields; world and actor identity are Core-resolved.', 400);
+        }
+        const scope = npcKnowledgeAuthorizers.resolveHostScope({
+          adapter_id: adapterId,
+          conversation_id: body.conversation_id,
+        });
+        if (!scope) {
+          return send(res, 404, { error: { code: 'READ_NOT_AVAILABLE', message: 'The requested read is not available.' } });
+        }
+        const result = authorizedReads.readEntityFields({
+          worldId: scope.world_id,
+          adapterId: scope.adapter_id,
+          actorEntityId: scope.actor_id,
+          recipient: 'model',
+          purpose: 'npc_decision',
+          entityIds: body.entity_ids === undefined ? [scope.actor_id] : body.entity_ids,
+          fields: body.fields,
+        });
+        return send(res, 200, { read: result });
+      }
+
+      if (req.method === 'POST' && [
+        '/v1/host/npc-knowledge/read',
+        '/v1/host/npc-belief-state',
+        '/v1/host/npc-belief-transitions',
+      ].includes(url.pathname)) {
+        const adapterId = adapterIdFor(req);
+        if (!adapterId) return send(res, 403, { error: { code: 'ADAPTER_REQUIRED', message: 'An authenticated Host identity is required.' } });
+        if (!npcKnowledgeAuthorizers
+          || typeof engine.readVisibleNpcKnowledgeForHost !== 'function'
+          || typeof engine.getNpcBeliefStateForHost !== 'function'
+          || typeof engine.recordNpcBeliefTransitionForHost !== 'function') {
+          return send(res, 503, { error: { code: 'NPC_HOST_AUTHORIZATION_UNAVAILABLE', message: 'Host-bound NPC authorization is not configured.' } });
+        }
+        const body = await readBody(req);
+        if (!body || typeof body !== 'object' || Array.isArray(body)
+          || typeof body.conversation_id !== 'string' || !body.conversation_id.trim()) {
+          throw new EngineError('INVALID_NPC_HOST_REQUEST', 'A stable Host conversation_id is required.', 400);
+        }
+        const hostIdentity = npcKnowledgeAuthorizers.createHostIdentity({
+          adapter_id: adapterId,
+          conversation_id: body.conversation_id,
+        });
+        if (!hostIdentity) {
+          return send(res, 404, { error: { code: 'READ_NOT_AVAILABLE', message: 'The requested Host-bound operation is not available.' } });
+        }
+        const { conversation_id: _conversationId, ...operation } = body;
+        if (url.pathname === '/v1/host/npc-knowledge/read') {
+          if (Object.keys(operation).some(key => key !== 'limit')
+            || (operation.limit !== undefined
+              && (!Number.isSafeInteger(operation.limit) || operation.limit < 1 || operation.limit > 200))) {
+            throw new EngineError('INVALID_NPC_HOST_READ', 'Host knowledge read accepts only an optional limit from 1 to 200.', 400);
+          }
+          try {
+            const read = engine.readVisibleNpcKnowledgeForHost(hostIdentity, operation);
+            return send(res, 200, { read });
+          } catch (error) {
+            if (String(error?.code || '').startsWith('NPC_HOST_IDENTITY')
+              || String(error?.code || '').startsWith('NPC_KNOWLEDGE_READ')
+              || String(error?.code || '').startsWith('NPC_KNOWLEDGE_VISIBILITY')) {
+              return send(res, 404, { error: { code: 'READ_NOT_AVAILABLE', message: 'The requested Host-bound read is not available.' } });
+            }
+            throw error;
+          }
+        }
+        if (url.pathname === '/v1/host/npc-belief-state') {
+          const allowed = ['expected_revision', 'expected_commit_sequence', 'limit', 'proposition_ref'];
+          if (Object.keys(operation).some(key => !allowed.includes(key))) {
+            throw new EngineError('INVALID_NPC_HOST_BELIEF_STATE', 'Belief-state read contains unsupported or caller-controlled identity fields.', 400);
+          }
+          try {
+            const state = engine.getNpcBeliefStateForHost(hostIdentity, operation);
+            if (state?.status === 'unavailable') {
+              return send(res, 404, { error: { code: 'READ_NOT_AVAILABLE', message: 'The requested Host-bound state is not available.' } });
+            }
+            return send(res, 200, { state });
+          } catch (error) {
+            if (String(error?.code || '').startsWith('NPC_HOST_IDENTITY')
+              || String(error?.code || '').startsWith('NPC_KNOWLEDGE_READ')
+              || String(error?.code || '').startsWith('NPC_KNOWLEDGE_VISIBILITY')) {
+              return send(res, 404, { error: { code: 'READ_NOT_AVAILABLE', message: 'The requested Host-bound state is not available.' } });
+            }
+            throw error;
+          }
+        }
+        const allowed = [
+          'expected_revision', 'expected_commit_sequence', 'limit', 'proposition_ref',
+          'proposition_value', 'stance', 'supporting_acquisition_ids',
+          'contradicting_acquisition_ids', 'reason_rule_ref', 'idempotency_key',
+        ];
+        if (Object.keys(operation).some(key => !allowed.includes(key))) {
+          throw new EngineError('INVALID_NPC_HOST_BELIEF_TRANSITION', 'Belief transition contains unsupported or caller-controlled identity fields.', 400);
+        }
+        try {
+          const transition = engine.recordNpcBeliefTransitionForHost(hostIdentity, operation);
+          return send(res, transition.idempotent_replay ? 200 : 201, { transition });
+        } catch (error) {
+          if (String(error?.code || '').startsWith('NPC_HOST_IDENTITY')
+            || String(error?.code || '').startsWith('NPC_KNOWLEDGE_READ')
+            || String(error?.code || '').startsWith('NPC_KNOWLEDGE_VISIBILITY')) {
+            return send(res, 404, { error: { code: 'READ_NOT_AVAILABLE', message: 'The requested Host-bound transition is not available.' } });
+          }
+          throw error;
+        }
+      }
+
       if (url.pathname === '/v1/host-version-ledger/capture') {
         if (req.method !== 'POST') return send(res, 405, { error: { code: 'METHOD_NOT_ALLOWED', message: 'Unsupported Host version-ledger operation.' } });
         if (!hostVersionLedger || typeof hostVersionLedger.captureVersion !== 'function') {
@@ -447,23 +569,10 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
       }
 
       if (parts.length === 4 && action === 'authorized-read' && req.method === 'POST') {
-        const adapterId = adapterIdFor(req);
-        if (!adapterId) return send(res, 403, { error: { code: 'ADAPTER_REQUIRED', message: 'A configured adapter identity is required for authorized reads.' } });
-        const body = await readBody(req);
-        if (!body || typeof body !== 'object' || Array.isArray(body)
-          || Object.keys(body).some((key) => !['actor_entity_id', 'purpose', 'fields', 'entity_ids'].includes(key))) {
-          throw new EngineError('INVALID_AUTHORIZED_READ', 'Authorized read accepts only actor_entity_id, purpose, fields and optional entity_ids.');
-        }
-        const result = authorizedReads.readEntityFields({
-          worldId,
-          adapterId,
-          actorEntityId: body.actor_entity_id,
-          recipient: 'model',
-          purpose: body.purpose,
-          entityIds: body.entity_ids === undefined ? [body.actor_entity_id] : body.entity_ids,
-          fields: body.fields,
-        });
-        return send(res, 200, { read: result });
+        return send(res, 410, { error: {
+          code: 'HOST_BOUND_AUTHORIZED_READ_REQUIRED',
+          message: 'Use the authenticated Host conversation route; caller-supplied world, actor and purpose are not accepted.',
+        } });
       }
 
       if (req.method === 'GET' && ['state', 'events', 'audit'].includes(action)) {
