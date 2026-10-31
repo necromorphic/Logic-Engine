@@ -63,8 +63,8 @@ function validateRootEntries(entries) {
       || !validText(entry.path, 4096) || entry.path.startsWith('/') || entry.path.includes('\\')
       || entry.path.split('/').some((part) => !part || part === '.' || part === '..')
       || !isPlainRecord(entry.identity) || !validText(entry.identity.dev, 100)
-      || !validText(entry.identity.ino, 100) || !/^\\d+$/.test(entry.identity.dev)
-      || !/^\\d+$/.test(entry.identity.ino) || entry.identity.ino === '0'
+      || !validText(entry.identity.ino, 100) || !/^[0-9]+$/.test(entry.identity.dev)
+      || !/^[0-9]+$/.test(entry.identity.ino) || entry.identity.ino === '0'
       || !validDigest(entry.sha256) || seen.has(entry.path)
       || (previous !== null && entry.path.localeCompare(previous) < 0)) {
       throw new TypeError('HOST_ROOT_INVENTORY_ENTRY_INVALID');
