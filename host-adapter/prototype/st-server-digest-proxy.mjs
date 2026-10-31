@@ -361,9 +361,14 @@ function normalizeRootInventoryResponse(upstream) {
   if (!reconciliation || typeof reconciliation.status !== 'string') {
     return { status: 'NON_READY', reason: 'LOGIC_ENGINE_INVALID_ROOT_INVENTORY_RESPONSE' };
   }
+  if (reconciliation.integrity_status !== 'INTEGRITY_OK') {
+    return { status: 'NON_READY', reason: 'HOST_ROOT_INVENTORY_INTEGRITY_UNVERIFIED' };
+  }
   return {
     status: reconciliation.status === 'BASELINED_REVIEW_ONLY'
-      || reconciliation.status === 'UNCHANGED_REVIEW_ONLY' ? reconciliation.status : 'NON_READY',
+      || reconciliation.status === 'UNCHANGED_REVIEW_ONLY'
+      || reconciliation.status === 'duplicate' ? 'UNCHANGED_REVIEW_ONLY' : 'NON_READY',
+    integrity_status: reconciliation.integrity_status,
     ...(Number.isSafeInteger(reconciliation.sequence) ? { sequence: reconciliation.sequence } : {}),
     ...(typeof reconciliation.manifest_sha256 === 'string' ? { manifest_sha256: reconciliation.manifest_sha256 } : {}),
     ...(typeof reconciliation.delta_sha256 === 'string' ? { delta_sha256: reconciliation.delta_sha256 } : {}),
