@@ -528,6 +528,20 @@ class ManifestStoreTests(unittest.TestCase):
         self.assertTrue(quarantine.is_dir())
         self.assertEqual(list(quarantine.iterdir()), [])
 
+    def test_delete_role_sidecar_is_idempotent_after_retired_transition(self):
+        wal, _identity = self._enroll_active_wal()
+        first = self.store.delete_role_sidecar("core", "wal")
+        second = self.store.delete_role_sidecar("core", "wal")
+        self.assertEqual(first["generation"], second["generation"])
+        self.assertEqual(second["roles"][0]["sidecars"][0]["state"], "retired")
+        self.assertFalse(wal.exists())
+
+    def test_delete_absent_unmanifested_sidecar_is_idempotent(self):
+        self.store.initialize(self.data(1))
+        result = self.store.delete_role_sidecar("core", "wal")
+        self.assertEqual(result["generation"], 1)
+        self.assertFalse((self.role_parent / "core.sqlite-wal").exists())
+
     def test_delete_role_sidecar_retains_replacement_in_quarantine(self):
         import manifest_store
         wal, _identity = self._enroll_active_wal()
