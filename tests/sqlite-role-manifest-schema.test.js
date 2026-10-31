@@ -28,6 +28,7 @@ const manifest = (platform, identity) => ({
     filesystem: platform === 'linux' ? 'ext4' : 'NTFS',
     identitySource: 'opened-handle',
     directoryMutationBoundary: 'broker-exclusive-owner',
+    ...(platform === 'linux' ? { applicationUid: 1001 } : {}),
   },
   roles: [{
     role: 'core',
