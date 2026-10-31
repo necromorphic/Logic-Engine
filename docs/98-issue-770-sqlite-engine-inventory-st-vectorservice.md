@@ -39,12 +39,12 @@ The archive also contains large `index.json.backup` and `index.json.pre-optimiza
 **Audit basis:** exact upstream tag `WiseLibs/better-sqlite3@v13.0.3`, not an assumption based on the Node.js SQLite version.
 
 Source files inspected:
-- `package.json`: package version 13.0.3; Node engine requirement >=22.
-- `binding.gyp` and `deps/sqlite3.gyp`: when building from source, `deps/sqlite3/sqlite3.c` is compiled as a static SQLite library and linked into the `better_sqlite3` native addon.
-- `deps/sqlite3/sqlite3.h`: exact tag reports SQLite 3.53.4, source ID `2026-07-24 19:02:57 bf7c7f30031888f4e796e429ab3978879485813aaca6f641c7b33e4e09459bcc`.
-- `src/objects/database.cpp`: `Database::JS_new` calls `sqlite3_open_v2(filename, ..., mask, NULL)`; the VFS argument is hard-coded to NULL, selecting that SQLite instance's default VFS.
+- [`package.json`](https://github.com/WiseLibs/better-sqlite3/blob/v13.0.3/package.json): package version 13.0.3; Node engine requirement >=22.
+- [`binding.gyp`](https://github.com/WiseLibs/better-sqlite3/blob/v13.0.3/binding.gyp) and [`deps/sqlite3.gyp`](https://github.com/WiseLibs/better-sqlite3/blob/v13.0.3/deps/sqlite3.gyp): when building from source, `deps/sqlite3/sqlite3.c` is compiled as a static SQLite library and linked into the `better_sqlite3` native addon.
+- [`deps/sqlite3/sqlite3.h`](https://github.com/WiseLibs/better-sqlite3/blob/v13.0.3/deps/sqlite3/sqlite3.h): exact tag reports SQLite 3.53.4, source ID `2026-07-24 19:02:57 bf7c7f30031888f4e796e429ab3978879485813aaca6f641c7b33e4e09459bcc`.
+- [`src/objects/database.cpp`](https://github.com/WiseLibs/better-sqlite3/blob/v13.0.3/src/objects/database.cpp): `Database::JS_new` calls `sqlite3_open_v2(filename, ..., mask, NULL)`; the VFS argument is hard-coded to NULL, selecting that SQLite instance's default VFS.
 - The same file's `JS_loadExtension` calls `sqlite3_load_extension(db->db_handle, ...)` on an already-created database handle. Loading an extension through this API is therefore too late to secure the initial `new Database(DB_PATH)` open.
-- `lib/binding.js`: runtime loads a platform prebuild when present, otherwise the package's compiled `build/Release/better_sqlite3.node`. The VFS and SQLite build used by the actual installed binary must be verified, not inferred from Node's `node:sqlite` version.
+- [`lib/binding.js`](https://github.com/WiseLibs/better-sqlite3/blob/v13.0.3/lib/binding.js): runtime loads a platform prebuild when present, otherwise the package's compiled `build/Release/better_sqlite3.node`. The VFS and SQLite build used by the actual installed binary must be verified, not inferred from Node's `node:sqlite` version.
 
 ### Audit conclusion
 
