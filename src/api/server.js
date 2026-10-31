@@ -62,7 +62,8 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
   if (typeof npcKnowledgeHostApiEnabled !== 'boolean') throw new TypeError('NPC knowledge Host API enablement must be boolean.');
   if (npcKnowledgeHostApiEnabled && (typeof engine.npcKnowledgeContextResolver !== 'function'
     || !engine.npcKnowledgePolicyAuthority || typeof engine.npcKnowledgeReadAuthorizer !== 'function'
-    || typeof engine.npcKnowledgeVisibilityAuthorizer !== 'function')) {
+    || typeof engine.npcKnowledgeVisibilityAuthorizer !== 'function'
+    || typeof engine.npcKnowledgeWriteAuthorizer !== 'function')) {
     throw new TypeError('Enabling the NPC knowledge Host API requires the complete Core-owned Lane A authorization stack.');
   }
   if (typeof token !== 'string' || token.length < 16) throw new TypeError('API token must be at least 16 characters');
