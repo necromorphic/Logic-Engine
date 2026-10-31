@@ -1393,9 +1393,8 @@ static int probe_xOpen_parent(sqlite3_vfs *vfs, const char *name, sqlite3_file *
  *
  * The parent VFS remains responsible for SQLite's platform locking and
  * shared-memory protocol. Main/WAL/journal byte I/O and durability operations
- * use a second descriptor returned directly by the authenticated namespace
- * broker. This is deliberately a hybrid step, not the final independent
- * locking/SHM implementation.
+ * use the exact broker descriptor already owned by the parent VFS file.
+ * WAL byte I/O and locking/SHM operations remain delegated to parent methods.
  */
 typedef struct ProbeBackendFile {
   sqlite3_file base;
