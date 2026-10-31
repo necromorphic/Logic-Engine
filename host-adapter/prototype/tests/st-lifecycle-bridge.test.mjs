@@ -460,7 +460,7 @@ test('speaker-label changes are fingerprinted and require an instrumented edit c
   await g.bridge.beforeMutation('delete-message', [0]);
 });
 
-test('source locator substitution fails closed, while an instrumented rename advances the checkpoint', async () => {
+test('source locator substitution and unverified rename both fail closed before source mutation', async () => {
   const copied = makeFixture();
   await copied.bridge.enrollCurrentConversation();
   copied.setLocator('copied-chat-file');
@@ -471,10 +471,11 @@ test('source locator substitution fails closed, while an instrumented rename adv
 
   const renamed = makeFixture();
   await renamed.bridge.enrollCurrentConversation();
-  await renamed.bridge.beforeMutation('rename-chat', []);
-  renamed.setLocator('renamed-chat-file');
-  await renamed.bridge.afterMutation('rename-chat');
-  await renamed.bridge.beforeMutation('delete-message', [0]);
+  await assert.rejects(
+    renamed.bridge.beforeMutation('rename-chat', []),
+    /NON_READY: unsupported\/uninstrumented Host lifecycle operation rename-chat/,
+  );
+  assert.equal(renamed.getLocator(), 'original-chat-file');
 });
 
 test('native save failure leaves the journal behind so the next mutation fails closed', async () => {
