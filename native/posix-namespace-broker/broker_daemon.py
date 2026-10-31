@@ -83,7 +83,7 @@ def _parse_role_payload(payload: bytes, operation: int) -> tuple[str, str]:
         if separator:
             raise ValueError("main-open payload must contain only a role")
     else:
-        parts = decoded.split("\\x00")
+        parts = decoded.split("\x00")
         if len(parts) != 2:
             raise ValueError("sidecar-open payload must contain role and kind")
         role, kind = parts
@@ -144,7 +144,7 @@ def _open_socket_parent(path: str, application_uid: int) -> tuple[int, str]:
     if not components or any(part in ("", ".", "..") for part in components):
         raise ValueError("socket path must not contain empty, dot, or parent components")
     basename = components[-1]
-    if "/" in basename or "\\x00" in basename:
+    if "/" in basename or "\x00" in basename:
         raise ValueError("socket path must end in a basename")
     directory_components = components[:-1]
     flags = os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW
