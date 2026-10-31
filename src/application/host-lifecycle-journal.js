@@ -614,6 +614,7 @@ export class HostLifecycleJournal {
       event_type === 'BASELINE' ? 'BASELINED_REVIEW_ONLY' : 'NON_READY');
     return { status: event_type === 'BASELINE' ? 'BASELINED_REVIEW_ONLY' : 'NON_READY',
       sequence, manifest_sha256: manifest_sha256,
+      ...(delta ? { delta } : {}),
       ...(delta_sha256 ? { delta_sha256 } : {}), event_sha256: eventSha };
   }
 
