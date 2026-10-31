@@ -216,7 +216,9 @@ function validateEvent(event) {
   if (!mutationEvent && (event.mutation_id !== undefined || event.operation !== undefined || event.receipt_digest !== undefined)) {
     throw new TypeError('Mutation identity and receipt fields are reserved for mutation lifecycle events.');
   }
-  if (typeof event.occurred_at !== 'string' || !Number.isFinite(Date.parse(event.occurred_at))) {
+  if (typeof event.occurred_at !== 'string'
+    || !/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$/.test(event.occurred_at)
+    || !Number.isFinite(Date.parse(event.occurred_at))) {
     throw new TypeError('Invalid Host lifecycle event timestamp.');
   }
   const normalized = {};
@@ -569,13 +571,19 @@ export class HostLifecycleJournal {
           mutation_id: event.mutation_id,
           operation: event.operation,
           mutation_digest: event.mutation_digest,
+          authority_id: event.authority_id,
+          generation: event.generation,
+          snapshot_fingerprint: event.snapshot_fingerprint,
           prepared_event_id: event.event_id,
           occurred_at: event.occurred_at,
         });
       } else if (event.event_type === 'MUTATION_COMMITTED' || event.event_type === 'MUTATION_ABORTED') {
         const prior = pending.get(event.mutation_id);
         if (!prior || prior.operation !== event.operation
-          || prior.mutation_digest !== event.mutation_digest) {
+          || prior.mutation_digest !== event.mutation_digest
+          || pending.get(event.mutation_id).authority_id !== event.authority_id
+          || pending.get(event.mutation_id).generation !== event.generation
+          || pending.get(event.mutation_id).snapshot_fingerprint !== event.snapshot_fingerprint) {
           return { status: 'NON_READY', identity, authority,
             journal: { integrity: 'VALID', ...integrity }, pending: null,
             reason: 'HOST_LIFECYCLE_MUTATION_TERMINAL_WITHOUT_PREPARE' };
