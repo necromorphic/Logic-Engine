@@ -392,7 +392,7 @@ function parseBoundConversation(request, conversationId, identity) {
   if (!requestMatchesAuthenticatedHostSession(request, conversationId)) return null;
   const parts = conversationId.split(':');
   if (parts.length !== 3 || parts[0] !== request.session.logicEngineSessionId
-    || parts[1] !== identity.authenticated_account_id
+    || parts[1] !== identity.host_installation_id
     || !HOST_SESSION_UUID.test(parts[2])
     || request.session.logicEngineSessionHandle !== request.user.profile.handle) return null;
   return parts[2];
