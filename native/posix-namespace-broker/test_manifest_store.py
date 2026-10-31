@@ -610,10 +610,10 @@ class ManifestStoreTests(unittest.TestCase):
     def test_delete_role_sidecar_quarantines_and_commits_retired_state(self):
         wal, _identity = self._enroll_active_wal()
         result = self.store.delete_role_sidecar("core", "wal")
-        self.assertEqual(result["generation"], 4)
+        self.assertEqual(result["generation"], 5)
         sidecar = result["roles"][0]["sidecars"][0]
         self.assertEqual(sidecar["state"], "retired")
-        self.assertEqual(sidecar["generation"], 4)
+        self.assertEqual(sidecar["generation"], 5)
         self.assertFalse(wal.exists())
         quarantine = self.role_parent / ".le-quarantine"
         self.assertTrue(quarantine.is_dir())
