@@ -314,7 +314,10 @@ def _observe_regular_at(parent_fd: int, name: str, label: str) -> dict[str, str]
             raise StoreError(f"{label} is not a single-link regular file")
         if info.st_uid != os.geteuid():
             raise StoreError(f"{label} is not owned by the broker service UID")
-        return _fd_identity(fd)
+        identity = _fd_identity(fd)
+        if identity["mountId"] != _fd_mount_id(parent_fd):
+            raise StoreError(f"{label} is not on the enrolled role-parent mount")
+        return identity
     finally:
         os.close(fd)
 
@@ -331,7 +334,10 @@ def _verify_regular_at(parent_fd: int, name: str,
             raise StoreError(f"{label} is not a single-link regular file")
         if info.st_uid != os.geteuid():
             raise StoreError(f"{label} is not owned by the broker service UID")
-        if _fd_identity(fd) != expected:
+        actual_identity = _fd_identity(fd)
+        if actual_identity["mountId"] != _fd_mount_id(parent_fd):
+            raise StoreError(f"{label} is not on the enrolled role-parent mount")
+        if actual_identity != expected:
             raise StoreError(f"{label} identity mismatch")
     finally:
         os.close(fd)
