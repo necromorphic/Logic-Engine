@@ -240,6 +240,13 @@ export class HostLifecycleReceiptStore {
     const rootEntries = inventory.filesystem.entries;
     const targetRootEntries = rootEntries.filter(entry => entry.path === targetPath);
     if (targetRootEntries.length !== 1) throw new Error('HOST_LIFECYCLE_RECEIPT_TARGET_FILE_MISSING');
+    const targetRootEntry = targetRootEntries[0];
+    if (!DIGEST.test(target.content_sha256 ?? '')
+      || typeof target.file_identity !== 'string'
+      || targetRootEntry.sha256 !== target.content_sha256
+      || targetRootEntry.identity?.dev + ':' + targetRootEntry.identity?.ino !== target.file_identity) {
+      throw new Error('HOST_LIFECYCLE_RECEIPT_SOURCE_FILESYSTEM_SCAN_MISMATCH');
+    }
     const otherRootEntries = rootEntries.filter(entry => entry.path !== targetPath);
     const otherSourceFiles = inventory.source.files.filter(file => file !== target).map(file => ({
       kind: file.kind,
