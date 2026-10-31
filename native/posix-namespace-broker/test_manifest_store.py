@@ -117,8 +117,13 @@ class ManifestStoreTests(unittest.TestCase):
         value = json.loads(self.data(1))
         second = dict(value["roles"][0])
         second["role"] = "vectors"
+        reused_identity = {
+            "kind": "posix", "device": "99999999",
+            "inode": "99999998", "mountId": "99999997"
+        }
+        second["databaseIdentity"] = reused_identity
         value["roles"][0]["sidecars"] = [{
-            "kind": "wal", "identity": second["databaseIdentity"],
+            "kind": "wal", "identity": reused_identity,
             "state": "retired", "generation": 1
         }]
         value["roles"].append(second)
