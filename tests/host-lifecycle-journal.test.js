@@ -16,7 +16,7 @@ const message = '00000000-0000-4000-8000-000000000002';
 const version = '00000000-0000-4000-8000-000000000003';
 const digest = (text) => createHash('sha256').update(text).digest('hex');
 
-function setup(t, authorize = () => true) {
+function setup(t, authorize = () => true, authorizeRoot = () => true) {
   const directory = mkdtempSync(join(tmpdir(), 'logic-host-lifecycle-journal-'));
   const journal = new HostLifecycleJournal({
     path: join(directory, 'host-journal.sqlite'),
@@ -28,10 +28,12 @@ function setup(t, authorize = () => true) {
       authenticated_account_id: input.authenticated_account_id,
       host_session_id: input.host_session_id,
       conversation_uuid: input.conversation_uuid,
+      adapter_id: 'test-adapter',
+      root_id: rootId,
       ...authority,
     }),
     resolveRootIdentity: (input) => ({
-      authorized: authorize(input) === true,
+      authorized: authorizeRoot(input) === true,
       host_installation_id: input.host_installation_id,
       authenticated_account_id: input.authenticated_account_id,
       root_id: input.root_id,
@@ -63,7 +65,7 @@ function event(overrides = {}) {
 }
 
 test('appends lifecycle events with a monotonic sequence and verifiable hash chain', (t) => {
-  const { journal } = setup(t);
+  const { journal } = setupLifecycle(t);
   const first = journal.append(event());
   assert.equal(first.status, 'appended');
   assert.equal(first.sequence, 1);
@@ -81,7 +83,7 @@ test('appends lifecycle events with a monotonic sequence and verifiable hash cha
 });
 
 test('identical event replay is idempotent and changed replay conflicts', (t) => {
-  const { journal } = setup(t);
+  const { journal } = setupLifecycle(t);
   const first = event();
   assert.equal(journal.append(first).status, 'appended');
   assert.equal(journal.append(first).status, 'duplicate');
@@ -90,7 +92,7 @@ test('identical event replay is idempotent and changed replay conflicts', (t) =>
 });
 
 test('rejects identity not authorized by the trusted server-side resolver', (t) => {
-  const { journal } = setup(t, () => false);
+  const { journal } = setupLifecycle(t, () => false);
   assert.throws(() => journal.append(event()), /HOST_LIFECYCLE_IDENTITY_NOT_AUTHORIZED/);
   assert.equal(journal.getHead(installation, account).sequence, 0);
 });
@@ -104,6 +106,12 @@ test('serializes lifecycle append against competing Core writers under the share
     path: join(directory, 'host-journal.sqlite'),
     coordinatorPath,
     verifyMutationReceipt: () => true,
+    resolveRootIdentity: input => ({
+      authorized: true,
+      host_installation_id: input.host_installation_id,
+      authenticated_account_id: input.authenticated_account_id,
+      root_id: input.root_id,
+    }),
     resolveIdentity: (input) => {
       assert.throws(() => competing.exec('BEGIN IMMEDIATE'), /locked|busy/i);
       return {
@@ -112,6 +120,8 @@ test('serializes lifecycle append against competing Core writers under the share
         authenticated_account_id: input.authenticated_account_id,
         host_session_id: input.host_session_id,
         conversation_uuid: input.conversation_uuid,
+        adapter_id: 'test-adapter',
+        root_id: rootId,
         ...authority,
       };
     },
@@ -121,12 +131,14 @@ test('serializes lifecycle append against competing Core writers under the share
     try { competing.close(); } catch {}
     rmSync(directory, { recursive: true, force: true });
   });
+  journal.enrollRootInventory({ host_installation_id: installation, authenticated_account_id: account,
+    root_id: rootId, event_id: 'root-lock-baseline', entries: rootEntries(digest('lock-baseline')) });
   assert.equal(journal.append(event()).status, 'appended');
   competing.exec('BEGIN IMMEDIATE; ROLLBACK;');
 });
 
 test('append-only SQL triggers reject event update and deletion', (t) => {
-  const { journal } = setup(t);
+  const { journal } = setupLifecycle(t);
   journal.append(event());
   assert.throws(() => journal.db.exec("UPDATE host_lifecycle_events SET event_type='VERSION_DELETED'"), /HOST_LIFECYCLE_JOURNAL_APPEND_ONLY/);
   assert.throws(() => journal.db.exec('DELETE FROM host_lifecycle_events'), /HOST_LIFECYCLE_JOURNAL_APPEND_ONLY/);
@@ -134,7 +146,7 @@ test('append-only SQL triggers reject event update and deletion', (t) => {
 });
 
 test('event validation rejects mutable or incomplete Host version identities', (t) => {
-  const { journal } = setup(t);
+  const { journal } = setupLifecycle(t);
   assert.throws(() => journal.append(event({ message_id: 'mutable-index-0' })), /stable message and version UUIDs/);
   assert.throws(() => journal.append(event({ parent_version_id: 'not-a-uuid' })), /immutable parent and payload digest/);
   assert.throws(() => journal.append(event({ payload_sha256: 'not-a-digest' })), /immutable parent and payload digest/);
@@ -211,6 +223,18 @@ const rootFile = (path, ino, content, metadata = {}) => ({
   },
   sha256: digest(content),
 });
+function setupLifecycle(t, authorize = () => true) {
+  const context = setup(t, authorize, () => true);
+  context.journal.enrollRootInventory({
+    host_installation_id: installation,
+    authenticated_account_id: account,
+    root_id: rootId,
+    event_id: 'root-authority-baseline',
+    entries: rootEntries(digest('host-authority-root-baseline')),
+  });
+  return context;
+}
+
 const rootInput = (overrides = {}) => ({
   host_installation_id: installation,
   authenticated_account_id: account,
@@ -463,7 +487,7 @@ test('over-limit root drift is durably recorded and cannot disappear after a res
 
 
 test('durable Core journal records prepared mutations, blocks overlap, and clears only on a matching commit', (t) => {
-  const { journal } = setup(t);
+  const { journal } = setupLifecycle(t);
   const prepared = {
     event_id: '00000000-0000-4000-8000-000000000011',
     host_installation_id: installation,
