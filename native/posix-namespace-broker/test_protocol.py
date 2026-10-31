@@ -40,9 +40,33 @@ def exchange(path, operation, flags=0, version=VERSION, ancillary=None):
     return RESPONSE.unpack(data)
 
 
+def expect_start_rejected(path, app_uid):
+    proc = subprocess.Popen(
+        [str(ROOT / "broker_server"), "--socket", path,
+         "--app-uid", str(app_uid)],
+        stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True,
+    )
+    try:
+        return_code = proc.wait(timeout=3)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait(timeout=3)
+        raise AssertionError("broker accepted an untrusted socket parent")
+    assert return_code != 0, "broker accepted an untrusted socket parent"
+    assert not os.path.exists(path), "broker created a socket in an untrusted parent"
+
+
 def main():
-    with tempfile.TemporaryDirectory(prefix="le-broker-") as temp:
+    with tempfile.TemporaryDirectory(prefix="le-broker-", dir=Path.home()) as temp:
         os.chmod(temp, 0o700)
+
+        # World-writable ancestors and symlinked path components are rejected.
+        world_writable_path = f"/tmp/le-broker-untrusted-{os.getpid()}.sock"
+        expect_start_rejected(world_writable_path, os.getuid())
+        symlink_parent = Path(temp) / "parent-link"
+        symlink_parent.symlink_to(temp, target_is_directory=True)
+        expect_start_rejected(str(symlink_parent / "broker.sock"), os.getuid())
+        symlink_parent.unlink()
         path = str(Path(temp) / "broker.sock")
         proc = subprocess.Popen(
             [str(ROOT / "broker_server"), "--socket", path,
@@ -127,8 +151,8 @@ def main():
 
             print(
                 "POSIX broker protocol tests: PASS "
-                "(PING, peer UID rejection, unknown op, bad flags/version, "
-                "SCM_RIGHTS rejection)"
+                "(PING, peer UID rejection, untrusted ancestors, symlink path rejection, "
+                "unknown op, bad flags/version, SCM_RIGHTS rejection)"
             )
         finally:
             proc.terminate()
