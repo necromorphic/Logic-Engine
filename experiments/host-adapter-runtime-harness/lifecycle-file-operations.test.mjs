@@ -388,13 +388,21 @@ test('pinned ST 1.19.0 chat create/edit/swipe/delete/import/export/restore mutat
     messageId: '66666666-6666-4666-8666-666666666666',
     versionId: '77777777-7777-4777-8777-777777777777',
   })) + '\n');
+  const groupMetadataPath = join(directories.groups, 'group-harness.json');
+  let importedGroupChatId = null;
   const groupImport = await observe(async () => {
     const response = await post('/api/chats/group/import', {}, { 'x-harness-upload': groupUpload });
     assert.equal(response.status, 200, JSON.stringify(response));
     assert.equal(typeof response.result.res, 'string');
+    importedGroupChatId = response.result.res.replace(/\\.jsonl$/i, '');
+    await writeFile(groupMetadataPath, JSON.stringify({
+      id: 'group-harness',
+      chats: [importedGroupChatId],
+    }));
     return response;
   }, 'added');
   assert.ok(groupImport.result.delta.added.some(entry => entry.path.startsWith('group chats/')));
+  assert.ok(groupImport.result.delta.added.some(entry => entry.path.endsWith('group-harness.json')));
 
   const groupSave = await observe(async () => {
     const response = await post('/api/chats/group/save', {
@@ -402,6 +410,9 @@ test('pinned ST 1.19.0 chat create/edit/swipe/delete/import/export/restore mutat
     });
     assert.equal(response.status, 200);
     assert.equal(response.result.ok, true);
+    const metadata = JSON.parse(await readFile(groupMetadataPath, 'utf8'));
+    metadata.chats.push('group-harness');
+    await writeFile(groupMetadataPath, JSON.stringify(metadata));
     return response;
   }, 'added');
   assert.ok(groupSave.result.delta.added.some(entry => entry.path.endsWith('group-harness.jsonl')));
@@ -410,6 +421,9 @@ test('pinned ST 1.19.0 chat create/edit/swipe/delete/import/export/restore mutat
     const response = await post('/api/chats/group/delete', { id: 'group-harness' });
     assert.equal(response.status, 200);
     assert.equal(response.result.ok, true);
+    const metadata = JSON.parse(await readFile(groupMetadataPath, 'utf8'));
+    metadata.chats = metadata.chats.filter(id => id !== 'group-harness');
+    await writeFile(groupMetadataPath, JSON.stringify(metadata));
     return response;
   }, 'removed');
   assert.ok(groupDelete.result.delta.removed.some(entry => entry.path.endsWith('group-harness.jsonl')));
