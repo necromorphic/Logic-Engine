@@ -647,3 +647,21 @@ diff --git a/public/scripts/group-chats.js b/public/scripts/group-chats.js
      const group = groups.find(x => x.id === groupId);
  
      if (!group) {
+
+diff --git a/src/endpoints/chats.js b/src/endpoints/chats.js
+--- a/src/endpoints/chats.js
++++ b/src/endpoints/chats.js
+@@ -25,6 +25,9 @@
+     isPathUnderParent,
+ } from '../util.js';
+ 
++import { createHostBulkMutationGuard } from './logic-engine-host-inventory-handler.mjs';
++const hostBulkMutationGuard = createHostBulkMutationGuard({ pinnedHostCommit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127' });
++
+ const isBackupEnabled = !!getConfigValue('backups.chat.enabled', true, 'boolean');
+@@ -751,1 +754,1 @@
+-router.post('/group/import', function (request, response) {
++router.post('/group/import', hostBulkMutationGuard, function (request, response) {
+@@ -771,1 +774,1 @@
+-router.post('/import', validateAvatarUrlMiddleware, function (request, response) {
++router.post('/import', hostBulkMutationGuard, validateAvatarUrlMiddleware, function (request, response) {
