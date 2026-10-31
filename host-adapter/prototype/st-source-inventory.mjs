@@ -118,11 +118,15 @@ function parseChatJsonlIdentity(bytes, seen) {
       missingMessageIdentityCount++;
       continue;
     }
-    if (typeof identity.messageId !== 'string' || !HOST_UUID.test(identity.messageId)
-      || seen.messageIds.has(identity.messageId)
-      || !Array.isArray(identity.versions) || identity.versions.length !== versions.length
-      || identity.activeVersionIndex !== activeVersionIndex) {
-      fail('SOURCE_CHAT_MESSAGE_IDENTITY_INVALID');
+    if (typeof identity.messageId !== 'string' || !HOST_UUID.test(identity.messageId)) {
+      fail('SOURCE_CHAT_MESSAGE_ID_INVALID');
+    }
+    if (seen.messageIds.has(identity.messageId)) fail('SOURCE_CHAT_MESSAGE_ID_DUPLICATE');
+    if (!Array.isArray(identity.versions) || identity.versions.length !== versions.length) {
+      fail('SOURCE_CHAT_MESSAGE_VERSION_LAYOUT_MISMATCH');
+    }
+    if (identity.activeVersionIndex !== activeVersionIndex) {
+      fail('SOURCE_CHAT_MESSAGE_ACTIVE_VERSION_MISMATCH');
     }
     seen.messageIds.add(identity.messageId);
 
