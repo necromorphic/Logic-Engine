@@ -49,7 +49,7 @@ function inventory(state) {
   const target = {
     kind: 'root-chat',
     locator: 'main.jsonl',
-    file_identity: state.fileIdentity,
+    file_identity: '1:' + state.fileIdentity,
     content_sha256: digest(state.content),
     logical_identity: {
       conversation_uuid: CONVERSATION,
