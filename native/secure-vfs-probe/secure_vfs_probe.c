@@ -243,7 +243,7 @@ static int probe_broker_exchange(
   char response_packet[sizeof(response)];
   size_t role_length, payload_length;
   ssize_t sent, received;
-  int socket_fd = -1, received_fd = -1, fd_count = 0, valid = 0;
+  int socket_fd = -1, received_fds[4] = {-1, -1, -1, -1}, fd_count = 0, valid = 0;
   int peer_credentials[3];
   socklen_t credentials_length = (socklen_t)sizeof(peer_credentials);
   if (out_fd) *out_fd = -1;
@@ -315,25 +315,39 @@ static int probe_broker_exchange(
   message.msg_control = response_control;
   message.msg_controllen = sizeof(response_control);
   received = recvmsg(socket_fd, &message, MSG_CMSG_CLOEXEC);
-  if (received != (ssize_t)sizeof(response)
-      || (message.msg_flags & (MSG_TRUNC | MSG_CTRUNC)) != 0) goto done;
+  if (received != (ssize_t)sizeof(response)) goto done;
+  for (control = CMSG_FIRSTHDR(&message); control;
+       control = CMSG_NXTHDR(&message, control)) {
+    size_t data_length;
+    size_t count;
+    if (control->cmsg_level != SOL_SOCKET || control->cmsg_type != SCM_RIGHTS
+        || control->cmsg_len < CMSG_LEN(0)) goto done;
+    data_length = control->cmsg_len - CMSG_LEN(0);
+    if (data_length == 0 || data_length % sizeof(int) != 0) goto done;
+    count = data_length / sizeof(int);
+    for (size_t i = 0; i < count; ++i) {
+      int incoming_fd = -1;
+      memcpy(&incoming_fd, (const char *)CMSG_DATA(control) + i * sizeof(int),
+             sizeof(incoming_fd));
+      if (fd_count >= 4) {
+        close(incoming_fd);
+        goto done;
+      }
+      received_fds[fd_count++] = incoming_fd;
+    }
+  }
+  if ((message.msg_flags & (MSG_TRUNC | MSG_CTRUNC)) != 0) goto done;
   memcpy(&response, response_packet, sizeof(response));
   if (ntohl(response.magic) != LEB_PROTOCOL_MAGIC
       || ntohs(response.version) != LEB_PROTOCOL_VERSION
       || ntohs(response.operation) != operation
       || response.request_id != request.request_id
       || ntohl(response.payload_length) != 0) goto done;
-  for (control = CMSG_FIRSTHDR(&message); control;
-       control = CMSG_NXTHDR(&message, control)) {
-    if (control->cmsg_level != SOL_SOCKET || control->cmsg_type != SCM_RIGHTS
-        || control->cmsg_len != CMSG_LEN(sizeof(int))) goto done;
-    memcpy(&received_fd, CMSG_DATA(control), sizeof(received_fd));
-    fd_count += 1;
-  }
   *out_status = ntohl(response.status);
   if (*out_status == LEB_STATUS_OK) {
     if (expect_fd != (fd_count == 1)) goto done;
     if (expect_fd) {
+      int received_fd = received_fds[0];
       if (received_fd < 0 || fcntl(received_fd, F_SETFD, FD_CLOEXEC) != 0
           || fstat(received_fd, &descriptor_info) != 0
           || !S_ISREG(descriptor_info.st_mode) || descriptor_info.st_nlink != 1) goto done;
@@ -343,7 +357,7 @@ static int probe_broker_exchange(
               || descriptor_info.st_ino != role->inode)) goto done;
       if (out_fd) {
         *out_fd = received_fd;
-        received_fd = -1;
+        received_fds[0] = -1;
       }
     }
   } else if (fd_count != 0) {
@@ -351,7 +365,9 @@ static int probe_broker_exchange(
   }
   valid = 1;
 done:
-  if (received_fd >= 0) close(received_fd);
+  for (int i = 0; i < fd_count && i < 4; ++i) {
+    if (received_fds[i] >= 0) close(received_fds[i]);
+  }
   if (socket_fd >= 0) close(socket_fd);
   return valid;
 }
