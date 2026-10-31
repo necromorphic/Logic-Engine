@@ -81,24 +81,32 @@ test('production NPC read authorization requires configured adapter, active Host
   assert.equal(authorizers.readAuthorizer({ ...scope, actor_id: 'other-actor' }), null);
 });
 
-test('Core resolves world and actor only from active bindings and denies ambiguous actor selection', (t) => {
+test('Core validates the exact Host-selected actor binding without selecting an actor from adapter identity', (t) => {
   const { engine, authorizers, scope, actors } = setup(t);
-  assert.deepEqual(authorizers.resolveContext({
+  const resolve = (actorId = scope.actor_id) => authorizers.resolveContext({
     adapter_id: scope.adapter_id,
     conversation_id: scope.conversation_id,
-  }), {
+    actor_id: actorId,
+  });
+  assert.deepEqual(resolve(), {
     world_id: scope.world_id,
     conversation_id: scope.conversation_id,
     adapter_id: scope.adapter_id,
     actor_id: scope.actor_id,
   });
 
-  // Caller-supplied world/actor fields are not part of the identity contract.
+  // The Host-selected actor is only a selector; Core still requires the exact
+  // active binding and never accepts caller-supplied world scope.
   assert.equal(authorizers.resolveContext({
     adapter_id: scope.adapter_id,
     conversation_id: scope.conversation_id,
-    world_id: 'attacker-world',
     actor_id: 'attacker-actor',
+  }), null);
+  assert.equal(authorizers.resolveContext({
+    adapter_id: scope.adapter_id,
+    conversation_id: scope.conversation_id,
+    actor_id: scope.actor_id,
+    world_id: 'attacker-world',
   }), null);
 
   let getterInvoked = false;
@@ -108,6 +116,7 @@ test('Core resolves world and actor only from active bindings and denies ambiguo
       getterInvoked = true;
       return scope.conversation_id;
     },
+    actor_id: scope.actor_id,
   };
   assert.equal(authorizers.resolveContext(accessorIdentity), null);
   assert.equal(getterInvoked, false);
@@ -132,18 +141,11 @@ test('Core resolves world and actor only from active bindings and denies ambiguo
   });
   actors.bind('world-a', 'adapter-st', 'npc-b');
 
-  // Multiple active actors cannot be selected by supplying actor_id in a request.
-  assert.equal(authorizers.resolveContext({
-    adapter_id: scope.adapter_id,
-    conversation_id: scope.conversation_id,
-  }), null);
-  assert.equal(authorizers.readAuthorizer(scope), null);
-
+  assert.equal(resolve('npc-b').actor_id, 'npc-b');
+  assert.equal(authorizers.readAuthorizer({ ...scope, actor_id: 'npc-b' }).actor_id, 'npc-b');
   actors.revoke('world-a', 'adapter-st', 'npc-b');
-  assert.equal(authorizers.resolveContext({
-    adapter_id: scope.adapter_id,
-    conversation_id: scope.conversation_id,
-  }).actor_id, 'npc-a');
+  assert.equal(resolve('npc-b'), null);
+  assert.equal(resolve().actor_id, 'npc-a');
   assert.equal(authorizers.readAuthorizer(scope).status, 'authorized');
 });
 
@@ -349,6 +351,7 @@ test('per-acquisition visibility requires exact trusted source provenance and th
   assert.equal(authorizers.resolveContext({
     adapter_id: scope.adapter_id,
     conversation_id: scope.conversation_id,
+    actor_id: scope.actor_id,
   }), null);
   assert.equal(authorizers.readAuthorizer(scope), null);
   assert.equal(authorizers.visibilityAuthorizer(acquisition).status, 'denied');
@@ -360,6 +363,7 @@ test('actor revocation blocks future Core reads even while Host conversation bin
   assert.equal(authorizers.resolveContext({
     adapter_id: scope.adapter_id,
     conversation_id: scope.conversation_id,
+    actor_id: scope.actor_id,
   }), null);
   assert.equal(authorizers.readAuthorizer(scope), null);
 });
