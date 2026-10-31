@@ -217,7 +217,7 @@ function validateEvent(event) {
     throw new TypeError('Mutation identity and receipt fields are reserved for mutation lifecycle events.');
   }
   if (typeof event.occurred_at !== 'string'
-    || !/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$/.test(event.occurred_at)
+    || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(event.occurred_at)
     || !Number.isFinite(Date.parse(event.occurred_at))) {
     throw new TypeError('Invalid Host lifecycle event timestamp.');
   }
