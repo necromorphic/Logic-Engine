@@ -76,6 +76,20 @@ The update sequence is:
 2. Atomically replace and fsync `anchor.json` with the next generation and digest.
 3. Rename `manifest.next` to `manifest.json` and fsync the manifest directory.
 
+The store now also exposes `ManifestStore.open_role_file(role, kind)`. It accepts a
+logical role name and one of `main`, `wal`, `shm`, or `journal`; it does not
+accept caller-supplied paths. It resolves the enrolled parent by its retained
+identity chain, opens the file relative to that directory with no-follow and
+nonblocking flags, validates the opened descriptor's type, owner, link count,
+mount and persistent identity, and returns that exact descriptor to the caller.
+The caller owns the descriptor and may transfer it to the authenticated
+application process using `SCM_RIGHTS`.
+
+This is the first descriptor-returning secure-open primitive, not yet a broker
+operation: `broker_server.c` still implements PING only, and the VFS does not
+yet request or consume these descriptors. Sidecar creation/deletion transitions
+and broker/VFS integration remain open.
+
 The anchor replacement is the commit point. On restart, if the anchor references
 the staged manifest, verification completes the rename. A manifest that does not
 match the anchor fails closed. Generation must advance by exactly one. Both initialization and every subsequent
