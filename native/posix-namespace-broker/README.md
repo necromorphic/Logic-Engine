@@ -62,7 +62,11 @@ application UID.
 `broker_server`. It stores a canonical Linux role manifest in one service-owned
 0700 directory and a separate generation+SHA-256 anchor in another service-owned
 0700 directory. Both directory paths are opened component-by-component with
-`O_DIRECTORY|O_NOFOLLOW`; writable-by-group/other ancestors are rejected.
+`O_DIRECTORY|O_NOFOLLOW`; writable-by-group/other ancestors and ancestors
+owned and writable by the configured application UID are rejected. The Linux
+manifest records that application UID, and role-parent verification applies
+the same check to every opened path component. The broker service UID and
+application UID must be distinct.
 Metadata files are opened without following symlinks, must be single-link regular
 files owned by the service UID, and are capped at 1 MiB.
 
@@ -122,6 +126,12 @@ Run the manifest-store tests with:
 
 ```sh
 python3 native/posix-namespace-broker/test_manifest_store.py
+
+# Manifest CLI operations also require the configured application UID:
+python3 native/posix-namespace-broker/manifest_store.py \
+  --manifest-root /var/lib/logic-engine-broker/manifest \
+  --anchor-root /var/lib/logic-engine-broker/anchor \
+  --app-uid "$(id -u logic-app)" verify
 ```
 
 ## POSIX quarantine-delete primitive (standalone prototype)
