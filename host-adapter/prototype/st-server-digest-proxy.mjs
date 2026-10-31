@@ -424,7 +424,8 @@ export function createHostLifecycleJournalProxy({
     throw new TypeError('A server-owned Host identity store is required');
   }
   if (receiptStore !== null && (typeof receiptStore.prepare !== 'function'
-    || typeof receiptStore.commit !== 'function' || typeof receiptStore.abort !== 'function')) {
+    || typeof receiptStore.commit !== 'function' || typeof receiptStore.abort !== 'function'
+    || typeof receiptStore.recover !== 'function')) {
     throw new TypeError('A durable Host lifecycle receipt store is required');
   }
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 30000) {
@@ -598,13 +599,69 @@ export function createHostLifecycleJournalProxy({
       if (!resolved) return response.status(403).json({
         error: { code: 'HOST_SESSION_SCOPE_REQUIRED', message: 'The Host conversation is not bound to this authenticated SillyTavern session.' },
       });
-      const result = await upstream('/v1/host-lifecycle/status', 'GET', null, {
+      const identity = {
         host_installation_id: resolved.identity.host_installation_id,
         authenticated_account_id: resolved.identity.authenticated_account_id,
         host_session_id: resolved.hostSessionId,
         conversation_uuid: resolved.conversationUuid,
-      });
-      return response.status(result.status).json(result.payload);
+      };
+      const result = await upstream('/v1/host-lifecycle/status', 'GET', null, identity);
+      if (result.status !== 200 || result.payload?.lifecycle?.status !== 'PENDING_MUTATION') {
+        return response.status(result.status).json(result.payload);
+      }
+      const lifecycle = result.payload.lifecycle;
+      const pending = lifecycle.pending;
+      const directories = request?.user?.directories;
+      if (!durableReceiptStore || !pending
+        || !HOST_SESSION_UUID.test(pending.mutation_id ?? '')
+        || !HOST_SESSION_UUID.test(pending.prepared_event_id ?? '')
+        || !HOST_LIFECYCLE_OPERATIONS.has(pending.operation)
+        || !/^[a-f0-9]{64}$/.test(pending.mutation_digest ?? '')
+        || typeof directories?.root !== 'string' || !pathModule.isAbsolute(directories.root)
+        || (typeof durableReceiptStore.directory === 'string'
+          && pathIsWithin(directories.root, durableReceiptStore.directory))) {
+        return response.status(200).json({ lifecycle: {
+          ...lifecycle,
+          status: 'RECOVERY_REQUIRED',
+          reason: 'HOST_LIFECYCLE_RECEIPT_STORE_UNAVAILABLE',
+        } });
+      }
+      let recovered;
+      try {
+        recovered = await durableReceiptStore.recover({
+          ...identity,
+          mutation_id: pending.mutation_id,
+          operation: pending.operation,
+          mutation_digest: pending.mutation_digest,
+          prepared_event_id: pending.prepared_event_id,
+          event_id: randomUUID(),
+          occurred_at: new Date().toISOString(),
+        }, directories);
+      } catch {
+        recovered = { status: 'RECOVERY_REQUIRED', reason: 'HOST_LIFECYCLE_RECOVERY_EVIDENCE_UNAVAILABLE' };
+      }
+      if (!['COMMITTED', 'ABORTED'].includes(recovered?.status)) {
+        return response.status(200).json({ lifecycle: {
+          ...lifecycle,
+          status: 'RECOVERY_REQUIRED',
+          reason: recovered?.reason ?? 'HOST_LIFECYCLE_RECOVERY_REQUIRED',
+        } });
+      }
+      const terminal = await upstream('/v1/host-lifecycle/events', 'POST', {
+        event_id: recovered.event_id,
+        event_type: recovered.status === 'COMMITTED' ? 'MUTATION_COMMITTED' : 'MUTATION_ABORTED',
+        mutation_id: pending.mutation_id,
+        operation: pending.operation,
+        mutation_digest: pending.mutation_digest,
+        receipt_digest: recovered.receipt_digest,
+        occurred_at: recovered.occurred_at,
+      }, identity);
+      if (![200, 201].includes(terminal.status)
+        || !['appended', 'duplicate'].includes(terminal.payload?.lifecycle?.status)) {
+        return response.status(terminal.status).json(terminal.payload);
+      }
+      const refreshed = await upstream('/v1/host-lifecycle/status', 'GET', null, identity);
+      return response.status(refreshed.status).json(refreshed.payload);
     },
   };
 }
