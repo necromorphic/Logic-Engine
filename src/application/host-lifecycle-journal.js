@@ -123,7 +123,7 @@ function rootInventoryDelta(beforeEntries, afterEntries) {
     } else if (oldEntry.sha256 !== next.sha256) {
       delta.modified.push({ path: filePath, before_sha256: oldEntry.sha256, after_sha256: next.sha256 });
     } else if (canonical(oldEntry.identity) !== canonical(next.identity)) {
-      delta.metadata_changed.push({ path: filePath });
+      delta.metadata_changed.push({ path: filePath, before_identity: oldEntry.identity, after_identity: next.identity });
     }
   }
   for (const [filePath, next] of after) {
@@ -289,7 +289,7 @@ export class HostLifecycleJournal {
           root_id TEXT NOT NULL CHECK(length(root_id)=64),
           sequence INTEGER NOT NULL CHECK(sequence > 0),
           event_id TEXT NOT NULL,
-          event_type TEXT NOT NULL CHECK(event_type IN ('BASELINE','DELTA_OBSERVED')),
+          event_type TEXT NOT NULL CHECK(event_type IN ('BASELINE','DELTA_OBSERVED','DELTA_LIMIT_EXCEEDED')),
           manifest_sha256 TEXT NOT NULL CHECK(length(manifest_sha256)=64),
           delta_sha256 TEXT,
           previous_sha256 TEXT NOT NULL CHECK(length(previous_sha256)=64),
@@ -484,6 +484,7 @@ export class HostLifecycleJournal {
   #verifyRootInventoryRows(hostInstallationId, accountId, rootId, rows) {
     let previous = '0'.repeat(64);
     let baselineManifestSha256 = null;
+    let baselineEntries = null;
     let latestManifestSha256 = null;
     for (let index = 0; index < rows.length; index++) {
       const row = rows[index];
@@ -508,15 +509,26 @@ export class HostLifecycleJournal {
         return { valid: false, reason: 'HOST_ROOT_INVENTORY_MANIFEST_DIGEST_MISMATCH' };
       }
       if (row.event_type === 'BASELINE') {
-        if (index !== 0 || baselineManifestSha256 !== null || row.delta_sha256 !== null) {
+        if (index !== 0 || baselineManifestSha256 !== null || row.delta_sha256 !== null
+          || event.delta !== null || event.delta_sha256 !== null) {
           return { valid: false, reason: 'HOST_ROOT_INVENTORY_BASELINE_LAYOUT_INVALID' };
         }
         baselineManifestSha256 = manifestSha256;
-      } else if (row.event_type === 'DELTA_OBSERVED') {
+        baselineEntries = entries;
+      } else if (row.event_type === 'DELTA_OBSERVED' || row.event_type === 'DELTA_LIMIT_EXCEEDED') {
         if (index === 0 || !validDigest(row.delta_sha256)
-          || sha256(canonical(event.delta)) !== row.delta_sha256
           || event.delta_sha256 !== row.delta_sha256) {
           return { valid: false, reason: 'HOST_ROOT_INVENTORY_DELTA_DIGEST_MISMATCH' };
+        }
+        const expectedDelta = rootInventoryDelta(baselineEntries, entries);
+        const expectedDeltaSha256 = sha256(canonical(expectedDelta));
+        const changed = Object.values(expectedDelta).reduce((sum, items) => sum + items.length, 0);
+        if (expectedDeltaSha256 !== row.delta_sha256
+          || (row.event_type === 'DELTA_OBSERVED'
+            ? (event.delta === null || canonical(event.delta) !== canonical(expectedDelta)
+              || changed > MAX_ROOT_DELTA_FILES)
+            : (event.delta !== null || changed <= MAX_ROOT_DELTA_FILES))) {
+          return { valid: false, reason: 'HOST_ROOT_INVENTORY_DELTA_CONTENT_MISMATCH' };
         }
       } else return { valid: false, reason: 'HOST_ROOT_INVENTORY_EVENT_TYPE_INVALID' };
       const expected = sha256(canonical({
@@ -635,7 +647,7 @@ export class HostLifecycleJournal {
         input.authenticated_account_id, input.root_id, rows);
       if (!integrity.valid) throw new Error(integrity.reason);
       const reusedEventId = rows.find((row) => row.event_id === input.event_id);
-      if (reusedEventId && (reusedEventId.event_type !== 'DELTA_OBSERVED'
+      if (reusedEventId && (!['DELTA_OBSERVED', 'DELTA_LIMIT_EXCEEDED'].includes(reusedEventId.event_type)
         || reusedEventId.manifest_sha256 !== manifestSha256)) {
         throw new Error('HOST_ROOT_INVENTORY_EVENT_ID_CONFLICT');
       }
@@ -649,13 +661,27 @@ export class HostLifecycleJournal {
       }
       const delta = rootInventoryDelta(baseline.entries, entries);
       const changed = Object.values(delta).reduce((sum, items) => sum + items.length, 0);
+      const deltaSha256 = sha256(canonical(delta));
       if (changed > MAX_ROOT_DELTA_FILES) {
-        return { status: 'NON_READY', reason: 'HOST_ROOT_INVENTORY_DELTA_LIMIT',
+        if (reusedEventId) {
+          if (reusedEventId.event_type !== 'DELTA_LIMIT_EXCEEDED' || reusedEventId.delta_sha256 !== deltaSha256) {
+            throw new Error('HOST_ROOT_INVENTORY_EVENT_ID_CONFLICT');
+          }
+          return { status: 'NON_READY', duplicate: true, sequence: reusedEventId.sequence,
+            reason: 'HOST_ROOT_INVENTORY_DELTA_LIMIT', delta_sha256: deltaSha256 };
+        }
+        const existingLimit = rows.find((row) => row.event_type === 'DELTA_LIMIT_EXCEEDED'
+          && row.manifest_sha256 === manifestSha256 && row.delta_sha256 === deltaSha256);
+        if (existingLimit) return { status: 'NON_READY', duplicate: true,
+          sequence: existingLimit.sequence, reason: 'HOST_ROOT_INVENTORY_DELTA_LIMIT',
+          delta_sha256: deltaSha256 };
+        const recorded = this.#appendRootInventoryEvent({ ...input, event_type: 'DELTA_LIMIT_EXCEEDED',
+          entries, manifest_sha256: manifestSha256, delta: null, delta_sha256: deltaSha256 });
+        return { ...recorded, reason: 'HOST_ROOT_INVENTORY_DELTA_LIMIT',
           changed_files: changed, maximum_changed_files: MAX_ROOT_DELTA_FILES };
       }
-      const deltaSha256 = sha256(canonical(delta));
       if (reusedEventId) {
-        if (reusedEventId.delta_sha256 !== deltaSha256) {
+        if (reusedEventId.event_type !== 'DELTA_OBSERVED' || reusedEventId.delta_sha256 !== deltaSha256) {
           throw new Error('HOST_ROOT_INVENTORY_EVENT_ID_CONFLICT');
         }
         return { status: 'NON_READY', duplicate: true, sequence: reusedEventId.sequence,
