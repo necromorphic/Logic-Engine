@@ -248,7 +248,7 @@ def _open_role_parent(components: list[str], identities: list[dict[str, str]]) -
         for index, component in enumerate(components):
             if (not isinstance(component, str) or not component or
                     component in (".", "..") or "/" in component or
-                    "\\x00" in component or "\\\\" in component):
+                    "\x00" in component or "\\" in component):
                 raise StoreError("role parent contains an invalid path component")
             next_fd = os.open(component, DIR_FLAGS, dir_fd=fd)
             os.close(fd)
