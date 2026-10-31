@@ -1,3 +1,5 @@
+import { createHash, randomUUID } from 'node:crypto';
+import pathModule from 'node:path';
 const validId = (value) => typeof value === 'string' && value === value.trim()
   && value.length > 0 && value.length <= 200
   && ![...value].some((character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127);
@@ -230,5 +232,138 @@ export function createHostInventoryReconcileProxyHandler({
         error: { code: 'LOGIC_ENGINE_UNREACHABLE', message: 'Logic-Engine inventory reconciliation is unavailable.' },
       });
     }
+  };
+}
+
+
+const ROOT_ENTRY_KEYS = new Set(['path', 'identity', 'sha256']);
+const ROOT_IDENTITY_KEYS = new Set(['dev', 'ino', 'mode', 'size', 'mtimeMs', 'ctimeMs']);
+const MAX_ROOT_INVENTORY_BYTES = 8 * 1024 * 1024;
+const MAX_ROOT_INVENTORY_ENTRIES = 25000;
+
+function validRootEntries(entries) {
+  if (!Array.isArray(entries) || entries.length > MAX_ROOT_INVENTORY_ENTRIES) return false;
+  let previous = null;
+  const physicalIds = new Set();
+  for (const entry of entries) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)
+      || Object.getPrototypeOf(entry) !== Object.prototype
+      || Object.keys(entry).some(key => !ROOT_ENTRY_KEYS.has(key))
+      || !validId(entry.path) || entry.path.startsWith('/') || entry.path.includes('\\\\')
+      || entry.path.split('/').some(part => !part || part === '.' || part === '..')
+      || (previous !== null && entry.path.localeCompare(previous) < 0)
+      || !entry.identity || typeof entry.identity !== 'object' || Array.isArray(entry.identity)
+      || Object.getPrototypeOf(entry.identity) !== Object.prototype
+      || Object.keys(entry.identity).length !== ROOT_IDENTITY_KEYS.size
+      || Object.keys(entry.identity).some(key => !ROOT_IDENTITY_KEYS.has(key))
+      || !validId(entry.identity.dev) || !validId(entry.identity.ino)
+      || !/^[0-9]+$/.test(entry.identity.dev) || !/^[0-9]+$/.test(entry.identity.ino)
+      || entry.identity.ino === '0'
+      || !Number.isSafeInteger(entry.identity.mode) || entry.identity.mode < 0
+      || !Number.isSafeInteger(entry.identity.size) || entry.identity.size < 0
+      || !Number.isFinite(entry.identity.mtimeMs) || entry.identity.mtimeMs < 0
+      || !Number.isFinite(entry.identity.ctimeMs) || entry.identity.ctimeMs < 0
+      || typeof entry.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(entry.sha256)) return false;
+    const physicalId = process.platform === 'win32'
+      ? 'win:' + entry.identity.ino : 'posix:' + entry.identity.dev + ':' + entry.identity.ino;
+    if (physicalIds.has(physicalId)) return false;
+    physicalIds.add(physicalId);
+    previous = entry.path;
+  }
+  return true;
+}
+
+/**
+ * Internal SillyTavern-server bridge for digest-only full-root inventory.
+ * It never returns file paths or identities to the browser and never treats
+ * a baseline or observed delta as authorization to publish READY.
+ */
+export function createHostRootInventoryPersistence({
+  env = process.env,
+  fetchImpl = globalThis.fetch,
+  identityStore,
+  timeoutMs = 15000,
+} = {}) {
+  if (typeof fetchImpl !== 'function') throw new TypeError('A fetch implementation is required');
+  if (!identityStore || typeof identityStore.resolveAuthenticatedAccount !== 'function') {
+    throw new TypeError('A server-owned Host identity store is required');
+  }
+  if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 30000) {
+    throw new TypeError('timeoutMs must be an integer between 1 and 30000');
+  }
+  return async function persistHostRootInventory({ userHandle, rootPath, entries }) {
+    const target = configuredTarget(env);
+    if (!target) return { status: 'NON_READY', reason: 'LOGIC_ENGINE_PROXY_UNCONFIGURED' };
+    if (!validId(userHandle) || typeof rootPath !== 'string' || !pathModule.isAbsolute(rootPath)
+      || !validRootEntries(entries)) {
+      return { status: 'NON_READY', reason: 'HOST_ROOT_INVENTORY_INPUT_INVALID' };
+    }
+    let identity;
+    try { identity = await identityStore.resolveAuthenticatedAccount(userHandle); }
+    catch { return { status: 'NON_READY', reason: 'HOST_ROOT_IDENTITY_UNAVAILABLE' }; }
+    if (!identity || !validId(identity.host_installation_id)
+      || !validId(identity.authenticated_account_id)) {
+      return { status: 'NON_READY', reason: 'HOST_ROOT_IDENTITY_INVALID' };
+    }
+    const root_id = createHash('sha256').update(pathModule.resolve(rootPath), 'utf8').digest('hex');
+    const post = async (pathname, eventId) => {
+      const body = {
+        host_installation_id: identity.host_installation_id,
+        authenticated_account_id: identity.authenticated_account_id,
+        root_id,
+        event_id: eventId,
+        entries,
+      };
+      const serialized = JSON.stringify(body);
+      if (Buffer.byteLength(serialized, 'utf8') > MAX_ROOT_INVENTORY_BYTES) {
+        return { status: 413, payload: { error: { code: 'HOST_ROOT_INVENTORY_TOO_LARGE' } } };
+      }
+      const url = new URL(target.url);
+      url.pathname = pathname;
+      const upstream = await fetchImpl(url, {
+        method: 'POST',
+        headers: {
+          authorization: 'Bearer ' + target.apiToken,
+          'content-type': 'application/json',
+          'x-adapter-id': target.adapterId,
+          'x-adapter-token': target.adapterToken,
+        },
+        body: serialized,
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      let payload;
+      try { payload = await upstream.json(); }
+      catch { return { status: 502, payload: { error: { code: 'LOGIC_ENGINE_INVALID_RESPONSE' } } }; }
+      return { status: upstream.status, payload };
+    };
+    try {
+      const first = await post('/v1/host-root-inventory/baseline', randomUUID());
+      if (first.status === 409
+        && first.payload?.error?.code === 'HOST_ROOT_INVENTORY_ALREADY_ENROLLED') {
+        const observed = await post('/v1/host-root-inventory/observe', randomUUID());
+        return normalizeRootInventoryResponse(observed);
+      }
+      return normalizeRootInventoryResponse(first);
+    } catch {
+      return { status: 'NON_READY', reason: 'LOGIC_ENGINE_UNREACHABLE' };
+    }
+  };
+}
+
+function normalizeRootInventoryResponse(upstream) {
+  const reconciliation = upstream?.payload?.reconciliation;
+  if (!reconciliation || typeof reconciliation.status !== 'string') {
+    return { status: 'NON_READY', reason: 'LOGIC_ENGINE_INVALID_ROOT_INVENTORY_RESPONSE' };
+  }
+  return {
+    status: reconciliation.status === 'BASELINED_REVIEW_ONLY'
+      || reconciliation.status === 'UNCHANGED_REVIEW_ONLY' ? reconciliation.status : 'NON_READY',
+    ...(Number.isSafeInteger(reconciliation.sequence) ? { sequence: reconciliation.sequence } : {}),
+    ...(typeof reconciliation.manifest_sha256 === 'string' ? { manifest_sha256: reconciliation.manifest_sha256 } : {}),
+    ...(typeof reconciliation.delta_sha256 === 'string' ? { delta_sha256: reconciliation.delta_sha256 } : {}),
+    ...(reconciliation.reason ? { reason: reconciliation.reason } : {}),
+    ...(reconciliation.counts ? { counts: reconciliation.counts } : {}),
+    ...(reconciliation.duplicate ? { duplicate: true } : {}),
+    upstream_status: upstream.status,
   };
 }
