@@ -228,6 +228,11 @@ class ManifestStore:
         self.manifest_fd = _open_trusted_dir(manifest_root)
         try:
             self.anchor_fd = _open_trusted_dir(anchor_root)
+            manifest_info = os.fstat(self.manifest_fd)
+            anchor_info = os.fstat(self.anchor_fd)
+            if (manifest_info.st_dev, manifest_info.st_ino) == (anchor_info.st_dev, anchor_info.st_ino):
+                os.close(self.anchor_fd)
+                raise StoreError("manifest and rollback-anchor roots must be separate directories")
         except Exception:
             os.close(self.manifest_fd)
             raise
@@ -286,7 +291,7 @@ class ManifestStore:
             raise StoreError("manifest metadata root identity does not match opened directory")
         canonical = _canonical_json(manifest)
         digest = hashlib.sha256(canonical).hexdigest()
-        _write_atomic(self.manifest_fd, STAGED, STAGED, canonical)
+        _write_atomic(self.manifest_fd, "manifest.tmp", STAGED, canonical)
         _write_atomic(self.anchor_fd, ANCHOR_NEXT, ANCHOR,
                       _anchor_bytes(1, digest))
         os.replace(STAGED, MANIFEST, src_dir_fd=self.manifest_fd,
