@@ -231,6 +231,40 @@ test('server receipt store verifies swipe selection/deletion, message deletion a
   }
 });
 
+test('server recovery commits exact post-state, aborts exact pre-state, and leaves partial state unresolved', async t => {
+  const before = { fileIdentity: '101', content: 'before', messages: [message('m1', 'old', 'v1')] };
+  const after = { fileIdentity: '102', content: 'after', messages: [
+    message('m1', 'old', 'v1'), message('m2', 'new', 'v2'),
+  ] };
+  const committedFixture = fixture(t, [before, after, after]);
+  await committedFixture.store.prepare(scope(), directories);
+  const committed = await committedFixture.store.recover({
+    ...scope({ prepared_event_id: PREPARED_EVENT }),
+    occurred_at: '2026-10-31T00:00:02.000Z',
+  }, directories);
+  assert.equal(committed.status, 'COMMITTED');
+  assert.match(committed.receipt_digest, /^[a-f0-9]{64}$/);
+
+  const abortedFixture = fixture(t, [before, before, before]);
+  await abortedFixture.store.prepare(scope(), directories);
+  const aborted = await abortedFixture.store.recover({
+    ...scope({ prepared_event_id: PREPARED_EVENT }),
+    occurred_at: '2026-10-31T00:00:02.000Z',
+  }, directories);
+  assert.equal(aborted.status, 'ABORTED');
+  assert.match(aborted.receipt_digest, /^[a-f0-9]{64}$/);
+
+  const partialFixture = fixture(t, [before, {
+    fileIdentity: '102', content: 'partial', messages: [message('m1', 'partially-edited', 'v1')],
+  }]);
+  await partialFixture.store.prepare(scope(), directories);
+  const partial = await partialFixture.store.recover({
+    ...scope({ prepared_event_id: PREPARED_EVENT }),
+    occurred_at: '2026-10-31T00:00:02.000Z',
+  }, directories);
+  assert.equal(partial.status, 'RECOVERY_REQUIRED');
+});
+
 test('ABORTED receipt requires exact unchanged persisted state and is mutually exclusive with COMMITTED', async t => {
   const unchanged = { fileIdentity: '101', content: 'before', messages: [message('m1', 'old', 'v1')] };
   const f = fixture(t, [unchanged, unchanged]);
