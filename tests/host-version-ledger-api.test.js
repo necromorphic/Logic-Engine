@@ -549,7 +549,15 @@ test('Core lifecycle API durably accepts authenticated prepare/commit receipts a
   });
   const pending = await fetch(statusUrl, { headers: adapterHeaders });
   assert.equal(pending.status, 200);
-  assert.equal((await pending.json()).lifecycle.status, 'PENDING_MUTATION');
+  const pendingPayload = (await pending.json()).lifecycle;
+  assert.equal(pendingPayload.status, 'PENDING_MUTATION');
+  assert.equal(pendingPayload.identity.host_session_id, HOST_SESSION);
+  assert.equal(pendingPayload.authority.authority_id, HOST_AUTHORITY.authority_id);
+  assert.equal(pendingPayload.authority.generation, HOST_AUTHORITY.generation);
+  assert.equal(pendingPayload.authority.snapshot_fingerprint, HOST_AUTHORITY.snapshot_fingerprint);
+  assert.equal(pendingPayload.journal.integrity, 'VALID');
+  assert.equal(pendingPayload.pending.mutation_id, mutation);
+  assert.equal(pendingPayload.reason, null);
 
   const overlap = await fetch(base + '/v1/host-lifecycle/events', {
     method: 'POST', headers: adapterHeaders,
