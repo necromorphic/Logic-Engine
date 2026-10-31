@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import hashlib
 import os
+import stat
 import tempfile
 import threading
 import unittest
@@ -8,7 +9,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 from manifest_store import (
-    ManifestStore, StoreError, _anchor_bytes, _canonical_json, _write_atomic
+    ManifestStore, StoreError, _anchor_bytes, _canonical_json, _open_role_parent,
+    _write_atomic
 )
 
 
@@ -127,6 +129,27 @@ class ManifestStoreTests(unittest.TestCase):
         self.assertEqual(failures, [])
         self.assertCountEqual(outcomes, ["committed", "rejected"])
         self.assertEqual(self.store.load()["generation"], 2)
+
+    def test_rejects_application_owned_writable_directory_ancestor(self):
+        import json
+        value = json.loads(self.data(1))
+        real_fstat = os.fstat
+
+        def app_owned_writable(fd):
+            info = real_fstat(fd)
+            fields = list(info)
+            fields[0] |= stat.S_IWUSR
+            fields[4] = self.application_uid
+            return os.stat_result(fields)
+
+        with patch("manifest_store.os.fstat", side_effect=app_owned_writable):
+            with self.assertRaises(StoreError):
+                _open_role_parent(
+                    value["roles"][0]["parentComponents"],
+                    value["roles"][0]["parentIdentities"],
+                    value["filesystemPolicy"]["filesystem"],
+                    self.application_uid,
+                )
 
     def test_rejects_manifest_for_different_application_uid(self):
         import json
