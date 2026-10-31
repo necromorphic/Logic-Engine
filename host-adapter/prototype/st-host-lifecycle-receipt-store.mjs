@@ -283,6 +283,7 @@ export class HostLifecycleReceiptStore {
       event_id: scope.event_id,
       operation: scope.operation,
       mutation_digest: scope.mutation_digest,
+      occurred_at: scope.occurred_at,
       before,
     };
     const result = await this.#writeOnce(filePath, record);
@@ -293,7 +294,7 @@ export class HostLifecycleReceiptStore {
     if (!validScope(scope)) throw new TypeError('Invalid Host lifecycle receipt commit scope.');
     await this.#prepareDirectory();
     const prepared = await this.#read(this.#recordPath(scope, 'prepared'));
-    if (!prepared || prepared.event_id !== scope.prepared_event_id
+    if (!prepared || (scope.prepared_event_id && prepared.event_id !== scope.prepared_event_id)
       || prepared.mutation_digest !== scope.mutation_digest
       || prepared.operation !== scope.operation) {
       throw new Error('HOST_LIFECYCLE_RECEIPT_PREPARE_MISSING');
@@ -306,7 +307,7 @@ export class HostLifecycleReceiptStore {
         || priorTerminal.receipt_digest !== priorTerminal.receipt.receipt_digest) {
         throw new Error('HOST_LIFECYCLE_RECEIPT_CONFLICT');
       }
-      return { status: 'duplicate', receipt_digest: priorTerminal.receipt_digest };
+      return { status: 'duplicate', receipt_digest: priorTerminal.receipt_digest, occurred_at: priorTerminal.occurred_at };
     }
     const after = await this.#snapshot(scope, directories);
     if (after.target_path !== prepared.before.target_path
@@ -349,17 +350,18 @@ export class HostLifecycleReceiptStore {
       schema_version: 1,
       event_id: scope.event_id,
       receipt_digest: receiptDigest,
+      occurred_at: scope.occurred_at,
       receipt,
     };
     await this.#writeOnce(terminalPath, record);
-    return { status: 'appended', receipt_digest: receiptDigest };
+    return { status: 'appended', receipt_digest: receiptDigest, occurred_at: record.occurred_at };
   }
 
   async abort(scope, directories) {
     if (!validScope(scope)) throw new TypeError('Invalid Host lifecycle receipt abort scope.');
     await this.#prepareDirectory();
     const prepared = await this.#read(this.#recordPath(scope, 'prepared'));
-    if (!prepared || prepared.event_id !== scope.prepared_event_id
+    if (!prepared || (scope.prepared_event_id && prepared.event_id !== scope.prepared_event_id)
       || prepared.mutation_digest !== scope.mutation_digest
       || prepared.operation !== scope.operation) {
       throw new Error('HOST_LIFECYCLE_RECEIPT_PREPARE_MISSING');
@@ -369,7 +371,7 @@ export class HostLifecycleReceiptStore {
     const priorTerminal = await this.#read(terminalPath);
     if (priorTerminal) {
       if (priorTerminal.event_id !== scope.event_id) throw new Error('HOST_LIFECYCLE_RECEIPT_CONFLICT');
-      return { status: 'duplicate', receipt_digest: priorTerminal.receipt_digest };
+      return { status: 'duplicate', receipt_digest: priorTerminal.receipt_digest, occurred_at: priorTerminal.occurred_at };
     }
     const after = await this.#snapshot(scope, directories);
     if (canonical(after) !== canonical(prepared.before)) {
@@ -394,8 +396,9 @@ export class HostLifecycleReceiptStore {
       schema_version: 1,
       event_id: scope.event_id,
       receipt_digest: receiptDigest,
+      occurred_at: scope.occurred_at,
       receipt,
     });
-    return { status: 'appended', receipt_digest: receiptDigest };
+    return { status: 'appended', receipt_digest: receiptDigest, occurred_at: scope.occurred_at };
   }
 }
