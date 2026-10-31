@@ -4,6 +4,8 @@ import {
   parseHostRootIdentityRegistry,
   resolveAdapterHostRootIdentity,
   resolveRegisteredHostRootIdentity,
+  resolveAdapterHostLifecycleIdentity,
+  resolveRegisteredHostLifecycleIdentity,
 } from '../src/application/host-root-inventory-identity.js';
 
 const binding = {
@@ -63,5 +65,51 @@ test('journal resolver independently checks the registered installation/account/
   assert.equal(resolveRegisteredHostRootIdentity(registry, binding).authorized, true);
   assert.equal(resolveRegisteredHostRootIdentity(registry, {
     ...binding, root_id: 'b'.repeat(64),
+  }).authorized, false);
+});
+
+
+test('lifecycle identity resolver binds adapter, installation and account before accepting a conversation UUID', () => {
+  const registry = parseHostRootIdentityRegistry(JSON.stringify([binding]));
+  const accepted = resolveAdapterHostLifecycleIdentity(registry, {
+    adapterId: binding.adapter_id,
+    host_installation_id: binding.host_installation_id,
+    authenticated_account_id: binding.authenticated_account_id,
+    conversation_uuid: '33333333-3333-4333-8333-333333333333',
+  });
+  assert.equal(accepted.authorized, true);
+  assert.equal(accepted.conversation_uuid, '33333333-3333-4333-8333-333333333333');
+  assert.equal(resolveAdapterHostLifecycleIdentity(registry, {
+    adapterId: 'other-adapter',
+    host_installation_id: binding.host_installation_id,
+    authenticated_account_id: binding.authenticated_account_id,
+    conversation_uuid: '33333333-3333-4333-8333-333333333333',
+  }).authorized, false);
+  assert.equal(resolveAdapterHostLifecycleIdentity(registry, {
+    adapterId: binding.adapter_id,
+    host_installation_id: binding.host_installation_id,
+    authenticated_account_id: '44444444-4444-4444-8444-444444444444',
+    conversation_uuid: '33333333-3333-4333-8333-333333333333',
+  }).authorized, false);
+  assert.equal(resolveAdapterHostLifecycleIdentity(registry, {
+    adapterId: binding.adapter_id,
+    host_installation_id: binding.host_installation_id,
+    authenticated_account_id: binding.authenticated_account_id,
+    conversation_uuid: 'not-a-uuid',
+  }).authorized, false);
+});
+
+test('journal lifecycle resolver independently rechecks installation/account and conversation UUID', () => {
+  const registry = parseHostRootIdentityRegistry(JSON.stringify([binding]));
+  const accepted = resolveRegisteredHostLifecycleIdentity(registry, {
+    host_installation_id: binding.host_installation_id,
+    authenticated_account_id: binding.authenticated_account_id,
+    conversation_uuid: '33333333-3333-4333-8333-333333333333',
+  });
+  assert.equal(accepted.authorized, true);
+  assert.equal(resolveRegisteredHostLifecycleIdentity(registry, {
+    host_installation_id: binding.host_installation_id,
+    authenticated_account_id: '44444444-4444-4444-8444-444444444444',
+    conversation_uuid: '33333333-3333-4333-8333-333333333333',
   }).authorized, false);
 });
