@@ -911,13 +911,18 @@ test('Core receives a durable prepare before mutation and a matching commit afte
   await f.bridge.enrollCurrentConversation();
   const before = await f.bridge.beforeMutation('edit-message', [0]);
   assert.equal(events[0].event_type, 'MUTATION_PREPARED');
-  assert.equal(events[0].mutation_id, before.eventId);
+  assert.equal(events[0].mutation_id, before.payload.details.hostLifecycle.mutationId);
+  assert.match(events[0].mutation_digest, /^[a-f0-9]{64}$/);
+  assert.equal(typeof events[0].occurred_at, 'string');
   assert.equal(remote.status, 'PENDING_MUTATION');
 
   f.chat[0].mes = 'edited and persisted';
   await f.bridge.afterMutation('edit-message');
   assert.equal(events[1].event_type, 'MUTATION_COMMITTED');
-  assert.equal(events[1].mutation_id, before.eventId);
+  assert.equal(events[1].mutation_id, before.payload.details.hostLifecycle.mutationId);
+  assert.equal(events[1].mutation_digest, events[0].mutation_digest);
+  assert.match(events[1].receipt_digest, /^[a-f0-9]{64}$/);
+  assert.equal(typeof events[1].occurred_at, 'string');
   assert.equal(events[1].operation, 'edit-message');
   assert.equal(remote.status, 'NO_PENDING_MUTATION');
   assert.equal(JSON.stringify(events).includes('edited and persisted'), false);
@@ -952,7 +957,10 @@ test('Core pending mutation is recovered by replaying the local durable after re
   const resumed = await f.bridge.beforeMutation('create-swipe', [0]);
   const replay = events.find(event => event.event_type === 'MUTATION_COMMITTED');
   assert.ok(replay);
-  assert.equal(replay.mutation_id, before.eventId);
+  assert.equal(replay.mutation_id, before.payload.details.hostLifecycle.mutationId);
+  assert.equal(replay.mutation_digest, events[0].mutation_digest);
+  assert.match(replay.receipt_digest, /^[a-f0-9]{64}$/);
+  assert.equal(replay.occurred_at, events.find(event => event.event_type === 'MUTATION_COMMITTED').occurred_at);
   assert.equal(replay.operation, 'edit-message');
   assert.equal(remote.status, 'PENDING_MUTATION');
   assert.equal(resumed.operation, 'before:create-swipe');
