@@ -574,6 +574,7 @@ test('durable Core journal records prepared mutations, blocks overlap, and clear
     event_type: 'MUTATION_COMMITTED',
     mutation_digest: digest('before-state'),
     receipt_digest: digest('persisted-after-receipt'),
+    receipt_signature: digest('server-signature'),
     occurred_at: '2026-10-31T00:00:01.000Z',
   });
   assert.equal(committed.status, 'appended');
@@ -602,6 +603,7 @@ test('ABORTED is terminal and cannot be reversed to COMMITTED', (t) => {
     event_id: '00000000-0000-4000-8000-000000000043',
     event_type: 'MUTATION_ABORTED',
     receipt_digest: digest('verified-no-change-receipt'),
+    receipt_signature: digest('server-signature'),
     occurred_at: '2026-10-31T00:00:01.000Z',
   };
   assert.equal(journal.append(aborted).status, 'appended');
@@ -612,6 +614,7 @@ test('ABORTED is terminal and cannot be reversed to COMMITTED', (t) => {
     event_id: '00000000-0000-4000-8000-000000000044',
     event_type: 'MUTATION_COMMITTED',
     receipt_digest: digest('commit-after-abort'),
+    receipt_signature: digest('server-signature'),
     occurred_at: '2026-10-31T00:00:02.000Z',
   }), /HOST_LIFECYCLE_MUTATION_TERMINAL_CONFLICT/);
 });
@@ -693,6 +696,7 @@ test('terminal receipt is rejected by default and leaves the mutation pending', 
     event_id: '00000000-0000-4000-8000-000000000033',
     event_type: 'MUTATION_COMMITTED',
     receipt_digest: digest('unverified-receipt'),
+    receipt_signature: digest('server-signature'),
     occurred_at: '2026-10-31T00:00:01.000Z',
   }), /HOST_LIFECYCLE_RECEIPT_MISMATCH/);
   assert.equal(journal.getConversationStatus(installation, account, hostSession, conversation, { ...authority, adapter_id: 'test-adapter', root_id: rootId }).status, 'PENDING_MUTATION');
@@ -756,6 +760,7 @@ test('prepared Core mutation survives SQLite restart and can be completed by ide
     event_type: 'MUTATION_COMMITTED',
     mutation_digest: digest('before-delete'),
     receipt_digest: digest('persisted-delete-receipt'),
+    receipt_signature: digest('server-signature'),
     occurred_at: '2026-10-31T00:00:01.000Z',
   };
   assert.equal(reopened.append(commit).status, 'appended');
