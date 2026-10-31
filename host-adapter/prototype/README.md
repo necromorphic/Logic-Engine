@@ -234,6 +234,6 @@ No raw chat content is copied into the journal. No Provider, vectorization, Olla
 - backup download followed by import, matching the native restore workflow;
 - group chat import, save and delete.
 
-Before and after each operation, the harness takes a Windows VSS snapshot of the temporary user data root and runs the real file inventory and per-file reconciliation code. It asserts the expected added/removed/modified file delta and that the journal observation contains no raw chat text. The harness checks the exact SillyTavern commit SHA.
+Before and after each operation, the harness takes a Windows VSS snapshot of the temporary user data root and runs the real file inventory and per-file reconciliation code. It asserts the expected added/removed/modified/replaced file delta and that the journal observation contains no raw chat text. It also calls the mounted Host `/session`, `/identity` and `/inventory` routes, checks stable installation/account/session IDs, and verifies shared-VSS full-root inventory while asserting the known baseline/reconciliation blockers. The harness checks the exact SillyTavern commit SHA.
 
 This is real Host route/file-operation evidence, but it is not yet an end-to-end trusted receipt: the test journal is an isolated adapter, and the production ST route does not yet forward operation-specific file receipts to the Core SQLite journal. The current route must therefore remain NON_READY.
