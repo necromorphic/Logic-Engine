@@ -640,6 +640,7 @@ class ManifestStore:
                 manifest["filesystemPolicy"]["applicationUid"]
             )
             try:
+                _require_empty_quarantine(parent_fd)
                 _verify_regular_at(parent_fd, role["databaseBasename"],
                                    role["databaseIdentity"], f"role {role['role']} database")
                 suffixes = {"wal": "-wal", "shm": "-shm", "journal": "-journal"}
@@ -678,6 +679,7 @@ class ManifestStore:
                     manifest["filesystemPolicy"]["applicationUid"]
                 )
                 try:
+                    _require_empty_quarantine(parent_fd)
                     _verify_regular_at(parent_fd, role["databaseBasename"],
                                        role["databaseIdentity"], f"role {role['role']} database")
                     declared = {entry["kind"]: entry for entry in role["sidecars"]}
@@ -756,6 +758,7 @@ class ManifestStore:
                     manifest["filesystemPolicy"]["applicationUid"]
                 )
                 try:
+                    _require_empty_quarantine(parent_fd)
                     _verify_regular_at(parent_fd, role["databaseBasename"],
                                        role["databaseIdentity"], f"role {role['role']} database")
                     declared = {entry["kind"]: entry for entry in role["sidecars"]}
