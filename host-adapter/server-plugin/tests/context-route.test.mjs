@@ -7,7 +7,7 @@ const sessionId = '2e6b0a80-4e73-4c66-aaf3-7a6e62c7f401';
 const installationId = '3e6b0a80-4e73-4c66-aaf3-7a6e62c7f402';
 const accountId = '5e6b0a80-4e73-4c66-aaf3-7a6e62c7f404';
 const conversationUuid = '4e6b0a80-4e73-4c66-aaf3-7a6e62c7f403';
-const conversationId = [installationId, accountId, conversationUuid].join(':');
+const conversationId = [sessionId, installationId, conversationUuid].join(':');
 const directories = { root: '/st', chats: '/st/chats', groups: '/st/groups', groupChats: '/st/groupChats' };
 const adapterToken = 'test-adapter-secret-for-context-route';
 
