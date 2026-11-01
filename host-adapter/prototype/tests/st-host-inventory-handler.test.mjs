@@ -487,6 +487,7 @@ test('Host identity route returns installation/account IDs only for the matching
   let observedHandle = null;
   const handler = createHostIdentityHandler({
     identityStore: {
+      assertOutsideRoot: async () => true,
       resolveAuthenticatedAccount: async handle => {
         observedHandle = handle;
         return { host_installation_id: '11111111-1111-4111-8111-111111111111', authenticated_account_id: '22222222-2222-4222-8222-222222222222' };
@@ -495,7 +496,7 @@ test('Host identity route returns installation/account IDs only for the matching
   });
   const response = makeResponse();
   await handler({
-    user: { profile: { handle: 'alice' } },
+    user: { profile: { handle: 'alice' }, directories: { root: join(tmpdir(), 'st-host-identity-test-root') } },
     session: {
       handle: 'alice',
       logicEngineSessionId: '33333333-3333-4333-8333-333333333333',
@@ -514,7 +515,10 @@ test('Host identity route returns installation/account IDs only for the matching
 test('Host identity route rejects a session/account mismatch before resolving identity', async () => {
   let calls = 0;
   const handler = createHostIdentityHandler({
-    identityStore: { resolveAuthenticatedAccount: async () => { calls += 1; return {}; } },
+    identityStore: {
+      assertOutsideRoot: async () => true,
+      resolveAuthenticatedAccount: async () => { calls += 1; return {}; },
+    },
   });
   const response = makeResponse();
   await handler({
