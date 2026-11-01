@@ -56,8 +56,8 @@ export function createHostConversationResolver({ identityStore, enumerate, pinne
         const identity = await identityStore.resolveAuthenticatedAccount(handle);
         if (!UUID.test(identity?.host_installation_id ?? '')) throw new Error('HOST_INSTALLATION_IDENTITY_INVALID');
         return [
+            session.logicEngineSessionId,
             identity.host_installation_id,
-            identity.authenticated_account_id,
             conversationUuid,
         ].join(':');
     };
