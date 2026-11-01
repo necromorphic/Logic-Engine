@@ -2,13 +2,14 @@ import { resolveAuthenticatedHostContext } from './host-client.mjs';
 import { interceptProtectedGeneration } from './gateway-policy.mjs';
 
 /**
- * Review-only SillyTavern extension gateway.
+ * Review-only SillyTavern Extension Gateway.
  *
- * This module intentionally exposes no global arm/cancel API. Its exported
- * helpers are an integration seam, not an authorization boundary: any code
- * running in the same SillyTavern page/module environment must be treated as
- * potentially able to call them. Do not wire protected dispatch until a
- * separately approved Host contract supplies authorization and freshness checks.
+ * This module exposes no global arm/cancel API. Its exported helpers are an
+ * integration seam, not an authorization boundary: any code running in the
+ * same SillyTavern page/module environment may call them. Host context resolution
+ * now verifies the ST server session and Core bindings, but does not prove
+ * lifecycle completeness or acquire a Core Memory Dispatch lease. Do not wire
+ * production protected dispatch until those contracts are implemented.
  */
 const gatewayState = {
     pendingRequest: null,
