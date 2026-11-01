@@ -97,3 +97,28 @@ test('Windows manifest enrollment rejects duplicate role identities and malforme
     fakeDatabase(), malformed, 'core', 'C:\\LogicEngine\\data\\core.sqlite'
   ), /Invalid Windows database core identity/);
 });
+
+test('Windows manifest enrollment rejects parent/database/active-sidecar identity aliases and future generations', () => {
+  const parentAlias = manifest();
+  parentAlias.roles[0].databaseIdentity = structuredClone(
+    parentAlias.roles[0].parentIdentities[1]
+  );
+  assert.throws(() => registerWindowsManifestRole(
+    fakeDatabase(), parentAlias, 'core', 'C:\\LogicEngine\\data\\core.sqlite'
+  ), /Duplicate physical Windows identity/);
+
+  const sidecarAlias = manifest();
+  sidecarAlias.roles[0].sidecars[0].identity = structuredClone(
+    sidecarAlias.roles[0].databaseIdentity
+  );
+  assert.throws(() => registerWindowsManifestRole(
+    fakeDatabase(), sidecarAlias, 'core', 'C:\\LogicEngine\\data\\core.sqlite'
+  ), /Duplicate physical Windows identity/);
+
+  const futureGeneration = manifest();
+  futureGeneration.roles[0].sidecars[0].generation =
+    futureGeneration.generation + 1;
+  assert.throws(() => registerWindowsManifestRole(
+    fakeDatabase(), futureGeneration, 'core', 'C:\\LogicEngine\\data\\core.sqlite'
+  ), /transitional or invalid sidecar/);
+});
