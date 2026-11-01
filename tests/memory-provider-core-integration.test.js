@@ -864,16 +864,3 @@ test('record authorization generation survives Provider restart and reconciliati
   }), true);
 });
 
-  const s = setup(t, { twoRecords: true });
-  assert.equal((await s.prepare()).status, 'current');
-  s.triggerRace();
-  const result = await s.consumer.retrieveForNpc({
-    worldId: s.scope.world_id, actorEntityId: s.scope.subject_id,
-    conversationId: HOST_CONVERSATION_ID,
-    });
-  assert.equal(result.status, 'non_ready');
-  assert.equal(result.reason, 'memory_record_access_revoked');
-  assert.deepEqual(result.candidates, []);
-  assert.deepEqual(result.admitted, []);
-  assert.equal(JSON.stringify(result).includes('visible source-a'), false);
-});
