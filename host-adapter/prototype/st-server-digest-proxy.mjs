@@ -864,7 +864,7 @@ export function createHostMemoryDispatchProxyHandler({
       try { payload = await upstream.json(); } catch {
         return response.status(502).json({ status: 'NON_READY', code: 'LOGIC_ENGINE_INVALID_RESPONSE' });
       }
-      if (!upstream.ok) return response.status(upstream.status === 404 ? 503 : 502).json({
+      if (!upstream.ok) return response.status(upstream.status === 404 || upstream.status === 503 ? 503 : 502).json({
         status: 'NON_READY',
         code: upstream.status === 404 ? 'CORE_HOST_DISPATCH_ROUTE_UNAVAILABLE' : 'CORE_HOST_DISPATCH_REJECTED',
       });
