@@ -24,7 +24,7 @@ diff --git a/public/script.js b/public/script.js
 +
      // Make sure all the data is loaded.
      await unshallowCharacter(characterId);
-@@ -1583,23 +1593,231 @@
+@@ -1583,23 +1593,237 @@
   * @param {object} [options] Options
   * @param {boolean} [options.clearData=false] Optionally clear the chat array's contents.
   */
@@ -45,7 +45,7 @@ diff --git a/public/script.js b/public/script.js
 +            }
 +            return payload;
 +        }).catch(error => {
-+            logicEngineHostSessionPromise = null;
++            invalidateLogicEngineHostIdentity();
 +            throw error;
 +        });
 +    }
@@ -53,6 +53,12 @@ diff --git a/public/script.js b/public/script.js
 +}
 +
 +let logicEngineHostIdentityPromise;
++let logicEngineLifecycleBridgePromise;
++function invalidateLogicEngineHostIdentity() {
++    logicEngineHostSessionPromise = null;
++    logicEngineHostIdentityPromise = null;
++    logicEngineLifecycleBridgePromise = null;
++}
 +async function getLogicEngineHostIdentity() {
 +    if (!logicEngineHostIdentityPromise) {
 +        logicEngineHostIdentityPromise = getLogicEngineHostSession().then(async session => {
@@ -70,7 +76,7 @@ diff --git a/public/script.js b/public/script.js
 +            }
 +            return identity;
 +        }).catch(error => {
-+            logicEngineHostIdentityPromise = null;
++            invalidateLogicEngineHostIdentity();
 +            throw error;
 +        });
 +    }
@@ -116,12 +122,12 @@ diff --git a/public/script.js b/public/script.js
 +                    cache: 'no-store',
 +                });
 +                if (!response.ok) {
-+                    logicEngineHostSessionPromise = null;
++                    invalidateLogicEngineHostIdentity();
 +                    throw Error('Persisted Host inventory unavailable');
 +                }
 +                const inventory = await response.json();
 +                if (inventory?.host_user_handle !== session.host_user_handle) {
-+                    logicEngineHostSessionPromise = null;
++                    invalidateLogicEngineHostIdentity();
 +                    throw Error('Persisted Host inventory belongs to a different authenticated account');
 +                }
 +                return {
