@@ -67,6 +67,30 @@ function hasSafeArrayIterator() {
 const INITIAL_ASSIGNMENT_CONTENT_KINDS = new Set(['author_initial', 'imported']);
 const INITIAL_ASSIGNMENT_EPISTEMIC_KINDS = new Set(['authored_initial', 'imported']);
 
+const PROVIDER_FAILURE_REASONS = Object.freeze({
+  MEMORY_QUERY_DENIED: 'memory_query_denied',
+  MEMORY_RECORDS_WITHHELD: 'memory_records_withheld',
+  MEMORY_SNAPSHOT_STALE: 'memory_snapshot_stale',
+  MEMORY_SNAPSHOT_UNAVAILABLE: 'memory_snapshot_unavailable',
+  MEMORY_INDEX_NOT_READY: 'memory_index_not_ready',
+  MEMORY_LINEAGE_INVALID: 'memory_lineage_invalid',
+  MEMORY_SOURCE_VALIDATION_UNAVAILABLE: 'memory_source_validation_unavailable',
+  MEMORY_SOURCE_VERSION_UNVERIFIABLE: 'memory_source_version_unverifiable',
+  MEMORY_AUTHORIZATION_CHANGED: 'memory_authorization_changed',
+  MEMORY_RECORD_ACCESS_REVOKED: 'memory_record_access_revoked',
+});
+
+const providerFailureReason = (error) => {
+  try {
+    const code = error?.message;
+    return typeof code === 'string'
+      ? (PROVIDER_FAILURE_REASONS[code] ?? 'memory_retrieval_unavailable')
+      : 'memory_retrieval_unavailable';
+  } catch {
+    return 'memory_retrieval_unavailable';
+  }
+};
+
 const nonReady = (reason) => Object.freeze({
   status: 'non_ready',
   admitted: Object.freeze([]),
@@ -231,19 +255,27 @@ export class MemoryNpcConsumer {
       // awaits. A mutable in-process index object must not be able to rebind
       // a candidate's source or identity between validation and Core read.
       memoryResult = structuredClone(await this.memoryProvider.retrieveCandidates(scope));
-    } catch {
-      return nonReady('memory_retrieval_unavailable');
+    } catch (error) {
+      return nonReady(providerFailureReason(error));
     }
 
     if (!object(memoryResult)) {
       return nonReady('memory_result_incomplete_or_scope_mismatch');
     }
     if (memoryResult.index_health !== 'ready') {
-      return nonReady('memory_index_not_ready');
+      const indexReason = memoryResult.index_health === 'rebuilding' ? 'memory_index_rebuilding'
+        : memoryResult.index_health === 'stale' ? 'memory_index_stale'
+          : memoryResult.index_health === 'unavailable' ? 'memory_index_unavailable'
+            : 'memory_index_not_ready';
+      return nonReady(indexReason);
     }
     if (memoryResult.source_reconciliation !== 'current') {
-      return nonReady('memory_reconciliation_not_current');
+      const reconciliationReason = memoryResult.source_reconciliation === 'stale' ? 'memory_reconciliation_stale'
+        : memoryResult.source_reconciliation === 'unavailable' ? 'memory_reconciliation_unavailable'
+          : 'memory_reconciliation_not_current';
+      return nonReady(reconciliationReason);
     }
+    if (memoryResult.completeness === 'partial') return nonReady('memory_result_partial');
     if (memoryResult.completeness !== 'complete'
       || !Array.isArray(memoryResult.candidates)
       || memoryResult.candidates.length > 50
