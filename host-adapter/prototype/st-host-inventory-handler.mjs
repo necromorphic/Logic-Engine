@@ -299,9 +299,16 @@ export function createHostLifecycleSaveGuard({ enumerate = enumerateHostDataInve
     const isGroup = request?.path === '/group/save' || request?.originalUrl?.split('?')[0]?.endsWith('/group/save');
     const locator = isGroup ? (typeof body?.id === 'string' ? body.id + '.jsonl' : '') : (typeof body?.avatar_url === 'string' && typeof body?.file_name === 'string' ? body.avatar_url.replace(/\.png$/i, '') + '/' + body.file_name + '.jsonl' : '');
     const slash = String.fromCharCode(92);
-    if (!locator || locator.includes(slash) || locator.split('/').some(part => !part || part === '.' || part === '..')) return response.status(400).json({ status: 'NON_READY', code: 'HOST_LIFECYCLE_SAVE_TARGET_INVALID' });
+    const locatorParts = locator.split('/');
+    if (!locator || locator.includes(slash)
+      || locatorParts.length !== (isGroup ? 1 : 2)
+      || locatorParts.some(part => !part || part === '.' || part === '..')) {
+      return response.status(400).json({ status: 'NON_READY', code: 'HOST_LIFECYCLE_SAVE_TARGET_INVALID' });
+    }
     const kind = isGroup ? 'group-chat' : 'character-chat';
-    const target = inventory.source.files.find(file => file?.kind === kind && file?.locator === locator);
+    const targets = inventory.source.files.filter(file => file?.kind === kind && file?.locator === locator);
+    if (targets.length > 1) return response.status(503).json({ status: 'NON_READY', code: 'HOST_LIFECYCLE_SAVE_TARGET_AMBIGUOUS' });
+    const target = targets[0];
     const anyEnrolled = inventory.source.files.some(file => typeof file?.logical_identity?.conversation_uuid === 'string' && HOST_SESSION_UUID.test(file.logical_identity.conversation_uuid));
     if (!target) return anyEnrolled ? response.status(409).json({ status: 'NON_READY', code: 'HOST_LIFECYCLE_SAVE_TARGET_NOT_ENROLLED' }) : next();
     const conversationUuid = target.logical_identity?.conversation_uuid;
