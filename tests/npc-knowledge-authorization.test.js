@@ -95,6 +95,7 @@ test('production NPC query authorization requires a branded authenticated Host s
   assert.equal(authorizers.readAuthorizer({ ...scope, actor_id: 'other-actor' }), null);
 
   assert.equal(authorizers.memoryQueryAuthorizer(scope, hostSessionContext), true);
+  assert.equal(authorizers.memoryQueryAuthorizer(scope, Object.freeze({ ...hostSessionContext })), false);
   assert.equal(authorizers.memoryQueryAuthorizer(scope), false);
   const otherConversation = HOST_SESSION_ID + ':22222222-2222-4222-8222-222222222222:44444444-4444-4444-8444-444444444444';
   const contextForOtherConversation = createAuthenticatedHostSessionContext(hostRequest, otherConversation);
