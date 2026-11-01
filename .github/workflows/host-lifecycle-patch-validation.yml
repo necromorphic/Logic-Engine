@@ -24,6 +24,7 @@ jobs:
           node --check host-adapter/extension-gateway/server-plugin/host-adapter.mjs
           node --check host-adapter/extension-gateway/server-plugin/st-host-inventory-handler.mjs
           node --check host-adapter/extension-gateway/server-plugin/st-server-digest-proxy.mjs
+          node --check host-adapter/extension-gateway/server-plugin/fs-inventory.js
           node --check src/application/host-session-context.js
           node --check src/application/host-session-context.test.js
           grep -F "id: 'logic-engine-extension-gateway'" host-adapter/extension-gateway/server-plugin/index.mjs
