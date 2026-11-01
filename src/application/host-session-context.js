@@ -5,6 +5,7 @@ const HOST_SESSION_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a
 const HOST_CONVERSATION_ID = new RegExp('^' + HOST_SESSION_UUID.source.slice(1, -1) + ':'
   + HOST_SESSION_UUID.source.slice(1, -1) + ':' + HOST_SESSION_UUID.source.slice(1, -1) + '$', 'i');
 const contexts = new WeakSet();
+const signedAssertionRequests = new WeakSet();
 const validBindingId = value => typeof value === 'string' && value === value.trim()
   && value.length > 0 && value.length <= 200
   && ![...value].some(character => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127);
@@ -63,7 +64,9 @@ export function createAuthenticatedHostSessionContext(
       conversation_id: conversationId,
       world_id: bindings.world_id,
       actor_id: bindings.actor_id,
-      identity: 'SIGNED_AUTHENTICATED_ST_SESSION',
+      identity: signedAssertionRequests.has(request)
+        ? 'SIGNED_HOST_SESSION_ASSERTION'
+        : 'SIGNED_AUTHENTICATED_ST_SESSION',
     });
     contexts.add(context);
     return context;
@@ -153,9 +156,9 @@ function validHostSessionAssertion(assertion) {
 
 /**
  * Verifies a short-lived Host assertion signed by the server-held adapter
- * secret, then creates the same non-serializable Core capability used by the
- * in-process Host gate. The nonce cache is process-local; expired assertions
- * cannot be replayed after restart.
+ * secret, then enters the same runWithAuthenticatedHostSession capability
+ * boundary as an in-process Host request. Deployments should provide a durable
+ * nonce consumer so replay protection survives Core restarts.
  */
 export function createHostSessionAssertionRunner({
   secret,
@@ -163,12 +166,14 @@ export function createHostSessionAssertionRunner({
   maxAgeSeconds = 30,
   maxFutureSkewSeconds = 5,
   maxRememberedNonces = 10000,
+  consumeNonce = null,
 } = {}) {
   if (typeof secret !== 'string' || secret.length < 16
     || typeof now !== 'function'
     || !Number.isInteger(maxAgeSeconds) || maxAgeSeconds < 1 || maxAgeSeconds > 120
     || !Number.isInteger(maxFutureSkewSeconds) || maxFutureSkewSeconds < 0 || maxFutureSkewSeconds > 30
-    || !Number.isInteger(maxRememberedNonces) || maxRememberedNonces < 1 || maxRememberedNonces > 100000) {
+    || !Number.isInteger(maxRememberedNonces) || maxRememberedNonces < 1 || maxRememberedNonces > 100000
+    || (consumeNonce !== null && typeof consumeNonce !== 'function')) {
     throw new TypeError('Host session assertion runner configuration is invalid.');
   }
   const usedNonces = new Map();
@@ -190,23 +195,45 @@ export function createHostSessionAssertionRunner({
       if (provided.length !== expected.length || !timingSafeEqual(provided, expected)) {
         throw new Error('HOST_SESSION_ASSERTION_INVALID');
       }
-      for (const [nonce, expiresAt] of usedNonces) {
-        if (expiresAt < currentSeconds) usedNonces.delete(nonce);
+      const expiresAt = assertion.issued_at + maxAgeSeconds;
+      if (consumeNonce !== null) {
+        let consumed = false;
+        try { consumed = consumeNonce(assertion.nonce, expiresAt, currentSeconds) === true; } catch {}
+        if (!consumed) throw new Error('HOST_SESSION_ASSERTION_REPLAYED');
+      } else {
+        for (const [nonce, expiry] of usedNonces) {
+          if (expiry < currentSeconds) usedNonces.delete(nonce);
+        }
+        if (usedNonces.has(assertion.nonce)) throw new Error('HOST_SESSION_ASSERTION_REPLAYED');
+        if (usedNonces.size >= maxRememberedNonces) throw new Error('HOST_SESSION_ASSERTION_CAPACITY_EXCEEDED');
+        usedNonces.set(assertion.nonce, expiresAt);
       }
-      if (usedNonces.has(assertion.nonce)) throw new Error('HOST_SESSION_ASSERTION_REPLAYED');
-      if (usedNonces.size >= maxRememberedNonces) throw new Error('HOST_SESSION_ASSERTION_CAPACITY_EXCEEDED');
-      usedNonces.set(assertion.nonce, assertion.issued_at + maxAgeSeconds);
-      const context = Object.freeze({
-        host_installation_id: assertion.host_installation_id,
-        authenticated_account_id: assertion.authenticated_account_id,
-        host_session_id: assertion.host_session_id,
-        conversation_id: assertion.conversation_id,
-        world_id: assertion.world_id,
-        actor_id: assertion.actor_id,
-        identity: 'SIGNED_HOST_SESSION_ASSERTION',
-      });
-      contexts.add(context);
-      return requestContext.run(context, callback);
+
+      // A cross-process Host request cannot pass its Express request object to
+      // Core. After verifying the server-held HMAC, construct a private request
+      // object whose verifier and resolvers are closed over the signed fields.
+      // The public runWithAuthenticatedHostSession() function remains the one
+      // capability-construction boundary for both transport modes.
+      const authenticatedAccountId = assertion.authenticated_account_id;
+      const syntheticRequest = {
+        user: { profile: { handle: authenticatedAccountId } },
+        session: {
+          handle: authenticatedAccountId,
+          logicEngineSessionId: assertion.host_session_id,
+          logicEngineSessionHandle: authenticatedAccountId,
+        },
+      };
+      signedAssertionRequests.add(syntheticRequest);
+      return runWithAuthenticatedHostSession(
+        syntheticRequest,
+        assertion.conversation_id,
+        callback,
+        request => request === syntheticRequest,
+        request => request === syntheticRequest ? assertion.conversation_id : null,
+        request => request === syntheticRequest
+          ? { world_id: assertion.world_id, actor_id: assertion.actor_id }
+          : null,
+      );
     },
   });
 }
