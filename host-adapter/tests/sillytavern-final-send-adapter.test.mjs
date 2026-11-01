@@ -57,7 +57,6 @@ test('unregistered SillyTavern sender is denied for protected Memory generation'
 
   assert.throws(() => adapter.dispatch({
     request,
-    response,
     senderRoute: adapter.resolveSenderRoute(request),
     endpointUrl: 'https://provider.example/v1/chat/completions',
     requestInit,
@@ -94,6 +93,11 @@ test('registered protected sender is delegated to the Core Gateway', () => {
       assert.equal(request.route, 'host-selected-chat-generation');
       return 'gateway-result';
     },
+    authorizeResponseWrite(requestId, write, options) {
+      assert.equal(requestId, 'request-2');
+      assert.equal(options.final, true);
+      return write();
+    },
   };
   const adapter = createAdapter({ resolveProtectedMemory: () => protectedContext, gateway });
   const request = { body: { chat_completion_source: 'OPENAI', stream: false } };
@@ -101,6 +105,7 @@ test('registered protected sender is delegated to the Core Gateway', () => {
 
   assert.equal(adapter.dispatch({
     request,
+    response,
     senderRoute: adapter.resolveSenderRoute(request),
     endpointUrl: 'https://provider.example/v1/chat/completions',
     requestInit,
@@ -108,4 +113,7 @@ test('registered protected sender is delegated to the Core Gateway', () => {
     transport: async () => ({ status: 200 }),
   }), 'gateway-result');
   assert.equal(gatewayCalls, 1);
+  let hostWrites = 0;
+  adapter.authorizeResponseWrite(response, () => { hostWrites += 1; }, true);
+  assert.equal(hostWrites, 1);
 });
