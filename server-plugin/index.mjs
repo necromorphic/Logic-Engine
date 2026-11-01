@@ -38,8 +38,10 @@ export function createLogicEnginePlugin({
             router.get('/session', (req, res) => {
                 const handle = requireSession(req, res);
                 if (!handle) return;
+                const userRoot = req.user?.directories?.root;
+                const installationScope = typeof userRoot === 'string' && userRoot.trim() ? userRoot : hostId;
                 const subjectId = createHash('sha256')
-                    .update(hostId + '\0' + handle, 'utf8')
+                    .update(installationScope + '\0' + handle, 'utf8')
                     .digest('hex');
                 return res.set('Cache-Control', 'no-store').json({
                     authenticated: true,
