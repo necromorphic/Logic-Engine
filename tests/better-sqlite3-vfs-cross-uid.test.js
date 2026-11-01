@@ -58,10 +58,24 @@ test('distinct-UID broker protects better-sqlite3 main, journal, WAL and SHM fil
 
   const registrar = new Database(':memory:');
   try {
+    const registerRole = registrar.prepare(
+      'SELECT logic_engine_vfs_probe_register_broker_role(?, ?, ?) AS registered',
+    );
+    const expectedBrokerUid = process.env.LOGIC_ENGINE_BROKER_UID;
+    assert.ok(expectedBrokerUid, 'Host must provide the trusted broker UID');
+
+    // A caller-controlled broker socket owned by another UID must not be
+    // accepted even if it has a matching filesystem layout and protocol.
+    process.env.LOGIC_ENGINE_BROKER_UID = process.env.LOGIC_ENGINE_APP_UID;
+    assert.throws(
+      () => registerRole.get(databasePath, 'vectors', socketPath),
+      /broker role enrollment handshake failed/,
+      'VFS must reject a broker whose SO_PEERCRED UID differs from Host-pinned identity',
+    );
+    process.env.LOGIC_ENGINE_BROKER_UID = expectedBrokerUid;
+
     assert.equal(
-      registrar.prepare(
-        'SELECT logic_engine_vfs_probe_register_broker_role(?, ?, ?) AS registered',
-      ).get(databasePath, 'vectors', socketPath).registered,
+      registerRole.get(databasePath, 'vectors', socketPath).registered,
       1,
       'broker enrollment must return the main DB identity without application path access',
     );
