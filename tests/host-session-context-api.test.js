@@ -158,6 +158,40 @@ test('Core rejects assertion replay across API server restart using durable nonc
   assert.equal((await replay.json()).error.code, 'HOST_CONTEXT_DENIED');
 });
 
+test('Core rejects ambiguous adapter-to-Actor bindings at the context boundary', async t => {
+  const { base, store, engine } = await setup(t);
+  const secondActor = 'host-context-second-actor';
+  store.db.prepare(`INSERT INTO entities(
+    world_id,entity_id,entity_type,status,attributes_json,created_by_event_id,updated_revision
+  ) VALUES(?,?,?,?,?,?,?)`).run(WORLD, secondActor, 'person', 'active', '{}', 'host-context-test-seed-2', 0);
+  new ActorBindingService(engine).bind(WORLD, ADAPTER_ID, secondActor);
+  const value = assertion();
+  const response = await fetch(base + '/v1/host/session-context', {
+    method: 'POST',
+    headers: hostHeaders(),
+    body: JSON.stringify({ assertion: value, signature: signature(value) }),
+  });
+  assert.equal(response.status, 403);
+  assert.equal((await response.json()).error.code, 'HOST_CONTEXT_DENIED');
+});
+
+test('Core rechecks conversation binding after revocation before accepting Host context', async t => {
+  const { base, engine } = await setup(t);
+  new HostConversationWorldBindingService(engine).revoke({
+    adapterId: ADAPTER_ID,
+    conversationId,
+    reason: 'test-revoke-before-context',
+  });
+  const value = assertion();
+  const response = await fetch(base + '/v1/host/session-context', {
+    method: 'POST',
+    headers: hostHeaders(),
+    body: JSON.stringify({ assertion: value, signature: signature(value) }),
+  });
+  assert.equal(response.status, 403);
+  assert.equal((await response.json()).error.code, 'HOST_CONTEXT_DENIED');
+});
+
 test('Core denies malformed assertions and missing adapter authentication', async t => {
   const { base } = await setup(t);
   const valid = assertion();
