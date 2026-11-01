@@ -107,3 +107,37 @@ test('Host gate fails closed when trusted conversation resolution throws or retu
 });
 
 
+
+
+test('Host gate permanently invalidates the exact request after session rotation, logout, or account switch', async () => {
+  for (const mutate of [
+    request => { request.session.logicEngineSessionId = '6e6b0a80-4e73-4c66-aaf3-7a6e62c7f405'; },
+    request => { request.session.logicEngineSessionId = null; },
+    request => { request.user.profile.handle = 'another-user'; },
+  ]) {
+    const request = {
+      user: { profile: { handle: 'alice' }, directories: { chats: '/private/chats' } },
+      session: {
+        logicEngineSessionId: sessionId,
+        logicEngineSessionHandle: 'alice',
+      },
+    };
+    const gate = createHostRequestAuthenticationGate({ resolveConversationId: () => conversationId });
+    const response = makeResponse();
+    await gate.middleware(request, response, () => {});
+    assert.equal(gate.isAuthenticatedHostRequest(request), true);
+    assert.equal(gate.resolveHostConversationId(request), conversationId);
+
+    mutate(request);
+    assert.equal(gate.isAuthenticatedHostRequest(request), false);
+    assert.equal(gate.resolveHostConversationId(request), null);
+
+    // Restoring visible values must not resurrect a request capability once
+    // logout, rotation, or account switching invalidated it.
+    request.user.profile.handle = 'alice';
+    request.session.logicEngineSessionId = sessionId;
+    request.session.logicEngineSessionHandle = 'alice';
+    assert.equal(gate.isAuthenticatedHostRequest(request), false);
+    assert.equal(gate.resolveHostConversationId(request), null);
+  }
+});
