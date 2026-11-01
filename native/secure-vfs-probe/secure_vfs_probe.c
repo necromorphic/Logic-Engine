@@ -43,6 +43,9 @@
 #include <arpa/inet.h>
 #include <stddef.h>
 #include "../posix-namespace-broker/broker_protocol.h"
+#ifndef O_PATH
+#define O_PATH 010000000
+#endif
 #endif
 #endif
 #include "sqlite3ext.h"
@@ -73,6 +76,7 @@ static int g_broker_delete_fail_count = 0;
 static int g_broker_access_fail_count = 0;
 static int g_broker_socket_policy_reject_count = 0;
 static int probe_open_broker_socket_parent(const char *path);
+static void probe_counter_increment(int *counter);
 static int g_sidecar_capture_fail_count = 0;
 static int g_parent_xopen_fail_count = 0;
 static int g_last_parent_xopen_rc = SQLITE_OK;
