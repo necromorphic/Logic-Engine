@@ -59,6 +59,12 @@ int wmain(void) {
   ULONG mapped_options = 0, mapped_attributes = 0, mapped_disposition = 0;
   int parent_moved = 0;
 
+  if (logic_engine_win_valid_basename(L"CON")
+      || logic_engine_win_valid_basename(L"core.sqlite.")) {
+    fail(L"Windows basename validation");
+    goto cleanup;
+  }
+
   /* The adapter must reject flags whose semantics it does not implement. */
   if (logic_engine_win_map_create_options(FILE_FLAG_BACKUP_SEMANTICS,
         &mapped_options, &mapped_attributes)
