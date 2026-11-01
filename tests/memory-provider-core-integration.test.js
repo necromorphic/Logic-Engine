@@ -52,6 +52,7 @@ function setup(t, { twoRecords = false, providerPath = null } = {}) {
     store, adapterIds: [adapterId], trustedInitialKnowledgeSources: [],
   });
   let provider;
+  const siblingProviders = [];
   let triggerRace = false;
   let triggerQueryRevocation = false;
   let triggerCoreQueryRevocation = false;
@@ -131,7 +132,13 @@ function setup(t, { twoRecords = false, providerPath = null } = {}) {
     });
   };
   const consumer = createConsumer();
-  t.after(() => { provider.close(); store.close(); testDb.close(); testDb.cleanup(); });
+  t.after(() => {
+    provider.close();
+    for (const sibling of siblingProviders) sibling.close();
+    store.close();
+    testDb.close();
+    testDb.cleanup();
+  });
   return {
     engine, provider, consumer, scope, records, createConsumer,
     createSiblingProvider() {
@@ -142,7 +149,7 @@ function setup(t, { twoRecords = false, providerPath = null } = {}) {
         validateSourceVersion: sourceVersionValidator,
         validateInventory: inventoryValidator,
       });
-      t.after(() => sibling.close());
+      siblingProviders.push(sibling);
       return sibling;
     },
     db: testDb.db,
