@@ -1,10 +1,9 @@
-import { eventSource, event_types, getRequestHeaders } from './public/scripts/script.js';
-import { extension_settings, saveSettingsDebounced } from './public/scripts/extensions.js';
+import { eventSource, event_types } from '../../../script.js';
+import { extension_settings, saveSettingsDebounced } from '../../../extensions.js';
 
 const EXTENSION_KEY = 'logicEngine';
 const DEFAULTS = {
-    coreUrl: 'http://127.0.0.1:8788',
-    enabled: false,
+    coreUrl: 'http://127.0.0.1:8787',
     lastHealth: null,
 };
 
@@ -103,25 +102,12 @@ async function checkConnection() {
     }
 }
 
-function onGenerationSettingsReady() {
-    // Deliberately observational for this first installable integration slice.
-    // No browser-supplied identity or authorization claim is sent to Core.
-    // Protected context injection stays disabled until a trusted server Host Adapter exists.
-    if (settings?.enabled) {
-        console.debug('[Logic-Engine] generation hook observed; protected context injection is disabled.');
-    }
-}
-
 export async function init() {
     getSettings();
     renderPanel();
-    eventSource.on(event_types.CHAT_COMPLETION_SETTINGS_READY, onGenerationSettingsReady);
-    eventSource.on(event_types.APP_READY, () => {
-        if (settings?.enabled) console.debug('[Logic-Engine] extension ready.');
-    });
+    eventSource.on(event_types.APP_READY, () => console.debug('[Logic-Engine] extension ready.'));
 }
 
 export function exit() {
-    eventSource.removeListener(event_types.CHAT_COMPLETION_SETTINGS_READY, onGenerationSettingsReady);
     panel?.remove();
 }
