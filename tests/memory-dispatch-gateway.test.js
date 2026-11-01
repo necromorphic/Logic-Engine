@@ -686,6 +686,7 @@ test('serialized Gateway endpoint rejects dispatch because it cannot carry an in
     const payload = {
       request_id: request.requestId,
       route: request.route,
+      sender_route: request.senderRoute,
       model: request.model,
       stream: request.stream,
       body: request.body,
