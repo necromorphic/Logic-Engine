@@ -4,6 +4,8 @@ import assert from 'node:assert/strict';
 import { SQLiteStore } from '../src/storage/sqlite-store.js';
 import { LogicEngine } from '../src/application/engine.js';
 import { ActorBindingService } from '../src/application/actor-bindings.js';
+import { HostConversationWorldBindingService } from '../src/application/host-conversation-world-bindings.js';
+import { createHostBoundNpcKnowledgeAuthorizers } from '../src/application/npc-knowledge-authorization.js';
 import { AuthorizedReadService } from '../src/application/authorized-read-service.js';
 import { MemoryNpcConsumer } from '../src/application/memory-npc-consumer.js';
 import { createCanonicalEntitySourceVersionValidator, createCanonicalEntityInventoryValidator } from '../src/application/canonical-entity-source-version.js';
@@ -36,9 +38,15 @@ function setup(t, { twoRecords = false, providerPath = null } = {}) {
     ],
   });
   bindings.bind(worldId, adapterId, actorId);
+  const hostConversationBindings = new HostConversationWorldBindingService(engine);
+  hostConversationBindings.bind({ adapterId, conversationId: 'provider-e2e-conversation', worldId });
+  const coreAuthorizers = createHostBoundNpcKnowledgeAuthorizers({
+    store, adapterIds: [adapterId], trustedInitialKnowledgeSources: [],
+  });
   let provider;
   let triggerRace = false;
   let triggerQueryRevocation = false;
+  let triggerCoreQueryRevocation = false;
   let sourceValidatorOverride = null;
   let inventoryValidatorOverride = null;
   const snapshotReader = async (id) => {
@@ -57,6 +65,12 @@ function setup(t, { twoRecords = false, providerPath = null } = {}) {
     if (triggerQueryRevocation && record.record_ref === 'memory:record-a') {
       triggerQueryRevocation = false;
       provider.grantQuery(scope, false);
+    }
+    if (triggerCoreQueryRevocation && record.record_ref === 'memory:record-a') {
+      triggerCoreQueryRevocation = false;
+      hostConversationBindings.revoke({
+        adapterId, conversationId: 'provider-e2e-conversation', reason: 'test revoke query access',
+      });
     }
     return sourceValidatorOverride ? sourceValidatorOverride(record) : canonicalSourceValidator(record);
   };
@@ -94,6 +108,7 @@ function setup(t, { twoRecords = false, providerPath = null } = {}) {
       || (field === 'attributes.public_note' && entity.entity_id.startsWith('source-')));
   const consumer = new MemoryNpcConsumer({
     authorizedReadService, actorBindingService: bindings, memoryProvider: provider,
+    coreQueryAuthorizer: coreAuthorizers.memoryQueryAuthorizer,
     contentFields: ['attributes.public_note'],
   });
   t.after(() => { provider.close(); store.close(); testDb.close(); testDb.cleanup(); });
@@ -106,6 +121,8 @@ function setup(t, { twoRecords = false, providerPath = null } = {}) {
     },
     triggerRace() { triggerRace = true; },
     triggerQueryRevocation() { triggerQueryRevocation = true; },
+    triggerCoreQueryRevocation() { triggerCoreQueryRevocation = true; },
+    hostConversationBindings,
     setSourceValidator(fn) { sourceValidatorOverride = fn; },
     setInventoryValidator(fn) { inventoryValidatorOverride = fn; },
     validateCanonicalInventory(...args) { return canonicalInventoryValidator(...args); },
@@ -125,6 +142,7 @@ test('real SQLite provider flows through Core authorized read and NPC admission'
   assert.equal((await s.prepare()).status, 'current');
   const result = await s.consumer.retrieveForNpc({
     worldId: s.scope.world_id, adapterId: 'provider-e2e-adapter', actorEntityId: s.scope.subject_id,
+    conversationId: 'provider-e2e-conversation',
   });
   assert.equal(result.status, 'ready');
   assert.equal(result.candidates.length, 1);
@@ -144,6 +162,32 @@ test('real provider revocation during candidate B authorization excludes previou
   assert.deepEqual(result.candidates.map((candidate) => candidate.record_ref), ['memory:record-b']);
   assert.equal(JSON.stringify(result).includes('visible source-a'), false);
 });
+test('Core Host-conversation query authorization is required before Provider retrieval', async (t) => {
+  const s = setup(t);
+  assert.equal((await s.prepare()).status, 'current');
+  const result = await s.consumer.retrieveForNpc({
+    worldId: s.scope.world_id, adapterId: 'provider-e2e-adapter',
+    actorEntityId: s.scope.subject_id, conversationId: 'unbound-conversation',
+  });
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'query_access_unconfirmed');
+  assert.deepEqual(result.candidates, []);
+});
+
+test('Core Host-conversation revocation during record validation blocks disclosure', async (t) => {
+  const s = setup(t);
+  assert.equal((await s.prepare()).status, 'current');
+  s.triggerCoreQueryRevocation();
+  const result = await s.consumer.retrieveForNpc({
+    worldId: s.scope.world_id, adapterId: 'provider-e2e-adapter',
+    actorEntityId: s.scope.subject_id, conversationId: 'provider-e2e-conversation',
+  });
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'query_access_unconfirmed');
+  assert.deepEqual(result.candidates, []);
+  assert.equal(JSON.stringify(result).includes('visible source-a'), false);
+});
+
 test('query access revoked during candidate source validation never becomes ready-empty', async (t) => {
   const s = setup(t);
   assert.equal((await s.prepare()).status, 'current');
