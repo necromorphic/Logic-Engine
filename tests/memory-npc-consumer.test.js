@@ -1381,3 +1381,22 @@ test('Memory NPC retrieval fails closed when authenticated Host World/Actor bind
   assert.equal(result.reason, 'query_access_unconfirmed');
   assert.equal(f.getLastCandidateAuthorization(), null);
 });
+
+
+test('filtered-empty disclosure rechecks query authorization after the final Core snapshot read', async (t) => {
+  const { consumer, provider, setCandidates, candidate } = setup(t);
+  // A complete, well-formed summary row is intentionally outside the
+  // canonical_entity disclosure lane and produces the filtered-empty path.
+  setCandidates([candidate({ content_kind: 'summary' })]);
+  let checks = 0;
+  provider.authorizeQuery = () => ++checks < 4;
+
+  const result = await consumer.retrieveForNpc(request());
+
+  assert.equal(checks, 4);
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'query_access_unconfirmed');
+  assert.deepEqual(result.admitted, []);
+  assert.deepEqual(result.candidates, []);
+  assert.equal(JSON.stringify(result).includes('authorized source text'), false);
+});
