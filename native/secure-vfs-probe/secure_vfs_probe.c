@@ -3174,6 +3174,74 @@ static int probe_parse_manifest_win_identity(
   }
   return 1;
 }
+
+static void probe_validate_manifest_directory_identity(
+    sqlite3_context *context, int argc, sqlite3_value **argv) {
+  const unsigned char *path = argc == 3 ? sqlite3_value_text(argv[0]) : NULL;
+  LogicEngineWinFileIdentity expected, actual;
+  char *full_path = NULL;
+  wchar_t *wide_path = NULL, *anchor_path = NULL;
+  LogicEngineWinDirectoryAnchor anchor;
+  DWORD attributes = 0;
+  size_t wide_length, suffix_length;
+  int path_length;
+  int valid = 0;
+  anchor.parent = INVALID_HANDLE_VALUE;
+  anchor.basename = NULL;
+  if (!path || !path[0]
+      || !probe_parse_manifest_win_identity(argv[1], argv[2], &expected)) {
+    sqlite3_result_error(context, "invalid manifest directory identity arguments", -1);
+    return;
+  }
+  path_length = g_parent_vfs->mxPathname + 1;
+  full_path = (char *)sqlite3_malloc64((sqlite3_uint64)path_length);
+  if (!full_path) {
+    sqlite3_result_error_nomem(context);
+    return;
+  }
+  if (g_parent_vfs->xFullPathname(g_parent_vfs, (const char *)path,
+        path_length, full_path) != SQLITE_OK) {
+    sqlite3_free(full_path);
+    sqlite3_result_error(context, "manifest directory path cannot be canonicalized", -1);
+    return;
+  }
+  wide_path = probe_utf8_to_wide(full_path);
+  sqlite3_free(full_path);
+  if (!wide_path) {
+    sqlite3_result_error(context, "manifest directory path encoding is invalid", -1);
+    return;
+  }
+  wide_length = wcslen(wide_path);
+  suffix_length = wcslen(L"\\.__logic_engine_manifest_anchor__");
+  anchor_path = (wchar_t *)sqlite3_malloc64(
+      (sqlite3_uint64)(wide_length + suffix_length + 1) * sizeof(wchar_t));
+  if (!anchor_path) {
+    sqlite3_free(wide_path);
+    sqlite3_result_error_nomem(context);
+    return;
+  }
+  wcscpy_s(anchor_path, wide_length + suffix_length + 1, wide_path);
+  if (wide_length == 0 || anchor_path[wide_length - 1] != L'\\') {
+    wcscat_s(anchor_path, wide_length + suffix_length + 1, L"\\");
+  }
+  wcscat_s(anchor_path, wide_length + suffix_length + 1,
+      L".__logic_engine_manifest_anchor__");
+  sqlite3_free(wide_path);
+  if (logic_engine_win_anchor_path(anchor_path, &anchor)
+      && logic_engine_win_identity(anchor.parent, &actual, &attributes)
+      && (attributes & FILE_ATTRIBUTE_DIRECTORY) != 0
+      && logic_engine_win_identity_equal(&actual, &expected)) {
+    valid = 1;
+  }
+  logic_engine_win_anchor_close(&anchor);
+  sqlite3_free(anchor_path);
+  if (!valid) {
+    sqlite3_result_error(context,
+      "manifest directory path does not resolve to its recorded opened-handle identity", -1);
+    return;
+  }
+  sqlite3_result_int(context, 1);
+}
 #endif
 
 #ifdef _WIN32
@@ -3614,6 +3682,9 @@ static int probe_auto_extension(sqlite3 *db, char **error, const sqlite3_api_rou
 #ifdef _WIN32
   rc = sqlite3_create_function(db, "logic_engine_vfs_probe_capture_manifest_identity", 1,
     SQLITE_UTF8, 0, probe_capture_manifest_identity, 0, 0);
+  if (rc != SQLITE_OK) return rc;
+  rc = sqlite3_create_function(db, "logic_engine_vfs_probe_validate_manifest_directory_identity", 3,
+    SQLITE_UTF8, 0, probe_validate_manifest_directory_identity, 0, 0);
   if (rc != SQLITE_OK) return rc;
   rc = sqlite3_create_function(db, "logic_engine_vfs_probe_register_database_role_manifest", 7,
     SQLITE_UTF8, 0, probe_register_database_role, 0, 0);
