@@ -2,8 +2,8 @@
 
 **Contract:** Host ↔ Core authenticated Memory retrieval  
 **Version:** 1.0.0  
-**Status:** CONTRACT DEFINED; Host and Core technical-owner ACKs received; review corrections are implemented in updated Host/Core candidate heads; Core exact-head Runtime CI passed and Host exact-head Runtime CI is running; independent maintainer reviews and branch integration remain pending  
-**Candidate heads under final validation (1 Nov 2026):** Host PR #850 `feb6a5939724b9d7ca9157362e178f1d223f2e56`; Core Lane B PR #846 `832abf337530e9421f53eaed85760cb4a7f07313`; Core HTTP PR #867 `15e4d4fed9bec27a97311fe7bd8386bcde9e5368`  
+**Status:** CONTRACT DEFINED; Host and Core technical-owner ACKs are being refreshed against the exact current candidate heads; Host, Core foundation, and Core HTTP exact-head Runtime CI passed; contract-document CI is triggered by this revision; independent maintainer reviews and branch integration remain pending  
+**Candidate heads verified (2 Nov 2026):** Host PR #850 `3b33f52231f9af98496a1fff07fddda99f6015a0`; Core Lane B PR #846 `832abf337530e9421f53eaed85760cb4a7f07313`; Core HTTP PR #867 `15e4d4fed9bec27a97311fe7bd8386bcde9e5368`  
 **Scope:** identity hand-off, Core World/Actor resolution, authenticated Memory Provider retrieval, result/error/revoke semantics.  
 **Not in scope:** branch merging, Security Gateway changes, Final-Send, production enablement, Lane A, Provider schema migration.
 
@@ -477,3 +477,50 @@ The current Core Actor resolver confirms the documented outcomes: zero active bi
 - The Memory Provider remains deployment-configured and fail-closed when unavailable or unauthorized. This contract does not enable production Memory → NPC traffic, claim linearizable revoke through Final-Send, modify Security Gateway, or include Final-Send.
 
 **Current decision: CONTRACT TECHNICALLY ALIGNED; ACCEPTANCE PENDING INDEPENDENT HOST/CORE REVIEWS AND CONTROLLED BRANCH INTEGRATION.**
+
+## 13. Current exact-head contract revalidation — 2 Nov 2026
+
+This section supersedes all earlier candidate-head, CI, and cross-branch comparison snapshots in §§1 and 9–12. Contract version remains **1.0.0**; the wire schemas and route versions are unchanged.
+
+### Exact current candidate heads
+
+| Candidate | PR branch | Exact HEAD | Exact-head CI |
+|---|---|---|---|
+| Host #850 | `host/unified-extension-gateway-candidate` | `3b33f52231f9af98496a1fff07fddda99f6015a0` | Runtime `41344505085` SUCCESS; candidate check `41344505072` SUCCESS; static validation `41344505082` SUCCESS; pinned Host source audit `41344505068` SUCCESS; browser IndexedDB restart `41344505081` SUCCESS; Provider blocker `41344505077` SUCCESS |
+| Core Lane B #846 | `lane-b/core-authenticated-host-request-2026-11-01` | `832abf337530e9421f53eaed85760cb4a7f07313` | Runtime `41317936997` SUCCESS; associated lifecycle, Provider, browser restart, and pinned-source workflows SUCCESS |
+| Core HTTP #867 | `integration/core-host-memory-http-v1` | `15e4d4fed9bec27a97311fe7bd8386bcde9e5368` | Runtime `41342230341` SUCCESS |
+| Contract #866 (pre-update) | `docs/host-core-integration-contract-v1` | `bcb926ddbe24bbbd0121e27a11819c28faf2a089` | Runtime `41343304557` SUCCESS for the previous document revision; this §13 update triggers a new document CI run |
+
+All seven Host workflows associated with the exact current Host HEAD completed successfully. The full Host Runtime run includes the previously pending `npm test` job and completed with conclusion SUCCESS. No pending Host job remains for this HEAD.
+
+### Exact current cross-branch comparison
+
+The current Host #850 and Core HTTP #867 files were fetched from their live PR branches and compared:
+
+| Path | Result |
+|---|---|
+| `src/application/host-session-context.js` | Byte-identical |
+| `src/application/host-assertion-nonce-store.js` | Byte-identical |
+| `src/application/memory-npc-provider-adapter.js` | Byte-identical |
+| `src/application/memory-npc-consumer.js` | Byte-identical |
+| `src/application/host-conversation-world-bindings.js` | Byte-identical |
+| `src/application/actor-bindings.js` | Byte-identical |
+| `src/application/npc-knowledge-authorization.js` | Byte-identical |
+| `src/application/sqlite-memory-provider.js` | Byte-identical |
+| `tests/host-memory-http-api.test.js` | Same test logic; one formatting-only difference in the first invalid-result fixture (Host uses a single line; Core wraps the same object across four lines). Not byte-identical. |
+| `src/api/server.js` | Intentionally different because Host retains Host-owned lifecycle/root-inventory routes and additional Host runtime composition. |
+
+The complete implementation blocks for both required routes, `POST /v1/host-context/resolve` and `POST /v1/host/memory-npc/retrieve`, were extracted from the current `src/api/server.js` files and compared byte-for-byte. Both route blocks are identical (34,175 characters combined).
+
+The Host-only `src/api/server.js` composition must be preserved; do not replace either full server file with the other branch's version. The formatting-only test difference does not change assertions or execution, but the document no longer describes that test file as byte-identical.
+
+### Contract acceptance revalidation
+
+- The current Host HEAD's identity-stat precision fix and expired-assertion regression test do not change the v1.0.0 wire contract.
+- The current Host and Core HTTP candidates still implement the same PC-NEXT-11 tuple and exact context/retrieval route blocks.
+- Eight shared application files are byte-identical. The shared HTTP test has the formatting-only difference recorded above.
+- Host Runtime and all six associated Host-specific workflows are green on exact HEAD `3b33f522`; Core Lane B and Core HTTP exact-head Runtime evidence remains green on their current PR HEADs.
+- Technical-owner compatibility acknowledgement is recorded separately on Host #850 and Core #846 for these exact counterpart heads. This is an owner acknowledgement, not an independent maintainer review.
+- No branch was rebased, merged, or otherwise integrated. No Security Gateway, Final-Send, or production enablement work was performed.
+
+**Current decision: WIRE CONTRACT AND CURRENT HOST/CORE CANDIDATE IMPLEMENTATIONS ARE TECHNICALLY ALIGNED. DOCUMENT CI AND THE TWO SIDED TECHNICAL-OWNER ACK RECORDS ARE THE REMAINING CONTRACT-TRACKING ACTIONS. Independent maintainer reviews and branch integration are separate gates, not prerequisites in the original contract-only task.**
