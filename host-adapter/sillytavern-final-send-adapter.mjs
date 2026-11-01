@@ -66,6 +66,7 @@ export function createSillyTavernFinalSendAdapter({
     throw new TypeError('Native SillyTavern response writer is required.');
   }
   const sourceMap = assertSourceMap(chatCompletionSources);
+  const requestIdByResponse = new WeakMap();
   const finalSend = createProtectedMemoryFinalSend({
     gateway,
     resolveProtectedMemory,
@@ -90,15 +91,54 @@ export function createSillyTavernFinalSendAdapter({
       if (expectedRoute ? expectedRoute !== args.senderRoute : args.senderRoute !== UNREGISTERED_SENDER_ROUTE) {
         throw new Error('MEMORY_DISPATCH_NOT_READY');
       }
-      return finalSend({
-        senderRoute: args.senderRoute,
-        endpointUrl: args.endpointUrl,
-        requestInit: args.requestInit,
-        hostRequestContext: args.request,
-        stream: args.stream,
-        forwardResponse: args.forwardResponse,
-        transport: args.transport,
-      });
+      const protectedMemory = resolveProtectedMemory(args.request);
+      if (protectedMemory && typeof protectedMemory.then === 'function') {
+        throw new Error('MEMORY_DISPATCH_NOT_READY');
+      }
+      if (protectedMemory === undefined) throw new Error('MEMORY_DISPATCH_NOT_READY');
+      if (protectedMemory !== null) {
+        if (!args.response || typeof args.response !== 'object'
+          || typeof protectedMemory.requestId !== 'string' || !protectedMemory.requestId) {
+          throw new Error('MEMORY_DISPATCH_NOT_READY');
+        }
+        requestIdByResponse.set(args.response, protectedMemory.requestId);
+      }
+      let result;
+      try {
+        result = finalSend({
+          senderRoute: args.senderRoute,
+          endpointUrl: args.endpointUrl,
+          requestInit: args.requestInit,
+          hostRequestContext: args.request,
+          stream: args.stream,
+          forwardResponse: args.forwardResponse,
+          transport: args.transport,
+          protectedMemoryOverride: protectedMemory,
+        });
+      } catch (error) {
+        if (args.response) requestIdByResponse.delete(args.response);
+        throw error;
+      }
+      if (result && typeof result.then === 'function') {
+        return result.catch((error) => {
+          if (args.response) requestIdByResponse.delete(args.response);
+          throw error;
+        });
+      }
+      return result;
+    },
+
+    authorizeResponseWrite(response, write, final = false) {
+      const requestId = requestIdByResponse.get(response);
+      if (!requestId) return write();
+      try {
+        const result = gateway.authorizeResponseWrite(requestId, write, { final });
+        if (final) requestIdByResponse.delete(response);
+        return result;
+      } catch (error) {
+        requestIdByResponse.delete(response);
+        throw error;
+      }
     },
 
     forwardResponse(upstream, response) {
