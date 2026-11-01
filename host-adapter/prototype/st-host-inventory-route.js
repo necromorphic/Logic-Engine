@@ -1,6 +1,6 @@
 import express from 'express';
-import { enumeratePinnedSillyTavernChatFiles } from './st-source-inventory.mjs';
-import { createHostInventoryHandler, createHostSessionHandler } from './st-host-inventory-handler.mjs';
+import { enumeratePinnedSillyTavernChatFiles } from './logic-engine-st-source-inventory.mjs';
+import { createHostInventoryHandler, createHostSessionHandler } from './logic-engine-host-inventory-handler.mjs';
 
 const PINNED_SILLYTAVERN_COMMIT = '06bde939fb1e9c4c8d8641d810f0a916b5bce127';
 
