@@ -302,7 +302,7 @@
  import _ from 'lodash';
  
 @@ -270,6 +270,7 @@
- }
+ });
  
  router.post('/generate', async function (request, response) {
 +    return runWithLogicEngineFinalSend(request, response, async () => {
@@ -353,7 +353,7 @@
  
  import { readSecret, SECRET_KEYS } from './secrets.js';
 @@ -165,6 +165,7 @@
- const router = express.Router();
+ });
  
  router.post('/generate', async function (req, res) {
 +    return runWithLogicEngineFinalSend(req, res, async () => {
@@ -377,7 +377,7 @@
  import { AIHorde, ModelGenerationInputStableSamplers, ModelInterrogationFormTypes, HordeAsyncRequestStates } from '@zeldafan0225/ai_horde';
  import { getVersion, delay, Cache } from '../util.js';
 @@ -181,6 +181,7 @@
- }
+ });
  
  router.post('/generate-text', async (request, response) => {
 +    return runWithLogicEngineFinalSend(request, response, async () => {
