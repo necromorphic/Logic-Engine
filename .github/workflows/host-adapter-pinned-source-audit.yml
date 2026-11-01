@@ -49,7 +49,7 @@ jobs:
             'src/endpoints/backups.js',
             'src/endpoints/logic-engine-host-inventory-handler.mjs'
           )
-          $actual = @(git -C Sillytavern diff --name-only | Sort-Object)
+          $actual = @((git -C Sillytavern diff --name-only) + (git -C Sillytavern ls-files --others --exclude-standard) | Sort-Object)
           if (Compare-Object ($expected | Sort-Object) $actual) { throw 'Pinned Host patch changed files outside the reviewed allowlist' }
           if (Test-Path Sillytavern/src/endpoints/logic-engine-lifecycle.js) { throw 'Unexpected independent lifecycle route' }
           if (Test-Path Sillytavern/src/endpoints/logic-engine-host-inventory.js) { throw 'Unexpected independent inventory route' }
