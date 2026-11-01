@@ -56,7 +56,15 @@ function validBackupTransition(before, after) {
     if (canonical(current.get(filePath)) !== canonical(entry)) return false;
   }
   const additions = [...current].filter(([filePath]) => !previous.has(filePath)).map(([, entry]) => entry);
-  return additions.every(entry => entry.sha256 === after.target_content_sha256);
+  // SillyTavern throttles chat backups. A trailing backup can be materialized
+  // after the next save has already changed the target file, so the new backup
+  // may contain either the exact pre-write or post-write target bytes. No
+  // unrelated/older digest is accepted.
+  const allowedDigests = new Set([
+    before.target_content_sha256,
+    after.target_content_sha256,
+  ]);
+  return additions.every(entry => allowedDigests.has(entry.sha256));
 }
 
 function exactlyOneChanged(before, after, predicate) {
