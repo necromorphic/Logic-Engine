@@ -697,6 +697,40 @@ test('reconciliation rejects a Core mutation that occurs during complete invento
   await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_INDEX_NOT_READY/);
 });
 
+test('legacy file-backed Provider grant table migrates durable authorization generation', (t) => {
+  const db = createProviderTestDb(t, { prefix: 'logic-memory-provider-grant-migration-' });
+  db.db.exec(`CREATE TABLE memory_record_grants (
+    world_id TEXT NOT NULL, subject_id TEXT NOT NULL, purpose TEXT NOT NULL,
+    record_ref TEXT NOT NULL, record_version TEXT NOT NULL,
+    allowed INTEGER NOT NULL CHECK(allowed IN (0,1)),
+    PRIMARY KEY(world_id, subject_id, purpose, record_ref, record_version)
+  )`);
+  db.db.prepare('INSERT INTO memory_record_grants VALUES(?,?,?,?,?,?)')
+    .run('world-a', 'npc-a', 'npc_decision', 'memory:legacy', 'record-v1', 1);
+  const provider = new SQLiteMemoryProvider({
+    path: db.path,
+    coordinatorPath: `${db.path}.coordinator.sqlite`,
+    getSnapshot: async () => ({ world_revision: 0, commit_sequence: 0 }),
+    validateSourceVersion: () => false,
+    validateInventory: () => false,
+  });
+  t.after(() => {
+    provider.close();
+    db.close();
+    db.cleanup();
+  });
+
+  const migrated = db.db.prepare(`SELECT authorization_generation FROM memory_record_grants
+    WHERE world_id='world-a' AND record_ref='memory:legacy'`).get();
+  assert.equal(migrated.authorization_generation, 1);
+  provider.grantRecord({ world_id: 'world-a', subject_id: 'npc-a', purpose: 'npc_decision' },
+    'memory:legacy', 'record-v1', false);
+  const revoked = db.db.prepare(`SELECT allowed,authorization_generation FROM memory_record_grants
+    WHERE world_id='world-a' AND record_ref='memory:legacy'`).get();
+  assert.equal(revoked.allowed, 0);
+  assert.equal(revoked.authorization_generation, 2);
+});
+
 test('damaged Provider index schema is unavailable and never reported as empty', async (t) => {
   const s = setup(t);
   assert.equal((await s.prepare()).status, 'current');
