@@ -118,7 +118,8 @@ export function isAuthenticatedHostSessionContext(context, conversationId) {
   try {
     return context !== null && typeof context === 'object'
       && contexts.has(context)
-      && ['SIGNED_AUTHENTICATED_ST_SESSION', 'SIGNED_HOST_SESSION_ASSERTION'].includes(context.identity)
+      && (context.identity === 'SIGNED_AUTHENTICATED_ST_SESSION'
+        || context.identity === 'SIGNED_HOST_SESSION_ASSERTION')
       && context.conversation_id === conversationId
       && HOST_SESSION_UUID.test(context.host_installation_id ?? '')
       && HOST_SESSION_UUID.test(context.authenticated_account_id ?? '')
@@ -172,19 +173,32 @@ function canonicalAssertion(assertion) {
 
 function validHostSessionAssertion(assertion) {
   try {
-    if (!assertion || typeof assertion !== 'object' || Array.isArray(assertion)
-      || (Object.getPrototypeOf(assertion) !== Object.prototype && Object.getPrototypeOf(assertion) !== null)
-      || Reflect.ownKeys(assertion).length !== ASSERTION_KEYS.length
-      || ASSERTION_KEYS.some(key => !Object.hasOwn(assertion, key))
-      || Reflect.ownKeys(assertion).some(key => typeof key !== 'string' || !ASSERTION_KEYS.includes(key))) return false;
-    for (const key of ASSERTION_KEYS) {
+    if (!assertion || typeof assertion !== 'object' || Array.isArray(assertion) || utilTypes.isProxy(assertion)
+      || (Object.getPrototypeOf(assertion) !== Object.prototype && Object.getPrototypeOf(assertion) !== null)) return false;
+    const ownKeys = Reflect.ownKeys(assertion);
+    if (ownKeys.length !== ASSERTION_KEYS.length) return false;
+    for (let index = 0; index < ASSERTION_KEYS.length; index += 1) {
+      const key = ASSERTION_KEYS[index];
       const descriptor = Object.getOwnPropertyDescriptor(assertion, key);
       if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) return false;
     }
+    for (let index = 0; index < ownKeys.length; index += 1) {
+      const key = ownKeys[index];
+      if (typeof key !== 'string') return false;
+      let known = false;
+      for (let keyIndex = 0; keyIndex < ASSERTION_KEYS.length; keyIndex += 1) {
+        if (ASSERTION_KEYS[keyIndex] === key) {
+          known = true;
+          break;
+        }
+      }
+      if (!known) return false;
+    }
     return assertion.protocol_version === 1
-      && [assertion.host_installation_id, assertion.authenticated_account_id,
-        assertion.host_session_id, assertion.nonce].every(value =>
-        typeof value === 'string' && HOST_SESSION_UUID.test(value))
+      && typeof assertion.host_installation_id === 'string' && HOST_SESSION_UUID.test(assertion.host_installation_id)
+      && typeof assertion.authenticated_account_id === 'string' && HOST_SESSION_UUID.test(assertion.authenticated_account_id)
+      && typeof assertion.host_session_id === 'string' && HOST_SESSION_UUID.test(assertion.host_session_id)
+      && typeof assertion.nonce === 'string' && HOST_SESSION_UUID.test(assertion.nonce)
       && typeof assertion.conversation_id === 'string'
       && HOST_CONVERSATION_ID.test(assertion.conversation_id)
       && validBindingId(assertion.world_id) && validBindingId(assertion.actor_id)
