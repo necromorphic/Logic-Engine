@@ -134,6 +134,17 @@ function setup(t, { twoRecords = false, providerPath = null } = {}) {
   t.after(() => { provider.close(); store.close(); testDb.close(); testDb.cleanup(); });
   return {
     engine, provider, consumer, scope, records, createConsumer,
+    createSiblingProvider() {
+      const sibling = new SQLiteMemoryProvider({
+        path: effectiveProviderPath,
+        coordinatorPath: `${effectiveProviderPath}.coordinator.sqlite`,
+        getSnapshot: snapshotReader,
+        validateSourceVersion: sourceVersionValidator,
+        validateInventory: inventoryValidator,
+      });
+      t.after(() => sibling.close());
+      return sibling;
+    },
     db: testDb.db,
     async prepare() {
       await provider.rebuildIndex(worldId);
