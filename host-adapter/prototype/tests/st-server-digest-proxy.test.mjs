@@ -13,7 +13,7 @@ const HOST_CONVERSATION_ID = SESSION_ID + ':22222222-2222-4222-8222-222222222222
 const requestFor = (body, { sessionId = SESSION_ID, userHandle = 'alice', sessionHandle = userHandle } = {}) => ({
   body,
   user: { profile: { handle: userHandle } },
-  session: { handle: sessionHandle, logicEngineSessionId: sessionId },
+  session: { handle: sessionHandle, logicEngineSessionId: sessionId, logicEngineSessionHandle: userHandle },
 });
 const capture = {
   conversation_id: HOST_CONVERSATION_ID,
@@ -65,6 +65,39 @@ test('proxy forwards only allowlisted digest fields with server-side credentials
   assert.equal(observed.options.body.includes('raw'), false);
 });
 
+test('digest capture accepts ST default-user mode only with the adapter-owned signed-session binding', async () => {
+  let observed;
+  const handler = createHostDigestProxyHandler({
+    env: CONFIG,
+    fetchImpl: async (url, options) => {
+      observed = { url: String(url), options };
+      return { status: 201, json: async () => ({ capture: { status: 'captured' } }) };
+    },
+  });
+  const response = responseRecorder();
+  await handler({
+    body: capture,
+    user: { profile: { handle: 'default-user' } },
+    session: {
+      logicEngineSessionId: SESSION_ID,
+      logicEngineSessionHandle: 'default-user',
+    },
+  }, response);
+  assert.equal(response.statusCode, 201);
+  assert.equal(JSON.parse(observed.options.body).conversation_id, HOST_CONVERSATION_ID);
+
+  const mismatched = responseRecorder();
+  await handler({
+    body: capture,
+    user: { profile: { handle: 'default-user' } },
+    session: {
+      logicEngineSessionId: SESSION_ID,
+      logicEngineSessionHandle: 'another-user',
+    },
+  }, mismatched);
+  assert.equal(mismatched.statusCode, 403);
+});
+ 
 test('proxy rejects caller URLs, world IDs, raw text and malformed digests before upstream I/O', async () => {
   let calls = 0;
   const handler = createHostDigestProxyHandler({ env: CONFIG, fetchImpl: async () => { calls++; } });
