@@ -292,6 +292,25 @@ test('protected Memory final-send deployment gate requires every independent run
   assert.equal(result.find((item) => item.id === 'memory:protected-final-send-production').status, 'PASS');
 });
 
+test('protected final-send gate is emitted exactly once independently of enabled components', () => {
+  const capabilities = PROTECTED_FINAL_SEND_CAPABILITIES
+    .map((id) => createCapabilityEvidence({ id, status: 'PASS', required: true }));
+  for (const components of [
+    [],
+    [{ id: 'disabled', enabled: false, requires_capabilities: [] }],
+    [
+      { id: 'core', enabled: true, requires_capabilities: [] },
+      { id: 'coordinator', enabled: true, requires_capabilities: [] },
+    ],
+  ]) {
+    const gates = evaluateDeploymentGates({ profile: 'portable-desktop', components, capabilities });
+    const protectedGates = gates.filter((gate) => gate.id === 'memory:protected-final-send-production');
+    assert.equal(protectedGates.length, 1);
+    assert.equal(protectedGates[0].status, 'PASS');
+    assert.deepEqual(protectedGates[0].affected_features, ['memory.protected-final-send']);
+  }
+});
+
 test('deployment assessment never accepts manifest-only final-send assertions', async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'logic-engine-final-send-gate-'));
   t.after(() => rm(root, { recursive: true, force: true }));
