@@ -73,6 +73,8 @@ class ManifestStoreTests(unittest.TestCase):
         self.temp.cleanup()
 
     def test_trusted_directory_ancestors_must_be_root_or_broker_owned(self):
+        import manifest_store
+
         application_uid = os.geteuid() ^ 1
         foreign_owner = SimpleNamespace(
             st_mode=stat.S_IFDIR | 0o700,
