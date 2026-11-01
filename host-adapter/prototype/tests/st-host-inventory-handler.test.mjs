@@ -740,7 +740,7 @@ test('request authentication gate brands only the exact request after trusted se
     body: { conversation_id: 'attacker-selected' },
   };
   const conversationId = [
-    defaultUserSessionId, defaultUserInstallationId, defaultUserConversationUuid,
+    defaultUserInstallationId, defaultUserAccountId, defaultUserConversationUuid,
   ].join(':');
   resolved.set(request, conversationId);
   const gate = createHostRequestAuthenticationGate({
