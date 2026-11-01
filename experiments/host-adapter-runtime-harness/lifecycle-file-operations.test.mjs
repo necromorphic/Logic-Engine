@@ -486,7 +486,7 @@ test('pinned ST 1.19.0 supported chat mutations persist; rename, group deletion,
     }, { 'x-harness-operation': 'select-swipe' });
     assert.equal(response.status, 200, JSON.stringify(response));
     assert.equal(response.result.ok, true);
-    const persisted = (await readFile(chatPath, 'utf8')).trim().split('\\n').map(line => JSON.parse(line));
+    const persisted = (await readFile(chatPath, 'utf8')).trim().split('\n').map(line => JSON.parse(line));
     assert.equal(persisted[2].swipe_id, 0);
     assert.equal(persisted[2]._logicEngineLifecycle.activeVersionIndex, 0);
     assert.equal(persisted[2]._logicEngineLifecycle.versions.length, 2);
@@ -512,7 +512,7 @@ test('pinned ST 1.19.0 supported chat mutations persist; rename, group deletion,
     }, { 'x-harness-operation': 'delete-swipe' });
     assert.equal(response.status, 200, JSON.stringify(response));
     assert.equal(response.result.ok, true);
-    const persisted = (await readFile(chatPath, 'utf8')).trim().split('\\n').map(line => JSON.parse(line));
+    const persisted = (await readFile(chatPath, 'utf8')).trim().split('\n').map(line => JSON.parse(line));
     assert.deepEqual(persisted[2].swipes, ['first reply']);
     assert.equal(persisted[2]._logicEngineLifecycle.versions.length, 1);
     assert.equal(persisted[2]._logicEngineLifecycle.activeVersionIndex, 0);
