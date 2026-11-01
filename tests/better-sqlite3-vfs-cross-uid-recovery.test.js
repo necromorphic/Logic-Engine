@@ -34,7 +34,7 @@ test('restarted distinct-UID broker permits SQLite WAL crash recovery', {
     assert.equal(
       registrar.prepare(
         'SELECT logic_engine_vfs_probe_register_broker_role(?, ?, ?) AS registered',
-      ).get(databasePath, 'core', socketPath).registered,
+      ).get(databasePath, 'vectors', socketPath).registered,
       1,
       'the restarted broker must revalidate the persisted role manifest',
     );
