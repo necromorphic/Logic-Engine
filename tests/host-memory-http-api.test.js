@@ -1,11 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { createHmac } from 'node:crypto';
 import { SQLiteStore } from '../src/storage/sqlite-store.js';
 import { LogicEngine } from '../src/application/engine.js';
 import { createApiServer } from '../src/api/server.js';
 import { getAuthenticatedHostSessionContext } from '../src/application/host-session-context.js';
+import { HostAssertionNonceStore } from '../src/application/host-assertion-nonce-store.js';
 
 const API_TOKEN = 'host-memory-api-token-long-enough';
 const ADMIN_TOKEN = 'host-memory-admin-token-long-enough';
@@ -35,8 +39,16 @@ function post(base, pathname, headers, body) {
 }
 
 test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signed adapter assertions', async t => {
-  const store = new SQLiteStore(':memory:');
+  const directory = mkdtempSync(join(tmpdir(), 'host-memory-http-'));
+  const corePath = join(directory, 'core.sqlite');
+  const coordinatorPath = resolve(join(directory, 'coordinator.sqlite'));
+  const store = new SQLiteStore(corePath);
   const engine = new LogicEngine(store);
+  const nonceStore = new HostAssertionNonceStore({
+    path: join(directory, 'host-assertion-nonces.sqlite'),
+    coreDatabasePath: corePath,
+    coordinatorPath,
+  });
   engine.createWorld({
     world_id: 'host-memory-world', world_pack_id: 'test.host-memory',
     world_pack_version: '1', game_time: '2026-01-01T00:00:00Z',
@@ -65,12 +77,15 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
     engine, token: API_TOKEN, adminToken: ADMIN_TOKEN,
     adapterTokens: { [ADAPTER_ID]: ADAPTER_TOKEN },
     memoryNpcConsumers: { [ADAPTER_ID]: consumer },
+    hostAssertionNonceStore: nonceStore,
   });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   t.after(async () => {
     await new Promise(resolve => server.close(resolve));
+    nonceStore.close();
     store.close();
+    rmSync(directory, { recursive: true, force: true });
   });
   const base = 'http://127.0.0.1:' + server.address().port;
   const headers = { authorization: 'Bearer ' + API_TOKEN };
@@ -129,6 +144,7 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
     engine, token: API_TOKEN, adminToken: ADMIN_TOKEN,
     adapterTokens: { [ADAPTER_ID]: ADAPTER_TOKEN },
     memoryNpcConsumers: { [ADAPTER_ID]: consumer },
+    hostAssertionNonceStore: nonceStore,
   });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
