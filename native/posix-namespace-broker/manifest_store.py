@@ -397,6 +397,9 @@ def _validate_manifest_transition(current: dict[str, Any], candidate: dict[str, 
         if any(new[field] != old[field] for field in immutable_fields):
             raise StoreError(f"role {name}: enrolled parent or database identity is immutable")
         if old["state"] == "renaming":
+            if (new["state"] == "renaming"
+                    and new.get("pendingDatabaseBasename") != old.get("pendingDatabaseBasename")):
+                raise StoreError(f"role {name}: pending rename basename is immutable")
             if (new["state"] == "disabled"
                     and new["databaseBasename"] == old.get("pendingDatabaseBasename")
                     and "pendingDatabaseBasename" not in new):
