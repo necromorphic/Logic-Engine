@@ -117,8 +117,18 @@ export function createMemoryNpcProviderAdapter({
       contentFields,
     });
 
+    // Expose only trusted ingestion/grant administration. Retrieval and
+    // record-authorization methods remain private to MemoryNpcConsumer so a
+    // caller cannot bypass Core's authenticated Host-session query gate.
+    const providerControl = Object.freeze({
+      putRecord: (...args) => provider.putRecord(...args),
+      grantQuery: (...args) => provider.grantQuery(...args),
+      grantRecord: (...args) => provider.grantRecord(...args),
+      revokeRecord: (...args) => provider.revokeRecord(...args),
+    });
+
     return Object.freeze({
-      provider,
+      provider: providerControl,
       consumer,
       async prepareWorld(worldId) {
         await provider.rebuildIndex(worldId);
