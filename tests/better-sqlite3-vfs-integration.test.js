@@ -66,6 +66,28 @@ test('stock better-sqlite3 uses the registered default VFS in its own engine', {
       db.prepare('SELECT logic_engine_vfs_probe_journal_open_count() AS count').get().count > 0,
       'the registered default VFS must receive the rollback-journal open',
     );
+
+    // A pathname swap between identity capture and quarantine rename must not
+    // unlink the substituted object or silently remove it from its original name.
+    const replacementPath = path.join(directory, 'replacement.bin');
+    const journalPath = `${filename}-journal`;
+    fs.writeFileSync(replacementPath, 'replacement-object-must-survive');
+    db.exec('BEGIN IMMEDIATE');
+    db.prepare('INSERT INTO vfs_probe (value) VALUES (?)').run('race-case');
+    const raceConfigured = db.prepare(
+      'SELECT logic_engine_vfs_probe_configure_race(?, ?, 1) AS configured',
+    ).get(journalPath, replacementPath).configured;
+    assert.equal(raceConfigured, 1, 'the deterministic delete race must be armed');
+    assert.throws(() => db.exec('COMMIT'), /disk I\/O error|SQLITE_IOERR/i);
+    assert.equal(fs.readFileSync(replacementPath, 'utf8'), 'replacement-object-must-survive');
+    assert.equal(fs.readFileSync(journalPath, 'utf8'), 'replacement-object-must-survive',
+      'the mismatched moved entry must be restored without overwriting a concurrent creator');
+    assert.equal(fs.statSync(journalPath).ino, fs.statSync(replacementPath).ino,
+      'the original replacement inode must remain linked at both names');
+    const quarantinePath = path.join(directory, '.logic-engine-vfs-quarantine');
+    assert.deepEqual(fs.readdirSync(quarantinePath), [],
+      'a successfully restored mismatch must not leave an orphaned quarantine entry');
+    db.exec('ROLLBACK');
     assert.equal(db.pragma('journal_mode = WAL', { simple: true }), 'wal');
     db.prepare('INSERT INTO vfs_probe (value) VALUES (?)').run('same-engine');
     assert.ok(
