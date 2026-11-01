@@ -127,6 +127,20 @@ test('production NPC query authorization requires a branded authenticated Host s
     defaultUserRequest, HOST_CONVERSATION_ID, isAuthenticatedHostRequest, resolveHostConversationId, resolveHostBindings, resolveHostIdentity,
   );
   assert.ok(defaultUserContext);
+  const rotatedSessionRequest = {
+    user: hostRequest.user,
+    session: { ...hostRequest.session, logicEngineSessionId: '99999999-9999-4999-8999-999999999999' },
+  };
+  authenticatedHostRequests.add(rotatedSessionRequest);
+  trustedConversationIds.set(rotatedSessionRequest, HOST_CONVERSATION_ID);
+  trustedHostIdentities.set(rotatedSessionRequest, {
+    host_installation_id: HOST_INSTALLATION_ID,
+    authenticated_account_id: HOST_ACCOUNT_ID,
+  });
+  assert.equal(createAuthenticatedHostSessionContext(
+    rotatedSessionRequest, HOST_CONVERSATION_ID, isAuthenticatedHostRequest,
+    resolveHostConversationId, resolveHostBindings, resolveHostIdentity,
+  ), null);
   const otherConversation = HOST_SESSION_ID + ':' + HOST_INSTALLATION_ID + ':77777777-7777-4777-8777-777777777777';
   const otherConversationRequest = {
     user: hostRequest.user,
