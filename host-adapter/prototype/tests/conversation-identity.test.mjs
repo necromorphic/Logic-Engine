@@ -40,7 +40,7 @@ const resolver = async ({
   ...rest,
 });
 
-test('uses the authenticated server installation identity for stable conversation identity', async () => {
+test('uses the authenticated server session and installation identity for the conversation tuple', async () => {
   const storage = new Storage();
   const metadata = {};
   let saves = 0;
@@ -106,7 +106,7 @@ test('same conversation metadata is isolated between authenticated accounts on o
   const storage = new Storage();
   const metadata = { logic_engine_conversation_id: CHAT_A };
   const first = await resolver({ metadata, storage, authenticatedAccountId: ACCOUNT_A });
-  const second = await resolver({ metadata, storage, authenticatedAccountId: ACCOUNT_B });
+  const second = await resolver({ metadata, storage, hostSessionId: SESSION_B, authenticatedAccountId: ACCOUNT_B });
   assert.notEqual(first.conversationId, second.conversationId);
   assert.equal(first.conversationId, SESSION_A + ':' + INSTALL_A + ':' + CHAT_A);
   assert.equal(second.conversationId, SESSION_B + ':' + INSTALL_A + ':' + CHAT_A);
