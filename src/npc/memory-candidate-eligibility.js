@@ -239,6 +239,10 @@ function candidateRejection(candidate, request) {
   if (!producerIsPresent(candidate)) return "producer_provenance_incomplete";
   if (!lifecycleIsPresent(candidate)) return "lifecycle_dimensions_incomplete";
   if (!KNOWN_EVIDENCE_ASSESSMENTS.has(candidate.lifecycle.evidence_assessment)) return "evidence_assessment_unknown";
+  // Eligibility is not an evidence verdict: only an explicitly supported
+  // assessment may cross the NPC admission boundary. Disputed, insufficient,
+  // and unassessed records remain retrievable only for owner-side review.
+  if (candidate.lifecycle.evidence_assessment !== "supported") return "evidence_assessment_not_supported";
   if (!lifecycleIsAdmissible(candidate)) return "lifecycle_not_admissible";
   if (!READY_SOURCE_STATES.has(candidate.freshness?.status)) return "source_not_current";
   if (!sameSnapshot(candidate, request)) return "snapshot_mismatch";
