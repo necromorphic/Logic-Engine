@@ -34,13 +34,11 @@ test('SillyTavern protected streaming is forwarded once inside Gateway transport
   let fetchCalls = 0;
   let forwardCalls = 0;
   const bridge = createSillyTavernGenerationBridge({
-    finalSend: ({ forwardResponse, stream, endpointUrl, requestInit }) => {
+    finalSend: async ({ forwardResponse, stream }) => {
       assert.equal(stream, true);
-      const transport = () => Promise.resolve({ status: 200 }).then(async (upstream) => {
-        await forwardResponse(upstream);
-        return { status: upstream.status };
-      });
-      return transport();
+      const upstream = await Promise.resolve({ status: 200 });
+      await forwardResponse(upstream);
+      return { status: upstream.status };
     },
     nativeFetch: async () => { fetchCalls += 1; return { status: 200 }; },
     nativeForwardFetchResponse: async () => { forwardCalls += 1; },
