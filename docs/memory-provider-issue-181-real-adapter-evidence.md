@@ -92,3 +92,30 @@ This still does **not** prove the Host side:
 - Provider-local revocation and Core final-read revalidation are not the same as a shared final-dispatch/zero-egress guarantee. Security PR #777's dispatch-start primitive is not wired to the pinned ST senders.
 
 **Correct disposition:** Provider → Core canonical-entity reconciliation and revocation tests are executable and pass current CI; Host-originated source inventory/reconciliation and final disclosure remain blocked. Do not describe the positive Core validator path as proof of Host completeness or production Memory → NPC readiness.
+
+
+## Core query authorization and real adapter composition — 1 Nov 2026
+
+The current implementation now has a concrete composition factory:
+`src/application/memory-npc-provider-adapter.js`.
+
+It creates a **file-backed `SQLiteMemoryProvider`**, not a fake or in-memory test double, and wires only trusted Core-owned dependencies:
+
+- Core `LogicEngine.getSnapshot()` for the Provider snapshot reader;
+- `createCanonicalEntitySourceVersionValidator(engine)` for each direct source;
+- `createCanonicalEntityInventoryValidator(engine)` for complete canonical-entity inventory attestation;
+- Core `createHostBoundNpcKnowledgeAuthorizers()` for query authorization;
+- Core `ActorBindingService` and `AuthorizedReadService` for actor binding and per-field source disclosure;
+- an explicit trusted field policy and field allowlist supplied by deployment configuration;
+- the same live coordinator database used by Core and Provider.
+
+The Core query authorizer requires an active configured adapter → actor binding and an active Host conversation → world binding for the exact `world_id`, `conversation_id`, `adapter_id`, and `actor_id`. The Provider query grant is an additional restriction; it cannot replace Core authorization. The consumer checks both before retrieval and again after asynchronous record checks and source reads.
+
+Per-record Provider authorization remains exact to `(world_id, subject_id, purpose, record_ref, record_version)`. Each admitted source is then reread through Core `AuthorizedReadService`; record grants are rechecked after the Core source read and before a ready result is returned. Revocation of the Core Host-conversation binding during candidate validation also blocks disclosure.
+
+Executable proof:
+- `tests/memory-npc-provider-adapter.test.js`: factory creates a real file-backed Provider and uses real Core store/engine, source-version validator, full canonical inventory validator, Host conversation binding, actor binding, and field policy; a bound conversation retrieves the Core source value, while an unbound conversation is denied.
+- `tests/memory-provider-core-integration.test.js`: real Provider/Core integration additionally covers Core query denial, Host-conversation revocation during candidate validation, Provider query revocation, per-record revocation and Core rollback/source invalidation.
+- `tests/memory-provider-source-separation.test.js`: a Host `host_message_version` tuple is rejected by `putRecord()`; neither semantic record nor index row is persisted.
+
+The factory deliberately does not register a public HTTP route, infer authenticated adapter identity from request data, or enable final model dispatch. The Host caller must pass the adapter identity derived from its authenticated transport and a stable conversation identity that Core has bound. The current repository still has no complete SillyTavern source lifecycle attestor or sole-egress final-dispatch integration. Therefore this closes the real Provider → Core query/retrieval adapter slice, **not** production Memory→NPC traffic or Host-message ingestion.
