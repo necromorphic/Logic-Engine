@@ -126,6 +126,11 @@ def main() -> int:
         os.chmod(root, 0o710)
 
         socket_dir = root / "socket"
+        public_db_dir = root / "public-db"
+        public_db_dir.mkdir()
+        os.chown(public_db_dir, 0, 0)
+        os.chmod(public_db_dir, 0o755)
+        alias_database_path = public_db_dir / "core.sqlite"
         manifest_root = root / "manifest"
         anchor_root = root / "anchor"
         roles_root = root / "roles"
@@ -273,7 +278,7 @@ def main() -> int:
         app_env.update({
             "BETTER_SQLITE3_PACKAGE_DIR": str(artifacts / "better-sqlite3"),
             "LOGIC_ENGINE_VFS_PROBE_PATH": str(artifacts / "secure-vfs-probe.so"),
-            "LOGIC_ENGINE_DATABASE_PATH": str(database_path),
+            "LOGIC_ENGINE_DATABASE_PATH": str(alias_database_path),
             "LOGIC_ENGINE_BROKER_SOCKET": str(socket_path),
             "LOGIC_ENGINE_BROKER_UID": str(broker_uid),
             "LOGIC_ENGINE_APP_UID": str(app_uid),
