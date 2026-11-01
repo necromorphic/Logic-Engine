@@ -1,8 +1,7 @@
-# SillyTavern 1.19 integration experiment — REJECTED
+# SillyTavern 1.19 integration experiment — SUPERSEDED
 
-**Status:** NOT AN APPROVED DEPLOYMENT PROCEDURE.  
-**Reason:** this experiment requires modifying SillyTavern source, which is prohibited by the Logic-Engine integration constraint.  
-**Authoritative reference:** [Target trust boundaries and SillyTavern extension feasibility](../docs/102-target-trust-boundaries-and-st-extension-feasibility.md).
+**Status:** historical experiment; not the current deployment procedure. The former rejection of local source patching was superseded on 2026-11-01 when the owner explicitly authorized Patch Manager to maintain a pinned local source-level patch of the installed SillyTavern tree. SillyTavern upstream and its official repository remain unchanged.  
+**Current implementation:** [Final-Send Patch Manager](./PATCH-MANAGER.md) and [PR #844](https://github.com/necromorphic/Logic-Engine/pull/844).
 
 The earlier experiment proposed changing:
 
