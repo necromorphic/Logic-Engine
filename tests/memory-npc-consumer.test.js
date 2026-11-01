@@ -87,6 +87,7 @@ function setup(t, { allowContent = true, authorizeQuery = true, authorizeCoreQue
       snapshot: { world_revision: snapshot.world_revision, commit_sequence: snapshot.commit_sequence },
       candidates: candidateList,
     }),
+    checkCandidateGrant: () => true,
     authorizeCandidate: async (input) => {
       lastCandidateAuthorization = input;
       return authorizeCandidate;
@@ -213,7 +214,7 @@ test('query access revoked during retrieval prevents ready-empty and content-bea
   const empty = setup(t);
   empty.setCandidates([]);
   let emptyChecks = 0;
-  empty.provider.authorizeQuery = async () => ++emptyChecks === 1;
+  empty.provider.authorizeQuery = () => ++emptyChecks === 1;
 
   const emptyResult = await empty.consumer.retrieveForNpc(request());
 
@@ -225,7 +226,7 @@ test('query access revoked during retrieval prevents ready-empty and content-bea
 
   const nonEmpty = setup(t);
   let nonEmptyChecks = 0;
-  nonEmpty.provider.authorizeQuery = async () => ++nonEmptyChecks === 1;
+  nonEmpty.provider.authorizeQuery = () => ++nonEmptyChecks === 1;
 
   const contentResult = await nonEmpty.consumer.retrieveForNpc(request());
 
@@ -550,6 +551,7 @@ test('content field configuration must match fields the Core read boundary can d
       authorizeQuery() {},
       retrieveCandidates() {},
       authorizeCandidate() {},
+      checkCandidateGrant() {},
     },
     contentFields: ['display_name'],
   }), /trusted field allowlist/);
@@ -572,7 +574,7 @@ test('actor binding is checked before query authorization even for complete-empt
   setCandidates([]);
   consumer.actorBindingService.resolve = () => { throw new Error('binding revoked'); };
   let queryAuthorizationCalled = false;
-  provider.authorizeQuery = async () => {
+  provider.authorizeQuery = () => {
     queryAuthorizationCalled = true;
     return true;
   };
@@ -748,7 +750,7 @@ test('Core mutation during final query recheck invalidates complete-empty result
   const { consumer, provider, engine, setCandidates } = setup(t);
   setCandidates([]);
   let queryChecks = 0;
-  provider.authorizeQuery = async () => {
+  provider.authorizeQuery = () => {
     queryChecks += 1;
     if (queryChecks === 2) {
       const current = engine.getState('memory-npc-world').world_revision;
@@ -776,7 +778,7 @@ test('Core mutation during final query recheck invalidates complete-empty result
 test('missing or non-object host request fails closed without throwing or calling Memory', async (t) => {
   const { consumer, provider } = setup(t);
   let queryCalled = false;
-  provider.authorizeQuery = async () => {
+  provider.authorizeQuery = () => {
     queryCalled = true;
     return true;
   };
@@ -1072,7 +1074,7 @@ test('record identities with control characters fail closed before identity join
 
 test('Memory query and retrieval failures fail closed without leaking provider errors', async (t) => {
   const { consumer, provider } = setup(t);
-  provider.authorizeQuery = async () => {
+  provider.authorizeQuery = () => {
     throw new Error('private query policy failure');
   };
   const queryFailure = await consumer.retrieveForNpc(request());
@@ -1080,7 +1082,7 @@ test('Memory query and retrieval failures fail closed without leaking provider e
   assert.equal(queryFailure.reason, 'query_access_unconfirmed');
   assert.equal(JSON.stringify(queryFailure).includes('private query policy failure'), false);
 
-  provider.authorizeQuery = async () => true;
+  provider.authorizeQuery = () => true;
   provider.retrieveCandidates = async () => {
     throw new Error('private index backend failure');
   };
@@ -1148,7 +1150,7 @@ test('typed Provider retrieval failures remain distinct at the Core consumer bou
 test('mismatched Core actor binding result fails before Memory query', async (t) => {
   const { consumer, provider } = setup(t);
   let queryCalled = false;
-  provider.authorizeQuery = async () => {
+  provider.authorizeQuery = () => {
     queryCalled = true;
     return true;
   };
@@ -1169,7 +1171,7 @@ test('mismatched Core actor binding result fails before Memory query', async (t)
 test('request accessors that throw fail closed without invoking Memory', async (t) => {
   const { consumer, provider } = setup(t);
   let queryCalled = false;
-  provider.authorizeQuery = async () => {
+  provider.authorizeQuery = () => {
     queryCalled = true;
     return true;
   };
