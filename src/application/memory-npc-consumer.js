@@ -440,7 +440,12 @@ export class MemoryNpcConsumer {
         // revoke/stale/unavailable outcomes without returning internal details.
         return nonReady(providerAuthorizationFailureReason(error, 'memory_record_authorization_unavailable'));
       }
-      if (!recordAllowed) continue;
+      if (!recordAllowed) {
+        // Provider retrieval emitted this candidate as grant-authorized. A
+        // subsequent false result is an integrity/currentness failure, not a
+        // row that can safely be filtered into ready-empty.
+        return nonReady('memory_record_authorization_unconfirmed');
+      }
 
       // Initial/imported knowledge is not authorized by a Memory candidate row.
       // Core owns the explicit subject-assignment record, and this consumer has
@@ -455,7 +460,8 @@ export class MemoryNpcConsumer {
       // Once the provider confirms this record is visible, required semantic
       // metadata must be present and use known vocabularies. Otherwise the
       // admission oracle could filter a malformed row and make it look like a
-      // legitimate empty result. Denied rows are skipped before this check.
+      // legitimate empty result. A denied or unconfirmed returned candidate
+      // already fails closed above.
       if (!CONTENT_KINDS.has(candidate.content_kind)
         || !EPISTEMIC_KINDS.has(candidate.epistemic_kind)
         || !validId(candidate.producer?.kind)
@@ -497,7 +503,8 @@ export class MemoryNpcConsumer {
       } catch (error) {
         return nonReady(providerAuthorizationFailureReason(error, 'memory_record_authorization_unavailable'));
       }
-      if (stillAllowed) authorizedCandidates.push(candidate);
+      if (!stillAllowed) return nonReady('memory_record_authorization_unconfirmed');
+      authorizedCandidates.push(candidate);
     }
 
     if (authorizedCandidates.length === 0) {
