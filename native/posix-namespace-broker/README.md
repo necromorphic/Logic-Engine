@@ -20,12 +20,12 @@ For a production deployment, provision the socket directory under a service-owne
 path (not inside an application-owned home directory):
 
 ```sh
-app_group="$(id -g logic-app)"
-uid="$(id -u logic-app)"
+app_group="$(getent group logic-engine-app | cut -d: -f3)"
+uid="$(id -u logic-engine-app)"
 # The broker service must be root or a member of the application group.
 sudo install -d -o logic-broker -g "$app_group" -m 0710 /var/lib/logic-engine-broker
 python3 native/posix-namespace-broker/broker_daemon.py \
-  --socket /var/lib/logic-engine-broker/broker.sock \
+  --socket /run/logic-engine-sqlite-broker/broker.sock \
   --manifest-root /var/lib/logic-engine-broker/manifest \
   --anchor-root /var/lib/logic-engine-broker/anchor \
   --app-uid "$uid" --app-gid "$app_group"
@@ -38,7 +38,7 @@ In a second terminal, as the configured application UID:
 
 ```sh
 native/posix-namespace-broker/broker_ping \
-  "$HOME/.local/state/logic-engine-broker/broker.sock"
+  "/run/logic-engine-sqlite-broker/broker.sock"
 ```
 
 Expected output: `broker PING: OK`. Stop the broker with Ctrl+C.
