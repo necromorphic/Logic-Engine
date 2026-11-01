@@ -36,6 +36,7 @@ test('all registered provider sender families share the same protected final-sen
     };
     const finalSend = createProtectedMemoryFinalSend({
       gateway,
+      resolveProtectedMemory: () => context,
       fetchImpl: async (_url, request) => {
         calls += 1;
         return { status: 200, body: request.body };
@@ -46,7 +47,7 @@ test('all registered provider sender families share the same protected final-sen
       senderRoute,
       endpointUrl: 'https://provider.example/v1/chat/completions',
       requestInit: init(body),
-      protectedMemory: context,
+      hostRequestContext: { trusted: true },
     });
     assert.equal(response.status, 200, senderRoute);
     assert.equal(calls, 1, senderRoute);
@@ -66,6 +67,7 @@ test('protected transport remains dormant until Gateway invokes the capability',
         return { status: 'held' };
       },
     },
+    resolveProtectedMemory: () => context,
     fetchImpl: async () => {
       calls += 1;
       return { status: 200 };
@@ -75,7 +77,7 @@ test('protected transport remains dormant until Gateway invokes the capability',
     senderRoute: 'google-ai-studio',
     endpointUrl: 'https://provider.example/generate',
     requestInit: init(),
-    protectedMemory: context,
+    hostRequestContext: { trusted: true },
   });
   assert.deepEqual(result, { status: 'held' });
   assert.equal(calls, 0);
@@ -129,6 +131,7 @@ test('ordinary non-Memory generation keeps its direct provider path', async () =
   let calls = 0;
   const finalSend = createProtectedMemoryFinalSend({
     gateway: { dispatchProtectedRequest: () => { throw new Error('Gateway must not be called'); } },
+    resolveProtectedMemory: () => null,
     fetchImpl: async (url, request) => {
       calls += 1;
       return { status: 200, url, body: request.body };
@@ -138,6 +141,7 @@ test('ordinary non-Memory generation keeps its direct provider path', async () =
     senderRoute: 'google-ai-studio',
     endpointUrl: 'https://provider.example/generate',
     requestInit: init(),
+    hostRequestContext: { trusted: true },
   });
   assert.equal(result.status, 200);
   assert.equal(calls, 1);
