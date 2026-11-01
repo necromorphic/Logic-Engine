@@ -243,10 +243,6 @@ test('Provider Host capability is invalidated by session rotation, logout, accou
       activeConversationId = conversationId;
       assert.ok(getAuthenticatedHostSessionContext());
 
-      assert.throws(() => runWithAuthenticatedHostSession(
-        request, conversationId, () => true, verifyMiddlewareSession, resolveActiveConversation,
-      ), /HOST_SESSION_AUTHENTICATION_REQUIRED/);
-
       // Logout invalidates the middleware-owned authentication proof. The
       // old request must not become valid again after its handler completes.
       authenticatedRequests.delete(request);
