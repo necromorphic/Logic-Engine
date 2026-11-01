@@ -323,7 +323,7 @@ test('independent Patch Manager backup inspection verifies pinned digests and re
   const root = await mkdtemp(join(tmpdir(), 'logic-engine-patch-backup-inspector-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const manager = join(root, '.logic-engine-patch-manager');
-  const backupId = 'test-backup-id';
+  const backupId = '2026-11-01T14-39-15-123Z-12345678-1234-1234-1234-123456789abc';
   const relativePath = 'src/server.js';
   const bytes = Buffer.from('pinned pre-patch source');
   const digest = createHash('sha256').update(bytes).digest('hex');
