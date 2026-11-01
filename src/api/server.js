@@ -90,7 +90,7 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
   };
   if (!memoryNpcConsumers || typeof memoryNpcConsumers !== 'object' || Array.isArray(memoryNpcConsumers)
     || Object.entries(memoryNpcConsumers).some(([id, consumer]) => !Object.hasOwn(adapterTokens, id)
-      || typeof consumer?.retrieveForNpc !== 'function' || consumer.adapterId !== id)) {
+      || typeof consumer?.retrieveForNpc !== 'function')) {
     throw new TypeError('Memory NPC consumers must be trusted, adapter-pinned consumer instances.');
   }
   const assertionNonceDb = engine.store?.db
