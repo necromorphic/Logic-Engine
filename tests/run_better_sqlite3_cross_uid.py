@@ -272,6 +272,7 @@ def main() -> int:
             "LOGIC_ENGINE_BROKER_UID": str(broker_uid),
             "LOGIC_ENGINE_APP_UID": str(app_uid),
             "LOGIC_ENGINE_APP_GID": str(app_gid),
+            "LOGIC_ENGINE_PROTECTED_ROLE_PARENT": str(role_parent),
             "HOME": "/tmp",
             "TMPDIR": "/tmp",
         })
