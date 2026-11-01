@@ -17,9 +17,10 @@ function safeFailure(response, code = 'HOST_GATEWAY_NOT_READY', status = 503) {
     return response.status(status).json({ status: 'NON_READY', code });
 }
 
-export function createHostConversationResolver({ identityStore, enumerate, pinnedHostCommit = PINNED_HOST_COMMIT }) {
+export function createHostConversationResolver({ identityStore, enumerate, pinnedHostCommit = PINNED_HOST_COMMIT, verifyCompletenessProof = async () => false }) {
     if (!identityStore || typeof identityStore.resolveAuthenticatedAccount !== 'function'
-        || typeof enumerate !== 'function' || !/^[a-f0-9]{40}$/.test(pinnedHostCommit)) {
+        || typeof enumerate !== 'function' || typeof verifyCompletenessProof !== 'function'
+        || !/^[a-f0-9]{40}$/.test(pinnedHostCommit)) {
         throw new TypeError('A persistent identity store and trusted inventory enumerator are required.');
     }
     return async request => {
@@ -46,15 +47,36 @@ export function createHostConversationResolver({ identityStore, enumerate, pinne
             hostCommit: pinnedHostCommit,
         });
         if (inventory?.filesystem?.status !== 'complete'
-            || inventory?.source?.status !== 'DOUBLE_SCAN_CANDIDATE'
-            || !Array.isArray(inventory?.source?.files)) {
+            || !Array.isArray(inventory?.source?.files)
+            || !Array.isArray(inventory?.source?.blockers)) {
             throw new Error('HOST_CONVERSATION_INVENTORY_INCOMPLETE');
         }
         const matches = inventory.source.files.filter(file =>
             file?.logical_identity?.conversation_uuid === conversationUuid);
         if (matches.length !== 1) throw new Error('HOST_CONVERSATION_IDENTITY_AMBIGUOUS');
         const identity = await identityStore.resolveAuthenticatedAccount(handle);
-        if (!UUID.test(identity?.host_installation_id ?? '')) throw new Error('HOST_INSTALLATION_IDENTITY_INVALID');
+        if (!UUID.test(identity?.host_installation_id ?? '')
+            || !UUID.test(identity?.authenticated_account_id ?? '')) throw new Error('HOST_INSTALLATION_IDENTITY_INVALID');
+        let completenessVerified = false;
+        try {
+            completenessVerified = await verifyCompletenessProof({
+                inventory,
+                directories: {
+                    root: directories.root,
+                    chats: directories.chats,
+                    groups: directories.groups,
+                    groupChats: directories.groupChats,
+                },
+                host_commit: pinnedHostCommit,
+                host_installation_id: identity.host_installation_id,
+                authenticated_account_id: identity.authenticated_account_id,
+                host_session_id: session.logicEngineSessionId,
+                conversation_uuid: conversationUuid,
+            }) === true;
+        } catch {
+            completenessVerified = false;
+        }
+        if (!completenessVerified) throw new Error('HOST_INVENTORY_COMPLETENESS_NOT_VERIFIED');
         return [
             session.logicEngineSessionId,
             identity.host_installation_id,
@@ -63,15 +85,16 @@ export function createHostConversationResolver({ identityStore, enumerate, pinne
     };
 }
 
-export function createHostContextRoute({ identityStore, enumerate, corePost, config }) {
+export function createHostContextRoute({ identityStore, enumerate, corePost, config, verifyCompletenessProof = async () => false }) {
     if (!identityStore || typeof identityStore.resolveAuthenticatedAccount !== 'function'
         || typeof enumerate !== 'function' || typeof corePost !== 'function'
+        || typeof verifyCompletenessProof !== 'function'
         || !config || !validText(config.adapterId) || !validText(config.actorEntityId)
         || !validText(config.adapterToken, 4096) || config.adapterToken.length < 16) {
         throw new TypeError('Host context route dependencies are incomplete.');
     }
     const gate = createHostRequestAuthenticationGate({
-        resolveConversationId: createHostConversationResolver({ identityStore, enumerate }),
+        resolveConversationId: createHostConversationResolver({ identityStore, enumerate, verifyCompletenessProof }),
     });
     const handler = async (request, response) => {
         response.set('Cache-Control', 'no-store, private');
