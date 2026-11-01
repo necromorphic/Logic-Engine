@@ -2890,6 +2890,39 @@ static void probe_register_manifest_sidecar(sqlite3_context *context, int argc,
   if (role_index < 0 || !g_database_roles[role_index].manifest_bound) {
     reject = 1;
   }
+  if (!reject) {
+    ProbeDatabaseRole *role = &g_database_roles[role_index];
+    const wchar_t *suffix = kind == 1 ? L"-wal"
+      : kind == 2 ? L"-shm" : L"-journal";
+    wchar_t *relative_name = probe_win_relative_name(role, suffix);
+    HANDLE observed = INVALID_HANDLE_VALUE;
+    if (!relative_name) {
+      reject = 1;
+    } else if (!retired) {
+      observed = logic_engine_win_open_relative(role->anchor.parent,
+          relative_name, FILE_READ_ATTRIBUTES,
+          FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+          FILE_OPEN, FILE_NON_DIRECTORY_FILE, FILE_ATTRIBUTE_NORMAL,
+          &expected, NULL);
+      if (observed == INVALID_HANDLE_VALUE) reject = 1;
+      else CloseHandle(observed);
+    } else {
+      observed = logic_engine_win_open_relative(role->anchor.parent,
+          relative_name, FILE_READ_ATTRIBUTES,
+          FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+          FILE_OPEN, FILE_NON_DIRECTORY_FILE, FILE_ATTRIBUTE_NORMAL,
+          NULL, NULL);
+      if (observed != INVALID_HANDLE_VALUE) {
+        CloseHandle(observed);
+        reject = 1;
+      } else {
+        DWORD error = GetLastError();
+        if (error != ERROR_FILE_NOT_FOUND && error != ERROR_PATH_NOT_FOUND)
+          reject = 1;
+      }
+    }
+    sqlite3_free(relative_name);
+  }
   for (int i = 0; !reject && i < g_database_role_count; ++i) {
     if (logic_engine_win_identity_equal(&expected, &g_database_roles[i].identity))
       reject = 1;
