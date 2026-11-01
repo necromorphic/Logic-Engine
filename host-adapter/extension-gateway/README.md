@@ -50,6 +50,10 @@ Enable SillyTavern's native `enableServerPlugins: true` setting. Keep server-plu
 - The Host session UUID is generated in SillyTavern's signed session and rotates when the authenticated account changes. Core validates this session separately from the stable conversation tuple.
 - Stable conversation identity is `installation_id:account_id:conversation_uuid`; session identity is carried separately in the signed assertion.
 - The browser's localStorage and chat metadata are consistency/enrollment inputs, not authentication authorities.
+- `LOGIC_ENGINE_HOST_IDENTITY_DIR` must be an absolute deployment-owned directory outside every SillyTavern user data root. The server checks the resolved path on both identity reads and Host-to-Core context resolution; a path inside the ST root, including one reached through a symlinked parent, is NON_READY.
+- `LOGIC_ENGINE_HOST_RECEIPT_DIR` must also be outside the ST data root. Neither identity nor receipt state may be restored together with chat data.
+- These directory checks prevent accidental co-restoration with ST data; they do not make local state independently rollback-resistant. Core's accepted root-inventory authority remains required.
+- `LOGIC_ENGINE_HOST_BUILD_SHA` is a deployment claim matched to the pinned commit, not runtime attestation.
 - The Authenticated Host Adapter resolves the conversation UUID against server-side inventory before signing any assertion.
 - The Gateway does not assign World or Actor. World and Actor are never accepted from the browser; the Host Adapter obtains them from Core-owned durable binding resolution and signs them into the trusted Host assertion.
 - Core Security Gateway independently re-resolves those bindings and remains the sole authorization authority.
