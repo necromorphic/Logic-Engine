@@ -56,6 +56,23 @@ def _read_fd(fd: int, limit: int = MAX_BYTES) -> bytes:
         chunks.append(part)
 
 
+def _check_trusted_directory_component(info: os.stat_result, application_uid: int,
+                                          label: str) -> None:
+    if not stat.S_ISDIR(info.st_mode):
+        raise StoreError(f"{label} is not a directory")
+    # Every ancestor that can rename or replace a protected directory must be
+    # controlled by root or the broker identity. Merely checking that the
+    # application UID cannot write it leaves other local principals able to
+    # mutate the namespace between broker restarts.
+    if info.st_uid not in (0, os.geteuid()):
+        raise StoreError(f"{label} is not owned by root or the broker service UID")
+    if info.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
+        raise StoreError(f"{label} is group/other writable")
+    if application_uid != os.geteuid() and info.st_uid == application_uid \\
+            and info.st_mode & stat.S_IWUSR:
+        raise StoreError(f"{label} is application-writable")
+
+
 def _open_trusted_dir(path: str, application_uid: int) -> int:
     if not os.path.isabs(path):
         raise StoreError("trusted directory path must be absolute")
@@ -69,12 +86,8 @@ def _open_trusted_dir(path: str, application_uid: int) -> int:
             os.close(fd)
             fd = next_fd
             info = os.fstat(fd)
-            if not stat.S_ISDIR(info.st_mode):
-                raise StoreError("trusted path component is not a directory")
-            if info.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
-                raise StoreError("trusted path contains group/other-writable directory")
-            if application_uid != os.geteuid() and info.st_uid == application_uid and info.st_mode & stat.S_IWUSR:
-                raise StoreError("trusted path contains an application-writable ancestor")
+            _check_trusted_directory_component(info, application_uid,
+                                                "trusted path component")
         info = os.fstat(fd)
         if info.st_uid != os.geteuid():
             raise StoreError("trusted directory must be owned by the broker service UID")
@@ -380,12 +393,8 @@ def _open_role_parent(components: list[str], identities: list[dict[str, str]],
             os.close(fd)
             fd = next_fd
             info = os.fstat(fd)
-            if not stat.S_ISDIR(info.st_mode):
-                raise StoreError("role parent component is not a directory")
-            if info.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
-                raise StoreError("role parent component is group/other writable")
-            if application_uid != os.geteuid() and info.st_uid == application_uid and info.st_mode & stat.S_IWUSR:
-                raise StoreError("role parent component is application-writable")
+            _check_trusted_directory_component(info, application_uid,
+                                                "role parent component")
             if _fd_identity(fd) != identities[index]:
                 raise StoreError(f"role parent identity mismatch at component {component}")
         if os.fstat(fd).st_uid != os.geteuid() or stat.S_IMODE(os.fstat(fd).st_mode) != 0o700:
@@ -611,8 +620,8 @@ def _locked_roots(manifest_fd: int, anchor_fd: int, *, exclusive: bool):
 class ManifestStore:
     def __init__(self, manifest_root: str, anchor_root: str, application_uid: int):
         if (not isinstance(application_uid, int) or isinstance(application_uid, bool)
-                or application_uid < 0 or application_uid == os.geteuid()):
-            raise StoreError("application UID must be a non-negative UID distinct from broker service UID")
+                or application_uid <= 0 or application_uid == os.geteuid()):
+            raise StoreError("application UID must be a non-root UID distinct from broker service UID")
         self.application_uid = application_uid
         self.manifest_fd = _open_trusted_dir(manifest_root, application_uid)
         try:
