@@ -100,6 +100,7 @@ typedef struct ProbeDatabaseRole {
   char *path;
   char *role;
   int identity_set;
+  int manifest_bound;
 #ifdef _WIN32
   LogicEngineWinFileIdentity identity;
   LogicEngineWinDirectoryAnchor anchor;
@@ -551,14 +552,22 @@ static int probe_win_sidecar_identity_record_locked(int role_index, const wchar_
     int same_owner = entry->role_index == role_index && entry->kind == kind;
     if (same_identity) {
       if (same_owner) {
-        entry->retired = 0;
-        matching_identity = 1;
+        if (entry->retired) {
+          reject = 1;
+        } else {
+          matching_identity = 1;
+        }
       } else {
         reject = 1;
       }
     } else if (same_owner && !entry->retired) {
       reject = 1;
     }
+  }
+  if (!reject && !matching_identity
+      && g_database_roles[role_index].manifest_bound) {
+    /* Manifest-bound roles cannot adopt an unmanifested sidecar identity. */
+    reject = 1;
   }
   if (!reject && !matching_identity) {
     if (g_sidecar_identity_count >= PROBE_MAX_SIDECAR_IDENTITIES) {
@@ -2845,6 +2854,85 @@ static int probe_parse_manifest_win_identity(
 }
 #endif
 
+#ifdef _WIN32
+static void probe_register_manifest_sidecar(sqlite3_context *context, int argc,
+                                            sqlite3_value **argv) {
+  const unsigned char *role_name = sqlite3_value_text(argv[0]);
+  const unsigned char *kind_text = sqlite3_value_text(argv[1]);
+  const unsigned char *state_text = sqlite3_value_text(argv[4]);
+  LogicEngineWinFileIdentity expected;
+  int kind = 0, retired = 0, role_index = -1, reject = 0;
+  if (argc != 5 || !role_name || !kind_text || !state_text
+      || !probe_parse_manifest_win_identity(argv[2], argv[3], &expected)) {
+    sqlite3_result_error(context, "invalid persistent sidecar identity arguments", -1);
+    return;
+  }
+  if (strcmp((const char *)kind_text, "wal") == 0) kind = 1;
+  else if (strcmp((const char *)kind_text, "shm") == 0) kind = 2;
+  else if (strcmp((const char *)kind_text, "journal") == 0) kind = 3;
+  else {
+    sqlite3_result_error(context, "unsupported manifest sidecar kind", -1);
+    return;
+  }
+  if (strcmp((const char *)state_text, "active") == 0) retired = 0;
+  else if (strcmp((const char *)state_text, "retired") == 0) retired = 1;
+  else {
+    sqlite3_result_error(context, "transitional sidecar state cannot be enrolled", -1);
+    return;
+  }
+  probe_registry_lock();
+  for (int i = 0; i < g_database_role_count; ++i) {
+    if (strcmp(g_database_roles[i].role, (const char *)role_name) == 0) {
+      role_index = i;
+      break;
+    }
+  }
+  if (role_index < 0 || !g_database_roles[role_index].manifest_bound) {
+    reject = 1;
+  }
+  for (int i = 0; !reject && i < g_database_role_count; ++i) {
+    if (logic_engine_win_identity_equal(&expected, &g_database_roles[i].identity))
+      reject = 1;
+  }
+  for (int i = 0; !reject && i < g_sidecar_identity_count; ++i) {
+    ProbeSidecarIdentity *entry = &g_sidecar_identities[i];
+    int same_identity = logic_engine_win_identity_equal(&expected, &entry->identity);
+    int same_owner = entry->role_index == role_index && entry->kind == kind;
+    if (same_identity && !same_owner) reject = 1;
+    if (same_owner && !same_identity && !entry->retired) reject = 1;
+  }
+  if (!reject) {
+    int found = 0;
+    for (int i = 0; i < g_sidecar_identity_count; ++i) {
+      ProbeSidecarIdentity *entry = &g_sidecar_identities[i];
+      if (entry->role_index == role_index && entry->kind == kind
+          && logic_engine_win_identity_equal(&expected, &entry->identity)) {
+        entry->retired = retired;
+        found = 1;
+        break;
+      }
+    }
+    if (!found) {
+      if (g_sidecar_identity_count >= PROBE_MAX_SIDECAR_IDENTITIES) {
+        reject = 1;
+      } else {
+        ProbeSidecarIdentity *entry = &g_sidecar_identities[g_sidecar_identity_count++];
+        entry->role_index = role_index;
+        entry->kind = kind;
+        entry->retired = retired;
+        entry->identity = expected;
+      }
+    }
+  }
+  probe_registry_unlock();
+  if (reject) {
+    sqlite3_result_error(context, "manifest sidecar identity conflicts with role registry", -1);
+    return;
+  }
+  sqlite3_result_int(context, 1);
+}
+#endif
+
 static void probe_register_database_role(sqlite3_context *context, int argc, sqlite3_value **argv) {
   const unsigned char *path = sqlite3_value_text(argv[0]);
   const unsigned char *role_name = sqlite3_value_text(argv[1]);
@@ -2968,6 +3056,9 @@ static void probe_register_database_role(sqlite3_context *context, int argc, sql
     entry->basename = captured_role.basename;
 #endif
     entry->identity_set = 1;
+#ifdef _WIN32
+    entry->manifest_bound = manifest_expected;
+#endif
     g_database_role_count += 1;
   }
   probe_registry_unlock();
