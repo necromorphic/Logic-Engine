@@ -324,7 +324,6 @@ export class MemoryDispatchGateway {
     let coreHead;
     let providerHead;
     let release = null;
-    let transport = null;
     let upstreamPromise = null;
     let upstreamStartError = null;
 
