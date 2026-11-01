@@ -378,6 +378,22 @@ Exact candidate heads checked on 1 Nov 2026 (all listed workflow runs completed 
 
 The Host candidate now carries the same Core-owned Memory consumer, conversation binding validation, NPC knowledge authorization, and SQLite Memory Provider implementation as the Core/Lane B candidates. The shared Core HTTP route blocks are byte-identical; Host-specific lifecycle and root-inventory routes remain additional Host-owned API routes. A combined Host Adapter → real Core HTTP → consumer-facade test now covers default-user, accounts-enabled, and session-restart paths; its test-only Memory consumer does not prove configured production Provider readiness. This is candidate CI evidence, not a merge or production-readiness approval.
 
+### Exact overlap and merge-resolution matrix
+
+The current branch files were fetched and compared byte-for-byte on 1 Nov 2026; this is more specific than treating every shared filename as a merge conflict.
+
+| Pair | Shared paths | Exact same content | Different content | Resolution |
+|---|---:|---:|---:|---|
+| Host #850 ↔ Core Lane B #846 | 26 | 12 | 14 | 11 differences are Host prototype/workflow artifacts that must remain Host-owned. The other 3 are `host-session-context.js`, `memory-npc-provider-adapter.js`, and its test; the newer Core HTTP #867 versions of all three match Host #850 byte-for-byte. |
+| Host #850 ↔ Core HTTP #867 | 8 | 5 | 3 | `host-assertion-nonce-store.js`, `host-session-context.js`, `memory-npc-provider-adapter.js`, and both affected tests are identical. The three intentional composition differences are `src/api/server.js`, `src/index.js`, and `.env.example`. |
+| Core Lane B #846 ↔ Core HTTP #867 | 3 | 0 | 3 | #867 deliberately advances `host-session-context.js`, `memory-npc-provider-adapter.js`, and `tests/memory-npc-provider-adapter.test.js`; these are the exact versions already present in Host #850. |
+
+For `src/api/server.js`, the five shared Core route blocks were extracted and compared independently; all five are byte-identical: context resolve, Memory NPC retrieve, version-ledger capture, version-ledger reconcile, and conversation-binding resolve. Host #850 adds exactly four routes absent from Core #867: `/v1/host-lifecycle/events`, `/v1/host-lifecycle/status`, `/v1/host-root-inventory/baseline`, and `/v1/host-root-inventory/observe`. These must be preserved.
+
+For `src/index.js`, retain Host #850's root-identity registry, lifecycle journal, lifecycle authority, and Host-only shutdown wiring while carrying forward the shared Core HTTP/Memory composition. For `.env.example`, retain Core variables and Host deployment variables; neither file should be replaced wholesale by the other branch.
+
+**Result:** no evidence of a semantic conflict in the five shared route blocks. The known reconciliation is bounded to Host-owned route/runtime/config additions plus the three Core files already converged by #867. Still require a real rebase/merge simulation and full CI after each integration step; this static comparison is not a merge test.
+
 ### Remaining release blockers
 
 1. Branch integration is still required. #867 is stacked on #846; #850 is independently based on `main` and overlaps 26 files with #846 and 8 files with #867. The shared Core route blocks are identical, but `src/api/server.js`, `src/index.js`, `.env.example`, and the overlapping adapter composition must be reconciled deliberately; do not merge the three PRs blindly.
