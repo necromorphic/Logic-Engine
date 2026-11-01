@@ -100,3 +100,22 @@ Until one strategy is implemented and independently reviewed, ST-VectorService's
 The supplied ST-VectorService archive has no root `engines` declaration, while its installed `better-sqlite3@13.0.3` addon requires Node-API 10. Before shipping that dependency, the service package must declare `"engines": { "node": ">=22.14.0" }` and fail fast before the first database constructor when `Number(process.versions.napi) < 10`. The SillyTavern archive itself advertises a broader Node floor, so this constraint belongs to the separate ST-VectorService process/package and must be documented in its install instructions.
 
 The current service opens its database at `server.js:261`, after creating `vector_storage` and before WAL/schema setup. Once the production secure VFS library exists for the service's exact platform and SQLite 3.53.4 build, change that sequence to: (1) validate Node-API 10; (2) create a temporary `new Database(':memory:')`; (3) load the production VFS extension using its fixed trusted path and explicit entrypoint; (4) close the bootstrap connection; (5) construct `new Database(DB_PATH)` normally; (6) immediately perform role-manifest enrollment/validation before schema or WAL work. Do not load the current identity-probe library in production: its source explicitly states it is not a production secure VFS.
+
+
+### ST-VectorService application-path integration
+
+The supplied ST-VectorService archive pins `better-sqlite3@13.0.3` in `package-lock.json`. Its `server.js` currently derives `DB_PATH` as `STORAGE_DIR/vectors.sqlite`, calls `fs.mkdirSync(STORAGE_DIR, { recursive: true })`, opens the DB once with `new Database(DB_PATH)`, and later uses `STORAGE_DIR` for JSON-index traversal. The audited server does not otherwise perform direct filesystem operations on `DB_PATH`.
+
+The better-sqlite3 JavaScript constructor checks that `path.dirname(DB_PATH)` exists before SQLite VFS dispatch. Therefore the app-facing DB path must be a logical alias in a pre-created, app-searchable but app-non-writable directory; it must not be the private broker-owned database path. The VFS maps that alias to the manifest role and broker/handle-relative file. The alias file itself need not exist. CI asserts that the alias parent is visible, the app cannot create the alias file, SQLite can open the DB through the VFS, and no plaintext alias file is created.
+
+Recommended minimal ST-VectorService configuration change:
+
+```js
+const DB_PATH = process.env.ST_VECTOR_DB_PATH
+    ? path.resolve(process.env.ST_VECTOR_DB_PATH)
+    : path.join(STORAGE_DIR, 'vectors.sqlite');
+```
+
+Keep `STORAGE_DIR` unchanged for JSON index files and its existing recursive directory creation/traversal. Deployment must provision the alias directory before starting ST-VectorService and deny the app UID write permission to it. The broker manifest points to the actual protected DB path; `ST_VECTOR_DB_PATH` contains only the logical alias. The same alias contract applies on Windows, where the backend must map it to a pinned root HANDLE and relative database name.
+
+The archive's package metadata does not declare the runtime floor. The exact 13.0.3 prebuilds require Node-API 10, so deployment must use Node >=22.14.0 (or add an explicit startup guard/engine constraint).
