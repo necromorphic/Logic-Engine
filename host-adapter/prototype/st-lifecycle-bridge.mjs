@@ -579,8 +579,11 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
     });
     if (event?.status === 'NON_READY') throw Error('NON_READY: post-mutation journal append rejected: ' + event.reason);
     if (publishLifecycleEvent) {
-      // This receipt currently proves a local journal checkpoint, not a fresh
-      // disk read-back for every artifact. Core production verification stays deny-only.
+      // This local event proves the browser journal checkpoint. The authenticated
+      // server proxy independently rescans persisted files and issues the terminal
+      // receipt only after its operation-specific disk transition checks pass.
+      // Core production readiness remains deny-only because the inventory is not
+      // yet backed by an accepted authoritative root snapshot.
       let result;
       try {
         result = await publishLifecycleEvent({
