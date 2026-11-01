@@ -941,6 +941,7 @@ test('server PREPARED is recoverable when the browser IndexedDB append fails bef
   const restartedBridge = createStLifecycleBridge({
     journal: restartedJournal,
     getConversationId: () => 'chat-1',
+    getSourceLocator: () => 'chat-file-1',
     getChat: () => f.chat,
     saveChat: async () => {},
     publishLifecycleEvent: async event => {
