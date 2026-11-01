@@ -37,13 +37,20 @@ function manifest() {
   };
 }
 
-function fakeDatabase() {
+function fakeDatabase(options = {}) {
   const calls = [];
+  let directoryValidations = 0;
   return {
     prepare(sql) {
       return {
         get(...args) {
           calls.push({ sql, args });
+          if (sql.includes('validate_manifest_directory_identity')) {
+            directoryValidations += 1;
+            if (directoryValidations === options.failDirectoryValidationAt) {
+              return { registered: 1, validated: 0 };
+            }
+          }
           return { registered: 1, validated: 1 };
         },
       };
@@ -229,4 +236,15 @@ test('Windows manifest enrollment rejects retired sidecar identities that alias 
   assert.throws(() => registerWindowsManifestRole(
     fakeDatabase(), crossRoleAlias, 'vectors', 'C:\\LogicEngine\\data\\vectors.sqlite'
   ), /Duplicate physical Windows identity/);
+});
+
+test('Windows manifest enrollment fails before DB registration when any ancestor identity mismatches', () => {
+  const db = fakeDatabase({ failDirectoryValidationAt: 2 });
+  assert.throws(() => registerWindowsManifestRole(
+    db, manifest(), 'core', 'C:\\LogicEngine\\data\\core.sqlite'
+  ), /manifest directory identity: parent 1 for core/);
+  assert.equal(db.calls.length, 2);
+  assert.ok(db.calls.every((call) =>
+    call.sql.includes('validate_manifest_directory_identity')
+  ));
 });
