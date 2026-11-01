@@ -5,7 +5,9 @@
 
 ## Deployment entrypoint
 
-The Logic-Engine Extension deployment entrypoint invokes Patch Manager before the Extension is considered installed:
+The Logic-Engine deployment entrypoint installs the pinned local ST patch, including a server-side bridge in ST's existing `/api/extensions/install`, `/api/extensions/update`, and `/api/extensions/delete` handlers. Once this bootstrap is present, installing/updating/deleting the Logic-Engine Extension through SillyTavern's normal Extensions UI automatically invokes Patch Manager inside the existing ST server process. No extra process or API endpoint is created.
+
+The deployment entrypoint is also available for initial bootstrap and repair:
 
 ```powershell
 $env:LOGIC_ENGINE_SILLYTAVERN_ROOT = "C:\path\to\SillyTavern"
@@ -23,7 +25,9 @@ node scripts/sillytavern-patch-manager.mjs update --st-root "C:\path\to\SillyTav
 node scripts/sillytavern-patch-manager.mjs uninstall --st-root "C:\path\to\SillyTavern"
 ```
 
-The manager runs in the existing Logic-Engine deployment process. It is not a resident service, ST Server Companion, API server, relay, or alternate provider connector.
+The manager runs either in the existing Logic-Engine deployment process or is dynamically imported by the already-patched native ST extension-management route after a trusted server-side clone/update. It is not a resident service, ST Server Companion, API server, relay, or alternate provider connector.
+
+The browser-side ST manifest hooks are not trusted to perform filesystem changes. The local source patch adds the server-side invocation at the native extension lifecycle boundary. The server route passes only its own sanitized, server-derived `extensionPath`; the Hook checks the exact Logic-Engine manifest marker before loading the manager from that cloned repository.
 
 ## Lifecycle guarantees implemented
 
@@ -32,7 +36,9 @@ The manager runs in the existing Logic-Engine deployment process. It is not a re
 - **Apply:** records a durable transaction journal before invoking `git apply`.
 - **Verify:** verifies exact post-patch hashes for modified and newly created files.
 - **Rollback / Uninstall:** restores only files still matching the exact known patched hash (or known pre-patch hash during interrupted recovery); refuses to overwrite unknown user edits.
-- **Update:** verifies the installed patch version; when a newer manifest is supplied, rolls back the owned patch and installs the new pinned artifact.
+- **Update:** the native ST `/api/extensions/update` handler invokes the manager after Git pull; it verifies the installed patch version and, when a newer manifest is supplied, rolls back the owned patch and installs the new pinned artifact.
+- **Extension delete:** the native ST `/api/extensions/delete` handler invokes `uninstall` before deleting the Extension directory. A rollback conflict blocks deletion so the recovery code and artifacts remain available.
+- **Extension install:** the native ST `/api/extensions/install` handler invokes `install` after cloning and validating the Extension manifest but before returning success. If Patch Manager fails, the cloned Extension directory is retained for recovery instead of being removed with its transaction artifacts.
 - **Repair:** rolls back the manager-owned patch and reapplies it from a verified baseline.
 - **Crash recovery:** a journal is recovered before the next operation. Stale lock files are reclaimed only when the recorded process is provably absent; malformed/ambiguous locks deny.
 - **Fail-closed:** any source/version/hash mismatch, patch conflict, backup-integrity failure, ambiguous lock, or user modification returns `DENY_FAIL_CLOSED`.
