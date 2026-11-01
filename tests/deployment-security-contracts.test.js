@@ -340,6 +340,11 @@ test('independent Patch Manager backup inspection verifies pinned digests and re
   const verified = await verifyPinnedPatchManagerBackups(root, state, pinnedManifest);
   assert.equal(verified.status, 'PASS');
 
+  await assert.rejects(
+    verifyPinnedPatchManagerBackups(root, { ...state, backupId: '../outside' }, pinnedManifest),
+    /PATCH_MANAGER_STATE_IDENTITY_INVALID/,
+  );
+
   await writeFile(backupFile, 'tampered backup');
   await assert.rejects(
     verifyPinnedPatchManagerBackups(root, state, pinnedManifest),
