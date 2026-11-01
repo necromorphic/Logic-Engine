@@ -3,10 +3,10 @@ import assert from 'node:assert/strict';
 import { createSillyTavernFinalSendAdapter } from '../host-adapter/sillytavern-final-send-adapter.mjs';
 
 const sources = {
-  CLAUDE: 'claude', AI21: 'ai21', MAKERSUITE: 'makersuite', VERTEXAI: 'vertex',
-  MISTRALAI: 'mistral', COHERE: 'cohere', DEEPSEEK: 'deepseek', AIMLAPI: 'aimlapi',
+  CLAUDE: 'claude', AI21: 'ai21', MAKERSUITE: 'makersuite', VERTEXAI: 'vertexai',
+  MISTRALAI: 'mistralai', COHERE: 'cohere', DEEPSEEK: 'deepseek', AIMLAPI: 'aimlapi',
   XAI: 'xai', CHUTES: 'chutes', MINIMAX: 'minimax', ELECTRONHUB: 'electronhub',
-  AZURE_OPENAI: 'azure', OPENAI: 'openai', OPENROUTER: 'openrouter', CUSTOM: 'custom',
+  AZURE_OPENAI: 'azure_openai', OPENAI: 'openai', OPENROUTER: 'openrouter', CUSTOM: 'custom',
   PERPLEXITY: 'perplexity', GROQ: 'groq', FIREWORKS: 'fireworks', NANOGPT: 'nanogpt',
   POLLINATIONS: 'pollinations', MOONSHOT: 'moonshot', ZAI: 'zai', SILICONFLOW: 'siliconflow',
   WORKERS_AI: 'workers_ai',
