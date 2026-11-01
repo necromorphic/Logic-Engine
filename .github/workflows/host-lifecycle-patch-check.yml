@@ -33,7 +33,7 @@ jobs:
           git -C sillytavern apply --unidiff-zero "$patch"
           git -C sillytavern diff --check
           expected=$(printf '%s\n' 'public/script.js' 'public/scripts/bookmarks.js' 'public/scripts/group-chats.js' 'public/scripts/chat-backups.js' 'public/scripts/slash-commands.js' 'src/server-main.js' 'src/endpoints/backends/chat-completions.js' 'src/endpoints/chats.js' 'src/endpoints/groups.js' 'src/endpoints/characters.js' 'src/endpoints/backups.js' 'src/endpoints/logic-engine-host-inventory-handler.mjs')
-          actual=$(git -C sillytavern diff --name-only | sort)
+          actual=$({ git -C sillytavern diff --name-only; git -C sillytavern ls-files --others --exclude-standard; } | sort)
           diff -u <(printf '%s\n' "$expected" | sort) <(printf '%s\n' "$actual")
           test ! -e sillytavern/src/endpoints/logic-engine-lifecycle.js
           test ! -e sillytavern/src/endpoints/logic-engine-host-inventory.js
