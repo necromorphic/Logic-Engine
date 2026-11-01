@@ -62,8 +62,17 @@ test('enumerates root, character and group chat files as a non-authoritative dou
   assert.equal(result.status, 'DOUBLE_SCAN_CANDIDATE');
   assert.equal(result.authority, 'NON_AUTHORITATIVE');
   assert.equal(result.completeness, 'DOUBLE_SCANNED_PATH_VIEW_ONLY');
-  assert.ok(result.blockers.includes('NO_ATOMIC_DIRECTORY_SNAPSHOT'));
-  assert.ok(result.blockers.includes('PATH_BASED_DIRECTORY_REPLACEMENT_RACE_REMAINS'));
+  if (result.snapshot_provider) {
+    // Windows CI may acquire a VSS snapshot. That removes the path-based
+    // replacement race but is still not an application-level atomic commit.
+    assert.equal(typeof result.snapshot_consistency, 'string');
+    assert.ok(result.blockers.includes('NO_APPLICATION_LEVEL_ATOMIC_SNAPSHOT'));
+    assert.equal(result.blockers.includes('NO_ATOMIC_DIRECTORY_SNAPSHOT'), false);
+    assert.equal(result.blockers.includes('PATH_BASED_DIRECTORY_REPLACEMENT_RACE_REMAINS'), false);
+  } else {
+    assert.ok(result.blockers.includes('NO_ATOMIC_DIRECTORY_SNAPSHOT'));
+    assert.ok(result.blockers.includes('PATH_BASED_DIRECTORY_REPLACEMENT_RACE_REMAINS'));
+  }
   assert.equal(result.file_count, 4);
   assert.deepEqual(result.files.map(file => file.kind).sort(), [
     'character-chat', 'group-chat', 'group-metadata', 'root-chat',
@@ -190,7 +199,9 @@ test('rejects symbolic links in enumerated roots', async t => {
     throw error;
   }
   await assert.rejects(scan(value.directories), error =>
-    error instanceof HostSourceInventoryError && error.code === 'SOURCE_REPARSE_ENTRY');
+    error instanceof HostSourceInventoryError
+      && (error.code === 'SOURCE_REPARSE_ENTRY'
+        || error.code.startsWith('HOST_VSS_REPARSE_POINT_PRESENT')));
 });
 
 test('rejects aliased inventory roots', async t => {
