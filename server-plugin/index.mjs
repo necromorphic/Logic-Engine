@@ -52,7 +52,7 @@ export function createLogicEnginePlugin({
             });
 
             router.get('/health', async (req, res) => {
-                if (!requireSession(req, res)) return;
+                if (!requireHostUserContext(req, res)) return;
                 try {
                     const upstream = await fetchImpl(baseUrl + '/health', {
                         method: 'GET',
