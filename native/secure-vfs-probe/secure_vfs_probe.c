@@ -31,6 +31,8 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #if defined(__linux__)
+#include <sys/syscall.h>
+#include <stdio.h>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <arpa/inet.h>
@@ -1850,6 +1852,57 @@ static BOOL WINAPI probe_delete_file_w(LPCWSTR path) {
 static int probe_posix_parent_is_protected(int parent_fd);
 #endif
 
+#if defined(__linux__) && !defined(_WIN32)
+#ifndef RENAME_NOREPLACE
+#define RENAME_NOREPLACE (1 << 0)
+#endif
+static uint64_t g_posix_quarantine_counter = 1;
+static int probe_posix_quarantine_delete(int parent_fd, const char *name,
+                                         const struct stat *expected) {
+  const char *quarantine_name = ".logic-engine-vfs-quarantine";
+  int quarantine_fd = -1, moved_fd = -1;
+  struct stat parent_info, quarantine_info, moved_info;
+  char candidate[96];
+  int moved = 0, result = -1;
+  if (fstat(parent_fd, &parent_info) != 0) return -1;
+  if (mkdirat(parent_fd, quarantine_name, 0700) != 0 && errno != EEXIST) return -1;
+  quarantine_fd = openat(parent_fd, quarantine_name,
+      O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
+  if (quarantine_fd < 0) return -1;
+  if (fstat(quarantine_fd, &quarantine_info) != 0
+      || !S_ISDIR(quarantine_info.st_mode)
+      || quarantine_info.st_uid != geteuid()
+      || (quarantine_info.st_mode & 0777) != 0700
+      || quarantine_info.st_dev != parent_info.st_dev) goto done;
+  for (int attempt = 0; attempt < 32; ++attempt) {
+    uint64_t serial = g_posix_quarantine_counter++;
+    int length = snprintf(candidate, sizeof(candidate), "entry-%ld-%llu",
+        (long)getpid(), (unsigned long long)serial);
+    if (length <= 0 || (size_t)length >= sizeof(candidate)) goto done;
+    if (syscall(SYS_renameat2, parent_fd, name, quarantine_fd, candidate,
+                RENAME_NOREPLACE) == 0) {
+      moved = 1;
+      break;
+    }
+    if (errno != EEXIST) goto done;
+  }
+  if (!moved || fsync(quarantine_fd) != 0 || fsync(parent_fd) != 0) goto done;
+  moved_fd = openat(quarantine_fd, candidate, O_PATH | O_NOFOLLOW | O_CLOEXEC);
+  if (moved_fd < 0 || fstat(moved_fd, &moved_info) != 0
+      || !S_ISREG(moved_info.st_mode)
+      || moved_info.st_dev != expected->st_dev
+      || moved_info.st_ino != expected->st_ino
+      || moved_info.st_nlink != expected->st_nlink
+      || moved_info.st_uid != expected->st_uid) goto done;
+  if (unlinkat(quarantine_fd, candidate, 0) != 0 || fsync(quarantine_fd) != 0) goto done;
+  result = 0;
+done:
+  if (moved_fd >= 0) close(moved_fd);
+  if (quarantine_fd >= 0) close(quarantine_fd);
+  return result;
+}
+#endif
+
 static int probe_xDelete(sqlite3_vfs *vfs, const char *name, int sync_dir) {
   sqlite3_vfs *p = (sqlite3_vfs *)vfs->pAppData;
 #ifdef _WIN32
@@ -1901,14 +1954,74 @@ static int probe_xDelete(sqlite3_vfs *vfs, const char *name, int sync_dir) {
       return SQLITE_IOERR_DELETE;
     }
 #endif
-    /*
-     * The legacy pathname unlinkat path has a check-to-use race: an attacker
-     * can replace the entry after fstatat and before unlinkat. Do not perform
-     * namespace mutation from the application process. Sidecars must go
-     * through the manifest-backed broker above; main-file deletion remains
-     * fail-closed until a durable role lifecycle operation exists.
-     */
+    char relative_name[4096];
+    size_t base_length = strlen(role->basename);
+    size_t suffix_length = strlen(suffix);
+    int kind = suffix[0] == '\0' ? 0
+      : strcmp(suffix, "-wal") == 0 ? 1
+      : strcmp(suffix, "-shm") == 0 ? 2
+      : strcmp(suffix, "-journal") == 0 ? 3 : -1;
+    struct stat sidecar_info;
+    int sidecar_identity_found = 0;
+    if (kind < 0 || base_length + suffix_length + 1 > sizeof(relative_name))
+      return SQLITE_IOERR_DELETE;
+    if (!probe_posix_parent_is_protected(role->trusted_parent_fd))
+      return SQLITE_IOERR_DELETE;
+    memcpy(relative_name, role->basename, base_length);
+    memcpy(relative_name + base_length, suffix, suffix_length + 1);
+    if (fstatat(role->trusted_parent_fd, relative_name, &sidecar_info,
+          AT_SYMLINK_NOFOLLOW) != 0) {
+      if (errno == ENOENT) return SQLITE_OK;
+      return SQLITE_IOERR_DELETE;
+    }
+    if (!S_ISREG(sidecar_info.st_mode) || sidecar_info.st_dev == 0
+        || sidecar_info.st_ino == 0) return SQLITE_IOERR_DELETE;
+    if (kind == 0) {
+      if (sidecar_info.st_dev != role->device || sidecar_info.st_ino != role->inode)
+        return SQLITE_IOERR_DELETE;
+    } else {
+      probe_registry_lock();
+      for (int i = 0; i < g_sidecar_identity_count; ++i) {
+        ProbeSidecarIdentity *entry = &g_sidecar_identities[i];
+        if (entry->role_index == role_index && entry->kind == kind
+            && entry->device == sidecar_info.st_dev
+            && entry->inode == sidecar_info.st_ino) {
+          sidecar_identity_found = 1;
+          break;
+        }
+      }
+      probe_registry_unlock();
+      if (!sidecar_identity_found) return SQLITE_IOERR_DELETE;
+    }
+#if defined(__linux__)
+    if (probe_posix_quarantine_delete(role->trusted_parent_fd, relative_name,
+                                      &sidecar_info) != 0)
+      return SQLITE_IOERR_DELETE;
+#else
     return SQLITE_IOERR_DELETE;
+#endif
+    if (kind > 0) {
+      probe_registry_lock();
+      for (int i = 0; i < g_sidecar_identity_count; ++i) {
+        ProbeSidecarIdentity *entry = &g_sidecar_identities[i];
+        if (entry->role_index == role_index && entry->kind == kind
+            && entry->device == sidecar_info.st_dev
+            && entry->inode == sidecar_info.st_ino) {
+          if (sidecar_info.st_nlink > 1) {
+            entry->retired = 1;
+          } else {
+            g_sidecar_identity_count--;
+            if (i < g_sidecar_identity_count) memmove(&g_sidecar_identities[i],
+              &g_sidecar_identities[i + 1],
+              (size_t)(g_sidecar_identity_count - i) * sizeof(g_sidecar_identities[0]));
+          }
+          break;
+        }
+      }
+      probe_registry_unlock();
+    }
+    if (sync_dir && fsync(role->trusted_parent_fd) != 0) return SQLITE_IOERR_DIR_FSYNC;
+    return SQLITE_OK;
   }
 #endif
   /* Protected default VFS: never delegate an unregistered delete by pathname. */
