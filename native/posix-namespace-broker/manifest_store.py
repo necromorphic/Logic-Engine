@@ -284,7 +284,7 @@ def _validate_manifest_transition(current: dict[str, Any], candidate: dict[str, 
     role_state_transitions = {
         "enrolling": {"enrolling", "active", "disabled", "recovery-required"},
         "active": {"active", "disabled", "recovery-required"},
-        "disabled": {"disabled", "renaming", "deleting"},
+        "disabled": {"disabled", "active", "renaming", "deleting"},
         "recovery-required": {"recovery-required", "active", "disabled"},
         "renaming": {"renaming", "disabled"},
         "deleting": {"deleting", "deleted"},
@@ -841,6 +841,32 @@ class ManifestStore:
             candidate = json.loads(_canonical_json(manifest))
             candidate["generation"] = manifest["generation"] + 1
             next(entry for entry in candidate["roles"] if entry["role"] == role_name)["state"] = "disabled"
+            return self._commit_locked(_canonical_json(candidate))
+
+
+    def enable_role(self, role_name: str) -> dict[str, Any]:
+        """Re-enable a disabled role only after its enrolled main identity is reverified."""
+        with _locked_roots(self.manifest_fd, self.anchor_fd, exclusive=True):
+            manifest = self._load_pair()[0]
+            roles = [entry for entry in manifest["roles"] if entry["role"] == role_name]
+            if len(roles) != 1 or roles[0]["state"] != "disabled":
+                raise StoreError("only one disabled role can be enabled")
+            role = roles[0]
+            if any(entry["state"] != "retired" for entry in role["sidecars"]):
+                raise StoreError("all sidecars must be retired before enabling a role")
+            parent_fd = _open_role_parent(
+                role["parentComponents"], role["parentIdentities"],
+                manifest["filesystemPolicy"]["filesystem"],
+                manifest["filesystemPolicy"]["applicationUid"],
+            )
+            try:
+                _verify_regular_at(parent_fd, role["databaseBasename"],
+                                   role["databaseIdentity"], f"role {role_name} database")
+            finally:
+                os.close(parent_fd)
+            candidate = json.loads(_canonical_json(manifest))
+            candidate["generation"] = manifest["generation"] + 1
+            next(entry for entry in candidate["roles"] if entry["role"] == role_name)["state"] = "active"
             return self._commit_locked(_canonical_json(candidate))
 
     def rename_role_database(self, role_name: str, new_basename: str) -> dict[str, Any]:
@@ -1559,7 +1585,7 @@ def main() -> int:
     parser.add_argument("--anchor-root", required=True)
     parser.add_argument("--app-uid", required=True, type=int,
                         help="application UID; must differ from broker service UID")
-    parser.add_argument("command", choices=("init", "verify", "recovery-plan", "reconcile-absent", "reconcile-main", "show", "enroll", "disable", "rename", "delete"))
+    parser.add_argument("command", choices=("init", "verify", "recovery-plan", "reconcile-absent", "reconcile-main", "show", "enroll", "disable", "enable", "rename", "delete"))
     parser.add_argument("--input", help="manifest JSON for init")
     parser.add_argument("--role", help="logical role name for privileged enrollment")
     parser.add_argument("--parent", help="pre-provisioned broker-owned role directory (0700)")
@@ -1582,6 +1608,12 @@ def main() -> int:
                 parser.error("disable requires --role and --confirm-quiesced after stopping all application processes")
             manifest = store.disable_role(args.role)
             print(f"role disabled: role={args.role} generation={manifest['generation']}")
+            return 0
+        if args.command == "enable":
+            if not args.role:
+                parser.error("enable requires --role")
+            manifest = store.enable_role(args.role)
+            print(f"role enabled: role={args.role} generation={manifest['generation']}")
             return 0
         if args.command == "rename":
             if not args.role or not args.basename or not args.confirm_quiesced:
