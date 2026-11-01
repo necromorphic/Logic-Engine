@@ -3367,9 +3367,16 @@ static int probe_auto_extension(sqlite3 *db, char **error, const sqlite3_api_rou
   rc = sqlite3_create_function(db, "logic_engine_vfs_probe_configure_race", 3,
     SQLITE_UTF8, 0, probe_configure_race, 0, 0);
   if (rc != SQLITE_OK) return rc;
+#if defined(_WIN32) || defined(LOGIC_ENGINE_VFS_PROBE_ALLOW_UNBROKERED_TEST_ROLES)
+  /*
+   * Direct path enrollment exists only for the legacy adversarial probe tests
+   * and Windows manifest-handle tests. Linux production builds must enroll
+   * every protected role through the authenticated namespace broker.
+   */
   rc = sqlite3_create_function(db, "logic_engine_vfs_probe_register_database_role", 2,
     SQLITE_UTF8, 0, probe_register_database_role, 0, 0);
   if (rc != SQLITE_OK) return rc;
+#endif
 #ifdef _WIN32
   rc = sqlite3_create_function(db, "logic_engine_vfs_probe_capture_manifest_identity", 1,
     SQLITE_UTF8, 0, probe_capture_manifest_identity, 0, 0);
