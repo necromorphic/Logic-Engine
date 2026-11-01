@@ -313,6 +313,11 @@ export function createHostLifecycleSaveGuard({ enumerate = enumerateHostDataInve
     if (!target) return anyEnrolled ? response.status(409).json({ status: 'NON_READY', code: 'HOST_LIFECYCLE_SAVE_TARGET_NOT_ENROLLED' }) : next();
     const conversationUuid = target.logical_identity?.conversation_uuid;
     if (typeof conversationUuid !== 'string' || !HOST_SESSION_UUID.test(conversationUuid)) return response.status(409).json({ status: 'NON_READY', code: 'HOST_LIFECYCLE_SAVE_TARGET_IDENTITY_INVALID' });
+    const submittedHeader = Array.isArray(body?.chat) ? body.chat[0] : null;
+    const submittedConversationUuid = submittedHeader?.chat_metadata?.logic_engine_conversation_id;
+    if (submittedConversationUuid !== conversationUuid) {
+      return response.status(409).json({ status: 'NON_READY', code: 'HOST_LIFECYCLE_SAVE_PAYLOAD_IDENTITY_MISMATCH' });
+    }
     const permit = session.logicEngineHostPreparedMutation;
     if (!permit || permit.protocol_version !== 1 || permit.host_session_id !== session.logicEngineSessionId || permit.conversation_uuid !== conversationUuid || !supported.has(permit.operation) || !HOST_SESSION_UUID.test(permit.mutation_id ?? '') || !HOST_SESSION_UUID.test(permit.event_id ?? '') || !/^[a-f0-9]{64}$/.test(permit.mutation_digest ?? '')) return response.status(409).json({ status: 'NON_READY', code: 'HOST_LIFECYCLE_PREPARED_SAVE_REQUIRED' });
     delete session.logicEngineHostPreparedMutation;
