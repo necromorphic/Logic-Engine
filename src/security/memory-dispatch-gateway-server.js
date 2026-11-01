@@ -90,48 +90,10 @@ export async function createMemoryDispatchGatewayServer({
 
     // Protected dispatch requires a non-serializable, request-scoped Host
     // transport capability. A JSON/HTTP payload cannot carry that capability,
-    // so this compatibility endpoint is intentionally fail-closed. The Host
-    // must invoke MemoryDispatchGateway in-process after constructing its
-    // provider-specific dormant transport closure.
+    // so this endpoint is authentication/signature validation only and always
+    // fails closed. Host integrations must call the Gateway in-process.
     response.writeHead(503, { 'content-type': 'application/json', 'cache-control': 'no-store' });
     response.end(JSON.stringify({ error: 'IN_PROCESS_TRANSPORT_REQUIRED' }));
-    return;
-
-    const controller = new AbortController();
-    response.on('close', () => {
-      if (!response.writableEnded) controller.abort();
-    });
-    const forwardResponse = async (upstream) => {
-      response.statusCode = upstream.status;
-      const contentType = upstream.headers?.get?.('content-type');
-      if (contentType) response.setHeader('content-type', contentType);
-      const retryAfter = upstream.headers?.get?.('retry-after');
-      if (retryAfter) response.setHeader('retry-after', retryAfter);
-      if (upstream.body) {
-        await pipeline(Readable.fromWeb(upstream.body), response);
-      } else {
-        response.end();
-      }
-    };
-
-    try {
-      await gateway.dispatchProtectedRequest({
-        ...dispatchRequest,
-        forwardResponse,
-        signal: controller.signal,
-      });
-    } catch (error) {
-      if (response.headersSent || response.destroyed) {
-        response.destroy();
-        return;
-      }
-      const code = error?.message === 'MEMORY_DISPATCH_DUPLICATE_ID' ? 409
-        : error?.message === 'MEMORY_DISPATCH_OUTCOME_UNKNOWN' ? 502 : 503;
-      response.writeHead(code, { 'content-type': 'application/json', 'cache-control': 'no-store' });
-      response.end(JSON.stringify({
-        error: code === 409 ? 'DUPLICATE_REQUEST' : code === 502 ? 'OUTCOME_UNKNOWN' : 'NOT_READY',
-      }));
-    }
   });
 
   // Own the bind operation: callers cannot accidentally expose this endpoint
