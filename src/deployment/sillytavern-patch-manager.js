@@ -18,12 +18,11 @@ const ALLOWED_PACKAGE_ROOTS = Object.freeze([
 ]);
 
 function isAllowedPackagePath(filePath) {
-  if (typeof filePath !== 'string' || filePath.includes('\\\\') || filePath.includes('\\0')) return false;
+  if (typeof filePath !== 'string' || filePath.includes('\\') || filePath.includes('\0')) return false;
   const segments = filePath.split('/');
   if (segments.some(segment => !segment || segment === '.' || segment === '..')) return false;
   return ALLOWED_PACKAGE_ROOTS.some(prefix => filePath.startsWith(prefix));
 }
-
 function sha256(bytes) {
   return createHash('sha256').update(bytes).digest('hex');
 }
