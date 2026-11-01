@@ -12,7 +12,7 @@ const HOST_SESSION_ID = '66666666-6666-4666-8666-666666666666';
 const HOST_INSTALLATION_ID = '11111111-1111-4111-8111-111111111111';
 const HOST_ACCOUNT_ID = '22222222-2222-4222-8222-222222222222';
 const HOST_CONVERSATION_UUID = '33333333-3333-4333-8333-333333333333';
-const HOST_CONVERSATION_ID = HOST_INSTALLATION_ID + ':' + HOST_ACCOUNT_ID + ':' + HOST_CONVERSATION_UUID;
+const HOST_CONVERSATION_ID = HOST_SESSION_ID + ':' + HOST_INSTALLATION_ID + ':' + HOST_CONVERSATION_UUID;
 const hostRequest = {
   user: { profile: { handle: 'consumer-test-user' } },
   session: { handle: 'consumer-test-user', logicEngineSessionId: HOST_SESSION_ID, logicEngineSessionHandle: 'consumer-test-user' },
@@ -21,6 +21,11 @@ const authenticatedHostRequests = new WeakSet([hostRequest]);
 const isAuthenticatedHostRequest = request => authenticatedHostRequests.has(request);
 const trustedConversationIds = new WeakMap([[hostRequest, HOST_CONVERSATION_ID]]);
 const resolveHostConversationId = request => trustedConversationIds.get(request) ?? null;
+const trustedHostIdentities = new WeakMap([[hostRequest, {
+  host_installation_id: HOST_INSTALLATION_ID,
+  authenticated_account_id: HOST_ACCOUNT_ID,
+}]]);
+const resolveHostIdentity = request => trustedHostIdentities.get(request) ?? null;
 function setup(t, { allowContent = true, authorizeQuery = true, authorizeCoreQuery = true, authorizeCandidate = true, completeness = 'complete' } = {}) {
   let contentVisible = allowContent;
   let hostBindings = { world_id: 'memory-npc-world', actor_id: 'npc-a' };
@@ -118,9 +123,9 @@ function setup(t, { allowContent = true, authorizeQuery = true, authorizeCoreQue
   const authenticatedConsumer = new Proxy(consumer, {
     get(target, property) {
       if (property === 'retrieveForNpc') return (input) =>
-        runWithAuthenticatedHostSession(hostRequest, HOST_CONVERSATION_ID, () => target.retrieveForNpc(input), isAuthenticatedHostRequest, resolveHostConversationId, resolveHostBindings);
+        runWithAuthenticatedHostSession(hostRequest, HOST_CONVERSATION_ID, () => target.retrieveForNpc(input), isAuthenticatedHostRequest, resolveHostConversationId, resolveHostBindings, resolveHostIdentity);
       if (property === 'revalidateForFinalDispatch') return (input, prepared) =>
-        runWithAuthenticatedHostSession(hostRequest, HOST_CONVERSATION_ID, () => target.revalidateForFinalDispatch(input, prepared), isAuthenticatedHostRequest, resolveHostConversationId, resolveHostBindings);
+        runWithAuthenticatedHostSession(hostRequest, HOST_CONVERSATION_ID, () => target.revalidateForFinalDispatch(input, prepared), isAuthenticatedHostRequest, resolveHostConversationId, resolveHostBindings, resolveHostIdentity);
       return Reflect.get(target, property, target);
     },
   });
