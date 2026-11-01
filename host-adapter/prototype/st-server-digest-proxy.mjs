@@ -301,8 +301,9 @@ export function createHostRootInventoryPersistence({
   timeoutMs = 15000,
 } = {}) {
   if (typeof fetchImpl !== 'function') throw new TypeError('A fetch implementation is required');
-  if (!identityStore || typeof identityStore.resolveAuthenticatedAccount !== 'function') {
-    throw new TypeError('A server-owned Host identity store is required');
+  if (!identityStore || typeof identityStore.resolveAuthenticatedAccount !== 'function'
+    || typeof identityStore.assertOutsideRoot !== 'function') {
+    throw new TypeError('A server-owned Host identity store with global data-root isolation is required');
   }
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 30000) {
     throw new TypeError('timeoutMs must be an integer between 1 and 30000');
@@ -432,8 +433,9 @@ export function createHostLifecycleJournalProxy({
   timeoutMs = 5000,
 } = {}) {
   if (typeof fetchImpl !== 'function') throw new TypeError('A fetch implementation is required');
-  if (!identityStore || typeof identityStore.resolveAuthenticatedAccount !== 'function') {
-    throw new TypeError('A server-owned Host identity store is required');
+  if (!identityStore || typeof identityStore.resolveAuthenticatedAccount !== 'function'
+    || typeof identityStore.assertOutsideRoot !== 'function') {
+    throw new TypeError('A server-owned Host identity store with global data-root isolation is required');
   }
   if (receiptStore !== null && (typeof receiptStore.prepare !== 'function'
     || typeof receiptStore.commit !== 'function' || typeof receiptStore.abort !== 'function'
