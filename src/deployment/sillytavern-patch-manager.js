@@ -289,10 +289,30 @@ export function installSillyTavernPatchPackage({ stPath, manifestPath }) {
     // path slicing. Compare tracked changes and untracked additions separately.
     const trackedChanges = runGit(target.root, ['diff', '--name-only', '--no-renames']).split('\n').filter(Boolean);
     const untrackedFiles = runGit(target.root, ['ls-files', '--others', '--exclude-standard']).split('\n').filter(Boolean);
-    const actual = [...trackedChanges, ...untrackedFiles].sort();
     const expected = [...affected].sort();
-    if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+    const expectedSet = new Set(expected);
+    // SillyTavern ignores public/scripts/extensions/third-party in Git. Git's
+    // default untracked inventory therefore omits newly installed Extension
+    // files. Account only for exact, manifest-authorized patch targets that
+    // were absent before apply and now exist as regular files; never broaden
+    // the accepted set to arbitrary ignored paths.
+    const ignoredNewFiles = files
+      .filter(file => !file.existed
+        && existsSync(resolve(target.root, file.path))
+        && !trackedChanges.includes(file.path)
+        && !untrackedFiles.includes(file.path))
+      .map(file => file.path);
+    const actual = [...trackedChanges, ...untrackedFiles, ...ignoredNewFiles].sort();
+    if (trackedChanges.some(file => !expectedSet.has(file))
+      || untrackedFiles.some(file => !expectedSet.has(file))
+      || JSON.stringify(actual) !== JSON.stringify(expected)) {
       throw new Error('Post-apply worktree diff does not match the declared patch file set.');
+    }
+    for (const filePath of affected) {
+      const destination = assertSafeTargetPath(target.root, filePath, targetPaths);
+      if (!existsSync(destination) || !lstatSync(destination).isFile()) {
+        throw new Error('Patch target missing or not a regular file after apply: ' + filePath);
+      }
     }
     const appliedFiles = journal.files.map((file) => {
       const absolute = assertSafeTargetPath(target.root, file.path, new Set(journal.target_paths));
