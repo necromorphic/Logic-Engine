@@ -68,9 +68,14 @@ no unrelated members to limit connection-level denial-of-service exposure.
 ## Manifest-backed descriptor broker increment
 
 `broker_daemon.py` is the first service path that consumes the manifest store.
-At startup it verifies every enrolled database role and active sidecar, then
-accepts authenticated `AF_UNIX/SOCK_SEQPACKET` requests from the configured
-application UID. Requests contain a logical role name and, for sidecars, one of
+Before opening the socket, startup reconciles only absent sidecars left
+in `creating` or `deleting` states to `retired`, then verifies every enrolled
+database role and active sidecar. Present transitional files remain fail-closed
+for SQLite-aware recovery. This startup mutation relies on the documented
+service-owned role-directory boundary: the application cannot mutate these
+directories except through the broker, and the broker socket is not yet exposed.
+It then accepts authenticated `AF_UNIX/SOCK_SEQPACKET` requests from the
+configured application UID. Requests contain a logical role name and, for sidecars, one of
 `wal`, `shm`, or `journal`; arbitrary filesystem paths are never accepted.
 `OPEN_MAIN` and `OPEN_SIDECAR` return the exact identity-verified descriptor; `CREATE_SIDECAR` creates a new empty sidecar with `O_EXCL`, fsyncs it, commits `creating` and then `active` manifest generations, and only then returns its descriptor
 through outbound `SCM_RIGHTS`. Client-supplied descriptors are rejected. The
@@ -172,11 +177,11 @@ serializes cooperating store processes and prevents two commits from advancing
 the same generation concurrently. It does not constrain code that bypasses this
 store or runs with the broker service UID.
 
-`reconcile-absent` commits a narrow transition: an absent sidecar in `creating` or `deleting` becomes `retired` in a new manifest generation. Present transitional files remain unchanged. Run it only after stopping the application and quiescing every process that can mutate the role directory; manifest locks do not lock SQLite namespace operations. Until the broker owns those operations, this is offline maintenance only.
+`reconcile-absent` commits a narrow transition: an absent sidecar in `creating` or `deleting` becomes `retired` in a new manifest generation. Present transitional files remain unchanged. The broker now invokes this reconciliation before exposing its socket, relying on service-owned role directories that the application cannot mutate directly. The standalone CLI operation remains offline maintenance and must only run after quiescing every namespace mutator.
 
 The `recovery-plan` command provides an inspect-only sidecar recovery pass. It verifies database and parent identities, checks declared WAL/SHM/journal entries against opened-file identities, and rejects unmanifested sidecars or duplicate sidecar kinds. For interrupted creating/deleting states it reports presence and a possible manifest transition. It never deletes, renames, checkpoints, or opens a database through SQLite. A still-present deleting sidecar is retained and requires SQLite-aware recovery; the planner does not infer that unlinking a WAL or journal is safe.
 
-The broker operation set remains incomplete: main-file creation/deletion, RENAME, broker-first role enrollment, production cross-UID socket policy, complete SQLite VFS coverage and automatic crash-time namespace mutation recovery are not implemented. Sidecar deletion is implemented as a role-scoped quarantine operation. A successful verification is a point-in-time integrity check, not a lease preventing later mutation. The OS ownership boundary must keep the application from mutating these directories after verification.
+The broker operation set remains incomplete: main-file creation/deletion, RENAME, broker-first role enrollment, production cross-UID socket policy, complete SQLite VFS coverage and automatic recovery of present transitional sidecars are not implemented. Startup can retire only absent interrupted sidecars; present entries remain fail-closed. Sidecar deletion is implemented as a role-scoped quarantine operation. A successful verification is a point-in-time integrity check, not a lease preventing later mutation. The OS ownership boundary must keep the application from mutating these directories after verification.
 
 Run the manifest-store tests with:
 
