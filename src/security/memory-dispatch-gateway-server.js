@@ -73,6 +73,7 @@ export async function createMemoryDispatchGatewayServer({
     const dispatchRequest = {
       requestId: payload?.request_id,
       route: payload?.route,
+      senderRoute: payload?.sender_route,
       model: payload?.model,
       stream: payload?.stream,
       body: payload?.body,
