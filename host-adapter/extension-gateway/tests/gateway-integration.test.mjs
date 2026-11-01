@@ -13,7 +13,21 @@ test('protected generation is aborted before authenticated Host context dispatch
             return { ok: true, json: async () => ({ token: 'csrf-token' }) };
         }
         if (url === '/api/plugins/logic-engine-extension-gateway/session') {
-            return { ok: true, json: async () => ({ host_session_id: '2e6b0a80-4e73-4c66-aaf3-7a6e62c7f401' }) };
+            return { ok: true, json: async () => ({ host_session_id: '2e6b0a80-4e73-4c66-aaf3-7a6e62c7f401', host_user_handle: 'default-user' }) };
+        }
+        if (url.startsWith('/api/plugins/logic-engine-extension-gateway/inventory?')) {
+            // Test-only authoritative fixture for the browser flow. Production
+            // inventory remains NON_READY until the Host proves full-root completeness.
+            return { ok: true, json: async () => ({
+                status: 'AUTHORITATIVE_COMPLETE',
+                host_user_handle: 'default-user',
+                blockers: [],
+                root_inventory_reconciliation: {
+                    status: 'AUTHORITATIVE_COMPLETE',
+                    integrity_status: 'INTEGRITY_OK',
+                },
+            }) };
+        }
         }
         return {
             ok: true,
@@ -37,7 +51,8 @@ test('protected generation is aborted before authenticated Host context dispatch
         assert.equal(aborted, true);
         assert.equal(dispatched.hostContext.status, 'AUTHENTICATED_HOST_CONTEXT');
         assert.equal(dispatched.hostContext.binding.world_id, 'world');
-        assert.equal(calls[2].url, '/api/plugins/logic-engine-extension-gateway/context');
+        assert.equal(calls[2].url.startsWith('/api/plugins/logic-engine-extension-gateway/inventory?'), true);
+        assert.equal(calls[3].url, '/api/plugins/logic-engine-extension-gateway/context');
         assert.equal(getStatus().status, 'DISPATCH_DELEGATED');
     } finally {
         globalThis.fetch = originalFetch;
