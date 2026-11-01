@@ -100,6 +100,28 @@ test('identity route rejects requests outside the authenticated signed session',
   assert.equal(calls, 0);
 });
 
+test('identity route fails closed when its persistent registry is inside the ST data root', async (t) => {
+  const root = await temp(t);
+  const dataRoot = path.join(root, 'st-data');
+  await mkdir(dataRoot);
+  const store = new HostIdentityStore({ directory: path.join(dataRoot, 'identity') });
+  const handler = createHostIdentityHandler({ identityStore: store });
+  const response = { statusCode: null, body: null, headers: {},
+    set(name, value) { this.headers[name] = value; return this; },
+    status(code) { this.statusCode = code; return this; },
+    json(value) { this.body = value; return this; },
+    sendStatus(code) { this.statusCode = code; return this; },
+  };
+  const sessionId = '00000000-0000-4000-8000-000000000098';
+  await handler({
+    user: { profile: { handle: 'alice' }, directories: { root: dataRoot } },
+    session: { handle: 'alice', logicEngineSessionHandle: 'alice', logicEngineSessionId: sessionId },
+  }, response);
+  assert.equal(response.statusCode, 503);
+  assert.equal(response.body.code, 'HOST_IDENTITY_UNAVAILABLE');
+  assert.deepEqual(await readdir(dataRoot), []);
+});
+
 test('identity route returns opaque persistent IDs only after session/account binding matches', async (t) => {
   const root = await temp(t);
   const store = new HostIdentityStore({ directory: path.join(root, 'identity') });
