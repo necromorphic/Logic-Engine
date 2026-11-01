@@ -10,7 +10,7 @@ The Gateway is a same-process route handler. It does not create a listener, API 
 
 - `POST /api/logic-engine/extension`
 
-The managed ST startup integration must exclude this exact path from the global JSON body parser, then mount the route after ST's authenticated-session middleware and before native private/generation routers. The Gateway consumes the untouched request stream itself, with a hard maximum of 256 KiB. The official ST source remains read-only; any local integration patch belongs to the Logic-Engine Patch Manager package and must be pinned to the exact ST commit.
+The managed ST startup integration must exclude this exact path from the global JSON body parser, then mount the route after ST's CSRF protection and authenticated-session middleware and before native private/generation routers. The pinned 1.19.0 source audit and disposable-checkout acceptance test verify both middleware registrations precede `setupPrivateEndpoints(app)`, where the Gateway route is mounted. The Gateway consumes the untouched request stream itself, with a hard maximum of 256 KiB. The official ST source remains read-only; any local integration patch belongs to the Logic-Engine Patch Manager package and must be pinned to the exact ST commit.
 
 ## Envelope v1
 
