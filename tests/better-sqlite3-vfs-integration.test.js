@@ -67,6 +67,7 @@ test('stock better-sqlite3 uses the registered default VFS in its own engine', {
       'the registered default VFS must receive the rollback-journal open',
     );
 
+    if (process.platform !== 'win32') {
     // Run the destructive-boundary race in an isolated DB because SQLite
     // correctly leaves the connection unusable after xDelete returns IOERR.
     const raceFilename = path.join(directory, 'delete-race.sqlite');
@@ -104,6 +105,7 @@ test('stock better-sqlite3 uses the registered default VFS in its own engine', {
       raceDb.close();
       if (fs.existsSync(journalPath)) fs.unlinkSync(journalPath);
       fs.rmSync(quarantinePath, { recursive: true, force: true });
+    }
     }
     assert.equal(db.pragma('journal_mode = WAL', { simple: true }), 'wal');
     db.prepare('INSERT INTO vfs_probe (value) VALUES (?)').run('same-engine');
