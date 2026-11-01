@@ -315,7 +315,8 @@ export function createHostRootInventoryPersistence({
       || !validRootEntries(entries)) {
       return { status: 'NON_READY', reason: 'HOST_ROOT_INVENTORY_INPUT_INVALID' };
     }
-    const dataRoot = globalThis.DATA_ROOT;
+    const dataRoot = typeof globalThis.DATA_ROOT === 'string' && globalThis.DATA_ROOT.trim()
+      ? pathModule.resolve(globalThis.DATA_ROOT) : null;
     if (typeof dataRoot !== 'string' || !pathModule.isAbsolute(dataRoot)) {
       return { status: 'NON_READY', reason: 'HOST_IDENTITY_DATA_ROOT_UNAVAILABLE' };
     }
@@ -453,7 +454,8 @@ export function createHostLifecycleJournalProxy({
 
   async function resolveRequestIdentity(request, conversationId) {
     const handle = request?.user?.profile?.handle;
-    const dataRoot = globalThis.DATA_ROOT;
+    const dataRoot = typeof globalThis.DATA_ROOT === 'string' && globalThis.DATA_ROOT.trim()
+      ? pathModule.resolve(globalThis.DATA_ROOT) : null;
     if (!validId(handle) || typeof dataRoot !== 'string' || !pathModule.isAbsolute(dataRoot)) return null;
     let identity;
     try {
@@ -555,7 +557,8 @@ export function createHostLifecycleJournalProxy({
           error: { code: 'INVALID_HOST_LIFECYCLE_EVENT', message: 'Only bounded digest-only Host mutation lifecycle events are accepted.' },
         });
       }
-      const dataRoot = globalThis.DATA_ROOT;
+      const dataRoot = typeof globalThis.DATA_ROOT === 'string' && globalThis.DATA_ROOT.trim()
+        ? pathModule.resolve(globalThis.DATA_ROOT) : null;
       if (!durableReceiptStore) return response.status(503).json({
         error: { code: 'HOST_LIFECYCLE_RECEIPT_STORE_UNAVAILABLE', message: 'Server-side persisted mutation receipt verification is unavailable.' },
       });
@@ -677,9 +680,9 @@ export function createHostLifecycleJournalProxy({
       }
       try {
         if (typeof durableReceiptStore.assertOutsideRoot === 'function') {
-          await durableReceiptStore.assertOutsideRoot(globalThis.DATA_ROOT);
+          await durableReceiptStore.assertOutsideRoot(dataRoot);
         } else if (typeof durableReceiptStore.directory === 'string'
-          && pathIsWithin(globalThis.DATA_ROOT, durableReceiptStore.directory)) {
+          && pathIsWithin(dataRoot, durableReceiptStore.directory)) {
           throw new Error('Receipt directory is inside the data root');
         }
       } catch {
