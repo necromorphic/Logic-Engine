@@ -326,6 +326,91 @@ test('transport handoff begins while the shared coordinator is still held', asyn
   contender.exec('ROLLBACK');
 });
 
+test('stream response is not released when Provider revoke wins during upstream inference', async () => {
+  let releaseTransport;
+  const transportGate = new Promise((resolve) => { releaseTransport = resolve; });
+  const fixture = await createFixture();
+  let upstreamCalls = 0;
+  let hostWrites = 0;
+  const finalSend = createProtectedMemoryFinalSend({
+    gateway: fixture.gateway,
+    resolveProtectedMemory: (hostRequestContext) => hostRequestContext,
+    fetchImpl: () => {
+      upstreamCalls += 1;
+      return transportGate;
+    },
+  });
+  try {
+    const pending = finalSend({
+      senderRoute: 'google-ai-studio',
+      endpointUrl: 'https://provider.example/stream',
+      requestInit: {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ stream: true, messages: [{ role: 'user', content: 'protected' }] }),
+      },
+      hostRequestContext: {
+        ...validRequest('stream-revoke-during-send'),
+      },
+      stream: true,
+      forwardResponse: () => {
+        hostWrites += 1;
+        return Promise.resolve();
+      },
+    });
+    fixture.setProviderGranted(false);
+    releaseTransport({ status: 200, body: 'must-not-be-streamed' });
+    await assert.rejects(pending, /MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED/);
+    assert.equal(upstreamCalls, 1);
+    assert.equal(hostWrites, 0, 'failed final revalidation must prevent the first Host response write');
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('successful stream begins its one Host response write under the Coordinator lease', async () => {
+  const fixture = await createFixture();
+  const contender = new DatabaseSync(fixture.coordinatorPath);
+  contender.exec('PRAGMA busy_timeout=0;');
+  let leaseHeldAtHostWrite = false;
+  let hostWrites = 0;
+  const finalSend = createProtectedMemoryFinalSend({
+    gateway: fixture.gateway,
+    resolveProtectedMemory: (hostRequestContext) => hostRequestContext,
+    fetchImpl: async () => ({ status: 200, body: 'stream-body' }),
+  });
+  try {
+    await finalSend({
+      senderRoute: 'google-ai-studio',
+      endpointUrl: 'https://provider.example/stream',
+      requestInit: {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ stream: true, messages: [{ role: 'user', content: 'protected' }] }),
+      },
+      hostRequestContext: {
+        ...validRequest('stream-response-under-lease'),
+      },
+      stream: true,
+      forwardResponse: () => {
+        hostWrites += 1;
+        try {
+          contender.exec('BEGIN IMMEDIATE');
+          contender.exec('ROLLBACK');
+        } catch (error) {
+          leaseHeldAtHostWrite = /locked|busy/i.test(String(error?.message || ''));
+        }
+        return Promise.resolve();
+      },
+    });
+    assert.equal(hostWrites, 1);
+    assert.equal(leaseHeldAtHostWrite, true);
+  } finally {
+    contender.close();
+    await fixture.close();
+  }
+});
+
 test('Gateway rejects a missing or malformed policy authority tuple before upstream egress', async () => {
   const fixture = await createFixture();
   try {
