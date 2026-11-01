@@ -10,18 +10,36 @@ const MANAGER_DIR = '.logic-engine/patch-manager';
 const JOURNAL_NAME = 'transaction.json';
 const MAX_MANIFEST_BYTES = 256 * 1024;
 const MAX_PATCH_BYTES = 8 * 1024 * 1024;
-// The manager installs one Logic-Engine Extension package only. Native ST
-// source/config/routes are outside the approved integration boundary.
+// Package-owned files plus exact, approved native ST integration seams.
 const ALLOWED_PACKAGE_ROOTS = Object.freeze([
   'public/scripts/extensions/third-party/logic-engine-extension-gateway/',
   'plugins/logic-engine-extension-gateway/',
 ]);
-
-function isAllowedPackagePath(filePath) {
+const ALLOWED_NATIVE_SOURCE_PATHS = new Set([
+  'src/server-startup.js',
+  'src/endpoints/backends/chat-completions.js',
+  'src/endpoints/backends/text-completions.js',
+  'src/endpoints/backends/kobold.js',
+  'src/endpoints/horde.js',
+  'src/endpoints/novelai.js',
+]);
+function isSyntacticallySafePath(filePath) {
   if (typeof filePath !== 'string' || filePath.includes('\\') || filePath.includes('\0')) return false;
   const segments = filePath.split('/');
-  if (segments.some(segment => !segment || segment === '.' || segment === '..')) return false;
-  return ALLOWED_PACKAGE_ROOTS.some(prefix => filePath.startsWith(prefix));
+  return !segments.some(segment => !segment || segment === '.' || segment === '..');
+}
+function isManagerAllowedPath(filePath) {
+  return isSyntacticallySafePath(filePath)
+    && (ALLOWED_PACKAGE_ROOTS.some(prefix => filePath.startsWith(prefix))
+      || ALLOWED_NATIVE_SOURCE_PATHS.has(filePath));
+}
+function validateDeclaredTargetPaths(targetPaths) {
+  if (!Array.isArray(targetPaths) || targetPaths.length < 1 || targetPaths.length > 32
+    || targetPaths.some(path => !isManagerAllowedPath(path))
+    || new Set(targetPaths).size !== targetPaths.length) {
+    throw new Error('Manifest target_paths must be unique exact paths in the Patch Manager allowlist.');
+  }
+  return new Set(targetPaths);
 }
 function sha256(bytes) {
   return createHash('sha256').update(bytes).digest('hex');
@@ -71,6 +89,7 @@ function readManifest(manifestPath) {
     || !Array.isArray(manifest.patches) || manifest.patches.length !== 1) {
     throw new Error('Patch manifest schema or target identity is invalid.');
   }
+  const targetPaths = validateDeclaredTargetPaths(manifest.target_paths);
   const seen = new Set();
   for (const patch of manifest.patches) {
     if (!patch || typeof patch !== 'object' || Array.isArray(patch)
@@ -81,7 +100,7 @@ function readManifest(manifestPath) {
     }
     seen.add(patch.path);
   }
-  return { manifest, manifestRoot: dirname(absolute), manifestDigest: sha256(raw) };
+  return { manifest, targetPaths, manifestRoot: dirname(absolute), manifestDigest: sha256(raw) };
 }
 
 function targetInfo(stPath) {
@@ -121,13 +140,16 @@ function loadJournal(root) {
   if (!stat.isFile() || stat.isSymbolicLink()) throw new Error('Patch Manager journal is not a regular file.');
   const value = JSON.parse(readFileSync(journal, 'utf8'));
   if (value?.schema_version !== 1 || typeof value.package_id !== 'string'
+    || !Array.isArray(value.target_paths) || value.target_paths.length < 1
+    || value.target_paths.some(path => !isManagerAllowedPath(path))
+    || new Set(value.target_paths).size !== value.target_paths.length
     || !Array.isArray(value.files) || !['APPLYING', 'APPLIED', 'ROLLING_BACK'].includes(value.state)) {
     throw new Error('Patch Manager journal is malformed; manual recovery is required.');
   }
   return value;
 }
 
-function patchPaths(root, patchText) {
+function patchPaths(root, patchText, declaredTargetPaths) {
   const paths = [];
   for (const line of patchText.split(/\r?\n/)) {
     if (!line.startsWith('diff --git a/')) continue;
@@ -136,8 +158,8 @@ function patchPaths(root, patchText) {
       throw new Error('Patch contains a rename/copy or malformed path; only same-path edits are supported.');
     }
     const filePath = match[1];
-    if (!isAllowedPackagePath(filePath)) {
-      throw new Error('Patch Manager may modify only the integrated Logic-Engine Extension package directories.');
+    if (!isManagerAllowedPath(filePath) || !declaredTargetPaths.has(filePath)) {
+      throw new Error('Patch target is not an explicitly declared path in the Patch Manager allowlist.');
     }
     const absolute = resolve(root, filePath);
     const rel = relative(root, absolute);
@@ -150,9 +172,9 @@ function patchPaths(root, patchText) {
   return paths;
 }
 
-function assertSafeTargetPath(root, filePath) {
-  if (!isAllowedPackagePath(filePath)) {
-    throw new Error('Journal path is outside the integrated Logic-Engine Extension package directories.');
+function assertSafeTargetPath(root, filePath, declaredTargetPaths) {
+  if (!isManagerAllowedPath(filePath) || !declaredTargetPaths?.has(filePath)) {
+    throw new Error('Journal path is outside the transaction declared target allowlist.');
   }
   const destination = resolve(root, filePath);
   const rel = relative(root, destination);
@@ -169,7 +191,7 @@ function assertSafeTargetPath(root, filePath) {
 function restoreFiles(root, journal) {
   const { backups } = managerPaths(root);
   for (const file of journal.files) {
-    const destination = assertSafeTargetPath(root, file.path);
+    const destination = assertSafeTargetPath(root, file.path, new Set(journal.target_paths));
     if (file.existed) {
       const backup = resolve(backups, file.backup);
       if (!backup.startsWith(backups + sep) || !existsSync(backup) || sha256(readFileSync(backup)) !== file.sha256) {
@@ -196,14 +218,14 @@ export function inspectSillyTavernPatchTarget(stPath) {
 
 export function installSillyTavernPatchPackage({ stPath, manifestPath }) {
   const target = targetInfo(stPath);
-  const { manifest, manifestRoot, manifestDigest } = readManifest(manifestPath);
+  const { manifest, targetPaths, manifestRoot, manifestDigest } = readManifest(manifestPath);
   if (target.commit !== manifest.target_git_commit) throw new Error('Unsupported SillyTavern commit; exact target commit required.');
   const paths = managerPaths(target.root);
   const prior = loadJournal(target.root);
   if (prior) {
     if (prior.package_id === manifest.package_id && prior.manifest_digest === manifestDigest && prior.state === 'APPLIED') {
       for (const file of prior.files) {
-        const destination = assertSafeTargetPath(target.root, file.path);
+        const destination = assertSafeTargetPath(target.root, file.path, new Set(prior.target_paths));
         const exists = existsSync(destination);
         if (file.installed_sha256 === null ? exists : (!exists || !lstatSync(destination).isFile() || sha256(readFileSync(destination)) !== file.installed_sha256)) {
           throw new Error('Installed package has drifted from its recorded state: ' + file.path);
@@ -221,7 +243,7 @@ export function installSillyTavernPatchPackage({ stPath, manifestPath }) {
     const bytes = readFileSync(file);
     if (bytes.length !== item.size || sha256(bytes) !== item.sha256) throw new Error('Patch artifact integrity check failed: ' + item.path);
     const text = bytes.toString('utf8');
-    patchEntries.push({ path: file, text, affected: patchPaths(target.root, text) });
+    patchEntries.push({ path: file, text, affected: patchPaths(target.root, text, targetPaths) });
   }
   const affected = [...new Set(patchEntries.flatMap((entry) => entry.affected))].sort();
   const files = affected.map((filePath, index) => {
@@ -255,7 +277,7 @@ export function installSillyTavernPatchPackage({ stPath, manifestPath }) {
   try { chmodSync(storedPatch, 0o600); } catch {}
   const journal = {
     schema_version: 1, transaction_id: id, package_id: manifest.package_id,
-    manifest_digest: manifestDigest, target_commit: target.commit, state: 'APPLYING',
+    manifest_digest: manifestDigest, target_commit: target.commit, target_paths: [...targetPaths], state: 'APPLYING',
     patch_file: storedPatch, patch_sha256: sha256(readFileSync(storedPatch)),
     files: files.map(({ bytes, ...item }) => ({ ...item, installed_sha256: null })),
   };
@@ -270,7 +292,7 @@ export function installSillyTavernPatchPackage({ stPath, manifestPath }) {
       throw new Error('Post-apply worktree diff does not match the declared patch file set.');
     }
     const appliedFiles = journal.files.map((file) => {
-      const absolute = assertSafeTargetPath(target.root, file.path);
+      const absolute = assertSafeTargetPath(target.root, file.path, new Set(journal.target_paths));
       return { ...file, installed_sha256: existsSync(absolute) ? sha256(readFileSync(absolute)) : null };
     });
     atomicJson(paths.journal, { ...journal, files: appliedFiles, state: 'APPLIED' });
@@ -292,7 +314,7 @@ export function uninstallSillyTavernPatchPackage({ stPath, packageId }) {
     throw new Error('No matching applied package journal exists.');
   }
   for (const file of journal.files) {
-    const destination = assertSafeTargetPath(target.root, file.path);
+    const destination = assertSafeTargetPath(target.root, file.path, new Set(journal.target_paths));
     const exists = existsSync(destination);
     if (file.installed_sha256 === null ? exists : (!exists || !lstatSync(destination).isFile() || sha256(readFileSync(destination)) !== file.installed_sha256)) {
       throw new Error('Patched file changed since installation; refusing to overwrite user changes: ' + file.path);
@@ -326,7 +348,7 @@ export function recoverSillyTavernPatchTransaction(stPath) {
       runGit(target.root, ['apply', '--reverse', '--check', patch]);
     } catch {
       const unchanged = journal.files.every((file) => {
-        const destination = assertSafeTargetPath(target.root, file.path);
+        const destination = assertSafeTargetPath(target.root, file.path, new Set(journal.target_paths));
         if (!file.existed) return !existsSync(destination);
         return existsSync(destination) && sha256(readFileSync(destination)) === file.sha256;
       });
@@ -334,7 +356,7 @@ export function recoverSillyTavernPatchTransaction(stPath) {
     }
   } else {
     for (const file of journal.files) {
-      const destination = assertSafeTargetPath(target.root, file.path);
+      const destination = assertSafeTargetPath(target.root, file.path, new Set(journal.target_paths));
       const exists = existsSync(destination);
       const isOriginal = file.existed ? exists && sha256(readFileSync(destination)) === file.sha256 : !exists;
       const isInstalled = file.installed_sha256 === null ? !exists : exists && sha256(readFileSync(destination)) === file.installed_sha256;
