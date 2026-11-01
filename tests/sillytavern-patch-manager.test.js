@@ -45,7 +45,7 @@ function fixture(t) {
   git(st, ['init', '-q']);
   git(st, ['config', 'user.email', 'test@example.invalid']);
   git(st, ['config', 'user.name', 'Patch Manager Test']);
-  writeFileSync(join(st, 'config.yaml'), 'unchanged\\n');
+  writeFileSync(join(st, 'config.yaml'), 'unchanged\n');
   git(st, ['add', 'config.yaml']);
   git(st, ['commit', '-qm', 'base']);
   const targetCommit = git(st, ['rev-parse', 'HEAD']);
@@ -66,9 +66,9 @@ test('Patch Manager installs only the integrated Extension package, is idempoten
   const f = fixture(t);
   const applied = installSillyTavernPatchPackage({ stPath: f.st, manifestPath: f.manifestPath });
   assert.equal(applied.status, 'APPLIED');
-  assert.equal(readFileSync(join(f.st, clientPath), 'utf8'), 'installed-client\\n');
-  assert.equal(readFileSync(join(f.st, serverPath), 'utf8'), 'installed-server\\n');
-  assert.equal(readFileSync(join(f.st, 'config.yaml'), 'utf8'), 'unchanged\\n');
+  assert.equal(readFileSync(join(f.st, clientPath), 'utf8'), 'installed-client\n');
+  assert.equal(readFileSync(join(f.st, serverPath), 'utf8'), 'installed-server\n');
+  assert.equal(readFileSync(join(f.st, 'config.yaml'), 'utf8'), 'unchanged\n');
   assert.equal(installSillyTavernPatchPackage({ stPath: f.st, manifestPath: f.manifestPath }).status, 'ALREADY_APPLIED');
   assert.equal(uninstallSillyTavernPatchPackage({ stPath: f.st, packageId: 'logic-engine.st-test' }).status, 'ROLLED_BACK');
   assert.equal(exists(join(f.st, clientPath)), false);
@@ -82,20 +82,20 @@ function exists(path) {
 
 test('Patch Manager refuses unrelated dirty worktrees without touching user files', t => {
   const f = fixture(t);
-  writeFileSync(join(f.st, 'config.yaml'), 'user edit\\n');
+  writeFileSync(join(f.st, 'config.yaml'), 'user edit\n');
   assert.throws(() => installSillyTavernPatchPackage({ stPath: f.st, manifestPath: f.manifestPath }), /dirty SillyTavern worktree/);
-  assert.equal(readFileSync(join(f.st, 'config.yaml'), 'utf8'), 'user edit\\n');
+  assert.equal(readFileSync(join(f.st, 'config.yaml'), 'utf8'), 'user edit\n');
 });
 
 test('Patch Manager rejects wrong ST commit and modified Extension package artifacts', t => {
   const f = fixture(t);
-  writeFileSync(join(f.st, 'other.txt'), 'change\\n');
+  writeFileSync(join(f.st, 'other.txt'), 'change\n');
   git(f.st, ['add', 'other.txt']);
   git(f.st, ['commit', '-qm', 'other target']);
   assert.throws(() => installSillyTavernPatchPackage({ stPath: f.st, manifestPath: f.manifestPath }), /exact target commit/);
 
   const g = fixture(t);
-  writeFileSync(join(g.packageDir, 'integration.patch'), patch + '#tampered\\n');
+  writeFileSync(join(g.packageDir, 'integration.patch'), patch + '#tampered\n');
   assert.throws(() => installSillyTavernPatchPackage({ stPath: g.st, manifestPath: g.manifestPath }), /integrity check failed/);
 });
 
@@ -133,7 +133,7 @@ test('Patch Manager rejects patches to SillyTavern source, native routes, config
       forbiddenPath,
     );
   }
-  assert.equal(readFileSync(join(f.st, 'config.yaml'), 'utf8'), 'unchanged\\n');
+  assert.equal(readFileSync(join(f.st, 'config.yaml'), 'utf8'), 'unchanged\n');
 });
 
 test('recovery restores pre-transaction state from a durable APPLYING journal', t => {
@@ -163,8 +163,8 @@ test('Patch Manager rejects non-Git directories and malformed manifests', t => {
 test('uninstall refuses to overwrite edits made after Extension package installation', t => {
   const f = fixture(t);
   installSillyTavernPatchPackage({ stPath: f.st, manifestPath: f.manifestPath });
-  writeFileSync(join(f.st, clientPath), 'user edit after install\\n');
+  writeFileSync(join(f.st, clientPath), 'user edit after install\n');
   assert.throws(() => uninstallSillyTavernPatchPackage({ stPath: f.st, packageId: 'logic-engine.st-test' }), /refusing to overwrite user changes/);
-  assert.equal(readFileSync(join(f.st, clientPath), 'utf8'), 'user edit after install\\n');
+  assert.equal(readFileSync(join(f.st, clientPath), 'utf8'), 'user edit after install\n');
   assert.equal(inspectSillyTavernPatchTarget(f.st).patchManagerJournal.state, 'APPLIED');
 });
