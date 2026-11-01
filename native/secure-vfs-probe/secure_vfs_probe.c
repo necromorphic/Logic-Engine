@@ -1887,7 +1887,7 @@ static int probe_posix_quarantine_delete(int parent_fd, const char *name,
     if (errno != EEXIST) goto done;
   }
   if (!moved || fsync(quarantine_fd) != 0 || fsync(parent_fd) != 0) goto done;
-  moved_fd = openat(quarantine_fd, candidate, O_PATH | O_NOFOLLOW | O_CLOEXEC);
+  moved_fd = openat(quarantine_fd, candidate, O_RDONLY | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC);
   if (moved_fd < 0 || fstat(moved_fd, &moved_info) != 0
       || !S_ISREG(moved_info.st_mode)
       || moved_info.st_dev != expected->st_dev
