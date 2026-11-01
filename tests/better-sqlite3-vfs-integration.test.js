@@ -55,6 +55,7 @@ test('stock better-sqlite3 uses the registered default VFS in its own engine', {
         logic_engine_vfs_probe_open_count() AS mainOpens,
         logic_engine_vfs_probe_journal_open_count() AS journalOpens,
         logic_engine_vfs_probe_wal_open_count() AS walOpens,
+        logic_engine_vfs_probe_shm_open_count() AS shmOpens,
         logic_engine_vfs_probe_native_open_count() AS nativeOpens,
         logic_engine_vfs_probe_identity_reject_count() AS identityRejects,
         logic_engine_vfs_probe_reused_descriptor_accept_count() AS acceptedMainOpens
@@ -75,6 +76,10 @@ test('stock better-sqlite3 uses the registered default VFS in its own engine', {
     );
     assert.equal(db.pragma('journal_mode = WAL', { simple: true }), 'wal');
     db.prepare('INSERT INTO vfs_probe (value) VALUES (?)').run('same-engine');
+    assert.ok(
+      db.prepare('SELECT logic_engine_vfs_probe_shm_open_count() AS count').get().count > 0,
+      'the registered default VFS must receive the WAL shared-memory file open',
+    );
     assert.deepEqual(db.prepare('SELECT value FROM vfs_probe').pluck().all(), ['same-engine']);
     assert.equal(db.pragma('integrity_check', { simple: true }), 'ok');
     assert.ok(
