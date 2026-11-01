@@ -665,7 +665,6 @@ diff --git a/src/endpoints/chats.js b/src/endpoints/chats.js
 +    const backup = getBackupFunction(handle, cardName);
 +    backup(backupDirectory, cardName, jsonlData);
 +    if (flushLifecycleBackup) backup.flush();
-
 @@ -545,3 +552,3 @@
 -router.post('/save', validateAvatarUrlMiddleware, async function (request, response) {
 +router.post('/save', validateAvatarUrlMiddleware, hostLifecycleSaveGuard, async function (request, response) {
