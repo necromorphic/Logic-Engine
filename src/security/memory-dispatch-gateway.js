@@ -211,7 +211,7 @@ export class MemoryDispatchGateway {
     readToken,
     readCoreEvidence,
     readProviderEvidence,
-    sendUpstream,
+    createTransport,
   }) {
     if (typeof ledgerPath !== 'string' || !isAbsolute(ledgerPath)
       || typeof coordinatorPath !== 'string' || !isAbsolute(coordinatorPath)
@@ -219,9 +219,9 @@ export class MemoryDispatchGateway {
       || typeof readToken !== 'string' || readToken.length < 32
       || typeof readCoreEvidence !== 'function'
       || typeof readProviderEvidence !== 'function'
-      || typeof sendUpstream !== 'function'
-      || sendUpstream instanceof ASYNC_FUNCTION_PROTOTYPE) {
-      throw new TypeError('MemoryDispatchGateway requires file-backed stores, a read-only authority token, trusted synchronous readers, and a non-async transport-start function.');
+      || typeof createTransport !== 'function'
+      || createTransport instanceof ASYNC_FUNCTION_PROTOTYPE) {
+      throw new TypeError('MemoryDispatchGateway requires file-backed stores, a read-only authority token, trusted synchronous readers, and a non-async request-scoped transport factory.');
     }
     if (sameFile(ledgerPath, coordinatorPath)) {
       throw new Error('DISPATCH_LEDGER_COORDINATOR_PATH_ALIAS');
@@ -233,7 +233,7 @@ export class MemoryDispatchGateway {
     this.readToken = readToken;
     this.readCoreEvidence = readCoreEvidence;
     this.readProviderEvidence = readProviderEvidence;
-    this.sendUpstream = sendUpstream;
+    this.createTransport = createTransport;
 
     this.coordinatorDb = openCoordinatorDatabase(this.coordinatorPath);
     this.db = null;
@@ -328,6 +328,7 @@ export class MemoryDispatchGateway {
     let coreHead;
     let providerHead;
     let release = null;
+    let transport = null;
     let upstreamPromise = null;
     let upstreamStartError = null;
 
@@ -364,6 +365,16 @@ export class MemoryDispatchGateway {
       assertSameCandidates(provider.candidates, candidateSet);
       coreHead = core.head;
       providerHead = provider.head;
+
+      // Build a dormant, request-scoped transport only from trusted Host code.
+      // The factory must not perform network I/O. The returned capability is
+      // kept in-process and is never serialized or accepted from browser input.
+      transport = this.createTransport({
+        route, model, stream, body, requestId, requestDigest, forwardResponse, signal,
+      });
+      if (typeof transport !== 'function' || transport instanceof ASYNC_FUNCTION_PROTOTYPE) {
+        throw new Error('MEMORY_DISPATCH_TRANSPORT_CAPABILITY_INVALID');
+      }
 
       this.db.exec('BEGIN IMMEDIATE');
       try {
@@ -405,17 +416,12 @@ export class MemoryDispatchGateway {
         }
         throw error;
       }
-      // Invoke the transport's synchronous start function before releasing the
-      // shared coordinator. AsyncFunction callbacks are rejected at construction:
-      // an `async` callback can defer the actual network handoff behind `await`.
-      // A non-async callback must initiate the final outbound request synchronously
-      // and return a Promise for the eventual response.
-      // This makes the durable DISPATCH_STARTED row and actual transport handoff
-      // one ordered boundary relative to Provider revocation/source invalidation.
+      // The dormant capability is invoked exactly once, synchronously after
+      // durable DISPATCH_STARTED and before releasing the shared coordinator.
+      // It must initiate the final outbound request immediately and return the
+      // response Promise; network I/O itself is awaited only after lock release.
       try {
-        upstreamPromise = this.sendUpstream({
-          route, model, stream, body, requestId, requestDigest, forwardResponse, signal,
-        });
+        upstreamPromise = transport();
         if (!upstreamPromise || typeof upstreamPromise.then !== 'function') {
           throw new Error('MEMORY_DISPATCH_TRANSPORT_START_INVALID');
         }
