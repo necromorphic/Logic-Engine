@@ -228,6 +228,13 @@ test('destructive and import UI entry points invoke target-aware fail-closed Hos
   assertBefore('export async function importCharacterChat(formData,', 'guardBulkMutation', "fetch('/api/chats/import'");
   assertBefore('export async function importGroupChat(formData,', 'guardBulkMutation', "fetch('/api/chats/group/import'");
   assertBefore('async restoreBackup(name)', 'guardBulkMutation', "fetch('/api/backups/chat/download'");
+  for (const route of [
+    "+router.post('/rename', validateAvatarUrlMiddleware, hostBulkMutationGuard, async function (request, response) {",
+    "+router.post('/delete', validateAvatarUrlMiddleware, hostBulkMutationGuard, function (request, response) {",
+    "+router.post('/group/delete', hostBulkMutationGuard, (request, response) => {",
+  ]) {
+    assert.ok(patch.includes(route), `missing server-side lifecycle guard on ${route}`);
+  }
   assert.ok(patch.includes('diff --git a/src/endpoints/groups.js b/src/endpoints/groups.js'),
     'group metadata/chat deletion needs a server-side route guard');
   assert.ok(patch.includes("+router.post('/delete', hostBulkMutationGuard, getFileNameValidationFunction('id'), async (request, response) => {"),
