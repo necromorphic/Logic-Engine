@@ -33,7 +33,10 @@ export async function assessDeployment({ manifest, deploymentRoot, sillyTavernRo
     evidenceSource: 'deployment-pinned-st-inspector',
     observedSummary: patchInspection.files.summary,
     adapterVersion: '1.0.0',
-    limitations: ['Filesystem inspection does not prove which modules are already loaded in the running SillyTavern process.'],
+    limitations: [
+      'Path-based inspection cannot pin directory handles against concurrent replacement.',
+      'Filesystem inspection does not prove which modules are already loaded in the running SillyTavern process.',
+    ],
   }));
   capabilities.push(createCapabilityEvidence({
     id: 'host.patch.backups.integrity.inspect',
@@ -42,7 +45,10 @@ export async function assessDeployment({ manifest, deploymentRoot, sillyTavernRo
     evidenceSource: 'deployment-pinned-st-inspector',
     observedSummary: patchInspection.backups.summary,
     adapterVersion: '1.0.0',
-    limitations: ['Backup digest verification does not establish an independent freshness anchor or anti-rollback guarantee.'],
+    limitations: [
+      'Path-based inspection cannot pin directory handles against concurrent replacement.',
+      'Backup digest verification does not establish an independent freshness anchor or anti-rollback guarantee.',
+    ],
   }));
 
   // These are runtime integration attestations, not manifest claims. Until a trusted
