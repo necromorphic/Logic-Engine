@@ -48,6 +48,19 @@ test('identity registry accepts a separate deployment-owned directory', async (t
   assert.match(identity.host_installation_id, /^[0-9a-f-]{36}$/i);
 });
 
+test('identity registry resolves symlinked parents before checking data-root containment', async (t) => {
+  const root = await temp(t);
+  const dataRoot = path.join(root, 'st-data');
+  const alias = path.join(root, 'deployment-alias');
+  await mkdir(dataRoot);
+  await symlink(dataRoot, alias, 'dir');
+  const store = new HostIdentityStore({ directory: path.join(alias, 'identity') });
+  await assert.rejects(
+    () => store.assertOutsideRoot(dataRoot),
+    /HOST_IDENTITY_DIRECTORY_INSIDE_DATA_ROOT/,
+  );
+});
+
 test('accounts are isolated and account rename rotates the opaque account identity', async (t) => {
   const root = await temp(t);
   const store = new HostIdentityStore({ directory: path.join(root, 'identity') });
