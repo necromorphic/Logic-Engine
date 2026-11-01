@@ -5,6 +5,9 @@ import {
   createExtensionGateway,
   EXTENSION_GATEWAY_PATH,
   mountExtensionGateway,
+  mountDefaultExtensionGateway,
+  registerAuthenticatedHostAdapter,
+  closeDefaultExtensionGateway,
 } from '../src/deployment/extension-gateway.js';
 
 function request({ method = 'POST', path = EXTENSION_GATEWAY_PATH, headers = {}, body = {} } = {}) {
@@ -228,4 +231,44 @@ test('diagnostics expose metadata only and audit failure prevents Host Adapter d
   assert.equal(denied.statusCode, 503);
   assert.deepEqual(denied.body, { error: 'GATEWAY_DIAGNOSTICS_UNAVAILABLE' });
   assert.equal(calls, 1);
+});
+
+
+test('default ST mount is a single in-process ingress and fails closed until trusted Host Adapter registration', async () => {
+  const routes = [];
+  const app = { post(path, handler) { routes.push({ path, handler }); } };
+  const mounted = mountDefaultExtensionGateway(app);
+  assert.equal(mounted.path, EXTENSION_GATEWAY_PATH);
+  assert.equal(routes.length, 1);
+
+  const unavailable = response();
+  await routes[0].handler(request({ body: valid }), unavailable);
+  assert.equal(unavailable.statusCode, 503);
+  assert.equal(unavailable.body.error, 'GATEWAY_DIAGNOSTICS_UNAVAILABLE');
+
+  const events = [];
+  let calls = 0;
+  const adapter = {
+    async handleExtensionRequest({ envelope, hostRequest }) {
+      calls += 1;
+      assert.deepEqual(envelope, valid);
+      assert.equal(hostRequest.path, EXTENSION_GATEWAY_PATH);
+      return { status: 200, body: { adapter: 'authenticated-host-adapter' } };
+    },
+  };
+  const unregister = registerAuthenticatedHostAdapter(adapter, {
+    onDiagnostic: event => events.push(event),
+  });
+  const accepted = response();
+  await routes[0].handler(request({ body: valid }), accepted);
+  assert.equal(accepted.statusCode, 200);
+  assert.equal(calls, 1);
+  assert.deepEqual(events.map(event => event.event), ['INGRESS_ACCEPTED', 'HOST_ADAPTER_RESULT']);
+  assert.equal(unregister(), true);
+
+  const afterUnregister = response();
+  await routes[0].handler(request({ body: valid }), afterUnregister);
+  assert.equal(afterUnregister.statusCode, 503);
+  assert.equal(calls, 1);
+  await closeDefaultExtensionGateway();
 });
