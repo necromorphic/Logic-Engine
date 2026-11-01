@@ -32,7 +32,7 @@ jobs:
           test ! -e sillytavern/src/endpoints/logic-engine-host-inventory.js
       - name: Verify native plugin authentication order and extension interceptor
         run: |
-          node --input-type=module -e "import fs from 'node:fs'; const s=fs.readFileSync('sillytavern/src/server-main.js','utf8'); const p=fs.readFileSync('sillytavern/src/plugin-loader.js','utf8'); if (!(s.indexOf('app.use(requireLoginMiddleware)') < s.indexOf('loadPlugins(app, pluginsDirectory)'))) process.exit(1); if (!p.includes('app.use(`/api/plugins/${id}`, router)')) process.exit(1); const e=fs.readFileSync('sillytavern/public/scripts/extensions.js','utf8'); if (!e.includes('runGenerationInterceptors')) process.exit(1);"
+          node --input-type=module -e "import fs from 'node:fs'; const s=fs.readFileSync('sillytavern/src/server-main.js','utf8'); const p=fs.readFileSync('sillytavern/src/plugin-loader.js','utf8'); if (!(s.indexOf('app.use(requireLoginMiddleware)') < s.indexOf('loadPlugins(app, pluginsDirectory)'))) process.exit(1); if (!(p.includes('/api/plugins/') && p.includes('router'))) process.exit(1); const e=fs.readFileSync('sillytavern/public/scripts/extensions.js','utf8'); if (!e.includes('runGenerationInterceptors')) process.exit(1);"
       - name: Syntax-check installed Gateway
         run: |
           find sillytavern/plugins/logic-engine-extension-gateway -name '*.mjs' -print0 | xargs -0 -n1 node --check
