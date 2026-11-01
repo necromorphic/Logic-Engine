@@ -1,12 +1,9 @@
+import { getRequestHeaders } from '../../../script.js';
 import { saveSettingsDebounced } from '../../../script.js';
 import { extension_settings } from '../../../extensions.js';
 
 const EXTENSION_KEY = 'logicEngine';
-const DEFAULTS = {
-    coreUrl: 'http://127.0.0.1:8787',
-    lastHealth: null,
-};
-
+const DEFAULTS = { lastHealth: null };
 let settings;
 let panel;
 
@@ -23,17 +20,6 @@ function persist() {
     saveSettingsDebounced();
 }
 
-function normalizeBaseUrl(value) {
-    const parsed = new URL(String(value).trim());
-    if (!['http:', 'https:'].includes(parsed.protocol)) {
-        throw new Error('Core URL must use HTTP or HTTPS.');
-    }
-    if (parsed.username || parsed.password || parsed.search || parsed.hash) {
-        throw new Error('Core URL must not contain credentials, query parameters, or a fragment.');
-    }
-    return parsed.href.replace(/\/+$/, '');
-}
-
 function renderPanel() {
     const current = getSettings();
     panel = document.createElement('section');
@@ -41,28 +27,18 @@ function renderPanel() {
     panel.className = 'logic-engine-extension';
     panel.innerHTML = `
         <div class="logic-engine-title">Logic-Engine</div>
-        <label class="logic-engine-label" for="logic_engine_core_url">Core address</label>
-        <input id="logic_engine_core_url" class="text_pole" type="url" spellcheck="false">
+        <div class="logic-engine-description">Connects SillyTavern to the local Logic-Engine Host Adapter. Your model provider settings are not changed.</div>
         <div class="logic-engine-actions">
-            <button id="logic_engine_save" class="menu_button">Save</button>
             <button id="logic_engine_check" class="menu_button">Check connection</button>
         </div>
         <div id="logic_engine_status" class="logic-engine-status" role="status">Not checked</div>
-        <div class="logic-engine-note">This extension connects to Logic-Engine. It does not change the selected model or API provider.</div>
     `;
-    panel.querySelector('#logic_engine_core_url').value = current.coreUrl;
-    panel.querySelector('#logic_engine_save').addEventListener('click', () => {
-        try {
-            settings.coreUrl = normalizeBaseUrl(panel.querySelector('#logic_engine_core_url').value);
-            persist();
-            setStatus('Address saved. Check the connection.', 'neutral');
-        } catch (error) {
-            setStatus(error.message, 'error');
-        }
-    });
     panel.querySelector('#logic_engine_check').addEventListener('click', checkConnection);
     const target = document.querySelector('#extensions_settings');
     if (target) target.append(panel);
+    if (current.lastHealth) {
+        setStatus('Last successful check: ' + new Date(current.lastHealth).toLocaleString(), 'neutral');
+    }
 }
 
 function setStatus(message, state = 'neutral') {
@@ -72,31 +48,41 @@ function setStatus(message, state = 'neutral') {
     node.dataset.state = state;
 }
 
+async function requestPlugin(path) {
+    const response = await fetch('/api/plugins/logic-engine' + path, {
+        method: 'GET',
+        headers: { ...getRequestHeaders(), Accept: 'application/json' },
+        cache: 'no-store',
+        credentials: 'same-origin',
+        redirect: 'error',
+        signal: AbortSignal.timeout(5000),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+        const code = data?.error?.code || 'HOST_ADAPTER_REQUEST_FAILED';
+        throw new Error(`${code} (HTTP ${response.status})`);
+    }
+    return data;
+}
+
 async function checkConnection() {
     const button = panel?.querySelector('#logic_engine_check');
     if (button) button.disabled = true;
-    setStatus('Checking Logic-Engine Core…');
+    setStatus('Checking authenticated Host Adapter…');
     try {
-        const base = normalizeBaseUrl(panel.querySelector('#logic_engine_core_url').value);
-        const response = await fetch(base + '/health', {
-            method: 'GET',
-            headers: { Accept: 'application/json' },
-            cache: 'no-store',
-            credentials: 'omit',
-            redirect: 'error',
-            signal: AbortSignal.timeout(5000),
-        });
-        if (!response.ok) throw new Error(`Core returned HTTP ${response.status}`);
-        const data = await response.json();
-        if (data?.ok !== true || data?.service !== 'logic-engine') {
-            throw new Error('The endpoint responded, but it is not a Logic-Engine Core health endpoint.');
+        const session = await requestPlugin('/session');
+        if (session?.authenticated !== true || session?.adapter !== 'sillytavern-server-plugin') {
+            throw new Error('The server did not confirm an authenticated SillyTavern session.');
         }
-        settings.coreUrl = base;
+        const health = await requestPlugin('/health');
+        if (health?.ok !== true || health?.host_adapter !== true || health?.core?.service !== 'logic-engine') {
+            throw new Error('Logic-Engine Core is not ready.');
+        }
         settings.lastHealth = new Date().toISOString();
         persist();
-        setStatus('Connected to Logic-Engine Core.', 'success');
+        setStatus('Connected: SillyTavern session authenticated; Logic-Engine Core reachable.', 'success');
     } catch (error) {
-        setStatus(`Connection failed: ${error.message}`, 'error');
+        setStatus(`Connection failed: ${error.message}. Check that the Logic-Engine server plugin is installed/enabled and Core is running.`, 'error');
     } finally {
         if (button) button.disabled = false;
     }
