@@ -19,6 +19,12 @@ function makeResponse() {
 }
 
 const pinned = '06bde939fb1e9c4c8d8641d810f0a916b5bce127';
+const absoluteTestDirectories = {
+  root: resolve('/tmp/st-root'),
+  chats: resolve('/tmp/st-root/chats'),
+  groups: resolve('/tmp/st-root/groups'),
+  groupChats: resolve('/tmp/st-root/groupChats'),
+};
 
 test('relative ST account directories are resolved against the server working directory', () => {
   const resolved = resolveHostDataDirectories({
@@ -403,7 +409,7 @@ test('host inventory route rejects malformed conversation filters before scannin
   });
   const response = makeResponse();
   await handler({
-    user: { profile: { handle: 'alice' }, directories: {} },
+    user: { profile: { handle: 'alice' }, directories: absoluteTestDirectories },
     session: { handle: 'alice', logicEngineSessionId: '2e6b0a80-4e73-4c66-aaf3-7a6e62c7f401', logicEngineSessionHandle: 'alice' },
     query: { conversation_uuid: '../not-a-uuid' },
   }, response);
@@ -420,7 +426,7 @@ test('host inventory route hides scanner errors and absolute paths from the HTTP
   });
   const response = makeResponse();
   await handler({
-    user: { profile: { handle: 'alice' }, directories: {} },
+    user: { profile: { handle: 'alice' }, directories: absoluteTestDirectories },
     session: { handle: 'alice', logicEngineSessionId: '2e6b0a80-4e73-4c66-aaf3-7a6e62c7f401', logicEngineSessionHandle: 'alice' },
     query: { conversation_uuid: '4e6b0a80-4e73-4c66-aaf3-7a6e62c7f403' },
   }, response);
