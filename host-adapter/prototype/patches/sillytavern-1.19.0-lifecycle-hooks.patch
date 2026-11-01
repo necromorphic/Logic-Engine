@@ -657,6 +657,16 @@ diff --git a/src/endpoints/chats.js b/src/endpoints/chats.js
 +const hostLifecycleSaveGuard = createHostLifecycleSaveGuard({ pinnedHostCommit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127' });
 +
  const isBackupEnabled = !!getConfigValue('backups.chat.enabled', true, 'boolean');
+@@ -545,3 +550,3 @@
+-router.post('/save', validateAvatarUrlMiddleware, async function (request, response) {
++router.post('/save', validateAvatarUrlMiddleware, hostLifecycleSaveGuard, async function (request, response) {
+     try {
+         const handle = request.user.profile.handle;
+@@ -922,3 +927,3 @@
+-router.post('/group/save', async function (request, response) {
++router.post('/group/save', hostLifecycleSaveGuard, async function (request, response) {
+     try {
+         if (!request.body || !request.body.id) {
 @@ -621,4 +624,4 @@
 -router.post('/rename', validateAvatarUrlMiddleware, async function (request, response) {
 +router.post('/rename', validateAvatarUrlMiddleware, hostBulkMutationGuard, async function (request, response) {
