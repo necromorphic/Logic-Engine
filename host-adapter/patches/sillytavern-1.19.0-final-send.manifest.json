@@ -1,0 +1,31 @@
+{
+  "id": "logic-engine-sillytavern-final-send",
+  "manifestVersion": 1,
+  "host": {
+    "name": "SillyTavern",
+    "version": "1.19.0",
+    "commit": "06bde939fb1e9c4c8d8641d810f0a916b5bce127"
+  },
+  "patch": {
+    "version": "1.0.0",
+    "path": "host-adapter/patches/sillytavern-1.19.0-final-send.patch",
+    "sha256": "089c41c45c4e76a20296cec63dc058714755f91987ea52869b07c5f386413354"
+  },
+  "sourceFiles": {
+    "package.json": "5b6e0634a63872c33603bf803217613a388f2e5dbd5990f7b30d254bfbf027c2",
+    "src/plugin-loader.js": "994cbfde97c4ef3a2e2a8078e005e61698ded61a52741cad1efe049ee2bedee9",
+    "src/server-main.js": "567d8a9d52e70816e74f119409933f2b42ad03132d7ef01f8db3ae145c2fe7bf",
+    "src/server-startup.js": "646bee9eefa67ed62d2f2157aef88872145b90e6d4c4c32490ad4e1792f9c0ba",
+    "src/endpoints/backends/chat-completions.js": {
+      "before": "53f429859efcfb29dd8becfebf7ff0ae49256ea795a0c81c320930fab5a407e7",
+      "after": "dcc1f3585995b3ac2d5f3a3527dc8357509aa848e2fd68cb661efd9f4ba5998f"
+    },
+    "src/endpoints/backends/text-completions.js": "877b2b6279091c70495e561c00ce021592205e1d42ea4fe5f20f23dd67071971",
+    "src/endpoints/backends/kobold.js": "ce23d72599580d5822d17fda14c8413882237c1ab984b1be63ee063256286801",
+    "src/endpoints/novelai.js": "0b6b41052ae0311ae6e716955b0805a44b1b63e3a58bf403b81becf0ff1b04ce",
+    "src/endpoints/horde.js": "9a0280cfa2c5498f540b8593b100e80cbacdefa563038a6cc6c60c9c9923f3f4"
+  },
+  "createdFiles": {
+    "src/logic-engine-final-send-hook.js": "e9b2ec43065055fa95088305ba6de7d346b9de53937a2038154d09de9c6ce2d9"
+  }
+}
