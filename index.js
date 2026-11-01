@@ -70,8 +70,8 @@ async function checkConnection() {
     setStatus('Checking authenticated Host Adapter…');
     try {
         const session = await requestPlugin('/session');
-        if (session?.authenticated !== true || session?.adapter !== 'sillytavern-server-plugin') {
-            throw new Error('The server did not confirm an authenticated SillyTavern session.');
+        if (session?.host_context_valid !== true || session?.adapter !== 'sillytavern-server-plugin') {
+            throw new Error('The server did not confirm an SillyTavern server-resolved user context.');
         }
         const health = await requestPlugin('/health');
         if (health?.ok !== true || health?.host_adapter !== true || health?.core?.service !== 'logic-engine') {
@@ -79,7 +79,7 @@ async function checkConnection() {
         }
         settings.lastHealth = new Date().toISOString();
         persist();
-        setStatus('Connected: SillyTavern session authenticated; Logic-Engine Core reachable.', 'success');
+        setStatus('Connected: SillyTavern host context resolved; Logic-Engine Core reachable.', 'success');
     } catch (error) {
         setStatus(`Connection failed: ${error.message}. Check that the Logic-Engine server plugin is installed/enabled and Core is running.`, 'error');
     } finally {
