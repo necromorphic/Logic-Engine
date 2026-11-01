@@ -56,7 +56,7 @@ test('host inventory route fails closed unless the deployment build claim matche
     hostBuildClaim: '',
   });
   const response = makeResponse();
-  await handler({ user: { profile: { handle: 'default-user' }, directories: {} }, session: { handle: 'default-user', logicEngineSessionId: '2e6b0a80-4e73-4c66-aaf3-7a6e62c7f401', logicEngineSessionHandle: 'default-user' } }, response);
+  await handler({ user: { profile: { handle: 'default-user' }, directories: {} }, session: { logicEngineSessionId: '2e6b0a80-4e73-4c66-aaf3-7a6e62c7f401', logicEngineSessionHandle: 'default-user' } }, response);
   assert.equal(response.statusCode, 503);
   assert.deepEqual(response.body, { status: 'NON_READY', code: 'HOST_BUILD_NOT_PINNED' });
   assert.equal(calls, 0);
@@ -190,6 +190,40 @@ test('Host session identity is generated once inside the authenticated signed se
   const second = makeResponse();
   handler(request, second);
   assert.equal(second.body.host_session_id, id);
+});
+
+test('Host session identity supports ST 1.19.0 default-user mode without session.handle', () => {
+  const id = '7e6b0a80-4e73-4c66-aaf3-7a6e62c7f407';
+  const handler = createHostSessionHandler({ createId: () => id });
+  const session = {};
+  const request = { session, user: { profile: { handle: 'default-user' } } };
+  const response = makeResponse();
+  handler(request, response);
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.body.host_session_id, id);
+  assert.equal(session.handle, undefined);
+  assert.equal(session.logicEngineSessionId, id);
+  assert.equal(session.logicEngineSessionHandle, 'default-user');
+});
+
+test('Host inventory route accepts default-user mode only with its adapter-owned signed-session binding', async () => {
+  const handler = createHostInventoryHandler({
+    enumerate: async () => ({ files: [], status: 'DOUBLE_SCAN_CANDIDATE', authority: 'NON_AUTHORITATIVE' }),
+    pinnedHostCommit: pinned,
+    hostBuildClaim: pinned,
+  });
+  const response = makeResponse();
+  await handler({
+    user: { profile: { handle: 'default-user' }, directories: { chats: '/private/chats', groups: '/private/groups', groupChats: '/private/group-chats' } },
+    session: {
+      logicEngineSessionId: '8e6b0a80-4e73-4c66-aaf3-7a6e62c7f408',
+      logicEngineSessionHandle: 'default-user',
+    },
+    query: { conversation_uuid: '9e6b0a80-4e73-4c66-aaf3-7a6e62c7f409' },
+  }, response);
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.body.host_user_handle, 'default-user');
+  assert.equal(response.body.host_session_id, '8e6b0a80-4e73-4c66-aaf3-7a6e62c7f408');
 });
 
 test('Host session identity rotates when the authenticated account changes', () => {
