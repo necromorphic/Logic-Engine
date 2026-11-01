@@ -1,9 +1,11 @@
 import { renderExtensionTemplateAsync } from '../../../extensions.js';
-import { chat_metadata, getRequestHeaders } from '../../../../script.js';
+import { chat_metadata, getCurrentChatId, getRequestHeaders, saveMetadata } from '../../../../script.js';
+import { resolveStableHostConversationIdentity } from './conversation-identity.mjs';
 import {
   CONNECTION_STATES,
   describeGatewayFailure,
   describeGatewayResult,
+  fetchGatewayIdentity,
   fetchGatewaySession,
 } from './bridge-core.mjs';
 
@@ -66,21 +68,40 @@ async function initialize() {
 
   checkButton.addEventListener('click', runCheck, { signal });
   contextButton.addEventListener('click', async () => {
-    const conversationUuid = chat_metadata?.logic_engine_conversation_id;
-    if (typeof conversationUuid !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(conversationUuid)) {
-      setStatus(contextStatus, 'Нет подтверждённого UUID текущего чата. Сначала требуется серверное enrollment.', CONNECTION_STATES.error);
-      return;
-    }
     contextButton.disabled = true;
-    setStatus(contextStatus, 'Проверка контекста в Core…', CONNECTION_STATES.checking);
+    setStatus(contextStatus, 'Проверка identity и текущего чата…', CONNECTION_STATES.checking);
     try {
+      const session = await fetchGatewaySession(fetch, signal);
+      const identity = await fetchGatewayIdentity(fetch, signal);
+      if (identity.host_session_id !== session.host_session_id) {
+        throw new Error('Host session и account identity не совпадают');
+      }
+      const locator = getCurrentChatId();
+      const metadata = chat_metadata;
+      const resolved = await resolveStableHostConversationIdentity({
+        locator,
+        hostSessionId: session.host_session_id,
+        hostInstallationId: identity.host_installation_id,
+        authenticatedAccountId: identity.authenticated_account_id,
+        metadata,
+        storage: globalThis.localStorage,
+        saveMetadata,
+        getCurrentLocator: getCurrentChatId,
+        getCurrentMetadata: () => chat_metadata,
+        cryptoProvider: globalThis.crypto,
+      });
+      if (resolved.status !== 'READY_FOR_REVIEW'
+        || getCurrentChatId() !== locator || chat_metadata !== metadata) {
+        throw new Error(resolved.reason || 'Текущий чат изменился во время identity enrollment');
+      }
+      setStatus(contextStatus, 'Отправка подписанного Host context в Core…', CONNECTION_STATES.checking);
       const response = await fetch('/api/plugins/logic-engine-extension-gateway/context', {
         method: 'POST',
         credentials: 'same-origin',
         cache: 'no-store',
         redirect: 'error',
         headers: getRequestHeaders(),
-        body: JSON.stringify({ conversation_uuid: conversationUuid }),
+        body: JSON.stringify({ conversation_uuid: resolved.conversationUuid }),
         signal: AbortSignal.any([signal, AbortSignal.timeout(7000)]),
       });
       let body;
