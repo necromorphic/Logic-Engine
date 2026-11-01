@@ -368,10 +368,13 @@ The implementation uses `HostAssertionNonceStore` in a dedicated file configured
 
 ### Validation state
 
-- Core HTTP tests cover PC-NEXT-11 context resolution, signed assertion acceptance, tamper rejection, duplicate nonce rejection, and replay rejection after recreating the API server with the same durable nonce database.
-- Provider-adapter tests cover assertion-only consumer composition without requiring an unused in-process ST gate.
-- Host integration tests cover default-user/accounts-enabled identity, session rotation, PC-NEXT-11 binding, real HTTP context resolution, Memory route refusal when no consumer is configured, and denial before Core calls when inventory proof is not authoritative.
-- Exact-head workflows for both candidates are running/pending at the time of this update. No green CI claim is made until the latest candidate heads complete all required workflows.
+Exact candidate heads checked on 1 Nov 2026:
+
+- Core Lane B PR #846 HEAD `832abf337530e9421f53eaed85760cb4a7f07313`: Runtime tests, Host lifecycle patch check/validation, pinned SillyTavern audit, browser IndexedDB restart, and Memory Provider blocker 3 all completed successfully.
+- Core integration PR #867 HEAD `7e3895aeb91c983bf020e889acdad6c1909dd0e7`: Runtime tests completed successfully.
+- Host candidate PR #850 HEAD `3ce200aa5777e69317a04f91eb26ae81da972560`: static validation, Gateway candidate check, both pinned SillyTavern source audits, browser IndexedDB restart, Host inventory reconciliation, process contract, NPC boundary, symlink security (Linux + Windows), mechanics policy authority, Core trusted acquisition, and Memory Provider blocker 3 acceptance completed successfully. The full Runtime test job is still running; no full-suite pass is claimed yet.
+
+The Host candidate now carries the same Core-owned Memory consumer, conversation binding validation, NPC knowledge authorization, and SQLite Memory Provider implementation as the Core/Lane B candidates. The shared Core HTTP route blocks are byte-identical; Host-specific lifecycle and root-inventory routes remain additional Host-owned API routes.
 
 ### Remaining release blockers
 
