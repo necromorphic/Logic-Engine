@@ -151,6 +151,34 @@ test('Patch Manager rejects undeclared or out-of-policy paths, including config 
   assert.equal(readFileSync(join(f.st, 'config.yaml'), 'utf8'), 'unchanged\n');
 });
 
+test('Patch Manager requires every allowlisted native source target to be explicitly declared', t => {
+  const f = fixture(t);
+  const nativePath = 'src/endpoints/backends/chat-completions.js';
+  const nativePatch = [
+    'diff --git a/' + nativePath + ' b/' + nativePath,
+    'new file mode 100644',
+    '--- /dev/null',
+    '+++ b/' + nativePath,
+    '@@ -0,0 +1 @@',
+    '+must-be-declared',
+    '',
+  ].join('\\n');
+  writeFileSync(join(f.packageDir, 'integration.patch'), nativePatch);
+  const bytes = readFileSync(join(f.packageDir, 'integration.patch'));
+  writeFileSync(f.manifestPath, JSON.stringify({
+    schema_version: 1,
+    package_id: 'logic-engine.st-test',
+    target_git_commit: f.targetCommit,
+    target_paths: [clientPath, serverPath],
+    patches: [{ path: 'integration.patch', size: bytes.length, sha256: hash(bytes) }],
+  }));
+  assert.throws(
+    () => installSillyTavernPatchPackage({ stPath: f.st, manifestPath: f.manifestPath }),
+    /not an explicitly declared path/,
+  );
+  assert.equal(exists(join(f.st, nativePath)), false);
+});
+
 test('recovery restores pre-transaction state from a durable APPLYING journal', t => {
   const f = fixture(t);
   const applied = installSillyTavernPatchPackage({ stPath: f.st, manifestPath: f.manifestPath });
