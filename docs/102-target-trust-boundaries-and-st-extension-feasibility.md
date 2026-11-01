@@ -4,7 +4,7 @@
 **Host baseline inspected:** SillyTavern 1.19.0 release archive; package version 1.19.0.  
 **Logic-Engine baseline:** current-main base used by PR #844, `0c3debcb01946f6f8c94811b192e7277422e990a`.  
 **Related work:** PR #844 (final-send dispatch primitive), PR #845 (Core-authorized real SQLite Memory Provider adapter).  
-**Non-negotiable integration constraint:** SillyTavern source files are not modified; Logic-Engine is installed through SillyTavern's extension mechanism, not as a replacement model/API provider.
+**Current integration constraint:** SillyTavern upstream and its official repository are not modified. The owner has authorized Patch Manager to apply and maintain a pinned local source-level patch in the installed SillyTavern deployment tree; Logic-Engine does not replace the configured model/API provider.
 
 ## 1. Target architecture
 
@@ -177,7 +177,7 @@ PR #845 is not a final-send implementation. Its consumer remains an internal sea
 
 ## 7. Acceptance gates before activation
 
-1. Demonstrate a supported non-invasive ST extension/server hook that covers every enabled native provider sender and the corresponding response path, without modifying ST source or replacing its provider configuration.
+1. Demonstrate the managed local source-level patch on the exact pinned ST source; prove Patch Manager preflight/install/verify/update/rollback and coverage of every enabled native provider sender plus final response release. Upstream source and provider configuration remain unchanged.
 2. Demonstrate trusted session/installation/conversation/world/actor authentication at the server-side Host Adapter.
 3. Wire the real Core-authorized Memory retrieval adapter to the request context without exposing browser-supplied authorization as authority.
 4. Implement one logical Sole Gateway with separate ingress, PRE-LLM EGRESS, and FINAL RESPONSE REVALIDATION phases.
