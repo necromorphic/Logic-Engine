@@ -244,7 +244,7 @@ test('pinned ST 1.19.0 supported chat mutations persist; chat deletion, rename, 
   const commitReceipt = receiptStore.commit.bind(receiptStore);
   receiptStore.commit = async (...args) => {
     try { return await commitReceipt(...args); }
-    catch (error) { receiptCommitError = error?.message ?? 'unknown receipt commit error'; throw error; }
+    catch (error) { receiptCommitError = (error?.message ?? 'unknown receipt commit error') + (error?.reason ? ':' + error.reason : ''); throw error; }
   };
   const identityStore = new HostIdentityStore({ directory: identityDirectory });
   const hostIdentity = await identityStore.resolveAuthenticatedAccount(hostHandle);
