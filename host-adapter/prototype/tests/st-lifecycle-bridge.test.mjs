@@ -927,14 +927,29 @@ test('server PREPARED is recoverable when the browser IndexedDB append fails bef
   f.db.failNextWrite = true;
   await assert.rejects(f.bridge.beforeMutation('edit-message', [0]), /simulated disk full/);
   assert.equal(published.filter(event => event.event_type === 'MUTATION_PREPARED').length, 1);
-  assert.equal((await f.journal.pendingMutation('chat-1')).status, 'NO_PENDING_MUTATION');
+  assert.equal((await f.journal.pendingMutation('chat-1')).status, 'NON_READY');
   assert.equal(f.saveCount, 1);
 
-  // The server-side receipt reconciler has verified that disk still matches
-  // the pre-state and has closed the orphaned PREPARED event as ABORTED.
+  // The failed IndexedDB transaction is not retried in the same poisoned
+  // journal instance. After a page restart, a fresh journal verifies the
+  // unchanged durable baseline and can continue once the server reconciler
+  // has closed the orphaned PREPARED receipt as ABORTED.
+  const restartedJournal = new HostLifecycleJournal(f.db);
+  assert.equal((await restartedJournal.verifyIntegrity('chat-1')).status, 'INTEGRITY_OK');
   published.push({ event_type: 'MUTATION_ABORTED', event_id: 'server-recovery' });
   remoteStatus = { status: 'NO_PENDING_MUTATION' };
-  const next = await f.bridge.beforeMutation('edit-message', [0]);
+  const restartedBridge = createStLifecycleBridge({
+    journal: restartedJournal,
+    getConversationId: () => 'chat-1',
+    getChat: () => f.chat,
+    saveChat: async () => {},
+    publishLifecycleEvent: async event => {
+      published.push(structuredClone(event));
+      return { lifecycle: { status: 'appended' } };
+    },
+    getLifecycleStatus: async () => remoteStatus,
+  });
+  const next = await restartedBridge.beforeMutation('edit-message', [0]);
   assert.equal(next.operation, 'before:edit-message');
   assert.equal(published.filter(event => event.event_type === 'MUTATION_PREPARED').length, 2);
 });
