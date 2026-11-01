@@ -117,6 +117,13 @@ export function createMemoryNpcProviderAdapter({
       contentFields,
     });
 
+    // Expose only the two consumer operations to Host code. The raw consumer
+    // and its Core/Provider dependencies remain inside this factory closure.
+    const consumerFacade = Object.freeze({
+      retrieveForNpc: (...args) => consumer.retrieveForNpc(...args),
+      revalidateForFinalDispatch: (...args) => consumer.revalidateForFinalDispatch(...args),
+    });
+
     // Expose only trusted ingestion/grant administration. Retrieval and
     // record-authorization methods remain private to MemoryNpcConsumer so a
     // caller cannot bypass Core's authenticated Host-session query gate.
@@ -129,7 +136,7 @@ export function createMemoryNpcProviderAdapter({
 
     return Object.freeze({
       provider: providerControl,
-      consumer,
+      consumer: consumerFacade,
       async prepareWorld(worldId) {
         await provider.rebuildIndex(worldId);
         return provider.reconcile(worldId);
