@@ -297,7 +297,7 @@ test('SillyTavern lifecycle proxy authenticates PREPARED/COMMITTED receipts and 
     hostCommit: PINNED_HOST_COMMIT,
   });
   let lifecycleProxy = createHostLifecycleJournalProxy({ env, identityStore, receiptStore });
-  const conversationId = SESSION_ID + ':' + identity.host_installation_id + ':' + CONVERSATION_UUID;
+  const conversationId = identity.host_installation_id + ':' + CONVERSATION_UUID;
   const lifecycleRequest = event => ({
     user: { profile: { handle: 'Harness User' }, directories },
     session: {
