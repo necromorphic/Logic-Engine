@@ -71,6 +71,16 @@ export function createHostBoundNpcKnowledgeAuthorizers({
     });
   }
 
+  // Memory query access is independently authorized by Core. Provider grants
+  // are an additional restriction, never a substitute for the active Host
+  // conversation → world and adapter → actor bindings owned by Core.
+  function memoryQueryAuthorizer(scope) {
+    if (!scope || scope.recipient !== 'model' || scope.purpose !== 'npc_turn_context'
+      || !validId(scope.world_id) || !validId(scope.conversation_id)
+      || !validId(scope.adapter_id) || !validId(scope.actor_id)) return false;
+    return activeHostAndActorBinding(scope);
+  }
+
   function visibilityAuthorizer(scope) {
     let source = null;
     if (activeHostAndActorBinding(scope)
@@ -104,5 +114,5 @@ export function createHostBoundNpcKnowledgeAuthorizers({
     });
   }
 
-  return Object.freeze({ readAuthorizer, visibilityAuthorizer });
+  return Object.freeze({ readAuthorizer, visibilityAuthorizer, memoryQueryAuthorizer });
 }
