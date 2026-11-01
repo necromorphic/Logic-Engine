@@ -235,7 +235,7 @@ test("belief evidence references are canonical regardless of request ordering", 
   });
 
   assert.equal(forward.status, "updated");
-  assert.equal(reverse.status, "updated");
+  assert.equal(reverse.status, "unchanged");
   assert.deepEqual(forward.state.beliefs[0].supporting_evidence_refs, ["evidence-a", "evidence-z"]);
   assert.deepEqual(forward.state.beliefs[0].conflicting_evidence_refs, ["evidence-m"]);
   assert.deepEqual(reverse.state.beliefs[0], forward.state.beliefs[0]);
