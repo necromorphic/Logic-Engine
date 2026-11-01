@@ -67,7 +67,7 @@ jobs:
       - name: Build secure VFS extension against the exact packaged SQLite headers
         run: |
           package="$RUNNER_TEMP/better-sqlite3/package"
-          cc -O2 -fPIC -shared -I "$package/deps/sqlite3" -I "$GITHUB_WORKSPACE/native/secure-vfs-probe" "$GITHUB_WORKSPACE/native/secure-vfs-probe/secure_vfs_probe.c" -o "$RUNNER_TEMP/logic_engine_secure_vfs_probe.so"
+          cc -O2 -fPIC -shared -DLOGIC_ENGINE_VFS_PROBE_ALLOW_UNBROKERED_TEST_ROLES -I "$package/deps/sqlite3" -I "$GITHUB_WORKSPACE/native/secure-vfs-probe" "$GITHUB_WORKSPACE/native/secure-vfs-probe/secure_vfs_probe.c" -o "$RUNNER_TEMP/logic_engine_secure_vfs_probe.so"
       - name: Exercise the exact published Linux prebuild through default VFS and broker protocol
         env:
           BETTER_SQLITE3_PACKAGE_DIR: ${{ runner.temp }}/better-sqlite3/package
