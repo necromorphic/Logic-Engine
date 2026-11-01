@@ -431,7 +431,7 @@ test('ambiguous transport outcome is recorded UNKNOWN and the request identity c
   }
 });
 
-test('loopback Gateway endpoint requires Host authentication and a body-bound signature before the injected Host-selected transport', async () => {
+test('serialized Gateway endpoint rejects dispatch because it cannot carry an in-process transport capability', async () => {
   const hostToken = 'host-dispatch-token-for-gateway-tests-00000000000000000000000000000004';
   const signingKey = 'host-dispatch-signing-key-for-gateway-tests-00000000000000000000000000000005';
   let upstreamCalls = 0;
@@ -494,11 +494,11 @@ test('loopback Gateway endpoint requires Host authentication and a body-bound si
       headers: { authorization: 'Bearer ' + hostToken, 'content-type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    assert.equal(response.status, 200);
-    assert.equal(await response.text(), 'selected-backend-response');
-    assert.equal(upstreamCalls, 1);
-    assert.equal(observedRoute, 'host-selected-chat-generation');
-    assert.equal(observedBody, request.body);
+    assert.equal(response.status, 503);
+    assert.deepEqual(await response.json(), { error: 'IN_PROCESS_TRANSPORT_REQUIRED' });
+    assert.equal(upstreamCalls, 0, 'JSON/HTTP dispatch must never create or invoke a provider transport');
+    assert.equal(observedRoute, undefined);
+    assert.equal(observedBody, undefined);
   } finally {
     await new Promise((resolve) => server.close(resolve));
     await fixture.close();
