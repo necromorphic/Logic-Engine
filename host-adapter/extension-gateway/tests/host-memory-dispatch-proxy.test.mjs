@@ -9,6 +9,7 @@ const session = '33333333-3333-4333-8333-333333333333';
 const conversation = '44444444-4444-4444-8444-444444444444';
 const requestId = '55555555-5555-4555-8555-555555555555';
 const conversationId = session + ':' + installation + ':' + conversation;
+const hostConversationKey = installation + ':' + account + ':' + conversation;
 const worldId = 'world-main';
 const actorId = 'actor-player';
 const env = {
@@ -40,7 +41,7 @@ test('Host Adapter resolves world and exactly one actor before signing the Host 
       host_installation_id: installation,
       authenticated_account_id: account,
       host_session_id: session,
-      conversation_id: conversationId,
+      conversation_id: hostConversationKey,
     }),
     fetchImpl: async (url, options) => {
       calls.push({ url: String(url), options });
@@ -98,7 +99,7 @@ test('Host Adapter fails closed when Core cannot resolve one unambiguous world/a
       host_installation_id: installation,
       authenticated_account_id: account,
       host_session_id: session,
-      conversation_id: conversationId,
+      conversation_id: hostConversationKey,
     }),
     fetchImpl: async () => {
       calls++;
@@ -120,7 +121,7 @@ test('Host Adapter rejects a Core binding response for another adapter or conver
       host_installation_id: installation,
       authenticated_account_id: account,
       host_session_id: session,
-      conversation_id: conversationId,
+      conversation_id: hostConversationKey,
     }),
     fetchImpl: async () => {
       calls++;
