@@ -71,6 +71,16 @@ test('better-sqlite3 uses brokered main, journal, WAL and SHM descriptors with c
   ).get(databasePath, 'core', socketPath).registered;
   assert.equal(enroll(), 1, 'broker-first enrollment must validate the main DB before any local path open');
 
+  assert.throws(
+    () => registrar.prepare(
+      'SELECT logic_engine_vfs_probe_delete_registered_role(?)',
+    ).get(databasePath),
+    /SQLITE_IOERR_DELETE|disk I\/O error|unable to delete/i,
+    'the application VFS must not delete a main DB through runtime xDelete',
+  );
+  assert.equal(existsSync(databasePath), true,
+    'main DB deletion must remain available only through the offline broker-identity lifecycle');
+
   const writer = new Database(databasePath);
   let reader;
   let readerTransactionActive = false;
