@@ -698,6 +698,9 @@ diff --git a/src/endpoints/chats.js b/src/endpoints/chats.js
      try {
          if (!path.extname(request.body.chatfile)) {
              request.body.chatfile += '.jsonl';
+@@ -679,1 +682,1 @@
+-router.post('/export', validateAvatarUrlMiddleware, async function (request, response) {
++router.post('/export', validateAvatarUrlMiddleware, hostBulkMutationGuard, async function (request, response) {
 @@ -748,8 +751,8 @@
          console.error('chat export failed.', err);
          return response.sendStatus(400);
