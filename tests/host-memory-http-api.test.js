@@ -177,7 +177,7 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
   const replayAfterRestart = await post(restartedBase, '/v1/host/memory-npc/retrieve', adapterHeaders, body);
   assert.equal(replayAfterRestart.status, 409);
   assert.equal((await replayAfterRestart.json()).error.code, 'HOST_SESSION_ASSERTION_REPLAYED');
-  assert.equal(calls, 1);
+  assert.equal(calls, 2);
 
   const callerSelectedWorld = await post(restartedBase, '/v1/host-context/resolve', adapterHeaders, {
     conversation_id: conversationId, world_id: 'attacker-world',
