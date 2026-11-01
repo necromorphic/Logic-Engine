@@ -135,7 +135,7 @@ function validReconciliation(body) {
     || Object.getPrototypeOf(body) !== Object.prototype
     || Object.keys(body).some(key => !RECONCILE_ALLOWED_FIELDS.has(key))
     || !validId(body.conversation_id)
-    || typeof body.complete !== 'boolean'
+    || body.complete !== false
     || !Array.isArray(body.versions)) return false;
   return body.versions.every(version => version && typeof version === 'object' && !Array.isArray(version)
     && Object.getPrototypeOf(version) === Object.prototype
@@ -153,8 +153,9 @@ function validReconciliation(body) {
 /**
  * Same-origin SillyTavern server proxy for a complete digest-only Host snapshot.
  * The caller cannot select the Core URL or provide Core/adapter credentials.
- * The complete flag is passed through exactly; the current bridge sets it false
- * until all lifecycle paths and pinned-source attestation are accepted.
+ * The browser cannot assert inventory completeness. The proxy requires and
+ * forwards complete=false until lifecycle paths and pinned-source attestation
+ * are accepted by an independently reviewed Host implementation.
  */
 export function createHostInventoryReconcileProxyHandler({
   env = process.env,
