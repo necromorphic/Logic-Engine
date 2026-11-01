@@ -182,7 +182,7 @@ test('real Provider record revoke after Core source retrieval blocks disclosure'
     conversationId: 'provider-e2e-conversation',
   });
   assert.equal(result.status, 'non_ready');
-  assert.equal(result.reason, 'memory_record_authorization_unavailable');
+  assert.equal(result.reason, 'memory_record_access_revoked');
   assert.deepEqual(result.candidates, []);
   assert.equal(JSON.stringify(result).includes('visible source-a'), false);
 });
