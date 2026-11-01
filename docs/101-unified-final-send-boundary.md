@@ -64,12 +64,14 @@ The same file also contains model-discovery/status fetches (for example model li
 - `MemoryDispatchGateway.dispatchProtectedRequest` now requires an in-process `transport` function on each request. Missing, async, or otherwise invalid capabilities fail before the ledger row and before transport invocation.
 - The Gateway invokes that capability exactly once synchronously after committing durable `DISPATCH_STARTED` and while holding the shared coordinator; it awaits the returned Promise only after releasing the coordinator.
 - The serialized loopback HTTP endpoint no longer attempts protected dispatch. It authenticates/signature-checks the envelope, then returns `503 IN_PROCESS_TRANSPORT_REQUIRED`; JSON cannot carry a function capability.
-- Added `host-adapter/protected-memory-final-send.mjs`: trusted Host handlers supply already-resolved endpoint/headers and exact serialized POST body; a mandatory synchronous resolver classifies Memory from trusted server-side request context. Only explicit `null` permits ordinary direct fetch; missing/indeterminate classification fails closed. The helper creates a dormant closure and passes it in-process to the Gateway. Streaming forwarding is awaited inside the transport Promise, so a stream-forward failure becomes an ambiguous Gateway outcome.
-- Added `host-adapter/sillytavern-generation-bridge.mjs`: an AsyncLocalStorage bridge designed to wrap the single SillyTavern `/generate` handler, intercepting provider fetches only inside generation context while leaving model-discovery fetches untouched. It also prevents the legacy streaming-forward call from writing a second time after Gateway-owned forwarding.
-- Added adapter/bridge tests covering every registered sender family, exact body preservation, dormant capability, unknown-route zero-egress, indeterminate-classification zero-egress, streaming-forward failure/once-only forwarding, and ordinary non-Memory send behavior.
-- Gateway regression tests cover missing capability and async capability rejection before `DISPATCH_STARTED`.
+- Added `host-adapter/protected-memory-final-send.mjs`: trusted Host handlers supply the resolved endpoint/headers and exact serialized POST body; a mandatory synchronous resolver classifies Memory from trusted server-side request context. Only explicit `null` permits ordinary direct fetch; missing/indeterminate classification fails closed. The helper creates a dormant request-scoped transport capability and passes it in-process to the Gateway.
+- Gateway now requires a complete Core policy authority tuple `authority_id + generation + fingerprint` before dispatch and repeats the exact tuple check after upstream completion.
+- **FINAL RESPONSE REVALIDATION** now reacquires the shared Coordinator after inference, rejects pending/changed accepted heads, and re-reads Core readiness/source lineage, Provider grant/candidates, and the exact policy tuple before Host release. A failed revalidation suppresses the response and leaves the request `UNKNOWN` / non-replayable.
+- Streaming no longer forwards the upstream response inside the transport Promise. After successful final revalidation, Gateway invokes the Host response writer synchronously while holding the Coordinator lease, then awaits stream I/O after releasing the lease. A revoke during inference therefore prevents the first response write; a stream-forward failure is recorded as ambiguous.
+- Added an actual Gateway integration test over all 25 registered sender families. Each family traverses the shared helper and real Gateway; the test asserts exactly one upstream fetch and one completed ledger row per family. Added revoke-during-send, policy-rotation-during-send, stream-withheld-on-revoke, stream-write-under-lease, and real child-process crash/restart tests.
+- Added bridge/adapter tests for exact body preservation, dormant capability, unknown-route zero-egress, indeterminate-classification zero-egress, once-only streaming forwarding, and ordinary non-Memory behavior.
 
-These changes provide the in-process transport contract and a common helper/bridge, but do **not** yet modify the pinned SillyTavern `chat-completions.js` imports and `/generate` handler to install the bridge. That Host patch and a pinned-Host zero-egress matrix remain mandatory.
+These changes implement and test the Logic-Engine-side dispatch/revalidation primitive. They do **not** wire the helper into the supplied SillyTavern 1.19.0 native sender call sites. No source patch to SillyTavern is allowed; the inspected Extension Manager/server-plugin APIs still do not prove an unbypassable native final-send hook. Native Host route coverage and end-to-end zero-egress therefore remain blocked.
 
 ## 6. Required implementation shape
 
@@ -78,7 +80,7 @@ These changes provide the in-process transport contract and a common helper/brid
 3. The capability closes over server-owned endpoint, headers, method, exact serialized bytes, abort signal and response handling. It is not accepted from browser JSON and is not serializable.
 4. The Gateway validates current Core/Provider authority, acquires the shared coordinator, commits durable `DISPATCH_STARTED`, then invokes the capability exactly once while still holding the coordinator. The network response is awaited only after releasing the coordinator.
 5. Revocation/source invalidation and dispatch-start must use the same coordinator order. Before start: zero egress. After start: no recall claim; uncertain start/response is `UNKNOWN`, with no automatic retry.
-6. Streaming and non-streaming must use the same final-send boundary. Streaming response forwarding is part of the request-scoped capability and must not create a second sender.
+6. Streaming and non-streaming use the same final-send boundary. Streaming fetch returns the upstream response without forwarding; Gateway performs FINAL RESPONSE REVALIDATION, starts the first Host write synchronously under the Coordinator lease, and awaits stream I/O only after lease release. No second sender is permitted.
 7. Startup recovery converts stranded `DISPATCH_STARTED` rows to `UNKNOWN`; no replay of ambiguous requests.
 8. Unrecognized or not-yet-wired sender paths fail closed for protected Memory. There is no direct-fetch fallback.
 
@@ -111,7 +113,7 @@ The Google Provider Egress Relay may be the transport implementation selected by
 | Retry and ambiguous outcome | Gateway records `UNKNOWN`, blocks digest replay; full Host retry policy not yet proven | PARTIAL |
 | Streaming | Adapter waits for stream forwarding within transport Promise; pinned Host integration not done | PARTIAL |
 | Crash recovery | Gateway startup converts stranded `DISPATCH_STARTED` to `UNKNOWN` | PARTIAL |
-| Zero-egress regression across all protected senders | Helper tests cover registry, unknown route and capability absence; pinned Host matrix not done | PARTIAL |
+| Upstream call-count regression across sender families | 25 registered sender families traverse the real Gateway/helper integration test; exactly one upstream call and completed ledger row per family. Native ST sender call sites remain unconnected | PARTIAL |
 | Relay separate from Memory authorization | Required architectural boundary documented; implementation wiring not yet present | BLOCKED |
 
 **Safety state:** Host integration NON_READY; Memory → NPC remains DISABLED / FAIL-CLOSED. No merge or production activation is authorized by this document.
