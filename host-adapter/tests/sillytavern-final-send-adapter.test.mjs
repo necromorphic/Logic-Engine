@@ -57,12 +57,22 @@ test('unregistered SillyTavern sender is denied for protected Memory generation'
 
   assert.throws(() => adapter.dispatch({
     request,
+    response,
     senderRoute: adapter.resolveSenderRoute(request),
     endpointUrl: 'https://provider.example/v1/chat/completions',
     requestInit,
     stream: false,
     transport: async () => ({ status: 200 }),
   }), /MEMORY_DISPATCH_NOT_READY/);
+});
+
+test('all separately routed native text generators map to the shared protected sender registry', () => {
+  const adapter = createAdapter({ resolveProtectedMemory: () => null });
+  assert.equal(adapter.resolveSenderRoute({}, 'text-completions'), 'text-completions');
+  assert.equal(adapter.resolveSenderRoute({}, 'kobold'), 'kobold');
+  assert.equal(adapter.resolveSenderRoute({}, 'novelai-text'), 'novelai-text');
+  assert.equal(adapter.resolveSenderRoute({}, 'horde-text'), 'horde-text');
+  assert.equal(adapter.resolveSenderRoute({}, 'unrecognized-generation-route'), 'unregistered');
 });
 
 test('registered protected sender is delegated to the Core Gateway', () => {
@@ -87,6 +97,7 @@ test('registered protected sender is delegated to the Core Gateway', () => {
   };
   const adapter = createAdapter({ resolveProtectedMemory: () => protectedContext, gateway });
   const request = { body: { chat_completion_source: 'OPENAI', stream: false } };
+  const response = {};
 
   assert.equal(adapter.dispatch({
     request,
