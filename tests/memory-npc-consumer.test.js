@@ -536,6 +536,8 @@ test('content field configuration must match fields the Core read boundary can d
   assert.throws(() => new MemoryNpcConsumer({
     authorizedReadService: { readEntityFields() {} },
     actorBindingService: { resolve() {} },
+    adapterId: 'adapter-a',
+    coreQueryAuthorizer: () => true,
     memoryProvider: {
       authorizeQuery() {},
       retrieveCandidates() {},
