@@ -1,7 +1,7 @@
 import { access, lstat, mkdir, open, realpath, stat } from 'node:fs/promises';
 import { constants as fsConstants } from 'node:fs';
 import { arch, hostname, release, type as osType } from 'node:os';
-import { dirname, resolve } from 'node:path';
+import { dirname, parse, resolve } from 'node:path';
 import { createCapabilityEvidence } from './policy.js';
 
 const ADAPTER_VERSION = '1.0.0';
@@ -12,6 +12,24 @@ function capability(id, status, required, evidenceSource, observedSummary, limit
     id, status, required, evidenceSource, observedSummary,
     adapterVersion: ADAPTER_VERSION, limitations,
   });
+}
+
+async function pathHasSymlinkAncestor(path) {
+  const absolute = resolve(path);
+  const root = parse(absolute).root;
+  const segments = absolute.slice(root.length).split(/[\\\\/]+/).filter(Boolean);
+  let cursor = root;
+  for (const segment of segments) {
+    cursor = resolve(cursor, segment);
+    try {
+      const item = await lstat(cursor);
+      if (item.isSymbolicLink()) return cursor;
+    } catch (error) {
+      if (error?.code === 'ENOENT') return null;
+      throw error;
+    }
+  }
+  return null;
 }
 
 async function accessStatus(path, mode) {
@@ -119,10 +137,13 @@ export function createPlatformSecurityAdapter({ platform = process.platform } = 
   }
 
   async function ensurePrivateDirectory(inputPath, policy = 'private-owner') {
+    if (policy !== 'private-owner') return capability('filesystem.private-directory.create', 'UNSUPPORTED', true, 'platform-adapter', 'Requested directory policy is not implemented.', ['Only owner-private Portable/Desktop directories are implemented.']);
     if (family !== 'linux') {
       return capability('filesystem.private-directory.create', 'UNSUPPORTED', true, 'platform-adapter', 'Private directory ACL enforcement is not implemented for this platform.', ['No Windows ACL mutation or effective-access verification is performed.']);
     }
     const path = resolve(inputPath);
+    const linkedAncestor = await pathHasSymlinkAncestor(dirname(path));
+    if (linkedAncestor) return capability('filesystem.private-directory.create', 'FAIL', true, 'node:fs.lstat', 'Symlinked ancestor detected.', ['Refused to create through a symlinked ancestor.']);
     await mkdir(path, { recursive: true, mode: 0o700 });
     const item = await lstat(path);
     if (!item.isDirectory() || item.isSymbolicLink()) {
@@ -130,21 +151,24 @@ export function createPlatformSecurityAdapter({ platform = process.platform } = 
     }
     const mode = item.mode & 0o777;
     const status = (mode & 0o077) === 0 ? 'PASS' : 'FAIL';
-    return capability('filesystem.private-directory.create', status, true, 'node:fs.mkdir+lstat', 'Directory mode ' + mode.toString(8), status === 'PASS' ? [] : ['Directory grants access beyond owner.']);
+    return capability('filesystem.private-directory.create', status === 'PASS' ? 'DEGRADED' : 'FAIL', true, 'node:fs.mkdir+lstat', 'Directory mode ' + mode.toString(8), status === 'PASS' ? ['Owner-only mode verified, but Node path APIs do not pin the parent directory against concurrent replacement; this is not a hardened filesystem boundary.'] : ['Directory grants access beyond owner.']);
   }
 
   async function ensurePrivateFile(inputPath, policy = 'private-owner') {
+    if (policy !== 'private-owner') return capability('filesystem.private-file.create', 'UNSUPPORTED', true, 'platform-adapter', 'Requested file policy is not implemented.', ['Only owner-private Portable/Desktop files are implemented.']);
     if (family !== 'linux') {
       return capability('filesystem.private-file.create', 'UNSUPPORTED', true, 'platform-adapter', 'Private file ACL enforcement is not implemented for this platform.', ['No Windows ACL mutation or effective-access verification is performed.']);
     }
     const path = resolve(inputPath);
+    const linkedAncestor = await pathHasSymlinkAncestor(dirname(path));
+    if (linkedAncestor) return capability('filesystem.private-file.create', 'FAIL', true, 'node:fs.lstat', 'Symlinked ancestor detected.', ['Refused to create through a symlinked ancestor.']);
     const handle = await open(path, 'wx', 0o600);
     try { await handle.sync(); } finally { await handle.close(); }
     const item = await lstat(path);
     if (!item.isFile() || item.isSymbolicLink()) return capability('filesystem.private-file.create', 'FAIL', true, 'node:fs.open+lstat', 'Target is not a regular file.');
     const mode = item.mode & 0o777;
     const status = (mode & 0o077) === 0 ? 'PASS' : 'FAIL';
-    return capability('filesystem.private-file.create', status, true, 'node:fs.open+lstat', 'File mode ' + mode.toString(8), status === 'PASS' ? [] : ['File grants access beyond owner.']);
+    return capability('filesystem.private-file.create', status === 'PASS' ? 'DEGRADED' : 'FAIL', true, 'node:fs.open+lstat', 'File mode ' + mode.toString(8), status === 'PASS' ? ['Owner-only mode verified, but Node path APIs do not pin the parent directory against concurrent replacement; this is not a hardened filesystem boundary.'] : ['File grants access beyond owner.']);
   }
 
   async function inspectOpenHandles() {
