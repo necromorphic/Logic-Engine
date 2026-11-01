@@ -51,3 +51,14 @@ test('patch manifest pins both server-side lifecycle Hook modules', () => {
   assert.match(manifest.createdFiles['src/logic-engine-final-send-hook.js'], /^[a-f0-9]{64}$/);
   assert.match(manifest.createdFiles['src/logic-engine-extension-install-hook.js'], /^[a-f0-9]{64}$/);
 });
+
+test('native ST Extension install/update/delete lifecycle invokes only the pinned Logic-Engine manager', () => {
+  const source = patch.toString('utf8');
+  assert.match(source, /runLogicEngineExtensionLifecycle/);
+  assert.match(source, /action: 'install'/);
+  assert.match(source, /action: 'update'/);
+  assert.match(source, /action: 'delete'/);
+  assert.match(source, /TRUSTED_REPOSITORY_PATH = '\\/necromorphic\\/Logic-Engine'/);
+  assert.match(source, /hostname\\.toLowerCase\\(\\) !== 'github.com'/);
+  assert.match(source, /LOGIC_ENGINE_EXTENSION_ORIGIN_DENIED/);
+});
