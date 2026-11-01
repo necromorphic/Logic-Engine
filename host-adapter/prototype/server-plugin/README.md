@@ -16,6 +16,19 @@ The pinned SillyTavern loader mounts this plugin at:
 
 The loader mounts plugins after `requireLoginMiddleware` and the global CSRF/session middleware. Plugin handlers still perform explicit Host identity checks; the middleware order is not treated as a substitute for Host authorization.
 
+## Server-only configuration
+
+Configure these variables for the SillyTavern server process; never put them in browser settings or extension files:
+
+- `LOGIC_ENGINE_HOST_IDENTITY_DIR` — absolute protected directory for installation/account identity records.
+- `LOGIC_ENGINE_HOST_BUILD_SHA` — must equal the pinned SillyTavern commit above.
+- `LOGIC_ENGINE_CORE_URL` — Core origin. Remote Core requires HTTPS; plain HTTP is accepted only for loopback.
+- `LOGIC_ENGINE_API_TOKEN` — Core API bearer credential.
+- `LOGIC_ENGINE_ADAPTER_ID` and `LOGIC_ENGINE_ADAPTER_TOKEN` — adapter identity and secret matching Core's `ENGINE_ADAPTER_TOKENS`.
+- `LOGIC_ENGINE_HOST_WORLD_ID` and `LOGIC_ENGINE_HOST_ACTOR_ID` — deployment-owned binding claims. They are never accepted from browser input; Core independently checks them against active durable bindings.
+
+Core must have the same adapter secret configured and an active Host conversation → World binding plus exactly one active adapter → Actor binding. If any value is absent, inventory cannot verify the selected chat, or Core denies the assertion, the Gateway fails closed.
+
 ## Routes
 
 - `GET /session` — creates/reuses a server-generated Host session UUID inside the authenticated signed ST session.
