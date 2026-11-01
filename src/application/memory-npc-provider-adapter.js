@@ -1,6 +1,7 @@
 import { existsSync, realpathSync, statSync } from 'node:fs';
 import { basename, dirname, resolve } from 'node:path';
 import { ActorBindingService } from './actor-bindings.js';
+import { HostConversationWorldBindingService } from './host-conversation-world-bindings.js';
 import { AuthorizedReadService } from './authorized-read-service.js';
 import {
   createCanonicalEntityInventoryValidator,
@@ -104,6 +105,7 @@ export function createMemoryNpcProviderAdapter({
 
   try {
     const actorBindingService = new ActorBindingService(engine);
+    const hostConversationWorldBindingService = new HostConversationWorldBindingService(engine);
     const authorizedReadService = new AuthorizedReadService(engine, actorBindingService, fieldPolicy);
     const coreAuthorizers = createHostBoundNpcKnowledgeAuthorizers({
       store: engine.store,
@@ -113,6 +115,7 @@ export function createMemoryNpcProviderAdapter({
     const consumer = new MemoryNpcConsumer({
       authorizedReadService,
       actorBindingService,
+      hostConversationWorldBindingService,
       adapterId,
       memoryProvider: provider,
       coreQueryAuthorizer: coreAuthorizers.memoryQueryAuthorizer,
