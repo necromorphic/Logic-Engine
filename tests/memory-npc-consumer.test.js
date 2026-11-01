@@ -6,7 +6,7 @@ import { ActorBindingService } from '../src/application/actor-bindings.js';
 import { AuthorizedReadService } from '../src/application/authorized-read-service.js';
 import { MemoryNpcConsumer } from '../src/application/memory-npc-consumer.js';
 
-function setup(t, { allowContent = true, authorizeQuery = true, authorizeCandidate = true, completeness = 'complete' } = {}) {
+function setup(t, { allowContent = true, authorizeQuery = true, authorizeCoreQuery = true, authorizeCandidate = true, completeness = 'complete' } = {}) {
   let contentVisible = allowContent;
   const store = new SQLiteStore(':memory:');
   const engine = new LogicEngine(store);
@@ -87,6 +87,7 @@ function setup(t, { allowContent = true, authorizeQuery = true, authorizeCandida
     authorizedReadService,
     actorBindingService: bindings,
     memoryProvider: provider,
+    coreQueryAuthorizer: () => authorizeCoreQuery,
     contentFields: ['attributes.public_note'],
   });
   t.after(() => store.close());
@@ -103,6 +104,7 @@ const request = () => ({
   worldId: 'memory-npc-world',
   adapterId: 'adapter-a',
   actorEntityId: 'npc-a',
+  conversationId: 'conversation-a',
 });
 
 test('joins trusted Memory record authorization, Core authorized source read, and NPC admission without exposing provider content', async (t) => {
@@ -161,6 +163,20 @@ test('initial/imported knowledge requires the Core assignment authority path', a
     assert.deepEqual(result.candidates, []);
     assert.equal(result.reason, 'memory_result_incomplete_or_unavailable');
   }
+});
+
+test('Core query authorization denial blocks Provider retrieval', async (t) => {
+  const { consumer, provider } = setup(t, { authorizeCoreQuery: false });
+  let retrievalCalled = false;
+  provider.retrieveCandidates = async () => {
+    retrievalCalled = true;
+    throw new Error('must not retrieve');
+  };
+  const result = await consumer.retrieveForNpc(request());
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'query_access_unconfirmed');
+  assert.equal(retrievalCalled, false);
+  assert.deepEqual(result.candidates, []);
 });
 
 test('query denial and incomplete Memory results fail closed without returning candidates', async (t) => {
