@@ -11,7 +11,8 @@
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
     "test": "node --import ./tests/configure-test-env.js --test",
-    "benchmark:replay": "node benchmarks/replay-rollback-growth.mjs"
+    "benchmark:replay": "node benchmarks/replay-rollback-growth.mjs",
+    "integration:patch-manager": "node scripts/Manage-SillyTavernIntegration.js"
   },
   "devDependencies": {
     "ajv": "8.17.1",
