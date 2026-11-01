@@ -305,7 +305,15 @@
               "identitySource",
               "directoryMutationBoundary",
               "applicationUid"
-            ]
+            ],
+            "properties": {
+              "filesystem": { "type": "string", "minLength": 1 },
+              "identitySource": { "const": "opened-handle" },
+              "directoryMutationBoundary": {
+                "enum": ["broker-exclusive-owner", "dedicated-service-identity"]
+              },
+              "applicationUid": { "type": "integer", "minimum": 1 }
+            }
           }
         }
       }
