@@ -8,6 +8,7 @@ import {
   GatewayCheckError,
   describeGatewayFailure,
   describeGatewayResult,
+  fetchGatewayIdentity,
   fetchGatewaySession,
 } from '../bridge-core.mjs';
 
@@ -59,6 +60,37 @@ test('Gateway client validates the server-generated signed session envelope', as
   }
 });
 
+test('Gateway identity route returns only server-owned installation/account/session identifiers', async () => {
+  let called;
+  const identity = {
+    host_installation_id: '2e6b0a80-4e73-4c66-aaf3-7a6e62c7f401',
+    authenticated_account_id: '3e6b0a80-4e73-4c66-aaf3-7a6e62c7f402',
+    host_session_id: '4e6b0a80-4e73-4c66-aaf3-7a6e62c7f403',
+    identity_source: 'SERVER_PERSISTED_OPAQUE_IDENTITY',
+  };
+  const result = await fetchGatewayIdentity(async (url, options) => {
+    called = { url, options };
+    return { ok: true, status: 200, json: async () => identity };
+  });
+  assert.deepEqual(result, identity);
+  assert.equal(called.url, '/api/plugins/logic-engine-extension-gateway/identity');
+  assert.equal(called.options.credentials, 'same-origin');
+  assert.equal(called.options.method, 'GET');
+  assert.equal(called.options.cache, 'no-store');
+});
+
+test('Gateway identity route rejects malformed or caller-like identity envelopes', async () => {
+  await assert.rejects(
+    fetchGatewayIdentity(async () => ({ ok: true, status: 200, json: async () => ({
+      host_installation_id: 'browser-selected',
+      authenticated_account_id: '3e6b0a80-4e73-4c66-aaf3-7a6e62c7f402',
+      host_session_id: '4e6b0a80-4e73-4c66-aaf3-7a6e62c7f403',
+      identity_source: 'SERVER_PERSISTED_OPAQUE_IDENTITY',
+    }) })),
+    error => error.kind === 'error',
+  );
+});
+
 test('Gateway connection and timeout failures are distinguished', async () => {
   await assert.rejects(
     fetchGatewaySession(async () => { throw new TypeError('Failed to fetch'); }),
@@ -103,12 +135,17 @@ test('extension manifest and UI use the supported ST extension lifecycle', async
   assert.equal(manifest.hooks.disable, 'cleanup');
   assert.match(js, /renderExtensionTemplateAsync/);
   assert.match(js, /fetchGatewaySession/);
-  assert.match(js, /chat_metadata, getRequestHeaders/);
+  assert.match(js, /chat_metadata, getCurrentChatId, getRequestHeaders, saveMetadata/);
+  assert.match(js, /resolveStableHostConversationIdentity/);
+  assert.ok(js.includes("resolved.conversationUuid"));
   assert.ok(js.includes('/api/plugins/logic-engine-extension-gateway/context'));
   assert.match(js, /new AbortController\(\)/);
   assert.match(js, /export function cleanup\(\)/);
   assert.match(html, /logic_engine_check/);
   assert.match(html, /logic_engine_context/);
+  const bundledIdentity = await readFile(resolve(root, 'conversation-identity.mjs'), 'utf8');
+  const canonicalIdentity = await readFile(resolve(root, '..', '..', 'prototype', 'conversation-identity.mjs'), 'utf8');
+  assert.equal(bundledIdentity, canonicalIdentity);
   assert.match(html, /api\/plugins\/logic-engine-extension-gateway/);
   assert.doesNotMatch(js, /LOGIC_ENGINE_CORE_URL|host-version-ledger|logicEngineHostLifecycle/);
   assert.doesNotMatch(html, /127\.0\.0\.1:8787|Bearer\s+[A-Za-z0-9]/);
