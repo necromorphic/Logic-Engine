@@ -112,9 +112,9 @@ function targetInfo(stPath) {
   // extended-length prefixes, separator forms, or drive-letter casing.
   // Canonicalize those representation differences before comparing roots.
   const comparablePath = value => {
-    let normalized = resolve(value).replace(/^\\\\\\?\\/, '');
-    if (process.platform === 'win32') normalized = normalized.replaceAll('/', '\\\\').toLowerCase();
-    return normalized.replace(/[\\\\/]+$/, '');
+    let normalized = resolve(value);
+    if (process.platform === 'win32') normalized = normalized.replace(/^\\\\\?\\/, '').toLowerCase();
+    return normalized.replace(/[\\/]+$/, '');
   };
   if (comparablePath(root) !== comparablePath(gitRoot)) {
     throw new Error('Target path must be the SillyTavern Git worktree root.');
