@@ -6,6 +6,7 @@ import { LogicEngine } from '../src/application/engine.js';
 import { ActorBindingService } from '../src/application/actor-bindings.js';
 import { HostConversationWorldBindingService } from '../src/application/host-conversation-world-bindings.js';
 import { createHostBoundNpcKnowledgeAuthorizers } from '../src/application/npc-knowledge-authorization.js';
+import { createAuthenticatedHostSessionContext } from '../src/application/host-session-context.js';
 
 const sourceBytes = Buffer.from('approved deployment-owned source');
 const source = {
@@ -16,6 +17,13 @@ const source = {
   authorization_ref: 'rule:author-initial-v1',
   sha256: createHash('sha256').update(sourceBytes).digest('hex'),
 };
+const HOST_SESSION_ID = '11111111-1111-4111-8111-111111111111';
+const HOST_CONVERSATION_ID = HOST_SESSION_ID + ':22222222-2222-4222-8222-222222222222:33333333-3333-4333-8333-333333333333';
+const hostRequest = {
+  user: { profile: { handle: 'alice' } },
+  session: { handle: 'alice', logicEngineSessionId: HOST_SESSION_ID, logicEngineSessionHandle: 'alice' },
+};
+
 const importedSource = {
   ...source,
   source_kind: 'imported',
@@ -44,7 +52,7 @@ function setup(t) {
   const conversations = new HostConversationWorldBindingService(engine);
   conversations.bind({
     adapterId: 'adapter-st',
-    conversationId: 'session:installation:conversation',
+    conversationId: HOST_CONVERSATION_ID,
     worldId: 'world-a',
   });
   actors.bind('world-a', 'adapter-st', 'npc-a');
@@ -56,7 +64,7 @@ function setup(t) {
   const snapshot = engine.getSnapshot('world-a');
   const scope = {
     world_id: 'world-a',
-    conversation_id: 'session:installation:conversation',
+    conversation_id: HOST_CONVERSATION_ID,
     adapter_id: 'adapter-st',
     actor_id: 'npc-a',
     recipient: 'model',
@@ -64,7 +72,8 @@ function setup(t) {
     world_revision: snapshot.world_revision,
     commit_sequence: snapshot.commit_sequence,
   };
-  return { store, engine, actors, conversations, authorizers, scope };
+  const hostSessionContext = createAuthenticatedHostSessionContext(hostRequest, HOST_CONVERSATION_ID);
+  return { store, engine, actors, conversations, authorizers, scope, hostSessionContext };
 }
 
 test('production NPC query authorization requires a branded authenticated Host session and active bindings', (t) => {
