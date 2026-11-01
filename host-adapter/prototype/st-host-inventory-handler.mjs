@@ -219,8 +219,10 @@ export function createHostBulkMutationGuard({
   return async function hostBulkMutationGuard(request, response, next) {
     response.set('Cache-Control', 'no-store, private');
     response.set('Vary', 'Cookie');
-    const directories = request?.user?.directories;
-    if (!directories || !['root', 'chats', 'groups', 'groupChats'].every(key =>
+    const identity = getAuthenticatedHostIdentity(request, { requireDirectories: true });
+    if (!identity) return response.sendStatus(403);
+    const { directories } = identity;
+    if (!['root', 'chats', 'groups', 'groupChats'].every(key =>
       typeof directories[key] === 'string' && path.isAbsolute(directories[key]))) {
       return response.sendStatus(403);
     }
