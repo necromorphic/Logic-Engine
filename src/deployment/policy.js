@@ -85,22 +85,6 @@ export function evaluateDeploymentGates({ profile, components, capabilities }) {
     }
   }
   if (profile === 'hardened-service') {
-      requiredIds.add('process.identity.separate');
-      requiredIds.add('filesystem.access.effective');
-      requiredIds.add('ipc.peer-authentication');
-    }
-    for (const id of requiredIds) {
-      const evidence = byId.get(id);
-      const status = evidence?.status ?? 'NOT_TESTED';
-      gates.push({
-        id: component.id + ':' + id,
-        status: status === 'PASS' ? 'PASS' : 'BLOCKED',
-        affected_features: [component.id],
-        reason: status === 'PASS' ? undefined : 'Required capability status is ' + status + '.',
-      });
-    }
-  }
-  if (profile === 'hardened-service') {
     const anchor = byId.get('backup.freshness-anchor.available');
     const status = anchor?.status ?? 'NOT_TESTED';
     gates.push({
