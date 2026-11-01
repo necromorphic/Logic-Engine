@@ -74,10 +74,25 @@ test('Linux SQLite VFS obtains main and sidecar descriptors from the authenticat
 
   const registrar = new DatabaseSync(':memory:');
   t.after(() => registrar.close());
+  const registerBrokerRole = () => registrar.prepare(
+    'SELECT logic_engine_vfs_probe_register_broker_role(?, ?, ?) AS registered'
+  ).get(databasePath, 'core', socketPath).registered;
+  const expectedBrokerUid = String(process.getuid());
+  delete process.env.LOGIC_ENGINE_BROKER_UID;
+  assert.throws(
+    registerBrokerRole,
+    /broker role enrollment handshake failed/i,
+    'broker authentication must fail closed when the expected service UID is absent',
+  );
+  process.env.LOGIC_ENGINE_BROKER_UID = String(process.getuid() + 1);
+  assert.throws(
+    registerBrokerRole,
+    /broker role enrollment handshake failed/i,
+    'broker authentication must reject a peer whose UID differs from trusted Host configuration',
+  );
+  process.env.LOGIC_ENGINE_BROKER_UID = expectedBrokerUid;
   assert.equal(
-    registrar.prepare(
-      'SELECT logic_engine_vfs_probe_register_broker_role(?, ?, ?) AS registered'
-    ).get(databasePath, 'core', socketPath).registered,
+    registerBrokerRole(),
     1,
     'broker-first enrollment must validate the manifest-owned main file without a local path open',
   );
