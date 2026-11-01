@@ -1,10 +1,9 @@
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import { dirname, resolve } from 'node:path';
+import { resolve } from 'node:path';
 import Ajv2020 from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
 
-const moduleDirectory = dirname(fileURLToPath(import.meta.url));
 const manifestSchemaUrl = new URL('../../schemas/deployment-manifest.schema.json', import.meta.url);
 const reportSchemaUrl = new URL('../../schemas/deployment-report.schema.json', import.meta.url);
 
@@ -42,11 +41,8 @@ export function validateDeploymentManifest(manifest) {
   const componentIds = new Set(manifest.components.map((component) => component.id));
   const domains = new Set(manifest.components.map((component) => component.security_domain));
   for (const component of manifest.components) {
-    if (!domains.has(component.security_domain)) {
-      throw new Error('DEPLOYMENT_MANIFEST_UNKNOWN_SECURITY_DOMAIN:' + component.security_domain);
-    }
-    if (manifest.profile === 'portable-desktop' && component.execution_mode === 'managed-process') {
-      throw new Error('PORTABLE_PROFILE_MANAGED_PROCESS_REQUIRES_HARDENED_PROFILE:' + component.id);
+    if (typeof component.security_domain !== 'string' || !component.security_domain.trim()) {
+      throw new Error('DEPLOYMENT_MANIFEST_SECURITY_DOMAIN_REQUIRED:' + component.id);
     }
   }
   for (const resource of manifest.resources) {
