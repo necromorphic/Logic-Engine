@@ -696,6 +696,7 @@ export class MemoryNpcConsumer {
       contentByIdentity.set(identity, {
         record_ref: candidate.record.ref,
         record_version: candidate.record.version,
+        authorization_generation: candidate.authorization_generation,
         source_entity_id: candidate.source.entity_id,
         epistemic_kind: candidate.epistemic_kind,
         evidence_assessment: candidate.lifecycle?.evidence_assessment,
