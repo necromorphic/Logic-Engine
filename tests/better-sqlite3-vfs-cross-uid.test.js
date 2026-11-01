@@ -83,7 +83,7 @@ test('distinct-UID broker protects better-sqlite3 main, journal, WAL and SHM fil
     // Use a root-owned alias parent so the intentionally incorrect expected
     // UID reaches the SO_PEERCRED comparison instead of failing the parent
     // ownership precondition first.
-    process.env.LOGIC_ENGINE_VFS_ROLE_PATH = '/var/lib/logic-engine-broker-uid-mismatch.sqlite';
+    process.env.LOGIC_ENGINE_VFS_ROLE_PATH = `/var/lib/logic-engine-broker-uid-mismatch-${process.pid}.sqlite`;
     process.env.LOGIC_ENGINE_BROKER_UID = String(Number(expectedBrokerUid) + 1);
     assert.throws(
       () => registerRole.get(),
