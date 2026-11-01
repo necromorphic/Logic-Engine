@@ -11,6 +11,8 @@ const CONFIG = {
   LOGIC_ENGINE_ADAPTER_TOKEN: 'adapter-token-long-enough',
 };
 const canonical = value => Array.isArray(value) ? '[' + value.map(canonical).join(',') + ']' : value && typeof value === 'object' ? '{' + Object.keys(value).sort().map(key => JSON.stringify(key) + ':' + canonical(value[key])).join(',') + '}' : JSON.stringify(value);
+const GLOBAL_DATA_ROOT = '/tmp/st-global-data-root';
+globalThis.DATA_ROOT = GLOBAL_DATA_ROOT;
 const SESSION_ID = '11111111-1111-4111-8111-111111111111';
 const HOST_CONVERSATION_ID = '22222222-2222-4222-8222-222222222222:66666666-6666-4666-8666-666666666666:33333333-3333-4333-8333-333333333333';
 const LIFECYCLE_CONVERSATION_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa:22222222-2222-4222-8222-222222222222:33333333-3333-4333-8333-333333333333';
@@ -47,6 +49,7 @@ const rootEntries = [{
 test('root inventory persistence forwards only bounded digest metadata with server identity and credentials', async () => {
   let observed;
   const identityStore = {
+    assertOutsideRoot: async root => assert.equal(root, GLOBAL_DATA_ROOT),
     resolveAuthenticatedAccount: async handle => {
       assert.equal(handle, 'alice');
       return {
@@ -522,10 +525,13 @@ test('lifecycle status performs durable server-side crash recovery before allowi
   };
   const proxy = createHostLifecycleJournalProxy({
     env: CONFIG,
-    identityStore: { resolveAuthenticatedAccount: async () => ({
-      host_installation_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
-      authenticated_account_id: '22222222-2222-4222-8222-222222222222',
-    }) },
+    identityStore: {
+      assertOutsideRoot: async root => assert.equal(root, GLOBAL_DATA_ROOT),
+      resolveAuthenticatedAccount: async () => ({
+        host_installation_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        authenticated_account_id: '22222222-2222-4222-8222-222222222222',
+      }),
+    },
     receiptStore,
     fetchImpl: async (url, options) => {
       calls.push({ url: String(url), options });
@@ -564,10 +570,13 @@ test('lifecycle journal proxy status is session-bound and forwards only server-d
   let observed;
   const proxy = createHostLifecycleJournalProxy({
     env: CONFIG,
-    identityStore: { resolveAuthenticatedAccount: async () => ({
-      host_installation_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
-      authenticated_account_id: '22222222-2222-4222-8222-222222222222',
-    }) },
+    identityStore: {
+      assertOutsideRoot: async root => assert.equal(root, GLOBAL_DATA_ROOT),
+      resolveAuthenticatedAccount: async () => ({
+        host_installation_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        authenticated_account_id: '22222222-2222-4222-8222-222222222222',
+      }),
+    },
     fetchImpl: async (url, options) => {
       observed = { url: String(url), options };
       return { status: 200, json: async () => ({ lifecycle: { status: 'NO_PENDING_MUTATION' } }) };
