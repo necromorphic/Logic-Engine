@@ -241,10 +241,36 @@ test('pinned ST 1.19.0 supported chat mutations persist; chat deletion, rename, 
     hostCommit: expectedSha,
   });
   let receiptCommitError = null;
+  let receiptCommitChangedPaths = [];
+  const preparedRootEntries = new Map();
+  const enumerateReceiptEntries = async directories => {
+    const inventory = await enumeratePinnedHostDataInventory({ directories, hostCommit: expectedSha });
+    if (inventory?.filesystem?.status !== 'complete' || !Array.isArray(inventory.filesystem.entries)) {
+      throw new Error('Harness could not enumerate receipt diagnostic inventory');
+    }
+    return inventory.filesystem.entries;
+  };
+  const prepareReceipt = receiptStore.prepare.bind(receiptStore);
+  receiptStore.prepare = async (scope, directories) => {
+    const entries = await enumerateReceiptEntries(directories);
+    const result = await prepareReceipt(scope, directories);
+    preparedRootEntries.set(scope.mutation_id, entries);
+    return result;
+  };
   const commitReceipt = receiptStore.commit.bind(receiptStore);
-  receiptStore.commit = async (...args) => {
-    try { return await commitReceipt(...args); }
-    catch (error) { receiptCommitError = (error?.message ?? 'unknown receipt commit error') + (error?.reason ? ':' + error.reason : ''); throw error; }
+  receiptStore.commit = async (scope, directories) => {
+    const before = preparedRootEntries.get(scope.mutation_id) ?? [];
+    const after = await enumerateReceiptEntries(directories);
+    const beforeByPath = new Map(before.map(entry => [entry.path, entry]));
+    const afterByPath = new Map(after.map(entry => [entry.path, entry]));
+    receiptCommitChangedPaths = [...new Set([...beforeByPath.keys(), ...afterByPath.keys()])]
+      .filter(path => JSON.stringify(beforeByPath.get(path) ?? null) !== JSON.stringify(afterByPath.get(path) ?? null))
+      .sort();
+    try { return await commitReceipt(scope, directories); }
+    catch (error) {
+      receiptCommitError = (error?.message ?? 'unknown receipt commit error') + (error?.reason ? ':' + error.reason : '');
+      throw error;
+    }
   };
   const identityStore = new HostIdentityStore({ directory: identityDirectory });
   const hostIdentity = await identityStore.resolveAuthenticatedAccount(hostHandle);
@@ -295,7 +321,7 @@ test('pinned ST 1.19.0 supported chat mutations persist; chat deletion, rename, 
       mutation_digest: scope.mutation_digest,
       occurred_at: new Date().toISOString(),
     });
-    assert.equal(response.status, 201, JSON.stringify(response.result) + (receiptCommitError ? ' (' + receiptCommitError + ')' : ''));
+    assert.equal(response.status, 201, JSON.stringify(response.result) + (receiptCommitError ? ' (' + receiptCommitError + '; changed=' + receiptCommitChangedPaths.join(',') + ')' : ''));
     assert.equal(response.result.lifecycle.status, 'appended', JSON.stringify(response.result));
     return response.result;
   };
