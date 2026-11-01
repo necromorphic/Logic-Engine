@@ -37,12 +37,12 @@ test('server plugin exposes only routes behind the authenticated ST user context
     const denied = fakeResponse();
     sessionRoute({}, denied);
     assert.equal(denied.statusCode, 403);
-    assert.equal(denied.body.error.code, 'ST_SESSION_REQUIRED');
+    assert.equal(denied.body.error.code, 'ST_USER_CONTEXT_REQUIRED');
 
     const allowed = fakeResponse();
     sessionRoute({ user: { profile: { handle: 'test-user' } } }, allowed);
     assert.equal(allowed.statusCode, 200);
-    assert.equal(allowed.body.authenticated, true);
+    assert.equal(allowed.body.host_context_valid, true);
     assert.equal(allowed.body.adapter, 'sillytavern-server-plugin');
     assert.notEqual(allowed.body.subject_id, 'test-user');
     assert.match(allowed.body.subject_id, /^[a-f0-9]{64}$/);
