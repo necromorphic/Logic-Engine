@@ -66,7 +66,7 @@ test('authenticated Host capability construction has no unapproved production ca
   ]);
   const violations = [];
   for (const file of productionFiles().filter(({ path }) => !trustedCapabilityFiles.has(path))) {
-    if (/\\brunWithAuthenticatedHostSession\\s*\\(/.test(file.content)) {
+    if (/\brunWithAuthenticatedHostSession\s*\(/.test(file.content)) {
       violations.push(file.path + ': direct Host capability construction');
     }
   }
