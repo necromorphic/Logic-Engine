@@ -72,6 +72,77 @@ test('source archive rows stay separate from fact records and rebuildable search
   assert.equal(JSON.stringify(result).includes(sceneText), false);
 });
 
+
+test('Provider record/version identity cannot be rebound by duplicate ingestion', (t) => {
+  const provider = setup(t);
+  const db = testDbFor(provider);
+  const record = sourceRecord();
+  assert.equal(provider.putRecord(record).status, 'stored');
+
+  assert.throws(
+    () => provider.putRecord(sourceRecord({ source_version: 'source-v2', lineage: [
+      { source_kind: 'canonical_entity', entity_id: 'entity-a', source_version: 'source-v2' },
+    ] })),
+    /MEMORY_IDENTITY_CONFLICT/,
+  );
+
+  const persisted = db.prepare(`SELECT source_version,lineage_json FROM memory_records
+    WHERE world_id=? AND record_ref=? AND record_version=?`)
+    .get(scope.world_id, record.record_ref, record.record_version);
+  assert.equal(persisted.source_version, 'source-v1');
+  assert.deepEqual(JSON.parse(persisted.lineage_json), record.lineage);
+});
+
+test('Provider accepts only exact single canonical-entity lineage', (t) => {
+  const provider = setup(t);
+  const invalidRecords = [
+    sourceRecord({ lineage: [
+      { source_kind: 'canonical_entity', entity_id: 'entity-a', source_version: 'source-v1' },
+      { source_kind: 'canonical_entity', entity_id: 'entity-b', source_version: 'source-v2' },
+    ] }),
+    sourceRecord({ lineage: [
+      { source_kind: 'canonical_entity', entity_id: 'different-entity', source_version: 'source-v1' },
+    ] }),
+    sourceRecord({ lineage: [
+      { source_kind: 'canonical_entity', entity_id: 'entity-a', source_version: 'different-version' },
+    ] }),
+    sourceRecord({ source_kind: 'derived_summary', lineage: [
+      { source_kind: 'derived_summary', entity_id: 'entity-a', source_version: 'source-v1' },
+    ] }),
+  ];
+
+  for (const record of invalidRecords) {
+    assert.throws(() => provider.putRecord(record), /Invalid direct-source Memory record/);
+  }
+  assert.equal(testDbFor(provider).prepare('SELECT COUNT(*) AS n FROM memory_records').get().n, 0);
+  assert.equal(testDbFor(provider).prepare('SELECT COUNT(*) AS n FROM memory_index_entries').get().n, 0);
+});
+
+test('Host message-version tuples are rejected as semantic Provider records', (t) => {
+  const provider = setup(t);
+  const hostTuple = {
+    ...scope,
+    record_ref: 'host:conversation-a:message-a:version-a',
+    record_version: 'version-a',
+    source_kind: 'host_message_version',
+    source_entity_id: 'message-a',
+    source_version: 'version-a',
+    content_kind: 'claim',
+    epistemic_kind: 'acquired_report',
+    producer_kind: 'host',
+    content_disposition: 'usable',
+    evidence_assessment: 'unassessed',
+    lineage: [{
+      source_kind: 'host_message_version',
+      entity_id: 'message-a',
+      source_version: 'version-a',
+    }],
+  };
+  assert.throws(() => provider.putRecord(hostTuple), /Invalid direct-source Memory record/);
+  assert.equal(testDbFor(provider).prepare('SELECT COUNT(*) AS n FROM memory_records').get().n, 0);
+  assert.equal(testDbFor(provider).prepare('SELECT COUNT(*) AS n FROM memory_index_entries').get().n, 0);
+});
+
 test('summary records remain rejected until a lineage-complete summary contract is approved', (t) => {
   const provider = setup(t);
   assert.throws(
