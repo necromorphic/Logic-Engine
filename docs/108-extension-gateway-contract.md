@@ -46,7 +46,7 @@ Host Adapter must:
 5. Call Core through its approved boundary; Core Security Gateway remains the sole authorization authority.
 6. Return `{ status: 200..599, body }`; unavailable/invalid adapter results are converted by Gateway to HTTP 503.
 
-Gateway does not authorize operation names, select a World/Actor, access Provider/Memory/NPC/Mechanics, or perform generation dispatch. Unknown operation semantics are Host Adapter/Core responsibility; unknown HTTP path/method is rejected by Gateway.
+Gateway does not authorize operation names, select a World/Actor, access Provider/Memory/NPC/Mechanics, or perform generation dispatch. Unknown operation semantics are Host Adapter/Core responsibility; unknown HTTP path/method is rejected by Gateway. Repeated request IDs are forwarded to Host Adapter again; Host Adapter/Core must reauthenticate every attempt and apply operation-specific idempotency/replay policy. Gateway does not cache an earlier authorization decision.
 
 ## Lifecycle and failure contract
 
@@ -60,7 +60,7 @@ Gateway does not authorize operation names, select a World/Actor, access Provide
 | Gateway draining/closed | 503; new requests rejected |
 | Duplicate mount on same ST app | startup error; no second route |
 
-The mounted lifecycle handle exposes `close({ drain })`. ST shutdown integration must invoke it and await draining before tearing down Host Adapter dependencies.
+The mounted lifecycle handle exposes `close({ drain })`. ST shutdown integration must invoke it and await draining before tearing down Host Adapter dependencies. A synchronous metadata-only `onDiagnostic` sink receives ingress accepted/rejected and Host Adapter result/error events. If the sink fails before dispatch, Gateway returns 503 and does not call Host Adapter. Production wiring must provide a durable audit sink; raw payloads and credentials are never included.
 
 ## Client Extension transport
 
@@ -68,7 +68,7 @@ The packaged Client Extension registers through the SillyTavern Extension manife
 
 ## Current test evidence
 
-The isolated tests cover positive ingress, exact single-route registration, duplicate mount refusal, unknown path/method, malformed and forged identity envelopes, declared and chunked body-size limits, content type, Host Adapter outage, graceful drain/closed behavior, repeated request forwarding, and the Client Extension's single same-origin transport.
+The isolated tests cover positive ingress, exact single-route registration, duplicate mount refusal, unknown path/method, malformed and forged identity envelopes, declared and chunked body-size limits, content type, Host Adapter outage, graceful drain/closed behavior, repeated request forwarding, metadata-only diagnostics and audit-sink fail-closed behavior, and the Client Extension's single same-origin transport.
 
 These tests prove the Gateway module's local contract only. They do not yet prove:
 - the route is mounted in the target ST 1.19.0 process;
