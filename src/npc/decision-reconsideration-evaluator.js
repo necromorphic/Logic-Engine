@@ -1,3 +1,5 @@
+import { types as utilTypes } from "node:util";
+
 /**
  * Pure trigger evaluator for reconsidering a prior NPC decision.
  *
@@ -24,7 +26,7 @@ function nonEmptyString(value) {
 
 function isPlainDataObject(value) {
   try {
-    if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+    if (value === null || typeof value !== "object" || utilTypes.isProxy(value) || Array.isArray(value)) return false;
     const prototype = Object.getPrototypeOf(value);
     if (prototype !== Object.prototype && prototype !== null) return false;
     for (const key of Reflect.ownKeys(value)) {
@@ -40,7 +42,7 @@ function isPlainDataObject(value) {
 
 function isDenseDataArray(value, maxLength) {
   try {
-    if (!Array.isArray(value) || value.length > maxLength) return false;
+    if (utilTypes.isProxy(value) || !Array.isArray(value) || value.length > maxLength) return false;
     const iterator = Object.getOwnPropertyDescriptor(Array.prototype, Symbol.iterator);
     if (!iterator || !Object.hasOwn(iterator, "value") || iterator.value !== ARRAY_ITERATOR) return false;
     for (let i = 0; i < value.length; i += 1) {
