@@ -66,3 +66,13 @@ test('edit/update notifications use the current host-local edit index', () => {
   assert.match(script, /event_types\.MESSAGE_EDITED,\s*this_edit_mes_id/);
   assert.match(script, /event_types\.MESSAGE_UPDATED,\s*this_edit_mes_id/);
 });
+
+test('Host inventory route is mounted behind SillyTavern authentication middleware', () => {
+  const loginMiddleware = serverMain.indexOf('app.use(requireLoginMiddleware);');
+  const privateEndpointMount = serverMain.indexOf('setupPrivateEndpoints(app);');
+  assert.ok(loginMiddleware >= 0, 'requireLoginMiddleware mount must exist');
+  assert.ok(privateEndpointMount > loginMiddleware,
+    'private endpoint routers must be mounted after requireLoginMiddleware');
+  assert.match(hostRoutePatch,
+    /app\\.use\\('\\/api\\/logic-engine\\/host',\\s*logicEngineHostInventoryRouter\\);/);
+});
