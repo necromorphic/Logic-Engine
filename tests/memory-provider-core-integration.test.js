@@ -18,6 +18,8 @@ const hostRequest = {
   user: { profile: { handle: 'integration-user' } },
   session: { handle: 'integration-user', logicEngineSessionId: HOST_SESSION_ID, logicEngineSessionHandle: 'integration-user' },
 };
+const authenticatedHostRequests = new WeakSet([hostRequest]);
+const isAuthenticatedHostRequest = request => authenticatedHostRequests.has(request);
 
 function setup(t, { twoRecords = false, providerPath = null } = {}) {
   const testDb = createProviderTestDb(t, {
@@ -123,9 +125,9 @@ function setup(t, { twoRecords = false, providerPath = null } = {}) {
     return new Proxy(rawConsumer, {
       get(target, property) {
         if (property === 'retrieveForNpc') return (request) =>
-          runWithAuthenticatedHostSession(hostRequest, HOST_CONVERSATION_ID, () => target.retrieveForNpc(request));
+          runWithAuthenticatedHostSession(hostRequest, HOST_CONVERSATION_ID, () => target.retrieveForNpc(request), isAuthenticatedHostRequest);
         if (property === 'revalidateForFinalDispatch') return (request, prepared) =>
-          runWithAuthenticatedHostSession(hostRequest, HOST_CONVERSATION_ID, () => target.revalidateForFinalDispatch(request, prepared));
+          runWithAuthenticatedHostSession(hostRequest, HOST_CONVERSATION_ID, () => target.revalidateForFinalDispatch(request, prepared), isAuthenticatedHostRequest);
         return Reflect.get(target, property, target);
       },
     });
