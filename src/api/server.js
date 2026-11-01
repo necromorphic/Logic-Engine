@@ -129,15 +129,9 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
         return engine.store.tx(() => {
           engine.store.db.prepare('DELETE FROM host_session_assertion_nonces WHERE expires_at < ?')
             .run(currentSeconds);
-          try {
-            engine.store.db.prepare('INSERT INTO host_session_assertion_nonces(adapter_id,nonce,expires_at) VALUES(?,?,?)')
-              .run(adapterId, nonce, expiresAt);
-            return true;
-          } catch (error) {
-            if (error?.code === 'SQLITE_CONSTRAINT_PRIMARYKEY'
-              || error?.code === 'SQLITE_CONSTRAINT_UNIQUE') return false;
-            throw error;
-          }
+          const inserted = engine.store.db.prepare('INSERT OR IGNORE INTO host_session_assertion_nonces(adapter_id,nonce,expires_at) VALUES(?,?,?)')
+            .run(adapterId, nonce, expiresAt);
+          return inserted.changes === 1;
         });
       },
     }),
