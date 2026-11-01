@@ -647,12 +647,14 @@ diff --git a/src/endpoints/backends/chat-completions.js b/src/endpoints/backends
 diff --git a/src/endpoints/chats.js b/src/endpoints/chats.js
 --- a/src/endpoints/chats.js
 +++ b/src/endpoints/chats.js
-@@ -24,4 +24,7 @@
+@@ -24,4 +24,9 @@
      isPathUnderParent,
  } from '../util.js';
  
 +import { createHostBulkMutationGuard } from './logic-engine-host-inventory-handler.mjs';
 +const hostBulkMutationGuard = createHostBulkMutationGuard({ pinnedHostCommit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127' });
++import { createHostLifecycleSaveGuard } from './logic-engine-host-inventory-handler.mjs';
++const hostLifecycleSaveGuard = createHostLifecycleSaveGuard({ pinnedHostCommit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127' });
 +
  const isBackupEnabled = !!getConfigValue('backups.chat.enabled', true, 'boolean');
 @@ -621,4 +624,4 @@
