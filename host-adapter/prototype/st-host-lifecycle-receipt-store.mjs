@@ -49,6 +49,16 @@ function normalizedMessage(message) {
   };
 }
 
+function validBackupTransition(before, after) {
+  const previous = new Map((before.backup_entries ?? []).map(entry => [entry.path, entry]));
+  const current = new Map((after.backup_entries ?? []).map(entry => [entry.path, entry]));
+  for (const [filePath, entry] of previous) {
+    if (canonical(current.get(filePath)) !== canonical(entry)) return false;
+  }
+  const additions = [...current].filter(([filePath]) => !previous.has(filePath)).map(([, entry]) => entry);
+  return additions.every(entry => entry.sha256 === after.target_content_sha256);
+}
+
 function exactlyOneChanged(before, after, predicate) {
   if (before.length !== after.length) return false;
   let changed = 0;
@@ -267,7 +277,9 @@ export class HostLifecycleReceiptStore {
   async #snapshot(scope, directories) {
     if (!directories || typeof directories !== 'object' || Array.isArray(directories)
       || !['root', 'chats', 'groups', 'groupChats'].every(key =>
-        typeof directories[key] === 'string' && path.isAbsolute(directories[key]))) {
+        typeof directories[key] === 'string' && path.isAbsolute(directories[key]))
+      || (directories.backups !== undefined
+        && (typeof directories.backups !== 'string' || !path.isAbsolute(directories.backups)))) {
       throw new Error('HOST_LIFECYCLE_RECEIPT_DIRECTORIES_INVALID');
     }
     const inventory = await this.enumerate({ directories, hostCommit: this.hostCommit });
@@ -325,7 +337,20 @@ export class HostLifecycleReceiptStore {
       || typeof target.file_identity !== 'string') {
       throw new Error('HOST_LIFECYCLE_RECEIPT_TARGET_FILE_MISSING');
     }
-    const otherRootEntries = rootEntries.filter(entry => entry.path !== targetPath);
+    const backupRootRelative = typeof directories.backups === 'string'
+      ? path.relative(path.resolve(directories.root), path.resolve(directories.backups)).split(path.sep).join('/')
+      : null;
+    if (backupRootRelative !== null && (!backupRootRelative || backupRootRelative === '..'
+      || backupRootRelative.startsWith('../') || path.isAbsolute(backupRootRelative))) {
+      throw new Error('HOST_LIFECYCLE_RECEIPT_BACKUP_DIRECTORY_OUTSIDE_ROOT');
+    }
+    const backupPrefix = backupRootRelative === null ? null : backupRootRelative + '/';
+    const backupEntries = backupPrefix === null ? [] : rootEntries
+      .filter(entry => typeof entry.path === 'string' && entry.path.startsWith(backupPrefix))
+      .map(entry => ({ path: entry.path, identity: entry.identity, sha256: entry.sha256 }))
+      .sort((a, b) => a.path.localeCompare(b.path));
+    const backupPathSet = new Set(backupEntries.map(entry => entry.path));
+    const otherRootEntries = rootEntries.filter(entry => entry.path !== targetPath && !backupPathSet.has(entry.path));
     const otherSourceFiles = inventory.source.files.filter(file => file !== target).map(file => ({
       kind: file.kind,
       locator: file.locator,
@@ -340,6 +365,7 @@ export class HostLifecycleReceiptStore {
       target_content_sha256: target.content_sha256,
       logical_identity: logical,
       other_root_entries_sha256: sha256(Buffer.from(canonical(otherRootEntries), 'utf8')),
+      backup_entries: backupEntries,
       other_source_files_sha256: sha256(Buffer.from(canonical(otherSourceFiles), 'utf8')),
       inventory_sha256: inventory.source.inventory_sha256,
       snapshot_alignment: inventory.snapshot_alignment ?? 'UNKNOWN',
@@ -410,6 +436,7 @@ export class HostLifecycleReceiptStore {
       || after.target_content_sha256 === prepared.before.target_content_sha256
       || after.other_root_entries_sha256 !== prepared.before.other_root_entries_sha256
       || after.other_source_files_sha256 !== prepared.before.other_source_files_sha256
+      || !validBackupTransition(prepared.before, after)
       || !validOperationTransition(scope.operation, prepared.before.logical_identity, after.logical_identity)) {
       throw new Error('HOST_LIFECYCLE_RECEIPT_PERSISTED_STATE_MISMATCH');
     }
@@ -434,6 +461,8 @@ export class HostLifecycleReceiptStore {
         target_content_sha256: after.target_content_sha256,
       },
       other_root_entries_sha256: after.other_root_entries_sha256,
+      backup_additions: (after.backup_entries ?? []).filter(entry =>
+        !(prepared.before.backup_entries ?? []).some(prior => prior.path === entry.path)),
       other_source_files_sha256: after.other_source_files_sha256,
       logical_transition: sha256(Buffer.from(canonical({
         before: prepared.before.logical_identity,
@@ -508,6 +537,7 @@ export class HostLifecycleReceiptStore {
       && current.target_content_sha256 !== prepared.before.target_content_sha256
       && current.other_root_entries_sha256 === prepared.before.other_root_entries_sha256
       && current.other_source_files_sha256 === prepared.before.other_source_files_sha256
+      && validBackupTransition(prepared.before, current)
       && validOperationTransition(scope.operation, prepared.before.logical_identity, current.logical_identity);
     if (!matchesExpectedPostState) {
       return { status: 'RECOVERY_REQUIRED', reason: 'HOST_LIFECYCLE_RECEIPT_PERSISTED_STATE_AMBIGUOUS' };
