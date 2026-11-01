@@ -38,17 +38,17 @@ function manifest() {
 }
 
 function fakeDatabase() {
-  let call;
+  const calls = [];
   return {
     prepare(sql) {
       return {
         get(...args) {
-          call = { sql, args };
+          calls.push({ sql, args });
           return { registered: 1 };
         },
       };
     },
-    get call() { return call; },
+    get calls() { return calls; },
   };
 }
 
@@ -57,14 +57,19 @@ test('Windows manifest enrollment passes exact DB and final-parent identities to
   assert.equal(registerWindowsManifestRole(
     db, manifest(), 'core', 'C:\\LogicEngine\\data\\core.sqlite'
   ), 1);
-  assert.match(db.call.sql, /register_database_role_manifest/);
-  assert.deepEqual(db.call.args, [
+  assert.match(db.calls[0].sql, /register_database_role_manifest/);
+  assert.deepEqual(db.calls[0].args, [
     'C:\\LogicEngine\\data\\core.sqlite',
     'core',
     '00000000000000A1',
     '44444444444444444444444444444444',
     '00000000000000A1',
     '33333333333333333333333333333333',
+  ]);
+  assert.match(db.calls[1].sql, /register_manifest_sidecar/);
+  assert.deepEqual(db.calls[1].args, [
+    'core', 'wal', '00000000000000A1',
+    '55555555555555555555555555555555', 'active',
   ]);
 });
 
