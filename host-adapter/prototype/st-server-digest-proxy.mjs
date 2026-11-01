@@ -25,9 +25,11 @@ function requestMatchesAuthenticatedHostSession(request, conversationId) {
   const sessionId = session?.logicEngineSessionId;
   return typeof userHandle === 'string' && userHandle.trim().length > 0
     && sessionHandle === userHandle
+    && session?.logicEngineSessionHandle === userHandle
     && typeof sessionId === 'string' && HOST_SESSION_UUID.test(sessionId)
     && typeof conversationId === 'string'
-    && HOST_CONVERSATION_ID.test(conversationId);
+    && HOST_CONVERSATION_ID.test(conversationId)
+    && conversationId.split(':')[0] === sessionId;
 }
 
 
