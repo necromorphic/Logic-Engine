@@ -47,13 +47,13 @@ test('default-user inventory request is accepted only after Host session identit
   const handler = createHostInventoryHandler({
     enumerate: async input => {
       calls++;
-      assert.deepEqual(input.directories, { chats: 'C:\\\\st\\\\chats', groups: 'C:\\\\st\\\\groups', groupChats: 'C:\\\\st\\\\groupChats' });
+      assert.deepEqual(input.directories, { root: 'C:\\st', chats: 'C:\\st\\chats', groups: 'C:\\st\\groups', groupChats: 'C:\\st\\groupChats' });
       return { filesystem: { status: 'complete', entries: [], snapshot_sha256: 'a'.repeat(64), file_count: 0, total_bytes: 0 }, source: { files: [], blockers: [], status: 'DOUBLE_SCAN_CANDIDATE' } };
     },
     pinnedHostCommit: pinned,
     hostBuildClaim: pinned,
   });
-  const directories = { chats: 'C:\\\\st\\\\chats', groups: 'C:\\\\st\\\\groups', groupChats: 'C:\\\\st\\\\groupChats' };
+  const directories = { root: 'C:\\st', chats: 'C:\\st\\chats', groups: 'C:\\st\\groups', groupChats: 'C:\\st\\groupChats' };
   const response = makeResponse();
   await handler({
     user: { profile: { handle: 'default-user' }, directories },
