@@ -19,6 +19,8 @@ const source = {
 };
 const HOST_SESSION_ID = '11111111-1111-4111-8111-111111111111';
 const HOST_CONVERSATION_ID = HOST_SESSION_ID + ':22222222-2222-4222-8222-222222222222:33333333-3333-4333-8333-333333333333';
+const OTHER_SESSION_ID = '44444444-4444-4444-8444-444444444444';
+const OTHER_SESSION_CONVERSATION = OTHER_SESSION_ID + ':55555555-5555-4555-8555-555555555555:66666666-6666-4666-8666-666666666666';
 const hostRequest = {
   user: { profile: { handle: 'alice' } },
   session: { handle: 'alice', logicEngineSessionId: HOST_SESSION_ID, logicEngineSessionHandle: 'alice' },
@@ -53,6 +55,11 @@ function setup(t) {
   conversations.bind({
     adapterId: 'adapter-st',
     conversationId: HOST_CONVERSATION_ID,
+    worldId: 'world-a',
+  });
+  conversations.bind({
+    adapterId: 'adapter-st',
+    conversationId: OTHER_SESSION_CONVERSATION,
     worldId: 'world-a',
   });
   actors.bind('world-a', 'adapter-st', 'npc-a');
@@ -92,8 +99,8 @@ test('production NPC query authorization requires a branded authenticated Host s
   const otherConversation = HOST_SESSION_ID + ':22222222-2222-4222-8222-222222222222:44444444-4444-4444-8444-444444444444';
   const contextForOtherConversation = createAuthenticatedHostSessionContext(hostRequest, otherConversation);
   assert.equal(authorizers.memoryQueryAuthorizer(scope, contextForOtherConversation), false);
-  const otherSessionId = '44444444-4444-4444-8444-444444444444';
-  const otherSessionConversation = otherSessionId + ':55555555-5555-4555-8555-555555555555:66666666-6666-4666-8666-666666666666';
+  const otherSessionId = OTHER_SESSION_ID;
+  const otherSessionConversation = OTHER_SESSION_CONVERSATION;
   const otherSessionRequest = {
     user: { profile: { handle: 'bob' } },
     session: { handle: 'bob', logicEngineSessionId: otherSessionId, logicEngineSessionHandle: 'bob' },
