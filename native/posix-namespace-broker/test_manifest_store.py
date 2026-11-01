@@ -611,6 +611,13 @@ class ManifestStoreTests(unittest.TestCase):
         _write_atomic(self.store.manifest_fd, "manifest.tmp", "manifest.next", staged)
         _write_atomic(self.store.anchor_fd, "anchor.tmp", "anchor.json",
                       _anchor_bytes(2, digest))
+
+        # Simulate a broker restart after the anchor commit but before the
+        # staged manifest is promoted to manifest.json.
+        self.store.close()
+        self.store = ManifestStore(
+            str(self.manifest_root), str(self.anchor_root), self.application_uid
+        )
         self.assertEqual(self.store.load()["generation"], 2)
         self.assertTrue((self.manifest_root / "manifest.json").exists())
         self.assertFalse((self.manifest_root / "manifest.next").exists())
