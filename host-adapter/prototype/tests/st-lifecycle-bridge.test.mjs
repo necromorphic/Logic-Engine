@@ -178,6 +178,7 @@ test('persisted ST inventory is cross-checked against stable conversation identi
   const f = makeFixture(chat, {
     conversationId,
     getPersistedInventory: async () => inventory,
+    getLifecycleStatus: async () => ({ status: 'NO_PENDING_MUTATION' }),
     publishSnapshot: async snapshot => {
       publishedSnapshots.push(structuredClone(snapshot));
       return { reconciliation: { code: 'HOST_INVENTORY_INCOMPLETE' } };
@@ -194,6 +195,7 @@ test('persisted ST inventory is cross-checked against stable conversation identi
   assert.equal(verified.installation_attestation, false);
   assert.equal(verified.message_count, 2);
   assert.equal(verified.version_count, 2);
+  assert.equal((await f.bridge.guardExport()).status, 'READ_ONLY_EXPORT_VERIFIED');
   assert.equal(JSON.stringify(verified).includes('private user sentinel'), false);
   assert.equal(JSON.stringify(verified).includes('private assistant sentinel'), false);
 
@@ -207,6 +209,7 @@ test('persisted ST inventory is cross-checked against stable conversation identi
   inventory = mismatched;
   const rejected = await f.bridge.verifyPersistedInventory();
   assert.equal(rejected.status, 'NON_READY');
+  await assert.rejects(f.bridge.guardExport(), /persisted Host state does not match/);
   assert.match(rejected.reason, /version identity or digest differs/);
   const blockedSync = await f.bridge.syncCurrentDigestInventory();
   assert.equal(blockedSync.status, 'NON_READY');
