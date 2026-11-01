@@ -8,6 +8,8 @@ import { join, relative as pathRelative } from 'node:path';
 import { SQLiteStore } from '../../../src/storage/sqlite-store.js';
 import { LogicEngine } from '../../../src/application/engine.js';
 import { createApiServer } from '../../../src/api/server.js';
+import { getAuthenticatedHostSessionContext } from '../../../src/application/host-session-context.js';
+import { HostAssertionNonceStore } from '../../../src/application/host-assertion-nonce-store.js';
 import { createSillyTavernHostAdapter } from '../server-plugin/host-adapter.mjs';
 
 const API_TOKEN = 'core-api-token-long-enough-123456';
@@ -49,8 +51,31 @@ test('Host Adapter requires Core root proof before context resolution and binds 
   const groupChats = join(root, 'groupChats');
   const identityDirectory = join(directory, 'host-identity');
   await Promise.all([mkdir(chats, { recursive: true }), mkdir(groups, { recursive: true }), mkdir(groupChats, { recursive: true })]);
+  const corePath = join(directory, 'core.sqlite');
+  const coordinatorPath = join(directory, 'coordinator.sqlite');
   const store = new SQLiteStore(':memory:');
   const engine = new LogicEngine(store);
+  const nonceStore = new HostAssertionNonceStore({
+    path: join(directory, 'host-assertion-nonces.sqlite'),
+    coreDatabasePath: corePath,
+    coordinatorPath,
+  });
+  const retrievalContexts = [];
+  const memoryConsumer = {
+    adapterId: ADAPTER_ID,
+    async retrieveForNpc({ conversationId }) {
+      const context = getAuthenticatedHostSessionContext();
+      assert.equal(context.conversation_id, conversationId);
+      assert.equal(context.world_id, 'host-e2e-world');
+      assert.equal(context.actor_id, 'host-e2e-actor');
+      assert.equal(context.actor_type, 'character');
+      retrievalContexts.push({ ...context });
+      return {
+        status: 'ready', admitted: [], candidates: [],
+        snapshot: { world_revision: 1, commit_sequence: retrievalContexts.length },
+      };
+    },
+  };
   engine.createWorld({
     world_id: 'host-e2e-world',
     world_pack_id: 'test.host-e2e',
@@ -69,11 +94,14 @@ test('Host Adapter requires Core root proof before context resolution and binds 
     token: API_TOKEN,
     adminToken: ADMIN_TOKEN,
     adapterTokens: { [ADAPTER_ID]: ADAPTER_TOKEN },
+    memoryNpcConsumers: { [ADAPTER_ID]: memoryConsumer },
+    hostAssertionNonceStore: nonceStore,
   });
   core.listen(0, '127.0.0.1');
   await once(core, 'listening');
   t.after(async () => {
     await new Promise(resolve => core.close(resolve));
+    nonceStore.close();
     store.close();
     await rm(directory, { recursive: true, force: true });
     if (previousDataRoot === undefined) delete globalThis.DATA_ROOT;
@@ -228,9 +256,12 @@ test('Host Adapter requires Core root proof before context resolution and binds 
   const stableConversationId = sessionResponse.payload.host_session_id
     + ':' + identityResponse.payload.host_installation_id + ':' + UUID;
   assert.equal(resolvedCoreContexts[0].context.conversation_id, stableConversationId);
-  assert.equal(dispatchResponse.statusCode, 503);
-  assert.equal(dispatchResponse.payload.code, 'CORE_HOST_DISPATCH_REJECTED');
+  assert.equal(dispatchResponse.statusCode, 200);
+  assert.equal(dispatchResponse.payload.retrieval.status, 'ready');
   assert.equal(coreCalls[1], '/v1/host/memory-npc/retrieve');
+  assert.equal(retrievalContexts[0].conversation_id, stableConversationId);
+  assert.equal(retrievalContexts[0].host_installation_id, identityResponse.payload.host_installation_id);
+  assert.equal(retrievalContexts[0].authenticated_account_id, identityResponse.payload.authenticated_account_id);
 
   // Accounts-enabled mode: ST supplies session.handle and it must bind to the
   // middleware-authenticated profile handle, while the account ID remains
@@ -270,8 +301,10 @@ test('Host Adapter requires Core root proof before context resolution and binds 
   assert.equal(accountsPassedGate, true);
   const accountsDispatchResponse = responseRecorder();
   await adapter.dispatch(accountsEnabledRequest, accountsDispatchResponse);
-  assert.equal(accountsDispatchResponse.statusCode, 503);
-  assert.equal(accountsDispatchResponse.payload.code, 'CORE_HOST_DISPATCH_REJECTED');
+  assert.equal(accountsDispatchResponse.statusCode, 200);
+  assert.equal(accountsDispatchResponse.payload.retrieval.status, 'ready');
+  assert.equal(retrievalContexts[1].conversation_id, accountsConversationId);
+  assert.equal(retrievalContexts[1].authenticated_account_id, accountsIdentityResponse.payload.authenticated_account_id);
   assert.equal(coreCalls[2], '/v1/host-context/resolve');
   assert.equal(coreCalls[3], '/v1/host/memory-npc/retrieve');
   assert.equal(resolvedCoreContexts[1].context.conversation_id, accountsConversationId);
@@ -318,8 +351,12 @@ test('Host Adapter requires Core root proof before context resolution and binds 
   assert.equal(restartedPassedGate, true);
   const restartedDispatchResponse = responseRecorder();
   await restartedAdapter.dispatch(restartedRequest, restartedDispatchResponse);
-  assert.equal(restartedDispatchResponse.statusCode, 503);
-  assert.equal(restartedDispatchResponse.payload.code, 'CORE_HOST_DISPATCH_REJECTED');
+  assert.equal(restartedDispatchResponse.statusCode, 200);
+  assert.equal(restartedDispatchResponse.payload.retrieval.status, 'ready');
+  assert.equal(retrievalContexts[2].conversation_id, restartedConversationId);
+  assert.equal(retrievalContexts[2].host_installation_id, restartedIdentityResponse.payload.host_installation_id);
+  assert.equal(retrievalContexts[2].authenticated_account_id, restartedIdentityResponse.payload.authenticated_account_id);
+  assert.notEqual(retrievalContexts[2].host_session_id, retrievalContexts[0].host_session_id);
   assert.equal(coreCalls[4], '/v1/host-context/resolve');
   assert.equal(coreCalls[5], '/v1/host/memory-npc/retrieve');
   assert.equal(resolvedCoreContexts.length, 3);
