@@ -82,7 +82,8 @@ export function createSillyTavernHostAdapter({
           || !uuid.test(sessionId ?? '') || !uuid.test(conversationUuid ?? '')) return null;
 
         const directories = request.user.directories;
-        const dataRoot = globalThis.DATA_ROOT;
+        const dataRoot = typeof globalThis.DATA_ROOT === 'string' && globalThis.DATA_ROOT.trim()
+          ? path.resolve(globalThis.DATA_ROOT) : null;
         if (typeof dataRoot !== 'string' || !path.isAbsolute(dataRoot)) {
           return { status: 'NON_READY', code: 'HOST_IDENTITY_DATA_ROOT_UNAVAILABLE' };
         }
