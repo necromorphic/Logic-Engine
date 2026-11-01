@@ -854,14 +854,22 @@ export class SQLiteMemoryProvider {
     const requestDataVersion = this.#dataVersion();
     if (!object(input) || !validId(input.world_id) || !validId(input.subject_id)
       || !validId(input.purpose) || !validId(input.record_ref) || !validId(input.record_version)
-      || !Number.isSafeInteger(input.authorization_generation) || input.authorization_generation < 1) return false;
+      || (input.authorization_generation !== undefined
+        && (!Number.isSafeInteger(input.authorization_generation) || input.authorization_generation < 1))) return false;
     const scope = { world_id: input.world_id, subject_id: input.subject_id, purpose: input.purpose };
     if (!this.#authorizeQuery(scope)) throw new Error('MEMORY_QUERY_DENIED');
     const grant = this.#db.prepare(`SELECT allowed,authorization_generation FROM memory_record_grants
       WHERE world_id=? AND subject_id=? AND purpose=? AND record_ref=? AND record_version=?`)
       .get(input.world_id, input.subject_id, input.purpose, input.record_ref, input.record_version);
-    if (!grant || grant.allowed !== 1) throw new Error('MEMORY_RECORD_ACCESS_REVOKED');
-    if (grant.authorization_generation !== input.authorization_generation) {
+    if (!grant || grant.allowed !== 1) {
+      if (input.authorization_generation !== undefined) throw new Error('MEMORY_RECORD_ACCESS_REVOKED');
+      return false;
+    }
+    if (input.authorization_generation === undefined) {
+      // Legacy direct Provider callers begin a fresh authorization here. The
+      // Core consumer always supplies the generation captured by retrieval.
+      input.authorization_generation = grant.authorization_generation;
+    } else if (grant.authorization_generation !== input.authorization_generation) {
       throw new Error('MEMORY_AUTHORIZATION_CHANGED');
     }
     const row = this.#db.prepare(`SELECT * FROM memory_records
