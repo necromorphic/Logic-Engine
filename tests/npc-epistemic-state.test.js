@@ -962,3 +962,114 @@ test("insufficient evidence cannot support any directional or unresolved belief"
     assert.equal(result.status, "non_ready", stance);
   }
 });
+
+
+test("invalidation preserves prior belief history without restoring its authority", () => {
+  let state = admit(emptyState()).state;
+  state = apply(state, {
+    type: "belief_updated",
+    proposition_ref: "prop-secret-location",
+    stance: "believes_true",
+    revision_rule_ref: "rule-first-confirmed",
+    evidence_refs: ["evidence-1"],
+  }).state;
+  state = apply(state, {
+    type: "belief_updated",
+    proposition_ref: "prop-secret-location",
+    stance: "suspects_true",
+    revision_rule_ref: "rule-reassess-confidence",
+    evidence_refs: ["evidence-1"],
+  }).state;
+
+  const invalidated = apply(state, {
+    type: "evidence_invalidated",
+    evidence_ref: "evidence-1",
+    evidence_version: "v1",
+    invalidation_rule_ref: "rule-source-revoked",
+  });
+  assert.equal(invalidated.status, "updated");
+  assert.equal(invalidated.state.beliefs[0].stance, "suspects_true");
+  assert.equal(invalidated.state.beliefs[0].review_required, true);
+  assert.deepEqual(invalidated.state.beliefs[0].history, [{
+    stance: "believes_true",
+    revision_rule_ref: "rule-first-confirmed",
+    evidence_refs: ["evidence-1"],
+  }]);
+
+  const validated = apply(invalidated.state, { type: "canonical_truth_changed" });
+  assert.equal(validated.status, "unchanged");
+  assert.equal(validated.state.beliefs[0].review_required, true);
+  assert.equal(validated.state.evidence[0].status, "invalidated");
+});
+
+test("replacement evidence can resolve review while retaining invalidated evidence in history", () => {
+  let state = admit(emptyState(), {
+    evidence_ref: "evidence-old",
+    evidence_version: "source-v1",
+    source_ref: "canonical-source",
+    source_version: "source-v1",
+  }).state;
+  state = apply(state, {
+    type: "belief_updated",
+    proposition_ref: "prop-secret-location",
+    stance: "believes_true",
+    revision_rule_ref: "rule-old-source",
+    evidence_refs: ["evidence-old"],
+  }).state;
+  state = apply(state, {
+    type: "evidence_invalidated",
+    evidence_ref: "evidence-old",
+    evidence_version: "source-v1",
+    invalidation_rule_ref: "rule-source-rollback",
+  }).state;
+
+  const replacement = admit(state, {
+    evidence_ref: "evidence-new",
+    evidence_version: "source-v2",
+    acquisition_ref: "acq-new",
+    source_ref: "canonical-source",
+    source_version: "source-v2",
+    polarity: "supports_false",
+  });
+  assert.equal(replacement.status, "updated");
+
+  const revised = apply(replacement.state, {
+    type: "belief_updated",
+    proposition_ref: "prop-secret-location",
+    stance: "believes_false",
+    revision_rule_ref: "rule-explicit-reacquisition",
+    evidence_refs: ["evidence-new"],
+  });
+  assert.equal(revised.status, "updated");
+  assert.equal(revised.state.beliefs[0].stance, "believes_false");
+  assert.equal(revised.state.beliefs[0].review_required, false);
+  assert.deepEqual(revised.state.beliefs[0].supporting_evidence_refs, ["evidence-new"]);
+  assert.deepEqual(revised.state.beliefs[0].history, [{
+    stance: "believes_true",
+    revision_rule_ref: "rule-old-source",
+    evidence_refs: ["evidence-old"],
+  }]);
+  assert.equal(revised.state.evidence.find(item => item.ref === "evidence-old").status, "invalidated");
+});
+
+test("replaying an admission cannot reactivate an invalidated evidence identity", () => {
+  let state = admit(emptyState()).state;
+  state = apply(state, {
+    type: "evidence_invalidated",
+    evidence_ref: "evidence-1",
+    evidence_version: "v1",
+    invalidation_rule_ref: "rule-revoked",
+  }).state;
+
+  const replay = admit(state);
+  assert.equal(replay.status, "unchanged");
+  assert.equal(replay.state.evidence[0].status, "invalidated");
+  assert.equal(replay.state.evidence[0].invalidation_rule_ref, "rule-revoked");
+
+  const conflictingRegrant = admit(state, {
+    evidence_assessment: "supported",
+    epistemic_status: "confirmed",
+  });
+  assert.equal(conflictingRegrant.status, "unchanged");
+  assert.equal(conflictingRegrant.state.evidence[0].status, "invalidated");
+});
