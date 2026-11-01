@@ -629,14 +629,14 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
       || inventory.host_session_identity !== 'SIGNED_AUTHENTICATED_ST_SESSION'
       || typeof inventory.host_user_handle !== 'string'
       || inventory.host_user_handle !== inventory.authenticated_user_handle
-      || inventory.requested_conversation_uuid !== parts[1]
+      || inventory.requested_conversation_uuid !== parts[2]
       || !/^[a-f0-9]{64}$/.test(inventory.inventory_sha256)
       || !Array.isArray(inventory.files)) {
       return { status: 'NON_READY', reason: 'persisted Host inventory is not bound to the current authenticated conversation' };
     }
 
     const matches = inventory.files.filter(file =>
-      file?.logical_identity?.conversation_uuid === parts[1]);
+      file?.logical_identity?.conversation_uuid === parts[2]);
     if (matches.length !== 1) {
       return { status: 'NON_READY', reason: 'persisted Host inventory does not contain exactly one current conversation' };
     }
@@ -689,7 +689,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
       completeness: inventory.completeness,
       host_session_bound: true,
       installation_attestation: false,
-      conversation_uuid: parts[1],
+      conversation_uuid: parts[2],
       message_count: chat.length,
       version_count: versionCount,
       inventory_sha256: inventory.inventory_sha256,
