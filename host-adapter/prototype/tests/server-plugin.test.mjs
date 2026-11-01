@@ -4,31 +4,56 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { info, init } from '../server-plugin/index.mjs';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const prototypeRoot = path.resolve(here, '..');
 
-test('SillyTavern server plugin registers only private session and inventory routes', async () => {
+test('SillyTavern server plugin mounts every Host API only under the Extension Gateway', async t => {
+  const directory = mkdtempSync(path.join(tmpdir(), 'logic-engine-host-plugin-'));
+  const keys = [
+    'LOGIC_ENGINE_CORE_URL', 'LOGIC_ENGINE_API_TOKEN', 'LOGIC_ENGINE_ADAPTER_ID',
+    'LOGIC_ENGINE_ADAPTER_TOKEN', 'LOGIC_ENGINE_HOST_ACTOR_ENTITY_ID',
+    'LOGIC_ENGINE_HOST_IDENTITY_DIR',
+  ];
+  const previous = Object.fromEntries(keys.map(key => [key, process.env[key]]));
+  Object.assign(process.env, {
+    LOGIC_ENGINE_CORE_URL: 'http://127.0.0.1:8787',
+    LOGIC_ENGINE_API_TOKEN: 'core-api-token-long-enough',
+    LOGIC_ENGINE_ADAPTER_ID: 'st-adapter',
+    LOGIC_ENGINE_ADAPTER_TOKEN: 'adapter-token-long-enough',
+    LOGIC_ENGINE_HOST_ACTOR_ENTITY_ID: 'actor-kiryu',
+    LOGIC_ENGINE_HOST_IDENTITY_DIR: directory,
+  });
+  t.after(() => {
+    for (const key of keys) {
+      if (previous[key] === undefined) delete process.env[key];
+      else process.env[key] = previous[key];
+    }
+    rmSync(directory, { recursive: true, force: true });
+  });
   const routes = [];
   await init({
-    get(route, handler) {
-      routes.push({ method: 'GET', route, handler });
-    },
-    post(route, handler) {
-      routes.push({ method: 'POST', route, handler });
-    },
+    get(route, handler) { routes.push({ method: 'GET', route, handler }); },
+    post(route, ...handlers) { routes.push({ method: 'POST', route, handler: handlers.at(-1) }); },
   });
   assert.deepEqual(routes.map(({ method, route }) => method + ' ' + route), [
+    'GET /health',
     'GET /session',
+    'GET /identity',
+    'GET /inventory',
     'POST /host-version-ledger/capture',
     'POST /host-version-ledger/reconcile',
-    'GET /inventory',
+    'POST /host-lifecycle/events',
+    'GET /host-lifecycle/status',
+    'POST /context',
   ]);
   for (const route of routes) assert.equal(typeof route.handler, 'function');
   assert.deepEqual(info, {
-    id: 'logic-engine-host',
+    id: 'logic-engine-extension-gateway',
     name: 'Logic Engine Host Adapter',
-    description: 'Authenticated, fail-closed SillyTavern source inventory bridge',
+    description: 'Authenticated SillyTavern Extension Gateway for Logic Engine',
   });
 });
 
