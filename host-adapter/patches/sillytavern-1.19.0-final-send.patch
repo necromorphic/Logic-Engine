@@ -195,13 +195,35 @@
 +}
 --- /dev/null
 +++ b/src/logic-engine-extension-install-hook.js
-@@ -0,0 +1,37 @@
-+import { realpath, readFile } from 'node:fs/promises';
+@@ -0,0 +1,69 @@
++import { execFileSync } from 'node:child_process';
++import { realpath, readFile, lstat } from 'node:fs/promises';
 +import { dirname, resolve } from 'node:path';
 +import { fileURLToPath, pathToFileURL } from 'node:url';
 +
 +const stRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 +const MANAGER_ID = 'logic-engine-sillytavern-final-send';
++const TRUSTED_REPOSITORY_PATH = '/necromorphic/Logic-Engine';
++
++function assertTrustedRepository(extensionRoot) {
++    const remote = execFileSync('git', ['-C', extensionRoot, 'remote', 'get-url', 'origin'], {
++        encoding: 'utf8',
++        stdio: ['ignore', 'pipe', 'ignore'],
++        windowsHide: true,
++    }).trim();
++    let parsed;
++    try {
++        parsed = new URL(remote);
++    } catch {
++        throw new Error('LOGIC_ENGINE_EXTENSION_ORIGIN_DENIED');
++    }
++    const pathname = parsed.pathname.replace(/\/$/, '').replace(/\.git$/, '');
++    if (parsed.protocol !== 'https:' || parsed.hostname.toLowerCase() !== 'github.com'
++        || parsed.username || parsed.password || parsed.port || parsed.search || parsed.hash
++        || pathname.toLowerCase() !== TRUSTED_REPOSITORY_PATH.toLowerCase()) {
++        throw new Error('LOGIC_ENGINE_EXTENSION_ORIGIN_DENIED');
++    }
++}
 +
 +export async function runLogicEngineExtensionLifecycle({ action, extensionPath }) {
 +    if (!['install', 'update', 'delete'].includes(action)
@@ -210,13 +232,23 @@
 +    }
 +
 +    const trustedExtensionRoot = await realpath(extensionPath);
-+    const manifest = JSON.parse(await readFile(resolve(trustedExtensionRoot, 'manifest.json'), 'utf8'));
++    assertTrustedRepository(trustedExtensionRoot);
++    const manifestPath = resolve(trustedExtensionRoot, 'manifest.json');
++    const manifestInfo = await lstat(manifestPath);
++    if (manifestInfo.isSymbolicLink() || !manifestInfo.isFile()) {
++        throw new Error('LOGIC_ENGINE_EXTENSION_MANIFEST_UNSAFE');
++    }
++    const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
 +    if (manifest?.logic_engine_patch_manager?.id !== MANAGER_ID
 +        || manifest.logic_engine_patch_manager?.manifestVersion !== 1) {
 +        return { status: 'NOT_MANAGED' };
 +    }
 +
 +    const managerPath = resolve(trustedExtensionRoot, 'scripts/sillytavern-patch-manager.mjs');
++    const managerInfo = await lstat(managerPath);
++    if (managerInfo.isSymbolicLink() || !managerInfo.isFile()) {
++        throw new Error('LOGIC_ENGINE_PATCH_MANAGER_UNSAFE');
++    }
 +    const managerUrl = pathToFileURL(managerPath);
 +    managerUrl.searchParams.set('extensionVersion', String(manifest.version ?? 'unknown'));
 +    const { SillyTavernPatchManager } = await import(managerUrl.href);
