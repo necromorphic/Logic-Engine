@@ -25,6 +25,29 @@ test('installation and account identities persist across store instances without
   assert.equal(content.includes('alice'), false);
 });
 
+test('identity registry refuses to live inside the SillyTavern data root', async (t) => {
+  const root = await temp(t);
+  const dataRoot = path.join(root, 'st-data');
+  const identityDirectory = path.join(dataRoot, 'logic-engine-identity');
+  await mkdir(dataRoot);
+  const store = new HostIdentityStore({ directory: identityDirectory });
+  await assert.rejects(
+    () => store.assertOutsideRoot(dataRoot),
+    /HOST_IDENTITY_DIRECTORY_INSIDE_DATA_ROOT/,
+  );
+});
+
+test('identity registry accepts a separate deployment-owned directory', async (t) => {
+  const root = await temp(t);
+  const dataRoot = path.join(root, 'st-data');
+  const identityDirectory = path.join(root, 'deployment-state', 'identity');
+  await mkdir(dataRoot);
+  const store = new HostIdentityStore({ directory: identityDirectory });
+  assert.equal(await store.assertOutsideRoot(dataRoot), true);
+  const identity = await store.resolveAuthenticatedAccount('alice');
+  assert.match(identity.host_installation_id, /^[0-9a-f-]{36}$/i);
+});
+
 test('accounts are isolated and account rename rotates the opaque account identity', async (t) => {
   const root = await temp(t);
   const store = new HostIdentityStore({ directory: path.join(root, 'identity') });
@@ -48,7 +71,10 @@ test('corrupt installation identity fails closed rather than silently re-enrolli
 test('identity route rejects requests outside the authenticated signed session', async (t) => {
   let calls = 0;
   const handler = createHostIdentityHandler({
-    identityStore: { resolveAuthenticatedAccount: async () => { calls += 1; return {}; } },
+    identityStore: {
+      assertOutsideRoot: async () => true,
+      resolveAuthenticatedAccount: async () => { calls += 1; return {}; },
+    },
   });
   const response = { statusCode: null, body: null, headers: {},
     set(name, value) { this.headers[name] = value; return this; },
@@ -64,6 +90,8 @@ test('identity route rejects requests outside the authenticated signed session',
 test('identity route returns opaque persistent IDs only after session/account binding matches', async (t) => {
   const root = await temp(t);
   const store = new HostIdentityStore({ directory: path.join(root, 'identity') });
+  const dataRoot = path.join(root, 'st-data');
+  await mkdir(dataRoot);
   const handler = createHostIdentityHandler({ identityStore: store });
   const response = { statusCode: null, body: null, headers: {},
     set(name, value) { this.headers[name] = value; return this; },
@@ -73,7 +101,7 @@ test('identity route returns opaque persistent IDs only after session/account bi
   };
   const sessionId = '00000000-0000-4000-8000-000000000099';
   await handler({
-    user: { profile: { handle: 'alice' } },
+    user: { profile: { handle: 'alice' }, directories: { root: path.join(root, 'st-data') } },
     session: { handle: 'alice', logicEngineSessionHandle: 'alice', logicEngineSessionId: sessionId },
   }, response);
   assert.equal(response.statusCode, 200);
