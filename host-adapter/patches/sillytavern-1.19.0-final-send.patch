@@ -164,7 +164,7 @@
 +export function logicEngineFetch(endpointUrl, requestInit) {
 +    const active = generationContext.getStore();
 +    if (!active) return nativeFetch(endpointUrl, requestInit);
-+    if (/\\/(?:extra\\/abort|abort)(?:[?#]|$)/i.test(String(endpointUrl))) return nativeFetch(endpointUrl, requestInit);
++    if (/\/(?:extra\/abort|abort)(?:[?#]|$)/i.test(String(endpointUrl))) return nativeFetch(endpointUrl, requestInit);
 +    const senderRoute = active.adapter.resolveSenderRoute(active.request, active.route);
 +    if (typeof senderRoute !== 'string' || !senderRoute) {
 +        throw new Error('LOGIC_ENGINE_FINAL_SEND_SENDER_UNKNOWN');
@@ -297,7 +297,7 @@
 @@ -1,5 +1,5 @@
  import { Readable } from 'node:stream';
 -import fetch from 'node-fetch';
-+import { logicEngineFetch as fetch, runWithLogicEngineFinalSend } from '../../logic-engine-final-send-hook.js';
++import { logicEngineFetch as fetch, runWithLogicEngineFinalSend, logicEngineForwardFetchResponse } from '../../logic-engine-final-send-hook.js';
  import express from 'express';
  import _ from 'lodash';
  
@@ -348,7 +348,7 @@
  import { Buffer } from 'node:buffer';
  
 -import fetch from 'node-fetch';
-+import { logicEngineFetch as fetch, runWithLogicEngineFinalSend } from './logic-engine-final-send-hook.js';
++import { logicEngineFetch as fetch, runWithLogicEngineFinalSend, logicEngineForwardFetchResponse } from './logic-engine-final-send-hook.js';
  import express from 'express';
  
  import { readSecret, SECRET_KEYS } from './secrets.js';
@@ -392,3 +392,16 @@
  });
  
  router.post('/sd-samplers', async (_, response) => {
+
+@@ -14,1 +14,2 @@
+-import { forwardFetchResponse, trimV1, getConfigValue } from '../../util.js';
++import { forwardFetchResponse as nativeForwardFetchResponse, trimV1, getConfigValue } from '../../util.js';
++const forwardFetchResponse = (upstream, response) => logicEngineForwardFetchResponse(upstream, response, nativeForwardFetchResponse);
+@@ -5,1 +5,2 @@
+-import { forwardFetchResponse, delay } from '../../util.js';
++import { forwardFetchResponse as nativeForwardFetchResponse, delay } from '../../util.js';
++const forwardFetchResponse = (upstream, response) => logicEngineForwardFetchResponse(upstream, response, nativeForwardFetchResponse);
+@@ -8,1 +8,2 @@
+-import { readAllChunks, extractFileFromZipBuffer, forwardFetchResponse } from '../util.js';
++import { readAllChunks, extractFileFromZipBuffer, forwardFetchResponse as nativeForwardFetchResponse } from '../util.js';
++const forwardFetchResponse = (upstream, response) => logicEngineForwardFetchResponse(upstream, response, nativeForwardFetchResponse);
