@@ -61,6 +61,10 @@ jobs:
           SILLYTAVERN_DIR: SillyTavern
         run: node --test experiments/host-adapter-runtime-harness/harness.mjs
 
+      - name: Print canonical patch artifact digest
+        shell: cmd
+        run: node -e "const fs=require('node:fs');const c=require('node:crypto');const p=fs.readFileSync('host-adapter/patches/sillytavern-1.19.0-final-send.patch','utf8').replace(/\\r\\n/g,'\\n');console.log('PATCH_SHA256='+c.createHash('sha256').update(p,'utf8').digest('hex'))"
+
       - name: Apply and verify managed Final-Send patch against exact SillyTavern source
         shell: cmd
         run: |
