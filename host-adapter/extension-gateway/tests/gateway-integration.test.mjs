@@ -28,7 +28,6 @@ test('protected generation is aborted before authenticated Host context dispatch
                 },
             }) };
         }
-        }
         return {
             ok: true,
             json: async () => ({
