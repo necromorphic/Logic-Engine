@@ -584,18 +584,13 @@ test('pinned ST 1.19.0 supported chat mutations persist; chat deletion, rename, 
   assert.ok([...deleteMessage.result.delta.modified, ...deleteMessage.result.delta.replaced].some(entry => entry.path.endsWith('chat-one.jsonl')));
   await finishLifecycleMutation(deleteMessageReceiptScope);
 
-  const exportResult = await observe(async () => {
-    const response = await post('/api/chats/export', {
-      avatar_url: 'Harness Character.png', file: 'chat-one.jsonl', format: 'jsonl',
-      exportfilename: 'chat-one.jsonl', is_group: false,
-    });
-    assert.equal(response.status, 200);
-    assert.ok(response.result.result.includes('Harness User'));
-    return response;
-  }, 'unchanged');
-  assert.equal(exportResult.result.status, 'NON_READY');
-  assert.match(exportResult.result.reason ?? '', /previously observed root inventory delta remains unresolved/,
-    'an unchanged export cannot clear prior unresolved filesystem deltas');
+  const exportResult = await post('/api/chats/export', {
+    avatar_url: 'Harness Character.png', file: 'chat-one.jsonl', format: 'jsonl',
+    exportfilename: 'chat-one.jsonl', is_group: false,
+  });
+  assert.equal(exportResult.status, 409);
+  assert.equal(exportResult.result.code, 'HOST_LIFECYCLE_BULK_MUTATION_BLOCKED',
+    'chat export must fail closed while enrolled histories lack authoritative reconciliation');
 
   const blockedDeleteChat = await observe(async () => {
     const response = await post('/api/chats/delete', {
