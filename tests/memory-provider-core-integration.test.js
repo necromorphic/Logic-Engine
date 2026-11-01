@@ -697,6 +697,33 @@ test('reconciliation rejects a Core mutation that occurs during complete invento
   await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_INDEX_NOT_READY/);
 });
 
+test('Provider revoke during final Core snapshot recheck blocks disclosure', async (t) => {
+  const s = setup(t);
+  assert.equal((await s.prepare()).status, 'current');
+
+  const originalRead = s.consumer.authorizedReadService.readEntityFields.bind(s.consumer.authorizedReadService);
+  let revoked = false;
+  s.consumer.authorizedReadService.readEntityFields = (input) => {
+    const result = originalRead(input);
+    if (!revoked && input.fields.length === 1 && input.fields[0] === 'entity_id') {
+      revoked = true;
+      s.provider.revokeRecord(s.scope, 'memory:record-a', 'record-v1');
+    }
+    return result;
+  };
+
+  const result = await s.consumer.retrieveForNpc({
+    worldId: s.scope.world_id,
+    actorEntityId: s.scope.subject_id,
+    conversationId: HOST_CONVERSATION_ID,
+  });
+  assert.equal(revoked, true);
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'memory_record_access_revoked');
+  assert.deepEqual(result.candidates, []);
+  assert.deepEqual(result.admitted, []);
+});
+
 test('legacy file-backed Provider grant table migrates durable authorization generation', (t) => {
   const db = createProviderTestDb(t, { prefix: 'logic-memory-provider-grant-migration-' });
   db.db.exec(`CREATE TABLE memory_record_grants (
