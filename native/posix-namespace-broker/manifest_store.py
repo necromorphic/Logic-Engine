@@ -858,7 +858,7 @@ class ManifestStore:
 
 
     def enroll_role(self, role_name: str, parent_path: str, database_basename: str) -> int:
-        """Broker-first main DB provisioning; only the broker identity may call this API."""
+        """Persist an enrollment intent before the broker creates the main DB file."""
         if (not isinstance(role_name, str) or not role_name or len(role_name) > 128
                 or role_name[0] in ".-"
                 or any(not (ch.isascii() and (ch.isalnum() or ch in "._-")) for ch in role_name)):
@@ -869,58 +869,113 @@ class ManifestStore:
             raise StoreError("invalid database basename")
         with _locked_roots(self.manifest_fd, self.anchor_fd, exclusive=True):
             manifest = self._load_pair()[0]
-            if any(entry["role"] == role_name for entry in manifest["roles"]):
-                raise StoreError("database role already exists; roles are never silently replaced")
+            if (any(entry["role"] == role_name for entry in manifest["roles"])
+                    or any(entry["role"] == role_name
+                           for entry in manifest.get("pendingEnrollments", []))):
+                raise StoreError("database role already exists or has a pending enrollment")
             parent_fd, components, identities, filesystem = _capture_role_parent(parent_path)
-            fd = -1
             try:
                 if filesystem != manifest["filesystemPolicy"]["filesystem"]:
                     raise StoreError("role parent filesystem differs from the manifest storage policy")
-                flags = (os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC
-                         | os.O_NOFOLLOW | os.O_NONBLOCK)
-                try:
-                    fd = os.open(database_basename, flags, 0o600, dir_fd=parent_fd)
-                except FileExistsError as exc:
-                    raise StoreError("database path already exists; enrollment never adopts existing files") from exc
-                info = os.fstat(fd)
-                identity = _fd_identity(fd)
-                if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1
-                        or info.st_uid != os.geteuid()
-                        or identity["mountId"] != _fd_mount_id(parent_fd)):
-                    raise StoreError("new main database failed opened-handle validation")
-                os.fchmod(fd, 0o600)
-                os.fsync(fd)
-                os.fsync(parent_fd)
-                enrolling = json.loads(_canonical_json(manifest))
-                enrolling["generation"] = manifest["generation"] + 1
-                enrolling["roles"].append({
+                if _observe_regular_at(parent_fd, database_basename,
+                                       "broker-first enrollment destination") is not None:
+                    raise StoreError("database path already exists; enrollment never adopts existing files")
+                intent = {
                     "role": role_name,
                     "parentComponents": components,
                     "parentIdentities": identities,
                     "databaseBasename": database_basename,
-                    "databaseIdentity": identity,
-                    "state": "enrolling",
-                    "sidecars": [],
-                })
-                self._commit_locked(_canonical_json(enrolling))
-                current = self._load_pair()[0]
-                active = json.loads(_canonical_json(current))
-                active["generation"] = current["generation"] + 1
-                next(entry for entry in active["roles"] if entry["role"] == role_name)["state"] = "active"
-                self._commit_locked(_canonical_json(active))
-                return fd
-            except Exception:
-                if fd >= 0:
-                    os.close(fd)
-                    fd = -1
-                # Never unlink an uncertain enrollment artifact. The service-owned
-                # parent remains inaccessible to the app; startup verification
-                # fails closed if a manifest transition was interrupted.
-                raise
+                }
+                candidate = json.loads(_canonical_json(manifest))
+                candidate.setdefault("pendingEnrollments", []).append(intent)
+                candidate["generation"] = manifest["generation"] + 1
+                self._commit_locked(_canonical_json(candidate))
             finally:
                 os.close(parent_fd)
+        # The durable intent now precedes every filesystem mutation. Startup can
+        # finish creation if this process exits before the file or identity commit.
+        self.reconcile_pending_enrollments()
+        self.reconcile_enrolling_roles()
+        return self.open_role_file(role_name, "main")
 
-
+    def reconcile_pending_enrollments(self) -> dict[str, Any]:
+        """Finish committed enrollment intents using only broker-owned parent directories."""
+        with _locked_roots(self.manifest_fd, self.anchor_fd, exclusive=True):
+            manifest = self._load_pair()[0]
+            while manifest.get("pendingEnrollments", []):
+                intent = manifest["pendingEnrollments"][0]
+                role_name = intent["role"]
+                if any(entry["role"] == role_name for entry in manifest["roles"]):
+                    raise StoreError("pending enrollment conflicts with an already enrolled role")
+                parent_fd = _open_role_parent(
+                    intent["parentComponents"], intent["parentIdentities"],
+                    manifest["filesystemPolicy"]["filesystem"],
+                    manifest["filesystemPolicy"]["applicationUid"],
+                )
+                db_fd = -1
+                try:
+                    actual = _observe_regular_at(
+                        parent_fd, intent["databaseBasename"],
+                        f"pending enrollment {role_name} database",
+                    )
+                    expected = intent.get("databaseIdentity")
+                    if actual is None:
+                        if expected is not None:
+                            raise StoreError("pending enrollment database disappeared after identity capture")
+                        flags = (os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC
+                                 | os.O_NOFOLLOW | os.O_NONBLOCK)
+                        db_fd = os.open(intent["databaseBasename"], flags, 0o600, dir_fd=parent_fd)
+                    else:
+                        if expected is not None and actual != expected:
+                            raise StoreError("pending enrollment database identity changed")
+                        flags = os.O_RDWR | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK
+                        db_fd = os.open(intent["databaseBasename"], flags, dir_fd=parent_fd)
+                    info = os.fstat(db_fd)
+                    identity = _fd_identity(db_fd)
+                    if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1
+                            or info.st_uid != os.geteuid()
+                            or identity["mountId"] != _fd_mount_id(parent_fd)):
+                        raise StoreError("pending enrollment file failed opened-handle validation")
+                    if expected is not None and identity != expected:
+                        raise StoreError("pending enrollment opened identity differs from its durable intent")
+                    if actual is None:
+                        os.fchmod(db_fd, 0o600)
+                    elif stat.S_IMODE(info.st_mode) != 0o600:
+                        raise StoreError("pending enrollment file has unexpected permissions")
+                    os.fsync(db_fd)
+                    os.fsync(parent_fd)
+                    if expected is None:
+                        identified = json.loads(_canonical_json(manifest))
+                        identified["generation"] = manifest["generation"] + 1
+                        next(entry for entry in identified["pendingEnrollments"]
+                             if entry["role"] == role_name)["databaseIdentity"] = identity
+                        self._commit_locked(_canonical_json(identified))
+                        manifest = self._load_pair()[0]
+                        intent = next(entry for entry in manifest["pendingEnrollments"]
+                                      if entry["role"] == role_name)
+                        identity = intent["databaseIdentity"]
+                    enrolled = json.loads(_canonical_json(manifest))
+                    enrolled["generation"] = manifest["generation"] + 1
+                    enrolled["roles"].append({
+                        "role": role_name,
+                        "parentComponents": intent["parentComponents"],
+                        "parentIdentities": intent["parentIdentities"],
+                        "databaseBasename": intent["databaseBasename"],
+                        "databaseIdentity": identity,
+                        "state": "enrolling",
+                        "sidecars": [],
+                    })
+                    enrolled["pendingEnrollments"] = [
+                        entry for entry in enrolled.get("pendingEnrollments", [])
+                        if entry["role"] != role_name
+                    ]
+                    self._commit_locked(_canonical_json(enrolled))
+                    manifest = self._load_pair()[0]
+                finally:
+                    if db_fd >= 0:
+                        os.close(db_fd)
+                    os.close(parent_fd)
+            return manifest
 
     def disable_role(self, role_name: str) -> dict[str, Any]:
         """Disable new broker opens; caller must first stop every application process."""
