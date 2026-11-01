@@ -38,7 +38,7 @@ async function post(url, headers, body) {
   });
 }
 
-test('Host Adapter makes a real authenticated Core context-resolution call; incomplete inventory blocks before Core', async t => {
+test('Host Adapter requires Core root proof before context resolution and binds authenticated ST identity', async t => {
   const directory = await mkdtemp(join(tmpdir(), 'host-core-context-e2e-'));
   const root = join(directory, 'st-user');
   const chats = join(root, 'chats');
