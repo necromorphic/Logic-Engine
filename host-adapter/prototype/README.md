@@ -281,3 +281,10 @@ The consolidated inventory candidate supports both SillyTavern account modes. In
 `createHostRequestAuthenticationGate()` is a process-local capability for a future in-process Core composition. It marks only the exact authenticated Express request after a deployment-owned resolver returns the canonical `hostSessionId:installationId:conversationUuid` value. It does not trust body/query/header conversation IDs, and copying the request object does not copy the capability. The resolver must use server-owned inventory and session state. This gate is not a cross-process assertion protocol and is not, by itself, a Core call or Provider authorization.
 
 The Host candidate remains NON_READY until the resolver is wired to the canonical inventory, the actual Core retrieval call is composed with the correct deployment topology, and every supported lifecycle route has operation-specific persisted-state receipts and exact-head runtime evidence.
+
+
+## Extension Gateway transport migration (1 Nov 2026)
+
+The active Host transport candidate is now the self-contained SillyTavern server plugin in `server-plugin/`. Install the entire directory as `SillyTavern/plugins/logic-engine-extension-gateway/` and enable `enableServerPlugins: true`. The pinned ST plugin loader mounts it under `/api/plugins/logic-engine-extension-gateway` after the authenticated session middleware. The active Gateway package contains no Core URL, Core token, adapter token, or direct ST→Core proxy route. Its context handoff remains `NON_READY` until the signed assertion transport is implemented and tested.
+
+The old SillyTavern source patches and their `/api/logic-engine/*` routes are archival review artifacts only. The updated Host transport CI no longer applies them. Do not apply them to a SillyTavern installation. Lifecycle receipt coverage remains incomplete; the plugin migration does not make Host inventory authoritative or enable Memory → NPC.
