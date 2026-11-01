@@ -18,6 +18,7 @@ async function fixture(t) {
   const original = "export const host = 'stock';\n";
   const patched = "export const host = 'patched';\n";
   const hook = "export const finalSendHook = true;\n";
+  const untouched = "export const nativeRoute = 'stock';\n";
   const patch = [
     '--- a/src/host.js',
     '+++ b/src/host.js',
