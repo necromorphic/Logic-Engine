@@ -392,14 +392,15 @@ export class MemoryDispatchGateway {
     }
   }
 
-  async dispatchProtectedRequest({ requestId, route, senderRoute, model, stream, body, worldId, actorId, purpose, sources, candidates, transport, forwardResponse, signal }) {
+  async dispatchProtectedRequest({ requestId, route, senderRoute, model, stream, body, worldId, actorId, purpose, sources, candidates, transport, forwardResponse, hostTransformsStream = false, signal }) {
     if (!validText(requestId, 200) || !SUPPORTED_PROTECTED_MEMORY_ROUTES.includes(route)
       || !PROTECTED_MEMORY_SENDER_ROUTES.includes(senderRoute)
       || typeof model !== 'string' || !/^[A-Za-z0-9._-]{1,128}$/.test(model)
       || typeof stream !== 'boolean'
       || typeof body !== 'string' || body.length === 0 || body.length > 4_000_000
       || !validText(worldId, 200) || !validText(actorId, 200) || !validText(purpose, 200)
-      || stream && typeof forwardResponse !== 'function') {
+      || typeof hostTransformsStream !== 'boolean'
+      || stream && !hostTransformsStream && typeof forwardResponse !== 'function') {
       throw new Error('MEMORY_DISPATCH_NOT_READY');
     }
     const sourceSet = normalizeSources(sources);
@@ -571,7 +572,7 @@ export class MemoryDispatchGateway {
       throw new Error('MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED');
     }
 
-    if (stream) {
+    if (stream && !hostTransformsStream) {
       // Native ST forwarding writes each chunk through the patched response
       // writer. Each write/end obtains a short Coordinator lease and rechecks
       // current Core/Provider authorization. No lease spans network I/O.
