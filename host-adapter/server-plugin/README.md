@@ -2,9 +2,9 @@
 
 **Status: review-only / NON_READY.** This plugin is the server half of the Extension Gateway. It is not a production Memory → NPC enablement.
 
-Install the complete `host-adapter` directory as one SillyTavern server plugin directory, for example `SillyTavern/plugins/logic-engine-host-adapter`. The package entry point is `server-plugin/index.mjs`; the sibling `prototype` modules are required at runtime. Enable SillyTavern server plugins in the normal server configuration.
+Install the complete `host-adapter` directory as one SillyTavern server plugin directory, for example `SillyTavern/plugins/logic-engine-extension-gateway`. The package entry point is `server-plugin/index.mjs`; the sibling `prototype` modules are required at runtime. Enable SillyTavern server plugins in the normal server configuration.
 
-The plugin loader mounts this router under `/api/plugins/logic-engine-host-adapter` after SillyTavern's `requireLoginMiddleware`. The browser Extension Gateway calls only this plugin route. No patch to SillyTavern source files and no `/api/logic-engine/*` route are required.
+The plugin loader mounts this router under `/api/plugins/logic-engine-extension-gateway` after SillyTavern's `requireLoginMiddleware`. The browser Extension Gateway calls only this plugin route. No patch to SillyTavern source files and no `/api/logic-engine/*` route are required.
 
 Required server environment:
 
