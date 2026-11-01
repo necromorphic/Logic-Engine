@@ -129,6 +129,10 @@ export function validateDeploymentReport(report) {
   if (!protectedFinalSendGate) {
     throw new Error('DEPLOYMENT_REPORT_MISSING_PROTECTED_FINAL_SEND_GATE');
   }
+  if (protectedFinalSendGate.affected_features.length !== 1
+    || protectedFinalSendGate.affected_features[0] !== 'memory.protected-final-send') {
+    throw new Error('DEPLOYMENT_REPORT_PROTECTED_FINAL_SEND_FEATURE_BINDING_INVALID');
+  }
   const capabilityEvidence = new Map(report.capabilities.map((item) => [item.id, item]));
   const missingFinalSendEvidence = PROTECTED_FINAL_SEND_CAPABILITIES.filter((id) => {
     const evidence = capabilityEvidence.get(id);
