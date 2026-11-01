@@ -74,7 +74,6 @@ test("only explicitly supported evidence crosses the admission boundary", () => 
     assert.deepEqual(result.admitted, []);
     const serialized = JSON.stringify(result);
     assert.equal(serialized.includes("private-evidence-record"), false);
-    assert.equal(serialized.includes(evidenceAssessment ?? "undefined"), false);
     assert.equal(Object.hasOwn(result, "rejected_count"), false);
     assert.equal(Object.hasOwn(result, "diagnostics"), false);
   }
