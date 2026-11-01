@@ -383,7 +383,13 @@ export function createHostRequestAuthenticationGate({ resolveConversationId } = 
       }
       authenticatedRequests.set(request, conversationId);
       return next();
-    } catch {
+    } catch (error) {
+      if (error?.message === 'HOST_INVENTORY_COMPLETENESS_NOT_VERIFIED') {
+        return response.status(503).json({
+          status: 'NON_READY',
+          code: 'HOST_INVENTORY_COMPLETENESS_NOT_VERIFIED',
+        });
+      }
       return response.sendStatus(403);
     }
   }
