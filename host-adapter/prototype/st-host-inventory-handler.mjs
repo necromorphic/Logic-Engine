@@ -4,6 +4,24 @@ import { enumerateHostDataInventory } from './host-data-inventory.mjs';
 
 const HOST_SESSION_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+function getAuthenticatedHostIdentity(request, { requireDirectories = false, requireSessionIdentity = false } = {}) {
+  const user = request?.user;
+  const session = request?.session;
+  const directories = user?.directories;
+  const userHandle = user?.profile?.handle;
+  // ST default-user mode intentionally omits session.handle. A present value
+  // must still match the authenticated middleware-populated profile handle.
+  if (!session || (requireDirectories && !directories)
+    || typeof userHandle !== 'string' || !userHandle.trim()
+    || (session.handle !== undefined
+      && (typeof session.handle !== 'string' || session.handle !== userHandle))) return null;
+  if (requireSessionIdentity
+    && (typeof session.logicEngineSessionId !== 'string'
+      || !HOST_SESSION_UUID.test(session.logicEngineSessionId)
+      || session.logicEngineSessionHandle !== userHandle)) return null;
+  return { userHandle, session, directories };
+}
+
 export function createHostInventoryHandler({
   enumerate,
   pinnedHostCommit,
@@ -20,18 +38,10 @@ export function createHostInventoryHandler({
   return async function hostInventoryHandler(request, response) {
     response.set('Cache-Control', 'no-store, private');
     response.set('Vary', 'Cookie');
-    const user = request?.user;
-    const directories = user?.directories;
-    const userHandle = user?.profile?.handle;
-    const sessionHandle = request?.session?.handle;
-    const sessionId = request?.session?.logicEngineSessionId;
-    const sessionIdentityHandle = request?.session?.logicEngineSessionHandle;
-    if (!directories || typeof userHandle !== 'string' || !userHandle.trim()
-      || typeof sessionHandle !== 'string' || sessionHandle !== userHandle
-      || typeof sessionId !== 'string' || !HOST_SESSION_UUID.test(sessionId)
-      || sessionIdentityHandle !== userHandle) {
-      return response.sendStatus(403);
-    }
+    const identity = getAuthenticatedHostIdentity(request, { requireDirectories: true, requireSessionIdentity: true });
+    if (!identity) return response.sendStatus(403);
+    const { userHandle, directories, session } = identity;
+    const sessionId = session.logicEngineSessionId;
 
     // This is an operator-supplied deployment claim, not runtime source attestation.
     if (hostBuildClaim !== pinnedHostCommit) {
@@ -165,12 +175,9 @@ export function createHostSessionHandler({ createId = randomUUID } = {}) {
   return function hostSessionHandler(request, response) {
     response.set('Cache-Control', 'no-store, private');
     response.set('Vary', 'Cookie');
-    const session = request?.session;
-    const userHandle = request?.user?.profile?.handle;
-    if (!session || typeof userHandle !== 'string' || !userHandle.trim()
-      || typeof session.handle !== 'string' || session.handle !== userHandle) {
-      return response.sendStatus(403);
-    }
+    const identity = getAuthenticatedHostIdentity(request);
+    if (!identity) return response.sendStatus(403);
+    const { session, userHandle } = identity;
 
     const currentId = session.logicEngineSessionId;
     if (currentId !== undefined && !HOST_SESSION_UUID.test(currentId)) {
@@ -266,7 +273,7 @@ export function createHostIdentityHandler({ identityStore }) {
     const userHandle = request?.user?.profile?.handle;
     const session = request?.session;
     if (typeof userHandle !== 'string' || !userHandle.trim()
-      || session?.handle !== userHandle
+      || (session?.handle !== undefined && session.handle !== userHandle)
       || typeof session?.logicEngineSessionId !== 'string'
       || !HOST_SESSION_UUID.test(session.logicEngineSessionId)
       || session?.logicEngineSessionHandle !== userHandle) {
@@ -288,7 +295,7 @@ export function createHostLifecycleSaveGuard({ enumerate = enumerateHostDataInve
     response.set('Vary', 'Cookie');
     const userHandle = request?.user?.profile?.handle;
     const session = request?.session;
-    if (typeof userHandle !== 'string' || !userHandle.trim() || session?.handle !== userHandle || session?.logicEngineSessionHandle !== userHandle || !HOST_SESSION_UUID.test(session?.logicEngineSessionId ?? '')) return response.sendStatus(403);
+    if (typeof userHandle !== 'string' || !userHandle.trim() || (session?.handle !== undefined && session.handle !== userHandle) || session?.logicEngineSessionHandle !== userHandle || !HOST_SESSION_UUID.test(session?.logicEngineSessionId ?? '')) return response.sendStatus(403);
     const directories = request?.user?.directories;
     if (!directories || !['root', 'chats', 'groups', 'groupChats'].every(key => typeof directories[key] === 'string' && path.isAbsolute(directories[key]))) return response.sendStatus(403);
     let inventory;
@@ -339,4 +346,56 @@ export function createHostLifecycleSaveGuard({ enumerate = enumerateHostDataInve
     request.logicEngineLifecycleOperation = permit.operation;
     return next();
   };
+}
+
+const HOST_CONVERSATION_ID = new RegExp(
+  '^' + HOST_SESSION_UUID.source.slice(1, -1) + ':'
+    + HOST_SESSION_UUID.source.slice(1, -1) + ':'
+    + HOST_SESSION_UUID.source.slice(1, -1) + '$',
+  'i',
+);
+
+/**
+ * Process-local request capability for an in-process Core adapter. The resolver
+ * must map the exact authenticated request to canonical server-owned chat state.
+ */
+export function createHostRequestAuthenticationGate({ resolveConversationId } = {}) {
+  if (typeof resolveConversationId !== 'function') {
+    throw new TypeError('A trusted Host conversation resolver is required.');
+  }
+  const authenticatedRequests = new WeakMap();
+  async function middleware(request, response, next) {
+    response.set('Cache-Control', 'no-store, private');
+    response.set('Vary', 'Cookie');
+    const identity = getAuthenticatedHostIdentity(request, {
+      requireDirectories: true,
+      requireSessionIdentity: true,
+    });
+    if (!identity || (typeof request !== 'object' && typeof request !== 'function') || request === null) {
+      return response.sendStatus(403);
+    }
+    const { userHandle, session } = identity;
+    try {
+      const conversationId = await resolveConversationId(request);
+      if (typeof conversationId !== 'string' || !HOST_CONVERSATION_ID.test(conversationId)
+        || !conversationId.toLowerCase().startsWith(session.logicEngineSessionId.toLowerCase() + ':')) {
+        return response.sendStatus(403);
+      }
+      authenticatedRequests.set(request, conversationId);
+      return next();
+    } catch {
+      return response.sendStatus(403);
+    }
+  }
+  return Object.freeze({
+    middleware,
+    isAuthenticatedHostRequest(request) {
+      return request !== null && (typeof request === 'object' || typeof request === 'function')
+        && authenticatedRequests.has(request);
+    },
+    resolveHostConversationId(request) {
+      if (request === null || (typeof request !== 'object' && typeof request !== 'function')) return null;
+      return authenticatedRequests.get(request) ?? null;
+    },
+  });
 }
