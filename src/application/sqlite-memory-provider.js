@@ -347,6 +347,10 @@ export class SQLiteMemoryProvider {
       if (!this.#acceptedHeadConfig) {
         this.#db.prepare('INSERT OR IGNORE INTO accepted_head_state(singleton,head,enrolled,last_operation_id,last_operation_digest) VALUES(1,0,0,NULL,NULL)').run();
       }
+      const recordGrantColumns = this.#db.prepare('PRAGMA table_info(memory_record_grants)').all();
+      if (!recordGrantColumns.some((column) => column.name === 'authorization_generation')) {
+        this.#db.exec('ALTER TABLE memory_record_grants ADD COLUMN authorization_generation INTEGER NOT NULL DEFAULT 1 CHECK(authorization_generation>=1)');
+      }
       const stateColumns = this.#db.prepare('PRAGMA table_info(memory_index_state)').all();
       if (!stateColumns.some((column) => column.name === 'failure_code')) this.#db.exec('ALTER TABLE memory_index_state ADD COLUMN failure_code TEXT');
       // Readiness is process-local evidence; restart requires full reconciliation.
@@ -804,9 +808,12 @@ export class SQLiteMemoryProvider {
       throw new TypeError('Invalid record grant');
     }
     this.#withSerializedWrite(() => {
-      this.#db.prepare(`INSERT INTO memory_record_grants VALUES(?,?,?,?,?,?)
+      this.#db.prepare(`INSERT INTO memory_record_grants
+        (world_id,subject_id,purpose,record_ref,record_version,allowed,authorization_generation)
+        VALUES(?,?,?,?,?,?,1)
         ON CONFLICT(world_id,subject_id,purpose,record_ref,record_version)
-        DO UPDATE SET allowed=excluded.allowed`)
+        DO UPDATE SET allowed=excluded.allowed,
+          authorization_generation=memory_record_grants.authorization_generation+1`)
         .run(scope.world_id, scope.subject_id, scope.purpose, recordRef, recordVersion, allowed ? 1 : 0);
     });
     const key = JSON.stringify([scope.world_id, scope.subject_id, scope.purpose, recordRef, recordVersion]);
@@ -838,19 +845,24 @@ export class SQLiteMemoryProvider {
       world_id: input.world_id, subject_id: input.subject_id, purpose: input.purpose,
       record_ref: input.record_ref, record_version: input.record_version,
       source_kind: input.source_kind, source_entity_id: input.source_entity_id,
+      authorization_generation: input.authorization_generation,
     };
     // Take the cross-connection epoch before reading any authorization state.
     // Otherwise a revoke/re-grant committed between the initial grant read and
     // the later epoch capture would be invisible to this request.
     const requestDataVersion = this.#dataVersion();
     if (!object(input) || !validId(input.world_id) || !validId(input.subject_id)
-      || !validId(input.purpose) || !validId(input.record_ref) || !validId(input.record_version)) return false;
+      || !validId(input.purpose) || !validId(input.record_ref) || !validId(input.record_version)
+      || !Number.isSafeInteger(input.authorization_generation) || input.authorization_generation < 1) return false;
     const scope = { world_id: input.world_id, subject_id: input.subject_id, purpose: input.purpose };
     if (!this.#authorizeQuery(scope)) throw new Error('MEMORY_QUERY_DENIED');
-    const grant = this.#db.prepare(`SELECT allowed FROM memory_record_grants
+    const grant = this.#db.prepare(`SELECT allowed,authorization_generation FROM memory_record_grants
       WHERE world_id=? AND subject_id=? AND purpose=? AND record_ref=? AND record_version=?`)
       .get(input.world_id, input.subject_id, input.purpose, input.record_ref, input.record_version);
-    if (grant?.allowed !== 1) return false;
+    if (!grant || grant.allowed !== 1) throw new Error('MEMORY_RECORD_ACCESS_REVOKED');
+    if (grant.authorization_generation !== input.authorization_generation) {
+      throw new Error('MEMORY_AUTHORIZATION_CHANGED');
+    }
     const row = this.#db.prepare(`SELECT * FROM memory_records
       WHERE world_id=? AND record_ref=? AND record_version=?`)
       .get(input.world_id, input.record_ref, input.record_version);
@@ -907,14 +919,14 @@ export class SQLiteMemoryProvider {
     return this.#withImmediateTransaction(() => {
     this.#assertAcceptedHeadCurrent();
     if (!this.#authorizeQuery(scope)) throw new Error('MEMORY_QUERY_DENIED');
-    const currentGrant = this.#db.prepare(`SELECT allowed FROM memory_record_grants
+    const currentGrant = this.#db.prepare(`SELECT allowed,authorization_generation FROM memory_record_grants
       WHERE world_id=? AND subject_id=? AND purpose=? AND record_ref=? AND record_version=?`)
       .get(input.world_id, input.subject_id, input.purpose, input.record_ref, input.record_version);
-    if (currentGrant?.allowed !== 1) {
-      // A grant that disappears while source validation is awaited is a
-      // mid-request revocation, not an ordinary pre-existing per-record denial.
-      // Keep the consumer from turning a revoked last candidate into ready-empty.
+    if (!currentGrant || currentGrant.allowed !== 1) {
       throw new Error('MEMORY_RECORD_ACCESS_REVOKED');
+    }
+    if (currentGrant.authorization_generation !== input.authorization_generation) {
+      throw new Error('MEMORY_AUTHORIZATION_CHANGED');
     }
     // If a grant was revoked and re-granted during the await, the final Boolean
     // alone loses that lifecycle transition. Fail this in-flight authorization;
@@ -1307,7 +1319,7 @@ export class SQLiteMemoryProvider {
           || String(current.commit_sequence) !== lockedState.snapshot_sequence) throw new Error('MEMORY_SNAPSHOT_STALE');
         if ((this.#stateGeneration.get(scope.world_id) ?? 0) !== stateGeneration
           || this.#dataVersion() !== providerDataVersion) throw new Error('MEMORY_INDEX_NOT_READY');
-        const rows = this.#db.prepare(`SELECT r.* FROM memory_records r
+        const rows = this.#db.prepare(`SELECT r.*,g.authorization_generation FROM memory_records r
           JOIN memory_index_entries i USING(world_id,record_ref,record_version)
           JOIN memory_record_grants g ON g.world_id=r.world_id AND g.record_ref=r.record_ref
             AND g.record_version=r.record_version AND g.subject_id=? AND g.purpose=? AND g.allowed=1
@@ -1337,6 +1349,7 @@ export class SQLiteMemoryProvider {
 
         const candidates = rows.slice(0, 50).map((row) => ({
           record: { ref: row.record_ref, version: row.record_version },
+          authorization_generation: row.authorization_generation,
           source: { kind: row.source_kind, entity_id: row.source_entity_id },
           world_id: row.world_id, subject_id: row.subject_id, purpose: row.purpose,
           content_kind: row.content_kind, epistemic_kind: row.epistemic_kind,
