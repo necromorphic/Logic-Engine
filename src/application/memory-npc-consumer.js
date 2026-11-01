@@ -723,8 +723,7 @@ export class MemoryNpcConsumer {
     if (!isPlainDataRecord(sourceRead, sourceReadKeys)
       || sourceRead.world_id !== worldId
       || !validSnapshot({ world_revision: sourceRead.world_revision, commit_sequence: sourceRead.commit_sequence })
-      || !isDensePlainDataArray(sourceRead.entities)
-      || sourceRead.entities.length !== entityIds.length) {
+      || !isDensePlainDataArray(sourceRead.entities)) {
       return nonReady('authorized_source_read_invalid');
     }
 
@@ -751,7 +750,7 @@ export class MemoryNpcConsumer {
       sourceById.set(entity.entity_id, entity);
     }
     if (sourceById.size !== requestedEntityIds.size) {
-      return nonReady('authorized_source_read_invalid');
+      return nonReady('authorized_source_missing');
     }
 
     const oracleCandidates = [];
@@ -872,13 +871,14 @@ export class MemoryNpcConsumer {
         world_revision: finalSourceSnapshotRead.world_revision,
         commit_sequence: finalSourceSnapshotRead.commit_sequence,
       })
-      || !sameSnapshot(sourceRead, {
-        world_revision: finalSourceSnapshotRead.world_revision,
-        commit_sequence: finalSourceSnapshotRead.commit_sequence,
-      })
-      || !isDensePlainDataArray(finalSourceSnapshotRead.entities)
-      || finalSourceSnapshotRead.entities.length !== entityIds.length) {
+      || !isDensePlainDataArray(finalSourceSnapshotRead.entities)) {
       return nonReady('authorized_source_read_invalid');
+    }
+    if (!sameSnapshot(sourceRead, {
+      world_revision: finalSourceSnapshotRead.world_revision,
+      commit_sequence: finalSourceSnapshotRead.commit_sequence,
+    })) {
+      return nonReady('memory_snapshot_stale');
     }
 
     // Reapply field visibility at the disclosure boundary. The first source
@@ -895,7 +895,7 @@ export class MemoryNpcConsumer {
       finalSourceById.set(entity.entity_id, entity);
     }
     if (finalSourceById.size !== requestedEntityIds.size) {
-      return nonReady('authorized_source_read_invalid');
+      return nonReady('authorized_source_missing');
     }
     const finalContentByIdentity = new Map();
     for (const item of admitted) {
