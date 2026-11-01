@@ -28,24 +28,28 @@
 +    response,
 +    nativeForwardFetchResponse,
 +);
-@@ -2242,6 +2248,7 @@
--router.post('/generate', async function (request, response) {
-+router.post('/generate', async function (request, response) {
+ 
+ const API_OPENAI = 'https://api.openai.com/v1';
+ const API_CLAUDE = 'https://api.anthropic.com/v1';
+@@ -2240,6 +2246,7 @@
+ });
+ 
+ router.post('/generate', async function (request, response) {
 +    return runWithLogicEngineFinalSend(request, response, async () => {
      try {
-@@ -2724,7 +2731,8 @@
-         } else {
+         if (!request.body) return response.status(400).send({ error: true });
+ 
+@@ -2726,6 +2733,7 @@
              response.end();
          }
--    }
-+    }
+     }
 +    });
  });
  
- const multimodalModels
+ const multimodalModels = express.Router();
 --- /dev/null
 +++ b/src/logic-engine-final-send-hook.js
-@@ -0,0 +1,95 @@
+@@ -0,0 +1,88 @@
 +import { AsyncLocalStorage } from 'node:async_hooks';
 +import nativeFetch from 'node-fetch';
 +
