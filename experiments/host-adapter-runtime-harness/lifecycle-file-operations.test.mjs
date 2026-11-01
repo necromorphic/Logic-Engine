@@ -121,6 +121,8 @@ test('pinned ST 1.19.0 supported chat mutations persist; chat deletion, rename, 
 
   const parent = await mkdtemp(join(tmpdir(), 'logic-engine-st-1.19-real-ops-'));
   const root = join(parent, 'data');
+  const previousDataRoot = globalThis.DATA_ROOT;
+  globalThis.DATA_ROOT = root;
   const uploads = join(parent, 'uploads');
   const identityDirectory = join(parent, 'host-identity');
   const previousIdentityDirectory = process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR;
@@ -132,6 +134,8 @@ test('pinned ST 1.19.0 supported chat mutations persist; chat deletion, rename, 
     else process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR = previousIdentityDirectory;
     if (previousBuildClaim === undefined) delete process.env.LOGIC_ENGINE_HOST_BUILD_SHA;
     else process.env.LOGIC_ENGINE_HOST_BUILD_SHA = previousBuildClaim;
+    if (previousDataRoot === undefined) delete globalThis.DATA_ROOT;
+    else globalThis.DATA_ROOT = previousDataRoot;
   });
   const { router: hostInventoryRouter } = await import(
     pathToFileURL(resolve(stRoot, 'src/endpoints/logic-engine-host-inventory-handler.mjs')).href + '?lifecycle-harness'
