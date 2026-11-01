@@ -388,6 +388,55 @@ test('a Provider-returned candidate whose record authorization cannot be confirm
   assert.deepEqual(staleButDenied.candidates, []);
 });
 
+test('malformed Core authorized-read envelopes fail closed without leaking envelope diagnostics', async (t) => {
+  const cases = [
+    ['null envelope', () => null, 'authorized_source_read_invalid'],
+    ['wrong world', (result) => ({ ...result, world_id: 'another-world' }), 'authorized_source_read_invalid'],
+    ['malformed snapshot cursor', (result) => ({
+      ...result,
+      world_revision: -1,
+    }), 'authorized_source_read_invalid'],
+    ['stale snapshot cursor', (result) => ({
+      ...result,
+      world_revision: result.world_revision + 1,
+    }), 'memory_snapshot_stale'],
+    ['non-array entities', (result) => ({
+      ...result,
+      entities: { source: result.entities[0] },
+    }), 'authorized_source_read_invalid'],
+    ['sparse entities', (result) => ({
+      ...result,
+      entities: [undefined],
+    }), 'authorized_source_read_invalid'],
+  ];
+
+  for (const [name, mutate, expectedReason] of cases) {
+    await t.test(name, async (subtest) => {
+      const { consumer, authorizedReadService } = setup(subtest);
+      const originalRead = authorizedReadService.readEntityFields.bind(authorizedReadService);
+      authorizedReadService.readEntityFields = (input) => {
+        const result = originalRead(input);
+        if (!input.fields.includes('attributes.public_note')) return result;
+        if (name === 'null envelope') return null;
+        return {
+          ...mutate(result),
+          diagnostics: 'private Core diagnostic must not escape',
+          snippet: 'private Core snippet must not escape',
+        };
+      };
+
+      const result = await consumer.retrieveForNpc(request());
+      assert.equal(result.status, 'non_ready');
+      assert.equal(result.reason, expectedReason);
+      assert.deepEqual(result.admitted, []);
+      assert.deepEqual(result.candidates, []);
+      assert.equal(JSON.stringify(result).includes('private Core diagnostic'), false);
+      assert.equal(JSON.stringify(result).includes('private Core snippet'), false);
+      assert.equal(JSON.stringify(result).includes('authorized source text'), false);
+    });
+  }
+});
+
 test('duplicate canonical entity identities in an authorized read fail closed', async (t) => {
   const { consumer } = setup(t);
   const originalRead = consumer.authorizedReadService.readEntityFields.bind(consumer.authorizedReadService);
