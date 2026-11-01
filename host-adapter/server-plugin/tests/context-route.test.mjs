@@ -4,8 +4,9 @@ import { createHostContextRoute, createHostConversationResolver } from '../conte
 
 const sessionId = '2e6b0a80-4e73-4c66-aaf3-7a6e62c7f401';
 const installationId = '3e6b0a80-4e73-4c66-aaf3-7a6e62c7f402';
+const accountId = '5e6b0a80-4e73-4c66-aaf3-7a6e62c7f404';
 const conversationUuid = '4e6b0a80-4e73-4c66-aaf3-7a6e62c7f403';
-const conversationId = [sessionId, installationId, conversationUuid].join(':');
+const conversationId = [installationId, accountId, conversationUuid].join(':');
 const directories = { root: '/st', chats: '/st/chats', groups: '/st/groups', groupChats: '/st/groupChats' };
 
 function makeRequest(overrides = {}) {
@@ -34,7 +35,7 @@ function dependencies(overrides = {}) {
         identityStore: {
             async resolveAuthenticatedAccount(handle) {
                 assert.equal(handle, 'default-user');
-                return { host_installation_id: installationId, authenticated_account_id: 'account-id' };
+                return { host_installation_id: installationId, authenticated_account_id: accountId };
             },
         },
         enumerate: async input => {
