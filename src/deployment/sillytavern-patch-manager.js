@@ -84,7 +84,8 @@ function targetInfo(stPath) {
 }
 
 function managerPaths(root) {
-  const directory = join(root, MANAGER_DIR);
+  const gitDirectory = resolve(root, runGit(root, ['rev-parse', '--git-path', 'logic-engine-patch-manager']));
+  const directory = gitDirectory;
   return { directory, journal: join(directory, JOURNAL_NAME), backups: join(directory, 'backups') };
 }
 
@@ -185,13 +186,25 @@ export function installSillyTavernPatchPackage({ stPath, manifestPath }) {
   }
   const affected = [...new Set(patchEntries.flatMap((entry) => entry.affected))].sort();
   const files = affected.map((filePath, index) => {
-    const absolute = safeRegularFile(target.root, filePath, 'Target file');
+    const absolute = resolve(target.root, filePath);
+    const rel = relative(target.root, absolute);
+    if (!rel || rel === '..' || rel.startsWith('..' + sep) || isAbsolute(rel)) throw new Error('Patch target escapes SillyTavern root.');
+    let cursor = target.root;
+    for (const part of rel.split(sep)) {
+      cursor = join(cursor, part);
+      if (!existsSync(cursor)) continue;
+      if (lstatSync(cursor).isSymbolicLink()) throw new Error('Patch target traverses a symbolic link.');
+    }
+    if (!existsSync(absolute)) return { path: filePath, existed: false, backup: index + '.bin', sha256: null, bytes: null };
+    const stat = lstatSync(absolute);
+    if (!stat.isFile()) throw new Error('Patch target must be a regular file: ' + filePath);
     const bytes = readFileSync(absolute);
     return { path: filePath, existed: true, backup: index + '.bin', sha256: sha256(bytes), bytes };
   });
   const id = randomUUID();
   mkdirSync(paths.backups, { recursive: true, mode: 0o700 });
   for (const file of files) {
+    if (!file.existed) continue;
     const backup = join(paths.backups, file.backup);
     writeFileSync(backup, file.bytes, { flag: 'wx', mode: 0o600 });
     try { chmodSync(backup, 0o600); } catch {}
@@ -206,7 +219,6 @@ export function installSillyTavernPatchPackage({ stPath, manifestPath }) {
     for (const entry of patchEntries) runGit(target.root, ['apply', '--check', entry.path]);
     for (const entry of patchEntries) runGit(target.root, ['apply', entry.path]);
     const dirty = runGit(target.root, ['status', '--porcelain=v1', '--untracked-files=all']);
-    const journalPath = relative(target.root, paths.directory).split(sep).join('/');
     const expected = new Set(affected.map((file) => ' M ' + file));
     const actual = dirty.split('\n').filter(Boolean);
     if (actual.some((line) => !expected.has(line)) || actual.length !== expected.size) {
