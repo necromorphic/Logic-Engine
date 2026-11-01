@@ -319,8 +319,8 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
         const conversationId = body?.conversation_id;
         const firstSeparator = typeof conversationId === 'string' ? conversationId.indexOf(':') : -1;
         const lastSeparator = typeof conversationId === 'string' ? conversationId.lastIndexOf(':') : -1;
-        const installationId = firstSeparator > 0 ? conversationId.slice(0, firstSeparator) : '';
-        const accountId = lastSeparator > firstSeparator + 1
+        const sessionId = firstSeparator > 0 ? conversationId.slice(0, firstSeparator) : '';
+        const installationId = lastSeparator > firstSeparator + 1
           ? conversationId.slice(firstSeparator + 1, lastSeparator) : '';
         const conversationUuid = lastSeparator >= 0 ? conversationId.slice(lastSeparator + 1) : '';
         if (!body || typeof body !== 'object' || Array.isArray(body)
@@ -328,10 +328,10 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
           || !hostContext || typeof hostContext !== 'object' || Array.isArray(hostContext)
           || Object.keys(hostContext).some(key => !hostContextKeys.includes(key))
           || hostContextKeys.some(key => !uuid.test(hostContext[key] ?? ''))
-          || !uuid.test(installationId) || !uuid.test(accountId) || !uuid.test(conversationUuid)
+          || !uuid.test(sessionId) || !uuid.test(installationId) || !uuid.test(conversationUuid)
+          || sessionId !== hostContext.session_id
           || installationId !== hostContext.installation_id
-          || accountId !== hostContext.account_id
-          || !uuid.test(hostContext.session_id)
+          || !uuid.test(hostContext.account_id)
           || typeof body.actor_entity_id !== 'string' || body.actor_entity_id !== body.actor_entity_id.trim()
           || body.actor_entity_id.length === 0 || body.actor_entity_id.length > 200
           || [...body.actor_entity_id].some(character => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127)) {
