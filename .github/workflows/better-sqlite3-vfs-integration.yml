@@ -21,6 +21,7 @@ on:
       - 'tests/better-sqlite3-vfs-broker-integration.test.js'
       - 'tests/better-sqlite3-vfs-cross-uid.test.js'
       - 'tests/better-sqlite3-vfs-cross-uid-recovery.test.js'
+      - 'tests/better-sqlite3-vfs-windows-handle-relative.test.js'
       - 'tests/run_better_sqlite3_cross_uid.py'
       - 'native/posix-namespace-broker/**'
       - '.github/workflows/better-sqlite3-vfs-integration.yml'
@@ -70,7 +71,7 @@ jobs:
         env:
           BETTER_SQLITE3_PACKAGE_DIR: ${{ runner.temp }}/better-sqlite3/package
           LOGIC_ENGINE_VFS_PROBE_PATH: ${{ runner.temp }}/logic_engine_secure_vfs_probe.so
-        run: node --test tests/better-sqlite3-vfs-integration.test.js tests/better-sqlite3-vfs-broker-integration.test.js
+        run: node --test tests/better-sqlite3-vfs-integration.test.js tests/better-sqlite3-vfs-windows-handle-relative.test.js tests/better-sqlite3-vfs-broker-integration.test.js
       - name: Verify distinct-UID production broker boundary and broker restart recovery with the published prebuild
         env:
           BETTER_SQLITE3_PACKAGE_DIR: ${{ runner.temp }}/better-sqlite3/package
