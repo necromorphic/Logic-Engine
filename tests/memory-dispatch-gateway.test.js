@@ -326,6 +326,32 @@ test('transport handoff begins while the shared coordinator is still held', asyn
   contender.exec('ROLLBACK');
 });
 
+test('Gateway rejects a missing or malformed policy authority tuple before upstream egress', async () => {
+  const fixture = await createFixture();
+  try {
+    fixture.setPolicyAuthority({ authority_id: 'test-memory-policy', generation: 1 });
+    await assert.rejects(
+      fixture.gateway.dispatchProtectedRequest({
+        ...validRequest('missing-policy-fingerprint'),
+        transport: () => {
+          fixture.calls.push('unexpected');
+          return Promise.resolve({ status: 200 });
+        },
+      }),
+      /MEMORY_DISPATCH_NOT_READY/,
+    );
+    assert.equal(fixture.calls.length, 0);
+    const ledger = new DatabaseSync(fixture.ledgerPath);
+    try {
+      assert.equal(ledger.prepare('SELECT COUNT(*) AS n FROM dispatch_ledger').get().n, 0);
+    } finally {
+      ledger.close();
+    }
+  } finally {
+    await fixture.close();
+  }
+});
+
 test('all protected sender families share one real Gateway and each causes exactly one upstream call', async () => {
   const fixture = await createFixture();
   let upstreamCalls = 0;
