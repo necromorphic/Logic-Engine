@@ -1,5 +1,6 @@
 import { enumeratePinnedSillyTavernChatFiles } from './st-source-inventory.mjs';
 import { createHostInventoryHandler, createHostSessionHandler } from './st-host-inventory-handler.mjs';
+import { createHostDigestProxyHandler, createHostInventoryReconcileProxyHandler } from './st-server-digest-proxy.mjs';
 
 const PINNED_SILLYTAVERN_COMMIT = '06bde939fb1e9c4c8d8641d810f0a916b5bce127';
 
@@ -18,6 +19,8 @@ export async function init(router) {
   // Keep both routes private; handlers additionally validate the middleware-
   // populated user context and the adapter-owned signed-session identity.
   router.get('/session', createHostSessionHandler());
+  router.post('/host-version-ledger/capture', createHostDigestProxyHandler());
+  router.post('/host-version-ledger/reconcile', createHostInventoryReconcileProxyHandler());
   router.get('/inventory', createHostInventoryHandler({
     enumerate: enumeratePinnedSillyTavernChatFiles,
     pinnedHostCommit: PINNED_SILLYTAVERN_COMMIT,
