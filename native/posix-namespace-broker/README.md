@@ -118,12 +118,15 @@ broker service UID with exact mode `0700`; every ancestor is checked for trusted
 ownership and non-writability. The application UID must be distinct from the
 broker service UID and must not be able to modify the role directory.
 
-Enrollment creates the main database file with `O_CREAT|O_EXCL|O_NOFOLLOW`,
-validates the opened descriptor, fsyncs the file and parent, commits an
-`enrolling` manifest record, then commits `active` before returning. Existing
-files are never adopted. If the broker stops after the enrolling commit,
-startup verifies the recorded identity and promotes that role; an absent or
-replaced file blocks startup.
+Enrollment first commits a durable `pendingEnrollments` intent containing
+the role and pinned parent identity, before creating any database file. The
+broker then creates the main file with `O_CREAT|O_EXCL|O_NOFOLLOW`, validates
+the opened descriptor, fsyncs the file and parent, commits its identity, and
+atomically replaces the pending intent with an `enrolling` role record. It then
+commits `active` before returning. Existing files are never adopted. Startup
+can finish an interrupted intent whether the file has not yet been created,
+was created before identity commit, or has a persisted identity; mismatched or
+ambiguous objects block startup.
 
 Example (run as the broker service identity after provisioning the directories
 and initializing the manifest):
