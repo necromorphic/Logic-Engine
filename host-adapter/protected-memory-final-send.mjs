@@ -70,8 +70,11 @@ export function createProtectedMemoryFinalSend({ gateway, resolveProtectedMemory
       throw new Error('MEMORY_DISPATCH_NOT_READY');
     }
 
-    // Ordinary non-Memory requests retain the provider's normal send path.
-    if (protectedMemory === null || protectedMemory === undefined) {
+    if (protectedMemory === undefined) throw new Error('MEMORY_DISPATCH_NOT_READY');
+
+    // Only an explicit trusted null means this request carries no protected
+    // Memory. Missing/indeterminate classification must never fall through.
+    if (protectedMemory === null) {
       return fetchImpl(endpointUrl, requestInit);
     }
 
