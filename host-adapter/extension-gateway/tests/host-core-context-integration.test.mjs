@@ -103,8 +103,13 @@ test('Host Adapter makes a real authenticated Core context-resolution call; inco
     LOGIC_ENGINE_ADAPTER_ID: ADAPTER_ID,
     LOGIC_ENGINE_ADAPTER_TOKEN: ADAPTER_TOKEN,
   };
+  const rootEntries = [{
+    path: 'chats/chat-one.jsonl',
+    identity: { dev: '1', ino: '1', mode: 33188, size: 0, mtimeMs: 0, ctimeMs: 0 },
+    sha256: 'b'.repeat(64),
+  }];
   const authoritativeFixture = async () => ({
-    filesystem: { status: 'complete' },
+    filesystem: { status: 'complete', entries: rootEntries },
     source: {
       status: 'AUTHORITATIVE_COMPLETE',
       files: [{ logical_identity: { conversation_uuid: UUID } }],
@@ -114,10 +119,24 @@ test('Host Adapter makes a real authenticated Core context-resolution call; inco
       manifest_sha256: 'a'.repeat(64),
     },
   });
+  // This proof stub is test-only. Production uses the Core root-inventory
+  // response and must reject its current REVIEW_ONLY result.
+  const testOnlyAuthoritativeRootProof = async ({ userHandle, rootPath, entries }) => {
+    assert.equal(typeof userHandle, 'string');
+    assert.equal(rootPath, root);
+    assert.deepEqual(entries, rootEntries);
+    return {
+      status: 'AUTHORITATIVE_COMPLETE',
+      integrity_status: 'INTEGRITY_OK',
+      sequence: 1,
+      manifest_sha256: 'c'.repeat(64),
+    };
+  };
   const adapter = createSillyTavernHostAdapter({
     env,
     enumerate: authoritativeFixture,
     fetchImpl,
+    persistRootInventory: testOnlyAuthoritativeRootProof,
   });
 
   const request = {
@@ -134,6 +153,36 @@ test('Host Adapter makes a real authenticated Core context-resolution call; inco
       generation_type: 'normal',
     },
   };
+  const productionCoreCalls = [];
+  const productionAdapter = createSillyTavernHostAdapter({
+    env,
+    enumerate: authoritativeFixture,
+    fetchImpl: async (url, options) => {
+      const response = await fetch(url, options);
+      productionCoreCalls.push(new URL(url).pathname);
+      return response;
+    },
+  });
+  const productionRequest = {
+    user: request.user,
+    session: {},
+    body: { ...request.body, request_id: '77777777-7777-4777-8777-777777777777' },
+  };
+  const productionSessionResponse = responseRecorder();
+  productionAdapter.session(productionRequest, productionSessionResponse);
+  assert.equal(productionSessionResponse.statusCode, 200);
+  const productionIdentityResponse = responseRecorder();
+  await productionAdapter.identity(productionRequest, productionIdentityResponse);
+  assert.equal(productionIdentityResponse.statusCode, 200);
+  const productionGateResponse = responseRecorder();
+  let productionPassedGate = false;
+  await productionAdapter.dispatchMiddleware(productionRequest, productionGateResponse, () => { productionPassedGate = true; });
+  assert.equal(productionPassedGate, false);
+  assert.equal(productionGateResponse.statusCode, 503);
+  assert.equal(productionGateResponse.payload.code, 'HOST_INVENTORY_NOT_AUTHORITATIVE');
+  assert.ok(productionCoreCalls.some(path => path.startsWith('/v1/host-root-inventory/')));
+  assert.equal(productionCoreCalls.includes('/v1/host-context/resolve'), false);
+
   const sessionResponse = responseRecorder();
   adapter.session(request, sessionResponse);
   assert.equal(sessionResponse.statusCode, 200);
@@ -217,7 +266,12 @@ test('Host Adapter makes a real authenticated Core context-resolution call; inco
 
   // Recreate the Host Adapter against the same server-owned identity directory.
   // Installation/account identity must survive; the transient ST session rotates.
-  const restartedAdapter = createSillyTavernHostAdapter({ env, enumerate: authoritativeFixture, fetchImpl });
+  const restartedAdapter = createSillyTavernHostAdapter({
+    env,
+    enumerate: authoritativeFixture,
+    fetchImpl,
+    persistRootInventory: testOnlyAuthoritativeRootProof,
+  });
   const restartedRequest = {
     user: request.user,
     session: {},
