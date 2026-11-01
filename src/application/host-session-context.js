@@ -144,6 +144,7 @@ export function getAuthenticatedHostSessionContext() {
   const unchanged = refreshed.host_installation_id === original.host_installation_id
     && refreshed.authenticated_account_id === original.authenticated_account_id
     && refreshed.host_session_id === original.host_session_id
+    && refreshed.host_user_handle === original.host_user_handle
     && refreshed.conversation_id === original.conversation_id
     && refreshed.world_id === original.world_id
     && refreshed.actor_id === original.actor_id
