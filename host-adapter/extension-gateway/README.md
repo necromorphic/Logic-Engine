@@ -60,7 +60,9 @@ The browser sends only `request_id`, `conversation_uuid`, `context_size`, and `g
 
 The server Gateway signs the exact installation/account/session/conversation tuple with the configured adapter secret and sends it to Core at `/v1/host/memory-npc/retrieve`. If Core's matching authenticated endpoint is unavailable, the Gateway returns NON_READY and never falls through to native SillyTavern generation.
 
-The endpoint is deliberately fail-closed until Core-side assertion verification, durable replay prevention, Provider retrieval and final response revalidation are integrated and tested on the same HEAD.
+Before a request can acquire a Host context, the Adapter sends the complete VSS-aligned user-root manifest to Core's root-inventory journal. It requires Core to return `AUTHORITATIVE_COMPLETE`, `INTEGRITY_OK`, a monotonic sequence and a manifest digest. A local scan, first baseline, unchanged review-only result, or missing Core journal is insufficient. Current Core behavior is review-only, so production dispatch remains NON_READY even when a test fixture supplies an authoritative source inventory.
+
+The endpoint is deliberately fail-closed until Core-side root-inventory authority, assertion verification, durable replay prevention, Provider retrieval and final response revalidation are integrated and tested on the same HEAD.
 
 ## Pinned-source evidence
 
