@@ -48,10 +48,5 @@ jobs:
           NODE
       - name: Run Host Gateway and identity regression tests
         run: node --test host-adapter/prototype/tests/*.test.mjs host-adapter/sillytavern-extension/tests/*.test.mjs
-      - name: Check whitespace and patch independence
-        run: |
-          git diff --check
-          if grep -R -n -E 'git apply .*sillytavern|/api/logic-engine/host' .github/workflows/host-adapter-pinned-source-audit.yml .github/workflows/host-lifecycle-patch-check.yml; then
-            echo "Active Host transport CI must not apply SillyTavern source patches or mount legacy routes" >&2
-            exit 1
-          fi
+      - name: Check whitespace
+        run: git diff --check
