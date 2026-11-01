@@ -197,7 +197,7 @@ test('reconciliation proxy forwards a bounded digest-only snapshot to the Core r
   assert.deepEqual(JSON.parse(observed.options.body), snapshot);
 });
 
-test('reconciliation proxy rejects raw text, caller world scope, oversized row sets and oversized bodies', async () => {
+test('reconciliation proxy rejects caller completeness, raw text, caller world scope, oversized row sets and oversized bodies', async () => {
   let calls = 0;
   const handler = createHostInventoryReconcileProxyHandler({
     env: CONFIG,
@@ -220,6 +220,7 @@ test('reconciliation proxy rejects raw text, caller world scope, oversized row s
   assert.equal(wrongSessionResponse.statusCode, 403);
   assert.equal(wrongSessionResponse.payload.error.code, 'HOST_SESSION_SCOPE_REQUIRED');
   for (const body of [
+    { ...valid, complete: true },
     { ...valid, world_id: 'attacker-world' },
     { ...valid, versions: [{ ...valid.versions[0], content: 'raw source text' }] },
   ]) {
