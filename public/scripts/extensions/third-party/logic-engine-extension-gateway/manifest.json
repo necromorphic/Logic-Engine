@@ -1,0 +1,14 @@
+{
+    "display_name": "Logic-Engine Gateway",
+    "loading_order": 15,
+    "requires": [],
+    "optional": [],
+    "js": "index.js",
+    "author": "Logic-Engine",
+    "version": "0.1.0",
+    "homePage": "https://github.com/necromorphic/Logic-Engine",
+    "hooks": {
+        "activate": "init",
+        "deactivate": "teardown"
+    }
+}
