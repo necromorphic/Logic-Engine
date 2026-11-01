@@ -647,6 +647,8 @@ static HANDLE WINAPI probe_create_file_w(
     || (g_current_role_index >= 0 && !g_current_role_captured);
   int injected_here = 0;
   probe_counter_increment(&g_native_open_count);
+  if (name && probe_wide_path_is_shm(name))
+    probe_counter_increment(&g_shm_open_hook_count);
 
   if ((g_current_role_index >= 0
         && (!main_role_open || role_index != g_current_role_index))
@@ -2384,6 +2386,12 @@ static void probe_journal_open_count(sqlite3_context *context, int argc, sqlite3
   sqlite3_result_int(context, probe_counter_read(&g_journal_open_count));
 }
 
+static void probe_shm_open_count(sqlite3_context *context, int argc, sqlite3_value **argv) {
+  (void)argc;
+  (void)argv;
+  sqlite3_result_int(context, probe_counter_read(&g_shm_open_hook_count));
+}
+
 static void probe_native_open_count(sqlite3_context *context, int argc, sqlite3_value **argv) {
   (void)argc;
   (void)argv;
@@ -3311,6 +3319,9 @@ static int probe_auto_extension(sqlite3 *db, char **error, const sqlite3_api_rou
   if (rc != SQLITE_OK) return rc;
   rc = sqlite3_create_function(db, "logic_engine_vfs_probe_journal_open_count", 0,
     SQLITE_UTF8 | SQLITE_DETERMINISTIC, 0, probe_journal_open_count, 0, 0);
+  if (rc != SQLITE_OK) return rc;
+  rc = sqlite3_create_function(db, "logic_engine_vfs_probe_shm_open_count", 0,
+    SQLITE_UTF8 | SQLITE_DETERMINISTIC, 0, probe_shm_open_count, 0, 0);
   if (rc != SQLITE_OK) return rc;
   rc = sqlite3_create_function(
     db,
