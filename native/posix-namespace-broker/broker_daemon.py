@@ -273,12 +273,14 @@ def main() -> int:
         # Only interrupted create/delete transitions whose sidecar pathname is
         # absent are finalized. Present entries are never deleted or promoted:
         # they require SQLite-level recovery and keep startup fail-closed.
+        enrollment_reconciled = store.reconcile_enrolling_roles()
         store.retire_absent_sidecars()
         recovery_marked = store.mark_present_transitions_recovery_required()
         store.verify_roles()
         print(
             f"sqlite-broker: startup reconciliation complete "
-            f"(manifest generation {recovery_marked['generation']})",
+            f"(enrollment generation {enrollment_reconciled['generation']}; "
+            f"manifest generation {recovery_marked['generation']})",
             file=sys.stderr,
         )
         serve(args.socket, args.app_uid, application_gid, store)
