@@ -1389,11 +1389,11 @@ test('filtered-empty disclosure rechecks query authorization after the final Cor
   // canonical_entity disclosure lane and produces the filtered-empty path.
   setCandidates([candidate({ content_kind: 'summary' })]);
   let checks = 0;
-  provider.authorizeQuery = () => ++checks < 4;
+  provider.authorizeQuery = () => ++checks < 3;
 
   const result = await consumer.retrieveForNpc(request());
 
-  assert.equal(checks, 4);
+  assert.equal(checks, 3);
   assert.equal(result.status, 'non_ready');
   assert.equal(result.reason, 'query_access_unconfirmed');
   assert.deepEqual(result.admitted, []);
