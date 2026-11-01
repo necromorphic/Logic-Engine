@@ -129,7 +129,7 @@ Once launched by that trusted owner, Patch Manager implementation can proceed us
 - [x] Implement local Patch Manager module and CLI entrypoint.
 - [x] Implement exact-target/manifest checks, transactional backup/journal, rollback, recovery and user-edit protection.
 - [x] Add focused Patch Manager tests.
-- [ ] Exact-head CI completion for the new Patch Manager tests.
+- [x] Focused Patch Manager CI: 6/6 tests passed on PR head `fc1231e00f80f35e4f4a9ee3e211874287940a72` (run 41298811265). The full Runtime workflow remains pending.
 - [ ] Produce the single approved ST patch package containing the sole Extension Gateway route, trusted Host Adapter integration, pre-LLM egress and final-response revalidation.
 - [ ] Add an integration manifest for the exact ST build, pinned patch digest and release package identity.
 - [ ] Run disposable ST apply/lint/syntax/integration tests, then real installed-instance acceptance.
