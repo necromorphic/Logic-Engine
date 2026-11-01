@@ -11,6 +11,7 @@ on:
       - 'native/secure-vfs-probe/*.h'
       - 'tests/security-vfs-extension-bootstrap.test.js'
       - 'tests/security-vfs-broker-integration.test.js'
+      - 'tests/security-vfs-strict-mode.test.js'
       - 'native/posix-namespace-broker/test_vfs_fake_server.py'
       - 'docs/97-issue-770-windows-vfs-integration-contract.md'
       - 'docs/security/sqlite-vfs-directory-anchor-design.md'
@@ -58,11 +59,17 @@ jobs:
       - name: Validate systemd service unit
         run: systemd-analyze verify deploy/sqlite-security/logic-engine.service
       - name: Build VFS registration probe
-        run: cc -O2 -fPIC -shared -I native/secure-vfs-probe native/secure-vfs-probe/secure_vfs_probe.c -o native/secure-vfs-probe/secure_vfs_probe.so
+        run: cc -O2 -fPIC -shared -DLOGIC_ENGINE_VFS_PROBE_ALLOW_UNBROKERED_TEST_ROLES -I native/secure-vfs-probe native/secure-vfs-probe/secure_vfs_probe.c -o native/secure-vfs-probe/secure_vfs_probe.so
       - name: Verify persistent VFS registration through node:sqlite
         env:
           LOGIC_ENGINE_VFS_PROBE_PATH: native/secure-vfs-probe/secure_vfs_probe.so
         run: node --test tests/security-vfs-extension-bootstrap.test.js tests/security-vfs-broker-integration.test.js
+      - name: Build strict Linux VFS without unbrokered enrollment API
+        run: cc -O2 -fPIC -shared -I native/secure-vfs-probe native/secure-vfs-probe/secure_vfs_probe.c -o native/secure-vfs-probe/secure_vfs_probe_strict.so
+      - name: Verify strict Linux role enrollment is broker-only
+        env:
+          LOGIC_ENGINE_VFS_STRICT_PROBE_PATH: native/secure-vfs-probe/secure_vfs_probe_strict.so
+        run: node --test tests/security-vfs-strict-mode.test.js
 
   windows:
     runs-on: windows-latest
