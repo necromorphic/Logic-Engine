@@ -115,3 +115,12 @@ test('Patch Manager rejects non-Git directories and malformed manifests', (t) =>
   writeFileSync(f.manifestPath, JSON.stringify({ schema_version: 1, package_id: 'bad', patches: [] }));
   assert.throws(() => installSillyTavernPatchPackage({ stPath: f.st, manifestPath: f.manifestPath }), /schema or target identity/);
 });
+
+test('uninstall refuses to overwrite edits made after package installation', (t) => {
+  const f = fixture(t);
+  installSillyTavernPatchPackage({ stPath: f.st, manifestPath: f.manifestPath });
+  writeFileSync(join(f.st, 'config.yaml'), 'user edit after install\\n');
+  assert.throws(() => uninstallSillyTavernPatchPackage({ stPath: f.st, packageId: 'logic-engine.st-test' }), /refusing to overwrite user changes/);
+  assert.equal(readFileSync(join(f.st, 'config.yaml'), 'utf8'), 'user edit after install\\n');
+  assert.equal(inspectSillyTavernPatchTarget(f.st).patchManagerJournal.state, 'APPLIED');
+});
