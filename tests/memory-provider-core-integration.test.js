@@ -4,12 +4,42 @@ import assert from 'node:assert/strict';
 import { SQLiteStore } from '../src/storage/sqlite-store.js';
 import { LogicEngine } from '../src/application/engine.js';
 import { ActorBindingService } from '../src/application/actor-bindings.js';
+import { HostConversationWorldBindingService } from '../src/application/host-conversation-world-bindings.js';
+import { createHostBoundNpcKnowledgeAuthorizers } from '../src/application/npc-knowledge-authorization.js';
 import { AuthorizedReadService } from '../src/application/authorized-read-service.js';
 import { MemoryNpcConsumer } from '../src/application/memory-npc-consumer.js';
 import { createCanonicalEntitySourceVersionValidator, createCanonicalEntityInventoryValidator } from '../src/application/canonical-entity-source-version.js';
 import { SQLiteMemoryProvider } from '../src/application/sqlite-memory-provider.js';
+import { mapMemoryEvidenceToNpcEpistemicStatus } from '../src/npc/epistemic-state.js';
+import { runWithAuthenticatedHostSession } from '../src/application/host-session-context.js';
 
-function setup(t, { twoRecords = false, providerPath = null } = {}) {
+const HOST_SESSION_ID = '11111111-1111-4111-8111-111111111111';
+const HOST_INSTALLATION_ID = '22222222-2222-4222-8222-222222222222';
+const HOST_ACCOUNT_ID = '33333333-3333-4333-8333-333333333333';
+const HOST_CONVERSATION_UUID = '44444444-4444-4444-8444-444444444444';
+const HOST_CONVERSATION_ID = HOST_SESSION_ID + ':' + HOST_INSTALLATION_ID + ':' + HOST_CONVERSATION_UUID;
+const hostRequest = {
+  user: { profile: { handle: 'integration-user' } },
+  session: { handle: 'integration-user', logicEngineSessionId: HOST_SESSION_ID, logicEngineSessionHandle: 'integration-user' },
+};
+const authenticatedHostRequests = new WeakSet([hostRequest]);
+const isAuthenticatedHostRequest = request => authenticatedHostRequests.has(request);
+const trustedConversationIds = new WeakMap([[hostRequest, HOST_CONVERSATION_ID]]);
+const resolveHostConversationId = request => trustedConversationIds.get(request) ?? null;
+const trustedHostIdentities = new WeakMap([[hostRequest, {
+  host_installation_id: HOST_INSTALLATION_ID,
+  authenticated_account_id: HOST_ACCOUNT_ID,
+}]]);
+const resolveHostIdentity = request => trustedHostIdentities.get(request) ?? null;
+
+function assertNoRejectedMetadataDisclosure(result) {
+  const serialized = JSON.stringify(result);
+  assert.doesNotMatch(serialized, /"(?:diagnostics?|snippets?|rejected_count|denied_count|withheld_count|filtered_count)"\s*:/i);
+  assert.equal(Object.hasOwn(result, 'rejected_count'), false);
+  assert.equal(Object.hasOwn(result, 'diagnostics'), false);
+}
+
+function setup(t, { twoRecords = false, providerPath = null, evidenceAssessment = 'unassessed' } = {}) {
   const testDb = createProviderTestDb(t, {
     path: providerPath && providerPath !== ':memory:' ? providerPath : null,
     prefix: 'logic-memory-core-integration-',
@@ -36,9 +66,26 @@ function setup(t, { twoRecords = false, providerPath = null } = {}) {
     ],
   });
   bindings.bind(worldId, adapterId, actorId);
+  const hostConversationBindings = new HostConversationWorldBindingService(engine);
+  hostConversationBindings.bind({ adapterId, conversationId: HOST_CONVERSATION_ID, worldId });
+  const coreAuthorizers = createHostBoundNpcKnowledgeAuthorizers({
+    store, adapterIds: [adapterId], trustedInitialKnowledgeSources: [],
+  });
+  const resolveHostBindings = (_request, conversationId) => {
+    const conversation = hostConversationBindings.resolve({ adapterId, conversationId });
+    const world_id = conversation?.world_id;
+    if (typeof world_id !== 'string') return null;
+    const actorBinding = bindings.resolveForAdapter(world_id, adapterId);
+    const actor_id = actorBinding?.actor?.entity_id;
+    const exact = bindings.resolve(world_id, adapterId, actor_id);
+    if (exact?.world_id !== world_id || exact?.adapter_id !== adapterId
+      || exact?.actor?.entity_id !== actor_id) return null;
+    return { world_id, actor_id };
+  };
   let provider;
   let triggerRace = false;
   let triggerQueryRevocation = false;
+  let triggerCoreQueryRevocation = false;
   let sourceValidatorOverride = null;
   let inventoryValidatorOverride = null;
   const snapshotReader = async (id) => {
@@ -57,6 +104,12 @@ function setup(t, { twoRecords = false, providerPath = null } = {}) {
     if (triggerQueryRevocation && record.record_ref === 'memory:record-a') {
       triggerQueryRevocation = false;
       provider.grantQuery(scope, false);
+    }
+    if (triggerCoreQueryRevocation && record.record_ref === 'memory:record-a') {
+      triggerCoreQueryRevocation = false;
+      hostConversationBindings.revoke({
+        adapterId, conversationId: HOST_CONVERSATION_ID, reason: 'test revoke query access',
+      });
     }
     return sourceValidatorOverride ? sourceValidatorOverride(record) : canonicalSourceValidator(record);
   };
@@ -82,7 +135,7 @@ function setup(t, { twoRecords = false, providerPath = null } = {}) {
     epistemic_kind: 'acquired_report',
     producer_kind: 'memory-index',
     content_disposition: 'usable',
-    evidence_assessment: 'unassessed',
+    evidence_assessment: evidenceAssessment,
     lineage: [{ source_kind: 'canonical_entity', entity_id: sourceId, source_version: engine.getSnapshot(worldId, { entityIds: [sourceId], includeSourceVersions: true }).entities[0]?.source_version ?? 'unverifiable' }],
   }));
   for (const record of records) {
@@ -92,13 +145,50 @@ function setup(t, { twoRecords = false, providerPath = null } = {}) {
   const authorizedReadService = new AuthorizedReadService(engine, bindings,
     (context, entity, field) => field === 'entity_id'
       || (field === 'attributes.public_note' && entity.entity_id.startsWith('source-')));
-  const consumer = new MemoryNpcConsumer({
-    authorizedReadService, actorBindingService: bindings, memoryProvider: provider,
-    contentFields: ['attributes.public_note'],
+  const createConsumer = (memoryProvider = provider, coreQueryAuthorizer = coreAuthorizers.memoryQueryAuthorizer) => {
+    const rawConsumer = new MemoryNpcConsumer({
+      authorizedReadService, actorBindingService: bindings,
+      hostConversationWorldBindingService: hostConversationBindings, adapterId, memoryProvider,
+      coreQueryAuthorizer,
+      contentFields: ['attributes.public_note'],
+    });
+    return new Proxy(rawConsumer, {
+      get(target, property) {
+        if (property === 'retrieveForNpc') return (request) =>
+          runWithAuthenticatedHostSession(hostRequest, HOST_CONVERSATION_ID, () => target.retrieveForNpc(request), isAuthenticatedHostRequest, resolveHostConversationId, resolveHostBindings, resolveHostIdentity);
+        if (property === 'revalidateForFinalDispatch') return (request, prepared) =>
+          runWithAuthenticatedHostSession(hostRequest, HOST_CONVERSATION_ID, () => target.revalidateForFinalDispatch(request, prepared), isAuthenticatedHostRequest, resolveHostConversationId, resolveHostBindings, resolveHostIdentity);
+        return Reflect.get(target, property, target);
+      },
+    });
+  };
+  const consumer = createConsumer();
+  const siblingProviders = [];
+  t.after(() => {
+    // Close every SQLite connection before removing the shared file-backed
+    // database. Node test after-hooks may run in registration order, so
+    // sibling handles must not be left to separately registered cleanup.
+    for (const sibling of siblingProviders) {
+      try { sibling.close(); } catch {}
+    }
+    try { provider.close(); } catch {}
+    try { store.close(); } catch {}
+    try { testDb.close(); } catch {}
+    testDb.cleanup();
   });
-  t.after(() => { provider.close(); store.close(); testDb.close(); testDb.cleanup(); });
   return {
-    engine, provider, consumer, scope, records,
+    engine, provider, consumer, scope, records, createConsumer, hostConversationBindings, coreAuthorizers,
+    createSiblingProvider() {
+      const sibling = new SQLiteMemoryProvider({
+        path: effectiveProviderPath,
+        coordinatorPath: `${effectiveProviderPath}.coordinator.sqlite`,
+        getSnapshot: snapshotReader,
+        validateSourceVersion: sourceVersionValidator,
+        validateInventory: inventoryValidator,
+      });
+      siblingProviders.push(sibling);
+      return sibling;
+    },
     db: testDb.db,
     async prepare() {
       await provider.rebuildIndex(worldId);
@@ -106,6 +196,8 @@ function setup(t, { twoRecords = false, providerPath = null } = {}) {
     },
     triggerRace() { triggerRace = true; },
     triggerQueryRevocation() { triggerQueryRevocation = true; },
+    triggerCoreQueryRevocation() { triggerCoreQueryRevocation = true; },
+    hostConversationBindings,
     setSourceValidator(fn) { sourceValidatorOverride = fn; },
     setInventoryValidator(fn) { inventoryValidatorOverride = fn; },
     validateCanonicalInventory(...args) { return canonicalInventoryValidator(...args); },
@@ -124,7 +216,8 @@ test('real SQLite provider flows through Core authorized read and NPC admission'
   const s = setup(t);
   assert.equal((await s.prepare()).status, 'current');
   const result = await s.consumer.retrieveForNpc({
-    worldId: s.scope.world_id, adapterId: 'provider-e2e-adapter', actorEntityId: s.scope.subject_id,
+    worldId: s.scope.world_id, actorEntityId: s.scope.subject_id,
+    conversationId: HOST_CONVERSATION_ID,
   });
   assert.equal(result.status, 'ready');
   assert.equal(result.candidates.length, 1);
@@ -133,25 +226,165 @@ test('real SQLite provider flows through Core authorized read and NPC admission'
   assert.equal(JSON.stringify(result).includes('never disclose'), false);
 });
 
+test('real Provider diagnostics, snippets, and candidate counts never cross the NPC result envelope', async (t) => {
+  const s = setup(t);
+  assert.equal((await s.prepare()).status, 'current');
+  const diagnosticProvider = new Proxy(s.provider, {
+    get(target, property) {
+      if (property === 'retrieveCandidates') return async (...args) => ({
+        ...(await target.retrieveCandidates(...args)),
+        diagnostics: { private_trace: 'private-provider-diagnostic-317', candidate_count: 999 },
+        snippets: ['private-provider-snippet-317'],
+        candidate_count: 999,
+        rejected_count: 42,
+      });
+      const value = Reflect.get(target, property, target);
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
+  const consumer = s.createConsumer(diagnosticProvider);
+
+  const result = await consumer.retrieveForNpc({
+    conversationId: HOST_CONVERSATION_ID,
+  });
+  assert.equal(result.status, 'ready');
+  assert.deepEqual(Object.keys(result).sort(), ['admitted', 'candidates', 'reason', 'snapshot', 'status']);
+  assert.equal(result.candidates.length, 1);
+  assertNoRejectedMetadataDisclosure(result);
+  const serialized = JSON.stringify(result);
+  assert.equal(serialized.includes('private-provider-diagnostic-317'), false);
+  assert.equal(serialized.includes('private-provider-snippet-317'), false);
+  assert.equal(serialized.includes('candidate_count'), false);
+  assert.equal(serialized.includes('rejected_count'), false);
+});
+
 test('real provider revocation during candidate B authorization excludes previously allowed A', async (t) => {
   const s = setup(t, { twoRecords: true });
   assert.equal((await s.prepare()).status, 'current');
   s.triggerRace();
   const result = await s.consumer.retrieveForNpc({
-    worldId: s.scope.world_id, adapterId: 'provider-e2e-adapter', actorEntityId: s.scope.subject_id,
-  });
-  assert.equal(result.status, 'ready');
-  assert.deepEqual(result.candidates.map((candidate) => candidate.record_ref), ['memory:record-b']);
+    worldId: s.scope.world_id, actorEntityId: s.scope.subject_id,
+    conversationId: HOST_CONVERSATION_ID,
+    });
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'memory_record_access_revoked');
+  assert.deepEqual(result.candidates, []);
+  assert.deepEqual(result.admitted, []);
   assert.equal(JSON.stringify(result).includes('visible source-a'), false);
 });
+test('record revoke after retrieval but before first authorization is non-ready, never ready-empty', async (t) => {
+  const s = setup(t);
+  assert.equal((await s.prepare()).status, 'current');
+  const raceProvider = {
+    authorizeQuery: (...args) => s.provider.authorizeQuery(...args),
+    retrieveCandidates: async (...args) => {
+      const result = await s.provider.retrieveCandidates(...args);
+      s.provider.revokeRecord(s.scope, 'memory:record-a', 'record-v1');
+      return result;
+    },
+    authorizeCandidate: (...args) => s.provider.authorizeCandidate(...args),
+    checkCandidateGrant: (...args) => s.provider.checkCandidateGrant(...args),
+  };
+  const consumer = s.createConsumer(raceProvider);
+  const result = await consumer.retrieveForNpc({
+    worldId: s.scope.world_id,
+    actorEntityId: s.scope.subject_id,
+    conversationId: HOST_CONVERSATION_ID,
+  });
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'memory_record_access_revoked');
+  assert.deepEqual(result.candidates, []);
+  assert.deepEqual(result.admitted, []);
+});
+
+test('cross-connection revoke and re-grant after retrieval invalidates the captured authorization generation', async (t) => {
+  const s = setup(t);
+  const sibling = s.createSiblingProvider();
+  assert.equal((await s.prepare()).status, 'current');
+  const raceProvider = {
+    authorizeQuery: (...args) => s.provider.authorizeQuery(...args),
+    retrieveCandidates: async (...args) => {
+      const result = await s.provider.retrieveCandidates(...args);
+      sibling.revokeRecord(s.scope, 'memory:record-a', 'record-v1');
+      sibling.grantRecord(s.scope, 'memory:record-a', 'record-v1', true);
+      return result;
+    },
+    authorizeCandidate: (...args) => s.provider.authorizeCandidate(...args),
+    checkCandidateGrant: (...args) => s.provider.checkCandidateGrant(...args),
+  };
+  const consumer = s.createConsumer(raceProvider);
+  const result = await consumer.retrieveForNpc({
+    worldId: s.scope.world_id,
+    actorEntityId: s.scope.subject_id,
+    conversationId: HOST_CONVERSATION_ID,
+  });
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'memory_authorization_changed');
+  assert.deepEqual(result.candidates, []);
+  assert.deepEqual(result.admitted, []);
+});
+
+test('real Provider record revoke after Core source retrieval blocks disclosure', async (t) => {
+  const s = setup(t);
+  assert.equal((await s.prepare()).status, 'current');
+
+  const originalRead = s.consumer.authorizedReadService.readEntityFields.bind(s.consumer.authorizedReadService);
+  s.consumer.authorizedReadService.readEntityFields = (input) => {
+    const result = originalRead(input);
+    if (input.fields.includes('attributes.public_note')) {
+      s.provider.revokeRecord(s.scope, 'memory:record-a', 'record-v1');
+    }
+    return result;
+  };
+
+  const result = await s.consumer.retrieveForNpc({
+    worldId: s.scope.world_id,
+    actorEntityId: s.scope.subject_id,
+    conversationId: HOST_CONVERSATION_ID,
+  });
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'memory_record_access_revoked');
+  assert.deepEqual(result.candidates, []);
+  assert.equal(JSON.stringify(result).includes('visible source-a'), false);
+});
+
+test('Core Host-conversation query authorization is required before Provider retrieval', async (t) => {
+  const s = setup(t);
+  assert.equal((await s.prepare()).status, 'current');
+  const result = await s.consumer.retrieveForNpc({
+    worldId: s.scope.world_id,
+    actorEntityId: s.scope.subject_id,
+    conversationId: 'unbound-conversation',
+  });
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'query_access_unconfirmed');
+  assert.deepEqual(result.candidates, []);
+});
+
+test('Core Host-conversation revocation during record validation blocks disclosure', async (t) => {
+  const s = setup(t);
+  assert.equal((await s.prepare()).status, 'current');
+  s.triggerCoreQueryRevocation();
+  const result = await s.consumer.retrieveForNpc({
+    worldId: s.scope.world_id,
+    actorEntityId: s.scope.subject_id,
+    conversationId: HOST_CONVERSATION_ID,
+  });
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'query_access_unconfirmed');
+  assert.deepEqual(result.candidates, []);
+  assert.equal(JSON.stringify(result).includes('visible source-a'), false);
+});
+
 test('query access revoked during candidate source validation never becomes ready-empty', async (t) => {
   const s = setup(t);
   assert.equal((await s.prepare()).status, 'current');
   s.triggerQueryRevocation();
 
   const result = await s.consumer.retrieveForNpc({
-    worldId: s.scope.world_id, adapterId: 'provider-e2e-adapter', actorEntityId: s.scope.subject_id,
-  });
+    worldId: s.scope.world_id, actorEntityId: s.scope.subject_id,
+    conversationId: HOST_CONVERSATION_ID,
+    });
   assert.equal(result.status, 'non_ready');
   assert.deepEqual(result.candidates, []);
   assert.notEqual(result.status, 'ready');
@@ -183,8 +416,9 @@ test('Core source-version mismatch is non-ready even when the canonical entity e
   assert.equal((await s.prepare()).status, 'stale');
 
   const result = await s.consumer.retrieveForNpc({
-    worldId: s.scope.world_id, adapterId: 'provider-e2e-adapter', actorEntityId: s.scope.subject_id,
-  });
+    worldId: s.scope.world_id, actorEntityId: s.scope.subject_id,
+    conversationId: HOST_CONVERSATION_ID,
+    });
   assert.equal(result.status, 'non_ready');
   assert.deepEqual(result.candidates, []);
 });
@@ -214,8 +448,9 @@ test('real SQLite provider stays non-current when the source inventory boundary 
   assert.equal((await s.prepare()).status, 'stale');
 
   const result = await s.consumer.retrieveForNpc({
-    worldId: s.scope.world_id, adapterId: 'provider-e2e-adapter', actorEntityId: s.scope.subject_id,
-  });
+    worldId: s.scope.world_id, actorEntityId: s.scope.subject_id,
+    conversationId: HOST_CONVERSATION_ID,
+    });
   assert.equal(result.status, 'non_ready');
   assert.deepEqual(result.candidates, []);
 });
@@ -230,8 +465,9 @@ test('source version becoming unverifiable after indexing invalidates prior prov
   assert.equal((await s.provider.reconcile(s.scope.world_id)).status, 'stale');
   await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_INDEX_NOT_READY/);
   const result = await s.consumer.retrieveForNpc({
-    worldId: s.scope.world_id, adapterId: 'provider-e2e-adapter', actorEntityId: s.scope.subject_id,
-  });
+    worldId: s.scope.world_id, actorEntityId: s.scope.subject_id,
+    conversationId: HOST_CONVERSATION_ID,
+    });
   assert.equal(result.status, 'non_ready');
   assert.deepEqual(result.candidates, []);
 });
@@ -244,8 +480,9 @@ test('inventory completeness becoming unavailable invalidates previously current
   assert.equal((await s.provider.reconcile(s.scope.world_id)).status, 'stale');
   await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_INDEX_NOT_READY/);
   const result = await s.consumer.retrieveForNpc({
-    worldId: s.scope.world_id, adapterId: 'provider-e2e-adapter', actorEntityId: s.scope.subject_id,
-  });
+    worldId: s.scope.world_id, actorEntityId: s.scope.subject_id,
+    conversationId: HOST_CONVERSATION_ID,
+    });
   assert.equal(result.status, 'non_ready');
   assert.deepEqual(result.candidates, []);
 });
@@ -256,14 +493,16 @@ test('query denial is non-ready and does not disclose candidate identities or co
   s.provider.grantQuery(s.scope, false);
 
   const result = await s.consumer.retrieveForNpc({
-    worldId: s.scope.world_id, adapterId: 'provider-e2e-adapter', actorEntityId: s.scope.subject_id,
-  });
+    worldId: s.scope.world_id, actorEntityId: s.scope.subject_id,
+    conversationId: HOST_CONVERSATION_ID,
+    });
   assert.equal(result.status, 'non_ready');
   assert.equal(result.reason, 'query_access_unconfirmed');
   assert.deepEqual(result.candidates, []);
   assert.deepEqual(result.admitted, []);
   assert.equal(JSON.stringify(result).includes('memory:record-a'), false);
   assert.equal(JSON.stringify(result).includes('visible source-a'), false);
+  assertNoRejectedMetadataDisclosure(result);
 });
 
 test('per-record denial is filtered without leaking denied record identity or content', async (t) => {
@@ -272,14 +511,16 @@ test('per-record denial is filtered without leaking denied record identity or co
   s.provider.revokeRecord(s.scope, 'memory:record-a', 'record-v1');
 
   const result = await s.consumer.retrieveForNpc({
-    worldId: s.scope.world_id, adapterId: 'provider-e2e-adapter', actorEntityId: s.scope.subject_id,
-  });
+    worldId: s.scope.world_id, actorEntityId: s.scope.subject_id,
+    conversationId: HOST_CONVERSATION_ID,
+    });
   assert.equal(result.status, 'ready');
   assert.deepEqual(result.admitted.map((item) => item.record_ref), ['memory:record-b']);
   assert.deepEqual(result.candidates.map((item) => item.record_ref), ['memory:record-b']);
   assert.equal(JSON.stringify(result).includes('memory:record-a'), false);
   assert.equal(JSON.stringify(result).includes('visible source-a'), false);
   assert.equal(JSON.stringify(result).includes('never disclose source-a'), false);
+  assertNoRejectedMetadataDisclosure(result);
 });
 
 test('retrieval and context inclusion do not persist delivery, receipt, acquisition, or belief side effects', async (t) => {
@@ -292,11 +533,13 @@ test('retrieval and context inclusion do not persist delivery, receipt, acquisit
   ].map((table) => [table, s.db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get().count]));
   const before = counts();
   const first = await s.consumer.retrieveForNpc({
-    worldId: s.scope.world_id, adapterId: 'provider-e2e-adapter', actorEntityId: s.scope.subject_id,
-  });
+    worldId: s.scope.world_id, actorEntityId: s.scope.subject_id,
+    conversationId: HOST_CONVERSATION_ID,
+    });
   const second = await s.consumer.retrieveForNpc({
-    worldId: s.scope.world_id, adapterId: 'provider-e2e-adapter', actorEntityId: s.scope.subject_id,
-  });
+    worldId: s.scope.world_id, actorEntityId: s.scope.subject_id,
+    conversationId: HOST_CONVERSATION_ID,
+    });
   assert.equal(first.status, 'ready');
   assert.equal(second.status, 'ready');
   assert.deepEqual(counts(), before);
@@ -311,10 +554,11 @@ test('source validator outage makes the real Core/NPC consumer non-ready instead
   s.setSourceValidator(async () => { throw new Error('private host validator details'); });
 
   const result = await s.consumer.retrieveForNpc({
-    worldId: s.scope.world_id, adapterId: 'provider-e2e-adapter', actorEntityId: s.scope.subject_id,
-  });
+    worldId: s.scope.world_id, actorEntityId: s.scope.subject_id,
+    conversationId: HOST_CONVERSATION_ID,
+    });
   assert.equal(result.status, 'non_ready');
-  assert.equal(result.reason, 'memory_record_authorization_unavailable');
+  assert.equal(result.reason, 'memory_source_validation_unavailable');
   assert.deepEqual(result.candidates, []);
   assert.deepEqual(result.admitted, []);
   assert.equal(JSON.stringify(result).includes('private host validator details'), false);
@@ -327,8 +571,9 @@ test('query authorization outage is non-ready and does not become complete-empty
   s.db.exec('DROP TABLE memory_query_grants');
 
   const result = await s.consumer.retrieveForNpc({
-    worldId: s.scope.world_id, adapterId: 'provider-e2e-adapter', actorEntityId: s.scope.subject_id,
-  });
+    worldId: s.scope.world_id, actorEntityId: s.scope.subject_id,
+    conversationId: HOST_CONVERSATION_ID,
+    });
   assert.equal(result.status, 'non_ready');
   assert.equal(result.reason, 'query_access_unconfirmed');
   assert.deepEqual(result.candidates, []);
@@ -342,10 +587,11 @@ test('source becoming stale after reconciliation is non-ready, not a filtered re
   s.setSourceValidator(async () => false);
 
   const result = await s.consumer.retrieveForNpc({
-    worldId: s.scope.world_id, adapterId: 'provider-e2e-adapter', actorEntityId: s.scope.subject_id,
-  });
+    worldId: s.scope.world_id, actorEntityId: s.scope.subject_id,
+    conversationId: HOST_CONVERSATION_ID,
+    });
   assert.equal(result.status, 'non_ready');
-  assert.equal(result.reason, 'memory_record_authorization_unavailable');
+  assert.equal(result.reason, 'memory_source_version_unverifiable');
   assert.deepEqual(result.candidates, []);
   assert.deepEqual(result.admitted, []);
   assert.equal(JSON.stringify(result).includes('visible source-a'), false);
@@ -374,9 +620,9 @@ test('partial Provider retrieval is non-ready through the real Core/NPC consumer
 
   const result = await s.consumer.retrieveForNpc({
     worldId: s.scope.world_id,
-    adapterId: 'provider-e2e-adapter',
     actorEntityId: s.scope.subject_id,
-  });
+    conversationId: HOST_CONVERSATION_ID,
+    });
   assert.equal(result.status, 'non_ready');
   assert.deepEqual(result.candidates, []);
   assert.deepEqual(result.admitted, []);
@@ -401,9 +647,9 @@ test('single record revoked during NPC candidate validation returns non-ready, n
 
   const pending = s.consumer.retrieveForNpc({
     worldId: s.scope.world_id,
-    adapterId: 'provider-e2e-adapter',
     actorEntityId: s.scope.subject_id,
-  });
+    conversationId: HOST_CONVERSATION_ID,
+    });
   await validationStarted;
   s.provider.revokeRecord(s.scope, 'memory:record-a', 'record-v1');
   release();
@@ -437,9 +683,9 @@ test('a real Core source mutation after reconciliation blocks NPC retrieval with
 
   const result = await s.consumer.retrieveForNpc({
     worldId: s.scope.world_id,
-    adapterId: 'provider-e2e-adapter',
     actorEntityId: s.scope.subject_id,
-  });
+    conversationId: HOST_CONVERSATION_ID,
+    });
   assert.equal(result.status, 'non_ready');
   assert.deepEqual(result.candidates, []);
   assert.deepEqual(result.admitted, []);
@@ -467,8 +713,9 @@ test('real Core entity revision change makes Provider reconciliation stale throu
   assert.equal((await s.provider.reconcile(s.scope.world_id)).status, 'stale');
   await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_INDEX_NOT_READY/);
   const result = await s.consumer.retrieveForNpc({
-    worldId: s.scope.world_id, adapterId: 'provider-e2e-adapter', actorEntityId: s.scope.subject_id,
-  });
+    worldId: s.scope.world_id, actorEntityId: s.scope.subject_id,
+    conversationId: HOST_CONVERSATION_ID,
+    });
   assert.equal(result.status, 'non_ready');
   assert.deepEqual(result.candidates, []);
   assert.equal(JSON.stringify(result).includes('changed after indexing'), false);
@@ -523,6 +770,70 @@ test('reconciliation rejects a Core mutation that occurs during complete invento
   await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_INDEX_NOT_READY/);
 });
 
+test('Core Host-conversation revoke at the final authorization fence blocks result envelope', async (t) => {
+  const s = setup(t);
+  await s.prepare();
+  let checks = 0;
+  const coreQueryAuthorizer = (scope, context) => {
+    checks += 1;
+    const allowed = s.coreAuthorizers.memoryQueryAuthorizer(scope, context);
+    if (checks === 5 && allowed) {
+      const revoked = s.hostConversationBindings.revoke({
+        adapterId: 'provider-e2e-adapter',
+        conversationId: HOST_CONVERSATION_ID,
+        reason: 'test revoke at final authorization fence',
+      });
+      assert.equal(revoked.changed, true);
+    }
+    return allowed;
+  };
+  const consumer = s.createConsumer(s.provider, coreQueryAuthorizer);
+  const result = await consumer.retrieveForNpc({
+    worldId: s.scope.world_id,
+    actorEntityId: s.scope.subject_id,
+    conversationId: HOST_CONVERSATION_ID,
+  });
+  assert.equal(checks, 6);
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'query_access_unconfirmed');
+  assert.deepEqual(result.admitted, []);
+  assert.deepEqual(result.candidates, []);
+  assert.doesNotMatch(JSON.stringify(result), /source text|record-a/);
+});
+
+test('Provider revoke during the final field-bearing Core read blocks result envelope', async (t) => {
+  const s = setup(t);
+  assert.equal((await s.prepare()).status, 'current');
+
+  const originalRead = s.consumer.authorizedReadService.readEntityFields.bind(s.consumer.authorizedReadService);
+  let contentReadCount = 0;
+  let revoked = false;
+  s.consumer.authorizedReadService.readEntityFields = (input) => {
+    const result = originalRead(input);
+    if (input.fields.includes('attributes.public_note')) {
+      contentReadCount += 1;
+      // First read is admission; second is the final disclosure read.
+      if (contentReadCount === 2) {
+        revoked = true;
+        s.provider.revokeRecord(s.scope, 'memory:record-a', 'record-v1');
+      }
+    }
+    return result;
+  };
+
+  const result = await s.consumer.retrieveForNpc({
+    conversationId: HOST_CONVERSATION_ID,
+    worldId: 'caller-spoofed-world',
+    actorEntityId: 'caller-spoofed-actor',
+  });
+  assert.equal(revoked, true);
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'memory_record_access_revoked');
+  assert.deepEqual(result.candidates, []);
+  assert.deepEqual(result.admitted, []);
+  assert.equal(JSON.stringify(result).includes('visible source-a'), false);
+});
+
 test('file-backed Provider restart requires reconciliation before retrieval resumes', async (t) => {
   const s = setup(t);
   assert.equal((await s.prepare()).status, 'current');
@@ -536,4 +847,121 @@ test('file-backed Provider restart requires reconciliation before retrieval resu
   assert.equal(recovered.status, 'current');
   assert.equal(recovered.records_checked, 1);
   assert.equal((await reopened.retrieveCandidates(s.scope)).completeness, 'complete');
+});
+
+
+test('real SQLite Provider preserves evidence classification without promoting retrieved knowledge into belief', async (t) => {
+  const cases = [
+    ['unassessed', null],
+    ['supported', 'unconfirmed_report'],
+    ['disputed', 'unconfirmed_report'],
+    ['insufficient', 'unknown'],
+  ];
+  for (const [assessment, expectedEpistemicStatus] of cases) {
+    await t.test(assessment, async (subtest) => {
+      const s = setup(subtest, { evidenceAssessment: assessment });
+      assert.equal((await s.prepare()).status, 'current', assessment);
+      const result = await s.consumer.retrieveForNpc({
+        worldId: s.scope.world_id,
+        actorEntityId: s.scope.subject_id,
+        conversationId: HOST_CONVERSATION_ID,
+      });
+      assert.equal(result.status, 'ready', assessment);
+      assert.equal(result.candidates.length, 1, assessment);
+      assert.equal(result.candidates[0].evidence_assessment, assessment);
+      assert.equal(
+        mapMemoryEvidenceToNpcEpistemicStatus(result.candidates[0].epistemic_kind, assessment),
+        expectedEpistemicStatus,
+        assessment,
+      );
+      assert.equal(JSON.stringify(result).includes('never disclose'), false);
+    });
+  }
+});
+
+test('legacy file-backed Provider grant table migrates durable authorization generation', (t) => {
+  const db = createProviderTestDb(t, { prefix: 'logic-memory-provider-grant-migration-' });
+  db.db.exec(`CREATE TABLE memory_record_grants (
+    world_id TEXT NOT NULL, subject_id TEXT NOT NULL, purpose TEXT NOT NULL,
+    record_ref TEXT NOT NULL, record_version TEXT NOT NULL,
+    allowed INTEGER NOT NULL CHECK(allowed IN (0,1)),
+    PRIMARY KEY(world_id, subject_id, purpose, record_ref, record_version)
+  )`);
+  db.db.prepare('INSERT INTO memory_record_grants VALUES(?,?,?,?,?,?)')
+    .run('world-a', 'npc-a', 'npc_decision', 'memory:legacy', 'record-v1', 1);
+  const provider = new SQLiteMemoryProvider({
+    path: db.path,
+    coordinatorPath: `${db.path}.coordinator.sqlite`,
+    getSnapshot: async () => ({ world_revision: 0, commit_sequence: 0 }),
+    validateSourceVersion: () => false,
+    validateInventory: () => false,
+  });
+  t.after(() => {
+    provider.close();
+    db.close();
+    db.cleanup();
+  });
+  const migrated = db.db.prepare(`SELECT authorization_generation FROM memory_record_grants
+    WHERE world_id='world-a' AND record_ref='memory:legacy'`).get();
+  assert.equal(migrated.authorization_generation, 1);
+  provider.grantRecord({ world_id: 'world-a', subject_id: 'npc-a', purpose: 'npc_decision' },
+    'memory:legacy', 'record-v1', false);
+  const revoked = db.db.prepare(`SELECT allowed,authorization_generation FROM memory_record_grants
+    WHERE world_id='world-a' AND record_ref='memory:legacy'`).get();
+  assert.equal(revoked.allowed, 0);
+  assert.equal(revoked.authorization_generation, 2);
+});
+
+test('damaged Provider index schema is unavailable and never reported as empty', async (t) => {
+  const s = setup(t);
+  assert.equal((await s.prepare()).status, 'current');
+  s.db.exec('DROP TABLE memory_index_entries');
+  const result = await s.consumer.retrieveForNpc({
+    worldId: s.scope.world_id,
+    actorEntityId: s.scope.subject_id,
+    conversationId: HOST_CONVERSATION_ID,
+  });
+  assert.equal(result.status, 'non_ready');
+  assert.deepEqual(result.candidates, []);
+  assert.deepEqual(result.admitted, []);
+  assert.equal(JSON.stringify(result).includes('visible source-a'), false);
+});
+
+test('record authorization generation survives Provider restart and reconciliation', async (t) => {
+  const s = setup(t);
+  assert.equal((await s.prepare()).status, 'current');
+  const initial = await s.provider.retrieveCandidates(s.scope);
+  assert.equal(initial.candidates.length, 1);
+  const oldGeneration = initial.candidates[0].authorization_generation;
+  s.provider.revokeRecord(s.scope, 'memory:record-a', 'record-v1');
+  s.provider.grantRecord(s.scope, 'memory:record-a', 'record-v1', true);
+  const persistedGrant = s.db.prepare(`SELECT authorization_generation FROM memory_record_grants
+    WHERE world_id=? AND subject_id=? AND purpose=? AND record_ref=? AND record_version=?`)
+    .get(s.scope.world_id, s.scope.subject_id, s.scope.purpose, 'memory:record-a', 'record-v1');
+  assert.equal(persistedGrant.authorization_generation, oldGeneration + 2);
+  const reopened = s.reopenProvider();
+  assert.equal(reopened.getIndexStatusForDiagnostics(s.scope.world_id).source_reconciliation, 'stale');
+  await assert.rejects(() => reopened.retrieveCandidates(s.scope), /MEMORY_INDEX_NOT_READY/);
+  await reopened.rebuildIndex(s.scope.world_id);
+  assert.equal((await reopened.reconcile(s.scope.world_id)).status, 'current');
+  const afterRestart = await reopened.retrieveCandidates(s.scope);
+  assert.equal(afterRestart.candidates.length, 1);
+  assert.equal(afterRestart.candidates[0].authorization_generation, oldGeneration + 2);
+  const candidate = afterRestart.candidates[0];
+  await assert.rejects(() => reopened.authorizeCandidate({
+    ...s.scope,
+    record_ref: candidate.record.ref,
+    record_version: candidate.record.version,
+    source_kind: candidate.source.kind,
+    source_entity_id: candidate.source.entity_id,
+    authorization_generation: oldGeneration,
+  }), /MEMORY_AUTHORIZATION_CHANGED/);
+  assert.equal(await reopened.authorizeCandidate({
+    ...s.scope,
+    record_ref: candidate.record.ref,
+    record_version: candidate.record.version,
+    source_kind: candidate.source.kind,
+    source_entity_id: candidate.source.entity_id,
+    authorization_generation: candidate.authorization_generation,
+  }), true);
 });
