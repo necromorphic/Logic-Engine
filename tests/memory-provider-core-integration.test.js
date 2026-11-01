@@ -176,6 +176,32 @@ test('real provider revocation during candidate B authorization excludes previou
   assert.deepEqual(result.candidates.map((candidate) => candidate.record_ref), ['memory:record-b']);
   assert.equal(JSON.stringify(result).includes('visible source-a'), false);
 });
+test('record revoked after retrieval but before the first record authorization is non-ready, never ready-empty', async (t) => {
+  const s = setup(t);
+  assert.equal((await s.prepare()).status, 'current');
+
+  const retrieve = s.provider.retrieveCandidates.bind(s.provider);
+  s.provider.retrieveCandidates = async (...args) => {
+    const result = await retrieve(...args);
+    // This is the precise gap missed by the prior test: retrieval has completed,
+    // but MemoryNpcConsumer has not started authorizeCandidate() yet.
+    s.provider.revokeRecord(s.scope, 'memory:record-a', 'record-v1');
+    return result;
+  };
+
+  const result = await s.consumer.retrieveForNpc({
+    worldId: s.scope.world_id,
+    actorEntityId: s.scope.subject_id,
+    conversationId: 'provider-e2e-conversation',
+    hostSessionProof: 'provider-e2e-session',
+  });
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'memory_record_authorization_unconfirmed');
+  assert.deepEqual(result.admitted, []);
+  assert.deepEqual(result.candidates, []);
+  assert.equal(JSON.stringify(result).includes('visible source-a'), false);
+});
+
 test('real Provider record revoke after Core source retrieval blocks disclosure', async (t) => {
   const s = setup(t);
   assert.equal((await s.prepare()).status, 'current');
