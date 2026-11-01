@@ -536,6 +536,31 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
         });
         return send(res, binding.already_bound ? 200 : 201, { binding });
       }
+      if (url.pathname === '/v1/host-context/resolve') {
+        if (req.method !== 'POST') return send(res, 405, { error: { code: 'METHOD_NOT_ALLOWED', message: 'Unsupported Host context resolution operation.' } });
+        const adapterId = adapterIdFor(req);
+        if (!adapterId) return send(res, 403, { error: { code: 'ADAPTER_REQUIRED', message: 'An authenticated adapter identity is required.' } });
+        const body = await readBody(req);
+        if (!body || typeof body !== 'object' || Array.isArray(body)
+          || Object.keys(body).some(key => key !== 'conversation_id')
+          || typeof body.conversation_id !== 'string') {
+          throw new EngineError('INVALID_HOST_CONTEXT_RESOLUTION',
+            'Host context resolution accepts only the stable conversation identity; world and actor are Core-resolved.', 400);
+        }
+        const conversation = hostConversationBindings.resolve({
+          adapterId, conversationId: body.conversation_id,
+        });
+        const actor = actorBindings.resolveForAdapter(conversation.world_id, adapterId);
+        return send(res, 200, {
+          context: {
+            adapter_id: adapterId,
+            conversation_id: conversation.conversation_id,
+            world_id: conversation.world_id,
+            actor_id: actor.actor.entity_id,
+            actor_type: actor.actor.entity_type,
+          },
+        });
+      }
       if (url.pathname === '/v1/host-conversation-bindings/resolve') {
         if (req.method !== 'POST') return send(res, 405, { error: { code: 'METHOD_NOT_ALLOWED', message: 'Unsupported Host conversation resolution operation.' } });
         const adapterId = adapterIdFor(req);
