@@ -435,3 +435,30 @@ test('deployment assessment never accepts manifest-only final-send assertions', 
     assert.equal(evidence.required, true);
   }
 });
+
+
+test('protected final-send report cannot downgrade required evidence to optional', () => {
+  const capabilities = PROTECTED_FINAL_SEND_CAPABILITIES
+    .map((id) => createCapabilityEvidence({ id, status: 'PASS', required: true }));
+  const gates = evaluateDeploymentGates({
+    profile: 'portable-desktop',
+    components: [],
+    capabilities,
+  });
+  const report = buildDeploymentReport({
+    deploymentId: 'protected-final-send-required-evidence-test',
+    profile: 'portable-desktop',
+    platform: { family: 'linux', release: 'test', architecture: 'x64' },
+    runtime: { name: 'node', version: process.version },
+    components: [],
+    capabilities: capabilities.map((item) => item.id === 'final-send.upstream-call-count'
+      ? { ...item, required: false }
+      : item),
+    gates,
+  });
+
+  assert.throws(
+    () => validateDeploymentReport(report),
+    /DEPLOYMENT_REPORT_FALSE_PASS_PROTECTED_FINAL_SEND:final-send\.upstream-call-count/,
+  );
+});
