@@ -117,7 +117,7 @@ const nonReady = (reason) => Object.freeze({
  * access: Core source fields are re-read through AuthorizedReadService.
  */
 export class MemoryNpcConsumer {
-  constructor({ authorizedReadService, actorBindingService, adapterId, memoryProvider, coreQueryAuthorizer, contentFields }) {
+  constructor({ authorizedReadService, actorBindingService, adapterId, memoryProvider, coreQueryAuthorizer, authenticateHostCaller, contentFields }) {
     if (typeof authorizedReadService?.readEntityFields !== 'function') {
       throw new TypeError('MemoryNpcConsumer requires AuthorizedReadService');
     }
@@ -129,6 +129,9 @@ export class MemoryNpcConsumer {
     }
     if (typeof coreQueryAuthorizer !== 'function') {
       throw new TypeError('MemoryNpcConsumer requires trusted Core memory query authorization');
+    }
+    if (typeof authenticateHostCaller !== 'function') {
+      throw new TypeError('MemoryNpcConsumer requires a trusted authenticated Host caller resolver');
     }
     if (typeof memoryProvider?.authorizeQuery !== 'function'
       || typeof memoryProvider?.retrieveCandidates !== 'function'
@@ -148,6 +151,7 @@ export class MemoryNpcConsumer {
     this.actorBindingService = actorBindingService;
     this.adapterId = adapterId;
     this.coreQueryAuthorizer = coreQueryAuthorizer;
+    this.authenticateHostCaller = authenticateHostCaller;
     this.memoryProvider = memoryProvider;
     this.contentFields = Object.freeze([...contentFields]);
   }
@@ -184,17 +188,30 @@ export class MemoryNpcConsumer {
     if (!hasSafeObjectPrototype() || !hasSafeArrayIterator()) {
       return nonReady('memory_result_incomplete_or_scope_mismatch');
     }
+    // Request-body identifiers are not caller authentication. Resolve the
+    // Host principal through a deployment-owned authenticator backed by the
+    // authenticated SillyTavern session; never use caller-supplied world,
+    // actor, adapter, or conversation IDs as proof of ownership.
+    let hostIdentity;
+    try {
+      hostIdentity = await this.authenticateHostCaller(request);
+    } catch {
+      return nonReady('host_caller_unauthenticated');
+    }
+    if (!object(hostIdentity)) return nonReady('host_caller_unauthenticated');
     let worldId;
     let actorEntityId;
     let conversationId;
+    let authenticatedAdapterId;
     try {
-      if (object(request)) ({ worldId, actorEntityId, conversationId } = request);
+      ({ worldId, actorEntityId, conversationId, adapterId: authenticatedAdapterId } = hostIdentity);
     } catch {
-      return nonReady('trusted_scope_incomplete');
+      return nonReady('host_caller_unauthenticated');
     }
     const adapterId = this.adapterId;
-    if (!validId(worldId) || !validId(actorEntityId) || !validId(conversationId)) {
-      return nonReady('trusted_scope_incomplete');
+    if (authenticatedAdapterId !== adapterId
+      || !validId(worldId) || !validId(actorEntityId) || !validId(conversationId)) {
+      return nonReady('host_caller_unauthenticated');
     }
 
     // Bind the caller to a canonical actor before querying Memory. This must
@@ -424,7 +441,12 @@ export class MemoryNpcConsumer {
         // revoke/stale/unavailable outcomes without returning internal details.
         return nonReady(providerAuthorizationFailureReason(error, 'memory_record_authorization_unavailable'));
       }
-      if (!recordAllowed) continue;
+      if (!recordAllowed) {
+        // Retrieval returned this row as authorized. A subsequent false result
+        // therefore means its authorization could not be confirmed across the
+        // retrieval→record-check boundary; it must never collapse into ready-empty.
+        return nonReady('memory_record_authorization_unconfirmed');
+      }
 
       // Initial/imported knowledge is not authorized by a Memory candidate row.
       // Core owns the explicit subject-assignment record, and this consumer has
