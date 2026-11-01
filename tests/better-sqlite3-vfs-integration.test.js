@@ -13,23 +13,17 @@ const extensionPath = process.env.LOGIC_ENGINE_VFS_PROBE_PATH;
 test('stock better-sqlite3 uses the registered default VFS in its own engine', {
   skip: !packageRoot || !extensionPath,
 }, (t) => {
-  console.error('[better-sqlite3-default-vfs] require-before');
   const Database = require(packageRoot);
-  console.error('[better-sqlite3-default-vfs] require-after');
   const resolvedExtension = path.resolve(extensionPath);
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'logic-engine-better-sqlite3-vfs-'));
   const filename = path.join(directory, 'vectors.sqlite');
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
 
   // Load the extension into this exact better-sqlite3 engine before opening a protected DB.
-  console.error('[better-sqlite3-default-vfs] bootstrap-before');
   const bootstrap = new Database(':memory:');
-  console.error('[better-sqlite3-default-vfs] bootstrap-after');
   try {
     // Register the VFS as the default in better-sqlite3's embedded engine, not node:sqlite.
-    console.error('[better-sqlite3-default-vfs] extension-before');
     bootstrap.loadExtension(resolvedExtension, 'sqlite3_secure_vfs_probe_init');
-    console.error('[better-sqlite3-default-vfs] extension-after');
   } finally {
     bootstrap.close();
   }
@@ -45,7 +39,6 @@ test('stock better-sqlite3 uses the registered default VFS in its own engine', {
 
   // The extension registered its VFS as SQLite's default; better-sqlite3 opens
   // this ordinary filename with vfs=NULL, so no URI support or binding patch is needed.
-  console.error('[better-sqlite3-default-vfs] target-before');
   let db;
   try {
     db = new Database(filename);
@@ -65,7 +58,6 @@ test('stock better-sqlite3 uses the registered default VFS in its own engine', {
   } finally {
     registrar.close();
   }
-  console.error('[better-sqlite3-default-vfs] target-after');
   try {
     // Exercise rollback-journal create/open/delete before switching to WAL.
     assert.equal(db.pragma('journal_mode = DELETE', { simple: true }), 'delete');
