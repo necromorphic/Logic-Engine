@@ -3,12 +3,12 @@ import { createHash } from 'node:crypto';
 export const info = {
     id: 'logic-engine',
     name: 'Logic-Engine Host Adapter',
-    description: 'Authenticated SillyTavern server-side bridge to Logic-Engine Core.',
+    description: 'SillyTavern server-side bridge using the Host-resolved user context.',
 };
 
 function resolveCoreUrl(value) {
     const parsed = new URL(value || 'http://127.0.0.1:8787');
-    if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password || parsed.search || parsed.hash) {
+    if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password || parsed.pathname !== '/' || parsed.search || parsed.hash) {
         throw new Error('LOGIC_ENGINE_URL must be an HTTP(S) origin without credentials, query, or fragment.');
     }
     return parsed.href.replace(/\/+$/, '');
@@ -22,7 +22,7 @@ export function createLogicEnginePlugin({
     const baseUrl = resolveCoreUrl(coreUrl);
     if (typeof fetchImpl !== 'function') throw new TypeError('fetch implementation is required.');
 
-    function requireSession(req, res) {
+    function requireHostUserContext(req, res) {
         // SillyTavern mounts server plugins after requireLoginMiddleware.
         // Still fail closed if the expected server-resolved user context is absent.
         const handle = req?.user?.profile?.handle;
@@ -36,7 +36,7 @@ export function createLogicEnginePlugin({
     return {
         init(router) {
             router.get('/session', (req, res) => {
-                const handle = requireSession(req, res);
+                const handle = requireHostUserContext(req, res);
                 if (!handle) return;
                 const userRoot = req.user?.directories?.root;
                 const installationScope = typeof userRoot === 'string' && userRoot.trim() ? userRoot : hostId;
