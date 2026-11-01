@@ -10,6 +10,14 @@ import { AuthorizedReadService } from '../src/application/authorized-read-servic
 import { MemoryNpcConsumer } from '../src/application/memory-npc-consumer.js';
 import { createCanonicalEntitySourceVersionValidator, createCanonicalEntityInventoryValidator } from '../src/application/canonical-entity-source-version.js';
 import { SQLiteMemoryProvider } from '../src/application/sqlite-memory-provider.js';
+import { runWithAuthenticatedHostSession } from '../src/application/host-session-context.js';
+
+const HOST_SESSION_ID = '11111111-1111-4111-8111-111111111111';
+const HOST_CONVERSATION_ID = HOST_SESSION_ID + ':22222222-2222-4222-8222-222222222222:33333333-3333-4333-8333-333333333333';
+const hostRequest = {
+  user: { profile: { handle: 'integration-user' } },
+  session: { handle: 'integration-user', logicEngineSessionId: HOST_SESSION_ID, logicEngineSessionHandle: 'integration-user' },
+};
 
 function setup(t, { twoRecords = false, providerPath = null } = {}) {
   const testDb = createProviderTestDb(t, {
@@ -39,7 +47,7 @@ function setup(t, { twoRecords = false, providerPath = null } = {}) {
   });
   bindings.bind(worldId, adapterId, actorId);
   const hostConversationBindings = new HostConversationWorldBindingService(engine);
-  hostConversationBindings.bind({ adapterId, conversationId: 'provider-e2e-conversation', worldId });
+  hostConversationBindings.bind({ adapterId, conversationId: HOST_CONVERSATION_ID, worldId });
   const coreAuthorizers = createHostBoundNpcKnowledgeAuthorizers({
     store, adapterIds: [adapterId], trustedInitialKnowledgeSources: [],
   });
@@ -69,7 +77,7 @@ function setup(t, { twoRecords = false, providerPath = null } = {}) {
     if (triggerCoreQueryRevocation && record.record_ref === 'memory:record-a') {
       triggerCoreQueryRevocation = false;
       hostConversationBindings.revoke({
-        adapterId, conversationId: 'provider-e2e-conversation', reason: 'test revoke query access',
+        adapterId, conversationId: HOST_CONVERSATION_ID, reason: 'test revoke query access',
       });
     }
     return sourceValidatorOverride ? sourceValidatorOverride(record) : canonicalSourceValidator(record);
@@ -106,10 +114,19 @@ function setup(t, { twoRecords = false, providerPath = null } = {}) {
   const authorizedReadService = new AuthorizedReadService(engine, bindings,
     (context, entity, field) => field === 'entity_id'
       || (field === 'attributes.public_note' && entity.entity_id.startsWith('source-')));
-  const consumer = new MemoryNpcConsumer({
+  const rawConsumer = new MemoryNpcConsumer({
     authorizedReadService, actorBindingService: bindings, adapterId, memoryProvider: provider,
     coreQueryAuthorizer: coreAuthorizers.memoryQueryAuthorizer,
     contentFields: ['attributes.public_note'],
+  });
+  const consumer = new Proxy(rawConsumer, {
+    get(target, property) {
+      if (property === 'retrieveForNpc') return (request) =>
+        runWithAuthenticatedHostSession(hostRequest, HOST_CONVERSATION_ID, () => target.retrieveForNpc(request));
+      if (property === 'revalidateForFinalDispatch') return (request, prepared) =>
+        runWithAuthenticatedHostSession(hostRequest, HOST_CONVERSATION_ID, () => target.revalidateForFinalDispatch(request, prepared));
+      return Reflect.get(target, property, target);
+    },
   });
   t.after(() => { provider.close(); store.close(); testDb.close(); testDb.cleanup(); });
   return {
@@ -142,7 +159,7 @@ test('real SQLite provider flows through Core authorized read and NPC admission'
   assert.equal((await s.prepare()).status, 'current');
   const result = await s.consumer.retrieveForNpc({
     worldId: s.scope.world_id, actorEntityId: s.scope.subject_id,
-    conversationId: 'provider-e2e-conversation',
+    conversationId: HOST_CONVERSATION_ID,
   });
   assert.equal(result.status, 'ready');
   assert.equal(result.candidates.length, 1);
@@ -157,7 +174,7 @@ test('real provider revocation during candidate B authorization excludes previou
   s.triggerRace();
   const result = await s.consumer.retrieveForNpc({
     worldId: s.scope.world_id, actorEntityId: s.scope.subject_id,
-    conversationId: 'provider-e2e-conversation',
+    conversationId: HOST_CONVERSATION_ID,
     });
   assert.equal(result.status, 'ready');
   assert.deepEqual(result.candidates.map((candidate) => candidate.record_ref), ['memory:record-b']);
@@ -179,7 +196,7 @@ test('real Provider record revoke after Core source retrieval blocks disclosure'
   const result = await s.consumer.retrieveForNpc({
     worldId: s.scope.world_id,
     actorEntityId: s.scope.subject_id,
-    conversationId: 'provider-e2e-conversation',
+    conversationId: HOST_CONVERSATION_ID,
   });
   assert.equal(result.status, 'non_ready');
   assert.equal(result.reason, 'memory_record_authorization_unconfirmed');
@@ -207,7 +224,7 @@ test('Core Host-conversation revocation during record validation blocks disclosu
   const result = await s.consumer.retrieveForNpc({
     worldId: s.scope.world_id,
     actorEntityId: s.scope.subject_id,
-    conversationId: 'provider-e2e-conversation',
+    conversationId: HOST_CONVERSATION_ID,
   });
   assert.equal(result.status, 'non_ready');
   assert.equal(result.reason, 'query_access_unconfirmed');
@@ -222,7 +239,7 @@ test('query access revoked during candidate source validation never becomes read
 
   const result = await s.consumer.retrieveForNpc({
     worldId: s.scope.world_id, actorEntityId: s.scope.subject_id,
-    conversationId: 'provider-e2e-conversation',
+    conversationId: HOST_CONVERSATION_ID,
     });
   assert.equal(result.status, 'non_ready');
   assert.deepEqual(result.candidates, []);
@@ -256,7 +273,7 @@ test('Core source-version mismatch is non-ready even when the canonical entity e
 
   const result = await s.consumer.retrieveForNpc({
     worldId: s.scope.world_id, actorEntityId: s.scope.subject_id,
-    conversationId: 'provider-e2e-conversation',
+    conversationId: HOST_CONVERSATION_ID,
     });
   assert.equal(result.status, 'non_ready');
   assert.deepEqual(result.candidates, []);
@@ -288,7 +305,7 @@ test('real SQLite provider stays non-current when the source inventory boundary 
 
   const result = await s.consumer.retrieveForNpc({
     worldId: s.scope.world_id, actorEntityId: s.scope.subject_id,
-    conversationId: 'provider-e2e-conversation',
+    conversationId: HOST_CONVERSATION_ID,
     });
   assert.equal(result.status, 'non_ready');
   assert.deepEqual(result.candidates, []);
@@ -305,7 +322,7 @@ test('source version becoming unverifiable after indexing invalidates prior prov
   await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_INDEX_NOT_READY/);
   const result = await s.consumer.retrieveForNpc({
     worldId: s.scope.world_id, actorEntityId: s.scope.subject_id,
-    conversationId: 'provider-e2e-conversation',
+    conversationId: HOST_CONVERSATION_ID,
     });
   assert.equal(result.status, 'non_ready');
   assert.deepEqual(result.candidates, []);
@@ -320,7 +337,7 @@ test('inventory completeness becoming unavailable invalidates previously current
   await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_INDEX_NOT_READY/);
   const result = await s.consumer.retrieveForNpc({
     worldId: s.scope.world_id, actorEntityId: s.scope.subject_id,
-    conversationId: 'provider-e2e-conversation',
+    conversationId: HOST_CONVERSATION_ID,
     });
   assert.equal(result.status, 'non_ready');
   assert.deepEqual(result.candidates, []);
@@ -333,7 +350,7 @@ test('query denial is non-ready and does not disclose candidate identities or co
 
   const result = await s.consumer.retrieveForNpc({
     worldId: s.scope.world_id, actorEntityId: s.scope.subject_id,
-    conversationId: 'provider-e2e-conversation',
+    conversationId: HOST_CONVERSATION_ID,
     });
   assert.equal(result.status, 'non_ready');
   assert.equal(result.reason, 'query_access_unconfirmed');
@@ -350,7 +367,7 @@ test('per-record denial is filtered without leaking denied record identity or co
 
   const result = await s.consumer.retrieveForNpc({
     worldId: s.scope.world_id, actorEntityId: s.scope.subject_id,
-    conversationId: 'provider-e2e-conversation',
+    conversationId: HOST_CONVERSATION_ID,
     });
   assert.equal(result.status, 'ready');
   assert.deepEqual(result.admitted.map((item) => item.record_ref), ['memory:record-b']);
@@ -371,11 +388,11 @@ test('retrieval and context inclusion do not persist delivery, receipt, acquisit
   const before = counts();
   const first = await s.consumer.retrieveForNpc({
     worldId: s.scope.world_id, actorEntityId: s.scope.subject_id,
-    conversationId: 'provider-e2e-conversation',
+    conversationId: HOST_CONVERSATION_ID,
     });
   const second = await s.consumer.retrieveForNpc({
     worldId: s.scope.world_id, actorEntityId: s.scope.subject_id,
-    conversationId: 'provider-e2e-conversation',
+    conversationId: HOST_CONVERSATION_ID,
     });
   assert.equal(first.status, 'ready');
   assert.equal(second.status, 'ready');
@@ -392,7 +409,7 @@ test('source validator outage makes the real Core/NPC consumer non-ready instead
 
   const result = await s.consumer.retrieveForNpc({
     worldId: s.scope.world_id, actorEntityId: s.scope.subject_id,
-    conversationId: 'provider-e2e-conversation',
+    conversationId: HOST_CONVERSATION_ID,
     });
   assert.equal(result.status, 'non_ready');
   assert.equal(result.reason, 'memory_source_validation_unavailable');
@@ -409,7 +426,7 @@ test('query authorization outage is non-ready and does not become complete-empty
 
   const result = await s.consumer.retrieveForNpc({
     worldId: s.scope.world_id, actorEntityId: s.scope.subject_id,
-    conversationId: 'provider-e2e-conversation',
+    conversationId: HOST_CONVERSATION_ID,
     });
   assert.equal(result.status, 'non_ready');
   assert.equal(result.reason, 'query_access_unconfirmed');
@@ -425,7 +442,7 @@ test('source becoming stale after reconciliation is non-ready, not a filtered re
 
   const result = await s.consumer.retrieveForNpc({
     worldId: s.scope.world_id, actorEntityId: s.scope.subject_id,
-    conversationId: 'provider-e2e-conversation',
+    conversationId: HOST_CONVERSATION_ID,
     });
   assert.equal(result.status, 'non_ready');
   assert.equal(result.reason, 'memory_source_version_unverifiable');
@@ -458,7 +475,7 @@ test('partial Provider retrieval is non-ready through the real Core/NPC consumer
   const result = await s.consumer.retrieveForNpc({
     worldId: s.scope.world_id,
     actorEntityId: s.scope.subject_id,
-    conversationId: 'provider-e2e-conversation',
+    conversationId: HOST_CONVERSATION_ID,
     });
   assert.equal(result.status, 'non_ready');
   assert.deepEqual(result.candidates, []);
@@ -485,7 +502,7 @@ test('single record revoked during NPC candidate validation returns non-ready, n
   const pending = s.consumer.retrieveForNpc({
     worldId: s.scope.world_id,
     actorEntityId: s.scope.subject_id,
-    conversationId: 'provider-e2e-conversation',
+    conversationId: HOST_CONVERSATION_ID,
     });
   await validationStarted;
   s.provider.revokeRecord(s.scope, 'memory:record-a', 'record-v1');
@@ -521,7 +538,7 @@ test('a real Core source mutation after reconciliation blocks NPC retrieval with
   const result = await s.consumer.retrieveForNpc({
     worldId: s.scope.world_id,
     actorEntityId: s.scope.subject_id,
-    conversationId: 'provider-e2e-conversation',
+    conversationId: HOST_CONVERSATION_ID,
     });
   assert.equal(result.status, 'non_ready');
   assert.deepEqual(result.candidates, []);
@@ -551,7 +568,7 @@ test('real Core entity revision change makes Provider reconciliation stale throu
   await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_INDEX_NOT_READY/);
   const result = await s.consumer.retrieveForNpc({
     worldId: s.scope.world_id, actorEntityId: s.scope.subject_id,
-    conversationId: 'provider-e2e-conversation',
+    conversationId: HOST_CONVERSATION_ID,
     });
   assert.equal(result.status, 'non_ready');
   assert.deepEqual(result.candidates, []);
