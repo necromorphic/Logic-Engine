@@ -1,15 +1,10 @@
 name: Host lifecycle patch check
 
 on:
-  # This check validates the complete assembled Host candidate, including
-  # cross-layer Core/Host wiring. Path filters previously allowed a Core-only
-  # commit to inherit stale Host evidence from an older SHA.
   pull_request:
   push:
     branches:
-      - "work/priority1-combined-host-patch-stack-*"
       - "host/**"
-
   workflow_dispatch:
 
 permissions:
@@ -20,72 +15,51 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  pinned-st-host-patch:
+  extension-gateway-host:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
-      - name: Checkout Logic-Engine branch
+      - name: Checkout Logic-Engine candidate
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-      - name: Checkout exact approved SillyTavern revision
+      - name: Set Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22.13.0"
+      - name: Checkout exact SillyTavern source for plugin-loader contract audit
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           repository: SillyTavern/SillyTavern
           ref: 06bde939fb1e9c4c8d8641d810f0a916b5bce127
           path: sillytavern-host-checkout
-      - name: Install prototype modules into the pinned host tree
+      - name: Install Host Adapter as a native server plugin
         run: |
-          mkdir -p sillytavern-host-checkout/public/scripts/logic-engine-lifecycle
-          cp host-adapter/prototype/lifecycle-journal.mjs sillytavern-host-checkout/public/scripts/logic-engine-lifecycle/lifecycle-journal.mjs
-          cp host-adapter/prototype/st-lifecycle-bridge.mjs sillytavern-host-checkout/public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs
-          cp host-adapter/prototype/conversation-identity.mjs sillytavern-host-checkout/public/scripts/logic-engine-lifecycle/conversation-identity.mjs
-          cp host-adapter/prototype/st-server-digest-proxy.mjs sillytavern-host-checkout/src/endpoints/logic-engine-lifecycle-proxy.mjs
-      - name: Require authenticated session identity route in the reviewed Host candidate
-        run: grep -F "router.get('/session', createHostSessionHandler())" host-adapter/prototype/st-host-inventory-route.js
-      - name: Install reviewed Host inventory modules into the pinned host tree
+          mkdir -p sillytavern-host-checkout/plugins
+          cp -R host-adapter sillytavern-host-checkout/plugins/logic-engine-host-adapter
+          test -f sillytavern-host-checkout/plugins/logic-engine-host-adapter/package.json
+          test -f sillytavern-host-checkout/plugins/logic-engine-host-adapter/server-plugin/index.mjs
+      - name: Verify pinned SillyTavern plugin boundary
         run: |
-          mkdir -p sillytavern-host-checkout/src/endpoints
-          cp host-adapter/prototype/st-source-inventory.mjs sillytavern-host-checkout/src/endpoints/st-source-inventory.mjs
-          cp host-adapter/prototype/fs-inventory.js sillytavern-host-checkout/src/endpoints/fs-inventory.js
-          cp host-adapter/prototype/windows-vss-snapshot.mjs sillytavern-host-checkout/src/endpoints/windows-vss-snapshot.mjs
-          cp host-adapter/prototype/host-data-inventory.mjs sillytavern-host-checkout/src/endpoints/host-data-inventory.mjs
-          cp host-adapter/prototype/st-host-inventory-handler.mjs sillytavern-host-checkout/src/endpoints/logic-engine-host-inventory-handler.mjs
-          cp host-adapter/prototype/st-host-identity-store.mjs sillytavern-host-checkout/src/endpoints/logic-engine-host-identity-store.mjs
-          cp host-adapter/prototype/st-host-inventory-route.js sillytavern-host-checkout/src/endpoints/logic-engine-host-inventory.js
-      - name: Apply-check and apply lifecycle, inventory, then delete-safety patches
-        run: |
-          cd sillytavern-host-checkout
-          git apply --check "$GITHUB_WORKSPACE/host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch"
-          git apply "$GITHUB_WORKSPACE/host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch"
-          git apply --check "$GITHUB_WORKSPACE/host-adapter/prototype/patches/sillytavern-1.19.0-source-inventory-route.patch"
-          git apply "$GITHUB_WORKSPACE/host-adapter/prototype/patches/sillytavern-1.19.0-source-inventory-route.patch"
-          git apply --check "$GITHUB_WORKSPACE/host-adapter/prototype/patches/issue-258-direction-a-delete-safety.patch"
-          git apply "$GITHUB_WORKSPACE/host-adapter/prototype/patches/issue-258-direction-a-delete-safety.patch"
-          git diff --check
-      - name: Syntax-check patched host and prototype modules
-        run: |
-          node --check sillytavern-host-checkout/public/script.js
-          node --check sillytavern-host-checkout/public/scripts/slash-commands.js
-          node --check sillytavern-host-checkout/public/scripts/logic-engine-lifecycle/lifecycle-journal.mjs
-          node --check sillytavern-host-checkout/public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs
-          node --check sillytavern-host-checkout/public/scripts/logic-engine-lifecycle/conversation-identity.mjs
-          node --check sillytavern-host-checkout/src/endpoints/logic-engine-lifecycle-proxy.mjs
-          node --check sillytavern-host-checkout/src/endpoints/logic-engine-lifecycle.js
-          node --check sillytavern-host-checkout/src/endpoints/st-source-inventory.mjs
-          node --check sillytavern-host-checkout/src/endpoints/fs-inventory.js
-          node --check sillytavern-host-checkout/src/endpoints/windows-vss-snapshot.mjs
-          node --check sillytavern-host-checkout/src/endpoints/host-data-inventory.mjs
-          node --check sillytavern-host-checkout/src/endpoints/logic-engine-host-inventory-handler.mjs
-          node --check sillytavern-host-checkout/src/endpoints/logic-engine-host-inventory.js
-          node --check sillytavern-host-checkout/src/endpoints/logic-engine-host-identity-store.mjs
-          node --check sillytavern-host-checkout/src/server-startup.js
-          node --check sillytavern-host-checkout/src/server-main.js
-          node --check sillytavern-host-checkout/src/endpoints/backends/chat-completions.js
-      - name: Ensure MakerSuite request body is not logged
-        run: |
-          if grep -F 'console.debug(`${apiName} request:`, body)' sillytavern-host-checkout/src/endpoints/backends/chat-completions.js; then
-            echo "Raw MakerSuite/Vertex request body logging must not be present" >&2
+          grep -F "app.use(requireLoginMiddleware);" sillytavern-host-checkout/src/server-main.js
+          grep -F "loadPlugins(app, pluginsDirectory)" sillytavern-host-checkout/src/server-main.js
+          grep -F 'app.use(`/api/plugins/${id}`, router)' sillytavern-host-checkout/src/plugin-loader.js
+          grep -F "const router = express.Router();" sillytavern-host-checkout/src/plugin-loader.js
+          if grep -R -E "api/logic-engine|logicEngineHostInventoryRouter|logic-engine-lifecycle-proxy" host-adapter/server-plugin; then
+            echo "Host server plugin must not depend on patched ST API routes or direct Core proxy routes" >&2
             exit 1
           fi
-          grep -F 'request metadata:' sillytavern-host-checkout/src/endpoints/backends/chat-completions.js >/dev/null
-      - name: Run all Host prototype and inventory tests
-        run: node --test host-adapter/prototype/tests/*.test.mjs tests/host-source-inventory.test.js
+      - name: Syntax-check Host Gateway modules
+        run: |
+          node --check host-adapter/server-plugin/index.mjs
+          node --check host-adapter/server-plugin/context-route.mjs
+          node --check host-adapter/prototype/st-host-inventory-handler.mjs
+          node --check host-adapter/prototype/st-host-identity-store.mjs
+          node --check host-adapter/prototype/host-data-inventory.mjs
+      - name: Run Host prototype, server-plugin and inventory tests
+        run: |
+          node --test host-adapter/server-plugin/tests/*.test.mjs
+          node --test host-adapter/prototype/tests/*.test.mjs tests/host-source-inventory.test.js
+      - name: Verify plugin deployment tree has no ST source modifications
+        run: |
+          cd sillytavern-host-checkout
+          git diff --exit-code
+          git status --short
