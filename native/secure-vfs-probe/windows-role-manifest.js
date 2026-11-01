@@ -36,8 +36,25 @@ function assertManifestShape(manifest) {
     }
     roleNames.add(role.role);
     assertWindowsIdentity(role.databaseIdentity, `database ${role.role}`);
+    for (const component of role.parentComponents) {
+      if (typeof component !== 'string' || !component || component === '.' || component === '..'
+          || /[\\/:*?"<>|\0]/.test(component) || /[. ]$/.test(component)) {
+        throw new TypeError(`Invalid Windows parent component for role ${role.role}`);
+      }
+    }
     for (const identity of role.parentIdentities) {
       assertWindowsIdentity(identity, `parent ${role.role}`);
+    }
+    const sidecarKinds = new Set();
+    for (const sidecar of role.sidecars) {
+      if (!sidecar || !['wal', 'shm', 'journal'].includes(sidecar.kind)
+          || sidecarKinds.has(sidecar.kind)
+          || !['active', 'retired'].includes(sidecar.state)
+          || !Number.isSafeInteger(sidecar.generation) || sidecar.generation < 1) {
+        throw new TypeError(`Role ${role.role} has a transitional or invalid sidecar record`);
+      }
+      sidecarKinds.add(sidecar.kind);
+      assertWindowsIdentity(sidecar.identity, `${role.role} ${sidecar.kind} sidecar`);
     }
     const identityKey = `${role.databaseIdentity.volumeSerial.toLowerCase()}:${role.databaseIdentity.fileId.toLowerCase()}`;
     if (databaseIds.has(identityKey)) {
