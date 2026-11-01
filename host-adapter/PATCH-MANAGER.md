@@ -57,7 +57,7 @@ The pinned patch:
 
 The adapter is required before the native Chat Completions generation handler can run. Missing adapter registration rejects the route with `LOGIC_ENGINE_FINAL_SEND_ADAPTER_UNAVAILABLE`; it does not fall back to direct provider fetch. Calls to model-list and other non-generation functions in the module remain on native fetch because they run outside the generation context.
 
-The sender map is pinned to the actual `CHAT_COMPLETION_SOURCES` keys/values from ST 1.19.0. ST's `COMETAPI` source is intentionally rejected because the Core Gateway sender registry does not admit it; an unknown or newly introduced provider cannot silently fall through.
+The sender map is pinned to the actual protected `CHAT_COMPLETION_SOURCES` keys/values from ST 1.19.0. An unregistered sender is allowed to use the native transport only when the trusted Host classifier explicitly returns `null` (not protected Memory); if classification is protected or indeterminate, the unregistered sender is denied before transport. This preserves ordinary ST provider compatibility without creating a protected-send bypass.
 
 ## Important incomplete integration gates
 
