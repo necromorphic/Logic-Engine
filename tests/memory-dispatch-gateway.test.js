@@ -156,6 +156,12 @@ async function createFixture({ sendUpstream, createTransport, coreHead = 1, prov
   };
 }
 
+async function dispatchAndRelease(gateway, request) {
+  const response = await gateway.dispatchProtectedRequest(request);
+  gateway.authorizeResponseWrite(request.requestId, () => response, { final: true });
+  return response;
+}
+
 const validRequest = (requestId = 'request-001', overrides = {}) => ({
   requestId,
   route: 'host-selected-chat-generation',
@@ -322,7 +328,7 @@ test('transport handoff begins while the shared coordinator is still held', asyn
 
   contender = new DatabaseSync(fixture.coordinatorPath);
   contender.exec('PRAGMA busy_timeout=0;');
-  await fixture.gateway.dispatchProtectedRequest(validRequest('transport-start-under-lock'));
+  await dispatchAndRelease(fixture.gateway, validRequest('transport-start-under-lock'));
   assert.equal(
     coordinatorWasHeldAtTransportStart,
     true,
@@ -399,13 +405,15 @@ test('successful stream begins its one Host response write under the Coordinator
       },
       stream: true,
       forwardResponse: () => {
-        hostWrites += 1;
-        try {
-          contender.exec('BEGIN IMMEDIATE');
-          contender.exec('ROLLBACK');
-        } catch (error) {
-          leaseHeldAtHostWrite = /locked|busy/i.test(String(error?.message || ''));
-        }
+        fixture.gateway.authorizeResponseWrite('stream-response-under-lease', () => {
+          hostWrites += 1;
+          try {
+            contender.exec('BEGIN IMMEDIATE');
+            contender.exec('ROLLBACK');
+          } catch (error) {
+            leaseHeldAtHostWrite = /locked|busy/i.test(String(error?.message || ''));
+          }
+        }, { final: true });
         return Promise.resolve();
       },
     });
@@ -466,6 +474,7 @@ test('all protected sender families share one real Gateway and each causes exact
     let routeIndex = 0;
     for (const senderRoute of PROTECTED_MEMORY_SENDER_ROUTES) {
       routeIndex += 1;
+      const requestId = 'sender-route-' + routeIndex;
       await finalSend({
         senderRoute,
         endpointUrl: 'https://provider.example/v1/chat/completions',
@@ -474,8 +483,9 @@ test('all protected sender families share one real Gateway and each causes exact
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ messages: [{ role: 'user', content: 'protected' }] }),
         },
-        hostRequestContext: { ...prepared, requestId: 'sender-route-' + routeIndex },
+        hostRequestContext: { ...prepared, requestId },
       });
+      fixture.gateway.authorizeResponseWrite(requestId, () => undefined, { final: true });
     }
     assert.equal(upstreamCalls, PROTECTED_MEMORY_SENDER_ROUTES.length);
     const ledger = new DatabaseSync(fixture.ledgerPath);
@@ -582,7 +592,7 @@ test('FINAL RESPONSE REVALIDATION rejects policy authority tuple rotation during
 test('dispatch validates current heads and grants, records one content-free start, and sends once', async () => {
   const fixture = await createFixture();
   try {
-    const response = await fixture.gateway.dispatchProtectedRequest(validRequest());
+    const response = await dispatchAndRelease(fixture.gateway, validRequest());
     assert.equal(response.status, 200);
     assert.equal(fixture.calls.length, 1);
     assert.equal(fixture.calls[0].body, validRequest().body);
