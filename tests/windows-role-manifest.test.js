@@ -182,3 +182,33 @@ test('Windows manifest enrollment rejects metadata-root aliases and duplicate si
     fakeDatabase(), duplicateKind, 'core', 'C:\\LogicEngine\\data\\core.sqlite'
   ), /transitional or invalid sidecar/);
 });
+
+
+test('Windows manifest enrollment rejects retired sidecar identities that alias databases or another role', () => {
+  const databaseAlias = manifest();
+  databaseAlias.roles[0].sidecars[0].state = 'retired';
+  databaseAlias.roles[0].sidecars[0].identity = structuredClone(
+    databaseAlias.roles[0].databaseIdentity
+  );
+  assert.throws(() => registerWindowsManifestRole(
+    fakeDatabase(), databaseAlias, 'core', 'C:\\LogicEngine\\data\\core.sqlite'
+  ), /Duplicate physical Windows identity/);
+
+  const crossRoleAlias = manifest();
+  crossRoleAlias.roles[0].sidecars[0].state = 'retired';
+  crossRoleAlias.roles.push({
+    ...structuredClone(crossRoleAlias.roles[0]),
+    role: 'vectors',
+    databaseBasename: 'vectors.sqlite',
+    databaseIdentity: identity('00000000000000A1', '66666666666666666666666666666666'),
+    sidecars: [{
+      kind: 'wal',
+      identity: structuredClone(crossRoleAlias.roles[0].sidecars[0].identity),
+      state: 'retired',
+      generation: 7,
+    }],
+  });
+  assert.throws(() => registerWindowsManifestRole(
+    fakeDatabase(), crossRoleAlias, 'vectors', 'C:\\LogicEngine\\data\\vectors.sqlite'
+  ), /Duplicate physical Windows identity/);
+});
