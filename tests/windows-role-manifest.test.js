@@ -99,6 +99,29 @@ test('Windows manifest enrollment passes exact DB and final-parent identities to
   ]);
 });
 
+test('Windows manifest enrollment treats an empty parent chain as a metadata root at the DB parent', () => {
+  const rootAtParent = manifest();
+  rootAtParent.metadataRootIdentity = structuredClone(
+    rootAtParent.roles[0].parentIdentities[1]
+  );
+  rootAtParent.roles[0].parentComponents = [];
+  rootAtParent.roles[0].parentIdentities = [];
+  const db = fakeDatabase();
+  assert.equal(registerWindowsManifestRole(
+    db, rootAtParent, 'core', 'C:\\LogicEngine\\data\\core.sqlite'
+  ), 1);
+  assert.deepEqual(db.calls[0].args, [
+    'C:\\LogicEngine\\data',
+    rootAtParent.metadataRootIdentity.volumeSerial,
+    rootAtParent.metadataRootIdentity.fileId,
+  ]);
+  assert.match(db.calls[1].sql, /register_database_role_manifest/);
+  assert.deepEqual(db.calls[1].args.slice(4, 6), [
+    rootAtParent.metadataRootIdentity.volumeSerial,
+    rootAtParent.metadataRootIdentity.fileId,
+  ]);
+});
+
 test('Windows manifest enrollment rejects transitional sidecars and path basename mismatch', () => {
   const transitional = manifest();
   transitional.roles[0].sidecars[0].state = 'deleting';
