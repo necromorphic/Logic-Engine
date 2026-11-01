@@ -9,7 +9,7 @@
   "patch": {
     "version": "1.0.0",
     "path": "host-adapter/patches/sillytavern-1.19.0-final-send.patch",
-    "sha256": "afe3aaa7f3dc7ead1406c03693bf68f3fe13d3985408c67e87ff418143ede6f6"
+    "sha256": "a87cc7429811d1d282f18f134f972b688306a683d5ad9cad4f584329c1c5d54a"
   },
   "sourceFiles": {
     "package.json": "5b6e0634a63872c33603bf803217613a388f2e5dbd5990f7b30d254bfbf027c2",
@@ -33,6 +33,6 @@
   },
   "createdFiles": {
     "src/logic-engine-final-send-hook.js": "0773fe95d1148038e6141964f3fbf59c1b2277ba3054b373dad04e402357bb8b",
-    "src/logic-engine-extension-install-hook.js": "e850682d6e31a3a6fb15f7188f8ac30b5bc0e1bb114320b1952092290e420f69"
+    "src/logic-engine-extension-install-hook.js": "82ff2adc5e3a8805dc4a08e7060af72372c175fb4c210b16c17f717ebbc2bfec"
   }
 }
