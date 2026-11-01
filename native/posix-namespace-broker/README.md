@@ -222,10 +222,13 @@ configuration: `LOGIC_ENGINE_VFS_ROLE_PATH`,
 service identity `LOGIC_ENGINE_BROKER_UID`. The Host invokes the no-argument
 `logic_engine_vfs_probe_register_broker_role_from_host()` entrypoint before
 opening any file-backed database. SQL cannot choose or rebind the role, path,
-socket, or expected broker UID. The older
-`logic_engine_vfs_probe_bind_broker(role, socketPath)` and direct role
-enrollment entrypoints exist only in explicitly marked test builds; strict
-Linux builds do not register them.
+socket, or expected broker UID. The obsolete
+`logic_engine_vfs_probe_bind_broker(role, socketPath)` rebinding entrypoint
+has been removed. The caller-parameter broker-role registration entrypoint
+exists only in explicitly marked test builds; strict Linux builds expose only
+the no-argument Host-configured enrollment callback. The expected broker UID
+is copied into the registered role and is not re-read from mutable process
+environment for subsequent namespace operations.
 
 Main opens use `OPEN_MAIN`, WAL/SHM/journal opens use
 `OPEN_OR_CREATE_SIDECAR`, access/stat checks use authenticated broker
