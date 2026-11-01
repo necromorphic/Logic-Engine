@@ -2,7 +2,7 @@
 
 **Contract:** Host ↔ Core authenticated Memory retrieval  
 **Version:** 1.0.0  
-**Status:** CONTRACT AGREED; Host/Core candidate CI green; contract PR full-suite CI green at current HEAD; branch integration and deployment readiness remain pending  
+**Status:** CONTRACT AGREED; Host/Core candidate CI green; latest contract-document revision validation in progress; branch integration and deployment readiness remain pending  
 **Validated candidate heads (1 Nov 2026):** Host PR #850 `4aa26dcf2a9e5b5e65123f2cd72b40516e41a685`; Core PR #846 `832abf337530e9421f53eaed85760cb4a7f07313`; Core HTTP PR #867 `7e3895aeb91c983bf020e889acdad6c1909dd0e7`  
 **Scope:** identity hand-off, Core World/Actor resolution, authenticated Memory Provider retrieval, result/error/revoke semantics.  
 **Not in scope:** branch merging, Security Gateway changes, Final-Send, production enablement, Lane A, Provider schema migration.
@@ -397,6 +397,7 @@ For `src/index.js`, retain Host #850's root-identity registry, lifecycle journal
 ### Remaining release blockers
 
 1. Branch integration is still required. #867 is stacked on #846; #850 is independently based on `main` and overlaps 26 files with #846 and 8 files with #867. The shared Core route blocks are identical, but `src/api/server.js`, `src/index.js`, `.env.example`, and the overlapping adapter composition must be reconciled deliberately; do not merge the three PRs blindly.
+   - Current `main` has advanced two commits beyond the base SHA recorded by #846. The delta is limited to `README.md` and `docs/progress-bars-2026-11-01.svg`; neither path is in #846's patch. Refresh/rebase #846 onto current `main` before integration, then re-run its full CI. Host #850 already uses current `main` as its base.
 2. Recommended integration order: land/rebase Core Lane B #846; integrate Core HTTP #867 on top of it; then rebase Host #850 onto the integrated Core result and resolve Host-owned lifecycle/inventory additions while retaining the identical shared route blocks. Re-run full CI after each rebase.
 3. Deployment must provide the durable Provider DB and explicit Core field allowlist; Provider data must have valid query/record grants and canonical source lineage before a ready result is possible.
 4. Host authoritative full-root inventory and lifecycle mutation coverage remain independent Host release gates. No Security Gateway modification, Final-Send, or production enablement is included here.
