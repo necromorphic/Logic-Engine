@@ -1907,7 +1907,10 @@ static int probe_xDelete(sqlite3_vfs *vfs, const char *name, int sync_dir) {
      * through the manifest-backed broker above; main-file deletion remains
      * fail-closed until a durable role lifecycle operation exists.
      */
-    return SQLITE_IOERR_DELETE;  /* Protected default VFS: never delegate an unregistered delete by pathname. */
+    return SQLITE_IOERR_DELETE;
+  }
+#endif
+  /* Protected default VFS: never delegate an unregistered delete by pathname. */
   return SQLITE_IOERR_DELETE;
 }
 #ifndef _WIN32
