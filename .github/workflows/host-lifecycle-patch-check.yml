@@ -66,8 +66,8 @@ jobs:
       - name: Apply pinned lifecycle hooks through the Extension Gateway only
         run: |
           patch="$GITHUB_WORKSPACE/host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch"
-          git -C sillytavern-host-checkout apply --check "$patch"
-          git -C sillytavern-host-checkout apply "$patch"
+          git -C sillytavern-host-checkout apply --unidiff-zero --check "$patch"
+          git -C sillytavern-host-checkout apply --unidiff-zero "$patch"
           git -C sillytavern-host-checkout diff --check
           expected=$(printf '%s\n' \
             public/script.js \
