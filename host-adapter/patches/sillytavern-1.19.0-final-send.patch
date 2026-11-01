@@ -395,7 +395,7 @@
 
 --- a/src/endpoints/backends/text-completions.js
 +++ b/src/endpoints/backends/text-completions.js
-@@ -15,1 +15,2 @@
+@@ -16,1 +16,2 @@
 -import { forwardFetchResponse, trimV1, getConfigValue } from '../../util.js';
 +import { forwardFetchResponse as nativeForwardFetchResponse, trimV1, getConfigValue } from '../../util.js';
 +const forwardFetchResponse = (upstream, response) => logicEngineForwardFetchResponse(upstream, response, nativeForwardFetchResponse);
