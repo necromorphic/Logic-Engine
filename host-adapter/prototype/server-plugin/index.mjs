@@ -5,6 +5,7 @@ import {
   createHostSessionHandler,
 } from './st-host-inventory-handler.mjs';
 import { HostIdentityStore } from './st-host-identity-store.mjs';
+import { createHostContextTransportHandler } from './host-context-transport.mjs';
 
 const PINNED_SILLYTAVERN_COMMIT = '06bde939fb1e9c4c8d8641d810f0a916b5bce127';
 const noStore = (request, response, next) => {
@@ -50,11 +51,17 @@ export async function init(router) {
     hostBuildClaim: process.env.LOGIC_ENGINE_HOST_BUILD_SHA || '',
   }));
 
-  // Context transport is deliberately unavailable until the Extension
-  // Gateway's authenticated assertion handoff is wired to Core. Never fall
-  // back to a direct browser/ST proxy or caller-supplied world/actor values.
-  router.post('/context', (_request, response) => response.status(503).json({
-    status: 'NON_READY',
-    code: 'GATEWAY_CORE_CONTEXT_TRANSPORT_NOT_CONFIGURED',
-  }));
+  // The only ST→Core call is made server-to-server from this Gateway.
+  // Browser input selects only a conversation UUID, which is revalidated
+  // against the authenticated account's server-side inventory. World/Actor
+  // and credentials are deployment-owned; Core rechecks current bindings.
+  router.post('/context', identityStore
+    ? createHostContextTransportHandler({
+      identityStore,
+      enumerate: enumerateHostDataInventory,
+    })
+    : (_request, response) => response.status(503).json({
+      status: 'NON_READY',
+      code: 'HOST_IDENTITY_STORE_NOT_CONFIGURED',
+    }));
 }
