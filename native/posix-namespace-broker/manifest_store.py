@@ -236,6 +236,9 @@ def _validate_manifest(data: bytes) -> dict[str, Any]:
         kinds = [entry["kind"] for entry in sidecars]
         if len(kinds) != len(set(kinds)):
             raise StoreError(f"role {name}: duplicate sidecar kind")
+        if role["state"] in ("disabled", "renaming", "deleting", "deleted") and any(
+                entry["state"] != "retired" for entry in sidecars):
+            raise StoreError(f"role {name}: offline lifecycle state requires all sidecars retired")
     # Physical file identities must be unique across protected roles. A manifest
     # that aliases one inode under multiple logical names makes ownership and
     # sidecar lifecycle transitions ambiguous.
@@ -824,6 +827,177 @@ class ManifestStore:
                 os.close(parent_fd)
 
 
+
+    def disable_role(self, role_name: str) -> dict[str, Any]:
+        """Disable new broker opens; caller must first stop every application process."""
+        with _locked_roots(self.manifest_fd, self.anchor_fd, exclusive=True):
+            manifest = self._load_pair()[0]
+            roles = [entry for entry in manifest["roles"] if entry["role"] == role_name]
+            if len(roles) != 1 or roles[0]["state"] != "active":
+                raise StoreError("only one active role can be disabled")
+            role = roles[0]
+            if any(entry["state"] != "retired" for entry in role["sidecars"]):
+                raise StoreError("all sidecars must be retired before disabling a role")
+            candidate = json.loads(_canonical_json(manifest))
+            candidate["generation"] = manifest["generation"] + 1
+            next(entry for entry in candidate["roles"] if entry["role"] == role_name)["state"] = "disabled"
+            return self._commit_locked(_canonical_json(candidate))
+
+    def rename_role_database(self, role_name: str, new_basename: str) -> dict[str, Any]:
+        """Offline-only durable main-file rename; never replaces an existing target."""
+        if (not isinstance(new_basename, str) or not new_basename
+                or new_basename in (".", "..") or "/" in new_basename
+                or "\\" in new_basename or "\x00" in new_basename):
+            raise StoreError("invalid destination database basename")
+        with _locked_roots(self.manifest_fd, self.anchor_fd, exclusive=True):
+            manifest = self._load_pair()[0]
+            roles = [entry for entry in manifest["roles"] if entry["role"] == role_name]
+            if len(roles) != 1 or roles[0]["state"] != "disabled":
+                raise StoreError("database rename requires one disabled role and a quiesced application")
+            role = roles[0]
+            if any(entry["state"] != "retired" for entry in role["sidecars"]):
+                raise StoreError("all sidecars must be retired before database rename")
+            if new_basename == role["databaseBasename"]:
+                raise StoreError("destination basename must differ from the current basename")
+            parent_fd = _open_role_parent(
+                role["parentComponents"], role["parentIdentities"],
+                manifest["filesystemPolicy"]["filesystem"],
+                manifest["filesystemPolicy"]["applicationUid"],
+            )
+            try:
+                _require_empty_quarantine(parent_fd)
+                _verify_regular_at(parent_fd, role["databaseBasename"],
+                                   role["databaseIdentity"], f"role {role_name} database")
+                _observe = _observe_regular_at(parent_fd, new_basename,
+                                               "database rename destination")
+                if _observe is not None:
+                    raise StoreError("database rename destination already exists")
+                staged = json.loads(_canonical_json(manifest))
+                staged["generation"] = manifest["generation"] + 1
+                staged_role = next(entry for entry in staged["roles"] if entry["role"] == role_name)
+                staged_role["state"] = "renaming"
+                staged_role["pendingDatabaseBasename"] = new_basename
+                self._commit_locked(_canonical_json(staged))
+                _renameat2_noreplace(parent_fd, role["databaseBasename"],
+                                      parent_fd, new_basename)
+                os.fsync(parent_fd)
+                current = self._load_pair()[0]
+                completed = json.loads(_canonical_json(current))
+                completed["generation"] = current["generation"] + 1
+                completed_role = next(entry for entry in completed["roles"] if entry["role"] == role_name)
+                completed_role["databaseBasename"] = new_basename
+                completed_role.pop("pendingDatabaseBasename", None)
+                completed_role["state"] = "disabled"
+                _verify_regular_at(parent_fd, new_basename, role["databaseIdentity"],
+                                   f"renamed role {role_name} database")
+                return self._commit_locked(_canonical_json(completed))
+            finally:
+                os.close(parent_fd)
+
+    def delete_role_database(self, role_name: str) -> dict[str, Any]:
+        """Offline-only main-file deletion through durable manifest state and quarantine."""
+        with _locked_roots(self.manifest_fd, self.anchor_fd, exclusive=True):
+            manifest = self._load_pair()[0]
+            roles = [entry for entry in manifest["roles"] if entry["role"] == role_name]
+            if len(roles) != 1 or roles[0]["state"] != "disabled":
+                raise StoreError("main database deletion requires one disabled role and a quiesced application")
+            role = roles[0]
+            if any(entry["state"] != "retired" for entry in role["sidecars"]):
+                raise StoreError("all sidecars must be retired before main database deletion")
+            parent_fd = _open_role_parent(
+                role["parentComponents"], role["parentIdentities"],
+                manifest["filesystemPolicy"]["filesystem"],
+                manifest["filesystemPolicy"]["applicationUid"],
+            )
+            try:
+                _require_empty_quarantine(parent_fd)
+                _verify_regular_at(parent_fd, role["databaseBasename"],
+                                   role["databaseIdentity"], f"role {role_name} database")
+                deleting = json.loads(_canonical_json(manifest))
+                deleting["generation"] = manifest["generation"] + 1
+                next(entry for entry in deleting["roles"] if entry["role"] == role_name)["state"] = "deleting"
+                self._commit_locked(_canonical_json(deleting))
+                _quarantine_delete_at(parent_fd, role["databaseBasename"], role["databaseIdentity"])
+                current = self._load_pair()[0]
+                deleted = json.loads(_canonical_json(current))
+                deleted["generation"] = current["generation"] + 1
+                next(entry for entry in deleted["roles"] if entry["role"] == role_name)["state"] = "deleted"
+                return self._commit_locked(_canonical_json(deleted))
+            finally:
+                os.close(parent_fd)
+
+    def reconcile_main_lifecycle(self) -> dict[str, Any]:
+        """Complete only manifest-authorized interrupted main-file rename/delete operations."""
+        with _locked_roots(self.manifest_fd, self.anchor_fd, exclusive=True):
+            manifest = self._load_pair()[0]
+            candidate = json.loads(_canonical_json(manifest))
+            changed = False
+            for role in candidate["roles"]:
+                state = role["state"]
+                if state not in ("renaming", "deleting"):
+                    continue
+                if any(entry["state"] != "retired" for entry in role["sidecars"]):
+                    raise StoreError("main lifecycle recovery found a non-retired sidecar")
+                parent_fd = _open_role_parent(
+                    role["parentComponents"], role["parentIdentities"],
+                    manifest["filesystemPolicy"]["filesystem"],
+                    manifest["filesystemPolicy"]["applicationUid"],
+                )
+                try:
+                    if state == "renaming":
+                        _require_empty_quarantine(parent_fd)
+                        old_name = role["databaseBasename"]
+                        new_name = role["pendingDatabaseBasename"]
+                        old_identity = _observe_regular_at(parent_fd, old_name, "old database rename entry")
+                        new_identity = _observe_regular_at(parent_fd, new_name, "new database rename entry")
+                        expected = role["databaseIdentity"]
+                        if old_identity == expected and new_identity is None:
+                            _renameat2_noreplace(parent_fd, old_name, parent_fd, new_name)
+                            os.fsync(parent_fd)
+                            new_identity = _observe_regular_at(parent_fd, new_name, "renamed database entry")
+                            old_identity = None
+                        if old_identity is not None or new_identity != expected:
+                            raise StoreError("interrupted database rename has ambiguous or mismatched namespace state")
+                        role["databaseBasename"] = new_name
+                        role.pop("pendingDatabaseBasename", None)
+                        role["state"] = "disabled"
+                        changed = True
+                    else:
+                        quarantine_fd = _open_quarantine_dir(parent_fd, create=False)
+                        if quarantine_fd is not None:
+                            try:
+                                for name in os.listdir(quarantine_fd):
+                                    entry_fd = os.open(name, os.O_PATH | os.O_NOFOLLOW | os.O_CLOEXEC,
+                                                       dir_fd=quarantine_fd)
+                                    try:
+                                        identity = _fd_identity(entry_fd)
+                                    finally:
+                                        os.close(entry_fd)
+                                    if identity != role["databaseIdentity"]:
+                                        raise StoreError("main-delete quarantine contains an unauthorized object")
+                                    os.unlink(name, dir_fd=quarantine_fd)
+                                    os.fsync(quarantine_fd)
+                            finally:
+                                os.close(quarantine_fd)
+                        actual = _observe_regular_at(
+                            parent_fd, role["databaseBasename"], "main database deletion entry"
+                        )
+                        if actual == role["databaseIdentity"]:
+                            _quarantine_delete_at(
+                                parent_fd, role["databaseBasename"], role["databaseIdentity"]
+                            )
+                        elif actual is not None:
+                            raise StoreError("main database deletion path has a replacement identity")
+                        _require_empty_quarantine(parent_fd)
+                        role["state"] = "deleted"
+                        changed = True
+                finally:
+                    os.close(parent_fd)
+            if not changed:
+                return manifest
+            candidate["generation"] = manifest["generation"] + 1
+            return self._commit_locked(_canonical_json(candidate))
+
     def reconcile_enrolling_roles(self) -> dict[str, Any]:
         """Promote only broker-created enrolling DBs whose persisted identity still matches."""
         with _locked_roots(self.manifest_fd, self.anchor_fd, exclusive=True):
@@ -985,7 +1159,7 @@ class ManifestStore:
     def _verify_roles_locked(self, manifest: dict[str, Any]) -> None:
         for role in manifest["roles"]:
             state = role["state"]
-            if state == "disabled":
+            if state in ("disabled", "deleted"):
                 continue
             if state != "active":
                 raise StoreError(f"role {role['role']} is not active; recovery/enrollment required")
