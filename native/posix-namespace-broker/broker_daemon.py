@@ -267,9 +267,19 @@ def main() -> int:
         store = ManifestStore(args.manifest_root, args.anchor_root, args.app_uid)
         if store.application_uid != args.app_uid:
             raise StoreError("broker application UID does not match manifest store")
-        # Startup is fail-closed: no service until every enrolled role and active
-        # sidecar is identity-verified against the protected manifest.
+        # Startup recovery runs before the broker socket is exposed. The role
+        # directories are service-owned and inaccessible to the application;
+        # therefore no application namespace mutator can race this reconciliation.
+        # Only interrupted create/delete transitions whose sidecar pathname is
+        # absent are finalized. Present entries are never deleted or promoted:
+        # they require SQLite-level recovery and keep startup fail-closed.
+        recovered = store.retire_absent_sidecars()
         store.verify_roles()
+        print(
+            f"sqlite-broker: startup reconciliation complete "
+            f"(manifest generation {recovered['generation']})",
+            file=sys.stderr,
+        )
         serve(args.socket, args.app_uid, application_gid, store)
         return 0
     except (OSError, ValueError, RuntimeError, StoreError) as exc:
