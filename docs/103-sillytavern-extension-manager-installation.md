@@ -10,12 +10,12 @@ The Logic-Engine client extension is packaged at the repository root with the Si
 
 Install it through SillyTavern's normal third-party extension installer (Extensions → Install extension), using this repository and the `integration/sillytavern-extension-manager` branch. This is an Extension Manager installation, not a model/API-provider configuration.
 
-After installation, the Logic-Engine panel appears in Extensions settings. Set the Core URL (default `http://127.0.0.1:8788`) and use **Check connection**. The extension checks only the unauthenticated Core `GET /health` endpoint. It does not store Core bearer, adapter, admin, approval, or internal credentials in browser settings.
+After installation, the Logic-Engine panel appears in Extensions settings. Set the Core URL (default `http://127.0.0.1:8787`) and use **Check connection**. The extension checks only the unauthenticated Core `GET /health` endpoint. It does not store Core bearer, adapter, admin, approval, or internal credentials in browser settings.
 
 ## What this slice does
 
 - Loads through the standard SillyTavern client Extension Manager.
-- Uses SillyTavern's extension lifecycle and generation-settings event APIs.
+- Uses SillyTavern's extension lifecycle API.
 - Provides a Core URL setting and a health check.
 - Does not replace or configure the selected model/API provider.
 - Does not modify SillyTavern source files.
