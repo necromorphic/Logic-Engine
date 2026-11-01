@@ -215,7 +215,10 @@ class ManifestStoreTests(unittest.TestCase):
             "parentComponents": current["roles"][0]["parentComponents"],
             "parentIdentities": current["roles"][0]["parentIdentities"],
             "databaseBasename": "core.sqlite",
-            "databaseIdentity": current["roles"][0]["databaseIdentity"],
+            "databaseIdentity": {
+                "kind": "posix", "device": "99999991",
+                "inode": "99999992", "mountId": "99999993",
+            },
             "state": "active",
             "sidecars": [],
         })
