@@ -132,7 +132,7 @@ Core implementation rules:
 
 1. Derive `adapter_id` from authenticated headers.
 2. Resolve the exact active conversation binding using the existing `HostConversationWorldBindingService.resolve({ adapterId, conversationId })`.
-3. Resolve exactly one active actor using the existing `ActorBindingService.resolveForAdapter(worldId, adapterId)`, then verify that exact binding through `ActorBindingService.resolve(worldId, adapterId, actorId)`.
+3. Resolve exactly one active actor using the existing `ActorBindingService.resolveForAdapter(worldId, adapterId)`. This method itself rejects zero or multiple active bindings and rejects a missing/destroyed actor; the HTTP route does not make a second `resolve()` call.
 4. Return only the five fields above. Do not return canonical content, Provider data, grant state, or diagnostics.
 5. Reject missing, revoked, stale, ambiguous, cross-world, malformed, or destroyed bindings. Never accept caller-selected World/Actor values.
 6. Do not create a second binding table or resolver. The endpoint composes the two existing Core services.
