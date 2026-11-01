@@ -102,6 +102,7 @@ test('root inventory persistence falls back from first baseline to observation o
   const persist = createHostRootInventoryPersistence({
     env: CONFIG,
     identityStore: {
+      assertOutsideRoot: async root => assert.equal(root, GLOBAL_DATA_ROOT),
       resolveAuthenticatedAccount: async () => ({
         host_installation_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
         authenticated_account_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
@@ -141,14 +142,14 @@ test('root inventory persistence fails closed on invalid identity, malformed man
   let calls = 0;
   const persist = createHostRootInventoryPersistence({
     env: CONFIG,
-    identityStore: { resolveAuthenticatedAccount: async () => ({ host_installation_id: 'bad', authenticated_account_id: 'also-bad' }) },
+    identityStore: { assertOutsideRoot: async root => assert.equal(root, GLOBAL_DATA_ROOT), resolveAuthenticatedAccount: async () => ({ host_installation_id: 'bad', authenticated_account_id: 'also-bad' }) },
     fetchImpl: async () => { calls++; throw new Error('must not call'); },
   });
   const invalidIdentity = await persist({ userHandle: 'alice', rootPath: '/srv/st/data', entries: rootEntries });
   assert.equal(invalidIdentity.status, 'NON_READY');
   const invalidManifest = await createHostRootInventoryPersistence({
     env: CONFIG,
-    identityStore: { resolveAuthenticatedAccount: async () => ({
+    identityStore: { assertOutsideRoot: async root => assert.equal(root, GLOBAL_DATA_ROOT), resolveAuthenticatedAccount: async () => ({
       host_installation_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
       authenticated_account_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
     }) },
@@ -157,7 +158,7 @@ test('root inventory persistence fails closed on invalid identity, malformed man
   assert.equal(invalidManifest.status, 'NON_READY');
   const oversized = await createHostRootInventoryPersistence({
     env: CONFIG,
-    identityStore: { resolveAuthenticatedAccount: async () => ({
+    identityStore: { assertOutsideRoot: async root => assert.equal(root, GLOBAL_DATA_ROOT), resolveAuthenticatedAccount: async () => ({
       host_installation_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
       authenticated_account_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
     }) },
@@ -374,6 +375,7 @@ test('lifecycle journal proxy derives account identity and signs only server-ver
   let observed;
   const receiptCalls = [];
   const identityStore = {
+    assertOutsideRoot: async root => assert.equal(root, GLOBAL_DATA_ROOT),
     resolveAuthenticatedAccount: async handle => {
       assert.equal(handle, 'alice');
       return {
