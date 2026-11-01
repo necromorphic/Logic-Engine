@@ -59,6 +59,7 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
     effects: [{ kind: 'entity.create', entity_id: 'host-memory-actor', entity_type: 'character' }],
   });
   let calls = 0;
+  let failConsumer = false;
   const consumer = {
     adapterId: ADAPTER_ID,
     async retrieveForNpc({ conversationId: requested }) {
@@ -70,6 +71,7 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
       assert.equal(context.authenticated_account_id, ACCOUNT);
       assert.equal(context.world_id, 'host-memory-world');
       assert.equal(context.actor_id, 'host-memory-actor');
+      if (failConsumer) throw new Error('sensitive consumer implementation detail');
       return { status: 'ready', admitted: [], candidates: [], snapshot: { world_revision: 0, commit_sequence: 0 } };
     },
   };
@@ -137,6 +139,29 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
   });
   assert.equal(tampered.status, 401);
   assert.equal(calls, 1);
+
+  // A verified assertion followed by an unexpected Consumer failure is an
+  // internal error, never an authentication failure or a detail disclosure.
+  failConsumer = true;
+  const failingAssertion = {
+    ...assertion, nonce: '77777777-7777-4777-8777-777777777777',
+    issued_at: Math.floor(Date.now() / 1000),
+  };
+  const failingBody = {
+    ...body, assertion: failingAssertion, signature: sign(failingAssertion),
+    request_id: '88888888-8888-4888-8888-888888888888',
+  };
+  const consumerFailure = await post(base, '/v1/host/memory-npc/retrieve', adapterHeaders, failingBody);
+  assert.equal(consumerFailure.status, 500);
+  assert.deepEqual(await consumerFailure.json(), {
+    error: { code: 'INTERNAL_ERROR', message: 'Internal error.' },
+  });
+  assert.equal(calls, 2);
+  const consumerFailureReplay = await post(base, '/v1/host/memory-npc/retrieve', adapterHeaders, failingBody);
+  assert.equal(consumerFailureReplay.status, 409);
+  assert.equal((await consumerFailureReplay.json()).error.code, 'HOST_SESSION_ASSERTION_REPLAYED');
+  assert.equal(calls, 2);
+  failConsumer = false;
 
   // The nonce ledger is durable in the Core SQLite store, not a process-local Map.
   await new Promise(resolve => server.close(resolve));
