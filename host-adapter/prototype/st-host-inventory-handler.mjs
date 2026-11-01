@@ -335,6 +335,8 @@ export function createHostLifecycleSaveGuard({ enumerate = enumerateHostDataInve
     const permit = session.logicEngineHostPreparedMutation;
     if (!permit || permit.protocol_version !== 1 || permit.host_session_id !== session.logicEngineSessionId || permit.conversation_uuid !== conversationUuid || !supported.has(permit.operation) || !HOST_SESSION_UUID.test(permit.mutation_id ?? '') || !HOST_SESSION_UUID.test(permit.event_id ?? '') || !/^[a-f0-9]{64}$/.test(permit.mutation_digest ?? '')) return response.status(409).json({ status: 'NON_READY', code: 'HOST_LIFECYCLE_PREPARED_SAVE_REQUIRED' });
     delete session.logicEngineHostPreparedMutation;
+    request.logicEngineLifecycleSaveAuthorized = true;
+    request.logicEngineLifecycleOperation = permit.operation;
     return next();
   };
 }
