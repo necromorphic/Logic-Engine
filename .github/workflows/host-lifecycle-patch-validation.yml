@@ -41,9 +41,9 @@ jobs:
       - name: Assemble native server plugin without modifying SillyTavern
         run: |
           mkdir -p sillytavern-host-checkout/plugins
-          cp -R host-adapter sillytavern-host-checkout/plugins/logic-engine-host-adapter
-          test -f sillytavern-host-checkout/plugins/logic-engine-host-adapter/package.json
-          test -f sillytavern-host-checkout/plugins/logic-engine-host-adapter/server-plugin/index.mjs
+          cp -R host-adapter sillytavern-host-checkout/plugins/logic-engine-extension-gateway
+          test -f sillytavern-host-checkout/plugins/logic-engine-extension-gateway/package.json
+          test -f sillytavern-host-checkout/plugins/logic-engine-extension-gateway/server-plugin/index.mjs
       - name: Verify authenticated native plugin mount
         run: |
           grep -F "app.use(requireLoginMiddleware);" sillytavern-host-checkout/src/server-main.js
