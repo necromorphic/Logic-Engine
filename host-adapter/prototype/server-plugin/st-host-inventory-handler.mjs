@@ -219,6 +219,10 @@ export function createHostBulkMutationGuard({
   return async function hostBulkMutationGuard(request, response, next) {
     response.set('Cache-Control', 'no-store, private');
     response.set('Vary', 'Cookie');
+    const session = request?.session;
+    const hasHostSessionMarker = session?.logicEngineSessionId !== undefined
+      || session?.logicEngineSessionHandle !== undefined;
+    if (!hasHostSessionMarker) return next();
     const identity = getAuthenticatedHostIdentity(request, { requireDirectories: true });
     if (!identity) return response.sendStatus(403);
     const { directories } = identity;
@@ -297,6 +301,9 @@ export function createHostLifecycleSaveGuard({ enumerate = enumerateHostDataInve
     response.set('Vary', 'Cookie');
     const userHandle = request?.user?.profile?.handle;
     const session = request?.session;
+    const hasHostSessionMarker = session?.logicEngineSessionId !== undefined
+      || session?.logicEngineSessionHandle !== undefined;
+    if (!hasHostSessionMarker) return next();
     if (typeof userHandle !== 'string' || !userHandle.trim() || (session?.handle !== undefined && session.handle !== userHandle) || session?.logicEngineSessionHandle !== userHandle || !HOST_SESSION_UUID.test(session?.logicEngineSessionId ?? '')) return response.sendStatus(403);
     const directories = request?.user?.directories;
     if (!directories || !['root', 'chats', 'groups', 'groupChats'].every(key => typeof directories[key] === 'string' && path.isAbsolute(directories[key]))) return response.sendStatus(403);
@@ -410,7 +417,13 @@ export function createHostRequestAuthenticationGate({ resolveConversationId } = 
       // handing control to the route handler.
       if (!currentAuthenticatedRequest(request)) return response.sendStatus(403);
       return next();
-    } catch {
+    } catch (error) {
+      if (error?.message === 'HOST_INVENTORY_COMPLETENESS_NOT_VERIFIED') {
+        return response.status(503).json({
+          status: 'NON_READY',
+          code: 'HOST_INVENTORY_COMPLETENESS_NOT_VERIFIED',
+        });
+      }
       return response.sendStatus(403);
     }
   }
