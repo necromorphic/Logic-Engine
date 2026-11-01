@@ -85,6 +85,22 @@ test('protected transport remains dormant until Gateway invokes the capability',
   assert.equal(calls, 1);
 });
 
+test('indeterminate trusted Memory classification fails closed instead of using direct fetch', () => {
+  let calls = 0;
+  const finalSend = createProtectedMemoryFinalSend({
+    gateway: { dispatchProtectedRequest: () => { throw new Error('must not dispatch'); } },
+    resolveProtectedMemory: () => undefined,
+    fetchImpl: async () => { calls += 1; return { status: 200 }; },
+  });
+  assert.throws(() => finalSend({
+    senderRoute: 'google-ai-studio',
+    endpointUrl: 'https://provider.example/generate',
+    requestInit: init(),
+    hostRequestContext: {},
+  }), /MEMORY_DISPATCH_NOT_READY/);
+  assert.equal(calls, 0);
+});
+
 test('unknown protected sender route fails closed with zero egress', async () => {
   let calls = 0;
   const finalSend = createProtectedMemoryFinalSend({
