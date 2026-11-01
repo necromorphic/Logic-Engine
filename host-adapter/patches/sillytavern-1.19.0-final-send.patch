@@ -411,3 +411,22 @@
 -import { readAllChunks, extractFileFromZipBuffer, forwardFetchResponse } from '../util.js';
 +import { readAllChunks, extractFileFromZipBuffer, forwardFetchResponse as nativeForwardFetchResponse } from '../util.js';
 +const forwardFetchResponse = (upstream, response) => logicEngineForwardFetchResponse(upstream, response, nativeForwardFetchResponse);
+
+--- a/src/endpoints/backends/text-completions.js
++++ b/src/endpoints/backends/text-completions.js
+@@ -16,1 +16,2 @@
+-import { forwardFetchResponse, trimV1, getConfigValue } from '../../util.js';
++import { forwardFetchResponse as nativeForwardFetchResponse, trimV1, getConfigValue } from '../../util.js';
++const forwardFetchResponse = (upstream, response) => logicEngineForwardFetchResponse(upstream, response, nativeForwardFetchResponse);
+--- a/src/endpoints/backends/kobold.js
++++ b/src/endpoints/backends/kobold.js
+@@ -5,1 +5,2 @@
+-import { forwardFetchResponse, delay } from '../../util.js';
++import { forwardFetchResponse as nativeForwardFetchResponse, delay } from '../../util.js';
++const forwardFetchResponse = (upstream, response) => logicEngineForwardFetchResponse(upstream, response, nativeForwardFetchResponse);
+--- a/src/endpoints/novelai.js
++++ b/src/endpoints/novelai.js
+@@ -8,1 +8,2 @@
+-import { readAllChunks, extractFileFromZipBuffer, forwardFetchResponse } from '../util.js';
++import { readAllChunks, extractFileFromZipBuffer, forwardFetchResponse as nativeForwardFetchResponse } from '../util.js';
++const forwardFetchResponse = (upstream, response) => logicEngineForwardFetchResponse(upstream, response, nativeForwardFetchResponse);
