@@ -19,6 +19,12 @@
 #include <wchar.h>
 #include <stdint.h>
 
+#ifndef FILE_ADD_FILE
+#define FILE_ADD_FILE 0x00000002
+#endif
+#ifndef FILE_DELETE_CHILD
+#define FILE_DELETE_CHILD 0x00000040
+#endif
 #ifndef FILE_OPEN_REPARSE_POINT
 #define FILE_OPEN_REPARSE_POINT 0x00200000
 #endif
@@ -244,11 +250,21 @@ static inline int logic_engine_win_anchor_path(
   *last_separator = L'\0';
   root[0] = L'\\'; root[1] = L'\\'; root[2] = L'?'; root[3] = L'\\';
   root[4] = copy[0]; root[5] = L':'; root[6] = L'\\'; root[7] = L'\0';
-  current = CreateFileW(root, FILE_LIST_DIRECTORY | FILE_TRAVERSE | FILE_READ_ATTRIBUTES,
-      FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL,
-      OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, NULL);
+  {
+    ACCESS_MASK root_access = FILE_LIST_DIRECTORY | FILE_TRAVERSE | FILE_READ_ATTRIBUTES;
+    /* A database directly under the volume root has no child directory to
+     * acquire later; retain the create/delete rights on the root anchor. */
+    if (last_separator == copy + 2)
+      root_access |= FILE_ADD_FILE | FILE_DELETE_CHILD;
+    current = CreateFileW(root, root_access,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL,
+        OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, NULL);
+  }
   if (current == INVALID_HANDLE_VALUE) goto fail;
   cursor = copy + 3;
+  /* For C:\\name.db, the volume root itself is the parent. The basename
+   * was already copied above; do not reinterpret it as a directory child. */
+  if (last_separator == copy + 2) *cursor = L'\\0';
   while (*cursor) {
     wchar_t *end;
     wchar_t saved;
@@ -263,10 +279,17 @@ static inline int logic_engine_win_anchor_path(
       SetLastError(ERROR_ACCESS_DENIED);
       goto fail;
     }
-    next = logic_engine_win_open_relative(current, cursor,
-        FILE_LIST_DIRECTORY | FILE_TRAVERSE | FILE_READ_ATTRIBUTES,
-        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-        FILE_OPEN, FILE_DIRECTORY_FILE, FILE_ATTRIBUTE_DIRECTORY, NULL, NULL);
+    {
+      ACCESS_MASK directory_access = FILE_LIST_DIRECTORY | FILE_TRAVERSE | FILE_READ_ATTRIBUTES;
+      /* The retained final-parent handle must be able to create SQLite
+       * sidecars and delete only validated child handles after path changes. */
+      if (!end || end[1] == L'\\0')
+        directory_access |= FILE_ADD_FILE | FILE_DELETE_CHILD;
+      next = logic_engine_win_open_relative(current, cursor,
+          directory_access,
+          FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+          FILE_OPEN, FILE_DIRECTORY_FILE, FILE_ATTRIBUTE_DIRECTORY, NULL, NULL);
+    }
     if (end) *end = saved;
     if (next == INVALID_HANDLE_VALUE) goto fail;
     if (!GetFileInformationByHandleEx(next, FileAttributeTagInfo, &tag, sizeof(tag))
