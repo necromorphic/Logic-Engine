@@ -34,6 +34,8 @@ test('real adapter composes file-backed SQLite Provider with Core query and cano
       session: { handle: 'adapter-test-user', logicEngineSessionId: hostSessionId, logicEngineSessionHandle: 'adapter-test-user' },
     };
     const authenticatedHostRequests = new WeakSet([hostRequest]);
+    const trustedConversationIds = new WeakMap([[hostRequest, conversationId]]);
+    const resolveHostConversationId = request => trustedConversationIds.get(request) ?? null;
 
     engine.createWorld({
       world_id: worldId,
@@ -77,6 +79,17 @@ test('real adapter composes file-backed SQLite Provider with Core query and cano
       contentFields: ['attributes.public_note'],
     }), /trusted Host authentication middleware verifier/);
 
+    assert.throws(() => createMemoryNpcProviderAdapter({
+      engine,
+      providerPath,
+      coordinatorPath,
+      adapterId,
+      trustedInitialKnowledgeSources: [],
+      fieldPolicy: () => true,
+      contentFields: ['attributes.public_note'],
+      isAuthenticatedHostRequest: request => authenticatedHostRequests.has(request),
+    }), /trusted Host conversation identity resolver/);
+
     adapter = createMemoryNpcProviderAdapter({
       engine,
       providerPath,
@@ -86,6 +99,7 @@ test('real adapter composes file-backed SQLite Provider with Core query and cano
       fieldPolicy: (_context, _entity, field) => field === 'entity_id' || field === 'attributes.public_note',
       contentFields: ['attributes.public_note'],
       isAuthenticatedHostRequest: request => authenticatedHostRequests.has(request),
+      resolveHostConversationId,
     });
 
     const scope = { world_id: worldId, subject_id: actorId, purpose: 'npc_decision' };
@@ -132,9 +146,18 @@ test('real adapter composes file-backed SQLite Provider with Core query and cano
       'attributes.public_note': 'real Core source value',
     });
 
-    const unboundConversation = await adapter.runWithAuthenticatedHostSession(hostRequest, conversationId, () => adapter.consumer.retrieveForNpc({
-      worldId, actorEntityId: actorId, conversationId: 'not-bound',
-    }));
+    const unboundConversationId = 'not-bound';
+    const unboundHostRequest = {
+      user: hostRequest.user,
+      session: hostRequest.session,
+    };
+    authenticatedHostRequests.add(unboundHostRequest);
+    trustedConversationIds.set(unboundHostRequest, unboundConversationId);
+    const unboundConversation = await adapter.runWithAuthenticatedHostSession(
+      unboundHostRequest, unboundConversationId, () => adapter.consumer.retrieveForNpc({
+        worldId, actorEntityId: actorId, conversationId: unboundConversationId,
+      }),
+    );
     await assert.rejects(() => adapter.runWithAuthenticatedHostSession({ ...hostRequest }, conversationId, () => adapter.consumer.retrieveForNpc({
       worldId, actorEntityId: actorId, conversationId,
     })), /HOST_SESSION_AUTHENTICATION_REQUIRED/);
