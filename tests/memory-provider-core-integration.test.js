@@ -235,16 +235,22 @@ test('real SQLite Provider preserves evidence classification without promoting r
 test('real Provider diagnostics, snippets, and candidate counts never cross the NPC result envelope', async (t) => {
   const s = setup(t);
   assert.equal((await s.prepare()).status, 'current');
-  const originalRetrieve = s.provider.retrieveCandidates.bind(s.provider);
-  s.provider.retrieveCandidates = async (...args) => ({
-    ...(await originalRetrieve(...args)),
-    diagnostics: { private_trace: 'private-provider-diagnostic-317', candidate_count: 999 },
-    snippets: ['private-provider-snippet-317'],
-    candidate_count: 999,
-    rejected_count: 42,
+  const diagnosticProvider = new Proxy(s.provider, {
+    get(target, property) {
+      if (property === 'retrieveCandidates') return async (...args) => ({
+        ...(await target.retrieveCandidates(...args)),
+        diagnostics: { private_trace: 'private-provider-diagnostic-317', candidate_count: 999 },
+        snippets: ['private-provider-snippet-317'],
+        candidate_count: 999,
+        rejected_count: 42,
+      });
+      const value = Reflect.get(target, property, target);
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
   });
+  const consumer = s.createConsumer(diagnosticProvider);
 
-  const result = await s.consumer.retrieveForNpc({
+  const result = await consumer.retrieveForNpc({
     worldId: s.scope.world_id,
     actorEntityId: s.scope.subject_id,
     conversationId: HOST_CONVERSATION_ID,
