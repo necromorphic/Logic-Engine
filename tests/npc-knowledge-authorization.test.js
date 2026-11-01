@@ -118,7 +118,7 @@ test('production NPC query authorization requires a branded authenticated Host s
   authenticatedHostRequests.add(defaultUserRequest);
   trustedConversationIds.set(defaultUserRequest, HOST_CONVERSATION_ID);
   const defaultUserContext = createAuthenticatedHostSessionContext(
-    defaultUserRequest, HOST_CONVERSATION_ID, isAuthenticatedHostRequest, resolveHostConversationId,
+    defaultUserRequest, HOST_CONVERSATION_ID, isAuthenticatedHostRequest, resolveHostConversationId, resolveHostBindings,
   );
   assert.ok(defaultUserContext);
   const otherConversation = HOST_INSTALLATION_ID + ':' + HOST_ACCOUNT_ID + ':77777777-7777-4777-8777-777777777777';
@@ -129,7 +129,7 @@ test('production NPC query authorization requires a branded authenticated Host s
   authenticatedHostRequests.add(otherConversationRequest);
   trustedConversationIds.set(otherConversationRequest, otherConversation);
   const contextForOtherConversation = createAuthenticatedHostSessionContext(
-    otherConversationRequest, otherConversation, isAuthenticatedHostRequest, resolveHostConversationId,
+    otherConversationRequest, otherConversation, isAuthenticatedHostRequest, resolveHostConversationId, resolveHostBindings,
   );
   assert.equal(authorizers.memoryQueryAuthorizer(scope, contextForOtherConversation), false);
   const otherSessionId = OTHER_SESSION_ID;
