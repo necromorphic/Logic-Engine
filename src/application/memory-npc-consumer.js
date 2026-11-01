@@ -765,9 +765,10 @@ export class MemoryNpcConsumer {
 
     if (!(await queryStillAllowed())) return nonReady('query_access_unconfirmed');
 
-    // Revalidate Core's revision after all asynchronous authorization checks.
-    // The content-bearing read must still correspond to the current snapshot
-    // when this consumer finishes; no async checks follow this final read.
+    // Complete all asynchronous authorization rechecks before the final
+    // field-bearing read. No await or authorization operation follows it.
+    if (!(await queryStillAllowed())) return nonReady('query_access_unconfirmed');
+
     let finalSourceSnapshotRead;
     try {
       finalSourceSnapshotRead = this.authorizedReadService.readEntityFields({
@@ -777,7 +778,7 @@ export class MemoryNpcConsumer {
         recipient: 'model',
         purpose: 'npc_decision',
         entityIds,
-        fields: ['entity_id'],
+        fields: ['entity_id', ...this.contentFields],
       });
     } catch {
       return nonReady('authorized_source_read_unavailable');
@@ -791,11 +792,30 @@ export class MemoryNpcConsumer {
       || !sameSnapshot(sourceRead, {
         world_revision: finalSourceSnapshotRead.world_revision,
         commit_sequence: finalSourceSnapshotRead.commit_sequence,
-      })) {
+      })
+      || !Array.isArray(finalSourceSnapshotRead.entities)) {
       return nonReady('memory_snapshot_stale');
     }
 
-    if (!(await queryStillAllowed())) return nonReady('query_access_unconfirmed');
+    // Reapply field visibility at the disclosure boundary. The first source
+    // read is used for admission only; returned values come from this final
+    // authorized read, after Provider and Core authorization rechecks.
+    const finalSourceById = new Map();
+    for (const entity of finalSourceSnapshotRead.entities) {
+      if (!object(entity) || !validId(entity.entity_id) || finalSourceById.has(entity.entity_id)) {
+        return nonReady('authorized_source_read_invalid');
+      }
+      finalSourceById.set(entity.entity_id, entity);
+    }
+    const finalContentByIdentity = new Map();
+    for (const item of admitted) {
+      const source = finalSourceById.get(item.source_entity_id);
+      if (!source || this.contentFields.some((field) => !Object.hasOwn(source, field))) {
+        return nonReady('authorized_source_read_unavailable');
+      }
+      finalContentByIdentity.set(recordIdentityKey(item.record_ref, item.record_version),
+        Object.fromEntries(this.contentFields.map((field) => [field, source[field]])));
+    }
 
     return Object.freeze({
       status: 'ready',
