@@ -32,6 +32,7 @@ async function fixture(t) {
   ].join('\n');
   await writeFile(join(stRoot, 'package.json'), JSON.stringify({ version: '1.19.0' }));
   await writeFile(join(stRoot, 'src/host.js'), original);
+  await writeFile(join(stRoot, 'src/native-route.js'), untouched);
   const patchPath = join(extensionRoot, 'patches', 'test.patch');
   const manifestPath = join(extensionRoot, 'patches', 'manifest.json');
   await writeFile(patchPath, patch);
@@ -42,6 +43,7 @@ async function fixture(t) {
     sourceFiles: {
       'package.json': hash(await readFile(join(stRoot, 'package.json'))),
       'src/host.js': { before: hash(original), after: hash(patched) },
+      'src/native-route.js': hash(untouched),
     },
     createdFiles: { 'src/hook.js': hash(hook) },
   };
@@ -81,4 +83,13 @@ test('Patch Manager repair restores the pinned patch when the installed tree is 
   await manager.execute('install');
   assert.equal((await manager.execute('repair')).status, 'INSTALLED');
   assert.equal(await readFile(join(stRoot, 'src/host.js'), 'utf8'), patched);
+});
+
+test('Patch Manager refuses rollback when an untouched pinned ST route has drifted', async (t) => {
+  const { manager, stRoot } = await fixture(t);
+  await manager.execute('install');
+  const userEdit = "export const nativeRoute = 'user-edited';\\n";
+  await writeFile(join(stRoot, 'src/native-route.js'), userEdit);
+  await assert.rejects(manager.execute('uninstall'), /ROLLBACK_CONFLICT_USER_CHANGE_PRESERVED/);
+  assert.equal(await readFile(join(stRoot, 'src/native-route.js'), 'utf8'), userEdit);
 });
