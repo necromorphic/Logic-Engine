@@ -76,7 +76,7 @@ export function registerWindowsManifestRole(database, manifest, roleName, databa
   const parentIdentity = role.parentIdentities.at(-1);
   assertWindowsIdentity(parentIdentity, `final parent ${roleName}`);
   const result = database.prepare(
-    'SELECT logic_engine_vfs_probe_register_database_role_manifest(?, ?, ?, ?, ?, ?) AS registered'
+    'SELECT logic_engine_vfs_probe_register_database_role_manifest(?, ?, ?, ?, ?, ?, ?) AS registered'
   ).get(
     resolvedPath,
     role.role,
@@ -84,6 +84,7 @@ export function registerWindowsManifestRole(database, manifest, roleName, databa
     role.databaseIdentity.fileId,
     parentIdentity.volumeSerial,
     parentIdentity.fileId,
+    role.databaseBasename,
   );
   if (result?.registered !== 1) {
     throw new Error('Secure VFS rejected persistent-manifest role enrollment');
