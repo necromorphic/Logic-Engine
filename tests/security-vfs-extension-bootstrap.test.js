@@ -384,6 +384,36 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
     } finally {
       anchoredDb.close();
     }
+
+    // Exercise the handle-relative WAL and SHM paths after the parent rename
+    // (or the accepted OS-denied-rename fallback), not only rollback journal.
+    const trustedParent = parentRenamed ? movedParent : anchoredParent;
+    const walWriter = new DatabaseSync(anchoredPath);
+    let walReader;
+    try {
+      assert.equal(walWriter.prepare('PRAGMA journal_mode=WAL').get().journal_mode, 'wal');
+      walReader = new DatabaseSync(anchoredPath);
+      walReader.exec('BEGIN; SELECT value FROM anchored_probe;');
+      walWriter.exec("INSERT INTO anchored_probe VALUES('anchored-wal');");
+      assert.equal(existsSync(join(trustedParent, 'anchored.sqlite-wal')), true,
+        'Windows WAL must be created relative to the retained parent HANDLE');
+      assert.equal(existsSync(join(trustedParent, 'anchored.sqlite-shm')), true,
+        'Windows SHM must be created relative to the retained parent HANDLE');
+      if (parentRenamed) {
+        assert.equal(existsSync(join(anchoredParent, 'anchored.sqlite-wal')), false,
+          'the decoy directory must not receive the trusted WAL');
+        assert.equal(existsSync(join(anchoredParent, 'anchored.sqlite-shm')), false,
+          'the decoy directory must not receive the trusted SHM');
+      }
+      walReader.exec('ROLLBACK;');
+      walReader.close();
+      walReader = undefined;
+      walWriter.prepare('PRAGMA wal_checkpoint(TRUNCATE)').get();
+      assert.equal(walWriter.prepare('PRAGMA journal_mode=DELETE').get().journal_mode, 'delete');
+    } finally {
+      walReader?.close();
+      walWriter.close();
+    }
   }
 
   // Windows must reject a sidecar hardlink alias to another role's live sidecar.
