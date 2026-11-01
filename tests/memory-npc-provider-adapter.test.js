@@ -9,7 +9,7 @@ import { LogicEngine } from '../src/application/engine.js';
 import { ActorBindingService } from '../src/application/actor-bindings.js';
 import { HostConversationWorldBindingService } from '../src/application/host-conversation-world-bindings.js';
 import { createMemoryNpcProviderAdapter } from '../src/application/memory-npc-provider-adapter.js';
-import { createHostSessionAssertionRunner, getAuthenticatedHostSessionContext } from '../src/application/host-session-context.js';
+import { createHostSessionAssertionRunner, getAuthenticatedHostSessionContext, runWithAuthenticatedHostSession } from '../src/application/host-session-context.js';
 
 
 test('real adapter composes file-backed SQLite Provider with Core query and canonical-source authorization', async (t) => {
@@ -186,6 +186,64 @@ test('real adapter composes file-backed SQLite Provider with Core query and cano
   }
 });
 
+
+test('Provider Host capability is invalidated by session rotation, logout, account switch, unbinding, and request replay', async () => {
+  const hostSessionId = '11111111-1111-4111-8111-111111111111';
+  const conversationId = hostSessionId + ':22222222-2222-4222-8222-222222222222:33333333-3333-4333-8333-333333333333';
+  const request = {
+    user: { profile: { handle: 'alice' } },
+    session: {
+      handle: 'alice',
+      logicEngineSessionId: hostSessionId,
+      logicEngineSessionHandle: 'alice',
+    },
+  };
+  const authenticatedRequests = new WeakSet([request]);
+  let activeConversationId = conversationId;
+  const verifyMiddlewareSession = candidate => authenticatedRequests.has(candidate);
+  const resolveActiveConversation = candidate => candidate === request ? activeConversationId : null;
+
+  await runWithAuthenticatedHostSession(
+    request, conversationId, async () => {
+      assert.ok(getAuthenticatedHostSessionContext());
+
+      request.session.logicEngineSessionId = '44444444-4444-4444-8444-444444444444';
+      assert.equal(getAuthenticatedHostSessionContext(), null);
+      request.session.logicEngineSessionId = hostSessionId;
+      assert.ok(getAuthenticatedHostSessionContext());
+
+      request.user.profile.handle = 'bob';
+      request.session.handle = 'bob';
+      request.session.logicEngineSessionHandle = 'bob';
+      assert.equal(getAuthenticatedHostSessionContext(), null);
+      request.user.profile.handle = 'alice';
+      request.session.handle = 'alice';
+      request.session.logicEngineSessionHandle = 'alice';
+      assert.ok(getAuthenticatedHostSessionContext());
+
+      authenticatedRequests.delete(request);
+      assert.equal(getAuthenticatedHostSessionContext(), null);
+      authenticatedRequests.add(request);
+      assert.ok(getAuthenticatedHostSessionContext());
+
+      activeConversationId = null;
+      assert.equal(getAuthenticatedHostSessionContext(), null);
+      activeConversationId = conversationId;
+      assert.ok(getAuthenticatedHostSessionContext());
+
+      assert.throws(() => runWithAuthenticatedHostSession(
+        request, conversationId, () => true, verifyMiddlewareSession, resolveActiveConversation,
+      ), /HOST_SESSION_AUTHENTICATION_REQUIRED/);
+    },
+    verifyMiddlewareSession,
+    resolveActiveConversation,
+  );
+
+  assert.equal(getAuthenticatedHostSessionContext(), null);
+  assert.throws(() => runWithAuthenticatedHostSession(
+    request, conversationId, () => true, verifyMiddlewareSession, resolveActiveConversation,
+  ), /HOST_SESSION_AUTHENTICATION_REQUIRED/);
+});
 
 test('cross-process Host session assertion creates a Core capability only for a valid, fresh, non-replayed signature', async () => {
   const secret = 'adapter-secret-for-host-assertion-test';
