@@ -2,7 +2,7 @@
 
 **Status: prototype only; not production security approved.**
 
-This directory contains the incremental Linux/POSIX broker implementation required by Issue #770 / PR #839. The C `broker_server` is retained as a PING-only transport smoke test. The Python `broker_daemon.py` now verifies the persistent manifest and supports role-based main/sidecar descriptor opens, durable sidecar open-or-create, identity-checked access, and quarantine-backed deletion. It does not yet delete main databases, rename entries, or fully manage SQLite files.
+This directory contains the incremental Linux/POSIX broker implementation required by Issue #770 / PR #839. The C `broker_server` is retained as a PING-only transport smoke test. The Python `broker_daemon.py` verifies the persistent manifest and handles authenticated runtime main/sidecar descriptor opens, sidecar creation/deletion, and identity-checked access. Main-file enrollment, disable, rename, delete, and restart reconciliation are implemented in `ManifestStore` and its broker-identity-only administrative CLI; these offline lifecycle operations are intentionally not exposed to the application socket. The implementation remains a feasibility prototype, not a complete production SQLite VFS.
 
 ## Build
 
