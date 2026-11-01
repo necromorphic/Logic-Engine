@@ -23,21 +23,22 @@ class Storage {
 
 const resolver = async ({ locator = 'chat-file.jsonl', hostSessionId = SESSION_A, metadata = {}, storage = new Storage(), saveMetadata = async () => {}, ...rest } = {}) =>
   resolveStableHostConversationIdentity({
-    locator, hostSessionId, metadata, storage, saveMetadata,
+    locator, hostSessionId, hostInstallationId: rest.hostInstallationId ?? INSTALL_A, metadata, storage, saveMetadata,
     cryptoProvider: webcrypto,
     getCurrentLocator: () => locator,
     getCurrentMetadata: () => metadata,
-    ...rest,
+      ...rest,
   });
 
-test('creates and persists a session-and-installation-scoped stable conversation identity', async () => {
+test('uses the authenticated server installation identity for stable conversation identity', async () => {
   const storage = new Storage();
-  storage.setItem('logic-engine-host-installation-id', INSTALL_A);
+  const storage = new Storage();
   const metadata = {};
   let saves = 0;
   const result = await resolver({ metadata, storage, saveMetadata: async () => { saves++; } });
   assert.equal(result.status, 'READY_FOR_REVIEW');
   assert.equal(result.conversationId, SESSION_A + ':' + INSTALL_A + ':' + metadata.logic_engine_conversation_id);
+  assert.equal(storage.getItem('logic-engine-host-installation-id'), INSTALL_A);
   assert.match(metadata.logic_engine_conversation_id, /^[0-9a-f-]{36}$/i);
   assert.equal(saves, 1);
   const again = await resolver({ metadata, storage });
@@ -82,13 +83,34 @@ test('same-install copy with reused chat metadata is rejected by locator binding
   );
 });
 
-test('imported chat metadata on a different installation resolves to a different conversation identity', async () => {
+test('imported chat metadata is scoped to the authenticated server installation identity', async () => {
   const storage = new Storage();
-  storage.setItem('logic-engine-host-installation-id', INSTALL_B);
+  storage.setItem('logic-engine-host-installation-id', INSTALL_A);
   const metadata = { logic_engine_conversation_id: CHAT_A };
-  const result = await resolver({ locator: 'imported.jsonl', metadata, storage });
+  const result = await resolver({ locator: 'imported.jsonl', metadata, storage, hostInstallationId: INSTALL_B });
   assert.equal(result.conversationId, SESSION_A + ':' + INSTALL_B + ':' + CHAT_A);
-  assert.notEqual(result.conversationId, INSTALL_A + ':' + CHAT_A);
+  assert.notEqual(result.conversationId, SESSION_A + ':' + INSTALL_A + ':' + CHAT_A);
+  assert.equal(storage.getItem('logic-engine-host-installation-id'), INSTALL_B);
+});
+
+test('cached browser installation identity cannot override server identity when enrollment exists', async () => {
+  const storage = new Storage();
+  storage.setItem('logic-engine-host-installation-id', INSTALL_A);
+  storage.setItem(prefix + SESSION_A + ':' + INSTALL_A + ':' + CHAT_A, 'enrolled:chat.jsonl');
+  await assert.rejects(
+    resolver({ metadata: {}, storage, hostInstallationId: INSTALL_B }),
+    /enrolled Host installation identity migration required/,
+  );
+  assert.equal(storage.getItem('logic-engine-host-installation-id'), INSTALL_A);
+});
+
+test('un-enrolled browser cache migrates to the authenticated server installation identity', async () => {
+  const storage = new Storage();
+  storage.setItem('logic-engine-host-installation-id', INSTALL_A);
+  const metadata = { logic_engine_conversation_id: CHAT_A };
+  const result = await resolver({ metadata, storage, hostInstallationId: INSTALL_B });
+  assert.equal(result.conversationId, SESSION_A + ':' + INSTALL_B + ':' + CHAT_A);
+  assert.equal(storage.getItem('logic-engine-host-installation-id'), INSTALL_B);
 });
 
 test('legacy filename-based enrollment marker cannot be silently upgraded', async () => {
