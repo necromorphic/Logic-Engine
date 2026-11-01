@@ -32,6 +32,19 @@ async function atomicWrite(path, content) {
   await rename(temp, path);
 }
 
+async function atomicReplaceExisting(path, content) {
+  const current = await stat(path);
+  const temp = path + '.tmp-' + randomUUID();
+  const handle = await open(temp, 'wx', current.mode & 0o777);
+  try {
+    await handle.writeFile(content);
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+  await rename(temp, path);
+}
+
 async function assertNoSymlinkComponents(root, target) {
   if (!isWithin(root, target)) throw new Error('PATCH_PATH_ESCAPE: ' + target);
   const rel = relative(root, target);
@@ -293,7 +306,7 @@ export class SillyTavernPatchManager {
       const bytes = await readFile(target);
       if (!isUtf8(bytes)) throw new Error('SILLYTAVERN_SOURCE_ENCODING_INVALID: ' + relativePath);
       const normalized = bytes.toString('utf8').replace(/\r\n/g, '\n');
-      await writeFile(target, normalized, 'utf8');
+      await atomicReplaceExisting(target, Buffer.from(normalized, 'utf8'));
     }
   }
 
@@ -311,7 +324,7 @@ export class SillyTavernPatchManager {
       const currentBytes = await readFile(target);
       if (!isUtf8(currentBytes)) throw new Error('SILLYTAVERN_SOURCE_ENCODING_INVALID: ' + relativePath);
       const restored = currentBytes.toString('utf8').replace(/\r\n/g, '\n').replace(/\n/g, '\r\n');
-      await writeFile(target, restored, 'utf8');
+      await atomicReplaceExisting(target, Buffer.from(restored, 'utf8'));
     }
   }
 
