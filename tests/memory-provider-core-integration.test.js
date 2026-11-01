@@ -169,8 +169,7 @@ test('Core Host-conversation query authorization is required before Provider ret
   const result = await s.consumer.retrieveForNpc({
     worldId: s.scope.world_id,
     actorEntityId: s.scope.subject_id,
-    conversationId: 'provider-e2e-conversation',
-     conversationId: 'unbound-conversation',
+    conversationId: 'unbound-conversation',
   });
   assert.equal(result.status, 'non_ready');
   assert.equal(result.reason, 'query_access_unconfirmed');
