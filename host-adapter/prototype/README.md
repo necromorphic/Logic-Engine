@@ -1,6 +1,6 @@
 # Host Adapter — Extension Gateway candidate
 
-<badge>NON_READY</badge>
+**Status: NON_READY.**
 
 **Pinned Host:** SillyTavern 1.19.0, commit `06bde939fb1e9c4c8d8641d810f0a916b5bce127`.
 
