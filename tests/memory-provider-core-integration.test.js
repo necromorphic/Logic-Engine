@@ -163,6 +163,30 @@ test('real provider revocation during candidate B authorization excludes previou
   assert.deepEqual(result.candidates.map((candidate) => candidate.record_ref), ['memory:record-b']);
   assert.equal(JSON.stringify(result).includes('visible source-a'), false);
 });
+test('real Provider record revoke after Core source retrieval blocks disclosure', async (t) => {
+  const s = setup(t);
+  assert.equal((await s.prepare()).status, 'current');
+
+  const originalRead = s.consumer.authorizedReadService.readEntityFields.bind(s.consumer.authorizedReadService);
+  s.consumer.authorizedReadService.readEntityFields = (input) => {
+    const result = originalRead(input);
+    if (input.fields.includes('attributes.public_note')) {
+      s.provider.revokeRecord(s.scope, 'memory:record-a', 'record-v1');
+    }
+    return result;
+  };
+
+  const result = await s.consumer.retrieveForNpc({
+    worldId: s.scope.world_id,
+    actorEntityId: s.scope.subject_id,
+    conversationId: 'provider-e2e-conversation',
+  });
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'memory_record_authorization_unavailable');
+  assert.deepEqual(result.candidates, []);
+  assert.equal(JSON.stringify(result).includes('visible source-a'), false);
+});
+
 test('Core Host-conversation query authorization is required before Provider retrieval', async (t) => {
   const s = setup(t);
   assert.equal((await s.prepare()).status, 'current');
