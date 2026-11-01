@@ -57,10 +57,12 @@ test('strict Linux VFS build requires broker role enrollment', {
         socket: process.env.LOGIC_ENGINE_BROKER_SOCKET,
         uid: process.env.LOGIC_ENGINE_BROKER_UID,
       };
-      process.env.LOGIC_ENGINE_VFS_ROLE_PATH = join(directory, 'core.sqlite');
+      // /var/lib is root-owned and non-writable by the runner UID; the
+      // fake socket remains app-owned and must be rejected at the broker boundary.
+      process.env.LOGIC_ENGINE_VFS_ROLE_PATH = '/var/lib/logic-engine-strict-probe.sqlite';
       process.env.LOGIC_ENGINE_VFS_ROLE_NAME = 'core';
       process.env.LOGIC_ENGINE_BROKER_SOCKET = socketPath;
-      process.env.LOGIC_ENGINE_BROKER_UID = String(process.getuid());
+      process.env.LOGIC_ENGINE_BROKER_UID = String(process.getuid() + 1);
       const before = db.prepare(
         'SELECT logic_engine_vfs_probe_broker_socket_policy_reject_count() AS count'
       ).get().count;
