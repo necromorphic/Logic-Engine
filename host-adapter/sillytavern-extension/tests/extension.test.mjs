@@ -108,5 +108,5 @@ test('extension manifest and UI use the supported ST extension lifecycle', async
   assert.match(html, /logic_engine_check/);
   assert.match(html, /api\/plugins\/logic-engine-extension-gateway/);
   assert.doesNotMatch(js, /LOGIC_ENGINE_CORE_URL|host-version-ledger|logicEngineHostLifecycle/);
-  assert.doesNotMatch(html, /127\.0\.0\.1:8787|Core credentials/);
+  assert.doesNotMatch(html, /127\.0\.0\.1:8787|Bearer\s+[A-Za-z0-9]/);
 });
