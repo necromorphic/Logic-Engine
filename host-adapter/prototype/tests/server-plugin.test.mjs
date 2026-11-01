@@ -79,9 +79,14 @@ test('pinned SillyTavern mounts server plugins after its authenticated user midd
     return;
   }
   const serverMain = await readFile(path.join(hostRoot, 'src', 'server-main.js'), 'utf8');
+  const pluginLoader = await readFile(path.join(hostRoot, 'src', 'plugin-loader.js'), 'utf8');
   const authIndex = serverMain.indexOf('app.use(requireLoginMiddleware)');
   const pluginLoadIndex = serverMain.indexOf('loadPlugins(app, pluginsDirectory)');
   assert.notEqual(authIndex, -1, 'pinned ST auth middleware is present');
   assert.notEqual(pluginLoadIndex, -1, 'pinned ST server plugin loader is present');
   assert.ok(authIndex < pluginLoadIndex, 'server plugins must be mounted after requireLoginMiddleware');
+  assert.match(pluginLoader, /app\.use\(`\/api\/plugins\/\$\{id\}`, router\)/,
+    'pinned ST plugin loader must mount the router at /api/plugins/{id}');
+  assert.match(pluginLoader, /const enableServerPlugins = !!getConfigValue\('enableServerPlugins', false, 'boolean'\)/,
+    'server plugin installation must remain opt-in');
 });
