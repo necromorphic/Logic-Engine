@@ -1,0 +1,40 @@
+name: SillyTavern Final-Send Patch Manager
+
+on:
+  pull_request:
+    paths:
+      - "index.mjs"
+      - "host-adapter/patch-manager/**"
+      - ".github/workflows/final-send-patch-manager.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pinned-patch:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22.13.0"
+      - name: Checkout exact SillyTavern 1.19.0 source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: SillyTavern/SillyTavern
+          ref: 06bde939fb1e9c4c8d8641d810f0a916b5bce127
+          path: SillyTavern
+      - name: Verify pinned source revision
+        shell: bash
+        run: |
+          test "$(git -C SillyTavern rev-parse HEAD)" = "06bde939fb1e9c4c8d8641d810f0a916b5bce127"
+      - name: Test Patch Manager against exact Host source
+        env:
+          SILLYTAVERN_DIR: SillyTavern
+        run: node --test host-adapter/patch-manager/manager.test.mjs
