@@ -49,4 +49,4 @@ jobs:
           SILLYTAVERN_CHECKED_OUT_REF: 06bde939fb1e9c4c8d8641d810f0a916b5bce127
         run: node --test experiments/host-adapter-source-audit/harness.mjs host-adapter/prototype/tests/server-plugin.test.mjs
       - name: Run Host prototype tests
-        run: node --test host-adapter/prototype/tests/*.test.mjs
+        run: node --test host-adapter/prototype/tests/*.test.mjs host-adapter/sillytavern-extension/tests/*.test.mjs
