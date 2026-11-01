@@ -81,7 +81,7 @@ test('Linux SQLite VFS obtains main and sidecar descriptors from the authenticat
   delete process.env.LOGIC_ENGINE_BROKER_UID;
   assert.throws(
     registerBrokerRole,
-    /broker role enrollment handshake failed/i,
+    /expected service UID/i,
     'broker authentication must fail closed when the expected service UID is absent',
   );
   process.env.LOGIC_ENGINE_BROKER_UID = String(process.getuid() + 1);
