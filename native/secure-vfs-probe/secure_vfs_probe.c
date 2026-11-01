@@ -67,6 +67,8 @@ static int g_broker_shm_lock_fail_count = 0;
 static int g_broker_syscall_open_fail_count = 0;
 static int g_broker_delete_fail_count = 0;
 static int g_broker_access_fail_count = 0;
+static int g_broker_socket_policy_reject_count = 0;
+static int probe_open_directory_chain(const char *path);
 static int g_sidecar_capture_fail_count = 0;
 static int g_parent_xopen_fail_count = 0;
 static int g_last_parent_xopen_rc = SQLITE_OK;
@@ -254,7 +256,7 @@ static int probe_broker_exchange(
     ProbeDatabaseRole *role, const char *socket_path, uint16_t operation,
     const char *kind, int expect_fd, int *out_fd, uint32_t *out_status) {
   struct sockaddr_un address;
-  struct stat socket_info, descriptor_info, parent_info;
+  struct stat socket_info, descriptor_info, parent_info, socket_after;
   struct leb_request request;
   struct leb_response response;
   struct iovec vectors[2];
@@ -267,6 +269,10 @@ static int probe_broker_exchange(
   ssize_t sent, received;
   int socket_fd = -1, received_fds[4] = {-1, -1, -1, -1}, fd_count = 0, valid = 0;
   int peer_credentials[3];
+  int socket_parent_fd = -1;
+  char *socket_parent_path = NULL;
+  const char *socket_basename = NULL;
+  char connect_path[sizeof(address.sun_path)];
   socklen_t credentials_length = (socklen_t)sizeof(peer_credentials);
   if (out_fd) *out_fd = -1;
   if (out_status) *out_status = LEB_STATUS_INTERNAL;
@@ -283,27 +289,75 @@ static int probe_broker_exchange(
     payload_length += strlen(kind);
   }
   if (payload_length > sizeof(payload)) return 0;
-  if (strlen(socket_path) >= sizeof(address.sun_path)) return 0;
-  if (lstat(socket_path, &socket_info) != 0 || !S_ISSOCK(socket_info.st_mode)
-      || (socket_info.st_mode & 007) != 0) return 0;
+  {
+    const char *separator = strrchr(socket_path, '/');
+    size_t parent_length;
+    if (!separator || !separator[1] || strcmp(separator + 1, ".") == 0
+        || strcmp(separator + 1, "..") == 0) {
+      probe_counter_increment(&g_broker_socket_policy_reject_count);
+      return 0;
+    }
+    parent_length = separator == socket_path ? 1u : (size_t)(separator - socket_path);
+    socket_parent_path = sqlite3_mprintf("%.*s", (int)parent_length, socket_path);
+    socket_basename = separator + 1;
+    if (!socket_parent_path) return 0;
+  }
+  socket_parent_fd = probe_open_directory_chain(socket_parent_path);
+  if (socket_parent_fd < 0
+      || fstat(socket_parent_fd, &parent_info) != 0
+      || fstatat(socket_parent_fd, socket_basename, &socket_info, AT_SYMLINK_NOFOLLOW) != 0
+      || !S_ISSOCK(socket_info.st_mode) || socket_info.st_nlink != 1
+      || parent_info.st_uid != socket_info.st_uid
+      || parent_info.st_gid != socket_info.st_gid) {
+    probe_counter_increment(&g_broker_socket_policy_reject_count);
+    goto done;
+  }
+#if defined(LOGIC_ENGINE_VFS_PROBE_ALLOW_UNBROKERED_TEST_ROLES)
   if (socket_info.st_uid == geteuid()) {
-    if ((socket_info.st_mode & 077) != 0) return 0;
-  } else if ((socket_info.st_mode & 077) != 020
-             || !probe_broker_group_member(socket_info.st_gid)) {
-    return 0;
+    if ((parent_info.st_mode & 0777) != 0700
+        || (socket_info.st_mode & 077) != 0) {
+      probe_counter_increment(&g_broker_socket_policy_reject_count);
+      goto done;
+    }
+  } else
+#endif
+  {
+    /* A production app must never nominate a socket owned by its own UID. */
+    if (socket_info.st_uid == geteuid()
+        || (parent_info.st_mode & 0777) != 0710
+        || (socket_info.st_mode & 0777) != 0620
+        || !probe_broker_group_member(socket_info.st_gid)) {
+      probe_counter_increment(&g_broker_socket_policy_reject_count);
+      goto done;
+    }
+  }
+  if (snprintf(connect_path, sizeof(connect_path), "/proc/self/fd/%d/%s",
+               socket_parent_fd, socket_basename) <= 0
+      || strlen(connect_path) >= sizeof(address.sun_path)) {
+    probe_counter_increment(&g_broker_socket_policy_reject_count);
+    goto done;
   }
 
   socket_fd = socket(AF_UNIX, SOCK_SEQPACKET, 0);
-  if (socket_fd < 0) return 0;
+  if (socket_fd < 0) goto done;
   if (fcntl(socket_fd, F_SETFD, FD_CLOEXEC) != 0) goto done;
   memset(&address, 0, sizeof(address));
   address.sun_family = AF_UNIX;
-  memcpy(address.sun_path, socket_path, strlen(socket_path) + 1);
+  memcpy(address.sun_path, connect_path, strlen(connect_path) + 1);
   if (connect(socket_fd, (struct sockaddr *)&address, sizeof(address)) != 0) goto done;
-  if (getsockopt(socket_fd, SOL_SOCKET, SO_PEERCRED,
-                 peer_credentials, &credentials_length) != 0
+  if (fstatat(socket_parent_fd, socket_basename, &socket_after, AT_SYMLINK_NOFOLLOW) != 0
+      || socket_after.st_dev != socket_info.st_dev
+      || socket_after.st_ino != socket_info.st_ino
+      || socket_after.st_uid != socket_info.st_uid
+      || socket_after.st_gid != socket_info.st_gid
+      || (socket_after.st_mode & 0777) != (socket_info.st_mode & 0777)
+      || getsockopt(socket_fd, SOL_SOCKET, SO_PEERCRED,
+                    peer_credentials, &credentials_length) != 0
       || credentials_length != sizeof(peer_credentials)
-      || peer_credentials[0] <= 0 || (uid_t)peer_credentials[1] != socket_info.st_uid) {
+      || peer_credentials[0] <= 0
+      || (uid_t)peer_credentials[1] != socket_info.st_uid
+      || (gid_t)peer_credentials[2] != socket_info.st_gid) {
+    probe_counter_increment(&g_broker_socket_policy_reject_count);
     goto done;
   }
 
@@ -387,6 +441,8 @@ static int probe_broker_exchange(
   }
   valid = 1;
 done:
+  if (socket_parent_fd >= 0) close(socket_parent_fd);
+  sqlite3_free(socket_parent_path);
   for (int i = 0; i < fd_count && i < 4; ++i) {
     if (received_fds[i] >= 0) close(received_fds[i]);
   }
