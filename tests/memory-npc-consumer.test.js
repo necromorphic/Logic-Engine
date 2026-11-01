@@ -5,6 +5,14 @@ import { LogicEngine } from '../src/application/engine.js';
 import { ActorBindingService } from '../src/application/actor-bindings.js';
 import { AuthorizedReadService } from '../src/application/authorized-read-service.js';
 import { MemoryNpcConsumer } from '../src/application/memory-npc-consumer.js';
+import { runWithAuthenticatedHostSession } from '../src/application/host-session-context.js';
+
+const HOST_SESSION_ID = '11111111-1111-4111-8111-111111111111';
+const HOST_CONVERSATION_ID = HOST_SESSION_ID + ':22222222-2222-4222-8222-222222222222:33333333-3333-4333-8333-333333333333';
+const hostRequest = {
+  user: { profile: { handle: 'consumer-test-user' } },
+  session: { handle: 'consumer-test-user', logicEngineSessionId: HOST_SESSION_ID, logicEngineSessionHandle: 'consumer-test-user' },
+};
 
 function setup(t, { allowContent = true, authorizeQuery = true, authorizeCoreQuery = true, authorizeCandidate = true, completeness = 'complete' } = {}) {
   let contentVisible = allowContent;
@@ -46,6 +54,7 @@ function setup(t, { allowContent = true, authorizeQuery = true, authorizeCoreQue
   const snapshot = engine.getSnapshot('memory-npc-world');
   const candidate = (overrides = {}) => ({
     record: { ref: 'memory:claim-1', version: 'v1' },
+    authorization_generation: 1,
     source: { kind: 'canonical_entity', entity_id: 'source-a' },
     world_id: scope.world_id,
     subject_id: scope.subject_id,
@@ -88,12 +97,21 @@ function setup(t, { allowContent = true, authorizeQuery = true, authorizeCoreQue
     actorBindingService: bindings,
     adapterId: 'adapter-a',
     memoryProvider: provider,
-    coreQueryAuthorizer: () => authorizeCoreQuery,
+    coreQueryAuthorizer: (_scope, context) => authorizeCoreQuery && context?.conversation_id === HOST_CONVERSATION_ID,
     contentFields: ['attributes.public_note'],
+  });
+  const authenticatedConsumer = new Proxy(consumer, {
+    get(target, property) {
+      if (property === 'retrieveForNpc') return (input) =>
+        runWithAuthenticatedHostSession(hostRequest, HOST_CONVERSATION_ID, () => target.retrieveForNpc(input));
+      if (property === 'revalidateForFinalDispatch') return (input, prepared) =>
+        runWithAuthenticatedHostSession(hostRequest, HOST_CONVERSATION_ID, () => target.revalidateForFinalDispatch(input, prepared));
+      return Reflect.get(target, property, target);
+    },
   });
   t.after(() => store.close());
   return {
-    store, engine, bindings, consumer, provider, authorizedReadService, scope, snapshot,
+    store, engine, bindings, consumer: authenticatedConsumer, provider, authorizedReadService, scope, snapshot,
     setCandidates(next) { candidateList = next; },
     getLastCandidateAuthorization() { return lastCandidateAuthorization; },
     revokeContent() { contentVisible = false; },
@@ -104,7 +122,7 @@ function setup(t, { allowContent = true, authorizeQuery = true, authorizeCoreQue
 const request = () => ({
   worldId: 'memory-npc-world',
   actorEntityId: 'npc-a',
-  conversationId: 'conversation-a',
+  conversationId: HOST_CONVERSATION_ID,
 });
 
 test('joins trusted Memory record authorization, Core authorized source read, and NPC admission without exposing provider content', async (t) => {
@@ -128,6 +146,7 @@ test('joins trusted Memory record authorization, Core authorized source read, an
     ...{ world_id: 'memory-npc-world', subject_id: 'npc-a', purpose: 'npc_decision' },
     record_ref: 'memory:claim-1',
     record_version: 'v1',
+    authorization_generation: 1,
     source_kind: 'canonical_entity',
     source_entity_id: 'source-a',
   });
