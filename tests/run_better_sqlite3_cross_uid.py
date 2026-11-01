@@ -104,7 +104,7 @@ def main() -> int:
         return 2
     package_source = os.environ.get("BETTER_SQLITE3_PACKAGE_DIR")
     extension_source = os.environ.get("LOGIC_ENGINE_VFS_PROBE_PATH")
-    node = shutil.which("node")
+    node = os.environ.get("NODE_BINARY") or shutil.which("node")
     if not package_source or not extension_source or not node:
         print("better-sqlite3 package, VFS extension and Node runtime are required", file=sys.stderr)
         return 2
@@ -166,6 +166,11 @@ def main() -> int:
             database_identity = _fd_identity(database_fd)
         finally:
             os.close(database_fd)
+        role_parent_fd = os.open(role_parent, DIR_FLAGS)
+        try:
+            os.fsync(role_parent_fd)
+        finally:
+            os.close(role_parent_fd)
 
         manifest_fd = os.open(manifest_root, DIR_FLAGS)
         try:
@@ -223,6 +228,7 @@ def main() -> int:
         socket_path = socket_dir / "broker.sock"
         broker_log_path = root / "broker.log"
         broker_log = open(broker_log_path, "ab", buffering=0)
+        os.chmod(broker_log_path, 0o600)
         broker_script = broker_source_copy / "broker_daemon.py"
         broker_env = os.environ.copy()
         broker_env["PYTHONPATH"] = str(broker_source_copy)
