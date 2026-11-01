@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createHmac } from 'node:crypto';
 import { createHostContextRoute, createHostConversationResolver } from '../context-route.mjs';
 
 const sessionId = '2e6b0a80-4e73-4c66-aaf3-7a6e62c7f401';
@@ -8,6 +9,7 @@ const accountId = '5e6b0a80-4e73-4c66-aaf3-7a6e62c7f404';
 const conversationUuid = '4e6b0a80-4e73-4c66-aaf3-7a6e62c7f403';
 const conversationId = [installationId, accountId, conversationUuid].join(':');
 const directories = { root: '/st', chats: '/st/chats', groups: '/st/groups', groupChats: '/st/groupChats' };
+const adapterToken = 'test-adapter-secret-for-context-route';
 
 function makeRequest(overrides = {}) {
     return {
@@ -92,9 +94,17 @@ test('context route sends authenticated installation/account/session identity to
     const calls = [];
     const route = createHostContextRoute({
         ...dependencies(),
-        config: { adapterId: 'st-adapter', actorEntityId: 'npc-kiryu' },
+        config: { adapterId: 'st-adapter', actorEntityId: 'npc-kiryu', adapterToken },
         corePost: async (path, body) => {
             calls.push({ path, body });
+            if (path === '/v1/host-sessions/verify') {
+                return {
+                    status: 'AUTHENTICATED_HOST_SESSION',
+                    conversation_id: conversationId,
+                    world_id: 'world-kamurocho',
+                    actor_id: 'npc-kiryu',
+                };
+            }
             return {
                 context: {
                     installation_id: installationId,
@@ -122,7 +132,9 @@ test('context route sends authenticated installation/account/session identity to
     assert.equal(response.body.conversation_id, conversationId);
     assert.equal(response.body.binding.world_id, 'world-kamurocho');
     assert.equal(response.body.binding.actor_id, 'npc-kiryu');
-    assert.deepEqual(calls, [{
+    assert.equal(response.body.authentication, 'AUTHENTICATED_HOST_SESSION');
+    assert.equal(calls.length, 2);
+    assert.deepEqual(calls[0], {
         path: '/v1/host-conversation-bindings/resolve-context',
         body: {
             conversation_id: conversationId,
@@ -133,7 +145,24 @@ test('context route sends authenticated installation/account/session identity to
             },
             actor_entity_id: 'npc-kiryu',
         },
-    }]);
+    });
+    assert.equal(calls[1].path, '/v1/host-sessions/verify');
+    const assertion = calls[1].body.assertion;
+    assert.equal(assertion.host_installation_id, installationId);
+    assert.equal(assertion.authenticated_account_id, accountId);
+    assert.equal(assertion.host_session_id, sessionId);
+    assert.equal(assertion.conversation_id, conversationId);
+    assert.equal(assertion.world_id, 'world-kamurocho');
+    assert.equal(assertion.actor_id, 'npc-kiryu');
+    assert.equal(assertion.protocol_version, 1);
+    assert.equal(typeof assertion.nonce, 'string');
+    assert.equal(Number.isSafeInteger(assertion.issued_at), true);
+    const canonical = JSON.stringify([
+        assertion.protocol_version, assertion.host_installation_id, assertion.authenticated_account_id,
+        assertion.host_session_id, assertion.conversation_id, assertion.world_id, assertion.actor_id,
+        assertion.issued_at, assertion.nonce,
+    ]);
+    assert.equal(calls[1].body.signature, createHmac('sha256', adapterToken).update(canonical, 'utf8').digest('hex'));
 });
 
 test('context route fails closed when Core world or actor binding cannot be resolved', async () => {
