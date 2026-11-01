@@ -35,6 +35,7 @@ The browser-side ST manifest hooks are not trusted to perform filesystem changes
 - **Backup:** copies every source file that the patch changes into `.logic-engine-patch-manager/backups/<transaction-id>/` before applying.
 - **Apply:** records a durable transaction journal before invoking `git apply`.
 - **Verify:** verifies exact post-patch hashes for modified and newly created files.
+- **Read-only deployment inspection:** `inspectInstalledReadOnly()` independently hashes the live patched files and every required pre-patch backup against the pinned manifest, rejects missing/extra backup records and any active transaction journal, and performs no writes. This is an inspection result, not a signed runtime attestation or an independent anti-rollback freshness proof.
 - **Rollback / Uninstall:** restores only files still matching the exact known patched hash (or known pre-patch hash during interrupted recovery); refuses to overwrite unknown user edits.
 - **Update:** the native ST `/api/extensions/update` handler invokes the manager after Git pull; it verifies the installed patch version and, when a newer manifest is supplied, rolls back the owned patch and installs the new pinned artifact.
 - **Extension delete:** the native ST `/api/extensions/delete` handler invokes `uninstall` before deleting the Extension directory. A rollback conflict blocks deletion so the recovery code and artifacts remain available.
