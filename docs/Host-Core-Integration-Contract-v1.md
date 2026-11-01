@@ -2,12 +2,12 @@
 
 **Contract:** Host ↔ Core authenticated Memory retrieval  
 **Version:** 1.0.0  
-**Status:** IMPLEMENTATION IN PROGRESS — coordinated technical-owner decision approved; exact-head validation and deployment readiness remain pending  
-**Review baseline:** Host PR #850 HEAD `dfd1e7140ea058f76ae48c40abda0c54e3598fde`; Core PR #846 HEAD `832abf337530e9421f53eaed85760cb4a7f07313`  
+**Status:** CONTRACT AGREED; coordinated candidate CI green; branch integration and deployment readiness remain pending  
+**Validated candidate heads (1 Nov 2026):** Host PR #850 `4aa26dcf2a9e5b5e65123f2cd72b40516e41a685`; Core PR #846 `832abf337530e9421f53eaed85760cb4a7f07313`; Core HTTP PR #867 `7e3895aeb91c983bf020e889acdad6c1909dd0e7`  
 **Scope:** identity hand-off, Core World/Actor resolution, authenticated Memory Provider retrieval, result/error/revoke semantics.  
 **Not in scope:** branch merging, Security Gateway changes, Final-Send, production enablement, Lane A, Provider schema migration.
 
-This document is the interface contract and implementation ledger. The routes are now present in the coordinated Core/Host candidates; Memory → NPC remains fail-closed until exact-head CI, Provider configuration/data authorization, and existing release gates are verified.
+This document is the interface contract and implementation ledger. The shared private routes are present in the coordinated Core/Host candidates and their route blocks are byte-identical. Candidate CI is green. Memory → NPC remains fail-closed until deployment Provider configuration/data authorization and existing release gates are satisfied.
 
 ## 1. Binding decisions and ownership
 
@@ -22,7 +22,7 @@ This document is the interface contract and implementation ledger. The routes ar
 | Canonical source and field visibility | Core | Use existing canonical-source validators and `AuthorizedReadService`; Host cannot supply fields or policy. |
 | NPC admission | Existing Core/NPC consumer boundary | Host transports the result; it does not reinterpret Provider metadata or authorize content. |
 
-No second identity store, World/Actor resolver, authorization authority, Provider facade, or public ingress is introduced. The two HTTP routes below are proposed private server-to-server API additions over existing Core services. They are not implemented on the reviewed Core HEAD and require explicit affected-owner approval under §10 of `docs/57-private-host-core-memory-npc-adapter-contract.md` before implementation.
+No second identity store, World/Actor resolver, authorization authority, Provider facade, or public ingress is introduced. The two private HTTP routes below are implemented as server-to-server API additions over existing Core services. They do not create a second identity, binding, authorization, or Provider authority.
 
 ## 2. Identity contract
 
@@ -312,7 +312,7 @@ Unknown major versions, extra keys, missing required keys, or incompatible field
 
 ## 9. Coordinated candidate compatibility — 1 Nov 2026
 
-The initial review below was performed against older Host/Core heads and is retained only as historical context: Host's original account-bearing conversation key conflicted with Core PC-NEXT-11, and the Host branch initially carried an older Memory consumer. Those mismatches have since been corrected in the active candidates.
+The active candidates have corrected the earlier identity-key and Memory-consumer mismatches. Compatibility below is checked against the exact candidate heads listed in the document header.
 
 ### Current shared implementation
 
@@ -335,14 +335,14 @@ The original review recorded a mismatch where Host sent `installation_id:account
 
 ## 10. Implementation acceptance checklist
 
-The contract is technically reconciled. The delegated technical owner is responsible for both Host and Core API decisions and has approved the D5 private-route and PC-NEXT-11 projection changes for this bounded integration. Exact-head validation remains the release gate.
+The contract is technically reconciled. The delegated technical owner is responsible for both Host and Core API decisions and has approved the D5 private-route and PC-NEXT-11 projection changes. Exact-head candidate CI is green; branch integration and deployment readiness remain separate gates.
 
-- [x] Coordinator technical review of Host #850 HEAD `dfd1e7140ea058f76ae48c40abda0c54e3598fde`: Host-local identity, its embedded Core route/validator changes, and the resulting divergence from Core #846 PC-NEXT-11 are recorded. The Host-side test is classified as same-branch integration, not cross-branch compatibility.
-- [x] Coordinator technical review of Core #846 HEAD `832abf337530e9421f53eaed85760cb4a7f07313`: existing binding services, assertion runner, Memory consumer, result envelope and missing HTTP routes are recorded.
+- [x] Coordinator technical review of the current Host #850 candidate: Host-local identity remains local; Core PC-NEXT-11 projection and private route blocks are present.
+- [x] Coordinator technical review of Core #846 and #867 candidates: binding services, assertion runner, Memory consumer, result envelope, context-resolution route, and retrieval route are present.
 - [x] Host API technical-owner approval: Host-local stable key remains local; Core requests use PC-NEXT-11 tuple.
 - [x] Core API technical-owner approval: two private routes, durable nonce guard, and existing consumer result envelope.
-- [x] Exact-head contract tests pass on both updated candidates, including Host session rotation and Core nonce replay across restart.
-- [x] Identity/route ownership discrepancy from the reviewed baseline is resolved in the implementation candidates; remaining blockers are tracked in §11.
+- [x] Exact-head Runtime and integration CI pass on Host #850, Core #846, and Core HTTP #867; Host session rotation and Core nonce replay across restart are covered.
+- [x] Identity/route ownership discrepancy is resolved in the implementation candidates; remaining branch-integration and deployment gates are tracked in §11.
 
 
 ## 11. Coordinated implementation status — 1 Nov 2026
@@ -368,20 +368,20 @@ The implementation uses `HostAssertionNonceStore` in a dedicated file configured
 
 ### Validation state
 
-Exact candidate heads checked on 1 Nov 2026:
+Exact candidate heads checked on 1 Nov 2026 (all listed workflow runs completed successfully):
 
 - Core Lane B PR #846 HEAD `832abf337530e9421f53eaed85760cb4a7f07313`: Runtime tests, Host lifecycle patch check/validation, pinned SillyTavern audit, browser IndexedDB restart, and Memory Provider blocker 3 all completed successfully.
 - Core integration PR #867 HEAD `7e3895aeb91c983bf020e889acdad6c1909dd0e7`: Runtime tests completed successfully.
-- Host candidate PR #850 HEAD `4aa26dcf2a9e5b5e65123f2cd72b40516e41a685`: Gateway candidate check, static validation, pinned SillyTavern Host source audit, browser IndexedDB restart, Memory Provider blocker 3, Core trusted acquisition, NPC boundary, Host inventory reconciliation, process contract, mechanics policy authority, and Linux/Windows symlink security completed successfully. Full Runtime tests and the Gateway pinned-source lifecycle acceptance are still running; do not reuse the preceding HEAD's Runtime/pinned-source results for this new commit.
+- Host candidate PR #850 HEAD `4aa26dcf2a9e5b5e65123f2cd72b40516e41a685`: Gateway candidate check, static validation, both pinned SillyTavern source audits, browser IndexedDB restart, Memory Provider blocker 3, Core trusted acquisition, NPC boundary, Host inventory reconciliation, process contract, mechanics policy authority, Linux/Windows symlink security, and full Runtime tests all completed successfully.
 
 The Host candidate now carries the same Core-owned Memory consumer, conversation binding validation, NPC knowledge authorization, and SQLite Memory Provider implementation as the Core/Lane B candidates. The shared Core HTTP route blocks are byte-identical; Host-specific lifecycle and root-inventory routes remain additional Host-owned API routes. A combined Host Adapter → real Core HTTP → consumer-facade test now covers default-user, accounts-enabled, and session-restart paths; its test-only Memory consumer does not prove configured production Provider readiness. This is candidate CI evidence, not a merge or production-readiness approval.
 
 ### Remaining release blockers
 
-1. Exact-head CI must pass for both #850 and #867 after the latest commits.
-2. Deployment must provide the durable Provider DB and explicit Core field allowlist; Provider data must have valid query/record grants and canonical source lineage before a ready result is possible.
-3. Host authoritative full-root inventory and lifecycle mutation coverage remain independent Host release gates.
-4. No model dispatch, transport lease, Security Gateway modification, Final-Send, or production enablement is included here.
+1. Branch integration is still required. #867 is stacked on #846; #850 is independently based on `main` and overlaps 26 files with #846 and 8 files with #867. The shared Core route blocks are identical, but `src/api/server.js`, `src/index.js`, `.env.example`, and the overlapping adapter composition must be reconciled deliberately; do not merge the three PRs blindly.
+2. Recommended integration order: land/rebase Core Lane B #846; integrate Core HTTP #867 on top of it; then rebase Host #850 onto the integrated Core result and resolve Host-owned lifecycle/inventory additions while retaining the identical shared route blocks. Re-run full CI after each rebase.
+3. Deployment must provide the durable Provider DB and explicit Core field allowlist; Provider data must have valid query/record grants and canonical source lineage before a ready result is possible.
+4. Host authoritative full-root inventory and lifecycle mutation coverage remain independent Host release gates. No Security Gateway modification, Final-Send, or production enablement is included here.
 
 This is implementation progress, not a merge or release approval.
 
