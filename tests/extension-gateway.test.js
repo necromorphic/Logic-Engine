@@ -130,7 +130,10 @@ test('mount registers exactly one same-process route and rejects duplicate mount
   const routes = [];
   const app = { post(path, handler) { routes.push({ path, handler }); } };
   const gateway = createExtensionGateway({ hostAdapter: { handleExtensionRequest: async () => ({ status: 200, body: {} }) } });
-  assert.deepEqual(mountExtensionGateway({ app, gateway }), { path: EXTENSION_GATEWAY_PATH, method: 'POST' });
+  const mounted = mountExtensionGateway({ app, gateway });
+  assert.equal(mounted.path, EXTENSION_GATEWAY_PATH);
+  assert.equal(mounted.method, 'POST');
+  assert.equal(typeof mounted.close, 'function');
   assert.deepEqual(routes.map(route => route.path), [EXTENSION_GATEWAY_PATH]);
   assert.throws(() => mountExtensionGateway({ app, gateway }), /DUPLICATE/);
 });
