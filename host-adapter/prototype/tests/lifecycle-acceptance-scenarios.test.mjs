@@ -150,8 +150,12 @@ test('pinned SillyTavern patch uses the existing authenticated inventory and dig
   assert.ok(patch.includes('function invalidateLogicEngineHostIdentity()'));
   assert.ok(patch.includes('logicEngineHostIdentityPromise = null;'));
   assert.ok(patch.includes('logicEngineLifecycleBridgePromise = null;'));
-  assert.ok(patch.includes("invalidateLogicEngineHostIdentity();\n+                    throw Error('Persisted Host inventory belongs to a different authenticated account');"),
-    'account mismatch must invalidate cached session, account identity, and journal bridge together');
+  const accountMismatchGuard = patch.indexOf("inventory?.host_user_handle !== session.host_user_handle");
+  const accountMismatchInvalidation = patch.indexOf("invalidateLogicEngineHostIdentity();", accountMismatchGuard);
+  const accountMismatchFailure = patch.indexOf("Persisted Host inventory belongs to a different authenticated account", accountMismatchGuard);
+  assert.ok(accountMismatchGuard >= 0 && accountMismatchInvalidation > accountMismatchGuard
+    && accountMismatchFailure > accountMismatchInvalidation,
+  'account mismatch must invalidate cached session, account identity, and journal bridge together');
 
   // The server proxy uses only deployment-owned credentials and the existing
   // digest-only Core route; no browser-selected upstream or world scope exists.
