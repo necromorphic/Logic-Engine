@@ -1,0 +1,13 @@
+{
+  "display_name": "Logic Engine",
+  "loading_order": 10,
+  "requires": [],
+  "optional": [],
+  "author": "necromorphic",
+  "version": "0.2.0",
+  "homePage": "https://github.com/necromorphic/Logic-Engine",
+  "logic_engine_patch_manager": {
+    "id": "logic-engine-sillytavern-final-send",
+    "manifestVersion": 1
+  }
+}
