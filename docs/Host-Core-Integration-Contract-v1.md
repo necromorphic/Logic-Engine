@@ -108,11 +108,14 @@ Request body — exact schema `host-context-resolve-request/v1`:
 
 ```json
 {
-  "conversation_id": "11111111-1111-4111-8111-111111111111:22222222-2222-4222-8222-222222222222:44444444-4444-4444-8444-444444444444"
+  "conversation_id": "11111111-1111-4111-8111-111111111111:22222222-2222-4222-8222-222222222222:44444444-4444-4444-8444-444444444444",
+  "host_session_id": "11111111-1111-4111-8111-111111111111",
+  "host_installation_id": "22222222-2222-4222-8222-222222222222",
+  "conversation_uuid": "44444444-4444-4444-8444-444444444444"
 }
 ```
 
-No other body key is permitted. In particular, `world_id`, `actor_id`, `actor_type`, `account_id`, and `adapter_id` are forbidden.
+Exact body keys: `conversation_id, host_session_id, host_installation_id, conversation_uuid`. All three component fields must be canonical UUIDs, and Core requires `conversation_id` to equal their exact ordered tuple `host_session_id:host_installation_id:conversation_uuid`. These repeated values are consistency fields derived from the same authenticated Host context; they do not create a second identity source or grant authority. In particular, `world_id`, `actor_id`, `actor_type`, `account_id`, and `adapter_id` remain forbidden.
 
 Success — HTTP 200, exact response envelope `host-context-resolve-response/v1` (the `context` object has exactly the five fields shown):
 
