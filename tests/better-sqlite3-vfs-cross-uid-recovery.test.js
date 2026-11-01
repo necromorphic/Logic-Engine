@@ -14,6 +14,7 @@ test('restarted distinct-UID broker permits SQLite WAL crash recovery', {
     || !databasePath || !socketPath,
 }, () => {
   const Database = require(packageRoot);
+  assert.equal(process.getuid(), Number(process.env.LOGIC_ENGINE_APP_UID));
   assert.notEqual(process.getuid(), Number(process.env.LOGIC_ENGINE_BROKER_UID));
   assert.throws(() => {
     const fd = openSync(databasePath, 'r');
