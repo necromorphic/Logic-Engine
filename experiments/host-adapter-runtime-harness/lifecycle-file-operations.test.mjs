@@ -134,7 +134,7 @@ test('pinned ST 1.19.0 supported chat mutations persist; chat deletion, rename, 
     else process.env.LOGIC_ENGINE_HOST_BUILD_SHA = previousBuildClaim;
   });
   const { router: hostInventoryRouter } = await import(
-    pathToFileURL(resolve(stRoot, 'src/endpoints/logic-engine-host-inventory.js')).href + '?lifecycle-harness'
+    pathToFileURL(resolve(stRoot, 'src/endpoints/logic-engine-host-inventory-handler.mjs')).href + '?lifecycle-harness'
   );
   const directories = {
     root,
