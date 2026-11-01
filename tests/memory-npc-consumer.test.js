@@ -89,6 +89,9 @@ function setup(t, { allowContent = true, authorizeQuery = true, authorizeCoreQue
     adapterId: 'adapter-a',
     memoryProvider: provider,
     coreQueryAuthorizer: () => authorizeCoreQuery,
+    authenticateHostCaller: (input) => input?.hostSessionProof === 'trusted-test-session'
+      ? { adapterId: 'adapter-a', worldId: 'memory-npc-world', actorEntityId: 'npc-a', conversationId: 'conversation-a' }
+      : null,
     contentFields: ['attributes.public_note'],
   });
   t.after(() => store.close());
@@ -102,9 +105,27 @@ function setup(t, { allowContent = true, authorizeQuery = true, authorizeCoreQue
 }
 
 const request = () => ({
-  worldId: 'memory-npc-world',
-  actorEntityId: 'npc-a',
-  conversationId: 'conversation-a',
+  // The test authenticator accepts only this server-owned session proof and
+  // resolves all scope identifiers independently of caller-supplied fields.
+  hostSessionProof: 'trusted-test-session',
+  worldId: 'attacker-selected-world',
+  actorEntityId: 'attacker-selected-actor',
+  conversationId: 'attacker-selected-conversation',
+});
+
+test('known conversation and actor identifiers cannot authenticate a caller without a trusted Host session proof', async (t) => {
+  const { consumer, provider } = setup(t);
+  let queryCalled = false;
+  provider.authorizeQuery = async () => { queryCalled = true; return true; };
+  const forged = await consumer.retrieveForNpc({
+    worldId: 'memory-npc-world',
+    actorEntityId: 'npc-a',
+    conversationId: 'conversation-a',
+  });
+  assert.equal(forged.status, 'non_ready');
+  assert.equal(forged.reason, 'host_caller_unauthenticated');
+  assert.equal(queryCalled, false);
+  assert.deepEqual(forged.candidates, []);
 });
 
 test('joins trusted Memory record authorization, Core authorized source read, and NPC admission without exposing provider content', async (t) => {
@@ -345,7 +366,8 @@ test('empty retrieval that is denied, incomplete, or unavailable is non-ready, n
 test('Memory record denial is indistinguishable from an authorized empty candidate set, including stale hidden records', async (t) => {
   const denied = setup(t, { authorizeCandidate: false });
   const result = await denied.consumer.retrieveForNpc(request());
-  assert.equal(result.status, 'ready');
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'memory_record_authorization_unconfirmed');
   assert.deepEqual(result.admitted, []);
   assert.deepEqual(result.candidates, []);
 
@@ -355,16 +377,16 @@ test('Memory record denial is indistinguishable from an authorized empty candida
   assert.equal(emptyResult.status, 'ready');
   assert.deepEqual(emptyResult.admitted, []);
   assert.deepEqual(emptyResult.candidates, []);
-  assert.deepEqual(result, emptyResult);
+  assert.notDeepEqual(result, emptyResult);
 
   denied.setCandidates([denied.candidate({
     freshness: { status: 'stale' },
   })]);
   const staleButDenied = await denied.consumer.retrieveForNpc(request());
-  assert.equal(staleButDenied.status, 'ready');
+  assert.equal(staleButDenied.status, 'non_ready');
+  assert.equal(staleButDenied.reason, 'memory_record_authorization_unconfirmed');
   assert.deepEqual(staleButDenied.admitted, []);
   assert.deepEqual(staleButDenied.candidates, []);
-  assert.deepEqual(staleButDenied, result);
 });
 
 test('duplicate canonical entity identities in an authorized read fail closed', async (t) => {
@@ -1154,13 +1176,13 @@ test('request accessors that throw fail closed without invoking Memory', async (
     queryCalled = true;
     return true;
   };
-  const malformed = Object.defineProperty({}, 'worldId', {
+  const malformed = Object.defineProperty({}, 'hostSessionProof', {
     enumerable: true,
     get() { throw new Error('private request getter'); },
   });
   const result = await consumer.retrieveForNpc(malformed);
   assert.equal(result.status, 'non_ready');
-  assert.equal(result.reason, 'trusted_scope_incomplete');
+  assert.equal(result.reason, 'host_caller_unauthenticated');
   assert.equal(queryCalled, false);
   assert.equal(JSON.stringify(result).includes('private request getter'), false);
 });
