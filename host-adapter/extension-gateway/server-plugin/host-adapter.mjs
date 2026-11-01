@@ -33,9 +33,11 @@ export function createSillyTavernHostAdapter({
   env = process.env,
   enumerate = enumerateHostDataInventory,
   fetchImpl = globalThis.fetch,
+  persistRootInventory: injectedPersistRootInventory = null,
 } = {}) {
   if (!env || typeof env !== 'object' || typeof enumerate !== 'function'
-    || typeof fetchImpl !== 'function') {
+    || typeof fetchImpl !== 'function'
+    || (injectedPersistRootInventory !== null && typeof injectedPersistRootInventory !== 'function')) {
     throw new TypeError('SillyTavern Host Adapter configuration is invalid.');
   }
 
@@ -44,7 +46,7 @@ export function createSillyTavernHostAdapter({
     ? new HostIdentityStore({ directory: identityDirectory })
     : null;
   const persistRootInventory = identityStore
-    ? createHostRootInventoryPersistence({ identityStore })
+    ? injectedPersistRootInventory ?? createHostRootInventoryPersistence({ identityStore, env, fetchImpl })
     : null;
 
   const session = createHostSessionHandler();
@@ -90,12 +92,28 @@ export function createSillyTavernHostAdapter({
           hostCommit: PINNED_SILLYTAVERN_COMMIT,
         });
         if (hostInventory?.filesystem?.status !== 'complete'
+          || !Array.isArray(hostInventory?.filesystem?.entries)
           || hostInventory?.source?.status !== 'AUTHORITATIVE_COMPLETE'
           || hostInventory?.authority?.status !== 'AUTHORITATIVE_COMPLETE'
           || !/^[a-f0-9]{64}$/.test(hostInventory?.authority?.manifest_sha256 ?? '')
           || !Array.isArray(hostInventory?.source?.files)
           || hostInventory.source.files.filter(file =>
             file?.logical_identity?.conversation_uuid === conversationUuid).length !== 1) return null;
+
+        // Core must independently accept the full-root manifest before this
+        // request can acquire a Host context. A local scan or baseline alone
+        // is not proof of completeness and must remain NON_READY.
+        const rootProof = await persistRootInventory({
+          userHandle,
+          rootPath: directories.root,
+          entries: hostInventory.filesystem.entries,
+        });
+        if (rootProof?.status !== 'AUTHORITATIVE_COMPLETE'
+          || rootProof.integrity_status !== 'INTEGRITY_OK'
+          || !Number.isSafeInteger(rootProof.sequence)
+          || !/^[a-f0-9]{64}$/.test(rootProof.manifest_sha256 ?? '')) {
+          return { status: 'NON_READY', code: 'HOST_INVENTORY_NOT_AUTHORITATIVE' };
+        }
 
         return {
           host_installation_id: identityRecord.host_installation_id,
