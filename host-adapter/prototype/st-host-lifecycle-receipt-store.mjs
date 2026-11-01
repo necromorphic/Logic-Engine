@@ -229,26 +229,39 @@ export class HostLifecycleReceiptStore {
   async #writeOnce(filePath, record, duplicateMatches = existing => canonical(existing) === canonical(record)) {
     const encoded = canonical(record);
     if (Buffer.byteLength(encoded) > MAX_RECORD_BYTES) throw new Error('HOST_LIFECYCLE_RECEIPT_RECORD_TOO_LARGE');
+    // Publish only a fully written, fsynced record. Creating the final name with
+    // link() is atomic and no-clobber; readers can never observe a partial JSON
+    // file when concurrent PREPARED/terminal retries race on Windows.
+    const temporaryPath = path.join(this.directory, '.receipt-' + randomUUID() + '.tmp');
     let handle;
+    let published = false;
     try {
-      handle = await fs.open(filePath, 'wx', 0o600);
+      handle = await fs.open(temporaryPath, 'wx', 0o600);
       await handle.writeFile(encoded, 'utf8');
       await handle.sync();
       await handle.close();
       handle = null;
+      try {
+        await fs.link(temporaryPath, filePath);
+        published = true;
+      } catch (error) {
+        if (error?.code !== 'EEXIST') throw error;
+        const existing = await this.#read(filePath);
+        if (!existing || !duplicateMatches(existing)) {
+          if (existing?.event_type && record.event_type && existing.event_type !== record.event_type) {
+            throw new Error('HOST_LIFECYCLE_RECEIPT_TERMINAL_CONFLICT');
+          }
+          throw new Error('HOST_LIFECYCLE_RECEIPT_CONFLICT');
+        }
+        return { status: 'duplicate', record: existing };
+      }
       await syncDirectory(this.directory);
       return { status: 'appended', record };
-    } catch (error) {
-      if (error?.code !== 'EEXIST') throw error;
-      const existing = await this.#read(filePath);
-      if (!existing || !duplicateMatches(existing)) {
-        if (existing?.event_type && record.event_type && existing.event_type !== record.event_type) {
-          throw new Error('HOST_LIFECYCLE_RECEIPT_TERMINAL_CONFLICT');
-        }
-        throw new Error('HOST_LIFECYCLE_RECEIPT_CONFLICT');
-      }
-      return { status: 'duplicate', record: existing };
-    } finally { await handle?.close().catch(() => {}); }
+    } finally {
+      await handle?.close().catch(() => {});
+      await fs.unlink(temporaryPath).catch(() => {});
+      if (published) await syncDirectory(this.directory);
+    }
   }
 
   async #snapshot(scope, directories) {
