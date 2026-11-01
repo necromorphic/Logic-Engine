@@ -27,12 +27,25 @@ function isExactPlainDataRecord(value, expectedKeys) {
     const prototype = Object.getPrototypeOf(value);
     if (prototype !== Object.prototype && prototype !== null) return false;
     const keys = Reflect.ownKeys(value);
-    if (keys.length !== expectedKeys.length
-      || keys.some((key) => typeof key !== 'string' || !expectedKeys.includes(key))) return false;
-    return expectedKeys.every((key) => {
-      const descriptor = Object.getOwnPropertyDescriptor(value, key);
-      return descriptor !== undefined && descriptor.enumerable === true && Object.hasOwn(descriptor, 'value');
-    });
+    if (keys.length !== expectedKeys.length) return false;
+    for (let index = 0; index < keys.length; index += 1) {
+      const key = keys[index];
+      if (typeof key !== 'string') return false;
+      let expected = false;
+      for (let expectedIndex = 0; expectedIndex < expectedKeys.length; expectedIndex += 1) {
+        if (expectedKeys[expectedIndex] === key) {
+          expected = true;
+          break;
+        }
+      }
+      if (!expected) return false;
+    }
+    for (let index = 0; index < expectedKeys.length; index += 1) {
+      const descriptor = Object.getOwnPropertyDescriptor(value, expectedKeys[index]);
+      if (descriptor === undefined || descriptor.enumerable !== true
+        || !Object.hasOwn(descriptor, 'value')) return false;
+    }
+    return true;
   } catch {
     return false;
   }
