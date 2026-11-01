@@ -208,8 +208,17 @@ def _validate_manifest(data: bytes) -> dict[str, Any]:
         for index, value in enumerate(identities):
             check_identity(value, f"role {name} parent identity {index}")
         check_identity(role.get("databaseIdentity"), f"role {name} database identity")
-        if role.get("state") not in ("enrolling", "active", "disabled", "recovery-required"):
+        if role.get("state") not in ("enrolling", "active", "disabled", "recovery-required", "renaming", "deleting", "deleted"):
             raise StoreError(f"role {name}: invalid state")
+        pending_basename = role.get("pendingDatabaseBasename")
+        if role["state"] == "renaming":
+            if (not isinstance(pending_basename, str) or not pending_basename
+                    or pending_basename in (".", "..") or "/" in pending_basename
+                    or "\\" in pending_basename or "\x00" in pending_basename
+                    or pending_basename == role["databaseBasename"]):
+                raise StoreError(f"role {name}: invalid pending database basename")
+        elif "pendingDatabaseBasename" in role:
+            raise StoreError(f"role {name}: pending database basename outside renaming state")
         sidecars = role.get("sidecars")
         if not isinstance(sidecars, list):
             raise StoreError(f"role {name}: sidecars must be an array")
@@ -236,15 +245,16 @@ def _validate_manifest(data: bytes) -> dict[str, Any]:
         for identity in role["parentIdentities"]:
             parent_identity_keys.add((identity["device"], identity["inode"], identity["mountId"]))
     for role in roles:
-        database_identity = role["databaseIdentity"]
-        key = (database_identity["device"], database_identity["inode"], database_identity["mountId"])
-        if key in parent_identity_keys or key in file_identity_keys:
-            raise StoreError("database identity aliases a directory or another role file")
-        file_identity_keys.add(key)
+        if role["state"] != "deleted":
+            database_identity = role["databaseIdentity"]
+            key = (database_identity["device"], database_identity["inode"], database_identity["mountId"])
+            if key in parent_identity_keys or key in file_identity_keys:
+                raise StoreError("database identity aliases a directory or another role file")
+            file_identity_keys.add(key)
         for sidecar in role["sidecars"]:
             # Retired records are historical lifecycle evidence, not live namespace
             # ownership. Their inode numbers may legitimately be reused by the OS.
-            if sidecar["state"] == "retired":
+            if sidecar["state"] == "retired" or role["state"] == "deleted":
                 continue
             identity = sidecar["identity"]
             key = (identity["device"], identity["inode"], identity["mountId"])
@@ -271,14 +281,32 @@ def _validate_manifest_transition(current: dict[str, Any], candidate: dict[str, 
     role_state_transitions = {
         "enrolling": {"enrolling", "active", "disabled", "recovery-required"},
         "active": {"active", "disabled", "recovery-required"},
-        "disabled": {"disabled"},
+        "disabled": {"disabled", "renaming", "deleting"},
         "recovery-required": {"recovery-required", "active", "disabled"},
+        "renaming": {"renaming", "disabled"},
+        "deleting": {"deleting", "deleted"},
+        "deleted": {"deleted"},
     }
     for name, old in old_roles.items():
         new = new_roles[name]
-        immutable_fields = ("parentComponents", "parentIdentities", "databaseBasename", "databaseIdentity")
+        immutable_fields = ("parentComponents", "parentIdentities", "databaseIdentity")
         if any(new[field] != old[field] for field in immutable_fields):
-            raise StoreError(f"role {name}: enrolled path and database identity are immutable")
+            raise StoreError(f"role {name}: enrolled parent or database identity is immutable")
+        if old["state"] == "renaming":
+            if (new["state"] == "disabled"
+                    and new["databaseBasename"] == old.get("pendingDatabaseBasename")
+                    and "pendingDatabaseBasename" not in new):
+                pass
+            elif new["databaseBasename"] != old["databaseBasename"]:
+                raise StoreError(f"role {name}: rename must complete the recorded pending basename")
+        elif new["databaseBasename"] != old["databaseBasename"]:
+            raise StoreError(f"role {name}: database basename is immutable outside rename recovery")
+        if new["state"] == "renaming" and old["state"] != "renaming":
+            if new.get("pendingDatabaseBasename") in (None, old["databaseBasename"]):
+                raise StoreError(f"role {name}: rename requires a distinct pending basename")
+        if old["state"] == "renaming" and new["state"] == "disabled":
+            if new.get("databaseBasename") != old.get("pendingDatabaseBasename"):
+                raise StoreError(f"role {name}: completed rename does not match pending basename")
         if new["state"] not in role_state_transitions[old["state"]]:
             raise StoreError(f"role {name}: invalid state transition {old['state']} -> {new['state']}")
         if new["state"] == "disabled" and any(
