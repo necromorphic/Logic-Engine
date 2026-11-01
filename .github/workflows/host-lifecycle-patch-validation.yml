@@ -33,4 +33,4 @@ jobs:
           node --check host-adapter/prototype/server-plugin/st-source-inventory.mjs
           node --check host-adapter/prototype/server-plugin/fs-inventory.js
           node --check host-adapter/prototype/server-plugin/windows-vss-snapshot.mjs
-          node --test host-adapter/prototype/tests/server-plugin.test.mjs host-adapter/prototype/tests/st-default-user-session.test.mjs host-adapter/prototype/tests/st-host-request-authentication-gate.test.mjs
+          node --test host-adapter/prototype/tests/server-plugin.test.mjs host-adapter/prototype/tests/st-default-user-session.test.mjs host-adapter/prototype/tests/st-host-request-authentication-gate.test.mjs host-adapter/sillytavern-extension/tests/*.test.mjs
