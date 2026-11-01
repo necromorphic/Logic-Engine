@@ -1994,6 +1994,20 @@ static int probe_xDelete(sqlite3_vfs *vfs, const char *name, int sync_dir) {
       if (!sidecar_identity_found) return SQLITE_IOERR_DELETE;
     }
 #if defined(__linux__)
+    /*
+     * Deterministic test-only race injection: replace the checked source entry
+     * immediately before the atomic quarantine rename. The moved identity must
+     * mismatch and the replacement must be retained, never unlinked.
+     */
+    if (g_race_inject_once && g_race_path && name
+        && strcmp(name, g_race_path) == 0) {
+      g_race_inject_once = 0;
+      if (unlinkat(role->trusted_parent_fd, relative_name, 0) != 0
+          || linkat(AT_FDCWD, g_race_target_path, role->trusted_parent_fd,
+                    relative_name, 0) != 0)
+        return SQLITE_IOERR_DELETE;
+      probe_counter_increment(&g_race_injection_count);
+    }
     if (probe_posix_quarantine_delete(role->trusted_parent_fd, relative_name,
                                       &sidecar_info) != 0)
       return SQLITE_IOERR_DELETE;
