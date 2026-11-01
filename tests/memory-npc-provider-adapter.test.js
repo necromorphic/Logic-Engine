@@ -58,6 +58,9 @@ test('real adapter composes file-backed SQLite Provider with Core query and cano
       trustedInitialKnowledgeSources: [],
       fieldPolicy: () => true,
       contentFields: ['attributes.public_note'],
+      authenticateHostCaller: (request) => request?.hostSessionProof === 'adapter-test-session'
+        ? { adapterId, worldId, actorEntityId: actorId, conversationId: request.conversationId }
+        : null,
     }), /separate file from Core/);
 
     adapter = createMemoryNpcProviderAdapter({
@@ -68,6 +71,9 @@ test('real adapter composes file-backed SQLite Provider with Core query and cano
       trustedInitialKnowledgeSources: [],
       fieldPolicy: (_context, _entity, field) => field === 'entity_id' || field === 'attributes.public_note',
       contentFields: ['attributes.public_note'],
+      authenticateHostCaller: (request) => request?.hostSessionProof === 'adapter-test-session'
+        ? { adapterId, worldId, actorEntityId: actorId, conversationId: request.conversationId }
+        : null,
     });
 
     const scope = { world_id: worldId, subject_id: actorId, purpose: 'npc_decision' };
@@ -90,16 +96,19 @@ test('real adapter composes file-backed SQLite Provider with Core query and cano
         source_version: source.source_version,
       }],
     };
-    adapter.provider.putRecord(record);
-    adapter.provider.grantQuery(scope, true);
-    adapter.provider.grantRecord(scope, record.record_ref, record.record_version, true);
+    adapter.providerAdmin.putRecord(record);
+    adapter.providerAdmin.grantQuery(scope, true);
+    adapter.providerAdmin.grantRecord(scope, record.record_ref, record.record_version, true);
 
     assert.equal((await adapter.prepareWorld(worldId)).status, 'current');
     const result = await adapter.consumer.retrieveForNpc({
       worldId, actorEntityId: actorId, conversationId,
       adapterId: 'caller-selected-spoofed-adapter',
+      hostSessionProof: 'adapter-test-session',
     });
     assert.equal(result.status, 'ready');
+    assert.equal(adapter.provider.retrieveCandidates, undefined, 'consumer-facing Provider retrieval is not exposed by the factory');
+    assert.equal(adapter.providerAdmin.retrieveCandidates, undefined, 'administrative Provider surface cannot retrieve records');
     assert.equal(result.candidates.length, 1);
     assert.deepEqual(result.candidates[0].content, {
       'attributes.public_note': 'real Core source value',
@@ -107,6 +116,7 @@ test('real adapter composes file-backed SQLite Provider with Core query and cano
 
     const unboundConversation = await adapter.consumer.retrieveForNpc({
       worldId, actorEntityId: actorId, conversationId: 'not-bound',
+      hostSessionProof: 'adapter-test-session',
     });
     assert.equal(unboundConversation.status, 'non_ready');
     assert.equal(unboundConversation.reason, 'query_access_unconfirmed');
