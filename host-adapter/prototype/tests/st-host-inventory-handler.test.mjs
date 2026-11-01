@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 const test = nodeTest;
 
-import { createHostBulkMutationGuard, createHostIdentityHandler, createHostInventoryHandler, createHostSessionHandler } from '../st-host-inventory-handler.mjs';
+import { createHostBulkMutationGuard, createHostIdentityHandler, createHostInventoryHandler, createHostLifecycleSaveGuard, createHostSessionHandler } from '../st-host-inventory-handler.mjs';
 
 function makeResponse() {
   return {
@@ -528,3 +528,87 @@ test('Host identity route rejects a session/account mismatch before resolving id
   assert.equal(response.statusCode, 403);
   assert.equal(calls, 0);
 });
+
+function lifecycleSaveRequest(directories, permit = null) {
+  return {
+    path: '/save',
+    body: { avatar_url: 'Harness Character.png', file_name: 'chat-one' },
+    user: { profile: { handle: 'alice' }, directories },
+    session: {
+      handle: 'alice',
+      logicEngineSessionHandle: 'alice',
+      logicEngineSessionId: '33333333-3333-4333-8333-333333333333',
+      ...(permit ? { logicEngineHostPreparedMutation: permit } : {}),
+    },
+  };
+}
+
+const lifecycleSavePermit = {
+  protocol_version: 1,
+  host_installation_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+  authenticated_account_id: '22222222-2222-4222-8222-222222222222',
+  host_session_id: '33333333-3333-4333-8333-333333333333',
+  conversation_uuid: '44444444-4444-4444-8444-444444444444',
+  mutation_id: '55555555-5555-4555-8555-555555555555',
+  event_id: '66666666-6666-4666-8666-666666666666',
+  operation: 'edit-message',
+  mutation_digest: 'a'.repeat(64),
+};
+
+test('enrolled chat save API requires a matching server PREPARED permit and consumes it once', async () => {
+  const root = join(tmpdir(), 'st-host-save-guard');
+  const directories = { root, chats: join(root, 'chats'), groups: join(root, 'groups'), groupChats: join(root, 'groupChats') };
+  const enumerate = async () => ({
+    filesystem: { status: 'complete' },
+    source: { status: 'DOUBLE_SCAN_CANDIDATE', files: [{
+      kind: 'character-chat',
+      locator: 'Harness Character/chat-one.jsonl',
+      logical_identity: { conversation_uuid: lifecycleSavePermit.conversation_uuid },
+    }] },
+  });
+  const guard = createHostLifecycleSaveGuard({ pinnedHostCommit: pinned, enumerate });
+  const denied = makeResponse();
+  let nextCalls = 0;
+  await guard(lifecycleSaveRequest(directories), denied, () => { nextCalls++; });
+  assert.equal(denied.statusCode, 409);
+  assert.equal(denied.body.code, 'HOST_LIFECYCLE_PREPARED_SAVE_REQUIRED');
+  assert.equal(nextCalls, 0);
+
+  const request = lifecycleSaveRequest(directories, { ...lifecycleSavePermit });
+  const allowed = makeResponse();
+  await guard(request, allowed, () => { nextCalls++; });
+  assert.equal(allowed.statusCode, null);
+  assert.equal(nextCalls, 1);
+  assert.equal(request.session.logicEngineHostPreparedMutation, undefined);
+
+  const replay = makeResponse();
+  await guard(request, replay, () => { nextCalls++; });
+  assert.equal(replay.statusCode, 409);
+  assert.equal(nextCalls, 1);
+});
+
+test('enrolled chat save API rejects permits scoped to another conversation or session', async () => {
+  const root = join(tmpdir(), 'st-host-save-guard-scope');
+  const directories = { root, chats: join(root, 'chats'), groups: join(root, 'groups'), groupChats: join(root, 'groupChats') };
+  const guard = createHostLifecycleSaveGuard({
+    pinnedHostCommit: pinned,
+    enumerate: async () => ({
+      filesystem: { status: 'complete' },
+      source: { status: 'DOUBLE_SCAN_CANDIDATE', files: [{
+        kind: 'character-chat', locator: 'Harness Character/chat-one.jsonl',
+        logical_identity: { conversation_uuid: lifecycleSavePermit.conversation_uuid },
+      }] },
+    }),
+  });
+  for (const permit of [
+    { ...lifecycleSavePermit, conversation_uuid: '77777777-7777-4777-8777-777777777777' },
+    { ...lifecycleSavePermit, host_session_id: '88888888-8888-4888-8888-888888888888' },
+  ]) {
+    const response = makeResponse();
+    let nextCalls = 0;
+    await guard(lifecycleSaveRequest(directories, permit), response, () => { nextCalls++; });
+    assert.equal(response.statusCode, 409);
+    assert.equal(nextCalls, 0);
+  }
+});
+
