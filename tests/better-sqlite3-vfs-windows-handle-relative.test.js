@@ -173,25 +173,66 @@ test('Windows VFS opens SQLite main/journal/WAL/SHM relative to pinned parent an
         'sidecars should be retired before the main-file replacement test');
     }
 
-    // Replace the main DB name after the VFS pinned the original parent and
-    // recorded the original file identity. The replacement is a valid but
-    // attacker-controlled SQLite DB at the same pathname.
-    fs.renameSync(databasePath, pinnedDatabasePath);
-    fs.copyFileSync(attackerSeedPath, databasePath);
+    // Rename the enrolled parent directory while its HANDLE is pinned. Some
+    // Windows/filesystem combinations may deny this because of sharing policy;
+    // either the rename must be blocked, or later VFS opens must stay anchored
+    // to the original directory object rather than following the old pathname.
+    const originalParentPath = path.dirname(databasePath);
+    const movedParentPath = originalParentPath + '.moved';
+    let parentRenameSucceeded = false;
+    try {
+      fs.renameSync(originalParentPath, movedParentPath);
+      parentRenameSucceeded = true;
+      fs.mkdirSync(originalParentPath);
+      fs.copyFileSync(attackerSeedPath, databasePath);
+    } catch (error) {
+      assert.ok(['EPERM', 'EACCES', 'EBUSY', 'UNKNOWN'].includes(error.code),
+        'parent rename may only fail with an access/sharing error');
+      assert.equal(fs.existsSync(databasePath), true,
+        'when Windows denies parent rename, the original database path must remain present');
+    }
+
+    const anchoredParentPath = parentRenameSucceeded ? movedParentPath : originalParentPath;
+    const anchored = new Database(databasePath);
+    try {
+      assert.deepEqual(
+        anchored.prepare('SELECT value FROM origin ORDER BY rowid').pluck().all(),
+        ['trusted-before-swap', 'trusted-after-swap', 'trusted-after-parent-rename'],
+        'the enrolled parent HANDLE must continue to resolve the original DB after directory rename',
+      );
+      anchored.prepare('INSERT INTO origin VALUES (?)').run('trusted-after-parent-rename');
+      assert.equal(anchored.pragma('integrity_check', { simple: true }), 'ok');
+    } finally {
+      anchored.close();
+    }
+    if (parentRenameSucceeded) {
+      assert.equal(
+        crypto.createHash('sha256').update(fs.readFileSync(databasePath)).digest('hex'),
+        attackerHash,
+        'the decoy at the old parent pathname must remain untouched',
+      );
+    }
+
+    // Replace the DB basename inside the directory object actually pinned by
+    // the VFS. This must be rejected even though the alias path still resolves
+    // through the same logical role registration.
+    const anchoredDatabasePath = path.join(anchoredParentPath, path.basename(databasePath));
+    fs.renameSync(anchoredDatabasePath, pinnedDatabasePath);
+    fs.copyFileSync(attackerSeedPath, anchoredDatabasePath);
     assert.equal(
-      crypto.createHash('sha256').update(fs.readFileSync(databasePath)).digest('hex'),
+      crypto.createHash('sha256').update(fs.readFileSync(anchoredDatabasePath)).digest('hex'),
       attackerHash,
-      'the replacement pathname must contain the attacker decoy before SQLite reopens',
+      'the pinned-parent replacement must contain the attacker decoy before SQLite reopens',
     );
     assert.throws(
       () => new Database(databasePath),
       (error) => /^SQLITE_CANTOPEN/.test(String(error.code)),
-      'the VFS must reject the replacement file because its file identity differs from the manifest-bound identity',
+      'the VFS must reject a replacement inside the pinned parent because its file identity differs',
     );
     assert.equal(
-      crypto.createHash('sha256').update(fs.readFileSync(databasePath)).digest('hex'),
+      crypto.createHash('sha256').update(fs.readFileSync(anchoredDatabasePath)).digest('hex'),
       attackerHash,
-      'failed secure open must not modify the attacker decoy',
+      'failed secure open must not modify the attacker decoy in the pinned parent',
     );
     registrar.close();
   `;
