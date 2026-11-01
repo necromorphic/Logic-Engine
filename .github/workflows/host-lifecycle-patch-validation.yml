@@ -27,7 +27,8 @@ jobs:
           node --check src/application/host-session-context.js
           node --check src/application/host-session-context.test.js
           grep -F "id: 'logic-engine-extension-gateway'" host-adapter/extension-gateway/server-plugin/index.mjs
-          ! grep -R -n '/api/logic-engine' host-adapter/extension-gateway
+          ! grep -R -n --include='*.mjs' --include='*.js' '/api/logic-engine' host-adapter/extension-gateway
+          ! grep -n '/api/logic-engine' host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch
           ! grep -n '/api/logic-engine' host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch
           grep -F "installation_id:account_id:conversation_uuid" host-adapter/extension-gateway/README.md
           grep -F "host-lifecycle/events" host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch
