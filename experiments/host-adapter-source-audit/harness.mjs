@@ -76,5 +76,5 @@ test('Host inventory route is mounted behind SillyTavern authentication middlewa
   assert.ok(privateEndpointMount > loginMiddleware,
     'private endpoint routers must be mounted after requireLoginMiddleware');
   assert.match(hostRoutePatch,
-    /app\\.use\\('\\/api\\/logic-engine\\/host',\\s*logicEngineHostInventoryRouter\\);/);
+    /app\.use\('\/api\/logic-engine\/host',\s*logicEngineHostInventoryRouter\);/);
 });
