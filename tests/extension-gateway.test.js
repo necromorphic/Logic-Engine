@@ -189,12 +189,17 @@ test('client Extension has exactly one same-origin Gateway transport and no dire
   const clientPath = new URL('../public/scripts/extensions/third-party/logic-engine-extension-gateway/index.js', import.meta.url);
   const manifestPath = new URL('../public/scripts/extensions/third-party/logic-engine-extension-gateway/manifest.json', import.meta.url);
   const source = readFileSync(clientPath, 'utf8');
+  const serverSource = readFileSync(new URL('../public/scripts/extensions/third-party/logic-engine-extension-gateway/server-gateway.mjs', import.meta.url), 'utf8');
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
   assert.equal((source.match(/fetch\s*\(/g) || []).length, 1);
   assert.match(source, /const GATEWAY_PATH = '\/api\/logic-engine\/extension'/);
   assert.match(source, /credentials: 'same-origin'/);
   assert.match(source, /redirect: 'error'/);
+  assert.match(source, /export function teardown/);
   assert.doesNotMatch(source, /localhost:\\d+|127\\.0\\.0\\.1:\\d+|LOGIC_ENGINE_CORE_URL|Provider Base URL/i);
+  assert.equal((serverSource.match(/app\.post\s*\(/g) || []).length, 1);
+  assert.match(serverSource, /app\.post\(EXTENSION_GATEWAY_PATH/);
+  assert.doesNotMatch(serverSource, /createServer\s*\(|fetch\s*\(|MemoryProvider|ProviderRelay/i);
   assert.equal(manifest.js, 'index.js');
   assert.equal(manifest.hooks.activate, 'init');
 });
