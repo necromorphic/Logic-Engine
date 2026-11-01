@@ -498,7 +498,8 @@ test('stale snapshot candidates and derived summaries are never admitted', async
 
 test('actor binding failure and unavailable source reads never produce content', async (t) => {
   const { consumer } = setup(t);
-  const result = await consumer.retrieveForNpc({ ...request(), adapterId: 'unbound-adapter' });
+  consumer.actorBindingService.resolve = () => { throw new Error('binding revoked'); };
+  const result = await consumer.retrieveForNpc(request());
   assert.equal(result.status, 'non_ready');
   assert.deepEqual(result.candidates, []);
 });
@@ -509,6 +510,8 @@ test('Memory provider must supply all trusted host callbacks; no default policy 
   assert.throws(() => new MemoryNpcConsumer({
     authorizedReadService: { readEntityFields() {} },
     actorBindingService: { resolve() {} },
+    adapterId: 'adapter-a',
+    coreQueryAuthorizer: () => true,
     memoryProvider: { retrieveCandidates() {} },
     contentFields: ['attributes.public_note'],
   }), /trusted Memory query, retrieval, and record authorization functions/);
@@ -521,6 +524,8 @@ test('content field configuration must match fields the Core read boundary can d
   assert.throws(() => new MemoryNpcConsumer({
     authorizedReadService: { readEntityFields() {} },
     actorBindingService: { resolve() {} },
+    adapterId: 'adapter-a',
+    coreQueryAuthorizer: () => true,
     memoryProvider: {
       authorizeQuery() {},
       retrieveCandidates() {},
@@ -543,13 +548,14 @@ test('content field configuration must match fields the Core read boundary can d
 test('actor binding is checked before query authorization even for complete-empty results', async (t) => {
   const { consumer, provider, setCandidates } = setup(t);
   setCandidates([]);
+  consumer.actorBindingService.resolve = () => { throw new Error('binding revoked'); };
   let queryAuthorizationCalled = false;
   provider.authorizeQuery = async () => {
     queryAuthorizationCalled = true;
     return true;
   };
 
-  const result = await consumer.retrieveForNpc({ ...request(), adapterId: 'unbound-adapter' });
+  const result = await consumer.retrieveForNpc(request());
   assert.equal(result.status, 'non_ready');
   assert.deepEqual(result.candidates, []);
   assert.equal(queryAuthorizationCalled, false);
