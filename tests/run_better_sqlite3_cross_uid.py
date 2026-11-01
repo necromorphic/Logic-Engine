@@ -161,32 +161,12 @@ def main() -> int:
                 os.chmod(path, 0o644)
         os.chmod(artifacts / "secure-vfs-probe.so", 0o755)
 
-        database_path = role_parent / "core.sqlite"
-        database_fd = os.open(
-            database_path,
-            os.O_CREAT | os.O_EXCL | os.O_RDWR | os.O_CLOEXEC | os.O_NOFOLLOW,
-            0o600,
-        )
-        try:
-            os.fchown(database_fd, broker_uid, app_gid)
-            os.fchmod(database_fd, 0o600)
-            os.fsync(database_fd)
-            database_identity = _fd_identity(database_fd)
-        finally:
-            os.close(database_fd)
-        role_parent_fd = os.open(role_parent, DIR_FLAGS)
-        try:
-            os.fsync(role_parent_fd)
-        finally:
-            os.close(role_parent_fd)
-
         manifest_fd = os.open(manifest_root, DIR_FLAGS)
         try:
             metadata_identity = _fd_identity(manifest_fd)
             filesystem = _fd_filesystem(manifest_fd)
         finally:
             os.close(manifest_fd)
-        components, parent_identities = identity_chain(role_parent)
         manifest = {
             "schemaVersion": 1,
             "generation": 1,
@@ -198,27 +178,24 @@ def main() -> int:
                 "directoryMutationBoundary": "broker-exclusive-owner",
                 "applicationUid": app_uid,
             },
-            "roles": [{
-                "role": "core",
-                "parentComponents": components,
-                "parentIdentities": parent_identities,
-                "databaseBasename": database_path.name,
-                "databaseIdentity": database_identity,
-                "state": "active",
-                "sidecars": [],
-            }],
+            "roles": [],
         }
 
+        # The broker service identity creates the first physical DB and commits
+        # its opened-handle identity before the app UID can request any descriptor.
         init_code = (
-            "import sys; from manifest_store import ManifestStore; "
+            "import os,sys; from manifest_store import ManifestStore; "
             "s=ManifestStore(sys.argv[1],sys.argv[2],int(sys.argv[3])); "
-            "s.initialize(sys.stdin.buffer.read()); s.verify_roles(); s.close()"
+            "s.initialize(sys.stdin.buffer.read()); "
+            "fd=s.enroll_role('core',sys.argv[4],'core.sqlite'); os.close(fd); "
+            "s.verify_roles(); s.close()"
         )
         init_env = os.environ.copy()
         init_env["PYTHONPATH"] = str(broker_source_copy)
         init_env["PYTHONDONTWRITEBYTECODE"] = "1"
         initialized = subprocess.run(
-            [sys.executable, "-c", init_code, str(manifest_root), str(anchor_root), str(app_uid)],
+            [sys.executable, "-c", init_code, str(manifest_root), str(anchor_root),
+             str(app_uid), str(role_parent)],
             input=json.dumps(manifest, separators=(",", ":")).encode(),
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -229,7 +206,7 @@ def main() -> int:
         )
         if initialized.returncode != 0:
             raise RuntimeError(
-                "manifest initialization failed:\n" +
+                "broker-first manifest enrollment failed:\n" +
                 initialized.stdout.decode(errors="replace") +
                 initialized.stderr.decode(errors="replace")
             )
