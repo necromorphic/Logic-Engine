@@ -160,3 +160,14 @@ The patch:
 The archived `server.js` uses CRLF. The patch preserves those line endings in its server.js hunks. It was dry-run applied and then applied to extracted copies of all three target files from the supplied archive; `node --check server.js` passed and package/lock engine metadata matched. The patch does not include VFS bootstrap or role enrollment: those remain blocked on a production VFS backend and service deployment contract. No vectorization patch or vector data was modified.
 
 This is host hardening and compatibility verification only. It does not close the ST-VectorService VFS integration acceptance gate or authorize deployment.
+
+
+### 2026-11-01 Windows manifest identity-history validation
+
+Implementation commit: `a84c23274d88e0938ea5a3aa13732227fb979327`. Regression-test commit: `fa2fabd3b119d278e61e2c4fb9788d300a294a29`.
+
+The Windows manifest validator previously reserved physical identities only for active sidecars. Retired sidecar records are still part of the persistent identity history and may remain present specifically because another hardlink can survive deletion of the original name. Allowing a retired identity to alias a database or another role's retired sidecar makes reconciliation ambiguous and can confuse a still-linked object with identity reuse.
+
+The validator now reserves every sidecar identity, active or retired, against the metadata root, every registered parent directory, every database identity and every other sidecar record. Added regressions cover retired-sidecar/database aliasing and cross-role retired-sidecar collisions. This is a fail-closed schema-validation improvement; it does not implement persistent Windows storage, an anti-rollback anchor, a service-owned broker, or restart reconciliation.
+
+Exact-head CI was triggered for the test commit. Production Windows manifest/broker lifecycle, full production-owned SQLite file methods, temporary/super-journal/subjournal support and independent Security review remain open.
