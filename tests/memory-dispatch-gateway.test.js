@@ -747,7 +747,9 @@ test('real Provider revokeRecord committed before dispatch-start produces zero u
       readToken,
       readCoreEvidence: ({ worldId, actorId, sources }) => ({
         head: 1, world_id: worldId, actor_id: actorId,
-        readiness: 'READY', inventory_status: 'READY', sources,
+        readiness: 'READY', inventory_status: 'READY',
+        policy_authority: { authority_id: 'test-memory-policy', generation: 1, fingerprint: 'd'.repeat(64) },
+        sources,
       }),
       readProviderEvidence: ({ worldId, actorId, purpose }) => {
         const head = providerReader.prepare('SELECT head FROM accepted_head_state WHERE singleton=1').get();
