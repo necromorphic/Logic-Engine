@@ -1,4 +1,4 @@
-name: better-sqlite3 named VFS integration
+name: better-sqlite3 default VFS integration
 
 on:
   push:
@@ -39,6 +39,10 @@ jobs:
       - name: Verify Node-API 10 runtime support
         run: |
           node -e 'const napi = Number(process.versions.napi); console.log("Node", process.version, "Node-API", napi); if (napi < 10) throw new Error("better-sqlite3 13.0.3 requires Node-API 10 (Node >=22.14.0)")'
+      - name: Verify archived ST-VectorService Linux prebuild identity
+        run: |
+          actual="$(sha256sum "$RUNNER_TEMP/better-sqlite3/package/prebuilds/linux-x64.node" | cut -d' ' -f1)"
+          test "$actual" = '6fd4292c6c5f352436cd85c9e1cb286978efa43c20ae350973f83414ced9991d'
       - name: Install better-sqlite3 build dependencies
         run: |
           cd "$RUNNER_TEMP/better-sqlite3/package"
