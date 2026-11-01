@@ -1,6 +1,7 @@
 import { createHash, createHmac, randomUUID } from 'node:crypto';
 import pathModule from 'node:path';
 import { HostLifecycleReceiptStore } from './st-host-lifecycle-receipt-store.mjs';
+import { resolveHostDataDirectories } from './st-host-inventory-handler.mjs';
 const validId = (value) => typeof value === 'string' && value === value.trim()
   && value.length > 0 && value.length <= 200
   && ![...value].some((character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127);
@@ -559,7 +560,8 @@ export function createHostLifecycleJournalProxy({
       }
       const dataRoot = typeof globalThis.DATA_ROOT === 'string' && globalThis.DATA_ROOT.trim()
         ? pathModule.resolve(globalThis.DATA_ROOT) : null;
-      if (!durableReceiptStore) return response.status(503).json({
+      const directories = resolveHostDataDirectories(request?.user?.directories);
+      if (!durableReceiptStore || !directories) return response.status(503).json({
         error: { code: 'HOST_LIFECYCLE_RECEIPT_STORE_UNAVAILABLE', message: 'Server-side persisted mutation receipt verification is unavailable.' },
       });
       if (typeof dataRoot !== 'string' || !pathModule.isAbsolute(dataRoot)) {
@@ -593,13 +595,13 @@ export function createHostLifecycleJournalProxy({
       let receipt;
       try {
         if (body.event_type === 'MUTATION_PREPARED') {
-          receipt = await durableReceiptStore.prepare(scope, request?.user?.directories);
+          receipt = await durableReceiptStore.prepare(scope, directories);
           scope.occurred_at = receipt.prepared.occurred_at;
         } else if (body.event_type === 'MUTATION_COMMITTED') {
-          receipt = await durableReceiptStore.commit(scope, request?.user?.directories);
+          receipt = await durableReceiptStore.commit(scope, directories);
           scope.occurred_at = receipt.occurred_at;
         } else {
-          receipt = await durableReceiptStore.abort(scope, request?.user?.directories);
+          receipt = await durableReceiptStore.abort(scope, directories);
           scope.occurred_at = receipt.occurred_at;
         }
       } catch {
