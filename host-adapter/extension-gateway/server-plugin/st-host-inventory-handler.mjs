@@ -267,7 +267,8 @@ export function createHostBulkMutationGuard({
 
 export function createHostIdentityHandler({
   identityStore,
-  getDataRoot = () => globalThis.DATA_ROOT,
+  getDataRoot = () => typeof globalThis.DATA_ROOT === 'string' && globalThis.DATA_ROOT.trim()
+    ? path.resolve(globalThis.DATA_ROOT) : null,
 }) {
   if (!identityStore || typeof identityStore.resolveAuthenticatedAccount !== 'function'
     || typeof identityStore.assertOutsideRoot !== 'function'
