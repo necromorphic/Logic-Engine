@@ -14,6 +14,18 @@ const TOKEN = 'test-token-long-enough-123456';
 const ADMIN = 'admin-token-long-enough-123456';
 const ADAPTER_A = 'adapter-a-token-long-enough-123456';
 const ADAPTER_B = 'adapter-b-token-long-enough-123456';
+const HOST_SESSION_ID = '11111111-1111-4111-8111-111111111111';
+const HOST_INSTALLATION_ID = '22222222-2222-4222-8222-222222222222';
+const HOST_CONVERSATION_UUID = '33333333-3333-4333-8333-333333333333';
+const PC_NEXT11_CONVERSATION_ID = [
+  HOST_SESSION_ID, HOST_INSTALLATION_ID, HOST_CONVERSATION_UUID,
+].join(':');
+const PC_NEXT11_CONTEXT_REQUEST = {
+  conversation_id: PC_NEXT11_CONVERSATION_ID,
+  host_session_id: HOST_SESSION_ID,
+  host_installation_id: HOST_INSTALLATION_ID,
+  conversation_uuid: HOST_CONVERSATION_UUID,
+};
 const headers = { authorization: 'Bearer ' + TOKEN, 'content-type': 'application/json' };
 const json = (body) => JSON.stringify(body);
 
@@ -93,15 +105,26 @@ test('Core binding API requires admin to assign and authenticated adapter to res
   assert.equal(resolved.status, 200);
   assert.equal((await resolved.json()).binding.world_id, 'host-binding-world-a');
 
+  const contextBinding = await fetch(path, {
+    method: 'POST',
+    headers: { ...headers, 'x-admin-token': ADMIN },
+    body: json({
+      adapter_id: 'adapter-a',
+      conversation_id: PC_NEXT11_CONVERSATION_ID,
+      world_id: 'host-binding-world-a',
+    }),
+  });
+  assert.equal(contextBinding.status, 201);
+
   const trustedContext = await fetch(base + '/v1/host-context/resolve', {
     method: 'POST',
     headers: { ...headers, 'x-adapter-id': 'adapter-a', 'x-adapter-token': ADAPTER_A },
-    body: json({ conversation_id: 'stable-chat-id' }),
+    body: json(PC_NEXT11_CONTEXT_REQUEST),
   });
   assert.equal(trustedContext.status, 200);
   assert.deepEqual((await trustedContext.json()).context, {
     adapter_id: 'adapter-a',
-    conversation_id: 'stable-chat-id',
+    conversation_id: PC_NEXT11_CONVERSATION_ID,
     world_id: 'host-binding-world-a',
     actor_id: 'host-binding-actor-a',
     actor_type: 'character',
@@ -131,7 +154,7 @@ test('Core binding API refuses implicit reassignment and revocation prevents res
   const adapterHeaders = { ...headers, 'x-adapter-id': 'adapter-a', 'x-adapter-token': ADAPTER_A };
   await fetch(path, {
     method: 'POST', headers: adminHeaders,
-    body: json({ adapter_id: 'adapter-a', conversation_id: 'stable-chat-id', world_id: 'host-binding-world-a' }),
+    body: json({ adapter_id: 'adapter-a', conversation_id: PC_NEXT11_CONVERSATION_ID, world_id: 'host-binding-world-a' }),
   });
 
   const conflict = await fetch(path, {
@@ -219,7 +242,7 @@ test('Core Host context resolution fails closed for missing or ambiguous actor b
   });
 
   const before = await fetch(base + '/v1/host-context/resolve', {
-    method: 'POST', headers: adapterHeaders, body: json({ conversation_id: 'stable-chat-id' }),
+    method: 'POST', headers: adapterHeaders, body: json(PC_NEXT11_CONTEXT_REQUEST),
   });
   assert.equal(before.status, 200);
   assert.equal((await before.json()).context.actor_id, 'host-binding-actor-a');
@@ -231,7 +254,7 @@ test('Core Host context resolution fails closed for missing or ambiguous actor b
   assert.equal(extraActor.status, 201);
 
   const ambiguous = await fetch(base + '/v1/host-context/resolve', {
-    method: 'POST', headers: adapterHeaders, body: json({ conversation_id: 'stable-chat-id' }),
+    method: 'POST', headers: adapterHeaders, body: json(PC_NEXT11_CONTEXT_REQUEST),
   });
   assert.equal(ambiguous.status, 403);
   assert.equal((await ambiguous.json()).error.code, 'ACTOR_BINDING_AMBIGUOUS');
