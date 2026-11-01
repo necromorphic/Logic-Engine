@@ -109,7 +109,9 @@ diff --git a/public/script.js b/public/script.js
 +            publishSnapshot: async snapshot => {
 +                const response = await fetch('/api/plugins/logic-engine-host/host-version-ledger/reconcile', {
 +                    method: 'POST',
-+                    headers: { 'Content-Type': 'application/json' },
++                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': token },
++                    credentials: 'same-origin',
++                    cache: 'no-store',
 +                    body: JSON.stringify(snapshot),
 +                });
 +                const payload = await response.json().catch(() => null);
