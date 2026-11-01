@@ -126,15 +126,15 @@ def main() -> int:
         os.chmod(root, 0o710)
 
         socket_dir = root / "socket"
-        public_db_dir = root / "public-db"
+        public_db_dir = root / "vector_storage"
         public_db_dir.mkdir()
         os.chown(public_db_dir, 0, 0)
         os.chmod(public_db_dir, 0o755)
-        alias_database_path = public_db_dir / "core.sqlite"
+        alias_database_path = public_db_dir / "vectors.sqlite"
         manifest_root = root / "manifest"
         anchor_root = root / "anchor"
         roles_root = root / "roles"
-        role_parent = roles_root / "core"
+        role_parent = roles_root / "vectors"
         for directory in (socket_dir, manifest_root, anchor_root, roles_root, role_parent):
             directory.mkdir()
         for directory in (socket_dir,):
@@ -187,7 +187,7 @@ def main() -> int:
             "import os,sys; from manifest_store import ManifestStore; "
             "s=ManifestStore(sys.argv[1],sys.argv[2],int(sys.argv[3])); "
             "s.initialize(sys.stdin.buffer.read()); "
-            "fd=s.enroll_role('core',sys.argv[4],'core.sqlite'); os.close(fd); "
+            "fd=s.enroll_role('vectors',sys.argv[4],'core.sqlite'); os.close(fd); "
             "s.verify_roles(); s.close()"
         )
         init_env = os.environ.copy()
@@ -214,7 +214,7 @@ def main() -> int:
         direct_open = subprocess.run(
             [sys.executable, "-c",
              "import os,sys; fd=os.open(sys.argv[1],os.O_RDONLY); os.close(fd)",
-             str(role_parent / "core.sqlite")],
+             str(role_parent / "vectors.sqlite")],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             preexec_fn=drop_privileges(app_uid, app_gid),
