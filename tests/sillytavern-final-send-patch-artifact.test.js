@@ -33,6 +33,8 @@ test('patch manifest includes source identity checks for every separately routed
     'src/server-main.js',
     'src/server-startup.js',
     'src/plugin-loader.js',
+    'src/constants.js',
+    'src/util.js',
   ]) {
     assert.match(manifest.sourceFiles[path], /^[a-f0-9]{64}$/);
   }
