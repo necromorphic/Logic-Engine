@@ -47,7 +47,7 @@ test('server bulk mutation guard blocks imports when any enrolled conversation e
     },
   });
   const blocked = makeResponse();
-  await guard({ user: { directories } }, blocked, () => { nextCalls++; });
+  await guard({ user: { profile: { handle: 'alice' }, directories }, session: { handle: 'alice' } }, blocked, () => { nextCalls++; });
   assert.equal(blocked.statusCode, 409);
   assert.equal(blocked.body.code, 'HOST_LIFECYCLE_BULK_MUTATION_BLOCKED');
   assert.equal(nextCalls, 0);
@@ -70,7 +70,7 @@ test('server bulk mutation guard permits imports only when a complete scan finds
     }),
   });
   const response = makeResponse();
-  await guard({ user: { directories } }, response, () => { nextCalls++; });
+  await guard({ user: { profile: { handle: 'alice' }, directories }, session: { handle: 'alice' } }, response, () => { nextCalls++; });
   assert.equal(response.statusCode, null);
   assert.equal(nextCalls, 1);
 });
@@ -89,7 +89,7 @@ test('server bulk mutation guard fails closed when inventory is incomplete', asy
     enumerate: async () => ({ filesystem: { status: 'incomplete' }, source: { status: 'NON_READY', files: [] } }),
   });
   const response = makeResponse();
-  await guard({ user: { directories } }, response, () => { nextCalls++; });
+  await guard({ user: { profile: { handle: 'alice' }, directories }, session: { handle: 'alice' } }, response, () => { nextCalls++; });
   assert.equal(response.statusCode, 503);
   assert.equal(response.body.code, 'HOST_BULK_MUTATION_INVENTORY_INCOMPLETE');
   assert.equal(nextCalls, 0);
