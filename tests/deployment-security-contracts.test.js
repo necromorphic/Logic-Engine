@@ -344,6 +344,18 @@ test('protected Memory final-send deployment gate requires every independent run
   assert.equal(result.find((item) => item.id === 'memory:protected-final-send-production').status, 'PASS');
 });
 
+test('filesystem-only patch and backup inspection cannot satisfy the protected runtime attestation', () => {
+  const capabilities = [
+    createCapabilityEvidence({ id: 'host.patch.files.integrity.inspect', status: 'PASS', required: false }),
+    createCapabilityEvidence({ id: 'host.patch.backups.integrity.inspect', status: 'PASS', required: false }),
+    ...PROTECTED_FINAL_SEND_CAPABILITIES
+      .filter((id) => id !== 'host.patch.integrity')
+      .map((id) => createCapabilityEvidence({ id, status: 'PASS', required: true })),
+  ];
+  const gates = evaluateDeploymentGates({ profile: 'portable-desktop', components: [], capabilities });
+  assert.equal(gates.find((gate) => gate.id === 'memory:protected-final-send-production').status, 'BLOCKED');
+});
+
 test('protected final-send gate is emitted exactly once independently of enabled components', () => {
   const capabilities = PROTECTED_FINAL_SEND_CAPABILITIES
     .map((id) => createCapabilityEvidence({ id, status: 'PASS', required: true }));
