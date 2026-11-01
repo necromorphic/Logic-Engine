@@ -86,6 +86,7 @@ function setup(t, { allowContent = true, authorizeQuery = true, authorizeCoreQue
   const consumer = new MemoryNpcConsumer({
     authorizedReadService,
     actorBindingService: bindings,
+    adapterId: 'adapter-a',
     memoryProvider: provider,
     coreQueryAuthorizer: () => authorizeCoreQuery,
     contentFields: ['attributes.public_note'],
@@ -102,7 +103,6 @@ function setup(t, { allowContent = true, authorizeQuery = true, authorizeCoreQue
 
 const request = () => ({
   worldId: 'memory-npc-world',
-  adapterId: 'adapter-a',
   actorEntityId: 'npc-a',
   conversationId: 'conversation-a',
 });
