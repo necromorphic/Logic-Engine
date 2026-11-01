@@ -229,6 +229,7 @@ export class SillyTavernPatchManager {
       backups,
       createdFiles: this.manifest.createdFiles,
       sourceFilesAfter: Object.fromEntries(Object.entries(this.manifest.sourceFiles).map(([path, value]) => [path, typeof value === 'string' ? value : value.after])),
+      sourceFilesBefore: Object.fromEntries(Object.entries(this.manifest.sourceFiles).map(([path, value]) => [path, typeof value === 'string' ? value : value.before])),
       startedAt: new Date().toISOString(),
     };
     await this.writeJournal(journal);
@@ -248,6 +249,7 @@ export class SillyTavernPatchManager {
         backups,
         createdFiles: this.manifest.createdFiles,
         sourceFilesAfter: Object.fromEntries(Object.entries(this.manifest.sourceFiles).map(([path, value]) => [path, typeof value === 'string' ? value : value.after])),
+        sourceFilesBefore: Object.fromEntries(Object.entries(this.manifest.sourceFiles).map(([path, value]) => [path, typeof value === 'string' ? value : value.before])),
         installedAt: new Date().toISOString(),
       };
       await atomicWrite(this.statePath, JSON.stringify(installed, null, 2) + '\n');
@@ -260,12 +262,12 @@ export class SillyTavernPatchManager {
   }
 
   async restoreJournal(journal) {
-    // Never overwrite a file that no longer matches either the known base or patch.
-    for (const [relativePath, backupInfo] of Object.entries(journal.backups ?? {})) {
-      const target = await assertRegularFile(this.stRoot, relativePath);
-      const current = sha256(await readFile(target));
-      const after = journal.sourceFilesAfter?.[relativePath] ?? this.manifest.sourceFiles[relativePath]?.after;
-      if (current !== backupInfo.sha256 && current !== after) {
+    // Every audited file must still match the exact installed host baseline,
+    // except files owned by this patch which may match their exact post-patch hash.
+    for (const [relativePath, before] of Object.entries(journal.sourceFilesBefore ?? {})) {
+      const current = await this.hashAt(relativePath);
+      const after = journal.sourceFilesAfter?.[relativePath];
+      if (current !== before && (!after || current !== after)) {
         throw new Error('ROLLBACK_CONFLICT_USER_CHANGE_PRESERVED: ' + relativePath);
       }
     }
@@ -318,6 +320,7 @@ export class SillyTavernPatchManager {
       backups: state.backups,
       createdFiles: state.createdFiles,
       sourceFilesAfter: state.sourceFilesAfter,
+      sourceFilesBefore: state.sourceFilesBefore,
       startedAt: new Date().toISOString(),
     };
     await this.writeJournal(journal);
