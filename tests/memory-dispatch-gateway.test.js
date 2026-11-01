@@ -63,7 +63,7 @@ async function startAuthorityProcess(path) {
   return { child, port: Number(match[1]) };
 }
 
-async function createFixture({ sendUpstream, coreHead = 1, providerHead = 1, initialProviderGrant = true, providerCandidatesOverride } = {}) {
+async function createFixture({ sendUpstream, createTransport, coreHead = 1, providerHead = 1, initialProviderGrant = true, providerCandidatesOverride } = {}) {
   const directory = mkdtempSync(join(tmpdir(), 'logic-memory-dispatch-gateway-'));
   const authorityPath = join(directory, 'authority.sqlite');
   const coordinatorPath = join(directory, 'coordinator.sqlite');
@@ -109,11 +109,11 @@ async function createFixture({ sendUpstream, coreHead = 1, providerHead = 1, ini
       sources,
       candidates: providerCandidatesOverride ?? candidates,
     }),
-    createTransport: (request) => () => {
+    createTransport: createTransport ?? ((request) => () => {
       calls.push(request);
       if (sendUpstream) return sendUpstream(request);
       return Promise.resolve({ status: 200, body: 'accepted' });
-    },
+    }),
   });
   gateway = makeGateway();
 
@@ -215,16 +215,16 @@ test('read-only Gateway SQLite connection can read committed WAL state without w
 
 test('Gateway rejects direct and bound async transport starters because they can defer handoff past the Coordinator lease', () => {
   const asyncStarter = async () => ({ status: 200 });
-  const configuration = (sendUpstream) => ({
+  const configuration = (createTransport) => ({
     ledgerPath: '/tmp/dispatch-ledger.sqlite',
     coordinatorPath: '/tmp/dispatch-coordinator.sqlite',
     authorityPort: 1,
     readToken,
     readCoreEvidence: () => ({}),
     readProviderEvidence: () => ({}),
-    sendUpstream,
+    createTransport,
   });
-  assert.throws(() => new MemoryDispatchGateway(configuration(asyncStarter)), /non-async transport-start function/);
+  assert.throws(() => new MemoryDispatchGateway(configuration(asyncStarter)), /non-async request-scoped transport factory/);
   assert.throws(() => new MemoryDispatchGateway(configuration(asyncStarter.bind(null))), /non-async transport-start function/);
 });
 
@@ -521,7 +521,7 @@ test('existing dispatch ledger with missing schema fails closed without auto-rep
       readToken,
       readCoreEvidence: () => ({}),
       readProviderEvidence: () => ({}),
-      sendUpstream: () => Promise.resolve({ status: 200 }),
+      createTransport: () => () => Promise.resolve({ status: 200 }),
     }), /DISPATCH_LEDGER_SCHEMA_INCOMPLETE/);
     const verify = new DatabaseSync(ledgerPath);
     try {
