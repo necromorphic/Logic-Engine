@@ -209,3 +209,22 @@ The first implementation slice now includes:
 - Read-only `npm run deployment:verify` assessment command. It requires explicit manifest and deployment-root paths and does not mutate databases, permissions, services, accounts or backups.
 
 The shared deployment contract tests run on Windows and Linux CI. Passing CI proves only disposable test behavior on those runners; it is not evidence about a user's live host.
+
+## 10. Protected Memory final-send deployment gate
+
+Production enablement of the protected Memory final-send path in [PR #844](https://github.com/necromorphic/Logic-Engine/pull/844) is a separate deployment capability. It is not implied by a valid manifest, a successful install, or a passing generic Host adapter check.
+
+The deployment assessment always emits these required runtime evidence items, initially as `NOT_TESTED`:
+
+- `host.patch.integrity` — installed SillyTavern source patch matches the pinned Patch Manager manifest and verified backup/state.
+- `final-send.route-coverage` — every route declared protected is intercepted; unregistered routes cannot receive protected Memory.
+- `final-send.dispatch-start.sync` — durable dispatch-start is committed before the single upstream invocation.
+- `coordinator.shared-lease` — dispatch-start, revocation and final response release share the same Coordinator ordering boundary.
+- `final-send.revoke-inflight-fence` — revoke during inference prevents protected response release.
+- `final-send.response-revalidation` — final response is revalidated at the actual Host egress point, for both streaming and non-streaming responses.
+- `final-send.ambiguous-recovery` — crash/restart after dispatch-start becomes an unresolved/UNKNOWN outcome and cannot be replayed.
+- `final-send.upstream-call-count` — instrumented real upstream call count proves exactly one call for an admitted dispatch and no duplicate retry.
+
+The gate `memory:protected-final-send-production` remains `BLOCKED` until every item has trusted runtime evidence with status `PASS`. The deployment manifest cannot assert or override these values. The current read-only verifier has no trusted live Host/Gateway attestation source, so it deliberately emits `NOT_TESTED`; PR #844 is therefore not deployment-authorized for production. Tests that construct evidence objects exercise policy behavior only and are not production attestations.
+
+A future attestation provider must be internal to the deployment/runtime trust boundary, bind evidence to the exact Logic-Engine build, ST version and installed patch hash, and be collected by the verifier itself. User-supplied JSON, environment variables, manifest declarations or Extension browser state are not acceptable evidence sources.
