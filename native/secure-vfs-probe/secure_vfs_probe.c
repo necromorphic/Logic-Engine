@@ -1777,6 +1777,15 @@ static int probe_win_delete_role(int role_index, const wchar_t *relative_name,
   FILE_DISPOSITION_INFO disposition;
   FILE_STANDARD_INFO standard_info;
   DWORD error;
+  /*
+   * The persistent role manifest has no durable main-database deletion
+   * transition yet. Deleting the file while retaining an active manifest
+   * record would make restart reconciliation ambiguous and could permit
+   * accidental re-enrollment of a replacement. Keep manifest-bound main
+   * databases undeletable until the broker/manifest lifecycle owns this
+   * operation end-to-end.
+   */
+  if (is_main && role->manifest_bound) return SQLITE_IOERR_DELETE;
   if (!is_main) {
     if (!suffix || !probe_win_sidecar_kind(suffix)) return SQLITE_IOERR_DELETE;
     if (!probe_win_sidecar_identity_lookup(role_index, suffix, &expected_sidecar)) {
