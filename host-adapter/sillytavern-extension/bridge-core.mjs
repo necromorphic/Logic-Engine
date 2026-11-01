@@ -1,8 +1,8 @@
 /**
- * Transport and status mapping for the Logic-Engine bridge settings panel.
- * This module is intentionally DOM-free so it can be unit tested under Node.
+ * Browser-side Extension Gateway transport.
+ * Every Host request stays same-origin and enters through SillyTavern's
+ * supported server-plugin namespace. This module never calls Core directly.
  */
-
 export const CONNECTION_STATES = Object.freeze({
   idle: 'idle',
   checking: 'checking',
@@ -11,80 +11,71 @@ export const CONNECTION_STATES = Object.freeze({
   error: 'error',
 });
 
-/**
- * Failure kinds are deliberately limited to the two states the UI must show
- * besides "connected":
- * - "unavailable": the engine could not be reached at all (offline, refused,
- *   timeout, DNS failure);
- * - "error": the engine was reached or the address is invalid, but the result
- *   is not a valid Logic-Engine /health response.
- */
-export class HealthCheckError extends Error {
+const GATEWAY_SESSION_PATH = '/api/plugins/logic-engine-extension-gateway/session';
+const HOST_SESSION_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export class GatewayCheckError extends Error {
   constructor(kind, message, options = undefined) {
     super(message, options);
-    this.name = 'HealthCheckError';
+    this.name = 'GatewayCheckError';
     this.kind = kind;
   }
 }
 
-export function normalizeEngineUrl(value) {
-  if (typeof value !== 'string' || !value.trim()) throw new HealthCheckError('error', 'укажите адрес движка');
-  let url;
-  try { url = new URL(value.trim()); } catch { throw new HealthCheckError('error', 'некорректный адрес движка'); }
-  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password
-    || url.search || url.hash || !['', '/'].includes(url.pathname)) {
-    throw new HealthCheckError('error', 'нужен базовый HTTP(S)-адрес без логина, пути, параметров и фрагмента');
-  }
-  return url.origin;
-}
-
 function unavailable(message, cause) {
-  return new HealthCheckError('unavailable', message, cause ? { cause } : undefined);
+  return new GatewayCheckError('unavailable', message, cause ? { cause } : undefined);
 }
 
-export async function fetchHealth(baseUrl, fetchImpl = fetch, lifecycleSignal = null) {
-  const url = normalizeEngineUrl(baseUrl) + '/health';
+export async function fetchGatewaySession(fetchImpl = fetch, lifecycleSignal = null) {
+  if (typeof fetchImpl !== 'function') throw new TypeError('A fetch implementation is required');
   let response;
   try {
-    response = await fetchImpl(url, {
+    response = await fetchImpl(GATEWAY_SESSION_PATH, {
       method: 'GET',
-      credentials: 'omit',
+      credentials: 'same-origin',
       cache: 'no-store',
       redirect: 'error',
+      headers: { accept: 'application/json' },
       signal: lifecycleSignal
         ? AbortSignal.any([lifecycleSignal, AbortSignal.timeout(2500)])
         : AbortSignal.timeout(2500),
     });
   } catch (error) {
-    // Disabling the extension is not a connection failure and must not paint the panel.
     if (lifecycleSignal?.aborted) throw error;
-    if (error?.name === 'TimeoutError') throw unavailable('движок не ответил за 2,5 с', error);
-    throw unavailable('движок недоступен: соединение не установлено', error);
+    if (error?.name === 'TimeoutError') throw unavailable('Extension Gateway не ответил за 2,5 с', error);
+    throw unavailable('Extension Gateway недоступен', error);
   }
-  if (!response.ok) throw new HealthCheckError('error', `движок ответил HTTP ${response.status}`);
+  if (response.status === 401 || response.status === 403) {
+    throw new GatewayCheckError('error', 'SillyTavern не подтвердил аутентифицированную сессию');
+  }
+  if (!response.ok) {
+    throw new GatewayCheckError('error', `Extension Gateway ответил HTTP ${response.status}`);
+  }
   let body;
   try {
     body = await response.json();
   } catch (error) {
-    throw new HealthCheckError('error', 'ответ движка не является корректным JSON', { cause: error });
+    throw new GatewayCheckError('error', 'ответ Extension Gateway не является корректным JSON', { cause: error });
   }
-  if (body?.ok !== true || body?.service !== 'logic-engine' || body?.protocol_version !== 'v1') {
-    throw new HealthCheckError('error', 'ответ не соответствует контракту Logic-Engine /health');
+  if (typeof body?.host_session_id !== 'string' || !HOST_SESSION_UUID.test(body.host_session_id)
+    || body?.host_session_identity !== 'SIGNED_AUTHENTICATED_ST_SESSION'
+    || typeof body?.host_user_handle !== 'string' || !body.host_user_handle.trim()) {
+    throw new GatewayCheckError('error', 'ответ не соответствует контракту Host session');
   }
   return body;
 }
 
-export function describeHealthResult(body) {
+export function describeGatewayResult(body) {
   return {
     state: CONNECTION_STATES.connected,
-    text: `Подключено: ${body.service}, протокол ${body.protocol_version}.`,
+    text: `Extension Gateway подключён. Сессия SillyTavern подтверждена; Host/Core transport остаётся NON_READY.`,
+    sessionId: body.host_session_id,
   };
 }
 
-export function describeHealthFailure(error) {
+export function describeGatewayFailure(error) {
   if (error?.kind === 'unavailable') {
     return { state: CONNECTION_STATES.unavailable, text: `Недоступно: ${error.message}.` };
   }
-  const message = error?.message || 'неизвестная ошибка';
-  return { state: CONNECTION_STATES.error, text: `Ошибка: ${message}.` };
+  return { state: CONNECTION_STATES.error, text: `Ошибка: ${error?.message || 'неизвестная ошибка'}.` };
 }
