@@ -1,6 +1,6 @@
 # Unified final-send boundary — pinned SillyTavern route audit
 
-**Status:** implementation workstream; not production-ready.  
+**Status:** historical route audit and implementation experiment; NOT an approved integration procedure. The proposed Host source patch is rejected because SillyTavern must remain unmodified. The current target contract and extension feasibility findings are in [document 102](./102-target-trust-boundaries-and-st-extension-feasibility.md).  
 **Target Host:** SillyTavern commit `06bde939fb1e9c4c8d8641d810f0a916b5bce127` (1.19.0-1-g06bde939).  
 **Logic-Engine base:** `main` at `0c3debcb01946f6f8c94811b192e7277422e990a`.  
 **Rule:** do not continue or transplant old PR #646. This work starts from current Logic-Engine main.
@@ -12,7 +12,7 @@ The pinned Host has one Express generation endpoint:
 - `POST /generate` in `src/endpoints/backends/chat-completions.js`, beginning at line 2242.
 - It applies post-processing/schema flattening, then dispatches by `request.body.chat_completion_source`.
 - Provider-specific branches return from dedicated send functions; remaining sources use the generic OpenAI-compatible builder and call `fetch(endpointUrl, config)`.
-- The protected boundary therefore must be inserted after provider-specific request construction/serialization and before the first upstream request is initiated. Merely wrapping the generic fallback does not cover the dedicated send functions.
+- The original audit concluded that a source-level boundary would need to be inserted after provider-specific request construction/serialization and before the first upstream request. That insertion requires modifying SillyTavern and is therefore not an approved solution. The sender inventory remains useful as a coverage checklist, but the source-patching integration proposal is superseded by document 102.
 
 ## 2. Dedicated protected sender functions
 
