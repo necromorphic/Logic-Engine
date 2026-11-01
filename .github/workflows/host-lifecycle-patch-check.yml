@@ -21,22 +21,32 @@ jobs:
           repository: SillyTavern/SillyTavern
           ref: 06bde939fb1e9c4c8d8641d810f0a916b5bce127
           path: sillytavern
-      - name: Install only the Extension Gateway artifacts
+      - name: Install Gateway artifacts and apply the pinned lifecycle patch
+        shell: bash
         run: |
           mkdir -p sillytavern/plugins/logic-engine-extension-gateway
           cp host-adapter/extension-gateway/server-plugin/*.mjs sillytavern/plugins/logic-engine-extension-gateway/
           mkdir -p sillytavern/public/scripts/extensions/third-party/logic-engine-extension-gateway
           cp host-adapter/extension-gateway/index.js host-adapter/extension-gateway/gateway-policy.mjs host-adapter/extension-gateway/host-context.mjs host-adapter/extension-gateway/conversation-identity.mjs host-adapter/extension-gateway/manifest.json sillytavern/public/scripts/extensions/third-party/logic-engine-extension-gateway/
-          git -C sillytavern diff --exit-code
+          patch="$PWD/host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch"
+          git -C sillytavern apply --unidiff-zero --check "$patch"
+          git -C sillytavern apply --unidiff-zero "$patch"
+          git -C sillytavern diff --check
+          expected=$(printf '%s\n' 'public/script.js' 'public/scripts/bookmarks.js' 'public/scripts/group-chats.js' 'public/scripts/chat-backups.js' 'public/scripts/slash-commands.js' 'src/server-main.js' 'src/endpoints/backends/chat-completions.js' 'src/endpoints/chats.js' 'src/endpoints/groups.js' 'src/endpoints/characters.js' 'src/endpoints/backups.js' 'src/endpoints/logic-engine-host-inventory-handler.mjs')
+          actual=$(git -C sillytavern diff --name-only | sort)
+          diff -u <(printf '%s\n' "$expected" | sort) <(printf '%s\n' "$actual")
           test ! -e sillytavern/src/endpoints/logic-engine-lifecycle.js
           test ! -e sillytavern/src/endpoints/logic-engine-host-inventory.js
+          ! grep -R -n '/api/logic-engine' host-adapter/extension-gateway host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch
       - name: Verify native plugin authentication order and extension interceptor
         run: |
           node --input-type=module -e "import fs from 'node:fs'; const s=fs.readFileSync('sillytavern/src/server-main.js','utf8'); const p=fs.readFileSync('sillytavern/src/plugin-loader.js','utf8'); if (!(s.indexOf('app.use(requireLoginMiddleware)') < s.indexOf('loadPlugins(app, pluginsDirectory)'))) process.exit(1); if (!(p.includes('/api/plugins/') && p.includes('router'))) process.exit(1); const e=fs.readFileSync('sillytavern/public/scripts/extensions.js','utf8'); if (!e.includes('runGenerationInterceptors')) process.exit(1);"
-      - name: Syntax-check installed Gateway
+      - name: Syntax-check patched Host and Gateway
         run: |
           find sillytavern/plugins/logic-engine-extension-gateway -name '*.mjs' -print0 | xargs -0 -n1 node --check
           node --check sillytavern/public/scripts/extensions/third-party/logic-engine-extension-gateway/index.js
           node --check sillytavern/public/scripts/extensions/third-party/logic-engine-extension-gateway/host-context.mjs
-      - name: Run Gateway and Host identity tests
-        run: node --test host-adapter/extension-gateway/tests/*.test.mjs host-adapter/prototype/tests/st-host-inventory-handler.test.mjs host-adapter/prototype/tests/st-server-digest-proxy.test.mjs src/application/host-session-context.test.js
+          for f in public/script.js public/scripts/bookmarks.js public/scripts/group-chats.js public/scripts/chat-backups.js public/scripts/slash-commands.js src/server-main.js src/endpoints/backends/chat-completions.js src/endpoints/chats.js src/endpoints/groups.js src/endpoints/characters.js src/endpoints/backups.js; do node --check "sillytavern/$f"; done
+      - name: Run Gateway, lifecycle and identity tests
+        run: |
+          node --test host-adapter/extension-gateway/tests/*.test.mjs host-adapter/prototype/tests/lifecycle-acceptance-scenarios.test.mjs host-adapter/prototype/tests/pinned-st-source-audit.test.mjs host-adapter/prototype/tests/st-host-inventory-handler.test.mjs host-adapter/prototype/tests/st-server-digest-proxy.test.mjs src/application/host-session-context.test.js
