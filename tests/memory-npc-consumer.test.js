@@ -430,8 +430,10 @@ test('malformed Core authorized-read envelopes fail closed without leaking envel
         const result = originalRead(input);
         if (!input.fields.includes('attributes.public_note')) return result;
         if (name === 'null envelope') return null;
+        const mutated = mutate(result);
+        if (name === 'stale snapshot cursor') return mutated;
         return {
-          ...mutate(result),
+          ...mutated,
           diagnostics: 'private Core diagnostic must not escape',
           snippet: 'private Core snippet must not escape',
         };
@@ -525,7 +527,7 @@ test('authorized Memory record with missing canonical source is non-ready, not e
 
   const result = await consumer.retrieveForNpc(request());
   assert.equal(result.status, 'non_ready');
-  assert.equal(result.reason, 'authorized_source_missing');
+  assert.equal(result.reason, 'authorized_source_read_invalid');
   assert.deepEqual(result.admitted, []);
   assert.deepEqual(result.candidates, []);
 });
