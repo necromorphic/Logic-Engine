@@ -67,8 +67,8 @@ function setup(t) {
   return { store, engine, actors, conversations, authorizers, scope };
 }
 
-test('production NPC read authorization requires configured adapter, active Host conversation binding, and active actor binding', (t) => {
-  const { authorizers, scope } = setup(t);
+test('production NPC query authorization requires a branded authenticated Host session and active bindings', (t) => {
+  const { authorizers, scope, hostSessionContext } = setup(t);
   assert.deepEqual(authorizers.readAuthorizer(scope), {
     status: 'authorized',
     ...scope,
@@ -78,21 +78,29 @@ test('production NPC read authorization requires configured adapter, active Host
   assert.equal(authorizers.readAuthorizer({ ...scope, adapter_id: 'unconfigured-adapter' }), null);
   assert.equal(authorizers.readAuthorizer({ ...scope, actor_id: 'other-actor' }), null);
 
-  assert.equal(authorizers.memoryQueryAuthorizer(scope), true);
+  assert.equal(authorizers.memoryQueryAuthorizer(scope, hostSessionContext), true);
+  assert.equal(authorizers.memoryQueryAuthorizer(scope), false);
+  const otherConversation = HOST_SESSION_ID + ':22222222-2222-4222-8222-222222222222:44444444-4444-4444-8444-444444444444';
+  const contextForOtherConversation = createAuthenticatedHostSessionContext(hostRequest, otherConversation);
+  assert.equal(authorizers.memoryQueryAuthorizer(scope, contextForOtherConversation), false);
+  const otherSessionRequest = {
+    user: { profile: { handle: 'bob' } },
+    session: { handle: 'bob', logicEngineSessionId: '44444444-4444-4444-8444-444444444444', logicEngineSessionHandle: 'bob' },
+  };
+  assert.equal(createAuthenticatedHostSessionContext(otherSessionRequest, HOST_CONVERSATION_ID), null);
   assert.equal(authorizers.memoryQueryAuthorizer({
-    ...scope, conversation_id: 'other-session:installation:conversation',
-  }), false);
+    ...scope, conversation_id: '44444444-4444-4444-8444-444444444444:22222222-2222-4222-8222-222222222222:33333333-3333-4333-8333-333333333333',
+  }, hostSessionContext), false);
   assert.equal(authorizers.memoryQueryAuthorizer({
     ...scope, adapter_id: 'unconfigured-adapter',
-  }), false);
+  }, hostSessionContext), false);
   assert.equal(authorizers.memoryQueryAuthorizer({
     ...scope, purpose: 'npc_decision',
-  }), false);
+  }, hostSessionContext), false);
   assert.equal(authorizers.memoryQueryAuthorizer({
     ...scope, recipient: 'player',
-  }), false);
+  }, hostSessionContext), false);
 });
-
 test('per-acquisition visibility requires exact trusted source provenance and the same live Host/actor bindings', (t) => {
   const { authorizers, scope, conversations, hostSessionContext } = setup(t);
   const acquisition = {
