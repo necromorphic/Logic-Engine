@@ -353,7 +353,52 @@ export function createHostLifecycleSaveGuard({ enumerate = enumerateHostDataInve
 const HOST_CONVERSATION_ID = new RegExp(
   '^' + HOST_SESSION_UUID.source.slice(1, -1) + ':'
     + HOST_SESSION_UUID.source.slice(1, -1) + ':'
-    + HOST_SESSION_UUID.source.slice(1, -1) + '$',
+    + HOST_SESSION_UUID.source.slice(1, -1) + '
+
+/**
+ * Process-local request capability for an in-process Core adapter. The resolver
+ * must map the exact authenticated request to canonical server-owned chat state.
+ */
+export function createHostRequestAuthenticationGate({ resolveConversationId } = {}) {
+  if (typeof resolveConversationId !== 'function') {
+    throw new TypeError('A trusted Host conversation resolver is required.');
+  }
+  const authenticatedRequests = new WeakMap();
+  async function middleware(request, response, next) {
+    response.set('Cache-Control', 'no-store, private');
+    response.set('Vary', 'Cookie');
+    const identity = getAuthenticatedHostIdentity(request, {
+      requireDirectories: true,
+      requireSessionIdentity: true,
+    });
+    if (!identity || (typeof request !== 'object' && typeof request !== 'function') || request === null) {
+      return response.sendStatus(403);
+    }
+    const { session } = identity;
+    try {
+      const conversationId = await resolveConversationId(request);
+      if (typeof conversationId !== 'string' || !HOST_CONVERSATION_ID.test(conversationId)) {
+        return response.sendStatus(403);
+      }
+      authenticatedRequests.set(request, conversationId);
+      return next();
+    } catch {
+      return response.sendStatus(403);
+    }
+  }
+  return Object.freeze({
+    middleware,
+    isAuthenticatedHostRequest(request) {
+      return request !== null && (typeof request === 'object' || typeof request === 'function')
+        && authenticatedRequests.has(request);
+    },
+    resolveHostConversationId(request) {
+      if (request === null || (typeof request !== 'object' && typeof request !== 'function')) return null;
+      return authenticatedRequests.get(request) ?? null;
+    },
+  });
+}
+,
   'i',
 );
 
