@@ -61,7 +61,7 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
       return { status: 'ready', admitted: [], candidates: [], snapshot: { world_revision: 0, commit_sequence: 0 } };
     },
   };
-  const server = createApiServer({
+  let server = createApiServer({
     engine, token: API_TOKEN, adminToken: ADMIN_TOKEN,
     adapterTokens: { [ADAPTER_ID]: ADAPTER_TOKEN },
     memoryNpcConsumers: { [ADAPTER_ID]: consumer },
@@ -123,7 +123,22 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
   assert.equal(tampered.status, 401);
   assert.equal(calls, 1);
 
-  const callerSelectedWorld = await post(base, '/v1/host-context/resolve', adapterHeaders, {
+  // The nonce ledger is durable in the Core SQLite store, not a process-local Map.
+  await new Promise(resolve => server.close(resolve));
+  server = createApiServer({
+    engine, token: API_TOKEN, adminToken: ADMIN_TOKEN,
+    adapterTokens: { [ADAPTER_ID]: ADAPTER_TOKEN },
+    memoryNpcConsumers: { [ADAPTER_ID]: consumer },
+  });
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  const restartedBase = 'http://127.0.0.1:' + server.address().port;
+  const replayAfterRestart = await post(restartedBase, '/v1/host/memory-npc/retrieve', adapterHeaders, body);
+  assert.equal(replayAfterRestart.status, 409);
+  assert.equal((await replayAfterRestart.json()).error.code, 'HOST_SESSION_ASSERTION_REPLAYED');
+  assert.equal(calls, 1);
+
+  const callerSelectedWorld = await post(restartedBase, '/v1/host-context/resolve', adapterHeaders, {
     conversation_id: conversationId, world_id: 'attacker-world',
   });
   assert.equal(callerSelectedWorld.status, 400);
