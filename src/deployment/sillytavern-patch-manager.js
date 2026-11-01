@@ -13,7 +13,6 @@ const MAX_PATCH_BYTES = 8 * 1024 * 1024;
 // Package-owned files plus exact, approved native ST integration seams.
 const ALLOWED_PACKAGE_ROOTS = Object.freeze([
   'public/scripts/extensions/third-party/logic-engine-extension-gateway/',
-  'plugins/logic-engine-extension-gateway/',
 ]);
 const ALLOWED_NATIVE_SOURCE_PATHS = new Set([
   'src/server-startup.js',
