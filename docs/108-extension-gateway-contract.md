@@ -1,6 +1,6 @@
 # Extension Gateway contract — implementation slice
 
-**Status:** Gateway core/client transport and a pinned ST 1.19.0 startup patch are implemented. Isolated contract tests pass; CI now applies the patch to a disposable official 1.19.0 checkout and verifies rollback. Production Host Adapter implementation/registration and Extension → Gateway → Host Adapter → Core end-to-end execution remain pending. Protected operations remain disabled / fail-closed.
+**Status:** Gateway core/client transport and two exact-commit ST 1.19.0 patch manifests are implemented (official tag and uploaded installed build). CI applies, inspects, and rolls back both disposable checkouts, including Extension Manager discovery. Production Host Adapter implementation/registration, live ST process/browser acceptance, and Extension → Gateway → Host Adapter → Core end-to-end execution remain pending. Protected operations remain disabled / fail-closed.
 
 ## Approved topology
 
