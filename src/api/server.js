@@ -536,6 +536,47 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
         });
         return send(res, binding.already_bound ? 200 : 201, { binding });
       }
+      if (url.pathname === '/v1/host-conversation-bindings/resolve-context') {
+        if (req.method !== 'POST') return send(res, 405, { error: { code: 'METHOD_NOT_ALLOWED', message: 'Unsupported authenticated Host context resolution operation.' } });
+        const adapterId = adapterIdFor(req);
+        if (!adapterId) return send(res, 403, { error: { code: 'ADAPTER_REQUIRED', message: 'An authenticated adapter identity is required.' } });
+        const body = await readBody(req);
+        const hostContext = body?.host_context;
+        const hostContextKeys = ['installation_id', 'account_id', 'session_id'];
+        const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+        const conversationParts = typeof body?.conversation_id === 'string'
+          ? body.conversation_id.split(':') : [];
+        if (!body || typeof body !== 'object' || Array.isArray(body)
+          || Object.keys(body).some(key => !['conversation_id', 'host_context', 'actor_entity_id'].includes(key))
+          || !hostContext || typeof hostContext !== 'object' || Array.isArray(hostContext)
+          || Object.keys(hostContext).some(key => !hostContextKeys.includes(key))
+          || hostContextKeys.some(key => !uuid.test(hostContext[key] ?? ''))
+          || !uuid.test(conversationParts[2] ?? '') || conversationParts.length !== 3
+          || conversationParts[0] !== hostContext.installation_id
+          || conversationParts[1] !== hostContext.account_id
+          || typeof body.actor_entity_id !== 'string' || body.actor_entity_id !== body.actor_entity_id.trim()
+          || body.actor_entity_id.length === 0 || body.actor_entity_id.length > 200) {
+          throw new EngineError('INVALID_AUTHENTICATED_HOST_CONTEXT',
+            'Host context must contain server-authenticated installation, account and session UUIDs bound to the stable conversation identity, plus a configured actor entity.', 400);
+        }
+        const binding = hostConversationBindings.resolve({
+          adapterId,
+          conversationId: body.conversation_id,
+        });
+        const actor = actorBindings.resolve(binding.world_id, adapterId, body.actor_entity_id);
+        return send(res, 200, {
+          context: {
+            installation_id: hostContext.installation_id,
+            account_id: hostContext.account_id,
+            session_id: hostContext.session_id,
+            conversation_id: body.conversation_id,
+            world_id: binding.world_id,
+            actor_id: actor.actor.entity_id,
+            adapter_id: adapterId,
+            authority: 'AUTHENTICATED_ADAPTER_AND_CORE_BINDINGS',
+          },
+        });
+      }
       if (url.pathname === '/v1/host-conversation-bindings/resolve') {
         if (req.method !== 'POST') return send(res, 405, { error: { code: 'METHOD_NOT_ALLOWED', message: 'Unsupported Host conversation resolution operation.' } });
         const adapterId = adapterIdFor(req);
