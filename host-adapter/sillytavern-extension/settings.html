@@ -5,12 +5,16 @@
       <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
     </div>
     <div class="inline-drawer-content">
-      <p class="logic-engine-warning">Проверяется только аутентифицированный вход Extension Gateway. Это не подтверждает готовность Core, Memory Provider или Memory → NPC.</p>
+      <p class="logic-engine-warning">Gateway подтверждает только Host identity и текущие Core bindings. Это не включает Memory retrieval, final-send или Memory → NPC.</p>
       <div class="flex-container">
         <button id="logic_engine_check" class="menu_button">Проверить Gateway</button>
         <span id="logic_engine_status" role="status" aria-live="polite" data-state="idle">Не проверено</span>
       </div>
-      <p class="logic-engine-muted">Браузер обращается только к same-origin маршруту /api/plugins/logic-engine-extension-gateway. Прямые запросы браузера к Core и передача Core credentials отсутствуют.</p>
+      <div class="flex-container">
+        <button id="logic_engine_context" class="menu_button">Проверить Host context в Core</button>
+        <span id="logic_engine_context_status" role="status" aria-live="polite" data-state="idle">Core context не проверен</span>
+      </div>
+      <p class="logic-engine-muted">Оба запроса идут только через same-origin /api/plugins/logic-engine-extension-gateway. Браузер передаёт только UUID текущего чата; installation/account/session проверяются сервером, World/Actor задаются серверной конфигурацией и независимо сверяются Core.</p>
     </div>
   </div>
 </div>
