@@ -118,6 +118,13 @@ test('production NPC query authorization requires a branded authenticated Host s
   assert.equal(authorizers.memoryQueryAuthorizer({
     ...scope, conversation_id: '44444444-4444-4444-8444-444444444444:22222222-2222-4222-8222-222222222222:33333333-3333-4333-8333-333333333333',
   }, hostSessionContext), false);
+  assert.equal(authorizers.memoryQueryAuthorizer({ ...scope, world_id: 'world-b' }, hostSessionContext), false);
+  assert.equal(authorizers.memoryQueryAuthorizer({ ...scope, actor_id: 'other-actor' }, hostSessionContext), false);
+  const mismatchedSessionRequest = {
+    ...hostRequest,
+    session: { ...hostRequest.session, logicEngineSessionHandle: 'bob' },
+  };
+  assert.equal(createAuthenticatedHostSessionContext(mismatchedSessionRequest, HOST_CONVERSATION_ID), null);
   assert.equal(authorizers.memoryQueryAuthorizer({
     ...scope, adapter_id: 'unconfigured-adapter',
   }, hostSessionContext), false);
