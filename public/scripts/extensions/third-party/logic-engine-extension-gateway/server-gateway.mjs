@@ -84,28 +84,46 @@ async function readBoundedBody(request, maxBytes) {
   return Buffer.concat(chunks, size).toString('utf8');
 }
 
-export function createExtensionGateway({ hostAdapter, maxBodyBytes = EXTENSION_GATEWAY_MAX_BODY_BYTES, now = () => new Date().toISOString() } = {}) {
+export function createExtensionGateway({ hostAdapter, maxBodyBytes = EXTENSION_GATEWAY_MAX_BODY_BYTES, now = () => new Date().toISOString(), onDiagnostic = () => {} } = {}) {
   if (!hostAdapter || typeof hostAdapter.handleExtensionRequest !== 'function'
     || !Number.isInteger(maxBodyBytes) || maxBodyBytes < 1024
     || maxBodyBytes > EXTENSION_GATEWAY_MAX_BODY_BYTES
-    || typeof now !== 'function') {
+    || typeof now !== 'function' || typeof onDiagnostic !== 'function') {
     throw new TypeError('Extension Gateway requires an Authenticated Host Adapter and a bounded request size.');
   }
 
   let state = 'ACTIVE';
   let inFlight = 0;
 
+  function diagnostic(event, details = {}) {
+    try {
+      const result = onDiagnostic(Object.freeze({
+        component: 'extension-gateway',
+        event,
+        at: now(),
+        ...details,
+      }));
+      if (result && typeof result.then === 'function') return false;
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   async function handle(request, response) {
     if (state !== 'ACTIVE') {
+      diagnostic('INGRESS_REJECTED', { reason: 'GATEWAY_UNAVAILABLE' });
       send(response, 503, { error: 'GATEWAY_UNAVAILABLE' });
       return;
     }
     if (request.method !== 'POST' || request.path !== EXTENSION_GATEWAY_PATH) {
+      diagnostic('INGRESS_REJECTED', { reason: 'NOT_FOUND' });
       send(response, 404, { error: 'NOT_FOUND' });
       return;
     }
     const contentType = String(request.headers?.['content-type'] || '').split(';', 1)[0].trim().toLowerCase();
     if (contentType !== 'application/json') {
+      diagnostic('INGRESS_REJECTED', { reason: 'UNSUPPORTED_MEDIA_TYPE' });
       send(response, 415, { error: 'UNSUPPORTED_MEDIA_TYPE' });
       return;
     }
@@ -114,9 +132,9 @@ export function createExtensionGateway({ hostAdapter, maxBodyBytes = EXTENSION_G
     try {
       raw = await readBoundedBody(request, maxBodyBytes);
     } catch (error) {
-      send(response, error?.message === 'REQUEST_TOO_LARGE' ? 413 : 400, {
-        error: error?.message === 'REQUEST_TOO_LARGE' ? 'REQUEST_TOO_LARGE' : 'INVALID_REQUEST',
-      });
+      const reason = error?.message === 'REQUEST_TOO_LARGE' ? 'REQUEST_TOO_LARGE' : 'INVALID_REQUEST';
+      diagnostic('INGRESS_REJECTED', { reason });
+      send(response, reason === 'REQUEST_TOO_LARGE' ? 413 : 400, { error: reason });
       return;
     }
 
@@ -124,12 +142,19 @@ export function createExtensionGateway({ hostAdapter, maxBodyBytes = EXTENSION_G
     try {
       envelope = validateEnvelope(JSON.parse(raw));
     } catch {
+      diagnostic('INGRESS_REJECTED', { reason: 'INVALID_ENVELOPE' });
       send(response, 400, { error: 'INVALID_ENVELOPE' });
       return;
     }
 
     if (state !== 'ACTIVE') {
+      diagnostic('INGRESS_REJECTED', { reason: 'GATEWAY_UNAVAILABLE', request_id: envelope.request_id });
       send(response, 503, { error: 'GATEWAY_UNAVAILABLE' });
+      return;
+    }
+    const receivedAt = now();
+    if (!diagnostic('INGRESS_ACCEPTED', { request_id: envelope.request_id, operation: envelope.operation })) {
+      send(response, 503, { error: 'GATEWAY_DIAGNOSTICS_UNAVAILABLE' });
       return;
     }
     inFlight += 1;
@@ -146,8 +171,13 @@ export function createExtensionGateway({ hostAdapter, maxBodyBytes = EXTENSION_G
         send(response, 503, { error: 'HOST_ADAPTER_UNAVAILABLE' });
         return;
       }
+      if (!diagnostic('HOST_ADAPTER_RESULT', { request_id: envelope.request_id, operation: envelope.operation, status: result.status })) {
+        send(response, 503, { error: 'GATEWAY_DIAGNOSTICS_UNAVAILABLE' });
+        return;
+      }
       send(response, result.status, result.body);
     } catch {
+      diagnostic('HOST_ADAPTER_ERROR', { request_id: envelope.request_id, operation: envelope.operation });
       send(response, 503, { error: 'HOST_ADAPTER_UNAVAILABLE' });
     } finally {
       inFlight -= 1;
