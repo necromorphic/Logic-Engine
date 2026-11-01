@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { existsSync, openSync } from 'node:fs';
+import { existsSync, mkdirSync, openSync, renameSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { test } from 'node:test';
@@ -11,10 +11,11 @@ const packageRoot = process.env.BETTER_SQLITE3_PACKAGE_DIR;
 const extensionPath = process.env.LOGIC_ENGINE_VFS_PROBE_PATH;
 const databasePath = process.env.LOGIC_ENGINE_DATABASE_PATH;
 const socketPath = process.env.LOGIC_ENGINE_BROKER_SOCKET;
+const protectedRoleParent = process.env.LOGIC_ENGINE_PROTECTED_ROLE_PARENT;
 
 test('distinct-UID broker protects better-sqlite3 main, journal, WAL and SHM files', {
   skip: process.platform !== 'linux' || !packageRoot || !extensionPath
-    || !databasePath || !socketPath,
+    || !databasePath || !socketPath || !protectedRoleParent,
 }, async () => {
   const Database = require(packageRoot);
   assert.equal(Number(process.versions.napi) >= 10, true);
@@ -28,6 +29,25 @@ test('distinct-UID broker protects better-sqlite3 main, journal, WAL and SHM fil
     'the app-visible logical DB alias must not contain a database file');
   assert.throws(() => openSync(databasePath, 'w'), { code: 'EACCES' },
     'the application UID must not create or replace the logical DB alias');
+
+  // The app receives file descriptors only. It cannot open, enumerate, or
+  // mutate the broker-owned role directory through a pathname, and the broker
+  // protocol no longer has an operation that exports a parent directory FD.
+  assert.throws(() => openSync(protectedRoleParent, 'r'), { code: 'EACCES' },
+    'the application UID must not obtain a role-parent directory descriptor');
+  assert.throws(() => mkdirSync(path.join(protectedRoleParent, 'app-created')),
+    { code: 'EACCES' },
+    'the application UID must not create entries in the protected role namespace');
+  assert.throws(() => openSync(path.join(protectedRoleParent, 'vectors.sqlite'), 'w'),
+    { code: 'EACCES' },
+    'the application UID must not open the protected main DB by pathname');
+  assert.throws(() => unlinkSync(path.join(protectedRoleParent, 'vectors.sqlite')),
+    { code: 'EACCES' },
+    'the application UID must not unlink the protected main DB by pathname');
+  assert.throws(() => renameSync(path.join(protectedRoleParent, 'vectors.sqlite'),
+    path.join(protectedRoleParent, 'renamed.sqlite')),
+    { code: 'EACCES' },
+    'the application UID must not rename files in the protected role namespace');
 
   const bootstrap = new Database(':memory:');
   try {
