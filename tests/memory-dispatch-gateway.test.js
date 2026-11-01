@@ -109,7 +109,7 @@ async function createFixture({ sendUpstream, coreHead = 1, providerHead = 1, ini
       sources,
       candidates: providerCandidatesOverride ?? candidates,
     }),
-    sendUpstream: (request) => {
+    createTransport: (request) => () => {
       calls.push(request);
       if (sendUpstream) return sendUpstream(request);
       return Promise.resolve({ status: 200, body: 'accepted' });
@@ -254,7 +254,7 @@ test('transport handoff begins while the shared coordinator is still held', asyn
   let contender;
   let coordinatorWasHeldAtTransportStart = false;
   const fixture = await createFixture({
-    sendUpstream: () => {
+    createTransport: () => () => {
       try {
         contender.exec('BEGIN IMMEDIATE');
         contender.exec('ROLLBACK');
@@ -357,7 +357,7 @@ test('unsupported route, denied Provider grant, and pending authority all produc
 test('ambiguous transport outcome is recorded UNKNOWN and the request identity cannot be replayed', async () => {
   let sends = 0;
   const fixture = await createFixture({
-    sendUpstream: () => {
+    createTransport: () => () => {
       sends += 1;
       return Promise.reject(new Error('simulated timeout after dispatch start'));
     },
@@ -667,7 +667,7 @@ test('real Provider revokeRecord committed before dispatch-start produces zero u
           candidates: stored ? [{ record_ref: stored.record_ref, record_version: stored.record_version, source_kind: stored.source_kind, source_entity_id: stored.source_entity_id, source_version: stored.source_version }] : [],
         };
       },
-      sendUpstream: (outgoing) => {
+      createTransport: (outgoing) => () => {
         calls.push(outgoing);
         signalTransportStart();
         return transportGate.then(() => ({ status: 200, body: 'accepted' }));
@@ -850,7 +850,7 @@ test('real Core source mutation and Gateway dispatch-start share one cross-proce
         sources,
         candidates,
       }),
-      sendUpstream: (request) => {
+      createTransport: (request) => () => {
         calls.push(request);
         markTransportStarted();
         return transportGate.then(() => ({ status: 200 }));
