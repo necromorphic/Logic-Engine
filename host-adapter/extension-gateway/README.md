@@ -38,7 +38,7 @@ Install the browser extension directory under:
 
 `public/scripts/extensions/third-party/logic-engine-extension-gateway/`
 
-Install the contents of `server-plugin/` under:
+Copy every `.mjs` and `.js` file from `server-plugin/` under:
 
 `plugins/logic-engine-extension-gateway/`
 
@@ -66,4 +66,4 @@ The endpoint is deliberately fail-closed until Core-side assertion verification,
 
 Target SillyTavern commit: `06bde939fb1e9c4c8d8641d810f0a916b5bce127`.
 
-The integration uses the native server-plugin loader and extension generation interceptor. CI must verify that the plugin mounts after `requireLoginMiddleware`, that `generate_interceptor` is invoked before provider dispatch, and that installing both artifacts leaves all pinned SillyTavern source files unchanged.
+The integration uses the native server-plugin loader and extension generation interceptor. CI verifies that the plugin mounts after `requireLoginMiddleware`, that `generate_interceptor` is invoked before provider dispatch, that the exact pinned lifecycle patch applies, and that its source changes stay within the reviewed allowlist. The patch does not add another public Host route.
