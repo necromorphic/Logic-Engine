@@ -98,7 +98,7 @@ ST 1.19.0 declares Node `>=20`; Logic-Engine requires Node `>=22.13.0` for `node
 | Managed local source-level patch authorization | GRANTED |
 | Patch Manager native-source support | IMPLEMENTED; focused CI PASSING |
 | Real ST session authentication / Host Adapter | NOT WIRED |
-| Single Extension Gateway ingress | CORE + CLIENT EXTENSION IMPLEMENTED; ST ROUTE MOUNT PENDING |
+| Single Extension Gateway ingress | IMPLEMENTED; official-tag patch/install/rollback CI PASS; live runtime and Host Adapter wiring pending |
 | Core dispatch-start bound to ST senders | NOT WIRED |
 | Complete sender/transport inventory test | NOT IMPLEMENTED |
 | Final-Send interception | NOT IMPLEMENTED |
