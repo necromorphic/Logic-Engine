@@ -87,7 +87,7 @@ function setup(t, { allowContent = true, authorizeQuery = true, authorizeCoreQue
   let candidateList = [candidate()];
   let lastCandidateAuthorization = null;
   const provider = {
-    authorizeQuery: async () => authorizeQuery,
+    authorizeQuery: () => authorizeQuery,
     retrieveCandidates: async () => ({
       completeness,
       index_health: 'ready',
@@ -100,6 +100,7 @@ function setup(t, { allowContent = true, authorizeQuery = true, authorizeCoreQue
       lastCandidateAuthorization = input;
       return authorizeCandidate;
     },
+    checkCandidateGrant: () => true,
   };
   const consumer = new MemoryNpcConsumer({
     authorizedReadService,
@@ -562,6 +563,7 @@ test('content field configuration must match fields the Core read boundary can d
       authorizeQuery() {},
       retrieveCandidates() {},
       authorizeCandidate() {},
+      checkCandidateGrant() {},
     },
     contentFields: ['display_name'],
   }), /trusted field allowlist/);
@@ -575,6 +577,7 @@ test('content field configuration must match fields the Core read boundary can d
       authorizeQuery() {},
       retrieveCandidates() {},
       authorizeCandidate() {},
+      checkCandidateGrant() {},
     },
     contentFields: ['attributes.'],
   }), /trusted field allowlist/);
