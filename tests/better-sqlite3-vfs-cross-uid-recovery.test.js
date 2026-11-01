@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { openSync, closeSync } from 'node:fs';
+import { existsSync, openSync } from 'node:fs';
+import path from 'node:path';
 import { createRequire } from 'node:module';
 import { test } from 'node:test';
 
@@ -16,10 +17,11 @@ test('restarted distinct-UID broker permits SQLite WAL crash recovery', {
   const Database = require(packageRoot);
   assert.equal(process.getuid(), Number(process.env.LOGIC_ENGINE_APP_UID));
   assert.notEqual(process.getuid(), Number(process.env.LOGIC_ENGINE_BROKER_UID));
-  assert.throws(() => {
-    const fd = openSync(databasePath, 'r');
-    closeSync(fd);
-  }, { code: 'EACCES' }, 'the app must still be unable to open the DB pathname directly');
+  assert.equal(existsSync(path.dirname(databasePath)), true);
+  assert.equal(existsSync(databasePath), false,
+    'the app-visible alias remains a path only, not the protected database file');
+  assert.throws(() => openSync(databasePath, 'w'), { code: 'EACCES' },
+    'the app must still be unable to create or replace the logical alias');
 
   const bootstrap = new Database(':memory:');
   try {
