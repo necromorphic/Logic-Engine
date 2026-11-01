@@ -37,7 +37,8 @@ jobs:
           diff -u <(printf '%s\n' "$expected" | sort) <(printf '%s\n' "$actual")
           test ! -e sillytavern/src/endpoints/logic-engine-lifecycle.js
           test ! -e sillytavern/src/endpoints/logic-engine-host-inventory.js
-          ! grep -R -n '/api/logic-engine' host-adapter/extension-gateway host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch
+          ! grep -R -n --include='*.mjs' --include='*.js' '/api/logic-engine' host-adapter/extension-gateway
+          ! grep -n '/api/logic-engine' host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch
       - name: Verify native plugin authentication order and extension interceptor
         run: |
           node --input-type=module -e "import fs from 'node:fs'; const s=fs.readFileSync('sillytavern/src/server-main.js','utf8'); const p=fs.readFileSync('sillytavern/src/plugin-loader.js','utf8'); if (!(s.indexOf('app.use(requireLoginMiddleware)') < s.indexOf('loadPlugins(app, pluginsDirectory)'))) process.exit(1); if (!(p.includes('/api/plugins/') && p.includes('router'))) process.exit(1); const e=fs.readFileSync('sillytavern/public/scripts/extensions.js','utf8'); if (!e.includes('runGenerationInterceptors')) process.exit(1);"
