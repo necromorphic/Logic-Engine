@@ -168,6 +168,7 @@ const validRequest = (requestId = 'request-001', overrides = {}) => ({
   candidates: [{
     record_ref: 'record-42',
     record_version: 'record-version-3',
+    authorization_generation: 1,
     source_kind: 'canonical_entity',
     source_entity_id: 'entity-42',
     source_version: 'version-7',
@@ -182,6 +183,7 @@ test('Host dispatch signature binds the exact body, route, model, identity, and 
   assert.equal(verifyDispatchRequestSignature(secret, request, signature), true);
   assert.equal(verifyDispatchRequestSignature(secret, { ...request, body: request.body + 'tampered' }, signature), false);
   assert.equal(verifyDispatchRequestSignature(secret, { ...request, candidates: [{ ...request.candidates[0], record_version: 'record-version-4' }] }, signature), false);
+  assert.equal(verifyDispatchRequestSignature(secret, { ...request, candidates: [{ ...request.candidates[0], authorization_generation: 2 }] }, signature), false);
   assert.equal(verifyDispatchRequestSignature(secret, { ...request, sources: [{
     source_kind: 'canonical_entity',
     source_entity_id: 'entity-42',
@@ -193,8 +195,8 @@ test('Host dispatch signature binds the exact body, route, model, identity, and 
       { source_kind: 'canonical_entity', source_entity_id: 'ä-entity', source_version: 'v1' },
     ],
     candidates: [
-      { record_ref: 'record-z', record_version: 'rv1', source_kind: 'canonical_entity', source_entity_id: 'z-entity', source_version: 'v1' },
-      { record_ref: 'record-a', record_version: 'rv1', source_kind: 'canonical_entity', source_entity_id: 'ä-entity', source_version: 'v1' },
+      { record_ref: 'record-z', record_version: 'rv1', authorization_generation: 1, source_kind: 'canonical_entity', source_entity_id: 'z-entity', source_version: 'v1' },
+      { record_ref: 'record-a', record_version: 'rv1', authorization_generation: 1, source_kind: 'canonical_entity', source_entity_id: 'ä-entity', source_version: 'v1' },
     ],
   };
   const reverseOrder = {
@@ -279,6 +281,7 @@ test('dispatch rejects Provider evidence whose exact candidate record/version se
     providerCandidatesOverride: [{
       record_ref: 'record-42',
       record_version: 'record-version-4',
+      authorization_generation: 1,
       source_kind: 'canonical_entity',
       source_entity_id: 'entity-42',
       source_version: 'version-7',
@@ -1002,7 +1005,7 @@ test('real Provider revokeRecord committed before dispatch-start produces zero u
           granted: queryGrant?.allowed === 1 && recordGrant?.allowed === 1,
           readiness: index?.index_health === 'ready' && index?.source_reconciliation === 'current' ? 'READY' : 'NOT_READY',
           sources: stored ? [{ source_kind: stored.source_kind, source_entity_id: stored.source_entity_id, source_version: stored.source_version }] : [],
-          candidates: stored ? [{ record_ref: stored.record_ref, record_version: stored.record_version, source_kind: stored.source_kind, source_entity_id: stored.source_entity_id, source_version: stored.source_version }] : [],
+          candidates: stored ? [{ record_ref: stored.record_ref, record_version: stored.record_version, authorization_generation: 1, source_kind: stored.source_kind, source_entity_id: stored.source_entity_id, source_version: stored.source_version }] : [],
         };
       },
     }), (outgoing) => () => {
