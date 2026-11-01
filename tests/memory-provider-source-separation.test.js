@@ -72,6 +72,31 @@ test('source archive rows stay separate from fact records and rebuildable search
   assert.equal(JSON.stringify(result).includes(sceneText), false);
 });
 
+test('Host message-version tuples are rejected as semantic Provider records', (t) => {
+  const provider = setup(t);
+  const hostTuple = {
+    ...scope,
+    record_ref: 'host:conversation-a:message-a:version-a',
+    record_version: 'version-a',
+    source_kind: 'host_message_version',
+    source_entity_id: 'message-a',
+    source_version: 'version-a',
+    content_kind: 'claim',
+    epistemic_kind: 'acquired_report',
+    producer_kind: 'host',
+    content_disposition: 'usable',
+    evidence_assessment: 'unassessed',
+    lineage: [{
+      source_kind: 'host_message_version',
+      entity_id: 'message-a',
+      source_version: 'version-a',
+    }],
+  };
+  assert.throws(() => provider.putRecord(hostTuple), /Invalid direct-source Memory record/);
+  assert.equal(testDbFor(provider).prepare('SELECT COUNT(*) AS n FROM memory_records').get().n, 0);
+  assert.equal(testDbFor(provider).prepare('SELECT COUNT(*) AS n FROM memory_index_entries').get().n, 0);
+});
+
 test('summary records remain rejected until a lineage-complete summary contract is approved', (t) => {
   const provider = setup(t);
   assert.throws(
