@@ -49,11 +49,13 @@ export function createSillyTavernGenerationBridge({
       const stream = Boolean(active.request.body?.stream);
       const forwardResponse = stream
         ? (upstream) => {
-          const pending = Promise.resolve().then(
-            () => nativeForwardFetchResponse(upstream, active.response),
-          );
-          active.protectedStreamForward = pending;
-          return pending;
+          // Invoke the native response writer synchronously. Gateway calls
+          // this callback only after final revalidation and while the shared
+          // Coordinator lease is still held; only the resulting I/O Promise
+          // is awaited after releasing that lease.
+          const pending = nativeForwardFetchResponse(upstream, active.response);
+          active.protectedStreamForward = Promise.resolve(pending);
+          return active.protectedStreamForward;
         }
         : undefined;
 
