@@ -72,10 +72,18 @@ jobs:
         shell: cmd
         run: |
           node scripts/sillytavern-patch-manager.mjs preflight --st-root "%CD%\SillyTavern"
+          if errorlevel 1 exit /b 1
           node scripts/sillytavern-patch-manager.mjs install --st-root "%CD%\SillyTavern"
+          if errorlevel 1 exit /b 1
           node scripts/sillytavern-patch-manager.mjs verify --st-root "%CD%\SillyTavern"
+          if errorlevel 1 exit /b 1
           node --check SillyTavern/src/endpoints/backends/chat-completions.js
+          if errorlevel 1 exit /b 1
           node --check SillyTavern/src/endpoints/extensions.js
+          if errorlevel 1 exit /b 1
           node --check SillyTavern/src/logic-engine-final-send-hook.js
+          if errorlevel 1 exit /b 1
           node --check SillyTavern/src/logic-engine-extension-install-hook.js
+          if errorlevel 1 exit /b 1
           node scripts/sillytavern-patch-manager.mjs uninstall --st-root "%CD%\SillyTavern"
+          if errorlevel 1 exit /b 1
