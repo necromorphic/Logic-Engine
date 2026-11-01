@@ -780,6 +780,19 @@ export class SQLiteStore {
             ALTER TABLE knowledge_acquisitions ADD COLUMN acquired_source_event_ids_json TEXT;`);
         },
       },
+      {
+        version: 18,
+        apply: () => {
+          this.db.exec(`CREATE TABLE IF NOT EXISTS host_session_assertion_nonces (
+            adapter_id TEXT NOT NULL,
+            nonce TEXT NOT NULL,
+            expires_at INTEGER NOT NULL,
+            PRIMARY KEY(adapter_id, nonce)
+          ) WITHOUT ROWID;
+          CREATE INDEX IF NOT EXISTS host_session_assertion_nonces_expiry
+            ON host_session_assertion_nonces(expires_at);`);
+        },
+      },
     ];
     for (const migration of migrations) {
       const applied = this.db.prepare('SELECT version FROM schema_migrations WHERE version=?').get(migration.version);
