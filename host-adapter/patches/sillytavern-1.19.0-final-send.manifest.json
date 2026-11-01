@@ -12,34 +12,34 @@
     "sha256": "a62d3e430592047f69c6623270f8d8e8855e6cfc0b5bdaf2b851e6a873f31eab"
   },
   "sourceFiles": {
-    "package.json": "ad0c248ac5c9fec256a4f5ff3b9fb9cb6d86b747c264fd8cf6a082a742854a68",
-    "src/plugin-loader.js": "692adf64a626dbd2aa8b1c94d9322d92733239f77e3a9d32af2a48faf0b92cad",
-    "src/server-main.js": "70816e313749d66ba023e3b0491a6475e4028bba6149c027f5d2ea96726e3b97",
-    "src/server-startup.js": "c40562cd34cb54b091d12c5eb5e1543a97dc6ba6b5ad7cbdf6db9f32a12886a0",
+    "package.json": "5b6e0634a63872c33603bf803217613a388f2e5dbd5990f7b30d254bfbf027c2",
+    "src/plugin-loader.js": "994cbfde97c4ef3a2e2a8078e005e61698ded61a52741cad1efe049ee2bedee9",
+    "src/server-main.js": "567d8a9d52e70816e74f119409933f2b42ad03132d7ef01f8db3ae145c2fe7bf",
+    "src/server-startup.js": "646bee9eefa67ed62d2f2157aef88872145b90e6d4c4c32490ad4e1792f9c0ba",
     "src/endpoints/backends/chat-completions.js": {
-      "before": "9fc251057cc27f054ffdca34f34156d91a1bde62e3da047d171339bd6314851b",
+      "before": "53f429859efcfb29dd8becfebf7ff0ae49256ea795a0c81c320930fab5a407e7",
       "after": "dcc1f3585995b3ac2d5f3a3527dc8357509aa848e2fd68cb661efd9f4ba5998f"
     },
     "src/endpoints/backends/text-completions.js": {
-      "before": "5f03cd503a94687be07d2ba8843bfc50fcda714b72a8ed7159969473ce2798eb",
+      "before": "877b2b6279091c70495e561c00ce021592205e1d42ea4fe5f20f23dd67071971",
       "after": "7f77e6c68b09aaa172fdbb1ac25dad1b56c06821d653c450d6cbe688bc468e55"
     },
     "src/endpoints/backends/kobold.js": {
-      "before": "3174ece1d6a32f75f464ec6e112adec738a96494a568aac001ca5681e2cb1738",
+      "before": "ce23d72599580d5822d17fda14c8413882237c1ab984b1be63ee063256286801",
       "after": "c0ca14930c4244f4e6719843d74fab039c4377c671880908d3954ff34818df2b"
     },
     "src/endpoints/novelai.js": {
-      "before": "16956ff5f833b0336b77f3deaeb46ef06b0bee9c6d96057fb0c989881f7616f4",
+      "before": "0b6b41052ae0311ae6e716955b0805a44b1b63e3a58bf403b81becf0ff1b04ce",
       "after": "7592e9301f542a5d77b3296e6e9d04d8d7e817f0aeb9bdae5dc7f03a72ac6491"
     },
     "src/endpoints/horde.js": {
-      "before": "9fd15d56d32769afae9a7d94079999230fa776d84868f68d692c4c31fc4c0f32",
+      "before": "9a0280cfa2c5498f540b8593b100e80cbacdefa563038a6cc6c60c9c9923f3f4",
       "after": "894ff62ffb534a8744faa30d11affc5f1ca544fd8f037e79d6be7d6bfa6457a6"
     },
-    "src/constants.js": "7487bc428eeaa7f22d923371b523ffcc9bb772ea3d984a85027e73e46990212f",
-    "src/util.js": "ef8750f2a885010946ffe52f7f91c86a5e596a0f881fbcc5679901dc9da81f68",
+    "src/constants.js": "a8e507bf5f9e335810247476b28428e6e44f1b0a371df41cea748b36e70d29a7",
+    "src/util.js": "d33d67234af4e188bb7fcfac9c3ca7952c19e8c58791e96b19f9ad748dd168cd",
     "src/endpoints/extensions.js": {
-      "before": "6473a5dbd7d099fc91fbd18cf60d36700d8c115771bbeccf204f983bcbd11e3d",
+      "before": "44185c46cc31650ea770d35460114483ecafabb2b672ecc3b13b18868215e292",
       "after": "672e0cbfe9ed4dbbfa5f7ca3a1fc919d463d0dc93bc35d2f776b2093dd39639a"
     }
   },
