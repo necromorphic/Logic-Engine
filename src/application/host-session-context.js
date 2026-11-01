@@ -5,6 +5,8 @@ const HOST_SESSION_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a
 const HOST_CONVERSATION_ID = new RegExp('^' + HOST_SESSION_UUID.source.slice(1, -1) + ':'
   + HOST_SESSION_UUID.source.slice(1, -1) + ':' + HOST_SESSION_UUID.source.slice(1, -1) + '$', 'i');
 const contexts = new WeakSet();
+const contextBindings = new WeakMap();
+const usedHostRequests = new WeakSet();
 const ASSERTION_KEYS = Object.freeze([
   'protocol_version', 'host_installation_id', 'authenticated_account_id',
   'host_session_id', 'conversation_id', 'issued_at', 'nonce',
@@ -42,9 +44,32 @@ export function createAuthenticatedHostSessionContext(
       identity: 'SIGNED_AUTHENTICATED_ST_SESSION',
     });
     contexts.add(context);
+    contextBindings.set(context, { kind: 'request', request, conversationId, hostSessionId: sessionId, hostUserHandle: userHandle, isAuthenticatedHostRequest, resolveHostConversationId });
     return context;
   } catch {
     return null;
+  }
+}
+
+function isLiveAuthenticatedHostContext(context, conversationId) {
+  try {
+    const binding = contextBindings.get(context);
+    if (!binding || binding.conversationId && binding.conversationId !== conversationId) return false;
+    if (binding.kind === 'assertion') {
+      const currentSeconds = Math.floor(binding.now() / 1000);
+      return Number.isSafeInteger(currentSeconds) && currentSeconds <= binding.expiresAt;
+    }
+    const { request, hostSessionId, hostUserHandle, isAuthenticatedHostRequest, resolveHostConversationId } = binding;
+    if (isAuthenticatedHostRequest(request) !== true
+      || resolveHostConversationId(request) !== conversationId) return false;
+    const session = request?.session;
+    const currentUserHandle = request?.user?.profile?.handle;
+    return currentUserHandle === hostUserHandle
+      && session?.logicEngineSessionId === hostSessionId
+      && session?.logicEngineSessionHandle === hostUserHandle
+      && (session?.handle === undefined || session.handle === hostUserHandle);
+  } catch {
+    return false;
   }
 }
 
@@ -53,7 +78,8 @@ export function isAuthenticatedHostSessionContext(context, conversationId) {
     return context !== null && typeof context === 'object'
       && contexts.has(context)
       && ['SIGNED_AUTHENTICATED_ST_SESSION', 'SIGNED_HOST_SESSION_ASSERTION'].includes(context.identity)
-      && context.conversation_id === conversationId;
+      && context.conversation_id === conversationId
+      && isLiveAuthenticatedHostContext(context, conversationId);
   } catch {
     return false;
   }
@@ -68,11 +94,28 @@ export function runWithAuthenticatedHostSession(
   request, conversationId, callback, isAuthenticatedHostRequest, resolveHostConversationId,
 ) {
   if (typeof callback !== 'function') throw new TypeError('A Host operation callback is required');
+  if (!request || (typeof request !== 'object' && typeof request !== 'function')
+    || usedHostRequests.has(request)) {
+    throw new Error('HOST_SESSION_AUTHENTICATION_REQUIRED');
+  }
   const context = createAuthenticatedHostSessionContext(
     request, conversationId, isAuthenticatedHostRequest, resolveHostConversationId,
   );
   if (!context) throw new Error('HOST_SESSION_AUTHENTICATION_REQUIRED');
-  return requestContext.run(context, callback);
+  usedHostRequests.add(request);
+  const revokeContext = () => {
+    contexts.delete(context);
+    contextBindings.delete(context);
+  };
+  try {
+    const result = requestContext.run(context, callback);
+    if (result && typeof result.then === 'function') return Promise.resolve(result).finally(revokeContext);
+    revokeContext();
+    return result;
+  } catch (error) {
+    revokeContext();
+    throw error;
+  }
 }
 
 export function getAuthenticatedHostSessionContext() {
@@ -172,7 +215,25 @@ export function createHostSessionAssertionRunner({
         identity: 'SIGNED_HOST_SESSION_ASSERTION',
       });
       contexts.add(context);
-      return requestContext.run(context, callback);
+      contextBindings.set(context, {
+        kind: 'assertion',
+        conversationId: assertion.conversation_id,
+        expiresAt: assertion.issued_at + maxAgeSeconds,
+        now,
+      });
+      const revokeContext = () => {
+        contexts.delete(context);
+        contextBindings.delete(context);
+      };
+      try {
+        const result = requestContext.run(context, callback);
+        if (result && typeof result.then === 'function') return Promise.resolve(result).finally(revokeContext);
+        revokeContext();
+        return result;
+      } catch (error) {
+        revokeContext();
+        throw error;
+      }
     },
   });
 }
