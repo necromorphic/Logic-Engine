@@ -8,7 +8,7 @@ import {
 import { createHostContextRoute } from './context-route.mjs';
 
 export const info = Object.freeze({
-    id: 'logic-engine-host-adapter',
+    id: 'logic-engine-extension-gateway',
     name: 'Logic Engine Host Adapter',
     description: 'Authenticated SillyTavern Extension Gateway for Logic Engine',
 });
