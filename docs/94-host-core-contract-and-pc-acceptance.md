@@ -101,3 +101,12 @@ The canonical durable conversation identity is `installationId:accountId:convers
 This is **authenticated session identity**, not a durable server installation attestation. Persistence across ST restart depends on the same cookie-signing secret and a still-valid browser cookie. Cookie loss, logout/login, secret rotation, or account change produces a new identity. The localStorage installation UUID remains a client-side namespace and is not itself trusted. Core still trusts the configured server-side adapter credential; this change does not configure Core read/visibility authorizers, does not prove a complete Host inventory, and does not enable Memory→NPC.
 
 Exact candidate components: PR #783 session handler/route and stacked Host session-identity follow-up to PR #788. Required validation: pinned-source patch composition, session handler tests, browser lifecycle identity tests, and full exact-head Runtime CI. Live target-PC cookie persistence/restart remains unverified.
+
+
+## Extension Gateway signed Host context transport
+
+The ST browser extension sends its context check only to the ST server-plugin namespace. The plugin validates the conversation UUID against the authenticated account's server-side double-scan inventory, resolves installation/account identity from the server-owned HostIdentityStore, and signs the canonical assertion with the server-held adapter secret. The browser never receives the Core URL, API token, adapter secret, World ID or Actor ID.
+
+Core accepts the assertion only at `POST /v1/host/session-context` behind the ordinary bearer gateway and configured adapter authentication. Core verifies the HMAC, consumes the nonce in the durable Core SQLite database, checks the canonical `installationId:accountId:conversationUuid` identity, re-resolves the active conversation → World binding, and requires exactly one active adapter → Actor binding. A revoked conversation binding, missing/ambiguous actor binding, invalid signature, expired assertion, replay, or unavailable nonce store is denied.
+
+This endpoint authenticates Host context only. It does not invoke MemoryNpcConsumer, disclose Memory records, construct a model prompt, or authorize final-send. Memory → NPC remains disabled until the separate disclosure and dispatch gates are accepted.
