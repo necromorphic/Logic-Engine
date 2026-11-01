@@ -140,9 +140,9 @@
 +    adapterOwner = null;
 +}
 +
-+export function runWithLogicEngineFinalSend(request, response, handler) {
++export function runWithLogicEngineFinalSend(request, response, handler, route = 'chat-completions') {
 +    if (!request || typeof request !== 'object' || !response || typeof response !== 'object'
-+        || typeof handler !== 'function') {
++        || typeof handler !== 'function' || typeof route !== 'string' || !route) {
 +        throw new TypeError('Invalid SillyTavern generation context.');
 +    }
 +    if (!adapter) {
@@ -157,18 +157,18 @@
 +    response.end = function (...args) {
 +        return adapter.authorizeResponseWrite(response, () => nativeEnd(...args), true);
 +    };
-+    return generationContext.run({ request, response, adapter, protectedForward: null }, handler);
++    return generationContext.run({ request, response, adapter, route, protectedForward: null }, handler);
 +}
 +
 +/** Replacement for the node-fetch import, scoped to the native generation route. */
 +export function logicEngineFetch(endpointUrl, requestInit) {
 +    const active = generationContext.getStore();
 +    if (!active) return nativeFetch(endpointUrl, requestInit);
-+    const senderRoute = active.adapter.resolveSenderRoute(active.request);
++    if (/\\/(?:extra\\/abort|abort)(?:[?#]|$)/i.test(String(endpointUrl))) return nativeFetch(endpointUrl, requestInit);\n+    const senderRoute = active.adapter.resolveSenderRoute(active.request, active.route);
 +    if (typeof senderRoute !== 'string' || !senderRoute) {
 +        throw new Error('LOGIC_ENGINE_FINAL_SEND_SENDER_UNKNOWN');
 +    }
-+    const stream = Boolean(active.request.body?.stream);
++    const body = active.request.body ?? {};\n+    const stream = active.route === 'kobold' || active.route === 'novelai-text'\n+        ? Boolean(body.streaming)\n+        : active.route === 'horde-text' ? false : Boolean(body.stream);
 +    const transport = () => nativeFetch(endpointUrl, requestInit);
 +    const forwardResponse = stream ? (upstream) => {
 +        if (active.protectedForward) return active.protectedForward;
