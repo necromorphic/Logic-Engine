@@ -41,7 +41,7 @@ test('distinct-UID broker protects better-sqlite3 main, journal, WAL and SHM fil
     assert.equal(
       registrar.prepare(
         'SELECT logic_engine_vfs_probe_register_broker_role(?, ?, ?) AS registered',
-      ).get(databasePath, 'core', socketPath).registered,
+      ).get(databasePath, 'vectors', socketPath).registered,
       1,
       'broker enrollment must return the main DB identity without application path access',
     );
@@ -112,7 +112,7 @@ test('distinct-UID broker protects better-sqlite3 main, journal, WAL and SHM fil
     const registrar = new Database(':memory:');
     const registered = registrar.prepare(
       'SELECT logic_engine_vfs_probe_register_broker_role(?, ?, ?) AS registered'
-    ).get(process.env.LOGIC_ENGINE_DATABASE_PATH, 'core',
+    ).get(process.env.LOGIC_ENGINE_DATABASE_PATH, 'vectors',
       process.env.LOGIC_ENGINE_BROKER_SOCKET).registered;
     if (registered !== 1) process.exit(21);
     const db = new Database(process.env.LOGIC_ENGINE_DATABASE_PATH);
