@@ -68,7 +68,7 @@ static int g_broker_syscall_open_fail_count = 0;
 static int g_broker_delete_fail_count = 0;
 static int g_broker_access_fail_count = 0;
 static int g_broker_socket_policy_reject_count = 0;
-static int probe_open_directory_chain(const char *path);
+static int probe_open_broker_socket_parent(const char *path);
 static int g_sidecar_capture_fail_count = 0;
 static int g_parent_xopen_fail_count = 0;
 static int g_last_parent_xopen_rc = SQLITE_OK;
@@ -302,7 +302,7 @@ static int probe_broker_exchange(
     socket_basename = separator + 1;
     if (!socket_parent_path) return 0;
   }
-  socket_parent_fd = probe_open_directory_chain(socket_parent_path);
+  socket_parent_fd = probe_open_broker_socket_parent(socket_parent_path);
   if (socket_parent_fd < 0
       || fstat(socket_parent_fd, &parent_info) != 0
       || fstatat(socket_parent_fd, socket_basename, &socket_info, AT_SYMLINK_NOFOLLOW) != 0
@@ -2494,6 +2494,60 @@ static int probe_posix_parent_is_protected(int parent_fd) {
     && S_ISDIR(info.st_mode)
     && info.st_uid == geteuid()
     && (info.st_mode & (S_IWGRP | S_IWOTH)) == 0;
+}
+
+static int probe_open_broker_socket_parent(const char *path) {
+  char *copy;
+  char *cursor;
+  int current_fd;
+  const int flags = O_PATH | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC;
+  if (!path || path[0] != '/' || strstr(path, "//") || path[strlen(path) - 1] == '/') {
+    errno = EINVAL;
+    return -1;
+  }
+  copy = sqlite3_mprintf("%s", path);
+  if (!copy) {
+    errno = ENOMEM;
+    return -1;
+  }
+  current_fd = open("/", flags);
+  if (current_fd < 0) {
+    sqlite3_free(copy);
+    return -1;
+  }
+  cursor = copy;
+  while (*cursor) {
+    char *end;
+    char saved;
+    int next_fd;
+    struct stat info;
+    while (*cursor == '/') cursor++;
+    if (!*cursor) break;
+    end = strchr(cursor, '/');
+    saved = end ? *end : '\0';
+    if (end) *end = '\0';
+    if (strcmp(cursor, ".") == 0 || strcmp(cursor, "..") == 0 || !cursor[0]) {
+      close(current_fd);
+      sqlite3_free(copy);
+      errno = EACCES;
+      return -1;
+    }
+    next_fd = openat(current_fd, cursor, flags, 0);
+    if (end) *end = saved;
+    if (next_fd < 0 || fstat(next_fd, &info) != 0 || !S_ISDIR(info.st_mode)) {
+      if (next_fd >= 0) close(next_fd);
+      close(current_fd);
+      sqlite3_free(copy);
+      errno = EACCES;
+      return -1;
+    }
+    close(current_fd);
+    current_fd = next_fd;
+    if (!end) break;
+    cursor = end + 1;
+  }
+  sqlite3_free(copy);
+  return current_fd;
 }
 
 static int probe_open_directory_chain(const char *path) {
