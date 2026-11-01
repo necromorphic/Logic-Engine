@@ -12,8 +12,8 @@ const CONFIG = {
 };
 const canonical = value => Array.isArray(value) ? '[' + value.map(canonical).join(',') + ']' : value && typeof value === 'object' ? '{' + Object.keys(value).sort().map(key => JSON.stringify(key) + ':' + canonical(value[key])).join(',') + '}' : JSON.stringify(value);
 const SESSION_ID = '11111111-1111-4111-8111-111111111111';
-const HOST_CONVERSATION_ID = '22222222-2222-4222-8222-222222222222:33333333-3333-4333-8333-333333333333';
-const LIFECYCLE_CONVERSATION_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa:33333333-3333-4333-8333-333333333333';
+const HOST_CONVERSATION_ID = '22222222-2222-4222-8222-222222222222:11111111-1111-4111-8111-111111111111:33333333-3333-4333-8333-333333333333';
+const LIFECYCLE_CONVERSATION_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa:22222222-2222-4222-8222-222222222222:33333333-3333-4333-8333-333333333333';
 const requestFor = (body, { sessionId = SESSION_ID, userHandle = 'alice', sessionHandle = userHandle } = {}) => ({
   body,
   user: { profile: { handle: userHandle }, directories: { root: '/tmp/st-root', chats: '/tmp/st-root/chats', groups: '/tmp/st-root/groups', groupChats: '/tmp/st-root/groupChats' } },
