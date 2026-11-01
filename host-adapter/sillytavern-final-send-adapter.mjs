@@ -31,7 +31,14 @@ const ROUTE_BY_SOURCE_KEY = Object.freeze({
   WORKERS_AI: 'workers-ai',
 });
 
-const HOST_ROUTE_SENDER_MAP = Object.freeze({\n  'text-completions': 'text-completions',\n  kobold: 'kobold',\n  'novelai-text': 'novelai-text',\n  'horde-text': 'horde-text',\n});\n\nconst UNREGISTERED_SENDER_ROUTE = 'unregistered';
+const HOST_ROUTE_SENDER_MAP = Object.freeze({
+  'text-completions': 'text-completions',
+  kobold: 'kobold',
+  'novelai-text': 'novelai-text',
+  'horde-text': 'horde-text',
+});
+
+const UNREGISTERED_SENDER_ROUTE = 'unregistered';
 
 function assertSourceMap(sources) {
   if (!sources || typeof sources !== 'object' || Array.isArray(sources)) {
@@ -74,7 +81,9 @@ export function createSillyTavernFinalSendAdapter({
   });
 
   return Object.freeze({
-    resolveSenderRoute(request) {
+    resolveSenderRoute(request, hostRoute) {
+      const nativeRoute = HOST_ROUTE_SENDER_MAP[hostRoute];
+      if (nativeRoute) return nativeRoute;
       const source = request?.body?.chat_completion_source;
       // Unregistered ST senders remain native for explicitly unprotected
       // generations. Protected classification happens before route admission
