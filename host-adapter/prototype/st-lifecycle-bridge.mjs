@@ -824,6 +824,35 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
     }) : readiness;
   }
 
+  async function guardExport() {
+    const conversationId = await getConversationId();
+    if (!conversationId || !(await enrolledOrFailClosed(conversationId))) {
+      return { status: 'NOT_ENROLLED' };
+    }
+    if (typeof getLifecycleStatus !== 'function') {
+      throw Error('NON_READY: Core lifecycle status is unavailable; abort export save');
+    }
+    let remote;
+    try { remote = await getLifecycleStatus(conversationId); }
+    catch { throw Error('NON_READY: Core lifecycle status is unavailable; abort export save'); }
+    if (!remote || remote.status !== 'NO_PENDING_MUTATION') {
+      throw Error('NON_READY: unresolved Core lifecycle mutation; abort export save');
+    }
+    const pending = await journal.pendingMutation(conversationId);
+    if (pending.status !== 'NO_PENDING_MUTATION') {
+      throw Error('NON_READY: local Host lifecycle journal is not clear; abort export save');
+    }
+    const integrity = await journal.verifyIntegrity(conversationId);
+    if (integrity.status !== 'INTEGRITY_OK') {
+      throw Error('NON_READY: Host lifecycle journal integrity is unavailable; abort export save');
+    }
+    const persisted = await verifyPersistedInventory(conversationId);
+    if (persisted.status !== 'MATCHED_NON_AUTHORITATIVE') {
+      throw Error('NON_READY: persisted Host state does not match the active conversation; abort export save');
+    }
+    return { status: 'READ_ONLY_EXPORT_VERIFIED', conversationId };
+  }
+
   return Object.freeze({
     enrollCurrentConversation,
     beforeMutation,
@@ -833,6 +862,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
     getCoreCaptureStatus,
     currentFingerprint,
     reconcileCurrentConversation,
+    guardExport,
   });
 }
 
