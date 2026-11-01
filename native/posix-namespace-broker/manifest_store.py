@@ -26,7 +26,7 @@ ANCHOR_NEXT = "anchor.next"
 MAX_BYTES = 1 << 20
 SUPPORTED_ROLE_FILESYSTEMS = frozenset({"ext4", "xfs", "btrfs"})
 DIR_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW
-FILE_FLAGS = os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW
+FILE_FLAGS = os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK
 
 
 class StoreError(RuntimeError):
