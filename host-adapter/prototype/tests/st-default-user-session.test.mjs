@@ -48,7 +48,7 @@ test('default-user inventory request is accepted only after Host session identit
     enumerate: async input => {
       calls++;
       assert.deepEqual(input.directories, { chats: 'C:\\\\st\\\\chats', groups: 'C:\\\\st\\\\groups', groupChats: 'C:\\\\st\\\\groupChats' });
-      return { files: [], status: 'DOUBLE_SCAN_CANDIDATE', authority: 'NON_AUTHORITATIVE' };
+      return { filesystem: { status: 'complete', entries: [], snapshot_sha256: 'a'.repeat(64), file_count: 0, total_bytes: 0 }, source: { files: [], blockers: [], status: 'DOUBLE_SCAN_CANDIDATE' } };
     },
     pinnedHostCommit: pinned,
     hostBuildClaim: pinned,
