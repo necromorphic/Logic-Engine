@@ -388,8 +388,20 @@ test('lifecycle journal proxy derives account identity and signs only server-ver
     occurred_at: '2000-01-01T00:00:00.000Z',
   };
   const response = responseRecorder();
-  await proxy.append(requestFor(event), response);
+  const preparedRequest = requestFor(event);
+  await proxy.append(preparedRequest, response);
   assert.equal(response.statusCode, 201);
+  assert.deepEqual(preparedRequest.session.logicEngineHostPreparedMutation, {
+    protocol_version: 1,
+    host_installation_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    authenticated_account_id: '22222222-2222-4222-8222-222222222222',
+    host_session_id: SESSION_ID,
+    conversation_uuid: '33333333-3333-4333-8333-333333333333',
+    mutation_id: event.mutation_id,
+    event_id: event.event_id,
+    operation: event.operation,
+    mutation_digest: event.mutation_digest,
+  });
   assert.equal(observed.url, 'http://192.168.1.10:8787/v1/host-lifecycle/events');
   assert.equal(observed.options.headers['x-adapter-id'], CONFIG.LOGIC_ENGINE_ADAPTER_ID);
   assert.equal(observed.options.headers['x-adapter-token'], CONFIG.LOGIC_ENGINE_ADAPTER_TOKEN);
@@ -427,8 +439,10 @@ test('lifecycle journal proxy derives account identity and signs only server-ver
     occurred_at: '2000-01-01T00:00:01.000Z',
   };
   const committedResponse = responseRecorder();
-  await proxy.append(requestFor(committedEvent), committedResponse);
+  preparedRequest.body = committedEvent;
+  await proxy.append(preparedRequest, committedResponse);
   assert.equal(committedResponse.statusCode, 201);
+  assert.equal(preparedRequest.session.logicEngineHostPreparedMutation, undefined);
   const committedBody = JSON.parse(observed.options.body);
   assert.equal(committedBody.host_session_id, SESSION_ID);
   assert.equal(committedBody.receipt_digest, 'f'.repeat(64));
