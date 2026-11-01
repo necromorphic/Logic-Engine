@@ -103,9 +103,12 @@ test('extension manifest and UI use the supported ST extension lifecycle', async
   assert.equal(manifest.hooks.disable, 'cleanup');
   assert.match(js, /renderExtensionTemplateAsync/);
   assert.match(js, /fetchGatewaySession/);
+  assert.match(js, /chat_metadata, getRequestHeaders/);
+  assert.match(js, /api\\/plugins\\/logic-engine-extension-gateway\\/context/);
   assert.match(js, /new AbortController\(\)/);
   assert.match(js, /export function cleanup\(\)/);
   assert.match(html, /logic_engine_check/);
+  assert.match(html, /logic_engine_context/);
   assert.match(html, /api\/plugins\/logic-engine-extension-gateway/);
   assert.doesNotMatch(js, /LOGIC_ENGINE_CORE_URL|host-version-ledger|logicEngineHostLifecycle/);
   assert.doesNotMatch(html, /127\.0\.0\.1:8787|Bearer\s+[A-Za-z0-9]/);
