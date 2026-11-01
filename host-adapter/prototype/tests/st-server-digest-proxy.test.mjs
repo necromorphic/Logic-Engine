@@ -12,8 +12,8 @@ const CONFIG = {
 };
 const canonical = value => Array.isArray(value) ? '[' + value.map(canonical).join(',') + ']' : value && typeof value === 'object' ? '{' + Object.keys(value).sort().map(key => JSON.stringify(key) + ':' + canonical(value[key])).join(',') + '}' : JSON.stringify(value);
 const SESSION_ID = '11111111-1111-4111-8111-111111111111';
-const HOST_CONVERSATION_ID = SESSION_ID + ':22222222-2222-4222-8222-222222222222:33333333-3333-4333-8333-333333333333';
-const LIFECYCLE_CONVERSATION_ID = SESSION_ID + ':aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa:33333333-3333-4333-8333-333333333333';
+const HOST_CONVERSATION_ID = '22222222-2222-4222-8222-222222222222:33333333-3333-4333-8333-333333333333';
+const LIFECYCLE_CONVERSATION_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa:33333333-3333-4333-8333-333333333333';
 const requestFor = (body, { sessionId = SESSION_ID, userHandle = 'alice', sessionHandle = userHandle } = {}) => ({
   body,
   user: { profile: { handle: userHandle }, directories: { root: '/tmp/st-root', chats: '/tmp/st-root/chats', groups: '/tmp/st-root/groups', groupChats: '/tmp/st-root/groupChats' } },
@@ -219,19 +219,17 @@ test('proxy rejects caller URLs, world IDs, raw text and malformed digests befor
   assert.equal(calls, 0);
 });
 
-test('capture proxy rejects a different Host session or unauthenticated account before upstream I/O', async () => {
+test('capture proxy accepts the same stable conversation after a new authenticated ST session', async () => {
   let calls = 0;
-  const handler = createHostDigestProxyHandler({ env: CONFIG, fetchImpl: async () => { calls++; } });
-  for (const request of [
-    requestFor(capture, { sessionId: '44444444-4444-4444-8444-444444444444' }),
-    requestFor(capture, { sessionHandle: 'another-user' }),
-  ]) {
-    const response = responseRecorder();
-    await handler(request, response);
-    assert.equal(response.statusCode, 403);
-    assert.equal(response.payload.error.code, 'HOST_SESSION_SCOPE_REQUIRED');
-  }
-  assert.equal(calls, 0);
+  const handler = createHostDigestProxyHandler({ env: CONFIG, fetchImpl: async () => { calls++; return { status: 201, json: async () => ({ capture: { status: 'captured' } }) }; } });
+  const restartedSession = responseRecorder();
+  await handler(requestFor(capture, { sessionId: '44444444-4444-4444-8444-444444444444' }), restartedSession);
+  assert.equal(restartedSession.statusCode, 201);
+  const unauthenticated = responseRecorder();
+  await handler(requestFor(capture, { sessionHandle: 'another-user' }), unauthenticated);
+  assert.equal(unauthenticated.statusCode, 403);
+  assert.equal(unauthenticated.payload.error.code, 'HOST_SESSION_SCOPE_REQUIRED');
+  assert.equal(calls, 1);
 });
 
 test('proxy rejects upstream URL credentials and paths from configuration', async () => {
