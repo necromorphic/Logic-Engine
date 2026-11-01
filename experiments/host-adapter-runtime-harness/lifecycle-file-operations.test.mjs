@@ -551,6 +551,17 @@ test('pinned ST 1.19.0 supported chat mutations persist; rename, group deletion,
   assert.match(exportResult.result.reason ?? '', /previously observed root inventory delta remains unresolved/,
     'an unchanged export cannot clear prior unresolved filesystem deltas');
 
+  const deleteChat = await observe(async () => {
+    const response = await post('/api/chats/delete', {
+      avatar_url: 'Harness Character.png', chatfile: 'chat-one.jsonl',
+    });
+    assert.equal(response.status, 409, JSON.stringify(response));
+    assert.equal(response.result.code, 'HOST_LIFECYCLE_BULK_MUTATION_BLOCKED');
+    assert.equal((await readFile(chatPath, 'utf8')).length > 0, true,
+      'direct chat deletion API must leave the enrolled file untouched');
+    return response;
+  }, 'unchanged');
+
   const renamedPath = join(directories.chats, 'Harness Character', 'chat-renamed.jsonl');
   const rename = await observe(async () => {
     const response = await post('/api/chats/rename', {
