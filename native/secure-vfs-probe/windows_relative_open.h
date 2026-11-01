@@ -116,9 +116,9 @@ static inline wchar_t logic_engine_win_ascii_lower(wchar_t value) {
 }
 
 static inline int logic_engine_win_reserved_device_name(const wchar_t *basename) {
-  wchar_t stem[7];
+  wchar_t stem[8];
   size_t i = 0;
-  while (basename[i] && basename[i] != L'.' && i < 6) {
+  while (basename[i] && basename[i] != L'.' && i < 7) {
     stem[i] = logic_engine_win_ascii_lower(basename[i]);
     ++i;
   }
@@ -127,8 +127,8 @@ static inline int logic_engine_win_reserved_device_name(const wchar_t *basename)
       || wcscmp(stem, L"aux") == 0 || wcscmp(stem, L"nul") == 0))
       || (i == 4 && stem[3] >= L'1' && stem[3] <= L'9'
           && (wcsncmp(stem, L"com", 3) == 0 || wcsncmp(stem, L"lpt", 3) == 0))
-      || (i == 6 && (wcscmp(stem, L"conin$") == 0 || wcscmp(stem, L"conout$") == 0))
-      || (i == 6 && wcscmp(stem, L"clock$") == 0)) return 1;
+      || (i == 6 && (wcscmp(stem, L"conin$") == 0 || wcscmp(stem, L"clock$") == 0))
+      || (i == 7 && wcscmp(stem, L"conout$") == 0)) return 1;
   return 0;
 }
 
