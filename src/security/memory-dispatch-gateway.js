@@ -238,9 +238,10 @@ function assertSamePolicyAuthority(actual, expected) {
  * Sole-dispatch primitive for requests carrying protected Memory.
  *
  * The caller must provide trusted synchronous Core/Provider readers that open
- * their databases read-only and validate the exact current source/grant state.
- * The module intentionally has no fallback reader or transport. Only the
- * explicitly allowlisted Google AI Studio chat route is supported.
+ * their databases read-only and validate the exact current source/grant state,
+ * including the complete policy authority tuple. One logical chat-generation
+ * route is shared by the explicit 25-family sender registry. There is no
+ * fallback reader or transport.
  */
 export class MemoryDispatchGateway {
   constructor({
