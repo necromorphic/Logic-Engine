@@ -93,3 +93,20 @@ test('Patch Manager refuses rollback when an untouched pinned ST route has drift
   await assert.rejects(manager.execute('uninstall'), /ROLLBACK_CONFLICT_USER_CHANGE_PRESERVED/);
   assert.equal(await readFile(join(stRoot, 'src/native-route.js'), 'utf8'), userEdit);
 });
+
+test('Patch Manager recovers an interrupted apply journal to the verified baseline', async (t) => {
+  const { manager, stRoot, original } = await fixture(t);
+  await manager.execute('install');
+  const managerDir = join(stRoot, '.logic-engine-patch-manager');
+  const state = JSON.parse(await readFile(join(managerDir, 'state.json'), 'utf8'));
+  await writeFile(join(managerDir, 'transaction.json'), JSON.stringify({
+    manifestId: state.manifestId,
+    phase: 'APPLYING',
+    backups: state.backups,
+    createdFiles: state.createdFiles,
+    sourceFilesAfter: state.sourceFilesAfter,
+    sourceFilesBefore: state.sourceFilesBefore,
+  }));
+  assert.equal((await manager.execute('status')).status, 'NOT_INSTALLED');
+  assert.equal(await readFile(join(stRoot, 'src/host.js'), 'utf8'), original);
+});
