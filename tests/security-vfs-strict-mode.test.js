@@ -34,7 +34,35 @@ test('strict Linux VFS build requires broker role enrollment', {
       ).get('not-enrolled', '/run/logic-engine-broker/broker.sock'),
       /role missing/i,
       'strict Linux builds retain the broker-binding API',
-    );\n\n    const directory = mkdtempSync(join(tmpdir(), 'logic-engine-strict-broker-socket-'));\n    const socketPath = join(directory, 'app-owned.sock');\n    const server = createServer();\n    try {\n      await new Promise((resolve, reject) => {\n        server.once('error', reject);\n        server.listen(socketPath, resolve);\n      });\n      const before = db.prepare(\n        'SELECT logic_engine_vfs_probe_broker_socket_policy_reject_count() AS count'\n      ).get().count;\n      assert.throws(\n        () => db.prepare(\n          'SELECT logic_engine_vfs_probe_register_broker_role(?, ?, ?)'\n        ).get(join(directory, 'core.sqlite'), 'core', socketPath),\n        /broker role enrollment handshake failed/i,\n        'strict Linux builds must reject an app-owned fake broker socket',\n      );\n      const after = db.prepare(\n        'SELECT logic_engine_vfs_probe_broker_socket_policy_reject_count() AS count'\n      ).get().count;\n      assert.equal(after, before + 1,\n        'the strict socket-owner policy must reject the app-owned endpoint before connect');\n    } finally {\n      await new Promise(resolve => server.close(resolve));\n      rmSync(directory, { recursive: true, force: true });\n    }
+    );
+
+    const directory = mkdtempSync(join(tmpdir(), 'logic-engine-strict-broker-socket-'));
+    const socketPath = join(directory, 'app-owned.sock');
+    const server = createServer();
+    try {
+      await new Promise((resolve, reject) => {
+        server.once('error', reject);
+        server.listen(socketPath, resolve);
+      });
+      const before = db.prepare(
+        'SELECT logic_engine_vfs_probe_broker_socket_policy_reject_count() AS count'
+      ).get().count;
+      assert.throws(
+        () => db.prepare(
+          'SELECT logic_engine_vfs_probe_register_broker_role(?, ?, ?)'
+        ).get(join(directory, 'core.sqlite'), 'core', socketPath),
+        /broker role enrollment handshake failed/i,
+        'strict Linux builds must reject an app-owned fake broker socket',
+      );
+      const after = db.prepare(
+        'SELECT logic_engine_vfs_probe_broker_socket_policy_reject_count() AS count'
+      ).get().count;
+      assert.equal(after, before + 1,
+        'the strict socket-owner policy must reject the app-owned endpoint before connect');
+    } finally {
+      await new Promise(resolve => server.close(resolve));
+      rmSync(directory, { recursive: true, force: true });
+    }
   } finally {
     db.close();
   }
