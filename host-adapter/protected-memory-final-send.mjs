@@ -44,8 +44,10 @@ function assertRequest(endpointUrl, requestInit) {
  * have been resolved by the provider handler. The transport closure is dormant
  * until the Gateway invokes it after durable DISPATCH_STARTED.
  */
-export function createProtectedMemoryFinalSend({ gateway, fetchImpl = globalThis.fetch }) {
+export function createProtectedMemoryFinalSend({ gateway, resolveProtectedMemory, fetchImpl = globalThis.fetch }) {
   if (!gateway || typeof gateway.dispatchProtectedRequest !== 'function'
+    || typeof resolveProtectedMemory !== 'function'
+    || resolveProtectedMemory.constructor?.name === 'AsyncFunction'
     || typeof fetchImpl !== 'function') {
     throw new TypeError('Invalid protected Memory final-send configuration.');
   }
@@ -54,11 +56,19 @@ export function createProtectedMemoryFinalSend({ gateway, fetchImpl = globalThis
     senderRoute,
     endpointUrl,
     requestInit,
-    protectedMemory = null,
+    hostRequestContext,
     stream = false,
     forwardResponse,
   }) {
     assertRequest(endpointUrl, requestInit);
+
+    // Classification is performed synchronously from trusted server-side
+    // request context. It must never be inferred from browser JSON or an
+    // optional caller-supplied "protected" flag.
+    const protectedMemory = resolveProtectedMemory(hostRequestContext);
+    if (protectedMemory && typeof protectedMemory.then === 'function') {
+      throw new Error('MEMORY_DISPATCH_NOT_READY');
+    }
 
     // Ordinary non-Memory requests retain the provider's normal send path.
     if (protectedMemory === null || protectedMemory === undefined) {
