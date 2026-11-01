@@ -17,6 +17,7 @@ test('distinct-UID broker protects better-sqlite3 main, journal, WAL and SHM fil
 }, async () => {
   const Database = require(packageRoot);
   assert.equal(Number(process.versions.napi) >= 10, true);
+  assert.equal(process.getuid(), Number(process.env.LOGIC_ENGINE_APP_UID));
   assert.notEqual(process.getuid(), Number(process.env.LOGIC_ENGINE_BROKER_UID));
   assert.equal(process.getgid(), Number(process.env.LOGIC_ENGINE_APP_GID));
 
