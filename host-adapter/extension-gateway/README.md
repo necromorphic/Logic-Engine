@@ -1,50 +1,42 @@
-# SillyTavern Extension Gateway — prototype
+# Logic Engine Extension Gateway
 
-**Status: review-only prototype. Not production-ready. Memory → NPC remains DISABLED / FAIL-CLOSED.**
+**Status: integrated Host context transport / NON_READY. Protected Memory → NPC model dispatch remains disabled.**
 
-## Correct integration boundary
+The browser extension uses SillyTavern's manifest-declared `generate_interceptor` as the Final-Send interception point. A protected generation is aborted before SillyTavern's native provider send. The extension then obtains an authenticated Host context through the native SillyTavern server-plugin route:
 
-This prototype uses SillyTavern's extension `generate_interceptor` mechanism. On the pinned target, `runGenerationInterceptors(chat, contextSize, type)` awaits each registered interceptor before continuing the native generation flow. Calling the supplied `abort(true)` stops the remaining interceptor chain and makes the normal generation path return before the provider request is sent.
+`/api/plugins/logic-engine-host-adapter/context`
 
-The extension gateway is therefore the intended **SillyTavern extension boundary**. It does **not** call a provider API, does not replace provider settings, and does not add a new HTTP endpoint.
+The browser never calls Core and never receives Core credentials. The server plugin route is mounted by SillyTavern's existing plugin loader after `requireLoginMiddleware`; no SillyTavern source patch or `/api/logic-engine/*` route is used.
 
-## What this prototype does
+## Identity and authorization
 
-- Leaves ordinary SillyTavern generation unchanged when no protected request has been explicitly armed.
-- For an explicitly armed protected request, aborts native SillyTavern generation before any provider-specific send.
-- While that protected callback is in flight, aborts a concurrent generation rather than allowing it to enter the native provider path.
-- If the callback is absent or fails, locks this extension instance against later native-generation fallback until reload; there is no in-process reset shortcut.
-- Hands the captured generation context to an injected dispatch callback.
-- Does not log chat text or dispatch payloads.
-- Registers only the global interceptor name required by SillyTavern's manifest. The arm/cancel/status helpers are module exports, not extra global functions.
+The server plugin:
+- accepts the request only inside SillyTavern's authenticated request pipeline;
+- validates the middleware-populated user handle and signed cookie-session identity;
+- resolves installation and account IDs from the server-owned persistent identity store;
+- verifies the requested conversation UUID against a complete server-side inventory;
+- constructs the stable conversation identity as `installation_id:account_id:conversation_uuid`;
+- keeps the current signed `session_id` as a separate authenticated context field;
+- asks Core to resolve conversation → world and the configured server-owned actor entity → actor binding;
+- rejects caller-supplied world, actor, account, installation, adapter and session values.
 
-## Security limitation of the module seam
+Core API credentials and the adapter token are read only from the SillyTavern server environment. The server plugin is the only code in the ST process that calls Core.
 
-The exported helpers are **not an authorization boundary**. Code running in the same SillyTavern page/module environment must be treated as potentially able to call them. A request ID is not proof of authorization. Do not connect or arm protected dispatch until an approved existing Host contract provides authorization and freshness/revocation checks. No new API/schema/store is defined here.
+## Install
 
-## What it does not prove or implement
+Install the complete `host-adapter` directory as one SillyTavern server plugin directory named `logic-engine-host-adapter`. Its `package.json` selects `server-plugin/index.mjs`; the sibling `prototype` modules are required at runtime. Enable server plugins in SillyTavern configuration.
 
-- It does not implement the Core/Memory/NPC dispatch callback or define a new Core API.
-- It does not render a returned NPC response into the chat; that must be supplied by the approved Host adapter.
-- It does not stop unrelated extensions, custom routes, direct fetch calls, or server-side callers from sending requests.
-- It does not prove that a request is authorized, current, or free of revoked/stale Memory candidates.
-- It is not a substitute for server-side egress control where that is required by the approved security design.
+Install this extension directory using SillyTavern's normal third-party extension mechanism. The manifest declares the generation interceptor; no patch to SillyTavern source files is required.
 
-## Installation for review only
+Required server environment:
+- `LOGIC_ENGINE_CORE_URL` — Core API URL; HTTPS except loopback HTTP.
+- `LOGIC_ENGINE_API_TOKEN` — Core bearer credential.
+- `LOGIC_ENGINE_ADAPTER_ID` and `LOGIC_ENGINE_ADAPTER_TOKEN` — configured adapter identity.
+- `LOGIC_ENGINE_HOST_ACTOR_ENTITY_ID` — server-owned actor entity ID.
+- `LOGIC_ENGINE_HOST_IDENTITY_DIR` — absolute protected identity-store directory.
 
-Copy this directory into the pinned SillyTavern checkout under:
+## Remaining fail-closed boundary
 
-`public/scripts/extensions/third-party/logic-engine-extension-gateway/`
+This transport resolves authenticated Host context and Core bindings. It does **not** yet invoke an approved Core NPC decision/context builder or the Core Memory Dispatch Gateway's transport-start primitive. The callback accepted by `armAuthenticatedHostRequest` is only an integration seam and is not authorization.
 
-Then install/load it using SillyTavern's normal extension mechanism. Do not enable protected dispatch in a real chat. This is a review scaffold, not a working Memory → NPC path.
-
-## Pinned-source evidence
-
-Target: SillyTavern commit `06bde939fb1e9c4c8d8641d810f0a916b5bce127`.
-
-Relevant implementation:
-- `public/scripts/extensions.js`: `runGenerationInterceptors` invokes manifest-declared interceptors and supports immediate abort.
-- `public/script.js`: generation calls `runGenerationInterceptors` before entering backend-specific generation; if aborted, it unblocks and returns before provider dispatch.
-- `public/scripts/openai.js`: `CHAT_COMPLETION_SETTINGS_READY` is an event before the native Chat Completions `fetch`, but it is not a veto-capable event. This prototype intentionally uses the extension interceptor instead of that event or a provider API gateway.
-
-The pinned-source flow was inspected in the uploaded SillyTavern release archive. That source audit is not a live-install test and does not prove that every provider, media route, or third-party extension path is covered.
+Therefore the protected interceptor must not be armed for production Memory → NPC until the Core exposes the approved private dispatch boundary and the actual outbound provider send is proven to start under the dispatch lease. A missing callback, failed context resolution or failed dispatch aborts native generation; there is no provider fallback.
