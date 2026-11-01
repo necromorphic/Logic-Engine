@@ -22,6 +22,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 BROKER_SOURCE = REPO_ROOT / "native" / "posix-namespace-broker"
+sys.dont_write_bytecode = True
 sys.path.insert(0, str(BROKER_SOURCE))
 from manifest_store import _fd_filesystem, _fd_identity  # noqa: E402
 
