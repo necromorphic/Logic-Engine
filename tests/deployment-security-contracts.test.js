@@ -148,7 +148,7 @@ test('report validation prevents a false PASS when required evidence is missing'
   };
   assert.throws(() => validateDeploymentReport(blockedGateReport), /FALSE_PASS_BLOCKED_GATE/);
   const portablePass = { ...blockedGateReport, gates: [], overall_status: 'PASS' };
-  assert.throws(() => validateDeploymentReport(portablePass), /MISSING_PROTECTED_FINAL_SEND_GATE/);
+  assert.throws(() => validateDeploymentReport(portablePass), /FALSE_PASS_PORTABLE_ISOLATION/);
 });
 
 test('portable report explicitly reports degraded single-process isolation', () => {
@@ -269,7 +269,7 @@ test('portable assessment emits a schema-valid degraded report without enabling 
   await mkdir(join(root, 'data'));
   const result = await assessDeployment({ manifest: portableManifest(), deploymentRoot: root });
   assert.equal(result.report.profile, 'portable-desktop');
-  assert.equal(result.report.overall_status, 'DEGRADED');
+  assert.equal(result.report.overall_status, 'NOT_TESTED');
   assert.equal(validateDeploymentReport(result.report), true);
   assert.equal(result.report.limitations.some((item) => item.includes('single-process')), true);
 });
