@@ -151,7 +151,8 @@ export function registerWindowsManifestRole(database, manifest, roleName, databa
    * relative to the volume root. The absolute path can therefore have trusted
    * platform/runtime ancestors before the manifest-owned suffix.
    */
-  const manifestSuffix = actualComponents.slice(-role.parentComponents.length);
+  const manifestSuffix = role.parentComponents.length > 0
+    ? actualComponents.slice(-role.parentComponents.length) : [];
   if (actualComponents.length < role.parentComponents.length
       || manifestSuffix.some((component, index) =>
         component.toLowerCase() !== role.parentComponents[index].toLowerCase())) {
