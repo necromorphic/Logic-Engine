@@ -390,6 +390,45 @@ class ManifestStoreTests(unittest.TestCase):
         self.assertFalse(wal.exists())
         self.assertEqual(self.store.load()["generation"], 4)
 
+    def test_startup_recovers_manifest_authorized_quarantined_sidecar_delete(self):
+        wal = self.role_parent / "core.sqlite-wal"
+        wal.write_bytes(b"wal-placeholder")
+        os.chmod(wal, 0o600)
+        wal_fd = os.open(wal, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
+        try:
+            wal_identity = fd_identity(wal_fd)
+        finally:
+            os.close(wal_fd)
+
+        import json
+        self.store.initialize(self.data(1))
+        value = json.loads(self.data(1))
+        value["generation"] = 2
+        value["roles"][0]["sidecars"] = [{
+            "kind": "wal", "identity": wal_identity,
+            "state": "creating", "generation": 2,
+        }]
+        self.store.commit(_canonical_json(value))
+        value["generation"] = 3
+        value["roles"][0]["sidecars"][0]["state"] = "active"
+        value["roles"][0]["sidecars"][0]["generation"] = 3
+        self.store.commit(_canonical_json(value))
+        value["generation"] = 4
+        value["roles"][0]["sidecars"][0]["state"] = "deleting"
+        value["roles"][0]["sidecars"][0]["generation"] = 4
+        self.store.commit(_canonical_json(value))
+
+        quarantine = self.role_parent / ".logic-engine-quarantine"
+        quarantine.mkdir(mode=0o700)
+        os.rename(wal, quarantine / "entry-crash")
+
+        recovered = self.store.retire_absent_sidecars()
+        self.assertEqual(recovered["generation"], 5)
+        self.assertEqual(recovered["roles"][0]["sidecars"][0]["state"], "retired")
+        self.assertEqual(recovered["roles"][0]["sidecars"][0]["generation"], 5)
+        self.assertFalse(wal.exists())
+        self.assertEqual(list(quarantine.iterdir()), [])
+
     def test_reconcile_does_not_retire_present_transitional_sidecar(self):
         wal = self.role_parent / "core.sqlite-wal"
         wal.write_bytes(b"wal-placeholder")
