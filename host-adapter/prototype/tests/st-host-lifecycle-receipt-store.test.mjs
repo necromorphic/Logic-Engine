@@ -166,7 +166,7 @@ test('server receipt store survives restart and exact terminal retry returns the
   assert.equal(replay.occurred_at, first.occurred_at);
 });
 
-test('server receipt store accepts only additive backups that exactly match the persisted post-state', async t => {
+test('server receipt store accepts exact pre/post-state backups and rejects unrelated backup drift', async t => {
   const before = {
     fileIdentity: '101', content: 'before', messages: [message('m1', 'old', 'v1')],
     backups: [{ name: 'chat_previous.jsonl', content: 'older-backup' }],
@@ -189,6 +189,22 @@ test('server receipt store accepts only additive backups that exactly match the 
   }), directories);
   assert.equal(committed.status, 'appended');
   assert.equal(committed.receipt_digest.length, 64);
+
+  // ST's throttled backup callback may publish the exact pre-write chat bytes
+  // after the current save. That delayed backup is valid receipt evidence.
+  const delayedPreStateBackup = fixture(t, [before, {
+    ...after,
+    backups: [
+      { name: 'chat_previous.jsonl', content: 'older-backup' },
+      { name: 'chat_delayed.jsonl', content: 'before' },
+    ],
+  }]);
+  await delayedPreStateBackup.store.prepare(scope(), directories);
+  const delayedCommit = await delayedPreStateBackup.store.commit(scope({
+    event_id: TERMINAL_EVENT, prepared_event_id: PREPARED_EVENT,
+    occurred_at: '2026-10-31T00:00:01.000Z',
+  }), directories);
+  assert.equal(delayedCommit.status, 'appended');
 
   const changedPriorBackup = fixture(t, [before, {
     ...after,
