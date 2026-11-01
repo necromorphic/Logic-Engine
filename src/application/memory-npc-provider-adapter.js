@@ -56,6 +56,7 @@ export function createMemoryNpcProviderAdapter({
   contentFields,
   isAuthenticatedHostRequest,
   resolveHostConversationId,
+  hostContextMode = 'in-process',
 }) {
   if (!engine?.store?.db || typeof engine.getSnapshot !== 'function') {
     throw new TypeError('Memory Provider adapter requires the live Core LogicEngine and persistent store');
@@ -78,11 +79,13 @@ export function createMemoryNpcProviderAdapter({
   if (typeof adapterId !== 'string' || !adapterId.trim()) {
     throw new TypeError('Memory Provider adapter requires one configured authenticated adapterId');
   }
-  if (typeof isAuthenticatedHostRequest !== 'function') {
-    throw new TypeError('Memory Provider adapter requires the trusted Host authentication middleware verifier');
-  }
-  if (typeof resolveHostConversationId !== 'function') {
-    throw new TypeError('Memory Provider adapter requires the trusted Host conversation identity resolver');
+  const hasInProcessHostGate = typeof isAuthenticatedHostRequest === 'function'
+    && typeof resolveHostConversationId === 'function';
+  if ((isAuthenticatedHostRequest === undefined) !== (resolveHostConversationId === undefined)
+    || (!hasInProcessHostGate && hostContextMode !== 'signed-assertion')
+    || !['in-process', 'signed-assertion'].includes(hostContextMode)
+    || (hasInProcessHostGate && hostContextMode !== 'in-process')) {
+    throw new TypeError('Memory Provider adapter requires exactly one trusted Host context mode: in-process gate or signed server assertion');
   }
   if (!Array.isArray(trustedInitialKnowledgeSources)) {
     throw new TypeError('Memory Provider adapter requires the deployment-owned source registry');
@@ -140,13 +143,16 @@ export function createMemoryNpcProviderAdapter({
     });
 
     return Object.freeze({
+      adapterId,
       provider: providerControl,
       consumer,
-      runWithAuthenticatedHostSession(request, conversationId, callback) {
-        return runWithAuthenticatedHostSession(
-          request, conversationId, callback, isAuthenticatedHostRequest, resolveHostConversationId,
-        );
-      },
+      ...(hasInProcessHostGate ? {
+        runWithAuthenticatedHostSession(request, conversationId, callback) {
+          return runWithAuthenticatedHostSession(
+            request, conversationId, callback, isAuthenticatedHostRequest, resolveHostConversationId,
+          );
+        },
+      } : {}),
       async prepareWorld(worldId) {
         await provider.rebuildIndex(worldId);
         return provider.reconcile(worldId);
