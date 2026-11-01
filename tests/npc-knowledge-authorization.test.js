@@ -77,6 +77,20 @@ test('production NPC read authorization requires configured adapter, active Host
   assert.equal(authorizers.readAuthorizer({ ...scope, conversation_id: 'other-session:installation:conversation' }), null);
   assert.equal(authorizers.readAuthorizer({ ...scope, adapter_id: 'unconfigured-adapter' }), null);
   assert.equal(authorizers.readAuthorizer({ ...scope, actor_id: 'other-actor' }), null);
+
+  assert.equal(authorizers.memoryQueryAuthorizer(scope), true);
+  assert.equal(authorizers.memoryQueryAuthorizer({
+    ...scope, conversation_id: 'other-session:installation:conversation',
+  }), false);
+  assert.equal(authorizers.memoryQueryAuthorizer({
+    ...scope, adapter_id: 'unconfigured-adapter',
+  }), false);
+  assert.equal(authorizers.memoryQueryAuthorizer({
+    ...scope, purpose: 'npc_decision',
+  }), false);
+  assert.equal(authorizers.memoryQueryAuthorizer({
+    ...scope, recipient: 'player',
+  }), false);
 });
 
 test('per-acquisition visibility requires exact trusted source provenance and the same live Host/actor bindings', (t) => {
@@ -134,6 +148,7 @@ test('per-acquisition visibility requires exact trusted source provenance and th
     reason: 'test revoke binding',
   });
   assert.equal(authorizers.readAuthorizer(scope), null);
+  assert.equal(authorizers.memoryQueryAuthorizer(scope), false);
   assert.equal(authorizers.visibilityAuthorizer(acquisition).status, 'denied');
 });
 
