@@ -1,6 +1,6 @@
 # SillyTavern 1.19.0 — protected generation integration gate
 
-**Status: NOT IMPLEMENTED / FAIL-CLOSED.**
+**Status: PARTIAL / FAIL-CLOSED.**
 **Read-only upstream source:** `SillyTavern/SillyTavern`, official tag `1.19.0`.
 **Pinned commit:** `7e8663cd9c184a550b37238218bdd32c6efc68e9`.
 **Implementation owner:** Logic-Engine only. No upstream changes, commits, PRs or Issues.
@@ -11,7 +11,7 @@
 
 A managed local source-level patch of the installed ST distribution through the existing Logic-Engine Patch Manager is authorized. This does not permit a standalone Server Companion, additional API port, Provider URL substitution/relay, direct browser/ST → Core path, or bypass of Core Security Gateway.
 
-**Patch Manager update:** the Logic-Engine branch now has a fixed allowlist for exact native integration files plus manifest-declared target paths, with the declared path set recorded in the transaction journal. Focused Patch Manager CI passed. This validates the manager transaction tests, not an actual ST Final-Send patch or runtime integration.
+**Patch Manager update:** the Logic-Engine branch now has a fixed allowlist for exact native integration files plus manifest-declared target paths, with the declared path set recorded in the transaction journal. Focused Patch Manager CI passed. Focused Patch Manager transaction CI passes, including positive native-source apply/rollback/recovery tests. This validates the manager, not an actual ST Final-Send patch or runtime integration.
 
 ## 2. Verified upstream source identity
 
@@ -96,9 +96,9 @@ ST 1.19.0 declares Node `>=20`; Logic-Engine requires Node `>=22.13.0` for `node
 | Official ST 1.19.0 source pin | VERIFIED: `7e8663cd9c184a550b37238218bdd32c6efc68e9` |
 | Approved architecture | PRESERVED |
 | Managed local source-level patch authorization | GRANTED |
-| Patch Manager native-source support | NOT IMPLEMENTED; current code rejects native source paths |
+| Patch Manager native-source support | IMPLEMENTED; focused CI PASSING |
 | Real ST session authentication / Host Adapter | NOT WIRED |
-| Single Extension Gateway ingress | NOT IMPLEMENTED |
+| Single Extension Gateway ingress | CORE + CLIENT EXTENSION IMPLEMENTED; ST ROUTE MOUNT PENDING |
 | Core dispatch-start bound to ST senders | NOT WIRED |
 | Complete sender/transport inventory test | NOT IMPLEMENTED |
 | Final-Send interception | NOT IMPLEMENTED |
