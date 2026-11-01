@@ -109,15 +109,22 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
     SESSION + ':' + INSTALLATION + ':' + CONVERSATION + ':extra',
     '------------------------------------:' + INSTALLATION + ':' + CONVERSATION,
     ' ' + conversationId,
+    INSTALLATION + ':' + SESSION + ':' + CONVERSATION,
   ]) {
     const invalidContext = await post(base, '/v1/host-context/resolve', adapterHeaders, {
       conversation_id: malformedConversationId,
+      host_session_id: SESSION,
+      host_installation_id: INSTALLATION,
+      conversation_uuid: CONVERSATION,
     });
     assert.equal(invalidContext.status, 400);
     assert.equal((await invalidContext.json()).error.code, 'INVALID_HOST_CONTEXT_RESOLUTION');
   }
   const contextResponse = await post(base, '/v1/host-context/resolve', adapterHeaders, {
     conversation_id: conversationId,
+    host_session_id: SESSION,
+    host_installation_id: INSTALLATION,
+    conversation_uuid: CONVERSATION,
   });
   assert.equal(contextResponse.status, 200);
   assert.deepEqual((await contextResponse.json()).context, {
