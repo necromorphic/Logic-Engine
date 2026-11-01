@@ -462,6 +462,45 @@ def _open_quarantine_dir(parent_fd: int, *, create: bool) -> int | None:
         raise
 
 
+def _recover_quarantined_sidecar_deletions(
+    parent_fd: int, sidecars: dict[str, dict[str, Any]],
+) -> None:
+    """Finish only manifest-authorized quarantined sidecar deletes at startup."""
+    quarantine_fd = _open_quarantine_dir(parent_fd, create=False)
+    if quarantine_fd is None:
+        return
+    try:
+        for name in os.listdir(quarantine_fd):
+            fd = -1
+            try:
+                fd = os.open(name, os.O_PATH | os.O_NOFOLLOW | os.O_CLOEXEC,
+                             dir_fd=quarantine_fd)
+                info = os.fstat(fd)
+                identity = _fd_identity(fd)
+                if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1
+                        or info.st_uid != os.geteuid()
+                        or identity["mountId"] != _fd_mount_id(quarantine_fd)):
+                    raise StoreError("quarantined recovery entry has an unsafe identity")
+                matches = [
+                    entry for entry in sidecars.values()
+                    if entry["state"] == "deleting" and entry["identity"] == identity
+                ]
+                if len(matches) != 1:
+                    raise StoreError(
+                        "quarantine entry is not uniquely authorized by a deleting sidecar manifest record"
+                    )
+                os.unlink(name, dir_fd=quarantine_fd)
+                os.fsync(quarantine_fd)
+                os.fsync(parent_fd)
+            except OSError as exc:
+                raise StoreError(f"cannot reconcile quarantined sidecar entry: {exc}") from exc
+            finally:
+                if fd >= 0:
+                    os.close(fd)
+    finally:
+        os.close(quarantine_fd)
+
+
 def _require_empty_quarantine(parent_fd: int) -> None:
     fd = _open_quarantine_dir(parent_fd, create=False)
     if fd is None:
@@ -1052,10 +1091,11 @@ class ManifestStore:
                     manifest["filesystemPolicy"]["applicationUid"]
                 )
                 try:
-                    _require_empty_quarantine(parent_fd)
                     _verify_regular_at(parent_fd, role["databaseBasename"],
                                        role["databaseIdentity"], f"role {role['role']} database")
                     declared = {entry["kind"]: entry for entry in role["sidecars"]}
+                    _recover_quarantined_sidecar_deletions(parent_fd, declared)
+                    _require_empty_quarantine(parent_fd)
                     for kind, suffix in suffixes.items():
                         name = role["databaseBasename"] + suffix
                         entry = declared.get(kind)
