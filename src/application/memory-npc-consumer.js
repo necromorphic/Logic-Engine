@@ -107,8 +107,9 @@ const nonReady = (reason) => Object.freeze({
  * Internal host seam for a future Memory -> NPC retrieval path.
  *
  * This class deliberately has no default Memory provider or access policy and
- * is not wired into the public API. The host must inject trusted Memory
- * authorization/retrieval functions and the existing Core AuthorizedReadService.
+ * is not wired into the public API. Its composition pins a configured adapter
+ * identity and injects trusted Core conversation query authorization, Memory
+ * record authorization/retrieval, and the existing Core AuthorizedReadService.
  *
  * First slice supports only direct canonical-entity sources. Memory summaries
  * and other source kinds are excluded until their source-lineage authorization
