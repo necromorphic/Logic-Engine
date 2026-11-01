@@ -106,3 +106,9 @@ The route inventory is generated from the exact managed patch package and pinned
 - only the exact five manifest-declared paths are changed, and rollback restores a clean checkout.
 
 This proves the source-level route topology for the pinned tag. It is not a claim that arbitrary ST extensions cannot create their own unrelated HTTP endpoints; it proves only that Logic-Engine exposes one Gateway ingress and does not register an alternate Logic-Engine route.
+
+## SillyTavern Extension Manager discovery
+
+The pinned ST 1.19.0 source defines PUBLIC_DIRECTORIES.globalExtensions as public/scripts/extensions/third-party. Its /api/extensions/discover handler enumerates immediate subdirectories there and includes folders with manifest.json as third-party/<folder>. The managed package installs the Client Extension at exactly that location with its manifest, so the native Extension Manager discovery flow can find it; no direct Core route, custom extension registry, or manual settings mutation is introduced.
+
+Patch Manager post-apply verification accounts for this directory being Git-ignored by ST. It accepts only exact manifest-declared paths that were absent before installation and now exist as regular files; it does not broadly trust ignored files or widen the transaction journal. Rollback removes those exact new files and returns the disposable worktree to clean state.
