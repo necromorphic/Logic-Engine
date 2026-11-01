@@ -31,7 +31,7 @@ const ROUTE_BY_SOURCE_KEY = Object.freeze({
   WORKERS_AI: 'workers-ai',
 });
 
-const UNREGISTERED_SENDER_ROUTE = 'unregistered';
+const HOST_ROUTE_SENDER_MAP = Object.freeze({\n  'text-completions': 'text-completions',\n  kobold: 'kobold',\n  'novelai-text': 'novelai-text',\n  'horde-text': 'horde-text',\n});\n\nconst UNREGISTERED_SENDER_ROUTE = 'unregistered';
 
 function assertSourceMap(sources) {
   if (!sources || typeof sources !== 'object' || Array.isArray(sources)) {
