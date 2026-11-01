@@ -277,6 +277,7 @@ export class SQLiteMemoryProvider {
         world_id TEXT NOT NULL, subject_id TEXT NOT NULL, purpose TEXT NOT NULL,
         record_ref TEXT NOT NULL, record_version TEXT NOT NULL,
         allowed INTEGER NOT NULL CHECK(allowed IN (0,1)),
+        authorization_generation INTEGER NOT NULL DEFAULT 1 CHECK(authorization_generation>=1),
         PRIMARY KEY(world_id, subject_id, purpose, record_ref, record_version)
       );
       CREATE TABLE IF NOT EXISTS memory_index_state (
