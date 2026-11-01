@@ -58,7 +58,7 @@ test('native ST Extension install/update/delete lifecycle invokes only the pinne
   assert.match(source, /action: 'install'/);
   assert.match(source, /action: 'update'/);
   assert.match(source, /action: 'delete'/);
-  assert.match(source, /TRUSTED_REPOSITORY_PATH = '\\/necromorphic\\/Logic-Engine'/);
-  assert.match(source, /hostname\\.toLowerCase\\(\\) !== 'github.com'/);
+  assert.ok(source.includes("TRUSTED_REPOSITORY_PATH = '/necromorphic/Logic-Engine'"));
+  assert.ok(source.includes("hostname.toLowerCase() !== 'github.com'"));
   assert.match(source, /LOGIC_ENGINE_EXTENSION_ORIGIN_DENIED/);
 });
