@@ -171,3 +171,12 @@ The Windows manifest validator previously reserved physical identities only for 
 The validator now reserves every sidecar identity, active or retired, against the metadata root, every registered parent directory, every database identity and every other sidecar record. Added regressions cover retired-sidecar/database aliasing and cross-role retired-sidecar collisions. This is a fail-closed schema-validation improvement; it does not implement persistent Windows storage, an anti-rollback anchor, a service-owned broker, or restart reconciliation.
 
 Exact-head CI was triggered for the test commit. Production Windows manifest/broker lifecycle, full production-owned SQLite file methods, temporary/super-journal/subjournal support and independent Security review remain open.
+
+
+### 2026-11-01 Windows manifest parent-chain verification
+
+Implementation commits: `12574b805ecca0b645cb01451c36e158dddae293`, `f5b2da5cfe8684c91f4fbd794599f5b8dcc0d820`. Regression tests: `dc5273c57bf4b587bba6b4cd20fb6e898458e6b7`, `d6e23ce183b0b3cf7aa2066dc149b9bc0d9197a5`.
+
+The Windows manifest enrollment path previously compared the final parent directory identity but did not compare the recorded identities for the metadata root and intermediate parent directories against opened directory handles. Added a Windows-only native validation entrypoint that resolves each supplied directory through the handle-relative directory walk, rejects reparse points, and compares the opened directory's volume/file identity with the manifest record. The JS enrollment path now validates the metadata root and each manifest-owned parent component before database-role registration. Tests assert the exact root/parent paths and identities passed to native validation and verify that a mismatch stops enrollment before the DB registration call.
+
+This closes the missing per-directory identity comparison in the current probe's registration sequence. The validations are separate native calls; they are not an atomic service-owned namespace transaction. They do not replace the still-required privileged Windows broker/service, protected durable manifest, anti-rollback anchor, atomic lifecycle transitions or restart recovery. Do not treat this as production authorization.
