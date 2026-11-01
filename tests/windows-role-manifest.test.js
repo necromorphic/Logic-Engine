@@ -90,7 +90,7 @@ test('Windows manifest enrollment rejects duplicate role identities and malforme
   duplicate.roles.push({ ...duplicate.roles[0], role: 'core-copy' });
   assert.throws(() => registerWindowsManifestRole(
     fakeDatabase(), duplicate, 'core', 'C:\\LogicEngine\\data\\core.sqlite'
-  ), /Duplicate physical database identity/);
+  ), /Duplicate physical Windows identity/);
   const malformed = manifest();
   malformed.roles[0].databaseIdentity.fileId = 'bad';
   assert.throws(() => registerWindowsManifestRole(
