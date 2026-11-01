@@ -1,10 +1,11 @@
-'use strict';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { createRequire } from 'node:module';
+import { test } from 'node:test';
 
-const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const os = require('node:os');
-const path = require('node:path');
-const test = require('node:test');
+const require = createRequire(import.meta.url);
 
 const packageRoot = process.env.BETTER_SQLITE3_PACKAGE_DIR;
 const extensionPath = process.env.LOGIC_ENGINE_VFS_PROBE_PATH;
