@@ -21,6 +21,15 @@ function createAdapter({ resolveProtectedMemory, gateway = { dispatchProtectedRe
   });
 }
 
+test('native non-chat text generator routes resolve into the protected sender registry', () => {
+  const adapter = createAdapter({ resolveProtectedMemory: () => null });
+  assert.equal(adapter.resolveSenderRoute({}, 'text-completions'), 'text-completions');
+  assert.equal(adapter.resolveSenderRoute({}, 'kobold'), 'kobold');
+  assert.equal(adapter.resolveSenderRoute({}, 'novelai-text'), 'novelai-text');
+  assert.equal(adapter.resolveSenderRoute({}, 'horde-text'), 'horde-text');
+  assert.equal(adapter.resolveSenderRoute({}, 'not-a-generation-route'), 'unregistered');
+});
+
 test('unregistered SillyTavern sender remains native for explicitly unprotected generation', async () => {
   let transportCalls = 0;
   const adapter = createAdapter({ resolveProtectedMemory: () => null });
