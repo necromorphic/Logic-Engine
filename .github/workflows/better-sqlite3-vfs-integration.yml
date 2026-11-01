@@ -55,7 +55,7 @@ jobs:
         run: |
           package="$RUNNER_TEMP/better-sqlite3/package"
           cc -O2 -fPIC -shared -I "$package/deps/sqlite3" -I "$GITHUB_WORKSPACE/native/secure-vfs-probe" "$GITHUB_WORKSPACE/native/secure-vfs-probe/secure_vfs_probe.c" -o "$RUNNER_TEMP/logic_engine_secure_vfs_probe.so"
-      - name: Exercise the stock better-sqlite3 engine through SQLite URI VFS selection
+      - name: Exercise the stock better-sqlite3 engine through default VFS registration
         env:
           BETTER_SQLITE3_PACKAGE_DIR: ${{ runner.temp }}/better-sqlite3/package
           LOGIC_ENGINE_VFS_PROBE_PATH: ${{ runner.temp }}/logic_engine_secure_vfs_probe.so
