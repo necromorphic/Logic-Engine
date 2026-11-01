@@ -134,6 +134,27 @@ test('pinned ST 1.19.0 supported chat mutations persist; rename, group deletion,
       logicEngineSessionId: '99999999-9999-4999-8999-999999999999',
       logicEngineSessionHandle: operationHandle,
     };
+    // Test-only stand-in for the authenticated lifecycle proxy: production
+    // writes this permit only after durable PREPARED + Core acknowledgement.
+    const operation = ({
+      edit: 'edit-message',
+      swipe: 'create-swipe',
+      'delete-message': 'delete-message',
+    })[request.headers['x-harness-operation']];
+    const conversationUuid = request.body?.chat?.[0]?.chat_metadata?.logic_engine_conversation_id;
+    if (operation && typeof conversationUuid === 'string') {
+      request.session.logicEngineHostPreparedMutation = {
+        protocol_version: 1,
+        host_installation_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        authenticated_account_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+        host_session_id: request.session.logicEngineSessionId,
+        conversation_uuid: conversationUuid,
+        mutation_id: randomUUID(),
+        event_id: randomUUID(),
+        operation,
+        mutation_digest: 'a'.repeat(64),
+      };
+    }
     const uploadName = request.headers['x-harness-upload'];
     if (typeof uploadName === 'string' && uploadName && !uploadName.includes('..') && !uploadName.includes('/') && !uploadName.includes('\\')) {
       request.file = { destination: uploads, filename: uploadName };
