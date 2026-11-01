@@ -666,20 +666,20 @@ diff --git a/src/endpoints/chats.js b/src/endpoints/chats.js
 +    backup(backupDirectory, cardName, jsonlData);
 +    if (flushLifecycleBackup) backup.flush();
 
-@@ -545,3 +553,3 @@
+@@ -545,3 +552,3 @@
 -router.post('/save', validateAvatarUrlMiddleware, async function (request, response) {
 +router.post('/save', validateAvatarUrlMiddleware, hostLifecycleSaveGuard, async function (request, response) {
      try {
          const handle = request.user.profile.handle;
-@@ -557,1 +565,1 @@
+@@ -557,1 +564,1 @@
 -            await trySaveChat(chatData, chatFilePath, request.body.force, handle, cardName, request.user.directories.backups);
 +            await trySaveChat(chatData, chatFilePath, request.body.force, handle, cardName, request.user.directories.backups, request.logicEngineLifecycleSaveAuthorized === true);
-@@ -922,3 +927,3 @@
+@@ -922,3 +929,3 @@
 -router.post('/group/save', async function (request, response) {
 +router.post('/group/save', hostLifecycleSaveGuard, async function (request, response) {
      try {
          if (!request.body || !request.body.id) {
-@@ -934,1 +940,1 @@
+@@ -934,1 +941,1 @@
 -            await trySaveChat(chatData, chatFilePath, request.body.force, handle, String(id), request.user.directories.backups);
 +            await trySaveChat(chatData, chatFilePath, request.body.force, handle, String(id), request.user.directories.backups, request.logicEngineLifecycleSaveAuthorized === true);
 @@ -621,4 +624,4 @@
