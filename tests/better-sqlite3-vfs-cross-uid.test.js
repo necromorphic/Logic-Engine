@@ -56,6 +56,7 @@ test('distinct-UID broker protects better-sqlite3 main, journal, WAL and SHM fil
   let readerTransactionActive = false;
   try {
     // Mirror the actual ST-VectorService startup PRAGMAs and SQLite schema.
+    assert.equal(writer.pragma('journal_mode = WAL', { simple: true }), 'wal');
     writer.pragma('synchronous = NORMAL');
     writer.pragma('busy_timeout = 10000');
     writer.pragma('temp_store = MEMORY');
