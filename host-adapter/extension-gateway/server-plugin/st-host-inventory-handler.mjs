@@ -266,8 +266,9 @@ export function createHostBulkMutationGuard({
 }
 
 export function createHostIdentityHandler({ identityStore }) {
-  if (!identityStore || typeof identityStore.resolveAuthenticatedAccount !== 'function') {
-    throw new TypeError('A server-owned Host identity store is required.');
+  if (!identityStore || typeof identityStore.resolveAuthenticatedAccount !== 'function'
+    || typeof identityStore.assertOutsideRoot !== 'function') {
+    throw new TypeError('A server-owned Host identity store with root-isolation checks is required.');
   }
   return async function hostIdentityHandler(request, response) {
     response.set('Cache-Control', 'no-store, private');
@@ -282,6 +283,11 @@ export function createHostIdentityHandler({ identityStore }) {
       return response.sendStatus(403);
     }
     try {
+      const root = request?.user?.directories?.root;
+      if (typeof root !== 'string' || !path.isAbsolute(root)) {
+        return response.status(503).json({ status: 'NON_READY', code: 'HOST_IDENTITY_DATA_ROOT_UNAVAILABLE' });
+      }
+      await identityStore.assertOutsideRoot(root);
       const identity = await identityStore.resolveAuthenticatedAccount(userHandle);
       return response.status(200).json({ ...identity, host_session_id: session.logicEngineSessionId });
     } catch {
