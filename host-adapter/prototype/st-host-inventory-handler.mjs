@@ -280,3 +280,35 @@ export function createHostIdentityHandler({ identityStore }) {
     }
   };
 }
+export function createHostLifecycleSaveGuard({ enumerate = enumerateHostDataInventory, pinnedHostCommit } = {}) {
+  if (typeof enumerate !== 'function' || typeof pinnedHostCommit !== 'string' || !/^[a-f0-9]{40}$/.test(pinnedHostCommit)) throw new TypeError('Host lifecycle save guard configuration is invalid.');
+  const supported = new Set(['create-message', 'message-send', 'message-receive', 'create-swipe', 'select-swipe', 'delete-swipe', 'delete-message', 'edit-message']);
+  return async function hostLifecycleSaveGuard(request, response, next) {
+    response.set('Cache-Control', 'no-store, private');
+    response.set('Vary', 'Cookie');
+    const userHandle = request?.user?.profile?.handle;
+    const session = request?.session;
+    if (typeof userHandle !== 'string' || !userHandle.trim() || session?.handle !== userHandle || session?.logicEngineSessionHandle !== userHandle || !HOST_SESSION_UUID.test(session?.logicEngineSessionId ?? '')) return response.sendStatus(403);
+    const directories = request?.user?.directories;
+    if (!directories || !['root', 'chats', 'groups', 'groupChats'].every(key => typeof directories[key] === 'string' && path.isAbsolute(directories[key]))) return response.sendStatus(403);
+    let inventory;
+    try { inventory = await enumerate({ directories: { root: directories.root, chats: directories.chats, groups: directories.groups, groupChats: directories.groupChats }, hostCommit: pinnedHostCommit }); }
+    catch { return response.status(503).json({ status: 'NON_READY', code: 'HOST_LIFECYCLE_SAVE_INVENTORY_UNAVAILABLE' }); }
+    if (inventory?.filesystem?.status !== 'complete' || inventory?.source?.status !== 'DOUBLE_SCAN_CANDIDATE' || !Array.isArray(inventory?.source?.files)) return response.status(503).json({ status: 'NON_READY', code: 'HOST_LIFECYCLE_SAVE_INVENTORY_INCOMPLETE' });
+    const body = request?.body;
+    const isGroup = request?.path === '/group/save' || request?.originalUrl?.split('?')[0]?.endsWith('/group/save');
+    const locator = isGroup ? (typeof body?.id === 'string' ? body.id + '.jsonl' : '') : (typeof body?.avatar_url === 'string' && typeof body?.file_name === 'string' ? body.avatar_url.replace(/\.png$/i, '') + '/' + body.file_name + '.jsonl' : '');
+    const slash = String.fromCharCode(92);
+    if (!locator || locator.includes(slash) || locator.split('/').some(part => !part || part === '.' || part === '..')) return response.status(400).json({ status: 'NON_READY', code: 'HOST_LIFECYCLE_SAVE_TARGET_INVALID' });
+    const kind = isGroup ? 'group-chat' : 'character-chat';
+    const target = inventory.source.files.find(file => file?.kind === kind && file?.locator === locator);
+    const anyEnrolled = inventory.source.files.some(file => typeof file?.logical_identity?.conversation_uuid === 'string' && HOST_SESSION_UUID.test(file.logical_identity.conversation_uuid));
+    if (!target) return anyEnrolled ? response.status(409).json({ status: 'NON_READY', code: 'HOST_LIFECYCLE_SAVE_TARGET_NOT_ENROLLED' }) : next();
+    const conversationUuid = target.logical_identity?.conversation_uuid;
+    if (typeof conversationUuid !== 'string' || !HOST_SESSION_UUID.test(conversationUuid)) return response.status(409).json({ status: 'NON_READY', code: 'HOST_LIFECYCLE_SAVE_TARGET_IDENTITY_INVALID' });
+    const permit = session.logicEngineHostPreparedMutation;
+    if (!permit || permit.protocol_version !== 1 || permit.host_session_id !== session.logicEngineSessionId || permit.conversation_uuid !== conversationUuid || !supported.has(permit.operation) || !HOST_SESSION_UUID.test(permit.mutation_id ?? '') || !HOST_SESSION_UUID.test(permit.event_id ?? '') || !/^[a-f0-9]{64}$/.test(permit.mutation_digest ?? '')) return response.status(409).json({ status: 'NON_READY', code: 'HOST_LIFECYCLE_PREPARED_SAVE_REQUIRED' });
+    delete session.logicEngineHostPreparedMutation;
+    return next();
+  };
+}
