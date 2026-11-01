@@ -187,7 +187,7 @@ Import and group-import server routes, chat rename/delete routes, recursive char
 
 The Core/proxy v1 mutation allowlist currently accepts only create-message, message-send, message-receive, create-swipe, select-swipe, delete-swipe, delete-message, edit-message. The other table rows document known Host paths but are explicitly rejected as unsupported; they are not accepted lifecycle operations. Rename is explicitly unsupported in v1 until its persisted rename/locator behavior is covered by a real file test.
 
-A hook is not proof of persistence. Every supported operation requires PREPARED before first write, exact save completion, fresh disk read-back, artifact-set and digest match, durable local receipt, then Core COMMITTED. Any missing hook or artifact keeps the conversation NON_READY. Export must not fabricate a COMMITTED mutation for a download-only response.
+A hook is not proof of persistence. Every supported operation requires PREPARED before first write, exact save completion, fresh disk read-back, artifact-set and digest match, durable local receipt, then Core COMMITTED. Any missing hook or artifact keeps the conversation NON_READY. Export must not fabricate a COMMITTED mutation for a download-only response. The current patch has server-side fail-closed guards for destructive/bulk routes, but `/api/chats/save` and `/api/chats/group/save` do not yet verify a one-time server-issued PREPARED permit bound to the authenticated target and payload digest. Their lifecycle protection therefore still depends on browser hooks; direct authenticated API writes are not yet lifecycle-authorized. This is a remaining acceptance blocker.
 
 ## 11. Failure codes
 
