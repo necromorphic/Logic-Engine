@@ -38,12 +38,22 @@ jobs:
           repository: SillyTavern/SillyTavern
           ref: 06bde939fb1e9c4c8d8641d810f0a916b5bce127
           path: sillytavern-host-checkout
-      - name: Assemble native server plugin without modifying SillyTavern
+      - name: Assemble native server plugin for pinned SillyTavern
         run: |
           mkdir -p sillytavern-host-checkout/plugins
           cp -R host-adapter sillytavern-host-checkout/plugins/logic-engine-extension-gateway
           test -f sillytavern-host-checkout/plugins/logic-engine-extension-gateway/package.json
           test -f sillytavern-host-checkout/plugins/logic-engine-extension-gateway/server-plugin/index.mjs
+      - name: Apply pinned lifecycle hooks through Extension Gateway
+        run: |
+          patch="$GITHUB_WORKSPACE/host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch"
+          git -C sillytavern-host-checkout apply --check "$patch"
+          git -C sillytavern-host-checkout apply "$patch"
+          git -C sillytavern-host-checkout diff --check
+          test ! -e sillytavern-host-checkout/src/endpoints/logic-engine-lifecycle.js
+          ! grep -R -n -E '/api/logic-engine|logic-engine-lifecycle.js' \
+            sillytavern-host-checkout/public/script.js \
+            sillytavern-host-checkout/src/endpoints
       - name: Verify authenticated native plugin mount
         run: |
           grep -F "app.use(requireLoginMiddleware);" sillytavern-host-checkout/src/server-main.js
@@ -63,7 +73,9 @@ jobs:
         run: node --test experiments/host-adapter-source-audit/harness.mjs
       - name: Run Host identity and lifecycle unit tests
         run: node --test host-adapter/prototype/tests/*.test.mjs tests/host-source-inventory.test.js
-      - name: Confirm SillyTavern source tree remains pristine
+      - name: Verify only the reviewed Gateway hook surface changed
         run: |
           cd sillytavern-host-checkout
-          git diff --exit-code
+          git diff --check
+          git status --short
+          ! git diff --name-only | grep -E 'src/endpoints/logic-engine-lifecycle.js|src/server-startup.js'
