@@ -65,6 +65,14 @@ test('distinct-UID broker protects better-sqlite3 main, journal, WAL and SHM fil
       /no such function/,
       'production VFS must not expose caller-controlled SQL role/path/socket enrollment',
     );
+    for (const sql of [
+      'SELECT logic_engine_vfs_probe_configure_race(?, ?, ?)',
+      'SELECT logic_engine_vfs_probe_delete_registered_role(?)',
+      'SELECT logic_engine_vfs_probe_bind_broker(?, ?)',
+    ]) {
+      assert.throws(() => registrar.prepare(sql), /no such function/,
+        'production VFS must not expose test-only namespace mutation APIs');
+    }
     const registerRole = registrar.prepare(
       'SELECT logic_engine_vfs_probe_register_broker_role_from_host() AS registered',
     );
