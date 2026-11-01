@@ -1,0 +1,35 @@
+.logic-engine-extension {
+    margin: 0.5em 0;
+    padding: 0.75em;
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 8px;
+}
+.logic-engine-title {
+    font-weight: 700;
+    margin-bottom: 0.6em;
+}
+.logic-engine-label {
+    display: block;
+    margin-bottom: 0.25em;
+}
+.logic-engine-extension input {
+    width: 100%;
+    box-sizing: border-box;
+}
+.logic-engine-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5em;
+    margin-top: 0.5em;
+}
+.logic-engine-status {
+    margin-top: 0.6em;
+    overflow-wrap: anywhere;
+}
+.logic-engine-status[data-state="success"] { color: var(--success); }
+.logic-engine-status[data-state="error"] { color: var(--warning); }
+.logic-engine-note {
+    margin-top: 0.6em;
+    opacity: 0.75;
+    font-size: 0.9em;
+}
