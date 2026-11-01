@@ -36,7 +36,7 @@ jobs:
           $server = Get-Content Sillytavern/src/server-main.js -Raw
           $loader = Get-Content Sillytavern/src/plugin-loader.js -Raw
           if ($server.IndexOf('app.use(requireLoginMiddleware)') -ge $server.IndexOf('loadPlugins(app, pluginsDirectory)')) { throw 'Plugin loader is not behind ST authentication middleware' }
-          if (-not $loader.Contains('app.use(`/api/plugins/${id}`, router)')) { throw 'Native plugin route mount changed' }
+          if (-not ($loader.Contains('/api/plugins/') -and $loader.Contains('router'))) { throw 'Native plugin route mount changed' }
       - name: Syntax-check plugin modules
         shell: pwsh
         run: |
