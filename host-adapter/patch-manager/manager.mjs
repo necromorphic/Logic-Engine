@@ -12,7 +12,7 @@ const LOCK_NAME = '.patch-manager.lock';
 const PATCH_ID = 'sillytavern-1.19.0-final-send-v1';
 
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
-const normalizeLineEndings = bytes => Buffer.from(bytes.toString('utf8').replace(/\\r\\n/g, '\\n'), 'utf8');
+const normalizeLineEndings = bytes => Buffer.from(bytes.toString('utf8').replace(/\r\n/g, '\n'), 'utf8');
 const pinnedSourceHash = bytes => sha256(normalizeLineEndings(bytes));
 const fail = code => { throw new Error('LOGIC_ENGINE_PATCH_' + code); };
 
@@ -76,8 +76,8 @@ function replaceExactlyOnce(source, before, after, label) {
 
 export function patchChatCompletionsSource(source) {
   if (typeof source !== 'string') fail('SOURCE_INVALID');
-  const lineEnding = source.includes('\\r\\n') ? '\\r\\n' : '\\n';
-  let result = source.replace(/\\r\\n/g, '\\n');
+  const lineEnding = source.includes('\r\n') ? '\r\n' : '\n';
+  let result = source.replace(/\r\n/g, '\n');
   result = replaceExactlyOnce(
     result,
     "import fetch from 'node-fetch';",
@@ -108,7 +108,7 @@ export function patchChatCompletionsSource(source) {
     '\n    });\n});\n\nconst multimodalModels = express.Router();',
     'GENERATION_EXIT',
   );
-  return lineEnding === '\\n' ? result : result.replace(/\\n/g, '\\r\\n');
+  return lineEnding === '\n' ? result : result.replace(/\n/g, '\r\n');
 }
 
 async function readJson(path) {
