@@ -68,7 +68,7 @@ test('strict Linux VFS build requires broker role enrollment', {
         () => db.prepare(
           'SELECT logic_engine_vfs_probe_register_broker_role_from_host()'
         ).get(),
-        /broker role enrollment handshake failed/i,
+        /non-writable alias parent/i,
         'strict Linux enrollment must reject an application-writable logical alias parent',
       );
       const afterWritableAlias = db.prepare(
