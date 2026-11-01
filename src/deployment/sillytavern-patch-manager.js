@@ -108,10 +108,15 @@ function targetInfo(stPath) {
   const root = realpathSync(requested);
   if (!lstatSync(root).isDirectory()) throw new Error('SillyTavern target must be a directory.');
   const gitRoot = resolve(realpathSync(runGit(root, ['rev-parse', '--show-toplevel'])));
-  // Windows paths may differ only by drive-letter/path casing or separator
-  // normalization between Node realpath and Git output. Compare canonical
-  // path equivalence, not raw string representation.
-  if (relative(root, gitRoot) !== '' || relative(gitRoot, root) !== '') {
+  // Windows realpath and Git can return the same directory with different
+  // extended-length prefixes, separator forms, or drive-letter casing.
+  // Canonicalize those representation differences before comparing roots.
+  const comparablePath = value => {
+    let normalized = resolve(value).replace(/^\\\\\\?\\/, '');
+    if (process.platform === 'win32') normalized = normalized.replaceAll('/', '\\\\').toLowerCase();
+    return normalized.replace(/[\\\\/]+$/, '');
+  };
+  if (comparablePath(root) !== comparablePath(gitRoot)) {
     throw new Error('Target path must be the SillyTavern Git worktree root.');
   }
   const commit = runGit(root, ['rev-parse', 'HEAD']);
