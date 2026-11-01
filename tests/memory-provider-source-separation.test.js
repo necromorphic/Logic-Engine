@@ -72,6 +72,31 @@ test('source archive rows stay separate from fact records and rebuildable search
   assert.equal(JSON.stringify(result).includes(sceneText), false);
 });
 
+test('Provider record/version identity is immutable in the file-backed database', (t) => {
+  const provider = setup(t);
+  const db = testDbFor(provider);
+  const record = sourceRecord();
+  assert.equal(provider.putRecord(record).status, 'stored');
+
+  assert.throws(
+    () => db.prepare(`UPDATE memory_records SET source_version=? WHERE world_id=? AND record_ref=? AND record_version=?`)
+      .run('source-v2', scope.world_id, record.record_ref, record.record_version),
+    /MEMORY_RECORD_IMMUTABLE/,
+  );
+  assert.throws(
+    () => provider.putRecord(sourceRecord({ source_version: 'source-v2', lineage: [
+      { source_kind: 'canonical_entity', entity_id: 'entity-a', source_version: 'source-v2' },
+    ] })),
+    /MEMORY_IDENTITY_CONFLICT/,
+  );
+
+  const persisted = db.prepare(`SELECT source_version,lineage_json FROM memory_records
+    WHERE world_id=? AND record_ref=? AND record_version=?`)
+    .get(scope.world_id, record.record_ref, record.record_version);
+  assert.equal(persisted.source_version, 'source-v1');
+  assert.deepEqual(JSON.parse(persisted.lineage_json), record.lineage);
+});
+
 test('Host message-version tuples are rejected as semantic Provider records', (t) => {
   const provider = setup(t);
   const hostTuple = {
