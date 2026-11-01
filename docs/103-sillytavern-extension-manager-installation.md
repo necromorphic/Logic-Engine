@@ -1,35 +1,84 @@
 # SillyTavern Extension Manager integration
 
-**Status:** first installable client-extension slice; not the complete trusted Host Adapter.  
+**Status:** first installable client extension plus server-side session bridge; not the complete protected generation integration.  
 **Host target inspected:** SillyTavern 1.19.0.  
 **Host source modifications:** none.
 
-## User-facing installation path
+## What gets installed
 
-The Logic-Engine client extension is packaged at the repository root with the SillyTavern-required `manifest.json`, `index.js`, and `style.css`.
+There are two Logic-Engine components because SillyTavern separates browser extensions from server plugins:
 
-Install it through SillyTavern's normal third-party extension installer (Extensions → Install extension), using this repository and the `integration/sillytavern-extension-manager` branch. This is an Extension Manager installation, not a model/API-provider configuration.
+1. **Client extension** — installed from SillyTavern's **Extensions → Install extension** panel. It adds the Logic-Engine settings panel and calls only same-origin Host Adapter routes. It contains no Core or adapter credentials.
+2. **Server plugin** — runs inside SillyTavern's server plugin loader. It authenticates the request using SillyTavern's existing authenticated `req.user` context, then checks the local Logic-Engine Core. It keeps server-side responsibilities out of the browser.
 
-After installation, the Logic-Engine panel appears in Extensions settings. Set the Core URL (default `http://127.0.0.1:8787`) and use **Check connection**. The extension checks only the unauthenticated Core `GET /health` endpoint. It does not store Core bearer, adapter, admin, approval, or internal credentials in browser settings.
+Neither component changes SillyTavern source or replaces the configured model/API provider.
 
-## What this slice does
+## Installation
 
-- Loads through the standard SillyTavern client Extension Manager.
-- Uses SillyTavern's extension lifecycle API.
-- Provides a Core URL setting and a health check.
-- Does not replace or configure the selected model/API provider.
-- Does not modify SillyTavern source files.
-- Does not send browser-supplied world, actor, conversation, installation, or authorization claims to Core.
-- Does not inject protected Memory into generation. That path remains disabled.
+### 1. Install the server-side Host Adapter plugin
 
-## Important boundary
+From the SillyTavern installation directory, create the plugin directory and clone this branch into it:
 
-A client extension is browser-side and untrusted. It cannot be the authenticated server-side Host Adapter and cannot enforce a final-send/response gate against every native provider route. The generation hook in this first slice is observational only.
+```powershell
+New-Item -ItemType Directory -Force .\\plugins | Out-Null
+git clone --branch integration/sillytavern-extension-manager https://github.com/necromorphic/Logic-Engine.git .\\plugins\\logic-engine
+```
 
-The full trusted integration still requires a server-side Host Adapter that authenticates the ST session, resolves installation/conversation/world/actor bindings, holds adapter credentials server-side, and mediates authorized Core operations. SillyTavern 1.19.0's separate server-plugin mechanism can host routes under `/api/plugins/{id}`, but it is installed from the server `plugins/` directory and is not installed by the client Extension Manager. Do not misrepresent it as part of the client extension installation.
+In SillyTavern's `config.yaml`, enable server plugins:
 
-Until a supported server-side bridge is installed and verified, this client extension is an installable UI/lifecycle connector only. Memory → NPC remains `DISABLED / FAIL-CLOSED`; no protected context is sent to the model.
+```yaml
+enableServerPlugins: true
+```
 
-## Why there is no provider/API setup
+The repository's package entrypoint points the SillyTavern plugin loader to `server-plugin/index.mjs`. The plugin loader mounts its routes under `/api/plugins/logic-engine`. The plugin uses the local Core URL from `LOGIC_ENGINE_URL`, defaulting to `http://127.0.0.1:8787`.
 
-The user installs Logic-Engine from the Extensions panel. The model provider remains configured in SillyTavern exactly as before. The Core URL in this extension points to Logic-Engine Core, not to Gemini/OpenAI/another model provider.
+If server plugins are already enabled, do not change that setting. Restart SillyTavern after installing or updating the server plugin.
+
+### 2. Install the client extension through the Extensions panel
+
+In SillyTavern open **Extensions → Install extension**.
+
+Repository URL:
+
+```text
+https://github.com/necromorphic/Logic-Engine
+```
+
+Branch:
+
+```text
+integration/sillytavern-extension-manager
+```
+
+Install and reload SillyTavern. The Logic-Engine panel appears in Extensions settings. Use **Check connection**.
+
+### 3. Start Logic-Engine Core
+
+Core must be running on `http://127.0.0.1:8787`, or set `LOGIC_ENGINE_URL` in the SillyTavern server environment to the Core address. Core runtime still requires its normal database, coordinator, world-pack catalog, and credential configuration.
+
+The extension does not ask for an API key. The model provider remains configured in SillyTavern exactly as before.
+
+## What the first slice proves
+
+- The client extension is loadable through the normal Extension Manager.
+- The browser talks only to same-origin `/api/plugins/logic-engine/*` routes.
+- SillyTavern's server-side `requireLoginMiddleware` runs before server-plugin routes in the inspected 1.19.0 source. The plugin independently requires `req.user.profile.handle` and fails closed if it is absent.
+- The server plugin derives a pseudonymous subject identifier from the authenticated ST account and deployment host ID; it does not accept identity from browser request fields.
+- The server plugin calls only the configured Core `/health` endpoint. The browser cannot supply or override the Core URL.
+- Core credentials are not sent to or stored in the browser.
+- The model/API provider is not replaced.
+
+## Explicitly not implemented yet
+
+This is a real installation and authenticated session-connectivity slice, not the complete Sole Gateway. It does not yet:
+
+- bind the authenticated ST installation/session/conversation to a Core world and actor;
+- expose protected Memory retrieval to the browser;
+- inject Memory into prompts;
+- intercept every native provider send or response;
+- implement PRE-LLM EGRESS or FINAL RESPONSE REVALIDATION for native generation;
+- authorize Core Commit from LLM output.
+
+A client extension cannot be the trusted Host Adapter. The server plugin is the trusted-side starting point, but its current routes are limited to session identity and Core health. Do not send protected context to the model through this incomplete path.
+
+Memory → NPC remains `DISABLED / FAIL-CLOSED`. No SillyTavern source patch and no model-provider replacement are part of this integration.
