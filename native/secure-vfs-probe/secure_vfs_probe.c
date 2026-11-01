@@ -123,6 +123,7 @@ typedef struct ProbeDatabaseRole {
   char *basename;
 #if defined(__linux__)
   char *broker_socket_path;
+  uid_t broker_uid;
 #endif
 #endif
 } ProbeDatabaseRole;
@@ -285,26 +286,7 @@ static int probe_broker_exchange(
   const char *socket_basename = NULL;
   char connect_path[sizeof(address.sun_path)];
   socklen_t credentials_length = (socklen_t)sizeof(peer_credentials);
-  const char *expected_uid_text = getenv("LOGIC_ENGINE_BROKER_UID");
-  char *expected_uid_end = NULL;
-  unsigned long long expected_uid_value = 0;
-  int expected_uid_valid = 0;
-  if (expected_uid_text && expected_uid_text[0]) {
-    const unsigned char *digit = (const unsigned char *)expected_uid_text;
-    expected_uid_valid = 1;
-    if (digit[0] == '0' && digit[1] != '\0') expected_uid_valid = 0;
-    for (; *digit; ++digit) {
-      if (*digit < '0' || *digit > '9') {
-        expected_uid_valid = 0;
-        break;
-      }
-    }
-    errno = 0;
-    expected_uid_value = strtoull(expected_uid_text, &expected_uid_end, 10);
-    expected_uid_valid = expected_uid_valid && errno == 0 && expected_uid_end
-      && *expected_uid_end == '\0'
-      && expected_uid_value <= (unsigned long long)((uid_t)-1);
-  }
+
   if (out_fd) *out_fd = -1;
   if (out_status) *out_status = LEB_STATUS_INTERNAL;
   if (!role || !socket_path || !socket_path[0] || !out_status) return 0;
@@ -390,9 +372,8 @@ static int probe_broker_exchange(
                     peer_credentials, &credentials_length) != 0
       || credentials_length != sizeof(peer_credentials)
       || peer_credentials[0] <= 0
-      || !expected_uid_valid
-      || (uid_t)expected_uid_value != socket_info.st_uid
-      || (uid_t)peer_credentials[1] != (uid_t)expected_uid_value
+      || role->broker_uid != socket_info.st_uid
+      || (uid_t)peer_credentials[1] != role->broker_uid
       || (uid_t)peer_credentials[1] != socket_info.st_uid
       || (gid_t)peer_credentials[2] != socket_info.st_gid) {
     probe_counter_increment(&g_broker_socket_policy_reject_count);
@@ -2918,22 +2899,11 @@ static int probe_valid_absolute_role_path(const char *value) {
   return 1;
 }
 
-/*
- * The SQLite pathname is a logical alias, not the broker-owned physical DB.
- * Its parent chain must be immutable to the application identity so that
- * parent-VFS operations cannot create or replace local decoys beside the
- * broker-returned file descriptor.
- */
-static int probe_validate_broker_alias_path(const char *database_path) {
+static int probe_parse_expected_broker_uid(uid_t *out_uid) {
   const char *uid_text = getenv("LOGIC_ENGINE_BROKER_UID");
-  const char *separator = strrchr(database_path, '/');
   char *end = NULL;
-  char *parent_path = NULL;
   unsigned long long parsed_uid;
-  uid_t broker_uid;
-  int parent_fd = -1;
-  int result = 0;
-  if (!uid_text || !uid_text[0] || !separator || !separator[1]) return 0;
+  if (!uid_text || !uid_text[0]) return 0;
   if (uid_text[0] == '0' && uid_text[1] != 0) return 0;
   for (const unsigned char *digit = (const unsigned char *)uid_text; *digit; ++digit) {
     if (*digit < '0' || *digit > '9') return 0;
@@ -2942,10 +2912,25 @@ static int probe_validate_broker_alias_path(const char *database_path) {
   parsed_uid = strtoull(uid_text, &end, 10);
   if (errno || !end || *end || parsed_uid == 0
       || parsed_uid > (unsigned long long)((uid_t)-1)) return 0;
-  broker_uid = (uid_t)parsed_uid;
 #if !defined(LOGIC_ENGINE_VFS_PROBE_ALLOW_UNBROKERED_TEST_ROLES)
-  if (broker_uid == geteuid()) return 0;
+  if ((uid_t)parsed_uid == geteuid()) return 0;
 #endif
+  *out_uid = (uid_t)parsed_uid;
+  return 1;
+}
+
+/*
+ * The SQLite pathname is a logical alias, not the broker-owned physical DB.
+ * Its parent chain must be immutable to the application identity so that
+ * parent-VFS operations cannot create or replace local decoys beside the
+ * broker-returned file descriptor.
+ */
+static int probe_validate_broker_alias_path(const char *database_path, uid_t broker_uid) {
+  const char *separator = strrchr(database_path, '/');
+  char *parent_path = NULL;
+  int parent_fd = -1;
+  int result = 0;
+  if (!separator || !separator[1]) return 0;
   parent_path = sqlite3_mprintf("%.*s",
       (int)(separator == database_path ? 1 : separator - database_path),
       database_path);
@@ -3022,12 +3007,14 @@ static void probe_register_broker_role_values(
   uint32_t status = LEB_STATUS_INTERNAL;
   struct stat info;
   const char *separator;
+  uid_t broker_uid = 0;
   memset(&candidate, 0, sizeof(candidate));
   if (!path_value || !role_value || !socket_value
       || !probe_valid_absolute_role_path(path_value)
       || !probe_valid_role_name(role_value)
       || socket_value[0] != '/'
-      || !probe_validate_broker_alias_path(path_value)) {
+      || !probe_parse_expected_broker_uid(&broker_uid)
+      || !probe_validate_broker_alias_path(path_value, broker_uid)) {
     sqlite3_result_error(context, "trusted Host role path, role name, broker socket, expected service UID and non-writable alias parent are required", -1);
     return;
   }
@@ -3054,6 +3041,7 @@ static void probe_register_broker_role_values(
     return;
   }
   candidate.role = stored_role;
+  candidate.broker_uid = broker_uid;
   if (!probe_broker_exchange(&candidate, stored_socket, LEB_OP_OPEN_MAIN,
                              NULL, 1, &descriptor, &status)
       || status != LEB_STATUS_OK || descriptor < 0
