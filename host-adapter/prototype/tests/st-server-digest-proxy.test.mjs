@@ -548,4 +548,12 @@ test('lifecycle journal proxy status is session-bound and forwards only server-d
   await proxy.status(wrongRequest, wrongSession);
   assert.equal(wrongSession.statusCode, 403);
   assert.equal(wrongSession.payload.error.code, 'HOST_SESSION_SCOPE_REQUIRED');
+  const wrongAccount = responseRecorder();
+  const wrongAccountRequest = requestFor({});
+  wrongAccountRequest.query = {
+    conversation_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa:bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb:33333333-3333-4333-8333-333333333333',
+  };
+  await proxy.status(wrongAccountRequest, wrongAccount);
+  assert.equal(wrongAccount.statusCode, 403);
+  assert.equal(wrongAccount.payload.error.code, 'HOST_SESSION_SCOPE_REQUIRED');
 });
