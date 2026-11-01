@@ -70,7 +70,7 @@ test('server bulk mutation guard permits imports only when a complete scan finds
     }),
   });
   const response = makeResponse();
-  await guard({ user: { profile: { handle: 'alice' }, directories }, session: { handle: 'alice' } }, response, () => { nextCalls++; });
+  await guard({ user: { profile: { handle: 'alice' }, directories }, session: { handle: 'alice', logicEngineSessionId: '11111111-1111-4111-8111-111111111111', logicEngineSessionHandle: 'alice' } }, response, () => { nextCalls++; });
   assert.equal(response.statusCode, null);
   assert.equal(nextCalls, 1);
 });
