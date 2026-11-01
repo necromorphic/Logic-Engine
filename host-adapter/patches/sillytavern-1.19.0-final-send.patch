@@ -101,7 +101,7 @@
  
 --- /dev/null
 +++ b/src/logic-engine-final-send-hook.js
-@@ -0,0 +1,91 @@
+@@ -0,0 +1,105 @@
 +import { AsyncLocalStorage } from 'node:async_hooks';
 +import nativeFetch from 'node-fetch';
 +
@@ -209,7 +209,7 @@
 +}
 --- /dev/null
 +++ b/src/logic-engine-extension-install-hook.js
-@@ -0,0 +1,78 @@
+@@ -0,1 +1,82 @@
 +import { execFileSync } from 'node:child_process';
 +import { realpath, readFile, lstat } from 'node:fs/promises';
 +import { basename, dirname, resolve } from 'node:path';
@@ -301,7 +301,7 @@
  import express from 'express';
  import _ from 'lodash';
  
-@@ -270,7 +270,8 @@
+@@ -270,6 +270,7 @@
  }
  
  router.post('/generate', async function (request, response) {
@@ -309,7 +309,7 @@
      if (!request.body) return response.sendStatus(400);
  
      try {
-@@ -437,6 +438,7 @@
+@@ -437,5 +438,6 @@
              : response.end();
      }
 +    }, 'text-completions');
@@ -326,7 +326,7 @@
  
  import { forwardFetchResponse, delay } from '../../util.js';
  import { getOverrideHeaders, setAdditionalHeaders, setAdditionalHeadersByType } from '../../additional-headers.js';
-@@ -8,7 +8,8 @@
+@@ -8,6 +8,7 @@
  export const router = express.Router();
  
  router.post('/generate', async function (request, response_generate) {
@@ -334,7 +334,7 @@
      if (!request.body) return response_generate.sendStatus(400);
  
      if (request.body.api_server.indexOf('localhost') != -1) {
-@@ -136,7 +137,8 @@
+@@ -136,6 +137,7 @@
  
      console.error('Max retries exceeded. Giving up.');
      return response_generate.send({ error: true });
@@ -344,7 +344,7 @@
  router.post('/status', async function (request, response) {
 --- a/src/endpoints/novelai.js
 +++ b/src/endpoints/novelai.js
-@@ -2,7 +2,7 @@
+@@ -2,6 +2,6 @@
  import { Buffer } from 'node:buffer';
  
 -import fetch from 'node-fetch';
@@ -352,7 +352,7 @@
  import express from 'express';
  
  import { readSecret, SECRET_KEYS } from './secrets.js';
-@@ -165,7 +165,8 @@
+@@ -165,6 +165,7 @@
  const router = express.Router();
  
  router.post('/generate', async function (req, res) {
@@ -360,7 +360,7 @@
      if (!req.body) return res.sendStatus(400);
  
      const api_key_novel = readSecret(req.user.directories, SECRET_KEYS.NOVEL);
-@@ -296,7 +297,8 @@
+@@ -296,6 +297,7 @@
      } catch (error) {
          return res.send({ error: true });
      }
@@ -376,7 +376,7 @@
  import express from 'express';
  import { AIHorde, ModelGenerationInputStableSamplers, ModelInterrogationFormTypes, HordeAsyncRequestStates } from '@zeldafan0225/ai_horde';
  import { getVersion, delay, Cache } from '../util.js';
-@@ -181,7 +181,8 @@
+@@ -181,6 +181,7 @@
  }
  
  router.post('/generate-text', async (request, response) => {
@@ -407,7 +407,7 @@
 +const forwardFetchResponse = (upstream, response) => logicEngineForwardFetchResponse(upstream, response, nativeForwardFetchResponse);
 --- a/src/endpoints/novelai.js
 +++ b/src/endpoints/novelai.js
-@@ -8,1 +8,2 @@
+@@ -8,2 +8,3 @@
 -import { readAllChunks, extractFileFromZipBuffer, forwardFetchResponse } from '../util.js';
 +import { readAllChunks, extractFileFromZipBuffer, forwardFetchResponse as nativeForwardFetchResponse } from '../util.js';
 +const forwardFetchResponse = (upstream, response) => logicEngineForwardFetchResponse(upstream, response, nativeForwardFetchResponse);
@@ -426,7 +426,7 @@
 +const forwardFetchResponse = (upstream, response) => logicEngineForwardFetchResponse(upstream, response, nativeForwardFetchResponse);
 --- a/src/endpoints/novelai.js
 +++ b/src/endpoints/novelai.js
-@@ -8,1 +8,2 @@
+@@ -8,2 +8,3 @@
 -import { readAllChunks, extractFileFromZipBuffer, forwardFetchResponse } from '../util.js';
 +import { readAllChunks, extractFileFromZipBuffer, forwardFetchResponse as nativeForwardFetchResponse } from '../util.js';
 +const forwardFetchResponse = (upstream, response) => logicEngineForwardFetchResponse(upstream, response, nativeForwardFetchResponse);
