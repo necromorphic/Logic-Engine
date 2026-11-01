@@ -2,12 +2,12 @@
 
 **Contract:** Host ↔ Core authenticated Memory retrieval  
 **Version:** 1.0.0  
-**Status:** CONTRACT DEFINED; Host and Core technical-owner ACKs received; latest Host/Core code-candidate CI green; refreshed contract-document CI running; independent maintainer reviews and branch integration remain pending  
-**Validated candidate heads (1 Nov 2026):** Host PR #850 `8c51709cbfe85e93ebe04065cf5282c4dd0a8bdc`; Core Lane B PR #846 `832abf337530e9421f53eaed85760cb4a7f07313`; Core HTTP PR #867 `c109dc7c2ad084e1fb236703c8a77c844d634717`  
+**Status:** CONTRACT DEFINED; Host and Core technical-owner ACKs received; review corrections are implemented in updated Host/Core candidate heads; Core exact-head Runtime CI passed and Host exact-head Runtime CI is running; independent maintainer reviews and branch integration remain pending  
+**Candidate heads under final validation (1 Nov 2026):** Host PR #850 `feb6a5939724b9d7ca9157362e178f1d223f2e56`; Core Lane B PR #846 `832abf337530e9421f53eaed85760cb4a7f07313`; Core HTTP PR #867 `15e4d4fed9bec27a97311fe7bd8386bcde9e5368`  
 **Scope:** identity hand-off, Core World/Actor resolution, authenticated Memory Provider retrieval, result/error/revoke semantics.  
 **Not in scope:** branch merging, Security Gateway changes, Final-Send, production enablement, Lane A, Provider schema migration.
 
-This document is the interface contract and implementation ledger. The two private routes are present in stacked Core HTTP #867 and Host #850; their two required Memory integration route blocks are byte-identical. Latest exact-head Runtime CI is green for Host #850 (run `41337612948`), Core Lane B #846 (run `41317936997`), Core HTTP #867 (run `41337597644`), and the prior contract PR #866 HEAD (run `41338285214`); the current documentation refresh is running separately. Memory → NPC remains fail-closed until deployment Provider configuration/data authorization and existing release gates are satisfied.
+This document is the interface contract and implementation ledger. The two private routes are present in stacked Core HTTP #867 and Host #850; the shared context-resolution route block and Memory retrieval request/result boundary are aligned across both candidates. The updated Core HTTP #867 exact-head Runtime CI passed (run `41342230341`); the updated Host #850 full Runtime CI is running (run `41342763063`). Core Lane B #846 previously passed its exact-head Runtime CI (run `41317936997`). The contract document's own CI will rerun after this ledger update. Memory → NPC remains fail-closed until deployment Provider configuration/data authorization and existing release gates are satisfied.
 
 ## 1. Binding decisions and ownership
 
@@ -354,7 +354,8 @@ The contract's wire format, identity projection, binding ownership, retrieval fa
 - [x] Host API technical-owner approval: Host-local stable key remains local; Core requests use PC-NEXT-11 tuple.
 - [x] Core API technical-owner approval: two private routes, durable nonce guard, and existing consumer result envelope.
 - [x] Core retrieval exception mapping conforms to §6 in #867: unexpected consumer/runtime exceptions return generic HTTP 500 `INTERNAL_ERROR`; regression test verifies response secrecy and nonce replay protection.
-- [x] Latest exact-head full Runtime CI passes on Host #850 (`41337612948`), Core Lane B #846 (`41317936997`), Core HTTP #867 (`41337597644`), and contract #866 (`41338285214`). All jobs, including `npm test`, completed successfully.
+- [x] Updated exact-head full Runtime CI passes on Core HTTP #867 (`15e4d4fe`, run `41342230341`); all jobs, including `npm test`, completed successfully.
+- [ ] Updated exact-head full Runtime CI for Host #850 (`feb6a593`, run `41342763063`) is still running; do not treat Host as fully green until it completes.
 - [x] Contract PR #866 full Runtime suite passed on retry (run `41331512380`, attempt 2); the first attempt's single failure was the unrelated Windows `remote-binding.test.js` listener/fetch test.
 - [x] Identity projection is aligned across Host #850 and Core HTTP #867. Route ownership is split at the PR-stack level: #846 is the Core foundation, #867 supplies Core HTTP routes, and #850 carries the Host candidate plus its coordinated route mirror. Remaining independent review, branch integration, and deployment gates are tracked in §11.
 
@@ -370,9 +371,9 @@ The technical owner has taken responsibility for both blocks and approved the bo
 
 ### Current wire behaviour
 
-- `POST /v1/host-context/resolve` is implemented in the Core candidate. It accepts only `conversation_id`, derives adapter identity from authenticated headers, resolves the active World binding and exactly one Actor through existing Core services, and returns the five-field context.
+- `POST /v1/host-context/resolve` is implemented in the Core candidate. It accepts exactly four consistency fields (`conversation_id`, `host_session_id`, `host_installation_id`, `conversation_uuid`), validates the three UUIDs and their exact tuple order, derives adapter identity from authenticated headers, resolves the active World binding and exactly one Actor through existing Core services, and returns the five-field context.
 - `POST /v1/host/memory-npc/retrieve` is implemented in the Core candidate. It verifies the exact assertion, atomically consumes its nonce in the dedicated SQLite replay store, establishes the branded AsyncLocalStorage context, and calls only the adapter-pinned `MemoryNpcConsumer.retrieveForNpc()` facade. Its HTTP 200 response is `{ "retrieval": <consumer-result> }`; the Host proxy forwards this wrapper unchanged.
-- Host keeps `installation_id:account_id:conversation_uuid` for Host-local lifecycle/storage correlation. For Core it sends `host_session_id:host_installation_id:conversation_uuid`; account UUID remains a separate signed assertion field.
+- Host keeps `installation_id:account_id:conversation_uuid` for Host-local lifecycle/version-ledger correlation. For Memory context/retrieval it sends `host_session_id:host_installation_id:conversation_uuid` together with the three already-authenticated tuple components for Core consistency validation; account UUID remains a separate signed assertion field.
 - A rotated ST session receives a new Core conversation tuple and requires an explicit binding for that tuple. There is no automatic rebind.
 - Runtime can optionally configure the real file-backed Provider with `ENGINE_MEMORY_PROVIDER_DB_PATH` and `ENGINE_MEMORY_NPC_CONTENT_FIELDS`. The Provider DB is separate from Core and shares the Coordinator. If this configuration is absent, or Provider grants/index/source authorization are not ready, retrieval fails closed. No ready-empty fallback is introduced.
 
