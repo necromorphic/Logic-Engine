@@ -45,7 +45,7 @@ test('Host Adapter makes a real authenticated Core context-resolution call; inco
   const groups = join(root, 'groups');
   const groupChats = join(root, 'groupChats');
   const identityDirectory = join(directory, 'host-identity');
-  await Promise.all([mkdir(chats, { recursive: true }), mkdir(groups), mkdir(groupChats)]);
+  await Promise.all([mkdir(chats, { recursive: true }), mkdir(groups, { recursive: true }), mkdir(groupChats, { recursive: true })]);
   const store = new SQLiteStore(':memory:');
   const engine = new LogicEngine(store);
   engine.createWorld({
@@ -72,11 +72,6 @@ test('Host Adapter makes a real authenticated Core context-resolution call; inco
   const coreUrl = 'http://127.0.0.1:' + core.address().port;
   const coreHeaders = { authorization: 'Bearer ' + API_TOKEN };
   const adminHeaders = { ...coreHeaders, 'x-admin-token': ADMIN_TOKEN };
-  const adapterHeaders = {
-    ...coreHeaders,
-    'x-adapter-id': ADAPTER_ID,
-    'x-adapter-token': ADAPTER_TOKEN,
-  };
 
   const actorBinding = await post(coreUrl + '/v1/worlds/host-e2e-world/actor-bindings', adminHeaders, {
     adapter_id: ADAPTER_ID,
