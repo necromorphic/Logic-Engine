@@ -229,7 +229,7 @@ test('Host Adapter requires Core root proof before context resolution and binds 
     + ':' + identityResponse.payload.host_installation_id + ':' + UUID;
   assert.equal(resolvedCoreContexts[0].context.conversation_id, stableConversationId);
   assert.equal(dispatchResponse.statusCode, 503);
-  assert.equal(dispatchResponse.payload.code, 'CORE_HOST_DISPATCH_ROUTE_UNAVAILABLE');
+  assert.equal(dispatchResponse.payload.code, 'CORE_HOST_DISPATCH_REJECTED');
   assert.equal(coreCalls[1], '/v1/host/memory-npc/retrieve');
 
   // Accounts-enabled mode: ST supplies session.handle and it must bind to the
@@ -271,7 +271,7 @@ test('Host Adapter requires Core root proof before context resolution and binds 
   const accountsDispatchResponse = responseRecorder();
   await adapter.dispatch(accountsEnabledRequest, accountsDispatchResponse);
   assert.equal(accountsDispatchResponse.statusCode, 503);
-  assert.equal(accountsDispatchResponse.payload.code, 'CORE_HOST_DISPATCH_ROUTE_UNAVAILABLE');
+  assert.equal(accountsDispatchResponse.payload.code, 'CORE_HOST_DISPATCH_REJECTED');
   assert.equal(coreCalls[2], '/v1/host-context/resolve');
   assert.equal(coreCalls[3], '/v1/host/memory-npc/retrieve');
   assert.equal(resolvedCoreContexts[1].context.conversation_id, accountsConversationId);
@@ -319,7 +319,7 @@ test('Host Adapter requires Core root proof before context resolution and binds 
   const restartedDispatchResponse = responseRecorder();
   await restartedAdapter.dispatch(restartedRequest, restartedDispatchResponse);
   assert.equal(restartedDispatchResponse.statusCode, 503);
-  assert.equal(restartedDispatchResponse.payload.code, 'CORE_HOST_DISPATCH_ROUTE_UNAVAILABLE');
+  assert.equal(restartedDispatchResponse.payload.code, 'CORE_HOST_DISPATCH_REJECTED');
   assert.equal(coreCalls[4], '/v1/host-context/resolve');
   assert.equal(coreCalls[5], '/v1/host/memory-npc/retrieve');
   assert.equal(resolvedCoreContexts.length, 3);
