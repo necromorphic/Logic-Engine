@@ -27,11 +27,10 @@ const resolver = async ({ locator = 'chat-file.jsonl', hostSessionId = SESSION_A
     cryptoProvider: webcrypto,
     getCurrentLocator: () => locator,
     getCurrentMetadata: () => metadata,
-      ...rest,
+    ...rest,
   });
 
 test('uses the authenticated server installation identity for stable conversation identity', async () => {
-  const storage = new Storage();
   const storage = new Storage();
   const metadata = {};
   let saves = 0;
