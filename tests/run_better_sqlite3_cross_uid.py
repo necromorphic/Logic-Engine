@@ -239,6 +239,13 @@ def main() -> int:
         broker_env["PYTHONDONTWRITEBYTECODE"] = "1"
 
         def start_broker() -> subprocess.Popen:
+            try:
+                stale_mode = socket_path.lstat().st_mode
+                if not stat.S_ISSOCK(stale_mode):
+                    raise RuntimeError("refusing to replace a non-socket broker path")
+                socket_path.unlink()
+            except FileNotFoundError:
+                pass
             process = subprocess.Popen(
                 [
                     sys.executable, str(broker_script),
