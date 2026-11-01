@@ -96,7 +96,6 @@ function assertManifestShape(manifest) {
         || !Array.isArray(role.parentComponents)
         || !Array.isArray(role.parentIdentities)
         || role.parentComponents.length !== role.parentIdentities.length
-        || role.parentComponents.length === 0
         || typeof role.databaseBasename !== 'string'
         || !role.databaseBasename || /[\\/:\0]/.test(role.databaseBasename)
         || !Array.isArray(role.sidecars)) {
@@ -191,7 +190,8 @@ export function registerWindowsManifestRole(database, manifest, roleName, databa
       `parent ${index + 1} for ${roleName}`
     );
   }
-  const parentIdentity = role.parentIdentities.at(-1);
+  const parentIdentity = role.parentIdentities.at(-1)
+    ?? manifest.metadataRootIdentity;
   const result = database.prepare(
     'SELECT logic_engine_vfs_probe_register_database_role_manifest(?, ?, ?, ?, ?, ?, ?) AS registered'
   ).get(
