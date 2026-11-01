@@ -75,14 +75,13 @@ class ManifestStoreTests(unittest.TestCase):
     def test_trusted_directory_ancestors_must_be_root_or_broker_owned(self):
         import manifest_store
 
-        application_uid = os.geteuid() ^ 1
         foreign_owner = SimpleNamespace(
             st_mode=stat.S_IFDIR | 0o700,
             st_uid=os.geteuid() + 1000,
         )
         with self.assertRaisesRegex(StoreError, "root or the broker service UID"):
             manifest_store._check_trusted_directory_component(
-                foreign_owner, application_uid, "test ancestor"
+                foreign_owner, "test ancestor"
             )
 
         for trusted_uid in {0, os.geteuid()}:
@@ -91,7 +90,7 @@ class ManifestStoreTests(unittest.TestCase):
                 st_uid=trusted_uid,
             )
             manifest_store._check_trusted_directory_component(
-                trusted_owner, application_uid, "test ancestor"
+                trusted_owner, "test ancestor"
             )
 
     def test_manifest_store_rejects_root_as_application_identity(self):
