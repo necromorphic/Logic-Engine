@@ -532,7 +532,7 @@ test('Host identity route rejects a session/account mismatch before resolving id
 function lifecycleSaveRequest(directories, permit = null) {
   return {
     path: '/save',
-    body: { avatar_url: 'Harness Character.png', file_name: 'chat-one' },
+    body: { avatar_url: 'Harness Character.png', file_name: 'chat-one', chat: [{ chat_metadata: { logic_engine_conversation_id: lifecycleSavePermit.conversation_uuid } }] },
     user: { profile: { handle: 'alice' }, directories },
     session: {
       handle: 'alice',
@@ -600,6 +600,15 @@ test('enrolled chat save API rejects permits scoped to another conversation or s
       }] },
     }),
   });
+  const mismatchedPayload = lifecycleSaveRequest(directories, { ...lifecycleSavePermit });
+  mismatchedPayload.body.chat[0].chat_metadata.logic_engine_conversation_id = '77777777-7777-4777-8777-777777777777';
+  const payloadResponse = makeResponse();
+  let payloadNextCalls = 0;
+  await guard(mismatchedPayload, payloadResponse, () => { payloadNextCalls++; });
+  assert.equal(payloadResponse.statusCode, 409);
+  assert.equal(payloadResponse.body.code, 'HOST_LIFECYCLE_SAVE_PAYLOAD_IDENTITY_MISMATCH');
+  assert.equal(payloadNextCalls, 0);
+
   for (const permit of [
     { ...lifecycleSavePermit, conversation_uuid: '77777777-7777-4777-8777-777777777777' },
     { ...lifecycleSavePermit, host_session_id: '88888888-8888-4888-8888-888888888888' },
