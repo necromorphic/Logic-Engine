@@ -1292,3 +1292,33 @@ test('consumer fails closed when Array.prototype iterator is replaced', async (t
   assert.equal(result.status, 'non_ready');
   assert.equal(result.reason, 'memory_result_incomplete_or_scope_mismatch');
 });
+
+
+test('Core derives world and actor from trusted conversation and unique adapter bindings', async (t) => {
+  const s = setup(t);
+  const result = await s.consumer.retrieveForNpc({
+    ...request(),
+    worldId: 'caller-selected-world',
+    actorEntityId: 'caller-selected-actor',
+  });
+  assert.equal(result.status, 'ready');
+  assert.equal(result.candidates.length, 1);
+  assert.equal(result.candidates[0].source_entity_id, 'source-a');
+
+  const before = s.engine.getSnapshot('memory-npc-world');
+  const created = s.engine.commitEvent('memory-npc-world', {
+    event_id: 'create-second-bound-actor',
+    idempotency_key: 'create-second-bound-actor',
+    turn_id: 'create-second-bound-actor',
+    event_type: 'action.completed',
+    expected_revision: before.world_revision,
+    effects: [{ kind: 'entity.create', entity_id: 'npc-b', entity_type: 'character' }],
+  });
+  assert.equal(created.accepted, true);
+  s.bindings.bind('memory-npc-world', 'adapter-a', 'npc-b');
+
+  const ambiguous = await s.consumer.retrieveForNpc(request());
+  assert.equal(ambiguous.status, 'non_ready');
+  assert.equal(ambiguous.reason, 'trusted_scope_unavailable');
+  assert.deepEqual(ambiguous.candidates, []);
+});
