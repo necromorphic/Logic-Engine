@@ -63,10 +63,10 @@ test('Patch Manager hashes pinned source text canonically across CRLF checkouts'
 test('Patch Manager applies exact source hunks on CRLF Windows checkouts and preserves line endings', async (t) => {
   const { manager, stRoot, patched } = await fixture(t);
   const sourcePath = join(stRoot, 'src/host.js');
-  const crlfOriginal = "export const host = 'stock';\\r\\n";
+  const crlfOriginal = "export const host = 'stock';\r\n";
   await writeFile(sourcePath, crlfOriginal);
   assert.equal((await manager.execute('install')).status, 'INSTALLED');
-  assert.equal(await readFile(sourcePath, 'utf8'), patched.replace(/\\n/g, '\\r\\n'));
+  assert.equal(await readFile(sourcePath, 'utf8'), patched.replace(/\n/g, '\r\n'));
   assert.equal((await manager.inspectInstalledReadOnly()).status, 'INSTALLED_AND_BACKUPS_VERIFIED');
 });
 
