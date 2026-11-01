@@ -186,6 +186,7 @@ test('query denial and incomplete Memory results fail closed without returning c
   const partial = setup(t, { completeness: 'partial' });
   const result = await partial.consumer.retrieveForNpc(request());
   assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'memory_result_partial');
   assert.deepEqual(result.candidates, []);
 });
 
