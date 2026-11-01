@@ -682,22 +682,40 @@ diff --git a/src/endpoints/chats.js b/src/endpoints/chats.js
 +    backup(backupDirectory, cardName, jsonlData);
 +    if (flushLifecycleBackup) backup.flush();
  }
-@@ -545,3 +552,3 @@
+@@ -545,14 +552,14 @@
 -router.post('/save', validateAvatarUrlMiddleware, async function (request, response) {
 +router.post('/save', validateAvatarUrlMiddleware, hostLifecycleSaveGuard, async function (request, response) {
      try {
          const handle = request.user.profile.handle;
-@@ -557,1 +564,1 @@
+         const cardName = String(request.body.avatar_url).replace('.png', '');
+         const chatData = request.body.chat;
+         const chatFileName = `${String(request.body.file_name)}.jsonl`;
+         const chatFilePath = path.join(request.user.directories.chats, cardName, sanitize(chatFileName));
+         if (!isPathUnderParent(request.user.directories.chats, chatFilePath)) {
+             return response.sendStatus(400);
+         }
+
+         if (Array.isArray(chatData)) {
 -            await trySaveChat(chatData, chatFilePath, request.body.force, handle, cardName, request.user.directories.backups);
 +            await trySaveChat(chatData, chatFilePath, request.body.force, handle, cardName, request.user.directories.backups, request.logicEngineLifecycleSaveAuthorized === true);
-@@ -922,3 +929,3 @@
+             return response.send({ ok: true });
+@@ -922,14 +929,14 @@
 -router.post('/group/save', async function (request, response) {
 +router.post('/group/save', hostLifecycleSaveGuard, async function (request, response) {
      try {
          if (!request.body || !request.body.id) {
-@@ -934,1 +941,1 @@
+             return response.sendStatus(400);
+         }
+
+         const id = request.body.id;
+         const handle = request.user.profile.handle;
+         const chatFilePath = path.join(request.user.directories.groupChats, sanitize(`${id}.jsonl`));
+         const chatData = request.body.chat;
+
+         if (Array.isArray(chatData)) {
 -            await trySaveChat(chatData, chatFilePath, request.body.force, handle, String(id), request.user.directories.backups);
 +            await trySaveChat(chatData, chatFilePath, request.body.force, handle, String(id), request.user.directories.backups, request.logicEngineLifecycleSaveAuthorized === true);
+             return response.send({ ok: true });
 @@ -621,4 +624,4 @@
 -router.post('/rename', validateAvatarUrlMiddleware, async function (request, response) {
 +router.post('/rename', validateAvatarUrlMiddleware, hostBulkMutationGuard, async function (request, response) {
