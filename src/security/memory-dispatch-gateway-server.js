@@ -88,6 +88,15 @@ export async function createMemoryDispatchGatewayServer({
       return;
     }
 
+    // Protected dispatch requires a non-serializable, request-scoped Host
+    // transport capability. A JSON/HTTP payload cannot carry that capability,
+    // so this compatibility endpoint is intentionally fail-closed. The Host
+    // must invoke MemoryDispatchGateway in-process after constructing its
+    // provider-specific dormant transport closure.
+    response.writeHead(503, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+    response.end(JSON.stringify({ error: 'IN_PROCESS_TRANSPORT_REQUIRED' }));
+    return;
+
     const controller = new AbortController();
     response.on('close', () => {
       if (!response.writableEnded) controller.abort();
