@@ -6,6 +6,7 @@ on:
       - "src/deployment/extension-gateway.js"
       - "public/scripts/extensions/third-party/logic-engine-extension-gateway/**"
       - "tests/extension-gateway.test.js"
+      - "tests/extension-gateway-st-integration.test.js"
       - "docs/108-extension-gateway-contract.md"
       - ".github/workflows/extension-gateway.yml"
   push:
