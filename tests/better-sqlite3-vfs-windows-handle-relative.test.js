@@ -27,8 +27,9 @@ test('Windows secure VFS keeps main DB and SQLite sidecars anchored after parent
   fs.mkdirSync(attackerDir);
   t.after(() => {
     try {
-      const mode = fs.lstatSync(protectedDir).mode;
-      if (mode) fs.rmSync(protectedDir, { recursive: true, force: true });
+      const protectedStat = fs.lstatSync(protectedDir);
+      if (protectedStat.isSymbolicLink()) fs.unlinkSync(protectedDir);
+      else fs.rmSync(protectedDir, { recursive: true, force: true });
     } catch {}
     fs.rmSync(pinnedDir, { recursive: true, force: true });
     fs.rmSync(attackerDir, { recursive: true, force: true });
@@ -93,7 +94,7 @@ test('Windows secure VFS keeps main DB and SQLite sidecars anchored after parent
     } catch {
       require('node:child_process').execFileSync(
         process.env.ComSpec || 'cmd.exe',
-        ['/d', '/c', 'mklink', '/J', path.dirname(databasePath), attackerDir],
+        ['/d', '/c', 'mklink /J "' + path.dirname(databasePath) + '" "' + attackerDir + '"'],
         { stdio: 'pipe' },
       );
     }
