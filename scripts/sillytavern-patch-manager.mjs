@@ -72,6 +72,11 @@ function runGit(args, cwd) {
   execFileSync('git', args, { cwd, stdio: 'pipe', windowsHide: true });
 }
 
+function canonicalTextHash(bytes) {
+  if (!isUtf8(bytes)) throw new Error('PATCH_BACKUP_ENCODING_INVALID');
+  return sha256(Buffer.from(bytes.toString('utf8').replace(/\r\n/g, '\n'), 'utf8'));
+}
+
 export class SillyTavernPatchManager {
   constructor({ extensionRoot, stRoot, manifestPath = DEFAULT_MANIFEST, patchPath = DEFAULT_PATCH, runGitImpl = runGit }) {
     if (typeof extensionRoot !== 'string' || typeof stRoot !== 'string' || !isAbsolute(resolve(stRoot))) {
@@ -201,6 +206,66 @@ export class SillyTavernPatchManager {
     return true;
   }
 
+  // Read-only deployment inspection. It does not trust state.json as proof:
+  // installed files and every required backup are re-hashed against the pinned manifest.
+  async inspectInstalledReadOnly() {
+    await this.initialize();
+    const journal = await this.readJournal();
+    if (journal) return { status: 'AMBIGUOUS_TRANSACTION', reason: 'A transaction journal is present.' };
+
+    const state = await this.readState();
+    if (!state) return { status: 'NOT_INSTALLED' };
+    if (state.status !== 'INSTALLED'
+      || state.hostVersion !== this.manifest.host.version
+      || state.hostCommit !== this.manifest.host.commit
+      || state.patchVersion !== this.manifest.patch.version
+      || state.patchSha256 !== this.manifest.patch.sha256
+      || typeof state.backupId !== 'string'
+      || !state.backupId
+      || JSON.stringify(state.createdFiles) !== JSON.stringify(this.manifest.createdFiles)) {
+      throw new Error('PATCH_MANAGER_STATE_IDENTITY_INVALID');
+    }
+
+    await this.verifyInstalled();
+
+    const expectedBackups = Object.entries(this.manifest.sourceFiles)
+      .filter(([, expected]) => typeof expected !== 'string');
+    const backupEntries = Object.entries(state.backups ?? {});
+    if (backupEntries.length !== expectedBackups.length) {
+      throw new Error('PATCH_MANAGER_BACKUP_SET_INCOMPLETE');
+    }
+    for (const [relativePath, expected] of expectedBackups) {
+      const backupInfo = state.backups[relativePath];
+      if (!backupInfo || backupInfo.sha256 !== expected.before
+        || typeof backupInfo.backupPath !== 'string') {
+        throw new Error('PATCH_MANAGER_BACKUP_RECORD_INVALID: ' + relativePath);
+      }
+      const expectedSuffix = relative(this.managerDir, resolve(this.managerDir, 'backups', state.backupId, relativePath));
+      if (backupInfo.backupPath !== expectedSuffix) {
+        throw new Error('PATCH_MANAGER_BACKUP_PATH_INVALID: ' + relativePath);
+      }
+      const backup = resolve(this.managerDir, backupInfo.backupPath);
+      if (!isWithin(this.managerDir, backup)) throw new Error('PATCH_MANAGER_BACKUP_PATH_ESCAPE');
+      await assertNoSymlinkComponents(this.managerDir, backup);
+      const info = await lstat(backup);
+      if (info.isSymbolicLink() || !info.isFile()) {
+        throw new Error('PATCH_MANAGER_BACKUP_UNSAFE: ' + relativePath);
+      }
+      if (canonicalTextHash(await readFile(backup)) !== expected.before) {
+        throw new Error('PATCH_MANAGER_BACKUP_INTEGRITY_MISMATCH: ' + relativePath);
+      }
+    }
+
+    return {
+      status: 'INSTALLED_AND_BACKUPS_VERIFIED',
+      hostVersion: this.manifest.host.version,
+      hostCommit: this.manifest.host.commit,
+      patchVersion: this.manifest.patch.version,
+      patchSha256: this.manifest.patch.sha256,
+      verifiedBackupCount: expectedBackups.length,
+    };
+  }
+
   async preflight() {
     await this.initialize();
     await this.verifyBaseline();
@@ -299,7 +364,7 @@ export class SillyTavernPatchManager {
         throw new Error('PATCH_BACKUP_INTEGRITY_INVALID: ' + relativePath);
       }
       const backupBytes = await readFile(backup);
-      if (sha256(backupBytes) !== backupInfo.sha256) {
+      if (canonicalTextHash(backupBytes) !== backupInfo.sha256) {
         throw new Error('PATCH_BACKUP_INTEGRITY_MISMATCH: ' + relativePath);
       }
       const target = await assertRegularFile(this.stRoot, relativePath);
