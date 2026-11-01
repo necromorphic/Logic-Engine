@@ -78,7 +78,7 @@ export function createSillyTavernFinalSendAdapter({
     },
 
     dispatch(args) {
-      if (!args || !sourceMap.has(args.request?.body?.chat_completion_source)
+      if (!args || sourceMap.get(args.request?.body?.chat_completion_source) !== args.senderRoute
         || !PROTECTED_MEMORY_SENDER_ROUTES.includes(args.senderRoute)
         || typeof args.transport !== 'function') {
         throw new Error('MEMORY_DISPATCH_NOT_READY');
