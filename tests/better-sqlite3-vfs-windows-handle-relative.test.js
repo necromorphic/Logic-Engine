@@ -197,7 +197,7 @@ test('Windows VFS opens SQLite main/journal/WAL/SHM relative to pinned parent an
     try {
       assert.deepEqual(
         anchored.prepare('SELECT value FROM origin ORDER BY rowid').pluck().all(),
-        ['trusted-before-swap', 'trusted-after-swap', 'trusted-after-parent-rename'],
+        ['trusted-before-swap', 'trusted-after-swap'],
         'the enrolled parent HANDLE must continue to resolve the original DB after directory rename',
       );
       anchored.prepare('INSERT INTO origin VALUES (?)').run('trusted-after-parent-rename');
@@ -259,7 +259,7 @@ test('Windows VFS opens SQLite main/journal/WAL/SHM relative to pinned parent an
   try {
     assert.deepEqual(
       pinned.prepare('SELECT value FROM origin ORDER BY rowid').pluck().all(),
-      ['trusted-before-swap', 'trusted-after-swap'],
+      ['trusted-before-swap', 'trusted-after-swap', 'trusted-after-parent-rename'],
       'all writes must remain in the original identity-pinned database file',
     );
   } finally {
