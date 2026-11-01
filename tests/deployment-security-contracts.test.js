@@ -462,3 +462,26 @@ test('protected final-send report cannot downgrade required evidence to optional
     /DEPLOYMENT_REPORT_FALSE_PASS_PROTECTED_FINAL_SEND:final-send\.upstream-call-count/,
   );
 });
+
+
+test('protected final-send report gate must bind only the protected Memory feature', () => {
+  const capabilities = PROTECTED_FINAL_SEND_CAPABILITIES
+    .map((id) => createCapabilityEvidence({ id, status: 'PASS', required: true }));
+  const gates = evaluateDeploymentGates({ profile: 'portable-desktop', components: [], capabilities });
+  const report = buildDeploymentReport({
+    deploymentId: 'protected-final-send-feature-binding-test',
+    profile: 'portable-desktop',
+    platform: { family: 'linux', release: 'test', architecture: 'x64' },
+    runtime: { name: 'node', version: process.version },
+    components: [],
+    capabilities,
+    gates: gates.map((gate) => gate.id === 'memory:protected-final-send-production'
+      ? { ...gate, affected_features: ['memory.other-feature'] }
+      : gate),
+  });
+
+  assert.throws(
+    () => validateDeploymentReport(report),
+    /DEPLOYMENT_REPORT_PROTECTED_FINAL_SEND_FEATURE_BINDING_INVALID/,
+  );
+});
