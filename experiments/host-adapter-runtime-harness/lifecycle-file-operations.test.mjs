@@ -495,11 +495,11 @@ test('pinned ST 1.19.0 supported chat mutations persist; rename, group deletion,
   const groupSeed = await observe(async () => {
     await writeFile(groupChatPath, JSON.stringify(identifiedHeader(
       'dddddddd-dddd-4ddd-8ddd-dddddddddddd', 'Harness Group'
-    )) + '\\n' + JSON.stringify(identifiedMessage({
+    )) + '\n' + JSON.stringify(identifiedMessage({
       name: 'Harness User', mes: 'existing group chat',
       messageId: '66666666-6666-4666-8666-666666666666',
       versionId: '77777777-7777-4777-8777-777777777777',
-    })) + '\\n');
+    })) + '\n');
     await writeFile(groupMetadataPath, JSON.stringify({ id: 'group-harness', chats: ['group-harness'] }));
     return { status: 'SEEDED_GROUP_FIXTURE' };
   }, 'added');
