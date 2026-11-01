@@ -753,7 +753,7 @@ test('real process crash after transport handoff recovers UNKNOWN on fresh Gatew
       '  readProviderEvidence: ({ worldId, actorId, purpose, sources, candidates }) => ({ head: 1, world_id: worldId, actor_id: actorId, purpose, granted: true, readiness: "READY", sources, candidates }),',
       '});',
       'const request = JSON.parse(requestJson);',
-      'gateway.dispatchProtectedRequest({ ...request, transport: () => { appendFileSync(counterPath, "x"); process.stdout.write("HANDOFF\\n"); process.exit(77); } });',
+      'gateway.dispatchProtectedRequest({ ...request, transport: () => { appendFileSync(counterPath, "x"); process.stdout.write("HANDOFF\\n", () => process.exit(77)); return new Promise(() => {}); } });',
       'setTimeout(() => process.exit(78), 5000);',
     ].join('\\n');
     const child = spawn(process.execPath, [
