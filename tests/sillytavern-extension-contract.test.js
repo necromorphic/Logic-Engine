@@ -13,8 +13,8 @@ test('repository root is a valid SillyTavern third-party client extension packag
     assert.equal(manifest.hooks?.activate, 'init');
     assert.match(entrypoint, /from ['"]\.\.\/\.\.\/\.\.\/\.\.\/script\.js['"]/);
     assert.match(entrypoint, /from ['"]\.\.\/\.\.\/\.\.\/extensions\.js['"]/);
-    assert.match(entrypoint, /\/api\/plugins\/logic-engine\/session/);
-    assert.match(entrypoint, /\/api\/plugins\/logic-engine\/health/);
+    assert.match(entrypoint, /requestPlugin\(['"]\/session['"]\)/);
+    assert.match(entrypoint, /requestPlugin\(['"]\/health['"]\)/);
     assert.match(stylesheet, /logic-engine-extension/);
     assert.equal(packageJson.main, 'server-plugin/index.mjs');
 });
