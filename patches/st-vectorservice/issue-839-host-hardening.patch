@@ -27,7 +27,7 @@
  const DEFAULT_MODEL = 'bge-m3';
  
 @@ -58,17 +51,6 @@
-     const match = authorization.match(/^Bearer\\s+(.+)$/i);
+     const match = authorization.match(/^Bearer\s+(.+)$/i);
      const receivedToken = match ? match[1].trim() : '';
  
 -    const receivedHash = crypto
