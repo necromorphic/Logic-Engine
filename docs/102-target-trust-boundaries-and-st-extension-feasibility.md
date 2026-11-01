@@ -164,12 +164,12 @@ The AsyncLocalStorage generation bridge and import/handler wiring described by t
 | Area | Evidence | Status |
 |---|---|---|
 | Core/Provider retrieval | PR #845 adds a real file-backed SQLite Provider adapter, Core canonical-source validators, Host conversation/world and adapter/actor binding checks, per-record authorization, and repeated authorization checks | Implemented in open PR; not production dispatch |
-| Memory final dispatch primitive | PR #844 adds durable `DISPATCH_STARTED`, request-scoped in-process transport, accepted Core/Provider head checks, ambiguous `UNKNOWN`, and replay blocking | Partial; only one generic route identifier is allowlisted |
-| Sender route registry | PR #844 helper lists 25 sender families | Registry only; does not prove native ST sender call sites invoke it |
-| PRE-LLM EGRESS | PR #844 checks Core/Provider evidence before dispatch-start | Partial; trusted Host caller is not connected |
-| FINAL RESPONSE REVALIDATION | PR #844 records `COMPLETED` after the transport Promise resolves and returns the response; no post-response authority revalidation is present in the Gateway code | Missing |
-| Host Adapter | PR #844 has a helper expecting a trusted resolver and request context; no installed ST Host integration or server-side authenticated adapter wiring is present | Missing |
-| Policy tuple | Gateway reads accepted Core/Provider heads; no full `authority_id + generation + fingerprint` binding is persisted/revalidated in this dispatch path | Missing |
+| Memory final dispatch primitive | PR #844 has durable `DISPATCH_STARTED`, request-scoped in-process transport, accepted Core/Provider head checks, ambiguous `UNKNOWN`, and replay blocking | Partial; one logical Gateway route is implemented, but native ST senders are not wired |
+| Sender route registry | PR #844 helper lists 25 sender families; a real Gateway integration test traverses all 25 and asserts exactly one upstream fetch and one completed ledger row per family | Logic-Engine integration test passes; native ST call-site coverage remains unproven |
+| PRE-LLM EGRESS | Gateway checks accepted Core/Provider evidence before dispatch-start under the shared Coordinator | Partial; trusted Host caller and real ST route interception are not connected |
+| FINAL RESPONSE REVALIDATION | Gateway reacquires the Coordinator after inference, checks accepted heads, re-reads Core/Provider evidence and the exact policy tuple, then suppresses response on any mismatch; stream writer starts synchronously under the lease only after successful revalidation | Implemented in the dispatch primitive; real Host evidence readers are not wired |
+| Host Adapter | Helper requires a synchronous trusted Memory resolver and a request-scoped transport; no installed ST Host integration or authenticated server-side adapter wiring is present | Missing |
+| Policy tuple | Gateway requires and revalidates exact `authority_id + generation + fingerprint` from the trusted Core evidence reader | Primitive enforced; deployment-owned tuple source and Host reader wiring remain missing |
 | Core Commit | Core has separate authorized mutation paths; PR #844 does not connect LLM output to an authorized proposal/commit lifecycle | Separate concern |
 | Native ST zero-egress proof | No supported server-side hook covering every native sender and response was found in the supplied release | Missing |
 
