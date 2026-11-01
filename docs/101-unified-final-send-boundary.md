@@ -65,10 +65,11 @@ The same file also contains model-discovery/status fetches (for example model li
 - The Gateway invokes that capability exactly once synchronously after committing durable `DISPATCH_STARTED` and while holding the shared coordinator; it awaits the returned Promise only after releasing the coordinator.
 - The serialized loopback HTTP endpoint no longer attempts protected dispatch. It authenticates/signature-checks the envelope, then returns `503 IN_PROCESS_TRANSPORT_REQUIRED`; JSON cannot carry a function capability.
 - Added `host-adapter/protected-memory-final-send.mjs`: trusted Host handlers supply already-resolved endpoint/headers and exact serialized POST body; a mandatory synchronous resolver classifies Memory from trusted server-side request context. Only explicit `null` permits ordinary direct fetch; missing/indeterminate classification fails closed. The helper creates a dormant closure and passes it in-process to the Gateway. Streaming forwarding is awaited inside the transport Promise, so a stream-forward failure becomes an ambiguous Gateway outcome.
-- Added adapter tests covering every registered sender family, exact body preservation, dormant capability, unknown-route zero-egress, indeterminate-classification zero-egress, streaming-forward failure, and ordinary non-Memory send behavior.
+- Added `host-adapter/sillytavern-generation-bridge.mjs`: an AsyncLocalStorage bridge designed to wrap the single SillyTavern `/generate` handler, intercepting provider fetches only inside generation context while leaving model-discovery fetches untouched. It also prevents the legacy streaming-forward call from writing a second time after Gateway-owned forwarding.
+- Added adapter/bridge tests covering every registered sender family, exact body preservation, dormant capability, unknown-route zero-egress, indeterminate-classification zero-egress, streaming-forward failure/once-only forwarding, and ordinary non-Memory send behavior.
 - Gateway regression tests cover missing capability and async capability rejection before `DISPATCH_STARTED`.
 
-These changes provide the in-process transport contract and a common helper, but do **not** yet modify the pinned SillyTavern `chat-completions.js` senders to call that helper. Route integration and a pinned-Host zero-egress matrix remain mandatory.
+These changes provide the in-process transport contract and a common helper/bridge, but do **not** yet modify the pinned SillyTavern `chat-completions.js` imports and `/generate` handler to install the bridge. That Host patch and a pinned-Host zero-egress matrix remain mandatory.
 
 ## 6. Required implementation shape
 
