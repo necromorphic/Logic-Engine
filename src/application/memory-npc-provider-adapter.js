@@ -56,6 +56,7 @@ export function createMemoryNpcProviderAdapter({
   contentFields,
   isAuthenticatedHostRequest,
   resolveHostConversationId,
+  resolveHostIdentity,
 }) {
   if (!engine?.store?.db || typeof engine.getSnapshot !== 'function') {
     throw new TypeError('Memory Provider adapter requires the live Core LogicEngine and persistent store');
@@ -83,6 +84,9 @@ export function createMemoryNpcProviderAdapter({
   }
   if (typeof resolveHostConversationId !== 'function') {
     throw new TypeError('Memory Provider adapter requires a trusted Host conversation identity resolver');
+  }
+  if (typeof resolveHostIdentity !== 'function') {
+    throw new TypeError('Memory Provider adapter requires a trusted Host installation/account identity resolver');
   }
   if (!Array.isArray(trustedInitialKnowledgeSources)) {
     throw new TypeError('Memory Provider adapter requires the deployment-owned source registry');
@@ -170,7 +174,7 @@ export function createMemoryNpcProviderAdapter({
       runWithAuthenticatedHostSession(request, conversationId, callback) {
         return runWithAuthenticatedHostSession(
           request, conversationId, callback, isAuthenticatedHostRequest, resolveHostConversationId,
-          resolveHostBindings,
+          resolveHostBindings, resolveHostIdentity,
         );
       },
       async prepareWorld(worldId) {
