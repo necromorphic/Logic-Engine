@@ -109,3 +109,10 @@ test('SQLite role manifest schema models offline main-file lifecycle states', ()
   assert.equal(validate(unexpectedRenameTarget), false,
     'pending destination must not appear outside renaming state');
 });
+
+
+test('SQLite role manifest schema accepts a broker-initialized empty role inventory', () => {
+  const initial = manifest('linux', posixIdentity);
+  initial.roles = [];
+  assert.equal(validate(initial), true, JSON.stringify(validate.errors));
+});
