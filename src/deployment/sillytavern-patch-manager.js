@@ -286,9 +286,13 @@ export function installSillyTavernPatchPackage({ stPath, manifestPath }) {
     for (const entry of patchEntries) runGit(target.root, ['apply', '--check', entry.path]);
     for (const entry of patchEntries) runGit(target.root, ['apply', entry.path]);
     const dirty = runGit(target.root, ['status', '--porcelain=v1', '--untracked-files=all']);
-    const expected = new Set(affected.flatMap((file) => ['M ' + file, '?? ' + file]));
-    const actual = dirty.split('\n').map((line) => line.trimStart()).filter(Boolean);
-    if (actual.some((line) => !expected.has(line)) || actual.length !== affected.length) {
+    const expected = new Set(affected);
+    // Porcelain status codes use two status columns plus one separator; compare
+    // only the path so modified files (including native ST files) are handled
+    // consistently on POSIX and Windows.
+    const actual = dirty.split('\n').filter(Boolean).map(line => line.slice(3));
+    if (actual.some(file => !expected.has(file)) || actual.length !== affected.length
+      || new Set(actual).size !== affected.length) {
       throw new Error('Post-apply worktree diff does not match the declared patch file set.');
     }
     const appliedFiles = journal.files.map((file) => {
