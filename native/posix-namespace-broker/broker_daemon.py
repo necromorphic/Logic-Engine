@@ -273,7 +273,7 @@ def main() -> int:
         # Only interrupted create/delete transitions whose sidecar pathname is
         # absent are finalized. Present entries are never deleted or promoted:
         # they require SQLite-level recovery and keep startup fail-closed.
-        recovered = store.retire_absent_sidecars()
+        store.retire_absent_sidecars()
         recovery_marked = store.mark_present_transitions_recovery_required()
         store.verify_roles()
         print(
