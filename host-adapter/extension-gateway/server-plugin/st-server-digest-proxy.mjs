@@ -776,13 +776,20 @@ export function createHostMemoryDispatchProxyHandler({
     if (!body || typeof body !== 'object' || Array.isArray(body)
       || Object.keys(body).sort().join(',') !== 'context_size,conversation_uuid,generation_type,request_id'
       || !HOST_SESSION_UUID.test(body.conversation_uuid ?? '')
-      || context.conversation_id.split(':')[2] !== body.conversation_uuid
       || !HOST_SESSION_UUID.test(body.request_id ?? '')
       || !Number.isSafeInteger(body.context_size) || body.context_size < 1 || body.context_size > 200000
       || typeof body.generation_type !== 'string'
       || !/^[a-z][a-z0-9_-]{0,31}$/i.test(body.generation_type)) {
       return response.status(400).json({ status: 'NON_READY', code: 'HOST_DISPATCH_REQUEST_INVALID' });
     }
+    const hostConversationParts = context.conversation_id.split(':');
+    if (hostConversationParts[0] !== context.host_installation_id
+      || hostConversationParts[1] !== context.authenticated_account_id
+      || hostConversationParts[2] !== body.conversation_uuid) {
+      return response.sendStatus(403);
+    }
+    const coreConversationId = context.host_session_id + ':'
+      + context.host_installation_id + ':' + body.conversation_uuid;
     const target = configuredTarget(env);
     if (!target) return response.status(503).json({ status: 'NON_READY', code: 'LOGIC_ENGINE_PROXY_UNCONFIGURED' });
 
@@ -801,7 +808,7 @@ export function createHostMemoryDispatchProxyHandler({
           'x-adapter-id': target.adapterId,
           'x-adapter-token': target.adapterToken,
         },
-        body: JSON.stringify({ conversation_id: context.conversation_id }),
+        body: JSON.stringify({ conversation_id: coreConversationId }),
         signal: AbortSignal.timeout(timeoutMs),
       });
       let payload;
@@ -810,7 +817,7 @@ export function createHostMemoryDispatchProxyHandler({
       if (!resolved.ok || !value || typeof value !== 'object' || Array.isArray(value)
         || Object.keys(value).sort().join(',') !== 'actor_id,actor_type,adapter_id,conversation_id,world_id'
         || value.adapter_id !== target.adapterId
-        || value.conversation_id !== context.conversation_id
+        || value.conversation_id !== coreConversationId
         || !validId(value.world_id) || !validId(value.actor_id)
         || typeof value.actor_type !== 'string' || !/^[a-z][a-z0-9_-]{0,63}$/i.test(value.actor_type)) {
         return response.status(503).json({ status: 'NON_READY', code: 'HOST_WORLD_ACTOR_BINDING_UNAVAILABLE' });
@@ -825,7 +832,7 @@ export function createHostMemoryDispatchProxyHandler({
       host_installation_id: context.host_installation_id,
       authenticated_account_id: context.authenticated_account_id,
       host_session_id: context.host_session_id,
-      conversation_id: context.conversation_id,
+      conversation_id: coreConversationId,
       world_id: hostBindings.world_id,
       actor_id: hostBindings.actor_id,
       issued_at: Math.floor(Date.now() / 1000),
