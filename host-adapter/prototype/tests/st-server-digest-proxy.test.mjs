@@ -12,8 +12,15 @@ const CONFIG = {
 };
 const canonical = value => Array.isArray(value) ? '[' + value.map(canonical).join(',') + ']' : value && typeof value === 'object' ? '{' + Object.keys(value).sort().map(key => JSON.stringify(key) + ':' + canonical(value[key])).join(',') + '}' : JSON.stringify(value);
 const SESSION_ID = '11111111-1111-4111-8111-111111111111';
-const HOST_CONVERSATION_ID = '22222222-2222-4222-8222-222222222222:11111111-1111-4111-8111-111111111111:33333333-3333-4333-8333-333333333333';
-const LIFECYCLE_CONVERSATION_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa:22222222-2222-4222-8222-222222222222:33333333-3333-4333-8333-333333333333';
+const INSTALLATION_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+const ACCOUNT_ID = '22222222-2222-4222-8222-222222222222';
+const CONVERSATION_UUID = '33333333-3333-4333-8333-333333333333';
+const HOST_CONVERSATION_ID = [SESSION_ID, INSTALLATION_ID, CONVERSATION_UUID].join(':');
+const LIFECYCLE_CONVERSATION_ID = HOST_CONVERSATION_ID;
+const identityStore = { resolveAuthenticatedAccount: async () => ({
+  host_installation_id: INSTALLATION_ID,
+  authenticated_account_id: ACCOUNT_ID,
+}) };
 const requestFor = (body, { sessionId = SESSION_ID, userHandle = 'alice', sessionHandle = userHandle } = {}) => ({
   body,
   user: { profile: { handle: userHandle }, directories: { root: '/tmp/st-root', chats: '/tmp/st-root/chats', groups: '/tmp/st-root/groups', groupChats: '/tmp/st-root/groupChats' } },
@@ -169,7 +176,7 @@ test('root inventory persistence fails closed on invalid identity, malformed man
 
 test('unconfigured proxy fails closed without making an upstream request', async () => {
   let called = false;
-  const handler = createHostDigestProxyHandler({ env: {}, fetchImpl: async () => { called = true; } });
+  const handler = createHostDigestProxyHandler({ identityStore, env: {}, fetchImpl: async () => { called = true; } });
   const response = responseRecorder();
   await handler(requestFor(capture), response);
   assert.equal(response.statusCode, 503);
@@ -219,12 +226,18 @@ test('proxy rejects caller URLs, world IDs, raw text and malformed digests befor
   assert.equal(calls, 0);
 });
 
-test('capture proxy accepts the same stable conversation after a new authenticated ST session', async () => {
+test('capture proxy requires a new session-scoped conversation identity after ST session rotation', async () => {
   let calls = 0;
   const handler = createHostDigestProxyHandler({ env: CONFIG, fetchImpl: async () => { calls++; return { status: 201, json: async () => ({ capture: { status: 'captured' } }) }; } });
   const restartedSession = responseRecorder();
-  await handler(requestFor(capture, { sessionId: '44444444-4444-4444-8444-444444444444' }), restartedSession);
+  const newSessionId = '44444444-4444-4444-8444-444444444444';
+  const newSessionCapture = { ...capture, conversation_id: [newSessionId, INSTALLATION_ID, CONVERSATION_UUID].join(':') };
+  await handler(requestFor(newSessionCapture, { sessionId: newSessionId }), restartedSession);
   assert.equal(restartedSession.statusCode, 201);
+  const staleIdentity = responseRecorder();
+  await handler(requestFor(capture, { sessionId: newSessionId }), staleIdentity);
+  assert.equal(staleIdentity.statusCode, 403);
+  assert.equal(staleIdentity.payload.error.code, 'HOST_SESSION_SCOPE_REQUIRED');
   const unauthenticated = responseRecorder();
   await handler(requestFor(capture, { sessionHandle: 'another-user' }), unauthenticated);
   assert.equal(unauthenticated.statusCode, 403);
@@ -273,7 +286,7 @@ test('reconciliation proxy forwards a bounded digest-only snapshot to the Core r
     }],
   };
   let observed;
-  const handler = createHostInventoryReconcileProxyHandler({
+  const handler = createHostInventoryReconcileProxyHandler({ identityStore,
     env: CONFIG,
     fetchImpl: async (url, options) => {
       observed = { url: String(url), options };
@@ -314,8 +327,10 @@ test('reconciliation proxy preserves stable conversation scope across authentica
       deleted: false,
     }],
   };
+  const newSessionId = '44444444-4444-4444-8444-444444444444';
+  const restartedValid = { ...valid, conversation_id: [newSessionId, INSTALLATION_ID, CONVERSATION_UUID].join(':') };
   const restartedSessionResponse = responseRecorder();
-  await handler(requestFor(valid, { sessionId: '44444444-4444-4444-8444-444444444444' }), restartedSessionResponse);
+  await handler(requestFor(restartedValid, { sessionId: newSessionId }), restartedSessionResponse);
   assert.equal(restartedSessionResponse.statusCode, 201);
   for (const body of [
     { ...valid, world_id: 'attacker-world' },
@@ -565,7 +580,7 @@ test('lifecycle journal proxy status is session-bound and forwards only server-d
   const wrongAccount = responseRecorder();
   const wrongAccountRequest = requestFor({});
   wrongAccountRequest.query = {
-    conversation_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa:bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb:33333333-3333-4333-8333-333333333333',
+    conversation_id: [SESSION_ID, 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', CONVERSATION_UUID].join(':'),
   };
   await proxy.status(wrongAccountRequest, wrongAccount);
   assert.equal(wrongAccount.statusCode, 403);
