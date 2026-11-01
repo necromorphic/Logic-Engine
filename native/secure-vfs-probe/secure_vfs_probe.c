@@ -2299,7 +2299,14 @@ static int probe_xCurrentTimeInt64(sqlite3_vfs *vfs, sqlite3_int64 *time_value) 
 }
 static int probe_xSetSystemCall(sqlite3_vfs *vfs, const char *name, sqlite3_syscall_ptr call) {
   sqlite3_vfs *p = (sqlite3_vfs *)vfs->pAppData;
-  if (name && g_open_syscall_name && strcmp(name, g_open_syscall_name) == 0) {
+  /*
+   * SQLite defines a NULL syscall name as "reset every syscall to the
+   * platform default". Delegating that request would silently remove all
+   * protected open/stat/delete hooks at once, so reject reset-all as well as
+   * attempts to replace individual protected hooks.
+   */
+  if (!name) return SQLITE_PERM;
+  if (g_open_syscall_name && strcmp(name, g_open_syscall_name) == 0) {
     return SQLITE_PERM;
   }
   if (name && g_delete_syscall_name && strcmp(name, g_delete_syscall_name) == 0) {
@@ -2321,18 +2328,21 @@ static const char *probe_xNextSystemCall(sqlite3_vfs *vfs, const char *name) {
 
 static void probe_hook_protection(sqlite3_context *context, int argc, sqlite3_value **argv) {
   int open_rc;
+  int reset_all_rc;
   int protected_ok;
   (void)argc;
   (void)argv;
   open_rc = g_probe_vfs.xSetSystemCall(
     &g_probe_vfs, g_open_syscall_name, g_original_open_syscall
   );
+  reset_all_rc = g_probe_vfs.xSetSystemCall(&g_probe_vfs, NULL, NULL);
 #ifdef _WIN32
   {
     int delete_rc = g_probe_vfs.xSetSystemCall(
       &g_probe_vfs, g_delete_syscall_name, g_original_delete_syscall
     );
-    protected_ok = open_rc == SQLITE_PERM && delete_rc == SQLITE_PERM
+    protected_ok = open_rc == SQLITE_PERM && reset_all_rc == SQLITE_PERM
+      && delete_rc == SQLITE_PERM
       && g_parent_vfs->xGetSystemCall(g_parent_vfs, g_open_syscall_name)
         == (sqlite3_syscall_ptr)probe_create_file_w
       && g_parent_vfs->xGetSystemCall(g_parent_vfs, g_delete_syscall_name)
@@ -2346,8 +2356,8 @@ static void probe_hook_protection(sqlite3_context *context, int argc, sqlite3_va
     int unlink_rc = g_probe_vfs.xSetSystemCall(
       &g_probe_vfs, g_delete_syscall_name, g_original_delete_syscall
     );
-    protected_ok = open_rc == SQLITE_PERM && stat_rc == SQLITE_PERM
-      && unlink_rc == SQLITE_PERM
+    protected_ok = open_rc == SQLITE_PERM && reset_all_rc == SQLITE_PERM
+      && stat_rc == SQLITE_PERM && unlink_rc == SQLITE_PERM
       && g_parent_vfs->xGetSystemCall(g_parent_vfs, g_open_syscall_name)
         == (sqlite3_syscall_ptr)probe_open
       && g_parent_vfs->xGetSystemCall(g_parent_vfs, "stat")
