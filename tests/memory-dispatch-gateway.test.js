@@ -695,6 +695,13 @@ test('ambiguous transport outcome is recorded UNKNOWN and the request identity c
       fixture.gateway.dispatchProtectedRequest(validRequest('ambiguous-request-new-id')),
       /MEMORY_DISPATCH_REPLAY_BLOCKED/,
     );
+    await assert.rejects(
+      fixture.gateway.dispatchProtectedRequest(validRequest('ambiguous-request-other-sender', {
+        senderRoute: 'openai',
+      })),
+      /MEMORY_DISPATCH_REPLAY_BLOCKED/,
+      'changing sender family must not bypass the unresolved request digest',
+    );
     assert.equal(sends, 1);
   } finally {
     await fixture.close();
