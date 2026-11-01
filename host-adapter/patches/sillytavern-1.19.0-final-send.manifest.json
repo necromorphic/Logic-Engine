@@ -23,7 +23,9 @@
     "src/endpoints/backends/text-completions.js": "877b2b6279091c70495e561c00ce021592205e1d42ea4fe5f20f23dd67071971",
     "src/endpoints/backends/kobold.js": "ce23d72599580d5822d17fda14c8413882237c1ab984b1be63ee063256286801",
     "src/endpoints/novelai.js": "0b6b41052ae0311ae6e716955b0805a44b1b63e3a58bf403b81becf0ff1b04ce",
-    "src/endpoints/horde.js": "9a0280cfa2c5498f540b8593b100e80cbacdefa563038a6cc6c60c9c9923f3f4"
+    "src/endpoints/horde.js": "9a0280cfa2c5498f540b8593b100e80cbacdefa563038a6cc6c60c9c9923f3f4",
+    "src/constants.js": "a8e507bf5f9e335810247476b28428e6e44f1b0a371df41cea748b36e70d29a7",
+    "src/util.js": "d33d67234af4e188bb7fcfac9c3ca7952c19e8c58791e96b19f9ad748dd168cd"
   },
   "createdFiles": {
     "src/logic-engine-final-send-hook.js": "e9b2ec43065055fa95088305ba6de7d346b9de53937a2038154d09de9c6ce2d9"
