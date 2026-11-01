@@ -15,8 +15,8 @@ The server plugin:
 - validates the middleware-populated user handle and signed cookie-session identity;
 - resolves installation and account IDs from the server-owned persistent identity store;
 - verifies the requested conversation UUID against a complete server-side inventory;
-- constructs the stable conversation identity as `installation_id:account_id:conversation_uuid`;
-- keeps the current signed `session_id` as a separate authenticated context field;
+- constructs the session-scoped conversation identity as `host_session_id:installation_id:conversation_uuid`;
+- resolves the opaque authenticated `account_id` separately from the server-owned identity store and binds it into the signed Core assertion;
 - asks Core to resolve conversation → world and the configured server-owned actor entity → actor binding;
 - rejects caller-supplied world, actor, account, installation, adapter and session values.
 
