@@ -79,7 +79,7 @@ export function validateDeploymentManifest(manifest) {
       throw new Error('DEPLOYMENT_BACKUP_VAULT_DOMAIN_NOT_SEPARATE');
     }
     if (vault.path.source === 'deployment-root-relative'
-      && /^(?:data)(?:[\\/]|$)/i.test(vault.path.value.replace(/^\\.\\//, ''))) {
+      && vault.path.value.split(/[\\/]/).filter(Boolean)[0]?.toLowerCase() === 'data') {
       throw new Error('DEPLOYMENT_BACKUP_VAULT_INSIDE_RUNTIME_DATA_TREE');
     }
   }
