@@ -3,20 +3,20 @@
 **Status:** BLOCKED AT PATCH-MANAGER BOOTSTRAP; approved architecture retained.  
 **Target:** SillyTavern 1.19.0, pinned commit `06bde939fb1e9c4c8d8641d810f0a916b5bce127`.  
 **Supersedes:** the rejected Option A proposal in `docs/105-extension-gateway-sillytavern-compatibility-gate.md`.  
-**Decision:** No Server Companion, no separate server-plugin installation, no upstream SillyTavern source change.
+**Decision:** No standalone Server Companion and no SillyTavern native-source patch. The single managed Logic-Engine Extension package may contain its own client extension and Gateway server-plugin artifacts under their dedicated extension directories.
 
 ## 1. Approved architecture (unchanged)
 
 `SillyTavern → untrusted Logic-Engine Client Extension → Extension Gateway → Authenticated Host Adapter → Core Security Gateway`
 
-The installed ST working tree may receive versioned Logic-Engine-managed patches through the already-approved Patch Manager. This is an installation-time adaptation of the local ST instance; it is not a change to the SillyTavern upstream repository or release source.
+The installed ST working tree may receive only the versioned files of the single Logic-Engine Extension package through the Patch Manager. The manager is restricted to `public/scripts/extensions/third-party/logic-engine-extension-gateway/` and `plugins/logic-engine-extension-gateway/`. It must reject changes to native ST source, native routes, configuration, unrelated extensions, and arbitrary paths. No source-level SillyTavern patch is authorized.
 
 - Client Extension is untrusted and is never an authentication or authorization authority.
-- Patch Manager owns versioned patch packages and the transactional lifecycle: Preflight → Backup → Apply → Verify → Rollback, with crash recovery, conflict/concurrency protection, user-change detection, and unified Update/Repair/Uninstall.
+- Patch Manager owns the versioned Extension package and the transactional lifecycle: Preflight → Backup → Apply → Verify → Rollback, with crash recovery, conflict/concurrency protection, user-change detection, and unified Update/Repair/Uninstall. Its allowlist is limited to the two package directories above.
 - Extension Gateway is the only ST-facing ingress. It validates the request envelope and routes only to Authenticated Host Adapter.
 - Authenticated Host Adapter derives the authenticated ST session/account/conversation and trusted installation/world/actor bindings from server-owned state.
 - Core Security Gateway remains the sole authorization authority.
-- The Patch Manager-installed Final-Send Hook must enforce pre-LLM egress and final-response revalidation for every protected generation path.
+- The Final-Send Hook is an Extension-owned interception/adaptation component, not an authorization authority. It must use the Extension Gateway → Authenticated Host Adapter → Core Security Gateway path and satisfy pre-LLM egress plus final-response revalidation for every protected generation path. Patch Manager may install/maintain its Extension artifacts only; it may not patch native ST sender source.
 - No separate API port, Provider URL substitution, Provider Relay, direct browser/ST → Core, or alternative connector is allowed.
 - Existing vectorization patch is out of scope and must remain unchanged.
 
@@ -59,7 +59,7 @@ The pinned Host source audit identifies multiple generation dispatch families an
 
 A route-entry middleware, browser generation event, prompt-preparation hook, or wrapper around only the generic fetch does not cover these paths.
 
-The Patch Manager's Final-Send patch package must:
+The approved Final-Send Hook Extension package must:
 1. enumerate every supported protected generation route and outbound transport call site on the exact ST build;
 2. bind the request to the trusted Host session/context before protected context is assembled;
 3. route protected pre-LLM egress through the approved Extension Gateway → Host Adapter → Core Security Gateway path;
@@ -71,21 +71,19 @@ The Patch Manager's Final-Send patch package must:
 
 A remote Core “authorize, then return allow, then ST sends directly” sequence is not equivalent to the approved dispatch-start boundary. The actual outbound transport must participate in the approved serialization contract. The current repository documents a Node runtime compatibility issue: Logic-Engine requires Node >=22.13.0, while the pinned ST package declares Node >=20. The deployed runtime must be verified before a Host-process implementation can be accepted.
 
-## 4. Patch Manager bootstrap gap
+## 4. Patch Manager implementation boundary
 
-The approved Patch Manager is an architectural decision, but no Patch Manager runtime/installer is present in current Logic-Engine `main`. The repository has patch files and CI apply checks, not a trusted installer capable of locating the installed ST root, taking backups, applying a manifest, verifying it, recovering interrupted transactions, and rolling back safely.
+The trusted Patch Manager now exists inside the Logic-Engine Node deployment package and is launched locally through `npm run integration:patch-manager`. It performs exact-target checks, manifest/hash validation, durable transaction journaling, backups, recovery, rollback, and post-install user-change protection.
 
-The Extension Manager cannot start that trusted installer: it only clones browser extension files into the extension directory. The client extension cannot safely obtain arbitrary local filesystem access or elevate itself into a trusted server process. SillyTavern's server-plugin loader could host server code, but using it would reintroduce the rejected separately installed Server Companion and is not an approved path.
+The manager is deliberately not a native ST patcher. It rejects every destination outside the integrated Logic-Engine Extension package directories. The browser extension cannot invoke filesystem operations or supply arbitrary install paths. The manager is not exposed as an ST route and does not create a second backend service.
 
-**This is the exact bootstrap blocker.** It is not evidence that the approved patch-based architecture is impossible. It proves only that the current stock Extension Manager cannot bootstrap its trusted patch executor by itself.
+The Extension Manager remains the ordinary client-side repository installer; the trusted local Patch Manager owns the coordinated installation/update/repair/uninstall of the integrated client and Gateway server-plugin artifacts as one package.
 
-## 5. Minimum implementation dependency (no architecture change)
+## 5. Local deployment integration (no architecture change)
 
-To proceed without a Server Companion, the already-approved Patch Manager must be launched by a trusted local Logic-Engine installation/management process that already has filesystem access to the user's ST installation. That Patch Manager is part of the existing Logic-Engine product/integration, not an ST server plugin and not a second backend connector.
+The Patch Manager is a local command in the existing Logic-Engine Node deployment contour. It is invoked by the operator/deployment process, not by the browser or an ST-facing endpoint. It targets the exact pinned ST Git commit, and all writes are restricted to the single integrated Extension package's client/server directories.
 
-The implementation dependency is to identify and wire that existing trusted local launch surface. The current Logic-Engine repository inspected for this task is a Node.js Core/API package; no desktop installer/management host or Patch Manager entrypoint is currently present in `main`. If the deployment has an existing Logic-Engine installer/desktop host outside this repository, it must invoke the Patch Manager module directly; it must not expose a new ST-facing API port or allow the browser to invoke filesystem operations.
-
-Once launched by that trusted owner, Patch Manager implementation can proceed using the already-approved transactional contract. Its patch packages must be independently versioned and target exact ST commit/build fingerprints. No automatic patch is applied to an unknown, modified, concurrently changing, or unsupported ST installation.
+The remaining deployment task is to provide the package manifest and release artifact for the exact Gateway/Host Adapter/Final-Send Extension version, then connect the CLI invocation to the existing installer workflow. No native ST source path is eligible for installation.
 
 ## 6. Required evidence before implementation can be marked complete
 
@@ -114,8 +112,9 @@ Once launched by that trusted owner, Patch Manager implementation can proceed us
 | Extension Manager as client installer | CONFIRMED |
 | Extension Manager as trusted Patch Manager bootstrap | UNSUPPORTED |
 | Separate server plugin / Server Companion | REJECTED; not used |
-| Existing pinned-source patch artifacts | REVIEW-ONLY |
-| Production Extension Gateway | NOT IMPLEMENTED |
+| Existing native-ST source patch artifacts | NOT AUTHORIZED; NOT INSTALLABLE BY PATCH MANAGER |
+| Patch Manager Extension-artifact transaction | IMPLEMENTED; exact-head CI pending |
+| Production Extension Gateway | REVIEW-ONLY CANDIDATE |
 | Authenticated Host Adapter integration through sole Gateway | NOT IMPLEMENTED |
 | Final-Send Hook / pre-LLM egress | NOT IMPLEMENTED |
 | Final response revalidation | NOT IMPLEMENTED |
@@ -127,8 +126,9 @@ Once launched by that trusted owner, Patch Manager implementation can proceed us
 
 - [x] Select existing local deployment owner: Logic-Engine Node package/CLI; no separate Companion.
 - [x] Implement local Patch Manager module and CLI entrypoint.
+- [x] Restrict all writes to the integrated Extension client/server directories; reject native ST source/config/routes and unrelated extensions.
 - [x] Implement exact-target/manifest checks, transactional backup/journal, rollback, recovery and user-edit protection.
-- [x] Add focused Patch Manager tests.
+- [x] Add focused Patch Manager tests for allowed and rejected destinations.
 - [x] Focused Patch Manager CI: 6/6 tests passed on PR head `fc1231e00f80f35e4f4a9ee3e211874287940a72` (run 41298811265). The full Runtime workflow remains pending.
 - [ ] Produce the single approved ST patch package containing the sole Extension Gateway route, trusted Host Adapter integration, pre-LLM egress and final-response revalidation.
 - [ ] Add an integration manifest for the exact ST build, pinned patch digest and release package identity.
