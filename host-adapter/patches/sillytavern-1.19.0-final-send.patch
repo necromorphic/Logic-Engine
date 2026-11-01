@@ -149,6 +149,14 @@
 +        response.set('cache-control', 'no-store');
 +        return response.status(503).send({ error: { code: 'LOGIC_ENGINE_FINAL_SEND_ADAPTER_UNAVAILABLE' } });
 +    }
++    const nativeWrite = response.write.bind(response);
++    const nativeEnd = response.end.bind(response);
++    response.write = function (...args) {
++        return adapter.authorizeResponseWrite(response, () => nativeWrite(...args), false);
++    };
++    response.end = function (...args) {
++        return adapter.authorizeResponseWrite(response, () => nativeEnd(...args), true);
++    };
 +    return generationContext.run({ request, response, adapter, protectedForward: null }, handler);
 +}
 +
