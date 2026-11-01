@@ -51,6 +51,31 @@ async function hashAt(root, relativePath) {
   return canonicalTextHash(bytes);
 }
 
+export async function verifyPinnedPatchManagerBackups(root, state, pinnedManifest = manifest) {
+  const managerRelative = '.logic-engine-patch-manager';
+  await assertRegularDirectory(root, managerRelative);
+  await assertRegularDirectory(root, managerRelative + '/backups');
+  const expectedBackups = Object.entries(pinnedManifest.sourceFiles).filter(([, expected]) => typeof expected !== 'string');
+  const backupEntries = Object.entries(state.backups ?? {});
+  if (backupEntries.length !== expectedBackups.length) throw new Error('PATCH_MANAGER_BACKUP_SET_INCOMPLETE');
+
+  for (const [relativePath, expected] of expectedBackups) {
+    const record = state.backups[relativePath];
+    const expectedPath = ['backups', state.backupId, ...relativePath.split('/')].join(sep);
+    if (!record || record.sha256 !== expected.before || record.backupPath !== expectedPath) {
+      throw new Error('PATCH_MANAGER_BACKUP_RECORD_INVALID:' + relativePath);
+    }
+    const backupRelative = [managerRelative, ...record.backupPath.split(/[\\\\/]/)].join(sep);
+    if (!isWithin(resolve(root, managerRelative, 'backups', state.backupId), resolve(root, backupRelative))) {
+      throw new Error('PATCH_MANAGER_BACKUP_PATH_INVALID:' + relativePath);
+    }
+    if (await hashAt(root, backupRelative) !== expected.before) {
+      throw new Error('PATCH_MANAGER_BACKUP_INTEGRITY_MISMATCH:' + relativePath);
+    }
+  }
+  return Object.freeze({ status: 'PASS', summary: 'All required pre-patch backups match their pinned baseline hashes.' });
+}
+
 /**
  * Independently inspects the pinned SillyTavern tree and Patch Manager backups.
  * The supplied root selects a target only; all expected identities and digests
@@ -134,29 +159,11 @@ export async function inspectPinnedSillyTavernInstallation(stRoot) {
       throw new Error('PATCH_MANAGER_STATE_IDENTITY_INVALID');
     }
 
-    const expectedBackups = Object.entries(manifest.sourceFiles).filter(([, expected]) => typeof expected !== 'string');
-    const backupEntries = Object.entries(state.backups ?? {});
-    if (backupEntries.length !== expectedBackups.length) throw new Error('PATCH_MANAGER_BACKUP_SET_INCOMPLETE');
-
-    await assertRegularDirectory(root, managerRelative + '/backups');
-    for (const [relativePath, expected] of expectedBackups) {
-      const record = state.backups[relativePath];
-      const expectedPath = ['backups', state.backupId, ...relativePath.split('/')].join(sep);
-      if (!record || record.sha256 !== expected.before || record.backupPath !== expectedPath) {
-        throw new Error('PATCH_MANAGER_BACKUP_RECORD_INVALID:' + relativePath);
-      }
-      const backupRelative = [managerRelative, ...record.backupPath.split(/[\\\\/]/)].join(sep);
-      if (!isWithin(resolve(root, managerRelative, 'backups', state.backupId), resolve(root, backupRelative))) {
-        throw new Error('PATCH_MANAGER_BACKUP_PATH_INVALID:' + relativePath);
-      }
-      if (await hashAt(root, backupRelative) !== expected.before) {
-        throw new Error('PATCH_MANAGER_BACKUP_INTEGRITY_MISMATCH:' + relativePath);
-      }
-    }
+    const backupInspection = await verifyPinnedPatchManagerBackups(root, state);
 
     return Object.freeze({
       files: { status: 'PASS', summary: 'All pinned installed source and created-file hashes match.' },
-      backups: { status: 'PASS', summary: 'All required pre-patch backups match their pinned baseline hashes.' },
+      backups: backupInspection,
     });
   } catch (error) {
     const code = typeof error?.message === 'string' ? error.message.split(':')[0] : 'SILLYTAVERN_INSPECTION_FAILED';
