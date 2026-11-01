@@ -196,6 +196,26 @@ test('Core disclosure envelope rejects malformed, incomplete and unrequested dat
   }
 });
 
+test('final field-bearing Core read is independently validated before disclosure', async (t) => {
+  const { consumer, authorizedReadService } = setup(t);
+  const originalRead = authorizedReadService.readEntityFields.bind(authorizedReadService);
+  let fieldReads = 0;
+  authorizedReadService.readEntityFields = (input) => {
+    const result = originalRead(input);
+    if (!input.fields.includes('attributes.public_note')) return result;
+    fieldReads += 1;
+    if (fieldReads === 2) return { ...result, diagnostics: 'final Core diagnostic must not escape' };
+    return result;
+  };
+  const result = await consumer.retrieveForNpc(request());
+  assert.equal(fieldReads, 2);
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'authorized_source_read_invalid');
+  assert.deepEqual(result.admitted, []);
+  assert.deepEqual(result.candidates, []);
+  assert.doesNotMatch(JSON.stringify(result), /final Core diagnostic|authorized source text/);
+});
+
 test('Core disclosure envelope rejects Proxy entities without executing traps', async (t) => {
   const { consumer, authorizedReadService } = setup(t);
   const originalRead = authorizedReadService.readEntityFields.bind(authorizedReadService);
