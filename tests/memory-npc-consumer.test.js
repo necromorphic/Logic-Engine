@@ -1344,7 +1344,7 @@ test('Core reapplies field visibility after asynchronous Provider authorization 
   };
   s.provider.authorizeCandidate = async (input) => {
     calls += 1;
-    if (calls === 2) {
+    if (calls === 3) {
       s.revokeContent();
       assert.equal(s.authorizedReadService._fieldAllowed(
         {}, { entity_id: 'source-a' }, 'attributes.public_note',
@@ -1354,7 +1354,7 @@ test('Core reapplies field visibility after asynchronous Provider authorization 
   };
 
   const result = await s.consumer.retrieveForNpc(request());
-  assert.equal(calls, 2);
+  assert.equal(calls, 3);
   assert.equal(reads, 2);
   assert.equal(Object.hasOwn(finalReadEntity, 'attributes.public_note'), false);
   assert.equal(result.status, 'non_ready');
