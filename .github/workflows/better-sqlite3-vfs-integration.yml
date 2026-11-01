@@ -68,3 +68,53 @@ jobs:
           BETTER_SQLITE3_PACKAGE_DIR: ${{ runner.temp }}/better-sqlite3/package
           LOGIC_ENGINE_VFS_PROBE_PATH: ${{ runner.temp }}/logic_engine_secure_vfs_probe.so
         run: node --test tests/better-sqlite3-vfs-integration.test.js
+
+  windows-x64:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.14.0'
+      - name: Download exact better-sqlite3 release
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force "$env:RUNNER_TEMP\better-sqlite3" | Out-Null
+          npm pack better-sqlite3@13.0.3 --pack-destination "$env:RUNNER_TEMP\better-sqlite3"
+          tar -xzf "$env:RUNNER_TEMP\better-sqlite3\better-sqlite3-13.0.3.tgz" -C "$env:RUNNER_TEMP\better-sqlite3"
+      - name: Verify Node-API 10 and archived Windows prebuild identity
+        shell: pwsh
+        run: |
+          node -e 'const napi = Number(process.versions.napi); console.log("Node", process.version, "Node-API", napi); if (napi < 10) throw new Error("better-sqlite3 13.0.3 requires Node-API 10")'
+          $binary = "$env:RUNNER_TEMP\better-sqlite3\package\prebuilds\win32-x64.node"
+          $actual = (Get-FileHash $binary -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actual -ne 'e21e5efd71fba66578e95b62554d9028064a80dafd7221bf8a8ef155de8d240a') {
+            throw "better-sqlite3 Windows prebuild does not match the audited ST-VectorService archive: $actual"
+          }
+      - name: Smoke-test the exact published Windows prebuild
+        shell: pwsh
+        env:
+          BETTER_SQLITE3_PACKAGE_DIR: ${{ runner.temp }}\better-sqlite3\package
+        run: |
+          node -e 'const Database = require(process.env.BETTER_SQLITE3_PACKAGE_DIR); const db = new Database(":memory:"); console.log("better-sqlite3 Windows prebuild", db.prepare("SELECT sqlite_version() AS version").get()); db.close();'
+      - name: Build secure VFS extension against better-sqlite3 bundled SQLite headers
+        shell: pwsh
+        run: |
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
+          $vs = & $vswhere -latest -products '*' -property installationPath
+          if (-not $vs) { throw 'Visual Studio Build Tools not found' }
+          $vcvars = Join-Path $vs 'VC/Auxiliary/Build/vcvars64.bat'
+          $package = "$env:RUNNER_TEMP\better-sqlite3\package"
+          $extension = "$env:RUNNER_TEMP\logic_engine_secure_vfs_probe.dll"
+          $command = '"' + $vcvars + '" && cl /nologo /O2 /LD /I "' + $package + '\deps\sqlite3" /I native\secure-vfs-probe native\secure-vfs-probe\secure_vfs_probe.c /link /OUT:"' + $extension + '"'
+          cmd /c $command
+          if ($LASTEXITCODE -ne 0) { throw 'better-sqlite3 VFS extension compilation failed' }
+      - name: Exercise default VFS registration in the stock Windows better-sqlite3 engine
+        shell: pwsh
+        env:
+          BETTER_SQLITE3_PACKAGE_DIR: ${{ runner.temp }}\better-sqlite3\package
+          LOGIC_ENGINE_VFS_PROBE_PATH: ${{ runner.temp }}\logic_engine_secure_vfs_probe.dll
+        run: node --test tests/better-sqlite3-vfs-integration.test.js
