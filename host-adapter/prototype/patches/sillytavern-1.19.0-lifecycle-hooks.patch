@@ -804,4 +804,4 @@ new file mode 100644
 +export {
 +    createHostBulkMutationGuard,
 +    createHostLifecycleSaveGuard,
-+} from '../../plugins/logic-engine-extension-gateway/server-plugin/st-host-inventory-handler.mjs';
++} from '../../plugins/logic-engine-extension-gateway/st-host-inventory-handler.mjs';
