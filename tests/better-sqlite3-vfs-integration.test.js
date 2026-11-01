@@ -15,7 +15,9 @@ const vfsName = 'logic-engine-vfs-registration-probe';
 test('stock better-sqlite3 selects the secure VFS through SQLite URI in its own engine', {
   skip: !packageRoot || !extensionPath,
 }, (t) => {
+  console.error('[better-sqlite3-uri-vfs] require-before');
   const Database = require(packageRoot);
+  console.error('[better-sqlite3-uri-vfs] require-after');
   const resolvedExtension = path.resolve(extensionPath);
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'logic-engine-better-sqlite3-vfs-'));
   const filename = path.join(directory, 'vectors.sqlite');
@@ -24,18 +26,24 @@ test('stock better-sqlite3 selects the secure VFS through SQLite URI in its own 
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
 
   // Confirm URI VFS selection is enabled in this exact better-sqlite3 SQLite build.
+  console.error('[better-sqlite3-uri-vfs] bootstrap-before');
   const bootstrap = new Database(':memory:');
+  console.error('[better-sqlite3-uri-vfs] bootstrap-after');
   try {
     const compileOptions = bootstrap.pragma('compile_options').map((row) => row.compile_options);
     assert.ok(compileOptions.includes('USE_URI'), 'embedded SQLite must enable URI filenames');
     // Register the extension in better-sqlite3's embedded engine, not node:sqlite.
+    console.error('[better-sqlite3-uri-vfs] extension-before');
     bootstrap.loadExtension(resolvedExtension, 'sqlite3_secure_vfs_probe_init');
+    console.error('[better-sqlite3-uri-vfs] extension-after');
   } finally {
     bootstrap.close();
   }
 
   // SQLite's URI vfs= parameter selects the named VFS without patching better-sqlite3.
+  console.error('[better-sqlite3-uri-vfs] target-before');
   const db = new Database(databaseUri.href);
+  console.error('[better-sqlite3-uri-vfs] target-after');
   try {
     assert.equal(db.pragma('journal_mode = WAL', { simple: true }), 'wal');
     db.exec('CREATE TABLE vfs_probe (id INTEGER PRIMARY KEY, value TEXT NOT NULL)');
