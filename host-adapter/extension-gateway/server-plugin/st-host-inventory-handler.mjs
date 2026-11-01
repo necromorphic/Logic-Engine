@@ -324,8 +324,8 @@ export function createHostLifecycleSaveGuard({ enumerate = enumerateHostDataInve
     const userHandle = request?.user?.profile?.handle;
     const session = request?.session;
     if (typeof userHandle !== 'string' || !userHandle.trim() || (session?.handle !== undefined && session.handle !== userHandle) || session?.logicEngineSessionHandle !== userHandle || !HOST_SESSION_UUID.test(session?.logicEngineSessionId ?? '')) return response.sendStatus(403);
-    const directories = request?.user?.directories;
-    if (!directories || !['root', 'chats', 'groups', 'groupChats'].every(key => typeof directories[key] === 'string' && path.isAbsolute(directories[key]))) return response.sendStatus(403);
+    const directories = resolveHostDataDirectories(request?.user?.directories);
+    if (!directories) return response.sendStatus(403);
     let inventory;
     try { inventory = await enumerate({ directories: { root: directories.root, chats: directories.chats, groups: directories.groups, groupChats: directories.groupChats }, hostCommit: pinnedHostCommit }); }
     catch (error) {
