@@ -44,6 +44,7 @@ test('Patch Manager installs the sole Extension Gateway into a disposable offici
   const constants = readFileSync(resolve(stPath, 'src/constants.js'), 'utf8');
   const extensionRoutes = readFileSync(resolve(stPath, 'src/endpoints/extensions.js'), 'utf8');
 
+  assert.ok(main.indexOf('app.use(csrfSyncProtection.csrfSynchronisedProtection)') < main.indexOf('setupPrivateEndpoints(app)'));
   assert.ok(main.indexOf('app.use(requireLoginMiddleware)') < main.indexOf('setupPrivateEndpoints(app)'));
   assert.match(main, /request\.path !== EXTENSION_GATEWAY_PATH && request\.is\('application\/json'\)/);
   assert.match(main, /await closeDefaultExtensionGateway\(\{ drain: true \}\)/);
