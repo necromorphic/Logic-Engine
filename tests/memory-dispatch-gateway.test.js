@@ -223,6 +223,26 @@ test('read-only Gateway SQLite connection can read committed WAL state without w
   }
 });
 
+test('Gateway without an in-process transport capability fails closed before ledger creation', async () => {
+  const fixture = await createFixture();
+  try {
+    const directDispatch = MemoryDispatchGateway.prototype.dispatchProtectedRequest.bind(fixture.gateway);
+    await assert.rejects(
+      directDispatch(validRequest('missing-transport-capability')),
+      /MEMORY_DISPATCH_NOT_READY/,
+    );
+    assert.equal(fixture.calls.length, 0);
+    const ledger = new DatabaseSync(fixture.ledgerPath);
+    try {
+      assert.equal(ledger.prepare('SELECT COUNT(*) AS n FROM dispatch_ledger').get().n, 0);
+    } finally {
+      ledger.close();
+    }
+  } finally {
+    await fixture.close();
+  }
+});
+
 test('request-scoped transport capability must be dormant and synchronous before DISPATCH_STARTED', async () => {
   let starts = 0;
   const fixture = await createFixture({
