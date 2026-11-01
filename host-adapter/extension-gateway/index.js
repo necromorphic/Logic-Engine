@@ -1,3 +1,4 @@
+import { resolveAuthenticatedHostContext } from './host-client.mjs';
 import { interceptProtectedGeneration } from './gateway-policy.mjs';
 
 /**
@@ -30,6 +31,25 @@ export function armProtectedRequest(requestId, dispatch) {
     gatewayState.pendingRequest = { requestId };
     gatewayState.dispatch = typeof dispatch === 'function' ? dispatch : null;
     gatewayState.lastStatus = 'ARMED';
+}
+
+/**
+ * Arm the protected generation interceptor with a server-authenticated Host
+ * context. The browser sends only the current chat UUID to the ST server plugin;
+ * the plugin derives installation/account/session identity and resolves Core
+ * world/actor bindings. The supplied consumer is still an integration seam,
+ * not a Core authorization capability or a production model-dispatch path.
+ */
+export function armAuthenticatedHostRequest(requestId, dispatch) {
+    if (typeof dispatch !== 'function') {
+        throw new TypeError('An explicit protected dispatch consumer is required.');
+    }
+    armProtectedRequest(requestId, async generation => {
+        const header = Array.isArray(generation?.chat) ? generation.chat[0] : null;
+        const conversationUuid = header?.chat_metadata?.logic_engine_conversation_id;
+        const hostContext = await resolveAuthenticatedHostContext(conversationUuid);
+        return dispatch({ ...generation, hostContext });
+    });
 }
 
 export function cancelProtectedRequest(requestId) {
