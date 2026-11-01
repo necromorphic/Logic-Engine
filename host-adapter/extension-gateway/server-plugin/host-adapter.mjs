@@ -82,7 +82,8 @@ export function createSillyTavernHostAdapter({
         if (typeof userHandle !== 'string' || !userHandle.trim()
           || !uuid.test(sessionId ?? '') || !uuid.test(conversationUuid ?? '')) return null;
 
-        const directories = request.user.directories;
+        const directories = resolveHostDataDirectories(request?.user?.directories);
+        if (!directories) return { status: 'NON_READY', code: 'HOST_INVENTORY_PATHS_UNAVAILABLE' };
         const dataRoot = typeof globalThis.DATA_ROOT === 'string' && globalThis.DATA_ROOT.trim()
           ? path.resolve(globalThis.DATA_ROOT) : null;
         if (typeof dataRoot !== 'string' || !path.isAbsolute(dataRoot)) {
@@ -91,12 +92,7 @@ export function createSillyTavernHostAdapter({
         await identityStore.assertOutsideRoot(dataRoot);
         const identityRecord = await identityStore.resolveAuthenticatedAccount(userHandle);
         const hostInventory = await enumerate({
-          directories: {
-            root: directories.root,
-            chats: directories.chats,
-            groups: directories.groups,
-            groupChats: directories.groupChats,
-          },
+          directories,
           hostCommit: PINNED_SILLYTAVERN_COMMIT,
         });
         if (hostInventory?.filesystem?.status !== 'complete'
