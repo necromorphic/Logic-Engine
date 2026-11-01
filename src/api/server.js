@@ -339,7 +339,11 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
             'Host context must contain authenticated installation, account and session UUIDs bound to the stable conversation identity, plus a configured actor entity.', 400);
         }
         const binding = hostConversationBindings.resolve({ adapterId, conversationId });
-        const actor = actorBindings.resolve(binding.world_id, adapterId, body.actor_entity_id);
+        const actor = actorBindings.resolveForAdapter(binding.world_id, adapterId);
+        if (actor.actor.entity_id !== body.actor_entity_id) {
+          throw new EngineError('HOST_ACTOR_BINDING_CHANGED',
+            'The configured Host actor does not match the unique active Core actor binding.', 403);
+        }
         return send(res, 200, {
           context: {
             installation_id: hostContext.installation_id,
@@ -378,7 +382,10 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
               adapterId,
               conversationId: authenticated.conversation_id,
             });
-            const actor = actorBindings.resolve(binding.world_id, adapterId, authenticated.actor_id);
+            const actor = actorBindings.resolveForAdapter(binding.world_id, adapterId);
+            if (actor.actor.entity_id !== authenticated.actor_id) {
+              throw new Error('HOST_SESSION_BINDING_CHANGED');
+            }
             if (binding.adapter_id !== adapterId
               || binding.conversation_id !== authenticated.conversation_id
               || binding.world_id !== authenticated.world_id
