@@ -825,7 +825,12 @@ export function createHostMemoryDispatchProxyHandler({
           'x-adapter-id': target.adapterId,
           'x-adapter-token': target.adapterToken,
         },
-        body: JSON.stringify({ conversation_id: coreConversationId }),
+        body: JSON.stringify({
+          conversation_id: coreConversationId,
+          host_session_id: context.host_session_id,
+          host_installation_id: context.host_installation_id,
+          conversation_uuid: body.conversation_uuid,
+        }),
         signal: AbortSignal.timeout(timeoutMs),
       });
       let payload;
