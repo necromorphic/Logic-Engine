@@ -61,9 +61,15 @@ test('SQLite role manifest rejects path traversal components and unusable identi
   const zeroInode = manifest('linux', { ...posixIdentity, inode: '0' });
   assert.equal(validate(zeroInode), false, 'zero inode must fail closed');
 
-  const mixedPlatform = manifest('linux', windowsIdentity);
-  assert.equal(validate(mixedPlatform), false,
-    'a Linux manifest must not contain Windows file identities');
+  for (const location of ['metadataRootIdentity', 'parentIdentity', 'databaseIdentity', 'sidecarIdentity']) {
+    const mixedPlatform = manifest('linux', posixIdentity);
+    if (location === 'metadataRootIdentity') mixedPlatform.metadataRootIdentity = windowsIdentity;
+    if (location === 'parentIdentity') mixedPlatform.roles[0].parentIdentities[0] = windowsIdentity;
+    if (location === 'databaseIdentity') mixedPlatform.roles[0].databaseIdentity = windowsIdentity;
+    if (location === 'sidecarIdentity') mixedPlatform.roles[0].sidecars[0].identity = windowsIdentity;
+    assert.equal(validate(mixedPlatform), false,
+      `a Linux manifest must reject Windows identity in ${location}`);
+  }
 });
 
 test('Linux role manifest requires an explicit application UID', () => {

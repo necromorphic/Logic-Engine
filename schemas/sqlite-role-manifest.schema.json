@@ -221,9 +221,13 @@
         {
           "if": {
             "properties": {
-              "state": { "const": "renaming" }
+              "state": {
+                "const": "renaming"
+              }
             },
-            "required": ["state"]
+            "required": [
+              "state"
+            ]
           },
           "then": {
             "properties": {
@@ -231,10 +235,16 @@
                 "$ref": "#/$defs/component"
               }
             },
-            "required": ["pendingDatabaseBasename"]
+            "required": [
+              "pendingDatabaseBasename"
+            ]
           },
           "else": {
-            "not": { "required": ["pendingDatabaseBasename"] }
+            "not": {
+              "required": [
+                "pendingDatabaseBasename"
+              ]
+            }
           }
         }
       ]
@@ -312,12 +322,107 @@
               "applicationUid"
             ],
             "properties": {
-              "filesystem": { "type": "string", "minLength": 1 },
-              "identitySource": { "const": "opened-handle" },
-              "directoryMutationBoundary": {
-                "enum": ["broker-exclusive-owner", "dedicated-service-identity"]
+              "filesystem": {
+                "type": "string",
+                "minLength": 1
               },
-              "applicationUid": { "type": "integer", "minimum": 1 }
+              "identitySource": {
+                "const": "opened-handle"
+              },
+              "directoryMutationBoundary": {
+                "enum": [
+                  "broker-exclusive-owner",
+                  "dedicated-service-identity"
+                ]
+              },
+              "applicationUid": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "platform": {
+            "const": "linux"
+          }
+        },
+        "required": [
+          "platform"
+        ]
+      },
+      "then": {
+        "properties": {
+          "metadataRootIdentity": {
+            "$ref": "#/$defs/posixIdentity"
+          },
+          "roles": {
+            "items": {
+              "properties": {
+                "parentIdentities": {
+                  "items": {
+                    "$ref": "#/$defs/posixIdentity"
+                  }
+                },
+                "databaseIdentity": {
+                  "$ref": "#/$defs/posixIdentity"
+                },
+                "sidecars": {
+                  "items": {
+                    "properties": {
+                      "identity": {
+                        "$ref": "#/$defs/posixIdentity"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "platform": {
+            "const": "windows"
+          }
+        },
+        "required": [
+          "platform"
+        ]
+      },
+      "then": {
+        "properties": {
+          "metadataRootIdentity": {
+            "$ref": "#/$defs/windowsIdentity"
+          },
+          "roles": {
+            "items": {
+              "properties": {
+                "parentIdentities": {
+                  "items": {
+                    "$ref": "#/$defs/windowsIdentity"
+                  }
+                },
+                "databaseIdentity": {
+                  "$ref": "#/$defs/windowsIdentity"
+                },
+                "sidecars": {
+                  "items": {
+                    "properties": {
+                      "identity": {
+                        "$ref": "#/$defs/windowsIdentity"
+                      }
+                    }
+                  }
+                }
+              }
             }
           }
         }
