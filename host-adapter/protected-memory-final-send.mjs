@@ -56,13 +56,16 @@ export function createProtectedMemoryFinalSend({ gateway, resolveProtectedMemory
     stream = false,
     forwardResponse,
     transport: transportImpl,
+    protectedMemoryOverride,
   }) {
     assertRequest(endpointUrl, requestInit);
 
     // Classification is performed synchronously from trusted server-side
     // request context. It must never be inferred from browser JSON or an
     // optional caller-supplied "protected" flag.
-    const protectedMemory = resolveProtectedMemory(hostRequestContext);
+    const protectedMemory = protectedMemoryOverride !== undefined
+      ? protectedMemoryOverride
+      : resolveProtectedMemory(hostRequestContext);
     if (protectedMemory && typeof protectedMemory.then === 'function') {
       throw new Error('MEMORY_DISPATCH_NOT_READY');
     }
