@@ -54,6 +54,16 @@ test('Linux SQLite VFS obtains main and sidecar descriptors from the authenticat
   }
   assert.equal(ready, true, 'test broker must create its Unix seqpacket socket');
 
+  // The fake broker runs under this test process UID. Production Host
+  // configuration supplies the distinct service UID; pin the expected peer
+  // explicitly so SO_PEERCRED is never accepted implicitly.
+  const previousBrokerUid = process.env.LOGIC_ENGINE_BROKER_UID;
+  process.env.LOGIC_ENGINE_BROKER_UID = String(process.getuid());
+  t.after(() => {
+    if (previousBrokerUid === undefined) delete process.env.LOGIC_ENGINE_BROKER_UID;
+    else process.env.LOGIC_ENGINE_BROKER_UID = previousBrokerUid;
+  });
+
   const bootstrap = new DatabaseSync(':memory:', { allowExtension: true });
   try {
     bootstrap.loadExtension(extensionPath, 'sqlite3_secure_vfs_probe_init');
