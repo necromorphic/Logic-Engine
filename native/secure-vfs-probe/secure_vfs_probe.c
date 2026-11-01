@@ -2832,6 +2832,67 @@ static void probe_delete_registered_role(sqlite3_context *context, int argc, sql
 }
 
 #ifdef _WIN32
+static void probe_win_identity_hex(const LogicEngineWinFileIdentity *identity,
+                                  char volume[17], char file_id[33]) {
+  snprintf(volume, 17, "%016llX", (unsigned long long)identity->volume_serial);
+  for (int i = 0; i < 16; ++i)
+    snprintf(file_id + i * 2, 3, "%02X", identity->file_id.Identifier[i]);
+  file_id[32] = '\0';
+}
+
+static void probe_capture_manifest_identity(sqlite3_context *context, int argc,
+                                           sqlite3_value **argv) {
+  const unsigned char *path = sqlite3_value_text(argv[0]);
+  char *full_path = NULL;
+  int path_length;
+  ProbeDatabaseRole captured;
+  LogicEngineWinFileIdentity parent_identity;
+  DWORD parent_attributes = 0;
+  char db_volume[17], db_file_id[33], parent_volume[17], parent_file_id[33];
+  char *json = NULL;
+  memset(&captured, 0, sizeof(captured));
+  captured.trusted_handle = INVALID_HANDLE_VALUE;
+  captured.anchor.parent = INVALID_HANDLE_VALUE;
+  captured.anchor.basename = NULL;
+  (void)argc;
+  if (!path || !path[0]) {
+    sqlite3_result_error(context, "database path is required", -1);
+    return;
+  }
+  path_length = g_parent_vfs->mxPathname + 1;
+  full_path = (char *)sqlite3_malloc64((sqlite3_uint64)path_length);
+  if (!full_path) {
+    sqlite3_result_error_nomem(context);
+    return;
+  }
+  if (g_parent_vfs->xFullPathname(g_parent_vfs, (const char *)path,
+        path_length, full_path) != SQLITE_OK
+      || !probe_capture_role_identity(full_path, &captured)
+      || !logic_engine_win_identity(captured.anchor.parent, &parent_identity,
+                                    &parent_attributes)
+      || (parent_attributes & FILE_ATTRIBUTE_DIRECTORY) == 0) {
+    sqlite3_free(full_path);
+    probe_close_captured_role_identity(&captured);
+    sqlite3_result_error(context, "cannot capture manifest identities from opened handles", -1);
+    return;
+  }
+  sqlite3_free(full_path);
+  probe_win_identity_hex(&captured.identity, db_volume, db_file_id);
+  probe_win_identity_hex(&parent_identity, parent_volume, parent_file_id);
+  json = sqlite3_mprintf(
+      "{\"databaseIdentity\":{\"kind\":\"windows\",\"volumeSerial\":\"%s\",\"fileId\":\"%s\"},"
+      "\"parentIdentity\":{\"kind\":\"windows\",\"volumeSerial\":\"%s\",\"fileId\":\"%s\"}}",
+      db_volume, db_file_id, parent_volume, parent_file_id);
+  probe_close_captured_role_identity(&captured);
+  if (!json) {
+    sqlite3_result_error_nomem(context);
+    return;
+  }
+  sqlite3_result_text(context, json, -1, sqlite3_free);
+}
+#endif
+
+#ifdef _WIN32
 static int probe_parse_manifest_win_identity(
     sqlite3_value *volume_value, sqlite3_value *file_id_value,
     LogicEngineWinFileIdentity *identity) {
@@ -3249,6 +3310,9 @@ static int probe_auto_extension(sqlite3 *db, char **error, const sqlite3_api_rou
     SQLITE_UTF8, 0, probe_register_database_role, 0, 0);
   if (rc != SQLITE_OK) return rc;
 #ifdef _WIN32
+  rc = sqlite3_create_function(db, "logic_engine_vfs_probe_capture_manifest_identity", 1,
+    SQLITE_UTF8, 0, probe_capture_manifest_identity, 0, 0);
+  if (rc != SQLITE_OK) return rc;
   rc = sqlite3_create_function(db, "logic_engine_vfs_probe_register_database_role_manifest", 6,
     SQLITE_UTF8, 0, probe_register_database_role, 0, 0);
   if (rc != SQLITE_OK) return rc;
