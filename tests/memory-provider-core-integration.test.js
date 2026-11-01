@@ -136,7 +136,19 @@ function setup(t, { twoRecords = false, providerPath = null } = {}) {
     });
   };
   const consumer = createConsumer();
-  t.after(() => { provider.close(); store.close(); testDb.close(); testDb.cleanup(); });
+  const siblingProviders = [];
+  t.after(() => {
+    // Close every SQLite connection before removing the shared file-backed
+    // database. Node test after-hooks may run in registration order, so
+    // sibling handles must not be left to separately registered cleanup.
+    for (const sibling of siblingProviders) {
+      try { sibling.close(); } catch {}
+    }
+    try { provider.close(); } catch {}
+    try { store.close(); } catch {}
+    try { testDb.close(); } catch {}
+    testDb.cleanup();
+  });
   return {
     engine, provider, consumer, scope, records, createConsumer,
     createSiblingProvider() {
@@ -147,7 +159,7 @@ function setup(t, { twoRecords = false, providerPath = null } = {}) {
         validateSourceVersion: sourceVersionValidator,
         validateInventory: inventoryValidator,
       });
-      t.after(() => sibling.close());
+      siblingProviders.push(sibling);
       return sibling;
     },
     db: testDb.db,
