@@ -11,6 +11,7 @@ async function rawContentDigest(text) {
     .map(value => value.toString(16).padStart(2, '0')).join('');
 }
 const CURRENTLY_HOOKED_PATHS = Object.freeze(['create-message', 'message-send', 'message-receive', 'create-swipe', 'select-swipe', 'delete-swipe', 'delete-message', 'edit-message']);
+const CURRENTLY_GUARDED_READ_ONLY_PATHS = Object.freeze(['export']);
 const newId = () => {
   if (!globalThis.crypto?.randomUUID) throw Error('crypto.randomUUID unavailable; Host capture NON_READY');
   return globalThis.crypto.randomUUID();
@@ -814,7 +815,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
     // Integrity is not completeness: this patch does not intercept every mutation
     // path. Keep reconciliation NON_READY until all required paths are wired.
     const readiness = await journal.status(conversationId, {
-      instrumentedPaths: CURRENTLY_HOOKED_PATHS,
+      instrumentedPaths: [...CURRENTLY_HOOKED_PATHS, ...CURRENTLY_GUARDED_READ_ONLY_PATHS],
       sourceFingerprintMatches: true,
     });
     return persisted ? Object.freeze({
