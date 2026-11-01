@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { isUtf8 } from 'node:buffer';
 import { execFileSync } from 'node:child_process';
 import {
   copyFile, lstat, mkdir, open, readFile, realpath, rename, rm, stat, unlink, writeFile,
@@ -99,7 +100,7 @@ export class SillyTavernPatchManager {
     }
     this.manifest = JSON.parse(await readFile(this.manifestPath, 'utf8'));
     this.patchBytes = await readFile(this.patchPath);
-    if (!Buffer.isUtf8(this.patchBytes)) throw new Error('PATCH_ARTIFACT_ENCODING_INVALID');
+    if (!isUtf8(this.patchBytes)) throw new Error('PATCH_ARTIFACT_ENCODING_INVALID');
     // Git may materialize text patches with CRLF on Windows. The manifest
     // pins canonical UTF-8/LF bytes so the same artifact verifies on every OS.
     const canonicalPatchBytes = Buffer.from(this.patchBytes.toString('utf8').replace(/\r\n/g, '\n'), 'utf8');
