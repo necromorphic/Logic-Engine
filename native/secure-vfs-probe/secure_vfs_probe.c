@@ -2918,6 +2918,99 @@ static int probe_valid_absolute_role_path(const char *value) {
   return 1;
 }
 
+/*
+ * The SQLite pathname is a logical alias, not the broker-owned physical DB.
+ * Its parent chain must be immutable to the application identity so that
+ * parent-VFS operations cannot create or replace local decoys beside the
+ * broker-returned file descriptor.
+ */
+static int probe_validate_broker_alias_path(const char *database_path) {
+  const char *uid_text = getenv("LOGIC_ENGINE_BROKER_UID");
+  const char *separator = strrchr(database_path, '/');
+  char *end = NULL;
+  char *parent_path = NULL;
+  unsigned long long parsed_uid;
+  uid_t broker_uid;
+  int parent_fd = -1;
+  int result = 0;
+  if (!uid_text || !uid_text[0] || !separator || !separator[1]) return 0;
+  if (uid_text[0] == '0' && uid_text[1] != 0) return 0;
+  for (const unsigned char *digit = (const unsigned char *)uid_text; *digit; ++digit) {
+    if (*digit < '0' || *digit > '9') return 0;
+  }
+  errno = 0;
+  parsed_uid = strtoull(uid_text, &end, 10);
+  if (errno || !end || *end || parsed_uid == 0
+      || parsed_uid > (unsigned long long)((uid_t)-1)) return 0;
+  broker_uid = (uid_t)parsed_uid;
+#if !defined(LOGIC_ENGINE_VFS_PROBE_ALLOW_UNBROKERED_TEST_ROLES)
+  if (broker_uid == geteuid()) return 0;
+#endif
+  parent_path = sqlite3_mprintf("%.*s",
+      (int)(separator == database_path ? 1 : separator - database_path),
+      database_path);
+  if (!parent_path) return 0;
+  parent_fd = open("/", O_PATH | O_DIRECTORY | O_CLOEXEC);
+  if (parent_fd < 0) goto done;
+  {
+    char *cursor = parent_path;
+    while (*cursor == '/') cursor++;
+    while (*cursor) {
+      char *component_end = strchr(cursor, '/');
+      char saved = component_end ? *component_end : 0;
+      int next_fd;
+      struct stat info;
+      int owner_ok;
+      if (component_end) *component_end = 0;
+      if (!cursor[0] || strcmp(cursor, ".") == 0 || strcmp(cursor, "..") == 0) {
+        if (component_end) *component_end = saved;
+        goto done;
+      }
+      next_fd = openat(parent_fd, cursor,
+          O_PATH | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
+      if (component_end) *component_end = saved;
+      if (next_fd < 0 || fstat(next_fd, &info) != 0 || !S_ISDIR(info.st_mode)) {
+        if (next_fd >= 0) close(next_fd);
+        goto done;
+      }
+      owner_ok = info.st_uid == 0 || info.st_uid == broker_uid;
+#if defined(LOGIC_ENGINE_VFS_PROBE_ALLOW_UNBROKERED_TEST_ROLES)
+      if (broker_uid == geteuid() && info.st_uid == geteuid()) owner_ok = 1;
+#endif
+      if (!owner_ok || (info.st_mode & (S_IWGRP | S_IWOTH)) != 0) {
+        close(next_fd);
+        goto done;
+      }
+#if !defined(LOGIC_ENGINE_VFS_PROBE_ALLOW_UNBROKERED_TEST_ROLES)
+      errno = 0;
+      if (faccessat(next_fd, ".", W_OK, AT_EACCESS) == 0
+          || (errno != EACCES && errno != EPERM && errno != EROFS)
+          || faccessat(next_fd, ".", X_OK, AT_EACCESS) != 0) {
+        close(next_fd);
+        goto done;
+      }
+#endif
+      close(parent_fd);
+      parent_fd = next_fd;
+      if (!component_end) break;
+      cursor = component_end + 1;
+      while (*cursor == '/') cursor++;
+    }
+  }
+#if !defined(LOGIC_ENGINE_VFS_PROBE_ALLOW_UNBROKERED_TEST_ROLES)
+  {
+    struct stat alias_info;
+    if (fstatat(parent_fd, separator + 1, &alias_info, AT_SYMLINK_NOFOLLOW) == 0
+        || errno != ENOENT) goto done;
+  }
+#endif
+  result = 1;
+done:
+  if (parent_fd >= 0) close(parent_fd);
+  sqlite3_free(parent_path);
+  return result;
+}
+
 static void probe_register_broker_role_values(
     sqlite3_context *context, const char *path_value,
     const char *role_value, const char *socket_value) {
@@ -2931,7 +3024,8 @@ static void probe_register_broker_role_values(
   if (!path_value || !role_value || !socket_value
       || !probe_valid_absolute_role_path(path_value)
       || !probe_valid_role_name(role_value)
-      || socket_value[0] != '/') {
+      || socket_value[0] != '/'
+      || !probe_validate_broker_alias_path(path_value)) {
     sqlite3_result_error(context, "canonical absolute database path, role and broker socket are required", -1);
     return;
   }
