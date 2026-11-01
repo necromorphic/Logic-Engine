@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 const test = nodeTest;
 
-import { createHostBulkMutationGuard, createHostIdentityHandler, createHostInventoryHandler, createHostLifecycleSaveGuard, createHostSessionHandler } from '../st-host-inventory-handler.mjs';
+import { createHostBulkMutationGuard, createHostIdentityHandler, createHostInventoryHandler, createHostLifecycleSaveGuard, createHostRequestAuthenticationGate, createHostSessionHandler } from '../st-host-inventory-handler.mjs';
 
 function makeResponse() {
   return {
@@ -647,3 +647,131 @@ test('enrolled chat save API rejects permits scoped to another conversation or s
   }
 });
 
+
+
+const defaultUserSessionId = '2e6b0a80-4e73-4c66-aaf3-7a6e62c7f401';
+const defaultUserConversationUuid = '4e6b0a80-4e73-4c66-aaf3-7a6e62c7f403';
+const defaultUserInstallationId = '3e6b0a80-4e73-4c66-aaf3-7a6e62c7f402';
+
+test('default-user mode creates and reuses a Host session identity without session.handle', () => {
+  const handler = createHostSessionHandler({ createId: () => defaultUserSessionId });
+  const session = {};
+  const request = { session, user: { profile: { handle: 'default-user' } } };
+  const first = makeResponse();
+  handler(request, first);
+  assert.equal(first.statusCode, 200);
+  assert.equal(first.body.host_session_id, defaultUserSessionId);
+  assert.equal(session.logicEngineSessionId, defaultUserSessionId);
+  assert.equal(session.logicEngineSessionHandle, 'default-user');
+  const second = makeResponse();
+  handler(request, second);
+  assert.equal(second.body.host_session_id, defaultUserSessionId);
+});
+
+test('default-user inventory accepts absent session.handle only after signed Host identity is bound', async () => {
+  const directories = {
+    root: join(tmpdir(), 'st-default-user-root'),
+    chats: join(tmpdir(), 'st-default-user-root', 'chats'),
+    groups: join(tmpdir(), 'st-default-user-root', 'groups'),
+    groupChats: join(tmpdir(), 'st-default-user-root', 'groupChats'),
+  };
+  const handler = createHostInventoryHandler({
+    enumerate: async () => ({
+      filesystem: { status: 'complete', entries: [] },
+      source: { status: 'DOUBLE_SCAN_CANDIDATE', files: [], blockers: [] },
+      snapshot_alignment: 'SHARED_VSS_SNAPSHOT',
+    }),
+    persistRootInventory: async () => ({
+      status: 'BASELINED_REVIEW_ONLY', integrity_status: 'INTEGRITY_OK',
+      sequence: 1, manifest_sha256: 'a'.repeat(64),
+    }),
+    pinnedHostCommit: pinned,
+    hostBuildClaim: pinned,
+  });
+  const response = makeResponse();
+  await handler({
+    user: { profile: { handle: 'default-user' }, directories },
+    session: {
+      logicEngineSessionId: defaultUserSessionId,
+      logicEngineSessionHandle: 'default-user',
+    },
+    query: { conversation_uuid: defaultUserConversationUuid },
+  }, response);
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.body.host_user_handle, 'default-user');
+  assert.equal(response.body.host_build_claim_type, 'DEPLOYMENT_ASSERTION_NOT_RUNTIME_ATTESTATION');
+});
+
+test('default-user inventory rejects missing/mismatched signed session before scanning', async () => {
+  let scans = 0;
+  const handler = createHostInventoryHandler({
+    enumerate: async () => { scans++; return {}; },
+    pinnedHostCommit: pinned,
+    hostBuildClaim: pinned,
+  });
+  const base = {
+    user: { profile: { handle: 'default-user' }, directories: {} },
+    query: { conversation_uuid: defaultUserConversationUuid },
+  };
+  const missing = makeResponse();
+  await handler({ ...base, session: {} }, missing);
+  assert.equal(missing.statusCode, 403);
+  const mismatch = makeResponse();
+  await handler({
+    ...base,
+    session: {
+      logicEngineSessionId: defaultUserSessionId,
+      logicEngineSessionHandle: 'another-user',
+    },
+  }, mismatch);
+  assert.equal(mismatch.statusCode, 403);
+  assert.equal(scans, 0);
+});
+
+test('request authentication gate brands only the exact request after trusted server resolution', async () => {
+  const resolved = new WeakMap();
+  const request = {
+    user: { profile: { handle: 'default-user' }, directories: {} },
+    session: {
+      logicEngineSessionId: defaultUserSessionId,
+      logicEngineSessionHandle: 'default-user',
+    },
+    body: { conversation_id: 'attacker-selected' },
+  };
+  const conversationId = [
+    defaultUserSessionId, defaultUserInstallationId, defaultUserConversationUuid,
+  ].join(':');
+  resolved.set(request, conversationId);
+  const gate = createHostRequestAuthenticationGate({
+    resolveConversationId: candidate => resolved.get(candidate),
+  });
+  assert.equal(gate.isAuthenticatedHostRequest(request), false);
+  const response = makeResponse();
+  let nextCalls = 0;
+  await gate.middleware(request, response, () => { nextCalls++; });
+  assert.equal(response.statusCode, null);
+  assert.equal(nextCalls, 1);
+  assert.equal(gate.isAuthenticatedHostRequest(request), true);
+  assert.equal(gate.resolveHostConversationId(request), conversationId);
+  assert.equal(gate.isAuthenticatedHostRequest({ ...request }), false);
+});
+
+test('request authentication gate rejects account mismatch and a conversation from another session', async () => {
+  const conversationId = [
+    defaultUserSessionId, defaultUserInstallationId, defaultUserConversationUuid,
+  ].join(':');
+  const gate = createHostRequestAuthenticationGate({ resolveConversationId: () => conversationId });
+  for (const session of [
+    { handle: 'other-account', logicEngineSessionId: defaultUserSessionId, logicEngineSessionHandle: 'default-user' },
+    { logicEngineSessionId: '5e6b0a80-4e73-4c66-aaf3-7a6e62c7f405', logicEngineSessionHandle: 'default-user' },
+  ]) {
+    const response = makeResponse();
+    let nextCalls = 0;
+    await gate.middleware({
+      user: { profile: { handle: 'default-user' }, directories: {} },
+      session,
+    }, response, () => { nextCalls++; });
+    assert.equal(response.statusCode, 403);
+    assert.equal(nextCalls, 0);
+  }
+});
