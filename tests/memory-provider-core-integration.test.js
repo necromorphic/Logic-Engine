@@ -204,8 +204,8 @@ test('real SQLite Provider preserves evidence classification without promoting r
 
     const result = await s.consumer.retrieveForNpc({
       worldId: s.scope.world_id,
-      adapterId: 'provider-e2e-adapter',
       actorEntityId: s.scope.subject_id,
+      conversationId: HOST_CONVERSATION_ID,
     });
     assert.equal(result.status, 'ready', `${assessment}: ${result.reason ?? 'no safe result reason'}`);
     assert.equal(result.candidates.length, 1, assessment);
