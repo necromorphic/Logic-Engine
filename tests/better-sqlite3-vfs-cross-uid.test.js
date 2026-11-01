@@ -58,8 +58,15 @@ test('distinct-UID broker protects better-sqlite3 main, journal, WAL and SHM fil
 
   const registrar = new Database(':memory:');
   try {
+    assert.throws(
+      () => registrar.prepare(
+        'SELECT logic_engine_vfs_probe_register_broker_role(?, ?, ?) AS registered',
+      ),
+      /no such function/,
+      'production VFS must not expose caller-controlled SQL role/path/socket enrollment',
+    );
     const registerRole = registrar.prepare(
-      'SELECT logic_engine_vfs_probe_register_broker_role(?, ?, ?) AS registered',
+      'SELECT logic_engine_vfs_probe_register_broker_role_from_host() AS registered',
     );
     const expectedBrokerUid = process.env.LOGIC_ENGINE_BROKER_UID;
     assert.ok(expectedBrokerUid, 'Host must provide the trusted broker UID');
@@ -68,14 +75,14 @@ test('distinct-UID broker protects better-sqlite3 main, journal, WAL and SHM fil
     // accepted even if it has a matching filesystem layout and protocol.
     process.env.LOGIC_ENGINE_BROKER_UID = process.env.LOGIC_ENGINE_APP_UID;
     assert.throws(
-      () => registerRole.get(databasePath, 'vectors', socketPath),
+      () => registerRole.get(),
       /broker role enrollment handshake failed/,
       'VFS must reject a broker whose SO_PEERCRED UID differs from Host-pinned identity',
     );
     process.env.LOGIC_ENGINE_BROKER_UID = expectedBrokerUid;
 
     assert.equal(
-      registerRole.get(databasePath, 'vectors', socketPath).registered,
+      registerRole.get().registered,
       1,
       'broker enrollment must return the main DB identity without application path access',
     );
