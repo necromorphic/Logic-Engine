@@ -107,7 +107,7 @@ export async function init(router) {
     const contextRoute = createHostContextRoute({
         identityStore,
         enumerate: enumerateHostDataInventory,
-        config: { adapterId: config.adapterId, actorEntityId: config.actorEntityId },
+        config: { adapterId: config.adapterId, actorEntityId: config.actorEntityId, adapterToken: config.adapterToken },
         corePost: (route, body) => corePost(config, route, body),
     });
     router.post('/context', contextRoute.middleware, contextRoute.handler);
