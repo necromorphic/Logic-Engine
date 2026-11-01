@@ -224,7 +224,7 @@ test('query access revoked during retrieval prevents ready-empty and content-bea
   const empty = setup(t);
   empty.setCandidates([]);
   let emptyChecks = 0;
-  empty.provider.authorizeQuery = async () => ++emptyChecks === 1;
+  empty.provider.authorizeQuery = () => ++emptyChecks === 1;
 
   const emptyResult = await empty.consumer.retrieveForNpc(request());
 
@@ -236,7 +236,7 @@ test('query access revoked during retrieval prevents ready-empty and content-bea
 
   const nonEmpty = setup(t);
   let nonEmptyChecks = 0;
-  nonEmpty.provider.authorizeQuery = async () => ++nonEmptyChecks === 1;
+  nonEmpty.provider.authorizeQuery = () => ++nonEmptyChecks === 1;
 
   const contentResult = await nonEmpty.consumer.retrieveForNpc(request());
 
