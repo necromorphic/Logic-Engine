@@ -16,6 +16,11 @@ function makeRequest(overrides = {}) {
         user: { profile: { handle: 'default-user' }, directories },
         session: { logicEngineSessionId: sessionId, logicEngineSessionHandle: 'default-user' },
         body: { conversation_uuid: conversationUuid },
+        verifyCompletenessProof: async ({ inventory }) =>
+            inventory?.source?.status === 'AUTHORITATIVE_COMPLETE'
+            && inventory?.source?.blockers?.length === 0
+            && inventory?.authority?.status === 'AUTHORITATIVE_COMPLETE'
+            && /^[a-f0-9]{64}$/.test(inventory?.authority?.manifest_sha256 ?? ''),
         ...overrides,
     };
 }
@@ -45,9 +50,11 @@ function dependencies(overrides = {}) {
             return {
                 filesystem: { status: 'complete' },
                 source: {
-                    status: 'DOUBLE_SCAN_CANDIDATE',
+                    status: 'AUTHORITATIVE_COMPLETE',
+                    blockers: [],
                     files: [{ logical_identity: { conversation_uuid: conversationUuid } }],
                 },
+                authority: { status: 'AUTHORITATIVE_COMPLETE', manifest_sha256: 'a'.repeat(64) },
             };
         },
         ...overrides,
@@ -57,6 +64,35 @@ function dependencies(overrides = {}) {
 test('resolver binds default-user request to server session, installation and inventoried conversation', async () => {
     const resolver = createHostConversationResolver(dependencies());
     assert.equal(await resolver(makeRequest()), conversationId);
+});
+
+test('context route remains NON_READY and makes zero Core calls without authoritative inventory proof', async () => {
+    let coreCalls = 0;
+    const route = createHostContextRoute({
+        ...dependencies({
+            enumerate: async () => ({
+                filesystem: { status: 'complete' },
+                source: {
+                    status: 'DOUBLE_SCAN_CANDIDATE',
+                    blockers: ['NO_SHARED_POINT_IN_TIME_SNAPSHOT'],
+                    files: [{ logical_identity: { conversation_uuid: conversationUuid } }],
+                },
+                authority: { status: 'NON_AUTHORITATIVE', manifest_sha256: 'b'.repeat(64) },
+            }),
+            verifyCompletenessProof: async () => false,
+        }),
+        config: { adapterId: 'st-adapter', actorEntityId: 'npc-kiryu', adapterToken },
+        corePost: async () => { coreCalls++; throw new Error('Core must not be called'); },
+    });
+    const request = makeRequest();
+    const response = makeResponse();
+    await route.middleware(request, response, () => {});
+    assert.equal(response.statusCode, 503);
+    assert.deepEqual(response.body, {
+        status: 'NON_READY',
+        code: 'HOST_INVENTORY_COMPLETENESS_NOT_VERIFIED',
+    });
+    assert.equal(coreCalls, 0);
 });
 
 test('resolver rejects caller-supplied world, actor, account or session fields', async () => {
