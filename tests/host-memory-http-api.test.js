@@ -185,14 +185,14 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
   const replay = await post(base, '/v1/host/memory-npc/retrieve', adapterHeaders, body);
   assert.equal(replay.status, 409);
   assert.equal((await replay.json()).error.code, 'HOST_SESSION_ASSERTION_REPLAYED');
-  assert.equal(calls, 1);
+  assert.equal(calls, 5);
 
   const tamperedAssertion = { ...assertion, actor_id: 'attacker-selected-actor' };
   const tampered = await post(base, '/v1/host/memory-npc/retrieve', adapterHeaders, {
     ...body, assertion: tamperedAssertion,
   });
   assert.equal(tampered.status, 401);
-  assert.equal(calls, 1);
+  assert.equal(calls, 5);
 
   // A verified assertion followed by an unexpected Consumer failure is an
   // internal error, never an authentication failure or a detail disclosure.
@@ -210,11 +210,11 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
   assert.deepEqual(await consumerFailure.json(), {
     error: { code: 'INTERNAL_ERROR', message: 'Internal error.' },
   });
-  assert.equal(calls, 2);
+  assert.equal(calls, 6);
   const consumerFailureReplay = await post(base, '/v1/host/memory-npc/retrieve', adapterHeaders, failingBody);
   assert.equal(consumerFailureReplay.status, 409);
   assert.equal((await consumerFailureReplay.json()).error.code, 'HOST_SESSION_ASSERTION_REPLAYED');
-  assert.equal(calls, 2);
+  assert.equal(calls, 6);
   failConsumer = false;
 
   // The nonce ledger is durable in the Core SQLite store, not a process-local Map.
@@ -256,7 +256,7 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
   const parallelPayloads = await Promise.all(parallelResponses.map(response => response.json()));
   assert.equal(parallelPayloads.filter(payload => payload.retrieval?.status === 'ready').length, 1);
   assert.equal(parallelPayloads.filter(payload => payload.error?.code === 'HOST_SESSION_ASSERTION_REPLAYED').length, 1);
-  assert.equal(calls, 3);
+  assert.equal(calls, 7);
 
   // A durable-store I/O failure is a distinct fail-closed 503, not a generic
   // 500 and never an authentication success.
