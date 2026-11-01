@@ -526,7 +526,7 @@ test('stale snapshot candidates and derived summaries are never admitted', async
 
 test('actor binding failure and unavailable source reads never produce content', async (t) => {
   const { consumer } = setup(t);
-  consumer.actorBindingService.resolve = () => { throw new Error('binding revoked'); };
+  consumer.actorBindingService.resolveForAdapter = () => { throw new Error('binding revoked'); };
   const result = await consumer.retrieveForNpc(request());
   assert.equal(result.status, 'non_ready');
   assert.deepEqual(result.candidates, []);
@@ -537,7 +537,8 @@ test('Memory provider must supply all trusted host callbacks; no default policy 
   assert.ok(consumer);
   assert.throws(() => new MemoryNpcConsumer({
     authorizedReadService: { readEntityFields() {} },
-    actorBindingService: { resolve() {} },
+    actorBindingService: { resolveForAdapter() {} },
+    hostConversationWorldBindingService: { resolve() {} },
     adapterId: 'adapter-a',
     coreQueryAuthorizer: () => true,
     memoryProvider: { retrieveCandidates() {} },
@@ -551,7 +552,8 @@ test('content field configuration must match fields the Core read boundary can d
   assert.ok(consumer);
   assert.throws(() => new MemoryNpcConsumer({
     authorizedReadService: { readEntityFields() {} },
-    actorBindingService: { resolve() {} },
+    actorBindingService: { resolveForAdapter() {} },
+    hostConversationWorldBindingService: { resolve() {} },
     adapterId: 'adapter-a',
     coreQueryAuthorizer: () => true,
     memoryProvider: {
@@ -563,7 +565,8 @@ test('content field configuration must match fields the Core read boundary can d
   }), /trusted field allowlist/);
   assert.throws(() => new MemoryNpcConsumer({
     authorizedReadService: { readEntityFields() {} },
-    actorBindingService: { resolve() {} },
+    actorBindingService: { resolveForAdapter() {} },
+    hostConversationWorldBindingService: { resolve() {} },
     adapterId: 'adapter-a',
     coreQueryAuthorizer: () => true,
     memoryProvider: {
@@ -578,7 +581,7 @@ test('content field configuration must match fields the Core read boundary can d
 test('actor binding is checked before query authorization even for complete-empty results', async (t) => {
   const { consumer, provider, setCandidates } = setup(t);
   setCandidates([]);
-  consumer.actorBindingService.resolve = () => { throw new Error('binding revoked'); };
+  consumer.actorBindingService.resolveForAdapter = () => { throw new Error('binding revoked'); };
   let queryAuthorizationCalled = false;
   provider.authorizeQuery = async () => {
     queryAuthorizationCalled = true;
@@ -789,7 +792,7 @@ test('missing or non-object host request fails closed without throwing or callin
     return true;
   };
 
-  for (const invalid of [null, undefined, [], 'not-a-request', { ...request(), actorEntityId: ' npc-a' }]) {
+  for (const invalid of [null, undefined, [], 'not-a-request', { ...request(), conversationId: ' invalid-conversation' }]) {
     const result = await consumer.retrieveForNpc(invalid);
     assert.equal(result.status, 'non_ready');
     assert.equal(result.reason, 'trusted_scope_incomplete');
@@ -1160,7 +1163,7 @@ test('mismatched Core actor binding result fails before Memory query', async (t)
     queryCalled = true;
     return true;
   };
-  consumer.actorBindingService.resolve = () => ({
+  consumer.actorBindingService.resolveForAdapter = () => ({
     world_id: 'memory-npc-world',
     adapter_id: 'adapter-a',
     actor: { entity_id: 'different-actor' },
@@ -1319,7 +1322,7 @@ test('Core derives world and actor from trusted conversation and unique adapter 
 
   const ambiguous = await s.consumer.retrieveForNpc(request());
   assert.equal(ambiguous.status, 'non_ready');
-  assert.equal(ambiguous.reason, 'trusted_scope_unavailable');
+  assert.equal(ambiguous.reason, 'actor_binding_unavailable');
   assert.deepEqual(ambiguous.candidates, []);
 });
 
