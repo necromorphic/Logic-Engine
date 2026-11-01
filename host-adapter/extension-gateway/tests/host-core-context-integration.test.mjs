@@ -169,6 +169,52 @@ test('Host Adapter makes a real authenticated Core context-resolution call; inco
   assert.equal(dispatchResponse.payload.code, 'CORE_HOST_DISPATCH_ROUTE_UNAVAILABLE');
   assert.equal(coreCalls[1], '/v1/host/memory-npc/retrieve');
 
+  // Accounts-enabled mode: ST supplies session.handle and it must bind to the
+  // middleware-authenticated profile handle, while the account ID remains
+  // distinct from default-user and installation identity remains shared.
+  const accountsEnabledRequest = {
+    user: {
+      profile: { handle: 'alice' },
+      directories: request.user.directories,
+    },
+    session: { handle: 'alice' },
+    body: {
+      conversation_uuid: UUID,
+      request_id: '66666666-6666-4666-8666-666666666666',
+      context_size: 4096,
+      generation_type: 'normal',
+    },
+  };
+  const accountsSessionResponse = responseRecorder();
+  adapter.session(accountsEnabledRequest, accountsSessionResponse);
+  assert.equal(accountsSessionResponse.statusCode, 200);
+  const accountsIdentityResponse = responseRecorder();
+  await adapter.identity(accountsEnabledRequest, accountsIdentityResponse);
+  assert.equal(accountsIdentityResponse.statusCode, 200);
+  assert.equal(accountsIdentityResponse.payload.host_installation_id, identityResponse.payload.host_installation_id);
+  assert.notEqual(accountsIdentityResponse.payload.authenticated_account_id, identityResponse.payload.authenticated_account_id);
+  const accountsConversationId = accountsIdentityResponse.payload.host_installation_id + ':'
+    + accountsIdentityResponse.payload.authenticated_account_id + ':' + UUID;
+  const accountsWorldBinding = await post(coreUrl + '/v1/host-conversation-bindings', adminHeaders, {
+    adapter_id: ADAPTER_ID,
+    conversation_id: accountsConversationId,
+    world_id: 'host-e2e-world',
+  });
+  assert.equal(accountsWorldBinding.status, 201);
+  const accountsGateResponse = responseRecorder();
+  let accountsPassedGate = false;
+  await adapter.dispatchMiddleware(accountsEnabledRequest, accountsGateResponse, () => { accountsPassedGate = true; });
+  assert.equal(accountsPassedGate, true);
+  const accountsDispatchResponse = responseRecorder();
+  await adapter.dispatch(accountsEnabledRequest, accountsDispatchResponse);
+  assert.equal(accountsDispatchResponse.statusCode, 503);
+  assert.equal(accountsDispatchResponse.payload.code, 'CORE_HOST_DISPATCH_ROUTE_UNAVAILABLE');
+  assert.equal(coreCalls[2], '/v1/host-context/resolve');
+  assert.equal(coreCalls[3], '/v1/host/memory-npc/retrieve');
+  assert.equal(resolvedCoreContexts[1].context.conversation_id, accountsConversationId);
+  assert.equal(resolvedCoreContexts[1].context.world_id, 'host-e2e-world');
+  assert.equal(resolvedCoreContexts[1].context.actor_id, 'host-e2e-actor');
+
   // Recreate the Host Adapter against the same server-owned identity directory.
   // Installation/account identity must survive; the transient ST session rotates.
   const restartedAdapter = createSillyTavernHostAdapter({ env, enumerate: authoritativeFixture, fetchImpl });
@@ -198,12 +244,12 @@ test('Host Adapter makes a real authenticated Core context-resolution call; inco
   await restartedAdapter.dispatch(restartedRequest, restartedDispatchResponse);
   assert.equal(restartedDispatchResponse.statusCode, 503);
   assert.equal(restartedDispatchResponse.payload.code, 'CORE_HOST_DISPATCH_ROUTE_UNAVAILABLE');
-  assert.equal(coreCalls[2], '/v1/host-context/resolve');
-  assert.equal(coreCalls[3], '/v1/host/memory-npc/retrieve');
-  assert.equal(resolvedCoreContexts.length, 2);
-  assert.equal(resolvedCoreContexts[1].context.conversation_id, stableConversationId);
-  assert.equal(resolvedCoreContexts[1].context.world_id, 'host-e2e-world');
-  assert.equal(resolvedCoreContexts[1].context.actor_id, 'host-e2e-actor');
+  assert.equal(coreCalls[4], '/v1/host-context/resolve');
+  assert.equal(coreCalls[5], '/v1/host/memory-npc/retrieve');
+  assert.equal(resolvedCoreContexts.length, 3);
+  assert.equal(resolvedCoreContexts[2].context.conversation_id, stableConversationId);
+  assert.equal(resolvedCoreContexts[2].context.world_id, 'host-e2e-world');
+  assert.equal(resolvedCoreContexts[2].context.actor_id, 'host-e2e-actor');
 
   // The production scanner currently emits DOUBLE_SCAN_CANDIDATE. Prove that
   // such a candidate cannot reach Core, even when the same server credentials exist.
