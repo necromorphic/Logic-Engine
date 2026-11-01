@@ -8,6 +8,7 @@ import { getAcceptedHeadStatusSync } from './accepted-head-client-sync.js';
 export function createDispatchRequestSignature(secret, request) {
   if (typeof secret !== 'string' || secret.length < 32
     || !request || typeof request !== 'object'
+    || !PROTECTED_MEMORY_SENDER_ROUTES.includes(request.senderRoute)
     || typeof request.body !== 'string' || typeof request.stream !== 'boolean') {
     throw new TypeError('Invalid signed dispatch request.');
   }
@@ -433,7 +434,7 @@ export class MemoryDispatchGateway {
           INSERT INTO dispatch_ledger(
             request_id,request_digest,route,sender_route,model,stream,world_id,actor_id,purpose,sources_json,candidates_json,
             core_head,provider_head,policy_authority_id,policy_generation,policy_fingerprint,status,outcome_code,started_at,finished_at
-          ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'DISPATCH_STARTED',NULL,?,NULL)
+          ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'DISPATCH_STARTED',NULL,?,NULL)
         `).run(
           requestId,
           requestDigest,
