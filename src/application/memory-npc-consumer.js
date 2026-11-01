@@ -223,16 +223,6 @@ export class MemoryNpcConsumer {
     }
     if (!validId(worldId) || !validId(actorEntityId)) return nonReady('trusted_scope_unavailable');
 
-    // The conversation identifier is not a credential. Require a branded
-    // context produced from SillyTavern's authenticated signed server session.
-    let hostSessionContext;
-    try { hostSessionContext = getAuthenticatedHostSessionContext(); } catch {}
-    if (!isAuthenticatedHostSessionContext(hostSessionContext, conversationId)
-      || hostSessionContext.world_id !== worldId
-      || hostSessionContext.actor_id !== actorEntityId) {
-      return nonReady('query_access_unconfirmed');
-    }
-
     // Bind the caller to a canonical actor before querying Memory. This must
     // happen even for complete-empty results, which otherwise bypass the later
     // AuthorizedReadService call entirely.
@@ -246,6 +236,17 @@ export class MemoryNpcConsumer {
       }
     } catch {
       return nonReady('actor_binding_unavailable');
+    }
+
+    // The conversation identifier is not a credential. Require a branded
+    // context produced from SillyTavern's authenticated signed server session,
+    // and compare it with the independently resolved live Core bindings.
+    let hostSessionContext;
+    try { hostSessionContext = getAuthenticatedHostSessionContext(); } catch {}
+    if (!isAuthenticatedHostSessionContext(hostSessionContext, conversationId)
+      || hostSessionContext.world_id !== worldId
+      || hostSessionContext.actor_id !== actorEntityId) {
+      return nonReady('query_access_unconfirmed');
     }
 
     const scope = Object.freeze({
