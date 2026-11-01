@@ -1,0 +1,6 @@
+{
+  "name": "logic-engine-host-adapter",
+  "private": true,
+  "type": "module",
+  "main": "server-plugin/index.mjs"
+}
