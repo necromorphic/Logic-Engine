@@ -69,11 +69,11 @@ The Windows x64 binary was fingerprinted and its embedded version string inspect
 
 ### Audit conclusion
 
-The ST-VectorService `better-sqlite3` connection is **not covered** by the Node 22.13.0 / SQLite 3.47.2 VFS registration. The supplied Linux x64 prebuild was runtime-confirmed to embed SQLite 3.53.4 with the source ID above; the packaged Windows x64 binary contains the same version string. SQLite VFS registrations are local to the SQLite library instance; the secure VFS must be compiled/registered inside this addon before its first `sqlite3_open_v2`, and the open call must select the secure VFS explicitly (or the secure VFS must be made the verified default before any connection opens). The current `loadExtension()` route cannot protect the first open.
+The ST-VectorService `better-sqlite3` connection is **not covered** by the Node 22.13.0 / SQLite 3.47.2 VFS registration. The supplied Linux x64 prebuild was runtime-confirmed to embed SQLite 3.53.4 with the source ID above; the packaged Windows x64 binary contains the same version string. SQLite VFS registrations are local to the SQLite library instance. However, the embedded build reports `USE_URI`, so the unmodified binding can select a named VFS through SQLite's `file:` URI `vfs=` parameter. The supported sequence is: open an in-memory bootstrap connection in this exact better-sqlite3 engine; load the secure VFS extension into that connection; close the bootstrap connection (the extension returns `SQLITE_OK_LOAD_PERMANENTLY`); then open the protected DB using a URI with `vfs=<registered-name>`. The in-memory bootstrap open does not access a protected role. The integration test must assert `USE_URI`, verify the probe VFS receives main and WAL opens, and verify close/reopen through the same URI. This avoids modifying the better-sqlite3 native constructor.
 
-A valid integration therefore requires a controlled fork/rebuild of `better-sqlite3` v13.0.3 (or a reviewed replacement binding) that:
+A valid integration therefore requires the stock-binding URI route, provided the exact deployed binary retains `USE_URI` and the probe test proves VFS selection. A controlled fork/rebuild is a fallback only if a target platform build lacks `USE_URI` or cannot select the named VFS through URI:
 1. builds the secure backend against the exact SQLite 3.53.4 amalgamation and compile options used by the deployed addon;
-2. registers it during addon initialization before any Database object can be constructed;
+2. registers it in the better-sqlite3 engine before the first protected database is opened;
 3. changes the database open path to select the secure VFS explicitly;
 4. fails closed if registration or role-manifest validation did not complete;
 5. runs the same DB/WAL/SHM/locking/restart/crash adversarial suite on the addon-specific engine.
