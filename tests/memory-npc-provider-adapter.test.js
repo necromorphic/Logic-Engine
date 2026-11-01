@@ -113,6 +113,7 @@ test('real adapter composes file-backed SQLite Provider with Core query and cano
     assert.equal(result.status, 'ready');
     assert.equal(adapter.provider, undefined, 'raw Provider instance is not exposed by the factory');
     assert.equal(adapter.providerAdmin.retrieveCandidates, undefined, 'administrative Provider surface cannot retrieve records');
+    assert.equal(adapter.providerAdmin.authorizeCandidate, undefined, 'administrative Provider surface cannot authorize consumer records');
     assert.equal(result.candidates.length, 1);
     assert.deepEqual(result.candidates[0].content, {
       'attributes.public_note': 'real Core source value',
