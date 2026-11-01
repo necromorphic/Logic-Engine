@@ -209,7 +209,7 @@
 +}
 --- /dev/null
 +++ b/src/logic-engine-extension-install-hook.js
-@@ -0,1 +1,82 @@
+@@ -0,0 +1,81 @@
 +import { execFileSync } from 'node:child_process';
 +import { realpath, readFile, lstat } from 'node:fs/promises';
 +import { basename, dirname, resolve } from 'node:path';
@@ -384,7 +384,7 @@
      const apiKey = readSecret(request.user.directories, SECRET_KEYS.HORDE) || ANONYMOUS_KEY;
      const url = 'https://aihorde.net/api/v2/generate/text/async';
      const agent = await getClientAgent();
-@@ -211,7 +212,8 @@
+@@ -211,6 +212,7 @@
          console.error(error);
          return response.send({ error: true });
      }
@@ -407,7 +407,7 @@
 +const forwardFetchResponse = (upstream, response) => logicEngineForwardFetchResponse(upstream, response, nativeForwardFetchResponse);
 --- a/src/endpoints/novelai.js
 +++ b/src/endpoints/novelai.js
-@@ -8,2 +8,3 @@
+@@ -8,1 +8,2 @@
 -import { readAllChunks, extractFileFromZipBuffer, forwardFetchResponse } from '../util.js';
 +import { readAllChunks, extractFileFromZipBuffer, forwardFetchResponse as nativeForwardFetchResponse } from '../util.js';
 +const forwardFetchResponse = (upstream, response) => logicEngineForwardFetchResponse(upstream, response, nativeForwardFetchResponse);
@@ -426,7 +426,7 @@
 +const forwardFetchResponse = (upstream, response) => logicEngineForwardFetchResponse(upstream, response, nativeForwardFetchResponse);
 --- a/src/endpoints/novelai.js
 +++ b/src/endpoints/novelai.js
-@@ -8,2 +8,3 @@
+@@ -8,1 +8,2 @@
 -import { readAllChunks, extractFileFromZipBuffer, forwardFetchResponse } from '../util.js';
 +import { readAllChunks, extractFileFromZipBuffer, forwardFetchResponse as nativeForwardFetchResponse } from '../util.js';
 +const forwardFetchResponse = (upstream, response) => logicEngineForwardFetchResponse(upstream, response, nativeForwardFetchResponse);
