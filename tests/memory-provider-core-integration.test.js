@@ -143,7 +143,6 @@ test('real SQLite provider flows through Core authorized read and NPC admission'
   const result = await s.consumer.retrieveForNpc({
     worldId: s.scope.world_id, actorEntityId: s.scope.subject_id,
     conversationId: 'provider-e2e-conversation',
-     conversationId: 'provider-e2e-conversation',
   });
   assert.equal(result.status, 'ready');
   assert.equal(result.candidates.length, 1);
@@ -186,7 +185,6 @@ test('Core Host-conversation revocation during record validation blocks disclosu
     worldId: s.scope.world_id,
     actorEntityId: s.scope.subject_id,
     conversationId: 'provider-e2e-conversation',
-     conversationId: 'provider-e2e-conversation',
   });
   assert.equal(result.status, 'non_ready');
   assert.equal(result.reason, 'query_access_unconfirmed');
