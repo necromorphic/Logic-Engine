@@ -10,6 +10,7 @@ permissions:
 jobs:
   pinned-source:
     runs-on: windows-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
@@ -20,16 +21,38 @@ jobs:
           repository: SillyTavern/SillyTavern
           ref: 06bde939fb1e9c4c8d8641d810f0a916b5bce127
           path: Sillytavern
-      - name: Install Gateway artifacts without patching Host source
+      - name: Install Gateway artifacts and apply pinned lifecycle patch
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force Sillytavern/plugins/logic-engine-extension-gateway | Out-Null
           Copy-Item host-adapter/extension-gateway/server-plugin/*.mjs Sillytavern/plugins/logic-engine-extension-gateway/
           New-Item -ItemType Directory -Force Sillytavern/public/scripts/extensions/third-party/logic-engine-extension-gateway | Out-Null
           Copy-Item host-adapter/extension-gateway/index.js,host-adapter/extension-gateway/gateway-policy.mjs,host-adapter/extension-gateway/host-context.mjs,host-adapter/extension-gateway/conversation-identity.mjs,host-adapter/extension-gateway/manifest.json Sillytavern/public/scripts/extensions/third-party/logic-engine-extension-gateway/
-          git -C Sillytavern diff --exit-code
-          if (Test-Path Sillytavern/src/endpoints/logic-engine-lifecycle.js) { throw 'Unexpected patched ST lifecycle route' }
-          if (Test-Path Sillytavern/src/endpoints/logic-engine-host-inventory.js) { throw 'Unexpected patched ST inventory route' }
+          $patch = (Resolve-Path host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch).Path
+          git -C Sillytavern apply --unidiff-zero --check $patch
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned Host lifecycle patch does not apply cleanly' }
+          git -C Sillytavern apply --unidiff-zero $patch
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned Host lifecycle patch application failed' }
+          git -C Sillytavern diff --check
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned Host lifecycle patch contains whitespace errors' }
+          $expected = @(
+            'public/script.js',
+            'public/scripts/bookmarks.js',
+            'public/scripts/group-chats.js',
+            'public/scripts/chat-backups.js',
+            'public/scripts/slash-commands.js',
+            'src/server-main.js',
+            'src/endpoints/backends/chat-completions.js',
+            'src/endpoints/chats.js',
+            'src/endpoints/groups.js',
+            'src/endpoints/characters.js',
+            'src/endpoints/backups.js',
+            'src/endpoints/logic-engine-host-inventory-handler.mjs'
+          )
+          $actual = @(git -C Sillytavern diff --name-only | Sort-Object)
+          if (Compare-Object ($expected | Sort-Object) $actual) { throw 'Pinned Host patch changed files outside the reviewed allowlist' }
+          if (Test-Path Sillytavern/src/endpoints/logic-engine-lifecycle.js) { throw 'Unexpected independent lifecycle route' }
+          if (Test-Path Sillytavern/src/endpoints/logic-engine-host-inventory.js) { throw 'Unexpected independent inventory route' }
       - name: Verify pinned server plugin load order
         shell: pwsh
         run: |
@@ -37,8 +60,16 @@ jobs:
           $loader = Get-Content Sillytavern/src/plugin-loader.js -Raw
           if ($server.IndexOf('app.use(requireLoginMiddleware)') -ge $server.IndexOf('loadPlugins(app, pluginsDirectory)')) { throw 'Plugin loader is not behind ST authentication middleware' }
           if (-not ($loader.Contains('/api/plugins/') -and $loader.Contains('router'))) { throw 'Native plugin route mount changed' }
-      - name: Syntax-check plugin modules
+          if ($server.Contains('/api/logic-engine')) { throw 'Unexpected direct Host API route' }
+      - name: Syntax-check patched Host and Gateway modules
         shell: pwsh
         run: |
           Get-ChildItem Sillytavern/plugins/logic-engine-extension-gateway/*.mjs | ForEach-Object { node --check $_.FullName }
           node --check Sillytavern/public/scripts/extensions/third-party/logic-engine-extension-gateway/index.js
+          node --check Sillytavern/public/scripts/extensions/third-party/logic-engine-extension-gateway/host-context.mjs
+          $files = @('public/script.js', 'public/scripts/bookmarks.js', 'public/scripts/group-chats.js', 'public/scripts/chat-backups.js', 'public/scripts/slash-commands.js', 'src/server-main.js', 'src/endpoints/backends/chat-completions.js', 'src/endpoints/chats.js', 'src/endpoints/groups.js', 'src/endpoints/characters.js', 'src/endpoints/backups.js')
+          foreach ($file in $files) { node --check (Join-Path Sillytavern $file) }
+      - name: Run Host lifecycle and identity acceptance tests
+        shell: pwsh
+        run: |
+          node --test host-adapter/extension-gateway/tests/*.test.mjs host-adapter/prototype/tests/lifecycle-acceptance-scenarios.test.mjs host-adapter/prototype/tests/pinned-st-source-audit.test.mjs host-adapter/prototype/tests/st-host-inventory-handler.test.mjs host-adapter/prototype/tests/st-server-digest-proxy.test.mjs src/application/host-session-context.test.js
