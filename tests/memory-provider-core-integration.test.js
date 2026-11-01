@@ -118,7 +118,8 @@ function setup(t, { twoRecords = false, providerPath = null } = {}) {
       || (field === 'attributes.public_note' && entity.entity_id.startsWith('source-')));
   const createConsumer = (memoryProvider = provider) => {
     const rawConsumer = new MemoryNpcConsumer({
-      authorizedReadService, actorBindingService: bindings, adapterId, memoryProvider,
+      authorizedReadService, actorBindingService: bindings,
+      hostConversationWorldBindingService: hostConversationBindings, adapterId, memoryProvider,
       coreQueryAuthorizer: coreAuthorizers.memoryQueryAuthorizer,
       contentFields: ['attributes.public_note'],
     });
