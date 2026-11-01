@@ -694,7 +694,7 @@ diff --git a/src/endpoints/chats.js b/src/endpoints/chats.js
          if (!isPathUnderParent(request.user.directories.chats, chatFilePath)) {
              return response.sendStatus(400);
          }
-
+ 
          if (Array.isArray(chatData)) {
 -            await trySaveChat(chatData, chatFilePath, request.body.force, handle, cardName, request.user.directories.backups);
 +            await trySaveChat(chatData, chatFilePath, request.body.force, handle, cardName, request.user.directories.backups, request.logicEngineLifecycleSaveAuthorized === true);
@@ -706,12 +706,12 @@ diff --git a/src/endpoints/chats.js b/src/endpoints/chats.js
          if (!request.body || !request.body.id) {
              return response.sendStatus(400);
          }
-
+ 
          const id = request.body.id;
          const handle = request.user.profile.handle;
          const chatFilePath = path.join(request.user.directories.groupChats, sanitize(`${id}.jsonl`));
          const chatData = request.body.chat;
-
+ 
          if (Array.isArray(chatData)) {
 -            await trySaveChat(chatData, chatFilePath, request.body.force, handle, String(id), request.user.directories.backups);
 +            await trySaveChat(chatData, chatFilePath, request.body.force, handle, String(id), request.user.directories.backups, request.logicEngineLifecycleSaveAuthorized === true);
