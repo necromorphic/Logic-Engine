@@ -1,9 +1,10 @@
-name: Host lifecycle patch validation
+name: Host Extension Gateway package validation
 
 on:
   pull_request:
     paths:
-      - "host-adapter/prototype/**"
+      - "host-adapter/prototype/server-plugin/**"
+      - "host-adapter/prototype/tests/server-plugin.test.mjs"
       - ".github/workflows/host-lifecycle-patch-validation.yml"
   workflow_dispatch:
 
@@ -11,85 +12,25 @@ permissions:
   contents: read
 
 concurrency:
-  group: host-lifecycle-patch-validation-${{ github.workflow }}-${{ github.ref }}
+  group: host-extension-gateway-package-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  pinned-sillytavern-patch:
-    name: Apply-check and lint pinned SillyTavern patch (not runtime proof)
+  package-validation:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: "24"
-      - name: Checkout exact SillyTavern target
-        shell: bash
+          node-version: "22.13.0"
+      - name: Validate standalone plugin package
         run: |
-          set -euo pipefail
-          git clone --no-checkout https://github.com/SillyTavern/SillyTavern.git "$RUNNER_TEMP/st"
-          git -C "$RUNNER_TEMP/st" checkout --detach 06bde939fb1e9c4c8d8641d810f0a916b5bce127
-          test "$(git -C "$RUNNER_TEMP/st" rev-parse HEAD)" = "06bde939fb1e9c4c8d8641d810f0a916b5bce127"
-      - name: Install ripgrep for the source audit
-        shell: bash
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y ripgrep
-      - name: Audit pinned Host outbound call sites (static inventory only)
-        shell: bash
-        run: |
-          set -euo pipefail
-          bash "$GITHUB_WORKSPACE/host-adapter/prototype/tools/audit-pinned-st-outbound.sh" "$RUNNER_TEMP/st" > "$RUNNER_TEMP/st-outbound-audit.txt"
-          printf 'outbound_audit_lines='
-          wc -l < "$RUNNER_TEMP/st-outbound-audit.txt"
-          grep '^=== ' "$RUNNER_TEMP/st-outbound-audit.txt" || true
-      - name: Stage prototype modules into disposable checkout
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/st/public/scripts/logic-engine-lifecycle"
-          cp host-adapter/prototype/lifecycle-journal.mjs "$RUNNER_TEMP/st/public/scripts/logic-engine-lifecycle/"
-          cp host-adapter/prototype/st-lifecycle-bridge.mjs "$RUNNER_TEMP/st/public/scripts/logic-engine-lifecycle/"
-          cp host-adapter/prototype/conversation-identity.mjs "$RUNNER_TEMP/st/public/scripts/logic-engine-lifecycle/"
-          cp host-adapter/prototype/st-server-digest-proxy.mjs "$RUNNER_TEMP/st/src/endpoints/logic-engine-lifecycle-proxy.mjs"
-      - name: Apply-check and apply candidate patch
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd "$RUNNER_TEMP/st"
-          git apply --check "$GITHUB_WORKSPACE/host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch"
-          git apply "$GITHUB_WORKSPACE/host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch"
-          git diff --check
-          if grep -F 'console.debug(`${apiName} request:`, body)' src/endpoints/backends/chat-completions.js; then
-            echo "Raw MakerSuite/Vertex request body logging must not be present" >&2
-            exit 1
-          fi
-          grep -F 'request metadata:' src/endpoints/backends/chat-completions.js >/dev/null
-      - name: Install pinned host dependencies
-        shell: bash
-        run: npm ci --ignore-scripts --no-audit --no-fund
-        working-directory: ${{ runner.temp }}/st
-      - name: Lint patched host entry point
-        shell: bash
-        run: |
-          set -euo pipefail
-          npx eslint public/script.js public/scripts/slash-commands.js src/endpoints/backends/chat-completions.js --parser-options '{"sourceType":"module"}'
-        working-directory: ${{ runner.temp }}/st
-      - name: Syntax-check prototype modules
-        shell: bash
-        run: |
-          node --check public/scripts/logic-engine-lifecycle/lifecycle-journal.mjs
-          node --check public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs
-          node --check public/scripts/logic-engine-lifecycle/conversation-identity.mjs
-          node --check src/endpoints/logic-engine-lifecycle-proxy.mjs
-          node --check src/endpoints/logic-engine-lifecycle.js
-        working-directory: ${{ runner.temp }}/st
-      - name: Upload pinned outbound audit report
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: pinned-st-outbound-audit
-          path: ${{ runner.temp }}/st-outbound-audit.txt
-          if-no-files-found: ignore
-          retention-days: 14
+          node --check host-adapter/prototype/server-plugin/index.mjs
+          node --check host-adapter/prototype/server-plugin/st-host-inventory-handler.mjs
+          node --check host-adapter/prototype/server-plugin/st-host-identity-store.mjs
+          node --check host-adapter/prototype/server-plugin/host-data-inventory.mjs
+          node --check host-adapter/prototype/server-plugin/st-source-inventory.mjs
+          node --check host-adapter/prototype/server-plugin/fs-inventory.js
+          node --check host-adapter/prototype/server-plugin/windows-vss-snapshot.mjs
+          node --test host-adapter/prototype/tests/server-plugin.test.mjs host-adapter/prototype/tests/st-default-user-session.test.mjs host-adapter/prototype/tests/st-host-request-authentication-gate.test.mjs
