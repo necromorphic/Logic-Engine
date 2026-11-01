@@ -5,6 +5,7 @@ export const EXTENSION_GATEWAY_MAX_BODY_BYTES = 256 * 1024;
 
 const mountedApps = new WeakSet();
 const forbiddenIdentityKeys = new Set([
+  '__proto__', 'prototype', 'constructor',
   'world_id', 'worldid', 'actor_id', 'actorid',
   'installation_id', 'installationid', 'account_id', 'accountid',
   'session_id', 'sessionid', 'conversation_id', 'conversationid',
