@@ -185,8 +185,8 @@ def _validate_manifest(data: bytes) -> dict[str, Any]:
                 raise StoreError(f"{label}: non-canonical {key}")
     check_identity(root_identity, "metadataRootIdentity")
     roles = obj.get("roles")
-    if not isinstance(roles, list):
-        raise StoreError("manifest roles must be an array")
+    if not isinstance(roles, list) or len(roles) > 32:
+        raise StoreError("manifest roles must be an array with at most 32 entries")
     seen: set[str] = set()
     for role in roles:
         if not isinstance(role, dict):
@@ -200,7 +200,8 @@ def _validate_manifest(data: bytes) -> dict[str, Any]:
         seen.add(name)
         components = role.get("parentComponents")
         identities = role.get("parentIdentities")
-        if not isinstance(components, list) or not components or not isinstance(identities, list):
+        if (not isinstance(components, list) or not components
+                or not isinstance(identities, list) or len(components) > 256):
             raise StoreError(f"role {name}: parent components/identities are required")
         if len(components) != len(identities):
             raise StoreError(f"role {name}: parent component/identity count mismatch")
@@ -244,8 +245,9 @@ def _validate_manifest(data: bytes) -> dict[str, Any]:
             raise StoreError(f"role {name}: offline lifecycle state requires all sidecars retired")
 
     pending_enrollments = obj.get("pendingEnrollments", [])
-    if not isinstance(pending_enrollments, list):
-        raise StoreError("manifest pendingEnrollments must be an array")
+    if (not isinstance(pending_enrollments, list)
+            or len(roles) + len(pending_enrollments) > 32):
+        raise StoreError("manifest pendingEnrollments exceeds the 32-role inventory bound")
     pending_names: set[str] = set()
     for intent in pending_enrollments:
         if not isinstance(intent, dict):
