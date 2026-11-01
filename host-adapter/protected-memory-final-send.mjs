@@ -55,6 +55,7 @@ export function createProtectedMemoryFinalSend({ gateway, resolveProtectedMemory
     hostRequestContext,
     stream = false,
     forwardResponse,
+    transport: transportImpl,
   }) {
     assertRequest(endpointUrl, requestInit);
 
@@ -71,7 +72,7 @@ export function createProtectedMemoryFinalSend({ gateway, resolveProtectedMemory
     // Only an explicit trusted null means this request carries no protected
     // Memory. Missing/indeterminate classification must never fall through.
     if (protectedMemory === null) {
-      return fetchImpl(endpointUrl, requestInit);
+      return (typeof transportImpl === 'function' ? transportImpl : fetchImpl)(endpointUrl, requestInit);
     }
 
     if (!validRoute(senderRoute)) throw new Error('MEMORY_DISPATCH_NOT_READY');
@@ -90,7 +91,7 @@ export function createProtectedMemoryFinalSend({ gateway, resolveProtectedMemory
       // Return the upstream response without releasing it to the Host.
       // Gateway performs FINAL RESPONSE REVALIDATION first, then starts the
       // streaming write synchronously while holding the shared Coordinator.
-      return fetchImpl(endpointUrl, { ...requestInit, body: exactBody });
+      return (typeof transportImpl === 'function' ? transportImpl : fetchImpl)(endpointUrl, { ...requestInit, body: exactBody });
     };
 
     return gateway.dispatchProtectedRequest({
