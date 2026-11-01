@@ -52,6 +52,7 @@ jobs:
           cp host-adapter/prototype/server-plugin/index.mjs sillytavern-host-checkout/plugins/logic-engine-host/index.mjs
           cp host-adapter/prototype/server-plugin/st-source-inventory.mjs sillytavern-host-checkout/plugins/logic-engine-host/st-source-inventory.mjs
           cp host-adapter/prototype/server-plugin/st-host-inventory-handler.mjs sillytavern-host-checkout/plugins/logic-engine-host/st-host-inventory-handler.mjs
+          cp host-adapter/prototype/server-plugin/st-server-digest-proxy.mjs sillytavern-host-checkout/plugins/logic-engine-host/st-server-digest-proxy.mjs
       - name: Apply-check and apply lifecycle, inventory, then delete-safety patches
         run: |
           cd sillytavern-host-checkout
@@ -77,6 +78,7 @@ jobs:
           node --check sillytavern-host-checkout/plugins/logic-engine-host/index.mjs
           node --check sillytavern-host-checkout/plugins/logic-engine-host/st-source-inventory.mjs
           node --check sillytavern-host-checkout/plugins/logic-engine-host/st-host-inventory-handler.mjs
+          node --check sillytavern-host-checkout/plugins/logic-engine-host/st-server-digest-proxy.mjs
           node --check sillytavern-host-checkout/src/server-startup.js
           node --check sillytavern-host-checkout/src/server-main.js
           node --check sillytavern-host-checkout/src/endpoints/backends/chat-completions.js
