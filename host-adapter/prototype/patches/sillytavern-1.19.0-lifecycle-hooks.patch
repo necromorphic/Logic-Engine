@@ -743,7 +743,7 @@ diff --git a/src/endpoints/groups.js b/src/endpoints/groups.js
 +                        continue;
 +                    }
                      if (!needsMigration) {
-@@ -156,1 +159,1 @@
+@@ -156,1 +163,1 @@
 -router.post('/create', (request, response) => {
 +router.post('/create', hostBulkMutationGuard, (request, response) => {
 @@ -190,1 +194,1 @@
