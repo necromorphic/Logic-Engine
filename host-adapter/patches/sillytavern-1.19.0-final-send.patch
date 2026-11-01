@@ -77,7 +77,7 @@
 -            await fs.promises.rm(extensionPath, { recursive: true, force: true });
 +            // Keep the cloned Extension when Patch Manager has started: its
 +            // journal and pinned artifacts are needed for safe recovery.
-+            if (!patchManagerInvoked) {
++            if (!patchManagerInvoked || !manifestError.logicEnginePatchManagerRecoveryRequired) {
 +                await fs.promises.rm(extensionPath, { recursive: true, force: true });
 +            }
              throw manifestError;
