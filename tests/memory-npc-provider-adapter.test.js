@@ -151,7 +151,7 @@ test('real adapter composes file-backed SQLite Provider with Core query and cano
       }),
     ), /HOST_SESSION_AUTHENTICATION_REQUIRED/);
 
-    const unboundConversationId = 'not-bound';
+    const unboundConversationId = hostSessionId + ':44444444-4444-4444-8444-444444444444:55555555-5555-4555-8555-555555555555';
     const unboundHostRequest = {
       user: hostRequest.user,
       session: hostRequest.session,
