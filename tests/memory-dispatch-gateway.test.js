@@ -479,6 +479,15 @@ test('all protected sender families share one real Gateway and each causes exact
         ledger.prepare('SELECT COUNT(*) AS n FROM dispatch_ledger WHERE status=?').get('COMPLETED').n,
         PROTECTED_MEMORY_SENDER_ROUTES.length,
       );
+      const recordedRoutes = ledger.prepare(
+        'SELECT sender_route,policy_authority_id,policy_generation,policy_fingerprint FROM dispatch_ledger ORDER BY sender_route',
+      ).all();
+      assert.deepEqual(
+        recordedRoutes.map((row) => row.sender_route),
+        [...PROTECTED_MEMORY_SENDER_ROUTES].sort(),
+      );
+      assert.ok(recordedRoutes.every((row) => row.policy_authority_id === 'test-memory-policy'
+        && row.policy_generation === 1 && row.policy_fingerprint === 'd'.repeat(64)));
     } finally {
       ledger.close();
     }
@@ -556,10 +565,14 @@ test('dispatch validates current heads and grants, records one content-free star
 
     const db = new DatabaseSync(fixture.ledgerPath);
     try {
-      const row = db.prepare('SELECT status,request_digest,model,sources_json FROM dispatch_ledger WHERE request_id=?')
+      const row = db.prepare('SELECT status,request_digest,model,sources_json,sender_route,policy_authority_id,policy_generation,policy_fingerprint FROM dispatch_ledger WHERE request_id=?')
         .get('request-001');
       assert.equal(row.status, 'COMPLETED');
       assert.equal(row.model, 'selected-model');
+      assert.equal(row.sender_route, 'google-ai-studio');
+      assert.equal(row.policy_authority_id, 'test-memory-policy');
+      assert.equal(row.policy_generation, 1);
+      assert.equal(row.policy_fingerprint, 'd'.repeat(64));
       assert.match(row.request_digest, /^[a-f0-9]{64}$/);
       assert.equal(JSON.stringify(row).includes('SECRET_MEMORY_TEXT_DO_NOT_PERSIST'), false);
     } finally {
