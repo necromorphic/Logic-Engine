@@ -261,8 +261,12 @@ def _validate_manifest_transition(current: dict[str, Any], candidate: dict[str, 
         raise StoreError("metadata root and filesystem trust policy are immutable after enrollment")
     old_roles = {entry["role"]: entry for entry in current["roles"]}
     new_roles = {entry["role"]: entry for entry in candidate["roles"]}
-    if old_roles.keys() != new_roles.keys():
-        raise StoreError("role set is immutable; use privileged enrollment")
+    if not old_roles.keys() <= new_roles.keys():
+        raise StoreError("enrolled roles cannot be removed from the manifest")
+    for added_name in new_roles.keys() - old_roles.keys():
+        added = new_roles[added_name]
+        if added["state"] != "enrolling" or added["sidecars"]:
+            raise StoreError("new roles must enter through privileged empty enrolling records")
     generation = candidate["generation"]
     role_state_transitions = {
         "enrolling": {"enrolling", "active", "disabled", "recovery-required"},
@@ -423,6 +427,35 @@ def _observe_regular_at(parent_fd: int, name: str, label: str) -> dict[str, str]
     finally:
         os.close(fd)
 
+
+
+def _capture_role_parent(path: str) -> tuple[int, list[str], list[dict[str, str]], str]:
+    """Open an operator-selected role parent without following any path component."""
+    if not isinstance(path, str) or not os.path.isabs(path):
+        raise StoreError("role parent path must be absolute")
+    components = list(PurePosixPath(path).parts[1:])
+    if not components or any(part in ("", ".", "..") for part in components):
+        raise StoreError("role parent path contains an invalid component")
+    fd = os.open("/", DIR_FLAGS)
+    identities: list[dict[str, str]] = []
+    try:
+        for component in components:
+            next_fd = os.open(component, DIR_FLAGS, dir_fd=fd)
+            os.close(fd)
+            fd = next_fd
+            info = os.fstat(fd)
+            _check_trusted_directory_component(info, "role parent component")
+            identities.append(_fd_identity(fd))
+        final_info = os.fstat(fd)
+        if final_info.st_uid != os.geteuid() or stat.S_IMODE(final_info.st_mode) != 0o700:
+            raise StoreError("role parent must be broker-owned with exact mode 0700")
+        filesystem = _fd_filesystem(fd)
+        if filesystem not in SUPPORTED_ROLE_FILESYSTEMS:
+            raise StoreError("role parent filesystem is not qualified for protected SQLite storage")
+        return fd, components, identities, filesystem
+    except Exception:
+        os.close(fd)
+        raise
 
 def _verify_regular_at(parent_fd: int, name: str,
                        expected: dict[str, str], label: str) -> None:
@@ -697,6 +730,70 @@ class ManifestStore:
         os.replace(STAGED, MANIFEST, src_dir_fd=self.manifest_fd,
                    dst_dir_fd=self.manifest_fd)
         os.fsync(self.manifest_fd)
+
+
+    def enroll_role(self, role_name: str, parent_path: str, database_basename: str) -> int:
+        """Broker-first main DB provisioning; only the broker identity may call this API."""
+        if (not isinstance(role_name, str) or not role_name or len(role_name) > 128
+                or role_name[0] in ".-"
+                or any(not (ch.isascii() and (ch.isalnum() or ch in "._-")) for ch in role_name)):
+            raise StoreError("invalid database role name")
+        if (not isinstance(database_basename, str) or not database_basename
+                or database_basename in (".", "..") or "/" in database_basename
+                or "\\" in database_basename or "\x00" in database_basename):
+            raise StoreError("invalid database basename")
+        with _locked_roots(self.manifest_fd, self.anchor_fd, exclusive=True):
+            manifest = self._load_pair()[0]
+            if any(entry["role"] == role_name for entry in manifest["roles"]):
+                raise StoreError("database role already exists; roles are never silently replaced")
+            parent_fd, components, identities, filesystem = _capture_role_parent(parent_path)
+            fd = -1
+            try:
+                if filesystem != manifest["filesystemPolicy"]["filesystem"]:
+                    raise StoreError("role parent filesystem differs from the manifest storage policy")
+                flags = (os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC
+                         | os.O_NOFOLLOW | os.O_NONBLOCK)
+                try:
+                    fd = os.open(database_basename, flags, 0o600, dir_fd=parent_fd)
+                except FileExistsError as exc:
+                    raise StoreError("database path already exists; enrollment never adopts existing files") from exc
+                info = os.fstat(fd)
+                identity = _fd_identity(fd)
+                if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1
+                        or info.st_uid != os.geteuid()
+                        or identity["mountId"] != _fd_mount_id(parent_fd)):
+                    raise StoreError("new main database failed opened-handle validation")
+                os.fchmod(fd, 0o600)
+                os.fsync(fd)
+                os.fsync(parent_fd)
+                enrolling = json.loads(_canonical_json(manifest))
+                enrolling["generation"] = manifest["generation"] + 1
+                enrolling["roles"].append({
+                    "role": role_name,
+                    "parentComponents": components,
+                    "parentIdentities": identities,
+                    "databaseBasename": database_basename,
+                    "databaseIdentity": identity,
+                    "state": "enrolling",
+                    "sidecars": [],
+                })
+                self._commit_locked(_canonical_json(enrolling))
+                current = self._load_pair()[0]
+                active = json.loads(_canonical_json(current))
+                active["generation"] = current["generation"] + 1
+                next(entry for entry in active["roles"] if entry["role"] == role_name)["state"] = "active"
+                self._commit_locked(_canonical_json(active))
+                return fd
+            except Exception:
+                if fd >= 0:
+                    os.close(fd)
+                    fd = -1
+                # Never unlink an uncertain enrollment artifact. The service-owned
+                # parent remains inaccessible to the app; startup verification
+                # fails closed if a manifest transition was interrupted.
+                raise
+            finally:
+                os.close(parent_fd)
 
     def open_role_file(self, role_name: str, file_kind: str = "main") -> int:
         """Return an identity-verified descriptor for an enrolled DB or active sidecar.
@@ -1220,11 +1317,22 @@ def main() -> int:
     parser.add_argument("--anchor-root", required=True)
     parser.add_argument("--app-uid", required=True, type=int,
                         help="application UID; must differ from broker service UID")
-    parser.add_argument("command", choices=("init", "verify", "recovery-plan", "reconcile-absent", "show"))
+    parser.add_argument("command", choices=("init", "verify", "recovery-plan", "reconcile-absent", "show", "enroll"))
     parser.add_argument("--input", help="manifest JSON for init")
+    parser.add_argument("--role", help="logical role name for privileged enrollment")
+    parser.add_argument("--parent", help="pre-provisioned broker-owned role directory (0700)")
+    parser.add_argument("--basename", help="new database filename; existing entries are never adopted")
     args = parser.parse_args()
     store = ManifestStore(args.manifest_root, args.anchor_root, args.app_uid)
     try:
+        if args.command == "enroll":
+            if not args.role or not args.parent or not args.basename:
+                parser.error("enroll requires --role, --parent and --basename")
+            fd = store.enroll_role(args.role, args.parent, args.basename)
+            os.close(fd)
+            manifest = store.load()
+            print(f"role enrolled: role={args.role} generation={manifest['generation']}")
+            return 0
         if args.command == "init":
             if not args.input:
                 parser.error("init requires --input")
