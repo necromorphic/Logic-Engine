@@ -48,7 +48,7 @@ function assertBrokerOwnedAliasParent(directory) {
       fs.accessSync(current, fs.constants.W_OK);
       throw new Error('The application UID must not be able to mutate the logical DB alias parent chain');
     } catch (error) {
-      if (error?.code !== 'EACCES' && error?.code !== 'EPERM') throw error;
+      if (error?.code !== 'EACCES' && error?.code !== 'EPERM' && error?.code !== 'EROFS') throw error;
     }
   }
   fs.accessSync(absolute, fs.constants.X_OK);
