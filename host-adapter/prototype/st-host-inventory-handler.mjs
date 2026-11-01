@@ -2,6 +2,20 @@ import { randomUUID } from 'node:crypto';
 
 const HOST_SESSION_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+function trustedUserSession(request) {
+  const session = request?.session;
+  const userHandle = request?.user?.profile?.handle;
+  if (!session || typeof userHandle !== 'string' || !userHandle.trim()) return null;
+  // ST 1.19.0's no-accounts mode populates request.user from DEFAULT_USER but
+  // does not necessarily set session.handle. A present account handle must
+  // match; the adapter-owned signed-session handle must always match.
+  if (session.handle !== undefined && session.handle !== userHandle) return null;
+  if (session.logicEngineSessionHandle !== userHandle) return null;
+  const sessionId = session.logicEngineSessionId;
+  if (typeof sessionId !== 'string' || !HOST_SESSION_UUID.test(sessionId)) return null;
+  return { session, userHandle, sessionId };
+}
+
 export function createHostInventoryHandler({
   enumerate,
   pinnedHostCommit,
@@ -16,18 +30,9 @@ export function createHostInventoryHandler({
   return async function hostInventoryHandler(request, response) {
     response.set('Cache-Control', 'no-store, private');
     response.set('Vary', 'Cookie');
-    const user = request?.user;
-    const directories = user?.directories;
-    const userHandle = user?.profile?.handle;
-    const sessionHandle = request?.session?.handle;
-    const sessionId = request?.session?.logicEngineSessionId;
-    const sessionIdentityHandle = request?.session?.logicEngineSessionHandle;
-    if (!directories || typeof userHandle !== 'string' || !userHandle.trim()
-      || typeof sessionHandle !== 'string' || sessionHandle !== userHandle
-      || typeof sessionId !== 'string' || !HOST_SESSION_UUID.test(sessionId)
-      || sessionIdentityHandle !== userHandle) {
-      return response.sendStatus(403);
-    }
+    const trusted = trustedUserSession(request);
+    const directories = request?.user?.directories;
+    if (!trusted || !directories) return response.sendStatus(403);
 
     // This is an operator-supplied deployment claim, not runtime source attestation.
     if (hostBuildClaim !== pinnedHostCommit) {
@@ -70,7 +75,8 @@ export function createHostInventoryHandler({
       };
       return response.status(200).json({
         ...responseInventory,
-        host_user_handle: userHandle,
+        host_user_handle: trusted.userHandle,
+        host_session_id: trusted.sessionId,
         host_build_claim: hostBuildClaim,
         host_build_claim_type: 'DEPLOYMENT_ASSERTION_NOT_RUNTIME_ATTESTATION',
       });
@@ -83,7 +89,6 @@ export function createHostInventoryHandler({
     }
   };
 }
-
 
 /**
  * Issues a server-generated identity inside SillyTavern's authenticated,
@@ -98,7 +103,7 @@ export function createHostSessionHandler({ createId = randomUUID } = {}) {
     const session = request?.session;
     const userHandle = request?.user?.profile?.handle;
     if (!session || typeof userHandle !== 'string' || !userHandle.trim()
-      || typeof session.handle !== 'string' || session.handle !== userHandle) {
+      || (session.handle !== undefined && session.handle !== userHandle)) {
       return response.sendStatus(403);
     }
 
