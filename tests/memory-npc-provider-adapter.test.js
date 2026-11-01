@@ -54,7 +54,7 @@ test('real adapter composes file-backed SQLite Provider with Core query and cano
       engine,
       providerPath,
       coordinatorPath,
-      adapterIds: [adapterId],
+      adapterId,
       trustedInitialKnowledgeSources: [],
       fieldPolicy: (_context, _entity, field) => field === 'entity_id' || field === 'attributes.public_note',
       contentFields: ['attributes.public_note'],
@@ -86,7 +86,7 @@ test('real adapter composes file-backed SQLite Provider with Core query and cano
 
     assert.equal((await adapter.prepareWorld(worldId)).status, 'current');
     const result = await adapter.consumer.retrieveForNpc({
-      worldId, adapterId, actorEntityId: actorId, conversationId,
+      worldId, actorEntityId: actorId, conversationId,
     });
     assert.equal(result.status, 'ready');
     assert.equal(result.candidates.length, 1);
@@ -95,7 +95,7 @@ test('real adapter composes file-backed SQLite Provider with Core query and cano
     });
 
     const unboundConversation = await adapter.consumer.retrieveForNpc({
-      worldId, adapterId, actorEntityId: actorId, conversationId: 'not-bound',
+      worldId, actorEntityId: actorId, conversationId: 'not-bound',
     });
     assert.equal(unboundConversation.status, 'non_ready');
     assert.equal(unboundConversation.reason, 'query_access_unconfirmed');
