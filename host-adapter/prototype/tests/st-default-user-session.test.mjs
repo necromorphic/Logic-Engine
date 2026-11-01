@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { createHostInventoryHandler, createHostSessionHandler } from '../st-host-inventory-handler.mjs';
 
 function makeResponse() {
@@ -44,16 +46,32 @@ test('default-user mode reuses its signed-session identity across requests', () 
 
 test('default-user inventory request is accepted only after Host session identity exists', async () => {
   let calls = 0;
+  const root = join(tmpdir(), 'st-default-user-root');
+  const directories = {
+    root,
+    chats: join(root, 'chats'),
+    groups: join(root, 'groups'),
+    groupChats: join(root, 'groupChats'),
+  };
   const handler = createHostInventoryHandler({
     enumerate: async input => {
       calls++;
-      assert.deepEqual(input.directories, { chats: 'C:\\\\st\\\\chats', groups: 'C:\\\\st\\\\groups', groupChats: 'C:\\\\st\\\\groupChats' });
-      return { files: [], status: 'DOUBLE_SCAN_CANDIDATE', authority: 'NON_AUTHORITATIVE' };
+      assert.deepEqual(input.directories, directories);
+      return {
+        filesystem: { status: 'complete', entries: [] },
+        source: { status: 'DOUBLE_SCAN_CANDIDATE', files: [], blockers: [] },
+        snapshot_alignment: 'SHARED_VSS_SNAPSHOT',
+      };
     },
+    persistRootInventory: async () => ({
+      status: 'BASELINED_REVIEW_ONLY',
+      integrity_status: 'INTEGRITY_OK',
+      sequence: 1,
+      manifest_sha256: 'a'.repeat(64),
+    }),
     pinnedHostCommit: pinned,
     hostBuildClaim: pinned,
   });
-  const directories = { chats: 'C:\\\\st\\\\chats', groups: 'C:\\\\st\\\\groups', groupChats: 'C:\\\\st\\\\groupChats' };
   const response = makeResponse();
   await handler({
     user: { profile: { handle: 'default-user' }, directories },
@@ -62,9 +80,9 @@ test('default-user inventory request is accepted only after Host session identit
   }, response);
   assert.equal(response.statusCode, 200);
   assert.equal(response.body.host_user_handle, 'default-user');
+  assert.equal(response.body.host_build_claim_type, 'DEPLOYMENT_ASSERTION_NOT_RUNTIME_ATTESTATION');
   assert.equal(calls, 1);
 });
-
 test('default-user inventory request rejects missing or mismatched signed-session identity', async () => {
   let calls = 0;
   const handler = createHostInventoryHandler({
