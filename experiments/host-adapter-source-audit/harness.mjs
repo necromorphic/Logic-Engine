@@ -6,9 +6,11 @@ import { resolve } from 'node:path';
 const root = process.env.SILLYTAVERN_DIR ?? resolve(process.cwd(), 'SillyTavern');
 const targetSha = '06bde939fb1e9c4c8d8641d810f0a916b5bce127';
 
-const [events, script] = await Promise.all([
+const [events, script, serverMain, hostRoutePatch] = await Promise.all([
   readFile(resolve(root, 'public/scripts/events.js'), 'utf8'),
   readFile(resolve(root, 'public/script.js'), 'utf8'),
+  readFile(resolve(root, 'src/server-main.js'), 'utf8'),
+  readFile(resolve(process.cwd(), 'host-adapter/prototype/patches/sillytavern-1.19.0-source-inventory-route.patch'), 'utf8'),
 ]);
 
 test('audit input is the exact pinned SillyTavern commit', async () => {
