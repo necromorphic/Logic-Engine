@@ -1,5 +1,4 @@
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
 import { HostIdentityStore } from '../prototype/st-host-identity-store.mjs';
 import { enumerateHostDataInventory } from '../prototype/host-data-inventory.mjs';
 import {
@@ -159,7 +158,7 @@ export async function init(router) {
                 '/v1/worlds/' + encodeURIComponent(worldId) + '/actors/resolve',
                 { entity_id: config.actorEntityId },
             );
-            const actorId = actorResult?.resolution?.actor_id ?? actorResult?.resolution?.entity_id;
+            const actorId = actorResult?.resolution?.actor?.entity_id;
             if (!validText(actorId)) return safeFailure(response, 'CORE_ACTOR_BINDING_INVALID', 409);
             const account = await identityStore.resolveAuthenticatedAccount(request.user.profile.handle);
             return response.status(200).json({
