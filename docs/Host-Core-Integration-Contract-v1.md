@@ -34,14 +34,14 @@ No second identity store, World/Actor resolver, authorization authority, Provide
 | `host_installation_id` | Host server identity store | Opaque installation namespace UUID. It is not a hardware identity, cryptographic attestation, or anti-clone/anti-rollback anchor. |
 | `authenticated_account_id` | Host server identity store, resolved from the authenticated ST account | Opaque account UUID. Never derive it from a browser field or expose the ST account handle as an authorization identity. |
 | `conversation_uuid` | Persisted chat metadata key `logic_engine_conversation_id` | Stable logical conversation UUID across renames and mutable filenames. |
-| `host_conversation_key` | Existing Host-local identity | Stable tuple `host_installation_id:authenticated_account_id:conversation_uuid`; retain only for Host-owned stable identity/lifecycle correlation. It is not sent as Core `conversation_id`. |
-| `conversation_id` | Host composition for Core | Session-scoped tuple `host_session_id:host_installation_id:conversation_uuid`. This is the only conversation key sent to Core. |
+| `host_conversation_key` | Existing Host-local identity | Stable tuple `host_installation_id:authenticated_account_id:conversation_uuid`; retain for Host-owned stable identity/lifecycle correlation and the existing Host version-ledger lifecycle APIs. It is not used as `conversation_id` by the Memory context/retrieval APIs in §§4–5. |
+| `conversation_id` | Host composition for Core Memory APIs | Session-scoped tuple `host_session_id:host_installation_id:conversation_uuid`. This is the required `conversation_id` for the context-resolution and Memory retrieval APIs in §§4–5. Existing lifecycle/version-ledger APIs retain their separately defined Host-local identity contract. |
 
 The Core tuple is the approved PC-NEXT-11 shape already enforced by Core `host-session-context.js`: `host_session_id:host_installation_id:conversation_uuid`. `authenticated_account_id` is a separate trusted assertion field and is not a tuple component. All UUID values must be canonical UUID strings. The Core tuple has exactly three components; no whitespace, extra component, alternate separator, filename, chat index, or account handle is accepted.
 
 A new ST session produces a new Core `conversation_id` even when the stable `conversation_uuid` is unchanged. Core World bindings are therefore session-scoped. A missing/revoked binding for the new tuple fails closed and requires the existing explicit audited bind/rebind operation; no implicit rebind is allowed.
 
-The existing Host-local stable key `host_installation_id:authenticated_account_id:conversation_uuid` remains a Host storage/correlation key only. Host must not pass it to Core as `conversation_id`. Host composes the Core-scoped tuple from the already authenticated session ID, server-owned installation ID, and persisted conversation UUID. This is a deterministic scope projection from the same identity sources, not a second identity authority or a new persisted identity.
+The existing Host-local stable key `host_installation_id:authenticated_account_id:conversation_uuid` remains the stable identity used by Host-owned lifecycle/version-ledger flows and storage correlation. It is not the `conversation_id` for the Memory APIs in §§4–5. For those APIs, Host composes the Core-scoped tuple from the already authenticated session ID, server-owned installation ID, and persisted conversation UUID. This is a deterministic scope projection from the same identity sources, not a second identity authority or a new persisted identity.
 
 ### 2.2 Required Host derivation
 
@@ -52,7 +52,7 @@ The existing Host-local stable key `host_installation_id:authenticated_account_i
 5. Host validates/persists `conversation_uuid` in chat metadata. It may retain the existing stable Host-local key, but composes Core `conversation_id = host_session_id:host_installation_id:conversation_uuid` for every Core request.
 6. Host repeats session/account/identity checks at dispatch time. Browser/localStorage values are locators or consistency hints only.
 
-Host must not send a browser-selected `world_id`, `actor_id`, `adapter_id`, account UUID, installation UUID, or session UUID as authority. The Host authentication gate validates the Host-local stable tuple against server-owned installation/account identity and independently verifies the live signed ST session ID. The dispatch proxy then constructs the Core tuple `host_session_id:host_installation_id:conversation_uuid` from those already authenticated values; only that Core tuple is sent as Core `conversation_id`.
+Host must not send a browser-selected `world_id`, `actor_id`, `adapter_id`, account UUID, installation UUID, or session UUID as authority. The Host authentication gate validates the Host-local stable tuple against server-owned installation/account identity and independently verifies the live signed ST session ID. For the Memory context/retrieval APIs in §§4–5, the dispatch proxy constructs the Core tuple `host_session_id:host_installation_id:conversation_uuid` from those already authenticated values. Lifecycle/version-ledger calls remain separate and retain their existing Host-local conversation identity semantics.
 
 ## 3. Authentication and signed assertion
 
@@ -122,7 +122,11 @@ Success — HTTP 200, exact response envelope `host-context-resolve-response/v1`
     "adapter_id": "deployment-configured-adapter",
     "conversation_id": "11111111-1111-4111-8111-111111111111:22222222-2222-4222-8222-222222222222:44444444-4444-4444-8444-444444444444",
     "world_id": "core-bound-world-id",
-    "actor_id": "core-bound-actor-id",    "actor_type": "character"  }}```
+    "actor_id": "core-bound-actor-id",
+    "actor_type": "character"
+  }
+}
+```
 
 Core implementation rules:
 
@@ -170,10 +174,12 @@ Core processing order:
 1. Authenticate API bearer and adapter headers.
 2. Validate the exact request envelope and assertion shape.
 3. Verify HMAC, timestamp window, and atomically consume the durable nonce.
-4. Re-resolve the active conversation → World and unique adapter → Actor bindings; compare them exactly with assertion `world_id` and `actor_id`. Reject any mismatch.
-5. Enter the existing authenticated Host-session capability/AsyncLocalStorage boundary using the verified assertion. Caller JSON cannot mint the capability.
-6. Call only the existing consumer facade: `consumer.retrieveForNpc({ conversationId: assertion.conversation_id })`.
+4. Enter the existing authenticated Host-session capability/AsyncLocalStorage boundary using the verified assertion. Caller JSON cannot mint the capability.
+5. Call only the existing consumer facade: `consumer.retrieveForNpc({ conversationId: assertion.conversation_id })`.
+6. Before any Memory Provider query, the Consumer independently re-resolves the active conversation → World and unique adapter → Actor bindings through the existing Core services, then compares both values with the capability's signed `world_id` and `actor_id`. Any missing, ambiguous, revoked, or mismatched binding returns `non_ready`; Provider retrieval is not attempted.
 7. Return the consumer result unchanged. Do not expose the raw Provider interface or create a Host-side Provider client.
+
+The capability is created immediately after successful assertion verification and durable nonce consumption. World/Actor revalidation is intentionally owned by `MemoryNpcConsumer.retrieveForNpc()` and occurs before its first Provider operation; no second HTTP-level resolver or duplicate authorization authority is introduced.
 
 Core retrieval scope is fixed by the existing consumer: `recipient: "model"`, Core query purpose `npc_turn_context`, Provider/AuthorizedRead purpose `npc_decision`, subject = the Core-resolved Actor, and World = the Core-resolved World. These purposes are not interchangeable. Host cannot override the field allowlist or either purpose.
 
@@ -245,8 +251,10 @@ HTTP/API errors use the existing Core envelope:
 }
 ```
 Do not return secrets, raw request data, hidden entity values, Provider snippets, or item-level denial reasons in error messages.
-| Condition | HTTP | Stable code / result ||---|---:|---|
-| Invalid JSON | 400 | `INVALID_JSON` || Invalid context body / unknown key / malformed context tuple | 400 | `INVALID_HOST_CONTEXT_RESOLUTION` |
+| Condition | HTTP | Stable code / result |
+|---|---:|---|
+| Invalid JSON | 400 | `INVALID_JSON` |
+| Invalid context body / unknown key / malformed PC-NEXT-11 tuple | 400 | `INVALID_HOST_CONTEXT_RESOLUTION` |
 | Invalid retrieval envelope / bounded metadata | 400 | `INVALID_HOST_MEMORY_RETRIEVAL` |
 | Invalid, tampered, or malformed signed assertion | 401 | `HOST_SESSION_ASSERTION_INVALID` |
 | Missing/invalid API bearer | 401 | `UNAUTHORIZED` |
