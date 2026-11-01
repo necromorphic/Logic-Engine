@@ -5,21 +5,50 @@ const WINDOWS_IDENTITY = Object.freeze({
   fileId: /^[0-9A-Fa-f]{32}$/,
 });
 
+function assertExactKeys(value, expected, label) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new TypeError(`Invalid ${label} object in trusted role manifest`);
+  }
+  const actual = Object.keys(value).sort();
+  const allowed = [...expected].sort();
+  if (actual.length !== allowed.length
+      || actual.some((key, index) => key !== allowed[index])) {
+    throw new TypeError(`Unexpected or missing fields in trusted role manifest ${label}`);
+  }
+}
+
 function assertWindowsIdentity(identity, label) {
-  if (!identity || identity.kind !== 'windows'
+  assertExactKeys(identity, ['kind', 'volumeSerial', 'fileId'], label + ' identity');
+  if (identity.kind !== 'windows'
+      || typeof identity.volumeSerial !== 'string'
       || !WINDOWS_IDENTITY.volumeSerial.test(identity.volumeSerial)
+      || typeof identity.fileId !== 'string'
       || !WINDOWS_IDENTITY.fileId.test(identity.fileId)) {
     throw new TypeError(`Invalid Windows ${label} identity in trusted role manifest`);
   }
 }
 
 function assertManifestShape(manifest) {
-  if (!manifest || manifest.schemaVersion !== 1 || manifest.platform !== 'windows'
+  assertExactKeys(manifest, [
+    'schemaVersion', 'generation', 'platform', 'metadataRootIdentity',
+    'filesystemPolicy', 'roles',
+  ], 'envelope');
+  if (manifest.schemaVersion !== 1 || manifest.platform !== 'windows'
       || !Number.isSafeInteger(manifest.generation) || manifest.generation < 1
       || !Array.isArray(manifest.roles) || manifest.roles.length === 0) {
     throw new TypeError('Invalid Windows SQLite role manifest envelope');
   }
   assertWindowsIdentity(manifest.metadataRootIdentity, 'metadata-root');
+  assertExactKeys(manifest.filesystemPolicy, [
+    'filesystem', 'identitySource', 'directoryMutationBoundary',
+  ], 'filesystem policy');
+  if (typeof manifest.filesystemPolicy.filesystem !== 'string'
+      || !manifest.filesystemPolicy.filesystem.trim()
+      || manifest.filesystemPolicy.identitySource !== 'opened-handle'
+      || manifest.filesystemPolicy.directoryMutationBoundary !== 'dedicated-service-identity') {
+    throw new TypeError('Invalid Windows filesystem trust policy in role manifest');
+  }
+
   const roleNames = new Set();
   const directoryIds = new Set([
     `${manifest.metadataRootIdentity.volumeSerial.toLowerCase()}:${manifest.metadataRootIdentity.fileId.toLowerCase()}`,
@@ -32,6 +61,7 @@ function assertManifestShape(manifest) {
     }
     physicalIds.add(key);
   };
+
   /*
    * Multiple roles may legitimately share one parent directory, and the
    * metadata root may itself be an ancestor in a role's parent chain. Gather
@@ -54,8 +84,14 @@ function assertManifestShape(manifest) {
       directoryIds.add(key);
     }
   }
+
   for (const role of manifest.roles) {
-    if (!role || typeof role.role !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(role.role)
+    assertExactKeys(role, [
+      'role', 'parentComponents', 'parentIdentities', 'databaseBasename',
+      'databaseIdentity', 'state', 'sidecars',
+    ], 'database role');
+    if (typeof role.role !== 'string'
+        || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(role.role)
         || roleNames.has(role.role) || role.state !== 'active'
         || !Array.isArray(role.parentComponents)
         || !Array.isArray(role.parentIdentities)
@@ -77,7 +113,8 @@ function assertManifestShape(manifest) {
     claimIdentity(role.databaseIdentity, `database ${role.role}`);
     const sidecarKinds = new Set();
     for (const sidecar of role.sidecars) {
-      if (!sidecar || !['wal', 'shm', 'journal'].includes(sidecar.kind)
+      assertExactKeys(sidecar, ['kind', 'identity', 'state', 'generation'], 'sidecar');
+      if (!['wal', 'shm', 'journal'].includes(sidecar.kind)
           || sidecarKinds.has(sidecar.kind)
           || !['active', 'retired'].includes(sidecar.state)
           || !Number.isSafeInteger(sidecar.generation) || sidecar.generation < 1
@@ -97,7 +134,22 @@ export function registerWindowsManifestRole(database, manifest, roleName, databa
   assertManifestShape(manifest);
   const role = manifest.roles.find((entry) => entry.role === roleName);
   if (!role) throw new TypeError(`Role ${roleName} is absent from trusted manifest`);
+  if (typeof databasePath !== 'string' || !path.win32.isAbsolute(databasePath)
+      || !/^[A-Za-z]:\\/.test(databasePath)) {
+    throw new TypeError('Database path must be an absolute drive-letter Windows path');
+  }
   const resolvedPath = path.win32.resolve(databasePath);
+  if (resolvedPath !== databasePath) {
+    throw new TypeError('Database path must be normalized and contain no dot components');
+  }
+  const parentPath = path.win32.dirname(resolvedPath);
+  const root = path.win32.parse(resolvedPath).root;
+  const actualComponents = parentPath.slice(root.length).split('\\').filter(Boolean);
+  if (actualComponents.length !== role.parentComponents.length
+      || actualComponents.some((component, index) =>
+        component.toLowerCase() !== role.parentComponents[index].toLowerCase())) {
+    throw new TypeError('Database parent path does not match the trusted manifest component chain');
+  }
   if (path.win32.basename(resolvedPath).toLowerCase()
       !== role.databaseBasename.toLowerCase()) {
     throw new TypeError('Database path basename does not match the trusted manifest');
