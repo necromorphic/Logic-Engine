@@ -1,5 +1,5 @@
 import { lstat, realpath, stat } from 'node:fs/promises';
-import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
+import { isAbsolute, parse, relative, resolve, sep } from 'node:path';
 
 function isWithin(parent, child) {
   const rel = relative(parent, child);
@@ -75,7 +75,7 @@ export async function resolveDeploymentPathRegistry({
   const rootResult = await canonicalizeWithoutFollowingLinks(root);
   if (rootResult.status !== 'PASS' || rootResult.exists !== true || rootResult.isDirectory !== true) {
     return Object.freeze({
-      status: rootResult.status,
+      status: rootResult.status === 'PASS' ? 'FAIL' : rootResult.status,
       resources: Object.freeze([]),
       conflicts: Object.freeze([{ kind: rootResult.status !== 'PASS' ? 'DEPLOYMENT_ROOT_UNSAFE' : rootResult.exists !== true ? 'DEPLOYMENT_ROOT_MISSING' : 'DEPLOYMENT_ROOT_NOT_DIRECTORY', ...rootResult }]),
     });
