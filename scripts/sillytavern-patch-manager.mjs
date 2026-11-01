@@ -93,6 +93,10 @@ export class SillyTavernPatchManager {
     const rootInfo = await lstat(this.stRoot);
     if (!rootInfo.isDirectory()) throw new Error('SILLYTAVERN_ROOT_INVALID');
     if (!isWithin(this.stRoot, this.managerDir)) throw new Error('PATCH_MANAGER_STATE_PATH_INVALID');
+    for (const [path, code] of [[this.manifestPath, 'PATCH_MANIFEST_UNSAFE'], [this.patchPath, 'PATCH_ARTIFACT_UNSAFE']]) {
+      const info = await lstat(path);
+      if (info.isSymbolicLink() || !info.isFile()) throw new Error(code);
+    }
     this.manifest = JSON.parse(await readFile(this.manifestPath, 'utf8'));
     this.patchBytes = await readFile(this.patchPath);
     if (sha256(this.patchBytes) !== this.manifest.patch.sha256) throw new Error('PATCH_ARTIFACT_INTEGRITY_MISMATCH');
