@@ -134,6 +134,9 @@ export function validateDeploymentReport(report) {
     throw new Error('DEPLOYMENT_REPORT_PROTECTED_FINAL_SEND_FEATURE_BINDING_INVALID');
   }
   const capabilityEvidence = new Map(report.capabilities.map((item) => [item.id, item]));
+  if (protectedFinalSendGate.status === 'PASS') {
+    throw new Error('DEPLOYMENT_REPORT_PROTECTED_FINAL_SEND_TRUSTED_ATTESTATION_PROVIDER_UNAVAILABLE');
+  }
   const missingFinalSendEvidence = PROTECTED_FINAL_SEND_CAPABILITIES.filter((id) => {
     const evidence = capabilityEvidence.get(id);
     return evidence?.status !== 'PASS' || evidence.required !== true;
