@@ -1,4 +1,4 @@
-const HOST_CONTEXT_PATH = '/api/plugins/logic-engine-host-adapter/context';
+const HOST_CONTEXT_PATH = '/api/plugins/logic-engine-extension-gateway/context';
 
 function validConversationUuid(value) {
     return typeof value === 'string'
@@ -26,7 +26,7 @@ export async function resolveAuthenticatedHostContext(conversationUuid, fetchImp
         throw new Error('HOST_CSRF_TOKEN_INVALID');
     }
 
-    const sessionResponse = await fetchImpl('/api/plugins/logic-engine-host-adapter/session', {
+    const sessionResponse = await fetchImpl('/api/plugins/logic-engine-extension-gateway/session', {
         method: 'GET',
         credentials: 'same-origin',
         cache: 'no-store',
