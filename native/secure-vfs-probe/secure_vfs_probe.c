@@ -8,9 +8,10 @@
  * identities and inject deterministic hardlink replacements.
  *
  * This branch has partial directory-handle-relative DB/sidecar operations:
- * POSIX pins the final parent directory but its xDelete is not identity-safe
- * against same-directory entry replacement; Windows uses a retained parent
- * HANDLE for recognized opens, xAccess and handle-relative xDelete.
+ * POSIX main/WAL/journal byte I/O uses broker-returned descriptors; sidecar
+ * xDelete is broker/quarantine mediated, while non-broker namespace deletion
+ * fails closed. Windows uses a retained parent HANDLE for recognized opens,
+ * xAccess and handle-relative xDelete.
  * Sidecar ownership records are process-local; retired records are retained
  * when another hardlink survives deletion of the original sidecar pathname.
  * Persistent trust, complete sidecar lifecycle, full VFS operation coverage,
