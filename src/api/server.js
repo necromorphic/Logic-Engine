@@ -111,16 +111,7 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
     const secret = req.headers['x-adapter-token'];
     return typeof id === 'string' && Object.hasOwn(adapterTokens, id) && secretMatches(secret, adapterTokens[id]) ? id : null;
   };
-  engine.store.tx(() => engine.store.db.exec(`
-    CREATE TABLE IF NOT EXISTS host_session_assertion_nonces (
-      adapter_id TEXT NOT NULL,
-      nonce TEXT NOT NULL,
-      expires_at INTEGER NOT NULL,
-      PRIMARY KEY(adapter_id, nonce)
-    ) WITHOUT ROWID;
-    CREATE INDEX IF NOT EXISTS host_session_assertion_nonces_expiry
-      ON host_session_assertion_nonces(expires_at);
-  `));
+  // Durable nonce table is installed by SQLiteStore migration 18.
   const hostSessionAssertionRunners = new Map(Object.entries(adapterTokens).map(([adapterId, secret]) => [
     adapterId,
     createHostSessionAssertionRunner({
