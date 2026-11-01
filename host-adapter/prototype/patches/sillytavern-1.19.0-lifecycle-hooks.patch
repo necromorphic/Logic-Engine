@@ -82,10 +82,12 @@ diff --git a/public/script.js b/public/script.js
 +}
 +let logicEngineLifecyclePendingRenameId = null;
 +async function getLogicEngineConversationId() {
-+    const hostSessionId = await getLogicEngineHostSessionId();
++    const identity = await getLogicEngineHostIdentity();
++    const hostSessionId = identity.host_session_id;
 +    const result = await resolveStableHostConversationIdentity({
 +        locator: getCurrentChatId(),
 +        hostSessionId,
++        hostInstallationId: identity.host_installation_id,
 +        metadata: chat_metadata,
 +        storage: localStorage,
 +        saveMetadata: () => saveChatConditional(),
