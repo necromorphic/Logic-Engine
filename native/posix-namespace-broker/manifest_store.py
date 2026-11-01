@@ -970,11 +970,20 @@ class ManifestStore:
                                     entry_fd = os.open(name, os.O_PATH | os.O_NOFOLLOW | os.O_CLOEXEC,
                                                        dir_fd=quarantine_fd)
                                     try:
+                                        entry_info = os.fstat(entry_fd)
                                         identity = _fd_identity(entry_fd)
+                                        if (not stat.S_ISREG(entry_info.st_mode)
+                                                or entry_info.st_nlink != 1
+                                                or entry_info.st_uid != os.geteuid()
+                                                or identity["mountId"] != _fd_mount_id(quarantine_fd)):
+                                            raise StoreError("main-delete quarantine object has an unsafe type or identity")
                                     finally:
                                         os.close(entry_fd)
                                     if identity != role["databaseIdentity"]:
                                         raise StoreError("main-delete quarantine contains an unauthorized object")
+                                    if _observe_regular_at(parent_fd, role["databaseBasename"],
+                                                           "main database deletion entry") is not None:
+                                        raise StoreError("main-delete quarantine and live database path both exist")
                                     os.unlink(name, dir_fd=quarantine_fd)
                                     os.fsync(quarantine_fd)
                             finally:
@@ -1342,7 +1351,7 @@ class ManifestStore:
             roles: list[dict[str, Any]] = []
             suffixes = {"wal": "-wal", "shm": "-shm", "journal": "-journal"}
             for role in manifest["roles"]:
-                if role["state"] == "disabled":
+                if role["state"] in ("disabled", "deleted"):
                     continue
                 if role["state"] not in ("active", "recovery-required", "enrolling"):
                     raise StoreError(f"role {role['role']} has unsupported recovery state")
@@ -1421,7 +1430,7 @@ class ManifestStore:
             suffixes = {"wal": "-wal", "shm": "-shm", "journal": "-journal"}
             changed = False
             for role in candidate["roles"]:
-                if role["state"] == "disabled":
+                if role["state"] in ("disabled", "deleted"):
                     continue
                 if role["state"] not in ("active", "recovery-required", "enrolling"):
                     raise StoreError(f"role {role['role']} has unsupported recovery state")
@@ -1480,7 +1489,7 @@ class ManifestStore:
             suffixes = {"wal": "-wal", "shm": "-shm", "journal": "-journal"}
             changed_roles: set[str] = set()
             for role in candidate["roles"]:
-                if role["state"] == "disabled":
+                if role["state"] in ("disabled", "deleted"):
                     continue
                 if role["state"] not in ("active", "recovery-required", "enrolling"):
                     raise StoreError(f"role {role['role']} has unsupported recovery state")
