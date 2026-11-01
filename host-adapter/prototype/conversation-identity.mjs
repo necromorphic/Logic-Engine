@@ -71,12 +71,12 @@ export async function resolveStableHostConversationIdentity({
   if (existing !== undefined && !validUuid(existing)) {
     throw Error('NON_READY: malformed stable Host conversation identity');
   }
-  if (mappedId && (!validUuid(existing) || mappedId !== installationId + ':' + accountId + ':' + existing)) {
+  if (mappedId && (!validUuid(existing) || mappedId !== hostSessionId + ':' + installationId + ':' + existing)) {
     throw Error('NON_READY: Host locator metadata is missing or inconsistent');
   }
 
   if (validUuid(existing)) {
-    const resolvedId = installationId + ':' + accountId + ':' + existing;
+    const resolvedId = hostSessionId + ':' + installationId + ':' + existing;
     const activeMarker = MARKER_PREFIX + resolvedId;
     if (storage.getItem(legacyMarker) && legacyMarker !== activeMarker) {
       throw Error('NON_READY: legacy Host enrollment marker conflicts with installation identity');
@@ -85,7 +85,7 @@ export async function resolveStableHostConversationIdentity({
       const key = storage.key(i);
       if (typeof key !== 'string') continue;
       const value = storage.getItem(key);
-      if (key.startsWith(MARKER_PREFIX) && key.endsWith(':' + accountId + ':' + existing) && key !== activeMarker) {
+      if (key.startsWith(MARKER_PREFIX) && key.endsWith(':' + installationId + ':' + existing) && key !== activeMarker) {
         throw Error('NON_READY: Host conversation identity is already enrolled elsewhere');
       }
       if (key.startsWith(MARKER_PREFIX) && typeof value === 'string'
@@ -129,7 +129,7 @@ export async function resolveStableHostConversationIdentity({
   }
   return {
     status: 'READY_FOR_REVIEW',
-    conversationId: installationId + ':' + accountId + ':' + conversationUuid,
+    conversationId: hostSessionId + ':' + installationId + ':' + conversationUuid,
     hostSessionId,
     installationId,
     conversationUuid,
@@ -162,7 +162,7 @@ export function hasAnyHostEnrollment(storage) {
 export const stableHostIdentityContract = Object.freeze({
   installationKey: INSTALLATION_KEY,
   sessionIdentityKey: 'logicEngineSessionId',
-  conversationIdFormat: 'installationId:accountId:conversationUuid',
+  conversationIdFormat: 'hostSessionId:installationId:conversationUuid',
   markerPrefix: MARKER_PREFIX,
   identityMetadataKey: 'logic_engine_conversation_id',
   locatorBindingPrefix: 'logic-engine-host-lifecycle-locator:',
