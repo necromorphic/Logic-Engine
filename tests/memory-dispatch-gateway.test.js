@@ -63,6 +63,15 @@ async function startAuthorityProcess(path) {
   return { child, port: Number(match[1]) };
 }
 
+function installTestTransport(gateway, factory) {
+  const dispatch = gateway.dispatchProtectedRequest.bind(gateway);
+  gateway.dispatchProtectedRequest = (request) => dispatch({
+    ...request,
+    transport: request.transport ?? factory(request),
+  });
+  return gateway;
+}
+
 async function createFixture({ sendUpstream, createTransport, coreHead = 1, providerHead = 1, initialProviderGrant = true, providerCandidatesOverride } = {}) {
   const directory = mkdtempSync(join(tmpdir(), 'logic-memory-dispatch-gateway-'));
   const authorityPath = join(directory, 'authority.sqlite');
@@ -86,7 +95,7 @@ async function createFixture({ sendUpstream, createTransport, coreHead = 1, prov
 
   let providerGranted = initialProviderGrant;
   const calls = [];
-  const makeGateway = () => new MemoryDispatchGateway({
+  const makeGateway = () => installTestTransport(new MemoryDispatchGateway({
     ledgerPath,
     coordinatorPath,
     authorityPort: service.port,
@@ -109,12 +118,13 @@ async function createFixture({ sendUpstream, createTransport, coreHead = 1, prov
       sources,
       candidates: providerCandidatesOverride ?? candidates,
     }),
-    createTransport: createTransport ?? ((request) => () => {
+  }), (request) => createTransport
+    ? createTransport(request)
+    : () => {
       calls.push(request);
       if (sendUpstream) return sendUpstream(request);
       return Promise.resolve({ status: 200, body: 'accepted' });
-    }),
-  });
+    });
   gateway = makeGateway();
 
   return {
@@ -547,7 +557,6 @@ test('existing dispatch ledger with missing schema fails closed without auto-rep
       readToken,
       readCoreEvidence: () => ({}),
       readProviderEvidence: () => ({}),
-      createTransport: () => () => Promise.resolve({ status: 200 }),
     }), /DISPATCH_LEDGER_SCHEMA_INCOMPLETE/);
     const verify = new DatabaseSync(ledgerPath);
     try {
@@ -669,7 +678,7 @@ test('real Provider revokeRecord committed before dispatch-start produces zero u
     const transportStarted = new Promise((resolve) => { signalTransportStart = resolve; });
     let releaseTransport;
     const transportGate = new Promise((resolve) => { releaseTransport = resolve; });
-    gateway = new MemoryDispatchGateway({
+    gateway = installTestTransport(new MemoryDispatchGateway({
       ledgerPath,
       coordinatorPath,
       authorityPort: service.port,
@@ -693,11 +702,10 @@ test('real Provider revokeRecord committed before dispatch-start produces zero u
           candidates: stored ? [{ record_ref: stored.record_ref, record_version: stored.record_version, source_kind: stored.source_kind, source_entity_id: stored.source_entity_id, source_version: stored.source_version }] : [],
         };
       },
-      createTransport: (outgoing) => () => {
-        calls.push(outgoing);
-        signalTransportStart();
-        return transportGate.then(() => ({ status: 200, body: 'accepted' }));
-      },
+    }), (outgoing) => () => {
+      calls.push(outgoing);
+      signalTransportStart();
+      return transportGate.then(() => ({ status: 200, body: 'accepted' }));
     });
 
     // Tombstone and purge are real Provider mutation APIs too; the legacy row
@@ -860,7 +868,7 @@ test('real Core source mutation and Gateway dispatch-start share one cross-proce
         sources: currentSources,
       };
     };
-    gateway = new MemoryDispatchGateway({
+    gateway = installTestTransport(new MemoryDispatchGateway({
       ledgerPath: fixture.ledgerPath,
       coordinatorPath: fixture.coordinatorPath,
       authorityPort: fixture.port,
@@ -876,11 +884,10 @@ test('real Core source mutation and Gateway dispatch-start share one cross-proce
         sources,
         candidates,
       }),
-      createTransport: (request) => () => {
-        calls.push(request);
-        markTransportStarted();
-        return transportGate.then(() => ({ status: 200 }));
-      },
+    }), (request) => () => {
+      calls.push(request);
+      markTransportStarted();
+      return transportGate.then(() => ({ status: 200 }));
     });
 
     const readCurrentVersion = () => {
