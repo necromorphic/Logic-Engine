@@ -102,8 +102,72 @@ python3 native/posix-namespace-broker/broker_daemon.py \
 The C `broker_server` remains a transport smoke-test server and implements
 PING only. The Python daemon implements PING, OPEN_MAIN, OPEN_SIDECAR,
 CREATE_SIDECAR, OPEN_ROLE_PARENT, OPEN_OR_CREATE_SIDECAR, ACCESS_ROLE_FILE and
-DELETE_SIDECAR. RENAME, main-file deletion, broker-first role enrollment,
-production cross-UID socket permissions and full recovery remain open.
+DELETE_SIDECAR. Privileged `manifest_store.py` administration now provides
+broker-first main-file enrollment plus offline disable, rename and delete
+lifecycle transitions. These administrative operations are not exposed to the
+application socket. The application must be fully stopped before disable,
+rename or delete: the broker cannot revoke already-transferred SQLite file
+descriptors. Startup reconciles an interrupted enrollment, rename or delete
+only when opened-object identities prove the recorded transition.
+
+## Broker-first main database lifecycle (incremental prototype)
+
+Provision one dedicated service-owned directory per role on a qualified
+`ext4`, `xfs` or `btrfs` filesystem. The final directory must be owned by the
+broker service UID with exact mode `0700`; every ancestor is checked for trusted
+ownership and non-writability. The application UID must be distinct from the
+broker service UID and must not be able to modify the role directory.
+
+Enrollment creates the main database file with `O_CREAT|O_EXCL|O_NOFOLLOW`,
+validates the opened descriptor, fsyncs the file and parent, commits an
+`enrolling` manifest record, then commits `active` before returning. Existing
+files are never adopted. If the broker stops after the enrolling commit,
+startup verifies the recorded identity and promotes that role; an absent or
+replaced file blocks startup.
+
+Example (run as the broker service identity after provisioning the directories
+and initializing the manifest):
+
+```sh
+python3 native/posix-namespace-broker/manifest_store.py \\
+  --manifest-root /var/lib/logic-engine-broker/manifest \\
+  --anchor-root /var/lib/logic-engine-broker/anchor \\
+  --app-uid "$(id -u logic-app)" \\
+  enroll --role core --parent /var/lib/logic-engine-broker/roles/core \\
+  --basename core.sqlite
+```
+
+Main-file rename and deletion are deliberately offline administrative
+operations, not SQLite runtime `xDelete` requests. Stop every application
+process and close every connection before running them. First disable the role
+(to deny new broker opens), then optionally rename or delete it:
+
+```sh
+python3 native/posix-namespace-broker/manifest_store.py \\
+  --manifest-root /var/lib/logic-engine-broker/manifest \\
+  --anchor-root /var/lib/logic-engine-broker/anchor \\
+  --app-uid "$(id -u logic-app)" disable --role core
+
+# Optional: perform one of these while the application remains stopped.
+python3 native/posix-namespace-broker/manifest_store.py \\
+  --manifest-root /var/lib/logic-engine-broker/manifest \\
+  --anchor-root /var/lib/logic-engine-broker/anchor \\
+  --app-uid "$(id -u logic-app)" rename --role core --basename core-archive.sqlite
+
+# Or permanently remove the main file while retaining a deleted manifest tombstone.
+python3 native/posix-namespace-broker/manifest_store.py \\
+  --manifest-root /var/lib/logic-engine-broker/manifest \\
+  --anchor-root /var/lib/logic-engine-broker/anchor \\
+  --app-uid "$(id -u logic-app)" delete --role core
+```
+
+The manifest records `renaming`/`deleting` before namespace mutation. Rename
+uses `renameat2(RENAME_NOREPLACE)`; deletion uses the existing identity-checked
+quarantine primitive. Startup completes only an unambiguous identity-matched
+transition. A disabled role cannot be reopened until it is explicitly
+re-enrolled by a future reviewed lifecycle operation. This is still a prototype:
+operator quiescence is a precondition, not a broker-enforced lease, and runtime
+SQLite main-file deletion remains fail-closed.
 
 ## Persistent role-manifest storage primitive
 
