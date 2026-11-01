@@ -170,3 +170,76 @@ test('uninstall refuses to overwrite edits made after Extension package installa
   assert.equal(readFileSync(join(f.st, clientPath), 'utf8'), 'user edit after install\n');
   assert.equal(inspectSillyTavernPatchTarget(f.st).patchManagerJournal.state, 'APPLIED');
 });
+
+
+const nativePath = 'src/server-startup.js';
+
+function nativeFixture(t) {
+  const root = mkdtempSync(join(tmpdir(), 'le-st-native-patch-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const st = join(root, 'SillyTavern');
+  const packageDir = join(root, 'package');
+  mkdirSync(join(st, 'src'), { recursive: true });
+  mkdirSync(packageDir);
+  git(st, ['init', '-q']);
+  git(st, ['config', 'user.email', 'test@example.invalid']);
+  git(st, ['config', 'user.name', 'Patch Manager Test']);
+  writeFileSync(join(st, nativePath), 'export const startup = "original";\\n');
+  git(st, ['add', nativePath]);
+  git(st, ['commit', '-qm', 'base']);
+  const targetCommit = git(st, ['rev-parse', 'HEAD']);
+  const nativePatch = [
+    'diff --git a/' + nativePath + ' b/' + nativePath,
+    'index 1111111..2222222 100644',
+    '--- a/' + nativePath,
+    '+++ b/' + nativePath,
+    '@@ -1 +1 @@',
+    '-export const startup = "original";',
+    '+export const startup = "patched";',
+    '',
+  ].join('\\n');
+  writeFileSync(join(packageDir, 'native.patch'), nativePatch);
+  const bytes = readFileSync(join(packageDir, 'native.patch'));
+  const manifestPath = join(packageDir, 'manifest.json');
+  writeFileSync(manifestPath, JSON.stringify({
+    schema_version: 1,
+    package_id: 'logic-engine.native-test',
+    target_git_commit: targetCommit,
+    target_paths: [nativePath],
+    patches: [{ path: 'native.patch', size: bytes.length, sha256: hash(bytes) }],
+  }));
+  return { st, manifestPath };
+}
+
+test('Patch Manager accepts an exact manifest-declared native ST source path and rolls it back', t => {
+  const f = nativeFixture(t);
+  assert.deepEqual(
+    installSillyTavernPatchPackage({ stPath: f.st, manifestPath: f.manifestPath }).affected_files,
+    [nativePath],
+  );
+  assert.equal(readFileSync(join(f.st, nativePath), 'utf8'), 'export const startup = "patched";\\n');
+  assert.equal(
+    installSillyTavernPatchPackage({ stPath: f.st, manifestPath: f.manifestPath }).status,
+    'ALREADY_APPLIED',
+  );
+  assert.equal(
+    uninstallSillyTavernPatchPackage({ stPath: f.st, packageId: 'logic-engine.native-test' }).status,
+    'ROLLED_BACK',
+  );
+  assert.equal(readFileSync(join(f.st, nativePath), 'utf8'), 'export const startup = "original";\\n');
+  assert.equal(inspectSillyTavernPatchTarget(f.st).clean, true);
+});
+
+test('Patch Manager recovers an interrupted native-source transaction without widening its journal scope', t => {
+  const f = nativeFixture(t);
+  installSillyTavernPatchPackage({ stPath: f.st, manifestPath: f.manifestPath });
+  const gitDir = git(f.st, ['rev-parse', '--git-path', 'logic-engine-patch-manager']);
+  const journalPath = join(f.st, gitDir, 'transaction.json');
+  const journal = JSON.parse(readFileSync(journalPath, 'utf8'));
+  assert.deepEqual(journal.target_paths, [nativePath]);
+  journal.state = 'APPLYING';
+  writeFileSync(journalPath, JSON.stringify(journal));
+  assert.equal(recoverSillyTavernPatchTransaction(f.st).status, 'RECOVERED_ROLLBACK');
+  assert.equal(readFileSync(join(f.st, nativePath), 'utf8'), 'export const startup = "original";\\n');
+  assert.equal(inspectSillyTavernPatchTarget(f.st).clean, true);
+});
