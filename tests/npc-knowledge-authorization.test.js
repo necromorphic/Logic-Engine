@@ -100,6 +100,23 @@ test('production NPC query authorization requires a branded authenticated Host s
 
   assert.equal(authorizers.memoryQueryAuthorizer(scope, hostSessionContext), true);
   assert.equal(authorizers.memoryQueryAuthorizer(scope), false);
+
+  // SillyTavern 1.19.0 no-account mode may populate request.user from
+  // DEFAULT_USER without setting session.handle. The Host-bound session handle
+  // remains signed and must match the middleware-provided profile handle.
+  const defaultUserRequest = {
+    user: { profile: { handle: 'alice' } },
+    session: {
+      logicEngineSessionId: HOST_SESSION_ID,
+      logicEngineSessionHandle: 'alice',
+    },
+  };
+  authenticatedHostRequests.add(defaultUserRequest);
+  trustedConversationIds.set(defaultUserRequest, HOST_CONVERSATION_ID);
+  const defaultUserContext = createAuthenticatedHostSessionContext(
+    defaultUserRequest, HOST_CONVERSATION_ID, isAuthenticatedHostRequest, resolveHostConversationId,
+  );
+  assert.ok(defaultUserContext);
   const otherConversation = HOST_SESSION_ID + ':22222222-2222-4222-8222-222222222222:44444444-4444-4444-8444-444444444444';
   const otherConversationRequest = {
     user: hostRequest.user,
