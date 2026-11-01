@@ -1108,6 +1108,22 @@ test('typed Provider retrieval failures remain distinct at the Core consumer bou
     assert.deepEqual(result.candidates, [], code);
     assert.equal(JSON.stringify(result).includes(code), false, 'internal error codes are not returned verbatim');
   }
+
+  const diagnosticCases = [
+    [{ index_health: 'rebuilding', source_reconciliation: 'stale' }, 'memory_index_rebuilding'],
+    [{ index_health: 'stale', source_reconciliation: 'stale' }, 'memory_index_stale'],
+    [{ index_health: 'unavailable', source_reconciliation: 'stale' }, 'memory_index_unavailable'],
+    [{ index_health: 'ready', source_reconciliation: 'stale' }, 'memory_reconciliation_stale'],
+    [{ index_health: 'ready', source_reconciliation: 'unavailable' }, 'memory_reconciliation_unavailable'],
+  ];
+  provider.retrieveCandidates = async () => { throw new Error('MEMORY_INDEX_NOT_READY'); };
+  for (const [diagnostics, reason] of diagnosticCases) {
+    provider.getIndexStatusForDiagnostics = () => diagnostics;
+    const result = await consumer.retrieveForNpc(request());
+    assert.equal(result.status, 'non_ready');
+    assert.equal(result.reason, reason);
+    assert.deepEqual(result.candidates, []);
+  }
 });
 
 test('mismatched Core actor binding result fails before Memory query', async (t) => {
