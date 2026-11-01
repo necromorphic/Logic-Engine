@@ -137,7 +137,7 @@ test('stream forwarding is inside the transport promise so forwarding failure is
     senderRoute: 'google-ai-studio',
     endpointUrl: 'https://provider.example/stream',
     requestInit: init(),
-    protectedMemory: context,
+    hostRequestContext: { trusted: true },
     stream: true,
     forwardResponse: async () => { throw new Error('client disconnected during stream'); },
   }), /client disconnected during stream/);
