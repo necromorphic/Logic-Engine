@@ -85,6 +85,11 @@ jobs:
           New-Item -ItemType Directory -Force "$env:RUNNER_TEMP\better-sqlite3" | Out-Null
           npm pack better-sqlite3@13.0.3 --pack-destination "$env:RUNNER_TEMP\better-sqlite3"
           tar -xzf "$env:RUNNER_TEMP\better-sqlite3\better-sqlite3-13.0.3.tgz" -C "$env:RUNNER_TEMP\better-sqlite3"
+      - name: Install better-sqlite3 runtime dependency
+        shell: pwsh
+        run: |
+          Set-Location "$env:RUNNER_TEMP\better-sqlite3\package"
+          npm install --no-audit --no-fund
       - name: Verify Node-API 10 and archived Windows prebuild identity
         shell: pwsh
         run: |
