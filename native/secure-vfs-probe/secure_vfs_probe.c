@@ -292,7 +292,7 @@ static int probe_broker_exchange(
   if (expected_uid_text && expected_uid_text[0]) {
     const unsigned char *digit = (const unsigned char *)expected_uid_text;
     expected_uid_valid = 1;
-    if (digit[0] == '0' && digit[1] != '\\0') expected_uid_valid = 0;
+    if (digit[0] == '0' && digit[1] != '\0') expected_uid_valid = 0;
     for (; *digit; ++digit) {
       if (*digit < '0' || *digit > '9') {
         expected_uid_valid = 0;
@@ -302,7 +302,7 @@ static int probe_broker_exchange(
     errno = 0;
     expected_uid_value = strtoull(expected_uid_text, &expected_uid_end, 10);
     expected_uid_valid = expected_uid_valid && errno == 0 && expected_uid_end
-      && *expected_uid_end == '\\0'
+      && *expected_uid_end == '\0'
       && expected_uid_value <= (unsigned long long)((uid_t)-1);
   }
   if (out_fd) *out_fd = -1;
@@ -1964,7 +1964,7 @@ static BOOL WINAPI probe_delete_file_w(LPCWSTR path) {
     return FALSE;
   }
   probe_counter_increment(&g_delete_file_hook_count);
-  rc = probe_win_delete_role(role_index, relative_name, suffix[0] == L'\\0');
+  rc = probe_win_delete_role(role_index, relative_name, suffix[0] == L'\0');
   sqlite3_free(relative_name);
   if (rc == SQLITE_OK) {
     SetLastError(ERROR_SUCCESS);
@@ -3044,6 +3044,8 @@ static void probe_register_broker_role_from_host(sqlite3_context *context,
   }
   probe_register_broker_role_values(context, path, role, socket_path);
 }
+
+#endif /* defined(__linux__) */
 
 static void probe_delete_registered_role(sqlite3_context *context, int argc, sqlite3_value **argv) {
   const unsigned char *path = sqlite3_value_text(argv[0]);
