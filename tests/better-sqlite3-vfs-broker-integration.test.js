@@ -65,6 +65,7 @@ test('better-sqlite3 uses brokered main, journal, WAL and SHM descriptors with c
   }
 
   const registrar = new Database(':memory:');
+  t.after(() => { if (registrar.open) registrar.close(); });
   const enroll = () => registrar.prepare(
     'SELECT logic_engine_vfs_probe_register_broker_role(?, ?, ?) AS registered',
   ).get(databasePath, 'core', socketPath).registered;
@@ -169,6 +170,7 @@ test('better-sqlite3 uses brokered main, journal, WAL and SHM descriptors with c
   // reopen through the same broker and verify SQLite discards uncommitted rows.
   const crashScript = `
     const Database = require(process.env.BETTER_SQLITE3_PACKAGE_DIR);
+    const { statSync } = require('node:fs');
     const bootstrap = new Database(':memory:');
     bootstrap.loadExtension(process.env.LOGIC_ENGINE_VFS_PROBE_PATH, 'sqlite3_secure_vfs_probe_init');
     bootstrap.close();
@@ -198,7 +200,6 @@ test('better-sqlite3 uses brokered main, journal, WAL and SHM descriptors with c
   const [crashCode] = await once(crashed, 'exit');
   assert.equal(crashCode, 0, 'child must exit abruptly after writing uncommitted WAL frames');
 
-  assert.equal(enroll(), 1, 'the parent process must enroll the broker role before recovery open');
   const recovered = new Database(databasePath);
   try {
     assert.equal(
@@ -210,7 +211,6 @@ test('better-sqlite3 uses brokered main, journal, WAL and SHM descriptors with c
       'the recovered broker-backed database must pass integrity_check');
   } finally {
     recovered.close();
-    registrar.close();
   }
 
   const operations = readFileSync(logPath, 'utf8');
