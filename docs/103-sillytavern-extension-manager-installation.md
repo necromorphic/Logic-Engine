@@ -1,6 +1,6 @@
 # SillyTavern Extension Manager integration
 
-**Status:** first installable client extension plus server-side session bridge; not the complete protected generation integration.  
+**Status:** first installable client extension plus server-side host-context bridge; not the complete protected generation integration.  
 **Host target inspected:** SillyTavern 1.19.0.  
 **Host source modifications:** none.
 
@@ -63,14 +63,14 @@ The extension does not ask for an API key. The model provider remains configured
 - The client extension is loadable through the normal Extension Manager.
 - The browser talks only to same-origin `/api/plugins/logic-engine/*` routes.
 - SillyTavern's server-side `requireLoginMiddleware` runs before server-plugin routes in the inspected 1.19.0 source. The plugin independently requires `req.user.profile.handle` and fails closed if it is absent.
-- The server plugin derives a pseudonymous subject identifier from the server-resolved ST user context and deployment host ID; it does not accept identity from browser request fields.
+- The server plugin derives a pseudonymous subject identifier from the server-resolved ST user and data-directory scope; it does not accept identity from browser request fields.
 - The server plugin calls only the configured Core `/health` endpoint. The browser cannot supply or override the Core URL.
 - Core credentials are not sent to or stored in the browser.
 - The model/API provider is not replaced.
 
 ## Explicitly not implemented yet
 
-This is a real installation and authenticated session-connectivity slice, not the complete Sole Gateway. It does not yet:
+This is a real installation and host-context/Core-connectivity slice, not the complete Sole Gateway. It does not yet:
 
 - bind the authenticated ST installation/session/conversation to a Core world and actor;
 - expose protected Memory retrieval to the browser;
