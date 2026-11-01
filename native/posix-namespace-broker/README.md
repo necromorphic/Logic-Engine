@@ -68,12 +68,15 @@ no unrelated members to limit connection-level denial-of-service exposure.
 ## Manifest-backed descriptor broker increment
 
 `broker_daemon.py` is the first service path that consumes the manifest store.
-Before opening the socket, startup reconciles only absent sidecars left
-in `creating` or `deleting` states to `retired`. If a transitional sidecar
-is still present and its identity matches, the broker durably marks its role
-`recovery-required`; it never deletes or promotes that file automatically.
-Startup then verifies every enrolled database role and active sidecar and
-remains fail-closed for SQLite-aware recovery. This startup mutation relies on the documented
+Before opening the socket, startup first completes a quarantined sidecar
+delete only when the quarantined handle identity uniquely matches a manifest
+sidecar in `deleting` state. It then reconciles absent sidecars left in
+`creating` or `deleting` states to `retired`. If a transitional sidecar is
+still present at its live name and its identity matches, the broker durably
+marks its role `recovery-required`; it never deletes or promotes that file
+automatically. Unknown or mismatched quarantine entries remain retained and
+block startup. Startup then verifies every enrolled database role and active
+sidecar before exposing the socket. This startup mutation relies on the documented
 service-owned role-directory boundary: the application cannot mutate these
 directories except through the broker, and the broker socket is not yet exposed.
 It then accepts authenticated `AF_UNIX/SOCK_SEQPACKET` requests from the
