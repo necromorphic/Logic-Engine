@@ -1,0 +1,285 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://logic-engine.invalid/schemas/deployment-manifest.schema.json",
+  "title": "Logic-Engine Deployment Manifest",
+  "description": "Platform-neutral declaration of deployment profile, components and logical resources. This schema does not itself prove OS permissions or runtime readiness.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "deployment_id",
+    "profile",
+    "platform_policy",
+    "components",
+    "resources"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "deployment_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+    },
+    "profile": {
+      "enum": [
+        "portable-desktop",
+        "hardened-service"
+      ]
+    },
+    "platform_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "supported_platforms",
+        "allow_unknown_platform"
+      ],
+      "properties": {
+        "supported_platforms": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "windows",
+              "linux"
+            ]
+          }
+        },
+        "allow_unknown_platform": {
+          "const": false
+        }
+      }
+    },
+    "components": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "enabled",
+          "security_domain",
+          "execution_mode"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9._-]{1,63}$"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "security_domain": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "execution_mode": {
+            "enum": [
+              "in-process",
+              "managed-process"
+            ]
+          },
+          "requires_capabilities": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9._-]{1,127}$"
+            }
+          }
+        }
+      }
+    },
+    "resources": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "kind",
+          "classification",
+          "owner_domain",
+          "path",
+          "access",
+          "link_policy",
+          "backup_policy"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9._-]{1,127}$"
+          },
+          "kind": {
+            "enum": [
+              "database",
+              "config",
+              "secret-file",
+              "log",
+              "cache",
+              "runtime",
+              "backup-vault",
+              "backup-staging",
+              "artifact",
+              "other"
+            ]
+          },
+          "classification": {
+            "enum": [
+              "canonical",
+              "derived",
+              "sensitive",
+              "operational"
+            ]
+          },
+          "owner_domain": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "path": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "source",
+              "value"
+            ],
+            "properties": {
+              "source": {
+                "enum": [
+                  "deployment-root-relative",
+                  "explicit-config",
+                  "platform-default"
+                ]
+              },
+              "value": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2048
+              }
+            }
+          },
+          "access": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "read",
+              "create",
+              "append",
+              "replace",
+              "delete",
+              "rename"
+            ],
+            "properties": {
+              "read": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "create": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "append": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "replace": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "delete": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "rename": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          },
+          "link_policy": {
+            "enum": [
+              "reject-links",
+              "allow-contained-links",
+              "platform-default-reviewed"
+            ]
+          },
+          "backup_policy": {
+            "enum": [
+              "required",
+              "exclude",
+              "rebuildable",
+              "separate-vault"
+            ]
+          }
+        }
+      }
+    },
+    "secrets": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "provider_preference": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "os-store",
+              "managed-injection",
+              "private-file",
+              "environment-compat"
+            ]
+          }
+        },
+        "allow_environment_fallback": {
+          "type": "boolean"
+        }
+      }
+    },
+    "backup": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "vault_resource_id": {
+          "type": "string"
+        },
+        "require_independent_freshness_anchor": {
+          "type": "boolean"
+        },
+        "allow_restore_without_anchor": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}
