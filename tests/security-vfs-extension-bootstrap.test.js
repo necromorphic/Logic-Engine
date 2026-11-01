@@ -99,6 +99,12 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
       roleRegistrar, manifest, 'manifest-enrolled', manifestDbPath
     ), 1,
     'Windows manifest enrollment must bind the DB and final parent handle identities');
+    assert.throws(
+      () => roleRegistrar.prepare(
+        'SELECT logic_engine_vfs_probe_delete_registered_role(?)'
+      ).get(manifestDbPath),
+      'a manifest-bound main DB cannot be deleted until its durable manifest lifecycle supports retirement',
+    );
     const manifestOpenCountAfter = roleRegistrar.prepare(
       'SELECT logic_engine_vfs_probe_open_count() AS count'
     ).get().count;
