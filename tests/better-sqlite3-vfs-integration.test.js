@@ -20,7 +20,7 @@ test('patched better-sqlite3 registers and opens through its own named VFS', {
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
 
   assert.throws(() => new Database(filename, { vfs: '' }), /non-empty SQLite VFS name/);
-  assert.throws(() => new Database(filename, { vfs: 'bad\\0vfs' }), /non-empty SQLite VFS name/);
+  assert.throws(() => new Database(filename, { vfs: 'bad' + String.fromCharCode(0) + 'vfs' }), /non-empty SQLite VFS name/);
 
   // Register in better-sqlite3's embedded engine, not node:sqlite.
   const bootstrap = new Database(':memory:');
