@@ -327,6 +327,7 @@ The active candidates have corrected the earlier identity-key and Memory-consume
 | `HostConversationWorldBindingService` | Blob matches Core candidate | Hardened identifier validation | Aligned |
 | `MemoryNpcConsumer` | Blob matches Core candidate after sync | Hardened plain-data/proxy/array checks and authenticated-session context | Aligned |
 | Memory Provider adapter | Blob matches Core candidate | HTTP/runtime composition and Provider facade | Aligned |
+| Unexpected exception from `retrieveForNpc()` | Host maps non-2xx Core responses to bounded dispatch failure | Core #867 currently maps unclassified consumer callback exceptions to 401 `HOST_SESSION_ASSERTION_INVALID`; contract requires generic 500 `INTERNAL_ERROR` | **Not aligned; correction required** |
 | NPC knowledge authorization + SQLite Memory Provider | Blobs match Lane B/Core candidate after sync | Core-owned authorization and Provider implementation | Aligned |
 | Host lifecycle and full-root inventory routes | Host adds four private routes | Not part of Core #867 | Host-owned extension; no collision with Core routes |
 
