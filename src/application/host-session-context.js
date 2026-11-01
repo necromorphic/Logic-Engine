@@ -70,7 +70,7 @@ export function createAuthenticatedHostSessionContext(
     const session = request?.session;
     const userHandle = request?.user?.profile?.handle;
     const sessionId = session?.logicEngineSessionId;
-    if (typeof userHandle !== 'string' || !userHandle.trim()
+    if (typeof userHandle !== 'string' || userHandle !== userHandle.trim() || !userHandle
       || (session?.handle !== undefined && session.handle !== userHandle)
       || session?.logicEngineSessionHandle !== userHandle
       || typeof sessionId !== 'string' || !HOST_SESSION_UUID.test(sessionId)

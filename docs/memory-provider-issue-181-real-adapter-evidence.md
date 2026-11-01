@@ -135,3 +135,38 @@ The Lane B candidate adds three explicit Core boundary requirements:
 Additional tests cover request lookalikes, caller-supplied world/actor spoofing, ambiguous actor bindings, session rotation, malformed trusted identity/binding objects, malformed Core envelopes, field visibility revoked between the initial read and final disclosure, Provider revoke/re-grant across SQLite connections, and Core conversation revocation at the final authorization fence.
 
 **Important integration boundary:** this Core change makes the authentication verifier mandatory, but does not itself prove that the deployed SillyTavern route supplies a correct verifier. Host/Adapter must wire the returned adapter.runWithAuthenticatedHostSession() only from a route mounted after SillyTavern's authentication middleware and provide deployment-owned resolvers for: exact-request authentication, the session-scoped `hostSessionId:installationId:conversationUuid` conversation identity, the separately stored installation/account identity, and the canonical Core conversation→world plus adapter→actor bindings. The direct in-process Host path and the HMAC-authenticated cross-process assertion path produce the same branded Host context; neither request payloads nor browser-selected identifiers can create it. Until that concrete Host integration is exercised against the exact SillyTavern release, this is Core integration evidence, not proof of end-to-end authenticated ST traffic. No production NPC dispatch is enabled.
+
+## Independent review corrections — PR #845 review findings
+
+The first independent review of PR #845 found that identifier-only Core query authorization was insufficient and that a record revoke after retrieval but before the first authorizeCandidate() call could be filtered into ready-empty. The follow-up implementation addresses those two defects without changing the Provider's retrieval/index architecture.
+
+### Authenticated Host session boundary
+
+- src/application/host-session-context.js creates a branded, non-serializable capability only from the authenticated SillyTavern server request shape: signed-session handle must match the authenticated user handle, the server-generated logicEngineSessionId and logicEngineSessionHandle must match, and the composite conversation ID must be scoped to that session.
+- Host-owned work must run inside runWithAuthenticatedHostSession(request, conversationId, callback). MemoryNpcConsumer reads the capability from AsyncLocalStorage; no caller-supplied conversation ID alone can authorize a query.
+- Core memoryQueryAuthorizer now requires that exact branded session capability and still checks the active Core conversation → world and adapter → actor bindings.
+- tests/npc-knowledge-authorization.test.js covers missing capability, a copied/plain object, a different conversation in the same session, and a second active conversation belonging to another authenticated session.
+- tests/memory-npc-provider-adapter.test.js verifies that calling the consumer outside an authenticated Host context returns non-ready with no candidates.
+
+### Retrieval-time record grant snapshot
+
+- memory_record_grants.authorization_generation is durable and increments on every grant/revoke update, including revoke → re-grant.
+- retrieveCandidates() returns the exact generation alongside each (record_ref, record_version).
+- MemoryNpcConsumer requires that generation and supplies it to every per-record authorization check, including the final check after Core source reads.
+- authorizeCandidate() rejects a revoked grant as MEMORY_RECORD_ACCESS_REVOKED and rejects a changed generation as MEMORY_AUTHORIZATION_CHANGED; it cannot reinterpret a previously retrieved row as an ordinary filtered denial.
+- Existing Provider callers that start a fresh direct authorization without a retrieval snapshot remain compatible; the Core consumer always supplies the captured generation.
+- tests/memory-provider-core-integration.test.js covers revoke strictly after retrieveCandidates() returns but before the first record authorization, plus cross-connection revoke → re-grant using a second file-backed Provider connection. Both cases must be non-ready, never ready-empty.
+- The same integration suite checks that damaged Provider index schema is reported as unavailable rather than empty; existing restart coverage still requires reconciliation before retrieval resumes.
+- The multi-record race now rejects the complete candidate set if one previously retrieved record is revoked during another record's authorization. It does not silently return a partial disclosure.
+
+### Provider exposure boundary
+
+- The adapter no longer returns the raw SQLiteMemoryProvider.
+- The factory exposes only a narrow ingestion/grant administration facade (putRecord, grantQuery, grantRecord, revokeRecord); retrieval and per-record authorization remain private inside MemoryNpcConsumer.
+- Host code receives a separate consumer facade with only retrieveForNpc() and revalidateForFinalDispatch(); Core services and the raw consumer instance remain inside the factory closure.
+- The consumer stores the real Provider in a JavaScript private field and freezes its public instance surface.
+- The adapter test asserts that raw retrieval/authorization methods and a public consumer.memoryProvider reference are absent.
+
+### Remaining explicit limitation
+
+These changes close the review's identifier-only authorization and retrieval-to-first-record-check defects. They do not claim cross-database atomicity between a Core binding revoke, Provider grant revoke, the last consumer check, and an external model transport. revalidateForFinalDispatch() remains a freshness re-read, not a dispatch lease. A shared serialized dispatch-start/sole-egress contract is still required before any production Memory→NPC dispatch is enabled.
