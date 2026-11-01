@@ -120,12 +120,15 @@ const nonReady = (reason) => Object.freeze({
 export class MemoryNpcConsumer {
   #memoryProvider;
 
-  constructor({ authorizedReadService, actorBindingService, adapterId, memoryProvider, coreQueryAuthorizer, contentFields }) {
+  constructor({ authorizedReadService, actorBindingService, hostConversationWorldBindingService, adapterId, memoryProvider, coreQueryAuthorizer, contentFields }) {
     if (typeof authorizedReadService?.readEntityFields !== 'function') {
       throw new TypeError('MemoryNpcConsumer requires AuthorizedReadService');
     }
-    if (typeof actorBindingService?.resolve !== 'function') {
-      throw new TypeError('MemoryNpcConsumer requires Core ActorBindingService');
+    if (typeof actorBindingService?.resolveForAdapter !== 'function') {
+      throw new TypeError('MemoryNpcConsumer requires Core ActorBindingService trusted adapter resolution');
+    }
+    if (typeof hostConversationWorldBindingService?.resolve !== 'function') {
+      throw new TypeError('MemoryNpcConsumer requires Core HostConversationWorldBindingService');
     }
     if (!validId(adapterId)) {
       throw new TypeError('MemoryNpcConsumer requires a trusted configured adapterId');
@@ -149,6 +152,7 @@ export class MemoryNpcConsumer {
     }
     this.authorizedReadService = authorizedReadService;
     this.actorBindingService = actorBindingService;
+    this.hostConversationWorldBindingService = hostConversationWorldBindingService;
     this.adapterId = adapterId;
     this.coreQueryAuthorizer = coreQueryAuthorizer;
     this.#memoryProvider = memoryProvider;
@@ -188,18 +192,30 @@ export class MemoryNpcConsumer {
     if (!hasSafeObjectPrototype() || !hasSafeArrayIterator()) {
       return nonReady('memory_result_incomplete_or_scope_mismatch');
     }
-    let worldId;
-    let actorEntityId;
     let conversationId;
     try {
-      if (object(request)) ({ worldId, actorEntityId, conversationId } = request);
+      if (object(request)) ({ conversationId } = request);
     } catch {
       return nonReady('trusted_scope_incomplete');
     }
     const adapterId = this.adapterId;
-    if (!validId(worldId) || !validId(actorEntityId) || !validId(conversationId)) {
-      return nonReady('trusted_scope_incomplete');
+    if (!validId(conversationId)) return nonReady('trusted_scope_incomplete');
+
+    // World and actor are resolved only from Core's durable bindings. Values
+    // supplied beside the conversation ID are deliberately ignored.
+    let worldId;
+    let actorEntityId;
+    try {
+      const conversationBinding = this.hostConversationWorldBindingService.resolve({
+        adapterId, conversationId,
+      });
+      worldId = conversationBinding.world_id;
+      const actorBinding = this.actorBindingService.resolveForAdapter(worldId, adapterId);
+      actorEntityId = actorBinding.actor.entity_id;
+    } catch {
+      return nonReady('trusted_scope_unavailable');
     }
+    if (!validId(worldId) || !validId(actorEntityId)) return nonReady('trusted_scope_unavailable');
 
     // The conversation identifier is not a credential. Require a branded
     // context produced from SillyTavern's authenticated signed server session.
