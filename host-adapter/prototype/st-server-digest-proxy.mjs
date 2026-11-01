@@ -599,6 +599,25 @@ export function createHostLifecycleJournalProxy({
         host_session_id: resolved.hostSessionId,
         conversation_uuid: resolved.conversationUuid,
       });
+      if ([200, 201].includes(result.status)
+        && ['appended', 'duplicate'].includes(result.payload?.lifecycle?.status)) {
+        const session = request?.session;
+        if (body.event_type === 'MUTATION_PREPARED' && session) {
+          session.logicEngineHostPreparedMutation = {
+            protocol_version: 1,
+            host_installation_id: resolved.identity.host_installation_id,
+            authenticated_account_id: resolved.identity.authenticated_account_id,
+            host_session_id: resolved.hostSessionId,
+            conversation_uuid: resolved.conversationUuid,
+            mutation_id: body.mutation_id,
+            event_id: body.event_id,
+            operation: body.operation,
+            mutation_digest: body.mutation_digest,
+          };
+        } else if (session?.logicEngineHostPreparedMutation?.mutation_id === body.mutation_id) {
+          delete session.logicEngineHostPreparedMutation;
+        }
+      }
       return response.status(result.status).json(result.payload);
     },
 
