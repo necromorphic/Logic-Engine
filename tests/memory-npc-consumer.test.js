@@ -363,7 +363,7 @@ test('empty retrieval that is denied, incomplete, or unavailable is non-ready, n
   assert.equal(JSON.stringify(failed).includes('private provider diagnostic'), false);
 });
 
-test('Memory record denial is indistinguishable from an authorized empty candidate set, including stale hidden records', async (t) => {
+test('A record returned by retrieval but not authorized at the record check is non-ready, not empty', async (t) => {
   const denied = setup(t, { authorizeCandidate: false });
   const result = await denied.consumer.retrieveForNpc(request());
   assert.equal(result.status, 'non_ready');
@@ -929,7 +929,7 @@ test('malformed and cross-scope candidate rows cannot be silently converted to c
   assert.deepEqual(crossScope.candidates, []);
 });
 
-test('filtered-empty result still validates the current Core snapshot after record denial', async (t) => {
+test('snapshot changes remain non-ready even when record authorization is denied', async (t) => {
   const { consumer, engine, provider } = setup(t, { authorizeCandidate: false });
   const rollback = engine.rollbackEvent('memory-npc-world', {
     root_event_id: 'unrelated-memory-npc',
