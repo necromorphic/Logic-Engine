@@ -137,9 +137,11 @@ class ManifestStoreTests(unittest.TestCase):
         role = next(entry for entry in current["roles"] if entry["role"] == "vectors")
         self.assertEqual(role["state"], "active")
         self.assertEqual(role["databaseBasename"], "vectors.sqlite")
-        self.assertEqual(role["databaseIdentity"], fd_identity(
-            os.open(parent / "vectors.sqlite", os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
-        ))
+        enrolled_fd = os.open(parent / "vectors.sqlite", os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
+        try:
+            self.assertEqual(role["databaseIdentity"], fd_identity(enrolled_fd))
+        finally:
+            os.close(enrolled_fd)
         opened = self.store.open_role_file("vectors", "main")
         try:
             self.assertEqual(os.fstat(opened).st_ino, os.stat(parent / "vectors.sqlite").st_ino)
