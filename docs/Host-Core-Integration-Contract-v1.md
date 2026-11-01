@@ -2,7 +2,7 @@
 
 **Contract:** Host ↔ Core authenticated Memory retrieval  
 **Version:** 1.0.0  
-**Status:** CONTRACT AGREED; coordinated candidate CI green; branch integration and deployment readiness remain pending  
+**Status:** CONTRACT AGREED; Host/Core candidate CI green; contract PR full-suite validation retry pending; branch integration and deployment readiness remain pending  
 **Validated candidate heads (1 Nov 2026):** Host PR #850 `4aa26dcf2a9e5b5e65123f2cd72b40516e41a685`; Core PR #846 `832abf337530e9421f53eaed85760cb4a7f07313`; Core HTTP PR #867 `7e3895aeb91c983bf020e889acdad6c1909dd0e7`  
 **Scope:** identity hand-off, Core World/Actor resolution, authenticated Memory Provider retrieval, result/error/revoke semantics.  
 **Not in scope:** branch merging, Security Gateway changes, Final-Send, production enablement, Lane A, Provider schema migration.
@@ -114,7 +114,7 @@ Request body — exact schema `host-context-resolve-request/v1`:
 
 No other body key is permitted. In particular, `world_id`, `actor_id`, `actor_type`, `account_id`, and `adapter_id` are forbidden.
 
-Success — HTTP 200, exact response data shape `host-context-resolve-response/v1`:
+Success — HTTP 200, exact response envelope `host-context-resolve-response/v1` (the `context` object has exactly the five fields shown):
 
 ```json
 {
@@ -183,7 +183,7 @@ Core retrieval scope is fixed by the existing consumer: `recipient: "model"`, Co
 
 ### 5.1 Result schema — `memory-npc-result/v1`
 
-The top-level result envelope is exactly the existing consumer envelope. It has no Provider diagnostics or item-level denial metadata.
+The inner `retrieval` value is exactly the existing consumer envelope. The HTTP route wraps it in `{ "retrieval": <consumer-result> }`; the Host proxy forwards that wrapper unchanged. Neither layer adds Provider diagnostics or item-level denial metadata.
 
 Ready:
 
@@ -253,8 +253,10 @@ Do not return secrets, raw request data, hidden entity values, Provider snippets
 
 | Condition | HTTP | Stable code / result |
 |---|---:|---|
-| Invalid JSON, unknown key, malformed UUID/tuple, invalid bounds | 400 | `INVALID_HOST_CONTEXT_REQUEST` or `INVALID_HOST_MEMORY_RETRIEVE_REQUEST` |
-| Missing/invalid session-to-conversation tuple | 403 | `HOST_SESSION_AUTHENTICATION_REQUIRED` or `HOST_SESSION_ASSERTION_INVALID` |
+| Invalid JSON | 400 | `INVALID_JSON` |
+| Invalid context body / unknown key / malformed context tuple | 400 | `INVALID_HOST_CONTEXT_RESOLUTION` |
+| Invalid retrieval envelope / bounded metadata | 400 | `INVALID_HOST_MEMORY_RETRIEVAL` |
+| Invalid, tampered, or malformed signed assertion | 401 | `HOST_SESSION_ASSERTION_INVALID` |
 | Missing/invalid API bearer | 401 | `UNAUTHORIZED` |
 | Missing/invalid adapter credentials | 403 | `ADAPTER_REQUIRED` |
 | No active conversation → World binding | 403 | `HOST_CONVERSATION_NOT_AUTHORIZED` |
@@ -262,17 +264,17 @@ Do not return secrets, raw request data, hidden entity values, Provider snippets
 | No active Actor binding | 403 | `ACTOR_NOT_AUTHORIZED` |
 | More than one active Actor binding | 403 | `ACTOR_BINDING_AMBIGUOUS` |
 | Bound Actor missing or destroyed | 409 | `ACTOR_ENTITY_NOT_ELIGIBLE` |
-| Invalid/tampered assertion or signature | 403 | `HOST_SESSION_ASSERTION_INVALID` |
-| Expired assertion | 403 | `HOST_SESSION_ASSERTION_EXPIRED` |
-| Reused nonce | 403 | `HOST_SESSION_ASSERTION_REPLAYED` |
+| Expired assertion | 401 | `HOST_SESSION_ASSERTION_EXPIRED` |
+| Reused nonce | 409 | `HOST_SESSION_ASSERTION_REPLAYED` |
+| No configured adapter-pinned Memory consumer | 503 | `MEMORY_NPC_CONSUMER_UNAVAILABLE` |
 | In-process nonce cache full (legacy runner mode) | 503 | `HOST_SESSION_ASSERTION_CAPACITY_EXCEEDED` |
 | Durable nonce store unavailable or write failure | 503 | `HOST_ASSERTION_REPLAY_GUARD_UNAVAILABLE` |
-| Durable nonce/epoch guard unavailable (target contract) | 503 | `HOST_ASSERTION_REPLAY_GUARD_UNAVAILABLE` |
+| Durable nonce/epoch guard unavailable | 503 | `HOST_ASSERTION_REPLAY_GUARD_UNAVAILABLE` |
 | Core Memory consumer/Provider not configured | 503 | `MEMORY_RETRIEVAL_UNAVAILABLE` |
-| Authenticated retrieval completed but policy/data is not ready | 200 | `status: "non_ready"` with a stable reason |
+| Authenticated retrieval completed but policy/data is not ready | 200 | `{ "retrieval": { "status": "non_ready", ... } }` with a stable reason |
 | Internal unexpected failure | 500 | `INTERNAL_ERROR`, generic message only |
 
-The Host proxy maps a missing retrieval route (404 during rollout) to `503 NON_READY / CORE_HOST_DISPATCH_ROUTE_UNAVAILABLE`; it must not treat route absence as an empty Memory result. Transport timeout/unreachable/invalid JSON also fails closed. No automatic retry may reuse the same assertion nonce; a retry requires a fresh assertion and nonce.
+The Core retrieval route returns HTTP 200 as `{ "retrieval": <memory-npc-result/v1> }`. At the Host boundary, a missing retrieval route (404 during rollout) maps to `503 NON_READY / CORE_HOST_DISPATCH_ROUTE_UNAVAILABLE`; any other non-2xx Core response maps to `502 NON_READY / CORE_HOST_DISPATCH_REJECTED`. Transport timeout/unreachable and invalid JSON map to `502 NON_READY / LOGIC_ENGINE_UNREACHABLE` and `502 NON_READY / LOGIC_ENGINE_INVALID_RESPONSE` respectively. Host forwards the successful Core wrapper unchanged. No automatic retry may reuse the same assertion nonce; a retry requires a fresh assertion and nonce.
 
 Host-side normalized dispatch outcomes are also fixed: invalid bounded browser metadata → `400 HOST_DISPATCH_REQUEST_INVALID`; missing server identity/session → `403` with no sensitive detail; missing proxy configuration → `503 LOGIC_ENGINE_PROXY_UNCONFIGURED`; context resolver missing, denied, malformed or ambiguous → `503 HOST_WORLD_ACTOR_BINDING_UNAVAILABLE`; retrieval route missing → `503 CORE_HOST_DISPATCH_ROUTE_UNAVAILABLE`; other upstream refusal → `502 CORE_HOST_DISPATCH_REJECTED`; malformed upstream JSON → `502 LOGIC_ENGINE_INVALID_RESPONSE`; transport failure/timeout → `502 LOGIC_ENGINE_UNREACHABLE`. Host never forwards Provider diagnostics or raw Core error details to the browser.
 
