@@ -38,6 +38,7 @@ function dependencies(overrides = {}) {
                 return { host_installation_id: installationId, authenticated_account_id: accountId };
             },
         },
+        verifyCompletenessProof: async () => true,
         enumerate: async input => {
             assert.deepEqual(input.directories, directories);
             return {
@@ -86,6 +87,32 @@ test('resolver rejects mismatched account session and incomplete or ambiguous in
             ] },
         }),
     }))(makeRequest()));
+});
+
+
+test('resolver rejects a stable scan candidate without an authoritative completeness proof', async () => {
+    const resolver = createHostConversationResolver(dependencies({
+        verifyCompletenessProof: async () => false,
+    }));
+    await assert.rejects(resolver(makeRequest()), /HOST_INVENTORY_COMPLETENESS_NOT_VERIFIED/);
+});
+
+test('context route does not call Core and returns NON_READY when completeness proof is absent', async () => {
+    let coreCalls = 0;
+    const route = createHostContextRoute({
+        ...dependencies({ verifyCompletenessProof: async () => false }),
+        config: { adapterId: 'st-adapter', actorEntityId: 'npc-kiryu' },
+        corePost: async () => { coreCalls++; throw new Error('must not be called'); },
+    });
+    const request = makeRequest();
+    const response = makeResponse();
+    await route.middleware(request, response, () => {});
+    assert.equal(response.statusCode, 503);
+    assert.deepEqual(response.body, {
+        status: 'NON_READY',
+        code: 'HOST_INVENTORY_COMPLETENESS_NOT_VERIFIED',
+    });
+    assert.equal(coreCalls, 0);
 });
 
 test('context route sends authenticated installation/account/session identity to Core for world and actor resolution', async () => {
