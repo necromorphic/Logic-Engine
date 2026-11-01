@@ -39,6 +39,26 @@ export async function resolveAuthenticatedHostContext(conversationUuid, fetchImp
         throw new Error('HOST_SESSION_IDENTITY_INVALID');
     }
 
+    const inventoryResponse = await fetchImpl(
+        '/api/plugins/logic-engine-extension-gateway/inventory?conversation_uuid=' + encodeURIComponent(conversationUuid),
+        {
+            method: 'GET',
+            credentials: 'same-origin',
+            cache: 'no-store',
+            redirect: 'error',
+        },
+    );
+    let inventory;
+    try { inventory = await inventoryResponse.json(); } catch { throw new Error('HOST_INVENTORY_RESPONSE_INVALID'); }
+    if (!inventoryResponse.ok
+        || inventory?.host_user_handle !== sessionPayload.host_user_handle
+        || inventory?.status !== 'AUTHORITATIVE_COMPLETE'
+        || !Array.isArray(inventory?.blockers) || inventory.blockers.length !== 0
+        || inventory?.root_inventory_reconciliation?.status !== 'AUTHORITATIVE_COMPLETE'
+        || inventory?.root_inventory_reconciliation?.integrity_status !== 'INTEGRITY_OK') {
+        throw new Error('HOST_INVENTORY_NOT_READY');
+    }
+
     const response = await fetchImpl(HOST_CONTEXT_PATH, {
         method: 'POST',
         credentials: 'same-origin',
