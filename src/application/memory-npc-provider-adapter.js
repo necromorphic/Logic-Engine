@@ -36,6 +36,9 @@ export function createMemoryNpcProviderAdapter({
   if (typeof coordinatorPath !== 'string' || !coordinatorPath.trim()) {
     throw new TypeError('Memory Provider adapter requires the shared Core coordinatorPath');
   }
+  if (!engine.store.coordinatorDb || process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH !== resolve(coordinatorPath)) {
+    throw new Error('Memory Provider adapter requires the same live coordinator database as Core');
+  }
   if (!Array.isArray(adapterIds) || adapterIds.length === 0
     || adapterIds.some((id) => typeof id !== 'string' || !id.trim())
     || new Set(adapterIds).size !== adapterIds.length) {
