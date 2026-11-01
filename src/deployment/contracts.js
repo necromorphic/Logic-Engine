@@ -64,6 +64,24 @@ export function validateDeploymentManifest(manifest) {
     && manifest.backup?.allow_restore_without_anchor === true) {
     throw new Error('HARDENED_PROFILE_CANNOT_ALLOW_RESTORE_WITHOUT_FRESHNESS_ANCHOR');
   }
+  if (manifest.profile === 'hardened-service'
+    && manifest.backup?.require_independent_freshness_anchor !== true) {
+    throw new Error('HARDENED_PROFILE_REQUIRES_INDEPENDENT_FRESHNESS_ANCHOR');
+  }
+  if (manifest.backup?.vault_resource_id) {
+    const vault = manifest.resources.find((resource) => resource.id === manifest.backup.vault_resource_id);
+    if (!vault || vault.kind !== 'backup-vault' || vault.backup_policy !== 'separate-vault') {
+      throw new Error('DEPLOYMENT_BACKUP_VAULT_REFERENCE_INVALID');
+    }
+    const otherDomains = new Set(manifest.resources.filter((resource) => resource.id !== vault.id).map((resource) => resource.owner_domain));
+    if (otherDomains.has(vault.owner_domain)) {
+      throw new Error('DEPLOYMENT_BACKUP_VAULT_DOMAIN_NOT_SEPARATE');
+    }
+    if (vault.path.source === 'deployment-root-relative'
+      && /^(?:data)(?:[\\/]|$)/i.test(vault.path.value.replace(/^\\.\\//, ''))) {
+      throw new Error('DEPLOYMENT_BACKUP_VAULT_INSIDE_RUNTIME_DATA_TREE');
+    }
+  }
   if (manifest.secrets?.allow_environment_fallback === true
     && !manifest.secrets?.provider_preference?.includes('environment-compat')) {
     throw new Error('ENVIRONMENT_SECRET_FALLBACK_MUST_BE_EXPLICITLY_LISTED');
