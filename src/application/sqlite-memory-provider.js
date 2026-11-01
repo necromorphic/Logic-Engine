@@ -814,7 +814,9 @@ export class SQLiteMemoryProvider {
         VALUES(?,?,?,?,?,?,1)
         ON CONFLICT(world_id,subject_id,purpose,record_ref,record_version)
         DO UPDATE SET allowed=excluded.allowed,
-          authorization_generation=memory_record_grants.authorization_generation+1`)
+          authorization_generation=CASE WHEN memory_record_grants.allowed<>excluded.allowed
+            THEN memory_record_grants.authorization_generation+1
+            ELSE memory_record_grants.authorization_generation END`)
         .run(scope.world_id, scope.subject_id, scope.purpose, recordRef, recordVersion, allowed ? 1 : 0);
     });
     const key = JSON.stringify([scope.world_id, scope.subject_id, scope.purpose, recordRef, recordVersion]);
@@ -957,6 +959,20 @@ export class SQLiteMemoryProvider {
     if (this.#dataVersion() !== providerDataVersion) throw new Error('MEMORY_AUTHORIZATION_CHANGED');
     return true;
       });
+  }
+
+  checkCandidateGrant(input) {
+    this.#assertAcceptedHeadCurrent();
+    if (!isPlainDataRecord(input)) return false;
+    const { world_id, subject_id, purpose, record_ref, record_version, authorization_generation } = input;
+    if (!validId(world_id) || !validId(subject_id) || !validId(purpose)
+      || !validId(record_ref) || !validId(record_version)
+      || !Number.isSafeInteger(authorization_generation) || authorization_generation < 1) return false;
+    const grant = this.#db.prepare('SELECT allowed,authorization_generation FROM memory_record_grants WHERE world_id=? AND subject_id=? AND purpose=? AND record_ref=? AND record_version=?')
+      .get(world_id, subject_id, purpose, record_ref, record_version);
+    if (!grant || grant.allowed !== 1) throw new Error('MEMORY_RECORD_ACCESS_REVOKED');
+    if (grant.authorization_generation !== authorization_generation) throw new Error('MEMORY_AUTHORIZATION_CHANGED');
+    return true;
   }
 
   putRecord(record) {

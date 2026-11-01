@@ -695,6 +695,34 @@ test('reconciliation rejects a Core mutation that occurs during complete invento
   await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_INDEX_NOT_READY/);
 });
 
+test('Provider revoke during the final field-bearing Core read blocks result envelope', async (t) => {
+  const s = setup(t);
+  assert.equal((await s.prepare()).status, 'current');
+
+  const originalRead = s.consumer.authorizedReadService.readEntityFields.bind(s.consumer.authorizedReadService);
+  let revoked = false;
+  s.consumer.authorizedReadService.readEntityFields = (input) => {
+    const result = originalRead(input);
+    if (!revoked && input.fields.includes('attributes.public_note')) {
+      revoked = true;
+      s.provider.revokeRecord(s.scope, 'memory:record-a', 'record-v1');
+    }
+    return result;
+  };
+
+  const result = await s.consumer.retrieveForNpc({
+    conversationId: HOST_CONVERSATION_ID,
+    worldId: 'caller-spoofed-world',
+    actorEntityId: 'caller-spoofed-actor',
+  });
+  assert.equal(revoked, true);
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'memory_record_access_revoked');
+  assert.deepEqual(result.candidates, []);
+  assert.deepEqual(result.admitted, []);
+  assert.equal(JSON.stringify(result).includes('visible source-a'), false);
+});
+
 test('file-backed Provider restart requires reconciliation before retrieval resumes', async (t) => {
   const s = setup(t);
   assert.equal((await s.prepare()).status, 'current');

@@ -138,7 +138,8 @@ export class MemoryNpcConsumer {
     }
     if (typeof memoryProvider?.authorizeQuery !== 'function'
       || typeof memoryProvider?.retrieveCandidates !== 'function'
-      || typeof memoryProvider?.authorizeCandidate !== 'function') {
+      || typeof memoryProvider?.authorizeCandidate !== 'function'
+      || typeof memoryProvider?.checkCandidateGrant !== 'function') {
       throw new TypeError('MemoryNpcConsumer requires trusted Memory query, retrieval, and record authorization functions');
     }
     if (!Array.isArray(contentFields) || contentFields.length === 0 || contentFields.length > 20
@@ -288,6 +289,18 @@ export class MemoryNpcConsumer {
       }
     };
 
+    // Final synchronous fence used after the last Core field read. There must
+    // be no await between this check and returning the envelope.
+    const queryStillAllowedSynchronously = () => {
+      try {
+        return coreQueryAllowed()
+          && this.#memoryProvider.authorizeQuery(scope) === true
+          && coreQueryAllowed();
+      } catch {
+        return false;
+      }
+    };
+
     let memoryResult;
     try {
       // Freeze a stable data snapshot before any per-record authorization
@@ -401,7 +414,7 @@ export class MemoryNpcConsumer {
         })) {
         return nonReady('memory_snapshot_stale');
       }
-      if (!(await queryStillAllowed())) return nonReady('query_access_unconfirmed');
+      if (!queryStillAllowedSynchronously()) return nonReady('query_access_unconfirmed');
       return Object.freeze({
         status: 'ready',
         admitted: Object.freeze([]),
@@ -818,6 +831,23 @@ export class MemoryNpcConsumer {
       }
       finalContentByIdentity.set(recordIdentityKey(item.record_ref, item.record_version),
         Object.fromEntries(this.contentFields.map((field) => [field, source[field]])));
+    }
+
+    // Recheck query and exact record grants after the final field-bearing read.
+    // SQLite checks are synchronous, so no event-loop yield occurs before the
+    // envelope is returned. Revoke/re-grant is detected by the durable generation.
+    if (!queryStillAllowedSynchronously()) return nonReady('query_access_unconfirmed');
+    for (const item of admitted) {
+      try {
+        if (this.#memoryProvider.checkCandidateGrant({
+          ...scope,
+          record_ref: item.record_ref,
+          record_version: item.record_version,
+          authorization_generation: item.authorization_generation,
+        }) !== true) return nonReady('memory_record_authorization_unconfirmed');
+      } catch (error) {
+        return nonReady(providerAuthorizationFailureReason(error, 'memory_record_authorization_unavailable'));
+      }
     }
 
     return Object.freeze({
