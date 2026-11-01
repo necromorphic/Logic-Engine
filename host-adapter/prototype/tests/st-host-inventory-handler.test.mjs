@@ -376,12 +376,7 @@ test('host inventory route filters the response to the requested conversation lo
   await handler({
     user: {
       profile: { handle: 'alice' },
-      directories: {
-        root: 'C:\\st\\data',
-        chats: 'C:\\st\\data\\chats',
-        groups: 'C:\\st\\data\\groups',
-        groupChats: 'C:\\st\\data\\group chats',
-      },
+      directories: absoluteTestDirectories,
     },
     session: { handle: 'alice', logicEngineSessionId: '2e6b0a80-4e73-4c66-aaf3-7a6e62c7f401', logicEngineSessionHandle: 'alice' },
     query: { conversation_uuid: conversationUuid },
@@ -753,7 +748,7 @@ test('default-user inventory rejects missing/mismatched signed session before sc
 test('request authentication gate brands only the exact request after trusted server resolution', async () => {
   const resolved = new WeakMap();
   const request = {
-    user: { profile: { handle: 'default-user' }, directories: {} },
+    user: { profile: { handle: 'default-user' }, directories: absoluteTestDirectories },
     session: {
       logicEngineSessionId: defaultUserSessionId,
       logicEngineSessionHandle: 'default-user',
