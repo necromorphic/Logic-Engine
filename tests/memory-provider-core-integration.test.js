@@ -207,7 +207,7 @@ test('real SQLite Provider preserves evidence classification without promoting r
       adapterId: 'provider-e2e-adapter',
       actorEntityId: s.scope.subject_id,
     });
-    assert.equal(result.status, 'ready', assessment);
+    assert.equal(result.status, 'ready', `${assessment}: ${result.reason ?? 'no safe result reason'}`);
     assert.equal(result.candidates.length, 1, assessment);
     assert.equal(result.candidates[0].evidence_assessment, assessment);
     assert.equal(
