@@ -1332,15 +1332,31 @@ test('Core derives world and actor from trusted conversation and unique adapter 
 test('Core reapplies field visibility after asynchronous Provider authorization and before disclosure', async (t) => {
   const s = setup(t);
   const authorizeCandidate = s.provider.authorizeCandidate.bind(s.provider);
+  const readEntityFields = s.authorizedReadService.readEntityFields.bind(s.authorizedReadService);
   let calls = 0;
+  let reads = 0;
+  let finalReadEntity;
+  s.authorizedReadService.readEntityFields = (input) => {
+    reads += 1;
+    const result = readEntityFields(input);
+    if (reads === 2) finalReadEntity = result.entities[0];
+    return result;
+  };
   s.provider.authorizeCandidate = async (input) => {
     calls += 1;
-    if (calls === 2) s.revokeContent();
+    if (calls === 2) {
+      s.revokeContent();
+      assert.equal(s.authorizedReadService._fieldAllowed(
+        {}, { entity_id: 'source-a' }, 'attributes.public_note',
+      ), false);
+    }
     return authorizeCandidate(input);
   };
 
   const result = await s.consumer.retrieveForNpc(request());
   assert.equal(calls, 2);
+  assert.equal(reads, 2);
+  assert.equal(Object.hasOwn(finalReadEntity, 'attributes.public_note'), false);
   assert.equal(result.status, 'non_ready');
   assert.equal(result.reason, 'authorized_source_read_unavailable');
   assert.deepEqual(result.candidates, []);
