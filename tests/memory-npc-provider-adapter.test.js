@@ -33,7 +33,7 @@ test('real adapter composes file-backed SQLite Provider with Core query and cano
     const installationId = '22222222-2222-4222-8222-222222222222';
     const accountId = '33333333-3333-4333-8333-333333333333';
     const conversationUuid = '44444444-4444-4444-8444-444444444444';
-    const conversationId = installationId + ':' + accountId + ':' + conversationUuid;
+    const conversationId = hostSessionId + ':' + installationId + ':' + conversationUuid;
     const hostRequest = {
       user: { profile: { handle: 'adapter-test-user' } },
       session: { handle: 'adapter-test-user', logicEngineSessionId: hostSessionId, logicEngineSessionHandle: 'adapter-test-user' },
@@ -41,6 +41,11 @@ test('real adapter composes file-backed SQLite Provider with Core query and cano
     const authenticatedHostRequests = new WeakSet([hostRequest]);
     const trustedConversationIds = new WeakMap([[hostRequest, conversationId]]);
     const resolveHostConversationId = request => trustedConversationIds.get(request) ?? null;
+    const trustedHostIdentities = new WeakMap([[hostRequest, {
+      host_installation_id: installationId,
+      authenticated_account_id: accountId,
+    }]]);
+    const resolveHostIdentity = request => trustedHostIdentities.get(request) ?? null;
 
     engine.createWorld({
       world_id: worldId,
@@ -95,6 +100,18 @@ test('real adapter composes file-backed SQLite Provider with Core query and cano
       isAuthenticatedHostRequest: request => authenticatedHostRequests.has(request),
     }), /trusted Host conversation identity resolver/);
 
+    assert.throws(() => createMemoryNpcProviderAdapter({
+      engine,
+      providerPath,
+      coordinatorPath,
+      adapterId,
+      trustedInitialKnowledgeSources: [],
+      fieldPolicy: () => true,
+      contentFields: ['attributes.public_note'],
+      isAuthenticatedHostRequest: request => authenticatedHostRequests.has(request),
+      resolveHostConversationId,
+    }), /trusted Host installation\/account identity resolver/);
+
     adapter = createMemoryNpcProviderAdapter({
       engine,
       providerPath,
@@ -105,6 +122,7 @@ test('real adapter composes file-backed SQLite Provider with Core query and cano
       contentFields: ['attributes.public_note'],
       isAuthenticatedHostRequest: request => authenticatedHostRequests.has(request),
       resolveHostConversationId,
+      resolveHostIdentity,
     });
 
     const resolvedConversation = new HostConversationWorldBindingService(engine).resolve({
@@ -169,13 +187,17 @@ test('real adapter composes file-backed SQLite Provider with Core query and cano
       }),
     ), /HOST_SESSION_AUTHENTICATION_REQUIRED/);
 
-    const unboundConversationId = installationId + ':' + accountId + ':55555555-5555-4555-8555-555555555555';
+    const unboundConversationId = hostSessionId + ':' + installationId + ':55555555-5555-4555-8555-555555555555';
     const unboundHostRequest = {
       user: hostRequest.user,
       session: hostRequest.session,
     };
     authenticatedHostRequests.add(unboundHostRequest);
     trustedConversationIds.set(unboundHostRequest, unboundConversationId);
+    trustedHostIdentities.set(unboundHostRequest, {
+      host_installation_id: installationId,
+      authenticated_account_id: accountId,
+    });
     assert.throws(() => adapter.runWithAuthenticatedHostSession(
       unboundHostRequest, unboundConversationId, () => adapter.consumer.retrieveForNpc({
         worldId, actorEntityId: actorId, conversationId: unboundConversationId,
