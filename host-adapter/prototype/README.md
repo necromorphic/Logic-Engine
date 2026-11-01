@@ -182,7 +182,7 @@ A self-contained server-plugin candidate is available in `server-plugin/`. It bu
 - `POST /api/plugins/logic-engine-host/host-version-ledger/capture`
 - `POST /api/plugins/logic-engine-host/host-version-ledger/reconcile`
 
-The two POST routes forward only bounded digest/lineage envelopes to the server-configured Core URL and use server-side Core/adapter credentials. The browser lifecycle bridge calls the plugin routes directly and sends SillyTavern's `X-CSRF-Token`; it does not rely on a separate `/api/logic-engine` core-source patch route.
+The two POST routes forward only bounded digest/lineage envelopes to the server-configured Core URL and use server-side Core/adapter credentials. The proxy rejects `complete=true` from the browser and always keeps inventory completeness unasserted. The browser lifecycle bridge calls the plugin routes directly and sends SillyTavern's `X-CSRF-Token`; it does not rely on a separate `/api/logic-engine` core-source patch route.
 
 Pinned-source review of ST commit `06bde939fb1e9c4c8d8641d810f0a916b5bce127` confirms that `requireLoginMiddleware` is mounted before server plugins are loaded. This permits the plugin to use the server-populated `request.user` and signed `request.session` without modifying `server-main.js` or `server-startup.js`.
 
