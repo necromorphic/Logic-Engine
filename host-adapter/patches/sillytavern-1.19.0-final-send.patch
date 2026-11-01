@@ -303,14 +303,13 @@
      if (!request.body) return response.sendStatus(400);
  
      try {
-@@ -423,7 +424,8 @@
-         console.error(error);
-         return response.sendStatus(500);
+@@ -437,6 +438,7 @@
+             : response.end();
      }
 +    }, 'text-completions');
  });
  
- router.use('/ollama', ollama);
+ const ollama = express.Router();
 --- a/src/endpoints/backends/kobold.js
 +++ b/src/endpoints/backends/kobold.js
 @@ -1,6 +1,6 @@
