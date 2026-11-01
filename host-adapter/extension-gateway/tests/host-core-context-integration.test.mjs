@@ -329,7 +329,7 @@ test('Host Adapter requires Core root proof before context resolution and binds 
   await nonAuthoritativeAdapter.dispatchMiddleware(deniedRequest, deniedGateResponse, () => { deniedPassed = true; });
   assert.equal(deniedPassed, false);
   assert.equal(deniedGateResponse.statusCode, 503);
-  assert.equal(deniedGateResponse.payload.code, 'HOST_CONTEXT_UNAVAILABLE');
+  assert.equal(deniedGateResponse.payload.code, 'HOST_INVENTORY_NOT_AUTHORITATIVE');
   assert.equal(deniedCoreCalls, 0);
 
 });
