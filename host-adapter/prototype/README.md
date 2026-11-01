@@ -171,3 +171,12 @@ The pinned Host route exposes `GET /api/logic-engine/host/session`. It requires 
 This prevents two different authenticated ST sessions from silently reusing the same Core conversation binding. The session ID is not a credential and does not authenticate a request to Core; Core still trusts only the configured server-side adapter credential and its own conversation/world binding. The browser's localStorage installation ID remains a client-side namespace, not an installation attestation.
 
 The session ID survives a SillyTavern process restart only while the signed session cookie and the ST cookie-signing secret remain valid and unchanged. Logout/login, cookie loss, secret rotation, or account change rotates the identity. Existing enrollments created with the old `installationId:conversationUuid` format are not migrated automatically; the old marker/mapping mismatch fails closed and requires explicit re-binding. This is still not a durable server installation identity, a complete inventory proof, or Core world/actor authorization.
+
+
+## SillyTavern 1.19.0 default-user session correction (1 Nov 2026)
+
+The authenticated Host routes now support both ST account modes. In accounts-enabled mode, a present `request.session.handle` must match `request.user.profile.handle`. In default-user mode, ST 1.19.0 intentionally omits `request.session.handle`; the route instead requires the authenticated `request.user.profile.handle`, server-provided user directories, and the Host UUID/account binding already stored in the signed cookie session. The `/session` handler creates that UUID server-side and rotates it when the authenticated profile handle changes. The inventory route refuses requests until this binding exists.
+
+This check is valid only when the route is mounted after SillyTavern's `requireLoginMiddleware` in the pinned server pipeline. It is not a generic middleware substitute and does not make a fabricated request object trustworthy. The route response remains a non-authoritative inventory candidate; it does not establish installation attestation, complete lifecycle coverage, Core world/actor authorization, or production disclosure readiness.
+
+Regression coverage: `host-adapter/prototype/tests/st-default-user-session.test.mjs`.
