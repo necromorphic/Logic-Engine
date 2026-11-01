@@ -323,7 +323,7 @@ static int probe_broker_exchange(
 #endif
   {
     /* A production app must never nominate a socket owned by its own UID. */
-    if (socket_info.st_uid == geteuid()
+    if (socket_info.st_uid == 0 || socket_info.st_uid == geteuid()
         || (parent_info.st_mode & 0777) != 0710
         || (socket_info.st_mode & 0777) != 0620
         || !probe_broker_group_member(socket_info.st_gid)) {
