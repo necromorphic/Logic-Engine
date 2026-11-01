@@ -199,23 +199,29 @@ test('real SQLite Provider preserves evidence classification without promoting r
   ];
 
   for (const [assessment, expectedEpistemicStatus] of cases) {
-    const s = setup(t, { evidenceAssessment: assessment });
-    assert.equal((await s.prepare()).status, 'current', assessment);
+    await t.test(assessment, async (subtest) => {
+      const s = setup(subtest, { evidenceAssessment: assessment });
+      assert.equal((await s.prepare()).status, 'current', assessment);
+      assert.equal(typeof s.scope.world_id, 'string');
+      assert.equal(typeof s.scope.subject_id, 'string');
+      assert.equal(typeof HOST_CONVERSATION_ID, 'string');
+      assert.ok(HOST_CONVERSATION_ID.length > 0 && HOST_CONVERSATION_ID.length <= 200);
 
-    const result = await s.consumer.retrieveForNpc({
-      worldId: s.scope.world_id,
-      actorEntityId: s.scope.subject_id,
-      conversationId: HOST_CONVERSATION_ID,
+      const result = await s.consumer.retrieveForNpc({
+        worldId: s.scope.world_id,
+        actorEntityId: s.scope.subject_id,
+        conversationId: HOST_CONVERSATION_ID,
+      });
+      assert.equal(result.status, 'ready', `${assessment}: ${result.reason ?? 'no safe result reason'}`);
+      assert.equal(result.candidates.length, 1, assessment);
+      assert.equal(result.candidates[0].evidence_assessment, assessment);
+      assert.equal(
+        mapMemoryEvidenceToNpcEpistemicStatus(result.candidates[0].epistemic_kind, assessment),
+        expectedEpistemicStatus,
+        assessment,
+      );
+      assert.equal(JSON.stringify(result).includes('never disclose'), false);
     });
-    assert.equal(result.status, 'ready', `${assessment}: ${result.reason ?? 'no safe result reason'}`);
-    assert.equal(result.candidates.length, 1, assessment);
-    assert.equal(result.candidates[0].evidence_assessment, assessment);
-    assert.equal(
-      mapMemoryEvidenceToNpcEpistemicStatus(result.candidates[0].epistemic_kind, assessment),
-      expectedEpistemicStatus,
-      assessment,
-    );
-    assert.equal(JSON.stringify(result).includes('never disclose'), false);
   }
 });
 
