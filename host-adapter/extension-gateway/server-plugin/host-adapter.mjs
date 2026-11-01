@@ -80,8 +80,12 @@ export function createSillyTavernHostAdapter({
         if (typeof userHandle !== 'string' || !userHandle.trim()
           || !uuid.test(sessionId ?? '') || !uuid.test(conversationUuid ?? '')) return null;
 
-        const identityRecord = await identityStore.resolveAuthenticatedAccount(userHandle);
         const directories = request.user.directories;
+        if (typeof directories?.root !== 'string' || !path.isAbsolute(directories.root)) {
+          return { status: 'NON_READY', code: 'HOST_IDENTITY_DATA_ROOT_UNAVAILABLE' };
+        }
+        await identityStore.assertOutsideRoot(directories.root);
+        const identityRecord = await identityStore.resolveAuthenticatedAccount(userHandle);
         const hostInventory = await enumerate({
           directories: {
             root: directories.root,
