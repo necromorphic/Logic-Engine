@@ -40,9 +40,9 @@ function aliasesSameFile(left, right) {
  * callbacks or mock Provider are accepted by this production composition.
  *
  * This is an internal adapter factory, not an HTTP route or final-send gateway.
- * The configured adapter identity is pinned into the returned consumer. The
- * Host caller supplies only its stable conversation identity; Core verifies
- * the exact conversation/world/adapter/actor binding.
+ * The configured adapter identity is pinned into the returned consumer. A
+ * deployment-owned Host authenticator resolves the caller from its signed
+ * authenticated session; request-body identifiers are never trusted as identity.
  */
 export function createMemoryNpcProviderAdapter({
   engine,
