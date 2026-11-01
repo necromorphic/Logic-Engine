@@ -56,7 +56,7 @@ async function fixture(t) {
 test('Patch Manager hashes pinned source text canonically across CRLF checkouts', async (t) => {
   const { manager, stRoot, original } = await fixture(t);
   const sourcePath = join(stRoot, 'src/host.js');
-  await writeFile(sourcePath, original.replace(/\\n/g, '\\r\\n'));
+  await writeFile(sourcePath, original.replace(/\n/g, '\r\n'));
   assert.equal(await manager.hashAt('src/host.js'), hash(original));
 });
 
