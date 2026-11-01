@@ -623,3 +623,20 @@ PR #845 is Memory/Core-owned and changes `src/application/*`, Provider implement
 **P0.4 disposition:** Provider/Core/NPC retrieval is now exact-head runtime-tested. The remaining blocker is not another admission helper or mapping document; it is the live Host/native-generation/serializer/sole-egress integration and its revocation race proof. Until the Host deployment boundary decision is made and the closure test passes, overall P0 remains PARTIAL/BLOCKED and production Memory→NPC stays disabled.
 
 Overall NPC remains `NOT ACCEPTED`; Memory→NPC remains `DISABLED / FAIL-CLOSED`. No merge, deployment, production switch, or sibling-owned source edit is authorized by this matrix refresh.
+
+## 15. NPC reducer follow-up — 1 Nov 2026
+
+This follow-up is NPC-owned and independent of Host/Core production wiring. It extends the existing epistemic reducer regression suite without changing reducer behavior or cross-block contracts.
+
+Exact source/test head: `3c99497915d023ea83ffd27fdb7d2c5efa5f3fb7`.
+Runtime workflow [#41307466975](https://github.com/necromorphic/Logic-Engine/actions/runs/41307466975) completed **SUCCESS**:
+- NPC boundary: 276 passed / 0 failed.
+- Full Windows `npm test`: 1364 passed / 0 failed / 1 skipped.
+- All dedicated Host/Core/security/process jobs passed.
+
+Three additional reducer scenarios:
+- Invalidation preserves prior belief history but does not restore the invalidated evidence's authority; review remains required.
+- A separately identified replacement source version can resolve review through an explicit belief revision, while the prior invalidated evidence remains in immutable history.
+- Replaying an invalidated evidence identity is idempotent and does not reactivate it; attempting to reuse the same identity/version with a different source version is rejected as an identity conflict.
+
+These tests prove NPC-local reducer behavior only. They do not establish production Host delivery, authenticated Core acquisition, final model-context serialization, or sole-egress dispatch. Those remain P0.4 external integration gates.
