@@ -183,8 +183,12 @@ export async function applyFinalSendPatch({ hostRoot, stateRoot, hookSourcePath 
   await mkdir(state, { recursive: true });
   const release = await acquireLock(state);
   try {
-    const pinned = await verifyPinnedHost(root);
-    await recoverInterruptedApply(state, pinned.root);
+    const rootReal = await realpath(root).catch(() => null);
+    if (!rootReal) fail('HOST_ROOT_MISSING');
+    // Recover an interrupted transaction before enforcing baseline hashes:
+    // a crash may have left the target file in its known patched state.
+    await recoverInterruptedApply(state, rootReal);
+    const pinned = await verifyPinnedHost(rootReal);
 
     const manifestPath = join(state, MANIFEST_NAME);
     const existingManifest = await readJson(manifestPath);
@@ -308,8 +312,16 @@ export async function getFinalSendPatchStatus({ hostRoot, stateRoot }) {
     if (await exists(hookPath)) return Object.freeze({ status: 'unmanaged' });
     return Object.freeze({ status: 'not_installed' });
   }
+  if (manifest.patchId !== PATCH_ID
+    || manifest.endpointRelativePath !== SILLYTAVERN_TARGET.endpointRelativePath
+    || manifest.hookRelativePath !== SILLYTAVERN_TARGET.hookRelativePath) {
+    return Object.freeze({ status: 'unmanaged' });
+  }
   const endpointPath = resolve(hostRoot, manifest.endpointRelativePath);
   const hookPath = resolve(hostRoot, manifest.hookRelativePath);
+  if (!inside(resolve(hostRoot), endpointPath) || !inside(resolve(hostRoot), hookPath)) {
+    return Object.freeze({ status: 'unmanaged' });
+  }
   const endpoint = await readFile(endpointPath).catch(() => null);
   const hook = await readFile(hookPath).catch(() => null);
   if (!endpoint || !hook || sha256(endpoint) !== manifest.patchedHash
