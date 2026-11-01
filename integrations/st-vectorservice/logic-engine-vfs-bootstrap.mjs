@@ -8,19 +8,28 @@ const Database = require(packageRoot || 'better-sqlite3');
 
 const storageRoot = path.resolve(process.env.ST_VECTOR_ROOT || process.cwd());
 const storageDirectory = path.join(storageRoot, 'vector_storage');
-const dbPath = path.join(storageDirectory, 'vectors.sqlite');
+const dbPath = process.env.LOGIC_ENGINE_VFS_ROLE_PATH;
 const extensionPath = process.env.LOGIC_ENGINE_VFS_PROBE_PATH;
 const brokerSocket = process.env.LOGIC_ENGINE_BROKER_SOCKET;
-const roleName = process.env.LOGIC_ENGINE_SQLITE_ROLE || 'vectors';
+const roleName = process.env.LOGIC_ENGINE_VFS_ROLE_NAME;
+const brokerUidText = process.env.LOGIC_ENGINE_BROKER_UID;
 
 if (!extensionPath || !path.isAbsolute(extensionPath) || !fs.existsSync(extensionPath)) {
   throw new Error('LOGIC_ENGINE_VFS_PROBE_PATH must name the installed secure VFS extension');
 }
+if (!dbPath || !path.isAbsolute(dbPath)) {
+  throw new Error('LOGIC_ENGINE_VFS_ROLE_PATH must be the absolute Host-configured logical DB path');
+}
 if (!brokerSocket || !path.isAbsolute(brokerSocket)) {
   throw new Error('LOGIC_ENGINE_BROKER_SOCKET must name the configured broker socket');
 }
-if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(roleName)) {
-  throw new Error('LOGIC_ENGINE_SQLITE_ROLE is not a valid broker role name');
+if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(roleName || '')) {
+  throw new Error('LOGIC_ENGINE_VFS_ROLE_NAME is not a valid Host-configured broker role name');
+}
+if (!/^[1-9][0-9]*$/.test(brokerUidText || '')
+    || !Number.isSafeInteger(Number(brokerUidText))
+    || Number(brokerUidText) === process.getuid()) {
+  throw new Error('LOGIC_ENGINE_BROKER_UID must be the distinct trusted broker service UID');
 }
 
 fs.mkdirSync(storageDirectory, { recursive: true });
@@ -51,8 +60,8 @@ try {
 const registrar = new Database(':memory:');
 try {
   const result = registrar.prepare(
-    'SELECT logic_engine_vfs_probe_register_broker_role(?, ?, ?) AS registered',
-  ).get(dbPath, roleName, brokerSocket);
+    'SELECT logic_engine_vfs_probe_register_broker_role_from_host() AS registered',
+  ).get();
   if (result.registered !== 1) {
     throw new Error('The SQLite broker did not confirm ST-VectorService role registration');
   }
