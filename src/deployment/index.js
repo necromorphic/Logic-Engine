@@ -1,6 +1,6 @@
 import { createPlatformSecurityAdapter } from './platform-adapter.js';
 import { resolveDeploymentPathRegistry } from './path-registry.js';
-import { buildDeploymentReport, createCapabilityEvidence, evaluateDeploymentGates } from './policy.js';
+import { buildDeploymentReport, createCapabilityEvidence, evaluateDeploymentGates, PROTECTED_FINAL_SEND_CAPABILITIES } from './policy.js';
 import { validateDeploymentManifest, validateDeploymentReport } from './contracts.js';
 
 export async function assessDeployment({ manifest, deploymentRoot, platformAdapter = createPlatformSecurityAdapter() }) {
@@ -22,6 +22,20 @@ export async function assessDeployment({ manifest, deploymentRoot, platformAdapt
     });
     if (platformEvidenceIndex >= 0) capabilities.splice(platformEvidenceIndex, 1, unsupportedPlatformEvidence);
     else capabilities.push(unsupportedPlatformEvidence);
+  }
+
+  // These are runtime integration attestations, not manifest claims. Until a trusted
+  // Host/Gateway verifier supplies evidence, production Memory final-send stays blocked.
+  for (const id of PROTECTED_FINAL_SEND_CAPABILITIES) {
+    capabilities.push(createCapabilityEvidence({
+      id,
+      status: 'NOT_TESTED',
+      required: true,
+      evidenceSource: 'deployment-runtime-attestation',
+      observedSummary: 'No trusted runtime verifier has supplied evidence for this final-send invariant.',
+      adapterVersion: 'unverified',
+      limitations: ['A manifest declaration or user-provided assertion cannot satisfy this gate.'],
+    }));
   }
 
   const pathRegistry = await resolveDeploymentPathRegistry({ manifest, deploymentRoot });
