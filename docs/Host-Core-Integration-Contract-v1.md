@@ -338,12 +338,13 @@ The original review recorded a mismatch where Host sent `installation_id:account
 
 ## 10. Implementation acceptance checklist
 
-The contract is technically reconciled. The delegated technical owner is responsible for both Host and Core API decisions and has approved the D5 private-route and PC-NEXT-11 projection changes. Exact-head candidate CI is green; branch integration and deployment readiness remain separate gates.
+The contract's wire format, identity projection, binding ownership, retrieval facade, and version pins are reconciled. The implementation is not yet fully conformant: Core #867 must map unexpected consumer/runtime exceptions to the §6 generic 500 response. The delegated technical owner has approved the bounded D5 private-route and PC-NEXT-11 projection changes. Exact-head candidate CI is green; branch integration and deployment readiness remain separate gates.
 
 - [x] Coordinator technical review of the current Host #850 candidate: Host-local identity remains local; Core PC-NEXT-11 projection and private route blocks are present.
 - [x] Coordinator technical review of Core #846 and #867 candidates: binding services, assertion runner, Memory consumer, result envelope, context-resolution route, and retrieval route are present.
 - [x] Host API technical-owner approval: Host-local stable key remains local; Core requests use PC-NEXT-11 tuple.
 - [x] Core API technical-owner approval: two private routes, durable nonce guard, and existing consumer result envelope.
+- [ ] Core retrieval exception mapping conforms to §6: unexpected consumer/runtime exceptions return generic HTTP 500 `INTERNAL_ERROR`, with a regression test. Current #867 maps these exceptions to HTTP 401.
 - [x] Exact-head Runtime and integration CI pass on Host #850, Core #846, and Core HTTP #867; Host session rotation and Core nonce replay across restart are covered.
 - [x] Contract PR #866 full Runtime suite passed on retry (run `41331512380`, attempt 2); the first attempt's single failure was the unrelated Windows `remote-binding.test.js` listener/fetch test.
 - [x] Identity/route ownership discrepancy is resolved in the implementation candidates; remaining branch-integration and deployment gates are tracked in §11.
@@ -401,9 +402,9 @@ For `src/index.js`, retain Host #850's root-identity registry, lifecycle journal
 1. **Core retrieval exception mapping:** #867 currently maps unclassified exceptions thrown during the consumer callback to `401 HOST_SESSION_ASSERTION_INVALID`. Correct this to generic `500 INTERNAL_ERROR` and add a regression test; preserve the existing explicit 401/409/503 mappings for known assertion and replay-guard failures.
 2. Branch integration is still required. #867 is stacked on #846; #850 is independently based on `main` and overlaps 26 files with #846 and 8 files with #867. The shared Core route blocks are identical, but `src/api/server.js`, `src/index.js`, `.env.example`, and the overlapping adapter composition must be reconciled deliberately; do not merge the three PRs blindly.
    - Current `main` has advanced two commits beyond the base SHA recorded by #846. The delta is limited to `README.md` and `docs/progress-bars-2026-11-01.svg`; neither path is in #846's patch. Refresh/rebase #846 onto current `main` before integration, then re-run its full CI. Host #850 already uses current `main` as its base.
-2. Recommended integration order: land/rebase Core Lane B #846; integrate Core HTTP #867 on top of it; then rebase Host #850 onto the integrated Core result and resolve Host-owned lifecycle/inventory additions while retaining the identical shared route blocks. Re-run full CI after each rebase.
-3. Deployment must provide the durable Provider DB and explicit Core field allowlist; Provider data must have valid query/record grants and canonical source lineage before a ready result is possible.
-4. Host authoritative full-root inventory and lifecycle mutation coverage remain independent Host release gates. No Security Gateway modification, Final-Send, or production enablement is included here.
+3. Recommended integration order: land/rebase Core Lane B #846; integrate Core HTTP #867 on top of it; then rebase Host #850 onto the integrated Core result and resolve Host-owned lifecycle/inventory additions while retaining the identical shared route blocks. Re-run full CI after each rebase.
+4. Deployment must provide the durable Provider DB and explicit Core field allowlist; Provider data must have valid query/record grants and canonical source lineage before a ready result is possible.
+5. Host authoritative full-root inventory and lifecycle mutation coverage remain independent Host release gates. No Security Gateway modification, Final-Send, or production enablement is included here.
 
 This is implementation progress, not a merge or release approval.
 
