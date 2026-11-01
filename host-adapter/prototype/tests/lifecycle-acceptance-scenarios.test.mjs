@@ -139,7 +139,7 @@ test('pinned SillyTavern patch uses the existing authenticated inventory and dig
   assert.ok(patch.includes("fetch('/api/plugins/logic-engine-extension-gateway/host-version-ledger/reconcile'"));
   assert.ok(patch.includes("fetch('/api/plugins/logic-engine-extension-gateway/host-lifecycle/events'"));
   assert.ok(patch.includes("fetch('/api/plugins/logic-engine-extension-gateway/host-lifecycle/status?conversation_id='"));
-  assert.ok(patch.includes("from '../../plugins/logic-engine-extension-gateway/server-plugin/st-host-inventory-handler.mjs'"));
+  assert.ok(patch.includes("from '../../plugins/logic-engine-extension-gateway/st-host-inventory-handler.mjs'"));
   assert.ok(patch.includes('getLogicEngineHostIdentity'));
   assert.ok(patch.includes('hostInstallationId: identity.host_installation_id'));
   assert.ok(patch.includes('getPersistedInventory: async'));
