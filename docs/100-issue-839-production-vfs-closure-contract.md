@@ -183,3 +183,27 @@ This closes the missing per-directory identity comparison in the current probe's
 
 
 The isolated Windows bootstrap test models its temporary database's immediate parent as the metadata root, so its relative parent-component and parent-identity arrays are correctly empty. The manifest validator now supports this valid root-equals-parent case and uses the metadata-root identity as the final parent identity for native role registration. The earlier Windows run failed because that fixture described the same directory twice using inconsistent root-relative semantics; the fixture was corrected. The native DLL compilation passed in that run, but the corrected exact-head Windows integration result is still pending.
+
+### 2026-11-01 POSIX quarantine mismatch recovery and Windows empty-chain correction
+
+Implementation commits:
+- POSIX mismatch restoration: `633296e01a5788b4c80738ecc4d12983a2bfcb0d`.
+- Windows empty parent-suffix handling: `927cb79c83c16c729b4e5492e7072f1dcce1a8f6`, `67649bb5c7ed061d9223b0b85f6f2c3545b524a8`.
+
+Regression coverage:
+- `tests/better-sqlite3-vfs-integration.test.js` injects a replacement inode at the rollback-journal delete boundary using the exact packaged better-sqlite3 SQLite engine. The test verifies that the replacement survives at both hardlink names, the mismatched object is not unlinked, the quarantine directory has no orphan after successful restoration, and the failed SQLite commit is isolated from the ordinary WAL integration case.
+- `tests/security-vfs-extension-bootstrap.test.js` now asserts the same restoration contract for POSIX xDelete instead of expecting the replacement to remain hidden in quarantine.
+- `tests/windows-role-manifest.test.js` covers a valid Windows manifest whose metadata root is exactly the database parent and whose relative parent-component chain is empty.
+
+The POSIX fallback now attempts a no-replace rename from quarantine back to the original name after a moved-entry identity mismatch. It never unlinks that mismatched object. If another process has already recreated the original name, restoration does not overwrite it and the mismatched object remains quarantined for recovery. This fallback is not a substitute for the broker's durable manifest-backed lifecycle; strict Linux protected-role operations continue to use the separate-UID broker path.
+
+The Windows validator now treats an empty parent-component suffix as an empty suffix (rather than JavaScript's `slice(-0)`, which returns the entire array) and resolves the metadata root to the actual database parent in the root-equals-parent case.
+
+Exact-head verification on `d82131ae830b894113a6d10d82c842ec1866527d`:
+- POSIX namespace broker workflow: success.
+- SQLite VFS extension bootstrap: Linux and Windows success, including Windows native DLL build, handle-relative anchor test, manifest schema and bootstrap enrollment.
+- better-sqlite3 default VFS integration: Linux and Windows success against the exact archived `better-sqlite3@13.0.3` prebuilds.
+- Runtime workflow: full `npm test` and both Linux/Windows VFS registration probes success.
+
+These results validate the specific regression and current prototype harness. They do not close the production release gates: durable Windows broker/manifest authority and restart reconciliation, complete production-owned SQLite file/locking/SHM methods, full temporary/super-journal/subjournal policy, clean-host deployment verification, ST-VectorService production bootstrap and independent Security review remain open. PR #839 remains Draft and production activation remains unauthorized.
+
