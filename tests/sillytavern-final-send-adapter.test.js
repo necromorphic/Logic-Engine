@@ -9,7 +9,7 @@ const sources = {
   AZURE_OPENAI: 'azure', OPENAI: 'openai', OPENROUTER: 'openrouter', CUSTOM: 'custom',
   PERPLEXITY: 'perplexity', GROQ: 'groq', FIREWORKS: 'fireworks', NANOGPT: 'nanogpt',
   POLLINATIONS: 'pollinations', MOONSHOT: 'moonshot', ZAI: 'zai', SILICONFLOW: 'siliconflow',
-  WORKERSAI: 'workers-ai',
+  WORKERS_AI: 'workers_ai',
 };
 
 const protectedMemory = {
