@@ -354,20 +354,16 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
       protocolVersion: 1, mutationId, operation, sourceFingerprint: fingerprint,
       affectedVersions, detailsDigest,
     }));
-    const prepared = await journal.beforeMutation({
-      conversationId,
-      eventId: newId(),
-      operation,
-      affectedVersions,
-      sourceFingerprint: fingerprint,
-      details: { hostLifecycle: { mutationId, mutationDigest, occurredAt, detailsDigest } },
-    });
+    const eventId = newId();
+    // Persist the server-side PREPARED receipt before the browser journal marker.
+    // If the local append then fails, the next authenticated status check can
+    // recover the server pending state from the durable pre-mutation file snapshot.
     if (publishLifecycleEvent) {
       let result;
       try {
         result = await publishLifecycleEvent({
           conversation_id: conversationId,
-          event_id: prepared.eventId,
+          event_id: eventId,
           event_type: 'MUTATION_PREPARED',
           mutation_id: mutationId,
           operation,
@@ -381,7 +377,14 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
         throw Error('NON_READY: Core did not durably accept the prepared Host mutation');
       }
     }
-    return prepared;
+    return journal.beforeMutation({
+      conversationId,
+      eventId,
+      operation,
+      affectedVersions,
+      sourceFingerprint: fingerprint,
+      details: { hostLifecycle: { mutationId, mutationDigest, occurredAt, detailsDigest } },
+    });
   }
 
   async function afterMutation(operation, { removedSwipeIndex = null, selectedMessageIndex = null, createdMessageIndex = null } = {}) {
