@@ -1,0 +1,128 @@
+import {
+  createHostIdentityHandler,
+  createHostInventoryHandler,
+  createHostRequestAuthenticationGate,
+  createHostSessionHandler,
+} from './st-host-inventory-handler.mjs';
+import {
+  createHostDigestProxyHandler,
+  createHostInventoryReconcileProxyHandler,
+  createHostMemoryDispatchProxyHandler,
+  createHostLifecycleJournalProxy,
+  createHostRootInventoryPersistence,
+} from './st-server-digest-proxy.mjs';
+import { HostIdentityStore } from './st-host-identity-store.mjs';
+import { enumerateHostDataInventory } from './host-data-inventory.mjs';
+
+const PINNED_SILLYTAVERN_COMMIT = '06bde939fb1e9c4c8d8641d810f0a916b5bce127';
+
+function unavailable(code) {
+  return (_request, response) => response.status(503).json({ status: 'NON_READY', code });
+}
+
+/**
+ * Authenticated Host Adapter.
+ *
+ * This component owns SillyTavern session authentication, installation/account/
+ * conversation identity resolution, Host inventory checks and the authenticated
+ * Host-to-Core assertion. It is deliberately not the Extension Gateway and does
+ * not mount public routes. The Gateway may only delegate requests to these
+ * already-composed handlers.
+ */
+export function createSillyTavernHostAdapter({
+  env = process.env,
+  enumerate = enumerateHostDataInventory,
+  fetchImpl = globalThis.fetch,
+} = {}) {
+  if (!env || typeof env !== 'object' || typeof enumerate !== 'function'
+    || typeof fetchImpl !== 'function') {
+    throw new TypeError('SillyTavern Host Adapter configuration is invalid.');
+  }
+
+  const identityDirectory = env.LOGIC_ENGINE_HOST_IDENTITY_DIR || '';
+  const identityStore = identityDirectory
+    ? new HostIdentityStore({ directory: identityDirectory })
+    : null;
+  const persistRootInventory = identityStore
+    ? createHostRootInventoryPersistence({ identityStore })
+    : null;
+
+  const session = createHostSessionHandler();
+  const identity = identityStore
+    ? createHostIdentityHandler({ identityStore })
+    : unavailable('HOST_IDENTITY_STORE_UNCONFIGURED');
+  const inventory = createHostInventoryHandler({
+    enumerate,
+    pinnedHostCommit: PINNED_SILLYTAVERN_COMMIT,
+    hostBuildClaim: env.LOGIC_ENGINE_HOST_BUILD_SHA || '',
+    persistRootInventory,
+  });
+
+  let lifecycleEvents = unavailable('HOST_IDENTITY_STORE_UNCONFIGURED');
+  let lifecycleStatus = unavailable('HOST_IDENTITY_STORE_UNCONFIGURED');
+  let dispatchMiddleware = (_request, response) =>
+    response.status(503).json({ status: 'NON_READY', code: 'HOST_IDENTITY_STORE_UNCONFIGURED' });
+  let dispatch = unavailable('HOST_IDENTITY_STORE_UNCONFIGURED');
+
+  if (identityStore) {
+    const lifecycle = createHostLifecycleJournalProxy({ identityStore });
+    lifecycleEvents = lifecycle.append;
+    lifecycleStatus = lifecycle.status;
+
+    const authentication = createHostRequestAuthenticationGate({
+      resolveConversationId: async request => {
+        const userHandle = request?.user?.profile?.handle;
+        const sessionId = request?.session?.logicEngineSessionId;
+        const conversationUuid = request?.body?.conversation_uuid;
+        const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+        if (typeof userHandle !== 'string' || !userHandle.trim()
+          || !uuid.test(sessionId ?? '') || !uuid.test(conversationUuid ?? '')) return null;
+
+        const identityRecord = await identityStore.resolveAuthenticatedAccount(userHandle);
+        const directories = request.user.directories;
+        const hostInventory = await enumerate({
+          directories: {
+            root: directories.root,
+            chats: directories.chats,
+            groups: directories.groups,
+            groupChats: directories.groupChats,
+          },
+          hostCommit: PINNED_SILLYTAVERN_COMMIT,
+        });
+        if (hostInventory?.filesystem?.status !== 'complete'
+          || hostInventory?.source?.status !== 'AUTHORITATIVE_COMPLETE'
+          || hostInventory?.authority?.status !== 'AUTHORITATIVE_COMPLETE'
+          || !/^[a-f0-9]{64}$/.test(hostInventory?.authority?.manifest_sha256 ?? '')
+          || !Array.isArray(hostInventory?.source?.files)
+          || hostInventory.source.files.filter(file =>
+            file?.logical_identity?.conversation_uuid === conversationUuid).length !== 1) return null;
+
+        return {
+          host_installation_id: identityRecord.host_installation_id,
+          authenticated_account_id: identityRecord.authenticated_account_id,
+          host_session_id: sessionId,
+          conversation_id: identityRecord.host_installation_id + ':'
+            + identityRecord.authenticated_account_id + ':' + conversationUuid,
+        };
+      },
+    });
+    dispatchMiddleware = authentication.middleware;
+    dispatch = createHostMemoryDispatchProxyHandler({
+      env,
+      fetchImpl,
+      resolveHostContext: authentication.resolveHostContext,
+    });
+  }
+
+  return Object.freeze({
+    session,
+    identity,
+    inventory,
+    lifecycleEvents,
+    lifecycleStatus,
+    dispatchMiddleware,
+    dispatch,
+    capture: createHostDigestProxyHandler({ env, fetchImpl }),
+    reconcile: createHostInventoryReconcileProxyHandler({ env, fetchImpl }),
+  });
+}
