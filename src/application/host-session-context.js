@@ -43,8 +43,14 @@ export function createAuthenticatedHostSessionContext(
       || session?.logicEngineSessionHandle !== userHandle
       || typeof sessionId !== 'string' || !HOST_SESSION_UUID.test(sessionId)
       || typeof conversationId !== 'string' || !HOST_CONVERSATION_ID.test(conversationId)) return null;
-    const [installationId, accountId, conversationUuid] = conversationId.split(':');
-    if (![installationId, accountId, conversationUuid].every(value => HOST_SESSION_UUID.test(value))) return null;
+    const conversationParts = conversationId.split(':');
+    if (conversationParts.length !== 3) return null;
+    const installationId = conversationParts[0];
+    const accountId = conversationParts[1];
+    const conversationUuid = conversationParts[2];
+    if (!HOST_SESSION_UUID.test(installationId)
+      || !HOST_SESSION_UUID.test(accountId)
+      || !HOST_SESSION_UUID.test(conversationUuid)) return null;
 
     const bindings = resolveHostBindings(request, conversationId);
     if (!bindings || typeof bindings !== 'object' || Array.isArray(bindings)
