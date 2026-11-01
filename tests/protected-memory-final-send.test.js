@@ -124,7 +124,10 @@ test('stream forwarding is inside the transport promise so forwarding failure is
     gateway: {
       dispatchProtectedRequest(request) {
         captured = request;
-        return request.transport();
+        return Promise.resolve(request.transport()).then(async (upstream) => {
+          if (request.stream) await request.forwardResponse(upstream);
+          return upstream;
+        });
       },
     },
     resolveProtectedMemory: () => context,
