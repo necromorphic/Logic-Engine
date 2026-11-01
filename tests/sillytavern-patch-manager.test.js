@@ -29,7 +29,7 @@ const patch = [
   '@@ -0,0 +1 @@',
   '+installed-server',
   '',
-].join('\\n');
+].join('\n');
 
 function git(root, args) {
   return execFileSync('git', ['-C', root, ...args], { encoding: 'utf8', stdio: 'pipe' }).trim();
@@ -117,7 +117,7 @@ test('Patch Manager rejects patches to SillyTavern source, native routes, config
       '@@ -0,0 +1 @@',
       '+must-not-install',
       '',
-    ].join('\\n');
+    ].join('\n');
     writeFileSync(join(f.packageDir, 'integration.patch'), badPatch);
     const bytes = readFileSync(join(f.packageDir, 'integration.patch'));
     writeFileSync(f.manifestPath, JSON.stringify({
