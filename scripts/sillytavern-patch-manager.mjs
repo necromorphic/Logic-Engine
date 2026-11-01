@@ -2,9 +2,10 @@ import { createHash, randomUUID } from 'node:crypto';
 import { isUtf8 } from 'node:buffer';
 import { execFileSync } from 'node:child_process';
 import {
-  copyFile, lstat, mkdir, open, readFile, realpath, rename, rm, stat, unlink, writeFile,
+  copyFile, lstat, mkdir, mkdtemp, open, readFile, realpath, rename, rm, stat, unlink, writeFile,
 } from 'node:fs/promises';
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -314,10 +315,28 @@ export class SillyTavernPatchManager {
     }
   }
 
+  async preflightPatchApplicability() {
+    const temporaryRoot = await mkdtemp(resolve(tmpdir(), 'logic-engine-st-patch-preflight-'));
+    try {
+      for (const [relativePath, expected] of Object.entries(this.manifest.sourceFiles)) {
+        if (typeof expected === 'string') continue;
+        const source = await assertRegularFile(this.stRoot, relativePath);
+        const bytes = await readFile(source);
+        if (!isUtf8(bytes)) throw new Error('SILLYTAVERN_SOURCE_ENCODING_INVALID: ' + relativePath);
+        const target = resolve(temporaryRoot, relativePath);
+        await mkdir(dirname(target), { recursive: true });
+        await writeFile(target, bytes.toString('utf8').replace(/\r\n/g, '\n'), 'utf8');
+      }
+      this.runGit(['apply', '--ignore-whitespace', '--check', this.patchPath], temporaryRoot);
+    } finally {
+      await rm(temporaryRoot, { recursive: true, force: true });
+    }
+  }
+
   async preflight() {
     await this.initialize();
     await this.verifyBaseline();
-    this.runGit(['apply', '--ignore-whitespace', '--check', this.patchPath], this.stRoot);
+    await this.preflightPatchApplicability();
     return { status: 'PREFLIGHT_OK', hostVersion: this.manifest.host.version, patchVersion: this.manifest.patch.version };
   }
 
@@ -328,7 +347,7 @@ export class SillyTavernPatchManager {
       return { status: 'ALREADY_INSTALLED', patchVersion: state.patchVersion };
     }
     await this.verifyBaseline();
-    this.runGit(['apply', '--ignore-whitespace', '--check', this.patchPath], this.stRoot);
+    await this.preflightPatchApplicability();
 
     await mkdir(this.backupsRoot, { recursive: true });
     await assertNoSymlinkComponents(this.stRoot, this.backupsRoot);
