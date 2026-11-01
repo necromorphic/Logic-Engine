@@ -114,23 +114,26 @@ function setup(t, { twoRecords = false, providerPath = null } = {}) {
   const authorizedReadService = new AuthorizedReadService(engine, bindings,
     (context, entity, field) => field === 'entity_id'
       || (field === 'attributes.public_note' && entity.entity_id.startsWith('source-')));
-  const rawConsumer = new MemoryNpcConsumer({
-    authorizedReadService, actorBindingService: bindings, adapterId, memoryProvider: provider,
-    coreQueryAuthorizer: coreAuthorizers.memoryQueryAuthorizer,
-    contentFields: ['attributes.public_note'],
-  });
-  const consumer = new Proxy(rawConsumer, {
-    get(target, property) {
-      if (property === 'retrieveForNpc') return (request) =>
-        runWithAuthenticatedHostSession(hostRequest, HOST_CONVERSATION_ID, () => target.retrieveForNpc(request));
-      if (property === 'revalidateForFinalDispatch') return (request, prepared) =>
-        runWithAuthenticatedHostSession(hostRequest, HOST_CONVERSATION_ID, () => target.revalidateForFinalDispatch(request, prepared));
-      return Reflect.get(target, property, target);
-    },
-  });
+  const createConsumer = (memoryProvider = provider) => {
+    const rawConsumer = new MemoryNpcConsumer({
+      authorizedReadService, actorBindingService: bindings, adapterId, memoryProvider,
+      coreQueryAuthorizer: coreAuthorizers.memoryQueryAuthorizer,
+      contentFields: ['attributes.public_note'],
+    });
+    return new Proxy(rawConsumer, {
+      get(target, property) {
+        if (property === 'retrieveForNpc') return (request) =>
+          runWithAuthenticatedHostSession(hostRequest, HOST_CONVERSATION_ID, () => target.retrieveForNpc(request));
+        if (property === 'revalidateForFinalDispatch') return (request, prepared) =>
+          runWithAuthenticatedHostSession(hostRequest, HOST_CONVERSATION_ID, () => target.revalidateForFinalDispatch(request, prepared));
+        return Reflect.get(target, property, target);
+      },
+    });
+  };
+  const consumer = createConsumer();
   t.after(() => { provider.close(); store.close(); testDb.close(); testDb.cleanup(); });
   return {
-    engine, provider, consumer, scope, records,
+    engine, provider, consumer, scope, records, createConsumer,
     db: testDb.db,
     async prepare() {
       await provider.rebuildIndex(worldId);
