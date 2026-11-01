@@ -129,10 +129,26 @@ class ManifestStoreTests(unittest.TestCase):
         self.assertEqual(role["databaseBasename"], "core-renamed.sqlite")
         self.assertFalse((self.role_parent / "core.sqlite").exists())
         self.assertTrue((self.role_parent / "core-renamed.sqlite").exists())
+        enabled = self.store.enable_role("core")
+        self.assertEqual(enabled["roles"][0]["state"], "active")
+        opened = self.store.open_role_file("core", "main")
+        os.close(opened)
+        self.store.disable_role("core")
         deleted = self.store.delete_role_database("core")
         self.assertEqual(deleted["roles"][0]["state"], "deleted")
         self.assertFalse((self.role_parent / "core-renamed.sqlite").exists())
         self.store.verify_roles()
+
+    def test_enable_role_rejects_replaced_main_database(self):
+        self.store.initialize(self.data(1))
+        self.store.disable_role("core")
+        replacement = self.role_parent / "replacement.sqlite"
+        replacement.write_bytes(b"replacement")
+        os.chmod(replacement, 0o600)
+        os.replace(replacement, self.database)
+        with self.assertRaisesRegex(StoreError, "identity mismatch"):
+            self.store.enable_role("core")
+        self.assertEqual(self.store.load()["roles"][0]["state"], "disabled")
 
     def test_startup_completes_interrupted_main_database_rename(self):
         import json
