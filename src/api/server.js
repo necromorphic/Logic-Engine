@@ -7,6 +7,7 @@ import { ActorBindingService } from '../application/actor-bindings.js';
 import { AuthorizedReadService } from '../application/authorized-read-service.js';
 import { isMechanicPolicyAuthority, defaultMechanicPolicyFieldPolicy } from '../application/mechanic-policy-authority.js';
 import { HostConversationWorldBindingService } from '../application/host-conversation-world-bindings.js';
+import { createHostSessionAssertionRunner, getAuthenticatedHostSessionContext } from '../application/host-session-context.js';
 
 const MAX = 1048576;
 const MAX_HOST_VERSION_SNAPSHOT_BYTES = 8 * 1048576;
@@ -110,6 +111,37 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
     const secret = req.headers['x-adapter-token'];
     return typeof id === 'string' && Object.hasOwn(adapterTokens, id) && secretMatches(secret, adapterTokens[id]) ? id : null;
   };
+  engine.store.tx(() => engine.store.db.exec(`
+    CREATE TABLE IF NOT EXISTS host_session_assertion_nonces (
+      adapter_id TEXT NOT NULL,
+      nonce TEXT NOT NULL,
+      expires_at INTEGER NOT NULL,
+      PRIMARY KEY(adapter_id, nonce)
+    ) WITHOUT ROWID;
+    CREATE INDEX IF NOT EXISTS host_session_assertion_nonces_expiry
+      ON host_session_assertion_nonces(expires_at);
+  `));
+  const hostSessionAssertionRunners = new Map(Object.entries(adapterTokens).map(([adapterId, secret]) => [
+    adapterId,
+    createHostSessionAssertionRunner({
+      secret,
+      consumeNonce(nonce, expiresAt, currentSeconds) {
+        return engine.store.tx(() => {
+          engine.store.db.prepare('DELETE FROM host_session_assertion_nonces WHERE expires_at < ?')
+            .run(currentSeconds);
+          try {
+            engine.store.db.prepare('INSERT INTO host_session_assertion_nonces(adapter_id,nonce,expires_at) VALUES(?,?,?)')
+              .run(adapterId, nonce, expiresAt);
+            return true;
+          } catch (error) {
+            if (error?.code === 'SQLITE_CONSTRAINT_PRIMARYKEY'
+              || error?.code === 'SQLITE_CONSTRAINT_UNIQUE') return false;
+            throw error;
+          }
+        });
+      },
+    }),
+  ]));
   const proposals = new ProposalService(engine, {
     validateMechanicPolicy: createActiveMechanicPolicyValidator(getActiveMechanicContextProvider, mechanicPolicyAuthority),
   });
@@ -131,6 +163,55 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
       const authorization = req.headers.authorization;
       const bearerToken = typeof authorization === 'string' && authorization.startsWith('Bearer ') ? authorization.slice('Bearer '.length) : null;
       if (!secretMatches(bearerToken, token)) return send(res, 401, { error: { code: 'UNAUTHORIZED', message: 'A valid bearer token is required.' } });
+
+      if (url.pathname === '/v1/host/session-context') {
+        if (req.method !== 'POST') {
+          return send(res, 405, { error: { code: 'METHOD_NOT_ALLOWED', message: 'Unsupported Host context operation.' } });
+        }
+        const adapterId = adapterIdFor(req);
+        if (!adapterId) return send(res, 403, { error: { code: 'ADAPTER_REQUIRED', message: 'An authenticated adapter identity is required.' } });
+        const body = await readBody(req, 32 * 1024);
+        if (!body || typeof body !== 'object' || Array.isArray(body)
+          || Object.keys(body).length !== 2
+          || !Object.hasOwn(body, 'assertion') || !Object.hasOwn(body, 'signature')) {
+          return send(res, 400, { error: { code: 'INVALID_HOST_ASSERTION_ENVELOPE', message: 'A signed Host assertion envelope is required.' } });
+        }
+        try {
+          const runner = hostSessionAssertionRunners.get(adapterId);
+          if (!runner) throw new Error('HOST_ADAPTER_NOT_CONFIGURED');
+          const verified = runner.run(body.assertion, body.signature, () => {
+            const context = getAuthenticatedHostSessionContext();
+            if (!context) throw new Error('HOST_SESSION_CONTEXT_UNAVAILABLE');
+            const conversationBinding = hostConversationBindings.resolve({
+              adapterId,
+              conversationId: context.conversation_id,
+            });
+            if (conversationBinding.world_id !== context.world_id) {
+              throw new Error('HOST_WORLD_BINDING_MISMATCH');
+            }
+            const actorBinding = actorBindings.resolveForAdapter(context.world_id, adapterId);
+            if (actorBinding.actor?.entity_id !== context.actor_id) {
+              throw new Error('HOST_ACTOR_BINDING_MISMATCH');
+            }
+            const exactActorBinding = actorBindings.resolve(context.world_id, adapterId, context.actor_id);
+            if (exactActorBinding.actor?.entity_id !== context.actor_id) {
+              throw new Error('HOST_ACTOR_BINDING_MISMATCH');
+            }
+            return {
+              status: 'HOST_CONTEXT_AUTHENTICATED',
+              host_installation_id: context.host_installation_id,
+              authenticated_account_id: context.authenticated_account_id,
+              host_session_id: context.host_session_id,
+              conversation_id: context.conversation_id,
+              world_binding_verified: true,
+              actor_binding_verified: true,
+            };
+          });
+          return send(res, 200, verified);
+        } catch {
+          return send(res, 403, { error: { code: 'HOST_CONTEXT_DENIED', message: 'Host context failed Core authentication or current binding verification.' } });
+        }
+      }
 
       // Least-privilege policy: global registry inventory/audit is administrative.
       // The general bearer remains a mandatory outer gateway credential, not a
