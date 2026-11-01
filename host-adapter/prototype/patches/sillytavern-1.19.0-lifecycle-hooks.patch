@@ -736,6 +736,13 @@ diff --git a/src/endpoints/groups.js b/src/endpoints/groups.js
 +const hostBulkMutationGuard = createHostBulkMutationGuard({ pinnedHostCommit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127' });
 +
  export const router = express.Router();
+@@ -50,2 +53,6 @@
+                    const needsMigration = ['chat_metadata', 'past_metadata'].some(key => Object.hasOwn(groupData, key));
++                    if (needsMigration && process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR) {
++                        console.warn(color.yellow('Skipping unreceipted startup group metadata migration while Host inventory is enabled.'));
++                        continue;
++                    }
+                    if (!needsMigration) {
 @@ -156,1 +159,1 @@
 -router.post('/create', (request, response) => {
 +router.post('/create', hostBulkMutationGuard, (request, response) => {
@@ -745,10 +752,3 @@ diff --git a/src/endpoints/groups.js b/src/endpoints/groups.js
 @@ -203,1 +208,1 @@
 -router.post('/delete', getFileNameValidationFunction('id'), async (request, response) => {
 +router.post('/delete', hostBulkMutationGuard, getFileNameValidationFunction('id'), async (request, response) => {
-@@ -50,2 +53,6 @@
-                    const needsMigration = ['chat_metadata', 'past_metadata'].some(key => Object.hasOwn(groupData, key));
-+                    if (needsMigration && process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR) {
-+                        console.warn(color.yellow('Skipping unreceipted startup group metadata migration while Host inventory is enabled.'));
-+                        continue;
-+                    }
-                    if (!needsMigration) {
