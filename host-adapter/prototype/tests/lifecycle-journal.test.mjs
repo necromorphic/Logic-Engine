@@ -67,6 +67,17 @@ test('tail truncation is detected by the independent atomic head checkpoint',asy
  assert.equal(result.status,'NON_READY');assert.match(result.reason,/records missing|head checkpoint mismatch/);
 });
 
+test('public integrity and ledger export reject a corrupted independent head checkpoint', async () => {
+ const db = new FakeDB(), journal = new HostLifecycleJournal(db);
+ await journal.enroll(seed());
+ const head = db.heads.get('chat-1');
+ db.heads.set('chat-1', { ...head, recordDigest: '0'.repeat(64) });
+ const integrity = await journal.verifyIntegrity('chat-1');
+ assert.equal(integrity.status, 'NON_READY');
+ assert.match(integrity.reason, /head checkpoint mismatch/);
+ await assert.rejects(journal.exportCaptureLedger('chat-1'), /cannot export an unverified Host capture ledger/);
+});
+
 test('caller-supplied path list cannot assert trusted capture readiness',async()=>{
  const journal=new HostLifecycleJournal(new FakeDB());await journal.enroll(seed());
  const result=await journal.status('chat-1',{instrumentedPaths:lifecycleJournalContract.requiredCoveragePaths,sourceFingerprintMatches:true});
