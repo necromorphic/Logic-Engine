@@ -514,14 +514,13 @@ test('pinned ST 1.19.0 supported chat mutations persist; rename, group deletion,
         identifiedMessage({ name: 'Harness Group', isUser: false, mes: 'group reply', messageId: '14141414-1414-4414-8414-141414141414', versionId: '15151515-1515-4515-8515-151515151515' }),
       ], force: true,
     }, { 'x-harness-operation': 'group-save' });
-    assert.equal(response.status, 200);
-    assert.equal(response.result.ok, true);
+    assert.equal(response.status, 409);
+    assert.equal(response.result.code, 'HOST_LIFECYCLE_PREPARED_SAVE_REQUIRED');
+    assert.equal((await readFile(groupChatPath, 'utf8')).includes('existing group chat'), true);
     const metadata = JSON.parse(await readFile(groupMetadataPath, 'utf8'));
-    metadata.chats.push('group-harness');
-    await writeFile(groupMetadataPath, JSON.stringify(metadata));
+    assert.deepEqual(metadata.chats, []);
     return response;
-  }, ['modified', 'replaced']);
-  assert.ok([...groupSave.result.delta.modified, ...groupSave.result.delta.replaced].some(entry => entry.path.endsWith('group-harness.jsonl')));
+  }, 'unchanged');
 
   const groupDelete = await observe(async () => {
     const response = await post('/api/chats/group/delete', { id: 'group-harness' });
