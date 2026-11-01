@@ -47,7 +47,7 @@ test('server bulk mutation guard blocks imports when any enrolled conversation e
     },
   });
   const blocked = makeResponse();
-  await guard({ user: { profile: { handle: 'alice' }, directories }, session: { handle: 'alice' } }, blocked, () => { nextCalls++; });
+  await guard({ user: { profile: { handle: 'alice' }, directories }, session: { logicEngineSessionId: '11111111-1111-4111-8111-111111111111', logicEngineSessionHandle: 'alice' } }, blocked, () => { nextCalls++; });
   assert.equal(blocked.statusCode, 409);
   assert.equal(blocked.body.code, 'HOST_LIFECYCLE_BULK_MUTATION_BLOCKED');
   assert.equal(nextCalls, 0);
