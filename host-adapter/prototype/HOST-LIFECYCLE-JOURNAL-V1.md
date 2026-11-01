@@ -212,7 +212,7 @@ No failure path may downgrade to success, infer a terminal event, or expose raw 
 
 Implementation is incomplete until these tests pass on the exact PR HEAD:
 
-1. ID generation, uniqueness scope, invalid IDs, session rotation, cross-session and cross-account rejection.
+1. ID generation, uniqueness scope, invalid IDs, session rotation with stable conversation identity, cross-account rejection, and rejection of requests without the current signed session.
 2. PREPARED→COMMITTED and PREPARED→ABORTED; reject terminal without prepare, duplicate prepare, conflicting terminal and backward transitions.
 3. Same event ID/same content returns duplicate even when another mutation is pending; same ID/changed content conflicts; new ID with illegal transition fails.
 4. Concurrent appends in one conversation yield exactly one pending PREPARED; different conversations do not share pending state.
