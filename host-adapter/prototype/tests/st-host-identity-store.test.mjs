@@ -100,6 +100,41 @@ test('identity route rejects requests outside the authenticated signed session',
   assert.equal(calls, 0);
 });
 
+test('identity route resolves ST relative DATA_ROOT against the server working directory', async (t) => {
+  const previousDataRoot = globalThis.DATA_ROOT;
+  t.after(() => {
+    if (previousDataRoot === undefined) delete globalThis.DATA_ROOT;
+    else globalThis.DATA_ROOT = previousDataRoot;
+  });
+  globalThis.DATA_ROOT = './data';
+  let observedRoot = null;
+  const handler = createHostIdentityHandler({
+    identityStore: {
+      assertOutsideRoot: async root => { observedRoot = root; },
+      resolveAuthenticatedAccount: async () => ({
+        host_installation_id: '11111111-1111-4111-8111-111111111111',
+        authenticated_account_id: '22222222-2222-4222-8222-222222222222',
+      }),
+    },
+  });
+  const response = { statusCode: null, body: null, headers: {},
+    set(name, value) { this.headers[name] = value; return this; },
+    status(code) { this.statusCode = code; return this; },
+    json(value) { this.body = value; return this; },
+    sendStatus(code) { this.statusCode = code; return this; },
+  };
+  await handler({
+    user: { profile: { handle: 'alice' } },
+    session: {
+      handle: 'alice',
+      logicEngineSessionHandle: 'alice',
+      logicEngineSessionId: '00000000-0000-4000-8000-000000000097',
+    },
+  }, response);
+  assert.equal(response.statusCode, 200);
+  assert.equal(observedRoot, path.resolve('./data'));
+});
+
 test('identity route fails closed when its persistent registry is inside the ST data root', async (t) => {
   const root = await temp(t);
   const dataRoot = path.join(root, 'st-data');
