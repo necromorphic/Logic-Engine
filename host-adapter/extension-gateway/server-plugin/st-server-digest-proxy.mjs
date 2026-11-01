@@ -718,11 +718,12 @@ export function createHostLifecycleJournalProxy({
 
 
 /**
- * Sole Extension Gateway outbound dispatch to Core. The browser supplies only
- * a conversation UUID and bounded generation metadata; installation/account/
- * session identity and the canonical conversation ID come from the trusted
- * server-side gate. World and actor are deliberately absent and Core resolves
- * them from its own bindings.
+ * Authenticated Host Adapter outbound dispatch to Core. The browser supplies
+ * only a conversation UUID and bounded generation metadata. The adapter derives
+ * installation/account/session/conversation from the trusted ST session, then
+ * obtains the canonical World/Actor identity from Core-owned bindings. Both
+ * bindings are included in the signed assertion; Core Security Gateway must
+ * independently re-resolve them before any protected disclosure or dispatch.
  */
 export function createHostMemoryDispatchProxyHandler({
   env = process.env,
