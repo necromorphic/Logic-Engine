@@ -49,7 +49,7 @@
  const multimodalModels = express.Router();
 --- /dev/null
 +++ b/src/logic-engine-final-send-hook.js
-@@ -0,0 +1,88 @@
+@@ -0,0 +1,91 @@
 +import { AsyncLocalStorage } from 'node:async_hooks';
 +import nativeFetch from 'node-fetch';
 +
@@ -93,7 +93,10 @@
 +        || typeof handler !== 'function') {
 +        throw new TypeError('Invalid SillyTavern generation context.');
 +    }
-+    if (!adapter) throw new Error('LOGIC_ENGINE_FINAL_SEND_ADAPTER_UNAVAILABLE');
++    if (!adapter) {
++        response.set('cache-control', 'no-store');
++        return response.status(503).send({ error: { code: 'LOGIC_ENGINE_FINAL_SEND_ADAPTER_UNAVAILABLE' } });
++    }
 +    return generationContext.run({ request, response, adapter, protectedForward: null }, handler);
 +}
 +
