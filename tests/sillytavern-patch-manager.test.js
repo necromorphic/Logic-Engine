@@ -65,6 +65,8 @@ test('Patch Manager applies exact source hunks on CRLF Windows checkouts and pre
   const sourcePath = join(stRoot, 'src/host.js');
   const crlfOriginal = "export const host = 'stock';\r\n";
   await writeFile(sourcePath, crlfOriginal);
+  assert.equal((await manager.execute('preflight')).status, 'PREFLIGHT_OK');
+  assert.equal(await readFile(sourcePath, 'utf8'), crlfOriginal, 'preflight must not mutate the installed source');
   assert.equal((await manager.execute('install')).status, 'INSTALLED');
   assert.equal(await readFile(sourcePath, 'utf8'), patched.replace(/\n/g, '\r\n'));
   assert.equal((await manager.inspectInstalledReadOnly()).status, 'INSTALLED_AND_BACKUPS_VERIFIED');
