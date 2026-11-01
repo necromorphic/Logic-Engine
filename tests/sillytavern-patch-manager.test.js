@@ -336,7 +336,7 @@ test('Patch Manager verifies exact new Extension files even when the ST worktree
   const installed = installSillyTavernPatchPackage({ stPath: st, manifestPath });
   assert.equal(installed.status, 'APPLIED');
   assert.deepEqual(installed.affected_files, [targetPath]);
-  assert.equal(readFileSync(join(st, targetPath), 'utf8'), 'installed\n');
+  assert.equal(readFileSync(join(st, targetPath), 'utf8').replace(/\\r\\n/g, '\\n'), 'installed\n');
   assert.equal(git(st, ['status', '--porcelain=v1', '--untracked-files=all']), '');
 
   assert.equal(
