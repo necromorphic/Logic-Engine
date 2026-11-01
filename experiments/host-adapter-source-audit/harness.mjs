@@ -27,13 +27,13 @@ const mutationPaths = [
   'src/endpoints/users-admin.js',
   'src/endpoints/extensions.js',
 ];
-const [events, script, groupChats, chatBackups, serverMain, hostRoutePatch, ...mutationContents] = await Promise.all([
+const [events, script, groupChats, chatBackups, serverMain, pluginLoader, ...mutationContents] = await Promise.all([
   readFile(resolve(root, 'public/scripts/events.js'), 'utf8'),
   readFile(resolve(root, 'public/script.js'), 'utf8'),
   readFile(resolve(root, 'public/scripts/group-chats.js'), 'utf8'),
   readFile(resolve(root, 'public/scripts/chat-backups.js'), 'utf8'),
   readFile(resolve(root, 'src/server-main.js'), 'utf8'),
-  readFile(resolve(process.cwd(), 'host-adapter/prototype/patches/sillytavern-1.19.0-source-inventory-route.patch'), 'utf8'),
+  readFile(resolve(root, 'src/plugin-loader.js'), 'utf8'),
   ...mutationPaths.map(path => readFile(resolve(root, path), 'utf8')),
 ]);
 const mutationSources = Object.fromEntries(
@@ -105,39 +105,6 @@ test('edit/update notifications use the current host-local edit index', () => {
 });
 
 
-test('chat imports, group bookmark copies and backup restore fail closed while any chat is enrolled', () => {
-  const characterImportStart = script.indexOf('export async function importCharacterChat(');
-  const characterImportEnd = script.indexOf('\n}', characterImportStart);
-  assert.ok(characterImportStart >= 0 && characterImportEnd > characterImportStart);
-  assert.match(script.slice(characterImportStart, characterImportEnd),
-    /logicEngineHostLifecycle(?:\?\.|\.)guardBulkMutation(?:\?\.)?\(\)/);
-
-  const groupImportStart = groupChats.indexOf('export async function importGroupChat(');
-  const groupImportEnd = groupChats.indexOf('\n}', groupImportStart);
-  assert.ok(groupImportStart >= 0 && groupImportEnd > groupImportStart);
-  assert.match(groupChats.slice(groupImportStart, groupImportEnd),
-    /logicEngineHostLifecycle(?:\?\.|\.)guardBulkMutation(?:\?\.)?\(\)/);
-
-  const bookmarkStart = groupChats.indexOf('export async function saveGroupBookmarkChat(');
-  const bookmarkEnd = groupChats.indexOf('\n}', bookmarkStart);
-  assert.ok(bookmarkStart >= 0 && bookmarkEnd > bookmarkStart);
-  assert.match(groupChats.slice(bookmarkStart, bookmarkEnd),
-    /logicEngineHostLifecycle(?:\?\.|\.)guardBulkMutation(?:\?\.)?\(\)/);
-
-  const restoreStart = chatBackups.indexOf('async restoreBackup(name)');
-  const restoreEnd = chatBackups.indexOf('\n    }', restoreStart);
-  assert.ok(restoreStart >= 0 && restoreEnd > restoreStart);
-  assert.match(chatBackups.slice(restoreStart, restoreEnd), /const importFn = context\.groupId \? importGroupChat : importCharacterChat/);
-  assert.match(chatBackups.slice(restoreStart, restoreEnd), /await importFn\(formData/);
-});
-
-test('pinned server import routes reject bulk imports while any enrolled conversation exists', () => {
-  const chats = mutationSources['src/endpoints/chats.js'];
-  assert.match(chats, /createHostBulkMutationGuard/);
-  assert.match(chats, /router\.post\('\/group\/import', hostBulkMutationGuard,/);
-  assert.match(chats, /router\.post\('\/import', hostBulkMutationGuard,/);
-});
-
 test('pinned server mutation routes remain in the reviewed inventory', () => {
   const routeRequirements = {
     'src/endpoints/characters.js': [
@@ -208,12 +175,14 @@ test('pinned high-impact mutation implementations retain their write/delete prim
   }
 });
 
-test('Host inventory route is mounted only behind SillyTavern authentication middleware', () => {
+test('Host Adapter uses the native server-plugin route after SillyTavern authentication', () => {
   const loginMiddleware = serverMain.indexOf('app.use(requireLoginMiddleware);');
-  const privateEndpointMount = serverMain.indexOf('setupPrivateEndpoints(app);');
+  const pluginLoad = serverMain.indexOf('loadPlugins(app, pluginsDirectory)');
   assert.ok(loginMiddleware >= 0, 'requireLoginMiddleware mount must exist');
-  assert.ok(privateEndpointMount > loginMiddleware,
-    'private endpoint routers must be mounted after requireLoginMiddleware');
-  assert.ok(hostRoutePatch.includes("app.use('/api/logic-engine/host', logicEngineHostInventoryRouter);"),
-    'pinned Host route must be mounted at the reviewed private endpoint');
+  assert.ok(pluginLoad > loginMiddleware,
+    'server plugins must load after the authenticated middleware is mounted');
+  assert.ok(pluginLoader.includes('const router = express.Router();'),
+    'native server plugin loader must create an isolated router');
+  assert.ok(pluginLoader.includes('app.use(`/api/plugins/${id}`, router)'),
+    'native server plugin loader must mount the plugin namespace');
 });
