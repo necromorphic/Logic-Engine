@@ -44,7 +44,7 @@ function fakeDatabase() {
       return {
         get(...args) {
           calls.push({ sql, args });
-          return { registered: 1 };
+          return { registered: 1, validated: 1 };
         },
       };
     },
@@ -57,8 +57,26 @@ test('Windows manifest enrollment passes exact DB and final-parent identities to
   assert.equal(registerWindowsManifestRole(
     db, manifest(), 'core', 'C:\\LogicEngine\\data\\core.sqlite'
   ), 1);
-  assert.match(db.calls[0].sql, /register_database_role_manifest/);
+  assert.match(db.calls[0].sql, /validate_manifest_directory_identity/);
   assert.deepEqual(db.calls[0].args, [
+    'C:\\\\',
+    '00000000000000A1',
+    '11111111111111111111111111111111',
+  ]);
+  assert.match(db.calls[1].sql, /validate_manifest_directory_identity/);
+  assert.deepEqual(db.calls[1].args, [
+    'C:\\\\LogicEngine',
+    '00000000000000A1',
+    '22222222222222222222222222222222',
+  ]);
+  assert.match(db.calls[2].sql, /validate_manifest_directory_identity/);
+  assert.deepEqual(db.calls[2].args, [
+    'C:\\\\LogicEngine\\\\data',
+    '00000000000000A1',
+    '33333333333333333333333333333333',
+  ]);
+  assert.match(db.calls[3].sql, /register_database_role_manifest/);
+  assert.deepEqual(db.calls[3].args, [
     'C:\\LogicEngine\\data\\core.sqlite',
     'core',
     '00000000000000A1',
@@ -67,8 +85,8 @@ test('Windows manifest enrollment passes exact DB and final-parent identities to
     '33333333333333333333333333333333',
     'core.sqlite',
   ]);
-  assert.match(db.calls[1].sql, /register_manifest_sidecar/);
-  assert.deepEqual(db.calls[1].args, [
+  assert.match(db.calls[4].sql, /register_manifest_sidecar/);
+  assert.deepEqual(db.calls[4].args, [
     'core', 'wal', '00000000000000A1',
     '55555555555555555555555555555555', 'active',
   ]);
