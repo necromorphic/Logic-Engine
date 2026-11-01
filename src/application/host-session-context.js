@@ -5,9 +5,12 @@ const HOST_SESSION_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a
 const HOST_CONVERSATION_ID = new RegExp('^' + HOST_SESSION_UUID.source.slice(1, -1) + ':'
   + HOST_SESSION_UUID.source.slice(1, -1) + ':' + HOST_SESSION_UUID.source.slice(1, -1) + '$', 'i');
 const contexts = new WeakSet();
+const validBindingId = value => typeof value === 'string' && value === value.trim()
+  && value.length > 0 && value.length <= 200
+  && ![...value].some(character => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127);
 const ASSERTION_KEYS = Object.freeze([
   'protocol_version', 'host_installation_id', 'authenticated_account_id',
-  'host_session_id', 'conversation_id', 'issued_at', 'nonce',
+  'host_session_id', 'conversation_id', 'world_id', 'actor_id', 'issued_at', 'nonce',
 ]);
 const requestContext = new AsyncLocalStorage();
 
@@ -18,13 +21,14 @@ const requestContext = new AsyncLocalStorage();
  * trusted server composition; it must not trust request body/header fields.
  */
 export function createAuthenticatedHostSessionContext(
-  request, conversationId, isAuthenticatedHostRequest, resolveHostConversationId,
+  request, conversationId, isAuthenticatedHostRequest, resolveHostConversationId, resolveHostBindings,
 ) {
   try {
     if (typeof isAuthenticatedHostRequest !== 'function'
       || isAuthenticatedHostRequest(request) !== true
       || typeof resolveHostConversationId !== 'function'
-      || resolveHostConversationId(request) !== conversationId) return null;
+      || resolveHostConversationId(request) !== conversationId
+      || typeof resolveHostBindings !== 'function') return null;
     const session = request?.session;
     const userHandle = request?.user?.profile?.handle;
     const sessionId = session?.logicEngineSessionId;
@@ -35,6 +39,9 @@ export function createAuthenticatedHostSessionContext(
       || typeof conversationId !== 'string' || !HOST_CONVERSATION_ID.test(conversationId)) return null;
     const [installationId, accountId, conversationUuid] = conversationId.split(':');
     if (![installationId, accountId, conversationUuid].every(value => HOST_SESSION_UUID.test(value))) return null;
+    const bindings = resolveHostBindings(request, conversationId);
+    if (!bindings || typeof bindings !== 'object' || Array.isArray(bindings)
+      || !validBindingId(bindings.world_id) || !validBindingId(bindings.actor_id)) return null;
 
     const context = Object.freeze({
       host_installation_id: installationId,
@@ -42,6 +49,8 @@ export function createAuthenticatedHostSessionContext(
       host_session_id: sessionId,
       host_user_handle: userHandle,
       conversation_id: conversationId,
+      world_id: bindings.world_id,
+      actor_id: bindings.actor_id,
       identity: 'SIGNED_AUTHENTICATED_ST_SESSION',
     });
     contexts.add(context);
@@ -57,6 +66,7 @@ export function isAuthenticatedHostSessionContext(context, conversationId) {
       && contexts.has(context)
       && ['SIGNED_AUTHENTICATED_ST_SESSION', 'SIGNED_HOST_SESSION_ASSERTION'].includes(context.identity)
       && context.conversation_id === conversationId
+      && validBindingId(context.world_id) && validBindingId(context.actor_id)
       && typeof context.host_installation_id === 'string'
       && typeof context.authenticated_account_id === 'string'
       && HOST_SESSION_UUID.test(context.host_installation_id)
@@ -74,11 +84,11 @@ export function isAuthenticatedHostSessionContext(context, conversationId) {
  * branded capability from AsyncLocalStorage, not from caller request data.
  */
 export function runWithAuthenticatedHostSession(
-  request, conversationId, callback, isAuthenticatedHostRequest, resolveHostConversationId,
+  request, conversationId, callback, isAuthenticatedHostRequest, resolveHostConversationId, resolveHostBindings,
 ) {
   if (typeof callback !== 'function') throw new TypeError('A Host operation callback is required');
   const context = createAuthenticatedHostSessionContext(
-    request, conversationId, isAuthenticatedHostRequest, resolveHostConversationId,
+    request, conversationId, isAuthenticatedHostRequest, resolveHostConversationId, resolveHostBindings,
   );
   if (!context) throw new Error('HOST_SESSION_AUTHENTICATION_REQUIRED');
   return requestContext.run(context, callback);
@@ -97,6 +107,8 @@ function canonicalAssertion(assertion) {
     assertion.authenticated_account_id,
     assertion.host_session_id,
     assertion.conversation_id,
+    assertion.world_id,
+    assertion.actor_id,
     assertion.issued_at,
     assertion.nonce,
   ]);
@@ -119,6 +131,7 @@ function validHostSessionAssertion(assertion) {
         typeof value === 'string' && HOST_SESSION_UUID.test(value))
       && typeof assertion.conversation_id === 'string'
       && HOST_CONVERSATION_ID.test(assertion.conversation_id)
+      && validBindingId(assertion.world_id) && validBindingId(assertion.actor_id)
       && assertion.conversation_id.toLowerCase().startsWith(
         assertion.host_installation_id.toLowerCase() + ':' + assertion.authenticated_account_id.toLowerCase() + ':',
       )
@@ -178,6 +191,8 @@ export function createHostSessionAssertionRunner({
         authenticated_account_id: assertion.authenticated_account_id,
         host_session_id: assertion.host_session_id,
         conversation_id: assertion.conversation_id,
+        world_id: assertion.world_id,
+        actor_id: assertion.actor_id,
         identity: 'SIGNED_HOST_SESSION_ASSERTION',
       });
       contexts.add(context);
