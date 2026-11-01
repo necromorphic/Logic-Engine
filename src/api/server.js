@@ -176,21 +176,23 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
           const verified = runner.run(body.assertion, body.signature, () => {
             const context = getAuthenticatedHostSessionContext();
             if (!context) throw new Error('HOST_SESSION_CONTEXT_UNAVAILABLE');
-            const conversationBinding = hostConversationBindings.resolve({
-              adapterId,
-              conversationId: context.conversation_id,
+            engine.store.tx(() => {
+              const conversationBinding = hostConversationBindings.resolve({
+                adapterId,
+                conversationId: context.conversation_id,
+              });
+              if (conversationBinding.world_id !== context.world_id) {
+                throw new Error('HOST_WORLD_BINDING_MISMATCH');
+              }
+              const actorBinding = actorBindings.resolveForAdapter(context.world_id, adapterId);
+              if (actorBinding.actor?.entity_id !== context.actor_id) {
+                throw new Error('HOST_ACTOR_BINDING_MISMATCH');
+              }
+              const exactActorBinding = actorBindings.resolve(context.world_id, adapterId, context.actor_id);
+              if (exactActorBinding.actor?.entity_id !== context.actor_id) {
+                throw new Error('HOST_ACTOR_BINDING_MISMATCH');
+              }
             });
-            if (conversationBinding.world_id !== context.world_id) {
-              throw new Error('HOST_WORLD_BINDING_MISMATCH');
-            }
-            const actorBinding = actorBindings.resolveForAdapter(context.world_id, adapterId);
-            if (actorBinding.actor?.entity_id !== context.actor_id) {
-              throw new Error('HOST_ACTOR_BINDING_MISMATCH');
-            }
-            const exactActorBinding = actorBindings.resolve(context.world_id, adapterId, context.actor_id);
-            if (exactActorBinding.actor?.entity_id !== context.actor_id) {
-              throw new Error('HOST_ACTOR_BINDING_MISMATCH');
-            }
             return {
               status: 'HOST_CONTEXT_AUTHENTICATED',
               host_installation_id: context.host_installation_id,
