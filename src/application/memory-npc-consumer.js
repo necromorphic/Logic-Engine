@@ -227,7 +227,9 @@ export class MemoryNpcConsumer {
     // context produced from SillyTavern's authenticated signed server session.
     let hostSessionContext;
     try { hostSessionContext = getAuthenticatedHostSessionContext(); } catch {}
-    if (!isAuthenticatedHostSessionContext(hostSessionContext, conversationId)) {
+    if (!isAuthenticatedHostSessionContext(hostSessionContext, conversationId)
+      || hostSessionContext.world_id !== worldId
+      || hostSessionContext.actor_id !== actorEntityId) {
       return nonReady('query_access_unconfirmed');
     }
 
