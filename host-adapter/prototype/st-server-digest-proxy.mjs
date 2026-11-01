@@ -760,18 +760,56 @@ export function createHostMemoryDispatchProxyHandler({
     }
     const target = configuredTarget(env);
     if (!target) return response.status(503).json({ status: 'NON_READY', code: 'LOGIC_ENGINE_PROXY_UNCONFIGURED' });
+
+    // Host Adapter resolves the canonical world and exactly one active actor
+    // from Core-owned bindings. Neither identity is accepted from the browser.
+    // This is identity binding, not Memory authorization; Core Security Gateway
+    // independently re-resolves and authorizes at the disclosure/dispatch edge.
+    target.url.pathname = '/v1/host-context/resolve';
+    let hostBindings;
+    try {
+      const resolved = await fetchImpl(target.url, {
+        method: 'POST',
+        headers: {
+          authorization: 'Bearer ' + target.apiToken,
+          'content-type': 'application/json',
+          'x-adapter-id': target.adapterId,
+          'x-adapter-token': target.adapterToken,
+        },
+        body: JSON.stringify({ conversation_id: context.conversation_id }),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      let payload;
+      try { payload = await resolved.json(); } catch { payload = null; }
+      const value = payload?.context;
+      if (!resolved.ok || !value || typeof value !== 'object' || Array.isArray(value)
+        || Object.keys(value).sort().join(',') !== 'actor_id,actor_type,adapter_id,conversation_id,world_id'
+        || value.adapter_id !== target.adapterId
+        || value.conversation_id !== context.conversation_id
+        || !validId(value.world_id) || !validId(value.actor_id)
+        || typeof value.actor_type !== 'string' || !/^[a-z][a-z0-9_-]{0,63}$/i.test(value.actor_type)) {
+        return response.status(503).json({ status: 'NON_READY', code: 'HOST_WORLD_ACTOR_BINDING_UNAVAILABLE' });
+      }
+      hostBindings = value;
+    } catch {
+      return response.status(503).json({ status: 'NON_READY', code: 'HOST_WORLD_ACTOR_BINDING_UNAVAILABLE' });
+    }
+
     const assertion = {
       protocol_version: 1,
       host_installation_id: context.host_installation_id,
       authenticated_account_id: context.authenticated_account_id,
       host_session_id: context.host_session_id,
       conversation_id: context.conversation_id,
+      world_id: hostBindings.world_id,
+      actor_id: hostBindings.actor_id,
       issued_at: Math.floor(Date.now() / 1000),
       nonce: randomUUID(),
     };
     const canonicalAssertion = JSON.stringify([
       assertion.protocol_version, assertion.host_installation_id, assertion.authenticated_account_id,
-      assertion.host_session_id, assertion.conversation_id, assertion.issued_at, assertion.nonce,
+      assertion.host_session_id, assertion.conversation_id, assertion.world_id, assertion.actor_id,
+      assertion.issued_at, assertion.nonce,
     ]);
     const signature = createHmac('sha256', target.adapterToken).update(canonicalAssertion, 'utf8').digest('hex');
     target.url.pathname = '/v1/host/memory-npc/retrieve';
