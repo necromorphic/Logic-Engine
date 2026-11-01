@@ -133,3 +133,49 @@ test('mount registers exactly one same-process route and rejects duplicate mount
   assert.deepEqual(routes.map(route => route.path), [EXTENSION_GATEWAY_PATH]);
   assert.throws(() => mountExtensionGateway({ app, gateway }), /DUPLICATE/);
 });
+
+
+test('unknown operation is forwarded to Host Adapter for trusted semantic denial, not authorized by Gateway', async () => {
+  let received;
+  const gateway = createExtensionGateway({
+    hostAdapter: { handleExtensionRequest: async input => { received = input.envelope.operation; return { status: 403, body: { error: 'OPERATION_DENIED' } }; } },
+  });
+  const res = response();
+  await gateway.handle(request({ body: { ...valid, operation: 'admin.root' } }), res);
+  assert.equal(received, 'admin.root');
+  assert.equal(res.statusCode, 403);
+});
+
+test('repeated request identifiers are independently routed to Host Adapter and never bypass its checks', async () => {
+  let calls = 0;
+  const gateway = createExtensionGateway({
+    hostAdapter: { handleExtensionRequest: async () => { calls += 1; return { status: 403, body: { error: 'REAUTH_REQUIRED' } }; } },
+  });
+  for (let i = 0; i < 2; i += 1) {
+    const res = response();
+    await gateway.handle(request({ body: valid }), res);
+    assert.equal(res.statusCode, 403);
+  }
+  assert.equal(calls, 2);
+});
+
+test('chunked oversized body is rejected even without Content-Length', async () => {
+  let calls = 0;
+  const gateway = createExtensionGateway({
+    maxBodyBytes: 1024,
+    hostAdapter: { handleExtensionRequest: async () => { calls += 1; return { status: 200, body: {} }; } },
+  });
+  const req = {
+    method: 'POST',
+    path: EXTENSION_GATEWAY_PATH,
+    headers: { 'content-type': 'application/json' },
+    async *[Symbol.asyncIterator]() {
+      yield Buffer.alloc(700, 0x61);
+      yield Buffer.alloc(700, 0x61);
+    },
+  };
+  const res = response();
+  await gateway.handle(req, res);
+  assert.equal(res.statusCode, 413);
+  assert.equal(calls, 0);
+});
