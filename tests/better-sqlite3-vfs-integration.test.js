@@ -92,7 +92,7 @@ test('stock better-sqlite3 uses the registered default VFS in its own engine', {
         'SELECT logic_engine_vfs_probe_configure_race(?, ?, 1) AS configured',
       ).get(journalPath, replacementPath).configured;
       assert.equal(raceConfigured, 1, 'the deterministic delete race must be armed');
-      assert.throws(() => raceDb.exec('COMMIT'), /disk I\\/O error|SQLITE_IOERR/i);
+      assert.throws(() => raceDb.exec('COMMIT'), /disk I\/O error|SQLITE_IOERR/i);
       assert.equal(fs.readFileSync(replacementPath, 'utf8'), 'replacement-object-must-survive');
       assert.equal(fs.readFileSync(journalPath, 'utf8'), 'replacement-object-must-survive',
         'the mismatched moved entry must be restored without overwriting a concurrent creator');
