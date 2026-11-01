@@ -597,6 +597,8 @@ export class MemoryNpcConsumer {
         })) {
         return nonReady('memory_snapshot_stale');
       }
+      // Final synchronous grant fence after the last Core snapshot read.
+      if (!queryStillAllowedSynchronously()) return nonReady('query_access_unconfirmed');
       return Object.freeze({
         status: 'ready',
         admitted: Object.freeze([]),
