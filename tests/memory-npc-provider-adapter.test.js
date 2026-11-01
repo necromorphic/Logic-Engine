@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { createHmac } from 'node:crypto';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -8,6 +9,7 @@ import { LogicEngine } from '../src/application/engine.js';
 import { ActorBindingService } from '../src/application/actor-bindings.js';
 import { HostConversationWorldBindingService } from '../src/application/host-conversation-world-bindings.js';
 import { createMemoryNpcProviderAdapter } from '../src/application/memory-npc-provider-adapter.js';
+import { createHostSessionAssertionRunner, getAuthenticatedHostSessionContext } from '../src/application/host-session-context.js';
 
 
 test('real adapter composes file-backed SQLite Provider with Core query and canonical-source authorization', async (t) => {
@@ -176,4 +178,69 @@ test('real adapter composes file-backed SQLite Provider with Core query and cano
     else process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH = previousCoordinator;
     rmSync(directory, { recursive: true, force: true });
   }
+});
+
+
+test('cross-process Host session assertion creates a Core capability only for a valid, fresh, non-replayed signature', async () => {
+  const secret = 'adapter-secret-for-host-assertion-test';
+  const nowSeconds = 1_800_000_000;
+  const assertion = {
+    protocol_version: 1,
+    host_installation_id: '22222222-2222-4222-8222-222222222222',
+    authenticated_account_id: '33333333-3333-4333-8333-333333333333',
+    host_session_id: '11111111-1111-4111-8111-111111111111',
+    conversation_id: '11111111-1111-4111-8111-111111111111:22222222-2222-4222-8222-222222222222:44444444-4444-4444-8444-444444444444',
+    issued_at: nowSeconds,
+    nonce: '55555555-5555-4555-8555-555555555555',
+  };
+  const signature = createHmac('sha256', secret)
+    .update(JSON.stringify([
+      assertion.protocol_version,
+      assertion.host_installation_id,
+      assertion.authenticated_account_id,
+      assertion.host_session_id,
+      assertion.conversation_id,
+      assertion.issued_at,
+      assertion.nonce,
+    ]), 'utf8').digest('hex');
+  const runner = createHostSessionAssertionRunner({
+    secret,
+    now: () => nowSeconds * 1000,
+  });
+  const context = await runner.run(assertion, signature, async () => getAuthenticatedHostSessionContext());
+  assert.equal(context.identity, 'SIGNED_HOST_SESSION_ASSERTION');
+  assert.equal(context.host_installation_id, assertion.host_installation_id);
+  assert.equal(context.authenticated_account_id, assertion.authenticated_account_id);
+  assert.equal(context.host_session_id, assertion.host_session_id);
+  assert.equal(context.conversation_id, assertion.conversation_id);
+  assert.throws(() => runner.run(assertion, signature, () => true), /HOST_SESSION_ASSERTION_REPLAYED/);
+});
+
+test('cross-process Host session assertion rejects malformed scope, tampering, expiry and future timestamps', () => {
+  const secret = 'adapter-secret-for-host-assertion-test';
+  const nowSeconds = 1_800_000_000;
+  const base = {
+    protocol_version: 1,
+    host_installation_id: '22222222-2222-4222-8222-222222222222',
+    authenticated_account_id: '33333333-3333-4333-8333-333333333333',
+    host_session_id: '11111111-1111-4111-8111-111111111111',
+    conversation_id: '11111111-1111-4111-8111-111111111111:22222222-2222-4222-8222-222222222222:44444444-4444-4444-8444-444444444444',
+    issued_at: nowSeconds,
+    nonce: '55555555-5555-4555-8555-555555555555',
+  };
+  const sign = value => createHmac('sha256', secret).update(JSON.stringify([
+    value.protocol_version, value.host_installation_id, value.authenticated_account_id,
+    value.host_session_id, value.conversation_id, value.issued_at, value.nonce,
+  ]), 'utf8').digest('hex');
+  const runner = createHostSessionAssertionRunner({ secret, now: () => nowSeconds * 1000 });
+  assert.throws(() => runner.run({ ...base, conversation_id: 'forged' }, sign(base), () => true),
+    /HOST_SESSION_ASSERTION_INVALID/);
+  assert.throws(() => runner.run(base, '0'.repeat(64), () => true),
+    /HOST_SESSION_ASSERTION_INVALID/);
+  assert.throws(() => runner.run({ ...base, issued_at: nowSeconds - 31 }, sign({ ...base, issued_at: nowSeconds - 31 }), () => true),
+    /HOST_SESSION_ASSERTION_EXPIRED/);
+  assert.throws(() => runner.run({ ...base, issued_at: nowSeconds + 6 }, sign({ ...base, issued_at: nowSeconds + 6 }), () => true),
+    /HOST_SESSION_ASSERTION_EXPIRED/);
+  assert.throws(() => runner.run({ ...base, extra: true }, sign(base), () => true),
+    /HOST_SESSION_ASSERTION_INVALID/);
 });
