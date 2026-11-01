@@ -273,13 +273,15 @@ def main() -> int:
         # Only interrupted create/delete transitions whose sidecar pathname is
         # absent are finalized. Present entries are never deleted or promoted:
         # they require SQLite-level recovery and keep startup fail-closed.
+        main_lifecycle_reconciled = store.reconcile_main_lifecycle()
         enrollment_reconciled = store.reconcile_enrolling_roles()
         store.retire_absent_sidecars()
         recovery_marked = store.mark_present_transitions_recovery_required()
         store.verify_roles()
         print(
             f"sqlite-broker: startup reconciliation complete "
-            f"(enrollment generation {enrollment_reconciled['generation']}; "
+            f"(main lifecycle generation {main_lifecycle_reconciled['generation']}; "
+            f"enrollment generation {enrollment_reconciled['generation']}; "
             f"manifest generation {recovery_marked['generation']})",
             file=sys.stderr,
         )
