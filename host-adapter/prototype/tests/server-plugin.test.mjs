@@ -19,9 +19,9 @@ test('SillyTavern server plugin registers only private session and inventory rou
     },
   });
   assert.deepEqual(routes.map(({ method, route }) => method + ' ' + route), [
+    'GET /session',
     'POST /host-version-ledger/capture',
     'POST /host-version-ledger/reconcile',
-    'GET /session',
     'GET /inventory',
   ]);
   for (const route of routes) assert.equal(typeof route.handler, 'function');
