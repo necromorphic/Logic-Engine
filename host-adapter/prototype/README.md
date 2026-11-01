@@ -196,3 +196,16 @@ The plugin package is self-contained: `index.mjs`, `st-source-inventory.mjs`, an
 5. Do not treat a successful scan as authoritative completeness or enable Provider/NPC disclosure.
 
 This packaging removes the need for a core-source patch, but it does **not** close the existing inventory gaps: pre-enrollment history, import/export, copy/branch/restore, all deletion paths, external edits, filesystem snapshot races, and platform-specific race resistance remain unsupported. The inventory result remains `DOUBLE_SCAN_CANDIDATE` / `NON_AUTHORITATIVE`. No live ST installation or real Windows/Android/Termux persistence test has been performed. No Core API handoff or final NPC dispatch is enabled.
+
+
+### Exact-head CI update — Lane B Host adapter follow-up (1 Nov 2026)
+
+Candidate HEAD: `ed66245a511ce3f8c0021c08e84a10ba7815b0bc`.
+
+- Host lifecycle patch check [run #2363](https://github.com/necromorphic/Logic-Engine/actions/runs/41291506936): SUCCESS. Pinned ST patch application, module syntax checks, server-plugin packaging, middleware-order assertion, and Host prototype tests all passed; the Host prototype/inventory test batch reports 116/116.
+- Host lifecycle patch validation [run #1874](https://github.com/necromorphic/Logic-Engine/actions/runs/41291506978): SUCCESS.
+- Host browser IndexedDB restart [run #1660](https://github.com/necromorphic/Logic-Engine/actions/runs/41291507016): SUCCESS.
+- Memory Provider blocker 3 [run #528](https://github.com/necromorphic/Logic-Engine/actions/runs/41291506938): SUCCESS; Provider acceptance 121/121; full runtime 1369 passed, 0 failed, 2 skipped; recalculation oracle 20/20.
+- Separate Runtime tests workflow [run #7905](https://github.com/necromorphic/Logic-Engine/actions/runs/41291506951) and Host Adapter pinned-source audit [run #1500](https://github.com/necromorphic/Logic-Engine/actions/runs/41291507106) were still queued at the time of this update.
+
+These are CI/source-harness results. The standalone plugin has not been installed in the user's live SillyTavern instance; there is no real Android/Termux persistence result, no cross-process authenticated Memory→NPC request gateway, and no final model-send integration. Memory→NPC remains disabled/fail-closed.
