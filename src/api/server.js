@@ -93,8 +93,40 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
       || typeof consumer?.retrieveForNpc !== 'function' || consumer.adapterId !== id)) {
     throw new TypeError('Memory NPC consumers must be trusted, adapter-pinned consumer instances.');
   }
+  const assertionNonceDb = engine.store?.db
+    && typeof engine.store.db.prepare === 'function'
+    && typeof engine.store.db.exec === 'function'
+    ? engine.store.db : null;
+  if (assertionNonceDb) {
+    assertionNonceDb.exec(`
+      CREATE TABLE IF NOT EXISTS host_assertion_nonces (
+        adapter_id TEXT NOT NULL,
+        nonce TEXT NOT NULL,
+        expires_at INTEGER NOT NULL,
+        consumed_at INTEGER NOT NULL,
+        PRIMARY KEY(adapter_id, nonce)
+      ) WITHOUT ROWID;
+      CREATE INDEX IF NOT EXISTS host_assertion_nonces_expiry
+        ON host_assertion_nonces(expires_at);
+    `);
+  }
   const hostAssertionRunners = Object.fromEntries(Object.entries(adapterTokens)
-    .map(([id, secret]) => [id, createHostSessionAssertionRunner({ secret })]));
+    .map(([id, secret]) => [id, createHostSessionAssertionRunner({
+      secret,
+      consumeNonce: (nonce, expiresAt, currentSeconds) => {
+        if (!assertionNonceDb) throw new Error('HOST_ASSERTION_REPLAY_GUARD_UNAVAILABLE');
+        try {
+          assertionNonceDb.prepare('DELETE FROM host_assertion_nonces WHERE expires_at < ?').run(currentSeconds);
+          const result = assertionNonceDb.prepare(`
+            INSERT OR IGNORE INTO host_assertion_nonces(adapter_id, nonce, expires_at, consumed_at)
+            VALUES(?, ?, ?, ?)
+          `).run(id, nonce, expiresAt, currentSeconds);
+          return result.changes === 1;
+        } catch {
+          throw new Error('HOST_ASSERTION_REPLAY_GUARD_UNAVAILABLE');
+        }
+      },
+    })]));
   const proposals = new ProposalService(engine, {
     validateMechanicPolicy: createActiveMechanicPolicyValidator(getActiveMechanicContextProvider, mechanicPolicyAuthority),
   });
@@ -372,6 +404,9 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
           }
           if (code === 'HOST_SESSION_ASSERTION_CAPACITY_EXCEEDED') {
             return send(res, 503, { error: { code, message: 'Host assertion verifier is at capacity.' } });
+          }
+          if (code === 'HOST_ASSERTION_REPLAY_GUARD_UNAVAILABLE') {
+            return send(res, 503, { error: { code, message: 'Durable Host assertion replay protection is unavailable.' } });
           }
           return send(res, 401, { error: { code: 'HOST_SESSION_ASSERTION_INVALID', message: 'Host assertion could not be authenticated.' } });
         }
