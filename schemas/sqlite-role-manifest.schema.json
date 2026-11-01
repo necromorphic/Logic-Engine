@@ -53,7 +53,7 @@
         },
         "applicationUid": {
           "type": "integer",
-          "minimum": 0
+          "minimum": 1
         }
       }
     },
@@ -272,105 +272,19 @@
         },
         "required": [
           "platform"
-        ],
-        "type": "object"
+        ]
       },
       "then": {
         "properties": {
           "filesystemPolicy": {
-            "type": "object",
             "required": [
+              "filesystem",
+              "identitySource",
+              "directoryMutationBoundary",
               "applicationUid"
-            ],
-            "properties": {
-              "applicationUid": {
-                "type": "integer",
-                "minimum": 0
-              }
-            }
-          },
-          "metadataRootIdentity": {
-            "$ref": "#/$defs/posixIdentity"
-          },
-          "roles": {
-            "items": {
-              "properties": {
-                "parentIdentities": {
-                  "items": {
-                    "$ref": "#/$defs/posixIdentity"
-                  },
-                  "type": "array"
-                },
-                "databaseIdentity": {
-                  "$ref": "#/$defs/posixIdentity"
-                },
-                "sidecars": {
-                  "items": {
-                    "properties": {
-                      "identity": {
-                        "$ref": "#/$defs/posixIdentity"
-                      }
-                    },
-                    "type": "object"
-                  },
-                  "type": "array"
-                }
-              },
-              "type": "object"
-            },
-            "type": "array"
+            ]
           }
-        },
-        "type": "object"
-      }
-    },
-    {
-      "if": {
-        "properties": {
-          "platform": {
-            "const": "windows"
-          }
-        },
-        "required": [
-          "platform"
-        ],
-        "type": "object"
-      },
-      "then": {
-        "properties": {
-          "metadataRootIdentity": {
-            "$ref": "#/$defs/windowsIdentity"
-          },
-          "roles": {
-            "items": {
-              "properties": {
-                "parentIdentities": {
-                  "items": {
-                    "$ref": "#/$defs/windowsIdentity"
-                  },
-                  "type": "array"
-                },
-                "databaseIdentity": {
-                  "$ref": "#/$defs/windowsIdentity"
-                },
-                "sidecars": {
-                  "items": {
-                    "properties": {
-                      "identity": {
-                        "$ref": "#/$defs/windowsIdentity"
-                      }
-                    },
-                    "type": "object"
-                  },
-                  "type": "array"
-                }
-              },
-              "type": "object"
-            },
-            "type": "array"
-          }
-        },
-        "type": "object"
+        }
       }
     }
   ]
