@@ -1,8 +1,47 @@
-import { isDeepStrictEqual } from 'node:util';
+import { isDeepStrictEqual, types as utilTypes } from 'node:util';
 import { evaluateMemoryCandidateAdmission } from '../npc/memory-candidate-eligibility.js';
 import { getAuthenticatedHostSessionContext, isAuthenticatedHostSessionContext } from './host-session-context.js';
 
 const object = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
+function isPlainDataRecord(value, requiredKeys, allowedKeys = requiredKeys) {
+  if (!object(value) || utilTypes.isProxy(value)) return false;
+  try {
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) return false;
+    const keys = Reflect.ownKeys(value);
+    if (keys.length < requiredKeys.length) return false;
+    for (const key of keys) {
+      if (typeof key !== 'string' || !allowedKeys.includes(key)) return false;
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      if (!descriptor || !Object.hasOwn(descriptor, 'value')) return false;
+    }
+    return requiredKeys.every((key) => Object.hasOwn(value, key));
+  } catch {
+    return false;
+  }
+}
+
+function isDensePlainDataArray(value) {
+  if (!Array.isArray(value) || utilTypes.isProxy(value)) return false;
+  try {
+    if (Object.getPrototypeOf(value) !== Array.prototype) return false;
+    const keys = Reflect.ownKeys(value);
+    for (const key of keys) {
+      if (key === 'length') continue;
+      if (typeof key !== 'string' || !/^(0|[1-9][0-9]*)$/.test(key)
+        || !Number.isSafeInteger(Number(key)) || Number(key) >= value.length) return false;
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      if (!descriptor || !Object.hasOwn(descriptor, 'value')) return false;
+    }
+    for (let index = 0; index < value.length; index += 1) {
+      if (!Object.hasOwn(value, index)) return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 const validId = (value) => typeof value === 'string'
   && value === value.trim()
   && value.length > 0
@@ -667,10 +706,12 @@ export class MemoryNpcConsumer {
       return nonReady('authorized_source_read_unavailable');
     }
 
-    if (!object(sourceRead)
+    const sourceReadKeys = ['world_id', 'world_revision', 'commit_sequence', 'entities'];
+    if (!isPlainDataRecord(sourceRead, sourceReadKeys)
       || sourceRead.world_id !== worldId
       || !validSnapshot({ world_revision: sourceRead.world_revision, commit_sequence: sourceRead.commit_sequence })
-      || !Array.isArray(sourceRead.entities)) {
+      || !isDensePlainDataArray(sourceRead.entities)
+      || sourceRead.entities.length !== entityIds.length) {
       return nonReady('authorized_source_read_invalid');
     }
 
@@ -682,13 +723,22 @@ export class MemoryNpcConsumer {
     }
 
     const sourceById = new Map();
+    const requestedEntityIds = new Set(entityIds);
+    const allowedEntityKeys = ['entity_id', ...this.contentFields];
     for (const entity of sourceRead.entities) {
-      if (!object(entity) || !validId(entity.entity_id) || sourceById.has(entity.entity_id)) {
-        // The authorized read boundary must not return ambiguous canonical
-        // identities. Never silently choose the last row for a duplicate ID.
+      if (!isPlainDataRecord(entity, ['entity_id'], allowedEntityKeys)
+        || !validId(entity.entity_id)
+        || !requestedEntityIds.has(entity.entity_id)
+        || sourceById.has(entity.entity_id)) {
+        // The Core envelope must contain exactly the requested canonical
+        // identities and only the allowlisted projection fields. Never accept
+        // an extra entity, duplicate identity, accessor, Proxy, or diagnostic.
         return nonReady('authorized_source_read_invalid');
       }
       sourceById.set(entity.entity_id, entity);
+    }
+    if (sourceById.size !== requestedEntityIds.size) {
+      return nonReady('authorized_source_read_invalid');
     }
 
     const oracleCandidates = [];
@@ -803,7 +853,7 @@ export class MemoryNpcConsumer {
     } catch {
       return nonReady('authorized_source_read_unavailable');
     }
-    if (!object(finalSourceSnapshotRead)
+    if (!isPlainDataRecord(finalSourceSnapshotRead, sourceReadKeys)
       || finalSourceSnapshotRead.world_id !== worldId
       || !validSnapshot({
         world_revision: finalSourceSnapshotRead.world_revision,
@@ -813,8 +863,9 @@ export class MemoryNpcConsumer {
         world_revision: finalSourceSnapshotRead.world_revision,
         commit_sequence: finalSourceSnapshotRead.commit_sequence,
       })
-      || !Array.isArray(finalSourceSnapshotRead.entities)) {
-      return nonReady('memory_snapshot_stale');
+      || !isDensePlainDataArray(finalSourceSnapshotRead.entities)
+      || finalSourceSnapshotRead.entities.length !== entityIds.length) {
+      return nonReady('authorized_source_read_invalid');
     }
 
     // Reapply field visibility at the disclosure boundary. The first source
@@ -822,10 +873,16 @@ export class MemoryNpcConsumer {
     // authorized read, after Provider and Core authorization rechecks.
     const finalSourceById = new Map();
     for (const entity of finalSourceSnapshotRead.entities) {
-      if (!object(entity) || !validId(entity.entity_id) || finalSourceById.has(entity.entity_id)) {
+      if (!isPlainDataRecord(entity, ['entity_id'], allowedEntityKeys)
+        || !validId(entity.entity_id)
+        || !requestedEntityIds.has(entity.entity_id)
+        || finalSourceById.has(entity.entity_id)) {
         return nonReady('authorized_source_read_invalid');
       }
       finalSourceById.set(entity.entity_id, entity);
+    }
+    if (finalSourceById.size !== requestedEntityIds.size) {
+      return nonReady('authorized_source_read_invalid');
     }
     const finalContentByIdentity = new Map();
     for (const item of admitted) {
