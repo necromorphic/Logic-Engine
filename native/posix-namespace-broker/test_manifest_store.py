@@ -246,27 +246,15 @@ class ManifestStoreTests(unittest.TestCase):
         finally:
             os.close(opened)
 
-    def test_startup_reconciles_persisted_enrolling_role_by_opened_identity(self):
+    def test_startup_recovers_pending_enrollment_after_file_create_before_identity_commit(self):
         import json
-        self.store.initialize(self.data(1))
+        initial = json.loads(self.data(1))
+        initial["roles"] = []
+        self.store.initialize(_canonical_json(initial))
         parent = self.role_parent / "interrupted-enrollment"
         parent.mkdir(mode=0o700)
         os.chmod(parent, 0o700)
         components = list(parent.parts[1:])
-        parent_fd = os.open(parent, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW)
-        db_fd = -1
-        try:
-            parent_identity = fd_identity(parent_fd)
-            db_fd = os.open("interrupted.sqlite",
-                            os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC | os.O_NOFOLLOW,
-                            0o600, dir_fd=parent_fd)
-            database_identity = fd_identity(db_fd)
-            os.fsync(db_fd)
-            os.fsync(parent_fd)
-        finally:
-            if db_fd >= 0:
-                os.close(db_fd)
-            os.close(parent_fd)
         identities = []
         walk_fd = os.open("/", os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
         try:
@@ -281,30 +269,78 @@ class ManifestStoreTests(unittest.TestCase):
         current = self.store.load()
         candidate = json.loads(_canonical_json(current))
         candidate["generation"] += 1
-        candidate.setdefault("pendingEnrollments", []).append({
+        candidate["pendingEnrollments"] = [{
             "role": "interrupted",
             "parentComponents": components,
             "parentIdentities": identities,
             "databaseBasename": "interrupted.sqlite",
-        })
+        }]
         self.store.commit(_canonical_json(candidate))
-        # Simulate restart after the durable enrollment intent. Recovery must
-        # capture the already-created file identity, persist the enrolling
-        # role, then independently complete its activation.
+
+        parent_fd = os.open(parent, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW)
+        db_fd = -1
+        try:
+            db_fd = os.open("interrupted.sqlite",
+                            os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC | os.O_NOFOLLOW,
+                            0o600, dir_fd=parent_fd)
+            os.fsync(db_fd)
+            os.fsync(parent_fd)
+        finally:
+            if db_fd >= 0:
+                os.close(db_fd)
+            os.close(parent_fd)
+
         pending = self.store.reconcile_pending_enrollments()
-        self.assertTrue(any(entry["role"] == "interrupted"
-                            and entry["state"] == "enrolling"
-                            for entry in pending["roles"]))
+        self.assertEqual(pending.get("pendingEnrollments", []), [])
+        self.assertEqual(pending["roles"][0]["state"], "enrolling")
         reconciled = self.store.reconcile_enrolling_roles()
         role = next(entry for entry in reconciled["roles"]
                     if entry["role"] == "interrupted")
         self.assertEqual(role["state"], "active")
-        self.assertEqual(reconciled["generation"], 3)
+        self.assertEqual(reconciled["generation"], 5)
         opened = self.store.open_role_file("interrupted", "main")
         try:
-            self.assertEqual(fd_identity(opened), database_identity)
+            self.assertEqual(fd_identity(opened), role["databaseIdentity"])
         finally:
             os.close(opened)
+
+    def test_startup_finishes_pending_enrollment_when_file_was_not_created(self):
+        import json
+        initial = json.loads(self.data(1))
+        initial["roles"] = []
+        self.store.initialize(_canonical_json(initial))
+        parent = self.role_parent / "not-yet-created"
+        parent.mkdir(mode=0o700)
+        os.chmod(parent, 0o700)
+        components = list(parent.parts[1:])
+        identities = []
+        walk_fd = os.open("/", os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+        try:
+            for component in components:
+                next_fd = os.open(component, os.O_RDONLY | os.O_DIRECTORY |
+                                  os.O_CLOEXEC | os.O_NOFOLLOW, dir_fd=walk_fd)
+                os.close(walk_fd)
+                walk_fd = next_fd
+                identities.append(fd_identity(walk_fd))
+        finally:
+            os.close(walk_fd)
+        current = self.store.load()
+        candidate = json.loads(_canonical_json(current))
+        candidate["generation"] += 1
+        candidate["pendingEnrollments"] = [{
+            "role": "created-on-restart",
+            "parentComponents": components,
+            "parentIdentities": identities,
+            "databaseBasename": "created.sqlite",
+        }]
+        self.store.commit(_canonical_json(candidate))
+        self.assertFalse((parent / "created.sqlite").exists())
+        self.store.reconcile_pending_enrollments()
+        reconciled = self.store.reconcile_enrolling_roles()
+        role = next(entry for entry in reconciled["roles"]
+                    if entry["role"] == "created-on-restart")
+        self.assertEqual(role["state"], "active")
+        self.assertTrue((parent / "created.sqlite").exists())
 
     def test_manifest_rejects_new_role_that_skips_enrolling_state(self):
         import json
@@ -1142,7 +1178,7 @@ class ManifestStoreTests(unittest.TestCase):
         self.store.close()
         self.store = ManifestStore(str(self.manifest_root), str(self.anchor_root), self.application_uid)
         current = self.store.load()
-        self.assertEqual(current["generation"], 3)
+        self.assertEqual(current["generation"], 5)
         self.assertEqual(current["roles"][0]["sidecars"][0]["identity"], identity)
         reopened = self.store.open_role_file("core", "wal")
         try:
