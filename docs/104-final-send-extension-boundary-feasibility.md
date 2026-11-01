@@ -164,13 +164,14 @@ The owner has explicitly authorized a managed local source-level patch of the in
 
 Implementation added on the PR branch:
 
-- `host-adapter/patches/sillytavern-1.19.0-final-send.patch`: pinned patch changes only the local ST 1.19.0 Chat Completions module and adds a request-scoped Final-Send Hook module under the ST `src/` tree.
+- `host-adapter/patches/sillytavern-1.19.0-final-send.patch`: pinned patch changes the local ST 1.19.0 Chat Completions route and the existing `src/endpoints/extensions.js` install/update/delete handlers; it adds request-scoped Final-Send and server-side Extension lifecycle Hook modules under ST `src/`.
 - `host-adapter/patches/sillytavern-1.19.0-final-send.manifest.json`: exact ST version/commit and SHA-256 fingerprints for the patch, all audited generation/loader source files, patched target, and created Hook module.
 - `scripts/sillytavern-patch-manager.mjs`: deployment-side Preflight, Backup, Apply, Verify, Rollback, Update, Repair, Uninstall and journal recovery. It refuses unknown source revisions, symlinks, stale/ambiguous locks, corrupted backups, patch conflicts, and rollback over user modifications.
-- `scripts/install-logic-engine-extension.mjs` plus `npm run install:extension`: Extension deployment entrypoint invokes Patch Manager before installation is reported successful.
+- `scripts/install-logic-engine-extension.mjs` plus `npm run install:extension`: one-time deployment bootstrap installs the local patch and its server-side lifecycle bridge. After bootstrap, the normal SillyTavern Extension install/update/delete endpoints invoke Patch Manager inside the existing ST server process.
 - `host-adapter/sillytavern-final-send-adapter.mjs`: server-side adapter factory maps the pinned ST sender registry and forwards the actual native transport capability to the Core Gateway helper.
 - `host-adapter/protected-memory-final-send.mjs`: accepts the request-scoped native transport capability so the Gateway's dispatch-start can surround the actual ST provider transport.
-- tests cover manager lifecycle/conflict preservation, patch manifest integrity and adapter-to-Gateway transport mapping.
+- root `manifest.json` marks the Logic-Engine Extension for the managed lifecycle; the server Hook accepts only the exact HTTPS origin `github.com/necromorphic/Logic-Engine` before dynamically importing Patch Manager from the cloned Extension.
+- tests cover manager lifecycle/conflict preservation, patch manifest integrity, native ST lifecycle wiring, trusted-origin pinning and adapter-to-Gateway transport mapping.
 
 The patch wraps the native Chat Completions generation route and its module-local `node-fetch` binding. This covers the provider-specific early-return branches and the generic fallback inside that module. It also routes the first streaming response write through the adapter callback so a protected Gateway can perform final revalidation before the legacy sender's duplicate write is suppressed.
 
@@ -179,7 +180,7 @@ The patch wraps the native Chat Completions generation route and its module-loca
 - The ST Hook module intentionally rejects generation while no trusted server-side adapter is registered. There is no direct-fetch fallback when the Hook is active but its adapter is missing.
 - The adapter factory exists, but a production bootstrap that supplies the real Core `MemoryDispatchGateway`, trusted Host session/world/actor resolver, Core policy/evidence readers, and Provider evidence readers has not yet been wired. No Browser/ST-to-Core request or extra API port is added to compensate.
 - Text Completion, Kobold, NovelAI and Horde remain separate generation routes and are not admitted by the current protected sender registry. They are not silently treated as covered by the Chat Completions patch; protected Memory remains disabled on those paths.
-- SillyTavern's own browser Extension Manager does not execute arbitrary filesystem install hooks. The Logic-Engine deployment now has an `install:extension` entrypoint that installs the patch as part of the Logic-Engine Extension deployment command. The product's final Extension installation workflow must invoke this entrypoint; a browser-only "Install extension" action cannot safely write server source files.
+- ST's browser manifest hooks are client-side and cannot write server files. This implementation does not use them for patching: the one-time Logic-Engine deployment bootstrap patches the existing native ST extension-management server route, which then invokes Patch Manager automatically after cloning the marked Logic-Engine Extension and on its update/delete lifecycle. The server route passes its own sanitized server-side extension path; no new route or API port is added.
 
 The local patch has been applied to a clean copy of the supplied ST 1.19.0 archive in an isolated test directory; both changed JavaScript modules passed `node --check`. This is source/applicability validation only, not live ST runtime or end-to-end Core authorization evidence.
 
