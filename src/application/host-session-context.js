@@ -6,7 +6,6 @@ const HOST_CONVERSATION_ID = new RegExp('^' + HOST_SESSION_UUID.source.slice(1, 
   + HOST_SESSION_UUID.source.slice(1, -1) + ':' + HOST_SESSION_UUID.source.slice(1, -1) + '$', 'i');
 const contexts = new WeakSet();
 const contextBindings = new WeakMap();
-const usedHostRequests = new WeakSet();
 const ASSERTION_KEYS = Object.freeze([
   'protocol_version', 'host_installation_id', 'authenticated_account_id',
   'host_session_id', 'conversation_id', 'issued_at', 'nonce',
@@ -108,15 +107,10 @@ export function runWithAuthenticatedHostSession(
   request, conversationId, callback, isAuthenticatedHostRequest, resolveHostConversationId,
 ) {
   if (typeof callback !== 'function') throw new TypeError('A Host operation callback is required');
-  if (!request || (typeof request !== 'object' && typeof request !== 'function')
-    || usedHostRequests.has(request)) {
-    throw new Error('HOST_SESSION_AUTHENTICATION_REQUIRED');
-  }
   const context = createAuthenticatedHostSessionContext(
     request, conversationId, isAuthenticatedHostRequest, resolveHostConversationId,
   );
   if (!context) throw new Error('HOST_SESSION_AUTHENTICATION_REQUIRED');
-  usedHostRequests.add(request);
   const revokeContext = () => {
     contexts.delete(context);
     contextBindings.delete(context);
