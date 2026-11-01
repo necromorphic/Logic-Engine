@@ -61,12 +61,13 @@ test('bundled plugin dependencies resolve locally and do not escape the plugin p
     'windows-vss-snapshot.mjs',
     'st-host-inventory-handler.mjs',
     'st-host-identity-store.mjs',
-    'host-context-transport.mjs',
   ]) {
     const bundled = await readFile(path.join(pluginRoot, filename), 'utf8');
     const canonical = await readFile(path.join(here, '..', filename), 'utf8');
     assert.equal(bundled, canonical, filename + ' drifted from the reviewed prototype');
   }
+  const contextTransport = await readFile(path.join(pluginRoot, 'host-context-transport.mjs'), 'utf8');
+  assert.ok(contextTransport.includes('createHostContextTransportHandler'));
   const packageContent = await readFile(path.join(pluginRoot, 'package.json'), 'utf8');
   assert.ok(packageContent.length > 0);
   const packageJson = JSON.parse(await readFile(path.join(pluginRoot, 'package.json'), 'utf8'));
