@@ -814,7 +814,9 @@ export class SQLiteMemoryProvider {
         VALUES(?,?,?,?,?,?,1)
         ON CONFLICT(world_id,subject_id,purpose,record_ref,record_version)
         DO UPDATE SET allowed=excluded.allowed,
-          authorization_generation=memory_record_grants.authorization_generation+1`)
+          authorization_generation=CASE WHEN memory_record_grants.allowed<>excluded.allowed
+            THEN memory_record_grants.authorization_generation+1
+            ELSE memory_record_grants.authorization_generation END`)
         .run(scope.world_id, scope.subject_id, scope.purpose, recordRef, recordVersion, allowed ? 1 : 0);
     });
     const key = JSON.stringify([scope.world_id, scope.subject_id, scope.purpose, recordRef, recordVersion]);
