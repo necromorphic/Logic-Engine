@@ -63,7 +63,8 @@ test('Host Adapter resolves world and exactly one actor before signing the Host 
   assert.equal(response.payload.code, 'CORE_HOST_DISPATCH_ROUTE_UNAVAILABLE');
   assert.match(calls[0].url, /\/v1\/host-context\/resolve$/);
   assert.match(calls[1].url, /\/v1\/host\/memory-npc\/retrieve$/);
-  assert.deepEqual(JSON.parse(calls[0].options.body), { conversation_id: conversationId });
+  const resolveBody = JSON.parse(calls[0].options.body);
+  assert.deepEqual(resolveBody, { conversation_id: conversationId });
   assert.equal(calls[0].options.headers['x-adapter-id'], 'st-gateway');
   assert.equal(calls[0].options.headers['x-adapter-token'], env.LOGIC_ENGINE_ADAPTER_TOKEN);
 
@@ -75,8 +76,8 @@ test('Host Adapter resolves world and exactly one actor before signing the Host 
   assert.equal(body.assertion.conversation_id, conversationId);
   assert.equal(body.assertion.world_id, worldId);
   assert.equal(body.assertion.actor_id, actorId);
-  assert.equal('world_id' in calls[0].options.body, false);
-  assert.equal('actor_id' in calls[0].options.body, false);
+  assert.equal('world_id' in resolveBody, false);
+  assert.equal('actor_id' in resolveBody, false);
   assert.equal('chat' in body, false);
 
   const assertion = body.assertion;
