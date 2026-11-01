@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { isUtf8 } from 'node:buffer';
 import { lstat, readFile, realpath } from 'node:fs/promises';
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -7,9 +8,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const manifest = JSON.parse(await readFile(resolve(here, 'pins/sillytavern-1.19.0-final-send.manifest.json'), 'utf8'));
 const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
 const canonicalTextHash = (bytes) => {
-  if (!Buffer.from(bytes).toString('utf8') || !Buffer.from(bytes).equals(Buffer.from(bytes.toString('utf8'), 'utf8'))) {
-    throw new Error('SILLYTAVERN_INSPECTION_ENCODING_INVALID');
-  }
+  if (!isUtf8(bytes)) throw new Error('SILLYTAVERN_INSPECTION_ENCODING_INVALID');
   return sha256(Buffer.from(bytes.toString('utf8').replace(/\\r\\n/g, '\\n'), 'utf8'));
 };
 const isWithin = (root, target) => {
@@ -44,7 +43,7 @@ async function hashAt(root, relativePath) {
  * come from the deployment package's pinned manifest.
  */
 export async function inspectPinnedSillyTavernInstallation(stRoot) {
-  if (typeof stRoot !== 'string' || !stRoot.trim() || !isAbsolute(resolve(stRoot))) {
+  if (typeof stRoot !== 'string' || !stRoot.trim() || !isAbsolute(stRoot)) {
     return Object.freeze({
       files: { status: 'NOT_TESTED', summary: 'No SillyTavern installation root was configured.' },
       backups: { status: 'NOT_TESTED', summary: 'No SillyTavern installation root was configured.' },
@@ -68,12 +67,6 @@ export async function inspectPinnedSillyTavernInstallation(stRoot) {
       else if (actual === before) baselineCount += 1;
       else throw new Error('SILLYTAVERN_SOURCE_DRIFT:' + relativePath);
     }
-    for (const [relativePath, expected] of Object.entries(manifest.createdFiles)) {
-      if (await hashAt(root, relativePath) !== expected) {
-        throw new Error('SILLYTAVERN_PATCH_FILE_MISSING_OR_DRIFTED:' + relativePath);
-      }
-    }
-
     if (baselineCount === Object.keys(manifest.sourceFiles).length) {
       return Object.freeze({
         files: { status: 'NOT_TESTED', summary: 'Pinned SillyTavern baseline is present; Final-Send patch is not installed.' },
@@ -82,6 +75,12 @@ export async function inspectPinnedSillyTavernInstallation(stRoot) {
     }
     if (installedCount !== Object.keys(manifest.sourceFiles).length) {
       throw new Error('SILLYTAVERN_PATCH_STATE_MIXED');
+    }
+
+    for (const [relativePath, expected] of Object.entries(manifest.createdFiles)) {
+      if (await hashAt(root, relativePath) !== expected) {
+        throw new Error('SILLYTAVERN_PATCH_FILE_MISSING_OR_DRIFTED:' + relativePath);
+      }
     }
 
     const managerDir = resolve(root, '.logic-engine-patch-manager');
@@ -113,7 +112,7 @@ export async function inspectPinnedSillyTavernInstallation(stRoot) {
 
     for (const [relativePath, expected] of expectedBackups) {
       const record = state.backups[relativePath];
-      const expectedPath = ['backups', state.backupId, ...relativePath.split(/[\\\\/]/)].join(sep);
+      const expectedPath = ['backups', state.backupId, ...relativePath.split('/')].join(sep);
       if (!record || record.sha256 !== expected.before || record.backupPath !== expectedPath) {
         throw new Error('PATCH_MANAGER_BACKUP_RECORD_INVALID:' + relativePath);
       }
