@@ -406,6 +406,23 @@ function normalizeRootInventoryResponse(upstream) {
 }
 
 
+function resolveHostLifecycleDirectories(request) {
+  const directories = resolveHostLifecycleDirectories(request);
+  if (!directories) return null;
+  const suppliedBackups = request?.user?.directories?.backups;
+  if (suppliedBackups !== undefined
+    && (typeof suppliedBackups !== 'string' || !suppliedBackups.trim())) return null;
+  return Object.freeze({
+    ...directories,
+    // ST's authenticated account directory object does not consistently expose
+    // a backups member. Derive the conventional server-owned path from root;
+    // the receipt store independently rejects it if it resolves outside root.
+    backups: typeof suppliedBackups === 'string'
+      ? pathModule.resolve(suppliedBackups)
+      : pathModule.join(directories.root, 'backups'),
+  });
+}
+
 const HOST_LIFECYCLE_EVENT_TYPES = new Set(['MUTATION_PREPARED', 'MUTATION_COMMITTED', 'MUTATION_ABORTED']);
 const HOST_LIFECYCLE_OPERATIONS = new Set([
   'create-message', 'message-send', 'message-receive', 'create-swipe', 'select-swipe',
@@ -560,7 +577,7 @@ export function createHostLifecycleJournalProxy({
       }
       const dataRoot = typeof globalThis.DATA_ROOT === 'string' && globalThis.DATA_ROOT.trim()
         ? pathModule.resolve(globalThis.DATA_ROOT) : null;
-      const directories = resolveHostDataDirectories(request?.user?.directories);
+      const directories = resolveHostLifecycleDirectories(request);
       if (!durableReceiptStore || !directories) return response.status(503).json({
         error: { code: 'HOST_LIFECYCLE_RECEIPT_STORE_UNAVAILABLE', message: 'Server-side persisted mutation receipt verification is unavailable.' },
       });
@@ -667,7 +684,7 @@ export function createHostLifecycleJournalProxy({
       }
       const lifecycle = result.payload.lifecycle;
       const pending = lifecycle.pending;
-      const directories = resolveHostDataDirectories(request?.user?.directories);
+      const directories = resolveHostLifecycleDirectories(request);
       const dataRoot = typeof globalThis.DATA_ROOT === 'string' && globalThis.DATA_ROOT.trim()
         ? pathModule.resolve(globalThis.DATA_ROOT) : null;
       if (!durableReceiptStore || !pending || !directories
