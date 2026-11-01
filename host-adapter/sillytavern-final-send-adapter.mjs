@@ -114,6 +114,7 @@ export function createSillyTavernFinalSendAdapter({
           forwardResponse: args.forwardResponse,
           transport: args.transport,
           protectedMemoryOverride: protectedMemory,
+          hostTransformsStream: args.hostTransformsStream === true,
         });
       } catch (error) {
         if (args.response) requestIdByResponse.delete(args.response);
