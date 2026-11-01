@@ -170,7 +170,7 @@ function setup(t, { twoRecords = false, providerPath = null, evidenceAssessment 
     testDb.cleanup();
   });
   return {
-    engine, provider, consumer, scope, records, createConsumer,
+    engine, provider, consumer, scope, records, createConsumer, hostConversationBindings,
     createSiblingProvider() {
       const sibling = new SQLiteMemoryProvider({
         path: effectiveProviderPath,
@@ -727,6 +727,36 @@ test('reconciliation rejects a Core mutation that occurs during complete invento
 
   assert.equal((await s.provider.reconcile(s.scope.world_id)).status, 'stale');
   await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_INDEX_NOT_READY/);
+});
+
+test('Core Host-conversation revoke during final Provider grant fence blocks result envelope', async (t) => {
+  const s = setup(t);
+  await s.prepare();
+  const originalCheck = s.provider.checkCandidateGrant.bind(s.provider);
+  let revoked = false;
+  s.provider.checkCandidateGrant = (input) => {
+    if (!revoked) {
+      revoked = true;
+      const result = s.hostConversationBindings.revoke({
+        adapterId: 'provider-e2e-adapter',
+        conversationId: HOST_CONVERSATION_ID,
+        reason: 'test revoke at final Provider grant fence',
+      });
+      assert.equal(result.changed, true);
+    }
+    return originalCheck(input);
+  };
+  const result = await s.consumer.retrieveForNpc({
+    worldId: s.scope.world_id,
+    actorEntityId: s.scope.subject_id,
+    conversationId: HOST_CONVERSATION_ID,
+  });
+  assert.equal(revoked, true);
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'query_access_unconfirmed');
+  assert.deepEqual(result.admitted, []);
+  assert.deepEqual(result.candidates, []);
+  assert.doesNotMatch(JSON.stringify(result), /source text|record-a/);
 });
 
 test('Provider revoke during the final field-bearing Core read blocks result envelope', async (t) => {
