@@ -2,7 +2,7 @@
 
 **Contract:** Host ↔ Core authenticated Memory retrieval  
 **Version:** 1.0.0  
-**Status:** PROPOSED — pending explicit Host and Core acknowledgement  
+**Status:** PROPOSED PRIVATE API CONTRACT — coordinator technical review complete; affected API-owner approval under D5 and exact-head implementation validation remain outstanding  
 **Review baseline:** Host PR #850 HEAD `dfd1e7140ea058f76ae48c40abda0c54e3598fde`; Core PR #846 HEAD `832abf337530e9421f53eaed85760cb4a7f07313`  
 **Scope:** identity hand-off, Core World/Actor resolution, authenticated Memory Provider retrieval, result/error/revoke semantics.  
 **Not in scope:** code integration, branch merging, Security Gateway changes, Final-Send, production enablement, Lane A, Provider schema migration.
@@ -22,7 +22,7 @@ This document is an interface contract, not evidence that the routes below are a
 | Canonical source and field visibility | Core | Use existing canonical-source validators and `AuthorizedReadService`; Host cannot supply fields or policy. |
 | NPC admission | Existing Core/NPC consumer boundary | Host transports the result; it does not reinterpret Provider metadata or authorize content. |
 
-No second identity store, World/Actor resolver, authorization authority, Provider facade, or public ingress is introduced. The new HTTP routes are adapters over the existing Core services and consumer facade.
+No second identity store, World/Actor resolver, authorization authority, Provider facade, or public ingress is introduced. The two HTTP routes below are proposed private server-to-server API additions over existing Core services. They are not implemented on the reviewed Core HEAD and require explicit affected-owner approval under §10 of `docs/57-private-host-core-memory-npc-adapter-contract.md` before implementation.
 
 ## 2. Identity contract
 
@@ -34,24 +34,25 @@ No second identity store, World/Actor resolver, authorization authority, Provide
 | `host_installation_id` | Host server identity store | Opaque installation namespace UUID. It is not a hardware identity, cryptographic attestation, or anti-clone/anti-rollback anchor. |
 | `authenticated_account_id` | Host server identity store, resolved from the authenticated ST account | Opaque account UUID. Never derive it from a browser field or expose the ST account handle as an authorization identity. |
 | `conversation_uuid` | Persisted chat metadata key `logic_engine_conversation_id` | Stable logical conversation UUID across renames and mutable filenames. |
-| `conversation_id` | Host composition | Session-scoped tuple `host_session_id:host_installation_id:conversation_uuid`. This is the sole conversation key sent to Core for this contract. |
+| `host_conversation_key` | Existing Host-local identity | Stable tuple `host_installation_id:authenticated_account_id:conversation_uuid`; retain only for Host-owned stable identity/lifecycle correlation. It is not sent as Core `conversation_id`. |
+| `conversation_id` | Host composition for Core | Session-scoped tuple `host_session_id:host_installation_id:conversation_uuid`. This is the only conversation key sent to Core. |
 
-The tuple format follows the approved cross-block identity decision of 30 October 2026. The account UUID is deliberately a separate assertion field; it is **not** a tuple component.
+The Core tuple is the approved PC-NEXT-11 shape already enforced by Core `host-session-context.js`: `host_session_id:host_installation_id:conversation_uuid`. `authenticated_account_id` is a separate trusted assertion field and is not a tuple component. All UUID values must be canonical UUID strings. The Core tuple has exactly three components; no whitespace, extra component, alternate separator, filename, chat index, or account handle is accepted.
 
-All four UUID components/values must be canonical UUID strings. The tuple has exactly three colon-separated components. No whitespace, extra component, alternate separator, filename, chat index, or account handle is accepted.
+A new ST session produces a new Core `conversation_id` even when the stable `conversation_uuid` is unchanged. Core World bindings are therefore session-scoped. A missing/revoked binding for the new tuple fails closed and requires the existing explicit audited bind/rebind operation; no implicit rebind is allowed.
 
-A new ST session produces a new `conversation_id` even when `conversation_uuid` is unchanged. Core bindings are session-scoped: a missing/revoked binding for the new tuple fails closed and requires the existing explicit audited binding operation. There is no automatic implicit rebind.
+The existing Host-local stable key `host_installation_id:authenticated_account_id:conversation_uuid` remains a Host storage/correlation key only. Host must not pass it to Core as `conversation_id`. Host composes the Core-scoped tuple from the already authenticated session ID, server-owned installation ID, and persisted conversation UUID. This is a deterministic scope projection from the same identity sources, not a second identity authority or a new persisted identity.
 
 ### 2.2 Required Host derivation
 
-1. The browser may provide the active conversation UUID only as a locator to the Host client adapter.
-2. Host verifies the exact Express request against native ST session middleware and resolves the account handle from server-populated request state.
+1. The browser may provide the active `conversation_uuid` only as a locator to the Host client adapter.
+2. Host verifies the exact Express request against native ST authentication middleware and resolves the account handle from server-populated request state.
 3. Host resolves `host_installation_id` and `authenticated_account_id` from its persistent identity store.
-4. Host obtains the server session's `host_session_id`.
-5. Host validates/persists `conversation_uuid` in chat metadata and composes `conversation_id` using §2.1.
-6. Host repeats session/account/identity checks at dispatch time. Cached browser/localStorage values are consistency hints only.
+4. Host obtains the server session's `host_session_id` and rechecks that it is bound to the authenticated account handle.
+5. Host validates/persists `conversation_uuid` in chat metadata. It may retain the existing stable Host-local key, but composes Core `conversation_id = host_session_id:host_installation_id:conversation_uuid` for every Core request.
+6. Host repeats session/account/identity checks at dispatch time. Browser/localStorage values are locators or consistency hints only.
 
-Host must not send a browser-selected `world_id`, `actor_id`, `adapter_id`, account UUID, installation UUID, or session UUID as authority.
+Host must not send a browser-selected `world_id`, `actor_id`, `adapter_id`, account UUID, installation UUID, or session UUID as authority. The Host authentication gate must validate the Core tuple's first two components against the live signed ST session and server-owned installation record; it must not validate the existing Host-local key as if it were the Core tuple.
 
 ## 3. Authentication and signed assertion
 
@@ -90,18 +91,18 @@ Rules:
 - `issued_at` is Unix time in whole seconds.
 - `nonce` is a fresh UUID for every retrieval request; it is never reused.
 - `world_id` and `actor_id` are copied only from the successful Core context-resolution response in §4. They are not selected by the browser or inferred by Host.
-- `conversation_id` must equal the exact tuple in §2.1 and its first component must equal `host_session_id`; its second component must equal `host_installation_id`.
+- `conversation_id` must equal the exact Core tuple in §2.1; its first component must equal `host_session_id`, its second must equal `host_installation_id`, and its third must equal the persisted `conversation_uuid`.
 - `signature` is lowercase 64-character hexadecimal HMAC-SHA256 using the configured adapter token as the key.
 - HMAC input is UTF-8 `JSON.stringify([...])` in this exact order: `protocol_version, host_installation_id, authenticated_account_id, host_session_id, conversation_id, world_id, actor_id, issued_at, nonce`. This matches Core's current canonical assertion encoding.
 - Core verifies the signature with constant-time comparison, exact own-data shape, UUID/ID constraints, expiry, future skew and one-time nonce consumption.
 
-The current Core nonce Map is process-local. It is **not** compliant with the one-time nonce rule across restart. Before the route is enabled, Core must consume nonce atomically in durable Core-owned storage with a unique key on `(adapter_id, nonce)`, retain it through the assertion's maximum acceptance window, and fail closed if durable replay protection is unavailable. This is a persistence requirement on the existing assertion verifier, not a second authentication mechanism.
+The current Core assertion runner uses a process-local `Map` bounded by `maxRememberedNonces` (default 10,000) and a maximum assertion age of 30 seconds. It detects replay only within that process lifetime; it does not prevent replay after a process restart. The contract therefore requires one of two Core-owned controls before route enablement: (a) atomic durable nonce consumption unique on `(adapter_id, nonce)` retained through the full acceptance window, or (b) a restart-rotated assertion verification key/epoch that makes all pre-restart assertions unverifiable. The implementation must choose one, test restart/replay, and fail closed if replay protection is unavailable. This does not add a second authentication mechanism.
 
 ## 4. Core context-resolution API
 
 ### `POST /v1/host-context/resolve`
 
-Purpose: obtain the canonical World and exactly one Actor for the authenticated adapter + session-scoped conversation tuple. It is a narrow identity-resolution endpoint, not Memory authorization.
+Purpose: obtain the canonical World and exactly one Actor for the authenticated adapter + session-scoped Core conversation tuple. This endpoint trusts the authenticated Host server-to-server adapter credential as the caller; it is identity resolution only, not Memory authorization or proof of browser/session authentication by itself.
 
 Request body — exact schema `host-context-resolve-request/v1`:
 
@@ -306,14 +307,14 @@ Unknown major versions, extra keys, missing required keys, or incompatible field
 
 | Item | Host #850 HEAD | Core #846 HEAD | Disposition |
 |---|---|---|---|
-| Conversation identity | Emits `installation_id:account_id:conversation_uuid` | Requires `hostSessionId:installationId:conversationUuid`; account is separate | **Mismatch. Host must adopt the approved Core tuple; account remains a separate assertion field.** |
+| Conversation identity | Host stable key is `installation_id:account_id:conversation_uuid`; the Host auth gate currently forwards this as `conversation_id` and sends `host_session_id` separately | Core requires `host_session_id:host_installation_id:conversation_uuid`; account is separate | **Mismatch. Keep the Host-local stable key local; derive the PC-NEXT-11 Core tuple at the authenticated Host gate. No account-bearing tuple is sent to Core.** |
 | Context resolution | Calls `POST /v1/host-context/resolve` with only `conversation_id`; expects `context` with adapter/world/actor/type | Existing API exposes `/v1/host-conversation-bindings/resolve` returning a binding; no `/v1/host-context/resolve` route in this HEAD | **Missing route. Core must expose the combined resolver over existing binding services.** |
 | Memory retrieval | Calls `POST /v1/host/memory-npc/retrieve` with assertion/signature/request metadata | No such route is registered in `src/api/server.js`; internal consumer/facade exists | **Missing route. Core must compose the existing assertion verifier and consumer facade.** |
-| Assertion replay | Host generates fresh nonce | Core runner currently keeps used nonces in process-local `Map` | **Not restart-safe. Durable nonce consumption is required before enablement.** |
+| Assertion replay | Host generates a fresh UUID nonce per dispatch | Core runner checks expiry/replay/capacity in a process-local `Map` (`maxAgeSeconds` default 30; capacity default 10,000) | **Replay protection is process-local, not restart-safe. Add durable nonce consumption or restart-invalidated assertion epoch before enablement.** |
 | Provider result | Host returns upstream payload | Core consumer returns a narrow ready/non-ready envelope with final authorized content | Compatible once the missing route returns the consumer envelope unchanged. |
 | World/Actor authority | Host obtains values from Core resolver and signs them | Core independently resolves durable bindings and compares assertion | Compatible in principle; exact endpoint is missing. |
 
-The existing Host code must not be treated as compatible merely because its request fields resemble the Core assertion. The tuple mismatch currently makes the Core assertion validator reject the Host-generated conversation identity.
+The existing Host code is not compatible merely because its request fields resemble the Core assertion. Its current authentication gate validates `installation_id:account_id:conversation_uuid`, while Core's assertion validator requires `host_session_id:host_installation_id:conversation_uuid`; the Host dispatch proxy therefore signs a `conversation_id` that Core rejects. The Host→Core context resolver route and Memory retrieval route are also absent from the reviewed Core `src/api/server.js` HEAD. Core's internal `MemoryNpcConsumer` does re-resolve World/Actor bindings and checks the branded authenticated Host context, but there is no registered HTTP route composing the assertion runner with that consumer.
 
 ## 10. Acceptance checklist — no code integration in this task
 
@@ -324,4 +325,4 @@ The contract becomes **JOINTLY ACCEPTED** only after both owners explicitly ackn
 - [ ] Both owners confirm the version pins in §8 and the mismatch/remediation table in §9.
 - [ ] Any objection is recorded against a specific section and resolved in this document before code work starts.
 
-After acceptance, a separate implementation task may wire the two routes and the durable nonce persistence. This task does **not** authorize that implementation, merge either PR, alter Security Gateway, enable Memory → NPC, or start Final-Send work.
+This document records the target private API delta and the coordinator's technical reconciliation of the two reviewed blocks. Under D5 in `docs/57-private-host-core-memory-npc-adapter-contract.md`, the new routes and any change to Host's conversation tuple require explicit approval from the affected API owners before implementation. This task does **not** authorize code integration, merge either PR, alter Security Gateway, enable Memory → NPC, or start Final-Send work.
