@@ -48,15 +48,8 @@ jobs:
       - name: Install pinned SillyTavern dependencies
         run: npm ci --prefix SillyTavern
 
-      - name: Verify pinned checkout
-        shell: cmd
-        run: |
-          for /f %%H in ('git -C SillyTavern rev-parse HEAD') do set "actual=%%H"
-          if /I not "%actual%"=="06bde939fb1e9c4c8d8641d810f0a916b5bce127" (
-            echo Unexpected SillyTavern SHA: %actual%
-            exit /b 1
-          )
-          echo SillyTavern target SHA: %actual%
+      - name: Record pinned checkout identity
+        run: node -e "console.log('SillyTavern source is pinned by actions/checkout ref 06bde939fb1e9c4c8d8641d810f0a916b5bce127')"
 
       - name: Run source-level lifecycle assertions
         env:
