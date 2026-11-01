@@ -16,6 +16,7 @@ const hash = value => createHash('sha256').update(value).digest('hex');
 const clientPath = 'public/scripts/extensions/third-party/logic-engine-extension-gateway/index.js';
 const serverPath = 'plugins/logic-engine-extension-gateway/index.mjs';
 const nativeStartupPath = 'src/server-startup.js';
+const nativeServerMainPath = 'src/server-main.js';
 const patch = [
   'diff --git a/' + clientPath + ' b/' + clientPath,
   'new file mode 100644',
@@ -35,6 +36,12 @@ const patch = [
   '@@ -1 +1 @@',
   '-original-startup',
   '+patched-startup',
+  'diff --git a/' + nativeServerMainPath + ' b/' + nativeServerMainPath,
+  '--- a/' + nativeServerMainPath,
+  '+++ b/' + nativeServerMainPath,
+  '@@ -1 +1 @@',
+  '-original-main',
+  '+patched-main',
   '',
 ].join('\n');
 
@@ -55,7 +62,8 @@ function fixture(t) {
   writeFileSync(join(st, 'config.yaml'), 'unchanged\n');
   mkdirSync(join(st, 'src'));
   writeFileSync(join(st, nativeStartupPath), 'original-startup\n');
-  git(st, ['add', 'config.yaml', nativeStartupPath]);
+  writeFileSync(join(st, nativeServerMainPath), 'original-main\n');
+  git(st, ['add', 'config.yaml', nativeStartupPath, nativeServerMainPath]);
   git(st, ['commit', '-qm', 'base']);
   const targetCommit = git(st, ['rev-parse', 'HEAD']);
   writeFileSync(join(packageDir, 'integration.patch'), patch);
@@ -64,7 +72,7 @@ function fixture(t) {
     schema_version: 1,
     package_id: 'logic-engine.st-test',
     target_git_commit: targetCommit,
-    target_paths: [clientPath, serverPath, nativeStartupPath],
+    target_paths: [clientPath, serverPath, nativeStartupPath, nativeServerMainPath],
     patches: [{ path: 'integration.patch', size: patchBytes.length, sha256: hash(patchBytes) }],
   };
   const manifestPath = join(packageDir, 'manifest.json');
@@ -79,12 +87,14 @@ test('Patch Manager installs only the integrated Extension package, is idempoten
   assert.equal(readFileSync(join(f.st, clientPath), 'utf8'), 'installed-client\n');
   assert.equal(readFileSync(join(f.st, serverPath), 'utf8'), 'installed-server\n');
   assert.equal(readFileSync(join(f.st, nativeStartupPath), 'utf8'), 'patched-startup\n');
+  assert.equal(readFileSync(join(f.st, nativeServerMainPath), 'utf8'), 'patched-main\n');
   assert.equal(readFileSync(join(f.st, 'config.yaml'), 'utf8'), 'unchanged\n');
   assert.equal(installSillyTavernPatchPackage({ stPath: f.st, manifestPath: f.manifestPath }).status, 'ALREADY_APPLIED');
   assert.equal(uninstallSillyTavernPatchPackage({ stPath: f.st, packageId: 'logic-engine.st-test' }).status, 'ROLLED_BACK');
   assert.equal(exists(join(f.st, clientPath)), false);
   assert.equal(exists(join(f.st, serverPath)), false);
   assert.equal(readFileSync(join(f.st, nativeStartupPath), 'utf8'), 'original-startup\n');
+  assert.equal(readFileSync(join(f.st, nativeServerMainPath), 'utf8'), 'original-main\n');
   assert.equal(inspectSillyTavernPatchTarget(f.st).clean, true);
 });
 
@@ -117,7 +127,6 @@ test('Patch Manager rejects undeclared or out-of-policy paths, including config 
     'src/server.js',
     'src/endpoints/arbitrary.js',
     'src/plugin-loader.js',
-    'src/server-main.js',
     'public/script.js',
     'config.yaml',
     'public/scripts/extensions/third-party/other-extension/index.js',
