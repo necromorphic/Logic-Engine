@@ -69,9 +69,11 @@ no unrelated members to limit connection-level denial-of-service exposure.
 
 `broker_daemon.py` is the first service path that consumes the manifest store.
 Before opening the socket, startup reconciles only absent sidecars left
-in `creating` or `deleting` states to `retired`, then verifies every enrolled
-database role and active sidecar. Present transitional files remain fail-closed
-for SQLite-aware recovery. This startup mutation relies on the documented
+in `creating` or `deleting` states to `retired`. If a transitional sidecar
+is still present and its identity matches, the broker durably marks its role
+`recovery-required`; it never deletes or promotes that file automatically.
+Startup then verifies every enrolled database role and active sidecar and
+remains fail-closed for SQLite-aware recovery. This startup mutation relies on the documented
 service-owned role-directory boundary: the application cannot mutate these
 directories except through the broker, and the broker socket is not yet exposed.
 It then accepts authenticated `AF_UNIX/SOCK_SEQPACKET` requests from the
@@ -181,7 +183,7 @@ store or runs with the broker service UID.
 
 The `recovery-plan` command provides an inspect-only sidecar recovery pass. It verifies database and parent identities, checks declared WAL/SHM/journal entries against opened-file identities, and rejects unmanifested sidecars or duplicate sidecar kinds. For interrupted creating/deleting states it reports presence and a possible manifest transition. It never deletes, renames, checkpoints, or opens a database through SQLite. A still-present deleting sidecar is retained and requires SQLite-aware recovery; the planner does not infer that unlinking a WAL or journal is safe.
 
-The broker operation set remains incomplete: main-file creation/deletion, RENAME, broker-first role enrollment, production cross-UID socket policy, complete SQLite VFS coverage and automatic recovery of present transitional sidecars are not implemented. Startup can retire only absent interrupted sidecars; present entries remain fail-closed. Sidecar deletion is implemented as a role-scoped quarantine operation. A successful verification is a point-in-time integrity check, not a lease preventing later mutation. The OS ownership boundary must keep the application from mutating these directories after verification.
+The broker operation set remains incomplete: main-file creation/deletion, RENAME, broker-first role enrollment, production cross-UID socket policy, complete SQLite VFS coverage and automatic recovery of present transitional sidecars are not implemented. Startup can retire only absent interrupted sidecars and persist `recovery-required` for roles with present transitional entries; those entries remain fail-closed. Sidecar deletion is implemented as a role-scoped quarantine operation. A successful verification is a point-in-time integrity check, not a lease preventing later mutation. The OS ownership boundary must keep the application from mutating these directories after verification.
 
 Run the manifest-store tests with:
 
