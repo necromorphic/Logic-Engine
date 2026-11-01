@@ -26,6 +26,19 @@ export async function resolveAuthenticatedHostContext(conversationUuid, fetchImp
         throw new Error('HOST_CSRF_TOKEN_INVALID');
     }
 
+    const sessionResponse = await fetchImpl('/api/plugins/logic-engine-host-adapter/session', {
+        method: 'GET',
+        credentials: 'same-origin',
+        cache: 'no-store',
+        redirect: 'error',
+    });
+    if (!sessionResponse?.ok) throw new Error('HOST_SESSION_IDENTITY_UNAVAILABLE');
+    const sessionPayload = await sessionResponse.json();
+    if (typeof sessionPayload?.host_session_id !== 'string'
+        || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(sessionPayload.host_session_id)) {
+        throw new Error('HOST_SESSION_IDENTITY_INVALID');
+    }
+
     const response = await fetchImpl(HOST_CONTEXT_PATH, {
         method: 'POST',
         credentials: 'same-origin',
