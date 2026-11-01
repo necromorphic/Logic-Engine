@@ -12,14 +12,17 @@ test('SillyTavern server plugin registers only private session and inventory rou
   const routes = [];
   await init({
     get(route, handler) {
-      routes.push({ route, handler });
+      routes.push({ method: 'GET', route, handler });
+    },
+    post(route, handler) {
+      routes.push({ method: 'POST', route, handler });
     },
   });
-  assert.deepEqual(routes.map(route => route.route), [
-    '/host-version-ledger/capture',
-    '/host-version-ledger/reconcile',
-    '/session',
-    '/inventory',
+  assert.deepEqual(routes.map(({ method, route }) => method + ' ' + route), [
+    'POST /host-version-ledger/capture',
+    'POST /host-version-ledger/reconcile',
+    'GET /session',
+    'GET /inventory',
   ]);
   for (const route of routes) assert.equal(typeof route.handler, 'function');
   assert.deepEqual(info, {
@@ -43,7 +46,10 @@ test('bundled server-plugin helpers stay byte-identical to the reviewed prototyp
 
 test('server plugin session route supports ST default-user mode without session.handle', async () => {
   const routes = [];
-  await init({ get(route, handler) { routes.push({ route, handler }); } });
+  await init({
+    get(route, handler) { routes.push({ method: 'GET', route, handler }); },
+    post(route, handler) { routes.push({ method: 'POST', route, handler }); },
+  });
   const sessionRoute = routes.find(route => route.route === '/session');
   const response = {
     statusCode: null,
