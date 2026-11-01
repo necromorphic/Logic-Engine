@@ -384,7 +384,47 @@ test('pinned ST 1.19.0 supported chat mutations persist; rename, group deletion,
   }, 'added');
   assert.ok(create.result.delta.added.some(entry => entry.path.endsWith('chat-one.jsonl')));
 
-  const editedChat = [header(), editedUserMessage(), assistantMessage()];
+  const sentUser = identifiedMessage({
+    mes: 'second user message',
+    messageId: '16161616-1616-4161-8161-161616161616',
+    versionId: '17171717-1717-4171-8171-171717171717',
+  });
+  const sendReceiptScope = await beginLifecycleMutation('message-send');
+  const send = await observe(async () => {
+    const response = await post('/api/chats/save', {
+      avatar_url: 'Harness Character.png', file_name: 'chat-one',
+      chat: [...initialChat, sentUser], force: true,
+    }, { 'x-harness-operation': 'send' });
+    assert.equal(response.status, 200, JSON.stringify(response));
+    assert.equal(response.result.ok, true);
+    return response;
+  }, ['modified', 'replaced']);
+  await finishLifecycleMutation(sendReceiptScope);
+  const sendPersisted = (await readFile(chatPath, 'utf8')).trim().split('\\n').map(line => JSON.parse(line));
+  assert.equal(sendPersisted.length, 4);
+  assert.equal(sendPersisted[3]._logicEngineLifecycle.messageId, '16161616-1616-4161-8161-161616161616');
+
+  const receivedAssistant = identifiedMessage({
+    name: 'Harness Character', isUser: false, mes: 'second assistant reply',
+    messageId: '18181818-1818-4181-8181-181818181818',
+    versionId: '19191919-1919-4191-8191-191919191919',
+  });
+  const receiveReceiptScope = await beginLifecycleMutation('message-receive');
+  const receive = await observe(async () => {
+    const response = await post('/api/chats/save', {
+      avatar_url: 'Harness Character.png', file_name: 'chat-one',
+      chat: [...initialChat, sentUser, receivedAssistant], force: true,
+    }, { 'x-harness-operation': 'receive' });
+    assert.equal(response.status, 200, JSON.stringify(response));
+    assert.equal(response.result.ok, true);
+    return response;
+  }, ['modified', 'replaced']);
+  await finishLifecycleMutation(receiveReceiptScope);
+  const receivePersisted = (await readFile(chatPath, 'utf8')).trim().split('\\n').map(line => JSON.parse(line));
+  assert.equal(receivePersisted.length, 5);
+  assert.equal(receivePersisted[4]._logicEngineLifecycle.messageId, '18181818-1818-4181-8181-181818181818');
+
+  const editedChat = [header(), editedUserMessage(), assistantMessage(), sentUser, receivedAssistant];
   const editReceiptScope = await beginLifecycleMutation('edit-message');
   const edit = await observe(async () => {
     const response = await post('/api/chats/save', {
@@ -437,6 +477,8 @@ test('pinned ST 1.19.0 supported chat mutations persist; rename, group deletion,
   const deleteMessageChat = [
     header(),
     editedUserMessage(),
+    sentUser,
+    receivedAssistant,
   ];
   const deleteMessageReceiptScope = await beginLifecycleMutation('delete-message');
   const deleteMessage = await observe(async () => {
