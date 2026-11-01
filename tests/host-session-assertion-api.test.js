@@ -82,7 +82,7 @@ test('real ST server middleware -> Host Adapter -> Core HTTP assertion creates a
         authorization: `Bearer ${apiToken}`,
         'content-type': 'application/json',
         'x-adapter-id': adapterId,
-        'x-adapter-token': adapterToken,
+        'x-adapter-token': token,
       },
       body: JSON.stringify(body),
       redirect: 'error',
@@ -178,7 +178,7 @@ test('Core Host assertion nonce remains consumed after Core API restart', async 
     });
     return server;
   };
-  const post = async server => {
+  const post = async (server, payload = { assertion, signature }, token = adapterToken) => {
     const address = server.address();
     return fetch(`http://127.0.0.1:${address.port}/v1/host-sessions/verify`, {
       method: 'POST',
@@ -188,7 +188,7 @@ test('Core Host assertion nonce remains consumed after Core API restart', async 
         'x-adapter-id': adapterId,
         'x-adapter-token': adapterToken,
       },
-      body: JSON.stringify({ assertion, signature }),
+      body: JSON.stringify(payload),
     });
   };
 
@@ -198,13 +198,27 @@ test('Core Host assertion nonce remains consumed after Core API restart', async 
     store.close();
     rmSync(directory, { recursive: true, force: true });
   });
+  const invalidSignature = await post(server, { assertion, signature: '0'.repeat(64) });
+  assert.equal(invalidSignature.status, 403);
+  assert.equal((await invalidSignature.json()).error.code, 'HOST_SESSION_ASSERTION_REJECTED');
+
+  const invalidBody = await post(server, { assertion, signature, extra: 'caller-controlled' });
+  assert.equal(invalidBody.status, 400);
+
+  const wrongAdapterCredential = await post(server, { assertion, signature }, 'attacker-controlled-token');
+  assert.equal(wrongAdapterCredential.status, 403);
+
   const first = await post(server);
   assert.equal(first.status, 200);
   assert.equal((await first.json()).status, 'AUTHENTICATED_HOST_SESSION');
+
+  const sameProcessReplay = await post(server);
+  assert.equal(sameProcessReplay.status, 403);
+  assert.equal((await sameProcessReplay.json()).error.code, 'HOST_SESSION_ASSERTION_REJECTED');
   await closeServer(server);
 
   server = await start();
-  const replay = await post(server);
-  assert.equal(replay.status, 403);
-  assert.equal((await replay.json()).error.code, 'HOST_SESSION_ASSERTION_REJECTED');
+  const replayAfterRestart = await post(server);
+  assert.equal(replayAfterRestart.status, 403);
+  assert.equal((await replayAfterRestart.json()).error.code, 'HOST_SESSION_ASSERTION_REJECTED');
 });
