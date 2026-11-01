@@ -1,6 +1,7 @@
 import test from 'node:test';
+import { createHash } from 'node:crypto';
 import assert from 'node:assert/strict';
-import { link, mkdtemp, mkdir, readFile, rm, symlink } from 'node:fs/promises';
+import { link, mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -315,6 +316,47 @@ test('portable assessment emits a schema-valid degraded report without enabling 
   assert.equal(result.patchInspection.backups.status, 'NOT_TESTED');
   assert.equal(result.report.capabilities.find((item) => item.id === 'host.patch.files.integrity.inspect').status, 'NOT_TESTED');
   assert.equal(result.report.capabilities.find((item) => item.id === 'host.patch.backups.integrity.inspect').status, 'NOT_TESTED');
+});
+
+test('independent Patch Manager backup inspection verifies pinned digests and rejects linked manager paths', async (t) => {
+  const { verifyPinnedPatchManagerBackups } = await import('../src/deployment/patch-inspector.js');
+  const root = await mkdtemp(join(tmpdir(), 'logic-engine-patch-backup-inspector-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const manager = join(root, '.logic-engine-patch-manager');
+  const backupId = 'test-backup-id';
+  const relativePath = 'src/server.js';
+  const bytes = Buffer.from('pinned pre-patch source');
+  const digest = createHash('sha256').update(bytes).digest('hex');
+  const backupPath = join('backups', backupId, relativePath);
+  const backupFile = join(manager, backupPath);
+  await mkdir(join(manager, 'backups', backupId, 'src'), { recursive: true });
+  await writeFile(backupFile, bytes);
+  const pinnedManifest = { sourceFiles: { [relativePath]: { before: digest, after: 'a'.repeat(64) } } };
+  const state = {
+    backupId,
+    backups: { [relativePath]: { sha256: digest, backupPath } },
+  };
+
+  const verified = await verifyPinnedPatchManagerBackups(root, state, pinnedManifest);
+  assert.equal(verified.status, 'PASS');
+
+  await writeFile(backupFile, 'tampered backup');
+  await assert.rejects(
+    verifyPinnedPatchManagerBackups(root, state, pinnedManifest),
+    /PATCH_MANAGER_BACKUP_INTEGRITY_MISMATCH/,
+  );
+
+  if (process.platform === 'linux') {
+    const linkedRoot = await mkdtemp(join(tmpdir(), 'logic-engine-patch-backup-linked-'));
+    t.after(() => rm(linkedRoot, { recursive: true, force: true }));
+    const outside = await mkdtemp(join(tmpdir(), 'logic-engine-patch-backup-outside-'));
+    t.after(() => rm(outside, { recursive: true, force: true }));
+    await symlink(outside, join(linkedRoot, '.logic-engine-patch-manager'));
+    await assert.rejects(
+      verifyPinnedPatchManagerBackups(linkedRoot, state, pinnedManifest),
+      /SILLYTAVERN_INSPECTION_LINK_DENIED/,
+    );
+  }
 });
 
 test('pinned SillyTavern inspection rejects an unsafe or missing installation root', async () => {
