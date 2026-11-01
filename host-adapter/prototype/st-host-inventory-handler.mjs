@@ -410,7 +410,13 @@ export function createHostRequestAuthenticationGate({ resolveConversationId } = 
       // handing control to the route handler.
       if (!currentAuthenticatedRequest(request)) return response.sendStatus(403);
       return next();
-    } catch {
+    } catch (error) {
+      if (error?.message === 'HOST_INVENTORY_COMPLETENESS_NOT_VERIFIED') {
+        return response.status(503).json({
+          status: 'NON_READY',
+          code: 'HOST_INVENTORY_COMPLETENESS_NOT_VERIFIED',
+        });
+      }
       return response.sendStatus(403);
     }
   }
