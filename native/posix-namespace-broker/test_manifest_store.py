@@ -174,6 +174,23 @@ class ManifestStoreTests(unittest.TestCase):
         self.assertNotIn("pendingDatabaseBasename", role)
         self.assertTrue((self.role_parent / "core-recovered.sqlite").exists())
 
+    def test_startup_finishes_main_rename_before_namespace_mutation(self):
+        import json
+        self.store.initialize(self.data(1))
+        self.store.disable_role("core")
+        current = self.store.load()
+        candidate = json.loads(_canonical_json(current))
+        candidate["generation"] += 1
+        candidate["roles"][0]["state"] = "renaming"
+        candidate["roles"][0]["pendingDatabaseBasename"] = "core-recovered-before-rename.sqlite"
+        self.store.commit(_canonical_json(candidate))
+        recovered = self.store.reconcile_main_lifecycle()
+        role = recovered["roles"][0]
+        self.assertEqual(role["state"], "disabled")
+        self.assertEqual(role["databaseBasename"], "core-recovered-before-rename.sqlite")
+        self.assertFalse(self.database.exists())
+        self.assertTrue((self.role_parent / role["databaseBasename"]).exists())
+
     def test_startup_completes_interrupted_main_database_delete(self):
         import json
         self.store.initialize(self.data(1))
@@ -215,6 +232,30 @@ class ManifestStoreTests(unittest.TestCase):
         self.assertEqual(recovered["roles"][0]["state"], "deleted")
         self.assertFalse(self.database.exists())
         self.assertFalse((self.role_parent / ".le-quarantine" / "entry-crash").exists())
+
+    def test_startup_finishes_main_delete_after_quarantine_unlink_before_manifest_commit(self):
+        import json
+        self.store.initialize(self.data(1))
+        self.store.disable_role("core")
+        original_commit = self.store._commit_locked
+        calls = 0
+
+        def fail_final_commit(data):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise OSError("simulated process interruption after main-file unlink")
+            return original_commit(data)
+
+        with patch.object(self.store, "_commit_locked", side_effect=fail_final_commit):
+            with self.assertRaisesRegex(OSError, "simulated process interruption"):
+                self.store.delete_role_database("core")
+        self.assertFalse(self.database.exists())
+        self.assertFalse((self.role_parent / ".le-quarantine").exists()
+                         and any((self.role_parent / ".le-quarantine").iterdir()))
+        recovered = self.store.reconcile_main_lifecycle()
+        self.assertEqual(recovered["roles"][0]["state"], "deleted")
+        self.assertFalse(self.database.exists())
 
     def test_broker_first_enrollment_creates_and_commits_main_role(self):
         import json
