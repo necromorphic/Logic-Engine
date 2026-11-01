@@ -8,6 +8,15 @@ import { loadTrustedWorldPackCatalog } from './application/world-pack-catalog.js
 import { createHostBoundNpcKnowledgeAuthorizers } from './application/npc-knowledge-authorization.js';
 import { createProcessScopedMechanicPolicyAuthority, defaultMechanicPolicyFieldPolicy } from './application/mechanic-policy-authority.js';
 
+const allowedOrigins = (() => {
+  try {
+    const value = JSON.parse(process.env.ENGINE_ALLOWED_ORIGINS || '[]');
+    if (!Array.isArray(value)) throw new Error();
+    return value;
+  } catch {
+    throw new Error('ENGINE_ALLOWED_ORIGINS must be a JSON array of exact HTTP(S) origins.');
+  }
+})();
 const token = process.env.ENGINE_API_TOKEN;
 const internalToken = process.env.ENGINE_INTERNAL_TOKEN || null;
 const approvalToken = process.env.ENGINE_APPROVAL_TOKEN || null;
@@ -136,6 +145,7 @@ const server = createApiServer({
   }), token, internalToken, approvalToken, adminToken, adapterTokens,
   hostVersionLedger,
   mechanicPolicyAuthority,
+  allowedOrigins,
 });
 server.listen(port, host, () => process.stdout.write(
   'Logic-Engine API listening on http://' + host + ':' + port + '\nDatabase: ' + dbPath +
