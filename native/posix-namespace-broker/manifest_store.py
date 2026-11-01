@@ -795,6 +795,37 @@ class ManifestStore:
             finally:
                 os.close(parent_fd)
 
+
+    def reconcile_enrolling_roles(self) -> dict[str, Any]:
+        """Promote only broker-created enrolling DBs whose persisted identity still matches."""
+        with _locked_roots(self.manifest_fd, self.anchor_fd, exclusive=True):
+            manifest = self._load_pair()[0]
+            candidate = json.loads(_canonical_json(manifest))
+            changed = False
+            for role in candidate["roles"]:
+                if role["state"] != "enrolling":
+                    continue
+                if role["sidecars"]:
+                    raise StoreError("enrolling role unexpectedly contains sidecar lifecycle records")
+                parent_fd = _open_role_parent(
+                    role["parentComponents"], role["parentIdentities"],
+                    manifest["filesystemPolicy"]["filesystem"],
+                    manifest["filesystemPolicy"]["applicationUid"],
+                )
+                try:
+                    _verify_regular_at(
+                        parent_fd, role["databaseBasename"], role["databaseIdentity"],
+                        f"enrolling role {role['role']} database",
+                    )
+                finally:
+                    os.close(parent_fd)
+                role["state"] = "active"
+                changed = True
+            if not changed:
+                return manifest
+            candidate["generation"] = manifest["generation"] + 1
+            return self._commit_locked(_canonical_json(candidate))
+
     def open_role_file(self, role_name: str, file_kind: str = "main") -> int:
         """Return an identity-verified descriptor for an enrolled DB or active sidecar.
 
