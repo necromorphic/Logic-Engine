@@ -427,6 +427,100 @@
           }
         }
       }
+    },
+    {
+      "if": {
+        "properties": {
+          "platform": {
+            "const": "linux"
+          }
+        },
+        "required": [
+          "platform"
+        ]
+      },
+      "then": {
+        "properties": {
+          "metadataRootIdentity": {
+            "$ref": "#/$defs/posixIdentity"
+          },
+          "roles": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "parentIdentities": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/posixIdentity"
+                  }
+                },
+                "databaseIdentity": {
+                  "$ref": "#/$defs/posixIdentity"
+                },
+                "sidecars": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "identity": {
+                        "$ref": "#/$defs/posixIdentity"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "platform": {
+            "const": "windows"
+          }
+        },
+        "required": [
+          "platform"
+        ]
+      },
+      "then": {
+        "properties": {
+          "metadataRootIdentity": {
+            "$ref": "#/$defs/windowsIdentity"
+          },
+          "roles": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "parentIdentities": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/windowsIdentity"
+                  }
+                },
+                "databaseIdentity": {
+                  "$ref": "#/$defs/windowsIdentity"
+                },
+                "sidecars": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "identity": {
+                        "$ref": "#/$defs/windowsIdentity"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
     }
   ]
 }
