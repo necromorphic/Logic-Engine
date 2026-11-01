@@ -635,6 +635,10 @@ export function createHostLifecycleJournalProxy({
       };
       const result = await upstream('/v1/host-lifecycle/status', 'GET', null, identity);
       if (result.status !== 200 || result.payload?.lifecycle?.status !== 'PENDING_MUTATION') {
+        const permit = request?.session?.logicEngineHostPreparedMutation;
+        if (permit?.conversation_uuid === resolved.conversationUuid) {
+          delete request.session.logicEngineHostPreparedMutation;
+        }
         return response.status(result.status).json(result.payload);
       }
       const lifecycle = result.payload.lifecycle;
@@ -701,6 +705,10 @@ export function createHostLifecycleJournalProxy({
         return response.status(terminal.status).json(terminal.payload);
       }
       const refreshed = await upstream('/v1/host-lifecycle/status', 'GET', null, identity);
+      if (refreshed.payload?.lifecycle?.status === 'NO_PENDING_MUTATION'
+        && request?.session?.logicEngineHostPreparedMutation?.mutation_id === pending.mutation_id) {
+        delete request.session.logicEngineHostPreparedMutation;
+      }
       return response.status(refreshed.status).json(refreshed.payload);
     },
   };
