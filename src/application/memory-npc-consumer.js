@@ -1,5 +1,6 @@
 import { isDeepStrictEqual } from 'node:util';
 import { evaluateMemoryCandidateAdmission } from '../npc/memory-candidate-eligibility.js';
+import { getAuthenticatedHostSessionContext, isAuthenticatedHostSessionContext } from './host-session-context.js';
 
 const object = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 const validId = (value) => typeof value === 'string'
@@ -117,6 +118,8 @@ const nonReady = (reason) => Object.freeze({
  * access: Core source fields are re-read through AuthorizedReadService.
  */
 export class MemoryNpcConsumer {
+  #memoryProvider;
+
   constructor({ authorizedReadService, actorBindingService, adapterId, memoryProvider, coreQueryAuthorizer, contentFields }) {
     if (typeof authorizedReadService?.readEntityFields !== 'function') {
       throw new TypeError('MemoryNpcConsumer requires AuthorizedReadService');
@@ -148,8 +151,9 @@ export class MemoryNpcConsumer {
     this.actorBindingService = actorBindingService;
     this.adapterId = adapterId;
     this.coreQueryAuthorizer = coreQueryAuthorizer;
-    this.memoryProvider = memoryProvider;
+    this.#memoryProvider = memoryProvider;
     this.contentFields = Object.freeze([...contentFields]);
+    Object.freeze(this);
   }
 
   /**
@@ -197,6 +201,14 @@ export class MemoryNpcConsumer {
       return nonReady('trusted_scope_incomplete');
     }
 
+    // The conversation identifier is not a credential. Require a branded
+    // context produced from SillyTavern's authenticated signed server session.
+    let hostSessionContext;
+    try { hostSessionContext = getAuthenticatedHostSessionContext(); } catch {}
+    if (!isAuthenticatedHostSessionContext(hostSessionContext, conversationId)) {
+      return nonReady('query_access_unconfirmed');
+    }
+
     // Bind the caller to a canonical actor before querying Memory. This must
     // happen even for complete-empty results, which otherwise bypass the later
     // AuthorizedReadService call entirely.
@@ -228,14 +240,14 @@ export class MemoryNpcConsumer {
       purpose: 'npc_turn_context',
     });
     const coreQueryAllowed = () => {
-      try { return this.coreQueryAuthorizer(coreQueryScope) === true; }
+      try { return this.coreQueryAuthorizer(coreQueryScope, hostSessionContext) === true; }
       catch { return false; }
     };
 
     let queryAllowed = false;
     try {
       queryAllowed = coreQueryAllowed()
-        && await this.memoryProvider.authorizeQuery(scope) === true
+        && await this.#memoryProvider.authorizeQuery(scope) === true
         && coreQueryAllowed();
     } catch {
       queryAllowed = false;
@@ -248,7 +260,7 @@ export class MemoryNpcConsumer {
     const queryStillAllowed = async () => {
       try {
         if (!coreQueryAllowed()) return false;
-        const providerAllowed = await this.memoryProvider.authorizeQuery(scope) === true;
+        const providerAllowed = await this.#memoryProvider.authorizeQuery(scope) === true;
         return providerAllowed && coreQueryAllowed();
       } catch {
         return false;
@@ -260,13 +272,13 @@ export class MemoryNpcConsumer {
       // Freeze a stable data snapshot before any per-record authorization
       // awaits. A mutable in-process index object must not be able to rebind
       // a candidate's source or identity between validation and Core read.
-      memoryResult = structuredClone(await this.memoryProvider.retrieveCandidates(scope));
+      memoryResult = structuredClone(await this.#memoryProvider.retrieveCandidates(scope));
     } catch (error) {
       let reason = providerFailureReason(error);
       if (reason === 'memory_index_not_ready'
-        && typeof this.memoryProvider.getIndexStatusForDiagnostics === 'function') {
+        && typeof this.#memoryProvider.getIndexStatusForDiagnostics === 'function') {
         try {
-          const diagnostics = this.memoryProvider.getIndexStatusForDiagnostics(worldId);
+          const diagnostics = this.#memoryProvider.getIndexStatusForDiagnostics(worldId);
           if (object(diagnostics)) {
             if (diagnostics.index_health === 'rebuilding') reason = 'memory_index_rebuilding';
             else if (diagnostics.index_health === 'unavailable') reason = 'memory_index_unavailable';
@@ -393,7 +405,9 @@ export class MemoryNpcConsumer {
         || candidate.purpose !== scope.purpose
         || !validSnapshot(candidate.snapshot)
         || !validId(candidate.record?.ref)
-        || !validId(candidate.record?.version)) {
+        || !validId(candidate.record?.version)
+        || !Number.isSafeInteger(candidate.authorization_generation)
+        || candidate.authorization_generation < 1) {
         return nonReady('memory_candidate_invalid_or_scope_mismatch');
       }
       // Every row must belong to the same provider snapshot, even if its
@@ -411,10 +425,11 @@ export class MemoryNpcConsumer {
 
       let recordAllowed;
       try {
-        recordAllowed = await this.memoryProvider.authorizeCandidate({
+        recordAllowed = await this.#memoryProvider.authorizeCandidate({
           ...scope,
           record_ref: candidate.record.ref,
           record_version: candidate.record.version,
+          authorization_generation: candidate.authorization_generation,
           source_kind: candidate.source.kind,
           source_entity_id: candidate.source.entity_id,
         }) === true;
@@ -470,10 +485,11 @@ export class MemoryNpcConsumer {
     for (const candidate of initiallyAuthorizedCandidates) {
       let stillAllowed;
       try {
-        stillAllowed = await this.memoryProvider.authorizeCandidate({
+        stillAllowed = await this.#memoryProvider.authorizeCandidate({
           ...scope,
           record_ref: candidate.record.ref,
           record_version: candidate.record.version,
+          authorization_generation: candidate.authorization_generation,
           source_kind: candidate.source.kind,
           source_entity_id: candidate.source.entity_id,
         }) === true;
@@ -572,6 +588,7 @@ export class MemoryNpcConsumer {
         content_kind: candidate.content_kind,
         epistemic_kind: candidate.epistemic_kind,
         producer_kind: candidate.producer?.kind,
+        authorization_generation: candidate.authorization_generation,
         content_disposition: candidate.lifecycle?.content_disposition,
         evidence_assessment: candidate.lifecycle?.evidence_assessment,
         index_health: candidate.lifecycle?.index_health,
@@ -715,10 +732,11 @@ export class MemoryNpcConsumer {
     for (const item of admitted) {
       let stillAllowed;
       try {
-        stillAllowed = await this.memoryProvider.authorizeCandidate({
+        stillAllowed = await this.#memoryProvider.authorizeCandidate({
           ...scope,
           record_ref: item.record_ref,
           record_version: item.record_version,
+          authorization_generation: item.authorization_generation,
           source_kind: 'canonical_entity',
           source_entity_id: item.source_entity_id,
         }) === true;
