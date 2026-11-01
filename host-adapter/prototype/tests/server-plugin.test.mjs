@@ -57,3 +57,17 @@ test('server plugin session route supports ST default-user mode without session.
   assert.equal(session.logicEngineSessionHandle, 'default-user');
   assert.match(session.logicEngineSessionId, /^[0-9a-f-]{36}$/i);
 });
+
+test('pinned SillyTavern mounts server plugins after its authenticated user middleware', async t => {
+  const hostRoot = process.env.SILLYTAVERN_DIR;
+  if (!hostRoot) {
+    t.skip('SILLYTAVERN_DIR is set by the pinned-source CI job');
+    return;
+  }
+  const serverMain = await readFile(path.join(hostRoot, 'src', 'server-main.js'), 'utf8');
+  const authIndex = serverMain.indexOf('app.use(requireLoginMiddleware)');
+  const pluginLoadIndex = serverMain.indexOf('loadPlugins(app, pluginsDirectory)');
+  assert.notEqual(authIndex, -1, 'pinned ST auth middleware is present');
+  assert.notEqual(pluginLoadIndex, -1, 'pinned ST server plugin loader is present');
+  assert.ok(authIndex < pluginLoadIndex, 'server plugins must be mounted after requireLoginMiddleware');
+});
