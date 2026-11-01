@@ -21,14 +21,21 @@ class Storage {
   key(index) { return [...this.values.keys()][index] ?? null; }
 }
 
-const resolver = async ({ locator = 'chat-file.jsonl', hostSessionId = SESSION_A, metadata = {}, storage = new Storage(), saveMetadata = async () => {}, ...rest } = {}) =>
-  resolveStableHostConversationIdentity({
-    locator, hostSessionId, hostInstallationId: rest.hostInstallationId ?? INSTALL_A, metadata, storage, saveMetadata,
-    cryptoProvider: webcrypto,
-    getCurrentLocator: () => locator,
-    getCurrentMetadata: () => metadata,
-    ...rest,
-  });
+const resolver = async ({
+  locator = 'chat-file.jsonl',
+  hostSessionId = SESSION_A,
+  hostInstallationId = INSTALL_A,
+  metadata = {},
+  storage = new Storage(),
+  saveMetadata = async () => {},
+  ...rest
+} = {}) => resolveStableHostConversationIdentity({
+  locator, hostSessionId, hostInstallationId, metadata, storage, saveMetadata,
+  cryptoProvider: webcrypto,
+  getCurrentLocator: () => locator,
+  getCurrentMetadata: () => metadata,
+  ...rest,
+});
 
 test('uses the authenticated server installation identity for stable conversation identity', async () => {
   const storage = new Storage();
@@ -171,6 +178,19 @@ test('missing or malformed authenticated Host session identity fails before enro
   assert.equal(saves, 0);
   const malformed = await resolver({ hostSessionId: 'not-a-session-id', metadata, storage, saveMetadata: async () => { saves++; } });
   assert.deepEqual(malformed, { status: 'NON_READY', reason: 'HOST_SESSION_ID_UNAVAILABLE' });
+  assert.equal(saves, 0);
+});
+
+test('missing or malformed server installation identity fails before enrollment writes', async () => {
+  const storage = new Storage();
+  const metadata = {};
+  let saves = 0;
+  const missing = await resolver({ hostInstallationId: null, metadata, storage, saveMetadata: async () => { saves++; } });
+  assert.deepEqual(missing, { status: 'NON_READY', reason: 'HOST_INSTALLATION_ID_UNAVAILABLE' });
+  const malformed = await resolver({ hostInstallationId: 'not-an-installation-id', metadata, storage, saveMetadata: async () => { saves++; } });
+  assert.deepEqual(malformed, { status: 'NON_READY', reason: 'HOST_INSTALLATION_ID_UNAVAILABLE' });
+  assert.equal(metadata.logic_engine_conversation_id, undefined);
+  assert.equal(storage.getItem('logic-engine-host-installation-id'), null);
   assert.equal(saves, 0);
 });
 
