@@ -229,6 +229,8 @@ The gate `memory:protected-final-send-production` remains `BLOCKED` until every 
 
 A future attestation provider must be internal to the deployment/runtime trust boundary, bind evidence to the exact Logic-Engine build, ST version and installed patch hash, and be collected by the verifier itself. User-supplied JSON, environment variables, manifest declarations or Extension browser state are not acceptable evidence sources.
 
+The Patch Manager's `inspectInstalledReadOnly()` operation performs a separate local inspection: it re-hashes the live patched source files, requires the complete pinned backup set, verifies each backup against its pre-patch digest, and rejects an active transaction journal. It is read-only and does not treat `state.json` as proof. This result is diagnostic input only: it is not signed, does not prove which code is already loaded in the running SillyTavern process, and does not establish an independent backup freshness anchor. Therefore it must not by itself promote `host.patch.integrity` to `PASS`. The deployment verifier must independently repeat the source/backup digest checks from its own pinned contract and retain the final-send gate as `NOT_TESTED` until runtime identity and evidence binding are available.
+
 Report integrity is checked independently of the policy evaluator: capability IDs and gate IDs must be unique; the protected final-send gate must exist exactly once; it cannot be BLOCKED when all eight required capabilities are PASS, and it cannot be PASS while any capability is missing or non-PASS. This prevents duplicate-record shadowing and stale gate snapshots from being accepted as a valid report.
 
 The runtime attestation binding must identify at least:
