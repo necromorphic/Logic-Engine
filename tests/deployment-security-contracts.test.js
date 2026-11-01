@@ -53,6 +53,9 @@ test('deployment schemas are present and manifest contract rejects malformed dec
   const invalid = portableManifest();
   invalid.platform_policy.allow_unknown_platform = true;
   assert.throws(() => validateDeploymentManifest(invalid), /DEPLOYMENT_MANIFEST_SCHEMA_INVALID/);
+  const unimplementedLinkPolicy = portableManifest();
+  unimplementedLinkPolicy.resources[0].link_policy = 'allow-contained-links';
+  assert.throws(() => validateDeploymentManifest(unimplementedLinkPolicy), /LINK_POLICY_NOT_IMPLEMENTED/);
 });
 
 test('manifest semantics reject duplicate resources, unknown principals and unsafe hardened restore defaults', () => {
