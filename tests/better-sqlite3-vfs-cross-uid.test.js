@@ -55,7 +55,39 @@ test('distinct-UID broker protects better-sqlite3 main, journal, WAL and SHM fil
   let reader;
   let readerTransactionActive = false;
   try {
-    writer.exec('CREATE TABLE broker_probe(value TEXT);');
+    // Mirror the actual ST-VectorService startup PRAGMAs and SQLite schema.
+    writer.pragma('synchronous = NORMAL');
+    writer.pragma('busy_timeout = 10000');
+    writer.pragma('temp_store = MEMORY');
+    writer.exec(`
+      CREATE TABLE IF NOT EXISTS vectors (
+        source TEXT NOT NULL,
+        collection_id TEXT NOT NULL,
+        model TEXT NOT NULL,
+        id TEXT NOT NULL,
+        hash REAL,
+        text TEXT,
+        item_index INTEGER,
+        metadata TEXT NOT NULL,
+        vector TEXT NOT NULL,
+        PRIMARY KEY (source, collection_id, model, id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_vectors_hash
+        ON vectors(source, collection_id, model, hash);
+      CREATE TABLE IF NOT EXISTS migration_state (
+        name TEXT PRIMARY KEY,
+        completed INTEGER NOT NULL
+      );
+      CREATE TABLE broker_probe(value TEXT);
+    `);
+    writer.prepare(`
+      INSERT INTO vectors
+        (source, collection_id, model, id, hash, text, item_index, metadata, vector)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run('memory', 'default', 'bge-m3', 'item-1', 0.25, 'ST vector row', 0, '{}', '[0.1,0.2]');
+    assert.equal(writer.prepare(
+      'SELECT text FROM vectors WHERE source = ? AND collection_id = ? AND model = ? AND id = ?'
+    ).get('memory', 'default', 'bge-m3', 'item-1').text, 'ST vector row');
     assert.ok(
       writer.prepare('SELECT logic_engine_vfs_probe_broker_backend_io_count() AS count').get().count > 0,
       'main DB byte I/O must use broker-returned descriptors',
