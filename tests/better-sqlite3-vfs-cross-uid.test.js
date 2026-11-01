@@ -185,9 +185,8 @@ test('distinct-UID broker protects better-sqlite3 main, journal, WAL and SHM fil
     bootstrap.close();
     const registrar = new Database(':memory:');
     const registered = registrar.prepare(
-      'SELECT logic_engine_vfs_probe_register_broker_role(?, ?, ?) AS registered'
-    ).get(process.env.LOGIC_ENGINE_DATABASE_PATH, 'vectors',
-      process.env.LOGIC_ENGINE_BROKER_SOCKET).registered;
+      'SELECT logic_engine_vfs_probe_register_broker_role_from_host() AS registered'
+    ).get().registered;
     if (registered !== 1) process.exit(21);
     const db = new Database(process.env.LOGIC_ENGINE_DATABASE_PATH);
     db.exec('PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0; PRAGMA cache_size=1; BEGIN IMMEDIATE;');
