@@ -17,6 +17,7 @@ export async function resolveStableHostConversationIdentity({
   locator,
   hostSessionId,
   hostInstallationId,
+  authenticatedAccountId,
   metadata,
   storage,
   saveMetadata,
@@ -37,6 +38,7 @@ export async function resolveStableHostConversationIdentity({
   if (typeof cryptoProvider?.randomUUID !== 'function') throw Error('NON_READY: crypto.randomUUID unavailable');
   if (!validUuid(hostSessionId)) return { status: 'NON_READY', reason: 'HOST_SESSION_ID_UNAVAILABLE' };
   if (!validUuid(hostInstallationId)) return { status: 'NON_READY', reason: 'HOST_INSTALLATION_ID_UNAVAILABLE' };
+  if (!validUuid(authenticatedAccountId)) return { status: 'NON_READY', reason: 'HOST_AUTHENTICATED_ACCOUNT_ID_UNAVAILABLE' };
 
   // Installation identity is server-owned. localStorage is only a consistency
   // cache and must never mint or override the authenticated server identity.
@@ -59,6 +61,7 @@ export async function resolveStableHostConversationIdentity({
     }
   }
   const installationId = hostInstallationId;
+  const accountId = authenticatedAccountId;
 
   const existing = metadata.logic_engine_conversation_id;
   const legacyMarker = MARKER_PREFIX + locator;
@@ -68,7 +71,7 @@ export async function resolveStableHostConversationIdentity({
   if (existing !== undefined && !validUuid(existing)) {
     throw Error('NON_READY: malformed stable Host conversation identity');
   }
-  if (mappedId && (!validUuid(existing) || mappedId !== installationId + ':' + existing)) {
+  if (mappedId && (!validUuid(existing) || mappedId !== installationId + ':' + accountId + ':' + existing)) {
     throw Error('NON_READY: Host locator metadata is missing or inconsistent');
   }
 
@@ -82,7 +85,7 @@ export async function resolveStableHostConversationIdentity({
       const key = storage.key(i);
       if (typeof key !== 'string') continue;
       const value = storage.getItem(key);
-      if (key.startsWith(MARKER_PREFIX) && key.endsWith(':' + existing) && key !== activeMarker) {
+      if (key.startsWith(MARKER_PREFIX) && key.endsWith(':' + accountId + ':' + existing) && key !== activeMarker) {
         throw Error('NON_READY: Host conversation identity is already enrolled elsewhere');
       }
       if (key.startsWith(MARKER_PREFIX) && typeof value === 'string'
@@ -126,7 +129,7 @@ export async function resolveStableHostConversationIdentity({
   }
   return {
     status: 'READY_FOR_REVIEW',
-    conversationId: installationId + ':' + conversationUuid,
+    conversationId: installationId + ':' + accountId + ':' + conversationUuid,
     hostSessionId,
     installationId,
     conversationUuid,
@@ -159,7 +162,7 @@ export function hasAnyHostEnrollment(storage) {
 export const stableHostIdentityContract = Object.freeze({
   installationKey: INSTALLATION_KEY,
   sessionIdentityKey: 'logicEngineSessionId',
-  conversationIdFormat: 'installationId:conversationUuid',
+  conversationIdFormat: 'installationId:accountId:conversationUuid',
   markerPrefix: MARKER_PREFIX,
   identityMetadataKey: 'logic_engine_conversation_id',
   locatorBindingPrefix: 'logic-engine-host-lifecycle-locator:',
