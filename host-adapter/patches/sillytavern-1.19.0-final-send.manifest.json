@@ -9,7 +9,7 @@
   "patch": {
     "version": "1.0.0",
     "path": "host-adapter/patches/sillytavern-1.19.0-final-send.patch",
-    "sha256": "88470b679a71a182a1a6f0a8051d44967383d0dbbd4254dca3bc01b6c60f73a8"
+    "sha256": "92368db2defe1d87b7cb6d1efa52564b3d74431cdfd64016b250b0269e9d9bbb"
   },
   "sourceFiles": {
     "package.json": "5b6e0634a63872c33603bf803217613a388f2e5dbd5990f7b30d254bfbf027c2",
@@ -25,9 +25,14 @@
     "src/endpoints/novelai.js": "0b6b41052ae0311ae6e716955b0805a44b1b63e3a58bf403b81becf0ff1b04ce",
     "src/endpoints/horde.js": "9a0280cfa2c5498f540b8593b100e80cbacdefa563038a6cc6c60c9c9923f3f4",
     "src/constants.js": "a8e507bf5f9e335810247476b28428e6e44f1b0a371df41cea748b36e70d29a7",
-    "src/util.js": "d33d67234af4e188bb7fcfac9c3ca7952c19e8c58791e96b19f9ad748dd168cd"
+    "src/util.js": "d33d67234af4e188bb7fcfac9c3ca7952c19e8c58791e96b19f9ad748dd168cd",
+    "src/endpoints/extensions.js": {
+      "before": "44185c46cc31650ea770d35460114483ecafabb2b672ecc3b13b18868215e292",
+      "after": "e4d3f20dd4b08b76d3e6e25b6148f7fea40292566bdea36830c0dfc1ff1c781c"
+    }
   },
   "createdFiles": {
-    "src/logic-engine-final-send-hook.js": "0773fe95d1148038e6141964f3fbf59c1b2277ba3054b373dad04e402357bb8b"
+    "src/logic-engine-final-send-hook.js": "0773fe95d1148038e6141964f3fbf59c1b2277ba3054b373dad04e402357bb8b",
+    "src/logic-engine-extension-install-hook.js": "4c19db753829cc3f07d4cd90afddc971a1c6f89e325ef08327568ae21e4c85d4"
   }
 }
