@@ -122,3 +122,15 @@ The factory deliberately does not register a public HTTP route, infer authentica
 
 
 Failure-state handling at the consumer boundary is also explicit: authorized complete-empty remains a ready empty result; partial results, query denial, withheld records, stale snapshots, unavailable Core snapshots, unavailable index/reconciliation, rebuilding, lineage failure, source-version failure, authorization changes, and mid-flight record revocation retain separate safe non-ready reasons. Provider diagnostic state is used only to refine an already non-ready `MEMORY_INDEX_NOT_READY` result; it cannot turn a failed retrieval into ready or empty. Internal error messages, record counts and identities are not returned.
+
+## Lane B trusted identity and final field-disclosure hardening — 1 Nov 2026
+
+The Lane B candidate adds three explicit Core boundary requirements:
+
+1. MemoryNpcConsumer no longer derives world or actor from request fields. It resolves the exact (adapter_id, conversation_id) through HostConversationWorldBindingService, then requires exactly one active actor for (world_id, adapter_id) through ActorBindingService.resolveForAdapter(). Zero or multiple actor bindings are non-ready. Caller-supplied worldId / actorEntityId values are ignored.
+2. The real Provider adapter requires a deployment-owned isAuthenticatedHostRequest(request) verifier. runWithAuthenticatedHostSession() cannot mint the branded AsyncLocalStorage capability from a request-shaped object alone. The verifier must only accept the exact request object after SillyTavern's signed-cookie/session and user-context middleware has run; it must not trust body or header fields. The adapter returns a bound runner so request handlers do not supply their own verifier per call.
+3. After asynchronous Provider record and Core query authorization rechecks, Core performs a final AuthorizedReadService read with the complete content-field allowlist. The final result envelope is built from this last field-authorized read, not the earlier admission read. No asynchronous authorization step follows the final field read.
+
+Additional tests cover request lookalikes, caller-supplied world/actor spoofing, ambiguous actor bindings, and field visibility revoked between the initial read and final disclosure.
+
+**Important integration boundary:** this Core change makes the authentication verifier mandatory, but does not itself prove that the deployed SillyTavern route supplies a correct verifier. Host/Adapter must wire the returned adapter.runWithAuthenticatedHostSession() only from a route mounted after SillyTavern's authentication middleware and provide a verifier tied to that server-side request path. Until that concrete Host integration is exercised against the exact SillyTavern release, this is Core integration evidence, not proof of end-to-end authenticated ST traffic. No production NPC dispatch is enabled.
