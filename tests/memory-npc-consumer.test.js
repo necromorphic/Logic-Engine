@@ -13,6 +13,8 @@ const hostRequest = {
   user: { profile: { handle: 'consumer-test-user' } },
   session: { handle: 'consumer-test-user', logicEngineSessionId: HOST_SESSION_ID, logicEngineSessionHandle: 'consumer-test-user' },
 };
+const authenticatedHostRequests = new WeakSet([hostRequest]);
+const isAuthenticatedHostRequest = request => authenticatedHostRequests.has(request);
 
 function setup(t, { allowContent = true, authorizeQuery = true, authorizeCoreQuery = true, authorizeCandidate = true, completeness = 'complete' } = {}) {
   let contentVisible = allowContent;
@@ -103,9 +105,9 @@ function setup(t, { allowContent = true, authorizeQuery = true, authorizeCoreQue
   const authenticatedConsumer = new Proxy(consumer, {
     get(target, property) {
       if (property === 'retrieveForNpc') return (input) =>
-        runWithAuthenticatedHostSession(hostRequest, HOST_CONVERSATION_ID, () => target.retrieveForNpc(input));
+        runWithAuthenticatedHostSession(hostRequest, HOST_CONVERSATION_ID, () => target.retrieveForNpc(input), isAuthenticatedHostRequest);
       if (property === 'revalidateForFinalDispatch') return (input, prepared) =>
-        runWithAuthenticatedHostSession(hostRequest, HOST_CONVERSATION_ID, () => target.revalidateForFinalDispatch(input, prepared));
+        runWithAuthenticatedHostSession(hostRequest, HOST_CONVERSATION_ID, () => target.revalidateForFinalDispatch(input, prepared), isAuthenticatedHostRequest);
       return Reflect.get(target, property, target);
     },
   });
