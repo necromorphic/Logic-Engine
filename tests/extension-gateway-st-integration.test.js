@@ -10,8 +10,9 @@ import {
 } from '../src/deployment/sillytavern-patch-manager.js';
 
 const stPath = process.env.SILLYTAVERN_PATH;
-const manifestPath = resolve('host-adapter/extension-gateway/patches/patch-manager-manifest.json');
-const targetCommit = '7e8663cd9c184a550b37238218bdd32c6efc68e9';
+const manifestPath = resolve(process.env.SILLYTAVERN_MANIFEST_PATH || 'host-adapter/extension-gateway/patches/patch-manager-manifest.json');
+const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+const targetCommit = process.env.SILLYTAVERN_EXPECTED_COMMIT || '7e8663cd9c184a550b37238218bdd32c6efc68e9';
 
 function git(args) {
   return execFileSync('git', ['-C', stPath, ...args], { encoding: 'utf8' }).trim();
@@ -21,6 +22,7 @@ test('Patch Manager installs the sole Extension Gateway into a disposable offici
   skip: !stPath,
 }, () => {
   const before = inspectSillyTavernPatchTarget(stPath);
+  assert.equal(manifest.target_git_commit, targetCommit);
   assert.equal(before.commit, targetCommit);
   assert.equal(before.clean, true);
 
@@ -64,7 +66,7 @@ test('Patch Manager installs the sole Extension Gateway into a disposable offici
 
   const rolledBack = uninstallSillyTavernPatchPackage({
     stPath,
-    packageId: 'logic-engine.sillytavern-extension-gateway',
+    packageId: manifest.package_id,
   });
   assert.equal(rolledBack.status, 'ROLLED_BACK');
   assert.equal(inspectSillyTavernPatchTarget(stPath).clean, true);
