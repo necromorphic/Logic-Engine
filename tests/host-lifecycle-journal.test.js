@@ -481,7 +481,7 @@ test('root inventory rejects unauthorized root identity and hard-link aliases', 
   assert.throws(() => journal.enrollRootInventory(rootInput({
     entries: [
       ...rootEntries(digest('one'), '101'),
-      { path: 'chats/alias.jsonl',
+      { path: 'chats/z-alias.jsonl',
         identity: { dev: '1', ino: '101', mode: 33188, size: 64, mtimeMs: 1, ctimeMs: 1 },
         sha256: digest('two') },
     ],
