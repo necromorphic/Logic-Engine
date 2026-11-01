@@ -326,3 +326,32 @@ test('Host Adapter registration is singleton and cannot be withdrawn while reque
   await mounted.close({ drain: true });
   await closeDefaultExtensionGateway();
 });
+
+
+test('invalid JSON bytes, invalid Content-Length, and malformed Host Adapter responses fail closed', async () => {
+  let calls = 0;
+  const gateway = createExtensionGateway({
+    hostAdapter: { handleExtensionRequest: async () => { calls += 1; return { status: 200 }; } },
+  });
+  const malformedJson = response();
+  const rawRequest = {
+    method: 'POST',
+    path: EXTENSION_GATEWAY_PATH,
+    headers: { 'content-type': 'application/json', 'content-length': '1' },
+    async *[Symbol.asyncIterator]() { yield Buffer.from('{'); },
+  };
+  await gateway.handle(rawRequest, malformedJson);
+  assert.equal(malformedJson.statusCode, 400);
+  assert.equal(calls, 0);
+
+  const invalidLength = response();
+  await gateway.handle(request({ headers: { 'content-length': '1e6' }, body: valid }), invalidLength);
+  assert.equal(invalidLength.statusCode, 413);
+  assert.equal(calls, 0);
+
+  const malformedAdapterResponse = response();
+  await gateway.handle(request({ body: valid }), malformedAdapterResponse);
+  assert.equal(malformedAdapterResponse.statusCode, 503);
+  assert.deepEqual(malformedAdapterResponse.body, { error: 'HOST_ADAPTER_UNAVAILABLE' });
+  assert.equal(calls, 1);
+});
