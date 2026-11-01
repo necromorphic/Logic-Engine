@@ -88,17 +88,25 @@ test('resolver rejects mismatched account session and incomplete or ambiguous in
     }))(makeRequest()));
 });
 
-test('context route resolves world and actor only through Core using server-derived conversation identity', async () => {
+test('context route sends authenticated installation/account/session identity to Core for world and actor resolution', async () => {
     const calls = [];
     const route = createHostContextRoute({
         ...dependencies(),
         config: { adapterId: 'st-adapter', actorEntityId: 'npc-kiryu' },
         corePost: async (path, body) => {
             calls.push({ path, body });
-            if (path === '/v1/host-conversation-bindings/resolve') {
-                return { binding: { world_id: 'world-kamurocho' } };
-            }
-            return { resolution: { actor: { entity_id: 'npc-kiryu' } } };
+            return {
+                context: {
+                    installation_id: installationId,
+                    account_id: accountId,
+                    session_id: sessionId,
+                    conversation_id: conversationId,
+                    world_id: 'world-kamurocho',
+                    actor_id: 'npc-kiryu',
+                    adapter_id: 'st-adapter',
+                    authority: 'AUTHENTICATED_ADAPTER_AND_CORE_BINDINGS',
+                },
+            };
         },
     });
     const request = makeRequest();
@@ -108,13 +116,24 @@ test('context route resolves world and actor only through Core using server-deri
     assert.equal(nextCalls, 1);
     await route.handler(request, response);
     assert.equal(response.statusCode, 200);
-    assert.equal(response.body.identity.conversation_id, conversationId);
+    assert.equal(response.body.identity.installation_id, installationId);
+    assert.equal(response.body.identity.account_id, accountId);
+    assert.equal(response.body.identity.session_id, sessionId);
+    assert.equal(response.body.conversation_id, conversationId);
     assert.equal(response.body.binding.world_id, 'world-kamurocho');
     assert.equal(response.body.binding.actor_id, 'npc-kiryu');
-    assert.deepEqual(calls, [
-        { path: '/v1/host-conversation-bindings/resolve', body: { conversation_id: conversationId } },
-        { path: '/v1/worlds/world-kamurocho/actors/resolve', body: { entity_id: 'npc-kiryu' } },
-    ]);
+    assert.deepEqual(calls, [{
+        path: '/v1/host-conversation-bindings/resolve-context',
+        body: {
+            conversation_id: conversationId,
+            host_context: {
+                installation_id: installationId,
+                account_id: accountId,
+                session_id: sessionId,
+            },
+            actor_entity_id: 'npc-kiryu',
+        },
+    }]);
 });
 
 test('context route fails closed when Core world or actor binding cannot be resolved', async () => {
