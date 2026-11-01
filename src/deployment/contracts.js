@@ -104,6 +104,8 @@ export function validateDeploymentReport(report) {
       .join('; ');
     throw new Error('DEPLOYMENT_REPORT_SCHEMA_INVALID:' + detail);
   }
+  assertUnique(report.capabilities.map((item) => item.id), 'report_capability_id');
+  assertUnique(report.gates.map((gate) => gate.id), 'report_gate_id');
   const requiredFailures = report.capabilities.filter((item) => item.required && item.status !== 'PASS');
   if (report.overall_status === 'PASS' && requiredFailures.length > 0) {
     throw new Error('DEPLOYMENT_REPORT_FALSE_PASS_REQUIRED_CAPABILITY');
@@ -131,6 +133,12 @@ export function validateDeploymentReport(report) {
   const missingFinalSendEvidence = PROTECTED_FINAL_SEND_CAPABILITIES.filter((id) => capabilityEvidence.get(id)?.status !== 'PASS');
   if (protectedFinalSendGate.status === 'PASS' && missingFinalSendEvidence.length > 0) {
     throw new Error('DEPLOYMENT_REPORT_FALSE_PASS_PROTECTED_FINAL_SEND:' + missingFinalSendEvidence.join(','));
+  }
+  if (protectedFinalSendGate.status !== 'PASS' && missingFinalSendEvidence.length === 0) {
+    throw new Error('DEPLOYMENT_REPORT_STALE_PROTECTED_FINAL_SEND_GATE');
+  }
+  if (protectedFinalSendGate.status !== 'PASS' && protectedFinalSendGate.status !== 'BLOCKED') {
+    throw new Error('DEPLOYMENT_REPORT_INVALID_PROTECTED_FINAL_SEND_GATE_STATUS');
   }
   if (protectedFinalSendGate.status !== 'PASS' && report.overall_status === 'PASS') {
     throw new Error('DEPLOYMENT_REPORT_PROTECTED_FINAL_SEND_GATE_BYPASSED');
