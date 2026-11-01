@@ -572,6 +572,32 @@ class ManifestStoreTests(unittest.TestCase):
         with self.assertRaises(StoreError):
             self.store.commit(self.data(3))
 
+    def test_recovers_old_generation_after_crash_before_anchor_commit(self):
+        import manifest_store
+
+        self.store.initialize(self.data(1))
+        original_write_atomic = manifest_store._write_atomic
+
+        def interrupt_before_anchor_commit(dir_fd, temp_name, final_name, data):
+            if dir_fd == self.store.anchor_fd and final_name == "anchor.json":
+                raise RuntimeError("simulated crash before rollback-anchor commit")
+            return original_write_atomic(dir_fd, temp_name, final_name, data)
+
+        with patch("manifest_store._write_atomic", side_effect=interrupt_before_anchor_commit):
+            with self.assertRaisesRegex(RuntimeError, "simulated crash"):
+                self.store.commit(self.data(2))
+
+        # The staged generation is not authoritative until the separate anchor
+        # advances. Restart must continue to accept only the previous generation.
+        self.assertTrue((self.manifest_root / "manifest.next").exists())
+        self.assertEqual(self.store.load()["generation"], 1)
+
+        # A later writer must safely replace the abandoned staged candidate.
+        committed = self.store.commit(self.data(2))
+        self.assertEqual(committed["generation"], 2)
+        self.assertFalse((self.manifest_root / "manifest.next").exists())
+        self.assertEqual(self.store.load()["generation"], 2)
+
     def test_recovers_crash_after_anchor_commit(self):
         self.store.initialize(self.data(1))
         staged = self.data(2)
