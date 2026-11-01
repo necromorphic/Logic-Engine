@@ -30,6 +30,17 @@ async function atomicWrite(path, content) {
   await rename(temp, path);
 }
 
+async function ensureSafeDirectory(path) {
+  const info = await lstat(path).catch((error) => {
+    if (error.code !== 'ENOENT') throw error;
+    return null;
+  });
+  if (info?.isSymbolicLink() || info && !info.isDirectory()) {
+    throw new Error('PATCH_MANAGER_DIRECTORY_UNSAFE: ' + path);
+  }
+  if (!info) await mkdir(path, { recursive: false });
+}
+
 async function assertRegularFile(root, relativePath) {
   const target = resolve(root, relativePath);
   if (!isWithin(root, target)) throw new Error('PATCH_PATH_ESCAPE: ' + relativePath);
@@ -76,13 +87,28 @@ export class SillyTavernPatchManager {
   }
 
   async withLock(operation) {
-    await mkdir(this.managerDir, { recursive: true });
+    await ensureSafeDirectory(this.managerDir);
     let handle;
     try {
       handle = await open(this.lockPath, 'wx', 0o600);
     } catch (error) {
-      if (error.code === 'EEXIST') throw new Error('PATCH_MANAGER_LOCKED_OR_STALE');
-      throw error;
+      if (error.code !== 'EEXIST') throw error;
+      let lock;
+      try { lock = JSON.parse(await readFile(this.lockPath, 'utf8')); } catch {
+        throw new Error('PATCH_MANAGER_LOCKED_OR_STALE');
+      }
+      if (!Number.isSafeInteger(lock.pid) || lock.pid < 1) {
+        throw new Error('PATCH_MANAGER_LOCKED_OR_STALE');
+      }
+      try {
+        process.kill(lock.pid, 0);
+        throw new Error('PATCH_MANAGER_LOCKED_OR_STALE');
+      } catch (probeError) {
+        if (probeError.message === 'PATCH_MANAGER_LOCKED_OR_STALE') throw probeError;
+        if (probeError.code !== 'ESRCH') throw new Error('PATCH_MANAGER_LOCKED_OR_STALE');
+      }
+      await unlink(this.lockPath);
+      handle = await open(this.lockPath, 'wx', 0o600);
     }
     try {
       await handle.writeFile(JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() }));
@@ -152,9 +178,14 @@ export class SillyTavernPatchManager {
     await this.verifyBaseline();
     this.runGit(['apply', '--check', this.patchPath], this.stRoot);
 
+    await mkdir(this.backupsRoot, { recursive: true });
+    const backupRootInfo = await lstat(this.backupsRoot);
+    if (backupRootInfo.isSymbolicLink() || !backupRootInfo.isDirectory()) {
+      throw new Error('PATCH_MANAGER_BACKUP_DIRECTORY_UNSAFE');
+    }
     const backupId = new Date().toISOString().replace(/[:.]/g, '-') + '-' + randomUUID();
     const backupDir = resolve(this.backupsRoot, backupId);
-    await mkdir(backupDir, { recursive: true });
+    await mkdir(backupDir, { recursive: false });
     const backups = {};
     for (const [relativePath, expected] of Object.entries(this.manifest.sourceFiles)) {
       if (typeof expected === 'string') continue;
@@ -218,6 +249,14 @@ export class SillyTavernPatchManager {
     }
     for (const [relativePath, backupInfo] of Object.entries(journal.backups ?? {})) {
       const backup = resolve(this.managerDir, backupInfo.backupPath);
+      const backupInfoStat = await lstat(backup);
+      if (backupInfoStat.isSymbolicLink() || !backupInfoStat.isFile()) {
+        throw new Error('PATCH_BACKUP_INTEGRITY_INVALID: ' + relativePath);
+      }
+      const backupBytes = await readFile(backup);
+      if (sha256(backupBytes) !== backupInfo.sha256) {
+        throw new Error('PATCH_BACKUP_INTEGRITY_MISMATCH: ' + relativePath);
+      }
       const target = await assertRegularFile(this.stRoot, relativePath);
       const temp = target + '.logic-engine-restore-' + randomUUID();
       await copyFile(backup, temp);
