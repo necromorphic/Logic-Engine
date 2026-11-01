@@ -272,3 +272,57 @@ test('default ST mount is a single in-process ingress and fails closed until tru
   assert.equal(calls, 1);
   await closeDefaultExtensionGateway();
 });
+
+
+test('pinned ST integration patch installs the sole route after auth and preserves the raw body limit', () => {
+  const patchPath = new URL('../host-adapter/extension-gateway/patches/sillytavern-1.19.0-extension-gateway.patch', import.meta.url);
+  const manifestPath = new URL('../host-adapter/extension-gateway/patches/patch-manager-manifest.json', import.meta.url);
+  const patch = readFileSync(patchPath, 'utf8');
+  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+  const startupHunk = patch.slice(patch.indexOf('diff --git a/src/server-startup.js'));
+  const mainHunk = patch.slice(patch.indexOf('diff --git a/src/server-main.js'));
+
+  assert.equal(manifest.target_git_commit, '7e8663cd9c184a550b37238218bdd32c6efc68e9');
+  assert.deepEqual([...manifest.target_paths].sort(), [
+    'public/scripts/extensions/third-party/logic-engine-extension-gateway/index.js',
+    'public/scripts/extensions/third-party/logic-engine-extension-gateway/manifest.json',
+    'public/scripts/extensions/third-party/logic-engine-extension-gateway/server-gateway.mjs',
+    'src/server-main.js',
+    'src/server-startup.js',
+  ].sort());
+
+  assert.match(startupHunk, /mountDefaultExtensionGateway\(app\);[\s\S]*?app\.use\('\/', userDataRouter\)/);
+  assert.equal((startupHunk.match(/mountDefaultExtensionGateway\(app\)/g) || []).length, 1);
+  assert.match(mainHunk, /request\.path !== EXTENSION_GATEWAY_PATH && request\.is\('application\/json'\)/);
+  assert.match(mainHunk, /request\.path !== EXTENSION_GATEWAY_PATH && request\.is\('application\/x-www-form-urlencoded'\)/);
+  assert.match(mainHunk, /await closeDefaultExtensionGateway\(\{ drain: true \}\)/);
+  assert.ok(mainHunk.indexOf('closeDefaultExtensionGateway') < mainHunk.indexOf('await statsOnExit()'));
+  assert.doesNotMatch(patch, /createServer\s*\(|\.listen\s*\(|Provider Base URL|MemoryProvider|ProviderRelay/i);
+  assert.equal((patch.match(/app\.post\(EXTENSION_GATEWAY_PATH/g) || []).length, 1);
+});
+
+test('Host Adapter registration is singleton and cannot be withdrawn while requests are in flight', async () => {
+  const events = [];
+  let release;
+  const pending = new Promise(resolve => { release = resolve; });
+  const routes = [];
+  const app = { post(path, handler) { routes.push(handler); } };
+  const mounted = mountDefaultExtensionGateway(app);
+  const adapter = { async handleExtensionRequest() { await pending; return { status: 200, body: {} }; } };
+  const unregister = registerAuthenticatedHostAdapter(adapter, { onDiagnostic: event => events.push(event) });
+  assert.throws(
+    () => registerAuthenticatedHostAdapter(adapter, { onDiagnostic: () => true }),
+    /DUPLICATE/,
+  );
+
+  const res = response();
+  const handling = routes[0](request({ body: valid }), res);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.throws(unregister, /STILL_IN_FLIGHT/);
+  release();
+  await handling;
+  assert.equal(res.statusCode, 200);
+  assert.equal(unregister(), true);
+  await mounted.close({ drain: true });
+  await closeDefaultExtensionGateway();
+});
