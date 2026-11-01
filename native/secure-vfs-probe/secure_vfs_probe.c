@@ -3067,7 +3067,10 @@ static void probe_register_database_role(sqlite3_context *context, int argc, sql
   int duplicate_identity = 0;
   int full = 0;
 #ifdef _WIN32
-  int manifest_expected = argc == 7;
+  int manifest_expected = argc == 7 || argc == 8;
+  int manifest_persisted = argc == 7;
+  int alias_capture = argc == 8;
+  const unsigned char *capture_path = alias_capture ? sqlite3_value_text(argv[7]) : path;
   LogicEngineWinFileIdentity expected_database, expected_parent, actual_parent;
   DWORD parent_attributes = 0;
   const unsigned char *manifest_basename = NULL;
@@ -3084,8 +3087,8 @@ static void probe_register_database_role(sqlite3_context *context, int argc, sql
   captured_role.trusted_parent_fd = -1;
 #endif
 #ifdef _WIN32
-  if (argc != 2 && argc != 7) {
-    sqlite3_result_error(context, "manifest enrollment requires database, parent and basename identity fields", -1);
+  if (argc != 2 && argc != 7 && argc != 8) {
+    sqlite3_result_error(context, "role enrollment requires a path and optional manifest identity fields", -1);
     return;
   }
   if (manifest_expected) {
@@ -3100,7 +3103,11 @@ static void probe_register_database_role(sqlite3_context *context, int argc, sql
 #else
   (void)argc;
 #endif
-  if (!path || !role_name || !path[0] || !role_name[0]) {
+  if (!path || !role_name || !path[0] || !role_name[0]
+#ifdef _WIN32
+      || (alias_capture && (!capture_path || !capture_path[0]))
+#endif
+      ) {
     sqlite3_result_error(context, "database path and role are required", -1);
     return;
   }
@@ -3138,7 +3145,12 @@ static void probe_register_database_role(sqlite3_context *context, int argc, sql
     }
   }
 #endif
+#ifdef _WIN32
+  if (!probe_capture_role_identity(alias_capture
+        ? (const char *)capture_path : stored_path, &captured_role)) {
+#else
   if (!probe_capture_role_identity(stored_path, &captured_role)) {
+#endif
 #ifdef _WIN32
     sqlite3_free(expected_basename);
 #endif
@@ -3206,7 +3218,10 @@ static void probe_register_database_role(sqlite3_context *context, int argc, sql
 #endif
     entry->identity_set = 1;
 #ifdef _WIN32
-    entry->manifest_bound = manifest_expected;
+    /* The 8-argument alias form validates DB/parent identities but records
+     * sidecar identities dynamically for the handle-relative path-swap test.
+     * The 7-argument form requires sidecars to be pre-enrolled persistently. */
+    entry->manifest_bound = manifest_persisted;
 #endif
     g_database_role_count += 1;
   }
@@ -3360,6 +3375,9 @@ static int probe_auto_extension(sqlite3 *db, char **error, const sqlite3_api_rou
     SQLITE_UTF8, 0, probe_capture_manifest_identity, 0, 0);
   if (rc != SQLITE_OK) return rc;
   rc = sqlite3_create_function(db, "logic_engine_vfs_probe_register_database_role_manifest", 7,
+    SQLITE_UTF8, 0, probe_register_database_role, 0, 0);
+  if (rc != SQLITE_OK) return rc;
+  rc = sqlite3_create_function(db, "logic_engine_vfs_probe_register_database_role_alias", 8,
     SQLITE_UTF8, 0, probe_register_database_role, 0, 0);
   if (rc != SQLITE_OK) return rc;
   rc = sqlite3_create_function(db, "logic_engine_vfs_probe_register_manifest_sidecar", 5,
