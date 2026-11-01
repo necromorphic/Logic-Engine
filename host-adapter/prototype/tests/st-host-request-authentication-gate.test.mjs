@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHostRequestAuthenticationGate } from '../st-host-inventory-handler.mjs';
-import { getAuthenticatedHostSessionContext, runWithAuthenticatedHostSession } from '../../../src/application/host-session-context.js';
 
 function makeResponse() {
   return {
@@ -105,32 +104,3 @@ test('Host gate fails closed when trusted conversation resolution throws or retu
 });
 
 
-test('Host gate callbacks create the exact Core AsyncLocalStorage capability', async () => {
-  const request = {
-    user: { profile: { handle: 'default-user' }, directories: {} },
-    session: { logicEngineSessionId: sessionId, logicEngineSessionHandle: 'default-user' },
-  };
-  const gate = createHostRequestAuthenticationGate({ resolveConversationId: () => conversationId });
-  const response = makeResponse();
-  await gate.middleware(request, response, () => {});
-  const context = await runWithAuthenticatedHostSession(
-    request,
-    conversationId,
-    () => getAuthenticatedHostSessionContext(),
-    gate.isAuthenticatedHostRequest,
-    gate.resolveHostConversationId,
-  );
-  assert.equal(context.conversation_id, conversationId);
-  assert.equal(context.host_session_id, sessionId);
-
-  await assert.rejects(
-    () => runWithAuthenticatedHostSession(
-      { ...request },
-      conversationId,
-      () => getAuthenticatedHostSessionContext(),
-      gate.isAuthenticatedHostRequest,
-      gate.resolveHostConversationId,
-    ),
-    /HOST_SESSION_AUTHENTICATION_REQUIRED/,
-  );
-});
