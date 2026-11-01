@@ -96,7 +96,7 @@ Rules:
 - HMAC input is UTF-8 `JSON.stringify([...])` in this exact order: `protocol_version, host_installation_id, authenticated_account_id, host_session_id, conversation_id, world_id, actor_id, issued_at, nonce`. This matches Core's current canonical assertion encoding.
 - Core verifies the signature with constant-time comparison, exact own-data shape, UUID/ID constraints, expiry, future skew and one-time nonce consumption.
 
-The current Core assertion runner uses a process-local `Map` bounded by `maxRememberedNonces` (default 10,000) and a maximum assertion age of 30 seconds. It detects replay only within that process lifetime; it does not prevent replay after a process restart. The contract therefore requires one of two Core-owned controls before route enablement: (a) atomic durable nonce consumption unique on `(adapter_id, nonce)` retained through the full acceptance window, or (b) a restart-rotated assertion verification key/epoch that makes all pre-restart assertions unverifiable. The implementation must choose one, test restart/replay, and fail closed if replay protection is unavailable. This does not add a second authentication mechanism.
+The current Core assertion runner uses a process-local `Map` bounded by `maxRememberedNonces` (default 10,000), a maximum assertion age of 30 seconds, and a future clock-skew allowance of 5 seconds. It detects replay only within that process lifetime; it does not prevent replay after a process restart. The contract therefore requires one of two Core-owned controls before route enablement: (a) atomic durable nonce consumption unique on `(adapter_id, nonce)` retained through the full acceptance window, or (b) a restart-rotated assertion verification key/epoch that makes all pre-restart assertions unverifiable. The implementation must choose one, test restart/replay, and fail closed if replay protection is unavailable. This does not add a second authentication mechanism.
 
 ## 4. Core context-resolution API
 
@@ -272,6 +272,8 @@ Do not return secrets, raw request data, hidden entity values, Provider snippets
 | Internal unexpected failure | 500 | `INTERNAL_ERROR`, generic message only |
 
 The Host proxy maps a missing retrieval route (404 during rollout) to `503 NON_READY / CORE_HOST_DISPATCH_ROUTE_UNAVAILABLE`; it must not treat route absence as an empty Memory result. Transport timeout/unreachable/invalid JSON also fails closed. No automatic retry may reuse the same assertion nonce; a retry requires a fresh assertion and nonce.
+
+Host-side normalized dispatch outcomes are also fixed: invalid bounded browser metadata → `400 HOST_DISPATCH_REQUEST_INVALID`; missing server identity/session → `403` with no sensitive detail; missing proxy configuration → `503 LOGIC_ENGINE_PROXY_UNCONFIGURED`; context resolver missing, denied, malformed or ambiguous → `503 HOST_WORLD_ACTOR_BINDING_UNAVAILABLE`; retrieval route missing → `503 CORE_HOST_DISPATCH_ROUTE_UNAVAILABLE`; other upstream refusal → `502 CORE_HOST_DISPATCH_REJECTED`; malformed upstream JSON → `502 LOGIC_ENGINE_INVALID_RESPONSE`; transport failure/timeout → `502 LOGIC_ENGINE_UNREACHABLE`. Host never forwards Provider diagnostics or raw Core error details to the browser.
 
 ### Stable non-ready reasons
 
