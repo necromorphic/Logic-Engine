@@ -884,8 +884,9 @@ export class SQLiteMemoryProvider {
     if (!validDirectLineage(row, lineage)) throw new Error('MEMORY_LINEAGE_INVALID');
 
     // Candidate authorization is only valid against a ready Provider index.
-    // Capture a Provider-local generation so a write/rebuild/reconciliation
-    // transition during the awaited source check cannot reuse a prior ready row.
+    // The durable grant generation pins the retrieval-time permission snapshot;
+    // Provider-local generations additionally detect same-instance state changes
+    // while the awaited source validator is running.
     const initialState = this.#db.prepare('SELECT * FROM memory_index_state WHERE world_id=?')
       .get(input.world_id);
     if (!initialState || initialState.index_health !== 'ready'
@@ -1335,9 +1336,10 @@ export class SQLiteMemoryProvider {
           WHERE r.world_id=? AND r.subject_id=? AND r.purpose=?
           ORDER BY r.record_ref,r.record_version LIMIT 51`)
           .all(scope.subject_id, scope.purpose, scope.world_id, scope.subject_id, scope.purpose);
-        // Grant state is durable, but grant generations are process-local. Compare
-        // the generations captured before the await so revoke/re-grant cannot make
-        // an in-flight retrieval appear continuously authorized.
+        // The durable authorization_generation travels with each candidate and
+        // is checked by authorizeCandidate before disclosure. The local generation
+        // check additionally catches same-instance revoke/re-grant during this
+        // retrieval's awaited Core snapshot read.
         for (const [key, generation] of recordAuthorizationGenerations) {
           if ((this.#recordAuthorizationGeneration.get(key) ?? 0) !== generation) {
             throw new Error('MEMORY_AUTHORIZATION_CHANGED');
