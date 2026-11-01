@@ -91,7 +91,6 @@ test('Provider record/version identity cannot be rebound by duplicate ingestion'
   assert.equal(persisted.source_version, 'source-v1');
   assert.deepEqual(JSON.parse(persisted.lineage_json), record.lineage);
 });
-);
 
 test('Provider accepts only exact single canonical-entity lineage', (t) => {
   const provider = setup(t);
