@@ -206,8 +206,8 @@ test('Host Adapter requires Core root proof before context resolution and binds 
   assert.equal(identityResponse.statusCode, 200);
   assert.equal(identityResponse.payload.identity_source, 'SERVER_PERSISTED_OPAQUE_IDENTITY');
 
-  const conversationId = identityResponse.payload.host_installation_id + ':'
-    + identityResponse.payload.authenticated_account_id + ':' + UUID;
+  const conversationId = sessionResponse.payload.host_session_id + ':'
+    + identityResponse.payload.host_installation_id + ':' + UUID;
   const worldBinding = await post(coreUrl + '/v1/host-conversation-bindings', adminHeaders, {
     adapter_id: ADAPTER_ID,
     conversation_id: conversationId,
@@ -225,8 +225,8 @@ test('Host Adapter requires Core root proof before context resolution and binds 
   assert.equal(resolvedCoreContexts[0].context.adapter_id, ADAPTER_ID);
   assert.equal(resolvedCoreContexts[0].context.world_id, 'host-e2e-world');
   assert.equal(resolvedCoreContexts[0].context.actor_id, 'host-e2e-actor');
-  const stableConversationId = identityResponse.payload.host_installation_id
-    + ':' + identityResponse.payload.authenticated_account_id + ':' + UUID;
+  const stableConversationId = sessionResponse.payload.host_session_id
+    + ':' + identityResponse.payload.host_installation_id + ':' + UUID;
   assert.equal(resolvedCoreContexts[0].context.conversation_id, stableConversationId);
   assert.equal(dispatchResponse.statusCode, 503);
   assert.equal(dispatchResponse.payload.code, 'CORE_HOST_DISPATCH_ROUTE_UNAVAILABLE');
@@ -256,8 +256,8 @@ test('Host Adapter requires Core root proof before context resolution and binds 
   assert.equal(accountsIdentityResponse.statusCode, 200);
   assert.equal(accountsIdentityResponse.payload.host_installation_id, identityResponse.payload.host_installation_id);
   assert.notEqual(accountsIdentityResponse.payload.authenticated_account_id, identityResponse.payload.authenticated_account_id);
-  const accountsConversationId = accountsIdentityResponse.payload.host_installation_id + ':'
-    + accountsIdentityResponse.payload.authenticated_account_id + ':' + UUID;
+  const accountsConversationId = accountsSessionResponse.payload.host_session_id + ':'
+    + accountsIdentityResponse.payload.host_installation_id + ':' + UUID;
   const accountsWorldBinding = await post(coreUrl + '/v1/host-conversation-bindings', adminHeaders, {
     adapter_id: ADAPTER_ID,
     conversation_id: accountsConversationId,
@@ -304,6 +304,14 @@ test('Host Adapter requires Core root proof before context resolution and binds 
   await restartedAdapter.identity(restartedRequest, restartedIdentityResponse);
   assert.equal(restartedIdentityResponse.payload.host_installation_id, identityResponse.payload.host_installation_id);
   assert.equal(restartedIdentityResponse.payload.authenticated_account_id, identityResponse.payload.authenticated_account_id);
+  const restartedConversationId = restartedSessionResponse.payload.host_session_id + ':'
+    + restartedIdentityResponse.payload.host_installation_id + ':' + UUID;
+  const restartedWorldBinding = await post(coreUrl + '/v1/host-conversation-bindings', adminHeaders, {
+    adapter_id: ADAPTER_ID,
+    conversation_id: restartedConversationId,
+    world_id: 'host-e2e-world',
+  });
+  assert.equal(restartedWorldBinding.status, 201);
   const restartedGateResponse = responseRecorder();
   let restartedPassedGate = false;
   await restartedAdapter.dispatchMiddleware(restartedRequest, restartedGateResponse, () => { restartedPassedGate = true; });
@@ -315,7 +323,7 @@ test('Host Adapter requires Core root proof before context resolution and binds 
   assert.equal(coreCalls[4], '/v1/host-context/resolve');
   assert.equal(coreCalls[5], '/v1/host/memory-npc/retrieve');
   assert.equal(resolvedCoreContexts.length, 3);
-  assert.equal(resolvedCoreContexts[2].context.conversation_id, stableConversationId);
+  assert.equal(resolvedCoreContexts[2].context.conversation_id, restartedConversationId);
   assert.equal(resolvedCoreContexts[2].context.world_id, 'host-e2e-world');
   assert.equal(resolvedCoreContexts[2].context.actor_id, 'host-e2e-actor');
 
