@@ -162,10 +162,10 @@ test('report validation rejects duplicate evidence, duplicate gates and stale pr
     capabilities: [
       createCapabilityEvidence({ id: 'platform.identity.inspect', status: 'PASS', required: true }),
       ...PROTECTED_FINAL_SEND_CAPABILITIES.map((id) => createCapabilityEvidence({
-        id, status: 'PASS', required: true, evidenceSource: 'test-runtime-attestation',
+        id, status: 'NOT_TESTED', required: true, evidenceSource: 'deployment-runtime-attestation',
       })),
     ],
-    gates: [{ id: 'memory:protected-final-send-production', status: 'PASS', affected_features: ['memory.protected-final-send'] }],
+    gates: [{ id: 'memory:protected-final-send-production', status: 'BLOCKED', affected_features: ['memory.protected-final-send'] }],
   });
   assert.equal(validateDeploymentReport(base), true);
 
@@ -177,10 +177,32 @@ test('report validation rejects duplicate evidence, duplicate gates and stale pr
 
   const staleGate = {
     ...base,
+    capabilities: base.capabilities.map((item) => PROTECTED_FINAL_SEND_CAPABILITIES.includes(item.id)
+      ? { ...item, status: 'PASS' }
+      : item),
     gates: [{ ...base.gates[0], status: 'BLOCKED' }],
     overall_status: 'NOT_TESTED',
   };
   assert.throws(() => validateDeploymentReport(staleGate), /STALE_PROTECTED_FINAL_SEND_GATE/);
+});
+
+test('report validator never accepts a protected final-send PASS without a trusted attestation provider', () => {
+  const capabilities = PROTECTED_FINAL_SEND_CAPABILITIES.map((id) => createCapabilityEvidence({
+    id, status: 'PASS', required: true, evidenceSource: 'test-runtime-attestation',
+  }));
+  const report = buildDeploymentReport({
+    deploymentId: 'untrusted-final-send-pass-test',
+    profile: 'portable-desktop',
+    platform: { family: 'linux', release: 'test', architecture: 'x64' },
+    runtime: { name: 'node', version: process.version },
+    components: [],
+    capabilities,
+    gates: [{ id: 'memory:protected-final-send-production', status: 'PASS', affected_features: ['memory.protected-final-send'] }],
+  });
+  assert.throws(
+    () => validateDeploymentReport(report),
+    /DEPLOYMENT_REPORT_PROTECTED_FINAL_SEND_TRUSTED_ATTESTATION_PROVIDER_UNAVAILABLE/,
+  );
 });
 
 test('portable report explicitly reports degraded single-process isolation', () => {
