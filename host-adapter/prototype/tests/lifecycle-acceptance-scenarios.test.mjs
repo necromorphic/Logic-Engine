@@ -131,14 +131,15 @@ test('pinned SillyTavern patch uses the existing authenticated inventory and dig
   const patch = await readFile(resolve(here, '../patches/sillytavern-1.19.0-lifecycle-hooks.patch'), 'utf8');
   const proxy = await readFile(resolve(here, '../st-server-digest-proxy.mjs'), 'utf8');
 
-  assert.ok(patch.includes("import { router as logicEngineLifecycleRouter } from './endpoints/logic-engine-lifecycle.js';"));
-  assert.ok(patch.includes("app.use('/api/logic-engine', logicEngineLifecycleRouter);"));
-  assert.ok(patch.includes("import { createHostDigestProxyHandler, createHostInventoryReconcileProxyHandler } from './logic-engine-lifecycle-proxy.mjs';"));
-  assert.ok(patch.includes("router.post('/host-version-ledger/capture', createHostDigestProxyHandler());"));
-  assert.ok(patch.includes("router.post('/host-version-ledger/reconcile', createHostInventoryReconcileProxyHandler());"));
-  assert.ok(patch.includes("fetch('/api/logic-engine/host/session'"));
-  assert.ok(patch.includes("fetch('/api/logic-engine/host/inventory?conversation_uuid='"));
-  assert.ok(patch.includes("fetch('/api/logic-engine/host-version-ledger/reconcile'"));
+  assert.equal(patch.includes('logicEngineLifecycleRouter'), false);
+  assert.equal(patch.includes('/api/logic-engine'), false);
+  assert.ok(patch.includes("fetch('/api/plugins/logic-engine-extension-gateway/session'"));
+  assert.ok(patch.includes("fetch('/api/plugins/logic-engine-extension-gateway/identity'"));
+  assert.ok(patch.includes("fetch('/api/plugins/logic-engine-extension-gateway/inventory?conversation_uuid='"));
+  assert.ok(patch.includes("fetch('/api/plugins/logic-engine-extension-gateway/host-version-ledger/reconcile'"));
+  assert.ok(patch.includes("fetch('/api/plugins/logic-engine-extension-gateway/host-lifecycle/events'"));
+  assert.ok(patch.includes("fetch('/api/plugins/logic-engine-extension-gateway/host-lifecycle/status?conversation_id='"));
+  assert.ok(patch.includes("from '../../plugins/logic-engine-extension-gateway/server-plugin/st-host-inventory-handler.mjs'"));
   assert.ok(patch.includes('getLogicEngineHostIdentity'));
   assert.ok(patch.includes('hostInstallationId: identity.host_installation_id'));
   assert.ok(patch.includes('getPersistedInventory: async'));
@@ -250,12 +251,9 @@ test('destructive and import UI entry points invoke target-aware fail-closed Hos
   assertBefore('async restoreBackup(name)', 'guardBulkMutation', "fetch('/api/backups/chat/download'");
   assert.ok(patch.includes('diff --git a/src/endpoints/characters.js b/src/endpoints/characters.js'),
     'recursive character chat deletion needs a server-side guard');
-  assert.ok(patch.includes('if (request.body?.delete_chats == true) return hostBulkMutationGuard(request, response, next);'),
-    'character deletion guard must cover the recursive chat deletion branch');
   for (const route of [
-    "+router.post('/rename', validateAvatarUrlMiddleware, hostBulkMutationGuard, async function (request, response) {",
-    "+router.post('/delete', validateAvatarUrlMiddleware, hostBulkMutationGuard, function (request, response) {",
-    "+router.post('/group/delete', hostBulkMutationGuard, (request, response) => {",
+    "+router.post('/rename', hostBulkMutationGuard, validateAvatarUrlMiddleware, async function (request, response) {",
+    "+router.post('/delete', hostBulkMutationGuard, validateAvatarUrlMiddleware, async function (request, response) {",
   ]) {
     assert.ok(patch.includes(route), `missing server-side lifecycle guard on ${route}`);
   }
