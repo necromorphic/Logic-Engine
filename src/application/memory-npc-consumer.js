@@ -596,6 +596,9 @@ export class MemoryNpcConsumer {
         })) {
         return nonReady('memory_snapshot_stale');
       }
+      // Match the true-empty path: the query grant is checked synchronously
+      // after the final Core snapshot read, with no await before disclosure.
+      if (!queryStillAllowedSynchronously()) return nonReady('query_access_unconfirmed');
       return Object.freeze({
         status: 'ready',
         admitted: Object.freeze([]),
