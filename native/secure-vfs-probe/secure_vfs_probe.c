@@ -2422,6 +2422,11 @@ static void probe_broker_backend_io_count(sqlite3_context *context, int argc, sq
   (void)argv;
   sqlite3_result_int(context, probe_counter_read(&g_broker_backend_io_count));
 }
+static void probe_broker_socket_policy_reject_count(sqlite3_context *context, int argc, sqlite3_value **argv) {
+  (void)argc;
+  (void)argv;
+  sqlite3_result_int(context, probe_counter_read(&g_broker_socket_policy_reject_count));
+}
 #endif
 
 static void probe_open_count(sqlite3_context *context, int argc, sqlite3_value **argv) {
@@ -3532,6 +3537,9 @@ static int probe_auto_extension(sqlite3 *db, char **error, const sqlite3_api_rou
   if (rc != SQLITE_OK) return rc;
   rc = sqlite3_create_function(db, "logic_engine_vfs_probe_broker_backend_io_count", 0,
     SQLITE_UTF8 | SQLITE_DETERMINISTIC, 0, probe_broker_backend_io_count, 0, 0);
+  if (rc != SQLITE_OK) return rc;
+  rc = sqlite3_create_function(db, "logic_engine_vfs_probe_broker_socket_policy_reject_count", 0,
+    SQLITE_UTF8 | SQLITE_DETERMINISTIC, 0, probe_broker_socket_policy_reject_count, 0, 0);
   if (rc != SQLITE_OK) return rc;
 #endif
   rc = sqlite3_create_function(db, "logic_engine_vfs_probe_hook_protection", 0,
