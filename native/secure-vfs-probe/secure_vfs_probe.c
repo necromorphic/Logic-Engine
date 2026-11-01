@@ -1875,7 +1875,7 @@ static int probe_posix_quarantine_delete(int parent_fd, const char *name,
       || (quarantine_info.st_mode & 0777) != 0700
       || quarantine_info.st_dev != parent_info.st_dev) goto done;
   for (int attempt = 0; attempt < 32; ++attempt) {
-    uint64_t serial = g_posix_quarantine_counter++;
+    uint64_t serial = __atomic_add_fetch(&g_posix_quarantine_counter, 1, __ATOMIC_RELAXED);
     int length = snprintf(candidate, sizeof(candidate), "entry-%ld-%llu",
         (long)getpid(), (unsigned long long)serial);
     if (length <= 0 || (size_t)length >= sizeof(candidate)) goto done;
