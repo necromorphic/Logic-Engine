@@ -96,7 +96,8 @@ test('hardened profile requires real process, filesystem, IPC and independent ba
   assert.equal(aggregateDeploymentStatus({ profile: 'hardened-service', capabilities, gates }), 'PASS');
   const missing = capabilities.slice(0, 3);
   const blocked = evaluateDeploymentGates({ profile: 'hardened-service', components, capabilities: missing });
-  assert.equal(blocked.every((gate) => gate.status === 'BLOCKED'), true);
+  assert.equal(blocked.filter((gate) => gate.status === 'BLOCKED').length, 1);
+  assert.equal(blocked.find((gate) => gate.status === 'BLOCKED').id, 'backup:independent-freshness-anchor');
 });
 
 test('report validation prevents a false PASS when required evidence is missing', () => {
