@@ -9,7 +9,11 @@ import { LogicEngine } from '../src/application/engine.js';
 import { ActorBindingService } from '../src/application/actor-bindings.js';
 import { HostConversationWorldBindingService } from '../src/application/host-conversation-world-bindings.js';
 import { createMemoryNpcProviderAdapter } from '../src/application/memory-npc-provider-adapter.js';
-import { createHostSessionAssertionRunner, getAuthenticatedHostSessionContext, runWithAuthenticatedHostSession } from '../src/application/host-session-context.js';
+import {
+  createHostSessionAssertionRunner,
+  getAuthenticatedHostSessionContext,
+  runWithAuthenticatedHostSession,
+} from '../src/application/host-session-context.js';
 
 
 test('real adapter composes file-backed SQLite Provider with Core query and canonical-source authorization', async (t) => {
@@ -30,7 +34,8 @@ test('real adapter composes file-backed SQLite Provider with Core query and cano
     const sourceId = 'real-adapter-source';
     const adapterId = 'real-adapter-host';
     const hostSessionId = '11111111-1111-4111-8111-111111111111';
-    const conversationId = hostSessionId + ':22222222-2222-4222-8222-222222222222:33333333-3333-4333-8333-333333333333';
+    const conversationId = hostSessionId
+    + ':22222222-2222-4222-8222-222222222222:33333333-3333-4333-8333-333333333333';
     const hostRequest = {
       user: { profile: { handle: 'adapter-test-user' } },
       session: { handle: 'adapter-test-user', logicEngineSessionId: hostSessionId, logicEngineSessionHandle: 'adapter-test-user' },
@@ -221,11 +226,6 @@ test('Provider Host capability is invalidated by session rotation, logout, accou
       request.session.logicEngineSessionHandle = 'alice';
       assert.ok(getAuthenticatedHostSessionContext());
 
-      authenticatedRequests.delete(request);
-      assert.equal(getAuthenticatedHostSessionContext(), null);
-      authenticatedRequests.add(request);
-      assert.ok(getAuthenticatedHostSessionContext());
-
       activeConversationId = null;
       assert.equal(getAuthenticatedHostSessionContext(), null);
       activeConversationId = conversationId;
@@ -234,6 +234,11 @@ test('Provider Host capability is invalidated by session rotation, logout, accou
       assert.throws(() => runWithAuthenticatedHostSession(
         request, conversationId, () => true, verifyMiddlewareSession, resolveActiveConversation,
       ), /HOST_SESSION_AUTHENTICATION_REQUIRED/);
+
+      // Logout invalidates the middleware-owned authentication proof. The
+      // old request must not become valid again after its handler completes.
+      authenticatedRequests.delete(request);
+      assert.equal(getAuthenticatedHostSessionContext(), null);
     },
     verifyMiddlewareSession,
     resolveActiveConversation,
