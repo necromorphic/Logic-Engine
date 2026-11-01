@@ -108,19 +108,20 @@ export function runWithAuthenticatedHostSession(
     request, conversationId, isAuthenticatedHostRequest, resolveHostConversationId, resolveHostBindings,
   );
   if (!context) throw new Error('HOST_SESSION_AUTHENTICATION_REQUIRED');
-  return requestContext.run(Object.freeze({
+  return requestContext.run({
     context,
     request,
     conversationId,
     isAuthenticatedHostRequest,
     resolveHostConversationId,
     resolveHostBindings,
-  }), callback);
+    invalidated: false,
+  }, callback);
 }
 
 export function getAuthenticatedHostSessionContext() {
   const active = requestContext.getStore();
-  if (!active || !active.context
+  if (!active || active.invalidated || !active.context
     || typeof active.isAuthenticatedHostRequest !== 'function'
     || typeof active.resolveHostConversationId !== 'function'
     || typeof active.resolveHostBindings !== 'function') return null;
@@ -135,7 +136,10 @@ export function getAuthenticatedHostSessionContext() {
     active.resolveHostConversationId,
     active.resolveHostBindings,
   );
-  if (!refreshed) return null;
+  if (!refreshed) {
+    active.invalidated = true;
+    return null;
+  }
   const original = active.context;
   const unchanged = refreshed.host_installation_id === original.host_installation_id
     && refreshed.authenticated_account_id === original.authenticated_account_id
@@ -144,8 +148,11 @@ export function getAuthenticatedHostSessionContext() {
     && refreshed.world_id === original.world_id
     && refreshed.actor_id === original.actor_id
     && refreshed.identity === original.identity;
-  return unchanged && isAuthenticatedHostSessionContext(original, active.conversationId)
-    ? original : null;
+  if (!unchanged || !isAuthenticatedHostSessionContext(original, active.conversationId)) {
+    active.invalidated = true;
+    return null;
+  }
+  return original;
 }
 
 
