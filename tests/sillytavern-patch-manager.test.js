@@ -53,6 +53,12 @@ async function fixture(t) {
   return { manager, stRoot, original, patched, patchPath };
 }
 
+test('Patch Manager rejects a non-UTF-8 patch artifact', async (t) => {
+  const { manager, patchPath } = await fixture(t);
+  await writeFile(patchPath, Buffer.from([0xff, 0xfe, 0x00]));
+  await assert.rejects(manager.execute('preflight'), /PATCH_ARTIFACT_ENCODING_INVALID/);
+});
+
 test('Patch Manager verifies canonical LF patch digest when Windows checks out CRLF text', async (t) => {
   const { manager, patchPath } = await fixture(t);
   const lfPatch = await readFile(patchPath, 'utf8');
