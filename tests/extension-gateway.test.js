@@ -187,7 +187,7 @@ test('client Extension has exactly one same-origin Gateway transport and no dire
   const manifestPath = new URL('../public/scripts/extensions/third-party/logic-engine-extension-gateway/manifest.json', import.meta.url);
   const source = readFileSync(clientPath, 'utf8');
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
-  assert.equal((source.match(/fetch\\s*\\(/g) || []).length, 1);
+  assert.equal((source.match(/fetch\s*\(/g) || []).length, 1);
   assert.match(source, /const GATEWAY_PATH = '\/api\/logic-engine\/extension'/);
   assert.match(source, /credentials: 'same-origin'/);
   assert.match(source, /redirect: 'error'/);
