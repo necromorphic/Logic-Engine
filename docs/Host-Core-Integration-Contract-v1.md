@@ -254,15 +254,19 @@ Do not return secrets, raw request data, hidden entity values, Provider snippets
 | Condition | HTTP | Stable code / result |
 |---|---:|---|
 | Invalid JSON, unknown key, malformed UUID/tuple, invalid bounds | 400 | `INVALID_HOST_CONTEXT_REQUEST` or `INVALID_HOST_MEMORY_RETRIEVE_REQUEST` |
+| Missing/invalid session-to-conversation tuple | 403 | `HOST_SESSION_AUTHENTICATION_REQUIRED` or `HOST_SESSION_ASSERTION_INVALID` |
 | Missing/invalid API bearer | 401 | `UNAUTHORIZED` |
 | Missing/invalid adapter credentials | 403 | `ADAPTER_REQUIRED` |
 | No active conversation → World binding | 403 | `HOST_CONVERSATION_NOT_AUTHORIZED` |
 | World/Actor mismatch with signed assertion | 403 | `HOST_ASSERTION_BINDING_MISMATCH` |
-| Missing/ambiguous/destroyed Actor binding | 409 | `HOST_ACTOR_BINDING_UNAVAILABLE` |
+| No active Actor binding | 403 | `ACTOR_NOT_AUTHORIZED` |
+| More than one active Actor binding | 403 | `ACTOR_BINDING_AMBIGUOUS` |
+| Bound Actor missing or destroyed | 409 | `ACTOR_ENTITY_NOT_ELIGIBLE` |
 | Invalid/tampered assertion or signature | 403 | `HOST_SESSION_ASSERTION_INVALID` |
 | Expired assertion | 403 | `HOST_SESSION_ASSERTION_EXPIRED` |
 | Reused nonce | 403 | `HOST_SESSION_ASSERTION_REPLAYED` |
-| Durable nonce store unavailable/full or clock invalid | 503 | `HOST_ASSERTION_REPLAY_GUARD_UNAVAILABLE` |
+| In-process nonce cache full | 503 | `HOST_SESSION_ASSERTION_CAPACITY_EXCEEDED` |
+| Durable nonce/epoch guard unavailable (target contract) | 503 | `HOST_ASSERTION_REPLAY_GUARD_UNAVAILABLE` |
 | Core Memory consumer/Provider not configured | 503 | `MEMORY_RETRIEVAL_UNAVAILABLE` |
 | Authenticated retrieval completed but policy/data is not ready | 200 | `status: "non_ready"` with a stable reason |
 | Internal unexpected failure | 500 | `INTERNAL_ERROR`, generic message only |
@@ -318,11 +322,13 @@ The existing Host code is not compatible merely because its request fields resem
 
 ## 10. Acceptance checklist — no code integration in this task
 
-The contract becomes **JOINTLY ACCEPTED** only after both owners explicitly acknowledge the same version and the exact HEADs they reviewed.
+The contract is **technically reconciled by the coordinator** at the reviewed HEADs, but is not yet D5-approved or implementation-accepted. It becomes jointly accepted for implementation only after the explicit approvals and exact-head tests below.
 
-- [ ] Host owner confirms §2 identity derivation, §3 assertion bytes/signature, §4 resolver response and §5 retrieval request/response.
-- [ ] Core owner confirms §3 assertion verification, §4 use of existing binding services, §5 consumer composition, §6 errors and §7 revocation semantics.
-- [ ] Both owners confirm the version pins in §8 and the mismatch/remediation table in §9.
+- [x] Coordinator technical review of Host #850 HEAD `dfd1e7140ea058f76ae48c40abda0c54e3598fde`: Host-local stable identity is distinguished from the Core PC-NEXT-11 session-scoped tuple; the current mismatch and required adapter-gate transformation are recorded.
+- [x] Coordinator technical review of Core #846 HEAD `832abf337530e9421f53eaed85760cb4a7f07313`: existing binding services, assertion runner, Memory consumer, result envelope and missing HTTP routes are recorded.
+- [ ] Host API owner explicitly approves the tuple projection and private Host→Core wire contract under D5.
+- [ ] Core API owner explicitly approves the two private routes, assertion replay hardening choice, and response/error contract under D5.
+- [ ] Exact-head contract tests prove request/response compatibility on both blocks before any code integration.
 - [ ] Any objection is recorded against a specific section and resolved in this document before code work starts.
 
 This document records the target private API delta and the coordinator's technical reconciliation of the two reviewed blocks. Under D5 in `docs/57-private-host-core-memory-npc-adapter-contract.md`, the new routes and any change to Host's conversation tuple require explicit approval from the affected API owners before implementation. This task does **not** authorize code integration, merge either PR, alter Security Gateway, enable Memory → NPC, or start Final-Send work.
