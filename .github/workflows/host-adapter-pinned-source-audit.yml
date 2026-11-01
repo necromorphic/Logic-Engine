@@ -29,7 +29,7 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force Sillytavern/plugins/logic-engine-extension-gateway | Out-Null
-          Copy-Item host-adapter/extension-gateway/server-plugin/*.mjs Sillytavern/plugins/logic-engine-extension-gateway/
+          Copy-Item host-adapter/extension-gateway/server-plugin/*.mjs,host-adapter/extension-gateway/server-plugin/*.js Sillytavern/plugins/logic-engine-extension-gateway/
           New-Item -ItemType Directory -Force Sillytavern/public/scripts/extensions/third-party/logic-engine-extension-gateway | Out-Null
           Copy-Item host-adapter/extension-gateway/index.js,host-adapter/extension-gateway/gateway-policy.mjs,host-adapter/extension-gateway/host-context.mjs,host-adapter/extension-gateway/conversation-identity.mjs,host-adapter/extension-gateway/manifest.json Sillytavern/public/scripts/extensions/third-party/logic-engine-extension-gateway/
           $patch = (Resolve-Path host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch).Path
