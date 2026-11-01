@@ -145,6 +145,11 @@ test('real adapter composes file-backed SQLite Provider with Core query and cano
     assert.deepEqual(result.candidates[0].content, {
       'attributes.public_note': 'real Core source value',
     });
+    await assert.rejects(() => adapter.runWithAuthenticatedHostSession(
+      hostRequest, 'caller-selected-conversation', () => adapter.consumer.retrieveForNpc({
+        worldId, actorEntityId: actorId, conversationId: 'caller-selected-conversation',
+      }),
+    ), /HOST_SESSION_AUTHENTICATION_REQUIRED/);
 
     const unboundConversationId = 'not-bound';
     const unboundHostRequest = {
