@@ -57,7 +57,7 @@ function send(res, status, data) {
   res.end(body);
 }
 
-export function createApiServer({ engine, token, internalToken = null, approvalToken = null, adminToken = null, adapterTokens = {}, authorizedReadFieldPolicy = null, mechanicPolicyAuthority = null, getActiveMechanicContextProvider = () => null, hostVersionLedger = null, memoryNpcConsumers = {} }) {
+export function createApiServer({ engine, token, internalToken = null, approvalToken = null, adminToken = null, adapterTokens = {}, authorizedReadFieldPolicy = null, mechanicPolicyAuthority = null, getActiveMechanicContextProvider = () => null, hostVersionLedger = null, memoryNpcConsumers = {}, hostAssertionNonceStore = null }) {
   if (!engine) throw new TypeError('engine required');
   if (typeof token !== 'string' || token.length < 16) throw new TypeError('API token must be at least 16 characters');
   if (internalToken !== null && (typeof internalToken !== 'string' || internalToken.length < 16 || internalToken === token)) {
@@ -88,40 +88,22 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
     const secret = req.headers['x-adapter-token'];
     return typeof id === 'string' && Object.hasOwn(adapterTokens, id) && secretMatches(secret, adapterTokens[id]) ? id : null;
   };
+  if (hostAssertionNonceStore !== null
+    && typeof hostAssertionNonceStore.consume !== 'function') {
+    throw new TypeError('Host assertion nonce store must expose atomic consume().');
+  }
   if (!memoryNpcConsumers || typeof memoryNpcConsumers !== 'object' || Array.isArray(memoryNpcConsumers)
     || Object.entries(memoryNpcConsumers).some(([id, consumer]) => !Object.hasOwn(adapterTokens, id)
       || typeof consumer?.retrieveForNpc !== 'function')) {
     throw new TypeError('Memory NPC consumers must be trusted, adapter-pinned consumer instances.');
   }
-  const assertionNonceDb = engine.store?.db
-    && typeof engine.store.db.prepare === 'function'
-    && typeof engine.store.db.exec === 'function'
-    ? engine.store.db : null;
-  if (assertionNonceDb) {
-    assertionNonceDb.exec(`
-      CREATE TABLE IF NOT EXISTS host_assertion_nonces (
-        adapter_id TEXT NOT NULL,
-        nonce TEXT NOT NULL,
-        expires_at INTEGER NOT NULL,
-        consumed_at INTEGER NOT NULL,
-        PRIMARY KEY(adapter_id, nonce)
-      ) WITHOUT ROWID;
-      CREATE INDEX IF NOT EXISTS host_assertion_nonces_expiry
-        ON host_assertion_nonces(expires_at);
-    `);
-  }
   const hostAssertionRunners = Object.fromEntries(Object.entries(adapterTokens)
     .map(([id, secret]) => [id, createHostSessionAssertionRunner({
       secret,
       consumeNonce: (nonce, expiresAt, currentSeconds) => {
-        if (!assertionNonceDb) throw new Error('HOST_ASSERTION_REPLAY_GUARD_UNAVAILABLE');
+        if (!hostAssertionNonceStore) throw new Error('HOST_ASSERTION_REPLAY_GUARD_UNAVAILABLE');
         try {
-          assertionNonceDb.prepare('DELETE FROM host_assertion_nonces WHERE expires_at < ?').run(currentSeconds);
-          const result = assertionNonceDb.prepare(`
-            INSERT OR IGNORE INTO host_assertion_nonces(adapter_id, nonce, expires_at, consumed_at)
-            VALUES(?, ?, ?, ?)
-          `).run(id, nonce, expiresAt, currentSeconds);
-          return result.changes === 1;
+          return hostAssertionNonceStore.consume(id, nonce, expiresAt, currentSeconds);
         } catch {
           throw new Error('HOST_ASSERTION_REPLAY_GUARD_UNAVAILABLE');
         }
