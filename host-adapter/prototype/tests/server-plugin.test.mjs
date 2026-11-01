@@ -15,9 +15,13 @@ test('SillyTavern server plugin registers only private session and inventory rou
       routes.push({ route, handler });
     },
   });
-  assert.deepEqual(routes.map(route => route.route), ['/session', '/inventory']);
-  assert.equal(typeof routes[0].handler, 'function');
-  assert.equal(typeof routes[1].handler, 'function');
+  assert.deepEqual(routes.map(route => route.route), [
+    '/host-version-ledger/capture',
+    '/host-version-ledger/reconcile',
+    '/session',
+    '/inventory',
+  ]);
+  for (const route of routes) assert.equal(typeof route.handler, 'function');
   assert.deepEqual(info, {
     id: 'logic-engine-host',
     name: 'Logic Engine Host Adapter',
@@ -26,7 +30,11 @@ test('SillyTavern server plugin registers only private session and inventory rou
 });
 
 test('bundled server-plugin helpers stay byte-identical to the reviewed prototype sources', async () => {
-  for (const filename of ['st-source-inventory.mjs', 'st-host-inventory-handler.mjs']) {
+  for (const filename of [
+    'st-source-inventory.mjs',
+    'st-host-inventory-handler.mjs',
+    'st-server-digest-proxy.mjs',
+  ]) {
     const canonical = await readFile(path.join(prototypeRoot, filename), 'utf8');
     const bundled = await readFile(path.join(prototypeRoot, 'server-plugin', filename), 'utf8');
     assert.equal(bundled, canonical, filename + ' drifted from the reviewed prototype');
