@@ -3110,6 +3110,11 @@ static int probe_auto_extension(sqlite3 *db, char **error, const sqlite3_api_rou
   rc = sqlite3_create_function(db, "logic_engine_vfs_probe_register_database_role", 2,
     SQLITE_UTF8, 0, probe_register_database_role, 0, 0);
   if (rc != SQLITE_OK) return rc;
+#ifdef _WIN32
+  rc = sqlite3_create_function(db, "logic_engine_vfs_probe_register_database_role_manifest", 6,
+    SQLITE_UTF8, 0, probe_register_database_role, 0, 0);
+  if (rc != SQLITE_OK) return rc;
+#endif
   rc = sqlite3_create_function(db, "logic_engine_vfs_probe_delete_registered_role", 1,
     SQLITE_UTF8, 0, probe_delete_registered_role, 0, 0);
   if (rc != SQLITE_OK) return rc;
