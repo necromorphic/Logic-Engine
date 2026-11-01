@@ -603,6 +603,10 @@ test('unsupported route, denied Provider grant, and pending authority all produc
       fixture.gateway.dispatchProtectedRequest(validRequest('unsupported', { route: 'vertex-ai-chat-completions' })),
       /MEMORY_DISPATCH_NOT_READY/,
     );
+    await assert.rejects(
+      fixture.gateway.dispatchProtectedRequest(validRequest('unsupported-sender', { senderRoute: 'unregistered-provider' })),
+      /MEMORY_DISPATCH_NOT_READY/,
+    );
     fixture.setProviderGranted(false);
     await assert.rejects(
       fixture.gateway.dispatchProtectedRequest(validRequest('denied-grant')),
