@@ -5,9 +5,15 @@ const HOST_SESSION_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a
 const HOST_CONVERSATION_ID = new RegExp('^' + HOST_SESSION_UUID.source.slice(1, -1) + ':'
   + HOST_SESSION_UUID.source.slice(1, -1) + ':' + HOST_SESSION_UUID.source.slice(1, -1) + '$', 'i');
 const contexts = new WeakSet();
-const validBindingId = value => typeof value === 'string' && value === value.trim()
-  && value.length > 0 && value.length <= 200
-  && ![...value].some(character => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127);
+const validBindingId = value => {
+  if (typeof value !== 'string' || value !== value.trim()
+    || value.length === 0 || value.length > 200) return false;
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code < 32 || code === 127) return false;
+  }
+  return true;
+};
 const ASSERTION_KEYS = Object.freeze([
   'protocol_version', 'host_installation_id', 'authenticated_account_id',
   'host_session_id', 'conversation_id', 'world_id', 'actor_id', 'issued_at', 'nonce',
