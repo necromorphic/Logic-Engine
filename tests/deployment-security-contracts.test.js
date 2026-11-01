@@ -151,6 +151,37 @@ test('report validation prevents a false PASS when required evidence is missing'
   assert.throws(() => validateDeploymentReport(portablePass), /FALSE_PASS_PORTABLE_ISOLATION/);
 });
 
+test('report validation rejects duplicate evidence, duplicate gates and stale protected gates', () => {
+  const base = buildDeploymentReport({
+    deploymentId: 'report-integrity-test',
+    profile: 'portable-desktop',
+    platform: { family: 'linux', release: 'test', architecture: 'x64' },
+    runtime: { name: 'node', version: process.version },
+    components: [],
+    capabilities: [
+      createCapabilityEvidence({ id: 'platform.identity.inspect', status: 'PASS', required: true }),
+      ...PROTECTED_FINAL_SEND_CAPABILITIES.map((id) => createCapabilityEvidence({
+        id, status: 'PASS', required: true, evidenceSource: 'test-runtime-attestation',
+      })),
+    ],
+    gates: [{ id: 'memory:protected-final-send-production', status: 'PASS', affected_features: ['memory.protected-final-send'] }],
+  });
+  assert.equal(validateDeploymentReport(base), true);
+
+  const duplicateCapability = { ...base, capabilities: [...base.capabilities, base.capabilities[0]] };
+  assert.throws(() => validateDeploymentReport(duplicateCapability), /DUPLICATE_REPORT_CAPABILITY_ID/);
+
+  const duplicateGate = { ...base, gates: [...base.gates, base.gates[0]] };
+  assert.throws(() => validateDeploymentReport(duplicateGate), /DUPLICATE_REPORT_GATE_ID/);
+
+  const staleGate = {
+    ...base,
+    gates: [{ ...base.gates[0], status: 'BLOCKED' }],
+    overall_status: 'NOT_TESTED',
+  };
+  assert.throws(() => validateDeploymentReport(staleGate), /STALE_PROTECTED_FINAL_SEND_GATE/);
+});
+
 test('portable report explicitly reports degraded single-process isolation', () => {
   const capabilities = [
     createCapabilityEvidence({ id: 'platform.identity.inspect', status: 'PASS', required: true }),
