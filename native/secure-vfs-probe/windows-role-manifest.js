@@ -88,5 +88,19 @@ export function registerWindowsManifestRole(database, manifest, roleName, databa
   if (result?.registered !== 1) {
     throw new Error('Secure VFS rejected persistent-manifest role enrollment');
   }
+  for (const sidecar of role.sidecars) {
+    const enrolled = database.prepare(
+      'SELECT logic_engine_vfs_probe_register_manifest_sidecar(?, ?, ?, ?, ?) AS registered'
+    ).get(
+      role.role,
+      sidecar.kind,
+      sidecar.identity.volumeSerial,
+      sidecar.identity.fileId,
+      sidecar.state,
+    );
+    if (enrolled?.registered !== 1) {
+      throw new Error(`Secure VFS rejected manifest sidecar ${role.role}/${sidecar.kind}`);
+    }
+  }
   return result.registered;
 }
