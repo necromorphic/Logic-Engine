@@ -37,7 +37,7 @@ test('Gateway client uses only the same-origin ST plugin route with cookie sessi
 test('Gateway client rejects unauthenticated ST sessions and HTTP errors', async () => {
   await assert.rejects(
     fetchGatewaySession(async () => ({ ok: false, status: 403 })),
-    error => error.kind === 'error' && /аутентифицированной сессии/.test(error.message),
+    error => error.kind === 'error' && /аутентифицирован/.test(error.message),
   );
   await assert.rejects(
     fetchGatewaySession(async () => ({ ok: false, status: 503 })),
