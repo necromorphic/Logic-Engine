@@ -476,6 +476,9 @@ test('pinned ST 1.19.0 supported chat mutations persist; chat deletion, rename, 
 
   const selectedSwipeChat = swipeChat.map((message, index) => index === 2 ? {
     ...message,
+    // SillyTavern's standardSwipe() updates both the selected index and the
+    // active message body before save. Model that persisted post-state here.
+    mes: message.swipes[0],
     swipe_id: 0,
     _logicEngineLifecycle: { ...message._logicEngineLifecycle, activeVersionIndex: 0 },
   } : message);
