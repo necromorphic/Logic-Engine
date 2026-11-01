@@ -256,7 +256,7 @@ export class HostLifecycleJournal {
     } catch (error) {
       return this.#fail(cid, 'journal unreadable: ' + (error?.message || error));
     }
-    const check = await this.#verify(rows);
+    const check = await this.#verifyStored(cid, rows);
     if (!check.ok) return this.#fail(cid, check.reason);
     if (!rows.length || rows[0].operation !== 'baseline') {
       return { status: 'NON_READY', reason: 'missing baseline' };
