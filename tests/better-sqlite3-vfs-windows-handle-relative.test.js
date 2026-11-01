@@ -123,6 +123,48 @@ test('Windows VFS opens SQLite main/journal/WAL/SHM relative to pinned parent an
       writer.close();
     }
 
+    // Exercise abrupt process termination and SQLite WAL recovery on Windows.
+    // Each process re-enrolls the same opened file identity; this proves SQLite
+    // recovery through the handle-relative probe, not durable manifest recovery.
+    const { spawnSync } = require('node:child_process');
+    const crashScript = [
+      "const Database = require(process.env.BETTER_SQLITE3_PACKAGE_DIR);",
+      "const path = require('node:path');",
+      "const fs = require('node:fs');",
+      "const bootstrap = new Database(':memory:');",
+      "bootstrap.loadExtension(process.env.LOGIC_ENGINE_VFS_PROBE_PATH, 'sqlite3_secure_vfs_probe_init');",
+      "bootstrap.close();",
+      "const dbPath = process.env.LOGIC_ENGINE_TEST_DATABASE_PATH;",
+      "const registrar = new Database(':memory:');",
+      "const identity = JSON.parse(registrar.prepare('SELECT logic_engine_vfs_probe_capture_manifest_identity(?) AS identity').get(dbPath).identity);",
+      "const registered = registrar.prepare('SELECT logic_engine_vfs_probe_register_database_role_alias(?, ?, ?, ?, ?, ?, ?, ?) AS registered').get(dbPath, 'core', identity.databaseIdentity.volumeSerial, identity.databaseIdentity.fileId, identity.parentIdentity.volumeSerial, identity.parentIdentity.fileId, path.basename(dbPath), dbPath).registered;",
+      "if (registered !== 1) process.exit(31);",
+      "const db = new Database(dbPath);",
+      "db.exec('PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0; PRAGMA cache_size=1; BEGIN IMMEDIATE;');",
+      "const insert = db.prepare('INSERT INTO origin VALUES (?)');",
+      "for (let i = 0; i < 64; i += 1) insert.run('uncommitted-' + i + '-' + 'x'.repeat(512));",
+      "if (fs.statSync(dbPath + '-wal').size <= 32) process.exit(32);",
+      "process.exit(0);"
+    ].join('\\n');
+    const crashed = spawnSync(process.execPath, ['-e', crashScript], { encoding: 'utf8', env: process.env, timeout: 60000 });
+    assert.equal(crashed.status, 0, 'writer process must terminate abruptly after persisting uncommitted WAL frames: ' + String(crashed.stderr || crashed.error || crashed.status));
+    const recoveryScript = [
+      "const assert = require('node:assert/strict');",
+      "const Database = require(process.env.BETTER_SQLITE3_PACKAGE_DIR);",
+      "const path = require('node:path');",
+      "const bootstrap = new Database(':memory:');",
+      "bootstrap.loadExtension(process.env.LOGIC_ENGINE_VFS_PROBE_PATH, 'sqlite3_secure_vfs_probe_init');",
+      "bootstrap.close();",
+      "const dbPath = process.env.LOGIC_ENGINE_TEST_DATABASE_PATH;",
+      "const registrar = new Database(':memory:');",
+      "const identity = JSON.parse(registrar.prepare('SELECT logic_engine_vfs_probe_capture_manifest_identity(?) AS identity').get(dbPath).identity);",
+      "const registered = registrar.prepare('SELECT logic_engine_vfs_probe_register_database_role_alias(?, ?, ?, ?, ?, ?, ?, ?) AS registered').get(dbPath, 'core', identity.databaseIdentity.volumeSerial, identity.databaseIdentity.fileId, identity.parentIdentity.volumeSerial, identity.parentIdentity.fileId, path.basename(dbPath), dbPath).registered;",
+      "assert.equal(registered, 1);",
+      "const db = new Database(dbPath);",
+      "try { assert.equal(db.prepare('SELECT COUNT(*) AS count FROM origin').get().count, 2, 'recovery must discard uncommitted rows'); assert.equal(db.pragma('integrity_check', { simple: true }), 'ok'); db.pragma('wal_checkpoint(TRUNCATE)'); assert.equal(db.pragma('journal_mode = DELETE', { simple: true }), 'delete'); } finally { db.close(); registrar.close(); }"
+    ].join('\\n');
+    const recovered = spawnSync(process.execPath, ['-e', recoveryScript], { encoding: 'utf8', env: process.env, timeout: 60000 });
+    assert.equal(recovered.status, 0, 'a new process must recover the handle-relative WAL cleanly: ' + String(recovered.stderr || recovered.error || recovered.status));
     assert.ok(registrar.prepare(
       'SELECT logic_engine_vfs_probe_delete_file_hook_count() AS count'
     ).get().count > 0, 'SQLite sidecar deletion must use the handle-relative delete hook');
