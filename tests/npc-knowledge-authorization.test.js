@@ -92,10 +92,20 @@ test('production NPC query authorization requires a branded authenticated Host s
   const otherConversation = HOST_SESSION_ID + ':22222222-2222-4222-8222-222222222222:44444444-4444-4444-8444-444444444444';
   const contextForOtherConversation = createAuthenticatedHostSessionContext(hostRequest, otherConversation);
   assert.equal(authorizers.memoryQueryAuthorizer(scope, contextForOtherConversation), false);
+  const otherSessionId = '44444444-4444-4444-8444-444444444444';
+  const otherSessionConversation = otherSessionId + ':55555555-5555-4555-8555-555555555555:66666666-6666-4666-8666-666666666666';
   const otherSessionRequest = {
     user: { profile: { handle: 'bob' } },
-    session: { handle: 'bob', logicEngineSessionId: '44444444-4444-4444-8444-444444444444', logicEngineSessionHandle: 'bob' },
+    session: { handle: 'bob', logicEngineSessionId: otherSessionId, logicEngineSessionHandle: 'bob' },
   };
+  const otherSessionContext = createAuthenticatedHostSessionContext(otherSessionRequest, otherSessionConversation);
+  assert.notEqual(otherSessionContext, null);
+  assert.equal(authorizers.memoryQueryAuthorizer({
+    ...scope, conversation_id: otherSessionConversation,
+  }, otherSessionContext), true);
+  assert.equal(authorizers.memoryQueryAuthorizer({
+    ...scope, conversation_id: otherSessionConversation,
+  }, hostSessionContext), false);
   assert.equal(createAuthenticatedHostSessionContext(otherSessionRequest, HOST_CONVERSATION_ID), null);
   assert.equal(authorizers.memoryQueryAuthorizer({
     ...scope, conversation_id: '44444444-4444-4444-8444-444444444444:22222222-2222-4222-8222-222222222222:33333333-3333-4333-8333-333333333333',
