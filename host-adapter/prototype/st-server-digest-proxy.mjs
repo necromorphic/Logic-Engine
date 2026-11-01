@@ -23,8 +23,10 @@ function requestMatchesAuthenticatedHostSession(request, conversationId) {
   const userHandle = request?.user?.profile?.handle;
   const sessionHandle = session?.handle;
   const sessionId = session?.logicEngineSessionId;
+  const sessionIdentityHandle = session?.logicEngineSessionHandle;
   return typeof userHandle === 'string' && userHandle.trim().length > 0
-    && sessionHandle === userHandle
+    && (sessionHandle === undefined || sessionHandle === userHandle)
+    && sessionIdentityHandle === userHandle
     && typeof sessionId === 'string' && HOST_SESSION_UUID.test(sessionId)
     && typeof conversationId === 'string'
     && HOST_CONVERSATION_ID.test(conversationId);
@@ -711,5 +713,94 @@ export function createHostLifecycleJournalProxy({
       }
       return response.status(refreshed.status).json(refreshed.payload);
     },
+  };
+}
+
+
+/**
+ * Sole Extension Gateway outbound dispatch to Core. The browser supplies only
+ * a conversation UUID and bounded generation metadata; installation/account/
+ * session identity and the canonical conversation ID come from the trusted
+ * server-side gate. World and actor are deliberately absent and Core resolves
+ * them from its own bindings.
+ */
+export function createHostMemoryDispatchProxyHandler({
+  env = process.env,
+  fetchImpl = globalThis.fetch,
+  resolveHostContext,
+  timeoutMs = 5000,
+} = {}) {
+  if (typeof fetchImpl !== 'function' || typeof resolveHostContext !== 'function') {
+    throw new TypeError('A fetch implementation and trusted Host context resolver are required');
+  }
+  if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 30000) {
+    throw new TypeError('timeoutMs must be an integer between 1 and 30000');
+  }
+  return async function hostMemoryDispatchProxy(request, response) {
+    response.set('Cache-Control', 'no-store, private');
+    response.set('Vary', 'Cookie');
+    const context = resolveHostContext(request);
+    if (!context || !HOST_SESSION_UUID.test(context.host_installation_id ?? '')
+      || !HOST_SESSION_UUID.test(context.authenticated_account_id ?? '')
+      || !HOST_SESSION_UUID.test(context.host_session_id ?? '')
+      || typeof context.conversation_id !== 'string'
+      || !HOST_CONVERSATION_ID.test(context.conversation_id)) {
+      return response.sendStatus(403);
+    }
+    const body = request?.body;
+    if (!body || typeof body !== 'object' || Array.isArray(body)
+      || Object.keys(body).sort().join(',') !== 'context_size,conversation_uuid,generation_type,request_id'
+      || !HOST_SESSION_UUID.test(body.conversation_uuid ?? '')
+      || context.conversation_id.split(':')[2] !== body.conversation_uuid
+      || !HOST_SESSION_UUID.test(body.request_id ?? '')
+      || !Number.isSafeInteger(body.context_size) || body.context_size < 1 || body.context_size > 200000
+      || typeof body.generation_type !== 'string'
+      || !/^[a-z][a-z0-9_-]{0,31}$/i.test(body.generation_type)) {
+      return response.status(400).json({ status: 'NON_READY', code: 'HOST_DISPATCH_REQUEST_INVALID' });
+    }
+    const target = configuredTarget(env);
+    if (!target) return response.status(503).json({ status: 'NON_READY', code: 'LOGIC_ENGINE_PROXY_UNCONFIGURED' });
+    const assertion = {
+      protocol_version: 1,
+      host_installation_id: context.host_installation_id,
+      authenticated_account_id: context.authenticated_account_id,
+      host_session_id: context.host_session_id,
+      conversation_id: context.conversation_id,
+      issued_at: Math.floor(Date.now() / 1000),
+      nonce: randomUUID(),
+    };
+    const canonicalAssertion = JSON.stringify([
+      assertion.protocol_version, assertion.host_installation_id, assertion.authenticated_account_id,
+      assertion.host_session_id, assertion.conversation_id, assertion.issued_at, assertion.nonce,
+    ]);
+    const signature = createHmac('sha256', target.adapterToken).update(canonicalAssertion, 'utf8').digest('hex');
+    target.url.pathname = '/v1/host/memory-npc/retrieve';
+    try {
+      const upstream = await fetchImpl(target.url, {
+        method: 'POST',
+        headers: {
+          authorization: 'Bearer ' + target.apiToken,
+          'content-type': 'application/json',
+          'x-adapter-id': target.adapterId,
+          'x-adapter-token': target.adapterToken,
+        },
+        body: JSON.stringify({
+          assertion, signature, request_id: body.request_id,
+          context_size: body.context_size, generation_type: body.generation_type,
+        }),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      let payload;
+      try { payload = await upstream.json(); } catch {
+        return response.status(502).json({ status: 'NON_READY', code: 'LOGIC_ENGINE_INVALID_RESPONSE' });
+      }
+      if (!upstream.ok) return response.status(upstream.status === 404 ? 503 : 502).json({
+        status: 'NON_READY',
+        code: upstream.status === 404 ? 'CORE_HOST_DISPATCH_ROUTE_UNAVAILABLE' : 'CORE_HOST_DISPATCH_REJECTED',
+      });
+      return response.status(200).json(payload);
+    } catch {
+      return response.status(502).json({ status: 'NON_READY', code: 'LOGIC_ENGINE_UNREACHABLE' });
+    }
   };
 }

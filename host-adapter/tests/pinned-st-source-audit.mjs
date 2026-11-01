@@ -5,6 +5,13 @@ import { resolve } from 'node:path';
 const root = resolve(process.argv[2] ?? 'SillyTavern');
 const script = await readFile(resolve(root, 'public/script.js'), 'utf8');
 const chats = await readFile(resolve(root, 'src/endpoints/chats.js'), 'utf8');
+const serverMain = await readFile(resolve(root, 'src/server-main.js'), 'utf8');
+const pluginLoader = await readFile(resolve(root, 'src/plugin-loader.js'), 'utf8');
+const extensions = await readFile(resolve(root, 'public/scripts/extensions.js'), 'utf8');
+const serverStartup = await readFile(resolve(root, 'src/server-startup.js'), 'utf8');
+const gatewayManifest = JSON.parse(await readFile(resolve(process.cwd(), 'host-adapter/extension-gateway/manifest.json'), 'utf8'));
+const gatewayClient = await readFile(resolve(process.cwd(), 'host-adapter/extension-gateway/index.js'), 'utf8');
+const gatewayServer = await readFile(resolve(process.cwd(), 'host-adapter/extension-gateway/server-plugin/index.mjs'), 'utf8');
 const revision = '06bde939fb1e9c4c8d8641d810f0a916b5bce127';
 
 function has(source, pattern, message) {
@@ -28,3 +35,26 @@ has(chats, /router\.post\('\/save'[\s\S]{0,1600}?request\.body\.chat[\s\S]{0,500
 console.log(`PASS: pinned SillyTavern source audit at ${revision}`);
 console.log('Evidence class: SOURCE-INSPECTED only; not runtime/browser/Android evidence.');
 console.log('Lifecycle callbacks use indexes/current chat IDs; save helper catches persistence errors; these checks do not establish source identity, complete inventory, or anti-rollback.');
+
+
+has(serverMain, /app\.use\(requireLoginMiddleware\)[\s\S]*?loadPlugins\(app, pluginsDirectory\)/,
+  'native server plugins must be loaded after SillyTavern login middleware');
+has(pluginLoader, /const enableServerPlugins = !!getConfigValue\('enableServerPlugins', false, 'boolean'\)/,
+  'server plugin loading must remain opt-in');
+has(pluginLoader, /app\.use\(\`\/api\/plugins\/\$\{id\}\`, router\)/,
+  'native server plugin router must mount under /api/plugins/{id}');
+has(extensions, /runGenerationInterceptors/,
+  'native generation interceptor chain must exist in the pinned host');
+assert.equal(gatewayManifest.generate_interceptor, 'logicEngineExtensionGatewayGenerationInterceptor');
+has(gatewayClient, /dispatchThroughExtensionGateway/,
+  'protected generation must dispatch through the Extension Gateway client');
+has(gatewayServer, /id: 'logic-engine-extension-gateway'/,
+  'server-side gateway must be a native SillyTavern server plugin');
+has(gatewayServer, /router\.post\('\/dispatch'/,
+  'the single protected dispatch route must be owned by the Extension Gateway plugin');
+assert.doesNotMatch(gatewayServer, /\/api\/logic-engine/,
+  'the adapter must not register separate ST /api/logic-engine routes');
+assert.doesNotMatch(serverStartup, /logic-engine-(?:lifecycle|host-inventory)/,
+  'pinned SillyTavern startup source must not be patched to mount Logic Engine routes');
+assert.doesNotMatch(script, /logicEngineHostLifecycle/,
+  'pinned SillyTavern public source must remain unmodified');

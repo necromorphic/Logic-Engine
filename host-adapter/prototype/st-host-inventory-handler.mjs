@@ -376,14 +376,33 @@ export function createHostRequestAuthenticationGate({ resolveConversationId } = 
     if (!identity || (typeof request !== 'object' && typeof request !== 'function') || request === null) {
       return response.sendStatus(403);
     }
-    const { session } = identity;
     try {
-      const conversationId = await resolveConversationId(request);
-      if (typeof conversationId !== 'string' || !HOST_CONVERSATION_ID.test(conversationId)
-        || !conversationId.toLowerCase().startsWith(session.logicEngineSessionId.toLowerCase() + ':')) {
+      const binding = await resolveConversationId(request);
+      const sessionId = identity.session.logicEngineSessionId;
+      const validUuid = value => typeof value === 'string' && HOST_SESSION_UUID.test(value);
+      const exactBinding = binding && typeof binding === 'object' && !Array.isArray(binding)
+        && Object.getPrototypeOf(binding) === Object.prototype
+        && Object.keys(binding).sort().join(',') ===
+          'authenticated_account_id,conversation_id,host_installation_id,host_session_id';
+      if (!exactBinding
+        || !validUuid(binding.host_installation_id)
+        || !validUuid(binding.authenticated_account_id)
+        || !validUuid(binding.host_session_id)
+        || binding.host_session_id !== sessionId
+        || typeof binding.conversation_id !== 'string'
+        || !HOST_CONVERSATION_ID.test(binding.conversation_id)) {
         return response.sendStatus(403);
       }
-      authenticatedRequests.set(request, conversationId);
+      const parts = binding.conversation_id.split(':');
+      if (parts[0] !== binding.host_installation_id
+        || parts[1] !== binding.authenticated_account_id
+        || !validUuid(parts[2])) return response.sendStatus(403);
+      authenticatedRequests.set(request, Object.freeze({
+        host_installation_id: binding.host_installation_id,
+        authenticated_account_id: binding.authenticated_account_id,
+        host_session_id: binding.host_session_id,
+        conversation_id: binding.conversation_id,
+      }));
       return next();
     } catch {
       return response.sendStatus(403);
@@ -396,8 +415,12 @@ export function createHostRequestAuthenticationGate({ resolveConversationId } = 
         && authenticatedRequests.has(request);
     },
     resolveHostConversationId(request) {
-      if (request === null || (typeof request !== 'object' && typeof request !== 'function')) return null;
-      return authenticatedRequests.get(request) ?? null;
+      return request !== null && (typeof request === 'object' || typeof request === 'function')
+        ? authenticatedRequests.get(request)?.conversation_id ?? null : null;
+    },
+    resolveHostContext(request) {
+      return request !== null && (typeof request === 'object' || typeof request === 'function')
+        ? authenticatedRequests.get(request) ?? null : null;
     },
   });
 }

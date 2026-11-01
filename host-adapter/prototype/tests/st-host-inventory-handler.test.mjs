@@ -652,6 +652,7 @@ test('enrolled chat save API rejects permits scoped to another conversation or s
 const defaultUserSessionId = '2e6b0a80-4e73-4c66-aaf3-7a6e62c7f401';
 const defaultUserConversationUuid = '4e6b0a80-4e73-4c66-aaf3-7a6e62c7f403';
 const defaultUserInstallationId = '3e6b0a80-4e73-4c66-aaf3-7a6e62c7f402';
+const defaultUserAccountId = '6e6b0a80-4e73-4c66-aaf3-7a6e62c7f406';
 
 test('default-user mode creates and reuses a Host session identity without session.handle', () => {
   const handler = createHostSessionHandler({ createId: () => defaultUserSessionId });
@@ -739,9 +740,14 @@ test('request authentication gate brands only the exact request after trusted se
     body: { conversation_id: 'attacker-selected' },
   };
   const conversationId = [
-    defaultUserSessionId, defaultUserInstallationId, defaultUserConversationUuid,
+    defaultUserInstallationId, defaultUserAccountId, defaultUserConversationUuid,
   ].join(':');
-  resolved.set(request, conversationId);
+  resolved.set(request, {
+    host_installation_id: defaultUserInstallationId,
+    authenticated_account_id: defaultUserAccountId,
+    host_session_id: defaultUserSessionId,
+    conversation_id: conversationId,
+  });
   const gate = createHostRequestAuthenticationGate({
     resolveConversationId: candidate => resolved.get(candidate),
   });
@@ -757,10 +763,13 @@ test('request authentication gate brands only the exact request after trusted se
 });
 
 test('request authentication gate rejects account mismatch and a conversation from another session', async () => {
-  const conversationId = [
-    defaultUserSessionId, defaultUserInstallationId, defaultUserConversationUuid,
-  ].join(':');
-  const gate = createHostRequestAuthenticationGate({ resolveConversationId: () => conversationId });
+  const binding = {
+    host_installation_id: defaultUserInstallationId,
+    authenticated_account_id: defaultUserAccountId,
+    host_session_id: defaultUserSessionId,
+    conversation_id: [defaultUserInstallationId, defaultUserAccountId, defaultUserConversationUuid].join(':'),
+  };
+  const gate = createHostRequestAuthenticationGate({ resolveConversationId: () => binding });
   for (const session of [
     { handle: 'other-account', logicEngineSessionId: defaultUserSessionId, logicEngineSessionHandle: 'default-user' },
     { logicEngineSessionId: '5e6b0a80-4e73-4c66-aaf3-7a6e62c7f405', logicEngineSessionHandle: 'default-user' },
