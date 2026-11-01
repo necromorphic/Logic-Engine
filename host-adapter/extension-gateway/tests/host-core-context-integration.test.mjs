@@ -70,7 +70,7 @@ test('Host Adapter requires Core root proof before context resolution and binds 
       assert.equal(context.actor_id, 'host-e2e-actor');
       retrievalContexts.push({ ...context });
       return {
-        status: 'ready', admitted: [], candidates: [],
+        status: 'ready', admitted: [], candidates: [], reason: null,
         snapshot: { world_revision: 1, commit_sequence: retrievalContexts.length },
       };
     },
