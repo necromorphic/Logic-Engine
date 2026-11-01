@@ -106,7 +106,7 @@ test('Windows secure VFS keeps main DB and SQLite sidecars anchored after parent
       assert.deepEqual(
         writer.prepare('SELECT value FROM origin').pluck().all(),
         ['trusted-before-swap'],
-        'SQLite must open the original DB through the pinned directory HANDLE, not the junction target',
+        'SQLite must open the original DB through the pinned directory HANDLE, not the replacement directory',
       );
       writer.exec('CREATE TABLE rollback_probe (value TEXT NOT NULL)');
       writer.prepare('INSERT INTO rollback_probe VALUES (?)').run('rollback-journal-path');
