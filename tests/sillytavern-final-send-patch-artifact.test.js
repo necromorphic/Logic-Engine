@@ -33,9 +33,16 @@ test('patch manifest includes source identity checks for every separately routed
     'src/server-main.js',
     'src/server-startup.js',
     'src/plugin-loader.js',
+    'src/endpoints/extensions.js',
     'src/constants.js',
     'src/util.js',
   ]) {
     assert.match(manifest.sourceFiles[path], /^[a-f0-9]{64}$/);
   }
+});
+
+test('Logic-Engine Extension manifest opts into the server-side Patch Manager lifecycle', async () => {
+  const extensionManifest = JSON.parse(await readFile(new URL('../manifest.json', import.meta.url), 'utf8'));
+  assert.equal(extensionManifest.logic_engine_patch_manager.id, manifest.id);
+  assert.equal(extensionManifest.logic_engine_patch_manager.manifestVersion, 1);
 });
