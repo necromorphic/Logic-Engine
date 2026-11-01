@@ -180,6 +180,24 @@ test('real adapter composes file-backed SQLite Provider with Core query and cano
     assert.equal(invalidatedInsideRequest.reason, 'query_access_unconfirmed');
     assert.deepEqual(invalidatedInsideRequest.candidates, []);
 
+    const invalidatedAfterAccountSwitch = await adapter.runWithAuthenticatedHostSession(
+      hostRequest, conversationId, async () => {
+        assert.ok(getAuthenticatedHostSessionContext());
+        hostRequest.user.profile.handle = 'switched-account';
+        hostRequest.session.handle = 'switched-account';
+        hostRequest.session.logicEngineSessionHandle = 'switched-account';
+        assert.equal(getAuthenticatedHostSessionContext(), null);
+        hostRequest.user.profile.handle = 'adapter-test-user';
+        hostRequest.session.handle = 'adapter-test-user';
+        hostRequest.session.logicEngineSessionHandle = 'adapter-test-user';
+        assert.equal(getAuthenticatedHostSessionContext(), null);
+        return adapter.consumer.retrieveForNpc({ worldId, actorEntityId: actorId, conversationId });
+      },
+    );
+    assert.equal(invalidatedAfterAccountSwitch.status, 'non_ready');
+    assert.equal(invalidatedAfterAccountSwitch.reason, 'query_access_unconfirmed');
+    assert.deepEqual(invalidatedAfterAccountSwitch.candidates, []);
+
     assert.throws(() => adapter.runWithAuthenticatedHostSession(
       hostRequest, 'caller-selected-conversation', () => adapter.consumer.retrieveForNpc({
         worldId, actorEntityId: actorId, conversationId: 'caller-selected-conversation',
