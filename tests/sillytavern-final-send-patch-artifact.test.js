@@ -22,6 +22,13 @@ test('Final-Send patch routes every Chat Completions fetch and stream release th
   assert.match(source, /logicEngineForwardFetchResponse/);
   assert.match(source, /forwardFetchResponse as nativeForwardFetchResponse/);
   assert.match(source, /src\/logic-engine-final-send-hook\.js/);
+  assert.match(source, /'text-completions'/);
+  assert.match(source, /'kobold'/);
+  assert.match(source, /'novelai-text'/);
+  assert.match(source, /'horde-text'/);
+  assert.match(source, /response\\.write = function/);
+  assert.match(source, /response\\.end = function/);
+  assert.match(source, /hostTransformsStream/);
 });
 
 test('patch manifest includes source identity checks for every separately routed generation family', () => {
