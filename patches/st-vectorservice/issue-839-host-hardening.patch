@@ -56,3 +56,16 @@
 +        "node": ">=22.14.0"
 +    }
  }
+--- a/ST-VectorService/package-lock.json
++++ b/ST-VectorService/package-lock.json
+@@ -7,7 +7,10 @@
+         "": {
+             "name": "st-vectorservice",
+             "version": "1.0.0",
+             "license": "ISC",
++            "engines": {
++                "node": ">=22.14.0"
++            },
+             "dependencies": {
+                 "better-sqlite3": "^13.0.3",
+                 "express": "^5.3.0",
