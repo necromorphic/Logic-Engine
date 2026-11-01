@@ -171,7 +171,7 @@ test('persisted ST inventory is cross-checked against stable conversation identi
   const sessionId = '2e6b0a80-4e73-4c66-aaf3-7a6e62c7f401';
   const installationId = '3e6b0a80-4e73-4c66-aaf3-7a6e62c7f402';
   const conversationUuid = '4e6b0a80-4e73-4c66-aaf3-7a6e62c7f403';
-  const conversationId = installationId + ':' + conversationUuid;
+  const conversationId = installationId + ':aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa:' + conversationUuid;
   const chat = [{ is_user: true, mes: 'private user sentinel' }, { is_user: false, mes: 'private assistant sentinel' }];
   let inventory = null;
   const publishedSnapshots = [];
