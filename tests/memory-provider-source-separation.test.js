@@ -122,6 +122,31 @@ test('Host message-version tuples are rejected as semantic Provider records', (t
   assert.equal(testDbFor(provider).prepare('SELECT COUNT(*) AS n FROM memory_index_entries').get().n, 0);
 });
 
+test('Provider accepts only exact single canonical-entity lineage', (t) => {
+  const provider = setup(t);
+  const invalidRecords = [
+    sourceRecord({ lineage: [
+      { source_kind: 'canonical_entity', entity_id: 'entity-a', source_version: 'source-v1' },
+      { source_kind: 'canonical_entity', entity_id: 'entity-b', source_version: 'source-v2' },
+    ] }),
+    sourceRecord({ lineage: [
+      { source_kind: 'canonical_entity', entity_id: 'different-entity', source_version: 'source-v1' },
+    ] }),
+    sourceRecord({ lineage: [
+      { source_kind: 'canonical_entity', entity_id: 'entity-a', source_version: 'different-version' },
+    ] }),
+    sourceRecord({ source_kind: 'derived_summary', lineage: [
+      { source_kind: 'derived_summary', entity_id: 'entity-a', source_version: 'source-v1' },
+    ] }),
+  ];
+
+  for (const record of invalidRecords) {
+    assert.throws(() => provider.putRecord(record), /Invalid direct-source Memory record/);
+  }
+  assert.equal(testDbFor(provider).prepare('SELECT COUNT(*) AS n FROM memory_records').get().n, 0);
+  assert.equal(testDbFor(provider).prepare('SELECT COUNT(*) AS n FROM memory_index_entries').get().n, 0);
+});
+
 test('summary records remain rejected until a lineage-complete summary contract is approved', (t) => {
   const provider = setup(t);
   assert.throws(
