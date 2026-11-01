@@ -57,13 +57,49 @@ jobs:
           node --check host-adapter/prototype/st-host-inventory-handler.mjs
           node --check host-adapter/prototype/st-host-identity-store.mjs
           node --check host-adapter/prototype/host-data-inventory.mjs
+          node --check host-adapter/prototype/st-server-digest-proxy.mjs
       - name: Run Host prototype, server-plugin and inventory tests
         run: |
           node --test host-adapter/server-plugin/tests/*.test.mjs
           node --test host-adapter/extension-gateway/tests/*.test.mjs
           node --test host-adapter/prototype/tests/*.test.mjs tests/host-source-inventory.test.js
-      - name: Verify plugin deployment tree has no ST source modifications
+      - name: Apply pinned lifecycle hooks through the Extension Gateway only
         run: |
+          patch="$GITHUB_WORKSPACE/host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch"
+          git -C sillytavern-host-checkout apply --check "$patch"
+          git -C sillytavern-host-checkout apply "$patch"
+          git -C sillytavern-host-checkout diff --check
+          expected=$(printf '%s\\n' \
+            public/script.js \
+            public/scripts/bookmarks.js \
+            public/scripts/group-chats.js \
+            public/scripts/chat-backups.js \
+            public/scripts/slash-commands.js \
+            src/server-main.js \
+            src/endpoints/backends/chat-completions.js \
+            src/endpoints/chats.js \
+            src/endpoints/groups.js \
+            src/endpoints/characters.js \
+            src/endpoints/backups.js \
+            src/endpoints/logic-engine-host-inventory-handler.mjs | sort)
+          actual=$(git -C sillytavern-host-checkout diff --name-only | sort)
+          diff -u <(printf '%s\\n' "$expected") <(printf '%s\\n' "$actual")
+          for file in \
+            public/script.js \
+            src/server-main.js \
+            src/endpoints/backends/chat-completions.js \
+            src/endpoints/chats.js \
+            src/endpoints/groups.js \
+            src/endpoints/characters.js \
+            src/endpoints/backups.js \
+            src/endpoints/logic-engine-host-inventory-handler.mjs; do
+            node --check "sillytavern-host-checkout/$file"
+          done
+          test ! -e sillytavern-host-checkout/src/endpoints/logic-engine-lifecycle.js
+          ! grep -R -n -E '/api/logic-engine|logic-engine-lifecycle.js' \
+            sillytavern-host-checkout/public/script.js \
+            sillytavern-host-checkout/src/endpoints
+          ! grep -R -n -E '/api/logic-engine|logic-engine-lifecycle.js' \
+            host-adapter/server-plugin host-adapter/extension-gateway
           cd sillytavern-host-checkout
-          git diff --exit-code
           git status --short
