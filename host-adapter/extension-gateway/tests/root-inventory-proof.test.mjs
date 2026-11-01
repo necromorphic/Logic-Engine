@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { tmpdir } from 'node:os';
+import { resolve } from 'node:path';
 import { createHostRootInventoryPersistence } from '../server-plugin/st-server-digest-proxy.mjs';
 
 const env = {
@@ -8,6 +10,7 @@ const env = {
   LOGIC_ENGINE_ADAPTER_ID: 'st-host-adapter',
   LOGIC_ENGINE_ADAPTER_TOKEN: 'host-adapter-token-long-enough-123456',
 };
+const rootPath = resolve(tmpdir(), 'logic-engine-host-root-proof');
 const entries = [{
   path: 'chats/chat.jsonl',
   identity: { dev: '1', ino: '2', mode: 33188, size: 0, mtimeMs: 1, ctimeMs: 1 },
@@ -36,7 +39,7 @@ test('Host preserves AUTHORITATIVE_COMPLETE only with Core integrity, monotonic 
       }),
     }),
   });
-  const proof = await persist({ userHandle: 'alice', rootPath: '/srv/st/data', entries });
+  const proof = await persist({ userHandle: 'alice', rootPath, entries });
   assert.equal(proof.status, 'AUTHORITATIVE_COMPLETE');
   assert.equal(proof.integrity_status, 'INTEGRITY_OK');
   assert.equal(proof.sequence, 7);
@@ -55,7 +58,7 @@ test('Host rejects authoritative-looking Core status without complete proof fiel
       identityStore,
       fetchImpl: async () => ({ status: 200, json: async () => ({ reconciliation }) }),
     });
-    const result = await persist({ userHandle: 'alice', rootPath: '/srv/st/data', entries });
+    const result = await persist({ userHandle: 'alice', rootPath, entries });
     assert.equal(result.status, 'NON_READY');
   }
 });
