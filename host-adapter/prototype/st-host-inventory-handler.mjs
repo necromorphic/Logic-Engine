@@ -427,8 +427,8 @@ export function createHostRequestAuthenticationGate({ resolveConversationId } = 
         return response.sendStatus(403);
       }
       const parts = binding.conversation_id.split(':');
-      if (parts[0] !== binding.host_session_id
-        || parts[1] !== binding.host_installation_id
+      if (parts[0] !== binding.host_installation_id
+        || parts[1] !== binding.authenticated_account_id
         || !validUuid(parts[2])) return response.sendStatus(403);
       authenticatedRequests.set(request, Object.freeze({
         host_installation_id: binding.host_installation_id,
