@@ -35,8 +35,8 @@ function renderPanel() {
     panel.querySelector('#logic_engine_check').addEventListener('click', checkConnection);
     const target = document.querySelector('#extensions_settings');
     if (target) target.append(panel);
-    if (current.lastHealth) {
-        setStatus('Last successful check: ' + new Date(current.lastHealth).toLocaleString(), 'neutral');
+    if (settings.lastHealth) {
+        setStatus('Last successful check: ' + new Date(settings.lastHealth).toLocaleString(), 'neutral');
     }
 }
 
