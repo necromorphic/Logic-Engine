@@ -182,7 +182,7 @@ test('real Provider record revoke after Core source retrieval blocks disclosure'
     conversationId: 'provider-e2e-conversation',
   });
   assert.equal(result.status, 'non_ready');
-  assert.equal(result.reason, 'memory_record_access_revoked');
+  assert.equal(result.reason, 'memory_record_authorization_unconfirmed');
   assert.deepEqual(result.candidates, []);
   assert.equal(JSON.stringify(result).includes('visible source-a'), false);
 });
@@ -395,7 +395,7 @@ test('source validator outage makes the real Core/NPC consumer non-ready instead
     conversationId: 'provider-e2e-conversation',
     });
   assert.equal(result.status, 'non_ready');
-  assert.equal(result.reason, 'memory_record_authorization_unavailable');
+  assert.equal(result.reason, 'memory_source_validation_unavailable');
   assert.deepEqual(result.candidates, []);
   assert.deepEqual(result.admitted, []);
   assert.equal(JSON.stringify(result).includes('private host validator details'), false);
@@ -428,7 +428,7 @@ test('source becoming stale after reconciliation is non-ready, not a filtered re
     conversationId: 'provider-e2e-conversation',
     });
   assert.equal(result.status, 'non_ready');
-  assert.equal(result.reason, 'memory_record_authorization_unavailable');
+  assert.equal(result.reason, 'memory_source_version_unverifiable');
   assert.deepEqual(result.candidates, []);
   assert.deepEqual(result.admitted, []);
   assert.equal(JSON.stringify(result).includes('visible source-a'), false);
