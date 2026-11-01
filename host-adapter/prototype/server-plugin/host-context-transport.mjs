@@ -26,7 +26,7 @@ function resolveCoreUrl(value) {
   try { url = new URL(value); } catch { throw new Error('CORE_TRANSPORT_CONFIGURATION_INVALID'); }
   if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password
     || url.search || url.hash || !['', '/'].includes(url.pathname)
-    || (url.protocol === 'http:' && !['127.0.0.1', '::1', 'localhost'].includes(url.hostname))) {
+    || (url.protocol === 'http:' && !['127.0.0.1', '[::1]'].includes(url.hostname))) {
     throw new Error('CORE_TRANSPORT_CONFIGURATION_INVALID');
   }
   return url.origin;
