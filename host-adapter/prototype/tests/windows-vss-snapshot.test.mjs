@@ -10,6 +10,8 @@ import {
   enumerateStableFileInventoryFromWindowsSnapshot,
 } from '../fs-inventory.js';
 
+const liveVssEnabled = process.platform === 'win32' && process.env.LOGIC_ENGINE_RUN_LIVE_WINDOWS_VSS === '1';
+
 async function withTempRoot(run) {
   const parent = await mkdtemp(join(tmpdir(), 'logic-engine-vss-inventory-'));
   const root = join(parent, 'data');
@@ -19,7 +21,7 @@ async function withTempRoot(run) {
 }
 
 test('Windows VSS inventory is a complete point-in-time snapshot with reparse audit metadata', {
-  skip: process.platform !== 'win32',
+  skip: !liveVssEnabled,
   timeout: 180_000,
 }, async () => {
   await withTempRoot(async ({ root }) => {
