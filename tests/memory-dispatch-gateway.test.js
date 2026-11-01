@@ -1127,12 +1127,12 @@ test('real Provider revokeRecord committed before dispatch-start produces zero u
     await transportStarted;
     provider.revokeRecord(scope, record.record_ref, record.record_version);
     releaseTransport();
-    await inFlight;
-    assert.equal(calls.length, 1, 'dispatch-start winning first permits exactly one upstream call');
+    await assert.rejects(inFlight, /MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED/);
+    assert.equal(calls.length, 1, 'dispatch-start winning first permits one upstream call but revoke blocks Host release');
     const completedLedger = new DatabaseSync(ledgerPath);
     try {
       assert.equal(completedLedger.prepare('SELECT status FROM dispatch_ledger WHERE request_id=?')
-        .get('dispatch-start-wins-before-revoke').status, 'COMPLETED');
+        .get('dispatch-start-wins-before-revoke').status, 'UNKNOWN');
     } finally {
       completedLedger.close();
     }
@@ -1287,13 +1287,13 @@ test('real Core source mutation and Gateway dispatch-start share one cross-proce
     await transportStarted;
     updateSource('core-update-after-dispatch-start');
     releaseTransport();
-    await inFlight;
-    assert.equal(calls.length, 1, 'a Core mutation ordered after durable dispatch-start cannot recall the in-flight request');
+    await assert.rejects(inFlight, /MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED/);
+    assert.equal(calls.length, 1, 'a Core mutation after dispatch-start cannot recall upstream but blocks Host release');
 
     const ledger = new DatabaseSync(fixture.ledgerPath);
     try {
       assert.equal(ledger.prepare('SELECT status FROM dispatch_ledger WHERE request_id=?')
-        .get('core-dispatch-start-wins').status, 'COMPLETED');
+        .get('core-dispatch-start-wins').status, 'UNKNOWN');
     } finally {
       ledger.close();
     }
