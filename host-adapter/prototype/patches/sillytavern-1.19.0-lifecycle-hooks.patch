@@ -822,8 +822,8 @@ diff --git a/src/endpoints/data-maid.js b/src/endpoints/data-maid.js
 diff --git a/src/endpoints/settings.js b/src/endpoints/settings.js
 --- a/src/endpoints/settings.js
 +++ b/src/endpoints/settings.js
-@@ -11,2 +11,5 @@
- import { getUserDirectories, getAllUserHandles } from '../users.js';
+@@ -12,2 +12,5 @@
+ import { getAllUserHandles, getUserDirectories } from '../users.js';
  import { getFileNameValidationFunction } from '../middleware/validateFileName.js';
 +import { createHostBulkMutationGuard } from './logic-engine-host-inventory-handler.mjs';
 +const hostBulkMutationGuard = createHostBulkMutationGuard({ pinnedHostCommit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127' });
@@ -865,3 +865,13 @@ diff --git a/src/endpoints/users-admin.js b/src/endpoints/users-admin.js
 +    return next();
 +}, async (request, response) => {
 
+diff --git a/src/endpoints/groups.js b/src/endpoints/groups.js
+--- a/src/endpoints/groups.js
++++ b/src/endpoints/groups.js
+@@ -50,2 +50,6 @@
+             const needsMigration = ['chat_metadata', 'past_metadata'].some(key => Object.hasOwn(groupData, key));
++            if (needsMigration && process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR) {
++                console.warn(color.yellow('Skipping unreceipted startup group metadata migration while Host inventory is enabled.'));
++                continue;
++            }
+             if (!needsMigration) {
