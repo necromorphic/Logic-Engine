@@ -95,6 +95,7 @@ async function createFixture({ sendUpstream, createTransport, coreHead = 1, prov
   });
 
   let providerGranted = initialProviderGrant;
+  let currentProviderCandidatesOverride = providerCandidatesOverride;
   let policyAuthority = { authority_id: 'test-memory-policy', generation: 1, fingerprint: 'd'.repeat(64) };
   const calls = [];
   const makeGateway = () => installTestTransport(new MemoryDispatchGateway({
@@ -119,7 +120,7 @@ async function createFixture({ sendUpstream, createTransport, coreHead = 1, prov
       granted: providerGranted,
       readiness: 'READY',
       sources,
-      candidates: providerCandidatesOverride ?? candidates,
+      candidates: currentProviderCandidatesOverride ?? candidates,
     }),
   }), (request) => createTransport
     ? createTransport(request)
@@ -140,6 +141,7 @@ async function createFixture({ sendUpstream, createTransport, coreHead = 1, prov
       return gateway;
     },
     setProviderGranted(value) { providerGranted = value; },
+    setProviderCandidates(value) { currentProviderCandidatesOverride = value; },
     setPolicyAuthority(value) { policyAuthority = value; },
     async close() {
       if (closed) return;
@@ -523,6 +525,30 @@ test('FINAL RESPONSE REVALIDATION blocks Host release after Provider revoke duri
     } finally {
       ledger.close();
     }
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('FINAL RESPONSE REVALIDATION rejects Provider record authorization-generation changes during upstream send', async () => {
+  let releaseTransport;
+  const transportGate = new Promise((resolve) => { releaseTransport = resolve; });
+  const fixture = await createFixture({
+    createTransport: () => () => {
+      fixture.calls.push('upstream');
+      return transportGate;
+    },
+  });
+  try {
+    const pending = fixture.gateway.dispatchProtectedRequest(validRequest('record-generation-during-send'));
+    await new Promise((resolve) => setImmediate(resolve));
+    fixture.setProviderCandidates([{
+      ...validRequest().candidates[0],
+      authorization_generation: 2,
+    }]);
+    releaseTransport({ status: 200, body: 'must-not-reach-host' });
+    await assert.rejects(pending, /MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED/);
+    assert.equal(fixture.calls.length, 1, 'authorization-generation change must not cause a retry');
   } finally {
     await fixture.close();
   }
