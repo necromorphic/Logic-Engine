@@ -65,7 +65,7 @@ export async function dispatchThroughExtensionGateway({ requestId, contextSize, 
   if (!Number.isSafeInteger(contextSize) || contextSize < 1 || contextSize > 200000) {
     throw new Error('HOST_DISPATCH_CONTEXT_SIZE_INVALID');
   }
-  if (typeof type !== 'string' || !/^[a-z][a-z0-9_-]{0,31}$/i.test(type)) {
+  if (typeof type !== 'string' || !/^[a-z][a-z0-9_-]{0,31}$/.test(type)) {
     throw new Error('HOST_DISPATCH_GENERATION_TYPE_INVALID');
   }
   const fetchImpl = options.fetchImpl ?? globalThis.fetch;
