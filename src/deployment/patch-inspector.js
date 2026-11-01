@@ -145,7 +145,7 @@ export async function inspectPinnedSillyTavernInstallation(stRoot) {
       if (!record || record.sha256 !== expected.before || record.backupPath !== expectedPath) {
         throw new Error('PATCH_MANAGER_BACKUP_RECORD_INVALID:' + relativePath);
       }
-      const backupRelative = resolve(managerRelative, ...record.backupPath.split(/[\\\\/]/));
+      const backupRelative = [managerRelative, ...record.backupPath.split(/[\\\\/]/)].join(sep);
       if (!isWithin(resolve(root, managerRelative, 'backups', state.backupId), resolve(root, backupRelative))) {
         throw new Error('PATCH_MANAGER_BACKUP_PATH_INVALID:' + relativePath);
       }
