@@ -1,8 +1,7 @@
 diff --git a/lib/database.js b/lib/database.js
-index 0000000..0000000 100644
 --- a/lib/database.js
 +++ b/lib/database.js
-@@ -28,6 +28,7 @@ module.exports = function createDatabase(getAddon, allowNativeBinding) {
+@@ -33,6 +33,7 @@
  		const timeout = 'timeout' in options ? options.timeout : 5000;
  		const verbose = 'verbose' in options ? options.verbose : null;
  		const nativeBinding = 'nativeBinding' in options ? options.nativeBinding : null;
@@ -10,28 +9,29 @@ index 0000000..0000000 100644
  
  		// Validate interpreted options
  		if (readonly && anonymous && !buffer) throw new TypeError('In-memory/temporary databases cannot be readonly');
-@@ -36,6 +37,8 @@ module.exports = function createDatabase(getAddon, allowNativeBinding) {
+@@ -41,6 +42,9 @@
  		if (verbose != null && typeof verbose !== 'function') throw new TypeError('Expected the "verbose" option to be a function');
  		if (!allowNativeBinding && 'nativeBinding' in options) throw new TypeError('The "nativeBinding" option is only supported by the default better-sqlite3 entrypoint');
  		if (allowNativeBinding && nativeBinding != null && typeof nativeBinding !== 'string' && typeof nativeBinding !== 'object') throw new TypeError('Expected the "nativeBinding" option to be a string or addon object');
-+		if (vfs != null && (typeof vfs !== 'string' || vfs.length === 0 || vfs.includes('\0'))) {
++		if (vfs != null && (typeof vfs !== 'string' || vfs.length === 0 || vfs.includes('\\0'))) {
 +			throw new TypeError('Expected the "vfs" option to be a non-empty SQLite VFS name');
 +		}
  
  		// Load the native addon
  		const addon = getAddon(nativeBinding);
-@@ -51,7 +54,7 @@ module.exports = function createDatabase(getAddon, allowNativeBinding) {
+@@ -55,7 +59,7 @@
+ 		}
  
  		Object.defineProperties(this, {
 -			[util.cppdb]: { value: new addon.Database(filename, filenameGiven, anonymous, readonly, fileMustExist, timeout, verbose || null, buffer || null) },
 +			[util.cppdb]: { value: new addon.Database(filename, filenameGiven, anonymous, readonly, fileMustExist, timeout, verbose || null, buffer || null, vfs) },
  			...wrappers.getters,
  		});
+ 	}
 diff --git a/src/objects/database.cpp b/src/objects/database.cpp
-index 0000000..0000000 100644
 --- a/src/objects/database.cpp
 +++ b/src/objects/database.cpp
-@@ -145,6 +145,7 @@ NODE_METHOD(Database::JS_new) {
+@@ -146,16 +146,29 @@
  	REQUIRE_ARGUMENT_INT32(sixth, int timeout);
  	REQUIRE_ARGUMENT_ANY(seventh, Napi::Value logger);
  	REQUIRE_ARGUMENT_ANY(eighth, Napi::Value buffer);
@@ -44,12 +44,12 @@ index 0000000..0000000 100644
 +	std::string vfs_utf8;
 +	if (!vfsName.IsNull() && !vfsName.IsUndefined()) {
 +		if (!vfsName.IsString()) {
-+			ThrowError(env, "Expected the \"vfs\" option to be a non-empty SQLite VFS name");
++			ThrowError(env, "Expected the \\"vfs\\" option to be a non-empty SQLite VFS name");
 +			return env.Undefined();
 +		}
 +		vfs_utf8 = vfsName.As<Napi::String>().Utf8Value();
-+		if (vfs_utf8.empty() || vfs_utf8.find('\0') != std::string::npos) {
-+			ThrowError(env, "Expected the \"vfs\" option to be a non-empty SQLite VFS name");
++		if (vfs_utf8.empty() || vfs_utf8.find('\\0') != std::string::npos) {
++			ThrowError(env, "Expected the \\"vfs\\" option to be a non-empty SQLite VFS name");
 +			return env.Undefined();
 +		}
 +	}
