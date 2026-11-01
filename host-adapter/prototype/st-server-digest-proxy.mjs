@@ -27,6 +27,7 @@ function requestMatchesAuthenticatedHostSession(request, conversationId) {
     && sessionHandle === userHandle
     && typeof sessionId === 'string' && HOST_SESSION_UUID.test(sessionId)
     && typeof conversationId === 'string'
+    && HOST_CONVERSATION_ID.test(conversationId)
     && HOST_CONVERSATION_ID.test(conversationId);
 }
 
@@ -698,7 +699,7 @@ function requestMatchesAuthenticatedHostSession(request, conversationId) {
     && typeof sessionId === 'string' && HOST_SESSION_UUID.test(sessionId)
     && typeof conversationId === 'string'
     && HOST_CONVERSATION_ID.test(conversationId)
-    && HOST_CONVERSATION_ID.test(conversationId);
+    && conversationId.startsWith(sessionId + ':');
 }
 
 const ALLOWED_FIELDS = new Set([
@@ -1070,10 +1071,11 @@ const HOST_LIFECYCLE_OPERATIONS = new Set([
 function parseBoundConversation(request, conversationId, identity) {
   if (!requestMatchesAuthenticatedHostSession(request, conversationId)) return null;
   const parts = conversationId.split(':');
-  if (parts.length !== 2 || parts[0] !== identity.host_installation_id
-    || !HOST_SESSION_UUID.test(parts[1])
+  if (parts.length !== 3 || parts[0] !== request.session.logicEngineSessionId
+    || parts[1] !== identity.host_installation_id
+    || !HOST_SESSION_UUID.test(parts[2])
     || request.session.logicEngineSessionHandle !== request.user.profile.handle) return null;
-  return parts[1];
+  return parts[2];
 }
 
 /**
