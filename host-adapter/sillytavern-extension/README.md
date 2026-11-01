@@ -16,13 +16,14 @@ Enable `enableServerPlugins: true` in SillyTavern server configuration and resta
 
 ## Transport
 
-The browser extension makes only a same-origin request to:
+The browser extension makes only same-origin requests inside `/api/plugins/logic-engine-extension-gateway`:
 
-`GET /api/plugins/logic-engine-extension-gateway/session`
+- `GET /session` verifies the signed SillyTavern session.
+- `POST /context` sends only the current chat's `conversation_uuid`. The server checks that UUID against the authenticated account's full inventory, signs a short-lived HMAC assertion with server-held credentials, and calls Core server-to-server. Core rechecks the current conversation → World → Actor bindings and durable nonce.
 
-It uses the authenticated SillyTavern cookie session and does not accept a Core URL, Core credentials, adapter credentials, world ID, or actor ID. There is no browser-to-Core call and no direct `/api/logic-engine/*` route.
+The browser does not accept or send a Core URL, Core credentials, adapter credentials, World ID, or Actor ID. There is no browser-to-Core call and no direct `/api/logic-engine/*` route.
 
-The UI confirms only that the server plugin returned a server-generated Host session identity. It explicitly reports Core/Memory transport as `NON_READY`. Chat enrollment, digest sync, final-send and Memory → NPC are not enabled by this client.
+The UI distinguishes signed ST session confirmation from Core context verification. A successful context check proves only that Core authenticated the Host assertion and current World/Actor bindings; it does not retrieve Memory or authorize final-send. Memory retrieval, final-send and Memory → NPC remain disabled.
 
 ## Security boundary
 
