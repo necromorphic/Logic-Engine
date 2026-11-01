@@ -28,5 +28,7 @@ jobs:
         run: make -C native/posix-namespace-broker test
       - name: Run manifest store security tests
         run: python3 -m unittest discover -s native/posix-namespace-broker -p 'test_manifest_store.py'
+      - name: Test initial manifest bootstrap
+        run: python3 -m unittest discover -s native/posix-namespace-broker -p 'test_init_manifest.py'
       - name: Verify broker/application systemd boundary
         run: node --test tests/sqlite-broker-systemd-units.test.js
