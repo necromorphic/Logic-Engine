@@ -107,7 +107,7 @@ test('real adapter composes file-backed SQLite Provider with Core query and cano
       hostSessionProof: 'adapter-test-session',
     });
     assert.equal(result.status, 'ready');
-    assert.equal(adapter.provider.retrieveCandidates, undefined, 'consumer-facing Provider retrieval is not exposed by the factory');
+    assert.equal(adapter.provider, undefined, 'raw Provider instance is not exposed by the factory');
     assert.equal(adapter.providerAdmin.retrieveCandidates, undefined, 'administrative Provider surface cannot retrieve records');
     assert.equal(result.candidates.length, 1);
     assert.deepEqual(result.candidates[0].content, {
