@@ -374,7 +374,7 @@ export function createHostRequestAuthenticationGate({ resolveConversationId } = 
     if (!identity || (typeof request !== 'object' && typeof request !== 'function') || request === null) {
       return response.sendStatus(403);
     }
-    const { userHandle, session } = identity;
+    const { session } = identity;
     try {
       const conversationId = await resolveConversationId(request);
       if (typeof conversationId !== 'string' || !HOST_CONVERSATION_ID.test(conversationId)
