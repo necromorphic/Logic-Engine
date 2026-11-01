@@ -67,6 +67,16 @@ test('real adapter composes file-backed SQLite Provider with Core query and cano
       contentFields: ['attributes.public_note'],
     }), /separate file from Core/);
 
+    assert.throws(() => createMemoryNpcProviderAdapter({
+      engine,
+      providerPath,
+      coordinatorPath,
+      adapterId,
+      trustedInitialKnowledgeSources: [],
+      fieldPolicy: () => true,
+      contentFields: ['attributes.public_note'],
+    }), /trusted Host authentication middleware verifier/);
+
     adapter = createMemoryNpcProviderAdapter({
       engine,
       providerPath,
