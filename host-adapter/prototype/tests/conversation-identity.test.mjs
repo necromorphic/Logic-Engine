@@ -114,16 +114,6 @@ test('same conversation metadata is isolated between authenticated accounts on o
   assert.equal(second.conversationId, INSTALL_A + ':' + ACCOUNT_B + ':' + CHAT_A);
 });
 
-test('same conversation metadata is isolated between authenticated accounts on one installation', async () => {
-  const storage = new Storage();
-  const metadata = { logic_engine_conversation_id: CHAT_A };
-  const first = await resolver({ metadata, storage, authenticatedAccountId: ACCOUNT_A });
-  const second = await resolver({ metadata, storage, authenticatedAccountId: ACCOUNT_B });
-  assert.notEqual(first.conversationId, second.conversationId);
-  assert.equal(first.conversationId, INSTALL_A + ':' + ACCOUNT_A + ':' + CHAT_A);
-  assert.equal(second.conversationId, INSTALL_A + ':' + ACCOUNT_B + ':' + CHAT_A);
-});
-
 test('cached browser installation identity cannot override server identity when enrollment exists', async () => {
   const storage = new Storage();
   storage.setItem('logic-engine-host-installation-id', INSTALL_A);
