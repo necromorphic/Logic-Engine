@@ -172,7 +172,7 @@ export function createPlatformSecurityAdapter({ platform = process.platform } = 
   }
 
   async function inspectOpenHandles() {
-    return [capability('filesystem.open-handles.inspect', 'NOT_TESTED', true, 'platform-adapter', undefined, ['Cross-platform complete open-handle inspection is not implemented.'])];
+    return [capability('filesystem.open-handles.inspect', 'NOT_TESTED', false, 'platform-adapter', undefined, ['Cross-platform complete open-handle inspection is not implemented.'])];
   }
 
   async function inspectSecretCapabilities() {
@@ -195,8 +195,8 @@ export function createPlatformSecurityAdapter({ platform = process.platform } = 
     const identityStatus = family === 'linux' && identity.effectiveUser !== null ? 'PASS' : 'NOT_TESTED';
     return [
       capability('platform.identity.inspect', platformStatus, true, 'node:os', family),
-      capability('platform.execution-identity.inspect', identityStatus, true, 'node:process', identity.effectiveUser ?? undefined, identityStatus === 'PASS' ? [] : ['Effective OS identity is not proven by this adapter.']),
-      capability('filesystem.access.effective', 'NOT_TESTED', true, 'platform-adapter', undefined, ['Path-specific effective access must be inspected for each manifest resource.']),
+      capability('platform.execution-identity.inspect', identityStatus, false, 'node:process', identity.effectiveUser ?? undefined, identityStatus === 'PASS' ? [] : ['Effective OS identity is not proven by this adapter.']),
+      capability('filesystem.access.effective', 'NOT_TESTED', false, 'platform-adapter', undefined, ['Path-specific effective access must be inspected for each manifest resource.']),
       ...(await inspectOpenHandles()),
       ...(await inspectSecretCapabilities()),
       ...(await inspectServiceCapabilities()),
