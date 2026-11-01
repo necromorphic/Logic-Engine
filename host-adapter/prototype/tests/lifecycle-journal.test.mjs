@@ -8,13 +8,13 @@ globalThis.IDBKeyRange = { only: value => ({ only: value }) };
 class FakeRequest { result=undefined; error=null; onsuccess=null; onerror=null; }
 class FakeStore {
   constructor(db, tx, name) { this.db=db; this.tx=tx; this.name=name; }
-  index() { return { getAll: range => { const req=new FakeRequest(); queueMicrotask(()=>{req.result=[...this.db.rows.values()].filter(row=>row.conversationId===range.only);req.onsuccess?.();this.db.finish(this.tx);});return req; } }; }
-  get(key) { const req=new FakeRequest(); queueMicrotask(()=>{req.result=this.db.heads.get(key)??undefined;req.onsuccess?.();this.db.finish(this.tx);});return req; }
+  index() { return { getAll: range => { const req=new FakeRequest(); queueMicrotask(()=>{req.result=[...this.db.rows.values()].filter(row=>row.conversationId===range.only);req.onsuccess?.();if(this.tx.mode==='readonly')this.db.finish(this.tx);});return req; } }; }
+  get(key) { const req=new FakeRequest(); queueMicrotask(()=>{req.result=this.db.heads.get(key)??undefined;req.onsuccess?.();if(this.tx.mode==='readonly')this.db.finish(this.tx);});return req; }
   add(record) { if(this.db.failNextWrite){this.db.failNextWrite=false;throw Error('simulated disk full');}if(this.db.rows.has(record.id))throw Error('duplicate key');this.db.rows.set(record.id,structuredClone(record));queueMicrotask(()=>this.db.finish(this.tx)); }
   put(record) { this.db.heads.set(record.conversationId,structuredClone(record));queueMicrotask(()=>this.db.finish(this.tx)); }
 }
-class FakeTransaction { error=null;oncomplete=null;onerror=null;onabort=null;constructor(db,names){this.db=db;this.names=names;}objectStore(name){return new FakeStore(this.db,this,name);} }
-class FakeDB { rows=new Map();heads=new Map();failNextWrite=false;transaction(names){return new FakeTransaction(this,names);}finish(tx){setImmediate(()=>tx.oncomplete?.());} }
+class FakeTransaction { error=null;oncomplete=null;onerror=null;onabort=null;constructor(db,names,mode){this.db=db;this.names=names;this.mode=mode;}objectStore(name){return new FakeStore(this.db,this,name);}abort(){this.error=Error('transaction aborted');setImmediate(()=>this.onabort?.());} }
+class FakeDB { rows=new Map();heads=new Map();failNextWrite=false;transaction(names,mode='readonly'){return new FakeTransaction(this,names,mode);}finish(tx){setImmediate(()=>tx.oncomplete?.());} }
 const seed=()=>({conversationId:'chat-1',sourceFingerprint:'fp-1',messages:[{role:'user',text:'hello'},{role:'assistant',versions:['first','second'],activeVersionIndex:1}]});
 
 test('baseline has durable IDs and digests but no raw text',async()=>{
@@ -65,6 +65,17 @@ test('tail truncation is detected by the independent atomic head checkpoint',asy
  const tail=[...db.rows.values()][0];db.rows.delete(tail.id);
  const result=await journal.status('chat-1',{instrumentedPaths:lifecycleJournalContract.requiredCoveragePaths,sourceFingerprintMatches:true});
  assert.equal(result.status,'NON_READY');assert.match(result.reason,/records missing|head checkpoint mismatch/);
+});
+
+test('public integrity and ledger export reject a corrupted independent head checkpoint', async () => {
+ const db = new FakeDB(), journal = new HostLifecycleJournal(db);
+ await journal.enroll(seed());
+ const head = db.heads.get('chat-1');
+ db.heads.set('chat-1', { ...head, recordDigest: '0'.repeat(64) });
+ const integrity = await journal.verifyIntegrity('chat-1');
+ assert.equal(integrity.status, 'NON_READY');
+ assert.match(integrity.reason, /head checkpoint mismatch/);
+ await assert.rejects(journal.exportCaptureLedger('chat-1'), /cannot export an unverified Host capture ledger/);
 });
 
 test('caller-supplied path list cannot assert trusted capture readiness',async()=>{
