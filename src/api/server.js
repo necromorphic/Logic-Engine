@@ -7,6 +7,7 @@ import { ActorBindingService } from '../application/actor-bindings.js';
 import { AuthorizedReadService } from '../application/authorized-read-service.js';
 import { isMechanicPolicyAuthority, defaultMechanicPolicyFieldPolicy } from '../application/mechanic-policy-authority.js';
 import { HostConversationWorldBindingService } from '../application/host-conversation-world-bindings.js';
+import { createHostSessionAssertionRunner, getAuthenticatedHostSessionContext } from '../application/host-session-context.js';
 
 const MAX = 1048576;
 const MAX_HOST_VERSION_SNAPSHOT_BYTES = 8 * 1048576;
@@ -87,6 +88,31 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
     const secret = req.headers['x-adapter-token'];
     return typeof id === 'string' && Object.hasOwn(adapterTokens, id) && secretMatches(secret, adapterTokens[id]) ? id : null;
   };
+  // Host assertion nonces are durable: an assertion accepted before a Core
+  // restart must remain rejected after restart. The adapter token is the
+  // server-held HMAC key and is never exposed to the browser extension.
+  engine.store.tx(() => engine.store.db.exec(`
+    CREATE TABLE IF NOT EXISTS host_session_assertion_nonces (
+      adapter_id TEXT NOT NULL,
+      nonce TEXT NOT NULL,
+      expires_at INTEGER NOT NULL,
+      PRIMARY KEY(adapter_id, nonce)
+    );
+  `));
+  const hostSessionAssertionRunners = new Map(Object.entries(adapterTokens).map(([adapterId, secret]) => [
+    adapterId,
+    createHostSessionAssertionRunner({
+      secret,
+      consumeNonce: (nonce, expiresAt, currentSeconds) => engine.store.tx(() => {
+        engine.store.db.prepare('DELETE FROM host_session_assertion_nonces WHERE expires_at < ?')
+          .run(currentSeconds);
+        const inserted = engine.store.db.prepare(
+          'INSERT OR IGNORE INTO host_session_assertion_nonces(adapter_id,nonce,expires_at) VALUES(?,?,?)',
+        ).run(adapterId, nonce, expiresAt);
+        return inserted.changes === 1;
+      }),
+    }),
+  ]));
   const proposals = new ProposalService(engine, {
     validateMechanicPolicy: createActiveMechanicPolicyValidator(getActiveMechanicContextProvider, mechanicPolicyAuthority),
   });
@@ -281,6 +307,78 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
           rebind: body.rebind ?? false, reason: body.reason ?? null,
         });
         return send(res, binding.already_bound ? 200 : 201, { binding });
+      }
+      if (url.pathname === '/v1/host-conversation-bindings/resolve-context') {
+        if (req.method !== 'POST') return send(res, 405, { error: { code: 'METHOD_NOT_ALLOWED', message: 'Unsupported authenticated Host context resolution operation.' } });
+        const adapterId = adapterIdFor(req);
+        if (!adapterId) return send(res, 403, { error: { code: 'ADAPTER_REQUIRED', message: 'An authenticated adapter identity is required.' } });
+        const body = await readBody(req);
+        const hostContext = body?.host_context;
+        const hostContextKeys = ['installation_id', 'account_id', 'session_id'];
+        const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+        const conversationId = body?.conversation_id;
+        const firstSeparator = typeof conversationId === 'string' ? conversationId.indexOf(':') : -1;
+        const lastSeparator = typeof conversationId === 'string' ? conversationId.lastIndexOf(':') : -1;
+        const installationId = firstSeparator > 0 ? conversationId.slice(0, firstSeparator) : '';
+        const accountId = lastSeparator > firstSeparator + 1
+          ? conversationId.slice(firstSeparator + 1, lastSeparator) : '';
+        const conversationUuid = lastSeparator >= 0 ? conversationId.slice(lastSeparator + 1) : '';
+        if (!body || typeof body !== 'object' || Array.isArray(body)
+          || Object.keys(body).some(key => !['conversation_id', 'host_context', 'actor_entity_id'].includes(key))
+          || !hostContext || typeof hostContext !== 'object' || Array.isArray(hostContext)
+          || Object.keys(hostContext).some(key => !hostContextKeys.includes(key))
+          || hostContextKeys.some(key => !uuid.test(hostContext[key] ?? ''))
+          || !uuid.test(installationId) || !uuid.test(accountId) || !uuid.test(conversationUuid)
+          || installationId !== hostContext.installation_id
+          || accountId !== hostContext.account_id
+          || !uuid.test(hostContext.session_id)
+          || typeof body.actor_entity_id !== 'string' || body.actor_entity_id !== body.actor_entity_id.trim()
+          || body.actor_entity_id.length === 0 || body.actor_entity_id.length > 200
+          || [...body.actor_entity_id].some(character => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127)) {
+          throw new EngineError('INVALID_AUTHENTICATED_HOST_CONTEXT',
+            'Host context must contain authenticated installation, account and session UUIDs bound to the stable conversation identity, plus a configured actor entity.', 400);
+        }
+        const binding = hostConversationBindings.resolve({ adapterId, conversationId });
+        const actor = actorBindings.resolve(binding.world_id, adapterId, body.actor_entity_id);
+        return send(res, 200, {
+          context: {
+            installation_id: hostContext.installation_id,
+            account_id: hostContext.account_id,
+            session_id: hostContext.session_id,
+            conversation_id: conversationId,
+            world_id: binding.world_id,
+            actor_id: actor.actor.entity_id,
+            adapter_id: adapterId,
+            authority: 'AUTHENTICATED_ADAPTER_AND_CORE_BINDINGS',
+          },
+        });
+      }
+      if (url.pathname === '/v1/host-sessions/verify') {
+        if (req.method !== 'POST') return send(res, 405, { error: { code: 'METHOD_NOT_ALLOWED', message: 'Unsupported Host session verification operation.' } });
+        const adapterId = adapterIdFor(req);
+        if (!adapterId) return send(res, 403, { error: { code: 'ADAPTER_REQUIRED', message: 'An authenticated adapter identity is required.' } });
+        const body = await readBody(req, 16 * 1024);
+        if (!body || typeof body !== 'object' || Array.isArray(body)
+          || Object.keys(body).length !== 2
+          || !Object.hasOwn(body, 'assertion') || !Object.hasOwn(body, 'signature')) {
+          return send(res, 400, { error: { code: 'HOST_SESSION_ASSERTION_INVALID', message: 'A signed Host session assertion is required.' } });
+        }
+        try {
+          const runner = hostSessionAssertionRunners.get(adapterId);
+          const context = await runner.run(body.assertion, body.signature,
+            () => getAuthenticatedHostSessionContext());
+          if (!context || context.identity !== 'SIGNED_HOST_SESSION_ASSERTION') {
+            return send(res, 403, { error: { code: 'HOST_SESSION_ASSERTION_REJECTED', message: 'Host session assertion was rejected.' } });
+          }
+          return send(res, 200, {
+            status: 'AUTHENTICATED_HOST_SESSION',
+            conversation_id: context.conversation_id,
+            world_id: context.world_id,
+            actor_id: context.actor_id,
+          });
+        } catch {
+          return send(res, 403, { error: { code: 'HOST_SESSION_ASSERTION_REJECTED', message: 'Host session assertion was rejected.' } });
+        }
       }
       if (url.pathname === '/v1/host-conversation-bindings/resolve') {
         if (req.method !== 'POST') return send(res, 405, { error: { code: 'METHOD_NOT_ALLOWED', message: 'Unsupported Host conversation resolution operation.' } });
