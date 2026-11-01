@@ -163,6 +163,23 @@ test('real adapter composes file-backed SQLite Provider with Core query and cano
     assert.deepEqual(result.candidates[0].content, {
       'attributes.public_note': 'real Core source value',
     });
+
+    const invalidatedInsideRequest = await adapter.runWithAuthenticatedHostSession(
+      hostRequest, conversationId, async () => {
+        assert.ok(getAuthenticatedHostSessionContext());
+        hostRequest.session.logicEngineSessionId = '66666666-6666-4666-8666-666666666666';
+        assert.equal(getAuthenticatedHostSessionContext(), null);
+        // Restoring the old visible fields cannot resurrect the in-flight
+        // capability after the first failed live-session revalidation.
+        hostRequest.session.logicEngineSessionId = hostSessionId;
+        assert.equal(getAuthenticatedHostSessionContext(), null);
+        return adapter.consumer.retrieveForNpc({ worldId, actorEntityId: actorId, conversationId });
+      },
+    );
+    assert.equal(invalidatedInsideRequest.status, 'non_ready');
+    assert.equal(invalidatedInsideRequest.reason, 'query_access_unconfirmed');
+    assert.deepEqual(invalidatedInsideRequest.candidates, []);
+
     assert.throws(() => adapter.runWithAuthenticatedHostSession(
       hostRequest, 'caller-selected-conversation', () => adapter.consumer.retrieveForNpc({
         worldId, actorEntityId: actorId, conversationId: 'caller-selected-conversation',
