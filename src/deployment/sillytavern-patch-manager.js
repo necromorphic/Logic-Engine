@@ -10,6 +10,12 @@ const MANAGER_DIR = '.logic-engine/patch-manager';
 const JOURNAL_NAME = 'transaction.json';
 const MAX_MANIFEST_BYTES = 256 * 1024;
 const MAX_PATCH_BYTES = 8 * 1024 * 1024;
+// The manager installs one Logic-Engine Extension package only. Native ST
+// source/config/routes are outside the approved integration boundary.
+const ALLOWED_PACKAGE_ROOTS = Object.freeze([
+  'public/scripts/extensions/third-party/logic-engine-extension-gateway/',
+  'plugins/logic-engine-extension-gateway/',
+]);
 
 function sha256(bytes) {
   return createHash('sha256').update(bytes).digest('hex');
@@ -119,6 +125,9 @@ function patchPaths(root, patchText) {
       throw new Error('Patch contains a rename/copy or malformed path; only same-path edits are supported.');
     }
     const filePath = match[1];
+    if (!ALLOWED_PACKAGE_ROOTS.some(prefix => filePath.startsWith(prefix))) {
+      throw new Error('Patch Manager may modify only the integrated Logic-Engine Extension package directories.');
+    }
     const absolute = resolve(root, filePath);
     const rel = relative(root, absolute);
     if (!rel || rel === '..' || rel.startsWith('..' + sep) || isAbsolute(rel)) {
@@ -131,6 +140,10 @@ function patchPaths(root, patchText) {
 }
 
 function assertSafeTargetPath(root, filePath) {
+  if (typeof filePath !== 'string'
+    || !ALLOWED_PACKAGE_ROOTS.some(prefix => filePath.startsWith(prefix))) {
+    throw new Error('Journal path is outside the integrated Logic-Engine Extension package directories.');
+  }
   const destination = resolve(root, filePath);
   const rel = relative(root, destination);
   if (!rel || rel === '..' || rel.startsWith('..' + sep) || isAbsolute(rel)) throw new Error('Journal path escapes target root.');
