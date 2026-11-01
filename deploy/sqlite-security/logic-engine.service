@@ -29,7 +29,7 @@ RestrictSUIDSGID=yes
 LockPersonality=yes
 StateDirectory=logic-engine
 StateDirectoryMode=0700
-ReadWritePaths=/var/lib/logic-engine /var/lib/logic-engine-sqlite-alias
+ReadWritePaths=/var/lib/logic-engine
 
 [Install]
 WantedBy=multi-user.target
