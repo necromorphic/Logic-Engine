@@ -135,7 +135,8 @@ export class MemoryNpcConsumer {
     }
     if (typeof memoryProvider?.authorizeQuery !== 'function'
       || typeof memoryProvider?.retrieveCandidates !== 'function'
-      || typeof memoryProvider?.authorizeCandidate !== 'function') {
+      || typeof memoryProvider?.authorizeCandidate !== 'function'
+      || typeof memoryProvider?.checkCandidateGrant !== 'function') {
       throw new TypeError('MemoryNpcConsumer requires trusted Memory query, retrieval, and record authorization functions');
     }
     if (!Array.isArray(contentFields) || contentFields.length === 0 || contentFields.length > 20
@@ -351,7 +352,22 @@ export class MemoryNpcConsumer {
         })) {
         return nonReady('memory_snapshot_stale');
       }
-      if (!(queryStillAllowed())) return nonReady('query_access_unconfirmed');
+      // Final durable grant fence after the Core snapshot check. This is
+    // synchronous so the final Core query check can immediately follow it.
+    for (const item of admitted) {
+      try {
+        if (this.#memoryProvider.checkCandidateGrant({
+          ...scope,
+          record_ref: item.record_ref,
+          record_version: item.record_version,
+          authorization_generation: item.authorization_generation,
+        }) !== true) return nonReady('memory_record_authorization_unconfirmed');
+      } catch (error) {
+        return nonReady(providerAuthorizationFailureReason(error, 'memory_record_authorization_unavailable'));
+      }
+    }
+
+    if (!(queryStillAllowed())) return nonReady('query_access_unconfirmed');
       // Keep the Core snapshot read after asynchronous authorization so a
       // world change during the recheck cannot make a stale empty result ready.
       let finalEmptySnapshotRead;
@@ -726,9 +742,26 @@ export class MemoryNpcConsumer {
       .map((item) => contentByIdentity.get(recordIdentityKey(item.record_ref, item.record_version)))
       .filter(Boolean);
 
-    // Revalidate Core's revision after the content-bearing read. The Provider
-    // performs its final exact-source/grant check immediately after this
-    // synchronous snapshot check, followed by the final Core query check.
+    // Revalidate exact Provider record/source authorization after the Core
+    // content read. The final Core snapshot check below catches mutations that
+    // occur during these asynchronous source-version checks.
+    for (const item of admitted) {
+      let stillAllowed;
+      try {
+        stillAllowed = await this.#memoryProvider.authorizeCandidate({
+          ...scope,
+          record_ref: item.record_ref,
+          record_version: item.record_version,
+          authorization_generation: item.authorization_generation,
+          source_kind: 'canonical_entity',
+          source_entity_id: item.source_entity_id,
+        }) === true;
+      } catch (error) {
+        return nonReady(providerAuthorizationFailureReason(error, 'memory_record_authorization_unavailable'));
+      }
+      if (!stillAllowed) return nonReady('memory_record_authorization_unconfirmed');
+    }
+
     let finalSourceSnapshotRead;
     try {
       finalSourceSnapshotRead = this.authorizedReadService.readEntityFields({
@@ -754,27 +787,6 @@ export class MemoryNpcConsumer {
         commit_sequence: finalSourceSnapshotRead.commit_sequence,
       })) {
       return nonReady('memory_snapshot_stale');
-    }
-
-    // The Core snapshot check above is synchronous. Revalidate every exact
-    // Provider grant after it, then perform the final Core query check. This
-    // keeps the last Provider authorization as close as possible to disclosure;
-    // it is still not an atomic cross-store dispatch lease.
-    for (const item of admitted) {
-      let stillAllowed;
-      try {
-        stillAllowed = await this.#memoryProvider.authorizeCandidate({
-          ...scope,
-          record_ref: item.record_ref,
-          record_version: item.record_version,
-          authorization_generation: item.authorization_generation,
-          source_kind: 'canonical_entity',
-          source_entity_id: item.source_entity_id,
-        }) === true;
-      } catch (error) {
-        return nonReady(providerAuthorizationFailureReason(error, 'memory_record_authorization_unavailable'));
-      }
-      if (!stillAllowed) return nonReady('memory_record_authorization_unconfirmed');
     }
 
     if (!(queryStillAllowed())) return nonReady('query_access_unconfirmed');
