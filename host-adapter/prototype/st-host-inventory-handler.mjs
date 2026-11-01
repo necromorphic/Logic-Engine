@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 const HOST_SESSION_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-function getAuthenticatedHostIdentity(request) {
+function getAuthenticatedHostIdentity(request, { requireDirectories = false } = {}) {
   const user = request?.user;
   const session = request?.session;
   const directories = user?.directories;
@@ -11,7 +11,8 @@ function getAuthenticatedHostIdentity(request) {
   // Server plugins are mounted after SillyTavern's requireLoginMiddleware.
   // In default-user mode ST deliberately leaves session.handle unset; the
   // authenticated request.user profile remains the authoritative account.
-  if (!session || !directories || typeof userHandle !== 'string' || !userHandle.trim()) {
+  if (!session || (requireDirectories && !directories)
+    || typeof userHandle !== 'string' || !userHandle.trim()) {
     return null;
   }
 
