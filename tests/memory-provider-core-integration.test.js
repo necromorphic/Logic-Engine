@@ -32,6 +32,13 @@ const trustedHostIdentities = new WeakMap([[hostRequest, {
 }]]);
 const resolveHostIdentity = request => trustedHostIdentities.get(request) ?? null;
 
+function assertNoRejectedMetadataDisclosure(result) {
+  const serialized = JSON.stringify(result);
+  assert.doesNotMatch(serialized, /"(?:diagnostics?|snippets?|rejected_count|denied_count|withheld_count|filtered_count)"\\s*:/i);
+  assert.equal(Object.hasOwn(result, 'rejected_count'), false);
+  assert.equal(Object.hasOwn(result, 'diagnostics'), false);
+}
+
 function setup(t, { twoRecords = false, providerPath = null, evidenceAssessment = 'unassessed' } = {}) {
   const testDb = createProviderTestDb(t, {
     path: providerPath && providerPath !== ':memory:' ? providerPath : null,
@@ -217,6 +224,37 @@ test('real SQLite provider flows through Core authorized read and NPC admission'
   assert.equal(result.candidates[0].record_ref, 'memory:record-a');
   assert.deepEqual(result.candidates[0].content, { 'attributes.public_note': 'visible source-a' });
   assert.equal(JSON.stringify(result).includes('never disclose'), false);
+});
+
+test('real Provider diagnostics, snippets, and candidate counts never cross the NPC result envelope', async (t) => {
+  const s = setup(t);
+  assert.equal((await s.prepare()).status, 'current');
+  const diagnosticProvider = new Proxy(s.provider, {
+    get(target, property) {
+      if (property === 'retrieveCandidates') return async (...args) => ({
+        ...(await target.retrieveCandidates(...args)),
+        diagnostics: { private_trace: 'private-provider-diagnostic-317', candidate_count: 999 },
+        snippets: ['private-provider-snippet-317'],
+        candidate_count: 999,
+        rejected_count: 42,
+      });
+      const value = Reflect.get(target, property, target);
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
+  const consumer = s.createConsumer(diagnosticProvider);
+
+  const result = await consumer.retrieveForNpc({
+    conversationId: HOST_CONVERSATION_ID,
+  });
+  assert.equal(result.status, 'ready');
+  assert.equal(result.candidates.length, 1);
+  assertNoRejectedMetadataDisclosure(result);
+  const serialized = JSON.stringify(result);
+  assert.equal(serialized.includes('private-provider-diagnostic-317'), false);
+  assert.equal(serialized.includes('private-provider-snippet-317'), false);
+  assert.equal(serialized.includes('candidate_count'), false);
+  assert.equal(serialized.includes('rejected_count'), false);
 });
 
 test('real provider revocation during candidate B authorization excludes previously allowed A', async (t) => {
