@@ -148,6 +148,80 @@ class ManifestStoreTests(unittest.TestCase):
         finally:
             os.close(opened)
 
+    def test_startup_reconciles_persisted_enrolling_role_by_opened_identity(self):
+        import json
+        self.store.initialize(self.data(1))
+        parent = self.role_parent / "interrupted-enrollment"
+        parent.mkdir(mode=0o700)
+        os.chmod(parent, 0o700)
+        components = list(parent.parts[1:])
+        parent_fd = os.open(parent, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW)
+        db_fd = -1
+        try:
+            parent_identity = fd_identity(parent_fd)
+            db_fd = os.open("interrupted.sqlite",
+                            os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC | os.O_NOFOLLOW,
+                            0o600, dir_fd=parent_fd)
+            database_identity = fd_identity(db_fd)
+            os.fsync(db_fd)
+            os.fsync(parent_fd)
+        finally:
+            if db_fd >= 0:
+                os.close(db_fd)
+            os.close(parent_fd)
+        identities = []
+        walk_fd = os.open("/", os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+        try:
+            for component in components:
+                next_fd = os.open(component, os.O_RDONLY | os.O_DIRECTORY |
+                                  os.O_CLOEXEC | os.O_NOFOLLOW, dir_fd=walk_fd)
+                os.close(walk_fd)
+                walk_fd = next_fd
+                identities.append(fd_identity(walk_fd))
+        finally:
+            os.close(walk_fd)
+        current = self.store.load()
+        candidate = json.loads(_canonical_json(current))
+        candidate["generation"] += 1
+        candidate["roles"].append({
+            "role": "interrupted",
+            "parentComponents": components,
+            "parentIdentities": identities,
+            "databaseBasename": "interrupted.sqlite",
+            "databaseIdentity": database_identity,
+            "state": "enrolling",
+            "sidecars": [],
+        })
+        self.store.commit(_canonical_json(candidate))
+        reconciled = self.store.reconcile_enrolling_roles()
+        role = next(entry for entry in reconciled["roles"]
+                    if entry["role"] == "interrupted")
+        self.assertEqual(role["state"], "active")
+        self.assertEqual(reconciled["generation"], 3)
+        opened = self.store.open_role_file("interrupted", "main")
+        try:
+            self.assertEqual(fd_identity(opened), database_identity)
+        finally:
+            os.close(opened)
+
+    def test_manifest_rejects_new_role_that_skips_enrolling_state(self):
+        import json
+        self.store.initialize(self.data(1))
+        current = self.store.load()
+        candidate = json.loads(_canonical_json(current))
+        candidate["generation"] += 1
+        candidate["roles"].append({
+            "role": "bypass",
+            "parentComponents": current["roles"][0]["parentComponents"],
+            "parentIdentities": current["roles"][0]["parentIdentities"],
+            "databaseBasename": "core.sqlite",
+            "databaseIdentity": current["roles"][0]["databaseIdentity"],
+            "state": "active",
+            "sidecars": [],
+        })
+        with self.assertRaisesRegex(StoreError, "empty enrolling"):
+            self.store.commit(_canonical_json(candidate))
+
     def test_broker_first_enrollment_never_adopts_existing_database(self):
         self.store.initialize(self.data(1))
         parent = self.role_parent / "existing-data"
