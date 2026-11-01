@@ -143,12 +143,14 @@ The first independent review of PR #845 found that identifier-only Core query au
 - authorizeCandidate() rejects a revoked grant as MEMORY_RECORD_ACCESS_REVOKED and rejects a changed generation as MEMORY_AUTHORIZATION_CHANGED; it cannot reinterpret a previously retrieved row as an ordinary filtered denial.
 - Existing Provider callers that start a fresh direct authorization without a retrieval snapshot remain compatible; the Core consumer always supplies the captured generation.
 - tests/memory-provider-core-integration.test.js covers revoke strictly after retrieveCandidates() returns but before the first record authorization, plus cross-connection revoke → re-grant using a second file-backed Provider connection. Both cases must be non-ready, never ready-empty.
+- The same integration suite checks that damaged Provider index schema is reported as unavailable rather than empty; existing restart coverage still requires reconciliation before retrieval resumes.
 - The multi-record race now rejects the complete candidate set if one previously retrieved record is revoked during another record's authorization. It does not silently return a partial disclosure.
 
 ### Provider exposure boundary
 
 - The adapter no longer returns the raw SQLiteMemoryProvider.
 - The factory exposes only a narrow ingestion/grant administration facade (putRecord, grantQuery, grantRecord, revokeRecord); retrieval and per-record authorization remain private inside MemoryNpcConsumer.
+- Host code receives a separate consumer facade with only retrieveForNpc() and revalidateForFinalDispatch(); Core services and the raw consumer instance remain inside the factory closure.
 - The consumer stores the real Provider in a JavaScript private field and freezes its public instance surface.
 - The adapter test asserts that raw retrieval/authorization methods and a public consumer.memoryProvider reference are absent.
 
