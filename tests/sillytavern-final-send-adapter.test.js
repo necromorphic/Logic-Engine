@@ -35,6 +35,9 @@ test('adapter maps every pinned SillyTavern sender key to the Gateway sender reg
   for (const source of Object.values(sources)) {
     assert.equal(adapter.resolveSenderRoute({ body: { chat_completion_source: source } }) !== '', true);
   }
+  assert.throws(() => adapter.resolveSenderRoute({
+    body: { chat_completion_source: 'cometapi' },
+  }), /MEMORY_DISPATCH_NOT_READY/);
 });
 
 test('adapter sends exact native transport through Core Gateway for protected context', async () => {
