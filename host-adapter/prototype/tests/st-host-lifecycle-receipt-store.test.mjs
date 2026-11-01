@@ -44,6 +44,7 @@ const directories = {
   chats: join(receiptTestRoot, 'chats'),
   groups: join(receiptTestRoot, 'groups'),
   groupChats: join(receiptTestRoot, 'groupChats'),
+  backups: join(receiptTestRoot, 'backups'),
 };
 const scope = overrides => ({
   host_installation_id: INSTALLATION,
@@ -82,7 +83,11 @@ function inventory(state) {
     path: 'characters/alice.png',
     identity: { dev: '1', ino: '303', mode: 33188, size: 12, mtimeMs: 1, ctimeMs: 1 },
     sha256: digest(state.extraFile),
-  }] : [])];
+  }] : []), ...(state.backups ?? []).map((backup, index) => ({
+    path: 'backups/' + backup.name,
+    identity: { dev: '1', ino: String(400 + index), mode: 33188, size: 100, mtimeMs: index + 1, ctimeMs: 1 },
+    sha256: digest(backup.content),
+  }))];
   return {
     filesystem: { status: 'complete', entries },
     source: {
@@ -159,6 +164,57 @@ test('server receipt store survives restart and exact terminal retry returns the
   assert.equal(replay.status, 'duplicate');
   assert.equal(replay.receipt_digest, first.receipt_digest);
   assert.equal(replay.occurred_at, first.occurred_at);
+});
+
+test('server receipt store accepts only additive backups that exactly match the persisted post-state', async t => {
+  const before = {
+    fileIdentity: '101', content: 'before', messages: [message('m1', 'old', 'v1')],
+    backups: [{ name: 'chat_previous.jsonl', content: 'older-backup' }],
+  };
+  const after = {
+    fileIdentity: '102', content: 'after', messages: [
+      message('m1', 'old', 'v1'), message('m2', 'new', 'v2'),
+    ],
+    backups: [
+      { name: 'chat_previous.jsonl', content: 'older-backup' },
+      { name: 'chat_20261101.jsonl', content: 'after' },
+    ],
+  };
+  const f = fixture(t, [before, after]);
+  const prepared = await f.store.prepare(scope(), directories);
+  assert.equal(prepared.status, 'appended');
+  const committed = await f.store.commit(scope({
+    event_id: TERMINAL_EVENT, prepared_event_id: PREPARED_EVENT,
+    occurred_at: '2026-10-31T00:00:01.000Z',
+  }), directories);
+  assert.equal(committed.status, 'appended');
+  assert.equal(committed.receipt_digest.length, 64);
+
+  const changedPriorBackup = fixture(t, [before, {
+    ...after,
+    backups: [
+      { name: 'chat_previous.jsonl', content: 'tampered-backup' },
+      { name: 'chat_20261101.jsonl', content: 'after' },
+    ],
+  }]);
+  await changedPriorBackup.store.prepare(scope(), directories);
+  await assert.rejects(changedPriorBackup.store.commit(scope({
+    event_id: TERMINAL_EVENT, prepared_event_id: PREPARED_EVENT,
+    occurred_at: '2026-10-31T00:00:01.000Z',
+  }), directories), /HOST_LIFECYCLE_RECEIPT_PERSISTED_STATE_MISMATCH/);
+
+  const mismatchedBackup = fixture(t, [before, {
+    ...after,
+    backups: [
+      { name: 'chat_previous.jsonl', content: 'older-backup' },
+      { name: 'chat_20261101.jsonl', content: 'not-the-post-state' },
+    ],
+  }]);
+  await mismatchedBackup.store.prepare(scope(), directories);
+  await assert.rejects(mismatchedBackup.store.commit(scope({
+    event_id: TERMINAL_EVENT, prepared_event_id: PREPARED_EVENT,
+    occurred_at: '2026-10-31T00:00:01.000Z',
+  }), directories), /HOST_LIFECYCLE_RECEIPT_PERSISTED_STATE_MISMATCH/);
 });
 
 test('server receipt store rejects unrelated root drift and an invalid logical transition', async t => {
