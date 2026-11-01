@@ -791,3 +791,45 @@ test('file-backed Provider restart requires reconciliation before retrieval resu
   assert.equal(recovered.records_checked, 1);
   assert.equal((await reopened.retrieveCandidates(s.scope)).completeness, 'complete');
 });
+
+test('record authorization generation survives Provider restart and reconciliation', async (t) => {
+  const s = setup(t);
+  assert.equal((await s.prepare()).status, 'current');
+  const initial = await s.provider.retrieveCandidates(s.scope);
+  assert.equal(initial.candidates.length, 1);
+  const oldGeneration = initial.candidates[0].authorization_generation;
+
+  s.provider.revokeRecord(s.scope, 'memory:record-a', 'record-v1');
+  s.provider.grantRecord(s.scope, 'memory:record-a', 'record-v1', true);
+  const persistedGrant = s.db.prepare(`SELECT authorization_generation FROM memory_record_grants
+    WHERE world_id=? AND subject_id=? AND purpose=? AND record_ref=? AND record_version=?`)
+    .get(s.scope.world_id, s.scope.subject_id, s.scope.purpose, 'memory:record-a', 'record-v1');
+  assert.equal(persistedGrant.authorization_generation, oldGeneration + 2);
+
+  const reopened = s.reopenProvider();
+  assert.equal(reopened.getIndexStatusForDiagnostics(s.scope.world_id).source_reconciliation, 'stale');
+  await assert.rejects(() => reopened.retrieveCandidates(s.scope), /MEMORY_INDEX_NOT_READY/);
+  await reopened.rebuildIndex(s.scope.world_id);
+  assert.equal((await reopened.reconcile(s.scope.world_id)).status, 'current');
+
+  const afterRestart = await reopened.retrieveCandidates(s.scope);
+  assert.equal(afterRestart.candidates.length, 1);
+  assert.equal(afterRestart.candidates[0].authorization_generation, oldGeneration + 2);
+  const candidate = afterRestart.candidates[0];
+  await assert.rejects(() => reopened.authorizeCandidate({
+    ...s.scope,
+    record_ref: candidate.record.ref,
+    record_version: candidate.record.version,
+    source_kind: candidate.source.kind,
+    source_entity_id: candidate.source.entity_id,
+    authorization_generation: oldGeneration,
+  }), /MEMORY_AUTHORIZATION_CHANGED/);
+  assert.equal(await reopened.authorizeCandidate({
+    ...s.scope,
+    record_ref: candidate.record.ref,
+    record_version: candidate.record.version,
+    source_kind: candidate.source.kind,
+    source_entity_id: candidate.source.entity_id,
+    authorization_generation: candidate.authorization_generation,
+  }), true);
+});
