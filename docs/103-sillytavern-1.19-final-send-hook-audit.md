@@ -3,7 +3,7 @@
 **Audit date:** 2026-11-01  
 **Pinned release:** user-supplied `SillyTavern-release.zip` (package release 1.19.0)  
 **Logic-Engine Gateway under audit:** `44e4dcac66a8325c17f0298d9a4a0c254b25d2db`  
-**Constraint:** no SillyTavern source modification and no replacement of its configured provider.
+**Historical constraint at audit time:** no SillyTavern source modification and no replacement of its configured provider. On 2026-11-01 the owner explicitly authorized a managed local source-level patch of the installed SillyTavern tree while keeping upstream unchanged. The audit's native-hook findings remain valid; PR #844 now implements the approved local patch path.
 
 ## Decision
 
