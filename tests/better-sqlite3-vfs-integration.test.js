@@ -87,7 +87,6 @@ test('stock better-sqlite3 uses the registered default VFS in its own engine', {
     const quarantinePath = path.join(directory, '.logic-engine-vfs-quarantine');
     assert.deepEqual(fs.readdirSync(quarantinePath), [],
       'a successfully restored mismatch must not leave an orphaned quarantine entry');
-    db.exec('ROLLBACK');
     assert.equal(db.pragma('journal_mode = WAL', { simple: true }), 'wal');
     db.prepare('INSERT INTO vfs_probe (value) VALUES (?)').run('same-engine');
     assert.ok(
