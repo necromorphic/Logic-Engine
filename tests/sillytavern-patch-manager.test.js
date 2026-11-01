@@ -83,6 +83,27 @@ test('Patch Manager performs preflight, backup, apply, verify and uninstall', as
   assert.equal(await readFile(join(stRoot, 'src/host.js'), 'utf8'), original);
 });
 
+test('read-only deployment inspection verifies installed files and every pinned backup', async (t) => {
+  const { manager, stRoot } = await fixture(t);
+  await manager.execute('install');
+  const result = await manager.inspectInstalledReadOnly();
+  assert.equal(result.status, 'INSTALLED_AND_BACKUPS_VERIFIED');
+  assert.equal(result.verifiedBackupCount, 1);
+
+  const backup = join(stRoot, '.logic-engine-patch-manager', 'backups',
+    JSON.parse(await readFile(join(stRoot, '.logic-engine-patch-manager', 'state.json'), 'utf8')).backupId,
+    'src/host.js');
+  await writeFile(backup, 'tampered backup\\n');
+  await assert.rejects(manager.inspectInstalledReadOnly(), /PATCH_MANAGER_BACKUP_INTEGRITY_MISMATCH/);
+});
+
+test('read-only deployment inspection refuses an ambiguous transaction journal', async (t) => {
+  const { manager, stRoot } = await fixture(t);
+  await manager.execute('install');
+  await writeFile(join(stRoot, '.logic-engine-patch-manager', 'transaction.json'), JSON.stringify({ phase: 'APPLYING' }));
+  assert.equal((await manager.inspectInstalledReadOnly()).status, 'AMBIGUOUS_TRANSACTION');
+});
+
 test('Patch Manager refuses user edits and preserves the conflicting file on rollback', async (t) => {
   const { manager, stRoot } = await fixture(t);
   await manager.execute('install');
