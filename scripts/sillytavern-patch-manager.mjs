@@ -283,6 +283,35 @@ export class SillyTavernPatchManager {
     };
   }
 
+  async normalizePatchTargetsForApply() {
+    for (const [relativePath, expected] of Object.entries(this.manifest.sourceFiles)) {
+      if (typeof expected === 'string') continue;
+      const target = await assertRegularFile(this.stRoot, relativePath);
+      const bytes = await readFile(target);
+      if (!isUtf8(bytes)) throw new Error('SILLYTAVERN_SOURCE_ENCODING_INVALID: ' + relativePath);
+      const normalized = bytes.toString('utf8').replace(/\r\n/g, '\n');
+      await writeFile(target, normalized, 'utf8');
+    }
+  }
+
+  async restorePatchTargetLineEndings() {
+    for (const [relativePath, expected] of Object.entries(this.manifest.sourceFiles)) {
+      if (typeof expected === 'string') continue;
+      const backupInfo = this._activeInstallBackups?.[relativePath];
+      if (!backupInfo) throw new Error('PATCH_BACKUP_RECORD_MISSING: ' + relativePath);
+      const backup = resolve(this.managerDir, backupInfo.backupPath);
+      const originalBytes = await readFile(backup);
+      if (!isUtf8(originalBytes)) throw new Error('PATCH_BACKUP_ENCODING_INVALID: ' + relativePath);
+      const hadCrLf = originalBytes.toString('utf8').includes('\r\n');
+      if (!hadCrLf) continue;
+      const target = await assertRegularFile(this.stRoot, relativePath);
+      const currentBytes = await readFile(target);
+      if (!isUtf8(currentBytes)) throw new Error('SILLYTAVERN_SOURCE_ENCODING_INVALID: ' + relativePath);
+      const restored = currentBytes.toString('utf8').replace(/\r\n/g, '\n').replace(/\n/g, '\r\n');
+      await writeFile(target, restored, 'utf8');
+    }
+  }
+
   async preflight() {
     await this.initialize();
     await this.verifyBaseline();
@@ -331,8 +360,11 @@ export class SillyTavernPatchManager {
     await this.writeJournal(journal);
     journal.phase = 'APPLYING';
     await this.writeJournal(journal);
+    this._activeInstallBackups = backups;
     try {
+      await this.normalizePatchTargetsForApply();
       this.runGit(['apply', '--ignore-whitespace', this.patchPath], this.stRoot);
+      await this.restorePatchTargetLineEndings();
       await this.verifyInstalled();
       const installed = {
         manifestId: this.manifest.id,
@@ -350,6 +382,7 @@ export class SillyTavernPatchManager {
       };
       await atomicWrite(this.statePath, JSON.stringify(installed, null, 2) + '\n');
       await rm(this.journalPath, { force: true });
+      this._activeInstallBackups = null;
       return { status: 'INSTALLED', patchVersion: this.manifest.patch.version };
     } catch (error) {
       await this.restoreJournal(journal);
