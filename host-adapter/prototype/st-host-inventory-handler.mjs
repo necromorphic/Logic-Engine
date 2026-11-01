@@ -38,7 +38,7 @@ export function createHostInventoryHandler({
   return async function hostInventoryHandler(request, response) {
     response.set('Cache-Control', 'no-store, private');
     response.set('Vary', 'Cookie');
-    const identity = getAuthenticatedHostIdentity(request);
+    const identity = getAuthenticatedHostIdentity(request, { requireDirectories: true });
     if (!identity) return response.sendStatus(403);
 
     const { userHandle, session, directories } = identity;
