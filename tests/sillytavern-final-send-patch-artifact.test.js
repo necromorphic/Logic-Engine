@@ -37,7 +37,10 @@ test('patch manifest includes source identity checks for every separately routed
     'src/constants.js',
     'src/util.js',
   ]) {
-    assert.match(manifest.sourceFiles[path], /^[a-f0-9]{64}$/);
+    const pin = manifest.sourceFiles[path];
+    const before = typeof pin === 'string' ? pin : pin?.before;
+    assert.match(before, /^[a-f0-9]{64}$/);
+    if (typeof pin === 'object') assert.match(pin.after, /^[a-f0-9]{64}$/);
   }
 });
 
