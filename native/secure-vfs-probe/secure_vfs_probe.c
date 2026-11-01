@@ -681,6 +681,7 @@ static HANDLE WINAPI probe_create_file_w(
     wchar_t *relative_name;
     ULONG disposition, options, native_attributes;
     ACCESS_MASK desired_access = (ACCESS_MASK)access;
+    LogicEngineWinFileIdentity expected_sidecar;
     const LogicEngineWinFileIdentity *expected =
       main_role_open ? &role->identity : NULL;
     if (security || template_file
@@ -694,6 +695,17 @@ static HANDLE WINAPI probe_create_file_w(
     if (!relative_name) {
       SetLastError(ERROR_NOT_ENOUGH_MEMORY);
       return INVALID_HANDLE_VALUE;
+    }
+    if (is_sidecar && role->manifest_bound) {
+      if (!probe_win_sidecar_identity_lookup(role_index, suffix, &expected_sidecar)) {
+        sqlite3_free(relative_name);
+        SetLastError(ERROR_ACCESS_DENIED);
+        return INVALID_HANDLE_VALUE;
+      }
+      expected = &expected_sidecar;
+      /* A manifest-bound active sidecar must already exist; never create a
+         replacement before a durable manifest generation authorizes it. */
+      disposition = FILE_OPEN;
     }
     /*
      * Keep protected handles rename-compatible. SQLite's Windows VFS may omit
