@@ -202,7 +202,9 @@ class ManifestStoreTests(unittest.TestCase):
 
     def test_broker_first_enrollment_creates_and_commits_main_role(self):
         import json
-        self.store.initialize(self.data(1))
+        initial = json.loads(self.data(1))
+        initial["roles"] = []
+        self.store.initialize(_canonical_json(initial))
         parent = self.role_parent / "vectors-data"
         parent.mkdir(mode=0o700)
         os.chmod(parent, 0o700)
