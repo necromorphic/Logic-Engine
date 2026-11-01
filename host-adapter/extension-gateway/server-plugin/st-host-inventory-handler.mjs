@@ -265,10 +265,14 @@ export function createHostBulkMutationGuard({
   };
 }
 
-export function createHostIdentityHandler({ identityStore }) {
+export function createHostIdentityHandler({
+  identityStore,
+  getDataRoot = () => globalThis.DATA_ROOT,
+}) {
   if (!identityStore || typeof identityStore.resolveAuthenticatedAccount !== 'function'
-    || typeof identityStore.assertOutsideRoot !== 'function') {
-    throw new TypeError('A server-owned Host identity store with root-isolation checks is required.');
+    || typeof identityStore.assertOutsideRoot !== 'function'
+    || typeof getDataRoot !== 'function') {
+    throw new TypeError('A server-owned Host identity store and trusted SillyTavern data-root resolver are required.');
   }
   return async function hostIdentityHandler(request, response) {
     response.set('Cache-Control', 'no-store, private');
@@ -283,11 +287,11 @@ export function createHostIdentityHandler({ identityStore }) {
       return response.sendStatus(403);
     }
     try {
-      const root = request?.user?.directories?.root;
-      if (typeof root !== 'string' || !path.isAbsolute(root)) {
+      const dataRoot = getDataRoot();
+      if (typeof dataRoot !== 'string' || !path.isAbsolute(dataRoot)) {
         return response.status(503).json({ status: 'NON_READY', code: 'HOST_IDENTITY_DATA_ROOT_UNAVAILABLE' });
       }
-      await identityStore.assertOutsideRoot(root);
+      await identityStore.assertOutsideRoot(dataRoot);
       const identity = await identityStore.resolveAuthenticatedAccount(userHandle);
       return response.status(200).json({ ...identity, host_session_id: session.logicEngineSessionId });
     } catch {
