@@ -1,0 +1,34 @@
+[Unit]
+Description=Logic-Engine POSIX SQLite namespace broker
+After=local-fs.target
+Before=logic-engine.service
+RequiresMountsFor=/var/lib/logic-engine-broker /run/logic-engine-sqlite-broker
+
+[Service]
+Type=simple
+User=logic-engine-broker
+Group=logic-engine-app
+WorkingDirectory=/opt/logic-engine/native/posix-namespace-broker
+EnvironmentFile=/etc/logic-engine/sqlite-broker.env
+StateDirectory=logic-engine-broker/manifest logic-engine-broker/anchor
+StateDirectoryMode=0700
+RuntimeDirectory=logic-engine-sqlite-broker
+RuntimeDirectoryMode=0710
+ExecStart=/usr/bin/python3 /opt/logic-engine/native/posix-namespace-broker/broker_daemon.py --socket /run/logic-engine-sqlite-broker/broker.sock --manifest-root /var/lib/logic-engine-broker/manifest --anchor-root /var/lib/logic-engine-broker/anchor --app-uid=${LOGIC_ENGINE_APP_UID} --app-gid=${LOGIC_ENGINE_APP_GID}
+Restart=on-failure
+RestartSec=3
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+ReadWritePaths=/var/lib/logic-engine-broker /run/logic-engine-sqlite-broker
+
+[Install]
+WantedBy=multi-user.target
