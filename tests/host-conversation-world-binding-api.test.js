@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { SQLiteStore } from '../src/storage/sqlite-store.js';
 import { LogicEngine } from '../src/application/engine.js';
+import { ActorBindingService } from '../src/application/actor-bindings.js';
 import { createApiServer } from '../src/api/server.js';
 import { HostVersionDigestLedger } from '../src/application/host-version-digest-ledger.js';
 
@@ -34,6 +35,18 @@ async function setup(t) {
     world_id: 'host-binding-world-b', world_pack_id: 'test.host-binding', world_pack_version: '1',
     game_time: '2026-01-01T00:00:00Z',
   });
+  engine.commitEvent('host-binding-world-a', {
+    idempotency_key: 'seed-host-binding-actors',
+    turn_id: 'seed-host-binding-actors',
+    event_type: 'action.completed',
+    expected_revision: 0,
+    effects: [
+      { kind: 'entity.create', entity_id: 'host-binding-actor-a', entity_type: 'character' },
+      { kind: 'entity.create', entity_id: 'host-binding-actor-b', entity_type: 'character' },
+    ],
+  });
+  const actorBindings = new ActorBindingService(engine);
+  actorBindings.bind('host-binding-world-a', 'adapter-a', 'host-binding-actor-a');
   const server = createApiServer({
     engine, token: TOKEN, adminToken: ADMIN,
     adapterTokens: { 'adapter-a': ADAPTER_A, 'adapter-b': ADAPTER_B },
@@ -79,6 +92,20 @@ test('Core binding API requires admin to assign and authenticated adapter to res
   });
   assert.equal(resolved.status, 200);
   assert.equal((await resolved.json()).binding.world_id, 'host-binding-world-a');
+
+  const trustedContext = await fetch(base + '/v1/host-context/resolve', {
+    method: 'POST',
+    headers: { ...headers, 'x-adapter-id': 'adapter-a', 'x-adapter-token': ADAPTER_A },
+    body: json({ conversation_id: 'stable-chat-id' }),
+  });
+  assert.equal(trustedContext.status, 200);
+  assert.deepEqual((await trustedContext.json()).context, {
+    adapter_id: 'adapter-a',
+    conversation_id: 'stable-chat-id',
+    world_id: 'host-binding-world-a',
+    actor_id: 'host-binding-actor-a',
+    actor_type: 'character',
+  });
 
   const wrongAdapter = await fetch(path + '/resolve', {
     method: 'POST',
@@ -178,4 +205,34 @@ test('Host digest capture requires Core binding and accepts no raw text or calle
   });
   assert.equal(conflict.status, 409);
   assert.equal((await conflict.json()).inventory_status, 'NON_READY');
+});
+
+test('Core Host context resolution fails closed for missing or ambiguous actor bindings', async (t) => {
+  const base = await setup(t);
+  const adminHeaders = { ...headers, 'x-admin-token': ADMIN };
+  const adapterHeaders = { ...headers, 'x-adapter-id': 'adapter-a', 'x-adapter-token': ADAPTER_A };
+  const bindingPath = base + '/v1/host-conversation-bindings';
+  await fetch(bindingPath, {
+    method: 'POST',
+    headers: adminHeaders,
+    body: json({ adapter_id: 'adapter-a', conversation_id: 'stable-chat-id', world_id: 'host-binding-world-a' }),
+  });
+
+  const before = await fetch(base + '/v1/host-context/resolve', {
+    method: 'POST', headers: adapterHeaders, body: json({ conversation_id: 'stable-chat-id' }),
+  });
+  assert.equal(before.status, 200);
+  assert.equal((await before.json()).context.actor_id, 'host-binding-actor-a');
+
+  const extraActor = await fetch(base + '/v1/worlds/host-binding-world-a/actor-bindings', {
+    method: 'POST', headers: adminHeaders,
+    body: json({ adapter_id: 'adapter-a', entity_id: 'host-binding-actor-b' }),
+  });
+  assert.equal(extraActor.status, 201);
+
+  const ambiguous = await fetch(base + '/v1/host-context/resolve', {
+    method: 'POST', headers: adapterHeaders, body: json({ conversation_id: 'stable-chat-id' }),
+  });
+  assert.equal(ambiguous.status, 403);
+  assert.equal((await ambiguous.json()).error.code, 'ACTOR_BINDING_AMBIGUOUS');
 });
