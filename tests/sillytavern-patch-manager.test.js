@@ -309,7 +309,7 @@ test('Patch Manager verifies exact new Extension files even when the ST worktree
   git(st, ['init', '-q']);
   git(st, ['config', 'user.email', 'test@example.invalid']);
   git(st, ['config', 'user.name', 'Patch Manager Test']);
-  writeFileSync(join(st, '.gitignore'), 'public/scripts/extensions/third-party/\\n');
+  writeFileSync(join(st, '.gitignore'), 'public/scripts/extensions/third-party/\n');
   git(st, ['add', '.gitignore']);
   git(st, ['commit', '-qm', 'base']);
   const targetCommit = git(st, ['rev-parse', 'HEAD']);
@@ -321,7 +321,7 @@ test('Patch Manager verifies exact new Extension files even when the ST worktree
     '@@ -0,0 +1 @@',
     '+installed',
     '',
-  ].join('\\n');
+  ].join('\n');
   writeFileSync(join(packageDir, 'extension.patch'), patchText);
   const bytes = readFileSync(join(packageDir, 'extension.patch'));
   const manifestPath = join(packageDir, 'manifest.json');
@@ -344,5 +344,5 @@ test('Patch Manager verifies exact new Extension files even when the ST worktree
     'ROLLED_BACK',
   );
   assert.equal(inspectSillyTavernPatchTarget(st).clean, true);
-  assert.equal(readFileSync(join(st, '.gitignore'), 'utf8'), 'public/scripts/extensions/third-party/\\n');
+  assert.equal(readFileSync(join(st, '.gitignore'), 'utf8'), 'public/scripts/extensions/third-party/\n');
 });
