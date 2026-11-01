@@ -30,6 +30,24 @@ async function atomicWrite(path, content) {
   await rename(temp, path);
 }
 
+async function assertNoSymlinkComponents(root, target) {
+  if (!isWithin(root, target)) throw new Error('PATCH_PATH_ESCAPE: ' + target);
+  const rel = relative(root, target);
+  let current = root;
+  const parts = rel ? rel.split(sep) : [];
+  for (let index = 0; index < parts.length; index += 1) {
+    current = resolve(current, parts[index]);
+    const info = await lstat(current).catch((error) => {
+      if (error.code === 'ENOENT') return null;
+      throw error;
+    });
+    if (info?.isSymbolicLink()) throw new Error('PATCH_SYMLINK_PATH_DENIED: ' + current);
+    if (info && index < parts.length - 1 && !info.isDirectory()) {
+      throw new Error('PATCH_PATH_COMPONENT_NOT_DIRECTORY: ' + current);
+    }
+  }
+}
+
 async function ensureSafeDirectory(path) {
   const info = await lstat(path).catch((error) => {
     if (error.code !== 'ENOENT') throw error;
@@ -43,7 +61,7 @@ async function ensureSafeDirectory(path) {
 
 async function assertRegularFile(root, relativePath) {
   const target = resolve(root, relativePath);
-  if (!isWithin(root, target)) throw new Error('PATCH_PATH_ESCAPE: ' + relativePath);
+  await assertNoSymlinkComponents(root, target);
   const info = await lstat(target);
   if (info.isSymbolicLink() || !info.isFile()) throw new Error('PATCH_TARGET_NOT_REGULAR_FILE: ' + relativePath);
   return target;
@@ -87,6 +105,7 @@ export class SillyTavernPatchManager {
   }
 
   async withLock(operation) {
+    await assertNoSymlinkComponents(this.stRoot, this.managerDir);
     await ensureSafeDirectory(this.managerDir);
     let handle;
     try {
@@ -121,7 +140,10 @@ export class SillyTavernPatchManager {
   }
 
   async readState() {
+    await assertNoSymlinkComponents(this.stRoot, this.statePath);
     if (!await exists(this.statePath)) return null;
+    const stateInfo = await lstat(this.statePath);
+    if (stateInfo.isSymbolicLink() || !stateInfo.isFile()) throw new Error('PATCH_MANAGER_STATE_UNSAFE');
     const state = JSON.parse(await readFile(this.statePath, 'utf8'));
     if (state.manifestId !== this.manifest.id) throw new Error('PATCH_MANAGER_STATE_ID_MISMATCH');
     return state;
@@ -132,7 +154,10 @@ export class SillyTavernPatchManager {
   }
 
   async readJournal() {
+    await assertNoSymlinkComponents(this.stRoot, this.journalPath);
     if (!await exists(this.journalPath)) return null;
+    const journalInfo = await lstat(this.journalPath);
+    if (journalInfo.isSymbolicLink() || !journalInfo.isFile()) throw new Error('PATCH_MANAGER_JOURNAL_UNSAFE');
     return JSON.parse(await readFile(this.journalPath, 'utf8'));
   }
 
@@ -179,6 +204,7 @@ export class SillyTavernPatchManager {
     this.runGit(['apply', '--check', this.patchPath], this.stRoot);
 
     await mkdir(this.backupsRoot, { recursive: true });
+    await assertNoSymlinkComponents(this.stRoot, this.backupsRoot);
     const backupRootInfo = await lstat(this.backupsRoot);
     if (backupRootInfo.isSymbolicLink() || !backupRootInfo.isDirectory()) {
       throw new Error('PATCH_MANAGER_BACKUP_DIRECTORY_UNSAFE');
@@ -251,6 +277,7 @@ export class SillyTavernPatchManager {
     }
     for (const [relativePath, backupInfo] of Object.entries(journal.backups ?? {})) {
       const backup = resolve(this.managerDir, backupInfo.backupPath);
+      await assertNoSymlinkComponents(this.managerDir, backup);
       const backupInfoStat = await lstat(backup);
       if (backupInfoStat.isSymbolicLink() || !backupInfoStat.isFile()) {
         throw new Error('PATCH_BACKUP_INTEGRITY_INVALID: ' + relativePath);
