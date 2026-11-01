@@ -116,6 +116,13 @@ export async function init(router) {
     hook.registerLogicEngineFinalSendAdapter(registeredAdapter, PLUGIN_OWNER);
     registeredHook = hook;
   } catch (error) {
+    try {
+      const { restoreFinalSendPatch } = await import('./host-adapter/patch-manager/manager.mjs');
+      await restoreFinalSendPatch({ hostRoot, stateRoot: PATCH_STATE });
+    } catch {
+      // A drifted patch is never overwritten during rollback. The Host remains
+      // fail-closed and Patch Manager status will report the unresolved state.
+    }
     throw error;
   }
 
