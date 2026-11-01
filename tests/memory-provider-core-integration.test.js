@@ -943,12 +943,26 @@ test('P1 recovery: revoke, restart, then re-grant preserves generation and rejec
     () => reopened.retrieveCandidates(s.scope),
     (error) => error.message === 'MEMORY_INDEX_NOT_READY',
   );
+  const reopenedConsumer = s.createConsumer(reopened);
+  const restartFailure = await reopenedConsumer.retrieveForNpc({
+    worldId: s.scope.world_id,
+    actorEntityId: s.scope.subject_id,
+    conversationId: HOST_CONVERSATION_ID,
+  });
+  assertRecoveryFailureDoesNotDisclose(restartFailure, 'memory_index_stale');
+
   await reopened.rebuildIndex(s.scope.world_id);
   assert.equal((await reopened.reconcile(s.scope.world_id)).status, 'current');
   await assert.rejects(
     () => reopened.retrieveCandidates(s.scope),
     (error) => error.message === 'MEMORY_RECORDS_WITHHELD',
   );
+  const revokedFailure = await reopenedConsumer.retrieveForNpc({
+    worldId: s.scope.world_id,
+    actorEntityId: s.scope.subject_id,
+    conversationId: HOST_CONVERSATION_ID,
+  });
+  assertRecoveryFailureDoesNotDisclose(revokedFailure, 'memory_records_withheld');
 
   reopened.grantRecord(s.scope, oldCandidate.record.ref, oldCandidate.record.version, true);
   await reopened.rebuildIndex(s.scope.world_id);
