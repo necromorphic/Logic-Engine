@@ -2342,6 +2342,17 @@ static int probe_xSetSystemCall(sqlite3_vfs *vfs, const char *name, sqlite3_sysc
 }
 static sqlite3_syscall_ptr probe_xGetSystemCall(sqlite3_vfs *vfs, const char *name) {
   sqlite3_vfs *p = (sqlite3_vfs *)vfs->pAppData;
+  /*
+   * Do not expose the raw syscalls behind the protected hooks. A caller that
+   * retrieves these function pointers can bypass the VFS interception layer
+   * and perform pathname I/O directly.
+   */
+  if (!name || (g_open_syscall_name && strcmp(name, g_open_syscall_name) == 0)
+      || (g_delete_syscall_name && strcmp(name, g_delete_syscall_name) == 0))
+    return 0;
+#ifndef _WIN32
+  if (strcmp(name, "stat") == 0) return 0;
+#endif
   return p->xGetSystemCall ? p->xGetSystemCall(p, name) : 0;
 }
 static const char *probe_xNextSystemCall(sqlite3_vfs *vfs, const char *name) {
@@ -2352,6 +2363,9 @@ static const char *probe_xNextSystemCall(sqlite3_vfs *vfs, const char *name) {
 static void probe_hook_protection(sqlite3_context *context, int argc, sqlite3_value **argv) {
   int open_rc;
   int reset_all_rc;
+  int hidden_open;
+  int hidden_delete;
+  int hidden_stat = 1;
   int protected_ok;
   (void)argc;
   (void)argv;
@@ -2359,13 +2373,22 @@ static void probe_hook_protection(sqlite3_context *context, int argc, sqlite3_va
     &g_probe_vfs, g_open_syscall_name, g_original_open_syscall
   );
   reset_all_rc = g_probe_vfs.xSetSystemCall(&g_probe_vfs, NULL, NULL);
+  hidden_open = g_probe_vfs.xGetSystemCall(
+    &g_probe_vfs, g_open_syscall_name
+  ) == NULL;
+  hidden_delete = g_probe_vfs.xGetSystemCall(
+    &g_probe_vfs, g_delete_syscall_name
+  ) == NULL;
+#ifndef _WIN32
+  hidden_stat = g_probe_vfs.xGetSystemCall(&g_probe_vfs, "stat") == NULL;
+#endif
 #ifdef _WIN32
   {
     int delete_rc = g_probe_vfs.xSetSystemCall(
       &g_probe_vfs, g_delete_syscall_name, g_original_delete_syscall
     );
     protected_ok = open_rc == SQLITE_PERM && reset_all_rc == SQLITE_PERM
-      && delete_rc == SQLITE_PERM
+      && hidden_open && hidden_delete && delete_rc == SQLITE_PERM
       && g_parent_vfs->xGetSystemCall(g_parent_vfs, g_open_syscall_name)
         == (sqlite3_syscall_ptr)probe_create_file_w
       && g_parent_vfs->xGetSystemCall(g_parent_vfs, g_delete_syscall_name)
@@ -2380,6 +2403,7 @@ static void probe_hook_protection(sqlite3_context *context, int argc, sqlite3_va
       &g_probe_vfs, g_delete_syscall_name, g_original_delete_syscall
     );
     protected_ok = open_rc == SQLITE_PERM && reset_all_rc == SQLITE_PERM
+      && hidden_open && hidden_delete && hidden_stat
       && stat_rc == SQLITE_PERM && unlink_rc == SQLITE_PERM
       && g_parent_vfs->xGetSystemCall(g_parent_vfs, g_open_syscall_name)
         == (sqlite3_syscall_ptr)probe_open
