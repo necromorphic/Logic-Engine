@@ -1,4 +1,5 @@
-import { resolve } from 'node:path';
+import { existsSync, realpathSync, statSync } from 'node:fs';
+import { basename, dirname, resolve } from 'node:path';
 import { ActorBindingService } from './actor-bindings.js';
 import { AuthorizedReadService } from './authorized-read-service.js';
 import {
@@ -9,6 +10,29 @@ import { MemoryNpcConsumer } from './memory-npc-consumer.js';
 import { createHostBoundNpcKnowledgeAuthorizers } from './npc-knowledge-authorization.js';
 import { SQLiteMemoryProvider } from './sqlite-memory-provider.js';
 import { isMechanicPolicyAuthority } from './mechanic-policy-authority.js';
+
+function canonicalFilePath(path) {
+  let candidate = resolve(path);
+  const suffix = [];
+  while (!existsSync(candidate)) {
+    const parent = dirname(candidate);
+    if (parent === candidate) break;
+    suffix.unshift(basename(candidate));
+    candidate = parent;
+  }
+  return resolve(realpathSync(candidate), ...suffix);
+}
+
+function aliasesSameFile(left, right) {
+  const canonicalLeft = canonicalFilePath(left);
+  const canonicalRight = canonicalFilePath(right);
+  if (canonicalLeft === canonicalRight) return true;
+  if (!existsSync(canonicalLeft) || !existsSync(canonicalRight)) return false;
+  const leftStat = statSync(canonicalLeft, { bigint: true });
+  const rightStat = statSync(canonicalRight, { bigint: true });
+  return leftStat.ino !== 0n && rightStat.ino !== 0n
+    && leftStat.dev === rightStat.dev && leftStat.ino === rightStat.ino;
+}
 
 /**
  * Compose the real file-backed SQLite Provider with Core-owned source,
@@ -34,6 +58,12 @@ export function createMemoryNpcProviderAdapter({
   }
   if (typeof providerPath !== 'string' || !providerPath.trim() || providerPath === ':memory:') {
     throw new TypeError('Memory Provider adapter requires a durable file-backed providerPath');
+  }
+  const coreDatabasePath = engine.store.db.prepare('PRAGMA database_list').all()
+    .find((entry) => entry.name === 'main')?.file;
+  if (typeof coreDatabasePath !== 'string' || !coreDatabasePath
+    || aliasesSameFile(providerPath, coreDatabasePath)) {
+    throw new Error('Memory Provider database must be a separate file from Core');
   }
   if (typeof coordinatorPath !== 'string' || !coordinatorPath.trim()) {
     throw new TypeError('Memory Provider adapter requires the shared Core coordinatorPath');
