@@ -91,12 +91,10 @@ export function createProtectedMemoryFinalSend({ gateway, resolveProtectedMemory
       // Calling fetchImpl is the actual transport handoff. This function is
       // deliberately non-async so the handoff happens synchronously under the
       // Gateway's coordinator lease, immediately after DISPATCH_STARTED.
-      const pendingResponse = fetchImpl(endpointUrl, { ...requestInit, body: exactBody });
-      if (!stream) return pendingResponse;
-      return Promise.resolve(pendingResponse).then(async (upstream) => {
-        await forwardResponse(upstream);
-        return { status: upstream.status };
-      });
+      // Return the upstream response without releasing it to the Host.
+      // Gateway performs FINAL RESPONSE REVALIDATION first, then starts the
+      // streaming write synchronously while holding the shared Coordinator.
+      return fetchImpl(endpointUrl, { ...requestInit, body: exactBody });
     };
 
     return gateway.dispatchProtectedRequest({
