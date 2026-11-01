@@ -11,7 +11,7 @@
 
 A managed local source-level patch of the installed ST distribution through the existing Logic-Engine Patch Manager is authorized. This does not permit a standalone Server Companion, additional API port, Provider URL substitution/relay, direct browser/ST → Core path, or bypass of Core Security Gateway.
 
-**Implementation discrepancy:** the current Patch Manager still rejects all native ST source paths. That code restriction contradicts the approved local-patch authorization and must be corrected in Logic-Engine. Do not claim native source patch installation is implemented until the manager and its tests are updated.
+**Patch Manager update:** the Logic-Engine branch now has a fixed allowlist for exact native integration files plus manifest-declared target paths, with the declared path set recorded in the transaction journal. Focused Patch Manager CI passed. This validates the manager transaction tests, not an actual ST Final-Send patch or runtime integration.
 
 ## 2. Verified upstream source identity
 
