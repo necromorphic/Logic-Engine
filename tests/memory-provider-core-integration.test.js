@@ -10,6 +10,7 @@ import { AuthorizedReadService } from '../src/application/authorized-read-servic
 import { MemoryNpcConsumer } from '../src/application/memory-npc-consumer.js';
 import { createCanonicalEntitySourceVersionValidator, createCanonicalEntityInventoryValidator } from '../src/application/canonical-entity-source-version.js';
 import { SQLiteMemoryProvider } from '../src/application/sqlite-memory-provider.js';
+import { mapMemoryEvidenceToNpcEpistemicStatus } from '../src/npc/epistemic-state.js';
 import { runWithAuthenticatedHostSession } from '../src/application/host-session-context.js';
 
 const HOST_SESSION_ID = '11111111-1111-4111-8111-111111111111';
@@ -23,7 +24,7 @@ const isAuthenticatedHostRequest = request => authenticatedHostRequests.has(requ
 const trustedConversationIds = new WeakMap([[hostRequest, HOST_CONVERSATION_ID]]);
 const resolveHostConversationId = request => trustedConversationIds.get(request) ?? null;
 
-function setup(t, { twoRecords = false, providerPath = null } = {}) {
+function setup(t, { twoRecords = false, providerPath = null, evidenceAssessment = 'unassessed' } = {}) {
   const testDb = createProviderTestDb(t, {
     path: providerPath && providerPath !== ':memory:' ? providerPath : null,
     prefix: 'logic-memory-core-integration-',
@@ -108,7 +109,7 @@ function setup(t, { twoRecords = false, providerPath = null } = {}) {
     epistemic_kind: 'acquired_report',
     producer_kind: 'memory-index',
     content_disposition: 'usable',
-    evidence_assessment: 'unassessed',
+    evidence_assessment: evidenceAssessment,
     lineage: [{ source_kind: 'canonical_entity', entity_id: sourceId, source_version: engine.getSnapshot(worldId, { entityIds: [sourceId], includeSourceVersions: true }).entities[0]?.source_version ?? 'unverifiable' }],
   }));
   for (const record of records) {
@@ -750,4 +751,145 @@ test('file-backed Provider restart requires reconciliation before retrieval resu
   assert.equal(recovered.status, 'current');
   assert.equal(recovered.records_checked, 1);
   assert.equal((await reopened.retrieveCandidates(s.scope)).completeness, 'complete');
+});
+
+
+test('real SQLite Provider preserves evidence classification without promoting retrieved knowledge into belief', async (t) => {
+  const cases = [
+    ['unassessed', null],
+    ['supported', 'unconfirmed_report'],
+    ['disputed', 'unconfirmed_report'],
+    ['insufficient', 'unknown'],
+  ];
+  for (const [assessment, expectedEpistemicStatus] of cases) {
+    await t.test(assessment, async (subtest) => {
+      const s = setup(subtest, { evidenceAssessment: assessment });
+      assert.equal((await s.prepare()).status, 'current', assessment);
+      const result = await s.consumer.retrieveForNpc({
+        worldId: s.scope.world_id,
+        actorEntityId: s.scope.subject_id,
+        conversationId: HOST_CONVERSATION_ID,
+      });
+      assert.equal(result.status, 'ready', assessment);
+      assert.equal(result.candidates.length, 1, assessment);
+      assert.equal(result.candidates[0].evidence_assessment, assessment);
+      assert.equal(
+        mapMemoryEvidenceToNpcEpistemicStatus(result.candidates[0].epistemic_kind, assessment),
+        expectedEpistemicStatus,
+        assessment,
+      );
+      assert.equal(JSON.stringify(result).includes('never disclose'), false);
+    });
+  }
+});
+
+test('Provider revoke during final Core snapshot recheck blocks disclosure', async (t) => {
+  const s = setup(t);
+  assert.equal((await s.prepare()).status, 'current');
+  const originalRead = s.consumer.authorizedReadService.readEntityFields.bind(s.consumer.authorizedReadService);
+  let revoked = false;
+  s.consumer.authorizedReadService.readEntityFields = (input) => {
+    const result = originalRead(input);
+    if (!revoked && input.fields.length === 1 && input.fields[0] === 'entity_id') {
+      revoked = true;
+      s.provider.revokeRecord(s.scope, 'memory:record-a', 'record-v1');
+    }
+    return result;
+  };
+  const result = await s.consumer.retrieveForNpc({
+    worldId: s.scope.world_id,
+    actorEntityId: s.scope.subject_id,
+    conversationId: HOST_CONVERSATION_ID,
+  });
+  assert.equal(revoked, true);
+  assert.equal(result.status, 'non_ready');
+  assert.deepEqual(result.candidates, []);
+  assert.deepEqual(result.admitted, []);
+});
+
+test('legacy file-backed Provider grant table migrates durable authorization generation', (t) => {
+  const db = createProviderTestDb(t, { prefix: 'logic-memory-provider-grant-migration-' });
+  db.db.exec(`CREATE TABLE memory_record_grants (
+    world_id TEXT NOT NULL, subject_id TEXT NOT NULL, purpose TEXT NOT NULL,
+    record_ref TEXT NOT NULL, record_version TEXT NOT NULL,
+    allowed INTEGER NOT NULL CHECK(allowed IN (0,1)),
+    PRIMARY KEY(world_id, subject_id, purpose, record_ref, record_version)
+  )`);
+  db.db.prepare('INSERT INTO memory_record_grants VALUES(?,?,?,?,?,?)')
+    .run('world-a', 'npc-a', 'npc_decision', 'memory:legacy', 'record-v1', 1);
+  const provider = new SQLiteMemoryProvider({
+    path: db.path,
+    coordinatorPath: `${db.path}.coordinator.sqlite`,
+    getSnapshot: async () => ({ world_revision: 0, commit_sequence: 0 }),
+    validateSourceVersion: () => false,
+    validateInventory: () => false,
+  });
+  t.after(() => {
+    provider.close();
+    db.close();
+    db.cleanup();
+  });
+  const migrated = db.db.prepare(`SELECT authorization_generation FROM memory_record_grants
+    WHERE world_id='world-a' AND record_ref='memory:legacy'`).get();
+  assert.equal(migrated.authorization_generation, 1);
+  provider.grantRecord({ world_id: 'world-a', subject_id: 'npc-a', purpose: 'npc_decision' },
+    'memory:legacy', 'record-v1', false);
+  const revoked = db.db.prepare(`SELECT allowed,authorization_generation FROM memory_record_grants
+    WHERE world_id='world-a' AND record_ref='memory:legacy'`).get();
+  assert.equal(revoked.allowed, 0);
+  assert.equal(revoked.authorization_generation, 2);
+});
+
+test('damaged Provider index schema is unavailable and never reported as empty', async (t) => {
+  const s = setup(t);
+  assert.equal((await s.prepare()).status, 'current');
+  s.db.exec('DROP TABLE memory_index_entries');
+  const result = await s.consumer.retrieveForNpc({
+    worldId: s.scope.world_id,
+    actorEntityId: s.scope.subject_id,
+    conversationId: HOST_CONVERSATION_ID,
+  });
+  assert.equal(result.status, 'non_ready');
+  assert.deepEqual(result.candidates, []);
+  assert.deepEqual(result.admitted, []);
+  assert.equal(JSON.stringify(result).includes('visible source-a'), false);
+});
+
+test('record authorization generation survives Provider restart and reconciliation', async (t) => {
+  const s = setup(t);
+  assert.equal((await s.prepare()).status, 'current');
+  const initial = await s.provider.retrieveCandidates(s.scope);
+  assert.equal(initial.candidates.length, 1);
+  const oldGeneration = initial.candidates[0].authorization_generation;
+  s.provider.revokeRecord(s.scope, 'memory:record-a', 'record-v1');
+  s.provider.grantRecord(s.scope, 'memory:record-a', 'record-v1', true);
+  const persistedGrant = s.db.prepare(`SELECT authorization_generation FROM memory_record_grants
+    WHERE world_id=? AND subject_id=? AND purpose=? AND record_ref=? AND record_version=?`)
+    .get(s.scope.world_id, s.scope.subject_id, s.scope.purpose, 'memory:record-a', 'record-v1');
+  assert.equal(persistedGrant.authorization_generation, oldGeneration + 2);
+  const reopened = s.reopenProvider();
+  assert.equal(reopened.getIndexStatusForDiagnostics(s.scope.world_id).source_reconciliation, 'stale');
+  await assert.rejects(() => reopened.retrieveCandidates(s.scope), /MEMORY_INDEX_NOT_READY/);
+  await reopened.rebuildIndex(s.scope.world_id);
+  assert.equal((await reopened.reconcile(s.scope.world_id)).status, 'current');
+  const afterRestart = await reopened.retrieveCandidates(s.scope);
+  assert.equal(afterRestart.candidates.length, 1);
+  assert.equal(afterRestart.candidates[0].authorization_generation, oldGeneration + 2);
+  const candidate = afterRestart.candidates[0];
+  await assert.rejects(() => reopened.authorizeCandidate({
+    ...s.scope,
+    record_ref: candidate.record.ref,
+    record_version: candidate.record.version,
+    source_kind: candidate.source.kind,
+    source_entity_id: candidate.source.entity_id,
+    authorization_generation: oldGeneration,
+  }), /MEMORY_AUTHORIZATION_CHANGED/);
+  assert.equal(await reopened.authorizeCandidate({
+    ...s.scope,
+    record_ref: candidate.record.ref,
+    record_version: candidate.record.version,
+    source_kind: candidate.source.kind,
+    source_entity_id: candidate.source.entity_id,
+    authorization_generation: candidate.authorization_generation,
+  }), true);
 });
