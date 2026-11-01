@@ -82,7 +82,7 @@ test('real ST server middleware -> Host Adapter -> Core HTTP assertion creates a
         authorization: `Bearer ${apiToken}`,
         'content-type': 'application/json',
         'x-adapter-id': adapterId,
-        'x-adapter-token': token,
+        'x-adapter-token': adapterToken,
       },
       body: JSON.stringify(body),
       redirect: 'error',
@@ -186,7 +186,7 @@ test('Core Host assertion nonce remains consumed after Core API restart', async 
         authorization: `Bearer ${apiToken}`,
         'content-type': 'application/json',
         'x-adapter-id': adapterId,
-        'x-adapter-token': adapterToken,
+        'x-adapter-token': token,
       },
       body: JSON.stringify(payload),
     });
