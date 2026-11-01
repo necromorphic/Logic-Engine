@@ -606,8 +606,8 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
     const id = conversationId ?? await getConversationId();
     if (typeof id !== 'string') return { status: 'NON_READY', reason: 'Host conversation identity unavailable' };
     const parts = id.split(':');
-    if (parts.length !== 2 || !parts.every(part => HOST_UUID.test(part))) {
-      return { status: 'NON_READY', reason: 'Host conversation identity is not installation/conversation bound' };
+    if (parts.length !== 3 || !parts.every(part => HOST_UUID.test(part))) {
+      return { status: 'NON_READY', reason: 'Host conversation identity is not installation/account/conversation bound' };
     }
     if (typeof getPersistedInventory !== 'function') {
       return { status: 'NON_READY', reason: 'persisted Host inventory route unavailable' };
