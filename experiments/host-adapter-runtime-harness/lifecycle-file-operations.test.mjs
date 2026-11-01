@@ -376,7 +376,7 @@ test('pinned ST 1.19.0 supported chat mutations persist; rename, group deletion,
   }, ['modified', 'replaced']);
   assert.ok([...edit.result.delta.modified, ...edit.result.delta.replaced].some(entry => entry.path.endsWith('chat-one.jsonl')));
   const editReceipt = await commitReceipt(editReceiptScope);
-  assert.equal(editReceipt.status, 'created');
+  assert.equal(editReceipt.status, 'appended');
   const editedPersisted = (await readFile(chatPath, 'utf8')).trim().split('\n').map(line => JSON.parse(line));
   assert.equal(editedPersisted[1]._logicEngineLifecycle.versions.length, 1);
   assert.equal(editedPersisted[1]._logicEngineLifecycle.versions[0].versionId, 'ffffffff-ffff-4fff-8fff-ffffffffffff');
@@ -415,7 +415,7 @@ test('pinned ST 1.19.0 supported chat mutations persist; rename, group deletion,
   }, ['modified', 'replaced']);
   assert.ok([...swipe.result.delta.modified, ...swipe.result.delta.replaced].some(entry => entry.path.endsWith('chat-one.jsonl')));
   const swipeReceipt = await commitReceipt(swipeReceiptScope);
-  assert.equal(swipeReceipt.status, 'created');
+  assert.equal(swipeReceipt.status, 'appended');
 
   const deleteMessageChat = [
     header(),
@@ -433,7 +433,7 @@ test('pinned ST 1.19.0 supported chat mutations persist; rename, group deletion,
   }, ['modified', 'replaced']);
   assert.ok([...deleteMessage.result.delta.modified, ...deleteMessage.result.delta.replaced].some(entry => entry.path.endsWith('chat-one.jsonl')));
   const deleteMessageReceipt = await commitReceipt(deleteMessageReceiptScope);
-  assert.equal(deleteMessageReceipt.status, 'created');
+  assert.equal(deleteMessageReceipt.status, 'appended');
 
   const exportResult = await observe(async () => {
     const response = await post('/api/chats/export', {
