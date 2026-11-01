@@ -1,6 +1,6 @@
 # Target trust boundaries and SillyTavern extension feasibility
 
-**Status:** target architecture reference; implementation is incomplete.  
+**Status:** historical Extension-only feasibility assessment. Its finding that supported Extension APIs cannot intercept native sends remains valid; the owner subsequently authorized a managed local source-level patch of the installed SillyTavern tree. That authorized path is implemented in PR #844 and supersedes the former prohibition below.  
 **Host baseline inspected:** SillyTavern 1.19.0 release archive; package version 1.19.0.  
 **Logic-Engine baseline:** current-main base used by PR #844, `0c3debcb01946f6f8c94811b192e7277422e990a`.  
 **Related work:** PR #844 (final-send dispatch primitive), PR #845 (Core-authorized real SQLite Memory Provider adapter).  
