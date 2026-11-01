@@ -71,6 +71,20 @@ These are not all conversation mutations, but they can invalidate assumptions ab
 - Startup user/group migrations: `src/users.js:390-530`, `src/endpoints/groups.js:1-110`.
 - Other endpoint files contain filesystem writes/deletes for avatars, assets, files, themes, presets, world info, sprites, vectors, extensions and thumbnails. These should only enter the Host source scope if they can touch a registered conversation root or accepted identity store; path containment must be proven, not assumed.
 
+## 3a. Pinned Gateway patch coverage added on the candidate branch
+
+The candidate now carries a patch for exact ST commit `06bde939fb1e9c4c8d8641d810f0a916b5bce127`. It does not mount a separate Host API route. A private helper import reaches the installed Extension Gateway server plugin, and every browser-facing Host request remains under `/api/plugins/logic-engine-extension-gateway/*`.
+
+The patch now:
+- records message create/send/receive/edit/swipe/delete lifecycle transitions and requires a matching prepared receipt before native chat persistence;
+- applies fail-closed bulk guards to chat/group/character mutations, chat import, backup deletion, Data Maid deletion, settings restore and settings reset;
+- returns 503 for whole-user-root reset and administrator account deletion while Host identity storage is enabled;
+- skips unreceipted startup group metadata migration while Host is enabled; the source scanner reports legacy metadata as a blocker.
+
+Import/restore operations are blocked rather than accepted without receipts. Export remains read-only and is guarded by the browser lifecycle bridge. These are protection boundaries, not proof that every possible extension or filesystem writer is covered.
+
+The Windows pinned-source workflow now installs the exact ST dependencies, applies the patch, checks its changed-file allowlist, and executes the real endpoint/file-operation harness. The current exact-HEAD run has not yet produced a successful runtime result, so this remains pending evidence.
+
 ## 4. Acceptance test matrix still required
 
 For every supported operation above, the real-file harness must capture and compare:
@@ -100,7 +114,7 @@ The branch now includes `host-adapter/prototype/fs-inventory.js`, a standalone f
 
 Tests in `host-adapter/prototype/tests/fs-inventory.test.mjs` cover deterministic enumeration, invalid/missing roots, symlink rejection, out-of-band edits, delete/restore distinction and duplicate file identities.
 
-**Important limitations:** this is a generic single-root filesystem primitive, not a complete SillyTavern enumerator. It does not yet know ST's canonical current/historical/group/backup roots, map files to logical conversation/message/swipe IDs, or reconcile a journal. On Windows it deliberately returns `HOST_INVENTORY_PLATFORM_REPARSE_UNVERIFIED` because this implementation does not independently verify every Windows reparse-point type. It is not wired to Core or used as a READY verifier. A stable double scan is not a substitute for an OS-enforced snapshot/lock against a hostile concurrent writer. No runtime test against a real ST data root has been performed by CI.
+**Important limitations:** this is a generic single-root filesystem primitive, not a complete SillyTavern enumerator. It does not yet know ST's canonical current/historical/group/backup roots, map files to logical conversation/message/swipe IDs, or reconcile a journal. On Windows it deliberately returns `HOST_INVENTORY_PLATFORM_REPARSE_UNVERIFIED` because this implementation does not independently verify every Windows reparse-point type. The server-plugin inventory copy is now wired to Core's root-inventory baseline/observe API, but the Core response remains review-only and the Host refuses to treat it as a READY verifier. A stable double scan is not a substitute for an OS-enforced snapshot/lock against a hostile concurrent writer. A Windows exact-pinned-ST runtime harness is now in CI; until it passes on the exact candidate HEAD, no successful runtime evidence is claimed.
 
 ## 5. READY invariant
 
