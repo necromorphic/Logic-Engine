@@ -205,6 +205,11 @@ test('Core assertion nonce remains consumed after closing and reopening the file
   let store = new SQLiteStore(dbPath);
   let engine = new LogicEngine(store);
   let running = await startServer(store, engine);
+  t.after(async () => {
+    if (running?.server.listening) await new Promise(resolve => running.server.close(resolve));
+    try { store?.close(); } catch {}
+    await rm(directory, { recursive: true, force: true });
+  });
   await seedBindings(store, engine, running.base);
 
   const value = assertion();
@@ -215,6 +220,7 @@ test('Core assertion nonce remains consumed after closing and reopening the file
   assert.equal(first.status, 200);
   await new Promise(resolve => running.server.close(resolve));
   store.close();
+  store = null;
 
   store = new SQLiteStore(dbPath);
   engine = new LogicEngine(store);
@@ -225,9 +231,6 @@ test('Core assertion nonce remains consumed after closing and reopening the file
   assert.equal(replay.status, 403);
   assert.equal((await replay.json()).error.code, 'HOST_CONTEXT_DENIED');
 
-  await new Promise(resolve => running.server.close(resolve));
-  store.close();
-  await rm(directory, { recursive: true, force: true });
 });
 
 test('Core denies malformed assertions and missing adapter authentication', async t => {
