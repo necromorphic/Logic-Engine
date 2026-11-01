@@ -1559,7 +1559,7 @@ def main() -> int:
     parser.add_argument("--anchor-root", required=True)
     parser.add_argument("--app-uid", required=True, type=int,
                         help="application UID; must differ from broker service UID")
-    parser.add_argument("command", choices=("init", "verify", "recovery-plan", "reconcile-absent", "show", "enroll"))
+    parser.add_argument("command", choices=("init", "verify", "recovery-plan", "reconcile-absent", "reconcile-main", "show", "enroll", "disable", "rename", "delete"))
     parser.add_argument("--input", help="manifest JSON for init")
     parser.add_argument("--role", help="logical role name for privileged enrollment")
     parser.add_argument("--parent", help="pre-provisioned broker-owned role directory (0700)")
@@ -1574,6 +1574,28 @@ def main() -> int:
             os.close(fd)
             manifest = store.load()
             print(f"role enrolled: role={args.role} generation={manifest['generation']}")
+            return 0
+        if args.command == "disable":
+            if not args.role:
+                parser.error("disable requires --role; stop all application processes first")
+            manifest = store.disable_role(args.role)
+            print(f"role disabled: role={args.role} generation={manifest['generation']}")
+            return 0
+        if args.command == "rename":
+            if not args.role or not args.basename:
+                parser.error("rename requires --role and --basename; stop all application processes first")
+            manifest = store.rename_role_database(args.role, args.basename)
+            print(f"database renamed: role={args.role} generation={manifest['generation']}")
+            return 0
+        if args.command == "delete":
+            if not args.role:
+                parser.error("delete requires --role; stop all application processes first")
+            manifest = store.delete_role_database(args.role)
+            print(f"database deleted: role={args.role} generation={manifest['generation']}")
+            return 0
+        if args.command == "reconcile-main":
+            manifest = store.reconcile_main_lifecycle()
+            print(f"main lifecycle reconciled: generation={manifest['generation']}")
             return 0
         if args.command == "init":
             if not args.input:
