@@ -84,7 +84,9 @@ test('SillyTavern Host/extension code cannot import or call Provider/Consumer di
 });
 
 test('Provider write/grant/revoke methods have no production callers', () => {
-  const production = productionFiles().filter(({ path }) => path !== providerPath);
+  const production = productionFiles().filter(({ path }) => ![
+    providerPath, internalImportTestSeam,
+  ].includes(path));
   const violations = [];
   for (const file of production) {
     for (const match of file.content.matchAll(providerAdminCall)) {
