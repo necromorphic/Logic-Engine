@@ -214,6 +214,6 @@ test('Host inventory route is mounted only behind SillyTavern authentication mid
   assert.ok(loginMiddleware >= 0, 'requireLoginMiddleware mount must exist');
   assert.ok(privateEndpointMount > loginMiddleware,
     'private endpoint routers must be mounted after requireLoginMiddleware');
-  assert.match(hostRoutePatch,
-    /app\\.use\\('\\/api\\/logic-engine\\/host',\\s*logicEngineHostInventoryRouter\\);/);
+  assert.ok(hostRoutePatch.includes("app.use('/api/logic-engine/host', logicEngineHostInventoryRouter);"),
+    'pinned Host route must be mounted at the reviewed private endpoint');
 });
