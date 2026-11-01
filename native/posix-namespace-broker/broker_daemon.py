@@ -261,15 +261,16 @@ def main() -> int:
         return 2
     store: ManifestStore | None = None
     try:
+        if application_gid <= 0 or os.getegid() != application_gid:
+            raise StoreError("broker primary GID must equal the non-root application socket group")
         store = ManifestStore(args.manifest_root, args.anchor_root, args.app_uid)
         if store.application_uid != args.app_uid:
             raise StoreError("broker application UID does not match manifest store")
         # Startup recovery runs before the broker socket is exposed. The role
         # directories are service-owned and inaccessible to the application;
         # therefore no application namespace mutator can race this reconciliation.
-        # Only interrupted create/delete transitions whose sidecar pathname is
-        # absent are finalized. Present entries are never deleted or promoted:
-        # they require SQLite-level recovery and keep startup fail-closed.
+        # Main-file enrollment/rename/delete recovery is identity-bound. Sidecar
+        # transitions remain separate: ambiguous present sidecars stay fail-closed.
         pending_enrollments_reconciled = store.reconcile_pending_enrollments()
         main_lifecycle_reconciled = store.reconcile_main_lifecycle()
         enrollment_reconciled = store.reconcile_enrolling_roles()
