@@ -41,7 +41,11 @@ const identityOf = stat => {
   if (stat.ino === 0n) fail('FILE_IDENTITY_UNAVAILABLE');
   return stat.dev.toString() + ':' + stat.ino.toString();
 };
-const sameStat = (left, right) => left.dev === right.dev
+// On Windows, Node's path-based stat may report dev=0 while fstat on an
+// opened handle reports the volume serial. The file index (ino) remains stable
+// across both views, so compare the other metadata but do not compare dev there.
+// Handle-to-handle identity checks still retain dev:ino for hard-link detection.
+const sameStat = (left, right) => (process.platform === 'win32' || left.dev === right.dev)
   && left.ino === right.ino
   && left.mode === right.mode
   && left.size === right.size
