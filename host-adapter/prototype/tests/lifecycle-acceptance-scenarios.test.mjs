@@ -110,6 +110,21 @@ test('pinned patch explicitly hooks core mutations but does not pretend uncovere
 });
 
 
+test('direct enrolled-chat save APIs require a one-use authenticated PREPARED permit', async () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const patch = await readFile(resolve(here, '../patches/sillytavern-1.19.0-lifecycle-hooks.patch'), 'utf8');
+  const handler = await readFile(resolve(here, '../st-host-inventory-handler.mjs'), 'utf8');
+  const proxy = await readFile(resolve(here, '../st-server-digest-proxy.mjs'), 'utf8');
+  assert.ok(handler.includes('export function createHostLifecycleSaveGuard'));
+  assert.ok(handler.includes('HOST_LIFECYCLE_PREPARED_SAVE_REQUIRED'));
+  assert.ok(handler.includes('delete session.logicEngineHostPreparedMutation'));
+  assert.ok(patch.includes("import { createHostLifecycleSaveGuard } from './logic-engine-host-inventory-handler.mjs';"));
+  assert.ok(patch.includes("router.post('/save', validateAvatarUrlMiddleware, hostLifecycleSaveGuard, async function (request, response) {"));
+  assert.ok(patch.includes("router.post('/group/save', hostLifecycleSaveGuard, async function (request, response) {"));
+  assert.ok(proxy.includes('session.logicEngineHostPreparedMutation = {'));
+  assert.ok(proxy.includes('delete request.session.logicEngineHostPreparedMutation'));
+});
+
 test('pinned SillyTavern patch uses the existing authenticated inventory and digest-only Core proxies', async () => {
   const here = dirname(fileURLToPath(import.meta.url));
   const patch = await readFile(resolve(here, '../patches/sillytavern-1.19.0-lifecycle-hooks.patch'), 'utf8');
