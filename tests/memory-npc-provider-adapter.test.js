@@ -176,17 +176,15 @@ test('real adapter composes file-backed SQLite Provider with Core query and cano
     };
     authenticatedHostRequests.add(unboundHostRequest);
     trustedConversationIds.set(unboundHostRequest, unboundConversationId);
-    const unboundConversation = await adapter.runWithAuthenticatedHostSession(
+    assert.throws(() => adapter.runWithAuthenticatedHostSession(
       unboundHostRequest, unboundConversationId, () => adapter.consumer.retrieveForNpc({
         worldId, actorEntityId: actorId, conversationId: unboundConversationId,
       }),
-    );
+    ), /HOST_SESSION_AUTHENTICATION_REQUIRED/);
     assert.throws(() => adapter.runWithAuthenticatedHostSession({ ...hostRequest }, conversationId, () => adapter.consumer.retrieveForNpc({
       worldId, actorEntityId: actorId, conversationId,
     })), /HOST_SESSION_AUTHENTICATION_REQUIRED/);
-    assert.equal(unboundConversation.status, 'non_ready');
-    assert.equal(unboundConversation.reason, 'query_access_unconfirmed');
-    assert.deepEqual(unboundConversation.candidates, []);
+
   } finally {
     try { adapter?.close(); } catch {}
     try { store?.close(); } catch {}
