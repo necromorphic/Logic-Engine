@@ -55,6 +55,7 @@ function fixture(t) {
     schema_version: 1,
     package_id: 'logic-engine.st-test',
     target_git_commit: targetCommit,
+    target_paths: [clientPath, serverPath],
     patches: [{ path: 'integration.patch', size: patchBytes.length, sha256: hash(patchBytes) }],
   };
   const manifestPath = join(packageDir, 'manifest.json');
@@ -99,11 +100,11 @@ test('Patch Manager rejects wrong ST commit and modified Extension package artif
   assert.throws(() => installSillyTavernPatchPackage({ stPath: g.st, manifestPath: g.manifestPath }), /integrity check failed/);
 });
 
-test('Patch Manager rejects patches to SillyTavern source, native routes, configuration and unrelated extensions', t => {
+test('Patch Manager rejects undeclared or out-of-policy paths, including config and unrelated extensions', t => {
   const f = fixture(t);
   const forbiddenPaths = [
-    'src/server-startup.js',
-    'src/endpoints/backends/chat-completions.js',
+    'src/server.js',
+    'src/endpoints/arbitrary.js',
     'public/script.js',
     'config.yaml',
     'public/scripts/extensions/third-party/other-extension/index.js',
@@ -125,11 +126,12 @@ test('Patch Manager rejects patches to SillyTavern source, native routes, config
       schema_version: 1,
       package_id: 'logic-engine.st-test',
       target_git_commit: f.targetCommit,
+      target_paths: [clientPath, serverPath],
       patches: [{ path: 'integration.patch', size: bytes.length, sha256: hash(bytes) }],
     }));
     assert.throws(
       () => installSillyTavernPatchPackage({ stPath: f.st, manifestPath: f.manifestPath }),
-      /only the integrated Logic-Engine Extension package directories/,
+      /not an explicitly declared path/,
       forbiddenPath,
     );
   }
