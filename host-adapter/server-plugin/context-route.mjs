@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { createHmac, randomUUID } from 'node:crypto';
 import {
     createHostRequestAuthenticationGate,
 } from '../prototype/st-host-inventory-handler.mjs';
@@ -65,7 +66,8 @@ export function createHostConversationResolver({ identityStore, enumerate, pinne
 export function createHostContextRoute({ identityStore, enumerate, corePost, config }) {
     if (!identityStore || typeof identityStore.resolveAuthenticatedAccount !== 'function'
         || typeof enumerate !== 'function' || typeof corePost !== 'function'
-        || !config || !validText(config.adapterId) || !validText(config.actorEntityId)) {
+        || !config || !validText(config.adapterId) || !validText(config.actorEntityId)
+        || !validText(config.adapterToken, 4096) || config.adapterToken.length < 16) {
         throw new TypeError('Host context route dependencies are incomplete.');
     }
     const gate = createHostRequestAuthenticationGate({
@@ -99,6 +101,42 @@ export function createHostContextRoute({ identityStore, enumerate, corePost, con
                 || !validText(context.world_id) || !validText(context.actor_id)) {
                 return safeFailure(response, 'CORE_HOST_CONTEXT_INVALID', 409);
             }
+
+            // The actual Express request cannot cross the process boundary.
+            // Sign a short-lived assertion only after ST middleware authenticated
+            // this exact request and Core resolved its canonical World/Actor.
+            const assertion = {
+                protocol_version: 1,
+                host_installation_id: hostContext.installation_id,
+                authenticated_account_id: hostContext.account_id,
+                host_session_id: hostContext.session_id,
+                conversation_id: conversationId,
+                world_id: context.world_id,
+                actor_id: context.actor_id,
+                issued_at: Math.floor(Date.now() / 1000),
+                nonce: randomUUID(),
+            };
+            const canonical = JSON.stringify([
+                assertion.protocol_version,
+                assertion.host_installation_id,
+                assertion.authenticated_account_id,
+                assertion.host_session_id,
+                assertion.conversation_id,
+                assertion.world_id,
+                assertion.actor_id,
+                assertion.issued_at,
+                assertion.nonce,
+            ]);
+            const signature = createHmac('sha256', config.adapterToken)
+                .update(canonical, 'utf8')
+                .digest('hex');
+            const verified = await corePost('/v1/host-sessions/verify', { assertion, signature });
+            if (verified?.status !== 'AUTHENTICATED_HOST_SESSION'
+                || verified.conversation_id !== conversationId
+                || verified.world_id !== context.world_id
+                || verified.actor_id !== context.actor_id) {
+                return safeFailure(response, 'CORE_HOST_SESSION_ASSERTION_REJECTED', 403);
+            }
             return response.status(200).json({
                 status: 'AUTHENTICATED_HOST_CONTEXT',
                 identity: hostContext,
@@ -109,6 +147,7 @@ export function createHostContextRoute({ identityStore, enumerate, corePost, con
                     adapter_id: context.adapter_id,
                 },
                 authority: context.authority,
+                authentication: verified.status,
             });
         } catch (error) {
             const code = typeof error?.message === 'string' && /^[A-Z0-9_]{1,96}$/.test(error.message)
