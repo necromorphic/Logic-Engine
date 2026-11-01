@@ -4,7 +4,14 @@ import { enumerateHostDataInventory } from '../prototype/host-data-inventory.mjs
 import {
     createHostIdentityHandler,
     createHostSessionHandler,
+    createHostInventoryHandler,
 } from '../prototype/st-host-inventory-handler.mjs';
+import {
+    createHostDigestProxyHandler,
+    createHostInventoryReconcileProxyHandler,
+    createHostRootInventoryPersistence,
+    createHostLifecycleJournalProxy,
+} from '../prototype/st-server-digest-proxy.mjs';
 import { createHostContextRoute } from './context-route.mjs';
 
 export const info = Object.freeze({
@@ -101,8 +108,38 @@ export async function init(router) {
 
     if (!config || !identityStore) {
         router.post('/context', (_request, response) => safeFailure(response));
+        router.get('/inventory', (_request, response) => safeFailure(response, 'HOST_INVENTORY_NOT_READY'));
+        router.post('/host-version-ledger/capture', (_request, response) => safeFailure(response, 'HOST_INVENTORY_NOT_READY'));
+        router.post('/host-version-ledger/reconcile', (_request, response) => safeFailure(response, 'HOST_INVENTORY_NOT_READY'));
+        router.post('/host-lifecycle/events', (_request, response) => safeFailure(response, 'HOST_LIFECYCLE_NOT_READY'));
+        router.get('/host-lifecycle/status', (_request, response) => safeFailure(response, 'HOST_LIFECYCLE_NOT_READY'));
         return;
     }
+
+    const persistRootInventory = createHostRootInventoryPersistence({
+        env: process.env,
+        identityStore,
+    });
+    router.get('/inventory', createHostInventoryHandler({
+        enumerate: enumerateHostDataInventory,
+        pinnedHostCommit: PINNED_HOST_COMMIT,
+        hostBuildClaim: process.env.LOGIC_ENGINE_HOST_BUILD_SHA || '',
+        persistRootInventory,
+    }));
+    router.post('/host-version-ledger/capture', createHostDigestProxyHandler({
+        env: process.env,
+        identityStore,
+    }));
+    router.post('/host-version-ledger/reconcile', createHostInventoryReconcileProxyHandler({
+        env: process.env,
+        identityStore,
+    }));
+    const lifecycleProxy = createHostLifecycleJournalProxy({
+        env: process.env,
+        identityStore,
+    });
+    router.post('/host-lifecycle/events', lifecycleProxy.append);
+    router.get('/host-lifecycle/status', lifecycleProxy.status);
 
     const contextRoute = createHostContextRoute({
         identityStore,
