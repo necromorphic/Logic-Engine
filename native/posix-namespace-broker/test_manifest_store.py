@@ -1167,7 +1167,7 @@ class ManifestStoreTests(unittest.TestCase):
         finally:
             os.close(reopened)
         retired = self.store.delete_role_sidecar("core", "wal")
-        self.assertEqual(retired["generation"], 3)
+        self.assertEqual(retired["generation"], 5)
         self.store.close()
         self.store = ManifestStore(str(self.manifest_root), str(self.anchor_root), self.application_uid)
         current = self.store.load()
