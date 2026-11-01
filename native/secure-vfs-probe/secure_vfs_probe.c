@@ -2975,7 +2975,9 @@ static int probe_validate_broker_alias_path(const char *database_path) {
       }
       owner_ok = info.st_uid == 0 || info.st_uid == broker_uid;
 #if defined(LOGIC_ENGINE_VFS_PROBE_ALLOW_UNBROKERED_TEST_ROLES)
-      if (broker_uid == geteuid() && info.st_uid == geteuid()) owner_ok = 1;
+      /* Test fixtures may use app-owned temporary parents; production builds
+       * never compile this exception. */
+      if (info.st_uid == geteuid()) owner_ok = 1;
 #endif
       if (!owner_ok || (info.st_mode & (S_IWGRP | S_IWOTH)) != 0) {
         close(next_fd);
