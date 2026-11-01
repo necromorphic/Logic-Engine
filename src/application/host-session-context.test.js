@@ -102,6 +102,25 @@ test('in-process Host capability fails closed when trusted World/Actor bindings 
   ),null);
 });
 
+
+test('signed Host assertion rejects an assertion outside the 30-second freshness window', () => {
+  const secret='adapter-secret-that-is-long-enough';
+  const nowSeconds=1_800_000_000;
+  const runner=createHostSessionAssertionRunner({secret,now:()=>nowSeconds*1000});
+  const assertion={
+    protocol_version:1,host_installation_id:installation,authenticated_account_id:account,
+    host_session_id:session,conversation_id:conversationId,world_id:worldId,actor_id:actorId,
+    issued_at:nowSeconds-31,nonce:'88888888-8888-4888-8888-888888888888',
+  };
+  const canonical=JSON.stringify([
+    assertion.protocol_version,assertion.host_installation_id,assertion.authenticated_account_id,
+    assertion.host_session_id,assertion.conversation_id,assertion.world_id,assertion.actor_id,
+    assertion.issued_at,assertion.nonce,
+  ]);
+  const signature=createHmac('sha256',secret).update(canonical,'utf8').digest('hex');
+  assert.throws(()=>runner.run(assertion,signature,()=>{}),/HOST_SESSION_ASSERTION_EXPIRED/);
+});
+
 test('signed Host assertion requires World and Actor identity in the HMAC envelope', () => {
   const secret='adapter-secret-that-is-long-enough';
   const runner=createHostSessionAssertionRunner({secret,now:()=>1_800_000_000_000});
