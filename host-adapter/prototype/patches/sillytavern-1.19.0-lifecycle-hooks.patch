@@ -675,3 +675,21 @@ diff --git a/src/endpoints/chats.js b/src/endpoints/chats.js
      if (!request.body) return response.sendStatus(400);
  
      const format = request.body.file_type;
+
+diff --git a/src/endpoints/groups.js b/src/endpoints/groups.js
+--- a/src/endpoints/groups.js
++++ b/src/endpoints/groups.js
+@@ -9,4 +9,7 @@
+ import { color, tryParse } from '../util.js';
+ import { getFileNameValidationFunction } from '../middleware/validateFileName.js';
+ 
++import { createHostBulkMutationGuard } from './logic-engine-host-inventory-handler.mjs';
++const hostBulkMutationGuard = createHostBulkMutationGuard({ pinnedHostCommit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127' });
++
+ export const router = express.Router();
+@@ -203,4 +206,4 @@
+-router.post('/delete', getFileNameValidationFunction('id'), async (request, response) => {
++router.post('/delete', hostBulkMutationGuard, getFileNameValidationFunction('id'), async (request, response) => {
+     if (!request.body || !request.body.id) {
+         return response.sendStatus(400);
+     }
