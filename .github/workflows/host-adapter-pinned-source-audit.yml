@@ -39,9 +39,9 @@ jobs:
           $actual = (git -C SillyTavern rev-parse HEAD).Trim()
           if ($actual -ne $expected) { throw "Unexpected SillyTavern SHA: $actual" }
           New-Item -ItemType Directory -Force -Path 'SillyTavern/plugins' | Out-Null
-          Copy-Item -Recurse -Force 'host-adapter' 'SillyTavern/plugins/logic-engine-host-adapter'
-          if (-not (Test-Path 'SillyTavern/plugins/logic-engine-host-adapter/package.json')) { throw 'Server plugin package.json missing' }
-          if (-not (Test-Path 'SillyTavern/plugins/logic-engine-host-adapter/server-plugin/index.mjs')) { throw 'Server plugin entry point missing' }
+          Copy-Item -Recurse -Force 'host-adapter' 'SillyTavern/plugins/logic-engine-extension-gateway'
+          if (-not (Test-Path 'SillyTavern/plugins/logic-engine-extension-gateway/package.json')) { throw 'Server plugin package.json missing' }
+          if (-not (Test-Path 'SillyTavern/plugins/logic-engine-extension-gateway/server-plugin/index.mjs')) { throw 'Server plugin entry point missing' }
           Write-Output "SillyTavern target SHA: $actual"
       - name: Run pinned source and native plugin-loader audit
         env:
