@@ -170,8 +170,10 @@ python3 native/posix-namespace-broker/manifest_store.py \\
 The manifest records `renaming`/`deleting` before namespace mutation. Rename
 uses `renameat2(RENAME_NOREPLACE)`; deletion uses the existing identity-checked
 quarantine primitive. Startup completes only an unambiguous identity-matched
-transition. A disabled role cannot be reopened until it is explicitly
-re-enrolled by a future reviewed lifecycle operation. This is still a prototype:
+transition. A renamed role remains disabled until the operator explicitly runs
+`enable`, which re-verifies the opened main-file identity before restoring
+broker opens. A deleted role is a terminal manifest tombstone and cannot be
+re-enabled or silently re-enrolled under the same role name. This is still a prototype:
 operator quiescence is a precondition, not a broker-enforced lease, and runtime
 SQLite main-file deletion remains fail-closed.
 
