@@ -445,9 +445,13 @@ export function createHostLifecycleJournalProxy({
 
   async function resolveRequestIdentity(request, conversationId) {
     const handle = request?.user?.profile?.handle;
-    if (!validId(handle)) return null;
+    const dataRoot = globalThis.DATA_ROOT;
+    if (!validId(handle) || typeof dataRoot !== 'string' || !pathModule.isAbsolute(dataRoot)) return null;
     let identity;
-    try { identity = await identityStore.resolveAuthenticatedAccount(handle); } catch { return null; }
+    try {
+      await identityStore.assertOutsideRoot(dataRoot);
+      identity = await identityStore.resolveAuthenticatedAccount(handle);
+    } catch { return null; }
     if (!identity || !HOST_SESSION_UUID.test(identity.host_installation_id ?? '')
       || !HOST_SESSION_UUID.test(identity.authenticated_account_id ?? '')) return null;
     const conversationUuid = parseBoundConversation(request, conversationId, identity);
@@ -543,7 +547,7 @@ export function createHostLifecycleJournalProxy({
           error: { code: 'INVALID_HOST_LIFECYCLE_EVENT', message: 'Only bounded digest-only Host mutation lifecycle events are accepted.' },
         });
       }
-      const dataRoot = request?.user?.directories?.root;
+      const dataRoot = globalThis.DATA_ROOT;
       if (!durableReceiptStore) return response.status(503).json({
         error: { code: 'HOST_LIFECYCLE_RECEIPT_STORE_UNAVAILABLE', message: 'Server-side persisted mutation receipt verification is unavailable.' },
       });
@@ -665,9 +669,9 @@ export function createHostLifecycleJournalProxy({
       }
       try {
         if (typeof durableReceiptStore.assertOutsideRoot === 'function') {
-          await durableReceiptStore.assertOutsideRoot(directories.root);
+          await durableReceiptStore.assertOutsideRoot(globalThis.DATA_ROOT);
         } else if (typeof durableReceiptStore.directory === 'string'
-          && pathIsWithin(directories.root, durableReceiptStore.directory)) {
+          && pathIsWithin(globalThis.DATA_ROOT, durableReceiptStore.directory)) {
           throw new Error('Receipt directory is inside the data root');
         }
       } catch {
