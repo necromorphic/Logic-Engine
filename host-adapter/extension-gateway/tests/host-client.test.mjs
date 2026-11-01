@@ -11,7 +11,7 @@ test('browser client obtains CSRF token and calls only the authenticated ST plug
         if (url === '/csrf-token') {
             return { ok: true, json: async () => ({ token: 'csrf-session-token' }) };
         }
-        if (url === '/api/plugins/logic-engine-host-adapter/session') {
+        if (url === '/api/plugins/logic-engine-extension-gateway/session') {
             return { ok: true, json: async () => ({ host_session_id: '2e6b0a80-4e73-4c66-aaf3-7a6e62c7f401' }) };
         }
         return {
@@ -22,8 +22,8 @@ test('browser client obtains CSRF token and calls only the authenticated ST plug
     assert.equal(result.status, 'AUTHENTICATED_HOST_CONTEXT');
     assert.equal(calls.length, 3);
     assert.equal(calls[0].url, '/csrf-token');
-    assert.equal(calls[1].url, '/api/plugins/logic-engine-host-adapter/session');
-    assert.equal(calls[2].url, '/api/plugins/logic-engine-host-adapter/context');
+    assert.equal(calls[1].url, '/api/plugins/logic-engine-extension-gateway/session');
+    assert.equal(calls[2].url, '/api/plugins/logic-engine-extension-gateway/context');
     assert.equal(calls[2].options.credentials, 'same-origin');
     assert.equal(calls[2].options.headers['x-csrf-token'], 'csrf-session-token');
     assert.deepEqual(JSON.parse(calls[2].options.body), { conversation_uuid: conversationUuid });
@@ -50,7 +50,7 @@ test('browser client fails closed when CSRF token or Host context is unavailable
             count++;
             return url === '/csrf-token'
                 ? { ok: true, json: async () => ({ token: 'csrf' }) }
-                : url === '/api/plugins/logic-engine-host-adapter/session'
+                : url === '/api/plugins/logic-engine-extension-gateway/session'
                     ? { ok: true, json: async () => ({ host_session_id: '2e6b0a80-4e73-4c66-aaf3-7a6e62c7f401' }) }
                     : { ok: false, json: async () => ({ status: 'NON_READY', code: 'HOST_CONVERSATION_NOT_AUTHORIZED' }) };
         }),
