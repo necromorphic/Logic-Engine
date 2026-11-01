@@ -1,0 +1,69 @@
+# SillyTavern Final-Send Patch Manager
+
+**Status:** implementation in progress; local deployment only.  
+**Pinned host:** SillyTavern 1.19.0, source commit `06bde939fb1e9c4c8d8641d810f0a916b5bce127`.
+
+## Deployment entrypoint
+
+The Logic-Engine Extension deployment entrypoint invokes Patch Manager before the Extension is considered installed:
+
+```powershell
+$env:LOGIC_ENGINE_SILLYTAVERN_ROOT = "C:\path\to\SillyTavern"
+npm run install:extension
+```
+
+Or run the manager lifecycle directly:
+
+```powershell
+node scripts/sillytavern-patch-manager.mjs preflight --st-root "C:\path\to\SillyTavern"
+node scripts/sillytavern-patch-manager.mjs install --st-root "C:\path\to\SillyTavern"
+node scripts/sillytavern-patch-manager.mjs verify --st-root "C:\path\to\SillyTavern"
+node scripts/sillytavern-patch-manager.mjs repair --st-root "C:\path\to\SillyTavern"
+node scripts/sillytavern-patch-manager.mjs update --st-root "C:\path\to\SillyTavern"
+node scripts/sillytavern-patch-manager.mjs uninstall --st-root "C:\path\to\SillyTavern"
+```
+
+The manager runs in the existing Logic-Engine deployment process. It is not a resident service, ST Server Companion, API server, relay, or alternate provider connector.
+
+## Lifecycle guarantees implemented
+
+- **Preflight:** checks exact ST version, pinned source revision identity through SHA-256 fingerprints, patch artifact hash, all audited native route/loader files, and `git apply --check`.
+- **Backup:** copies every source file that the patch changes into `.logic-engine-patch-manager/backups/<transaction-id>/` before applying.
+- **Apply:** records a durable transaction journal before invoking `git apply`.
+- **Verify:** verifies exact post-patch hashes for modified and newly created files.
+- **Rollback / Uninstall:** restores only files still matching the exact known patched hash (or known pre-patch hash during interrupted recovery); refuses to overwrite unknown user edits.
+- **Update:** verifies the installed patch version; when a newer manifest is supplied, rolls back the owned patch and installs the new pinned artifact.
+- **Repair:** rolls back the manager-owned patch and reapplies it from a verified baseline.
+- **Crash recovery:** a journal is recovered before the next operation. Stale lock files are reclaimed only when the recorded process is provably absent; malformed/ambiguous locks deny.
+- **Fail-closed:** any source/version/hash mismatch, patch conflict, backup-integrity failure, ambiguous lock, or user modification returns `DENY_FAIL_CLOSED`.
+
+Manager state and backups live under the SillyTavern root in `.logic-engine-patch-manager/`. No user data or provider configuration is copied or modified.
+
+## Current patch content
+
+The pinned patch:
+- wraps the native `POST /api/backends/chat-completions/generate` handler in request-scoped AsyncLocalStorage context;
+- replaces the module's `node-fetch` binding with a hook-aware wrapper, covering the 13 early-return provider senders and the generic fallback within that module;
+- wraps the first streaming response-forward call so the registered adapter can perform the Gateway-controlled write and prevent a duplicate legacy write;
+- adds `src/logic-engine-final-send-hook.js` with a single adapter registration point.
+
+The adapter is required before the native Chat Completions generation handler can run. Missing adapter registration rejects the route with `LOGIC_ENGINE_FINAL_SEND_ADAPTER_UNAVAILABLE`; it does not fall back to direct provider fetch. Calls to model-list and other non-generation functions in the module remain on native fetch because they run outside the generation context.
+
+## Important incomplete integration gates
+
+This is not yet production-ready and must not be treated as a completed protected dispatch integration:
+
+1. The Logic-Engine server-side Extension adapter has not yet been implemented/registered against a production Core Gateway instance. The patch deliberately fails closed until that trusted adapter exists.
+2. The current Gateway's synchronous evidence readers, Coordinator and Core policy authority must be connected to the real deployment-owned Core/Provider state without introducing a browser-to-Core call, separate API port, relay, or second authorization authority.
+3. The patch currently instruments the Chat Completions generation module only. Text Completion, Kobold, NovelAI and Horde are separately routed and are not in the current protected sender registry. They remain outside the protected Memory contract and must not receive protected Memory until separately admitted and covered.
+4. The repository's existing SillyTavern Extension Manager does not execute arbitrary install scripts. The Logic-Engine deployment entrypoint now calls Patch Manager as part of the supported Logic-Engine install command, but the exact user-facing Extension installation workflow still needs to be routed through this entrypoint. A browser-only ST "Install extension" click cannot itself modify the server filesystem.
+
+The patch manager is a deployment mechanism, not an authorization mechanism. Core Security Gateway remains the sole authority. No API port, Provider Relay, Provider Base URL substitution, Browser/ST-to-Core request, or separate ST Server Companion is introduced.
+
+## Tests
+
+```sh
+node --test tests/sillytavern-patch-manager.test.js tests/sillytavern-final-send-patch-artifact.test.js
+```
+
+The tests exercise lifecycle operations, rollback conflict preservation, unknown-source denial, repair, patch/manifest integrity, and pinned route coverage. Exact-source apply and Node syntax checks were performed against the supplied SillyTavern 1.19.0 archive before committing the patch artifact. CI results must be checked on the exact final commit before deployment.
