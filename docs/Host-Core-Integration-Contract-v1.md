@@ -2,7 +2,7 @@
 
 **Contract:** Host ↔ Core authenticated Memory retrieval  
 **Version:** 1.0.0  
-**Status:** CONTRACT AGREED; Host/Core candidate CI green; contract PR prior-head full-suite retry green; latest documentation revision CI pending; branch integration and deployment readiness remain pending  
+**Status:** CONTRACT AGREED; Host/Core candidate CI green; contract PR full-suite CI green at current HEAD; branch integration and deployment readiness remain pending  
 **Validated candidate heads (1 Nov 2026):** Host PR #850 `4aa26dcf2a9e5b5e65123f2cd72b40516e41a685`; Core PR #846 `832abf337530e9421f53eaed85760cb4a7f07313`; Core HTTP PR #867 `7e3895aeb91c983bf020e889acdad6c1909dd0e7`  
 **Scope:** identity hand-off, Core World/Actor resolution, authenticated Memory Provider retrieval, result/error/revoke semantics.  
 **Not in scope:** branch merging, Security Gateway changes, Final-Send, production enablement, Lane A, Provider schema migration.
