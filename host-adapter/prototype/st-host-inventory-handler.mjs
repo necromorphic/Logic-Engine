@@ -353,7 +353,9 @@ export function createHostLifecycleSaveGuard({ enumerate = enumerateHostDataInve
 const HOST_CONVERSATION_ID = new RegExp(
   '^' + HOST_SESSION_UUID.source.slice(1, -1) + ':'
     + HOST_SESSION_UUID.source.slice(1, -1) + ':'
-    + HOST_SESSION_UUID.source.slice(1, -1) + '
+    + HOST_SESSION_UUID.source.slice(1, -1) + '$',
+  'i',
+);
 
 /**
  * Process-local request capability for an in-process Core adapter. The resolver
