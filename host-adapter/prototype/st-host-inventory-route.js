@@ -1,3 +1,4 @@
+/* ARCHIVAL ONLY: legacy patched-ST transport; not imported by the Extension Gateway package. Do not deploy. */
 import express from 'express';
 import { enumerateHostDataInventory } from './host-data-inventory.mjs';
 import {
