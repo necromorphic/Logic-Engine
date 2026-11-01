@@ -13,7 +13,7 @@ diff --git a/lib/database.js b/lib/database.js
  		if (verbose != null && typeof verbose !== 'function') throw new TypeError('Expected the "verbose" option to be a function');
  		if (!allowNativeBinding && 'nativeBinding' in options) throw new TypeError('The "nativeBinding" option is only supported by the default better-sqlite3 entrypoint');
  		if (allowNativeBinding && nativeBinding != null && typeof nativeBinding !== 'string' && typeof nativeBinding !== 'object') throw new TypeError('Expected the "nativeBinding" option to be a string or addon object');
-+		if (vfs != null && (typeof vfs !== 'string' || vfs.length === 0 || vfs.includes('\\0'))) {
++		if (vfs != null && (typeof vfs !== 'string' || vfs.length === 0 || vfs.includes('\0'))) {
 +			throw new TypeError('Expected the "vfs" option to be a non-empty SQLite VFS name');
 +		}
  
@@ -44,12 +44,12 @@ diff --git a/src/objects/database.cpp b/src/objects/database.cpp
 +	std::string vfs_utf8;
 +	if (!vfsName.IsNull() && !vfsName.IsUndefined()) {
 +		if (!vfsName.IsString()) {
-+			ThrowError(env, "Expected the \\"vfs\\" option to be a non-empty SQLite VFS name");
++			ThrowError(env, "Expected the \"vfs\" option to be a non-empty SQLite VFS name");
 +			return env.Undefined();
 +		}
 +		vfs_utf8 = vfsName.As<Napi::String>().Utf8Value();
-+		if (vfs_utf8.empty() || vfs_utf8.find('\\0') != std::string::npos) {
-+			ThrowError(env, "Expected the \\"vfs\\" option to be a non-empty SQLite VFS name");
++		if (vfs_utf8.empty() || vfs_utf8.find('\0') != std::string::npos) {
++			ThrowError(env, "Expected the \"vfs\" option to be a non-empty SQLite VFS name");
 +			return env.Undefined();
 +		}
 +	}
