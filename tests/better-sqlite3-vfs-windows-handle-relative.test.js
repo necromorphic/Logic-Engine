@@ -145,7 +145,7 @@ test('Windows VFS opens SQLite main/journal/WAL/SHM relative to pinned parent an
       "for (let i = 0; i < 64; i += 1) insert.run('uncommitted-' + i + '-' + 'x'.repeat(512));",
       "if (fs.statSync(dbPath + '-wal').size <= 32) process.exit(32);",
       "process.exit(0);"
-    ].join('\\n');
+    ].join('\n');
     const crashed = spawnSync(process.execPath, ['-e', crashScript], { encoding: 'utf8', env: process.env, timeout: 60000 });
     assert.equal(crashed.status, 0, 'writer process must terminate abruptly after persisting uncommitted WAL frames: ' + String(crashed.stderr || crashed.error || crashed.status));
     const recoveryScript = [
@@ -162,7 +162,7 @@ test('Windows VFS opens SQLite main/journal/WAL/SHM relative to pinned parent an
       "assert.equal(registered, 1);",
       "const db = new Database(dbPath);",
       "try { assert.equal(db.prepare('SELECT COUNT(*) AS count FROM origin').get().count, 2, 'recovery must discard uncommitted rows'); assert.equal(db.pragma('integrity_check', { simple: true }), 'ok'); db.pragma('wal_checkpoint(TRUNCATE)'); assert.equal(db.pragma('journal_mode = DELETE', { simple: true }), 'delete'); } finally { db.close(); registrar.close(); }"
-    ].join('\\n');
+    ].join('\n');
     const recovered = spawnSync(process.execPath, ['-e', recoveryScript], { encoding: 'utf8', env: process.env, timeout: 60000 });
     assert.equal(recovered.status, 0, 'a new process must recover the handle-relative WAL cleanly: ' + String(recovered.stderr || recovered.error || recovered.status));
     assert.ok(registrar.prepare(
