@@ -146,19 +146,19 @@ process and close every connection before running them. First disable the role
 python3 native/posix-namespace-broker/manifest_store.py \\
   --manifest-root /var/lib/logic-engine-broker/manifest \\
   --anchor-root /var/lib/logic-engine-broker/anchor \\
-  --app-uid "$(id -u logic-app)" disable --role core
+  --app-uid "$(id -u logic-app)" disable --role core --confirm-quiesced
 
 # Optional: perform one of these while the application remains stopped.
 python3 native/posix-namespace-broker/manifest_store.py \\
   --manifest-root /var/lib/logic-engine-broker/manifest \\
   --anchor-root /var/lib/logic-engine-broker/anchor \\
-  --app-uid "$(id -u logic-app)" rename --role core --basename core-archive.sqlite
+  --app-uid "$(id -u logic-app)" rename --role core --basename core-archive.sqlite --confirm-quiesced
 
 # Or permanently remove the main file while retaining a deleted manifest tombstone.
 python3 native/posix-namespace-broker/manifest_store.py \\
   --manifest-root /var/lib/logic-engine-broker/manifest \\
   --anchor-root /var/lib/logic-engine-broker/anchor \\
-  --app-uid "$(id -u logic-app)" delete --role core
+  --app-uid "$(id -u logic-app)" delete --role core --confirm-quiesced
 ```
 
 The manifest records `renaming`/`deleting` before namespace mutation. Rename
@@ -326,3 +326,8 @@ proven identity boundary. No ST-VectorService source or runtime behavior is
 changed by this branch.
 
 The Python daemon processes one accepted connection at a time and applies a one-second receive deadline so an idle peer cannot hold the request loop indefinitely. It is still an incremental broker, not a hardened production SQLite namespace service. Do not point Logic-Engine or any production database at it.
+
+
+## Strict Linux enrollment mode
+
+Linux builds without `-DLOGIC_ENGINE_VFS_PROBE_ALLOW_UNBROKERED_TEST_ROLES` do not register the path-only role enrollment SQL function. Protected Linux roles must use the authenticated broker registration API. The legacy direct-path function is available only in explicitly marked test builds to preserve adversarial tests for the old local probe path.
