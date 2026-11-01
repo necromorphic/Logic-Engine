@@ -310,27 +310,28 @@ Reason strings are safe state labels, not a promise to reveal which record, fiel
 
 Unknown major versions, extra keys, missing required keys, or incompatible field semantics are rejected. A future incompatible change requires a new versioned contract and tests on both sides. Do not add a parallel endpoint or identity format as a compatibility fallback.
 
-## 9. Current HEAD compatibility findings
+## 9. Coordinated candidate compatibility — 1 Nov 2026
 
-| Item | Host #850 HEAD | Core #846 HEAD | Disposition |
+The initial review below was performed against older Host/Core heads and is retained only as historical context: Host's original account-bearing conversation key conflicted with Core PC-NEXT-11, and the Host branch initially carried an older Memory consumer. Those mismatches have since been corrected in the active candidates.
+
+### Current shared implementation
+
+| Surface | Host #850 | Core #867 / Lane B #846 | Result |
 |---|---|---|---|
-| Conversation identity | Host stable key is `installation_id:account_id:conversation_uuid`; the Host auth gate currently forwards this as `conversation_id` and sends `host_session_id` separately | Core requires `host_session_id:host_installation_id:conversation_uuid`; account is separate | **Mismatch. Keep the Host-local stable key local; derive the PC-NEXT-11 Core tuple at the authenticated Host gate. No account-bearing tuple is sent to Core.** |
-| Context resolution | Host candidate adds `/v1/host-context/resolve` to `src/api/server.js` and exercises it against the Core server embedded in the same Host branch | Core #846 HEAD and `main` do not register this route; Host branch's route derives adapter from adapter credentials, resolves World/Actor, but is not part of the reviewed Core candidate | **Present only inside Host candidate's Core-file diff; not integrated into Core #846 or main and not D5-approved. Treat as a proposed Core-owned change, not proof of cross-branch compatibility.** |
-| Memory retrieval | Calls `POST /v1/host/memory-npc/retrieve` with assertion/signature/request metadata | No such route is registered in `src/api/server.js`; internal consumer/facade exists | **Missing route. Core must compose the existing assertion verifier and consumer facade.** |
-| Assertion replay | Host generates a fresh UUID nonce per dispatch | Core runner checks expiry/replay/capacity in a process-local `Map` (`maxAgeSeconds` default 30; capacity default 10,000) | **Replay protection is process-local, not restart-safe. Add durable nonce consumption or restart-invalidated assertion epoch before enablement.** |
-| Provider result | Host returns upstream payload | Core consumer returns a narrow ready/non-ready envelope with final authorized content | Compatible once the missing route returns the consumer envelope unchanged. |
-| World/Actor authority | Host obtains values from Core resolver and signs them | Core independently resolves durable bindings and compares assertion | Compatible in principle; exact endpoint is missing. |
+| Core conversation tuple | Host-local key remains local; Core tuple is projected as `host_session_id:host_installation_id:conversation_uuid` | PC-NEXT-11 validator uses the same tuple; account UUID remains a separate assertion field | Aligned |
+| `POST /v1/host-context/resolve` | Route block present | Same route block present | Aligned |
+| `POST /v1/host/memory-npc/retrieve` | Route block present | Same route block present | Aligned |
+| `HostConversationWorldBindingService` | Blob matches Core candidate | Hardened identifier validation | Aligned |
+| `MemoryNpcConsumer` | Blob matches Core candidate after sync | Hardened plain-data/proxy/array checks and authenticated-session context | Aligned |
+| Memory Provider adapter | Blob matches Core candidate | HTTP/runtime composition and Provider facade | Aligned |
+| NPC knowledge authorization + SQLite Memory Provider | Blobs match Lane B/Core candidate after sync | Core-owned authorization and Provider implementation | Aligned |
+| Host lifecycle and full-root inventory routes | Host adds four private routes | Not part of Core #867 | Host-owned extension; no collision with Core routes |
 
-The Host candidate's context integration test is real against the `createApiServer()` implementation bundled in the Host branch, but it is not an exact-head compatibility test against Core #846 or `main`. The Host PR diff itself modifies Core-owned `src/api/server.js` to add `/v1/host-context/resolve` and adds `src/application/host-session-context.js`; the latter accepts `installation_id:account_id:conversation_uuid` as the signed `conversation_id`. That conflicts with Core #846's PC-NEXT-11 validator, which requires `host_session_id:host_installation_id:conversation_uuid` and keeps account UUID separate. The Host candidate therefore makes its local test pass by carrying a different Core implementation inside the Host branch; it does not prove that the two reviewed branches interoperate. The new route is not present in Core #846 or `main`, and its API-owner approval under D5 is not evidenced. `/v1/host/memory-npc/retrieve` remains absent from both reviewed Core #846 and the Host candidate's bundled Core server; the Host integration test reaches that request and receives `503 CORE_HOST_DISPATCH_ROUTE_UNAVAILABLE`. Core's internal `MemoryNpcConsumer` remains available behind its internal facade, but there is no accepted cross-process HTTP route composing the assertion runner with that consumer.
+The only intentional `src/api/server.js` difference is the Host-owned lifecycle/root-inventory routes and their trusted configuration. The shared Core route blocks for context resolution, Memory retrieval, version-ledger capture/reconcile, and conversation binding are identical between the two active candidates.
 
+### Historical baseline — superseded
 
-### Follow-up finding — Host candidate embeds a divergent Core implementation
-
-A re-check of the exact Host #850 tree found `/v1/host-context/resolve` at `src/api/server.js` and a real HTTP test at `host-adapter/extension-gateway/tests/host-core-context-integration.test.mjs`. The test starts the Core server from the **same Host branch**, creates the binding, calls the route, and verifies World/Actor resolution. This is valid evidence for that combined branch only.
-
-The Host PR diff also changes Core-owned `src/application/host-session-context.js`. Its validator binds `conversation_id` to `host_installation_id:authenticated_account_id:conversation_uuid`; Core #846 instead pins PC-NEXT-11 `host_session_id:host_installation_id:conversation_uuid` with account identity separate. Core #846's `src/api/server.js` and current `main` do not contain `/v1/host-context/resolve`. Therefore the Host PR's same-branch test does not validate compatibility with Core #846, and its embedded Core changes cannot be treated as accepted Host-owned implementation. D5 approval from the Core API owner is still required before those Core-owned changes can be adopted.
-
-The same Host test then calls `/v1/host/memory-npc/retrieve` and expects `503 CORE_HOST_DISPATCH_ROUTE_UNAVAILABLE`; no Memory retrieval HTTP route is implemented in either reviewed Core #846 or the Host candidate's embedded server. This remains the blocking cross-process seam.
+The original review recorded a mismatch where Host sent `installation_id:account_id:conversation_uuid` as Core `conversation_id`, while Core required PC-NEXT-11. It also recorded the absence of the two private HTTP routes and restart-safe nonce persistence. These were valid findings against the reviewed baseline, but must not be treated as current candidate state. The implementation ledger below supersedes those findings.
 
 ## 10. Implementation acceptance checklist
 
