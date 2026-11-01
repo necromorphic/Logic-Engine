@@ -6,6 +6,7 @@ import tempfile
 import threading
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from manifest_store import (
@@ -70,6 +71,32 @@ class ManifestStoreTests(unittest.TestCase):
     def tearDown(self):
         self.store.close()
         self.temp.cleanup()
+
+    def test_trusted_directory_ancestors_must_be_root_or_broker_owned(self):
+        application_uid = os.geteuid() ^ 1
+        foreign_owner = SimpleNamespace(
+            st_mode=stat.S_IFDIR | 0o700,
+            st_uid=os.geteuid() + 1000,
+        )
+        with self.assertRaisesRegex(StoreError, "root or the broker service UID"):
+            manifest_store._check_trusted_directory_component(
+                foreign_owner, application_uid, "test ancestor"
+            )
+
+        for trusted_uid in {0, os.geteuid()}:
+            trusted_owner = SimpleNamespace(
+                st_mode=stat.S_IFDIR | 0o700,
+                st_uid=trusted_uid,
+            )
+            manifest_store._check_trusted_directory_component(
+                trusted_owner, application_uid, "test ancestor"
+            )
+
+    def test_manifest_store_rejects_root_as_application_identity(self):
+        with self.assertRaisesRegex(StoreError, "non-root UID"):
+            ManifestStore(
+                str(self.manifest_root), str(self.anchor_root), 0
+            )
 
     def data(self, generation: int) -> bytes:
         components = list(self.role_parent.parts[1:])
