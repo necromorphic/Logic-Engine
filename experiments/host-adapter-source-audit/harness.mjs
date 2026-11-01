@@ -12,8 +12,11 @@ const [events, script] = await Promise.all([
 ]);
 
 test('audit input is the exact pinned SillyTavern commit', async () => {
-  const { execFileSync } = await import('node:child_process');
-  const actual = execFileSync('git', ['-C', root, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+  // actions/checkout leaves a detached HEAD for the pinned commit. Read the
+  // repository metadata directly so the audit does not depend on Git being
+  // present on the self-hosted runner's child-process PATH.
+  const actual = (await readFile(resolve(root, '.git', 'HEAD'), 'utf8')).trim();
+  assert.match(actual, /^[a-f0-9]{40}$/);
   assert.equal(actual, targetSha, 'Do not run this audit against an unpinned or different checkout');
 });
 
