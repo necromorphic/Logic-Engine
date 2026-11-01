@@ -743,7 +743,7 @@ class ManifestStoreTests(unittest.TestCase):
         self.store.commit(_canonical_json(value))
         value["generation"] = 4
         value["roles"][0]["state"] = "disabled"
-        with self.assertRaisesRegex(StoreError, "disabling requires every sidecar to be retired"):
+        with self.assertRaisesRegex(StoreError, "offline lifecycle state requires all sidecars retired"):
             self.store.commit(_canonical_json(value))
 
     def test_recovery_required_role_cannot_reactivate_transitional_sidecars(self):
