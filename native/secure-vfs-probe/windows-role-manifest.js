@@ -21,7 +21,16 @@ function assertManifestShape(manifest) {
   }
   assertWindowsIdentity(manifest.metadataRootIdentity, 'metadata-root');
   const roleNames = new Set();
-  const databaseIds = new Set();
+  const physicalIds = new Set([
+    `${manifest.metadataRootIdentity.volumeSerial.toLowerCase()}:${manifest.metadataRootIdentity.fileId.toLowerCase()}`,
+  ]);
+  const claimIdentity = (identity, label) => {
+    const key = `${identity.volumeSerial.toLowerCase()}:${identity.fileId.toLowerCase()}`;
+    if (physicalIds.has(key)) {
+      throw new TypeError(`Duplicate physical Windows identity in trusted role manifest: ${label}`);
+    }
+    physicalIds.add(key);
+  };
   for (const role of manifest.roles) {
     if (!role || typeof role.role !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(role.role)
         || roleNames.has(role.role) || role.state !== 'active'
@@ -42,25 +51,32 @@ function assertManifestShape(manifest) {
         throw new TypeError(`Invalid Windows parent component for role ${role.role}`);
       }
     }
+    const parentIds = new Set();
     for (const identity of role.parentIdentities) {
       assertWindowsIdentity(identity, `parent ${role.role}`);
+      const parentKey = `${identity.volumeSerial.toLowerCase()}:${identity.fileId.toLowerCase()}`;
+      if (parentIds.has(parentKey)) {
+        throw new TypeError(`Duplicate parent directory identity in role ${role.role}`);
+      }
+      parentIds.add(parentKey);
+      claimIdentity(identity, `parent ${role.role}`);
     }
+    claimIdentity(role.databaseIdentity, `database ${role.role}`);
     const sidecarKinds = new Set();
     for (const sidecar of role.sidecars) {
       if (!sidecar || !['wal', 'shm', 'journal'].includes(sidecar.kind)
           || sidecarKinds.has(sidecar.kind)
           || !['active', 'retired'].includes(sidecar.state)
-          || !Number.isSafeInteger(sidecar.generation) || sidecar.generation < 1) {
+          || !Number.isSafeInteger(sidecar.generation) || sidecar.generation < 1
+          || sidecar.generation > manifest.generation) {
         throw new TypeError(`Role ${role.role} has a transitional or invalid sidecar record`);
       }
       sidecarKinds.add(sidecar.kind);
       assertWindowsIdentity(sidecar.identity, `${role.role} ${sidecar.kind} sidecar`);
+      if (sidecar.state !== 'retired') {
+        claimIdentity(sidecar.identity, `${role.role} ${sidecar.kind} sidecar`);
+      }
     }
-    const identityKey = `${role.databaseIdentity.volumeSerial.toLowerCase()}:${role.databaseIdentity.fileId.toLowerCase()}`;
-    if (databaseIds.has(identityKey)) {
-      throw new TypeError('Duplicate physical database identity in trusted role manifest');
-    }
-    databaseIds.add(identityKey);
   }
 }
 
