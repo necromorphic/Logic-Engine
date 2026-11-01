@@ -118,6 +118,21 @@ test('report validation prevents a false PASS when required evidence is missing'
     limitations: [],
   };
   assert.throws(() => validateDeploymentReport(report), /FALSE_PASS_REQUIRED_CAPABILITY/);
+  const blockedGateReport = {
+    ...report,
+    capabilities: [{
+      id: 'platform.identity.inspect',
+      status: 'PASS',
+      required: true,
+      evidence_source: 'test',
+      adapter_version: '1.0.0',
+      limitations: [],
+    }],
+    gates: [{ id: 'core:filesystem.access.effective', status: 'BLOCKED', affected_features: ['core'] }],
+  };
+  assert.throws(() => validateDeploymentReport(blockedGateReport), /FALSE_PASS_BLOCKED_GATE/);
+  const portablePass = { ...blockedGateReport, gates: [], overall_status: 'PASS' };
+  assert.throws(() => validateDeploymentReport(portablePass), /FALSE_PASS_PORTABLE_ISOLATION/);
 });
 
 test('portable report explicitly reports degraded single-process isolation', () => {
