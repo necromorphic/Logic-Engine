@@ -268,6 +268,12 @@ def _validate_manifest_transition(current: dict[str, Any], candidate: dict[str, 
             raise StoreError(f"role {name}: enrolled path and database identity are immutable")
         if new["state"] not in role_state_transitions[old["state"]]:
             raise StoreError(f"role {name}: invalid state transition {old['state']} -> {new['state']}")
+        if new["state"] == "disabled" and any(
+                entry["state"] != "retired" for entry in new["sidecars"]):
+            raise StoreError(f"role {name}: disabling requires every sidecar to be retired")
+        if old["state"] == "recovery-required" and new["state"] == "active" and any(
+                entry["state"] not in ("active", "retired") for entry in new["sidecars"]):
+            raise StoreError(f"role {name}: recovery cannot reactivate transitional sidecars")
         old_sidecars = {entry["kind"]: entry for entry in old["sidecars"]}
         new_sidecars = {entry["kind"]: entry for entry in new["sidecars"]}
         if old_sidecars.keys() - new_sidecars.keys():
