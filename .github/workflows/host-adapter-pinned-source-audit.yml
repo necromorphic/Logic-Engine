@@ -65,6 +65,10 @@ jobs:
         shell: cmd
         run: node -e "const fs=require('node:fs');const c=require('node:crypto');const p=fs.readFileSync('host-adapter/patches/sillytavern-1.19.0-final-send.patch','utf8').replace(/\\r\\n/g,'\\n');console.log('PATCH_SHA256='+c.createHash('sha256').update(p,'utf8').digest('hex'))"
 
+      - name: Print pinned source baseline digests
+        shell: cmd
+        run: node -e "const fs=require('node:fs');const c=require('node:crypto');const m=JSON.parse(fs.readFileSync('host-adapter/patches/sillytavern-1.19.0-final-send.manifest.json','utf8'));for(const [p] of Object.entries(m.sourceFiles)){const b=fs.readFileSync('SillyTavern/'+p);const h=c.createHash('sha256').update(b.toString('utf8').replace(/\\r\\n/g,'\\n'),'utf8').digest('hex');console.log('SOURCE_SHA256 '+p+' '+h)}"
+
       - name: Apply and verify managed Final-Send patch against exact SillyTavern source
         shell: cmd
         run: |
