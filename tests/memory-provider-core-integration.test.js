@@ -138,11 +138,11 @@ function setup(t, { twoRecords = false, providerPath = null, evidenceAssessment 
   const authorizedReadService = new AuthorizedReadService(engine, bindings,
     (context, entity, field) => field === 'entity_id'
       || (field === 'attributes.public_note' && entity.entity_id.startsWith('source-')));
-  const createConsumer = (memoryProvider = provider) => {
+  const createConsumer = (memoryProvider = provider, coreQueryAuthorizer = coreAuthorizers.memoryQueryAuthorizer) => {
     const rawConsumer = new MemoryNpcConsumer({
       authorizedReadService, actorBindingService: bindings,
       hostConversationWorldBindingService: hostConversationBindings, adapterId, memoryProvider,
-      coreQueryAuthorizer: coreAuthorizers.memoryQueryAuthorizer,
+      coreQueryAuthorizer,
       contentFields: ['attributes.public_note'],
     });
     return new Proxy(rawConsumer, {
@@ -170,7 +170,7 @@ function setup(t, { twoRecords = false, providerPath = null, evidenceAssessment 
     testDb.cleanup();
   });
   return {
-    engine, provider, consumer, scope, records, createConsumer, hostConversationBindings,
+    engine, provider, consumer, scope, records, createConsumer, hostConversationBindings, coreAuthorizers,
     createSiblingProvider() {
       const sibling = new SQLiteMemoryProvider({
         path: effectiveProviderPath,
@@ -729,29 +729,30 @@ test('reconciliation rejects a Core mutation that occurs during complete invento
   await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_INDEX_NOT_READY/);
 });
 
-test('Core Host-conversation revoke during final Provider grant fence blocks result envelope', async (t) => {
+test('Core Host-conversation revoke at the final authorization fence blocks result envelope', async (t) => {
   const s = setup(t);
   await s.prepare();
-  const originalCheck = s.provider.checkCandidateGrant.bind(s.provider);
-  let revoked = false;
-  s.provider.checkCandidateGrant = (input) => {
-    if (!revoked) {
-      revoked = true;
-      const result = s.hostConversationBindings.revoke({
+  let checks = 0;
+  const coreQueryAuthorizer = (scope, context) => {
+    checks += 1;
+    const allowed = s.coreAuthorizers.memoryQueryAuthorizer(scope, context);
+    if (checks === 5 && allowed) {
+      const revoked = s.hostConversationBindings.revoke({
         adapterId: 'provider-e2e-adapter',
         conversationId: HOST_CONVERSATION_ID,
-        reason: 'test revoke at final Provider grant fence',
+        reason: 'test revoke at final authorization fence',
       });
-      assert.equal(result.changed, true);
+      assert.equal(revoked.changed, true);
     }
-    return originalCheck(input);
+    return allowed;
   };
-  const result = await s.consumer.retrieveForNpc({
+  const consumer = s.createConsumer(s.provider, coreQueryAuthorizer);
+  const result = await consumer.retrieveForNpc({
     worldId: s.scope.world_id,
     actorEntityId: s.scope.subject_id,
     conversationId: HOST_CONVERSATION_ID,
   });
-  assert.equal(revoked, true);
+  assert.equal(checks, 6);
   assert.equal(result.status, 'non_ready');
   assert.equal(result.reason, 'query_access_unconfirmed');
   assert.deepEqual(result.admitted, []);
