@@ -1,6 +1,6 @@
 # Extension Gateway contract — implementation slice
 
-**Status:** Gateway core and isolated ingress tests implemented in Logic-Engine; SillyTavern startup mount, authenticated Host Adapter binding, and end-to-end ST runtime integration remain pending. Protected operations remain disabled / fail-closed.
+**Status:** Gateway core/client transport and a pinned ST 1.19.0 startup patch are implemented. Isolated contract tests pass; CI now applies the patch to a disposable official 1.19.0 checkout and verifies rollback. Production Host Adapter implementation/registration and Extension → Gateway → Host Adapter → Core end-to-end execution remain pending. Protected operations remain disabled / fail-closed.
 
 ## Approved topology
 
@@ -68,7 +68,7 @@ The packaged Client Extension registers through the SillyTavern Extension manife
 
 ## Current test evidence
 
-The isolated tests cover positive ingress, exact single-route registration, duplicate mount refusal, unknown path/method, malformed and forged identity envelopes, declared and chunked body-size limits, content type, Host Adapter outage, graceful drain/closed behavior, repeated request forwarding, metadata-only diagnostics and audit-sink fail-closed behavior, and the Client Extension's single same-origin transport.
+The tests cover positive ingress, exact single-route registration, duplicate mount refusal, unknown path/method, malformed and forged identity envelopes, declared and chunked body-size limits, content type, Host Adapter outage, graceful drain/closed behavior, singleton Host Adapter registration, refusal to unregister while requests are in flight, repeated request forwarding, metadata-only diagnostics and audit-sink fail-closed behavior, and the Client Extension's single same-origin transport. A separate acceptance test clones the official `1.19.0` tag into a disposable directory, runs the actual Patch Manager install, verifies body-parser bypass/authenticated route placement/shutdown drain/one route/five exact changed files, then rolls the patch back and verifies a clean worktree.
 
 These tests prove the Gateway module's local contract only. They do not yet prove:
 - the route is mounted in the target ST 1.19.0 process;
