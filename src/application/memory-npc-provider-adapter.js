@@ -139,17 +139,22 @@ export function createMemoryNpcProviderAdapter({
       revokeRecord: (...args) => provider.revokeRecord(...args),
     });
 
+    // Host receives only the two supported consumer operations. Core/Provider
+    // dependencies and authorization methods remain private to this closure.
+    const consumerFacade = Object.freeze({
+      retrieveForNpc: (...args) => consumer.retrieveForNpc(...args),
+      revalidateForFinalDispatch: (...args) => consumer.revalidateForFinalDispatch(...args),
+    });
+
     return Object.freeze({
       adapterId,
       provider: providerControl,
-      consumer,
-      ...(hasInProcessHostGate ? {
-        runWithAuthenticatedHostSession(request, conversationId, callback) {
-          return runWithAuthenticatedHostSession(
-            request, conversationId, callback, isAuthenticatedHostRequest, resolveHostConversationId,
-          );
-        },
-      } : {}),
+      consumer: consumerFacade,
+      runWithAuthenticatedHostSession(request, conversationId, callback) {
+        return runWithAuthenticatedHostSession(
+          request, conversationId, callback, isAuthenticatedHostRequest, resolveHostConversationId,
+        );
+      },
       async prepareWorld(worldId) {
         await provider.rebuildIndex(worldId);
         return provider.reconcile(worldId);
