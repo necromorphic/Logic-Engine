@@ -21,7 +21,7 @@ The loader mounts plugins after `requireLoginMiddleware` and the global CSRF/ses
 - `GET /session` — creates/reuses a server-generated Host session UUID inside the authenticated signed ST session.
 - `GET /identity` — returns server-persisted opaque installation/account identities. Requires `LOGIC_ENGINE_HOST_IDENTITY_DIR` to point to a protected server-owned directory.
 - `GET /inventory` — reads the pinned Host data-root inventory and remains non-authoritative.
-- `POST /context` — deliberately returns `NON_READY` until the authenticated Host assertion handoff to Core is implemented and verified.
+- `POST /context` — validates the selected conversation against the authenticated account's full server-side inventory, signs a short-lived Host assertion with the server-held adapter secret, and calls Core server-to-server. Core independently verifies the HMAC, persistent nonce, active conversation→World binding and unique adapter→Actor binding.
 
 All routes are namespaced below the Extension Gateway. The plugin does not expose a separate `/api/logic-engine/*` route, does not accept a caller-selected Core URL, and contains no Core token or adapter secret. No browser-to-Core request path exists in this package.
 
@@ -33,4 +33,4 @@ After changing a canonical prototype module, update its bundled copy and keep bo
 
 ## Current limits
 
-This package replaces the patched SillyTavern Host inventory/identity route with the supported server-plugin loader. It does **not** yet complete the signed Host assertion handoff, Core context verification, full lifecycle mutation receipts, or final-send. `POST /context` is intentionally closed. Do not enable Memory → NPC or claim READY.
+This package replaces the patched SillyTavern Host inventory/identity route with the supported server-plugin loader. It now completes the signed Host assertion handoff and Core context-binding verification. It does **not** invoke MemoryNpcConsumer, complete full lifecycle mutation receipts, or authorize final-send. The context endpoint verifies identity and bindings only. Do not enable Memory → NPC or claim READY.
