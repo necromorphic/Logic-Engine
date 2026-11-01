@@ -157,13 +157,24 @@ async function recoverInterruptedApply(stateRoot, hostRoot) {
   const original = await readFile(backupPath).catch(() => null);
   if (!original || sha256(original) !== pending.originalHash) fail('RECOVERY_BACKUP_INVALID');
   const currentTarget = await readFile(targetPath).catch(() => null);
+  const currentHook = await readFile(hookPath).catch(() => null);
+  const committedManifest = await readJson(join(stateRoot, MANIFEST_NAME));
+  if (committedManifest?.patchId === PATCH_ID
+    && committedManifest.patchedHash === pending.patchedHash
+    && committedManifest.hookHash === pending.hookHash
+    && currentTarget && sha256(currentTarget) === pending.patchedHash
+    && currentHook && sha256(currentHook) === pending.hookHash) {
+    // Commit reached the installed manifest; only pending-file cleanup was
+    // interrupted. Keep the verified installed patch.
+    await unlink(pendingPath);
+    return;
+  }
+
   if (currentTarget && sha256(currentTarget) === pending.patchedHash) {
     await atomicWrite(targetPath, original);
   } else if (!currentTarget || sha256(currentTarget) !== pending.originalHash) {
     fail('RECOVERY_TARGET_DRIFT');
   }
-
-  const currentHook = await readFile(hookPath).catch(() => null);
   if (currentHook) {
     if (sha256(currentHook) !== pending.hookHash) fail('RECOVERY_HOOK_DRIFT');
     await unlink(hookPath);
@@ -185,15 +196,12 @@ export async function applyFinalSendPatch({ hostRoot, stateRoot, hookSourcePath 
   try {
     const rootReal = await realpath(root).catch(() => null);
     if (!rootReal) fail('HOST_ROOT_MISSING');
-    // Recover an interrupted transaction before enforcing baseline hashes:
-    // a crash may have left the target file in its known patched state.
+    // Recover an interrupted transaction before inspecting either baseline or
+    // installed state. Recovery is idempotent across process restarts.
     await recoverInterruptedApply(state, rootReal);
-    const pinned = await verifyPinnedHost(rootReal);
 
     const manifestPath = join(state, MANIFEST_NAME);
     const existingManifest = await readJson(manifestPath);
-    const endpoint = pinned.files.get(SILLYTAVERN_TARGET.endpointRelativePath);
-    const hookPath = resolve(pinned.root, SILLYTAVERN_TARGET.hookRelativePath);
     const hookSource = await readFile(hookSourcePath);
     if (hookSource.length === 0) fail('HOOK_SOURCE_EMPTY');
     const hookHash = sha256(hookSource);
@@ -201,15 +209,38 @@ export async function applyFinalSendPatch({ hostRoot, stateRoot, hookSourcePath 
     if (existingManifest) {
       if (existingManifest.patchId !== PATCH_ID
         || existingManifest.hostCommit !== SILLYTAVERN_TARGET.commit
-        || existingManifest.hookHash !== hookHash) fail('INSTALLED_MANIFEST_MISMATCH');
-      const currentEndpoint = await readFile(endpoint.path);
-      const currentHook = await readFile(hookPath).catch(() => null);
-      if (sha256(currentEndpoint) !== existingManifest.patchedHash
-        || !currentHook || sha256(currentHook) !== hookHash) fail('INSTALLED_PATCH_DRIFT');
+        || existingManifest.originalHash !== SILLYTAVERN_TARGET.sourceHashes[SILLYTAVERN_TARGET.endpointRelativePath]
+        || existingManifest.hookHash !== hookHash
+        || existingManifest.endpointRelativePath !== SILLYTAVERN_TARGET.endpointRelativePath
+        || existingManifest.hookRelativePath !== SILLYTAVERN_TARGET.hookRelativePath) {
+        fail('INSTALLED_MANIFEST_MISMATCH');
+      }
+      const pkg = await readJson(await assertRegularFile(rootReal, 'package.json'));
+      if (pkg?.version !== SILLYTAVERN_TARGET.packageVersion) fail('HOST_VERSION_UNSUPPORTED');
+      for (const [relativePath, expectedHash] of Object.entries(SILLYTAVERN_TARGET.sourceHashes)) {
+        if (relativePath === SILLYTAVERN_TARGET.endpointRelativePath) continue;
+        const sourcePath = await assertRegularFile(rootReal, relativePath);
+        if (sha256(await readFile(sourcePath)) !== expectedHash) fail('HOST_SOURCE_HASH_MISMATCH_' + relativePath.replaceAll('/', '_').replaceAll('.', '_'));
+      }
+      const endpointPath = await assertRegularFile(rootReal, SILLYTAVERN_TARGET.endpointRelativePath);
+      const hookPath = await assertRegularFile(rootReal, SILLYTAVERN_TARGET.hookRelativePath);
+      const backupPath = resolve(state, existingManifest.backupRelativePath);
+      if (!inside(state, backupPath)) fail('INSTALLED_BACKUP_PATH_INVALID');
+      const original = await readFile(backupPath).catch(() => null);
+      if (!original || sha256(original) !== existingManifest.originalHash
+        || sha256(Buffer.from(patchChatCompletionsSource(original.toString('utf8')), 'utf8')) !== existingManifest.patchedHash
+        || sha256(await readFile(endpointPath)) !== existingManifest.patchedHash
+        || sha256(await readFile(hookPath)) !== hookHash) {
+        fail('INSTALLED_PATCH_DRIFT');
+      }
       return Object.freeze({ status: 'installed', patchId: PATCH_ID, hostCommit: SILLYTAVERN_TARGET.commit });
     }
 
+    const pinned = await verifyPinnedHost(rootReal);
+    const endpoint = pinned.files.get(SILLYTAVERN_TARGET.endpointRelativePath);
+    const hookPath = resolve(pinned.root, SILLYTAVERN_TARGET.hookRelativePath);
     if (await exists(hookPath)) fail('UNMANAGED_HOOK_EXISTS');
+
     const originalHash = sha256(endpoint.bytes);
     const patchedBytes = Buffer.from(patchChatCompletionsSource(endpoint.bytes.toString('utf8')), 'utf8');
     const patchedHash = sha256(patchedBytes);
