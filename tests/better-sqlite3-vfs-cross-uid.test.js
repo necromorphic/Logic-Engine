@@ -112,12 +112,19 @@ test('distinct-UID broker protects better-sqlite3 main, journal, WAL and SHM fil
     if (registered !== 1) process.exit(21);
     const db = new Database(process.env.LOGIC_ENGINE_DATABASE_PATH);
     db.exec('PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0; PRAGMA cache_size=1; BEGIN IMMEDIATE;');
+    const ioBefore = db.prepare(
+      'SELECT logic_engine_vfs_probe_broker_backend_io_count() AS count'
+    ).get().count;
     const insert = db.prepare('INSERT INTO broker_probe VALUES (?)');
     for (let i = 0; i < 64; i += 1) {
       insert.run('uncommitted-crash-row-' + i + '-' + 'x'.repeat(512));
     }
+    const ioAfter = db.prepare(
+      'SELECT logic_engine_vfs_probe_broker_backend_io_count() AS count'
+    ).get().count;
+    if (ioAfter <= ioBefore) process.exit(22);
     if (db.prepare('SELECT logic_engine_vfs_probe_wal_open_count() AS count').get().count < 1) {
-      process.exit(22);
+      process.exit(23);
     }
     process.exit(0);
   `;
