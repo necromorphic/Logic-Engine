@@ -360,7 +360,7 @@ class ManifestStoreTests(unittest.TestCase):
             "state": "active",
             "sidecars": [],
         })
-        with self.assertRaisesRegex(StoreError, "committed broker-first enrollment intent"):
+        with self.assertRaisesRegex(StoreError, "privileged empty enrolling records"):
             self.store.commit(_canonical_json(candidate))
 
     def test_broker_first_enrollment_never_adopts_existing_database(self):
