@@ -20,6 +20,13 @@ const hostRequest = {
   session: { handle: 'integration-user', logicEngineSessionId: HOST_SESSION_ID, logicEngineSessionHandle: 'integration-user' },
 };
 
+function assertNoRejectedMetadataDisclosure(result) {
+  const serialized = JSON.stringify(result);
+  assert.doesNotMatch(serialized, /"(?:diagnostics?|snippets?|rejected_count|denied_count|withheld_count|filtered_count)"\\s*:/i);
+  assert.equal(Object.hasOwn(result, 'rejected_count'), false);
+  assert.equal(Object.hasOwn(result, 'diagnostics'), false);
+}
+
 function setup(t, { twoRecords = false, providerPath = null, evidenceAssessment = 'unassessed' } = {}) {
   const testDb = createProviderTestDb(t, {
     path: providerPath && providerPath !== ':memory:' ? providerPath : null,
@@ -469,6 +476,7 @@ test('query denial is non-ready and does not disclose candidate identities or co
   assert.deepEqual(result.admitted, []);
   assert.equal(JSON.stringify(result).includes('memory:record-a'), false);
   assert.equal(JSON.stringify(result).includes('visible source-a'), false);
+  assertNoRejectedMetadataDisclosure(result);
 });
 
 test('per-record denial is filtered without leaking denied record identity or content', async (t) => {
@@ -486,6 +494,7 @@ test('per-record denial is filtered without leaking denied record identity or co
   assert.equal(JSON.stringify(result).includes('memory:record-a'), false);
   assert.equal(JSON.stringify(result).includes('visible source-a'), false);
   assert.equal(JSON.stringify(result).includes('never disclose source-a'), false);
+  assertNoRejectedMetadataDisclosure(result);
 });
 
 test('retrieval and context inclusion do not persist delivery, receipt, acquisition, or belief side effects', async (t) => {
