@@ -45,6 +45,7 @@ jobs:
       - name: Syntax-check patched Host and Gateway
         run: |
           find sillytavern/plugins/logic-engine-extension-gateway -name '*.mjs' -print0 | xargs -0 -n1 node --check
+          node --check sillytavern/plugins/logic-engine-extension-gateway/fs-inventory.js
           node --check sillytavern/public/scripts/extensions/third-party/logic-engine-extension-gateway/index.js
           node --check sillytavern/public/scripts/extensions/third-party/logic-engine-extension-gateway/host-context.mjs
           for f in public/script.js public/scripts/bookmarks.js public/scripts/group-chats.js public/scripts/chat-backups.js public/scripts/slash-commands.js src/server-main.js src/endpoints/backends/chat-completions.js src/endpoints/chats.js src/endpoints/groups.js src/endpoints/characters.js src/endpoints/backups.js src/endpoints/data-maid.js src/endpoints/settings.js src/endpoints/users-private.js src/endpoints/users-admin.js; do node --check "sillytavern/$f"; done
