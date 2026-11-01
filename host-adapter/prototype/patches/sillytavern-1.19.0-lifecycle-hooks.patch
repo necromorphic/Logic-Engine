@@ -655,6 +655,18 @@ diff --git a/src/endpoints/chats.js b/src/endpoints/chats.js
 +const hostBulkMutationGuard = createHostBulkMutationGuard({ pinnedHostCommit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127' });
 +
  const isBackupEnabled = !!getConfigValue('backups.chat.enabled', true, 'boolean');
+@@ -621,4 +624,4 @@
+-router.post('/rename', validateAvatarUrlMiddleware, async function (request, response) {
++router.post('/rename', validateAvatarUrlMiddleware, hostBulkMutationGuard, async function (request, response) {
+     try {
+         if (!request.body || !request.body.original_file || !request.body.renamed_file) {
+             return response.sendStatus(400);
+@@ -654,4 +657,4 @@
+-router.post('/delete', validateAvatarUrlMiddleware, function (request, response) {
++router.post('/delete', validateAvatarUrlMiddleware, hostBulkMutationGuard, function (request, response) {
+     try {
+         if (!path.extname(request.body.chatfile)) {
+             request.body.chatfile += '.jsonl';
 @@ -748,8 +751,8 @@
          console.error('chat export failed.', err);
          return response.sendStatus(400);
@@ -676,18 +688,6 @@ diff --git a/src/endpoints/chats.js b/src/endpoints/chats.js
  
      const format = request.body.file_type;
 
-@@ -621,4 +624,4 @@
--router.post('/rename', validateAvatarUrlMiddleware, async function (request, response) {
-+router.post('/rename', validateAvatarUrlMiddleware, hostBulkMutationGuard, async function (request, response) {
-     try {
-         if (!request.body || !request.body.original_file || !request.body.renamed_file) {
-             return response.sendStatus(400);
-@@ -654,4 +657,4 @@
--router.post('/delete', validateAvatarUrlMiddleware, function (request, response) {
-+router.post('/delete', validateAvatarUrlMiddleware, hostBulkMutationGuard, function (request, response) {
-     try {
-         if (!path.extname(request.body.chatfile)) {
-             request.body.chatfile += '.jsonl';
 @@ -900,4 +903,4 @@
 -router.post('/group/delete', (request, response) => {
 +router.post('/group/delete', hostBulkMutationGuard, (request, response) => {
