@@ -91,6 +91,11 @@ const providerFailureReason = (error) => {
   }
 };
 
+const providerAuthorizationFailureReason = (error, fallback) => {
+  const reason = providerFailureReason(error);
+  return reason === 'memory_retrieval_unavailable' ? fallback : reason;
+};
+
 const nonReady = (reason) => Object.freeze({
   status: 'non_ready',
   admitted: Object.freeze([]),
@@ -412,10 +417,11 @@ export class MemoryNpcConsumer {
           source_kind: candidate.source.kind,
           source_entity_id: candidate.source.entity_id,
         }) === true;
-      } catch {
+      } catch (error) {
         // A denial is an ordinary filtered record; an authorization failure is
-        // not evidence that the result is complete-empty.
-        return nonReady('memory_record_authorization_unavailable');
+        // not evidence that the result is complete-empty. Preserve known typed
+        // revoke/stale/unavailable outcomes without returning internal details.
+        return nonReady(providerAuthorizationFailureReason(error, 'memory_record_authorization_unavailable'));
       }
       if (!recordAllowed) continue;
 
@@ -470,8 +476,8 @@ export class MemoryNpcConsumer {
           source_kind: candidate.source.kind,
           source_entity_id: candidate.source.entity_id,
         }) === true;
-      } catch {
-        return nonReady('memory_record_authorization_unavailable');
+      } catch (error) {
+        return nonReady(providerAuthorizationFailureReason(error, 'memory_record_authorization_unavailable'));
       }
       if (stillAllowed) authorizedCandidates.push(candidate);
     }
@@ -715,8 +721,8 @@ export class MemoryNpcConsumer {
           source_kind: 'canonical_entity',
           source_entity_id: item.source_entity_id,
         }) === true;
-      } catch {
-        return nonReady('memory_record_authorization_unavailable');
+      } catch (error) {
+        return nonReady(providerAuthorizationFailureReason(error, 'memory_record_authorization_unavailable'));
       }
       if (!stillAllowed) return nonReady('memory_record_authorization_unconfirmed');
     }
