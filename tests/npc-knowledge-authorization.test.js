@@ -18,7 +18,10 @@ const source = {
   sha256: createHash('sha256').update(sourceBytes).digest('hex'),
 };
 const HOST_SESSION_ID = '11111111-1111-4111-8111-111111111111';
-const HOST_CONVERSATION_ID = HOST_SESSION_ID + ':22222222-2222-4222-8222-222222222222:33333333-3333-4333-8333-333333333333';
+const HOST_INSTALLATION_ID = '22222222-2222-4222-8222-222222222222';
+const HOST_ACCOUNT_ID = '33333333-3333-4333-8333-333333333333';
+const HOST_CONVERSATION_UUID = '44444444-4444-4444-8444-444444444444';
+const HOST_CONVERSATION_ID = HOST_INSTALLATION_ID + ':' + HOST_ACCOUNT_ID + ':' + HOST_CONVERSATION_UUID;
 const OTHER_SESSION_ID = '44444444-4444-4444-8444-444444444444';
 const OTHER_SESSION_CONVERSATION = OTHER_SESSION_ID + ':55555555-5555-4555-8555-555555555555:66666666-6666-4666-8666-666666666666';
 const hostRequest = {
@@ -29,6 +32,7 @@ const authenticatedHostRequests = new WeakSet([hostRequest]);
 const isAuthenticatedHostRequest = request => authenticatedHostRequests.has(request);
 const trustedConversationIds = new WeakMap([[hostRequest, HOST_CONVERSATION_ID]]);
 const resolveHostConversationId = request => trustedConversationIds.get(request) ?? null;
+const resolveHostBindings = () => ({ world_id: 'world-a', actor_id: 'npc-a' });
 
 const importedSource = {
   ...source,
@@ -83,7 +87,7 @@ function setup(t) {
     world_revision: snapshot.world_revision,
     commit_sequence: snapshot.commit_sequence,
   };
-  const hostSessionContext = createAuthenticatedHostSessionContext(hostRequest, HOST_CONVERSATION_ID, isAuthenticatedHostRequest, resolveHostConversationId);
+  const hostSessionContext = createAuthenticatedHostSessionContext(hostRequest, HOST_CONVERSATION_ID, isAuthenticatedHostRequest, resolveHostConversationId, resolveHostBindings);
   return { store, engine, actors, conversations, authorizers, scope, hostSessionContext };
 }
 
