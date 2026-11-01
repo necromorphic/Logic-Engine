@@ -314,9 +314,15 @@ export function createHostRootInventoryPersistence({
       || !validRootEntries(entries)) {
       return { status: 'NON_READY', reason: 'HOST_ROOT_INVENTORY_INPUT_INVALID' };
     }
+    const dataRoot = globalThis.DATA_ROOT;
+    if (typeof dataRoot !== 'string' || !pathModule.isAbsolute(dataRoot)) {
+      return { status: 'NON_READY', reason: 'HOST_IDENTITY_DATA_ROOT_UNAVAILABLE' };
+    }
     let identity;
-    try { identity = await identityStore.resolveAuthenticatedAccount(userHandle); }
-    catch { return { status: 'NON_READY', reason: 'HOST_ROOT_IDENTITY_UNAVAILABLE' }; }
+    try {
+      await identityStore.assertOutsideRoot(dataRoot);
+      identity = await identityStore.resolveAuthenticatedAccount(userHandle);
+    } catch { return { status: 'NON_READY', reason: 'HOST_ROOT_IDENTITY_UNAVAILABLE' }; }
     if (!identity || typeof identity.host_installation_id !== 'string'
       || !HOST_SESSION_UUID.test(identity.host_installation_id)
       || typeof identity.authenticated_account_id !== 'string'
