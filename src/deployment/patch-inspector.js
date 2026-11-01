@@ -9,7 +9,7 @@ const manifest = JSON.parse(await readFile(resolve(here, 'pins/sillytavern-1.19.
 const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
 const canonicalTextHash = (bytes) => {
   if (!isUtf8(bytes)) throw new Error('SILLYTAVERN_INSPECTION_ENCODING_INVALID');
-  return sha256(Buffer.from(bytes.toString('utf8').replace(/\\r\\n/g, '\\n'), 'utf8'));
+  return sha256(Buffer.from(bytes.toString('utf8').replace(/\r\n/g, '\n'), 'utf8'));
 };
 const isWithin = (root, target) => {
   const rel = relative(root, target);
