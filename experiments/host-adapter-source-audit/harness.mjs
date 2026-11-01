@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { createHash } from 'node:crypto';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
@@ -11,13 +12,17 @@ const [events, script] = await Promise.all([
   readFile(resolve(root, 'public/script.js'), 'utf8'),
 ]);
 
-test('audit input is the exact pinned SillyTavern commit', async () => {
-  // actions/checkout leaves a detached HEAD for the pinned commit. Read the
-  // repository metadata directly so the audit does not depend on Git being
-  // present on the self-hosted runner's child-process PATH.
-  const actual = (await readFile(resolve(root, '.git', 'HEAD'), 'utf8')).trim();
-  assert.match(actual, /^[a-f0-9]{40}$/);
-  assert.equal(actual, targetSha, 'Do not run this audit against an unpinned or different checkout');
+test('audit input matches the exact pinned SillyTavern source digests', async () => {
+  const manifest = JSON.parse(await readFile(resolve(process.cwd(),
+    'host-adapter/patches/sillytavern-1.19.0-final-send.manifest.json'), 'utf8'));
+  assert.equal(manifest.host.commit, targetSha);
+  for (const [relativePath, expected] of Object.entries(manifest.sourceFiles)) {
+    const bytes = await readFile(resolve(root, relativePath));
+    const canonical = Buffer.from(bytes.toString('utf8').replace(/\\r\\n/g, '\\n'), 'utf8');
+    const digest = createHash('sha256').update(canonical).digest('hex');
+    const expectedDigest = typeof expected === 'string' ? expected : expected.before;
+    assert.equal(digest, expectedDigest, 'Pinned source mismatch: ' + relativePath);
+  }
 });
 
 test('pinned event catalog declares lifecycle hooks under audit', () => {
