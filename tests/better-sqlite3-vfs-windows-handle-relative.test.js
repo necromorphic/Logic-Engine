@@ -102,7 +102,7 @@ test('Windows VFS opens SQLite main/journal/WAL/SHM relative to pinned parent an
       assert.equal(writer.prepare('SELECT COUNT(*) FROM origin').pluck().get(), snapshot + 1);
 
       assert.ok(registrar.prepare(
-        'SELECT logic_engine_vfs_probe_main_db_open_count() AS count'
+        'SELECT logic_engine_vfs_probe_open_count() AS count'
       ).get().count > 0);
       assert.ok(registrar.prepare(
         'SELECT logic_engine_vfs_probe_journal_open_count() AS count'
