@@ -57,6 +57,7 @@ function fixture(t) {
   mkdirSync(st);
   mkdirSync(packageDir);
   git(st, ['init', '-q']);
+  git(st, ['config', 'core.autocrlf', 'false']);
   git(st, ['config', 'user.email', 'test@example.invalid']);
   git(st, ['config', 'user.name', 'Patch Manager Test']);
   writeFileSync(join(st, 'config.yaml'), 'unchanged\n');
