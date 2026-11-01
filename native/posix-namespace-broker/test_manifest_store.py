@@ -419,6 +419,40 @@ class ManifestStoreTests(unittest.TestCase):
         self.assertEqual(result["roles"][0]["sidecars"][0]["state"], "deleting")
         self.assertTrue(wal.exists())
 
+    def test_present_transitional_sidecar_persists_recovery_required_role(self):
+        wal = self.role_parent / "core.sqlite-wal"
+        wal.write_bytes(b"wal-placeholder")
+        os.chmod(wal, 0o600)
+        wal_fd = os.open(wal, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
+        try:
+            wal_identity = fd_identity(wal_fd)
+        finally:
+            os.close(wal_fd)
+
+        import json
+        value = json.loads(self.data(1))
+        value["generation"] = 2
+        value["roles"][0]["sidecars"] = [{
+            "kind": "wal", "identity": wal_identity,
+            "state": "creating", "generation": 2,
+        }]
+        self.store.initialize(self.data(1))
+        self.store.commit(_canonical_json(value))
+        value["generation"] = 3
+        value["roles"][0]["sidecars"][0]["state"] = "deleting"
+        value["roles"][0]["sidecars"][0]["generation"] = 3
+        self.store.commit(_canonical_json(value))
+
+        reconciled = self.store.retire_absent_sidecars()
+        self.assertEqual(reconciled["generation"], 3)
+        marked = self.store.mark_present_transitions_recovery_required()
+        self.assertEqual(marked["generation"], 4)
+        self.assertEqual(marked["roles"][0]["state"], "recovery-required")
+        self.assertEqual(marked["roles"][0]["sidecars"][0]["state"], "deleting")
+        self.assertTrue(wal.exists())
+        with self.assertRaises(StoreError):
+            self.store.verify_roles()
+
     def test_rejects_zero_identity_components(self):
         import json
         for component in ("device", "inode", "mountId"):
