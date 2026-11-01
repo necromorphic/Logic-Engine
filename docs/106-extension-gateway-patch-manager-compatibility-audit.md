@@ -122,3 +122,15 @@ Once launched by that trusted owner, Patch Manager implementation can proceed us
 | Production protected sending | DENY / FAIL-CLOSED |
 
 **No architecture approval is requested.** The next engineering step is to connect the approved Patch Manager to the trusted local Logic-Engine installation/management host, then implement the versioned patch transaction and the single Gateway/Final-Send patch packages.
+
+## 8. Current engineering implementation status
+
+- [x] Select existing local deployment owner: Logic-Engine Node package/CLI; no separate Companion.
+- [x] Implement local Patch Manager module and CLI entrypoint.
+- [x] Implement exact-target/manifest checks, transactional backup/journal, rollback, recovery and user-edit protection.
+- [x] Add focused Patch Manager tests.
+- [ ] Exact-head CI completion for the new Patch Manager tests.
+- [ ] Produce the single approved ST patch package containing the sole Extension Gateway route, trusted Host Adapter integration, pre-LLM egress and final-response revalidation.
+- [ ] Add an integration manifest for the exact ST build, pinned patch digest and release package identity.
+- [ ] Run disposable ST apply/lint/syntax/integration tests, then real installed-instance acceptance.
+- [ ] Prove all protected sender paths and actual upstream call counts; until then protected sending remains DENY / FAIL-CLOSED.
