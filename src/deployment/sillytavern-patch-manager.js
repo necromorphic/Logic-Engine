@@ -56,7 +56,7 @@ function readManifest(manifestPath) {
     || manifest.schema_version !== 1
     || !/^[a-z0-9][a-z0-9._-]{2,79}$/.test(manifest.package_id)
     || !/^[0-9a-f]{40}$/.test(manifest.target_git_commit)
-    || !Array.isArray(manifest.patches) || manifest.patches.length < 1 || manifest.patches.length > 32) {
+    || !Array.isArray(manifest.patches) || manifest.patches.length !== 1) {
     throw new Error('Patch manifest schema or target identity is invalid.');
   }
   const seen = new Set();
@@ -130,14 +130,23 @@ function patchPaths(root, patchText) {
   return paths;
 }
 
+function assertSafeTargetPath(root, filePath) {
+  const destination = resolve(root, filePath);
+  const rel = relative(root, destination);
+  if (!rel || rel === '..' || rel.startsWith('..' + sep) || isAbsolute(rel)) throw new Error('Journal path escapes target root.');
+  let cursor = root;
+  const parts = rel.split(sep);
+  for (let index = 0; index < parts.length; index++) {
+    cursor = join(cursor, parts[index]);
+    if (existsSync(cursor) && lstatSync(cursor).isSymbolicLink()) throw new Error('Refusing to follow a symbolic link during recovery.');
+  }
+  return destination;
+}
+
 function restoreFiles(root, journal) {
   const { backups } = managerPaths(root);
   for (const file of journal.files) {
-    const destination = resolve(root, file.path);
-    const rel = relative(root, destination);
-    if (!rel || rel === '..' || rel.startsWith('..' + sep) || isAbsolute(rel)) {
-      throw new Error('Journal path escapes target root.');
-    }
+    const destination = assertSafeTargetPath(root, file.path);
     if (file.existed) {
       const backup = resolve(backups, file.backup);
       if (!backup.startsWith(backups + sep) || !existsSync(backup) || sha256(readFileSync(backup)) !== file.sha256) {
@@ -209,10 +218,16 @@ export function installSillyTavernPatchPackage({ stPath, manifestPath }) {
     writeFileSync(backup, file.bytes, { flag: 'wx', mode: 0o600 });
     try { chmodSync(backup, 0o600); } catch {}
   }
+  const storedPatchDirectory = join(paths.directory, 'patches');
+  mkdirSync(storedPatchDirectory, { recursive: true, mode: 0o700 });
+  const storedPatch = join(storedPatchDirectory, 'package.patch');
+  writeFileSync(storedPatch, patchEntries[0].text, { flag: 'wx', mode: 0o600 });
+  try { chmodSync(storedPatch, 0o600); } catch {}
   const journal = {
     schema_version: 1, transaction_id: id, package_id: manifest.package_id,
     manifest_digest: manifestDigest, target_commit: target.commit, state: 'APPLYING',
-    files: files.map(({ bytes, ...item }) => item),
+    patch_file: storedPatch, patch_sha256: sha256(readFileSync(storedPatch)),
+    files: files.map(({ bytes, ...item }) => ({ ...item, installed_sha256: null })),
   };
   atomicJson(paths.journal, journal);
   try {
@@ -224,12 +239,17 @@ export function installSillyTavernPatchPackage({ stPath, manifestPath }) {
     if (actual.some((line) => !expected.has(line)) || actual.length !== expected.size) {
       throw new Error('Post-apply worktree diff does not match the declared patch file set.');
     }
-    atomicJson(paths.journal, { ...journal, state: 'APPLIED' });
+    const appliedFiles = journal.files.map((file) => {
+      const absolute = assertSafeTargetPath(target.root, file.path);
+      return { ...file, installed_sha256: existsSync(absolute) ? sha256(readFileSync(absolute)) : null };
+    });
+    atomicJson(paths.journal, { ...journal, files: appliedFiles, state: 'APPLIED' });
     return { status: 'APPLIED', package_id: manifest.package_id, target_commit: target.commit, affected_files: affected };
   } catch (error) {
     restoreFiles(target.root, journal);
     rmSync(paths.journal, { force: true });
     rmSync(paths.backups, { recursive: true, force: true });
+    rmSync(join(paths.directory, 'patches'), { recursive: true, force: true });
     throw error;
   }
 }
@@ -242,14 +262,18 @@ export function uninstallSillyTavernPatchPackage({ stPath, packageId }) {
     throw new Error('No matching applied package journal exists.');
   }
   for (const file of journal.files) {
-    const destination = resolve(target.root, file.path);
-    if (!existsSync(destination) || !lstatSync(destination).isFile()) throw new Error('Patched target file is missing or not regular: ' + file.path);
+    const destination = assertSafeTargetPath(target.root, file.path);
+    const exists = existsSync(destination);
+    if (file.installed_sha256 === null ? exists : (!exists || !lstatSync(destination).isFile() || sha256(readFileSync(destination)) !== file.installed_sha256)) {
+      throw new Error('Patched file changed since installation; refusing to overwrite user changes: ' + file.path);
+    }
   }
   atomicJson(paths.journal, { ...journal, state: 'ROLLING_BACK' });
   try {
     restoreFiles(target.root, journal);
     rmSync(paths.journal, { force: true });
     rmSync(paths.backups, { recursive: true, force: true });
+    rmSync(join(paths.directory, 'patches'), { recursive: true, force: true });
     return { status: 'ROLLED_BACK', package_id: packageId };
   } catch (error) {
     throw new Error('Rollback incomplete; Patch Manager journal retained for recovery: ' + error.message);
@@ -262,8 +286,34 @@ export function recoverSillyTavernPatchTransaction(stPath) {
   const journal = loadJournal(target.root);
   if (!journal) return { status: 'CLEAN' };
   if (!['APPLYING', 'ROLLING_BACK'].includes(journal.state)) return { status: journal.state, package_id: journal.package_id };
+  if (journal.state === 'APPLYING') {
+    const patch = journal.patch_file;
+    if (typeof patch !== 'string' || !patch.startsWith(paths.directory + sep) || !existsSync(patch)
+      || sha256(readFileSync(patch)) !== journal.patch_sha256) {
+      throw new Error('Recovery patch artifact is missing or has changed; manual recovery is required.');
+    }
+    try {
+      runGit(target.root, ['apply', '--reverse', '--check', patch]);
+    } catch {
+      const unchanged = journal.files.every((file) => {
+        const destination = assertSafeTargetPath(target.root, file.path);
+        if (!file.existed) return !existsSync(destination);
+        return existsSync(destination) && sha256(readFileSync(destination)) === file.sha256;
+      });
+      if (!unchanged) throw new Error('Interrupted patch state is ambiguous; refusing destructive recovery.');
+    }
+  } else {
+    for (const file of journal.files) {
+      const destination = assertSafeTargetPath(target.root, file.path);
+      const exists = existsSync(destination);
+      const isOriginal = file.existed ? exists && sha256(readFileSync(destination)) === file.sha256 : !exists;
+      const isInstalled = file.installed_sha256 === null ? !exists : exists && sha256(readFileSync(destination)) === file.installed_sha256;
+      if (!isOriginal && !isInstalled) throw new Error('Recovery found an unexpected user change; refusing to overwrite: ' + file.path);
+    }
+  }
   restoreFiles(target.root, journal);
   rmSync(paths.journal, { force: true });
   rmSync(paths.backups, { recursive: true, force: true });
+  rmSync(join(paths.directory, 'patches'), { recursive: true, force: true });
   return { status: 'RECOVERED_ROLLBACK', package_id: journal.package_id };
 }
