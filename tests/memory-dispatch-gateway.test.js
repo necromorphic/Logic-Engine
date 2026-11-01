@@ -94,6 +94,7 @@ async function createFixture({ sendUpstream, createTransport, coreHead = 1, prov
   });
 
   let providerGranted = initialProviderGrant;
+  let policyAuthority = { authority_id: 'test-memory-policy', generation: 1, fingerprint: 'd'.repeat(64) };
   const calls = [];
   const makeGateway = () => installTestTransport(new MemoryDispatchGateway({
     ledgerPath,
@@ -106,6 +107,7 @@ async function createFixture({ sendUpstream, createTransport, coreHead = 1, prov
       actor_id: actorId,
       readiness: 'READY',
       inventory_status: 'READY',
+      policy_authority,
       sources,
     }),
     readProviderEvidence: ({ worldId, actorId, purpose, sources, candidates }) => ({
@@ -137,6 +139,7 @@ async function createFixture({ sendUpstream, createTransport, coreHead = 1, prov
       return gateway;
     },
     setProviderGranted(value) { providerGranted = value; },
+    setPolicyAuthority(value) { policyAuthority = value; },
     async close() {
       if (closed) return;
       closed = true;
@@ -320,6 +323,60 @@ test('transport handoff begins while the shared coordinator is still held', asyn
   );
   contender.exec('BEGIN IMMEDIATE');
   contender.exec('ROLLBACK');
+});
+
+test('FINAL RESPONSE REVALIDATION blocks Host release after Provider revoke during upstream send', async () => {
+  let releaseTransport;
+  const transportGate = new Promise((resolve) => { releaseTransport = resolve; });
+  const fixture = await createFixture({
+    createTransport: () => () => {
+      fixture.calls.push('upstream');
+      return transportGate;
+    },
+  });
+  try {
+    const pending = fixture.gateway.dispatchProtectedRequest(validRequest('revoke-during-send'));
+    await new Promise((resolve) => setImmediate(resolve));
+    fixture.setProviderGranted(false);
+    releaseTransport({ status: 200, body: 'must-not-reach-host' });
+    await assert.rejects(pending, /MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED/);
+    assert.equal(fixture.calls.length, 1, 'exactly one upstream call occurred');
+    const ledger = new DatabaseSync(fixture.ledgerPath);
+    try {
+      const row = ledger.prepare('SELECT status FROM dispatch_ledger WHERE request_id=?')
+        .get('revoke-during-send');
+      assert.equal(row.status, 'UNKNOWN', 'withheld response remains non-replayable');
+    } finally {
+      ledger.close();
+    }
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('FINAL RESPONSE REVALIDATION rejects policy authority tuple rotation during upstream send', async () => {
+  let releaseTransport;
+  const transportGate = new Promise((resolve) => { releaseTransport = resolve; });
+  const fixture = await createFixture({
+    createTransport: () => () => {
+      fixture.calls.push('upstream');
+      return transportGate;
+    },
+  });
+  try {
+    const pending = fixture.gateway.dispatchProtectedRequest(validRequest('policy-rotation-during-send'));
+    await new Promise((resolve) => setImmediate(resolve));
+    fixture.setPolicyAuthority({
+      authority_id: 'test-memory-policy',
+      generation: 2,
+      fingerprint: 'e'.repeat(64),
+    });
+    releaseTransport({ status: 200, body: 'must-not-reach-host' });
+    await assert.rejects(pending, /MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED/);
+    assert.equal(fixture.calls.length, 1, 'policy rotation does not trigger a retry');
+  } finally {
+    await fixture.close();
+  }
 });
 
 test('dispatch validates current heads and grants, records one content-free start, and sends once', async () => {
@@ -870,6 +927,7 @@ test('real Core source mutation and Gateway dispatch-start share one cross-proce
         actor_id: actorId,
         readiness: 'READY',
         inventory_status: 'READY',
+        policy_authority: { authority_id: 'test-memory-policy', generation: 1, fingerprint: 'd'.repeat(64) },
         sources: currentSources,
       };
     };
