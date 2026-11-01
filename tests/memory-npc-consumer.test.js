@@ -146,14 +146,24 @@ const request = () => ({
   conversationId: HOST_CONVERSATION_ID,
 });
 
-test('Core disclosure envelope rejects proxies, extra fields, sparse entities and unrequested identities', async (t) => {
+test('Core disclosure envelope rejects malformed, incomplete and unrequested data', async (t) => {
   const corruptions = [
-    ['extra top-level field', (read) => ({ ...read, diagnostics: 'must not cross Core boundary' })],
-    ['Proxy envelope', (read) => new Proxy(read, {})],
-    ['sparse entity array', (read) => ({ ...read, entities: new Array(read.entities.length) })],
+    ['null envelope', () => null, 'authorized_source_read_invalid'],
+    ['wrong world', (read) => ({ ...read, world_id: 'another-world' }), 'authorized_source_read_invalid'],
+    ['malformed snapshot cursor', (read) => ({ ...read, world_revision: -1 }), 'authorized_source_read_invalid'],
+    ['stale snapshot cursor', (read) => ({ ...read, world_revision: read.world_revision + 1 }), 'memory_snapshot_stale'],
+    ['non-array entities', (read) => ({ ...read, entities: { source: read.entities[0] } }), 'authorized_source_read_invalid'],
+    ['sparse entities', (read) => ({ ...read, entities: new Array(read.entities.length) }), 'authorized_source_read_invalid'],
+    ['unexpected envelope field', (read) => ({ ...read, candidate_count: 900 }), 'authorized_source_read_invalid'],
+    ['unexpected entity field', (read) => ({
+      ...read, entities: read.entities.map((entity) => ({ ...entity, snippet: 'private Core snippet' })),
+    }), 'authorized_source_read_invalid'],
+    ['extra unrequested entity', (read) => ({
+      ...read, entities: [...read.entities, { entity_id: 'unrequested-entity' }],
+    }), 'authorized_source_read_invalid'],
     ['unrequested entity identity', (read) => ({
       ...read, entities: read.entities.map((entity) => ({ ...entity, entity_id: 'unrequested-entity' })),
-    })],
+    }), 'authorized_source_read_invalid'],
     ['accessor-backed entity', (read) => ({
       ...read,
       entities: read.entities.map((entity) => {
@@ -163,23 +173,51 @@ test('Core disclosure envelope rejects proxies, extra fields, sparse entities an
         });
         return malformed;
       }),
-    })],
-    ['extra entity field', (read) => ({
-      ...read, entities: read.entities.map((entity) => ({ ...entity, internal_diagnostic: 'must not cross Core boundary' })),
-    })],
+    }), 'authorized_source_read_invalid'],
+    ['Proxy envelope', (read) => new Proxy(read, {}), 'authorized_source_read_invalid'],
   ];
-  for (const [name, corrupt] of corruptions) {
-    await t.test(name, async (t) => {
-      const { consumer, authorizedReadService } = setup(t);
+  for (const [name, corrupt, expectedReason] of corruptions) {
+    await t.test(name, async (subtest) => {
+      const { consumer, authorizedReadService } = setup(subtest);
       const originalRead = authorizedReadService.readEntityFields.bind(authorizedReadService);
-      authorizedReadService.readEntityFields = (input) => corrupt(originalRead(input));
+      authorizedReadService.readEntityFields = (input) => {
+        const result = originalRead(input);
+        if (!input.fields.includes('attributes.public_note')) return result;
+        return corrupt(result);
+      };
       const result = await consumer.retrieveForNpc(request());
-      assert.equal(result.status, 'non_ready', JSON.stringify(result));
-      assert.equal(result.reason, 'authorized_source_read_invalid');
+      assert.equal(result.status, 'non_ready');
+      assert.equal(result.reason, expectedReason);
+      assert.deepEqual(result.admitted, []);
       assert.deepEqual(result.candidates, []);
-      assert.doesNotMatch(JSON.stringify(result), /must not cross Core boundary/);
+      assert.doesNotMatch(JSON.stringify(result), /private Core snippet|entity getter must not execute/);
+      assert.doesNotMatch(JSON.stringify(result), /authorized source text/);
     });
   }
+});
+
+test('Core disclosure envelope rejects Proxy entities without executing traps', async (t) => {
+  const { consumer, authorizedReadService } = setup(t);
+  const originalRead = authorizedReadService.readEntityFields.bind(authorizedReadService);
+  let proxyGets = 0;
+  authorizedReadService.readEntityFields = (input) => {
+    const result = originalRead(input);
+    if (!input.fields.includes('attributes.public_note')) return result;
+    return {
+      ...result,
+      entities: result.entities.map((entity) => new Proxy(entity, {
+        get(target, property, receiver) {
+          proxyGets += 1;
+          return Reflect.get(target, property, receiver);
+        },
+      })),
+    };
+  };
+  const result = await consumer.retrieveForNpc(request());
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'authorized_source_read_invalid');
+  assert.equal(proxyGets, 0);
+  assert.deepEqual(result.candidates, []);
 });
 
 test('joins trusted Memory record authorization, Core authorized source read, and NPC admission without exposing provider content', async (t) => {
