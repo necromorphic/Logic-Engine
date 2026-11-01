@@ -242,6 +242,26 @@ os._exit(exit_code + 1)
             self.store.enable_role("core")
         self.assertEqual(self.store.load()["roles"][0]["state"], "disabled")
 
+    def test_manifest_cannot_rewrite_pending_main_rename_basename(self):
+        import json
+        self.store.initialize(self.data(1))
+        self.store.disable_role("core")
+        current = self.store.load()
+        candidate = json.loads(_canonical_json(current))
+        candidate["generation"] += 1
+        candidate["roles"][0]["state"] = "renaming"
+        candidate["roles"][0]["pendingDatabaseBasename"] = "authorized.sqlite"
+        staged = self.store.commit(_canonical_json(candidate))
+        bypass = json.loads(_canonical_json(staged))
+        bypass["generation"] += 1
+        bypass["roles"][0]["pendingDatabaseBasename"] = "attacker-selected.sqlite"
+        with self.assertRaisesRegex(StoreError, "pending rename basename is immutable"):
+            self.store.commit(_canonical_json(bypass))
+        self.assertEqual(
+            self.store.load()["roles"][0]["pendingDatabaseBasename"],
+            "authorized.sqlite",
+        )
+
     def test_startup_completes_interrupted_main_database_rename(self):
         import json
         self.store.initialize(self.data(1))
