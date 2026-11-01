@@ -122,8 +122,7 @@ Success — HTTP 200, exact response envelope `host-context-resolve-response/v1`
     "adapter_id": "deployment-configured-adapter",
     "conversation_id": "11111111-1111-4111-8111-111111111111:22222222-2222-4222-8222-222222222222:44444444-4444-4444-8444-444444444444",
     "world_id": "core-bound-world-id",
-    "actor_id": "core-bound-actor-id",    "actor_type": "character"  }}
-```
+    "actor_id": "core-bound-actor-id",    "actor_type": "character"  }}```
 
 Core implementation rules:
 
@@ -247,8 +246,7 @@ HTTP/API errors use the existing Core envelope:
 ```
 Do not return secrets, raw request data, hidden entity values, Provider snippets, or item-level denial reasons in error messages.
 | Condition | HTTP | Stable code / result ||---|---:|---|
-| Invalid JSON | 400 | `INVALID_JSON` |
-| Invalid context body / unknown key / malformed context tuple | 400 | `INVALID_HOST_CONTEXT_RESOLUTION` |
+| Invalid JSON | 400 | `INVALID_JSON` || Invalid context body / unknown key / malformed context tuple | 400 | `INVALID_HOST_CONTEXT_RESOLUTION` |
 | Invalid retrieval envelope / bounded metadata | 400 | `INVALID_HOST_MEMORY_RETRIEVAL` |
 | Invalid, tampered, or malformed signed assertion | 401 | `HOST_SESSION_ASSERTION_INVALID` |
 | Missing/invalid API bearer | 401 | `UNAUTHORIZED` |
@@ -372,8 +370,7 @@ The implementation uses `HostAssertionNonceStore` in a dedicated file configured
 
 ### Validation stateExact candidate heads and latest Runtime validation checked on 1 Nov 2026:
 
-- Core Lane B PR #846 HEAD `832abf337530e9421f53eaed85760cb4a7f07313`: Runtime run `41317936997` — SUCCESS; all eight jobs passed, including `npm test`. This is the Core foundation; HTTP route registrations are supplied by stacked #867.
-- Core integration PR #867 HEAD `4b36f9f6763efc4e0ab4356614e10422f82174d5`: Runtime run `41335872509` — SUCCESS; all eight jobs passed, including `npm test` and Windows symlink security.
+- Core Lane B PR #846 HEAD `832abf337530e9421f53eaed85760cb4a7f07313`: Runtime run `41317936997` — SUCCESS; all eight jobs passed, including `npm test`. This is the Core foundation; HTTP route registrations are supplied by stacked #867.- Core integration PR #867 HEAD `4b36f9f6763efc4e0ab4356614e10422f82174d5`: Runtime run `41335872509` — SUCCESS; all eight jobs passed, including `npm test` and Windows symlink security.
 - Host candidate PR #850 HEAD `40d89e8230f7a893130ce5bc5791c354b13a8422`: Runtime run `41335887577` — SUCCESS; all seven jobs passed, including `npm test`. Its separate candidate, static validation, pinned-source, Provider blocker, and browser restart workflows also passed.
 - Contract PR #866 HEAD `c1d5a684a82bafdc0ce8f211be7af8928c355e14`: Runtime run `41336312266` — SUCCESS; all seven jobs passed, including `npm test`.
 
@@ -433,9 +430,8 @@ This section supersedes earlier candidate SHA and CI snapshots in §§1, 9–11.
 | Host #850 `host/unified-extension-gateway-candidate` | `8c51709cbfe85e93ebe04065cf5282c4dd0a8bdc` | Runtime `41337612948` SUCCESS; candidate, static validation, pinned-source audits, browser restart and Provider blocker workflows SUCCESS |
 | Core Lane B #846 `lane-b/core-authenticated-host-request-2026-11-01` | `832abf337530e9421f53eaed85760cb4a7f07313` | Runtime `41317936997` SUCCESS; lifecycle patch, Provider blocker, browser restart and pinned-source workflows SUCCESS |
 | Core HTTP #867 `integration/core-host-memory-http-v1` | `c109dc7c2ad084e1fb236703c8a77c844d634717` | Runtime `41337597644` SUCCESS |
-| Contract #866 `docs/host-core-integration-contract-v1` | `abb19bcf0090db4e987efc0e3a8a1665e06a06fc` | Runtime `41338676552` IN_PROGRESS; prior document HEAD run `41338285214` SUCCESS |
 
-All listed runs are completed with conclusion SUCCESS. These are validation results for the exact PR heads above, not merge or deployment approval.
+All listed code-candidate runs are completed with conclusion SUCCESS. The documentation PR #866 has its own Runtime workflow, which must pass on the final document revision; it is not part of the Host/Core code compatibility result. These are validation results for the exact code PR heads above, not merge or deployment approval.
 
 ### Current cross-branch byte comparison
 
