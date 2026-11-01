@@ -80,7 +80,9 @@ def wait_for_broker(process: subprocess.Popen, socket_path: Path, log_path: Path
             )
         try:
             if stat.S_ISSOCK(socket_path.lstat().st_mode):
-                return
+                time.sleep(0.1)
+                if process.poll() is None:
+                    return
         except FileNotFoundError:
             pass
         time.sleep(0.025)
@@ -208,6 +210,7 @@ def main() -> int:
         )
         init_env = os.environ.copy()
         init_env["PYTHONPATH"] = str(broker_source_copy)
+        init_env["PYTHONDONTWRITEBYTECODE"] = "1"
         initialized = subprocess.run(
             [sys.executable, "-c", init_code, str(manifest_root), str(anchor_root), str(app_uid)],
             input=json.dumps(manifest, separators=(",", ":")).encode(),
@@ -232,6 +235,7 @@ def main() -> int:
         broker_script = broker_source_copy / "broker_daemon.py"
         broker_env = os.environ.copy()
         broker_env["PYTHONPATH"] = str(broker_source_copy)
+        broker_env["PYTHONDONTWRITEBYTECODE"] = "1"
 
         def start_broker() -> subprocess.Popen:
             process = subprocess.Popen(
@@ -250,7 +254,11 @@ def main() -> int:
                 preexec_fn=drop_privileges(broker_uid, app_gid),
                 close_fds=True,
             )
-            wait_for_broker(process, socket_path, broker_log_path)
+            try:
+                wait_for_broker(process, socket_path, broker_log_path)
+            except Exception:
+                stop_broker(process)
+                raise
             return process
 
         app_env = os.environ.copy()
