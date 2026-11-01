@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import {
   createExtensionGateway,
   EXTENSION_GATEWAY_PATH,
@@ -178,4 +179,19 @@ test('chunked oversized body is rejected even without Content-Length', async () 
   await gateway.handle(req, res);
   assert.equal(res.statusCode, 413);
   assert.equal(calls, 0);
+});
+
+
+test('client Extension has exactly one same-origin Gateway transport and no direct Core or Provider route', () => {
+  const clientPath = new URL('../public/scripts/extensions/third-party/logic-engine-extension-gateway/index.js', import.meta.url);
+  const manifestPath = new URL('../public/scripts/extensions/third-party/logic-engine-extension-gateway/manifest.json', import.meta.url);
+  const source = readFileSync(clientPath, 'utf8');
+  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+  assert.equal((source.match(/fetch\\s*\\(/g) || []).length, 1);
+  assert.match(source, /const GATEWAY_PATH = '\/api\/logic-engine\/extension'/);
+  assert.match(source, /credentials: 'same-origin'/);
+  assert.match(source, /redirect: 'error'/);
+  assert.doesNotMatch(source, /localhost:\\d+|127\\.0\\.0\\.1:\\d+|LOGIC_ENGINE_CORE_URL|Provider Base URL/i);
+  assert.equal(manifest.js, 'index.js');
+  assert.equal(manifest.hooks.activate, 'init');
 });
