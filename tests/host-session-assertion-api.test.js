@@ -57,7 +57,8 @@ test('real ST server middleware -> Host Adapter -> Core HTTP assertion creates a
     expected_revision: 0,
     effects: [{ kind: 'entity.create', entity_id: actorId, entity_type: 'character' }],
   });
-  new ActorBindingService(engine).bind(worldId, adapterId, actorId);
+  const actorBindingService = new ActorBindingService(engine);
+  actorBindingService.bind(worldId, adapterId, actorId);
   const conversationBindings = new HostConversationWorldBindingService(engine);
   conversationBindings.bind({ adapterId, conversationId, worldId });
 
@@ -138,6 +139,30 @@ test('real ST server middleware -> Host Adapter -> Core HTTP assertion creates a
     actor_id: actorId,
     adapter_id: adapterId,
   });
+
+  // A second active actor for the same adapter/world makes the binding
+  // ambiguous. The Host-supplied actor ID must not select one of them.
+  engine.commitEvent(worldId, {
+    event_id: 'host-session-second-actor',
+    idempotency_key: 'host-session-second-actor',
+    turn_id: 'host-session-second-actor',
+    event_type: 'action.completed',
+    expected_revision: 1,
+    effects: [{ kind: 'entity.create', entity_id: 'host-session-actor-2', entity_type: 'character' }],
+  });
+  actorBindingService.bind(worldId, adapterId, 'host-session-actor-2');
+  const ambiguousRequest = {
+    user: { profile: { handle: 'default-user' }, directories },
+    session: { logicEngineSessionId: '77777777-7777-4777-8777-777777777777', logicEngineSessionHandle: 'default-user' },
+    body: { conversation_uuid: conversationUuid },
+  };
+  const ambiguousResponse = makeResponse();
+  await route.middleware(ambiguousRequest, ambiguousResponse, () => {});
+  await route.handler(ambiguousRequest, ambiguousResponse);
+  assert.equal(ambiguousResponse.statusCode, 409);
+  assert.equal(ambiguousResponse.body.status, 'NON_READY');
+  assert.equal(ambiguousResponse.body.code, 'ACTOR_BINDING_AMBIGUOUS');
+  actorBindingService.revoke(worldId, adapterId, 'host-session-actor-2');
 
   // Revoke the durable conversation→World binding after Core resolved the
   // context but immediately before it consumes the signed assertion. Core must
