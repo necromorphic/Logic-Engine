@@ -3577,9 +3577,11 @@ static int probe_auto_extension(sqlite3 *db, char **error, const sqlite3_api_rou
   rc = sqlite3_create_function(db, "logic_engine_vfs_probe_reused_descriptor_accept_count", 0,
     SQLITE_UTF8 | SQLITE_DETERMINISTIC, 0, probe_reused_descriptor_accept_count, 0, 0);
   if (rc != SQLITE_OK) return rc;
+#if defined(_WIN32) || defined(LOGIC_ENGINE_VFS_PROBE_ALLOW_UNBROKERED_TEST_ROLES)
   rc = sqlite3_create_function(db, "logic_engine_vfs_probe_configure_race", 3,
     SQLITE_UTF8, 0, probe_configure_race, 0, 0);
   if (rc != SQLITE_OK) return rc;
+#endif
 #if defined(_WIN32) || defined(LOGIC_ENGINE_VFS_PROBE_ALLOW_UNBROKERED_TEST_ROLES)
   /*
    * Direct path enrollment exists only for the legacy adversarial probe tests
@@ -3604,10 +3606,12 @@ static int probe_auto_extension(sqlite3 *db, char **error, const sqlite3_api_rou
     SQLITE_UTF8, 0, probe_register_manifest_sidecar, 0, 0);
   if (rc != SQLITE_OK) return rc;
 #endif
+#if defined(_WIN32) || defined(LOGIC_ENGINE_VFS_PROBE_ALLOW_UNBROKERED_TEST_ROLES)
   rc = sqlite3_create_function(db, "logic_engine_vfs_probe_delete_registered_role", 1,
     SQLITE_UTF8, 0, probe_delete_registered_role, 0, 0);
   if (rc != SQLITE_OK) return rc;
-#if defined(__linux__)
+#endif
+#if defined(__linux__) && defined(LOGIC_ENGINE_VFS_PROBE_ALLOW_UNBROKERED_TEST_ROLES)
   rc = sqlite3_create_function(db, "logic_engine_vfs_probe_bind_broker", 2,
     SQLITE_UTF8, 0, probe_bind_broker, 0, 0);
   if (rc != SQLITE_OK) return rc;
