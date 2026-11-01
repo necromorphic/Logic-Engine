@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { link, mkdtemp, mkdir, rm, symlink } from 'node:fs/promises';
+import { link, mkdtemp, mkdir, readFile, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -45,6 +45,15 @@ function portableManifest() {
   };
 }
 
+test('portable example manifest validates and declares a distinct backup vault', async () => {
+  const path = new URL('../config/deployment-manifest.portable.example.json', import.meta.url);
+  const manifest = JSON.parse(await readFile(path, 'utf8'));
+  assert.equal(validateDeploymentManifest(manifest).valid, true);
+  const vault = manifest.resources.find((resource) => resource.id === manifest.backup.vault_resource_id);
+  assert.equal(vault.backup_policy, 'separate-vault');
+  assert.equal(vault.owner_domain, 'backup');
+});
+
 test('deployment schemas are present and manifest contract rejects malformed declarations', () => {
   const paths = deploymentSchemaPaths();
   assert.match(paths.manifest, /deployment-manifest\.schema\.json$/);
@@ -70,6 +79,8 @@ test('manifest semantics reject duplicate resources, unknown principals and unsa
   const hardened = portableManifest();
   hardened.profile = 'hardened-service';
   assert.throws(() => validateDeploymentManifest(hardened), /CANNOT_ALLOW_RESTORE_WITHOUT_FRESHNESS_ANCHOR/);
+  hardened.backup.allow_restore_without_anchor = false;
+  assert.throws(() => validateDeploymentManifest(hardened), /REQUIRES_INDEPENDENT_FRESHNESS_ANCHOR/);
 });
 
 test('required gates fail closed for absent, unsupported and untested capabilities', () => {
