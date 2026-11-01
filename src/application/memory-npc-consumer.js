@@ -367,6 +367,22 @@ export class MemoryNpcConsumer {
       }
     }
 
+    // Final synchronous record-grant check after the Core snapshot read.
+    // No asynchronous work follows this check; the final Core query check is
+    // also synchronous and runs immediately before returning the candidates.
+    for (const item of admitted) {
+      try {
+        if (this.#memoryProvider.checkCandidateGrant({
+          ...scope,
+          record_ref: item.record_ref,
+          record_version: item.record_version,
+          authorization_generation: item.authorization_generation,
+        }) !== true) return nonReady('memory_record_authorization_unconfirmed');
+      } catch (error) {
+        return nonReady(providerAuthorizationFailureReason(error, 'memory_record_authorization_unavailable'));
+      }
+    }
+
     if (!(queryStillAllowed())) return nonReady('query_access_unconfirmed');
       // Keep the Core snapshot read after asynchronous authorization so a
       // world change during the recheck cannot make a stale empty result ready.
