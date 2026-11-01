@@ -69,7 +69,24 @@ async function assertRegularFile(root, relativePath) {
 }
 
 function runGit(args, cwd) {
-  execFileSync('git', args, { cwd, stdio: 'pipe', windowsHide: true });
+  const candidates = process.platform === 'win32'
+    ? [
+      process.env.GIT_EXECUTABLE,
+      resolve(process.env.ProgramFiles || 'C:\\Program Files', 'Git', 'cmd', 'git.exe'),
+      'git',
+    ].filter(Boolean)
+    : [process.env.GIT_EXECUTABLE || 'git'];
+  let lastError;
+  for (const executable of candidates) {
+    try {
+      execFileSync(executable, args, { cwd, stdio: 'pipe', windowsHide: true });
+      return;
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+      lastError = error;
+    }
+  }
+  throw lastError ?? new Error('GIT_EXECUTABLE_NOT_FOUND');
 }
 
 function canonicalTextHash(bytes) {
