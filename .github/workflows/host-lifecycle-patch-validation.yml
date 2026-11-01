@@ -27,10 +27,11 @@ jobs:
       - name: Validate standalone plugin package
         run: |
           node --check host-adapter/prototype/server-plugin/index.mjs
+          node --check host-adapter/prototype/server-plugin/host-context-transport.mjs
           node --check host-adapter/prototype/server-plugin/st-host-inventory-handler.mjs
           node --check host-adapter/prototype/server-plugin/st-host-identity-store.mjs
           node --check host-adapter/prototype/server-plugin/host-data-inventory.mjs
           node --check host-adapter/prototype/server-plugin/st-source-inventory.mjs
           node --check host-adapter/prototype/server-plugin/fs-inventory.js
           node --check host-adapter/prototype/server-plugin/windows-vss-snapshot.mjs
-          node --test host-adapter/prototype/tests/server-plugin.test.mjs host-adapter/prototype/tests/st-default-user-session.test.mjs host-adapter/prototype/tests/st-host-request-authentication-gate.test.mjs host-adapter/sillytavern-extension/tests/*.test.mjs
+          node --test host-adapter/prototype/tests/server-plugin.test.mjs host-adapter/prototype/tests/st-default-user-session.test.mjs host-adapter/prototype/tests/st-host-request-authentication-gate.test.mjs host-adapter/prototype/tests/host-context-transport.test.mjs host-adapter/sillytavern-extension/tests/*.test.mjs
