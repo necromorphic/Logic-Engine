@@ -140,3 +140,27 @@ test('Host Adapter rejects a Core binding response for another adapter or conver
   assert.equal(response.payload.code, 'HOST_WORLD_ACTOR_BINDING_UNAVAILABLE');
   assert.equal(calls, 1);
 });
+
+test('Host dispatch HTTP boundary rejects uppercase generation_type', async () => {
+  let upstreamCalls = 0;
+  const handler = createHostMemoryDispatchProxyHandler({
+    env,
+    resolveHostContext: () => ({
+      host_installation_id: installation,
+      authenticated_account_id: account,
+      host_session_id: session,
+      conversation_id: hostConversationKey,
+    }),
+    fetchImpl: async () => {
+      upstreamCalls += 1;
+      return { ok: true, status: 200, json: async () => ({}) };
+    },
+  });
+  const invalid = request();
+  invalid.body.generation_type = 'NORMAL';
+  const response = recorder();
+  await handler(invalid, response);
+  assert.equal(response.statusCode, 400);
+  assert.equal(response.payload.code, 'HOST_DISPATCH_REQUEST_INVALID');
+  assert.equal(upstreamCalls, 0);
+});
