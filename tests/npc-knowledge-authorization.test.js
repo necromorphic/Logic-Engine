@@ -94,7 +94,7 @@ test('production NPC read authorization requires configured adapter, active Host
 });
 
 test('per-acquisition visibility requires exact trusted source provenance and the same live Host/actor bindings', (t) => {
-  const { authorizers, scope, conversations } = setup(t);
+  const { authorizers, scope, conversations, hostSessionContext } = setup(t);
   const acquisition = {
     ...scope,
     acquisition_id: 'acquisition-a',
@@ -148,7 +148,7 @@ test('per-acquisition visibility requires exact trusted source provenance and th
     reason: 'test revoke binding',
   });
   assert.equal(authorizers.readAuthorizer(scope), null);
-  assert.equal(authorizers.memoryQueryAuthorizer(scope), false);
+  assert.equal(authorizers.memoryQueryAuthorizer(scope, hostSessionContext), false);
   assert.equal(authorizers.visibilityAuthorizer(acquisition).status, 'denied');
 });
 
