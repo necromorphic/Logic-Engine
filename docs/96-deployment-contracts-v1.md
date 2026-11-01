@@ -228,3 +228,15 @@ The deployment assessment always emits these required runtime evidence items, in
 The gate `memory:protected-final-send-production` remains `BLOCKED` until every item has trusted runtime evidence with status `PASS`. The deployment manifest cannot assert or override these values. The current read-only verifier has no trusted live Host/Gateway attestation source, so it deliberately emits `NOT_TESTED`; PR #844 is therefore not deployment-authorized for production. Tests that construct evidence objects exercise policy behavior only and are not production attestations.
 
 A future attestation provider must be internal to the deployment/runtime trust boundary, bind evidence to the exact Logic-Engine build, ST version and installed patch hash, and be collected by the verifier itself. User-supplied JSON, environment variables, manifest declarations or Extension browser state are not acceptable evidence sources.
+
+Report integrity is checked independently of the policy evaluator: capability IDs and gate IDs must be unique; the protected final-send gate must exist exactly once; it cannot be BLOCKED when all eight required capabilities are PASS, and it cannot be PASS while any capability is missing or non-PASS. This prevents duplicate-record shadowing and stale gate snapshots from being accepted as a valid report.
+
+The runtime attestation binding must identify at least:
+- immutable Logic-Engine build/revision;
+- exact SillyTavern version;
+- installed Patch Manager manifest identity and cryptographic patch hash;
+- verifier/provider identity and attestation format version;
+- per-capability observation time, test/run identity and result;
+- dispatch correlation identity for call-count and ambiguous-recovery evidence.
+
+Evidence must be collected for the same deployment target. Mixing results from different builds, ST installations, patch hashes, sessions or test runs cannot satisfy the gate. A report assembled from policy fixtures remains test data even if every fixture says PASS.
