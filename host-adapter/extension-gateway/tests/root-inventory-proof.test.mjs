@@ -11,12 +11,14 @@ const env = {
   LOGIC_ENGINE_ADAPTER_TOKEN: 'host-adapter-token-long-enough-123456',
 };
 const rootPath = resolve(tmpdir(), 'logic-engine-host-root-proof');
+globalThis.DATA_ROOT = resolve(tmpdir(), 'logic-engine-st-data-root');
 const entries = [{
   path: 'chats/chat.jsonl',
   identity: { dev: '1', ino: '2', mode: 33188, size: 0, mtimeMs: 1, ctimeMs: 1 },
   sha256: 'a'.repeat(64),
 }];
 const identityStore = {
+  assertOutsideRoot: async root => assert.equal(root, globalThis.DATA_ROOT),
   resolveAuthenticatedAccount: async () => ({
     host_installation_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
     authenticated_account_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
