@@ -64,12 +64,3 @@ diff --git a/src/objects/database.cpp b/src/objects/database.cpp
  		assert(status == SQLITE_OK); ((void)status);
  		return env.Undefined();
  	}
-
-diff --git a/src/objects/database.cpp b/src/objects/database.cpp
---- a/src/objects/database.cpp
-+++ b/src/objects/database.cpp
-@@ -1,0 +1 @@
-+#include <cstdio>
-@@ -139,1 +140,2 @@
- NODE_METHOD(Database::JS_new) {
-+	fprintf(stderr, "[better-sqlite3-vfs-debug] JS_new-enter argc=%u\\n", info.Length());
