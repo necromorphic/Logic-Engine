@@ -8,6 +8,7 @@ import {
 import { MemoryNpcConsumer } from './memory-npc-consumer.js';
 import { createHostBoundNpcKnowledgeAuthorizers } from './npc-knowledge-authorization.js';
 import { SQLiteMemoryProvider } from './sqlite-memory-provider.js';
+import { isMechanicPolicyAuthority } from './mechanic-policy-authority.js';
 
 /**
  * Compose the real file-backed SQLite Provider with Core-owned source,
@@ -15,8 +16,9 @@ import { SQLiteMemoryProvider } from './sqlite-memory-provider.js';
  * callbacks or mock Provider are accepted by this production composition.
  *
  * This is an internal adapter factory, not an HTTP route or final-send gateway.
- * The Host caller must supply its authenticated adapter identity and stable
- * conversation identity; Core verifies both against its durable bindings.
+ * The configured adapter identity is pinned into the returned consumer. The
+ * Host caller supplies only its stable conversation identity; Core verifies
+ * the exact conversation/world/adapter/actor binding.
  */
 export function createMemoryNpcProviderAdapter({
   engine,
@@ -45,8 +47,7 @@ export function createMemoryNpcProviderAdapter({
   if (!Array.isArray(trustedInitialKnowledgeSources)) {
     throw new TypeError('Memory Provider adapter requires the deployment-owned source registry');
   }
-  if (typeof fieldPolicy !== 'function'
-    && !(fieldPolicy && typeof fieldPolicy.authorizeField === 'function')) {
+  if (typeof fieldPolicy !== 'function' && !isMechanicPolicyAuthority(fieldPolicy)) {
     throw new TypeError('Memory Provider adapter requires a trusted Core field policy');
   }
   if (!Array.isArray(contentFields) || contentFields.length === 0) {
