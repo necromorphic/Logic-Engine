@@ -12,7 +12,7 @@ const HOST_SESSION_ID = '66666666-6666-4666-8666-666666666666';
 const HOST_INSTALLATION_ID = '11111111-1111-4111-8111-111111111111';
 const HOST_ACCOUNT_ID = '22222222-2222-4222-8222-222222222222';
 const HOST_CONVERSATION_UUID = '33333333-3333-4333-8333-333333333333';
-const HOST_CONVERSATION_ID = HOST_INSTALLATION_ID + ':' + HOST_ACCOUNT_ID + ':' + HOST_CONVERSATION_UUID;
+const HOST_CONVERSATION_ID = HOST_SESSION_ID + ':' + HOST_INSTALLATION_ID + ':' + HOST_CONVERSATION_UUID;
 const hostRequest = {
   user: { profile: { handle: 'consumer-test-user' } },
   session: { handle: 'consumer-test-user', logicEngineSessionId: HOST_SESSION_ID, logicEngineSessionHandle: 'consumer-test-user' },
@@ -21,6 +21,11 @@ const authenticatedHostRequests = new WeakSet([hostRequest]);
 const isAuthenticatedHostRequest = request => authenticatedHostRequests.has(request);
 const trustedConversationIds = new WeakMap([[hostRequest, HOST_CONVERSATION_ID]]);
 const resolveHostConversationId = request => trustedConversationIds.get(request) ?? null;
+const trustedHostIdentities = new WeakMap([[hostRequest, {
+  host_installation_id: HOST_INSTALLATION_ID,
+  authenticated_account_id: HOST_ACCOUNT_ID,
+}]]);
+const resolveHostIdentity = request => trustedHostIdentities.get(request) ?? null;
 function setup(t, { allowContent = true, authorizeQuery = true, authorizeCoreQuery = true, authorizeCandidate = true, completeness = 'complete' } = {}) {
   let contentVisible = allowContent;
   let hostBindings = { world_id: 'memory-npc-world', actor_id: 'npc-a' };
@@ -118,9 +123,9 @@ function setup(t, { allowContent = true, authorizeQuery = true, authorizeCoreQue
   const authenticatedConsumer = new Proxy(consumer, {
     get(target, property) {
       if (property === 'retrieveForNpc') return (input) =>
-        runWithAuthenticatedHostSession(hostRequest, HOST_CONVERSATION_ID, () => target.retrieveForNpc(input), isAuthenticatedHostRequest, resolveHostConversationId, resolveHostBindings);
+        runWithAuthenticatedHostSession(hostRequest, HOST_CONVERSATION_ID, () => target.retrieveForNpc(input), isAuthenticatedHostRequest, resolveHostConversationId, resolveHostBindings, resolveHostIdentity);
       if (property === 'revalidateForFinalDispatch') return (input, prepared) =>
-        runWithAuthenticatedHostSession(hostRequest, HOST_CONVERSATION_ID, () => target.revalidateForFinalDispatch(input, prepared), isAuthenticatedHostRequest, resolveHostConversationId, resolveHostBindings);
+        runWithAuthenticatedHostSession(hostRequest, HOST_CONVERSATION_ID, () => target.revalidateForFinalDispatch(input, prepared), isAuthenticatedHostRequest, resolveHostConversationId, resolveHostBindings, resolveHostIdentity);
       return Reflect.get(target, property, target);
     },
   });
@@ -139,6 +144,80 @@ const request = () => ({
   worldId: 'memory-npc-world',
   actorEntityId: 'npc-a',
   conversationId: HOST_CONVERSATION_ID,
+});
+
+test('Core disclosure envelope rejects malformed, incomplete and unrequested data', async (t) => {
+  const corruptions = [
+    ['null envelope', () => null, 'authorized_source_read_invalid'],
+    ['wrong world', (read) => ({ ...read, world_id: 'another-world' }), 'authorized_source_read_invalid'],
+    ['malformed snapshot cursor', (read) => ({ ...read, world_revision: -1 }), 'authorized_source_read_invalid'],
+    ['stale snapshot cursor', (read) => ({ ...read, world_revision: read.world_revision + 1 }), 'memory_snapshot_stale'],
+    ['non-array entities', (read) => ({ ...read, entities: { source: read.entities[0] } }), 'authorized_source_read_invalid'],
+    ['sparse entities', (read) => ({ ...read, entities: new Array(read.entities.length) }), 'authorized_source_read_invalid'],
+    ['unexpected envelope field', (read) => ({ ...read, candidate_count: 900 }), 'authorized_source_read_invalid'],
+    ['unexpected entity field', (read) => ({
+      ...read, entities: read.entities.map((entity) => ({ ...entity, snippet: 'private Core snippet' })),
+    }), 'authorized_source_read_invalid'],
+    ['extra unrequested entity', (read) => ({
+      ...read, entities: [...read.entities, { entity_id: 'unrequested-entity' }],
+    }), 'authorized_source_read_invalid'],
+    ['unrequested entity identity', (read) => ({
+      ...read, entities: read.entities.map((entity) => ({ ...entity, entity_id: 'unrequested-entity' })),
+    }), 'authorized_source_read_invalid'],
+    ['accessor-backed entity', (read) => ({
+      ...read,
+      entities: read.entities.map((entity) => {
+        const malformed = { 'attributes.public_note': entity['attributes.public_note'] };
+        Object.defineProperty(malformed, 'entity_id', {
+          enumerable: true, get() { throw new Error('entity getter must not execute'); },
+        });
+        return malformed;
+      }),
+    }), 'authorized_source_read_invalid'],
+    ['Proxy envelope', (read) => new Proxy(read, {}), 'authorized_source_read_invalid'],
+  ];
+  for (const [name, corrupt, expectedReason] of corruptions) {
+    await t.test(name, async (subtest) => {
+      const { consumer, authorizedReadService } = setup(subtest);
+      const originalRead = authorizedReadService.readEntityFields.bind(authorizedReadService);
+      authorizedReadService.readEntityFields = (input) => {
+        const result = originalRead(input);
+        if (!input.fields.includes('attributes.public_note')) return result;
+        return corrupt(result);
+      };
+      const result = await consumer.retrieveForNpc(request());
+      assert.equal(result.status, 'non_ready');
+      assert.equal(result.reason, expectedReason);
+      assert.deepEqual(result.admitted, []);
+      assert.deepEqual(result.candidates, []);
+      assert.doesNotMatch(JSON.stringify(result), /private Core snippet|entity getter must not execute/);
+      assert.doesNotMatch(JSON.stringify(result), /authorized source text/);
+    });
+  }
+});
+
+test('Core disclosure envelope rejects Proxy entities without executing traps', async (t) => {
+  const { consumer, authorizedReadService } = setup(t);
+  const originalRead = authorizedReadService.readEntityFields.bind(authorizedReadService);
+  let proxyGets = 0;
+  authorizedReadService.readEntityFields = (input) => {
+    const result = originalRead(input);
+    if (!input.fields.includes('attributes.public_note')) return result;
+    return {
+      ...result,
+      entities: result.entities.map((entity) => new Proxy(entity, {
+        get(target, property, receiver) {
+          proxyGets += 1;
+          return Reflect.get(target, property, receiver);
+        },
+      })),
+    };
+  };
+  const result = await consumer.retrieveForNpc(request());
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'authorized_source_read_invalid');
+  assert.equal(proxyGets, 0);
+  assert.deepEqual(result.candidates, []);
 });
 
 test('joins trusted Memory record authorization, Core authorized source read, and NPC admission without exposing provider content', async (t) => {
