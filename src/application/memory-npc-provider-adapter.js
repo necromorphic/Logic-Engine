@@ -10,6 +10,7 @@ import { MemoryNpcConsumer } from './memory-npc-consumer.js';
 import { createHostBoundNpcKnowledgeAuthorizers } from './npc-knowledge-authorization.js';
 import { SQLiteMemoryProvider } from './sqlite-memory-provider.js';
 import { isMechanicPolicyAuthority } from './mechanic-policy-authority.js';
+import { runWithAuthenticatedHostSession } from './host-session-context.js';
 
 function canonicalFilePath(path) {
   let candidate = resolve(path);
@@ -52,6 +53,7 @@ export function createMemoryNpcProviderAdapter({
   trustedInitialKnowledgeSources,
   fieldPolicy,
   contentFields,
+  isAuthenticatedHostRequest,
 }) {
   if (!engine?.store?.db || typeof engine.getSnapshot !== 'function') {
     throw new TypeError('Memory Provider adapter requires the live Core LogicEngine and persistent store');
@@ -130,6 +132,11 @@ export function createMemoryNpcProviderAdapter({
     return Object.freeze({
       provider: providerControl,
       consumer,
+      runWithAuthenticatedHostSession(request, conversationId, callback) {
+        return runWithAuthenticatedHostSession(
+          request, conversationId, callback, isAuthenticatedHostRequest,
+        );
+      },
       async prepareWorld(worldId) {
         await provider.rebuildIndex(worldId);
         return provider.reconcile(worldId);
