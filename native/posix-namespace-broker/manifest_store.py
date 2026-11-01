@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Protected POSIX SQLite role-manifest store (enrollment/recovery primitive).
+"""Protected POSIX SQLite role-manifest store used by broker_daemon.py.
 
-The broker does not consume this module yet. Both roots must be provisioned
-for the broker service identity and must not be writable by the application.
+Both roots must be provisioned for the broker service identity and must not be
+writable by the application. The broker serializes namespace operations through
+this store and runs fail-closed startup reconciliation before exposing its socket.
 """
 from __future__ import annotations
 
