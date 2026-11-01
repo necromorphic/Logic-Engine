@@ -104,11 +104,18 @@ test('real ST server middleware -> Host Adapter -> Core HTTP assertion creates a
       return {
         filesystem: { status: 'complete' },
         source: {
-          status: 'DOUBLE_SCAN_CANDIDATE',
+          status: 'AUTHORITATIVE_COMPLETE',
+          blockers: [],
           files: [{ logical_identity: { conversation_uuid: conversationUuid } }],
         },
+        authority: { status: 'AUTHORITATIVE_COMPLETE', manifest_sha256: 'a'.repeat(64) },
       };
     },
+    verifyCompletenessProof: async ({ inventory }) =>
+      inventory?.source?.status === 'AUTHORITATIVE_COMPLETE'
+      && inventory?.source?.blockers?.length === 0
+      && inventory?.authority?.status === 'AUTHORITATIVE_COMPLETE'
+      && /^[a-f0-9]{64}$/.test(inventory?.authority?.manifest_sha256 ?? ''),
     corePost,
     config: { adapterId, actorEntityId: actorId, adapterToken },
   });
@@ -185,10 +192,19 @@ test('real ST server middleware -> Host Adapter -> Core HTTP assertion creates a
     enumerate: async input => ({
       filesystem: { status: 'complete' },
       source: {
-        status: 'DOUBLE_SCAN_CANDIDATE',
+        status: 'AUTHORITATIVE_COMPLETE',
+          blockers: [],
+        blockers: [],
         files: [{ logical_identity: { conversation_uuid: conversationUuid } }],
       },
+      authority: { status: 'AUTHORITATIVE_COMPLETE', manifest_sha256: 'a'.repeat(64) },
     }),
+
+    verifyCompletenessProof: async ({ inventory }) =>
+      inventory?.source?.status === 'AUTHORITATIVE_COMPLETE'
+      && inventory?.source?.blockers?.length === 0
+      && inventory?.authority?.status === 'AUTHORITATIVE_COMPLETE'
+      && /^[a-f0-9]{64}$/.test(inventory?.authority?.manifest_sha256 ?? ''),
     corePost: async (routeName, body) => {
       if (routeName === '/v1/host-sessions/verify') {
         actorBindingService.bind(worldId, adapterId, actorRaceEntityId);
@@ -199,7 +215,7 @@ test('real ST server middleware -> Host Adapter -> Core HTTP assertion creates a
   });
   const actorRacedRequest = {
     user: { profile: { handle: 'default-user' }, directories },
-    session: { logicEngineSessionId: '88888888-8888-4888-8888-888888888888', logicEngineSessionHandle: 'default-user' },
+    session: { logicEngineSessionId: sessionId, logicEngineSessionHandle: 'default-user' },
     body: { conversation_uuid: conversationUuid },
   };
   const actorRacedResponse = makeResponse();
@@ -225,11 +241,18 @@ test('real ST server middleware -> Host Adapter -> Core HTTP assertion creates a
       return {
         filesystem: { status: 'complete' },
         source: {
-          status: 'DOUBLE_SCAN_CANDIDATE',
+          status: 'AUTHORITATIVE_COMPLETE',
+          blockers: [],
           files: [{ logical_identity: { conversation_uuid: conversationUuid } }],
         },
+        authority: { status: 'AUTHORITATIVE_COMPLETE', manifest_sha256: 'a'.repeat(64) },
       };
     },
+    verifyCompletenessProof: async ({ inventory }) =>
+      inventory?.source?.status === 'AUTHORITATIVE_COMPLETE'
+      && inventory?.source?.blockers?.length === 0
+      && inventory?.authority?.status === 'AUTHORITATIVE_COMPLETE'
+      && /^[a-f0-9]{64}$/.test(inventory?.authority?.manifest_sha256 ?? ''),
     corePost: async (routeName, body) => {
       if (routeName === '/v1/host-sessions/verify') {
         conversationBindings.revoke({
@@ -244,7 +267,7 @@ test('real ST server middleware -> Host Adapter -> Core HTTP assertion creates a
   });
   const racedRequest = {
     user: { profile: { handle: 'default-user' }, directories },
-    session: { logicEngineSessionId: '66666666-6666-4666-8666-666666666666', logicEngineSessionHandle: 'default-user' },
+    session: { logicEngineSessionId: sessionId, logicEngineSessionHandle: 'default-user' },
     body: { conversation_uuid: conversationUuid },
   };
   const racedResponse = makeResponse();
