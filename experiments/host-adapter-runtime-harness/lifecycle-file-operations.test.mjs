@@ -11,6 +11,8 @@ import { pathToFileURL } from 'node:url';
 
 import { withWindowsVssSnapshot } from '../../host-adapter/prototype/windows-vss-snapshot.mjs';
 import { enumerateStableFileInventoryFromWindowsSnapshot } from '../../host-adapter/prototype/fs-inventory.js';
+import { enumerateHostDataInventory } from '../../host-adapter/prototype/host-data-inventory.mjs';
+import { HostLifecycleReceiptStore } from '../../host-adapter/prototype/st-host-lifecycle-receipt-store.mjs';
 
 const stRoot = resolve(process.env.SILLYTAVERN_DIR ?? 'SillyTavern');
 const expectedSha = '06bde939fb1e9c4c8d8641d810f0a916b5bce127';
@@ -55,12 +57,10 @@ const editedUserMessage = () => ({
   _logicEngineLifecycle: {
     messageId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
     versions: [
-      { versionId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', versionIndex: 0,
-        payloadDigest: digest('ST_HARNESS_RAW_CHAT_SENTINEL'), parentVersionId: null },
-      { versionId: 'ffffffff-ffff-4fff-8fff-ffffffffffff', versionIndex: 1,
+      { versionId: 'ffffffff-ffff-4fff-8fff-ffffffffffff', versionIndex: 0,
         payloadDigest: digest('edited user message'), parentVersionId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' },
     ],
-    activeVersionIndex: 1,
+    activeVersionIndex: 0,
   },
 });
 const identifiedHeader = (conversationId, name = 'Harness Character') => ({
@@ -215,6 +215,29 @@ test('pinned ST 1.19.0 supported chat mutations persist; rename, group deletion,
     }
     throw new Error('ST chat backup directory did not become stable');
   };
+  const receiptStore = new HostLifecycleReceiptStore({
+    directory: join(identityDirectory, 'lifecycle-receipts'),
+    enumerate: enumerateHostDataInventory,
+    hostCommit: expectedSha,
+  });
+  const lifecycleScope = operation => ({
+    host_installation_id: '11111111-1111-4111-8111-111111111111',
+    authenticated_account_id: '22222222-2222-4222-8222-222222222222',
+    host_session_id: '99999999-9999-4999-8999-999999999999',
+    conversation_uuid: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    mutation_id: randomUUID(),
+    event_id: randomUUID(),
+    operation,
+    mutation_digest: digest(operation + ':' + randomUUID()),
+    occurred_at: new Date().toISOString(),
+  });
+  const commitReceipt = async scope => receiptStore.commit({
+    ...scope,
+    prepared_event_id: scope.event_id,
+    event_id: randomUUID(),
+    occurred_at: new Date().toISOString(),
+  }, directories);
+
   const coreStateDirectory = join(parent, 'core-state');
   await mkdir(coreStateDirectory, { recursive: true });
   const hostInstallationId = '11111111-1111-4111-8111-111111111111';
@@ -341,6 +364,8 @@ test('pinned ST 1.19.0 supported chat mutations persist; rename, group deletion,
   assert.ok(create.result.delta.added.some(entry => entry.path.endsWith('chat-one.jsonl')));
 
   const editedChat = [header(), editedUserMessage(), assistantMessage()];
+  const editReceiptScope = lifecycleScope('edit-message');
+  await receiptStore.prepare(editReceiptScope, directories);
   const edit = await observe(async () => {
     const response = await post('/api/chats/save', {
       avatar_url: 'Harness Character.png', file_name: 'chat-one', chat: editedChat, force: true,
@@ -350,10 +375,12 @@ test('pinned ST 1.19.0 supported chat mutations persist; rename, group deletion,
     return response;
   }, ['modified', 'replaced']);
   assert.ok([...edit.result.delta.modified, ...edit.result.delta.replaced].some(entry => entry.path.endsWith('chat-one.jsonl')));
+  const editReceipt = await commitReceipt(editReceiptScope);
+  assert.equal(editReceipt.status, 'created');
   const editedPersisted = (await readFile(chatPath, 'utf8')).trim().split('\n').map(line => JSON.parse(line));
-  assert.equal(editedPersisted[1]._logicEngineLifecycle.versions.length, 2);
-  assert.equal(editedPersisted[1]._logicEngineLifecycle.versions[1].versionId, 'ffffffff-ffff-4fff-8fff-ffffffffffff');
-  assert.equal(editedPersisted[1]._logicEngineLifecycle.versions[1].parentVersionId, 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb');
+  assert.equal(editedPersisted[1]._logicEngineLifecycle.versions.length, 1);
+  assert.equal(editedPersisted[1]._logicEngineLifecycle.versions[0].versionId, 'ffffffff-ffff-4fff-8fff-ffffffffffff');
+  assert.equal(editedPersisted[1]._logicEngineLifecycle.versions[0].parentVersionId, 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb');
 
   const swipeChat = [header(), editedUserMessage(), {
     ...assistantMessage('second reply'),
@@ -369,6 +396,8 @@ test('pinned ST 1.19.0 supported chat mutations persist; rename, group deletion,
       activeVersionIndex: 1,
     },
   }];
+  const swipeReceiptScope = lifecycleScope('create-swipe');
+  await receiptStore.prepare(swipeReceiptScope, directories);
   const swipe = await observe(async () => {
     const response = await post('/api/chats/save', {
       avatar_url: 'Harness Character.png', file_name: 'chat-one', chat: swipeChat, force: true,
@@ -385,11 +414,15 @@ test('pinned ST 1.19.0 supported chat mutations persist; rename, group deletion,
     return response;
   }, ['modified', 'replaced']);
   assert.ok([...swipe.result.delta.modified, ...swipe.result.delta.replaced].some(entry => entry.path.endsWith('chat-one.jsonl')));
+  const swipeReceipt = await commitReceipt(swipeReceiptScope);
+  assert.equal(swipeReceipt.status, 'created');
 
   const deleteMessageChat = [
     header(),
     editedUserMessage(),
   ];
+  const deleteMessageReceiptScope = lifecycleScope('delete-message');
+  await receiptStore.prepare(deleteMessageReceiptScope, directories);
   const deleteMessage = await observe(async () => {
     const response = await post('/api/chats/save', {
       avatar_url: 'Harness Character.png', file_name: 'chat-one', chat: deleteMessageChat, force: true,
@@ -399,6 +432,8 @@ test('pinned ST 1.19.0 supported chat mutations persist; rename, group deletion,
     return response;
   }, ['modified', 'replaced']);
   assert.ok([...deleteMessage.result.delta.modified, ...deleteMessage.result.delta.replaced].some(entry => entry.path.endsWith('chat-one.jsonl')));
+  const deleteMessageReceipt = await commitReceipt(deleteMessageReceiptScope);
+  assert.equal(deleteMessageReceipt.status, 'created');
 
   const exportResult = await observe(async () => {
     const response = await post('/api/chats/export', {
