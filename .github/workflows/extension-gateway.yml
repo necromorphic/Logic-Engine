@@ -7,6 +7,7 @@ on:
       - "public/scripts/extensions/third-party/logic-engine-extension-gateway/**"
       - "tests/extension-gateway.test.js"
       - "tests/extension-gateway-st-integration.test.js"
+      - "host-adapter/extension-gateway/patches/**"
       - "docs/108-extension-gateway-contract.md"
       - ".github/workflows/extension-gateway.yml"
   push:
@@ -45,4 +46,15 @@ jobs:
       - name: Install, inspect, and roll back Gateway on official SillyTavern 1.19.0
         env:
           SILLYTAVERN_PATH: ${{ runner.temp }}/SillyTavern
+        run: node --test tests/extension-gateway-st-integration.test.js
+      - name: Fetch the uploaded SillyTavern 1.19.0 build commit
+        run: |
+          git clone --depth 1 https://github.com/SillyTavern/SillyTavern.git "$RUNNER_TEMP/SillyTavern-uploaded"
+          git -C "$RUNNER_TEMP/SillyTavern-uploaded" fetch --depth 1 origin 06bde939fb1e9c4c8d8641d810f0a916b5bce127
+          git -C "$RUNNER_TEMP/SillyTavern-uploaded" checkout --detach FETCH_HEAD
+      - name: Install, inspect, and roll back Gateway on uploaded SillyTavern build
+        env:
+          SILLYTAVERN_PATH: ${{ runner.temp }}/SillyTavern-uploaded
+          SILLYTAVERN_EXPECTED_COMMIT: 06bde939fb1e9c4c8d8641d810f0a916b5bce127
+          SILLYTAVERN_MANIFEST_PATH: host-adapter/extension-gateway/patches/patch-manager-manifest-uploaded-build.json
         run: node --test tests/extension-gateway-st-integration.test.js
