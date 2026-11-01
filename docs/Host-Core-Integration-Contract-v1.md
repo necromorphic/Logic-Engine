@@ -341,7 +341,7 @@ The contract is technically reconciled. The delegated technical owner is respons
 - [x] Coordinator technical review of Core #846 HEAD `832abf337530e9421f53eaed85760cb4a7f07313`: existing binding services, assertion runner, Memory consumer, result envelope and missing HTTP routes are recorded.
 - [x] Host API technical-owner approval: Host-local stable key remains local; Core requests use PC-NEXT-11 tuple.
 - [x] Core API technical-owner approval: two private routes, durable nonce guard, and existing consumer result envelope.
-- [ ] Exact-head contract tests pass on both updated candidates, including Host session rotation and Core nonce replay across restart.
+- [x] Exact-head contract tests pass on both updated candidates, including Host session rotation and Core nonce replay across restart.
 - [x] Identity/route ownership discrepancy from the reviewed baseline is resolved in the implementation candidates; remaining blockers are tracked in §11.
 
 
@@ -372,9 +372,9 @@ Exact candidate heads checked on 1 Nov 2026:
 
 - Core Lane B PR #846 HEAD `832abf337530e9421f53eaed85760cb4a7f07313`: Runtime tests, Host lifecycle patch check/validation, pinned SillyTavern audit, browser IndexedDB restart, and Memory Provider blocker 3 all completed successfully.
 - Core integration PR #867 HEAD `7e3895aeb91c983bf020e889acdad6c1909dd0e7`: Runtime tests completed successfully.
-- Host candidate PR #850 HEAD `3ce200aa5777e69317a04f91eb26ae81da972560`: static validation, Gateway candidate check, both pinned SillyTavern source audits, browser IndexedDB restart, Host inventory reconciliation, process contract, NPC boundary, symlink security (Linux + Windows), mechanics policy authority, Core trusted acquisition, and Memory Provider blocker 3 acceptance completed successfully. The full Runtime test job is still running; no full-suite pass is claimed yet.
+- Host candidate PR #850 HEAD `3ce200aa5777e69317a04f91eb26ae81da972560`: full Runtime tests (including Windows Host lifecycle prototype tests and recalculation oracle), static validation, Gateway candidate check, both pinned SillyTavern source audits, browser IndexedDB restart, Host inventory reconciliation, process contract, NPC boundary, symlink security (Linux + Windows), mechanics policy authority, Core trusted acquisition, and Memory Provider blocker 3 acceptance all completed successfully.
 
-The Host candidate now carries the same Core-owned Memory consumer, conversation binding validation, NPC knowledge authorization, and SQLite Memory Provider implementation as the Core/Lane B candidates. The shared Core HTTP route blocks are byte-identical; Host-specific lifecycle and root-inventory routes remain additional Host-owned API routes.
+The Host candidate now carries the same Core-owned Memory consumer, conversation binding validation, NPC knowledge authorization, and SQLite Memory Provider implementation as the Core/Lane B candidates. The shared Core HTTP route blocks are byte-identical; Host-specific lifecycle and root-inventory routes remain additional Host-owned API routes. This is exact-head CI evidence for the candidate branches, not a merge or production-readiness approval.
 
 ### Remaining release blockers
 
