@@ -408,6 +408,18 @@ test('malformed Core authorized-read envelopes fail closed without leaking envel
       ...result,
       entities: [undefined],
     }), 'authorized_source_read_invalid'],
+    ['unexpected envelope field', (result) => ({
+      ...result,
+      candidate_count: 900,
+    }), 'authorized_source_read_invalid'],
+    ['unexpected entity field', (result) => ({
+      ...result,
+      entities: [{ ...result.entities[0], snippet: 'private Core snippet' }],
+    }), 'authorized_source_read_invalid'],
+    ['extra unrequested entity', (result) => ({
+      ...result,
+      entities: [...result.entities, { entity_id: 'unrequested-entity' }],
+    }), 'authorized_source_read_invalid'],
   ];
 
   for (const [name, mutate, expectedReason] of cases) {
@@ -435,6 +447,48 @@ test('malformed Core authorized-read envelopes fail closed without leaking envel
       assert.equal(JSON.stringify(result).includes('authorized source text'), false);
     });
   }
+});
+
+test('Core result envelopes reject accessor and Proxy records without executing them', async (t) => {
+  let getterCalls = 0;
+  let proxyGetCalls = 0;
+
+  const accessorCase = setup(t);
+  const originalAccessorRead = accessorCase.authorizedReadService.readEntityFields.bind(accessorCase.authorizedReadService);
+  accessorCase.authorizedReadService.readEntityFields = (input) => {
+    const result = originalAccessorRead(input);
+    if (!input.fields.includes('attributes.public_note')) return result;
+    const entity = {};
+    Object.defineProperty(entity, 'entity_id', {
+      enumerable: true,
+      get() {
+        getterCalls += 1;
+        return 'source-a';
+      },
+    });
+    return { ...result, entities: [entity] };
+  };
+  const accessorResult = await accessorCase.consumer.retrieveForNpc(request());
+  assert.equal(accessorResult.status, 'non_ready');
+  assert.equal(accessorResult.reason, 'authorized_source_read_invalid');
+  assert.equal(getterCalls, 0);
+
+  const proxyCase = setup(t);
+  const originalProxyRead = proxyCase.authorizedReadService.readEntityFields.bind(proxyCase.authorizedReadService);
+  proxyCase.authorizedReadService.readEntityFields = (input) => {
+    const result = originalProxyRead(input);
+    if (!input.fields.includes('attributes.public_note')) return result;
+    return new Proxy(result, {
+      get(target, property, receiver) {
+        proxyGetCalls += 1;
+        return Reflect.get(target, property, receiver);
+      },
+    });
+  };
+  const proxyResult = await proxyCase.consumer.retrieveForNpc(request());
+  assert.equal(proxyResult.status, 'non_ready');
+  assert.equal(proxyResult.reason, 'authorized_source_read_invalid');
+  assert.equal(proxyGetCalls, 0);
 });
 
 test('duplicate canonical entity identities in an authorized read fail closed', async (t) => {
