@@ -1,3 +1,4 @@
+/* ARCHIVAL ONLY: legacy patched-ST transport; not imported by the Extension Gateway package. Do not deploy. */
 import { contentDigest, fingerprintSource } from './lifecycle-journal.mjs';
 
 const rawVersions = message => Array.isArray(message.swipes) && message.swipes.length ? message.swipes : [message.mes ?? ''];
