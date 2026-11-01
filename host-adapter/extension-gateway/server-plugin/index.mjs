@@ -12,7 +12,7 @@ export const info = Object.freeze({
 });
 
 export async function init(router) {
-  if (typeof router?.get !== 'function') {
+  if (typeof router?.get !== 'function' || typeof router?.post !== 'function') {
     throw new TypeError('SillyTavern server plugin requires an Express router');
   }
 

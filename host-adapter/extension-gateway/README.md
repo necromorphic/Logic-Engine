@@ -27,7 +27,7 @@ Enable SillyTavern's native `enableServerPlugins: true` setting. Keep server-plu
 ## Identity contract
 
 - Installation and account IDs are generated and persisted by the server-side `HostIdentityStore`.
-- The Host session UUID is generated in SillyTavern's signed session and rotates when the authenticated account changes.
+- The Host session UUID is generated in SillyTavern's signed session and rotates when the authenticated account changes. Core validates this session separately from the stable conversation tuple.
 - Stable conversation identity is `installation_id:account_id:conversation_uuid`; session identity is carried separately in the signed assertion.
 - The browser's localStorage and chat metadata are consistency/enrollment inputs, not authentication authorities.
 - The Gateway resolves the conversation UUID against server-side inventory before signing any assertion.

@@ -43,7 +43,7 @@ test('Core dispatch endpoint fails closed until the authenticated Core contract 
   const response = responseRecorder();
   dispatch({ body: { conversation_id: 'attacker-selected' } }, response);
   assert.equal(response.statusCode, 503);
-  assert.equal(response.payload.code, 'CORE_HOST_DISPATCH_NOT_CONFIGURED');
+  assert.equal(response.payload.code, 'HOST_IDENTITY_STORE_UNCONFIGURED');
 });
 
 test('Gateway source contains no direct SillyTavern endpoint mounting or Core URL supplied by the browser', async () => {

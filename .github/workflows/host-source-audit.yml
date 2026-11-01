@@ -5,6 +5,8 @@ on:
     paths:
       - "host-adapter/tests/pinned-st-source-audit.mjs"
       - "host-adapter/extension-gateway/**"
+      - "src/application/host-session-context.js"
+      - "src/application/host-session-context.test.js"
       - ".github/workflows/host-source-audit.yml"
   push:
     branches:

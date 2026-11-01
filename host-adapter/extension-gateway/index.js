@@ -7,8 +7,9 @@ import { dispatchThroughExtensionGateway } from './host-context.mjs';
  * This module intentionally exposes no global arm/cancel API. Its exported
  * helpers are an integration seam, not an authorization boundary: any code
  * running in the same SillyTavern page/module environment must be treated as
- * potentially able to call them. Do not wire protected dispatch until a
- * separately approved Host contract supplies authorization and freshness checks.
+ * potentially able to call them. The server-side Extension Gateway remains
+ * authoritative and rejects dispatch until complete inventory proof and the
+ * authenticated Core dispatch endpoint are available.
  */
 const gatewayState = {
     pendingRequest: null,

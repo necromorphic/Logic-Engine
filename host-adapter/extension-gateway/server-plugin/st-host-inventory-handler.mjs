@@ -378,6 +378,13 @@ export function createHostRequestAuthenticationGate({ resolveConversationId } = 
     }
     try {
       const binding = await resolveConversationId(request);
+      if (binding === null || binding === undefined || binding?.status === 'NON_READY') {
+        return response.status(503).json({
+          status: 'NON_READY',
+          code: binding?.code === 'HOST_INVENTORY_NOT_AUTHORITATIVE'
+            ? binding.code : 'HOST_CONTEXT_UNAVAILABLE',
+        });
+      }
       const sessionId = identity.session.logicEngineSessionId;
       const validUuid = value => typeof value === 'string' && HOST_SESSION_UUID.test(value);
       const exactBinding = binding && typeof binding === 'object' && !Array.isArray(binding)

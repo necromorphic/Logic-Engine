@@ -784,3 +784,19 @@ test('request authentication gate rejects account mismatch and a conversation fr
     assert.equal(nextCalls, 0);
   }
 });
+
+
+test('request authentication gate returns NON_READY when authoritative inventory proof is absent', async () => {
+  const gate = createHostRequestAuthenticationGate({
+    resolveConversationId: () => ({ status: 'NON_READY', code: 'HOST_INVENTORY_NOT_AUTHORITATIVE' }),
+  });
+  const response = makeResponse();
+  let nextCalls = 0;
+  await gate.middleware({
+    user: { profile: { handle: 'default-user' }, directories: {} },
+    session: { logicEngineSessionId: defaultUserSessionId, logicEngineSessionHandle: 'default-user' },
+  }, response, () => { nextCalls++; });
+  assert.equal(response.statusCode, 503);
+  assert.equal(response.body.code, 'HOST_INVENTORY_NOT_AUTHORITATIVE');
+  assert.equal(nextCalls, 0);
+});
