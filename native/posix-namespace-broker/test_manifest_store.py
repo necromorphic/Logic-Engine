@@ -590,6 +590,12 @@ class ManifestStoreTests(unittest.TestCase):
         # The staged generation is not authoritative until the separate anchor
         # advances. Restart must continue to accept only the previous generation.
         self.assertTrue((self.manifest_root / "manifest.next").exists())
+
+        # Reopen both protected roots as a fresh broker process would.
+        self.store.close()
+        self.store = ManifestStore(
+            str(self.manifest_root), str(self.anchor_root), self.application_uid
+        )
         self.assertEqual(self.store.load()["generation"], 1)
 
         # A later writer must safely replace the abandoned staged candidate.
