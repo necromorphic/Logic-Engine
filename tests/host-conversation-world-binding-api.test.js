@@ -16,7 +16,7 @@ const ADAPTER_B = 'adapter-b-token-long-enough-123456';
 const headers = { authorization: 'Bearer ' + TOKEN, 'content-type': 'application/json' };
 const json = (body) => JSON.stringify(body);
 
-async function setup(t) {
+async function setup(t, { seedActor = false } = {}) {
   const directory = mkdtempSync(join(tmpdir(), 'host-binding-api-'));
   const coordinatorPath = join(directory, 'coordinator.sqlite');
   const hostVersionLedger = new HostVersionDigestLedger({
@@ -34,6 +34,13 @@ async function setup(t) {
     world_id: 'host-binding-world-b', world_pack_id: 'test.host-binding', world_pack_version: '1',
     game_time: '2026-01-01T00:00:00Z',
   });
+  if (seedActor) {
+    engine.commitEvent('host-binding-world-a', {
+      idempotency_key: 'seed-host-context-actor', turn_id: 'seed-host-context-actor',
+      event_type: 'action.completed', expected_revision: 0,
+      effects: [{ kind: 'entity.create', entity_id: 'npc-kiryu', entity_type: 'character', attributes: { name: 'Kiryu' } }],
+    });
+  }
   const server = createApiServer({
     engine, token: TOKEN, adminToken: ADMIN,
     adapterTokens: { 'adapter-a': ADAPTER_A, 'adapter-b': ADAPTER_B },
@@ -178,4 +185,89 @@ test('Host digest capture requires Core binding and accepts no raw text or calle
   });
   assert.equal(conflict.status, 409);
   assert.equal((await conflict.json()).inventory_status, 'NON_READY');
+});
+
+test('Core authenticated Host context binds installation, account, session, conversation, world and actor', async (t) => {
+  const base = await setup(t, { seedActor: true });
+  const adminHeaders = { ...headers, 'x-admin-token': ADMIN };
+  const adapterHeaders = { ...headers, 'x-adapter-id': 'adapter-a', 'x-adapter-token': ADAPTER_A };
+  const conversationId = [
+    '11111111-1111-4111-8111-111111111111',
+    '22222222-2222-4222-8222-222222222222',
+    '33333333-3333-4333-8333-333333333333',
+  ].join(':');
+  const hostContext = {
+    installation_id: '11111111-1111-4111-8111-111111111111',
+    account_id: '22222222-2222-4222-8222-222222222222',
+    session_id: '44444444-4444-4444-8444-444444444444',
+  };
+
+  const conversationBinding = await fetch(base + '/v1/host-conversation-bindings', {
+    method: 'POST', headers: adminHeaders,
+    body: json({
+      adapter_id: 'adapter-a',
+      conversation_id: conversationId,
+      world_id: 'host-binding-world-a',
+    }),
+  });
+  assert.equal(conversationBinding.status, 201);
+
+  const actorBinding = await fetch(base + '/v1/worlds/host-binding-world-a/actor-bindings', {
+    method: 'POST', headers: adminHeaders,
+    body: json({ adapter_id: 'adapter-a', entity_id: 'npc-kiryu' }),
+  });
+  assert.equal(actorBinding.status, 201);
+
+  const resolved = await fetch(base + '/v1/host-conversation-bindings/resolve-context', {
+    method: 'POST', headers: adapterHeaders,
+    body: json({
+      conversation_id: conversationId,
+      host_context: hostContext,
+      actor_entity_id: 'npc-kiryu',
+    }),
+  });
+  assert.equal(resolved.status, 200);
+  assert.deepEqual((await resolved.json()).context, {
+    ...hostContext,
+    conversation_id: conversationId,
+    world_id: 'host-binding-world-a',
+    actor_id: 'npc-kiryu',
+    adapter_id: 'adapter-a',
+    authority: 'AUTHENTICATED_ADAPTER_AND_CORE_BINDINGS',
+  });
+
+  const forgedAccount = await fetch(base + '/v1/host-conversation-bindings/resolve-context', {
+    method: 'POST', headers: adapterHeaders,
+    body: json({
+      conversation_id: conversationId,
+      host_context: { ...hostContext, account_id: '55555555-5555-4555-8555-555555555555' },
+      actor_entity_id: 'npc-kiryu',
+    }),
+  });
+  assert.equal(forgedAccount.status, 400);
+  assert.equal((await forgedAccount.json()).error.code, 'INVALID_AUTHENTICATED_HOST_CONTEXT');
+
+  const callerWorld = await fetch(base + '/v1/host-conversation-bindings/resolve-context', {
+    method: 'POST', headers: adapterHeaders,
+    body: json({
+      conversation_id: conversationId,
+      host_context: hostContext,
+      actor_entity_id: 'npc-kiryu',
+      world_id: 'host-binding-world-b',
+    }),
+  });
+  assert.equal(callerWorld.status, 400);
+  assert.equal((await callerWorld.json()).error.code, 'INVALID_AUTHENTICATED_HOST_CONTEXT');
+
+  const wrongAdapter = await fetch(base + '/v1/host-conversation-bindings/resolve-context', {
+    method: 'POST',
+    headers: { ...headers, 'x-adapter-id': 'adapter-b', 'x-adapter-token': ADAPTER_B },
+    body: json({
+      conversation_id: conversationId,
+      host_context: hostContext,
+      actor_entity_id: 'npc-kiryu',
+    }),
+  });
+  assert.equal(wrongAdapter.status, 403);
+  assert.equal((await wrongAdapter.json()).error.code, 'HOST_CONVERSATION_NOT_AUTHORIZED');
 });
