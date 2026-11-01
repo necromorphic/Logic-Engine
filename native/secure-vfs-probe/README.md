@@ -2,6 +2,11 @@
 
 This probe is a bounded feasibility implementation for Issue #770. It keeps the Node.js node:sqlite API and inserts a native VFS/syscall boundary underneath it. It is not approved for production database opens.
 
+## Strict Linux broker binding
+
+A strict Linux build (no \`LOGIC_ENGINE_VFS_PROBE_ALLOW_UNBROKERED_TEST_ROLES\` define) does not register path-only role enrollment. Protected roles must be registered through the broker handshake. The client rejects an app-owned broker socket, opens the socket parent through an \`O_PATH\` component walk, and connects through the pinned \`/proc/self/fd/<dirfd>/<socket>\` path. It requires a broker-owned parent directory with exact mode \`0710\`, a broker socket with exact mode \`0620\`, matching parent/socket owner and group, application membership in the socket group, and matching \`SO_PEERCRED\` UID/GID. It rechecks the socket inode and metadata after connect. Same-UID fake brokers are permitted only in explicitly marked test builds. The strict-mode test verifies that an app-owned fake socket is rejected before protocol exchange.
+
+
 ## Exact runtime tested
 
 - Node.js 22.13.0
