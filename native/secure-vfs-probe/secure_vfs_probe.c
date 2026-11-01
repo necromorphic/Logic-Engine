@@ -20,6 +20,7 @@
  */
 #include <string.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <errno.h>
 #include <limits.h>
 #ifdef _WIN32
@@ -2809,6 +2810,39 @@ static void probe_delete_registered_role(sqlite3_context *context, int argc, sql
   sqlite3_result_int(context, 1);
 }
 
+#ifdef _WIN32
+static int probe_parse_manifest_win_identity(
+    sqlite3_value *volume_value, sqlite3_value *file_id_value,
+    LogicEngineWinFileIdentity *identity) {
+  const unsigned char *volume_text = sqlite3_value_text(volume_value);
+  const unsigned char *file_id_text = sqlite3_value_text(file_id_value);
+  char *end = NULL;
+  unsigned long long volume;
+  if (!volume_text || !file_id_text || strlen((const char *)file_id_text) != 32)
+    return 0;
+  for (const unsigned char *p = volume_text; *p; ++p)
+    if (*p < '0' || *p > '9') return 0;
+  errno = 0;
+  volume = strtoull((const char *)volume_text, &end, 10);
+  if (errno || !end || *end || volume == 0) return 0;
+  memset(identity, 0, sizeof(*identity));
+  identity->volume_serial = (ULONGLONG)volume;
+  for (int i = 0; i < 16; ++i) {
+    unsigned char hi = file_id_text[i * 2];
+    unsigned char lo = file_id_text[i * 2 + 1];
+    int high = hi >= '0' && hi <= '9' ? hi - '0'
+      : hi >= 'a' && hi <= 'f' ? hi - 'a' + 10
+      : hi >= 'A' && hi <= 'F' ? hi - 'A' + 10 : -1;
+    int low = lo >= '0' && lo <= '9' ? lo - '0'
+      : lo >= 'a' && lo <= 'f' ? lo - 'a' + 10
+      : lo >= 'A' && lo <= 'F' ? lo - 'A' + 10 : -1;
+    if (high < 0 || low < 0) return 0;
+    identity->file_id.Identifier[i] = (UCHAR)((high << 4) | low);
+  }
+  return 1;
+}
+#endif
+
 static void probe_register_database_role(sqlite3_context *context, int argc, sqlite3_value **argv) {
   const unsigned char *path = sqlite3_value_text(argv[0]);
   const unsigned char *role_name = sqlite3_value_text(argv[1]);
@@ -2819,6 +2853,11 @@ static void probe_register_database_role(sqlite3_context *context, int argc, sql
   int duplicate = 0;
   int duplicate_identity = 0;
   int full = 0;
+#ifdef _WIN32
+  int manifest_expected = argc == 6;
+  LogicEngineWinFileIdentity expected_database, expected_parent, actual_parent;
+  DWORD parent_attributes = 0;
+#endif
   ProbeDatabaseRole captured_role;
   memset(&captured_role, 0, sizeof(captured_role));
 #ifdef _WIN32
@@ -2829,7 +2868,20 @@ static void probe_register_database_role(sqlite3_context *context, int argc, sql
   captured_role.trusted_fd = -1;
   captured_role.trusted_parent_fd = -1;
 #endif
+#ifdef _WIN32
+  if (argc != 2 && argc != 6) {
+    sqlite3_result_error(context, "manifest enrollment requires six identity arguments", -1);
+    return;
+  }
+  if (manifest_expected
+      && (!probe_parse_manifest_win_identity(argv[2], argv[3], &expected_database)
+          || !probe_parse_manifest_win_identity(argv[4], argv[5], &expected_parent))) {
+    sqlite3_result_error(context, "persistent manifest identity encoding is invalid", -1);
+    return;
+  }
+#else
   (void)argc;
+#endif
   if (!path || !role_name || !path[0] || !role_name[0]) {
     sqlite3_result_error(context, "database path and role are required", -1);
     return;
@@ -2862,6 +2914,22 @@ static void probe_register_database_role(sqlite3_context *context, int argc, sql
     sqlite3_result_error(context, "database role identity capture failed", -1);
     return;
   }
+#ifdef _WIN32
+  if (manifest_expected) {
+    int parent_ok = logic_engine_win_identity(captured_role.anchor.parent,
+        &actual_parent, &parent_attributes);
+    if (!logic_engine_win_identity_equal(&captured_role.identity, &expected_database)
+        || !parent_ok
+        || !logic_engine_win_identity_equal(&actual_parent, &expected_parent)
+        || (parent_attributes & FILE_ATTRIBUTE_DIRECTORY) == 0) {
+      probe_close_captured_role_identity(&captured_role);
+      sqlite3_free(stored_path);
+      sqlite3_free(stored_role);
+      sqlite3_result_error(context, "database or parent identity does not match persistent manifest", -1);
+      return;
+    }
+  }
+#endif
 
   probe_registry_lock();
   if (g_database_role_count >= PROBE_MAX_DATABASE_ROLES) full = 1;
