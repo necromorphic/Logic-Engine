@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "package_id": "logic-engine.sillytavern-extension-gateway",
+  "target_git_commit": "7e8663cd9c184a550b37238218bdd32c6efc68e9",
+  "target_paths": [
+    "public/scripts/extensions/third-party/logic-engine-extension-gateway/index.js",
+    "public/scripts/extensions/third-party/logic-engine-extension-gateway/manifest.json",
+    "public/scripts/extensions/third-party/logic-engine-extension-gateway/server-gateway.mjs",
+    "src/server-main.js",
+    "src/server-startup.js"
+  ],
+  "patches": [
+    {
+      "path": "sillytavern-1.19.0-extension-gateway.patch",
+      "size": 16384,
+      "sha256": "3f8ca1cbd429c6231e53a092a86fd6b34c71bc1fa2828feaf4755bc29df8c3f8"
+    }
+  ]
+}
