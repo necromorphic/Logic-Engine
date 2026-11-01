@@ -439,14 +439,18 @@ export class HostLifecycleReceiptStore {
       return { status: 'duplicate', receipt_digest: priorTerminal.receipt_digest, occurred_at: priorTerminal.occurred_at };
     }
     const after = await this.#snapshot(scope, directories);
-    if (after.target_path !== prepared.before.target_path
-      || after.target_locator !== prepared.before.target_locator
-      || after.target_content_sha256 === prepared.before.target_content_sha256
-      || after.other_root_entries_sha256 !== prepared.before.other_root_entries_sha256
-      || after.other_source_files_sha256 !== prepared.before.other_source_files_sha256
-      || !validBackupTransition(prepared.before, after)
-      || !validOperationTransition(scope.operation, prepared.before.logical_identity, after.logical_identity)) {
-      throw new Error('HOST_LIFECYCLE_RECEIPT_PERSISTED_STATE_MISMATCH');
+    const mismatchReason = after.target_path !== prepared.before.target_path ? 'TARGET_PATH_CHANGED'
+      : after.target_locator !== prepared.before.target_locator ? 'TARGET_LOCATOR_CHANGED'
+        : after.target_content_sha256 === prepared.before.target_content_sha256 ? 'TARGET_CONTENT_UNCHANGED'
+          : after.other_root_entries_sha256 !== prepared.before.other_root_entries_sha256 ? 'UNRELATED_ROOT_ENTRY_CHANGED'
+            : after.other_source_files_sha256 !== prepared.before.other_source_files_sha256 ? 'UNRELATED_SOURCE_FILE_CHANGED'
+              : !validBackupTransition(prepared.before, after) ? 'BACKUP_TRANSITION_INVALID'
+                : !validOperationTransition(scope.operation, prepared.before.logical_identity, after.logical_identity)
+                  ? 'LOGICAL_OPERATION_TRANSITION_INVALID' : null;
+    if (mismatchReason) {
+      const error = new Error('HOST_LIFECYCLE_RECEIPT_PERSISTED_STATE_MISMATCH');
+      error.reason = mismatchReason;
+      throw error;
     }
     const receipt = {
       protocol_version: 1,
