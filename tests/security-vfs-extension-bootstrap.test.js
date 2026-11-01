@@ -663,8 +663,8 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
   }
 
   // POSIX xDelete race: replace the checked source entry immediately before
-  // quarantine rename. The replacement must be retained in quarantine, not
-  // unlinked as if it were the enrolled database.
+  // quarantine rename. The mismatched inode must be restored under the source
+  // name without overwriting a concurrent creator, never unlinked.
   if (process.platform !== 'win32') {
     const deleteRacePath = join(directory, 'delete-race.sqlite');
     registerRole(deleteRacePath, 'delete-race');
@@ -687,17 +687,16 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
       'SELECT logic_engine_vfs_probe_race_injection_count() AS count'
     ).get().count, injectionBefore + 1,
     'the POSIX xDelete replacement must be injected at the destructive boundary');
-    assert.equal(existsSync(deleteRacePath), false,
-      'the raced replacement must be moved out of the source name');
+    assert.equal(existsSync(deleteRacePath), true,
+      'the mismatched replacement must be restored under the original source name');
     const quarantinePath = join(directory, '.logic-engine-vfs-quarantine');
-    const quarantined = readdirSync(quarantinePath);
-    assert.equal(quarantined.length, 1,
-      'the identity-mismatched replacement must remain quarantined');
-    const quarantinedInfo = statSync(join(quarantinePath, quarantined[0]));
+    assert.deepEqual(readdirSync(quarantinePath), [],
+      'a restored identity mismatch must not leave an orphaned quarantine entry');
+    const restoredInfo = statSync(deleteRacePath);
     const targetInfo = statSync(corePath);
-    assert.equal(quarantinedInfo.dev, targetInfo.dev);
-    assert.equal(quarantinedInfo.ino, targetInfo.ino,
-      'quarantine must retain the exact replacement object instead of unlinking it');
+    assert.equal(restoredInfo.dev, targetInfo.dev);
+    assert.equal(restoredInfo.ino, targetInfo.ino,
+      'the original replacement inode must remain linked at both names');
     assert.equal(existsSync(corePath), true,
       'the replacement target database must remain intact');
     rmSync(quarantinePath, { recursive: true, force: true });
