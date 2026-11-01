@@ -80,7 +80,7 @@ const identifiedMessage = ({ name = 'Harness User', isUser = true, mes, messageI
   _logicEngineLifecycle: identity(messageId, versionId, mes),
 });
 
-test('pinned ST 1.19.0 supported chat mutations persist; rename, group deletion, bulk import and restore fail closed', {
+test('pinned ST 1.19.0 supported chat mutations persist; chat deletion, rename, group deletion, bulk import and restore fail closed', {
   skip: process.platform !== 'win32' || !runPinnedSTHarness,
   timeout: 600_000,
 }, async t => {
