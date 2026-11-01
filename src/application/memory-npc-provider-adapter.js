@@ -22,7 +22,7 @@ export function createMemoryNpcProviderAdapter({
   engine,
   providerPath,
   coordinatorPath,
-  adapterIds,
+  adapterId,
   trustedInitialKnowledgeSources,
   fieldPolicy,
   contentFields,
@@ -39,10 +39,8 @@ export function createMemoryNpcProviderAdapter({
   if (!engine.store.coordinatorDb || process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH !== resolve(coordinatorPath)) {
     throw new Error('Memory Provider adapter requires the same live coordinator database as Core');
   }
-  if (!Array.isArray(adapterIds) || adapterIds.length === 0
-    || adapterIds.some((id) => typeof id !== 'string' || !id.trim())
-    || new Set(adapterIds).size !== adapterIds.length) {
-    throw new TypeError('Memory Provider adapter requires configured unique adapterIds');
+  if (typeof adapterId !== 'string' || !adapterId.trim()) {
+    throw new TypeError('Memory Provider adapter requires one configured authenticated adapterId');
   }
   if (!Array.isArray(trustedInitialKnowledgeSources)) {
     throw new TypeError('Memory Provider adapter requires the deployment-owned source registry');
@@ -76,12 +74,13 @@ export function createMemoryNpcProviderAdapter({
     const authorizedReadService = new AuthorizedReadService(engine, actorBindingService, fieldPolicy);
     const coreAuthorizers = createHostBoundNpcKnowledgeAuthorizers({
       store: engine.store,
-      adapterIds,
+      adapterIds: [adapterId],
       trustedInitialKnowledgeSources,
     });
     const consumer = new MemoryNpcConsumer({
       authorizedReadService,
       actorBindingService,
+      adapterId,
       memoryProvider: provider,
       coreQueryAuthorizer: coreAuthorizers.memoryQueryAuthorizer,
       contentFields,
