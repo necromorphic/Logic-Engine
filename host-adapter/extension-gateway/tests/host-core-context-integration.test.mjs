@@ -40,7 +40,10 @@ async function post(url, headers, body) {
 
 test('Host Adapter requires Core root proof before context resolution and binds authenticated ST identity', async t => {
   const directory = await mkdtemp(join(tmpdir(), 'host-core-context-e2e-'));
-  const root = join(directory, 'st-user');
+  const globalDataRoot = join(directory, 'st-data');
+  const root = join(globalDataRoot, 'default-user');
+  const previousDataRoot = globalThis.DATA_ROOT;
+  globalThis.DATA_ROOT = globalDataRoot;
   const chats = join(root, 'chats');
   const groups = join(root, 'groups');
   const groupChats = join(root, 'groupChats');
@@ -73,6 +76,8 @@ test('Host Adapter requires Core root proof before context resolution and binds 
     await new Promise(resolve => core.close(resolve));
     store.close();
     await rm(directory, { recursive: true, force: true });
+    if (previousDataRoot === undefined) delete globalThis.DATA_ROOT;
+    else globalThis.DATA_ROOT = previousDataRoot;
   });
   const coreUrl = 'http://127.0.0.1:' + core.address().port;
   const coreHeaders = { authorization: 'Bearer ' + API_TOKEN };
