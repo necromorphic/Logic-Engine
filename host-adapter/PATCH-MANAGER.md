@@ -48,10 +48,12 @@ Manager state and backups live under the SillyTavern root in `.logic-engine-patc
 ## Current patch content
 
 The pinned patch:
+- adds a trusted server-side lifecycle Hook to the existing native `/api/extensions/install`, `/api/extensions/update`, and `/api/extensions/delete` handlers; the Hook only activates for the `Logic-Engine` extension folder and the exact HTTPS origin `github.com/necromorphic/Logic-Engine`;
 - wraps the native `POST /api/backends/chat-completions/generate` handler in request-scoped AsyncLocalStorage context;
 - replaces the module's `node-fetch` binding with a hook-aware wrapper, covering the 13 early-return provider senders and the generic fallback within that module;
 - wraps the first streaming response-forward call so the registered adapter can perform the Gateway-controlled write and prevent a duplicate legacy write;
-- adds `src/logic-engine-final-send-hook.js` with a single adapter registration point.
+- adds `src/logic-engine-final-send-hook.js` with a single adapter registration point;
+- adds `src/logic-engine-extension-install-hook.js`, which imports the manager from the trusted, cloned Logic-Engine Extension for install/update/delete without adding a new HTTP route.
 
 The adapter is required before the native Chat Completions generation handler can run. Missing adapter registration rejects the route with `LOGIC_ENGINE_FINAL_SEND_ADAPTER_UNAVAILABLE`; it does not fall back to direct provider fetch. Calls to model-list and other non-generation functions in the module remain on native fetch because they run outside the generation context.
 
