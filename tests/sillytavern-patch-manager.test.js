@@ -234,6 +234,7 @@ function nativeFixture(t) {
   mkdirSync(join(st, 'src'), { recursive: true });
   mkdirSync(packageDir);
   git(st, ['init', '-q']);
+  git(st, ['config', 'core.autocrlf', 'false']);
   git(st, ['config', 'user.email', 'test@example.invalid']);
   git(st, ['config', 'user.name', 'Patch Manager Test']);
   writeFileSync(join(st, nativePath), 'export const startup = "original";\n');
