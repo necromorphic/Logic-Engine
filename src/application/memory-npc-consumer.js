@@ -257,10 +257,10 @@ export class MemoryNpcConsumer {
     // Query permission can be revoked while retrieval, record checks, or the
     // canonical source read are in flight. Recheck before any READY result;
     // this narrows the race but does not claim an atomic disclosure guarantee.
-    const queryStillAllowed = async () => {
+    const queryStillAllowed = () => {
       try {
         if (!coreQueryAllowed()) return false;
-        const providerAllowed = await this.#memoryProvider.authorizeQuery(scope) === true;
+        const providerAllowed = this.#memoryProvider.authorizeQuery(scope) === true;
         return providerAllowed && coreQueryAllowed();
       } catch {
         return false;
@@ -351,7 +351,7 @@ export class MemoryNpcConsumer {
         })) {
         return nonReady('memory_snapshot_stale');
       }
-      if (!(await queryStillAllowed())) return nonReady('query_access_unconfirmed');
+      if (!(queryStillAllowed())) return nonReady('query_access_unconfirmed');
       // Keep the Core snapshot read after asynchronous authorization so a
       // world change during the recheck cannot make a stale empty result ready.
       let finalEmptySnapshotRead;
@@ -380,7 +380,7 @@ export class MemoryNpcConsumer {
         })) {
         return nonReady('memory_snapshot_stale');
       }
-      if (!(await queryStillAllowed())) return nonReady('query_access_unconfirmed');
+      if (!(queryStillAllowed())) return nonReady('query_access_unconfirmed');
       return Object.freeze({
         status: 'ready',
         admitted: Object.freeze([]),
@@ -530,7 +530,7 @@ export class MemoryNpcConsumer {
         })) {
         return nonReady('memory_snapshot_stale');
       }
-      if (!(await queryStillAllowed())) return nonReady('query_access_unconfirmed');
+      if (!(queryStillAllowed())) return nonReady('query_access_unconfirmed');
       // Keep the Core snapshot read after asynchronous authorization so a
       // world change during the recheck cannot make a stale empty result ready.
       let finalEmptySnapshotRead;
@@ -777,7 +777,7 @@ export class MemoryNpcConsumer {
       if (!stillAllowed) return nonReady('memory_record_authorization_unconfirmed');
     }
 
-    if (!(await queryStillAllowed())) return nonReady('query_access_unconfirmed');
+    if (!(queryStillAllowed())) return nonReady('query_access_unconfirmed');
 
     return Object.freeze({
       status: 'ready',
