@@ -746,10 +746,10 @@ diff --git a/src/endpoints/groups.js b/src/endpoints/groups.js
 @@ -156,1 +163,1 @@
 -router.post('/create', (request, response) => {
 +router.post('/create', hostBulkMutationGuard, (request, response) => {
-@@ -190,1 +194,1 @@
+@@ -190,1 +197,1 @@
 -router.post('/edit', getFileNameValidationFunction('id'), (request, response) => {
 +router.post('/edit', hostBulkMutationGuard, getFileNameValidationFunction('id'), (request, response) => {
-@@ -203,1 +208,1 @@
+@@ -203,1 +210,1 @@
 -router.post('/delete', getFileNameValidationFunction('id'), async (request, response) => {
 +router.post('/delete', hostBulkMutationGuard, getFileNameValidationFunction('id'), async (request, response) => {
 diff --git a/src/endpoints/characters.js b/src/endpoints/characters.js
