@@ -253,7 +253,7 @@ store or runs with the broker service UID.
 
 The `recovery-plan` command provides an inspect-only sidecar recovery pass. It verifies database and parent identities, checks declared WAL/SHM/journal entries against opened-file identities, and rejects unmanifested sidecars or duplicate sidecar kinds. For interrupted creating/deleting states it reports presence and a possible manifest transition. It never deletes, renames, checkpoints, or opens a database through SQLite. A still-present deleting sidecar is retained and requires SQLite-aware recovery; the planner does not infer that unlinking a WAL or journal is safe.
 
-The broker operation set remains incomplete: main-file creation/deletion, RENAME, broker-first role enrollment, production cross-UID socket policy, complete SQLite VFS coverage and automatic recovery of present transitional sidecars are not implemented. Startup can retire only absent interrupted sidecars and persist `recovery-required` for roles with present transitional entries; those entries remain fail-closed. Sidecar deletion is implemented as a role-scoped quarantine operation. A successful verification is a point-in-time integrity check, not a lease preventing later mutation. The OS ownership boundary must keep the application from mutating these directories after verification.
+The broker operation set remains incomplete. Broker-first main-file enrollment and offline administrative rename/delete are implemented, but main-file `xDelete` intentionally remains fail-closed and those maintenance operations are not exposed to the application socket. The operator must stop every application process before disabling, renaming or deleting a role; the broker does not yet enforce per-open leases or revoke descriptors already transferred to an app process. Production service supervision and cross-UID socket deployment still need independent validation. Temporary DB/journal, subjournal and super-journal namespace classes and complete production-owned SQLite VFS methods remain open. Startup reconciles manifest-authorized interrupted main-file rename/delete and enrollment transitions, and separately handles sidecar recovery; present ambiguous sidecar transitions remain fail-closed. Sidecar deletion is implemented as a role-scoped quarantine operation. A successful verification is a point-in-time integrity check, not a lease preventing later mutation. The OS ownership boundary must keep the application from mutating these directories after verification.
 
 Run the manifest-store tests with:
 
@@ -308,7 +308,7 @@ integration, and Windows parity.
 This remains an incomplete broker/VFS increment. Outstanding production work:
 
 - privileged provisioning/enrollment and an independently protected monotonic anti-rollback anchor;
-- main-file creation/deletion lifecycle and a reviewed policy for rename/directory sync;
+- runtime main-file `xDelete`, broker-enforced app quiescence/per-open leases, and production validation of offline rename/delete durability;
 - a Windows broker/service with a durable authenticated manifest and restart lifecycle;
 - a production-owned SQLite file object covering every supported file class and all applicable I/O, locking, WAL/SHM and durability methods (the current probe delegates platform lock/SHM methods);
 - crash injection across every durable manifest transition, including Windows;
