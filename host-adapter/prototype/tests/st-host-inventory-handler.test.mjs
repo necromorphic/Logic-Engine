@@ -587,6 +587,30 @@ test('enrolled chat save API requires a matching server PREPARED permit and cons
   assert.equal(nextCalls, 1);
 });
 
+test('group save resolves the extensionless group-chat inventory locator', async () => {
+  const root = join(tmpdir(), 'st-host-group-save-guard');
+  const directories = { root, chats: join(root, 'chats'), groups: join(root, 'groups'), groupChats: join(root, 'groupChats') };
+  const guard = createHostLifecycleSaveGuard({
+    pinnedHostCommit: pinned,
+    enumerate: async () => ({
+      filesystem: { status: 'complete' },
+      source: { status: 'DOUBLE_SCAN_CANDIDATE', files: [{
+        kind: 'group-chat', locator: 'group-one',
+        logical_identity: { conversation_uuid: lifecycleSavePermit.conversation_uuid },
+      }] },
+    }),
+  });
+  const request = lifecycleSaveRequest(directories, { ...lifecycleSavePermit });
+  request.path = '/group/save';
+  request.body = { id: 'group-one', chat: [{ chat_metadata: { logic_engine_conversation_id: lifecycleSavePermit.conversation_uuid } }] };
+  const response = makeResponse();
+  let nextCalls = 0;
+  await guard(request, response, () => { nextCalls++; });
+  assert.equal(response.statusCode, null);
+  assert.equal(nextCalls, 1);
+  assert.equal(request.session.logicEngineHostPreparedMutation, undefined);
+});
+
 test('enrolled chat save API rejects permits scoped to another conversation or session', async () => {
   const root = join(tmpdir(), 'st-host-save-guard-scope');
   const directories = { root, chats: join(root, 'chats'), groups: join(root, 'groups'), groupChats: join(root, 'groupChats') };
