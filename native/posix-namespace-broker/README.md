@@ -61,7 +61,7 @@ no unrelated members to limit connection-level denial-of-service exposure.
 - Peer authentication: kernel-provided `SO_PEERCRED`; request payload cannot claim an identity.
 - Fixed-size network-byte-order request and response headers.
 - Unknown operations, flags, malformed payloads and unsupported protocol versions are rejected.
-- Client-supplied ancillary descriptors are rejected. `OPEN_MAIN`, `OPEN_SIDECAR`, `CREATE_SIDECAR`, `OPEN_ROLE_PARENT` and `OPEN_OR_CREATE_SIDECAR` return one broker-opened descriptor with outbound `SCM_RIGHTS`; `ACCESS_ROLE_FILE` performs a manifest identity check without returning a descriptor; `DELETE_SIDECAR` performs a manifest-backed quarantine deletion.
+- Client-supplied ancillary descriptors are rejected. `OPEN_MAIN`, `OPEN_SIDECAR`, `CREATE_SIDECAR` and `OPEN_OR_CREATE_SIDECAR` return one broker-opened file descriptor with outbound `SCM_RIGHTS`; `ACCESS_ROLE_FILE` performs a manifest identity check without returning a descriptor; `DELETE_SIDECAR` performs a manifest-backed quarantine deletion. The application-facing protocol does not export role-parent directory descriptors.
 - The C `broker_server` implements only `PING`; the Python daemon implements `PING`, `OPEN_MAIN`, `OPEN_SIDECAR`, `CREATE_SIDECAR` and `DELETE_SIDECAR`.
 
 
@@ -101,7 +101,7 @@ python3 native/posix-namespace-broker/broker_daemon.py \
 
 The C `broker_server` remains a transport smoke-test server and implements
 PING only. The Python daemon implements PING, OPEN_MAIN, OPEN_SIDECAR,
-CREATE_SIDECAR, OPEN_ROLE_PARENT, OPEN_OR_CREATE_SIDECAR, ACCESS_ROLE_FILE and
+CREATE_SIDECAR, OPEN_OR_CREATE_SIDECAR, ACCESS_ROLE_FILE and
 DELETE_SIDECAR. Privileged `manifest_store.py` administration now provides
 broker-first main-file enrollment plus offline disable, rename and delete
 lifecycle transitions. These administrative operations are not exposed to the
