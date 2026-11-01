@@ -293,7 +293,11 @@ export function createHostLifecycleSaveGuard({ enumerate = enumerateHostDataInve
     if (!directories || !['root', 'chats', 'groups', 'groupChats'].every(key => typeof directories[key] === 'string' && path.isAbsolute(directories[key]))) return response.sendStatus(403);
     let inventory;
     try { inventory = await enumerate({ directories: { root: directories.root, chats: directories.chats, groups: directories.groups, groupChats: directories.groupChats }, hostCommit: pinnedHostCommit }); }
-    catch { return response.status(503).json({ status: 'NON_READY', code: 'HOST_LIFECYCLE_SAVE_INVENTORY_UNAVAILABLE' }); }
+    catch (error) {
+      const reason = typeof error?.message === 'string' && /^[A-Z0-9_]{1,96}$/.test(error.message)
+        ? error.message : 'UNKNOWN';
+      return response.status(503).json({ status: 'NON_READY', code: 'HOST_LIFECYCLE_SAVE_INVENTORY_UNAVAILABLE', reason });
+    }
     if (inventory?.filesystem?.status !== 'complete' || inventory?.source?.status !== 'DOUBLE_SCAN_CANDIDATE' || !Array.isArray(inventory?.source?.files)) return response.status(503).json({ status: 'NON_READY', code: 'HOST_LIFECYCLE_SAVE_INVENTORY_INCOMPLETE' });
     const body = request?.body;
     const isGroup = request?.path === '/group/save' || request?.originalUrl?.split('?')[0]?.endsWith('/group/save');
