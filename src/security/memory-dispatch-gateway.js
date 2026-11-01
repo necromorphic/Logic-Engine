@@ -275,6 +275,7 @@ export class MemoryDispatchGateway {
 
     this.coordinatorDb = openCoordinatorDatabase(this.coordinatorPath);
     this.db = null;
+    this.pendingReleases = new Map();
     let release = () => {};
     let startupError = null;
     try {
@@ -502,61 +503,21 @@ export class MemoryDispatchGateway {
       throw new Error('MEMORY_DISPATCH_OUTCOME_UNKNOWN');
     }
 
-    // FINAL RESPONSE REVALIDATION: after upstream completion and immediately
-    // before Host release, reacquire the same cross-process Coordinator lease.
-    // A revoke/source mutation that committed while the request was in flight
-    // must be visible here. The exact Core policy tuple, accepted heads, source
-    // lineage, Provider candidates and grant are all re-read under this lease.
+    // FINAL RESPONSE REVALIDATION: after upstream completion, establish a
+    // request-scoped release capability. The actual Host writes are separately
+    // revalidated under the same Coordinator before every chunk/end operation.
     let finalRelease = null;
     let finalResponseAllowed = false;
-    let streamForwardPromise = null;
+    const releaseContext = {
+      requestId, route, senderRoute, model, stream, worldId, actorId, purpose,
+      sources: sourceSet, candidates: candidateSet, coreHead, providerHead, policyAuthority,
+    };
     try {
       finalRelease = beginCoordinatorLock(this.coordinatorDb);
-      const currentAuthority = getAcceptedHeadStatusSync({
-        port: this.authorityPort,
-        token: this.readToken,
-      });
-      if (currentAuthority.pending.core || currentAuthority.pending.provider
-        || !currentAuthority.enrolled.core || !currentAuthority.enrolled.provider
-        || currentAuthority.heads.core !== coreHead
-        || currentAuthority.heads.provider !== providerHead) {
-        throw new Error('MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED');
-      }
-
-      const currentCore = assertSyncResult(this.readCoreEvidence({
-        worldId, actorId, purpose, sources: sourceSet,
-      }));
-      const currentProvider = assertSyncResult(this.readProviderEvidence({
-        worldId, actorId, purpose, sources: sourceSet, candidates: candidateSet,
-      }));
-      if (currentCore.world_id !== worldId || currentCore.actor_id !== actorId
-        || currentCore.readiness !== 'READY' || currentCore.inventory_status !== 'READY'
-        || currentCore.head !== coreHead
-        || currentProvider.world_id !== worldId || currentProvider.actor_id !== actorId
-        || currentProvider.purpose !== purpose || currentProvider.granted !== true
-        || currentProvider.readiness !== 'READY' || currentProvider.head !== providerHead) {
-        throw new Error('MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED');
-      }
-      assertSameSources(currentCore.sources, sourceSet);
-      assertSameSources(currentProvider.sources, sourceSet);
-      assertSameCandidates(currentProvider.candidates, candidateSet);
-      assertSamePolicyAuthority(currentCore.policy_authority, policyAuthority);
-
-      if (stream) {
-        // Start the first Host response write synchronously while the same
-        // Coordinator lease is held. Await stream I/O only after releasing it.
-        streamForwardPromise = forwardResponse(response);
-        if (!streamForwardPromise || typeof streamForwardPromise.then !== 'function') {
-          throw new Error('MEMORY_DISPATCH_STREAM_FORWARD_START_INVALID');
-        }
-      } else {
-        this.#recordOutcome(requestId, 'COMPLETED', Number.isInteger(response?.status) ? response.status : null);
-      }
+      this.#revalidateReleaseContext(releaseContext);
+      this.pendingReleases.set(requestId, releaseContext);
       finalResponseAllowed = true;
     } catch {
-      // Do not release a response whose authorization changed or could not be
-      // re-established. UNKNOWN also blocks a second attempt with the same
-      // request digest; the already-issued upstream call cannot be recalled.
       try { this.#recordOutcome(requestId, 'UNKNOWN', null); } catch {}
     } finally {
       try { finalRelease?.(); } catch { finalResponseAllowed = false; }
@@ -566,23 +527,97 @@ export class MemoryDispatchGateway {
     }
 
     if (stream) {
+      // Native ST forwarding writes each chunk through the patched response
+      // writer. Each write/end obtains a short Coordinator lease and rechecks
+      // current Core/Provider authorization. No lease spans network I/O.
       try {
+        const streamForwardPromise = forwardResponse(response);
+        if (!streamForwardPromise || typeof streamForwardPromise.then !== 'function') {
+          throw new Error('MEMORY_DISPATCH_STREAM_FORWARD_START_INVALID');
+        }
         await streamForwardPromise;
-        const outcomeRelease = beginCoordinatorLock(this.coordinatorDb);
-        try {
-          this.#recordOutcome(requestId, 'COMPLETED', Number.isInteger(response?.status) ? response.status : null);
-        } finally {
-          outcomeRelease();
+        if (this.pendingReleases.has(requestId)) {
+          throw new Error('MEMORY_DISPATCH_STREAM_ENDED_WITHOUT_HOST_RELEASE');
         }
       } catch {
-        try {
+        if (this.pendingReleases.has(requestId)) {
           const outcomeRelease = beginCoordinatorLock(this.coordinatorDb);
-          try { this.#recordOutcome(requestId, 'UNKNOWN', null); } finally { outcomeRelease(); }
-        } catch {}
+          try {
+            this.#recordOutcome(requestId, 'UNKNOWN', null);
+            this.pendingReleases.delete(requestId);
+          } finally {
+            outcomeRelease();
+          }
+        }
         throw new Error('MEMORY_DISPATCH_OUTCOME_UNKNOWN');
       }
     }
     return response;
+  }
+
+  #revalidateReleaseContext(context) {
+    const currentAuthority = getAcceptedHeadStatusSync({
+      port: this.authorityPort,
+      token: this.readToken,
+    });
+    if (currentAuthority.pending.core || currentAuthority.pending.provider
+      || !currentAuthority.enrolled.core || !currentAuthority.enrolled.provider
+      || currentAuthority.heads.core !== context.coreHead
+      || currentAuthority.heads.provider !== context.providerHead) {
+      throw new Error('MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED');
+    }
+    const currentCore = assertSyncResult(this.readCoreEvidence({
+      worldId: context.worldId, actorId: context.actorId, purpose: context.purpose, sources: context.sources,
+    }));
+    const currentProvider = assertSyncResult(this.readProviderEvidence({
+      worldId: context.worldId, actorId: context.actorId, purpose: context.purpose,
+      sources: context.sources, candidates: context.candidates,
+    }));
+    if (currentCore.world_id !== context.worldId || currentCore.actor_id !== context.actorId
+      || currentCore.readiness !== 'READY' || currentCore.inventory_status !== 'READY'
+      || currentCore.head !== context.coreHead
+      || currentProvider.world_id !== context.worldId || currentProvider.actor_id !== context.actorId
+      || currentProvider.purpose !== context.purpose || currentProvider.granted !== true
+      || currentProvider.readiness !== 'READY' || currentProvider.head !== context.providerHead) {
+      throw new Error('MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED');
+    }
+    assertSameSources(currentCore.sources, context.sources);
+    assertSameSources(currentProvider.sources, context.sources);
+    assertSameCandidates(currentProvider.candidates, context.candidates);
+    assertSamePolicyAuthority(currentCore.policy_authority, context.policyAuthority);
+  }
+
+  /** Revalidate and perform one synchronous Host write under the shared lease. */
+  authorizeResponseWrite(requestId, write, { final = false } = {}) {
+    if (!validText(requestId, 200) || typeof write !== 'function'
+      || write.constructor?.name === 'AsyncFunction') {
+      throw new TypeError('Invalid protected response release capability.');
+    }
+    const context = this.pendingReleases.get(requestId);
+    if (!context) throw new Error('MEMORY_DISPATCH_RELEASE_NOT_PENDING');
+    let release;
+    try {
+      release = beginCoordinatorLock(this.coordinatorDb);
+      this.#revalidateReleaseContext(context);
+      const result = write();
+      if (result !== null && (typeof result === 'object' || typeof result === 'function')
+        && typeof result.then === 'function') {
+        throw new Error('MEMORY_DISPATCH_RELEASE_MUST_BE_SYNCHRONOUS');
+      }
+      if (final) {
+        this.#recordOutcome(requestId, 'COMPLETED', null);
+        this.pendingReleases.delete(requestId);
+      }
+      return result;
+    } catch (error) {
+      try {
+        if (this.pendingReleases.has(requestId)) this.#recordOutcome(requestId, 'UNKNOWN', null);
+      } catch {}
+      this.pendingReleases.delete(requestId);
+      throw new Error('MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED', { cause: error });
+    } finally {
+      try { release?.(); } catch {}
+    }
   }
 
   #recordOutcome(requestId, status, outcomeCode) {
