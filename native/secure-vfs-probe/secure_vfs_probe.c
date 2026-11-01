@@ -285,6 +285,17 @@ static int probe_broker_exchange(
   const char *socket_basename = NULL;
   char connect_path[sizeof(address.sun_path)];
   socklen_t credentials_length = (socklen_t)sizeof(peer_credentials);
+  const char *expected_uid_text = getenv("LOGIC_ENGINE_BROKER_UID");
+  char *expected_uid_end = NULL;
+  unsigned long long expected_uid_value = 0;
+  int expected_uid_valid = 0;
+  if (expected_uid_text && expected_uid_text[0]) {
+    errno = 0;
+    expected_uid_value = strtoull(expected_uid_text, &expected_uid_end, 10);
+    expected_uid_valid = errno == 0 && expected_uid_end
+      && *expected_uid_end == '\\0'
+      && expected_uid_value <= (unsigned long long)((uid_t)-1);
+  }
   if (out_fd) *out_fd = -1;
   if (out_status) *out_status = LEB_STATUS_INTERNAL;
   if (!role || !socket_path || !socket_path[0] || !out_status) return 0;
@@ -370,6 +381,9 @@ static int probe_broker_exchange(
                     peer_credentials, &credentials_length) != 0
       || credentials_length != sizeof(peer_credentials)
       || peer_credentials[0] <= 0
+      || !expected_uid_valid
+      || (uid_t)expected_uid_value != socket_info.st_uid
+      || (uid_t)peer_credentials[1] != (uid_t)expected_uid_value
       || (uid_t)peer_credentials[1] != socket_info.st_uid
       || (gid_t)peer_credentials[2] != socket_info.st_gid) {
     probe_counter_increment(&g_broker_socket_policy_reject_count);
