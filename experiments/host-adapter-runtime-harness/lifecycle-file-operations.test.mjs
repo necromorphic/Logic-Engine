@@ -240,6 +240,12 @@ test('pinned ST 1.19.0 supported chat mutations persist; chat deletion, rename, 
     enumerate: enumeratePinnedHostDataInventory,
     hostCommit: expectedSha,
   });
+  let receiptCommitError = null;
+  const commitReceipt = receiptStore.commit.bind(receiptStore);
+  receiptStore.commit = async (...args) => {
+    try { return await commitReceipt(...args); }
+    catch (error) { receiptCommitError = error?.message ?? 'unknown receipt commit error'; throw error; }
+  };
   const identityStore = new HostIdentityStore({ directory: identityDirectory });
   const hostIdentity = await identityStore.resolveAuthenticatedAccount(hostHandle);
   const lifecycleConversationId = [
@@ -289,7 +295,7 @@ test('pinned ST 1.19.0 supported chat mutations persist; chat deletion, rename, 
       mutation_digest: scope.mutation_digest,
       occurred_at: new Date().toISOString(),
     });
-    assert.equal(response.status, 201, JSON.stringify(response.result));
+    assert.equal(response.status, 201, JSON.stringify(response.result) + (receiptCommitError ? ' (' + receiptCommitError + ')' : ''));
     assert.equal(response.result.lifecycle.status, 'appended', JSON.stringify(response.result));
     return response.result;
   };
