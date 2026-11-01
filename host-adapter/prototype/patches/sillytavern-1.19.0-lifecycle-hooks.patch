@@ -657,15 +657,31 @@ diff --git a/src/endpoints/chats.js b/src/endpoints/chats.js
 +const hostLifecycleSaveGuard = createHostLifecycleSaveGuard({ pinnedHostCommit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127' });
 +
  const isBackupEnabled = !!getConfigValue('backups.chat.enabled', true, 'boolean');
-@@ -532,1 +537,1 @@
+@@ -524,20 +529,22 @@
+  * Tries to save the chat data to a file, performing an integrity check if required.
+  * @param {Array} chatData The chat array to save.
+  * @param {string} filePath Target file path for the data.
+  * @param {boolean} skipIntegrityCheck If undefined, the chat's integrity will not be checked.
+  * @param {string} handle The users handle, passed to getBackupFunction.
+  * @param {string} cardName Passed to backupChat.
+  * @param {string} backupDirectory Passed to backupChat.
+  */
 -export async function trySaveChat(chatData, filePath, skipIntegrityCheck = false, handle, cardName, backupDirectory) {
 +export async function trySaveChat(chatData, filePath, skipIntegrityCheck = false, handle, cardName, backupDirectory, flushLifecycleBackup = false) {
-@@ -542,1 +547,3 @@
+     const jsonlData = chatData?.map(m => JSON.stringify(m)).join('\\n');
+ 
+     const doIntegrityCheck = (checkIntegrity && !skipIntegrityCheck);
+     const chatIntegritySlug = doIntegrityCheck ? chatData?.[0]?.chat_metadata?.integrity : undefined;
+ 
+     if (chatIntegritySlug && !await checkChatIntegrity(filePath, chatIntegritySlug)) {
+         throw new IntegrityMismatchError(`Chat integrity check failed for "${filePath}". The expected integrity slug was "${chatIntegritySlug}".`);
+     }
+     tryWriteFileSync(filePath, jsonlData);
 -    getBackupFunction(handle, cardName)(backupDirectory, cardName, jsonlData);
 +    const backup = getBackupFunction(handle, cardName);
 +    backup(backupDirectory, cardName, jsonlData);
 +    if (flushLifecycleBackup) backup.flush();
-@@ -545,3 +552,3 @@
+ }@@ -545,3 +552,3 @@
 -router.post('/save', validateAvatarUrlMiddleware, async function (request, response) {
 +router.post('/save', validateAvatarUrlMiddleware, hostLifecycleSaveGuard, async function (request, response) {
      try {
