@@ -717,6 +717,32 @@ class ManifestStoreTests(unittest.TestCase):
         finally:
             os.close(reopened_fd)
 
+    def test_sidecar_manifest_survives_store_reopen(self):
+        self.store.initialize(self.data(1))
+        fd = self.store.create_role_sidecar("core", "wal")
+        try:
+            identity = fd_identity(fd)
+        finally:
+            os.close(fd)
+        self.store.close()
+        self.store = ManifestStore(str(self.manifest_root), str(self.anchor_root), self.application_uid)
+        current = self.store.load()
+        self.assertEqual(current["generation"], 3)
+        self.assertEqual(current["roles"][0]["sidecars"][0]["identity"], identity)
+        reopened = self.store.open_role_file("core", "wal")
+        try:
+            self.assertEqual(fd_identity(reopened), identity)
+        finally:
+            os.close(reopened)
+        retired = self.store.delete_role_sidecar("core", "wal")
+        self.assertEqual(retired["generation"], 5)
+        self.store.close()
+        self.store = ManifestStore(str(self.manifest_root), str(self.anchor_root), self.application_uid)
+        current = self.store.load()
+        self.assertEqual(current["generation"], 5)
+        self.assertEqual(current["roles"][0]["sidecars"][0]["state"], "retired")
+        self.assertFalse((self.role_parent / "core.sqlite-wal").exists())
+
     def test_delete_absent_unmanifested_sidecar_is_idempotent(self):
         self.store.initialize(self.data(1))
         result = self.store.delete_role_sidecar("core", "wal")
