@@ -30,7 +30,6 @@ OP_OPEN_MAIN = 2
 OP_OPEN_SIDECAR = 3
 OP_DELETE_SIDECAR = 4
 OP_CREATE_SIDECAR = 5
-OP_OPEN_ROLE_PARENT = 6
 OP_OPEN_OR_CREATE_SIDECAR = 7
 OP_ACCESS_ROLE_FILE = 8
 STATUS_OK = 0
@@ -84,7 +83,7 @@ def _parse_role_payload(payload: bytes, operation: int) -> tuple[str, str]:
         decoded = payload.decode("ascii")
     except UnicodeDecodeError as exc:
         raise ValueError("role payload must be ASCII") from exc
-    if operation in (OP_OPEN_MAIN, OP_OPEN_ROLE_PARENT):
+    if operation == OP_OPEN_MAIN:
         role, kind = decoded, "main"
     else:
         parts = decoded.split("\x00")
@@ -124,7 +123,7 @@ def handle_connection(conn: socket.socket, allowed_uid: int, store: Any) -> None
             else:
                 _send_response(conn, operation, STATUS_OK, request_id)
             return
-        if operation not in (OP_OPEN_MAIN, OP_OPEN_SIDECAR, OP_DELETE_SIDECAR, OP_CREATE_SIDECAR, OP_OPEN_ROLE_PARENT, OP_OPEN_OR_CREATE_SIDECAR, OP_ACCESS_ROLE_FILE):
+        if operation not in (OP_OPEN_MAIN, OP_OPEN_SIDECAR, OP_DELETE_SIDECAR, OP_CREATE_SIDECAR, OP_OPEN_OR_CREATE_SIDECAR, OP_ACCESS_ROLE_FILE):
             _send_response(conn, operation, STATUS_UNSUPPORTED, request_id)
             return
         try:
@@ -145,8 +144,6 @@ def handle_connection(conn: socket.socket, allowed_uid: int, store: Any) -> None
                 descriptor = store.create_role_sidecar(role, kind)
             elif operation == OP_OPEN_OR_CREATE_SIDECAR:
                 descriptor = store.open_or_create_role_sidecar(role, kind)
-            elif operation == OP_OPEN_ROLE_PARENT:
-                descriptor = store.open_role_parent_directory(role)
             else:
                 descriptor = store.open_role_file(role, kind)
         except StoreError:
