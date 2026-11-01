@@ -57,6 +57,25 @@ test('strict Linux VFS build requires broker role enrollment', {
         socket: process.env.LOGIC_ENGINE_BROKER_SOCKET,
         uid: process.env.LOGIC_ENGINE_BROKER_UID,
       };
+      process.env.LOGIC_ENGINE_VFS_ROLE_PATH = join(directory, 'app-writable-alias.sqlite');
+      process.env.LOGIC_ENGINE_VFS_ROLE_NAME = 'core';
+      process.env.LOGIC_ENGINE_BROKER_SOCKET = socketPath;
+      process.env.LOGIC_ENGINE_BROKER_UID = String(process.getuid() + 1);
+      const beforeWritableAlias = db.prepare(
+        'SELECT logic_engine_vfs_probe_broker_socket_policy_reject_count() AS count'
+      ).get().count;
+      assert.throws(
+        () => db.prepare(
+          'SELECT logic_engine_vfs_probe_register_broker_role_from_host()'
+        ).get(),
+        /broker role enrollment handshake failed/i,
+        'strict Linux enrollment must reject an application-writable logical alias parent',
+      );
+      const afterWritableAlias = db.prepare(
+        'SELECT logic_engine_vfs_probe_broker_socket_policy_reject_count() AS count'
+      ).get().count;
+      assert.equal(afterWritableAlias, beforeWritableAlias,
+        'an application-writable alias parent must be rejected before broker IPC');
       // /var/lib is root-owned and non-writable by the runner UID; the
       // fake socket remains app-owned and must be rejected at the broker boundary.
       process.env.LOGIC_ENGINE_VFS_ROLE_PATH = '/var/lib/logic-engine-strict-probe.sqlite';
