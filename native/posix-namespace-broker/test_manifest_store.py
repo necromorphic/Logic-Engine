@@ -2,8 +2,11 @@
 import hashlib
 import os
 import stat
+import subprocess
+import sys
 import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -620,6 +623,63 @@ class ManifestStoreTests(unittest.TestCase):
         self.assertEqual(failures, [])
         self.assertCountEqual(outcomes, ["committed", "rejected"])
         self.assertEqual(self.store.load()["generation"], 2)
+
+    def test_concurrent_process_commits_are_serialized_by_flock(self):
+        self.store.initialize(self.data(1))
+        release = self.manifest_root.parent / "release-process-writers"
+        code = r"""
+import os
+import sys
+import time
+from manifest_store import ManifestStore, StoreError
+store = ManifestStore(sys.argv[1], sys.argv[2], int(sys.argv[3]))
+print("ready", flush=True)
+while not os.path.exists(sys.argv[4]):
+    time.sleep(0.002)
+try:
+    store.commit(bytes.fromhex(sys.argv[5]))
+    print("committed", flush=True)
+except StoreError:
+    print("rejected", flush=True)
+finally:
+    store.close()
+"""
+        processes = [
+            subprocess.Popen(
+                [sys.executable, "-c", code, str(self.manifest_root),
+                 str(self.anchor_root), str(self.application_uid), str(release),
+                 self.data(2).hex()],
+                cwd=Path(__file__).resolve().parent,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            for _ in range(2)
+        ]
+        try:
+            for process in processes:
+                self.assertEqual(process.stdout.readline().strip(), "ready")
+            release.write_text("go", encoding="ascii")
+            results = []
+            errors = []
+            for process in processes:
+                stdout, stderr = process.communicate(timeout=10)
+                self.assertEqual(process.returncode, 0, stderr)
+                results.extend(line for line in stdout.splitlines() if line)
+                if stderr:
+                    errors.append(stderr)
+            self.assertEqual(errors, [])
+            self.assertCountEqual(results, ["committed", "rejected"])
+            self.assertEqual(self.store.load()["generation"], 2)
+        finally:
+            for process in processes:
+                if process.poll() is None:
+                    process.kill()
+                    process.wait(timeout=5)
+            try:
+                release.unlink()
+            except FileNotFoundError:
+                pass
 
     def test_rejects_application_owned_writable_directory_ancestor(self):
         import json
