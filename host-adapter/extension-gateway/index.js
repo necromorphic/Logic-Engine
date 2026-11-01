@@ -47,7 +47,11 @@ export function armAuthenticatedHostRequest(requestId, dispatch) {
     }
     armProtectedRequest(requestId, async generation => {
         const header = Array.isArray(generation?.chat) ? generation.chat[0] : null;
-        const conversationUuid = header?.chat_metadata?.logic_engine_conversation_id;
+        let conversationUuid = header?.chat_metadata?.logic_engine_conversation_id;
+        if (typeof conversationUuid !== 'string') {
+            const { getContext } = await import('../../../extensions.js');
+            conversationUuid = getContext()?.chatMetadata?.logic_engine_conversation_id;
+        }
         const hostContext = await resolveAuthenticatedHostContext(conversationUuid);
         return dispatch({ ...generation, hostContext });
     });
