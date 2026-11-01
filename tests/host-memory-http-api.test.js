@@ -60,6 +60,7 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
   });
   let calls = 0;
   let failConsumer = false;
+  let consumerResultOverride = null;
   const consumer = {
     adapterId: ADAPTER_ID,
     async retrieveForNpc({ conversationId: requested }) {
@@ -72,7 +73,7 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
       assert.equal(context.world_id, 'host-memory-world');
       assert.equal(context.actor_id, 'host-memory-actor');
       if (failConsumer) throw new Error('sensitive consumer implementation detail');
-      return { status: 'ready', admitted: [], candidates: [], snapshot: { world_revision: 0, commit_sequence: 0 } };
+      return consumerResultOverride ?? { status: 'ready', admitted: [], candidates: [], reason: null, snapshot: { world_revision: 0, commit_sequence: 0 } };
     },
   };
   let server = createApiServer({
@@ -103,8 +104,27 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
   });
   assert.equal(worldBinding.status, 201);
 
+  for (const malformedConversationId of [
+    SESSION + ':' + INSTALLATION,
+    SESSION + ':' + INSTALLATION + ':' + CONVERSATION + ':extra',
+    '------------------------------------:' + INSTALLATION + ':' + CONVERSATION,
+    ' ' + conversationId,
+    INSTALLATION + ':' + SESSION + ':' + CONVERSATION,
+  ]) {
+    const invalidContext = await post(base, '/v1/host-context/resolve', adapterHeaders, {
+      conversation_id: malformedConversationId,
+      host_session_id: SESSION,
+      host_installation_id: INSTALLATION,
+      conversation_uuid: CONVERSATION,
+    });
+    assert.equal(invalidContext.status, 400);
+    assert.equal((await invalidContext.json()).error.code, 'INVALID_HOST_CONTEXT_RESOLUTION');
+  }
   const contextResponse = await post(base, '/v1/host-context/resolve', adapterHeaders, {
     conversation_id: conversationId,
+    host_session_id: SESSION,
+    host_installation_id: INSTALLATION,
+    conversation_uuid: CONVERSATION,
   });
   assert.equal(contextResponse.status, 200);
   assert.deepEqual((await contextResponse.json()).context, {
@@ -123,22 +143,60 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
     request_id: '66666666-6666-4666-8666-666666666666',
     context_size: 4096, generation_type: 'normal',
   };
+  const malformedRequestId = await post(base, '/v1/host/memory-npc/retrieve', adapterHeaders, {
+    ...body, request_id: '------------------------------------',
+  });
+  assert.equal(malformedRequestId.status, 400);
+  const uppercaseGeneration = await post(base, '/v1/host/memory-npc/retrieve', adapterHeaders, {
+    ...body, request_id: '99999999-9999-4999-8999-999999999999', generation_type: 'NORMAL',
+  });
+  assert.equal(uppercaseGeneration.status, 400);
+
   const retrieved = await post(base, '/v1/host/memory-npc/retrieve', adapterHeaders, body);
   assert.equal(retrieved.status, 200);
   assert.deepEqual((await retrieved.json()).retrieval.status, 'ready');
   assert.equal(calls, 1);
 
+  const invalidResults = [
+    { status: 'ready', admitted: [], candidates: [], reason: null, snapshot: { world_revision: 0, commit_sequence: 0 }, provider_diagnostics: { secret: true } },
+    { status: 'ready', admitted: [], candidates: [], snapshot: { world_revision: 0, commit_sequence: 0 } },
+    { status: 'ready', admitted: [], candidates: [], reason: null, snapshot: { world_revision: -1, commit_sequence: 0 } },
+    { status: 'non_ready', admitted: [], candidates: [], reason: 'query_access_unconfirmed', snapshot: {} },
+  ];
+  for (let index = 0; index < invalidResults.length; index += 1) {
+    const invalidAssertion = {
+      ...assertion,
+      nonce: [
+        '99999999-9999-4999-8999-999999999991',
+        '99999999-9999-4999-8999-999999999992',
+        '99999999-9999-4999-8999-999999999993',
+        '99999999-9999-4999-8999-999999999994',
+      ][index],
+      issued_at: Math.floor(Date.now() / 1000),
+    };
+    consumerResultOverride = invalidResults[index];
+    const invalidEnvelope = await post(base, '/v1/host/memory-npc/retrieve', adapterHeaders, {
+      ...body,
+      assertion: invalidAssertion,
+      signature: sign(invalidAssertion),
+      request_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa' + (index + 1),
+    });
+    assert.equal(invalidEnvelope.status, 503);
+    assert.equal((await invalidEnvelope.json()).error.code, 'MEMORY_NPC_RESULT_INVALID');
+  }
+  consumerResultOverride = null;
+
   const replay = await post(base, '/v1/host/memory-npc/retrieve', adapterHeaders, body);
   assert.equal(replay.status, 409);
   assert.equal((await replay.json()).error.code, 'HOST_SESSION_ASSERTION_REPLAYED');
-  assert.equal(calls, 1);
+  assert.equal(calls, 5);
 
   const tamperedAssertion = { ...assertion, actor_id: 'attacker-selected-actor' };
   const tampered = await post(base, '/v1/host/memory-npc/retrieve', adapterHeaders, {
     ...body, assertion: tamperedAssertion,
   });
   assert.equal(tampered.status, 401);
-  assert.equal(calls, 1);
+  assert.equal(calls, 5);
 
   // A verified assertion followed by an unexpected Consumer failure is an
   // internal error, never an authentication failure or a detail disclosure.
@@ -156,11 +214,11 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
   assert.deepEqual(await consumerFailure.json(), {
     error: { code: 'INTERNAL_ERROR', message: 'Internal error.' },
   });
-  assert.equal(calls, 2);
+  assert.equal(calls, 6);
   const consumerFailureReplay = await post(base, '/v1/host/memory-npc/retrieve', adapterHeaders, failingBody);
   assert.equal(consumerFailureReplay.status, 409);
   assert.equal((await consumerFailureReplay.json()).error.code, 'HOST_SESSION_ASSERTION_REPLAYED');
-  assert.equal(calls, 2);
+  assert.equal(calls, 6);
   failConsumer = false;
 
   // The nonce ledger is durable in the Core SQLite store, not a process-local Map.
@@ -177,7 +235,7 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
   const replayAfterRestart = await post(restartedBase, '/v1/host/memory-npc/retrieve', adapterHeaders, body);
   assert.equal(replayAfterRestart.status, 409);
   assert.equal((await replayAfterRestart.json()).error.code, 'HOST_SESSION_ASSERTION_REPLAYED');
-  assert.equal(calls, 2);
+  assert.equal(calls, 6);
 
   const callerSelectedWorld = await post(restartedBase, '/v1/host-context/resolve', adapterHeaders, {
     conversation_id: conversationId, world_id: 'attacker-world',
@@ -202,7 +260,7 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
   const parallelPayloads = await Promise.all(parallelResponses.map(response => response.json()));
   assert.equal(parallelPayloads.filter(payload => payload.retrieval?.status === 'ready').length, 1);
   assert.equal(parallelPayloads.filter(payload => payload.error?.code === 'HOST_SESSION_ASSERTION_REPLAYED').length, 1);
-  assert.equal(calls, 3);
+  assert.equal(calls, 7);
 
   // A durable-store I/O failure is a distinct fail-closed 503, not a generic
   // 500 and never an authentication success.
@@ -225,5 +283,5 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
   });
   assert.equal(unavailableResponse.status, 503);
   assert.equal((await unavailableResponse.json()).error.code, 'HOST_ASSERTION_REPLAY_GUARD_UNAVAILABLE');
-  assert.equal(calls, 3);
+  assert.equal(calls, 7);
 });
