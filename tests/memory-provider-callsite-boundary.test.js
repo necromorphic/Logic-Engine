@@ -59,6 +59,21 @@ test('Provider/Consumer references are confined to their implementations and one
     'Only the approved Core composition factory may reference Provider/Consumer implementation internals.');
 });
 
+test('authenticated Host capability construction has no unapproved production callers', () => {
+  const trustedCapabilityFiles = new Set([
+    'src/application/host-session-context.js',
+    compositionBoundaryPath,
+  ]);
+  const violations = [];
+  for (const file of productionFiles().filter(({ path }) => !trustedCapabilityFiles.has(path))) {
+    if (/\\brunWithAuthenticatedHostSession\\s*\\(/.test(file.content)) {
+      violations.push(file.path + ': direct Host capability construction');
+    }
+  }
+  assert.deepEqual(violations, [],
+    'Only the Host session boundary and the approved Core composition factory may construct authenticated Host capabilities.');
+});
+
 test('the approved composition factory is not wired into the production runtime or public HTTP API', () => {
   const entrypoint = readFileSync(join(root, 'src/index.js'), 'utf8');
   const api = readFileSync(join(root, 'src/api/server.js'), 'utf8');
