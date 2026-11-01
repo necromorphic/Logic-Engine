@@ -205,15 +205,20 @@ export class MemoryNpcConsumer {
     // supplied beside the conversation ID are deliberately ignored.
     let worldId;
     let actorEntityId;
+    let conversationBinding;
     try {
-      const conversationBinding = this.hostConversationWorldBindingService.resolve({
+      conversationBinding = this.hostConversationWorldBindingService.resolve({
         adapterId, conversationId,
       });
       worldId = conversationBinding.world_id;
+    } catch {
+      return nonReady('query_access_unconfirmed');
+    }
+    try {
       const actorBinding = this.actorBindingService.resolveForAdapter(worldId, adapterId);
       actorEntityId = actorBinding.actor.entity_id;
     } catch {
-      return nonReady('trusted_scope_unavailable');
+      return nonReady('actor_binding_unavailable');
     }
     if (!validId(worldId) || !validId(actorEntityId)) return nonReady('trusted_scope_unavailable');
 
@@ -763,8 +768,6 @@ export class MemoryNpcConsumer {
       if (!stillAllowed) return nonReady('memory_record_authorization_unconfirmed');
     }
 
-    if (!(await queryStillAllowed())) return nonReady('query_access_unconfirmed');
-
     // Complete all asynchronous authorization rechecks before the final
     // field-bearing read. No await or authorization operation follows it.
     if (!(await queryStillAllowed())) return nonReady('query_access_unconfirmed');
@@ -822,7 +825,7 @@ export class MemoryNpcConsumer {
       admitted: decision.admitted,
       candidates: Object.freeze(admitted.map((item) => Object.freeze({
         ...item,
-        content: Object.freeze(item.content),
+        content: Object.freeze(finalContentByIdentity.get(recordIdentityKey(item.record_ref, item.record_version))),
       }))),
       reason: null,
       snapshot: Object.freeze({
