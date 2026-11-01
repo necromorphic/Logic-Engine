@@ -123,6 +123,95 @@ class ManifestStoreTests(unittest.TestCase):
         return manifest(generation, self.store.metadata_identity(),
                         components, identities, db_identity)
 
+    def _assert_process_enrollment_crash_recovery(self, stage: str, exit_code: int) -> None:
+        import json
+        initial = json.loads(self.data(1))
+        initial["roles"] = []
+        self.store.initialize(_canonical_json(initial))
+        parent = self.role_parent / ("enrollment-" + stage)
+        parent.mkdir(mode=0o700)
+        os.chmod(parent, 0o700)
+        code = r"""
+import os
+import sys
+from manifest_store import ManifestStore
+store = ManifestStore(sys.argv[1], sys.argv[2], int(sys.argv[3]))
+stage = sys.argv[5]
+exit_code = int(sys.argv[6])
+original = store._commit_locked
+calls = 0
+def interrupt(data):
+    global calls
+    calls += 1
+    if stage == "after_intent" and calls == 1:
+        original(data)
+        os._exit(exit_code)
+    if stage == "after_file_create" and calls == 2:
+        os._exit(exit_code)
+    if stage == "after_identity" and calls == 2:
+        original(data)
+        os._exit(exit_code)
+    if stage == "after_role_record" and calls == 3:
+        original(data)
+        os._exit(exit_code)
+    return original(data)
+store._commit_locked = interrupt
+store.enroll_role("vectors", sys.argv[4], "vectors.sqlite")
+os._exit(exit_code + 1)
+"""
+        result = subprocess.run(
+            [sys.executable, "-c", code, str(self.manifest_root),
+             str(self.anchor_root), str(self.application_uid), str(parent),
+             stage, str(exit_code)],
+            cwd=Path(__file__).resolve().parent,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        self.assertEqual(result.returncode, exit_code, result.stderr)
+        interrupted = self.store.load()
+        if stage == "after_intent":
+            self.assertEqual(interrupted["pendingEnrollments"][0]["role"], "vectors")
+            self.assertFalse((parent / "vectors.sqlite").exists())
+        elif stage in ("after_file_create", "after_identity"):
+            intent = interrupted["pendingEnrollments"][0]
+            self.assertEqual(intent["role"], "vectors")
+            self.assertEqual((parent / "vectors.sqlite").exists(), True)
+            self.assertEqual("databaseIdentity" in intent, stage == "after_identity")
+        else:
+            role = next(entry for entry in interrupted["roles"] if entry["role"] == "vectors")
+            self.assertEqual(role["state"], "enrolling")
+            self.assertEqual(interrupted.get("pendingEnrollments", []), [])
+            self.assertTrue((parent / "vectors.sqlite").exists())
+
+        restarted = ManifestStore(
+            str(self.manifest_root), str(self.anchor_root), self.application_uid
+        )
+        try:
+            restarted.reconcile_pending_enrollments()
+            recovered = restarted.reconcile_enrolling_roles()
+            role = next(entry for entry in recovered["roles"] if entry["role"] == "vectors")
+            self.assertEqual(role["state"], "active")
+            opened = restarted.open_role_file("vectors", "main")
+            try:
+                self.assertEqual(fd_identity(opened), role["databaseIdentity"])
+            finally:
+                os.close(opened)
+        finally:
+            restarted.close()
+
+    def test_process_crash_after_enrollment_intent_recovers_on_restart(self):
+        self._assert_process_enrollment_crash_recovery("after_intent", 81)
+
+    def test_process_crash_after_enrollment_file_create_before_identity_commit_recovers_on_restart(self):
+        self._assert_process_enrollment_crash_recovery("after_file_create", 82)
+
+    def test_process_crash_after_enrollment_identity_commit_recovers_on_restart(self):
+        self._assert_process_enrollment_crash_recovery("after_identity", 83)
+
+    def test_process_crash_after_enrollment_role_commit_before_activation_recovers_on_restart(self):
+        self._assert_process_enrollment_crash_recovery("after_role_record", 84)
+
     def test_offline_main_database_rename_and_delete_lifecycle(self):
         self.store.initialize(self.data(1))
         self.store.disable_role("core")
@@ -277,6 +366,103 @@ os._exit(74)
                          ["process-crash-main-db"])
         # The child died without releasing its lock or running Python cleanup.
         # A fresh store must acquire the OS-released flock and finish recovery.
+        restarted = ManifestStore(
+            str(self.manifest_root), str(self.anchor_root), self.application_uid
+        )
+        try:
+            recovered = restarted.reconcile_main_lifecycle()
+        finally:
+            restarted.close()
+        self.assertEqual(recovered["roles"][0]["state"], "deleted")
+        self.assertFalse(self.database.exists())
+        self.assertEqual(list(quarantine.iterdir()), [])
+
+    def test_process_crash_after_main_rename_recovers_on_restart(self):
+        self.store.initialize(self.data(1))
+        self.store.disable_role("core")
+        code = r"""
+import os
+import sys
+from manifest_store import ManifestStore
+store = ManifestStore(sys.argv[1], sys.argv[2], int(sys.argv[3]))
+original = store._commit_locked
+calls = 0
+def crash_after_namespace_rename(data):
+    global calls
+    calls += 1
+    if calls == 1:
+        return original(data)
+    if calls == 2:
+        os._exit(85)
+    return original(data)
+store._commit_locked = crash_after_namespace_rename
+store.rename_role_database("core", "core-process-crash.sqlite")
+os._exit(86)
+"""
+        result = subprocess.run(
+            [sys.executable, "-c", code, str(self.manifest_root),
+             str(self.anchor_root), str(self.application_uid)],
+            cwd=Path(__file__).resolve().parent,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        self.assertEqual(result.returncode, 85, result.stderr)
+        interrupted = self.store.load()
+        self.assertEqual(interrupted["roles"][0]["state"], "renaming")
+        self.assertFalse(self.database.exists())
+        renamed_path = self.role_parent / "core-process-crash.sqlite"
+        self.assertTrue(renamed_path.exists())
+        restarted = ManifestStore(
+            str(self.manifest_root), str(self.anchor_root), self.application_uid
+        )
+        try:
+            recovered = restarted.reconcile_main_lifecycle()
+        finally:
+            restarted.close()
+        role = recovered["roles"][0]
+        self.assertEqual(role["state"], "disabled")
+        self.assertEqual(role["databaseBasename"], renamed_path.name)
+        self.assertEqual(fd_identity(os.open(renamed_path, os.O_RDONLY | os.O_CLOEXEC)),
+                         role["databaseIdentity"])
+
+    def test_process_crash_after_main_delete_unlink_recovers_on_restart(self):
+        self.store.initialize(self.data(1))
+        self.store.disable_role("core")
+        code = r"""
+import os
+import sys
+from manifest_store import ManifestStore
+store = ManifestStore(sys.argv[1], sys.argv[2], int(sys.argv[3]))
+original = store._commit_locked
+calls = 0
+def crash_after_unlink(data):
+    global calls
+    calls += 1
+    if calls == 1:
+        return original(data)
+    if calls == 2:
+        os._exit(87)
+    return original(data)
+store._commit_locked = crash_after_unlink
+store.delete_role_database("core")
+os._exit(88)
+"""
+        result = subprocess.run(
+            [sys.executable, "-c", code, str(self.manifest_root),
+             str(self.anchor_root), str(self.application_uid)],
+            cwd=Path(__file__).resolve().parent,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        self.assertEqual(result.returncode, 87, result.stderr)
+        interrupted = self.store.load()
+        self.assertEqual(interrupted["roles"][0]["state"], "deleting")
+        self.assertFalse(self.database.exists())
+        quarantine = self.role_parent / ".le-quarantine"
+        self.assertTrue(quarantine.exists())
+        self.assertEqual(list(quarantine.iterdir()), [])
         restarted = ManifestStore(
             str(self.manifest_root), str(self.anchor_root), self.application_uid
         )
