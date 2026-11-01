@@ -193,7 +193,6 @@ test('real ST server middleware -> Host Adapter -> Core HTTP assertion creates a
       filesystem: { status: 'complete' },
       source: {
         status: 'AUTHORITATIVE_COMPLETE',
-          blockers: [],
         blockers: [],
         files: [{ logical_identity: { conversation_uuid: conversationUuid } }],
       },
