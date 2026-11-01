@@ -7,11 +7,15 @@ const strictExtensionPath = process.env.LOGIC_ENGINE_VFS_STRICT_PROBE_PATH;
 test('strict Linux VFS build requires broker role enrollment', {
   skip: process.platform !== 'linux' || !strictExtensionPath,
 }, () => {
-  const db = new DatabaseSync(':memory:', { allowExtension: true });
+  const bootstrap = new DatabaseSync(':memory:', { allowExtension: true });
   try {
-    db.loadExtension(strictExtensionPath, 'sqlite3_secure_vfs_probe_init');
-    db.enableLoadExtension(false);
-
+    bootstrap.loadExtension(strictExtensionPath, 'sqlite3_secure_vfs_probe_init');
+    bootstrap.enableLoadExtension(false);
+  } finally {
+    bootstrap.close();
+  }
+  const db = new DatabaseSync(':memory:');
+  try {
     assert.throws(
       () => db.prepare(
         'SELECT logic_engine_vfs_probe_register_database_role(?, ?)'
