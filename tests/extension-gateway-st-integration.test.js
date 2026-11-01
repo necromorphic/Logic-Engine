@@ -47,7 +47,7 @@ test('Patch Manager installs the sole Extension Gateway into a disposable offici
   assert.match(startup, /mountDefaultExtensionGateway\(app\);[\s\S]*?app\.use\('\/', userDataRouter\)/);
   assert.equal((gateway.match(/app\.post\(EXTENSION_GATEWAY_PATH/g) || []).length, 1);
   assert.match(client, /const GATEWAY_PATH = '\/api\/logic-engine\/extension'/);
-  assert.equal(git(['diff', '--name-only']).split('\n').filter(Boolean).length, 5);
+  assert.equal(git(['status', '--porcelain=v1', '--untracked-files=all']).split('\n').filter(Boolean).length, 5);
 
   const rolledBack = uninstallSillyTavernPatchPackage({
     stPath,
