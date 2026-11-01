@@ -192,8 +192,11 @@ test('Linux SQLite VFS obtains main and sidecar descriptors from the authenticat
     ).get(${JSON.stringify(databasePath)}, 'core', ${JSON.stringify(socketPath)}).registered;
     if (registered !== 1) process.exit(21);
     const db = new DatabaseSync(${JSON.stringify(databasePath)});
-    db.exec('PRAGMA journal_mode=WAL; BEGIN IMMEDIATE;');
-    db.exec("INSERT INTO broker_probe VALUES('uncommitted-crash-row');");
+    db.exec('PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0; PRAGMA cache_size=1; BEGIN IMMEDIATE;');
+    const insert = db.prepare('INSERT INTO broker_probe VALUES (?)');
+    for (let i = 0; i < 64; i += 1) {
+      insert.run('uncommitted-crash-row-' + i + '-' + 'x'.repeat(512));
+    }
     const wal = statSync(${JSON.stringify(databasePath + '-wal')});
     if (wal.size <= 32) process.exit(22);
     process.exit(0);
