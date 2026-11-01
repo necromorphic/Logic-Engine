@@ -44,11 +44,11 @@ export async function resolveDeploymentPathRegistry({
   if (!manifest || !Array.isArray(manifest.resources)) throw new TypeError('DEPLOYMENT_MANIFEST_RESOURCES_REQUIRED');
   const root = resolve(deploymentRoot);
   const rootResult = await canonicalizeWithoutFollowingLinks(root);
-  if (rootResult.status !== 'PASS') {
+  if (rootResult.status !== 'PASS' || rootResult.exists !== true) {
     return Object.freeze({
       status: rootResult.status,
       resources: Object.freeze([]),
-      conflicts: Object.freeze([{ kind: 'DEPLOYMENT_ROOT_UNSAFE', ...rootResult }]),
+      conflicts: Object.freeze([{ kind: rootResult.status === 'PASS' ? 'DEPLOYMENT_ROOT_MISSING' : 'DEPLOYMENT_ROOT_UNSAFE', ...rootResult }]),
     });
   }
 
