@@ -47,14 +47,17 @@ export async function assessDeployment({ manifest, deploymentRoot, platformAdapt
     adapterVersion: platformAdapter.version,
     limitations: ['Node path-based inspection does not pin directory handles against concurrent replacement.'],
   }));
-  capabilities.push(createCapabilityEvidence({
+  const accessEvidence = createCapabilityEvidence({
     id: 'filesystem.access.effective',
     status: 'NOT_TESTED',
     required: false,
     evidenceSource: 'deployment-path-registry',
     adapterVersion: platformAdapter.version,
     limitations: ['Per-resource effective ACL and requested access-intent verification is not yet implemented for both platforms.'],
-  }));
+  });
+  const accessEvidenceIndex = capabilities.findIndex((item) => item.id === 'filesystem.access.effective');
+  if (accessEvidenceIndex >= 0) capabilities.splice(accessEvidenceIndex, 1, accessEvidence);
+  else capabilities.push(accessEvidence);
 
   if (manifest.profile === 'portable-desktop') {
     limitations.push('Portable/Desktop is a single-process security boundary; no per-component OS isolation is claimed.');
