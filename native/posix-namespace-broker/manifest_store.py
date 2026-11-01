@@ -1088,6 +1088,51 @@ class ManifestStore:
                         entry["generation"] = next_generation
             return self._commit_locked(_canonical_json(candidate))
 
+    def mark_present_transitions_recovery_required(self) -> dict[str, Any]:
+        """Persist recovery-required for roles with identity-verified transitional files.
+
+        This records an interrupted SQLite sidecar lifecycle without deleting,
+        renaming, checkpointing, or otherwise mutating the database namespace.
+        """
+        with _locked_roots(self.manifest_fd, self.anchor_fd, exclusive=True):
+            manifest = self._load_pair()[0]
+            candidate = json.loads(_canonical_json(manifest))
+            suffixes = {"wal": "-wal", "shm": "-shm", "journal": "-journal"}
+            changed_roles: set[str] = set()
+            for role in candidate["roles"]:
+                if role["state"] == "disabled":
+                    continue
+                if role["state"] not in ("active", "recovery-required", "enrolling"):
+                    raise StoreError(f"role {role['role']} has unsupported recovery state")
+                parent_fd = _open_role_parent(
+                    role["parentComponents"], role["parentIdentities"],
+                    manifest["filesystemPolicy"]["filesystem"],
+                    manifest["filesystemPolicy"]["applicationUid"]
+                )
+                try:
+                    _require_empty_quarantine(parent_fd)
+                    _verify_regular_at(parent_fd, role["databaseBasename"],
+                                       role["databaseIdentity"], f"role {role['role']} database")
+                    for sidecar in role["sidecars"]:
+                        if sidecar["state"] not in ("creating", "deleting"):
+                            continue
+                        name = role["databaseBasename"] + suffixes[sidecar["kind"]]
+                        actual = _observe_regular_at(parent_fd, name, f"sidecar {name}")
+                        if actual is not None and actual != sidecar["identity"]:
+                            raise StoreError(f"sidecar identity mismatch: {name}")
+                        if actual is not None:
+                            changed_roles.add(role["role"])
+                finally:
+                    os.close(parent_fd)
+            if not changed_roles:
+                return manifest
+            next_generation = manifest["generation"] + 1
+            candidate["generation"] = next_generation
+            for role in candidate["roles"]:
+                if role["role"] in changed_roles and role["state"] != "recovery-required":
+                    role["state"] = "recovery-required"
+            return self._commit_locked(_canonical_json(candidate))
+
     def load(self) -> dict[str, Any]:
         with _locked_roots(self.manifest_fd, self.anchor_fd, exclusive=False):
             return self._load_pair()[0]
