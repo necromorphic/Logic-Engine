@@ -27,11 +27,13 @@ const mutationPaths = [
   'src/endpoints/users-admin.js',
   'src/endpoints/extensions.js',
 ];
-const [events, script, groupChats, chatBackups, ...mutationContents] = await Promise.all([
+const [events, script, groupChats, chatBackups, serverMain, hostRoutePatch, ...mutationContents] = await Promise.all([
   readFile(resolve(root, 'public/scripts/events.js'), 'utf8'),
   readFile(resolve(root, 'public/script.js'), 'utf8'),
   readFile(resolve(root, 'public/scripts/group-chats.js'), 'utf8'),
   readFile(resolve(root, 'public/scripts/chat-backups.js'), 'utf8'),
+  readFile(resolve(root, 'src/server-main.js'), 'utf8'),
+  readFile(resolve(process.cwd(), 'host-adapter/prototype/patches/sillytavern-1.19.0-source-inventory-route.patch'), 'utf8'),
   ...mutationPaths.map(path => readFile(resolve(root, path), 'utf8')),
 ]);
 const mutationSources = Object.fromEntries(
@@ -204,4 +206,14 @@ test('pinned high-impact mutation implementations retain their write/delete prim
         file + ' must retain reviewed mutation primitive ' + primitive);
     }
   }
+});
+
+test('Host inventory route is mounted only behind SillyTavern authentication middleware', () => {
+  const loginMiddleware = serverMain.indexOf('app.use(requireLoginMiddleware);');
+  const privateEndpointMount = serverMain.indexOf('setupPrivateEndpoints(app);');
+  assert.ok(loginMiddleware >= 0, 'requireLoginMiddleware mount must exist');
+  assert.ok(privateEndpointMount > loginMiddleware,
+    'private endpoint routers must be mounted after requireLoginMiddleware');
+  assert.match(hostRoutePatch,
+    /app\\.use\\('\\/api\\/logic-engine\\/host',\\s*logicEngineHostInventoryRouter\\);/);
 });
