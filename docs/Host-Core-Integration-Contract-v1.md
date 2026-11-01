@@ -3,11 +3,11 @@
 **Contract:** Host ↔ Core authenticated Memory retrieval  
 **Version:** 1.0.0  
 **Status:** CONTRACT DEFINED; Host and Core technical-owner ACKs received; latest Host/Core code-candidate CI green; refreshed contract-document CI running; independent maintainer reviews and branch integration remain pending  
-**Validated candidate heads (1 Nov 2026):** Host PR #850 `8c51709cbfe85e93ebe04065cf5282c4dd0a8bdc`; Core Lane B PR #846 `832abf337530e9421f53eaed85760cb4a7f07313`; Core HTTP PR #867 `c109dc7c2ad084e1fb236703c8a77c844d634717`; Contract PR #866 `abb19bcf0090db4e987efc0e3a8a1665e06a06fc`  
+**Validated candidate heads (1 Nov 2026):** Host PR #850 `8c51709cbfe85e93ebe04065cf5282c4dd0a8bdc`; Core Lane B PR #846 `832abf337530e9421f53eaed85760cb4a7f07313`; Core HTTP PR #867 `c109dc7c2ad084e1fb236703c8a77c844d634717`  
 **Scope:** identity hand-off, Core World/Actor resolution, authenticated Memory Provider retrieval, result/error/revoke semantics.  
 **Not in scope:** branch merging, Security Gateway changes, Final-Send, production enablement, Lane A, Provider schema migration.
 
-This document is the interface contract and implementation ledger. The two private routes are present in stacked Core HTTP #867 and Host #850; their five shared route blocks are byte-identical. Latest exact-head Runtime CI is green for Host #850 (run `41337612948`), Core Lane B #846 (run `41317936997`), Core HTTP #867 (run `41337597644`), and the prior contract PR #866 HEAD (run `41338285214`); the current documentation refresh is running separately. Memory → NPC remains fail-closed until deployment Provider configuration/data authorization and existing release gates are satisfied.
+This document is the interface contract and implementation ledger. The two private routes are present in stacked Core HTTP #867 and Host #850; their two required Memory integration route blocks are byte-identical. Latest exact-head Runtime CI is green for Host #850 (run `41337612948`), Core Lane B #846 (run `41317936997`), Core HTTP #867 (run `41337597644`), and the prior contract PR #866 HEAD (run `41338285214`); the current documentation refresh is running separately. Memory → NPC remains fail-closed until deployment Provider configuration/data authorization and existing release gates are satisfied.
 
 ## 1. Binding decisions and ownership
 
@@ -52,7 +52,7 @@ The existing Host-local stable key `host_installation_id:authenticated_account_i
 5. Host validates/persists `conversation_uuid` in chat metadata. It may retain the existing stable Host-local key, but composes Core `conversation_id = host_session_id:host_installation_id:conversation_uuid` for every Core request.
 6. Host repeats session/account/identity checks at dispatch time. Browser/localStorage values are locators or consistency hints only.
 
-Host must not send a browser-selected `world_id`, `actor_id`, `adapter_id`, account UUID, installation UUID, or session UUID as authority. The Host authentication gate must validate the Core tuple's first two components against the live signed ST session and server-owned installation record; it must not validate the existing Host-local key as if it were the Core tuple.
+Host must not send a browser-selected `world_id`, `actor_id`, `adapter_id`, account UUID, installation UUID, or session UUID as authority. The Host authentication gate validates the Host-local stable tuple against server-owned installation/account identity and independently verifies the live signed ST session ID. The dispatch proxy then constructs the Core tuple `host_session_id:host_installation_id:conversation_uuid` from those already authenticated values; only that Core tuple is sent as Core `conversation_id`.
 
 ## 3. Authentication and signed assertion
 
@@ -122,8 +122,7 @@ Success — HTTP 200, exact response envelope `host-context-resolve-response/v1`
     "adapter_id": "deployment-configured-adapter",
     "conversation_id": "11111111-1111-4111-8111-111111111111:22222222-2222-4222-8222-222222222222:44444444-4444-4444-8444-444444444444",
     "world_id": "core-bound-world-id",
-    "actor_id": "core-bound-actor-id",    "actor_type": "character"  }
-}
+    "actor_id": "core-bound-actor-id",    "actor_type": "character"  }}
 ```
 
 Core implementation rules:
@@ -247,8 +246,7 @@ HTTP/API errors use the existing Core envelope:
 }
 ```
 Do not return secrets, raw request data, hidden entity values, Provider snippets, or item-level denial reasons in error messages.
-| Condition | HTTP | Stable code / result |
-|---|---:|---|
+| Condition | HTTP | Stable code / result ||---|---:|---|
 | Invalid JSON | 400 | `INVALID_JSON` |
 | Invalid context body / unknown key / malformed context tuple | 400 | `INVALID_HOST_CONTEXT_RESOLUTION` |
 | Invalid retrieval envelope / bounded metadata | 400 | `INVALID_HOST_MEMORY_RETRIEVAL` |
@@ -372,8 +370,7 @@ The technical owner has taken responsibility for both blocks and approved the bo
 ### Replay protection
 The implementation uses `HostAssertionNonceStore` in a dedicated file configured by `ENGINE_HOST_ASSERTION_NONCE_DB_PATH` (default: `./data/logic-engine-host-assertion-nonces.sqlite`). It enforces a unique key on `(adapter_id, nonce)`, removes expired entries opportunistically, and persists across API process restarts. It is checked to be a separate file from Core and Coordinator; Host deployment additionally checks it against the Host lifecycle and version-ledger files. A store failure produces `503 HOST_ASSERTION_REPLAY_GUARD_UNAVAILABLE`.
 
-### Validation state
-Exact candidate heads and latest Runtime validation checked on 1 Nov 2026:
+### Validation stateExact candidate heads and latest Runtime validation checked on 1 Nov 2026:
 
 - Core Lane B PR #846 HEAD `832abf337530e9421f53eaed85760cb4a7f07313`: Runtime run `41317936997` — SUCCESS; all eight jobs passed, including `npm test`. This is the Core foundation; HTTP route registrations are supplied by stacked #867.
 - Core integration PR #867 HEAD `4b36f9f6763efc4e0ab4356614e10422f82174d5`: Runtime run `41335872509` — SUCCESS; all eight jobs passed, including `npm test` and Windows symlink security.
@@ -450,6 +447,11 @@ Fetched current files from Host #850 and Core HTTP #867 and compared their compl
 | `src/application/memory-npc-provider-adapter.js` | Byte-identical |
 | `src/application/host-assertion-nonce-store.js` | Byte-identical |
 | `tests/host-memory-http-api.test.js` | Byte-identical |
+| `src/application/memory-npc-consumer.js` | Byte-identical |
+| `src/application/host-conversation-world-bindings.js` | Byte-identical |
+| `src/application/actor-bindings.js` | Byte-identical |
+| `src/application/npc-knowledge-authorization.js` | Byte-identical |
+| `src/application/sqlite-memory-provider.js` | Byte-identical |
 | `src/api/server.js` | Intentionally different; Host retains additional Host-owned lifecycle/root-inventory routes and composition |
 
 The complete route blocks for `POST /v1/host-context/resolve` and `POST /v1/host/memory-npc/retrieve` were separately extracted from both current `src/api/server.js` files and compared byte-for-byte; both blocks are identical. Do not replace either complete `server.js` file with the other branch's version.
@@ -459,8 +461,8 @@ The current Core Actor resolver confirms the documented outcomes: zero active bi
 ### Acceptance disposition
 
 - Wire schemas, identity projection, Core binding ownership, consumer-facade boundary, result wrapper, and error mapping are aligned between the current Host and combined Core (#846 + #867) candidates.
-- Both required private route blocks are byte-identical; the four shared application/test files listed above are byte-identical.
-- Exact-head CI is green for Host, Core foundation, and Core HTTP. The current contract-document refresh is awaiting Runtime CI; the immediately preceding document HEAD passed.
+- Both required private route blocks are byte-identical; all nine shared application/test files listed above are byte-identical.
+- Exact-head CI is green for Host, Core foundation, and Core HTTP. The contract document's Runtime workflow is triggered on each documentation update and is tracked separately from the Host/Core code compatibility result.
 - Coordinated Host and Core technical-owner ACKs are recorded in #850 and #846. They are not independent maintainer reviews.
 - Independent GitHub PR Reviews are still outstanding. Branch refresh/rebase and merge simulation are still outstanding. No merge has been performed.
 - The Memory Provider remains deployment-configured and fail-closed when unavailable or unauthorized. This contract does not enable production Memory → NPC traffic, claim linearizable revoke through Final-Send, modify Security Gateway, or include Final-Send.
