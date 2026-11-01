@@ -278,8 +278,25 @@ test('real ST server middleware -> Host Adapter -> Core HTTP assertion creates a
 
 test('Core Host assertion nonce remains consumed after Core API restart', async t => {
   const directory = mkdtempSync(join(tmpdir(), 'logic-host-session-replay-'));
-  const store = new SQLiteStore(join(directory, 'core.sqlite'));
-  const engine = new LogicEngine(store);
+  const databasePath = join(directory, 'core.sqlite');
+  let store = new SQLiteStore(databasePath);
+  let engine = new LogicEngine(store);
+  engine.createWorld({
+    world_id: worldId,
+    world_pack_id: 'test.host-session-replay',
+    world_pack_version: '1',
+    game_time: '2026-01-01T00:00:00Z',
+  });
+  engine.commitEvent(worldId, {
+    event_id: 'host-session-replay-seed',
+    idempotency_key: 'host-session-replay-seed',
+    turn_id: 'host-session-replay-seed',
+    event_type: 'action.completed',
+    expected_revision: 0,
+    effects: [{ kind: 'entity.create', entity_id: actorId, entity_type: 'character' }],
+  });
+  new ActorBindingService(engine).bind(worldId, adapterId, actorId);
+  new HostConversationWorldBindingService(engine).bind({ adapterId, conversationId, worldId });
   const assertion = {
     protocol_version: 1,
     host_installation_id: installationId,
@@ -351,6 +368,9 @@ test('Core Host assertion nonce remains consumed after Core API restart', async 
   assert.equal(sameProcessReplay.status, 403);
   assert.equal((await sameProcessReplay.json()).error.code, 'HOST_SESSION_ASSERTION_REJECTED');
   await closeServer(server);
+  store.close();
+  store = new SQLiteStore(databasePath);
+  engine = new LogicEngine(store);
 
   server = await start();
   const replayAfterRestart = await post(server);
