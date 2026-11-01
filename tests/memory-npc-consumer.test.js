@@ -1183,7 +1183,9 @@ test('mismatched Core actor binding result fails before Memory query', async (t)
 
   const result = await consumer.retrieveForNpc(request());
   assert.equal(result.status, 'non_ready');
-  assert.equal(result.reason, 'actor_binding_unavailable');
+  // The trusted Host capability is bound to the original actor. A changed
+  // Core binding therefore invalidates the capability before Provider access.
+  assert.equal(result.reason, 'query_access_unconfirmed');
   assert.deepEqual(result.admitted, []);
   assert.equal(queryCalled, false);
 });
