@@ -10,7 +10,8 @@ export async function assessDeployment({ manifest, deploymentRoot, platformAdapt
   const limitations = [];
 
   if (identity.platform === 'unknown' || !manifest.platform_policy.supported_platforms.includes(identity.platform)) {
-    capabilities.push(createCapabilityEvidence({
+    const platformEvidenceIndex = capabilities.findIndex((item) => item.id === 'platform.identity.inspect');
+    const unsupportedPlatformEvidence = createCapabilityEvidence({
       id: 'platform.identity.inspect',
       status: 'FAIL',
       required: true,
@@ -18,7 +19,9 @@ export async function assessDeployment({ manifest, deploymentRoot, platformAdapt
       observedSummary: 'Runtime platform is not permitted by the deployment manifest.',
       adapterVersion: platformAdapter.version,
       limitations: ['Only Windows and Linux are supported by deployment manifest v1.'],
-    }));
+    });
+    if (platformEvidenceIndex >= 0) capabilities.splice(platformEvidenceIndex, 1, unsupportedPlatformEvidence);
+    else capabilities.push(unsupportedPlatformEvidence);
   }
 
   const pathRegistry = await resolveDeploymentPathRegistry({ manifest, deploymentRoot });
@@ -33,9 +36,11 @@ export async function assessDeployment({ manifest, deploymentRoot, platformAdapt
     adapterVersion: platformAdapter.version,
     limitations: pathRegistry.status === 'PASS' ? [] : ['One or more resource paths could not be proven safe.'],
   }));
+  const linkConflict = pathRegistry.conflicts.some((item) => item.kind === 'SYMLINK_OR_REPARSE_ANCESTOR');
+  const rootMissing = pathRegistry.conflicts.some((item) => item.kind === 'DEPLOYMENT_ROOT_MISSING' || item.kind === 'DEPLOYMENT_ROOT_UNSAFE');
   capabilities.push(createCapabilityEvidence({
     id: 'filesystem.links.inspect',
-    status: pathRegistry.conflicts.some((item) => item.kind === 'SYMLINK_OR_REPARSE_ANCESTOR') ? 'FAIL' : pathRegistry.status,
+    status: linkConflict ? 'FAIL' : rootMissing ? 'NOT_TESTED' : 'PASS',
     required: true,
     evidenceSource: 'deployment-path-registry',
     observedSummary: 'All existing path components were checked with lstat.',
