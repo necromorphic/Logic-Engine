@@ -2918,38 +2918,36 @@ static int probe_valid_absolute_role_path(const char *value) {
   return 1;
 }
 
-static void probe_register_broker_role(sqlite3_context *context, int argc, sqlite3_value **argv) {
-  const unsigned char *path_value = sqlite3_value_text(argv[0]);
-  const unsigned char *role_value = sqlite3_value_text(argv[1]);
-  const unsigned char *socket_value = sqlite3_value_text(argv[2]);
+static void probe_register_broker_role_values(
+    sqlite3_context *context, const char *path_value,
+    const char *role_value, const char *socket_value) {
   ProbeDatabaseRole candidate;
   char *stored_path = NULL, *stored_role = NULL, *stored_socket = NULL, *basename = NULL;
   int descriptor = -1, full = 0, duplicate = 0, duplicate_identity = 0;
   uint32_t status = LEB_STATUS_INTERNAL;
   struct stat info;
   const char *separator;
-  (void)argc;
   memset(&candidate, 0, sizeof(candidate));
   if (!path_value || !role_value || !socket_value
-      || !probe_valid_absolute_role_path((const char *)path_value)
-      || !probe_valid_role_name((const char *)role_value)
+      || !probe_valid_absolute_role_path(path_value)
+      || !probe_valid_role_name(role_value)
       || socket_value[0] != '/') {
     sqlite3_result_error(context, "canonical absolute database path, role and broker socket are required", -1);
     return;
   }
-  if (strlen((const char *)path_value) > (size_t)g_parent_vfs->mxPathname
-      || strlen((const char *)socket_value) >= sizeof(((struct sockaddr_un *)0)->sun_path)) {
+  if (strlen(path_value) > (size_t)g_parent_vfs->mxPathname
+      || strlen(socket_value) >= sizeof(((struct sockaddr_un *)0)->sun_path)) {
     sqlite3_result_error(context, "database or broker socket path is too long", -1);
     return;
   }
-  separator = strrchr((const char *)path_value, '/');
+  separator = strrchr(path_value, '/');
   if (!separator || !separator[1]) {
     sqlite3_result_error(context, "database path must include a basename", -1);
     return;
   }
-  stored_path = sqlite3_mprintf("%s", (const char *)path_value);
-  stored_role = sqlite3_mprintf("%s", (const char *)role_value);
-  stored_socket = sqlite3_mprintf("%s", (const char *)socket_value);
+  stored_path = sqlite3_mprintf("%s", path_value);
+  stored_role = sqlite3_mprintf("%s", role_value);
+  stored_socket = sqlite3_mprintf("%s", socket_value);
   basename = sqlite3_mprintf("%s", separator + 1);
   if (!stored_path || !stored_role || !stored_socket || !basename) {
     sqlite3_free(stored_path);
@@ -3017,7 +3015,35 @@ static void probe_register_broker_role(sqlite3_context *context, int argc, sqlit
   }
   sqlite3_result_int(context, 1);
 }
+
+#if defined(LOGIC_ENGINE_VFS_PROBE_ALLOW_UNBROKERED_TEST_ROLES)
+static void probe_register_broker_role_test(sqlite3_context *context, int argc,
+                                            sqlite3_value **argv) {
+  if (argc != 3) {
+    sqlite3_result_error(context, "test broker enrollment expects path, role and socket", -1);
+    return;
+  }
+  probe_register_broker_role_values(context,
+    (const char *)sqlite3_value_text(argv[0]),
+    (const char *)sqlite3_value_text(argv[1]),
+    (const char *)sqlite3_value_text(argv[2]));
+}
 #endif
+
+static void probe_register_broker_role_from_host(sqlite3_context *context,
+                                                 int argc, sqlite3_value **argv) {
+  const char *path = getenv("LOGIC_ENGINE_VFS_ROLE_PATH");
+  const char *role = getenv("LOGIC_ENGINE_VFS_ROLE_NAME");
+  const char *socket_path = getenv("LOGIC_ENGINE_BROKER_SOCKET");
+  (void)argc;
+  (void)argv;
+  if (!path || !role || !socket_path) {
+    sqlite3_result_error(context,
+      "trusted Host VFS role path/name and broker socket configuration are required", -1);
+    return;
+  }
+  probe_register_broker_role_values(context, path, role, socket_path);
+}
 
 static void probe_delete_registered_role(sqlite3_context *context, int argc, sqlite3_value **argv) {
   const unsigned char *path = sqlite3_value_text(argv[0]);
@@ -3587,9 +3613,14 @@ static int probe_auto_extension(sqlite3 *db, char **error, const sqlite3_api_rou
   if (rc != SQLITE_OK) return rc;
 #endif
 #if defined(__linux__)
-  rc = sqlite3_create_function(db, "logic_engine_vfs_probe_register_broker_role", 3,
-    SQLITE_UTF8, 0, probe_register_broker_role, 0, 0);
+  rc = sqlite3_create_function(db, "logic_engine_vfs_probe_register_broker_role_from_host", 0,
+    SQLITE_UTF8, 0, probe_register_broker_role_from_host, 0, 0);
   if (rc != SQLITE_OK) return rc;
+#if defined(LOGIC_ENGINE_VFS_PROBE_ALLOW_UNBROKERED_TEST_ROLES)
+  rc = sqlite3_create_function(db, "logic_engine_vfs_probe_register_broker_role", 3,
+    SQLITE_UTF8, 0, probe_register_broker_role_test, 0, 0);
+  if (rc != SQLITE_OK) return rc;
+#endif
 #endif
 #if defined(__linux__)
   rc = sqlite3_create_function(db, "logic_engine_vfs_probe_parent_xopen_diagnostics", 0,
