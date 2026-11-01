@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { openSync, closeSync } from 'node:fs';
+import { existsSync, openSync } from 'node:fs';
+import path from 'node:path';
 import { createRequire } from 'node:module';
 import { test } from 'node:test';
 
@@ -21,10 +22,12 @@ test('distinct-UID broker protects better-sqlite3 main, journal, WAL and SHM fil
   assert.notEqual(process.getuid(), Number(process.env.LOGIC_ENGINE_BROKER_UID));
   assert.equal(process.getgid(), Number(process.env.LOGIC_ENGINE_APP_GID));
 
-  assert.throws(() => {
-    const fd = openSync(databasePath, 'r');
-    closeSync(fd);
-  }, { code: 'EACCES' }, 'the application UID must not open the protected DB by pathname');
+  assert.equal(existsSync(path.dirname(databasePath)), true,
+    'better-sqlite3 requires an app-visible directory for its JS constructor check');
+  assert.equal(existsSync(databasePath), false,
+    'the app-visible logical DB alias must not contain a database file');
+  assert.throws(() => openSync(databasePath, 'w'), { code: 'EACCES' },
+    'the application UID must not create or replace the logical DB alias');
 
   const bootstrap = new Database(':memory:');
   try {
@@ -47,6 +50,8 @@ test('distinct-UID broker protects better-sqlite3 main, journal, WAL and SHM fil
   }
 
   const writer = new Database(databasePath);
+  assert.equal(existsSync(databasePath), false,
+    'secure VFS open must not create a plaintext file at the logical alias path');
   let reader;
   let readerTransactionActive = false;
   try {
