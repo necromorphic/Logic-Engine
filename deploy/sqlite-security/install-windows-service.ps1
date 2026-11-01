@@ -16,9 +16,12 @@ $InstallDirectory = [IO.Path]::GetFullPath($InstallDirectory)
 $StateDirectory = [IO.Path]::GetFullPath($StateDirectory)
 $NodePath = [IO.Path]::GetFullPath($NodePath)
 function Test-PathWithin([string]$Parent, [string]$Candidate) {
-  $parentPath = [IO.Path]::GetFullPath($Parent).TrimEnd('\\')
-  $candidatePath = [IO.Path]::GetFullPath($Candidate).TrimEnd('\\')
-  return $candidatePath.Equals($parentPath, [StringComparison]::OrdinalIgnoreCase) -or $candidatePath.StartsWith($parentPath + '\\', [StringComparison]::OrdinalIgnoreCase)
+  $separator = [string][IO.Path]::DirectorySeparatorChar
+  $trimChars = [char[]]@([char]92, [char]47)
+  $parentPath = [IO.Path]::GetFullPath($Parent).TrimEnd($trimChars)
+  $candidatePath = [IO.Path]::GetFullPath($Candidate).TrimEnd($trimChars)
+  return $candidatePath.Equals($parentPath, [StringComparison]::OrdinalIgnoreCase) -or
+    $candidatePath.StartsWith($parentPath + $separator, [StringComparison]::OrdinalIgnoreCase)
 }
 if ((Test-PathWithin $InstallDirectory $StateDirectory) -or
     (Test-PathWithin $StateDirectory $InstallDirectory)) {
