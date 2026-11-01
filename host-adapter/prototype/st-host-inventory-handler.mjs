@@ -358,8 +358,8 @@ const HOST_CONVERSATION_ID = new RegExp(
 );
 
 /**
- * Process-local request capability for an in-process Core adapter. The resolver
- * must map the exact authenticated request to canonical server-owned chat state.
+ * Process-local request capability for the authenticated ST server-plugin boundary.
+ * The resolver must map the exact authenticated request to canonical server-owned chat state.
  */
 export function createHostRequestAuthenticationGate({ resolveConversationId } = {}) {
   if (typeof resolveConversationId !== 'function') {
