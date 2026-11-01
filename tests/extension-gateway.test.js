@@ -195,3 +195,29 @@ test('client Extension has exactly one same-origin Gateway transport and no dire
   assert.equal(manifest.js, 'index.js');
   assert.equal(manifest.hooks.activate, 'init');
 });
+
+
+test('diagnostics expose metadata only and audit failure prevents Host Adapter dispatch', async () => {
+  const events = [];
+  let calls = 0;
+  const gateway = createExtensionGateway({
+    hostAdapter: { handleExtensionRequest: async () => { calls += 1; return { status: 200, body: {} }; } },
+    onDiagnostic: event => events.push(event),
+  });
+  const ok = response();
+  await gateway.handle(request({ body: valid }), ok);
+  assert.equal(ok.statusCode, 200);
+  assert.deepEqual(events.map(event => event.event), ['INGRESS_ACCEPTED', 'HOST_ADAPTER_RESULT']);
+  assert.equal(events[0].request_id, valid.request_id);
+  assert.equal(Object.hasOwn(events[0], 'payload'), false);
+
+  const unavailable = createExtensionGateway({
+    hostAdapter: { handleExtensionRequest: async () => { calls += 1; return { status: 200, body: {} }; } },
+    onDiagnostic: () => { throw new Error('audit sink unavailable'); },
+  });
+  const denied = response();
+  await unavailable.handle(request({ body: valid }), denied);
+  assert.equal(denied.statusCode, 503);
+  assert.deepEqual(denied.body, { error: 'GATEWAY_DIAGNOSTICS_UNAVAILABLE' });
+  assert.equal(calls, 1);
+});
