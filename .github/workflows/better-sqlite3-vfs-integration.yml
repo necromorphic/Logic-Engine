@@ -7,7 +7,10 @@ on:
       - 'native/secure-vfs-probe/*.c'
       - 'native/secure-vfs-probe/*.h'
       - 'tests/better-sqlite3-vfs-integration.test.js'
-      - 'tests/better-sqlite3-vfs-broker-integration.test.js'\n      - 'tests/run_better_sqlite3_cross_uid.py'\n      - 'tests/better-sqlite3-vfs-cross-uid-recovery.test.js'\n      - 'tests/better-sqlite3-vfs-cross-uid.test.js'
+      - 'tests/better-sqlite3-vfs-broker-integration.test.js'
+      - 'tests/run_better_sqlite3_cross_uid.py'
+      - 'tests/better-sqlite3-vfs-cross-uid-recovery.test.js'
+      - 'tests/better-sqlite3-vfs-cross-uid.test.js'
       - 'native/posix-namespace-broker/**'
       - '.github/workflows/better-sqlite3-vfs-integration.yml'
   pull_request:
@@ -16,6 +19,9 @@ on:
       - 'native/secure-vfs-probe/*.h'
       - 'tests/better-sqlite3-vfs-integration.test.js'
       - 'tests/better-sqlite3-vfs-broker-integration.test.js'
+      - 'tests/better-sqlite3-vfs-cross-uid.test.js'
+      - 'tests/better-sqlite3-vfs-cross-uid-recovery.test.js'
+      - 'tests/run_better_sqlite3_cross_uid.py'
       - 'native/posix-namespace-broker/**'
       - '.github/workflows/better-sqlite3-vfs-integration.yml'
 
