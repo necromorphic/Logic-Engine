@@ -209,15 +209,16 @@ test('record revoke after retrieval but before first authorization is non-ready,
   assert.deepEqual(result.admitted, []);
 });
 
-test('record revoke and re-grant after retrieval invalidates the captured authorization generation', async (t) => {
+test('cross-connection revoke and re-grant after retrieval invalidates the captured authorization generation', async (t) => {
   const s = setup(t);
+  const sibling = s.createSiblingProvider();
   assert.equal((await s.prepare()).status, 'current');
   const raceProvider = {
     authorizeQuery: (...args) => s.provider.authorizeQuery(...args),
     retrieveCandidates: async (...args) => {
       const result = await s.provider.retrieveCandidates(...args);
-      s.provider.revokeRecord(s.scope, 'memory:record-a', 'record-v1');
-      s.provider.grantRecord(s.scope, 'memory:record-a', 'record-v1', true);
+      sibling.revokeRecord(s.scope, 'memory:record-a', 'record-v1');
+      sibling.grantRecord(s.scope, 'memory:record-a', 'record-v1', true);
       return result;
     },
     authorizeCandidate: (...args) => s.provider.authorizeCandidate(...args),
