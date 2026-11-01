@@ -3050,9 +3050,11 @@ static void probe_register_database_role(sqlite3_context *context, int argc, sql
   int duplicate_identity = 0;
   int full = 0;
 #ifdef _WIN32
-  int manifest_expected = argc == 6;
+  int manifest_expected = argc == 7;
   LogicEngineWinFileIdentity expected_database, expected_parent, actual_parent;
   DWORD parent_attributes = 0;
+  const unsigned char *manifest_basename = NULL;
+  wchar_t *expected_basename = NULL;
 #endif
   ProbeDatabaseRole captured_role;
   memset(&captured_role, 0, sizeof(captured_role));
@@ -3065,15 +3067,22 @@ static void probe_register_database_role(sqlite3_context *context, int argc, sql
   captured_role.trusted_parent_fd = -1;
 #endif
 #ifdef _WIN32
-  if (argc != 2 && argc != 6) {
-    sqlite3_result_error(context, "manifest enrollment requires six identity arguments", -1);
+  if (argc != 2 && argc != 7) {
+    sqlite3_result_error(context, "manifest enrollment requires database, parent and basename identity fields", -1);
     return;
   }
-  if (manifest_expected
-      && (!probe_parse_manifest_win_identity(argv[2], argv[3], &expected_database)
-          || !probe_parse_manifest_win_identity(argv[4], argv[5], &expected_parent))) {
-    sqlite3_result_error(context, "persistent manifest identity encoding is invalid", -1);
-    return;
+  if (manifest_expected) {
+    manifest_basename = sqlite3_value_text(argv[6]);
+    expected_basename = manifest_basename
+      ? probe_utf8_to_wide((const char *)manifest_basename) : NULL;
+    if (!expected_basename
+        || !logic_engine_win_valid_basename(expected_basename)
+        || !probe_parse_manifest_win_identity(argv[2], argv[3], &expected_database)
+        || !probe_parse_manifest_win_identity(argv[4], argv[5], &expected_parent)) {
+      sqlite3_free(expected_basename);
+      sqlite3_result_error(context, "persistent manifest identity or basename encoding is invalid", -1);
+      return;
+    }
   }
 #else
   (void)argc;
@@ -3114,14 +3123,20 @@ static void probe_register_database_role(sqlite3_context *context, int argc, sql
   if (manifest_expected) {
     int parent_ok = logic_engine_win_identity(captured_role.anchor.parent,
         &actual_parent, &parent_attributes);
+    int basename_matches = captured_role.anchor.basename && expected_basename
+      && CompareStringOrdinal(captured_role.anchor.basename,
+          (int)wcslen(captured_role.anchor.basename), expected_basename,
+          (int)wcslen(expected_basename), TRUE) == CSTR_EQUAL;
+    sqlite3_free(expected_basename);
     if (!logic_engine_win_identity_equal(&captured_role.identity, &expected_database)
         || !parent_ok
         || !logic_engine_win_identity_equal(&actual_parent, &expected_parent)
-        || (parent_attributes & FILE_ATTRIBUTE_DIRECTORY) == 0) {
+        || (parent_attributes & FILE_ATTRIBUTE_DIRECTORY) == 0
+        || !basename_matches) {
       probe_close_captured_role_identity(&captured_role);
       sqlite3_free(stored_path);
       sqlite3_free(stored_role);
-      sqlite3_result_error(context, "database or parent identity does not match persistent manifest", -1);
+      sqlite3_result_error(context, "database, parent or basename does not match persistent manifest", -1);
       return;
     }
   }
@@ -3313,7 +3328,7 @@ static int probe_auto_extension(sqlite3 *db, char **error, const sqlite3_api_rou
   rc = sqlite3_create_function(db, "logic_engine_vfs_probe_capture_manifest_identity", 1,
     SQLITE_UTF8, 0, probe_capture_manifest_identity, 0, 0);
   if (rc != SQLITE_OK) return rc;
-  rc = sqlite3_create_function(db, "logic_engine_vfs_probe_register_database_role_manifest", 6,
+  rc = sqlite3_create_function(db, "logic_engine_vfs_probe_register_database_role_manifest", 7,
     SQLITE_UTF8, 0, probe_register_database_role, 0, 0);
   if (rc != SQLITE_OK) return rc;
   rc = sqlite3_create_function(db, "logic_engine_vfs_probe_register_manifest_sidecar", 5,
