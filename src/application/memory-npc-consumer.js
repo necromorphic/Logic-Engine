@@ -256,7 +256,24 @@ export class MemoryNpcConsumer {
       // a candidate's source or identity between validation and Core read.
       memoryResult = structuredClone(await this.memoryProvider.retrieveCandidates(scope));
     } catch (error) {
-      return nonReady(providerFailureReason(error));
+      let reason = providerFailureReason(error);
+      if (reason === 'memory_index_not_ready'
+        && typeof this.memoryProvider.getIndexStatusForDiagnostics === 'function') {
+        try {
+          const diagnostics = this.memoryProvider.getIndexStatusForDiagnostics(worldId);
+          if (object(diagnostics)) {
+            if (diagnostics.index_health === 'rebuilding') reason = 'memory_index_rebuilding';
+            else if (diagnostics.index_health === 'unavailable') reason = 'memory_index_unavailable';
+            else if (diagnostics.index_health === 'stale') reason = 'memory_index_stale';
+            else if (diagnostics.source_reconciliation === 'stale') reason = 'memory_reconciliation_stale';
+            else if (diagnostics.source_reconciliation === 'unavailable') reason = 'memory_reconciliation_unavailable';
+          }
+        } catch {
+          // Diagnostics refine a known non-ready state only; they never turn
+          // an unavailable retrieval into a ready or empty result.
+        }
+      }
+      return nonReady(reason);
     }
 
     if (!object(memoryResult)) {
