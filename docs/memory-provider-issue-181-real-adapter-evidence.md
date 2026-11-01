@@ -122,3 +122,36 @@ The factory deliberately does not register a public HTTP route, infer authentica
 
 
 Failure-state handling at the consumer boundary is also explicit: authorized complete-empty remains a ready empty result; partial results, query denial, withheld records, stale snapshots, unavailable Core snapshots, unavailable index/reconciliation, rebuilding, lineage failure, source-version failure, authorization changes, and mid-flight record revocation retain separate safe non-ready reasons. Provider diagnostic state is used only to refine an already non-ready `MEMORY_INDEX_NOT_READY` result; it cannot turn a failed retrieval into ready or empty. Internal error messages, record counts and identities are not returned.
+
+## Independent review corrections — PR #845 review findings
+
+The first independent review of PR #845 found that identifier-only Core query authorization was insufficient and that a record revoke after retrieval but before the first authorizeCandidate() call could be filtered into ready-empty. The follow-up implementation addresses those two defects without changing the Provider's retrieval/index architecture.
+
+### Authenticated Host session boundary
+
+- src/application/host-session-context.js creates a branded, non-serializable capability only from the authenticated SillyTavern server request shape: signed-session handle must match the authenticated user handle, the server-generated logicEngineSessionId and logicEngineSessionHandle must match, and the composite conversation ID must be scoped to that session.
+- Host-owned work must run inside runWithAuthenticatedHostSession(request, conversationId, callback). MemoryNpcConsumer reads the capability from AsyncLocalStorage; no caller-supplied conversation ID alone can authorize a query.
+- Core memoryQueryAuthorizer now requires that exact branded session capability and still checks the active Core conversation → world and adapter → actor bindings.
+- tests/npc-knowledge-authorization.test.js covers missing capability, a copied/plain object, a different conversation in the same session, and a second active conversation belonging to another authenticated session.
+- tests/memory-npc-provider-adapter.test.js verifies that calling the consumer outside an authenticated Host context returns non-ready with no candidates.
+
+### Retrieval-time record grant snapshot
+
+- memory_record_grants.authorization_generation is durable and increments on every grant/revoke update, including revoke → re-grant.
+- retrieveCandidates() returns the exact generation alongside each (record_ref, record_version).
+- MemoryNpcConsumer requires that generation and supplies it to every per-record authorization check, including the final check after Core source reads.
+- authorizeCandidate() rejects a revoked grant as MEMORY_RECORD_ACCESS_REVOKED and rejects a changed generation as MEMORY_AUTHORIZATION_CHANGED; it cannot reinterpret a previously retrieved row as an ordinary filtered denial.
+- Existing Provider callers that start a fresh direct authorization without a retrieval snapshot remain compatible; the Core consumer always supplies the captured generation.
+- tests/memory-provider-core-integration.test.js covers revoke strictly after retrieveCandidates() returns but before the first record authorization, plus cross-connection revoke → re-grant using a second file-backed Provider connection. Both cases must be non-ready, never ready-empty.
+- The multi-record race now rejects the complete candidate set if one previously retrieved record is revoked during another record's authorization. It does not silently return a partial disclosure.
+
+### Provider exposure boundary
+
+- The adapter no longer returns the raw SQLiteMemoryProvider.
+- The factory exposes only a narrow ingestion/grant administration facade (putRecord, grantQuery, grantRecord, revokeRecord); retrieval and per-record authorization remain private inside MemoryNpcConsumer.
+- The consumer stores the real Provider in a JavaScript private field and freezes its public instance surface.
+- The adapter test asserts that raw retrieval/authorization methods and a public consumer.memoryProvider reference are absent.
+
+### Remaining explicit limitation
+
+These changes close the review's identifier-only authorization and retrieval-to-first-record-check defects. They do not claim cross-database atomicity between a Core binding revoke, Provider grant revoke, the last consumer check, and an external model transport. revalidateForFinalDispatch() remains a freshness re-read, not a dispatch lease. A shared serialized dispatch-start/sole-egress contract is still required before any production Memory→NPC dispatch is enabled.
