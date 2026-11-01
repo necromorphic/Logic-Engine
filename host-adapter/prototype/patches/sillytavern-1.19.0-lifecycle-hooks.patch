@@ -479,6 +479,14 @@ diff --git a/public/script.js b/public/script.js
 +    if (deleteChats) await window.logicEngineHostLifecycle?.guardBulkMutation();
 +
      if (!Array.isArray(characterKey)) {
+@@ -11501,5 +11793,6 @@
+     $(document).on('click', '.exportChatButton, .exportRawChatButton', async function (e) {
+         e.stopPropagation();
+         const format = $(this).data('format') || 'txt';
++        await window.logicEngineHostLifecycle?.guardExport?.();
+         await saveChatConditional();
+         const filename = $(this).closest('.select_chat_block_wrapper').find('.select_chat_block_filename').text();
+
 diff --git a/public/scripts/bookmarks.js b/public/scripts/bookmarks.js
 --- a/public/scripts/bookmarks.js
 +++ b/public/scripts/bookmarks.js
