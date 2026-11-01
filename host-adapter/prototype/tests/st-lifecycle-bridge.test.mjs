@@ -222,6 +222,16 @@ test('persisted ST inventory is cross-checked against stable conversation identi
   assert.equal(wrongSession.host_session_bound, true);
 });
 
+test('export guard refuses to save while the local Host journal has a pending mutation', async () => {
+  const f = makeFixture(undefined, {
+    getLifecycleStatus: async () => ({ status: 'NO_PENDING_MUTATION' }),
+  });
+  await f.bridge.enrollCurrentConversation();
+  await f.bridge.beforeMutation('edit-message', [0]);
+  await assert.rejects(f.bridge.guardExport(), /local Host lifecycle journal is not clear/);
+  assert.equal(f.saveCount, 1, 'export guard must not invoke native chat persistence');
+});
+
 test('configured Core publisher receives digest-only baseline, replacement tombstone, and active version in order', async () => {
   const published = [];
   const f = makeFixture([{ is_user: false, mes: 'swipe A', swipes: ['swipe A', 'swipe B'], swipe_id: 0 }], {
