@@ -1,3 +1,5 @@
+import { types as utilTypes } from "node:util";
+
 /**
  * NPC-owned, pure plan-progress reducer.
  *
@@ -49,7 +51,7 @@ function hasSafeArrayIterator() {
 
 function isPlainDataObject(value) {
   if (!hasSafeObjectPrototype()) return false;
-  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+  if (value === null || typeof value !== "object" || utilTypes.isProxy(value) || Array.isArray(value)) return false;
   const prototype = Object.getPrototypeOf(value);
   if (prototype !== Object.prototype && prototype !== null) return false;
   return Reflect.ownKeys(value).every((key) => {
@@ -63,7 +65,7 @@ function nonEmptyString(value) {
 }
 
 function denseArray(value) {
-  if (!hasSafeArrayIterator() || !Array.isArray(value)) return false;
+  if (!hasSafeArrayIterator() || utilTypes.isProxy(value) || !Array.isArray(value)) return false;
   for (let i = 0; i < value.length; i += 1) {
     const descriptor = Object.getOwnPropertyDescriptor(value, String(i));
     if (descriptor == null || !Object.hasOwn(descriptor, "value")) return false;
