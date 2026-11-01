@@ -726,9 +726,9 @@ export class MemoryNpcConsumer {
       .map((item) => contentByIdentity.get(recordIdentityKey(item.record_ref, item.record_version)))
       .filter(Boolean);
 
-    // Revalidate Core's revision after all asynchronous authorization checks.
-    // The content-bearing read must still correspond to the current snapshot
-    // when this consumer finishes; no async checks follow this final read.
+    // Revalidate Core's revision after the content-bearing read. The Provider
+    // performs its final exact-source/grant check immediately after this
+    // synchronous snapshot check, followed by the final Core query check.
     let finalSourceSnapshotRead;
     try {
       finalSourceSnapshotRead = this.authorizedReadService.readEntityFields({
