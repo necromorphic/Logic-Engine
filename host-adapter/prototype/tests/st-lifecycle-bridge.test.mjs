@@ -167,11 +167,11 @@ test('lifecycle mutations require a matching durable before/after pair', async (
   );
 });
 
-test('persisted ST inventory is cross-checked against the session-bound conversation without claiming authority', async () => {
+test('persisted ST inventory is cross-checked against stable conversation identity and current authenticated session', async () => {
   const sessionId = '2e6b0a80-4e73-4c66-aaf3-7a6e62c7f401';
   const installationId = '3e6b0a80-4e73-4c66-aaf3-7a6e62c7f402';
   const conversationUuid = '4e6b0a80-4e73-4c66-aaf3-7a6e62c7f403';
-  const conversationId = sessionId + ':' + installationId + ':' + conversationUuid;
+  const conversationId = installationId + ':' + conversationUuid;
   const chat = [{ is_user: true, mes: 'private user sentinel' }, { is_user: false, mes: 'private assistant sentinel' }];
   let inventory = null;
   const publishedSnapshots = [];
@@ -212,10 +212,12 @@ test('persisted ST inventory is cross-checked against the session-bound conversa
   assert.equal(blockedSync.status, 'NON_READY');
   assert.equal(publishedSnapshots.length, publishedBeforeSync + 1);
 
-  inventory = { ...mismatched, host_session_id: '5e6b0a80-4e73-4c66-aaf3-7a6e62c7f404' };
+  inventory = { ...mismatched, files: structuredClone(mismatched.files) };
+  inventory.files[0].logical_identity.messages[0].versions[0].content_sha256 = 'a'.repeat(64);
+  inventory.host_session_id = '5e6b0a80-4e73-4c66-aaf3-7a6e62c7f404';
   const wrongSession = await f.bridge.verifyPersistedInventory();
-  assert.equal(wrongSession.status, 'NON_READY');
-  assert.match(wrongSession.reason, /not bound to the current authenticated conversation/);
+  assert.equal(wrongSession.status, 'MATCHED_NON_AUTHORITATIVE');
+  assert.equal(wrongSession.host_session_bound, true);
 });
 
 test('configured Core publisher receives digest-only baseline, replacement tombstone, and active version in order', async () => {
