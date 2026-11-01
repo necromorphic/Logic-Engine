@@ -2,12 +2,12 @@
 
 **Contract:** Host ↔ Core authenticated Memory retrieval  
 **Version:** 1.0.0  
-**Status:** PROPOSED PRIVATE API CONTRACT — coordinator technical review complete; affected API-owner approval under D5 and exact-head implementation validation remain outstanding  
+**Status:** IMPLEMENTATION IN PROGRESS — coordinated technical-owner decision approved; exact-head validation and deployment readiness remain pending  
 **Review baseline:** Host PR #850 HEAD `dfd1e7140ea058f76ae48c40abda0c54e3598fde`; Core PR #846 HEAD `832abf337530e9421f53eaed85760cb4a7f07313`  
 **Scope:** identity hand-off, Core World/Actor resolution, authenticated Memory Provider retrieval, result/error/revoke semantics.  
-**Not in scope:** code integration, branch merging, Security Gateway changes, Final-Send, production enablement, Lane A, Provider schema migration.
+**Not in scope:** branch merging, Security Gateway changes, Final-Send, production enablement, Lane A, Provider schema migration.
 
-This document is an interface contract, not evidence that the routes below are already implemented. Memory → NPC remains disabled/fail-closed until implementation and the existing release gates are independently verified.
+This document is the interface contract and implementation ledger. The routes are now present in the coordinated Core/Host candidates; Memory → NPC remains fail-closed until exact-head CI, Provider configuration/data authorization, and existing release gates are verified.
 
 ## 1. Binding decisions and ownership
 
@@ -96,7 +96,7 @@ Rules:
 - HMAC input is UTF-8 `JSON.stringify([...])` in this exact order: `protocol_version, host_installation_id, authenticated_account_id, host_session_id, conversation_id, world_id, actor_id, issued_at, nonce`. This matches Core's current canonical assertion encoding.
 - Core verifies the signature with constant-time comparison, exact own-data shape, UUID/ID constraints, expiry, future skew and one-time nonce consumption.
 
-The current Core assertion runner uses a process-local `Map` bounded by `maxRememberedNonces` (default 10,000), a maximum assertion age of 30 seconds, and a future clock-skew allowance of 5 seconds. It detects replay only within that process lifetime; it does not prevent replay after a process restart. The contract therefore requires one of two Core-owned controls before route enablement: (a) atomic durable nonce consumption unique on `(adapter_id, nonce)` retained through the full acceptance window, or (b) a restart-rotated assertion verification key/epoch that makes all pre-restart assertions unverifiable. The implementation must choose one, test restart/replay, and fail closed if replay protection is unavailable. This does not add a second authentication mechanism.
+The assertion runner retains the 30-second maximum age and 5-second future-skew limits. The coordinated implementation chooses durable atomic nonce consumption: a dedicated SQLite nonce database stores unique `(adapter_id, nonce)` entries through the acceptance window. It is separate from Core canonical storage, Provider storage, and the shared Coordinator database. Failure to consume durably returns 503 and fails closed. Exact restart/replay tests are part of the Core HTTP suite.
 
 ## 4. Core context-resolution API
 
@@ -265,7 +265,8 @@ Do not return secrets, raw request data, hidden entity values, Provider snippets
 | Invalid/tampered assertion or signature | 403 | `HOST_SESSION_ASSERTION_INVALID` |
 | Expired assertion | 403 | `HOST_SESSION_ASSERTION_EXPIRED` |
 | Reused nonce | 403 | `HOST_SESSION_ASSERTION_REPLAYED` |
-| In-process nonce cache full | 503 | `HOST_SESSION_ASSERTION_CAPACITY_EXCEEDED` |
+| In-process nonce cache full (legacy runner mode) | 503 | `HOST_SESSION_ASSERTION_CAPACITY_EXCEEDED` |
+| Durable nonce store unavailable or write failure | 503 | `HOST_ASSERTION_REPLAY_GUARD_UNAVAILABLE` |
 | Durable nonce/epoch guard unavailable (target contract) | 503 | `HOST_ASSERTION_REPLAY_GUARD_UNAVAILABLE` |
 | Core Memory consumer/Provider not configured | 503 | `MEMORY_RETRIEVAL_UNAVAILABLE` |
 | Authenticated retrieval completed but policy/data is not ready | 200 | `status: "non_ready"` with a stable reason |
@@ -331,15 +332,53 @@ The Host PR diff also changes Core-owned `src/application/host-session-context.j
 
 The same Host test then calls `/v1/host/memory-npc/retrieve` and expects `503 CORE_HOST_DISPATCH_ROUTE_UNAVAILABLE`; no Memory retrieval HTTP route is implemented in either reviewed Core #846 or the Host candidate's embedded server. This remains the blocking cross-process seam.
 
-## 10. Acceptance checklist — no code integration in this task
+## 10. Implementation acceptance checklist
 
-The contract is **technically reconciled by the coordinator** at the reviewed HEADs, but is not yet D5-approved or implementation-accepted. It becomes jointly accepted for implementation only after the explicit approvals and exact-head tests below.
+The contract is technically reconciled. The delegated technical owner is responsible for both Host and Core API decisions and has approved the D5 private-route and PC-NEXT-11 projection changes for this bounded integration. Exact-head validation remains the release gate.
 
 - [x] Coordinator technical review of Host #850 HEAD `dfd1e7140ea058f76ae48c40abda0c54e3598fde`: Host-local identity, its embedded Core route/validator changes, and the resulting divergence from Core #846 PC-NEXT-11 are recorded. The Host-side test is classified as same-branch integration, not cross-branch compatibility.
 - [x] Coordinator technical review of Core #846 HEAD `832abf337530e9421f53eaed85760cb4a7f07313`: existing binding services, assertion runner, Memory consumer, result envelope and missing HTTP routes are recorded.
-- [ ] Host API owner explicitly approves the tuple projection and private Host→Core wire contract under D5.
-- [ ] Core API owner explicitly approves the two private routes, assertion replay hardening choice, and response/error contract under D5.
-- [ ] Exact-head contract tests prove request/response compatibility on both blocks before any code integration.
-- [ ] Any objection is recorded against a specific section and resolved in this document before code work starts.
+- [x] Host API technical-owner approval: Host-local stable key remains local; Core requests use PC-NEXT-11 tuple.
+- [x] Core API technical-owner approval: two private routes, durable nonce guard, and existing consumer result envelope.
+- [ ] Exact-head contract tests pass on both updated candidates, including Host session rotation and Core nonce replay across restart.
+- [x] Identity/route ownership discrepancy from the reviewed baseline is resolved in the implementation candidates; remaining blockers are tracked in §11.
 
-This document records the target private API delta and the coordinator's technical reconciliation of the two reviewed blocks. Under D5 in `docs/57-private-host-core-memory-npc-adapter-contract.md`, the new routes and any change to Host's conversation tuple require explicit approval from the affected API owners before implementation. This task does **not** authorize code integration, merge either PR, alter Security Gateway, enable Memory → NPC, or start Final-Send work.
+
+## 11. Coordinated implementation status — 1 Nov 2026
+
+The technical owner has taken responsibility for both blocks and approved the bounded D5 delta. Work is split into stacked Core changes and the Host candidate; neither is merged into `main`.
+
+| Block | Candidate | Implemented |
+|---|---|---|
+| Core | [PR #867](https://github.com/necromorphic/Logic-Engine/pull/867), stacked on Core #846 | Context resolver, Memory retrieval route, HMAC assertion verification, durable nonce store, optional runtime Provider composition |
+| Host | [PR #850](https://github.com/necromorphic/Logic-Engine/pull/850) | Host-local identity retained; Core PC-NEXT-11 tuple projected at authenticated gate; gate validates session + installation tuple; signed assertion and request metadata sent through both routes |
+
+### Current wire behaviour
+
+- `POST /v1/host-context/resolve` is implemented in the Core candidate. It accepts only `conversation_id`, derives adapter identity from authenticated headers, resolves the active World binding and exactly one Actor through existing Core services, and returns the five-field context.
+- `POST /v1/host/memory-npc/retrieve` is implemented in the Core candidate. It verifies the exact assertion, atomically consumes its nonce in the dedicated SQLite replay store, establishes the branded AsyncLocalStorage context, and calls only the adapter-pinned `MemoryNpcConsumer.retrieveForNpc()` facade.
+- Host keeps `installation_id:account_id:conversation_uuid` for Host-local lifecycle/storage correlation. For Core it sends `host_session_id:host_installation_id:conversation_uuid`; account UUID remains a separate signed assertion field.
+- A rotated ST session receives a new Core conversation tuple and requires an explicit binding for that tuple. There is no automatic rebind.
+- Runtime can optionally configure the real file-backed Provider with `ENGINE_MEMORY_PROVIDER_DB_PATH` and `ENGINE_MEMORY_NPC_CONTENT_FIELDS`. The Provider DB is separate from Core and shares the Coordinator. If this configuration is absent, or Provider grants/index/source authorization are not ready, retrieval fails closed. No ready-empty fallback is introduced.
+
+### Replay protection
+
+The implementation uses `HostAssertionNonceStore` in a dedicated file configured by `ENGINE_HOST_ASSERTION_NONCE_DB_PATH` (default: `./data/logic-engine-host-assertion-nonces.sqlite`). It enforces a unique key on `(adapter_id, nonce)`, removes expired entries opportunistically, and persists across API process restarts. It is checked to be a separate file from Core and Coordinator; Host deployment additionally checks it against the Host lifecycle and version-ledger files. A store failure produces `503 HOST_ASSERTION_REPLAY_GUARD_UNAVAILABLE`.
+
+### Validation state
+
+- Core HTTP tests cover PC-NEXT-11 context resolution, signed assertion acceptance, tamper rejection, duplicate nonce rejection, and replay rejection after recreating the API server with the same durable nonce database.
+- Provider-adapter tests cover assertion-only consumer composition without requiring an unused in-process ST gate.
+- Host integration tests cover default-user/accounts-enabled identity, session rotation, PC-NEXT-11 binding, real HTTP context resolution, Memory route refusal when no consumer is configured, and denial before Core calls when inventory proof is not authoritative.
+- Exact-head workflows for both candidates are running/pending at the time of this update. No green CI claim is made until the latest candidate heads complete all required workflows.
+
+### Remaining release blockers
+
+1. Exact-head CI must pass for both #850 and #867 after the latest commits.
+2. Deployment must provide the durable Provider DB and explicit Core field allowlist; Provider data must have valid query/record grants and canonical source lineage before a ready result is possible.
+3. Host authoritative full-root inventory and lifecycle mutation coverage remain independent Host release gates.
+4. No model dispatch, transport lease, Security Gateway modification, Final-Send, or production enablement is included here.
+
+This is implementation progress, not a merge or release approval.
+
+This document records the coordinated implementation and its remaining release gates. The technical owner approves the D5 private API delta for these two blocks; branch merges and production enablement remain separate release decisions.
