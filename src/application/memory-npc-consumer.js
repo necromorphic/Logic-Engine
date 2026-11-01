@@ -10,12 +10,24 @@ function isPlainDataRecord(value, requiredKeys, allowedKeys = requiredKeys) {
     if (prototype !== Object.prototype && prototype !== null) return false;
     const keys = Reflect.ownKeys(value);
     if (keys.length < requiredKeys.length) return false;
-    for (const key of keys) {
-      if (typeof key !== 'string' || !allowedKeys.includes(key)) return false;
+    for (let index = 0; index < keys.length; index += 1) {
+      const key = keys[index];
+      if (typeof key !== 'string') return false;
+      let allowed = false;
+      for (let allowedIndex = 0; allowedIndex < allowedKeys.length; allowedIndex += 1) {
+        if (allowedKeys[allowedIndex] === key) {
+          allowed = true;
+          break;
+        }
+      }
+      if (!allowed) return false;
       const descriptor = Object.getOwnPropertyDescriptor(value, key);
       if (!descriptor || !Object.hasOwn(descriptor, 'value')) return false;
     }
-    return requiredKeys.every((key) => Object.hasOwn(value, key));
+    for (let index = 0; index < requiredKeys.length; index += 1) {
+      if (!Object.hasOwn(value, requiredKeys[index])) return false;
+    }
+    return true;
   } catch {
     return false;
   }
@@ -26,7 +38,8 @@ function isDensePlainDataArray(value) {
   try {
     if (Object.getPrototypeOf(value) !== Array.prototype) return false;
     const keys = Reflect.ownKeys(value);
-    for (const key of keys) {
+    for (let index = 0; index < keys.length; index += 1) {
+      const key = keys[index];
       if (key === 'length') continue;
       if (typeof key !== 'string' || !/^(0|[1-9][0-9]*)$/.test(key)
         || !Number.isSafeInteger(Number(key)) || Number(key) >= value.length) return false;
