@@ -285,3 +285,105 @@
 +        throw error;
 +    }
 +}
+
+--- a/src/endpoints/backends/text-completions.js
++++ b/src/endpoints/backends/text-completions.js
+@@ -1,5 +1,5 @@
+ import { Readable } from 'node:stream';
+-import fetch from 'node-fetch';
++import { logicEngineFetch as fetch, runWithLogicEngineFinalSend } from '../../logic-engine-final-send-hook.js';
+ import express from 'express';
+ import _ from 'lodash';
+ 
+@@ -270,7 +270,8 @@
+ }
+ 
+ router.post('/generate', async function (request, response) {
++    return runWithLogicEngineFinalSend(request, response, async () => {
+     if (!request.body) return response.sendStatus(400);
+ 
+     try {
+@@ -423,7 +424,8 @@
+         console.error(error);
+         return response.sendStatus(500);
+     }
++    }, 'text-completions');
+ });
+ 
+ router.use('/ollama', ollama);
+--- a/src/endpoints/backends/kobold.js
++++ b/src/endpoints/backends/kobold.js
+@@ -1,6 +1,6 @@
+ import fs from 'node:fs';
+ import express from 'express';
+-import fetch from 'node-fetch';
++import { logicEngineFetch as fetch, runWithLogicEngineFinalSend } from '../../logic-engine-final-send-hook.js';
+ 
+ import { forwardFetchResponse, delay } from '../../util.js';
+ import { getOverrideHeaders, setAdditionalHeaders, setAdditionalHeadersByType } from '../../additional-headers.js';
+@@ -8,7 +8,8 @@
+ export const router = express.Router();
+ 
+ router.post('/generate', async function (request, response_generate) {
++    return runWithLogicEngineFinalSend(request, response_generate, async () => {
+     if (!request.body) return response_generate.sendStatus(400);
+ 
+     if (request.body.api_server.indexOf('localhost') != -1) {
+@@ -136,7 +137,8 @@
+ 
+     console.error('Max retries exceeded. Giving up.');
+     return response_generate.send({ error: true });
++    }, 'kobold');
+ });
+ 
+ router.post('/status', async function (request, response) {
+--- a/src/endpoints/novelai.js
++++ b/src/endpoints/novelai.js
+@@ -2,7 +2,7 @@
+ import { Buffer } from 'node:buffer';
+ 
+-import fetch from 'node-fetch';
++import { logicEngineFetch as fetch, runWithLogicEngineFinalSend } from './logic-engine-final-send-hook.js';
+ import express from 'express';
+ 
+ import { readSecret, SECRET_KEYS } from './secrets.js';
+@@ -165,7 +165,8 @@
+ const router = express.Router();
+ 
+ router.post('/generate', async function (req, res) {
++    return runWithLogicEngineFinalSend(req, res, async () => {
+     if (!req.body) return res.sendStatus(400);
+ 
+     const api_key_novel = readSecret(req.user.directories, SECRET_KEYS.NOVEL);
+@@ -296,7 +297,8 @@
+     } catch (error) {
+         return res.send({ error: true });
+     }
++    }, 'novelai-text');
+ });
+ 
+ router.post('/generate-image', async (request, response) => {
+--- a/src/endpoints/horde.js
++++ b/src/endpoints/horde.js
+@@ -1,4 +1,4 @@
+-import fetch from 'node-fetch';
++import { logicEngineFetch as fetch, runWithLogicEngineFinalSend } from './logic-engine-final-send-hook.js';
+ import express from 'express';
+ import { AIHorde, ModelGenerationInputStableSamplers, ModelInterrogationFormTypes, HordeAsyncRequestStates } from '@zeldafan0225/ai_horde';
+ import { getVersion, delay, Cache } from '../util.js';
+@@ -181,7 +181,8 @@
+ }
+ 
+ router.post('/generate-text', async (request, response) => {
++    return runWithLogicEngineFinalSend(request, response, async () => {
+     const apiKey = readSecret(request.user.directories, SECRET_KEYS.HORDE) || ANONYMOUS_KEY;
+     const url = 'https://aihorde.net/api/v2/generate/text/async';
+     const agent = await getClientAgent();
+@@ -211,7 +212,8 @@
+         console.error(error);
+         return response.send({ error: true });
+     }
++    }, 'horde-text');
+ });
+ 
+ router.post('/sd-samplers', async (_, response) => {
