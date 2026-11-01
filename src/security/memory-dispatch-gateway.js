@@ -140,8 +140,9 @@ function normalizeCandidates(candidates) {
   }
   const normalized = candidates.map((candidate) => {
     if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)
-      || Object.keys(candidate).some((key) => !['record_ref', 'record_version', 'source_kind', 'source_entity_id', 'source_version'].includes(key))
+      || Object.keys(candidate).some((key) => !['record_ref', 'record_version', 'authorization_generation', 'source_kind', 'source_entity_id', 'source_version'].includes(key))
       || !validText(candidate.record_ref, 200) || !validText(candidate.record_version, 200)
+      || !Number.isSafeInteger(candidate.authorization_generation) || candidate.authorization_generation < 1
       || candidate.source_kind !== 'canonical_entity'
       || !validText(candidate.source_entity_id, 200) || !validText(candidate.source_version, 200)) {
       throw new Error('MEMORY_DISPATCH_NOT_READY');
@@ -149,6 +150,7 @@ function normalizeCandidates(candidates) {
     return Object.freeze({
       record_ref: candidate.record_ref,
       record_version: candidate.record_version,
+      authorization_generation: candidate.authorization_generation,
       source_kind: candidate.source_kind,
       source_entity_id: candidate.source_entity_id,
       source_version: candidate.source_version,
