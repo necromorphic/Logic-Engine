@@ -82,3 +82,10 @@ This is a real installation and host-context/Core-connectivity slice, not the co
 A client extension cannot be the trusted Host Adapter. The server plugin is the trusted-side starting point, but its current routes are limited to user context and Core health. Do not send protected context to the model through this incomplete path.
 
 Memory → NPC remains `DISABLED / FAIL-CLOSED`. No SillyTavern source patch and no model-provider replacement are part of this integration.
+
+
+## Final-send boundary audit (SillyTavern 1.19.0)
+
+The native protected-generation sender routes and the server-plugin lifecycle have been audited separately. The result is documented in [104-sillytavern-1.19-final-send-audit.md](./104-sillytavern-1.19-final-send-audit.md).
+
+**Decision:** the current supported SillyTavern server-plugin API cannot install a trusted middleware in front of the native generation routers. Server plugins receive a dedicated Express Router mounted under `/api/plugins/<id>` after the native private endpoint routers have already been mounted. The client extension lifecycle events are not a trusted egress boundary. Therefore this installation slice must not be described as implementing any of the final-send requirements. Do not enable protected Memory/NPC prompt injection through this connector.
