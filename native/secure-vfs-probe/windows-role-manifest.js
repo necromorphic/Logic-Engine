@@ -166,9 +166,9 @@ export function registerWindowsManifestRole(database, manifest, roleName, databa
   // suffix against identities obtained from freshly opened, handle-relative
   // directory chains. Checking only the final parent would miss an ancestor
   // replacement that happens to preserve the same child names.
-  const metadataRootComponents = actualComponents.slice(
-    0, actualComponents.length - role.parentComponents.length
-  );
+  const metadataRootComponents = role.parentComponents.length > 0
+    ? actualComponents.slice(0, actualComponents.length - role.parentComponents.length)
+    : actualComponents;
   const metadataRootPath = metadataRootComponents.length > 0
     ? path.win32.join(root, ...metadataRootComponents)
     : root;
