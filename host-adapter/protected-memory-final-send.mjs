@@ -1,18 +1,14 @@
+import { PROTECTED_MEMORY_SENDER_ROUTES } from '../src/security/memory-dispatch-gateway.js';
+
 /**
  * Server-side final-send adapter for SillyTavern provider senders.
  *
  * Every generation sender must call this helper exactly once after provider
  * transformations and final body serialization. Non-generation fetches must
  * not call it. Protected Memory context is supplied by trusted Host code, never
- * copied from request JSON.
+ * copied from request JSON. The sender registry is owned by the sole Gateway.
  */
-export const PROTECTED_MEMORY_SENDER_ROUTES = Object.freeze([
-  'claude', 'google-ai-studio', 'vertex-ai', 'ai21', 'mistral', 'cohere',
-  'deepseek', 'xai', 'aimlapi', 'electronhub', 'chutes', 'minimax',
-  'azure-openai', 'openai', 'openrouter', 'custom', 'perplexity', 'groq',
-  'fireworks', 'nanogpt', 'pollinations', 'moonshot', 'zai', 'siliconflow',
-  'workers-ai',
-]);
+export { PROTECTED_MEMORY_SENDER_ROUTES };
 
 const validRoute = (route) => PROTECTED_MEMORY_SENDER_ROUTES.includes(route);
 
@@ -100,6 +96,7 @@ export function createProtectedMemoryFinalSend({ gateway, resolveProtectedMemory
     return gateway.dispatchProtectedRequest({
       ...protectedMemory,
       route: 'host-selected-chat-generation',
+      senderRoute,
       model,
       stream,
       body: exactBody,
