@@ -13,6 +13,8 @@ import { withWindowsVssSnapshot } from '../../host-adapter/prototype/windows-vss
 import { enumerateStableFileInventoryFromWindowsSnapshot } from '../../host-adapter/prototype/fs-inventory.js';
 import { enumerateHostDataInventory } from '../../host-adapter/prototype/host-data-inventory.mjs';
 import { HostLifecycleReceiptStore } from '../../host-adapter/prototype/st-host-lifecycle-receipt-store.mjs';
+import { HostIdentityStore } from '../../host-adapter/prototype/st-host-identity-store.mjs';
+import { createHostLifecycleJournalProxy } from '../../host-adapter/prototype/st-server-digest-proxy.mjs';
 
 const stRoot = resolve(process.env.SILLYTAVERN_DIR ?? 'SillyTavern');
 const expectedSha = '06bde939fb1e9c4c8d8641d810f0a916b5bce127';
@@ -122,39 +124,17 @@ test('pinned ST 1.19.0 supported chat mutations persist; rename, group deletion,
     mkdir(join(directories.chats, 'Harness Character'), { recursive: true }),
   ]);
 
+  const hostHandle = 'logic-engine-harness';
+  const hostSession = {
+    handle: hostHandle,
+    logicEngineSessionId: '99999999-9999-4999-8999-999999999999',
+    logicEngineSessionHandle: hostHandle,
+  };
   const app = express();
   app.use(express.json({ limit: '5mb' }));
   app.use((request, _response, next) => {
-    const operationHandle = typeof request.headers['x-harness-operation'] === 'string'
-      ? 'logic-engine-harness-' + request.headers['x-harness-operation']
-      : 'logic-engine-harness';
-    request.user = { profile: { handle: operationHandle }, directories };
-    request.session = {
-      handle: operationHandle,
-      logicEngineSessionId: '99999999-9999-4999-8999-999999999999',
-      logicEngineSessionHandle: operationHandle,
-    };
-    // Test-only stand-in for the authenticated lifecycle proxy: production
-    // writes this permit only after durable PREPARED + Core acknowledgement.
-    const operation = ({
-      edit: 'edit-message',
-      swipe: 'create-swipe',
-      'delete-message': 'delete-message',
-    })[request.headers['x-harness-operation']];
-    const conversationUuid = request.body?.chat?.[0]?.chat_metadata?.logic_engine_conversation_id;
-    if (operation && typeof conversationUuid === 'string') {
-      request.session.logicEngineHostPreparedMutation = {
-        protocol_version: 1,
-        host_installation_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
-        authenticated_account_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
-        host_session_id: request.session.logicEngineSessionId,
-        conversation_uuid: conversationUuid,
-        mutation_id: randomUUID(),
-        event_id: randomUUID(),
-        operation,
-        mutation_digest: 'a'.repeat(64),
-      };
-    }
+    request.user = { profile: { handle: hostHandle }, directories };
+    request.session = hostSession;
     const uploadName = request.headers['x-harness-upload'];
     if (typeof uploadName === 'string' && uploadName && !uploadName.includes('..') && !uploadName.includes('/') && !uploadName.includes('\\')) {
       request.file = { destination: uploads, filename: uploadName };
@@ -220,23 +200,64 @@ test('pinned ST 1.19.0 supported chat mutations persist; rename, group deletion,
     enumerate: enumerateHostDataInventory,
     hostCommit: expectedSha,
   });
+  const identityStore = new HostIdentityStore({ directory: identityDirectory });
+  const hostIdentity = await identityStore.resolveAuthenticatedAccount(hostHandle);
+  const lifecycleConversationId = [
+    hostIdentity.host_installation_id,
+    hostIdentity.authenticated_account_id,
+    'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+  ].join(':');
+  const lifecycleCoreEvents = [];
+  const lifecycleProxy = createHostLifecycleJournalProxy({
+    env: {
+      LOGIC_ENGINE_CORE_URL: 'http://127.0.0.1:1',
+      LOGIC_ENGINE_API_TOKEN: 'host-lifecycle-runtime-api-token',
+      LOGIC_ENGINE_ADAPTER_ID: 'st-1.19-runtime-harness',
+      LOGIC_ENGINE_ADAPTER_TOKEN: 'host-lifecycle-runtime-adapter-token',
+    },
+    identityStore,
+    receiptStore,
+    fetchImpl: async (_url, options) => {
+      lifecycleCoreEvents.push(JSON.parse(options.body));
+      return { status: 201, json: async () => ({ lifecycle: { status: 'appended' } }) };
+    },
+  });
   const lifecycleScope = operation => ({
-    host_installation_id: '11111111-1111-4111-8111-111111111111',
-    authenticated_account_id: '22222222-2222-4222-8222-222222222222',
-    host_session_id: '99999999-9999-4999-8999-999999999999',
-    conversation_uuid: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
     mutation_id: randomUUID(),
-    event_id: randomUUID(),
     operation,
     mutation_digest: digest(operation + ':' + randomUUID()),
-    occurred_at: new Date().toISOString(),
   });
-  const commitReceipt = async scope => receiptStore.commit({
-    ...scope,
-    prepared_event_id: scope.event_id,
-    event_id: randomUUID(),
-    occurred_at: new Date().toISOString(),
-  }, directories);
+  const publishLifecycleEvent = async (scope, eventType, eventId = randomUUID()) => {
+    const response = { statusCode: 200, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; return this; } };
+    await lifecycleProxy.append({
+      user: { profile: { handle: hostHandle }, directories },
+      session: hostSession,
+      body: {
+        conversation_id: lifecycleConversationId,
+        event_id: eventId,
+        event_type: eventType,
+        mutation_id: scope.mutation_id,
+        operation: scope.operation,
+        mutation_digest: scope.mutation_digest,
+        occurred_at: new Date().toISOString(),
+      },
+    }, response);
+    assert.equal(response.statusCode, 201, JSON.stringify(response.body));
+    assert.equal(response.body.lifecycle.status, 'appended', JSON.stringify(response.body));
+    return response.body;
+  };
+  const beginLifecycleMutation = async operation => {
+    const scope = lifecycleScope(operation);
+    scope.prepared_event_id = randomUUID();
+    await publishLifecycleEvent(scope, 'MUTATION_PREPARED', scope.prepared_event_id);
+    return scope;
+  };
+  const finishLifecycleMutation = async scope => {
+    const result = await publishLifecycleEvent(scope, 'MUTATION_COMMITTED');
+    assert.ok(lifecycleCoreEvents.at(-1).receipt_digest, 'Core COMMITTED request must carry the server-verified disk receipt digest');
+    assert.match(lifecycleCoreEvents.at(-1).receipt_signature, /^[a-f0-9]{64}$/);
+    return result;
+  };
 
   const coreStateDirectory = join(parent, 'core-state');
   await mkdir(coreStateDirectory, { recursive: true });
@@ -364,8 +385,7 @@ test('pinned ST 1.19.0 supported chat mutations persist; rename, group deletion,
   assert.ok(create.result.delta.added.some(entry => entry.path.endsWith('chat-one.jsonl')));
 
   const editedChat = [header(), editedUserMessage(), assistantMessage()];
-  const editReceiptScope = lifecycleScope('edit-message');
-  await receiptStore.prepare(editReceiptScope, directories);
+  const editReceiptScope = await beginLifecycleMutation('edit-message');
   const edit = await observe(async () => {
     const response = await post('/api/chats/save', {
       avatar_url: 'Harness Character.png', file_name: 'chat-one', chat: editedChat, force: true,
@@ -375,8 +395,7 @@ test('pinned ST 1.19.0 supported chat mutations persist; rename, group deletion,
     return response;
   }, ['modified', 'replaced']);
   assert.ok([...edit.result.delta.modified, ...edit.result.delta.replaced].some(entry => entry.path.endsWith('chat-one.jsonl')));
-  const editReceipt = await commitReceipt(editReceiptScope);
-  assert.equal(editReceipt.status, 'appended');
+  await finishLifecycleMutation(editReceiptScope);
   const editedPersisted = (await readFile(chatPath, 'utf8')).trim().split('\n').map(line => JSON.parse(line));
   assert.equal(editedPersisted[1]._logicEngineLifecycle.versions.length, 1);
   assert.equal(editedPersisted[1]._logicEngineLifecycle.versions[0].versionId, 'ffffffff-ffff-4fff-8fff-ffffffffffff');
@@ -396,8 +415,7 @@ test('pinned ST 1.19.0 supported chat mutations persist; rename, group deletion,
       activeVersionIndex: 1,
     },
   }];
-  const swipeReceiptScope = lifecycleScope('create-swipe');
-  await receiptStore.prepare(swipeReceiptScope, directories);
+  const swipeReceiptScope = await beginLifecycleMutation('create-swipe');
   const swipe = await observe(async () => {
     const response = await post('/api/chats/save', {
       avatar_url: 'Harness Character.png', file_name: 'chat-one', chat: swipeChat, force: true,
@@ -414,15 +432,13 @@ test('pinned ST 1.19.0 supported chat mutations persist; rename, group deletion,
     return response;
   }, ['modified', 'replaced']);
   assert.ok([...swipe.result.delta.modified, ...swipe.result.delta.replaced].some(entry => entry.path.endsWith('chat-one.jsonl')));
-  const swipeReceipt = await commitReceipt(swipeReceiptScope);
-  assert.equal(swipeReceipt.status, 'appended');
+  await finishLifecycleMutation(swipeReceiptScope);
 
   const deleteMessageChat = [
     header(),
     editedUserMessage(),
   ];
-  const deleteMessageReceiptScope = lifecycleScope('delete-message');
-  await receiptStore.prepare(deleteMessageReceiptScope, directories);
+  const deleteMessageReceiptScope = await beginLifecycleMutation('delete-message');
   const deleteMessage = await observe(async () => {
     const response = await post('/api/chats/save', {
       avatar_url: 'Harness Character.png', file_name: 'chat-one', chat: deleteMessageChat, force: true,
@@ -432,8 +448,7 @@ test('pinned ST 1.19.0 supported chat mutations persist; rename, group deletion,
     return response;
   }, ['modified', 'replaced']);
   assert.ok([...deleteMessage.result.delta.modified, ...deleteMessage.result.delta.replaced].some(entry => entry.path.endsWith('chat-one.jsonl')));
-  const deleteMessageReceipt = await commitReceipt(deleteMessageReceiptScope);
-  assert.equal(deleteMessageReceipt.status, 'appended');
+  await finishLifecycleMutation(deleteMessageReceiptScope);
 
   const exportResult = await observe(async () => {
     const response = await post('/api/chats/export', {
