@@ -157,6 +157,7 @@ async function createFixture({ sendUpstream, createTransport, coreHead = 1, prov
 const validRequest = (requestId = 'request-001', overrides = {}) => ({
   requestId,
   route: 'host-selected-chat-generation',
+  senderRoute: 'google-ai-studio',
   model: 'selected-model',
   stream: false,
   body: JSON.stringify({ messages: [{ role: 'user', content: 'SECRET_MEMORY_TEXT_DO_NOT_PERSIST' }] }),
