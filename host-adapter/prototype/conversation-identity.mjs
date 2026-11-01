@@ -68,12 +68,12 @@ export async function resolveStableHostConversationIdentity({
   if (existing !== undefined && !validUuid(existing)) {
     throw Error('NON_READY: malformed stable Host conversation identity');
   }
-  if (mappedId && (!validUuid(existing) || mappedId !== hostSessionId + ':' + installationId + ':' + existing)) {
+  if (mappedId && (!validUuid(existing) || mappedId !== installationId + ':' + existing)) {
     throw Error('NON_READY: Host locator metadata is missing or inconsistent');
   }
 
   if (validUuid(existing)) {
-    const resolvedId = hostSessionId + ':' + installationId + ':' + existing;
+    const resolvedId = installationId + ':' + existing;
     const activeMarker = MARKER_PREFIX + resolvedId;
     if (storage.getItem(legacyMarker) && legacyMarker !== activeMarker) {
       throw Error('NON_READY: legacy Host enrollment marker conflicts with installation identity');
@@ -126,7 +126,7 @@ export async function resolveStableHostConversationIdentity({
   }
   return {
     status: 'READY_FOR_REVIEW',
-    conversationId: hostSessionId + ':' + installationId + ':' + conversationUuid,
+    conversationId: installationId + ':' + conversationUuid,
     hostSessionId,
     installationId,
     conversationUuid,
@@ -159,7 +159,7 @@ export function hasAnyHostEnrollment(storage) {
 export const stableHostIdentityContract = Object.freeze({
   installationKey: INSTALLATION_KEY,
   sessionIdentityKey: 'logicEngineSessionId',
-  conversationIdFormat: 'hostSessionId:installationId:conversationUuid',
+  conversationIdFormat: 'installationId:conversationUuid',
   markerPrefix: MARKER_PREFIX,
   identityMetadataKey: 'logic_engine_conversation_id',
   locatorBindingPrefix: 'logic-engine-host-lifecycle-locator:',
