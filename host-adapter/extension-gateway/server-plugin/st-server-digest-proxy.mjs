@@ -407,7 +407,7 @@ function normalizeRootInventoryResponse(upstream) {
 
 
 function resolveHostLifecycleDirectories(request) {
-  const directories = resolveHostLifecycleDirectories(request);
+  const directories = resolveHostDataDirectories(request?.user?.directories);
   if (!directories) return null;
   const suppliedBackups = request?.user?.directories?.backups;
   if (suppliedBackups !== undefined
