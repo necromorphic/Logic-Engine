@@ -1,0 +1,83 @@
+import { createPlatformSecurityAdapter } from './platform-adapter.js';
+import { resolveDeploymentPathRegistry } from './path-registry.js';
+import { buildDeploymentReport, createCapabilityEvidence, evaluateDeploymentGates } from './policy.js';
+import { validateDeploymentManifest, validateDeploymentReport } from './contracts.js';
+
+export async function assessDeployment({ manifest, deploymentRoot, platformAdapter = createPlatformSecurityAdapter() }) {
+  const validation = validateDeploymentManifest(manifest);
+  const identity = await platformAdapter.identifyPlatform();
+  const capabilities = await platformAdapter.collectEvidence();
+  const limitations = [];
+
+  if (identity.platform === 'unknown' || !manifest.platform_policy.supported_platforms.includes(identity.platform)) {
+    capabilities.push(createCapabilityEvidence({
+      id: 'platform.identity.inspect',
+      status: 'FAIL',
+      required: true,
+      evidenceSource: 'deployment-policy',
+      observedSummary: 'Runtime platform is not permitted by the deployment manifest.',
+      adapterVersion: platformAdapter.version,
+      limitations: ['Only Windows and Linux are supported by deployment manifest v1.'],
+    }));
+  }
+
+  const pathRegistry = await resolveDeploymentPathRegistry({ manifest, deploymentRoot });
+  capabilities.push(createCapabilityEvidence({
+    id: 'filesystem.path.canonicalize',
+    status: pathRegistry.status,
+    required: true,
+    evidenceSource: 'deployment-path-registry',
+    observedSummary: pathRegistry.status === 'PASS'
+      ? 'All declared resource paths resolved without detected aliases or link traversal.'
+      : pathRegistry.conflicts.map((item) => item.kind).join(', '),
+    adapterVersion: platformAdapter.version,
+    limitations: pathRegistry.status === 'PASS' ? [] : ['One or more resource paths could not be proven safe.'],
+  }));
+  capabilities.push(createCapabilityEvidence({
+    id: 'filesystem.links.inspect',
+    status: pathRegistry.conflicts.some((item) => item.kind === 'SYMLINK_OR_REPARSE_ANCESTOR') ? 'FAIL' : pathRegistry.status,
+    required: true,
+    evidenceSource: 'deployment-path-registry',
+    observedSummary: 'All existing path components were checked with lstat.',
+    adapterVersion: platformAdapter.version,
+    limitations: ['Node path-based inspection does not pin directory handles against concurrent replacement.'],
+  }));
+  capabilities.push(createCapabilityEvidence({
+    id: 'filesystem.access.effective',
+    status: 'NOT_TESTED',
+    required: false,
+    evidenceSource: 'deployment-path-registry',
+    adapterVersion: platformAdapter.version,
+    limitations: ['Per-resource effective ACL and requested access-intent verification is not yet implemented for both platforms.'],
+  }));
+
+  if (manifest.profile === 'portable-desktop') {
+    limitations.push('Portable/Desktop is a single-process security boundary; no per-component OS isolation is claimed.');
+    limitations.push('Open-handle inspection, OS secret-store discovery and independent backup anti-rollback are not implemented.');
+    limitations.push('Node path-based filesystem operations cannot guarantee protection from concurrent directory replacement.');
+  } else {
+    limitations.push('Hardened/Service remains blocked until distinct process identities, effective filesystem access, authenticated IPC and an independent backup freshness anchor are proven.');
+  }
+
+  const gates = evaluateDeploymentGates({
+    profile: manifest.profile,
+    components: manifest.components,
+    capabilities,
+  });
+  const report = buildDeploymentReport({
+    deploymentId: manifest.deployment_id,
+    profile: manifest.profile,
+    platform: {
+      family: identity.platform,
+      release: identity.release,
+      architecture: identity.architecture,
+    },
+    runtime: { name: 'node', version: process.version },
+    components: manifest.components,
+    capabilities,
+    gates,
+    limitations,
+  });
+  validateDeploymentReport(report);
+  return Object.freeze({ validation, pathRegistry, report });
+}
