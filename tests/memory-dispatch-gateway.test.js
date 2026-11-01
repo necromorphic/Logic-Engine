@@ -225,7 +225,7 @@ test('Gateway rejects direct and bound async transport starters because they can
     createTransport,
   });
   assert.throws(() => new MemoryDispatchGateway(configuration(asyncStarter)), /non-async request-scoped transport factory/);
-  assert.throws(() => new MemoryDispatchGateway(configuration(asyncStarter.bind(null))), /non-async transport-start function/);
+  assert.throws(() => new MemoryDispatchGateway(configuration(asyncStarter.bind(null))), /non-async request-scoped transport factory/);
 });
 
 test('dispatch rejects Provider evidence whose exact candidate record/version set differs from the signed request', async () => {
