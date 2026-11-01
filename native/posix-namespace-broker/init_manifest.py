@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import argparse
-import json
+import os
 import sys
 
 from manifest_store import ManifestStore, StoreError, SUPPORTED_ROLE_FILESYSTEMS, _canonical_json
@@ -15,7 +15,7 @@ def build_empty_manifest(store: ManifestStore, application_uid: int, filesystem:
             "unsupported filesystem; choose one of: "
             + ", ".join(sorted(SUPPORTED_ROLE_FILESYSTEMS))
         )
-    if application_uid <= 0 or application_uid == store.broker_uid:
+    if application_uid <= 0 or application_uid == os.geteuid():
         raise StoreError("application UID must be non-root and distinct from broker UID")
     return _canonical_json({
         "schemaVersion": 1,
