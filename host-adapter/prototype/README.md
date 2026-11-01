@@ -20,7 +20,7 @@ The plugin currently exposes:
 - `GET /session` — server-generated Host session identity inside the signed ST cookie session.
 - `GET /identity` — server-persisted installation/account identity from `HostIdentityStore`.
 - `GET /inventory` — bounded Host data-root inventory; review-only and non-authoritative.
-- `POST /context` — deliberately returns `NON_READY` until the signed assertion handoff to Core is implemented.
+- `POST /context` — signs a server-held HMAC assertion and calls Core server-to-server; Core verifies the durable nonce and current conversation→World→Actor bindings.
 
 There is no active ST source patch dependency and no direct `/api/logic-engine/*` Core proxy route. The old patch files and old proxy modules are retained only as historical review artifacts; do not apply them or deploy their routes.
 
@@ -38,7 +38,7 @@ The signed `hostSessionId` is a separate, transient session dimension. It is not
 - Default-user mode may omit `request.session.handle`; the authenticated `request.user.profile.handle` remains authoritative. If `session.handle` is present, it must match.
 - Body, query and header values cannot choose installation, account, conversation, World or Actor identity.
 
-The identity gate is a process-local capability, not a cross-process assertion protocol. The actual signed Host assertion transport and Core context verification remain incomplete.
+The in-process identity gate is complemented by a signed cross-process Host assertion. Core verifies the HMAC, persistent nonce, active conversation→World binding and unique adapter→Actor binding before returning a context-authenticated result.
 
 ## Validation
 
@@ -46,9 +46,8 @@ The active Host CI stages the plugin into a disposable pinned SillyTavern checko
 
 ## Explicit blockers
 
-- `POST /context` is closed; signed cross-process assertion handoff to Core is not wired.
-- Core-side verification of the authenticated conversation → World → Actor binding is not connected to this ST plugin.
-- No real Core Memory consumer call is made from Host.
+- `POST /context` performs a real Core context-verification call, but does not invoke MemoryNpcConsumer.
+- Final-send, Provider disclosure and Memory → NPC dispatch remain disabled.
 - Full lifecycle receipts for chat deletion, rename, group cascade, import, export and restore remain incomplete.
 - Root inventory remains review-only; Core inventory reconciliation remains deny-only.
 - No final-send or Memory → NPC dispatch is enabled.
