@@ -76,7 +76,7 @@ export async function resolveStableHostConversationIdentity({
   }
 
   if (validUuid(existing)) {
-    const resolvedId = installationId + ':' + existing;
+    const resolvedId = installationId + ':' + accountId + ':' + existing;
     const activeMarker = MARKER_PREFIX + resolvedId;
     if (storage.getItem(legacyMarker) && legacyMarker !== activeMarker) {
       throw Error('NON_READY: legacy Host enrollment marker conflicts with installation identity');
