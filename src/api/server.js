@@ -19,29 +19,6 @@ const MAX_HOST_ROOT_INVENTORY_ENTRIES = 25000;
 export function createActiveMechanicPolicyValidator(getActiveMechanicContextProvider, policyAuthority = null) {
   if (typeof getActiveMechanicContextProvider !== 'function') throw new TypeError('getActiveMechanicContextProvider must be a trusted application callback.');
 
-  if (hostRootInventoryJournal !== null && (!hostRootInventoryJournal
-    || typeof hostRootInventoryJournal.enrollRootInventory !== 'function'
-    || typeof hostRootInventoryJournal.observeRootInventory !== 'function'
-    || typeof hostRootInventoryJournal.verifyRootInventory !== 'function')) {
-    throw new TypeError('Host root inventory journal must expose baseline, observation and verification operations.');
-  }
-  if (resolveHostRootIdentity !== null && typeof resolveHostRootIdentity !== 'function') {
-    throw new TypeError('Host root identity resolver must be trusted application configuration.');
-  }
-  if (hostLifecycleJournal !== null && (!hostLifecycleJournal || typeof hostLifecycleJournal.append !== 'function'
-    || typeof hostLifecycleJournal.getConversationStatus !== 'function')) {
-    throw new TypeError('Host lifecycle journal must expose append and conversation status operations.');
-  }
-  if (resolveHostLifecycleIdentity !== null && typeof resolveHostLifecycleIdentity !== 'function') {
-    throw new TypeError('Host lifecycle identity resolver must be trusted application configuration.');
-  }
-  if (hostLifecycleJournal !== null && resolveHostLifecycleIdentity === null) {
-    throw new TypeError('Host lifecycle journal requires a trusted adapter identity resolver.');
-  }
-  if (hostRootInventoryJournal !== null && resolveHostRootIdentity === null) {
-    throw new TypeError('Host root inventory requires a trusted adapter identity resolver.');
-  }
-
   return (identity) => {
     if (!isMechanicPolicyAuthority(policyAuthority)) return false;
     let provider;
@@ -105,6 +82,28 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
     throw new TypeError('Provide mechanicPolicyAuthority or authorizedReadFieldPolicy, not both; the authority owns the field policy.');
   }
   if (typeof getActiveMechanicContextProvider !== 'function') throw new TypeError('getActiveMechanicContextProvider must be a trusted application callback.');
+  if (hostRootInventoryJournal !== null && (!hostRootInventoryJournal
+    || typeof hostRootInventoryJournal.enrollRootInventory !== 'function'
+    || typeof hostRootInventoryJournal.observeRootInventory !== 'function'
+    || typeof hostRootInventoryJournal.verifyRootInventory !== 'function')) {
+    throw new TypeError('Host root inventory journal must expose baseline, observation and verification operations.');
+  }
+  if (resolveHostRootIdentity !== null && typeof resolveHostRootIdentity !== 'function') {
+    throw new TypeError('Host root identity resolver must be trusted application configuration.');
+  }
+  if (hostLifecycleJournal !== null && (!hostLifecycleJournal || typeof hostLifecycleJournal.append !== 'function'
+    || typeof hostLifecycleJournal.getConversationStatus !== 'function')) {
+    throw new TypeError('Host lifecycle journal must expose append and conversation status operations.');
+  }
+  if (resolveHostLifecycleIdentity !== null && typeof resolveHostLifecycleIdentity !== 'function') {
+    throw new TypeError('Host lifecycle identity resolver must be trusted application configuration.');
+  }
+  if (hostLifecycleJournal !== null && resolveHostLifecycleIdentity === null) {
+    throw new TypeError('Host lifecycle journal requires a trusted adapter identity resolver.');
+  }
+  if (hostRootInventoryJournal !== null && resolveHostRootIdentity === null) {
+    throw new TypeError('Host root inventory requires a trusted adapter identity resolver.');
+  }
   const configuredAdapterSecrets = Object.values(adapterTokens || {});
   if (!adapterTokens || typeof adapterTokens !== 'object' || Array.isArray(adapterTokens) || Object.entries(adapterTokens).some(([id, secret]) => !id.trim() || typeof secret !== 'string' || secret.length < 16 || [token, internalToken, approvalToken, adminToken].includes(secret)) || new Set(configuredAdapterSecrets).size !== configuredAdapterSecrets.length) {
     throw new TypeError('Adapter tokens must map non-empty adapter IDs to unique, distinct secrets of at least 16 characters');
