@@ -199,6 +199,48 @@ test("conflicting admissible evidence remains explicit rather than choosing a wi
   assert.deepEqual(result.state.beliefs[0].conflicting_evidence_refs, ["evidence-2"]);
 });
 
+test("belief evidence references are canonical regardless of request ordering", () => {
+  let state = emptyState();
+  state = admit(state, {
+    evidence_ref: "evidence-z",
+    acquisition_ref: "acq-z",
+    source_ref: "source-z",
+  }).state;
+  state = admit(state, {
+    evidence_ref: "evidence-a",
+    acquisition_ref: "acq-a",
+    source_ref: "source-a",
+    polarity: "supports_true",
+  }).state;
+  state = admit(state, {
+    evidence_ref: "evidence-m",
+    acquisition_ref: "acq-m",
+    source_ref: "source-m",
+    polarity: "supports_false",
+  }).state;
+
+  const forward = apply(state, {
+    type: "belief_updated",
+    proposition_ref: "prop-secret-location",
+    stance: "believes_true",
+    revision_rule_ref: "rule-canonical-order",
+    evidence_refs: ["evidence-z", "evidence-m", "evidence-a"],
+  });
+  const reverse = apply(state, {
+    type: "belief_updated",
+    proposition_ref: "prop-secret-location",
+    stance: "believes_true",
+    revision_rule_ref: "rule-canonical-order",
+    evidence_refs: ["evidence-a", "evidence-m", "evidence-z"],
+  });
+
+  assert.equal(forward.status, "updated");
+  assert.equal(reverse.status, "updated");
+  assert.deepEqual(forward.state.beliefs[0].supporting_evidence_refs, ["evidence-a", "evidence-z"]);
+  assert.deepEqual(forward.state.beliefs[0].conflicting_evidence_refs, ["evidence-m"]);
+  assert.deepEqual(reverse.state.beliefs[0], forward.state.beliefs[0]);
+});
+
 test("invalidating evidence preserves the belief but marks it for review", () => {
   let state = admit(emptyState()).state;
   state = apply(state, {
