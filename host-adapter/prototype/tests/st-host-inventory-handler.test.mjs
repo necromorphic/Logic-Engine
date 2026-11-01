@@ -652,6 +652,7 @@ test('enrolled chat save API rejects permits scoped to another conversation or s
 const defaultUserSessionId = '2e6b0a80-4e73-4c66-aaf3-7a6e62c7f401';
 const defaultUserConversationUuid = '4e6b0a80-4e73-4c66-aaf3-7a6e62c7f403';
 const defaultUserInstallationId = '3e6b0a80-4e73-4c66-aaf3-7a6e62c7f402';
+const defaultUserAccountId = '5e6b0a80-4e73-4c66-aaf3-7a6e62c7f404';
 
 test('default-user mode creates and reuses a Host session identity without session.handle', () => {
   const handler = createHostSessionHandler({ createId: () => defaultUserSessionId });
@@ -756,14 +757,14 @@ test('request authentication gate brands only the exact request after trusted se
   assert.equal(gate.isAuthenticatedHostRequest({ ...request }), false);
 });
 
-test('request authentication gate rejects account mismatch and a conversation from another session', async () => {
+test('request authentication gate rejects account mismatch and malformed signed session identity', async () => {
   const conversationId = [
-    defaultUserSessionId, defaultUserInstallationId, defaultUserConversationUuid,
+    defaultUserInstallationId, defaultUserAccountId, defaultUserConversationUuid,
   ].join(':');
   const gate = createHostRequestAuthenticationGate({ resolveConversationId: () => conversationId });
   for (const session of [
     { handle: 'other-account', logicEngineSessionId: defaultUserSessionId, logicEngineSessionHandle: 'default-user' },
-    { logicEngineSessionId: '5e6b0a80-4e73-4c66-aaf3-7a6e62c7f405', logicEngineSessionHandle: 'default-user' },
+    { logicEngineSessionId: 'not-a-uuid', logicEngineSessionHandle: 'default-user' },
   ]) {
     const response = makeResponse();
     let nextCalls = 0;
