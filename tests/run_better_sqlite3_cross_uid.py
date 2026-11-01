@@ -268,6 +268,8 @@ def main() -> int:
             "BETTER_SQLITE3_PACKAGE_DIR": str(artifacts / "better-sqlite3"),
             "LOGIC_ENGINE_VFS_PROBE_PATH": str(artifacts / "secure-vfs-probe.so"),
             "LOGIC_ENGINE_DATABASE_PATH": str(alias_database_path),
+            "LOGIC_ENGINE_VFS_ROLE_PATH": str(alias_database_path),
+            "LOGIC_ENGINE_VFS_ROLE_NAME": "vectors",
             "LOGIC_ENGINE_BROKER_SOCKET": str(socket_path),
             "LOGIC_ENGINE_BROKER_UID": str(broker_uid),
             "LOGIC_ENGINE_APP_UID": str(app_uid),
