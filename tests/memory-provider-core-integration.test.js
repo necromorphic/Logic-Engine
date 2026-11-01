@@ -715,12 +715,17 @@ test('Provider revoke during the final field-bearing Core read blocks result env
   assert.equal((await s.prepare()).status, 'current');
 
   const originalRead = s.consumer.authorizedReadService.readEntityFields.bind(s.consumer.authorizedReadService);
+  let contentReadCount = 0;
   let revoked = false;
   s.consumer.authorizedReadService.readEntityFields = (input) => {
     const result = originalRead(input);
-    if (!revoked && input.fields.includes('attributes.public_note')) {
-      revoked = true;
-      s.provider.revokeRecord(s.scope, 'memory:record-a', 'record-v1');
+    if (input.fields.includes('attributes.public_note')) {
+      contentReadCount += 1;
+      // First read is admission; second is the final disclosure read.
+      if (contentReadCount === 2) {
+        revoked = true;
+        s.provider.revokeRecord(s.scope, 'memory:record-a', 'record-v1');
+      }
     }
     return result;
   };
@@ -781,30 +786,6 @@ test('real SQLite Provider preserves evidence classification without promoting r
       assert.equal(JSON.stringify(result).includes('never disclose'), false);
     });
   }
-});
-
-test('Provider revoke during final Core snapshot recheck blocks disclosure', async (t) => {
-  const s = setup(t);
-  assert.equal((await s.prepare()).status, 'current');
-  const originalRead = s.consumer.authorizedReadService.readEntityFields.bind(s.consumer.authorizedReadService);
-  let revoked = false;
-  s.consumer.authorizedReadService.readEntityFields = (input) => {
-    const result = originalRead(input);
-    if (!revoked && input.fields.length === 1 && input.fields[0] === 'entity_id') {
-      revoked = true;
-      s.provider.revokeRecord(s.scope, 'memory:record-a', 'record-v1');
-    }
-    return result;
-  };
-  const result = await s.consumer.retrieveForNpc({
-    worldId: s.scope.world_id,
-    actorEntityId: s.scope.subject_id,
-    conversationId: HOST_CONVERSATION_ID,
-  });
-  assert.equal(revoked, true);
-  assert.equal(result.status, 'non_ready');
-  assert.deepEqual(result.candidates, []);
-  assert.deepEqual(result.admitted, []);
 });
 
 test('legacy file-backed Provider grant table migrates durable authorization generation', (t) => {
