@@ -20,6 +20,8 @@ const hostRequest = {
 };
 const authenticatedHostRequests = new WeakSet([hostRequest]);
 const isAuthenticatedHostRequest = request => authenticatedHostRequests.has(request);
+const trustedConversationIds = new WeakMap([[hostRequest, HOST_CONVERSATION_ID]]);
+const resolveHostConversationId = request => trustedConversationIds.get(request) ?? null;
 
 function setup(t, { twoRecords = false, providerPath = null } = {}) {
   const testDb = createProviderTestDb(t, {
@@ -126,9 +128,9 @@ function setup(t, { twoRecords = false, providerPath = null } = {}) {
     return new Proxy(rawConsumer, {
       get(target, property) {
         if (property === 'retrieveForNpc') return (request) =>
-          runWithAuthenticatedHostSession(hostRequest, HOST_CONVERSATION_ID, () => target.retrieveForNpc(request), isAuthenticatedHostRequest);
+          runWithAuthenticatedHostSession(hostRequest, HOST_CONVERSATION_ID, () => target.retrieveForNpc(request), isAuthenticatedHostRequest, resolveHostConversationId);
         if (property === 'revalidateForFinalDispatch') return (request, prepared) =>
-          runWithAuthenticatedHostSession(hostRequest, HOST_CONVERSATION_ID, () => target.revalidateForFinalDispatch(request, prepared), isAuthenticatedHostRequest);
+          runWithAuthenticatedHostSession(hostRequest, HOST_CONVERSATION_ID, () => target.revalidateForFinalDispatch(request, prepared), isAuthenticatedHostRequest, resolveHostConversationId);
         return Reflect.get(target, property, target);
       },
     });
