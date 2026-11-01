@@ -216,17 +216,30 @@ The caller owns the descriptor and may transfer it to the authenticated
 application process using `SCM_RIGHTS`.
 
 `broker_daemon.py` returns validated descriptors to authenticated clients.
-The Linux VFS has an opt-in broker binding via
-`logic_engine_vfs_probe_bind_broker(role, socketPath)`: main opens use
-`OPEN_MAIN`, WAL/SHM/journal opens use `OPEN_OR_CREATE_SIDECAR`, access checks
-use `ACCESS_ROLE_FILE`, and sidecar deletion uses `DELETE_SIDECAR`. The exact
-archived ST-VectorService Linux x64 `better-sqlite3@13.0.3` prebuild is exercised
-against the manifest-backed daemon with distinct application and broker UIDs.
-Tests cover descriptor-backed main/WAL byte I/O, rollback journal, SHM mapping
-and locks, reader/writer snapshots, sidecar lifecycle, abrupt application exit,
-broker restart, WAL recovery and integrity checks. The parent SQLite VFS still
-supplies platform lock and SHM methods; this is an integration feasibility
-probe, not a production-owned `sqlite3_file` implementation.
+Strict Linux role binding is supplied only by trusted Host process
+configuration: `LOGIC_ENGINE_VFS_ROLE_PATH`,
+`LOGIC_ENGINE_VFS_ROLE_NAME`, `LOGIC_ENGINE_BROKER_SOCKET`, and the expected
+service identity `LOGIC_ENGINE_BROKER_UID`. The Host invokes the no-argument
+`logic_engine_vfs_probe_register_broker_role_from_host()` entrypoint before
+opening any file-backed database. SQL cannot choose or rebind the role, path,
+socket, or expected broker UID. The older
+`logic_engine_vfs_probe_bind_broker(role, socketPath)` and direct role
+enrollment entrypoints exist only in explicitly marked test builds; strict
+Linux builds do not register them.
+
+Main opens use `OPEN_MAIN`, WAL/SHM/journal opens use
+`OPEN_OR_CREATE_SIDECAR`, access/stat checks use authenticated broker
+operations, and sidecar deletion uses `DELETE_SIDECAR`. The VFS pins the
+expected broker UID and verifies it against both the socket owner and
+`SO_PEERCRED`; missing, malformed or mismatched UID configuration fails
+closed. The exact archived ST-VectorService Linux x64
+`better-sqlite3@13.0.3` prebuild is exercised against the manifest-backed
+daemon with distinct application and broker UIDs. Tests cover descriptor-backed
+main/WAL byte I/O, rollback journal, SHM mapping and locks, reader/writer
+snapshots, sidecar lifecycle, abrupt application exit, broker restart, WAL
+recovery and integrity checks. The parent SQLite VFS still supplies platform
+lock and SHM methods; this is an integration feasibility probe, not a
+production-owned `sqlite3_file` implementation.
 
 The anchor replacement is the commit point. On restart, if the anchor references
 the staged manifest, verification completes the rename. A manifest that does not
