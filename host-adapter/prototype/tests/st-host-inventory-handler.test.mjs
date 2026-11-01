@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 const test = nodeTest;
 
-import { createHostBulkMutationGuard, createHostIdentityHandler, createHostInventoryHandler, createHostLifecycleSaveGuard, createHostRequestAuthenticationGate, createHostSessionHandler } from '../st-host-inventory-handler.mjs';
+import { createHostBulkMutationGuard, createHostIdentityHandler, createHostInventoryHandler, createHostLifecycleSaveGuard, createHostSessionHandler } from '../st-host-inventory-handler.mjs';
 
 function makeResponse() {
   return {
@@ -728,50 +728,3 @@ test('default-user inventory rejects missing/mismatched signed session before sc
   assert.equal(scans, 0);
 });
 
-test('request authentication gate brands only the exact request after trusted server resolution', async () => {
-  const resolved = new WeakMap();
-  const request = {
-    user: { profile: { handle: 'default-user' }, directories: {} },
-    session: {
-      logicEngineSessionId: defaultUserSessionId,
-      logicEngineSessionHandle: 'default-user',
-    },
-    body: { conversation_id: 'attacker-selected' },
-  };
-  const conversationId = [
-    defaultUserSessionId, defaultUserInstallationId, defaultUserConversationUuid,
-  ].join(':');
-  resolved.set(request, conversationId);
-  const gate = createHostRequestAuthenticationGate({
-    resolveConversationId: candidate => resolved.get(candidate),
-  });
-  assert.equal(gate.isAuthenticatedHostRequest(request), false);
-  const response = makeResponse();
-  let nextCalls = 0;
-  await gate.middleware(request, response, () => { nextCalls++; });
-  assert.equal(response.statusCode, null);
-  assert.equal(nextCalls, 1);
-  assert.equal(gate.isAuthenticatedHostRequest(request), true);
-  assert.equal(gate.resolveHostConversationId(request), conversationId);
-  assert.equal(gate.isAuthenticatedHostRequest({ ...request }), false);
-});
-
-test('request authentication gate rejects account mismatch and a conversation from another session', async () => {
-  const conversationId = [
-    defaultUserSessionId, defaultUserInstallationId, defaultUserConversationUuid,
-  ].join(':');
-  const gate = createHostRequestAuthenticationGate({ resolveConversationId: () => conversationId });
-  for (const session of [
-    { handle: 'other-account', logicEngineSessionId: defaultUserSessionId, logicEngineSessionHandle: 'default-user' },
-    { logicEngineSessionId: '5e6b0a80-4e73-4c66-aaf3-7a6e62c7f405', logicEngineSessionHandle: 'default-user' },
-  ]) {
-    const response = makeResponse();
-    let nextCalls = 0;
-    await gate.middleware({
-      user: { profile: { handle: 'default-user' }, directories: {} },
-      session,
-    }, response, () => { nextCalls++; });
-    assert.equal(response.statusCode, 403);
-    assert.equal(nextCalls, 0);
-  }
-});
