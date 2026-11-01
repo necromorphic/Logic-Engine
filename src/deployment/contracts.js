@@ -46,6 +46,9 @@ export function validateDeploymentManifest(manifest) {
     }
   }
   for (const resource of manifest.resources) {
+    if (resource.link_policy !== 'reject-links') {
+      throw new Error('DEPLOYMENT_LINK_POLICY_NOT_IMPLEMENTED:' + resource.id + ':' + resource.link_policy);
+    }
     if (!domains.has(resource.owner_domain)) {
       throw new Error('DEPLOYMENT_MANIFEST_UNKNOWN_RESOURCE_OWNER:' + resource.id);
     }
