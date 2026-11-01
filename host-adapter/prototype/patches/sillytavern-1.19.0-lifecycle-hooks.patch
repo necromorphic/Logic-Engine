@@ -711,3 +711,21 @@ diff --git a/src/endpoints/groups.js b/src/endpoints/groups.js
      if (!request.body || !request.body.id) {
          return response.sendStatus(400);
      }
+
+diff --git a/src/endpoints/characters.js b/src/endpoints/characters.js
+--- a/src/endpoints/characters.js
++++ b/src/endpoints/characters.js
+@@ -27,3 +27,6 @@
+ import cacheBuster from '../middleware/cacheBuster.js';
+ 
++import { createHostBulkMutationGuard } from './logic-engine-host-inventory-handler.mjs';
++const hostBulkMutationGuard = createHostBulkMutationGuard({ pinnedHostCommit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127' });
++
+ // With 100 MB limit it would take roughly 3000 characters to reach this limit
+@@ -1416,2 +1419,5 @@
+-router.post('/delete', validateAvatarUrlMiddleware, async function (request, response) {
++router.post('/delete', validateAvatarUrlMiddleware, (request, response, next) => {
++    if (request.body?.delete_chats == true) return hostBulkMutationGuard(request, response, next);
++    return next();
++}, async function (request, response) {
+     if (!request.body || !request.body.avatar_url) {
