@@ -202,6 +202,7 @@ export class SillyTavernPatchManager {
       backupId,
       backups,
       createdFiles: this.manifest.createdFiles,
+      sourceFilesAfter: Object.fromEntries(Object.entries(this.manifest.sourceFiles).map(([path, value]) => [path, typeof value === 'string' ? value : value.after])),
       startedAt: new Date().toISOString(),
     };
     await this.writeJournal(journal);
@@ -220,6 +221,7 @@ export class SillyTavernPatchManager {
         backupId,
         backups,
         createdFiles: this.manifest.createdFiles,
+        sourceFilesAfter: Object.fromEntries(Object.entries(this.manifest.sourceFiles).map(([path, value]) => [path, typeof value === 'string' ? value : value.after])),
         installedAt: new Date().toISOString(),
       };
       await atomicWrite(this.statePath, JSON.stringify(installed, null, 2) + '\n');
@@ -236,7 +238,7 @@ export class SillyTavernPatchManager {
     for (const [relativePath, backupInfo] of Object.entries(journal.backups ?? {})) {
       const target = await assertRegularFile(this.stRoot, relativePath);
       const current = sha256(await readFile(target));
-      const after = this.manifest.sourceFiles[relativePath].after;
+      const after = journal.sourceFilesAfter?.[relativePath] ?? this.manifest.sourceFiles[relativePath]?.after;
       if (current !== backupInfo.sha256 && current !== after) {
         throw new Error('ROLLBACK_CONFLICT_USER_CHANGE_PRESERVED: ' + relativePath);
       }
@@ -288,6 +290,7 @@ export class SillyTavernPatchManager {
       phase: 'ROLLING_BACK',
       backups: state.backups,
       createdFiles: state.createdFiles,
+      sourceFilesAfter: state.sourceFilesAfter,
       startedAt: new Date().toISOString(),
     };
     await this.writeJournal(journal);
