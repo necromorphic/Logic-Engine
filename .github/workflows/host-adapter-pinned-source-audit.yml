@@ -5,6 +5,14 @@ on:
     paths:
       - ".github/workflows/host-adapter-pinned-source-audit.yml"
       - "host-adapter/prototype/**"
+      - "host-adapter/patches/**"
+      - "host-adapter/PATCH-MANAGER.md"
+      - "host-adapter/sillytavern-final-send-adapter.mjs"
+      - "host-adapter/protected-memory-final-send.mjs"
+      - "scripts/sillytavern-patch-manager.mjs"
+      - "scripts/install-logic-engine-extension.mjs"
+      - "tests/sillytavern-patch-manager.test.js"
+      - "tests/sillytavern-final-send-patch-artifact.test.js"
       - "experiments/host-adapter-source-audit/harness.mjs"
       - "experiments/host-adapter-runtime-harness/harness.mjs"
   workflow_dispatch:
@@ -59,3 +67,15 @@ jobs:
         env:
           SILLYTAVERN_DIR: SillyTavern
         run: node --test experiments/host-adapter-runtime-harness/harness.mjs
+
+      - name: Apply and verify managed Final-Send patch against exact SillyTavern source
+        shell: cmd
+        run: |
+          node scripts/sillytavern-patch-manager.mjs preflight --st-root "%CD%\\SillyTavern"
+          node scripts/sillytavern-patch-manager.mjs install --st-root "%CD%\\SillyTavern"
+          node scripts/sillytavern-patch-manager.mjs verify --st-root "%CD%\\SillyTavern"
+          node --check SillyTavern/src/endpoints/backends/chat-completions.js
+          node --check SillyTavern/src/endpoints/extensions.js
+          node --check SillyTavern/src/logic-engine-final-send-hook.js
+          node --check SillyTavern/src/logic-engine-extension-install-hook.js
+          node scripts/sillytavern-patch-manager.mjs uninstall --st-root "%CD%\\SillyTavern"
