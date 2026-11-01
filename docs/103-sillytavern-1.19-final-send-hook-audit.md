@@ -19,7 +19,7 @@ The archive was inspected directly. The following SHA-256 hashes identify the ex
 |---|---|
 | `src/plugin-loader.js` | `994cbfde97c4ef3a2e2a8078e005e61698ded61a52741cad1efe049ee2bedee9` |
 | `src/server-main.js` | `567d8a9d52e70816e74f119409933f2b42ad03132d7ef01f8db3ae145c2fe7bf` |
-| `src/server-startup.js` | `(see release archive; route mount at line 180)` |
+| `src/server-startup.js` | `646bee9eefa67ed62d2f2157aef88872145b90e6d4c4c32490ad4e1792f9c0ba` |
 | `src/endpoints/backends/chat-completions.js` | `53f429859efcfb29dd8becfebf7ff0ae49256ea795a0c81c320930fab5a407e7` |
 
 Relevant source locations (1-based line numbers):
