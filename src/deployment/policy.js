@@ -56,10 +56,7 @@ export function evaluateDeploymentGates({ profile, components, capabilities }) {
     byId.set(evidence.id, evidence);
   }
   const gates = [];
-  for (const component of components) {
-    if (!component.enabled) continue;
-    const requiredIds = new Set(component.requires_capabilities ?? []);
-    const protectedFinalSendMissing = PROTECTED_FINAL_SEND_CAPABILITIES.filter((id) => byId.get(id)?.status !== 'PASS');
+  const protectedFinalSendMissing = PROTECTED_FINAL_SEND_CAPABILITIES.filter((id) => byId.get(id)?.status !== 'PASS');
   gates.push({
     id: 'memory:protected-final-send-production',
     status: protectedFinalSendMissing.length === 0 ? 'PASS' : 'BLOCKED',
@@ -68,6 +65,25 @@ export function evaluateDeploymentGates({ profile, components, capabilities }) {
       ? undefined
       : 'Protected Memory final-send production gate lacks verified evidence: ' + protectedFinalSendMissing.join(', ') + '.',
   });
+  for (const component of components) {
+    if (!component.enabled) continue;
+    const requiredIds = new Set(component.requires_capabilities ?? []);
+    if (profile === 'hardened-service') {
+      requiredIds.add('process.identity.separate');
+      requiredIds.add('filesystem.access.effective');
+      requiredIds.add('ipc.peer-authentication');
+    }
+    for (const id of requiredIds) {
+      const evidence = byId.get(id);
+      const status = evidence?.status ?? 'NOT_TESTED';
+      gates.push({
+        id: component.id + ':' + id,
+        status: status === 'PASS' ? 'PASS' : 'BLOCKED',
+        affected_features: [component.id],
+        reason: status === 'PASS' ? undefined : 'Required capability status is ' + status + '.',
+      });
+    }
+  }
   if (profile === 'hardened-service') {
       requiredIds.add('process.identity.separate');
       requiredIds.add('filesystem.access.effective');
