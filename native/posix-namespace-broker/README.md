@@ -111,11 +111,12 @@ production cross-UID socket permissions and full recovery remain open.
 `broker_daemon.py`; the C `broker_server` remains PING-only. It stores a canonical Linux role manifest in one service-owned
 0700 directory and a separate generation+SHA-256 anchor in another service-owned
 0700 directory. Both directory paths are opened component-by-component with
-`O_DIRECTORY|O_NOFOLLOW`; writable-by-group/other ancestors and ancestors
-owned and writable by the configured application UID are rejected. The Linux
-manifest records that application UID, and role-parent verification applies
-the same check to every opened path component. The broker service UID and
-application UID must be distinct.
+`O_DIRECTORY|O_NOFOLLOW`; every ancestor must be owned by root or the broker
+service UID and must not be writable by group/other. The configured application
+UID is rejected as an owner when it can mutate an ancestor; root is never
+accepted as the application identity. Role-parent verification applies the same
+ownership rule to every opened component. The broker service UID and application
+UID must be distinct.
 Metadata files are opened without following symlinks, must be single-link regular
 files owned by the service UID, and are capped at 1 MiB.
 
