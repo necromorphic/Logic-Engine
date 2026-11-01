@@ -8,7 +8,7 @@ import { LogicEngine } from '../src/application/engine.js';
 import { ActorBindingService } from '../src/application/actor-bindings.js';
 import { HostConversationWorldBindingService } from '../src/application/host-conversation-world-bindings.js';
 import { createMemoryNpcProviderAdapter } from '../src/application/memory-npc-provider-adapter.js';
-import { runWithAuthenticatedHostSession } from '../src/application/host-session-context.js';
+
 
 test('real adapter composes file-backed SQLite Provider with Core query and canonical-source authorization', async (t) => {
   const directory = mkdtempSync(join(tmpdir(), 'logic-memory-real-adapter-'));
@@ -33,6 +33,7 @@ test('real adapter composes file-backed SQLite Provider with Core query and cano
       user: { profile: { handle: 'adapter-test-user' } },
       session: { handle: 'adapter-test-user', logicEngineSessionId: hostSessionId, logicEngineSessionHandle: 'adapter-test-user' },
     };
+    const authenticatedHostRequests = new WeakSet([hostRequest]);
 
     engine.createWorld({
       world_id: worldId,
@@ -74,6 +75,7 @@ test('real adapter composes file-backed SQLite Provider with Core query and cano
       trustedInitialKnowledgeSources: [],
       fieldPolicy: (_context, _entity, field) => field === 'entity_id' || field === 'attributes.public_note',
       contentFields: ['attributes.public_note'],
+      isAuthenticatedHostRequest: request => authenticatedHostRequests.has(request),
     });
 
     const scope = { world_id: worldId, subject_id: actorId, purpose: 'npc_decision' };
@@ -110,7 +112,7 @@ test('real adapter composes file-backed SQLite Provider with Core query and cano
     assert.equal(withoutHostContext.reason, 'query_access_unconfirmed');
     assert.deepEqual(withoutHostContext.candidates, []);
 
-    const result = await runWithAuthenticatedHostSession(hostRequest, conversationId, () => adapter.consumer.retrieveForNpc({
+    const result = await adapter.runWithAuthenticatedHostSession(hostRequest, conversationId, () => adapter.consumer.retrieveForNpc({
       worldId, actorEntityId: actorId, conversationId,
       adapterId: 'caller-selected-spoofed-adapter',
     }));
@@ -120,9 +122,12 @@ test('real adapter composes file-backed SQLite Provider with Core query and cano
       'attributes.public_note': 'real Core source value',
     });
 
-    const unboundConversation = await runWithAuthenticatedHostSession(hostRequest, conversationId, () => adapter.consumer.retrieveForNpc({
+    const unboundConversation = await adapter.runWithAuthenticatedHostSession(hostRequest, conversationId, () => adapter.consumer.retrieveForNpc({
       worldId, actorEntityId: actorId, conversationId: 'not-bound',
     }));
+    await assert.rejects(() => adapter.runWithAuthenticatedHostSession({ ...hostRequest }, conversationId, () => adapter.consumer.retrieveForNpc({
+      worldId, actorEntityId: actorId, conversationId,
+    })), /HOST_SESSION_AUTHENTICATION_REQUIRED/);
     assert.equal(unboundConversation.status, 'non_ready');
     assert.equal(unboundConversation.reason, 'query_access_unconfirmed');
     assert.deepEqual(unboundConversation.candidates, []);
