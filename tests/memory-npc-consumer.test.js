@@ -815,7 +815,7 @@ test('complete-empty is ready only when the Memory index explicitly reports read
 
   const rebuilding = await consumer.retrieveForNpc(request());
   assert.equal(rebuilding.status, 'non_ready');
-  assert.equal(rebuilding.reason, 'memory_index_not_ready');
+  assert.equal(rebuilding.reason, 'memory_index_rebuilding');
   assert.deepEqual(rebuilding.admitted, []);
   assert.deepEqual(rebuilding.candidates, []);
 
@@ -1084,6 +1084,30 @@ test('Memory query and retrieval failures fail closed without leaking provider e
   assert.equal(JSON.stringify(invalidClone).includes('must not escape'), false);
 });
 
+
+test('typed Provider retrieval failures remain distinct at the Core consumer boundary', async (t) => {
+  const { consumer, provider } = setup(t);
+  const cases = [
+    ['MEMORY_QUERY_DENIED', 'memory_query_denied'],
+    ['MEMORY_RECORDS_WITHHELD', 'memory_records_withheld'],
+    ['MEMORY_SNAPSHOT_STALE', 'memory_snapshot_stale'],
+    ['MEMORY_SNAPSHOT_UNAVAILABLE', 'memory_snapshot_unavailable'],
+    ['MEMORY_INDEX_NOT_READY', 'memory_index_not_ready'],
+    ['MEMORY_LINEAGE_INVALID', 'memory_lineage_invalid'],
+    ['MEMORY_SOURCE_VALIDATION_UNAVAILABLE', 'memory_source_validation_unavailable'],
+    ['MEMORY_SOURCE_VERSION_UNVERIFIABLE', 'memory_source_version_unverifiable'],
+    ['MEMORY_AUTHORIZATION_CHANGED', 'memory_authorization_changed'],
+    ['MEMORY_RECORD_ACCESS_REVOKED', 'memory_record_access_revoked'],
+  ];
+  for (const [code, reason] of cases) {
+    provider.retrieveCandidates = async () => { throw new Error(code); };
+    const result = await consumer.retrieveForNpc(request());
+    assert.equal(result.status, 'non_ready', code);
+    assert.equal(result.reason, reason, code);
+    assert.deepEqual(result.candidates, [], code);
+    assert.equal(JSON.stringify(result).includes(code), false, 'internal error codes are not returned verbatim');
+  }
+});
 
 test('mismatched Core actor binding result fails before Memory query', async (t) => {
   const { consumer, provider } = setup(t);
