@@ -1,0 +1,61 @@
+name: better-sqlite3 named VFS integration
+
+on:
+  push:
+    branches: ['security/**']
+    paths:
+      - 'patches/better-sqlite3-vfs-option.patch'
+      - 'native/secure-vfs-probe/*.c'
+      - 'native/secure-vfs-probe/*.h'
+      - 'tests/better-sqlite3-vfs-integration.test.js'
+      - '.github/workflows/better-sqlite3-vfs-integration.yml'
+  pull_request:
+    paths:
+      - 'patches/better-sqlite3-vfs-option.patch'
+      - 'native/secure-vfs-probe/*.c'
+      - 'native/secure-vfs-probe/*.h'
+      - 'tests/better-sqlite3-vfs-integration.test.js'
+      - '.github/workflows/better-sqlite3-vfs-integration.yml'
+
+permissions:
+  contents: read
+concurrency:
+  group: better-sqlite3-vfs-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  linux-x64:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.13.0'
+      - name: Download exact better-sqlite3 source release
+        run: |
+          mkdir -p "$RUNNER_TEMP/better-sqlite3"
+          npm pack better-sqlite3@13.0.3 --pack-destination "$RUNNER_TEMP/better-sqlite3"
+          tar -xzf "$RUNNER_TEMP"/better-sqlite3/better-sqlite3-13.0.3.tgz -C "$RUNNER_TEMP/better-sqlite3"
+      - name: Apply and verify named-VFS constructor patch
+        run: |
+          package="$RUNNER_TEMP/better-sqlite3/package"
+          git -C "$package" init -q
+          git -C "$package" add .
+          git -C "$package" -c user.name=CI -c user.email=ci@example.invalid commit -qm upstream
+          git -C "$package" apply --check "$GITHUB_WORKSPACE/patches/better-sqlite3-vfs-option.patch"
+          git -C "$package" apply "$GITHUB_WORKSPACE/patches/better-sqlite3-vfs-option.patch"
+      - name: Build patched better-sqlite3 from source
+        run: |
+          cd "$RUNNER_TEMP/better-sqlite3/package"
+          npm_config_build_from_source=true npm install --no-audit --no-fund
+      - name: Build secure VFS extension against bundled SQLite headers
+        run: |
+          package="$RUNNER_TEMP/better-sqlite3/package"
+          cc -O2 -fPIC -shared -I "$package/deps/sqlite3" -I "$GITHUB_WORKSPACE/native/secure-vfs-probe" "$GITHUB_WORKSPACE/native/secure-vfs-probe/secure_vfs_probe.c" -o "$RUNNER_TEMP/logic_engine_secure_vfs_probe.so"
+      - name: Exercise patched better-sqlite3 engine and named VFS
+        env:
+          BETTER_SQLITE3_PACKAGE_DIR: ${{ runner.temp }}/better-sqlite3/package
+          LOGIC_ENGINE_VFS_PROBE_PATH: ${{ runner.temp }}/logic_engine_secure_vfs_probe.so
+        run: node --test tests/better-sqlite3-vfs-integration.test.js
