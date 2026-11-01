@@ -286,7 +286,7 @@ test('host inventory persists the full root manifest server-side and removes onl
   }, response);
   assert.equal(response.statusCode, 200);
   assert.equal(observed.userHandle, 'alice');
-  assert.equal(observed.rootPath, directories.root);
+  assert.equal(observed.rootPath, resolve(directories.root));
   assert.deepEqual(observed.entries, inventory.filesystem.entries);
   assert.ok(!response.body.blockers.includes('NO_DURABLE_FULL_ROOT_BASELINE'));
   assert.ok(!response.body.blockers.includes('NO_FULL_ROOT_PER_FILE_DIFF'));
