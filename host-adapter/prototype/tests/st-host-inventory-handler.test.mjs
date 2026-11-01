@@ -756,7 +756,7 @@ test('request authentication gate brands only the exact request after trusted se
     body: { conversation_id: 'attacker-selected' },
   };
   const conversationId = [
-    defaultUserSessionId, defaultUserInstallationId, defaultUserConversationUuid,
+    defaultUserInstallationId, defaultUserAccountId, defaultUserConversationUuid,
   ].join(':');
   resolved.set(request, {
     host_installation_id: defaultUserInstallationId,
@@ -783,7 +783,7 @@ test('request authentication gate rejects account mismatch and a conversation fr
     host_installation_id: defaultUserInstallationId,
     authenticated_account_id: defaultUserAccountId,
     host_session_id: defaultUserSessionId,
-    conversation_id: [defaultUserSessionId, defaultUserInstallationId, defaultUserConversationUuid].join(':'),
+    conversation_id: [defaultUserInstallationId, defaultUserAccountId, defaultUserConversationUuid].join(':'),
   };
   const gate = createHostRequestAuthenticationGate({ resolveConversationId: () => binding });
   for (const session of [
