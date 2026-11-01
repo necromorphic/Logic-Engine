@@ -85,5 +85,4 @@ test('pinned SillyTavern loads plugins after authenticated middleware and mounts
   assert.notEqual(pluginLoadIndex, -1);
   assert.ok(authIndex < pluginLoadIndex);
   assert.ok(pluginLoader.includes("app.use(`/api/plugins/${id}`, router)"));
-  assert.ok(pluginLoader.includes("app.use(`/api/plugins/${id}`, router)"));
 });
