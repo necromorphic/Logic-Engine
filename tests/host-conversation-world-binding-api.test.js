@@ -238,7 +238,7 @@ test('Core Host context resolution fails closed for missing or ambiguous actor b
   await fetch(bindingPath, {
     method: 'POST',
     headers: adminHeaders,
-    body: json({ adapter_id: 'adapter-a', conversation_id: 'stable-chat-id', world_id: 'host-binding-world-a' }),
+    body: json({ adapter_id: 'adapter-a', conversation_id: PC_NEXT11_CONVERSATION_ID, world_id: 'host-binding-world-a' }),
   });
 
   const before = await fetch(base + '/v1/host-context/resolve', {
