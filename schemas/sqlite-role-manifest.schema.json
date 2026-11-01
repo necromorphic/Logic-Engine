@@ -224,12 +224,16 @@
         },
         "parentComponents": {
           "type": "array",
+          "minItems": 1,
+          "maxItems": 256,
           "items": {
             "$ref": "#/$defs/component"
           }
         },
         "parentIdentities": {
           "type": "array",
+          "minItems": 1,
+          "maxItems": 256,
           "items": {
             "$ref": "#/$defs/identity"
           }
