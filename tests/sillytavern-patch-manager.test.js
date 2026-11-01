@@ -14,7 +14,7 @@ import {
 
 const hash = value => createHash('sha256').update(value).digest('hex');
 const clientPath = 'public/scripts/extensions/third-party/logic-engine-extension-gateway/index.js';
-const serverPath = 'plugins/logic-engine-extension-gateway/index.mjs';
+const serverPath = 'public/scripts/extensions/third-party/logic-engine-extension-gateway/server-gateway.mjs';
 const nativeStartupPath = 'src/server-startup.js';
 const nativeServerMainPath = 'src/server-main.js';
 const patch = [
@@ -124,6 +124,7 @@ test('Patch Manager rejects wrong ST commit and modified Extension package artif
 test('Patch Manager rejects undeclared or out-of-policy paths, including config and unrelated extensions', t => {
   const f = fixture(t);
   const forbiddenPaths = [
+    'plugins/logic-engine-extension-gateway/server-plugin/index.mjs',
     'src/server.js',
     'src/endpoints/arbitrary.js',
     'src/plugin-loader.js',
