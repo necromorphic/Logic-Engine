@@ -423,8 +423,11 @@ os._exit(86)
         role = recovered["roles"][0]
         self.assertEqual(role["state"], "disabled")
         self.assertEqual(role["databaseBasename"], renamed_path.name)
-        self.assertEqual(fd_identity(os.open(renamed_path, os.O_RDONLY | os.O_CLOEXEC)),
-                         role["databaseIdentity"])
+        renamed_fd = os.open(renamed_path, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
+        try:
+            self.assertEqual(fd_identity(renamed_fd), role["databaseIdentity"])
+        finally:
+            os.close(renamed_fd)
 
     def test_process_crash_after_main_delete_unlink_recovers_on_restart(self):
         self.store.initialize(self.data(1))
