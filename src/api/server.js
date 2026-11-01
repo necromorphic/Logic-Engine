@@ -366,10 +366,20 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
           || typeof body.generation_type !== 'string' || !/^[a-z][a-z0-9_-]{0,31}$/i.test(body.generation_type)) {
           throw new EngineError('INVALID_HOST_MEMORY_RETRIEVAL', 'Host Memory retrieval request metadata is invalid.', 400);
         }
+        let consumerFailed = false;
         try {
           const retrieval = await hostAssertionRunners[adapterId].run(
             body.assertion, body.signature,
-            () => consumer.retrieveForNpc({ conversationId: body.assertion.conversation_id }),
+            async () => {
+              try {
+                return await consumer.retrieveForNpc({ conversationId: body.assertion.conversation_id });
+              } catch (error) {
+                // Keep Consumer/runtime failures distinct from assertion
+                // verification failures even when their messages collide.
+                consumerFailed = true;
+                throw error;
+              }
+            },
           );
           if (!retrieval || !['ready', 'non_ready'].includes(retrieval.status)
             || !Array.isArray(retrieval.admitted) || !Array.isArray(retrieval.candidates)) {
@@ -377,6 +387,9 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
           }
           return send(res, 200, { retrieval });
         } catch (error) {
+          // The signed assertion has already been verified before the callback
+          // runs. Never misreport a Consumer/runtime exception as an auth error.
+          if (consumerFailed) throw error;
           const code = typeof error?.message === 'string' ? error.message : '';
           if (code === 'HOST_SESSION_ASSERTION_REPLAYED') {
             return send(res, 409, { error: { code, message: 'Host assertion nonce was already consumed.' } });
@@ -390,7 +403,10 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
           if (code === 'HOST_ASSERTION_REPLAY_GUARD_UNAVAILABLE') {
             return send(res, 503, { error: { code, message: 'Durable Host assertion replay protection is unavailable.' } });
           }
-          return send(res, 401, { error: { code: 'HOST_SESSION_ASSERTION_INVALID', message: 'Host assertion could not be authenticated.' } });
+          if (code === 'HOST_SESSION_ASSERTION_INVALID') {
+            return send(res, 401, { error: { code, message: 'Host assertion could not be authenticated.' } });
+          }
+          throw error;
         }
       }
       const hostBindingParts = url.pathname.split('/').filter(Boolean);
