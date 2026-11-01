@@ -342,6 +342,39 @@ class ManifestStoreTests(unittest.TestCase):
         self.assertEqual(role["state"], "active")
         self.assertTrue((parent / "created.sqlite").exists())
 
+    def test_manifest_cannot_retire_enrollment_intent_before_identity_commit(self):
+        import json
+        self.store.initialize(self.data(1))
+        current = self.store.load()
+        source = current["roles"][0]
+        candidate = json.loads(_canonical_json(current))
+        candidate["generation"] += 1
+        candidate["pendingEnrollments"] = [{
+            "role": "vectors",
+            "parentComponents": source["parentComponents"],
+            "parentIdentities": source["parentIdentities"],
+            "databaseBasename": "vectors.sqlite",
+        }]
+        self.store.commit(_canonical_json(candidate))
+        staged = self.store.load()
+        bypass = json.loads(_canonical_json(staged))
+        bypass["generation"] += 1
+        bypass["pendingEnrollments"] = []
+        bypass["roles"].append({
+            "role": "vectors",
+            "parentComponents": source["parentComponents"],
+            "parentIdentities": source["parentIdentities"],
+            "databaseBasename": "vectors.sqlite",
+            "databaseIdentity": {
+                "kind": "posix", "device": "99999991",
+                "inode": "99999992", "mountId": "99999993",
+            },
+            "state": "enrolling",
+            "sidecars": [],
+        })
+        with self.assertRaisesRegex(StoreError, "identity must be committed"):
+            self.store.commit(_canonical_json(bypass))
+
     def test_manifest_rejects_new_role_that_skips_enrolling_state(self):
         import json
         self.store.initialize(self.data(1))
