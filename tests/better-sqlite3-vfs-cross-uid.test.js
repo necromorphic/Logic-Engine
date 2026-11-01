@@ -77,16 +77,20 @@ test('distinct-UID broker protects better-sqlite3 main, journal, WAL and SHM fil
       'SELECT logic_engine_vfs_probe_register_broker_role_from_host() AS registered',
     );
     const expectedBrokerUid = process.env.LOGIC_ENGINE_BROKER_UID;
+    const expectedRolePath = process.env.LOGIC_ENGINE_VFS_ROLE_PATH;
     assert.ok(expectedBrokerUid, 'Host must provide the trusted broker UID');
 
-    // A caller-controlled broker socket owned by another UID must not be
-    // accepted even if it has a matching filesystem layout and protocol.
-    process.env.LOGIC_ENGINE_BROKER_UID = process.env.LOGIC_ENGINE_APP_UID;
+    // Use a root-owned alias parent so the intentionally incorrect expected
+    // UID reaches the SO_PEERCRED comparison instead of failing the parent
+    // ownership precondition first.
+    process.env.LOGIC_ENGINE_VFS_ROLE_PATH = '/var/lib/logic-engine-broker-uid-mismatch.sqlite';
+    process.env.LOGIC_ENGINE_BROKER_UID = String(Number(expectedBrokerUid) + 1);
     assert.throws(
       () => registerRole.get(),
       /broker role enrollment handshake failed/,
       'VFS must reject a broker whose SO_PEERCRED UID differs from Host-pinned identity',
     );
+    process.env.LOGIC_ENGINE_VFS_ROLE_PATH = expectedRolePath;
     process.env.LOGIC_ENGINE_BROKER_UID = expectedBrokerUid;
 
     assert.equal(
