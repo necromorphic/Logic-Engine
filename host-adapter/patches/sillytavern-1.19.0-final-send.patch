@@ -236,7 +236,6 @@
 +        throw new Error('LOGIC_ENGINE_EXTENSION_ROOT_UNSAFE');
 +    }
 +    const trustedExtensionRoot = await realpath(extensionPath);
-+    assertTrustedRepository(trustedExtensionRoot);
 +    const manifestPath = resolve(trustedExtensionRoot, 'manifest.json');
 +    const manifestInfo = await lstat(manifestPath);
 +    if (manifestInfo.isSymbolicLink() || !manifestInfo.isFile()) {
@@ -247,6 +246,7 @@
 +        || manifest.logic_engine_patch_manager?.manifestVersion !== 1) {
 +        return { status: 'NOT_MANAGED' };
 +    }
++    assertTrustedRepository(trustedExtensionRoot);
 +
 +    const scriptsPath = resolve(trustedExtensionRoot, 'scripts');
 +    const scriptsInfo = await lstat(scriptsPath);
