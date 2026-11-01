@@ -34,6 +34,19 @@ test('stock better-sqlite3 uses the registered default VFS in its own engine', {
     bootstrap.close();
   }
 
+  // sqlite3_auto_extension installs the role-registration function on subsequent
+  // connections. Enroll the path before the first file-backed open; the role
+  // registry is process-global and survives closing this registrar connection.
+  const registrar = new Database(':memory:');
+  try {
+    const registration = registrar.prepare(
+      'SELECT logic_engine_vfs_probe_register_database_role(?, ?) AS registered',
+    ).get(filename, 'better-sqlite3-vfs-probe');
+    assert.equal(registration.registered, 1, 'the main DB role must be enrolled before open');
+  } finally {
+    registrar.close();
+  }
+
   // The extension registered its VFS as SQLite's default; better-sqlite3 opens
   // this ordinary filename with vfs=NULL, so no URI support or binding patch is needed.
   console.error('[better-sqlite3-default-vfs] target-before');
