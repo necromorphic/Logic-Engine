@@ -25,7 +25,7 @@ git -C /path/to/SillyTavern diff --check
 ```
 
 The patch is restricted to the reviewed client mutation entry points, existing
-chat/group/character/backup endpoint middleware, the bounded Gateway JSON body
+chat/group/character/backup/Data Maid/settings/account-reset endpoint middleware, the bounded Gateway JSON body
 limit, and a private helper re-export. Its allowlist is enforced in CI. The
 helper imports the installed plugin's server-owned guard functions; it mounts
 no Express route. All browser-facing Host calls remain under
