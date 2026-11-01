@@ -79,14 +79,13 @@ export function createMemoryNpcProviderAdapter({
   if (typeof adapterId !== 'string' || !adapterId.trim()) {
     throw new TypeError('Memory Provider adapter requires one configured authenticated adapterId');
   }
-  if (typeof isAuthenticatedHostRequest !== 'function') {
-    throw new TypeError('Memory Provider adapter requires a trusted Host authentication middleware verifier');
-  }
-  if (typeof resolveHostConversationId !== 'function') {
-    throw new TypeError('Memory Provider adapter requires a trusted Host conversation identity resolver');
-  }
-  if (typeof resolveHostIdentity !== 'function') {
-    throw new TypeError('Memory Provider adapter requires a trusted Host installation/account identity resolver');
+  const inProcessHostGateConfigured = [
+    isAuthenticatedHostRequest, resolveHostConversationId, resolveHostIdentity,
+  ].some(value => value !== undefined && value !== null);
+  if (inProcessHostGateConfigured
+    && [isAuthenticatedHostRequest, resolveHostConversationId, resolveHostIdentity]
+      .some(value => typeof value !== 'function')) {
+    throw new TypeError('In-process Host gate configuration requires all three trusted resolver functions.');
   }
   if (!Array.isArray(trustedInitialKnowledgeSources)) {
     throw new TypeError('Memory Provider adapter requires the deployment-owned source registry');
@@ -167,16 +166,10 @@ export function createMemoryNpcProviderAdapter({
       revalidateForFinalDispatch: (...args) => consumer.revalidateForFinalDispatch(...args),
     });
 
-    return Object.freeze({
+    const adapter = {
       adapterId,
       provider: providerControl,
       consumer: consumerFacade,
-      runWithAuthenticatedHostSession(request, conversationId, callback) {
-        return runWithAuthenticatedHostSession(
-          request, conversationId, callback, isAuthenticatedHostRequest, resolveHostConversationId,
-          resolveHostBindings, resolveHostIdentity,
-        );
-      },
       async prepareWorld(worldId) {
         await provider.rebuildIndex(worldId);
         return provider.reconcile(worldId);
@@ -184,7 +177,18 @@ export function createMemoryNpcProviderAdapter({
       close() {
         provider.close();
       },
-    });
+    };
+    // The HTTP Host assertion runner establishes the same branded AsyncLocalStorage
+    // capability for cross-process retrieval. In-process callers may opt into the
+    // exact ST request WeakMap gate; do not require an unused second auth path.
+    if (inProcessHostGateConfigured) {
+      adapter.runWithAuthenticatedHostSession = (request, conversationId, callback) =>
+        runWithAuthenticatedHostSession(
+          request, conversationId, callback, isAuthenticatedHostRequest, resolveHostConversationId,
+          resolveHostBindings, resolveHostIdentity,
+        );
+    }
+    return Object.freeze(adapter);
   } catch (error) {
     provider.close();
     throw error;
