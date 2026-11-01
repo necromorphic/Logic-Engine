@@ -1,0 +1,70 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { createRequire } from 'node:module';
+
+const require = createRequire(import.meta.url);
+const packageRoot = process.env.BETTER_SQLITE3_PACKAGE_DIR;
+const Database = require(packageRoot || 'better-sqlite3');
+
+const storageRoot = path.resolve(process.env.ST_VECTOR_ROOT || process.cwd());
+const storageDirectory = path.join(storageRoot, 'vector_storage');
+const dbPath = path.join(storageDirectory, 'vectors.sqlite');
+const extensionPath = process.env.LOGIC_ENGINE_VFS_PROBE_PATH;
+const brokerSocket = process.env.LOGIC_ENGINE_BROKER_SOCKET;
+const roleName = process.env.LOGIC_ENGINE_SQLITE_ROLE || 'vectors';
+
+if (!extensionPath || !path.isAbsolute(extensionPath) || !fs.existsSync(extensionPath)) {
+  throw new Error('LOGIC_ENGINE_VFS_PROBE_PATH must name the installed secure VFS extension');
+}
+if (!brokerSocket || !path.isAbsolute(brokerSocket)) {
+  throw new Error('LOGIC_ENGINE_BROKER_SOCKET must name the configured broker socket');
+}
+if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(roleName)) {
+  throw new Error('LOGIC_ENGINE_SQLITE_ROLE is not a valid broker role name');
+}
+
+fs.mkdirSync(storageDirectory, { recursive: true });
+const storageInfo = fs.lstatSync(storageDirectory);
+if (!storageInfo.isDirectory() || storageInfo.isSymbolicLink()
+    || (storageInfo.mode & 0o022) !== 0) {
+  throw new Error('ST-VectorService vector_storage must be a real, non-group/world-writable directory');
+}
+try {
+  fs.lstatSync(dbPath);
+  throw new Error(
+    'A local vectors.sqlite already exists. Stop ST-VectorService and migrate its data explicitly; refusing to shadow or adopt it.',
+  );
+} catch (error) {
+  if (error?.code !== 'ENOENT') throw error;
+}
+
+// better-sqlite3 and this bootstrap must resolve the same native addon. Loading
+// the extension through this in-memory handle registers its VFS for every later
+// SQLite connection in this process before server.js constructs its DB handle.
+const bootstrap = new Database(':memory:');
+try {
+  bootstrap.loadExtension(extensionPath, 'sqlite3_secure_vfs_probe_init');
+} finally {
+  bootstrap.close();
+}
+
+const registrar = new Database(':memory:');
+try {
+  const result = registrar.prepare(
+    'SELECT logic_engine_vfs_probe_register_broker_role(?, ?, ?) AS registered',
+  ).get(dbPath, roleName, brokerSocket);
+  if (result.registered !== 1) {
+    throw new Error('The SQLite broker did not confirm ST-VectorService role registration');
+  }
+} finally {
+  registrar.close();
+}
+
+try {
+  fs.lstatSync(dbPath);
+  throw new Error('The logical vectors.sqlite alias appeared during broker registration');
+} catch (error) {
+  if (error?.code !== 'ENOENT') throw error;
+}
+
+export { dbPath, storageDirectory };
