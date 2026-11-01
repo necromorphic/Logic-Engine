@@ -296,3 +296,53 @@ test('Patch Manager recovers an interrupted native-source transaction without wi
   assert.equal(readFileSync(join(f.st, nativePath), 'utf8'), 'export const startup = "original";\n');
   assert.equal(inspectSillyTavernPatchTarget(f.st).clean, true);
 });
+
+
+test('Patch Manager verifies exact new Extension files even when the ST worktree ignores their directory', t => {
+  const root = mkdtempSync(join(tmpdir(), 'le-st-ignored-extension-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const st = join(root, 'SillyTavern');
+  const packageDir = join(root, 'package');
+  const targetPath = 'public/scripts/extensions/third-party/logic-engine-extension-gateway/probe.txt';
+  mkdirSync(join(st, 'public/scripts/extensions/third-party/logic-engine-extension-gateway'), { recursive: true });
+  mkdirSync(packageDir);
+  git(st, ['init', '-q']);
+  git(st, ['config', 'user.email', 'test@example.invalid']);
+  git(st, ['config', 'user.name', 'Patch Manager Test']);
+  writeFileSync(join(st, '.gitignore'), 'public/scripts/extensions/third-party/\\n');
+  git(st, ['add', '.gitignore']);
+  git(st, ['commit', '-qm', 'base']);
+  const targetCommit = git(st, ['rev-parse', 'HEAD']);
+  const patchText = [
+    'diff --git a/' + targetPath + ' b/' + targetPath,
+    'new file mode 100644',
+    '--- /dev/null',
+    '+++ b/' + targetPath,
+    '@@ -0,0 +1 @@',
+    '+installed',
+    '',
+  ].join('\\n');
+  writeFileSync(join(packageDir, 'extension.patch'), patchText);
+  const bytes = readFileSync(join(packageDir, 'extension.patch'));
+  const manifestPath = join(packageDir, 'manifest.json');
+  writeFileSync(manifestPath, JSON.stringify({
+    schema_version: 1,
+    package_id: 'logic-engine.ignored-extension-test',
+    target_git_commit: targetCommit,
+    target_paths: [targetPath],
+    patches: [{ path: 'extension.patch', size: bytes.length, sha256: hash(bytes) }],
+  }));
+
+  const installed = installSillyTavernPatchPackage({ stPath: st, manifestPath });
+  assert.equal(installed.status, 'APPLIED');
+  assert.deepEqual(installed.affected_files, [targetPath]);
+  assert.equal(readFileSync(join(st, targetPath), 'utf8'), 'installed');
+  assert.equal(git(st, ['status', '--porcelain=v1', '--untracked-files=all']), '');
+
+  assert.equal(
+    uninstallSillyTavernPatchPackage({ stPath: st, packageId: 'logic-engine.ignored-extension-test' }).status,
+    'ROLLED_BACK',
+  );
+  assert.equal(inspectSillyTavernPatchTarget(st).clean, true);
+  assert.equal(readFileSync(join(st, '.gitignore'), 'utf8'), 'public/scripts/extensions/third-party/\\n');
+});
