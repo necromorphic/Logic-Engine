@@ -30,23 +30,31 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
-          node-version: '22.13.0'
+          node-version: '22.14.0'
       - name: Download exact better-sqlite3 release
         run: |
           mkdir -p "$RUNNER_TEMP/better-sqlite3"
           npm pack better-sqlite3@13.0.3 --pack-destination "$RUNNER_TEMP/better-sqlite3"
           tar -xzf "$RUNNER_TEMP"/better-sqlite3/better-sqlite3-13.0.3.tgz -C "$RUNNER_TEMP/better-sqlite3"
+      - name: Verify Node-API 10 runtime support
+        run: |
+          node -e 'const napi = Number(process.versions.napi); console.log("Node", process.version, "Node-API", napi); if (napi < 10) throw new Error("better-sqlite3 13.0.3 requires Node-API 10 (Node >=22.14.0)")'
       - name: Install better-sqlite3 build dependencies
         run: |
           cd "$RUNNER_TEMP/better-sqlite3/package"
           npm install --no-audit --no-fund
+      - name: Smoke-test the published better-sqlite3 prebuild
+        run: |
+          node -e 'const Database = require(process.env.BETTER_SQLITE3_PACKAGE_DIR); const db = new Database(":memory:"); console.log("better-sqlite3 prebuild", db.prepare("SELECT sqlite_version() AS version").get()); db.close();'
+        env:
+          BETTER_SQLITE3_PACKAGE_DIR: ${{ runner.temp }}/better-sqlite3/package
       - name: Build the exact better-sqlite3 source instead of its bundled prebuild
         run: |
           cd "$RUNNER_TEMP/better-sqlite3/package"
           rm -f prebuilds/*.node
           npm run build-release
           test -f build/Release/better_sqlite3.node
-      - name: Smoke-test the source-built better-sqlite3 constructor
+      - name: Smoke-test the source-built better-sqlite3 constructor (Node-API 10)
         run: |
           node -e 'const Database = require(process.env.BETTER_SQLITE3_PACKAGE_DIR); const db = new Database(":memory:"); console.log("better-sqlite3 smoke", db.prepare("SELECT sqlite_version() AS version").get()); db.close();'
         env:
