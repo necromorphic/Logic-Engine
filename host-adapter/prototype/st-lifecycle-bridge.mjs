@@ -603,8 +603,8 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
     const id = conversationId ?? await getConversationId();
     if (typeof id !== 'string') return { status: 'NON_READY', reason: 'Host conversation identity unavailable' };
     const parts = id.split(':');
-    if (parts.length !== 3 || !parts.every(part => HOST_UUID.test(part))) {
-      return { status: 'NON_READY', reason: 'Host conversation identity is not session/install/conversation bound' };
+    if (parts.length !== 2 || !parts.every(part => HOST_UUID.test(part))) {
+      return { status: 'NON_READY', reason: 'Host conversation identity is not installation/conversation bound' };
     }
     if (typeof getPersistedInventory !== 'function') {
       return { status: 'NON_READY', reason: 'persisted Host inventory route unavailable' };
@@ -622,18 +622,18 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
       || inventory.host_commit !== PINNED_SILLYTAVERN_COMMIT
       || inventory.host_build_claim !== PINNED_SILLYTAVERN_COMMIT
       || inventory.host_build_claim_type !== 'DEPLOYMENT_ASSERTION_NOT_RUNTIME_ATTESTATION'
-      || inventory.host_session_id !== parts[0]
+      || !HOST_UUID.test(inventory.host_session_id ?? '')
       || inventory.host_session_identity !== 'SIGNED_AUTHENTICATED_ST_SESSION'
       || typeof inventory.host_user_handle !== 'string'
       || inventory.host_user_handle !== inventory.authenticated_user_handle
-      || inventory.requested_conversation_uuid !== parts[2]
+      || inventory.requested_conversation_uuid !== parts[1]
       || !/^[a-f0-9]{64}$/.test(inventory.inventory_sha256)
       || !Array.isArray(inventory.files)) {
       return { status: 'NON_READY', reason: 'persisted Host inventory is not bound to the current authenticated conversation' };
     }
 
     const matches = inventory.files.filter(file =>
-      file?.logical_identity?.conversation_uuid === parts[2]);
+      file?.logical_identity?.conversation_uuid === parts[1]);
     if (matches.length !== 1) {
       return { status: 'NON_READY', reason: 'persisted Host inventory does not contain exactly one current conversation' };
     }
@@ -686,7 +686,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
       completeness: inventory.completeness,
       host_session_bound: true,
       installation_attestation: false,
-      conversation_uuid: parts[2],
+      conversation_uuid: parts[1],
       message_count: chat.length,
       version_count: versionCount,
       inventory_sha256: inventory.inventory_sha256,
