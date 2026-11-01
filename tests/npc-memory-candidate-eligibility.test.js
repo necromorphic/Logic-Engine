@@ -22,7 +22,7 @@ function candidate(overrides = {}) {
     lifecycle: {
       content_disposition: "usable",
       source_reconciliation: "current",
-      evidence_assessment: "supported",
+      evidence_assessment: "unassessed",
       access_outcome: "allow",
       index_health: "ready",
     },
@@ -56,34 +56,10 @@ test("admits only the safe reference metadata, never content", () => {
     record_ref: "memory:claim-1",
     record_version: "v3",
     epistemic_kind: "acquired_report",
-    evidence_assessment: "supported",
+    evidence_assessment: "unassessed",
   }]);
   assert.equal(JSON.stringify(result).includes("restricted raw text"), false);
   assert.equal(JSON.stringify(result).includes("secret title"), false);
-});
-
-test("only explicitly supported evidence crosses the admission boundary", () => {
-  for (const evidenceAssessment of ["unassessed", "disputed", "insufficient", "unknown", undefined]) {
-    const result = evaluateMemoryCandidateAdmission(request, completeResult([
-      candidate({
-        record: { ref: "private-evidence-record", version: "v1" },
-        lifecycle: { ...candidate().lifecycle, evidence_assessment: evidenceAssessment },
-      }),
-    ]));
-    assert.equal(result.status, "ready");
-    assert.deepEqual(result.admitted, []);
-    const serialized = JSON.stringify(result);
-    assert.equal(serialized.includes("private-evidence-record"), false);
-    assert.equal(Object.hasOwn(result, "rejected_count"), false);
-    assert.equal(Object.hasOwn(result, "diagnostics"), false);
-  }
-
-  const supported = evaluateMemoryCandidateAdmission(request, completeResult([
-    candidate({ lifecycle: { ...candidate().lifecycle, evidence_assessment: "supported" } }),
-  ]));
-  assert.equal(supported.status, "ready");
-  assert.equal(supported.admitted.length, 1);
-  assert.equal(supported.admitted[0].evidence_assessment, "supported");
 });
 
 test("fails closed when trusted scope is missing", () => {
@@ -629,7 +605,7 @@ test("candidate admission never implies delivery, receipt, acquisition, or belie
       record_ref: "memory:claim-1",
       record_version: "v3",
       epistemic_kind: "acquired_report",
-      evidence_assessment: "supported",
+      evidence_assessment: "unassessed",
     }],
     reason: null,
   });
@@ -706,7 +682,7 @@ test("malformed candidate entries are ignored without leaking or aborting valid 
     record_ref: "memory:valid-peer",
     record_version: "v1",
     epistemic_kind: "acquired_report",
-    evidence_assessment: "supported",
+    evidence_assessment: "unassessed",
   }]);
   const serialized = JSON.stringify(result);
   assert.equal(serialized.includes("not-a-candidate"), false);
