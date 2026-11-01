@@ -148,11 +148,17 @@ python3 native/posix-namespace-broker/manifest_store.py \\
   --anchor-root /var/lib/logic-engine-broker/anchor \\
   --app-uid "$(id -u logic-app)" disable --role core --confirm-quiesced
 
-# Optional: perform one of these while the application remains stopped.
+# Optional: rename while the application remains stopped. The role remains disabled.
 python3 native/posix-namespace-broker/manifest_store.py \\
   --manifest-root /var/lib/logic-engine-broker/manifest \\
   --anchor-root /var/lib/logic-engine-broker/anchor \\
   --app-uid "$(id -u logic-app)" rename --role core --basename core-archive.sqlite --confirm-quiesced
+
+# After checking the renamed file, explicitly re-enable the role before starting the app.
+python3 native/posix-namespace-broker/manifest_store.py \\
+  --manifest-root /var/lib/logic-engine-broker/manifest \\
+  --anchor-root /var/lib/logic-engine-broker/anchor \\
+  --app-uid "$(id -u logic-app)" enable --role core
 
 # Or permanently remove the main file while retaining a deleted manifest tombstone.
 python3 native/posix-namespace-broker/manifest_store.py \\
