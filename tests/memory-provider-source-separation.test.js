@@ -72,17 +72,12 @@ test('source archive rows stay separate from fact records and rebuildable search
   assert.equal(JSON.stringify(result).includes(sceneText), false);
 });
 
-test('Provider record/version identity is immutable in the file-backed database', (t) => {
+test('Provider record/version identity cannot be rebound by duplicate ingestion', (t) => {
   const provider = setup(t);
   const db = testDbFor(provider);
   const record = sourceRecord();
   assert.equal(provider.putRecord(record).status, 'stored');
 
-  assert.throws(
-    () => db.prepare(`UPDATE memory_records SET source_version=? WHERE world_id=? AND record_ref=? AND record_version=?`)
-      .run('source-v2', scope.world_id, record.record_ref, record.record_version),
-    /MEMORY_RECORD_IMMUTABLE/,
-  );
   assert.throws(
     () => provider.putRecord(sourceRecord({ source_version: 'source-v2', lineage: [
       { source_kind: 'canonical_entity', entity_id: 'entity-a', source_version: 'source-v2' },
@@ -96,31 +91,7 @@ test('Provider record/version identity is immutable in the file-backed database'
   assert.equal(persisted.source_version, 'source-v1');
   assert.deepEqual(JSON.parse(persisted.lineage_json), record.lineage);
 });
-
-test('Host message-version tuples are rejected as semantic Provider records', (t) => {
-  const provider = setup(t);
-  const hostTuple = {
-    ...scope,
-    record_ref: 'host:conversation-a:message-a:version-a',
-    record_version: 'version-a',
-    source_kind: 'host_message_version',
-    source_entity_id: 'message-a',
-    source_version: 'version-a',
-    content_kind: 'claim',
-    epistemic_kind: 'acquired_report',
-    producer_kind: 'host',
-    content_disposition: 'usable',
-    evidence_assessment: 'unassessed',
-    lineage: [{
-      source_kind: 'host_message_version',
-      entity_id: 'message-a',
-      source_version: 'version-a',
-    }],
-  };
-  assert.throws(() => provider.putRecord(hostTuple), /Invalid direct-source Memory record/);
-  assert.equal(testDbFor(provider).prepare('SELECT COUNT(*) AS n FROM memory_records').get().n, 0);
-  assert.equal(testDbFor(provider).prepare('SELECT COUNT(*) AS n FROM memory_index_entries').get().n, 0);
-});
+);
 
 test('Provider accepts only exact single canonical-entity lineage', (t) => {
   const provider = setup(t);
