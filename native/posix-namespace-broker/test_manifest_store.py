@@ -418,7 +418,7 @@ class ManifestStoreTests(unittest.TestCase):
         value["roles"][0]["sidecars"][0]["generation"] = 4
         self.store.commit(_canonical_json(value))
 
-        quarantine = self.role_parent / ".logic-engine-quarantine"
+        quarantine = self.role_parent / ".le-quarantine"
         quarantine.mkdir(mode=0o700)
         os.rename(wal, quarantine / "entry-crash")
 
