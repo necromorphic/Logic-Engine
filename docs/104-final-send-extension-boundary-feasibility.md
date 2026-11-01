@@ -156,3 +156,31 @@ This is an identification of the minimum technical deviation, not a recommendati
 - PR #844: remain Draft; do not merge or enable protected generation based on Gateway unit/integration tests alone.
 
 No architecture change has been made or assumed.
+
+
+## 8. Follow-up: authorized local source patch and implementation started (2026-11-01)
+
+The owner has explicitly authorized a managed local source-level patch of the installed SillyTavern tree, with upstream unchanged. This authorization is treated as settled; no repeat approval is required.
+
+Implementation added on the PR branch:
+
+- `host-adapter/patches/sillytavern-1.19.0-final-send.patch`: pinned patch changes only the local ST 1.19.0 Chat Completions module and adds a request-scoped Final-Send Hook module under the ST `src/` tree.
+- `host-adapter/patches/sillytavern-1.19.0-final-send.manifest.json`: exact ST version/commit and SHA-256 fingerprints for the patch, all audited generation/loader source files, patched target, and created Hook module.
+- `scripts/sillytavern-patch-manager.mjs`: deployment-side Preflight, Backup, Apply, Verify, Rollback, Update, Repair, Uninstall and journal recovery. It refuses unknown source revisions, symlinks, stale/ambiguous locks, corrupted backups, patch conflicts, and rollback over user modifications.
+- `scripts/install-logic-engine-extension.mjs` plus `npm run install:extension`: Extension deployment entrypoint invokes Patch Manager before installation is reported successful.
+- `host-adapter/sillytavern-final-send-adapter.mjs`: server-side adapter factory maps the pinned ST sender registry and forwards the actual native transport capability to the Core Gateway helper.
+- `host-adapter/protected-memory-final-send.mjs`: accepts the request-scoped native transport capability so the Gateway's dispatch-start can surround the actual ST provider transport.
+- tests cover manager lifecycle/conflict preservation, patch manifest integrity and adapter-to-Gateway transport mapping.
+
+The patch wraps the native Chat Completions generation route and its module-local `node-fetch` binding. This covers the provider-specific early-return branches and the generic fallback inside that module. It also routes the first streaming response write through the adapter callback so a protected Gateway can perform final revalidation before the legacy sender's duplicate write is suppressed.
+
+### Explicitly not claimed complete
+
+- The ST Hook module intentionally rejects generation while no trusted server-side adapter is registered. There is no direct-fetch fallback when the Hook is active but its adapter is missing.
+- The adapter factory exists, but a production bootstrap that supplies the real Core `MemoryDispatchGateway`, trusted Host session/world/actor resolver, Core policy/evidence readers, and Provider evidence readers has not yet been wired. No Browser/ST-to-Core request or extra API port is added to compensate.
+- Text Completion, Kobold, NovelAI and Horde remain separate generation routes and are not admitted by the current protected sender registry. They are not silently treated as covered by the Chat Completions patch; protected Memory remains disabled on those paths.
+- SillyTavern's own browser Extension Manager does not execute arbitrary filesystem install hooks. The Logic-Engine deployment now has an `install:extension` entrypoint that installs the patch as part of the Logic-Engine Extension deployment command. The product's final Extension installation workflow must invoke this entrypoint; a browser-only "Install extension" action cannot safely write server source files.
+
+The local patch has been applied to a clean copy of the supplied ST 1.19.0 archive in an isolated test directory; both changed JavaScript modules passed `node --check`. This is source/applicability validation only, not live ST runtime or end-to-end Core authorization evidence.
+
+**Safety:** upstream ST remains untouched; no relay, alternate connector, Base URL replacement, new API port, direct Browser/ST-to-Core call, or separate ST Server Companion has been added. Memory → NPC remains `DISABLED / FAIL-CLOSED` until the trusted adapter bootstrap and end-to-end route/streaming tests are complete.
