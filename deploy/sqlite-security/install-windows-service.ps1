@@ -15,6 +15,15 @@ if ($ServiceName -notmatch '^[A-Za-z][A-Za-z0-9_.-]{2,79}$') { throw "Invalid se
 $InstallDirectory = [IO.Path]::GetFullPath($InstallDirectory)
 $StateDirectory = [IO.Path]::GetFullPath($StateDirectory)
 $NodePath = [IO.Path]::GetFullPath($NodePath)
+function Test-PathWithin([string]$Parent, [string]$Candidate) {
+  $parentPath = [IO.Path]::GetFullPath($Parent).TrimEnd('\\')
+  $candidatePath = [IO.Path]::GetFullPath($Candidate).TrimEnd('\\')
+  return $candidatePath.Equals($parentPath, [StringComparison]::OrdinalIgnoreCase) -or $candidatePath.StartsWith($parentPath + '\\', [StringComparison]::OrdinalIgnoreCase)
+}
+if ((Test-PathWithin $InstallDirectory $StateDirectory) -or
+    (Test-PathWithin $StateDirectory $InstallDirectory)) {
+  throw "InstallDirectory and StateDirectory must be separate, non-overlapping trees."
+}
 if (-not (Test-Path -LiteralPath (Join-Path $InstallDirectory 'src\index.js') -PathType Leaf)) { throw "Logic-Engine entry point not found." }
 if (-not (Test-Path -LiteralPath $NodePath -PathType Leaf)) { throw "Node executable not found." }
 if (-not (Test-Path -LiteralPath $StateDirectory -PathType Container)) { New-Item -ItemType Directory -Path $StateDirectory -Force | Out-Null }
@@ -28,6 +37,9 @@ if ($PSCmdlet.ShouldProcess($ServiceName, "Create isolated virtual-service-accou
   try {
     Invoke-Sc @("sidtype", $ServiceName, "unrestricted")
     $sid = (New-Object System.Security.Principal.NTAccount($account)).Translate([System.Security.Principal.SecurityIdentifier]).Value
+    # The service may execute/read application files but cannot replace its own code.
+    & icacls.exe $InstallDirectory /inheritance:r /grant:r "*$($sid):(OI)(CI)RX" "*S-1-5-18:(OI)(CI)F" "*S-1-5-32-544:(OI)(CI)F" | Out-Host
+    if ($LASTEXITCODE -ne 0) { throw "Failed to make the application install tree read-only to the service identity." }
     & icacls.exe $StateDirectory /inheritance:r /grant:r "*$($sid):(OI)(CI)F" "*S-1-5-18:(OI)(CI)F" "*S-1-5-32-544:(OI)(CI)F" | Out-Host
     if ($LASTEXITCODE -ne 0) { throw "Failed to protect state directory ACL." }
     if ($EnvironmentFile) {
