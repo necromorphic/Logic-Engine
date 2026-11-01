@@ -366,6 +366,23 @@ export function createHostRequestAuthenticationGate({ resolveConversationId } = 
     throw new TypeError('A trusted Host conversation resolver is required.');
   }
   const authenticatedRequests = new WeakMap();
+  function currentAuthenticatedRequest(request) {
+    if (request === null || (typeof request !== 'object' && typeof request !== 'function')) return null;
+    const admitted = authenticatedRequests.get(request);
+    if (!admitted) return null;
+    // Re-read the middleware-owned identity every time the capability is
+    // queried. A retained request object must not survive session rotation,
+    // logout, or a user/account switch after the initial middleware pass.
+    const current = getAuthenticatedHostIdentity(request, {
+      requireDirectories: true,
+      requireSessionIdentity: true,
+    });
+    if (!current
+      || current.userHandle !== admitted.userHandle
+      || current.session.logicEngineSessionId !== admitted.sessionId
+      || current.session.logicEngineSessionHandle !== admitted.userHandle) return null;
+    return admitted;
+  }
   async function middleware(request, response, next) {
     response.set('Cache-Control', 'no-store, private');
     response.set('Vary', 'Cookie');
@@ -381,7 +398,14 @@ export function createHostRequestAuthenticationGate({ resolveConversationId } = 
       if (typeof conversationId !== 'string' || !HOST_CONVERSATION_ID.test(conversationId)) {
         return response.sendStatus(403);
       }
-      authenticatedRequests.set(request, conversationId);
+      authenticatedRequests.set(request, Object.freeze({
+        conversationId,
+        userHandle: identity.userHandle,
+        sessionId: identity.session.logicEngineSessionId,
+      }));
+      // Resolver work may have yielded. Revalidate the exact session before
+      // handing control to the route handler.
+      if (!currentAuthenticatedRequest(request)) return response.sendStatus(403);
       return next();
     } catch {
       return response.sendStatus(403);
@@ -390,12 +414,10 @@ export function createHostRequestAuthenticationGate({ resolveConversationId } = 
   return Object.freeze({
     middleware,
     isAuthenticatedHostRequest(request) {
-      return request !== null && (typeof request === 'object' || typeof request === 'function')
-        && authenticatedRequests.has(request);
+      return currentAuthenticatedRequest(request) !== null;
     },
     resolveHostConversationId(request) {
-      if (request === null || (typeof request !== 'object' && typeof request !== 'function')) return null;
-      return authenticatedRequests.get(request) ?? null;
+      return currentAuthenticatedRequest(request)?.conversationId ?? null;
     },
   });
 }
