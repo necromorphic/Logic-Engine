@@ -183,3 +183,36 @@ test('context route fails closed when Core world or actor binding cannot be reso
         assert.equal(response.body.status, 'NON_READY');
     }
 });
+
+
+test('context route rejects a session rotated while awaiting Core context resolution', async () => {
+    let request;
+    let calls = 0;
+    const route = createHostContextRoute({
+        ...dependencies(),
+        config: { adapterId: 'st-adapter', actorEntityId: 'npc-kiryu', adapterToken },
+        corePost: async () => {
+            calls++;
+            request.session.logicEngineSessionId = '6e6b0a80-4e73-4c66-aaf3-7a6e62c7f405';
+            return {
+                context: {
+                    installation_id: installationId,
+                    account_id: accountId,
+                    session_id: sessionId,
+                    conversation_id: conversationId,
+                    world_id: 'world-kamurocho',
+                    actor_id: 'npc-kiryu',
+                    adapter_id: 'st-adapter',
+                    authority: 'AUTHENTICATED_ADAPTER_AND_CORE_BINDINGS',
+                },
+            };
+        },
+    });
+    request = makeRequest();
+    const response = makeResponse();
+    await route.middleware(request, response, () => {});
+    await route.handler(request, response);
+    assert.equal(response.statusCode, 403);
+    assert.equal(calls, 1);
+    assert.equal(response.body, null);
+});
