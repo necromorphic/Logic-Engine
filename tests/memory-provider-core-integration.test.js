@@ -34,7 +34,7 @@ const resolveHostIdentity = request => trustedHostIdentities.get(request) ?? nul
 
 function assertNoRejectedMetadataDisclosure(result) {
   const serialized = JSON.stringify(result);
-  assert.doesNotMatch(serialized, /"(?:diagnostics?|snippets?|rejected_count|denied_count|withheld_count|filtered_count)"\\s*:/i);
+  assert.doesNotMatch(serialized, /"(?:diagnostics?|snippets?|rejected_count|denied_count|withheld_count|filtered_count)"\s*:/i);
   assert.equal(Object.hasOwn(result, 'rejected_count'), false);
   assert.equal(Object.hasOwn(result, 'diagnostics'), false);
 }
