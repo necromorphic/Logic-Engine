@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { Worker } from 'node:worker_threads';
+import { registerWindowsManifestRole } from '../native/secure-vfs-probe/windows-role-manifest.js';
 
 const extensionPath = process.env.LOGIC_ENGINE_VFS_PROBE_PATH;
 
@@ -43,6 +44,57 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
   const corePath = join(directory, 'core.sqlite');
   registerRole(workerPath, 'worker');
   registerRole(corePath, 'core-anchor');
+
+  if (process.platform === 'win32') {
+    const manifestDbPath = join(directory, 'manifest-enrolled.sqlite');
+    const manifestWalPath = `${manifestDbPath}-wal`;
+    const manifestShmPath = `${manifestDbPath}-shm`;
+    writeFileSync(manifestDbPath, '');
+    writeFileSync(manifestWalPath, 'manifest-wal');
+    writeFileSync(manifestShmPath, 'manifest-shm');
+    const captureIdentity = (filePath) => JSON.parse(roleRegistrar.prepare(
+      'SELECT logic_engine_vfs_probe_capture_manifest_identity(?) AS value'
+    ).get(filePath).value);
+    const databaseIdentity = captureIdentity(manifestDbPath);
+    const walIdentity = captureIdentity(manifestWalPath);
+    const shmIdentity = captureIdentity(manifestShmPath);
+    unlinkSync(manifestShmPath);
+    const manifest = {
+      schemaVersion: 1,
+      generation: 4,
+      platform: 'windows',
+      metadataRootIdentity: databaseIdentity.parentIdentity,
+      filesystemPolicy: {
+        filesystem: 'NTFS',
+        identitySource: 'opened-handle',
+        directoryMutationBoundary: 'dedicated-service-identity',
+      },
+      roles: [{
+        role: 'manifest-enrolled',
+        parentComponents: [path.win32.basename(path.win32.dirname(manifestDbPath))],
+        parentIdentities: [databaseIdentity.parentIdentity],
+        databaseBasename: path.win32.basename(manifestDbPath),
+        databaseIdentity: databaseIdentity.databaseIdentity,
+        state: 'active',
+        sidecars: [
+          { kind: 'wal', identity: walIdentity.databaseIdentity, state: 'active', generation: 3 },
+          { kind: 'shm', identity: shmIdentity.databaseIdentity, state: 'retired', generation: 4 },
+        ],
+      }],
+    };
+    const tampered = structuredClone(manifest);
+    tampered.roles[0].databaseIdentity.fileId =
+      (tampered.roles[0].databaseIdentity.fileId[0] === '0' ? '1' : '0')
+      + tampered.roles[0].databaseIdentity.fileId.slice(1);
+    assert.throws(() => registerWindowsManifestRole(
+      roleRegistrar, tampered, 'manifest-enrolled', manifestDbPath
+    ), /does not match persistent manifest/,
+    'Windows manifest enrollment must reject a DB identity mismatch');
+    assert.equal(registerWindowsManifestRole(
+      roleRegistrar, manifest, 'manifest-enrolled', manifestDbPath
+    ), 1,
+    'Windows manifest enrollment must bind the DB and final parent handle identities');
+  }
 
   const unregisteredPath = join(directory, 'unregistered.sqlite');
   assert.throws(() => new DatabaseSync(unregisteredPath),
