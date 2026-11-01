@@ -47,6 +47,58 @@
  });
  
  const multimodalModels = express.Router();
+--- a/src/endpoints/extensions.js
++++ b/src/endpoints/extensions.js
+@@ -8,6 +8,7 @@
+ import { PUBLIC_DIRECTORIES } from '../constants.js';
+ import { color, getConfigValue, isValidUrl } from '../util.js';
+ import { createGitClient } from '../git/client.js';
++import { runLogicEngineExtensionLifecycle } from '../logic-engine-extension-install-hook.js';
+ 
+ const gitBackend = getConfigValue('git.backend', 'auto');
+ 
+@@ -138,15 +139,24 @@
+         await git.clone(parsedUrl.href, extensionPath, cloneOptions);
+         console.info(`Extension has been cloned to ${extensionPath} from ${parsedUrl.href} at ${branch || '(default)'} branch`);
+ 
++        let patchManagerInvoked = false;
+         try {
+             const manifest = await getManifest(extensionPath);
+             if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) {
+                 throw new Error('Manifest is not a valid JSON object.');
+             }
++            if (manifest.logic_engine_patch_manager?.id === 'logic-engine-sillytavern-final-send') {
++                patchManagerInvoked = true;
++                await runLogicEngineExtensionLifecycle({ action: 'install', extensionPath });
++            }
+             const { version, author, display_name } = manifest;
+             return response.send({ version, author, display_name, extensionPath, folderName });
+         } catch (manifestError) {
+-            await fs.promises.rm(extensionPath, { recursive: true, force: true });
++            // Keep the cloned Extension when Patch Manager has started: its
++            // journal and pinned artifacts are needed for safe recovery.
++            if (!patchManagerInvoked) {
++                await fs.promises.rm(extensionPath, { recursive: true, force: true });
++            }
+             throw manifestError;
+         }
+     } catch (error) {
+@@ -203,6 +213,7 @@
+         } else {
+             console.info(`Extension is up to date at ${extensionPath}`);
+         }
++        await runLogicEngineExtensionLifecycle({ action: 'update', extensionPath });
+         await git.fetch('origin');
+         const fullCommitHash = await git.revparse(['HEAD']);
+         const shortCommitHash = fullCommitHash.slice(0, 7);
+@@ -463,6 +474,7 @@
+             return response.status(404).send(`Directory does not exist at ${extensionPath}`);
+         }
+ 
++        await runLogicEngineExtensionLifecycle({ action: 'delete', extensionPath });
+         await fs.promises.rm(extensionPath, { recursive: true });
+         console.info(`Extension has been deleted at ${extensionPath}`);
+ 
 --- /dev/null
 +++ b/src/logic-engine-final-send-hook.js
 @@ -0,0 +1,91 @@
@@ -140,4 +192,44 @@
 +
 +export function getLogicEngineFinalSendStatus() {
 +    return Object.freeze({ registered: Boolean(adapter), owner: adapterOwner });
++}
+--- /dev/null
++++ b/src/logic-engine-extension-install-hook.js
+@@ -0,0 +1,37 @@
++import { realpath, readFile } from 'node:fs/promises';
++import { dirname, resolve } from 'node:path';
++import { fileURLToPath, pathToFileURL } from 'node:url';
++
++const stRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
++const MANAGER_ID = 'logic-engine-sillytavern-final-send';
++
++export async function runLogicEngineExtensionLifecycle({ action, extensionPath }) {
++    if (!['install', 'update', 'delete'].includes(action)
++        || typeof extensionPath !== 'string' || !extensionPath.trim()) {
++        throw new Error('LOGIC_ENGINE_EXTENSION_LIFECYCLE_INVALID');
++    }
++
++    const trustedExtensionRoot = await realpath(extensionPath);
++    const manifest = JSON.parse(await readFile(resolve(trustedExtensionRoot, 'manifest.json'), 'utf8'));
++    if (manifest?.logic_engine_patch_manager?.id !== MANAGER_ID
++        || manifest.logic_engine_patch_manager?.manifestVersion !== 1) {
++        return { status: 'NOT_MANAGED' };
++    }
++
++    const managerPath = resolve(trustedExtensionRoot, 'scripts/sillytavern-patch-manager.mjs');
++    const managerUrl = pathToFileURL(managerPath);
++    managerUrl.searchParams.set('extensionVersion', String(manifest.version ?? 'unknown'));
++    const { SillyTavernPatchManager } = await import(managerUrl.href);
++    const manager = new SillyTavernPatchManager({
++        extensionRoot: trustedExtensionRoot,
++        stRoot,
++    });
++
++    const command = action === 'delete' ? 'uninstall' : action === 'update' ? 'update' : 'install';
++    try {
++        return await manager.execute(command);
++    } catch (error) {
++        error.logicEnginePatchManagerRecoveryRequired = true;
++        throw error;
++    }
 +}
