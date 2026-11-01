@@ -52,8 +52,9 @@ test('stock better-sqlite3 uses the registered default VFS in its own engine', {
   } catch (error) {
     const diagnostics = registrar.prepare(`
       SELECT
-        logic_engine_vfs_probe_parent_xopen_diagnostics() AS parentXOpen,
-        logic_engine_vfs_probe_failure_diagnostics() AS failures,
+        logic_engine_vfs_probe_open_count() AS mainOpens,
+        logic_engine_vfs_probe_journal_open_count() AS journalOpens,
+        logic_engine_vfs_probe_wal_open_count() AS walOpens,
         logic_engine_vfs_probe_native_open_count() AS nativeOpens,
         logic_engine_vfs_probe_identity_reject_count() AS identityRejects,
         logic_engine_vfs_probe_reused_descriptor_accept_count() AS acceptedMainOpens
