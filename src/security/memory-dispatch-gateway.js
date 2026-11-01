@@ -211,17 +211,14 @@ export class MemoryDispatchGateway {
     readToken,
     readCoreEvidence,
     readProviderEvidence,
-    createTransport,
   }) {
     if (typeof ledgerPath !== 'string' || !isAbsolute(ledgerPath)
       || typeof coordinatorPath !== 'string' || !isAbsolute(coordinatorPath)
       || !Number.isInteger(authorityPort) || authorityPort < 1 || authorityPort > 65535
       || typeof readToken !== 'string' || readToken.length < 32
       || typeof readCoreEvidence !== 'function'
-      || typeof readProviderEvidence !== 'function'
-      || typeof createTransport !== 'function'
-      || createTransport instanceof ASYNC_FUNCTION_PROTOTYPE) {
-      throw new TypeError('MemoryDispatchGateway requires file-backed stores, a read-only authority token, trusted synchronous readers, and a non-async request-scoped transport factory.');
+      || typeof readProviderEvidence !== 'function') {
+      throw new TypeError('MemoryDispatchGateway requires file-backed stores, a read-only authority token, trusted synchronous readers.');
     }
     if (sameFile(ledgerPath, coordinatorPath)) {
       throw new Error('DISPATCH_LEDGER_COORDINATOR_PATH_ALIAS');
@@ -233,7 +230,6 @@ export class MemoryDispatchGateway {
     this.readToken = readToken;
     this.readCoreEvidence = readCoreEvidence;
     this.readProviderEvidence = readProviderEvidence;
-    this.createTransport = createTransport;
 
     this.coordinatorDb = openCoordinatorDatabase(this.coordinatorPath);
     this.db = null;
@@ -303,7 +299,7 @@ export class MemoryDispatchGateway {
     }
   }
 
-  async dispatchProtectedRequest({ requestId, route, model, stream, body, worldId, actorId, purpose, sources, candidates, forwardResponse, signal }) {
+  async dispatchProtectedRequest({ requestId, route, model, stream, body, worldId, actorId, purpose, sources, candidates, transport, forwardResponse, signal }) {
     if (!validText(requestId, 200) || !SUPPORTED_PROTECTED_MEMORY_ROUTES.includes(route)
       || typeof model !== 'string' || !/^[A-Za-z0-9._-]{1,128}$/.test(model)
       || typeof stream !== 'boolean'
@@ -366,12 +362,10 @@ export class MemoryDispatchGateway {
       coreHead = core.head;
       providerHead = provider.head;
 
-      // Build a dormant, request-scoped transport only from trusted Host code.
-      // The factory must not perform network I/O. The returned capability is
-      // kept in-process and is never serialized or accepted from browser input.
-      transport = this.createTransport({
-        route, model, stream, body, requestId, requestDigest, forwardResponse, signal,
-      });
+      // The Host must pass a dormant request-scoped transport capability
+      // directly in-process. It is never accepted through the JSON Gateway
+      // endpoint and is never serialized. The Host creates it from its trusted
+      // provider endpoint, credentials, headers and final serialized body.
       if (typeof transport !== 'function' || transport instanceof ASYNC_FUNCTION_PROTOTYPE) {
         throw new Error('MEMORY_DISPATCH_TRANSPORT_CAPABILITY_INVALID');
       }
