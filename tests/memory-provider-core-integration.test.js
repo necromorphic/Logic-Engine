@@ -248,6 +248,7 @@ test('real Provider diagnostics, snippets, and candidate counts never cross the 
     conversationId: HOST_CONVERSATION_ID,
   });
   assert.equal(result.status, 'ready');
+  assert.deepEqual(Object.keys(result).sort(), ['admitted', 'candidates', 'reason', 'snapshot', 'status']);
   assert.equal(result.candidates.length, 1);
   assertNoRejectedMetadataDisclosure(result);
   const serialized = JSON.stringify(result);
