@@ -500,7 +500,7 @@ test('pinned ST 1.19.0 supported chat mutations persist; rename, group deletion,
       messageId: '66666666-6666-4666-8666-666666666666',
       versionId: '77777777-7777-4777-8777-777777777777',
     })) + '\\n');
-    await writeFile(groupMetadataPath, JSON.stringify({ id: 'group-harness', chats: [] }));
+    await writeFile(groupMetadataPath, JSON.stringify({ id: 'group-harness', chats: ['group-harness'] }));
     return { status: 'SEEDED_GROUP_FIXTURE' };
   }, 'added');
   assert.ok(groupSeed.result.delta.added.some(entry => entry.path.endsWith('group-harness.jsonl')));
@@ -518,7 +518,7 @@ test('pinned ST 1.19.0 supported chat mutations persist; rename, group deletion,
     assert.equal(response.result.code, 'HOST_LIFECYCLE_PREPARED_SAVE_REQUIRED');
     assert.equal((await readFile(groupChatPath, 'utf8')).includes('existing group chat'), true);
     const metadata = JSON.parse(await readFile(groupMetadataPath, 'utf8'));
-    assert.deepEqual(metadata.chats, []);
+    assert.deepEqual(metadata.chats, ['group-harness']);
     return response;
   }, 'unchanged');
 
