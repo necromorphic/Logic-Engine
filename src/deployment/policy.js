@@ -6,14 +6,6 @@ export const CAPABILITY_STATUSES = Object.freeze([
   'DEGRADED',
 ]);
 
-const statusRank = Object.freeze({
-  PASS: 0,
-  DEGRADED: 1,
-  NOT_TESTED: 2,
-  UNSUPPORTED: 3,
-  FAIL: 4,
-});
-
 export function createCapabilityEvidence({
   id,
   status = 'NOT_TESTED',
@@ -128,7 +120,7 @@ export function buildDeploymentReport({
       execution_mode: component.execution_mode,
       status: gates.some((gate) => gate.affected_features.includes(component.id) && gate.status === 'BLOCKED')
         ? 'NOT_TESTED'
-        : 'DEGRADED',
+        : profile === 'portable-desktop' ? 'DEGRADED' : 'PASS',
     })),
     capabilities: capabilities.map((item) => ({
       id: item.id,
