@@ -1067,9 +1067,10 @@ test("replaying an admission cannot reactivate an invalidated evidence identity"
   assert.equal(replay.state.evidence[0].invalidation_rule_ref, "rule-revoked");
 
   const conflictingRegrant = admit(state, {
-    evidence_assessment: "supported",
-    epistemic_status: "confirmed",
+    source_version: "v2",
+    evidence_version: "v2",
   });
-  assert.equal(conflictingRegrant.status, "unchanged");
-  assert.equal(conflictingRegrant.state.evidence[0].status, "invalidated");
+  assert.equal(conflictingRegrant.status, "non_ready");
+  assert.equal(conflictingRegrant.reason, "evidence_identity_conflict");
+  assert.equal(state.evidence[0].status, "invalidated");
 });
