@@ -2,12 +2,12 @@
 
 **Contract:** Host ↔ Core authenticated Memory retrieval  
 **Version:** 1.0.0  
-**Status:** CONTRACT DEFINED; retrieval exception mapping corrected in Core #867 and mirrored in Host #850; Host candidate CI green; Core full Runtime CI still running; independent Host/Core reviews and branch integration remain pending  
-**Validated candidate heads (1 Nov 2026):** Host PR #850 `40d89e8230f7a893130ce5bc5791c354b13a8422`; Core Lane B PR #846 `832abf337530e9421f53eaed85760cb4a7f07313`; Core HTTP PR #867 `4b36f9f6763efc4e0ab4356614e10422f82174d5`  
+**Status:** CONTRACT DEFINED; Host and Core technical-owner ACKs received; latest exact-head CI green on all four candidates; independent maintainer reviews and branch integration remain pending  
+**Validated candidate heads (1 Nov 2026):** Host PR #850 `8c51709cbfe85e93ebe04065cf5282c4dd0a8bdc`; Core Lane B PR #846 `832abf337530e9421f53eaed85760cb4a7f07313`; Core HTTP PR #867 `c109dc7c2ad084e1fb236703c8a77c844d634717`; Contract PR #866 `97cb0e897649f8f3a965ef5b79dfa5a6280c765b`  
 **Scope:** identity hand-off, Core World/Actor resolution, authenticated Memory Provider retrieval, result/error/revoke semantics.  
 **Not in scope:** branch merging, Security Gateway changes, Final-Send, production enablement, Lane A, Provider schema migration.
 
-This document is the interface contract and implementation ledger. The two private routes are present in stacked Core HTTP #867 and Host #850; their five shared route blocks are byte-identical. Exact-head Runtime CI is green for Host #850 (run `41335887577`), Core Lane B #846 (run `41317936997`), Core HTTP #867 (run `41335872509`), and this contract PR #866 (run `41336312266`). Memory → NPC remains fail-closed until deployment Provider configuration/data authorization and existing release gates are satisfied.
+This document is the interface contract and implementation ledger. The two private routes are present in stacked Core HTTP #867 and Host #850; their five shared route blocks are byte-identical. Latest exact-head Runtime CI is green for Host #850 (run `41337612948`), Core Lane B #846 (run `41317936997`), Core HTTP #867 (run `41337597644`), and this contract PR #866 (run `41338285214`). Memory → NPC remains fail-closed until deployment Provider configuration/data authorization and existing release gates are satisfied.
 
 ## 1. Binding decisions and ownership
 
@@ -122,8 +122,7 @@ Success — HTTP 200, exact response envelope `host-context-resolve-response/v1`
     "adapter_id": "deployment-configured-adapter",
     "conversation_id": "11111111-1111-4111-8111-111111111111:22222222-2222-4222-8222-222222222222:44444444-4444-4444-8444-444444444444",
     "world_id": "core-bound-world-id",
-    "actor_id": "core-bound-actor-id",
-    "actor_type": "character"
+    "actor_id": "core-bound-actor-id",    "actor_type": "character"
   }
 }
 ```
@@ -248,7 +247,6 @@ HTTP/API errors use the existing Core envelope:
   }
 }
 ```
-
 Do not return secrets, raw request data, hidden entity values, Provider snippets, or item-level denial reasons in error messages.
 
 | Condition | HTTP | Stable code / result |
@@ -260,6 +258,11 @@ Do not return secrets, raw request data, hidden entity values, Provider snippets
 | Missing/invalid API bearer | 401 | `UNAUTHORIZED` |
 | Missing/invalid adapter credentials | 403 | `ADAPTER_REQUIRED` |
 | No active conversation → World binding | 403 | `HOST_CONVERSATION_NOT_AUTHORIZED` |
+| Bound World missing between conversation and Actor resolution | 409 | `HOST_CONVERSATION_WORLD_UNAVAILABLE` |
+| Core World disappears during Actor resolution | 404 | `WORLD_NOT_FOUND` |
+| Actor resolver returns malformed/ineligible binding data | 409 | `HOST_ACTOR_BINDING_UNAVAILABLE` |
+| Unsupported HTTP method on either private route | 405 | `METHOD_NOT_ALLOWED` |
+| Consumer returns an invalid result envelope | 503 | `MEMORY_NPC_RESULT_INVALID` |
 | Signed assertion World/Actor differs from Core's live binding | 200 | `{ "retrieval": { "status": "non_ready", "reason": "query_access_unconfirmed", ... } }` |
 | No active Actor binding | 403 | `ACTOR_NOT_AUTHORIZED` |
 | More than one active Actor binding | 403 | `ACTOR_BINDING_AMBIGUOUS` |
@@ -283,7 +286,7 @@ The consumer's existing reason vocabulary remains the source of truth. It includ
 
 Reason strings are safe state labels, not a promise to reveal which record, field, or grant caused the refusal.
 
-**Resolved implementation discrepancy — Core #867:** the route now distinguishes exceptions thrown inside `consumer.retrieveForNpc()` from assertion-verification failures. Unexpected Consumer/runtime exceptions propagate to the existing generic `500 INTERNAL_ERROR` envelope; only explicit `HOST_SESSION_ASSERTION_INVALID` verification errors map to 401. A regression test verifies the generic response, no detail disclosure, and nonce consumption (replay returns 409). The same route correction and byte-identical HTTP regression test are present in Host #850. Core full Runtime CI is still running; do not mark the correction CI-verified until that run completes.
+**Resolved implementation discrepancy — Core #867:** the route now distinguishes exceptions thrown inside `consumer.retrieveForNpc()` from assertion-verification failures. Unexpected Consumer/runtime exceptions propagate to the existing generic `500 INTERNAL_ERROR` envelope; only explicit `HOST_SESSION_ASSERTION_INVALID` verification errors map to 401. A regression test verifies the generic response, no detail disclosure, and nonce consumption (replay returns 409). The same route correction and byte-identical HTTP regression test are present in Host #850. Core full Runtime CI passed on the latest #867 HEAD; the regression and generic error mapping are CI-verified.
 
 ## 7. Revocation and freshness rules
 
@@ -327,7 +330,7 @@ The active candidates have corrected the earlier identity-key and Memory-consume
 | `HostConversationWorldBindingService` | Blob matches Core candidate | Hardened identifier validation | Aligned |
 | `MemoryNpcConsumer` | Blob matches Core candidate after sync | Hardened plain-data/proxy/array checks and authenticated-session context | Aligned |
 | Memory Provider adapter | Blob matches Core candidate | HTTP/runtime composition and Provider facade | Aligned |
-| Unexpected exception from `retrieveForNpc()` | Host mirrors the shared route correction; proxy maps non-2xx Core responses to bounded dispatch failure | Core #867 propagates Consumer callback failures to generic 500 `INTERNAL_ERROR`; regression test added | Corrected; full Core CI pending |
+| Unexpected exception from `retrieveForNpc()` | Host mirrors the shared route correction; proxy maps non-2xx Core responses to bounded dispatch failure | Core #867 propagates Consumer callback failures to generic 500 `INTERNAL_ERROR`; regression test added | Corrected; exact-head Core CI passed |
 | NPC knowledge authorization + SQLite Memory Provider | Blobs match Lane B/Core candidate after sync | Core-owned authorization and Provider implementation | Aligned |
 | Host lifecycle and full-root inventory routes | Host adds four private routes | Not part of Core #867 | Host-owned extension; no collision with Core routes |
 
@@ -346,7 +349,7 @@ The contract's wire format, identity projection, binding ownership, retrieval fa
 - [x] Host API technical-owner approval: Host-local stable key remains local; Core requests use PC-NEXT-11 tuple.
 - [x] Core API technical-owner approval: two private routes, durable nonce guard, and existing consumer result envelope.
 - [x] Core retrieval exception mapping conforms to §6 in #867: unexpected consumer/runtime exceptions return generic HTTP 500 `INTERNAL_ERROR`; regression test verifies response secrecy and nonce replay protection.
-- [x] Exact-head full Runtime CI passes on Host #850 (`41335887577`), Core Lane B #846 (`41317936997`), Core HTTP #867 (`41335872509`), and contract #866 (`41336312266`). All jobs, including `npm test`, completed successfully.
+- [x] Latest exact-head full Runtime CI passes on Host #850 (`41337612948`), Core Lane B #846 (`41317936997`), Core HTTP #867 (`41337597644`), and contract #866 (`41338285214`). All jobs, including `npm test`, completed successfully.
 - [x] Contract PR #866 full Runtime suite passed on retry (run `41331512380`, attempt 2); the first attempt's single failure was the unrelated Windows `remote-binding.test.js` listener/fetch test.
 - [x] Identity projection is aligned across Host #850 and Core HTTP #867. Route ownership is split at the PR-stack level: #846 is the Core foundation, #867 supplies Core HTTP routes, and #850 carries the Host candidate plus its coordinated route mirror. Remaining independent review, branch integration, and deployment gates are tracked in §11.
 
@@ -373,7 +376,6 @@ The technical owner has taken responsibility for both blocks and approved the bo
 The implementation uses `HostAssertionNonceStore` in a dedicated file configured by `ENGINE_HOST_ASSERTION_NONCE_DB_PATH` (default: `./data/logic-engine-host-assertion-nonces.sqlite`). It enforces a unique key on `(adapter_id, nonce)`, removes expired entries opportunistically, and persists across API process restarts. It is checked to be a separate file from Core and Coordinator; Host deployment additionally checks it against the Host lifecycle and version-ledger files. A store failure produces `503 HOST_ASSERTION_REPLAY_GUARD_UNAVAILABLE`.
 
 ### Validation state
-
 Exact candidate heads and latest Runtime validation checked on 1 Nov 2026:
 
 - Core Lane B PR #846 HEAD `832abf337530e9421f53eaed85760cb4a7f07313`: Runtime run `41317936997` — SUCCESS; all eight jobs passed, including `npm test`. This is the Core foundation; HTTP route registrations are supplied by stacked #867.
@@ -425,3 +427,45 @@ The independent review identified verification gaps rather than confirmed exploi
 Regression tests were added to Core HTTP #867 (commit `c109dc7c2ad084e1fb236703c8a77c844d634717`) and mirrored byte-for-byte in Host #850 (commit `8c51709cbfe85e93ebe04065cf5282c4dd0a8bdc`). Core Runtime CI run `41337597644` passed in full. Host Runtime CI run `41337612948` was still running at the time this addendum was prepared. The Host and Core versions of `tests/host-memory-http-api.test.js` are byte-identical, and the five shared HTTP route blocks remain byte-identical.
 
 These checks do not constitute merge approval. Independent maintainer Reviews, final Host CI, branch integration/rebase, deployment configuration, and Final-Send proof remain separate gates.
+
+## 12. Superseding exact-head verification — 1 Nov 2026
+
+This section supersedes earlier candidate SHA and CI snapshots in §§1, 9–11. The contract semantics remain v1.0.0; no schema or route version was changed by this verification update.
+
+### Exact current candidates
+
+| Candidate | Current HEAD | Exact-head validation |
+|---|---|---|
+| Host #850 `host/unified-extension-gateway-candidate` | `8c51709cbfe85e93ebe04065cf5282c4dd0a8bdc` | Runtime `41337612948` SUCCESS; candidate, static validation, pinned-source audits, browser restart and Provider blocker workflows SUCCESS |
+| Core Lane B #846 `lane-b/core-authenticated-host-request-2026-11-01` | `832abf337530e9421f53eaed85760cb4a7f07313` | Runtime `41317936997` SUCCESS; lifecycle patch, Provider blocker, browser restart and pinned-source workflows SUCCESS |
+| Core HTTP #867 `integration/core-host-memory-http-v1` | `c109dc7c2ad084e1fb236703c8a77c844d634717` | Runtime `41337597644` SUCCESS |
+| Contract #866 `docs/host-core-integration-contract-v1` | `97cb0e897649f8f3a965ef5b79dfa5a6280c765b` | Runtime `41338285214` SUCCESS |
+
+All listed runs are completed with conclusion SUCCESS. These are validation results for the exact PR heads above, not merge or deployment approval.
+
+### Current cross-branch byte comparison
+
+Fetched current files from Host #850 and Core HTTP #867 and compared their complete contents:
+
+| Path | Result |
+|---|---|
+| `src/application/host-session-context.js` | Byte-identical |
+| `src/application/memory-npc-provider-adapter.js` | Byte-identical |
+| `src/application/host-assertion-nonce-store.js` | Byte-identical |
+| `tests/host-memory-http-api.test.js` | Byte-identical |
+| `src/api/server.js` | Intentionally different; Host retains additional Host-owned lifecycle/root-inventory routes and composition |
+
+The complete route blocks for `POST /v1/host-context/resolve` and `POST /v1/host/memory-npc/retrieve` were separately extracted from both current `src/api/server.js` files and compared byte-for-byte; both blocks are identical. Do not replace either complete `server.js` file with the other branch's version.
+
+The current Core Actor resolver confirms the documented outcomes: zero active bindings → `403 ACTOR_NOT_AUTHORIZED`; multiple active bindings → `403 ACTOR_BINDING_AMBIGUOUS`; missing/destroyed bound Actor → `409 ACTOR_ENTITY_NOT_ELIGIBLE`. The current World resolver returns `403 HOST_CONVERSATION_NOT_AUTHORIZED` for absent/revoked bindings and `409 HOST_CONVERSATION_WORLD_UNAVAILABLE` if the bound World is unavailable. The error table above now includes the additional route-level outcomes observed in the current API implementation.
+
+### Acceptance disposition
+
+- Wire schemas, identity projection, Core binding ownership, consumer-facade boundary, result wrapper, and error mapping are aligned between the current Host and combined Core (#846 + #867) candidates.
+- Both required private route blocks are byte-identical; the four shared application/test files listed above are byte-identical.
+- Exact-head CI is green for Host, Core foundation, Core HTTP, and this contract document.
+- Coordinated Host and Core technical-owner ACKs are recorded in #850 and #846. They are not independent maintainer reviews.
+- Independent GitHub PR Reviews are still outstanding. Branch refresh/rebase and merge simulation are still outstanding. No merge has been performed.
+- The Memory Provider remains deployment-configured and fail-closed when unavailable or unauthorized. This contract does not enable production Memory → NPC traffic, claim linearizable revoke through Final-Send, modify Security Gateway, or include Final-Send.
+
+**Current decision: CONTRACT TECHNICALLY ALIGNED; ACCEPTANCE PENDING INDEPENDENT HOST/CORE REVIEWS AND CONTROLLED BRANCH INTEGRATION.**
