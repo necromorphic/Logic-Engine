@@ -895,6 +895,20 @@ test('Host sends a digest-only Core snapshot through reconcile while explicitly 
 });
 
 
+test('failed server PREPARED does not strand a local pending mutation before any Host write', async () => {
+  const f = makeFixture(undefined, {
+    publishLifecycleEvent: async () => { throw Error('Core unavailable'); },
+    getLifecycleStatus: async () => ({ status: 'NO_PENDING_MUTATION' }),
+  });
+  await f.bridge.enrollCurrentConversation();
+  await assert.rejects(
+    f.bridge.beforeMutation('edit-message', [0]),
+    /Core did not durably accept the prepared Host mutation/,
+  );
+  assert.equal((await f.journal.pendingMutation('chat-1')).status, 'NO_PENDING_MUTATION');
+  assert.equal((await f.journal.verifyIntegrity('chat-1')).status, 'INTEGRITY_OK');
+});
+
 test('Core receives a durable prepare before mutation and a matching commit after native persistence', async () => {
   const events = [];
   let remote = { status: 'NO_PENDING_MUTATION' };
