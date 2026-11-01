@@ -154,8 +154,8 @@ function validHostSessionAssertion(assertion) {
 /**
  * Verifies a short-lived Host assertion signed by the server-held adapter
  * secret, then creates the same non-serializable Core capability used by the
- * in-process Host gate. The nonce cache is process-local; expired assertions
- * cannot be replayed after restart.
+ * in-process Host gate. Deployments should provide consumeNonce backed by the
+ * Core durable database so replay protection survives process restart.
  */
 export function createHostSessionAssertionRunner({
   secret,
@@ -163,12 +163,14 @@ export function createHostSessionAssertionRunner({
   maxAgeSeconds = 30,
   maxFutureSkewSeconds = 5,
   maxRememberedNonces = 10000,
+  consumeNonce = null,
 } = {}) {
   if (typeof secret !== 'string' || secret.length < 16
     || typeof now !== 'function'
     || !Number.isInteger(maxAgeSeconds) || maxAgeSeconds < 1 || maxAgeSeconds > 120
     || !Number.isInteger(maxFutureSkewSeconds) || maxFutureSkewSeconds < 0 || maxFutureSkewSeconds > 30
-    || !Number.isInteger(maxRememberedNonces) || maxRememberedNonces < 1 || maxRememberedNonces > 100000) {
+    || !Number.isInteger(maxRememberedNonces) || maxRememberedNonces < 1 || maxRememberedNonces > 100000
+    || (consumeNonce !== null && typeof consumeNonce !== 'function')) {
     throw new TypeError('Host session assertion runner configuration is invalid.');
   }
   const usedNonces = new Map();
@@ -190,12 +192,19 @@ export function createHostSessionAssertionRunner({
       if (provided.length !== expected.length || !timingSafeEqual(provided, expected)) {
         throw new Error('HOST_SESSION_ASSERTION_INVALID');
       }
-      for (const [nonce, expiresAt] of usedNonces) {
-        if (expiresAt < currentSeconds) usedNonces.delete(nonce);
+      if (consumeNonce) {
+        let consumed;
+        try { consumed = consumeNonce(assertion.nonce, assertion.issued_at + maxAgeSeconds, currentSeconds); }
+        catch { throw new Error('HOST_SESSION_ASSERTION_NONCE_STORE_UNAVAILABLE'); }
+        if (consumed !== true) throw new Error('HOST_SESSION_ASSERTION_REPLAYED');
+      } else {
+        for (const [nonce, expiresAt] of usedNonces) {
+          if (expiresAt < currentSeconds) usedNonces.delete(nonce);
+        }
+        if (usedNonces.has(assertion.nonce)) throw new Error('HOST_SESSION_ASSERTION_REPLAYED');
+        if (usedNonces.size >= maxRememberedNonces) throw new Error('HOST_SESSION_ASSERTION_CAPACITY_EXCEEDED');
+        usedNonces.set(assertion.nonce, assertion.issued_at + maxAgeSeconds);
       }
-      if (usedNonces.has(assertion.nonce)) throw new Error('HOST_SESSION_ASSERTION_REPLAYED');
-      if (usedNonces.size >= maxRememberedNonces) throw new Error('HOST_SESSION_ASSERTION_CAPACITY_EXCEEDED');
-      usedNonces.set(assertion.nonce, assertion.issued_at + maxAgeSeconds);
       const context = Object.freeze({
         host_installation_id: assertion.host_installation_id,
         authenticated_account_id: assertion.authenticated_account_id,
