@@ -22,9 +22,9 @@ path (not inside an application-owned home directory):
 ```sh
 app_group="$(getent group logic-engine-app | cut -d: -f3)"
 uid="$(id -u logic-engine-app)"
-# The broker service must be root or a member of the application group.
-sudo install -d -o logic-broker -g "$app_group" -m 0710 /var/lib/logic-engine-broker
-python3 native/posix-namespace-broker/broker_daemon.py \
+# The broker runs under its dedicated UID with the app group as primary GID.
+sudo install -d -o logic-engine-broker -g "$app_group" -m 0710 /run/logic-engine-sqlite-broker
+sudo -u logic-engine-broker python3 native/posix-namespace-broker/broker_daemon.py \
   --socket /run/logic-engine-sqlite-broker/broker.sock \
   --manifest-root /var/lib/logic-engine-broker/manifest \
   --anchor-root /var/lib/logic-engine-broker/anchor \
