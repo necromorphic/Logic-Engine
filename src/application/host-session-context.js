@@ -108,12 +108,44 @@ export function runWithAuthenticatedHostSession(
     request, conversationId, isAuthenticatedHostRequest, resolveHostConversationId, resolveHostBindings,
   );
   if (!context) throw new Error('HOST_SESSION_AUTHENTICATION_REQUIRED');
-  return requestContext.run(context, callback);
+  return requestContext.run(Object.freeze({
+    context,
+    request,
+    conversationId,
+    isAuthenticatedHostRequest,
+    resolveHostConversationId,
+    resolveHostBindings,
+  }), callback);
 }
 
 export function getAuthenticatedHostSessionContext() {
-  const context = requestContext.getStore();
-  return isAuthenticatedHostSessionContext(context, context?.conversation_id) ? context : null;
+  const active = requestContext.getStore();
+  if (!active || !active.context
+    || typeof active.isAuthenticatedHostRequest !== 'function'
+    || typeof active.resolveHostConversationId !== 'function'
+    || typeof active.resolveHostBindings !== 'function') return null;
+  // A capability is live only while the exact middleware-owned request and
+  // its signed session/account/World/Actor bindings remain unchanged. This
+  // revalidation makes rotation, logout, account switching and binding revoke
+  // invalidate an already-entered async request context.
+  const refreshed = createAuthenticatedHostSessionContext(
+    active.request,
+    active.conversationId,
+    active.isAuthenticatedHostRequest,
+    active.resolveHostConversationId,
+    active.resolveHostBindings,
+  );
+  if (!refreshed) return null;
+  const original = active.context;
+  const unchanged = refreshed.host_installation_id === original.host_installation_id
+    && refreshed.authenticated_account_id === original.authenticated_account_id
+    && refreshed.host_session_id === original.host_session_id
+    && refreshed.conversation_id === original.conversation_id
+    && refreshed.world_id === original.world_id
+    && refreshed.actor_id === original.actor_id
+    && refreshed.identity === original.identity;
+  return unchanged && isAuthenticatedHostSessionContext(original, active.conversationId)
+    ? original : null;
 }
 
 
