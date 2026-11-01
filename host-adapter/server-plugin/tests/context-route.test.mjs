@@ -16,11 +16,6 @@ function makeRequest(overrides = {}) {
         user: { profile: { handle: 'default-user' }, directories },
         session: { logicEngineSessionId: sessionId, logicEngineSessionHandle: 'default-user' },
         body: { conversation_uuid: conversationUuid },
-        verifyCompletenessProof: async ({ inventory }) =>
-            inventory?.source?.status === 'AUTHORITATIVE_COMPLETE'
-            && inventory?.source?.blockers?.length === 0
-            && inventory?.authority?.status === 'AUTHORITATIVE_COMPLETE'
-            && /^[a-f0-9]{64}$/.test(inventory?.authority?.manifest_sha256 ?? ''),
         ...overrides,
     };
 }
@@ -57,6 +52,14 @@ function dependencies(overrides = {}) {
                 authority: { status: 'AUTHORITATIVE_COMPLETE', manifest_sha256: 'a'.repeat(64) },
             };
         },
+        // Explicit test-only verifier: exercises the post-admission route.
+        // Production wiring intentionally supplies no verifier until a real
+        // authoritative Host inventory implementation is available.
+        verifyCompletenessProof: async ({ inventory }) =>
+            inventory?.source?.status === 'AUTHORITATIVE_COMPLETE'
+            && inventory?.source?.blockers?.length === 0
+            && inventory?.authority?.status === 'AUTHORITATIVE_COMPLETE'
+            && /^[a-f0-9]{64}$/.test(inventory?.authority?.manifest_sha256 ?? ''),
         ...overrides,
     };
 }
