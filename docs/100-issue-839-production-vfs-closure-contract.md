@@ -100,6 +100,17 @@ The separate audit must verify the exact `better-sqlite3` binary's SQLite versio
 
 The archive-level inventory records the service's dynamic `ST_VECTOR_ROOT`, startup open order, WAL configuration and shutdown checkpoint. A source audit of the exact upstream `better-sqlite3@13.0.3` tag confirms a separate statically linked SQLite 3.53.4 engine, `sqlite3_open_v2(..., NULL)` in the constructor, and extension loading only after the database handle is open. The 487 MB archive exceeds the available direct materialization limit, so the exact deployed prebuild/native addon binary still needs to be extracted and fingerprinted. No database file should be opened or modified as part of this static audit.
 
+A focused source patch is now included at `patches/better-sqlite3-vfs-option.patch`. It adds an explicit `vfs` constructor option and passes its validated name to `sqlite3_open_v2` instead of hardcoding a NULL VFS. The patch was checked against the uploaded `better-sqlite3@13.0.3` source files and applies cleanly. This is an integration seam only: it does not register or implement the secure VFS, and it has not yet been built into the ST-VectorService native addon.
+
+The required initialization order for the service is:
+
+1. Build the secure VFS extension against the exact SQLite engine embedded in the rebuilt better-sqlite3 addon (the audited source reports SQLite 3.53.4; confirm the resulting binary at build time).
+2. Open a temporary in-memory better-sqlite3 connection, load the extension there, and close that bootstrap connection. The extension must register the VFS with the same SQLite engine instance used by better-sqlite3.
+3. Only then open the protected database using `new Database(DB_PATH, { vfs: 'logic-engine-secure' })`.
+4. Fail startup if extension loading or named-VFS open fails. Do not fall back to `new Database(DB_PATH)`.
+
+A real integration test must prove the extension is registered in the better-sqlite3 SQLite engine, verify the selected VFS name for the opened handle, and exercise DB/WAL/SHM, cross-process locking and crash recovery through that engine. The current node:sqlite probe cannot substitute for those tests.
+
 ## 7. Acceptance matrix
 
 | Gate | Required evidence |
