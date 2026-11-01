@@ -609,6 +609,8 @@ test('group save resolves the extensionless group-chat inventory locator', async
   assert.equal(response.statusCode, null);
   assert.equal(nextCalls, 1);
   assert.equal(request.session.logicEngineHostPreparedMutation, undefined);
+  assert.equal(request.logicEngineLifecycleSaveAuthorized, true);
+  assert.equal(request.logicEngineLifecycleOperation, lifecycleSavePermit.operation);
 });
 
 test('enrolled chat save API rejects permits scoped to another conversation or session', async () => {
