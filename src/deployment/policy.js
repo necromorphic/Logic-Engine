@@ -1,3 +1,14 @@
+export const PROTECTED_FINAL_SEND_CAPABILITIES = Object.freeze([
+  'host.patch.integrity',
+  'final-send.route-coverage',
+  'final-send.dispatch-start.sync',
+  'coordinator.shared-lease',
+  'final-send.revoke-inflight-fence',
+  'final-send.response-revalidation',
+  'final-send.ambiguous-recovery',
+  'final-send.upstream-call-count',
+]);
+
 export const CAPABILITY_STATUSES = Object.freeze([
   'PASS',
   'FAIL',
@@ -48,7 +59,16 @@ export function evaluateDeploymentGates({ profile, components, capabilities }) {
   for (const component of components) {
     if (!component.enabled) continue;
     const requiredIds = new Set(component.requires_capabilities ?? []);
-    if (profile === 'hardened-service') {
+    const protectedFinalSendMissing = PROTECTED_FINAL_SEND_CAPABILITIES.filter((id) => byId.get(id)?.status !== 'PASS');
+  gates.push({
+    id: 'memory:protected-final-send-production',
+    status: protectedFinalSendMissing.length === 0 ? 'PASS' : 'BLOCKED',
+    affected_features: ['memory.protected-final-send'],
+    reason: protectedFinalSendMissing.length === 0
+      ? undefined
+      : 'Protected Memory final-send production gate lacks verified evidence: ' + protectedFinalSendMissing.join(', ') + '.',
+  });
+  if (profile === 'hardened-service') {
       requiredIds.add('process.identity.separate');
       requiredIds.add('filesystem.access.effective');
       requiredIds.add('ipc.peer-authentication');
