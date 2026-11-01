@@ -77,14 +77,13 @@ test('Extension Gateway is a routing-only boundary; Host authentication and Core
   const gateway = await readFile(new URL('../server-plugin/index.mjs', import.meta.url), 'utf8');
   const adapter = await readFile(new URL('../server-plugin/host-adapter.mjs', import.meta.url), 'utf8');
 
-  assert.match(gateway, /createSillyTavernHostAdapter/);
+  assert.ok(gateway.includes('createSillyTavernHostAdapter'));
   assert.doesNotMatch(gateway, /createHostRequestAuthenticationGate|createHostMemoryDispatchProxyHandler/);
-  assert.doesNotMatch(gateway, /request\\.(?:user|session|body)|resolveConversationId|createHmac/);
-  assert.match(gateway, /router\\.post\\('\\/dispatch', hostAdapter\\.dispatchMiddleware, hostAdapter\\.dispatch\\)/);
+  assert.doesNotMatch(gateway, /request\.(user|session|body)|resolveConversationId|createHmac/);
+  assert.ok(gateway.includes("router.post('/dispatch', hostAdapter.dispatchMiddleware, hostAdapter.dispatch)"));
 
   assert.match(adapter, /createHostRequestAuthenticationGate/);
   assert.match(adapter, /createHostMemoryDispatchProxyHandler/);
   assert.match(adapter, /resolveConversationId/);
-  assert.doesNotMatch(adapter, /router\\.(?:get|post)\\(/);
+  assert.doesNotMatch(adapter, /router\.(get|post)\(/);
 });
-
