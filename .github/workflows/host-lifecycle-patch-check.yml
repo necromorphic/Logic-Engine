@@ -40,7 +40,7 @@ jobs:
         run: |
           node --input-type=module -e "import fs from 'node:fs'; const main=fs.readFileSync('sillytavern-host-checkout/src/server-main.js','utf8'); const loader=fs.readFileSync('sillytavern-host-checkout/src/plugin-loader.js','utf8'); if(main.indexOf('app.use(requireLoginMiddleware)')<0 || main.indexOf('loadPlugins(app, pluginsDirectory)')<main.indexOf('app.use(requireLoginMiddleware)') || !loader.includes('app.use(`/api/plugins/${id}`, router)')) process.exit(1);"
       - name: Run Host Gateway and identity regression tests
-        run: node --test host-adapter/prototype/tests/*.test.mjs
+        run: node --test host-adapter/prototype/tests/*.test.mjs host-adapter/sillytavern-extension/tests/*.test.mjs
       - name: Check whitespace and patch independence
         run: |
           git diff --check
