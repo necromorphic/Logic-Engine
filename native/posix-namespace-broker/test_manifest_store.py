@@ -236,6 +236,58 @@ class ManifestStoreTests(unittest.TestCase):
         self.assertFalse(self.database.exists())
         self.assertFalse((self.role_parent / ".le-quarantine" / "entry-crash").exists())
 
+    def test_process_crash_after_main_quarantine_rename_recovers_on_restart(self):
+        self.store.initialize(self.data(1))
+        self.store.disable_role("core")
+        code = r"""
+import os
+import sys
+import manifest_store
+from manifest_store import ManifestStore
+store = ManifestStore(sys.argv[1], sys.argv[2], int(sys.argv[3]))
+def crash_after_quarantine_rename(parent_fd, basename, expected):
+    quarantine_fd = manifest_store._open_quarantine_dir(parent_fd, create=True)
+    try:
+        manifest_store._renameat2_noreplace(
+            parent_fd, basename, quarantine_fd, "process-crash-main-db"
+        )
+        os.fsync(quarantine_fd)
+        os.fsync(parent_fd)
+    finally:
+        os.close(quarantine_fd)
+    os._exit(73)
+manifest_store._quarantine_delete_at = crash_after_quarantine_rename
+store.delete_role_database("core")
+os._exit(74)
+"""
+        result = subprocess.run(
+            [sys.executable, "-c", code, str(self.manifest_root),
+             str(self.anchor_root), str(self.application_uid)],
+            cwd=Path(__file__).resolve().parent,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        self.assertEqual(result.returncode, 73, result.stderr)
+        interrupted = self.store.load()
+        self.assertEqual(interrupted["roles"][0]["state"], "deleting")
+        self.assertFalse(self.database.exists())
+        quarantine = self.role_parent / ".le-quarantine"
+        self.assertEqual([entry.name for entry in quarantine.iterdir()],
+                         ["process-crash-main-db"])
+        # The child died without releasing its lock or running Python cleanup.
+        # A fresh store must acquire the OS-released flock and finish recovery.
+        restarted = ManifestStore(
+            str(self.manifest_root), str(self.anchor_root), self.application_uid
+        )
+        try:
+            recovered = restarted.reconcile_main_lifecycle()
+        finally:
+            restarted.close()
+        self.assertEqual(recovered["roles"][0]["state"], "deleted")
+        self.assertFalse(self.database.exists())
+        self.assertEqual(list(quarantine.iterdir()), [])
+
     def test_startup_finishes_main_delete_after_quarantine_unlink_before_manifest_commit(self):
         import json
         self.store.initialize(self.data(1))
