@@ -2,7 +2,7 @@
 
 **Contract:** Host ↔ Core authenticated Memory retrieval  
 **Version:** 1.0.0  
-**Status:** CONTRACT AGREED; Host/Core candidate CI green; latest contract-document revision validation in progress; branch integration and deployment readiness remain pending  
+**Status:** CONTRACT DEFINED; Host/Core candidate CI green; Core retrieval exception mapping correction and branch integration remain pending  
 **Validated candidate heads (1 Nov 2026):** Host PR #850 `4aa26dcf2a9e5b5e65123f2cd72b40516e41a685`; Core PR #846 `832abf337530e9421f53eaed85760cb4a7f07313`; Core HTTP PR #867 `7e3895aeb91c983bf020e889acdad6c1909dd0e7`  
 **Scope:** identity hand-off, Core World/Actor resolution, authenticated Memory Provider retrieval, result/error/revoke semantics.  
 **Not in scope:** branch merging, Security Gateway changes, Final-Send, production enablement, Lane A, Provider schema migration.
@@ -283,6 +283,8 @@ The consumer's existing reason vocabulary remains the source of truth. It includ
 
 Reason strings are safe state labels, not a promise to reveal which record, field, or grant caused the refusal.
 
+**Implementation discrepancy — Core #867:** the current `/v1/host/memory-npc/retrieve` route catches both assertion-verification failures and exceptions thrown by `consumer.retrieveForNpc()`. After handling the known replay/expiry/capacity/replay-store errors, it maps every other exception to `401 HOST_SESSION_ASSERTION_INVALID`. This violates the route contract above: only malformed/invalid assertions should produce 401; an unexpected consumer/runtime exception must produce generic `500 INTERNAL_ERROR` without exposing details. Add a regression test with a consumer that throws an unexpected error, then narrow the catch mapping before claiming full implementation alignment.
+
 ## 7. Revocation and freshness rules
 
 1. **ST logout/session rotation/account switch:** Host must reject the old request before assertion creation. A new session changes the tuple and requires an active Core binding for that tuple.
@@ -396,7 +398,8 @@ For `src/index.js`, retain Host #850's root-identity registry, lifecycle journal
 
 ### Remaining release blockers
 
-1. Branch integration is still required. #867 is stacked on #846; #850 is independently based on `main` and overlaps 26 files with #846 and 8 files with #867. The shared Core route blocks are identical, but `src/api/server.js`, `src/index.js`, `.env.example`, and the overlapping adapter composition must be reconciled deliberately; do not merge the three PRs blindly.
+1. **Core retrieval exception mapping:** #867 currently maps unclassified exceptions thrown during the consumer callback to `401 HOST_SESSION_ASSERTION_INVALID`. Correct this to generic `500 INTERNAL_ERROR` and add a regression test; preserve the existing explicit 401/409/503 mappings for known assertion and replay-guard failures.
+2. Branch integration is still required. #867 is stacked on #846; #850 is independently based on `main` and overlaps 26 files with #846 and 8 files with #867. The shared Core route blocks are identical, but `src/api/server.js`, `src/index.js`, `.env.example`, and the overlapping adapter composition must be reconciled deliberately; do not merge the three PRs blindly.
    - Current `main` has advanced two commits beyond the base SHA recorded by #846. The delta is limited to `README.md` and `docs/progress-bars-2026-11-01.svg`; neither path is in #846's patch. Refresh/rebase #846 onto current `main` before integration, then re-run its full CI. Host #850 already uses current `main` as its base.
 2. Recommended integration order: land/rebase Core Lane B #846; integrate Core HTTP #867 on top of it; then rebase Host #850 onto the integrated Core result and resolve Host-owned lifecycle/inventory additions while retaining the identical shared route blocks. Re-run full CI after each rebase.
 3. Deployment must provide the durable Provider DB and explicit Core field allowlist; Provider data must have valid query/record grants and canonical source lineage before a ready result is possible.
