@@ -192,12 +192,15 @@ def _validate_manifest(data: bytes) -> dict[str, Any]:
         if not isinstance(role, dict):
             raise StoreError("role entry must be an object")
         name = role.get("role")
-        if not isinstance(name, str) or not name or name in seen:
-            raise StoreError("role names must be unique non-empty strings")
+        if (not isinstance(name, str) or not name or len(name) > 128
+                or name[0] in ".-"
+                or any(not (ch.isascii() and (ch.isalnum() or ch in "._-")) for ch in name)
+                or name in seen):
+            raise StoreError("role names must be unique safe ASCII identifiers")
         seen.add(name)
         components = role.get("parentComponents")
         identities = role.get("parentIdentities")
-        if not isinstance(components, list) or not isinstance(identities, list):
+        if not isinstance(components, list) or not components or not isinstance(identities, list):
             raise StoreError(f"role {name}: parent components/identities are required")
         if len(components) != len(identities):
             raise StoreError(f"role {name}: parent component/identity count mismatch")
