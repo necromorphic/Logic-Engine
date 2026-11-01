@@ -18,7 +18,7 @@ test('better-sqlite3 uses brokered main, journal, WAL and SHM descriptors with c
   skip: process.platform !== 'linux' || !packageRoot || !extensionPath,
 }, async (t) => {
   const Database = require(packageRoot);
-  const directory = mkdtempSync(path.join(os.tmpdir(), 'logic-engine-better-sqlite3-broker-'));
+  const directory = mkdtempSync(path.join(os.homedir(), 'logic-engine-better-sqlite3-broker-'));
   chmodSync(directory, 0o700);
   const databasePath = path.join(directory, 'core.sqlite');
   const socketPath = path.join(directory, 'broker.sock');
