@@ -183,4 +183,47 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
     conversation_id: conversationId, world_id: 'attacker-world',
   });
   assert.equal(callerSelectedWorld.status, 400);
+
+  // Two simultaneous requests carrying the same signed nonce must have exactly
+  // one winner. The durable SQLite primary key is the cross-request arbiter.
+  const parallelAssertion = {
+    ...assertion, nonce: '99999999-9999-4999-8999-999999999999',
+    issued_at: Math.floor(Date.now() / 1000),
+  };
+  const parallelBody = {
+    ...body, assertion: parallelAssertion, signature: sign(parallelAssertion),
+    request_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+  };
+  const parallelResponses = await Promise.all([
+    post(restartedBase, '/v1/host/memory-npc/retrieve', adapterHeaders, parallelBody),
+    post(restartedBase, '/v1/host/memory-npc/retrieve', adapterHeaders, parallelBody),
+  ]);
+  assert.deepEqual(parallelResponses.map(response => response.status).sort(), [200, 409]);
+  const parallelPayloads = await Promise.all(parallelResponses.map(response => response.json()));
+  assert.equal(parallelPayloads.filter(payload => payload.retrieval?.status === 'ready').length, 1);
+  assert.equal(parallelPayloads.filter(payload => payload.error?.code === 'HOST_SESSION_ASSERTION_REPLAYED').length, 1);
+  assert.equal(calls, 3);
+
+  // A durable-store I/O failure is a distinct fail-closed 503, not a generic
+  // 500 and never an authentication success.
+  await new Promise(resolve => server.close(resolve));
+  server = createApiServer({
+    engine, token: API_TOKEN, adminToken: ADMIN_TOKEN,
+    adapterTokens: { [ADAPTER_ID]: ADAPTER_TOKEN },
+    memoryNpcConsumers: { [ADAPTER_ID]: consumer },
+    hostAssertionNonceStore: { consume() { throw new Error('simulated SQLite I/O failure'); } },
+  });
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  const unavailableBase = 'http://127.0.0.1:' + server.address().port;
+  const unavailableAssertion = {
+    ...assertion, nonce: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+    issued_at: Math.floor(Date.now() / 1000),
+  };
+  const unavailableResponse = await post(unavailableBase, '/v1/host/memory-npc/retrieve', adapterHeaders, {
+    ...body, assertion: unavailableAssertion, signature: sign(unavailableAssertion),
+  });
+  assert.equal(unavailableResponse.status, 503);
+  assert.equal((await unavailableResponse.json()).error.code, 'HOST_ASSERTION_REPLAY_GUARD_UNAVAILABLE');
+  assert.equal(calls, 3);
 });
