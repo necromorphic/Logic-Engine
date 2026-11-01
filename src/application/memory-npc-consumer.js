@@ -473,7 +473,7 @@ export class MemoryNpcConsumer {
         // revoke/stale/unavailable outcomes without returning internal details.
         return nonReady(providerAuthorizationFailureReason(error, 'memory_record_authorization_unavailable'));
       }
-      if (!recordAllowed) continue;
+      if (!recordAllowed) return nonReady('memory_record_authorization_unconfirmed');
 
       // Initial/imported knowledge is not authorized by a Memory candidate row.
       // Core owns the explicit subject-assignment record, and this consumer has
@@ -530,7 +530,8 @@ export class MemoryNpcConsumer {
       } catch (error) {
         return nonReady(providerAuthorizationFailureReason(error, 'memory_record_authorization_unavailable'));
       }
-      if (stillAllowed) authorizedCandidates.push(candidate);
+      if (!stillAllowed) return nonReady('memory_record_authorization_unconfirmed');
+      authorizedCandidates.push(candidate);
     }
 
     if (authorizedCandidates.length === 0) {
