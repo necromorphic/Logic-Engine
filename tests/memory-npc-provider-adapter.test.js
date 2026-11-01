@@ -145,7 +145,7 @@ test('real adapter composes file-backed SQLite Provider with Core query and cano
     assert.deepEqual(result.candidates[0].content, {
       'attributes.public_note': 'real Core source value',
     });
-    await assert.rejects(() => adapter.runWithAuthenticatedHostSession(
+    assert.throws(() => adapter.runWithAuthenticatedHostSession(
       hostRequest, 'caller-selected-conversation', () => adapter.consumer.retrieveForNpc({
         worldId, actorEntityId: actorId, conversationId: 'caller-selected-conversation',
       }),
@@ -163,7 +163,7 @@ test('real adapter composes file-backed SQLite Provider with Core query and cano
         worldId, actorEntityId: actorId, conversationId: unboundConversationId,
       }),
     );
-    await assert.rejects(() => adapter.runWithAuthenticatedHostSession({ ...hostRequest }, conversationId, () => adapter.consumer.retrieveForNpc({
+    assert.throws(() => adapter.runWithAuthenticatedHostSession({ ...hostRequest }, conversationId, () => adapter.consumer.retrieveForNpc({
       worldId, actorEntityId: actorId, conversationId,
     })), /HOST_SESSION_AUTHENTICATION_REQUIRED/);
     assert.equal(unboundConversation.status, 'non_ready');
