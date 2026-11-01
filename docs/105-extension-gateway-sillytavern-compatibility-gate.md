@@ -6,6 +6,6 @@ The approved architecture remains: SillyTavern → untrusted Logic-Engine Client
 
 No standalone Server Companion, additional API port, Provider URL substitution/relay, direct browser/ST → Core path, or alternative connector is permitted.
 
-Patch Manager support for exact native source paths is being implemented and is not yet validated. Final-Send, Host authentication, pre-LLM egress, and final-response revalidation remain unimplemented. Protected production sending remains DENY / FAIL-CLOSED.
+Patch Manager now supports exact manifest-declared native source paths and package-owned Extension files; the focused Patch Manager workflow passes. The Logic-Engine branch now contains the untrusted Client Extension transport, same-process Extension Gateway core, envelope/lifecycle tests, and Gateway → Host Adapter contract. The route is not yet mounted in SillyTavern 1.19.0, and no production Authenticated Host Adapter is wired. Final-Send, pre-LLM egress, and final-response revalidation remain unimplemented. Protected production sending remains DENY / FAIL-CLOSED.
 
 See document 106 for the pinned source audit and acceptance criteria.
