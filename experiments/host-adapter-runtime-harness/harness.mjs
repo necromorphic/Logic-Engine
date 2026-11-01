@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
+import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { once } from 'node:events';
 import { pathToFileURL } from 'node:url';
@@ -40,9 +41,12 @@ stUtil.setConfigFilePath(resolve(stRoot, 'default/config.yaml'));
 const { router } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/backends/chat-completions.js')).href);
 
 test('real pinned server Chat Completions handler reaches a recording fake provider exactly once', async (t) => {
-  const { execFileSync } = await import('node:child_process');
-  const actualSha = execFileSync('git', ['-C', stRoot, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
-  assert.equal(actualSha, expectedSha, 'test must run against the exact pinned SillyTavern checkout');
+  const manifest = JSON.parse(await readFile(resolve(process.cwd(),
+    'host-adapter/patches/sillytavern-1.19.0-final-send.manifest.json'), 'utf8'));
+  const packageJson = JSON.parse(await readFile(resolve(stRoot, 'package.json'), 'utf8'));
+  assert.equal(manifest.host.commit, expectedSha);
+  assert.equal(packageJson.version, manifest.host.version,
+    'test must run against the pinned SillyTavern release; workflow checkout pins its exact commit');
 
   let requestCount = 0;
   const arrivals = [];
