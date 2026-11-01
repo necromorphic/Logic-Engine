@@ -1,6 +1,6 @@
 # Unified final-send boundary — pinned SillyTavern route audit
 
-**Status:** historical route audit and implementation experiment; NOT an approved integration procedure. The proposed Host source patch is rejected because SillyTavern must remain unmodified. The current target contract and extension feasibility findings are in [document 102](./102-target-trust-boundaries-and-st-extension-feasibility.md).  
+**Status:** historical route audit; its original source-patch rejection is superseded by the explicit 2026-11-01 owner authorization for a managed local source-level patch of the installed SillyTavern tree. The patch is deployed locally only; the SillyTavern upstream repository is not modified. Current implementation and remaining gates are tracked in [document 104](./104-final-send-extension-boundary-feasibility.md) and [PR #844](https://github.com/necromorphic/Logic-Engine/pull/844).  
 **Target Host:** SillyTavern commit `06bde939fb1e9c4c8d8641d810f0a916b5bce127` (1.19.0-1-g06bde939).  
 **Logic-Engine base:** `main` at `0c3debcb01946f6f8c94811b192e7277422e990a`.  
 **Rule:** do not continue or transplant old PR #646. This work starts from current Logic-Engine main.
