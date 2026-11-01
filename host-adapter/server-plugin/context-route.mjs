@@ -81,6 +81,8 @@ export function createHostContextRoute({ identityStore, enumerate, corePost, con
         if (typeof conversationId !== 'string') return response.sendStatus(403);
         try {
             const account = await identityStore.resolveAuthenticatedAccount(request.user.profile.handle);
+            if (!gate.isAuthenticatedHostRequest(request)
+                || gate.resolveHostConversationId(request) !== conversationId) return response.sendStatus(403);
             const hostContext = {
                 installation_id: account.host_installation_id,
                 account_id: account.authenticated_account_id,
@@ -91,6 +93,8 @@ export function createHostContextRoute({ identityStore, enumerate, corePost, con
                 host_context: hostContext,
                 actor_entity_id: config.actorEntityId,
             });
+            if (!gate.isAuthenticatedHostRequest(request)
+                || gate.resolveHostConversationId(request) !== conversationId) return response.sendStatus(403);
             const context = coreResult?.context;
             if (!context || context.installation_id !== hostContext.installation_id
                 || context.account_id !== hostContext.account_id
@@ -131,6 +135,8 @@ export function createHostContextRoute({ identityStore, enumerate, corePost, con
                 .update(canonical, 'utf8')
                 .digest('hex');
             const verified = await corePost('/v1/host-sessions/verify', { assertion, signature });
+            if (!gate.isAuthenticatedHostRequest(request)
+                || gate.resolveHostConversationId(request) !== conversationId) return response.sendStatus(403);
             if (verified?.status !== 'AUTHENTICATED_HOST_SESSION'
                 || verified.conversation_id !== conversationId
                 || verified.world_id !== context.world_id
