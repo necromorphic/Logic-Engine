@@ -1,0 +1,319 @@
+import { createHash, randomUUID } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
+import {
+  copyFile, lstat, mkdir, open, readFile, realpath, rename, rm, stat, unlink, writeFile,
+} from 'node:fs/promises';
+import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const here = dirname(fileURLToPath(import.meta.url));
+const DEFAULT_MANIFEST = resolve(here, '../host-adapter/patches/sillytavern-1.19.0-final-send.manifest.json');
+const DEFAULT_PATCH = resolve(here, '../host-adapter/patches/sillytavern-1.19.0-final-send.patch');
+
+const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
+const exists = async (path) => stat(path).then(() => true, () => false);
+const isWithin = (root, path) => {
+  const rel = relative(root, path);
+  return rel === '' || (!rel.startsWith('..' + sep) && rel !== '..' && !isAbsolute(rel));
+};
+
+async function atomicWrite(path, content) {
+  await mkdir(dirname(path), { recursive: true });
+  const temp = path + '.tmp-' + randomUUID();
+  const handle = await open(temp, 'wx', 0o600);
+  try {
+    await handle.writeFile(content);
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+  await rename(temp, path);
+}
+
+async function assertRegularFile(root, relativePath) {
+  const target = resolve(root, relativePath);
+  if (!isWithin(root, target)) throw new Error('PATCH_PATH_ESCAPE: ' + relativePath);
+  const info = await lstat(target);
+  if (info.isSymbolicLink() || !info.isFile()) throw new Error('PATCH_TARGET_NOT_REGULAR_FILE: ' + relativePath);
+  return target;
+}
+
+function runGit(args, cwd) {
+  execFileSync('git', args, { cwd, stdio: 'pipe', windowsHide: true });
+}
+
+export class SillyTavernPatchManager {
+  constructor({ extensionRoot, stRoot, manifestPath = DEFAULT_MANIFEST, patchPath = DEFAULT_PATCH, runGitImpl = runGit }) {
+    if (typeof extensionRoot !== 'string' || typeof stRoot !== 'string' || !isAbsolute(resolve(stRoot))) {
+      throw new TypeError('Patch Manager requires extensionRoot and an absolute SillyTavern root.');
+    }
+    this.extensionRoot = resolve(extensionRoot);
+    this.stRootInput = resolve(stRoot);
+    this.manifestPath = resolve(manifestPath);
+    this.patchPath = resolve(patchPath);
+    this.runGit = runGitImpl;
+    this.managerDir = resolve(this.stRootInput, '.logic-engine-patch-manager');
+    this.statePath = resolve(this.managerDir, 'state.json');
+    this.journalPath = resolve(this.managerDir, 'transaction.json');
+    this.lockPath = resolve(this.managerDir, 'manager.lock');
+    this.backupsRoot = resolve(this.managerDir, 'backups');
+  }
+
+  async initialize() {
+    this.stRoot = await realpath(this.stRootInput);
+    const rootInfo = await lstat(this.stRoot);
+    if (!rootInfo.isDirectory()) throw new Error('SILLYTAVERN_ROOT_INVALID');
+    if (!isWithin(this.stRoot, this.managerDir)) throw new Error('PATCH_MANAGER_STATE_PATH_INVALID');
+    this.manifest = JSON.parse(await readFile(this.manifestPath, 'utf8'));
+    this.patchBytes = await readFile(this.patchPath);
+    if (sha256(this.patchBytes) !== this.manifest.patch.sha256) throw new Error('PATCH_ARTIFACT_INTEGRITY_MISMATCH');
+    if (this.manifest.id !== 'logic-engine-sillytavern-final-send'
+      || this.manifest.host?.name !== 'SillyTavern'
+      || this.manifest.host?.version !== '1.19.0'
+      || this.manifest.host?.commit !== '06bde939fb1e9c4c8d8641d810f0a916b5bce127') {
+      throw new Error('PATCH_MANIFEST_IDENTITY_INVALID');
+    }
+  }
+
+  async withLock(operation) {
+    await mkdir(this.managerDir, { recursive: true });
+    let handle;
+    try {
+      handle = await open(this.lockPath, 'wx', 0o600);
+    } catch (error) {
+      if (error.code === 'EEXIST') throw new Error('PATCH_MANAGER_LOCKED_OR_STALE');
+      throw error;
+    }
+    try {
+      await handle.writeFile(JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() }));
+      await handle.sync();
+      return await operation();
+    } finally {
+      await handle.close();
+      await unlink(this.lockPath).catch(() => {});
+    }
+  }
+
+  async readState() {
+    if (!await exists(this.statePath)) return null;
+    const state = JSON.parse(await readFile(this.statePath, 'utf8'));
+    if (state.manifestId !== this.manifest.id) throw new Error('PATCH_MANAGER_STATE_ID_MISMATCH');
+    return state;
+  }
+
+  async writeJournal(journal) {
+    await atomicWrite(this.journalPath, JSON.stringify(journal, null, 2) + '\n');
+  }
+
+  async readJournal() {
+    if (!await exists(this.journalPath)) return null;
+    return JSON.parse(await readFile(this.journalPath, 'utf8'));
+  }
+
+  async hashAt(relativePath) {
+    const target = await assertRegularFile(this.stRoot, relativePath);
+    return sha256(await readFile(target));
+  }
+
+  async verifyBaseline() {
+    const packageJson = JSON.parse(await readFile(await assertRegularFile(this.stRoot, 'package.json'), 'utf8'));
+    if (packageJson.version !== this.manifest.host.version) throw new Error('SILLYTAVERN_VERSION_MISMATCH');
+    for (const [relativePath, expected] of Object.entries(this.manifest.sourceFiles)) {
+      const before = typeof expected === 'string' ? expected : expected.before;
+      const actual = await this.hashAt(relativePath);
+      if (actual !== before) throw new Error('SILLYTAVERN_SOURCE_CONFLICT: ' + relativePath);
+    }
+  }
+
+  async verifyInstalled() {
+    for (const [relativePath, expected] of Object.entries(this.manifest.sourceFiles)) {
+      const after = typeof expected === 'string' ? expected : expected.after;
+      if (await this.hashAt(relativePath) !== after) throw new Error('PATCH_VERIFY_FAILED: ' + relativePath);
+    }
+    for (const [relativePath, expected] of Object.entries(this.manifest.createdFiles)) {
+      if (await this.hashAt(relativePath) !== expected) throw new Error('PATCH_VERIFY_FAILED: ' + relativePath);
+    }
+    return true;
+  }
+
+  async preflight() {
+    await this.initialize();
+    await this.verifyBaseline();
+    this.runGit(['apply', '--check', this.patchPath], this.stRoot);
+    return { status: 'PREFLIGHT_OK', hostVersion: this.manifest.host.version, patchVersion: this.manifest.patch.version };
+  }
+
+  async installUnlocked() {
+    const state = await this.readState();
+    if (state?.status === 'INSTALLED') {
+      await this.verifyInstalled();
+      return { status: 'ALREADY_INSTALLED', patchVersion: state.patchVersion };
+    }
+    await this.verifyBaseline();
+    this.runGit(['apply', '--check', this.patchPath], this.stRoot);
+
+    const backupId = new Date().toISOString().replace(/[:.]/g, '-') + '-' + randomUUID();
+    const backupDir = resolve(this.backupsRoot, backupId);
+    await mkdir(backupDir, { recursive: true });
+    const backups = {};
+    for (const [relativePath, expected] of Object.entries(this.manifest.sourceFiles)) {
+      if (typeof expected === 'string') continue;
+      const source = await assertRegularFile(this.stRoot, relativePath);
+      const backup = resolve(backupDir, relativePath);
+      await mkdir(dirname(backup), { recursive: true });
+      await copyFile(source, backup);
+      backups[relativePath] = { sha256: expected.before, backupPath: relative(this.managerDir, backup) };
+    }
+
+    const journal = {
+      manifestId: this.manifest.id,
+      phase: 'BACKED_UP',
+      backupId,
+      backups,
+      createdFiles: this.manifest.createdFiles,
+      startedAt: new Date().toISOString(),
+    };
+    await this.writeJournal(journal);
+    journal.phase = 'APPLYING';
+    await this.writeJournal(journal);
+    try {
+      this.runGit(['apply', this.patchPath], this.stRoot);
+      await this.verifyInstalled();
+      const installed = {
+        manifestId: this.manifest.id,
+        status: 'INSTALLED',
+        hostVersion: this.manifest.host.version,
+        hostCommit: this.manifest.host.commit,
+        patchVersion: this.manifest.patch.version,
+        patchSha256: this.manifest.patch.sha256,
+        backupId,
+        backups,
+        createdFiles: this.manifest.createdFiles,
+        installedAt: new Date().toISOString(),
+      };
+      await atomicWrite(this.statePath, JSON.stringify(installed, null, 2) + '\n');
+      await rm(this.journalPath, { force: true });
+      return { status: 'INSTALLED', patchVersion: this.manifest.patch.version };
+    } catch (error) {
+      await this.restoreJournal(journal);
+      throw error;
+    }
+  }
+
+  async restoreJournal(journal) {
+    // Never overwrite a file that no longer matches either the known base or patch.
+    for (const [relativePath, backupInfo] of Object.entries(journal.backups ?? {})) {
+      const target = await assertRegularFile(this.stRoot, relativePath);
+      const current = sha256(await readFile(target));
+      const after = this.manifest.sourceFiles[relativePath].after;
+      if (current !== backupInfo.sha256 && current !== after) {
+        throw new Error('ROLLBACK_CONFLICT_USER_CHANGE_PRESERVED: ' + relativePath);
+      }
+    }
+    for (const [relativePath, expected] of Object.entries(journal.createdFiles ?? {})) {
+      const target = resolve(this.stRoot, relativePath);
+      if (await exists(target) && await this.hashAt(relativePath) !== expected) {
+        throw new Error('ROLLBACK_CONFLICT_USER_CHANGE_PRESERVED: ' + relativePath);
+      }
+    }
+    for (const [relativePath, backupInfo] of Object.entries(journal.backups ?? {})) {
+      const backup = resolve(this.managerDir, backupInfo.backupPath);
+      const target = await assertRegularFile(this.stRoot, relativePath);
+      const temp = target + '.logic-engine-restore-' + randomUUID();
+      await copyFile(backup, temp);
+      await rename(temp, target);
+    }
+    for (const relativePath of Object.keys(journal.createdFiles ?? {})) {
+      await rm(resolve(this.stRoot, relativePath), { force: true });
+    }
+    await rm(this.statePath, { force: true });
+    await rm(this.journalPath, { force: true });
+  }
+
+  async recoverUnlocked() {
+    const journal = await this.readJournal();
+    if (!journal) return { status: 'NO_RECOVERY_NEEDED' };
+    if (journal.manifestId !== this.manifest.id) throw new Error('PATCH_RECOVERY_MANIFEST_MISMATCH');
+    await this.restoreJournal(journal);
+    return { status: 'RECOVERED_TO_BASELINE' };
+  }
+
+  async rollbackUnlocked() {
+    const state = await this.readState();
+    if (!state) return { status: 'NOT_INSTALLED' };
+    if (state.status !== 'INSTALLED' || state.patchSha256 !== this.manifest.patch.sha256) {
+      throw new Error('PATCH_STATE_UNRECOGNIZED');
+    }
+    const journal = {
+      manifestId: this.manifest.id,
+      phase: 'ROLLING_BACK',
+      backups: state.backups,
+      createdFiles: state.createdFiles,
+      startedAt: new Date().toISOString(),
+    };
+    await this.writeJournal(journal);
+    await this.restoreJournal(journal);
+    return { status: 'ROLLED_BACK' };
+  }
+
+  async execute(command) {
+    await this.initialize();
+    return this.withLock(async () => {
+      await this.recoverUnlocked();
+      if (command === 'preflight') {
+        await this.verifyBaseline();
+        this.runGit(['apply', '--check', this.patchPath], this.stRoot);
+        return { status: 'PREFLIGHT_OK' };
+      }
+      if (command === 'install') return this.installUnlocked();
+      if (command === 'verify' || command === 'status') {
+        const state = await this.readState();
+        if (!state) return { status: 'NOT_INSTALLED' };
+        await this.verifyInstalled();
+        return { status: 'INSTALLED_AND_VERIFIED', patchVersion: state.patchVersion };
+      }
+      if (command === 'repair') {
+        const state = await this.readState();
+        if (!state) return this.installUnlocked();
+        await this.rollbackUnlocked();
+        return this.installUnlocked();
+      }
+      if (command === 'update') {
+        const state = await this.readState();
+        if (state?.patchVersion === this.manifest.patch.version) {
+          await this.verifyInstalled();
+          return { status: 'UP_TO_DATE', patchVersion: state.patchVersion };
+        }
+        if (state) await this.rollbackUnlocked();
+        return this.installUnlocked();
+      }
+      if (command === 'rollback' || command === 'uninstall') return this.rollbackUnlocked();
+      throw new Error('UNKNOWN_PATCH_MANAGER_COMMAND');
+    });
+  }
+}
+
+function parseArgs(argv) {
+  const [command = 'install', ...rest] = argv;
+  const options = {};
+  for (let index = 0; index < rest.length; index += 1) {
+    if (rest[index] === '--st-root') options.stRoot = rest[++index];
+    else if (rest[index] === '--extension-root') options.extensionRoot = rest[++index];
+    else throw new Error('UNKNOWN_ARGUMENT: ' + rest[index]);
+  }
+  if (!options.stRoot) throw new Error('REQUIRED_ARGUMENT: --st-root');
+  options.extensionRoot ??= process.cwd();
+  return { command, options };
+}
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  try {
+    const { command, options } = parseArgs(process.argv.slice(2));
+    const manager = new SillyTavernPatchManager(options);
+    const result = await manager.execute(command);
+    process.stdout.write(JSON.stringify(result) + '\n');
+  } catch (error) {
+    process.stderr.write(JSON.stringify({ status: 'DENY_FAIL_CLOSED', code: error.message }) + '\n');
+    process.exitCode = 1;
+  }
+}
