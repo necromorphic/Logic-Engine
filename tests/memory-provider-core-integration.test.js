@@ -690,6 +690,23 @@ test('reconciliation rejects a Core mutation that occurs during complete invento
   await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_INDEX_NOT_READY/);
 });
 
+test('damaged Provider index schema is unavailable and never reported as empty', async (t) => {
+  const s = setup(t);
+  assert.equal((await s.prepare()).status, 'current');
+  s.db.exec('DROP TABLE memory_index_entries');
+
+  const result = await s.consumer.retrieveForNpc({
+    worldId: s.scope.world_id,
+    actorEntityId: s.scope.subject_id,
+    conversationId: HOST_CONVERSATION_ID,
+  });
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'memory_retrieval_unavailable');
+  assert.deepEqual(result.candidates, []);
+  assert.deepEqual(result.admitted, []);
+  assert.equal(JSON.stringify(result).includes('visible source-a'), false);
+});
+
 test('file-backed Provider restart requires reconciliation before retrieval resumes', async (t) => {
   const s = setup(t);
   assert.equal((await s.prepare()).status, 'current');
