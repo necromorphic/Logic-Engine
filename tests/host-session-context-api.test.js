@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { createHmac, randomUUID } from 'node:crypto';
 import { SQLiteStore } from '../src/storage/sqlite-store.js';
 import { LogicEngine } from '../src/application/engine.js';
@@ -71,15 +74,8 @@ function hostHeaders() {
   };
 }
 
-async function setup(t) {
-  const store = new SQLiteStore(':memory:');
-  const engine = new LogicEngine(store);
-  const running = await startServer(store, engine);
-  t.after(() => {
-    running.server.close();
-    store.close();
-  });
-  const worldResponse = await fetch(running.base + '/v1/worlds', {
+async function seedBindings(store, engine, base) {
+  const worldResponse = await fetch(base + '/v1/worlds', {
     method: 'POST',
     headers: { ...hostHeaders(), 'x-admin-token': ADMIN },
     body: JSON.stringify({
@@ -99,6 +95,17 @@ async function setup(t) {
     conversationId,
     worldId: WORLD,
   });
+}
+
+async function setup(t) {
+  const store = new SQLiteStore(':memory:');
+  const engine = new LogicEngine(store);
+  const running = await startServer(store, engine);
+  t.after(() => {
+    running.server.close();
+    store.close();
+  });
+  await seedBindings(store, engine, running.base);
   return { store, engine, ...running };
 }
 
@@ -190,6 +197,37 @@ test('Core rechecks conversation binding after revocation before accepting Host 
   });
   assert.equal(response.status, 403);
   assert.equal((await response.json()).error.code, 'HOST_CONTEXT_DENIED');
+});
+
+test('Core assertion nonce remains consumed after closing and reopening the file-backed SQLite database', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'logic-engine-host-nonce-'));
+  const dbPath = join(directory, 'core.sqlite');
+  let store = new SQLiteStore(dbPath);
+  let engine = new LogicEngine(store);
+  let running = await startServer(store, engine);
+  await seedBindings(store, engine, running.base);
+
+  const value = assertion();
+  const envelope = { assertion: value, signature: signature(value) };
+  const first = await fetch(running.base + '/v1/host/session-context', {
+    method: 'POST', headers: hostHeaders(), body: JSON.stringify(envelope),
+  });
+  assert.equal(first.status, 200);
+  await new Promise(resolve => running.server.close(resolve));
+  store.close();
+
+  store = new SQLiteStore(dbPath);
+  engine = new LogicEngine(store);
+  running = await startServer(store, engine);
+  const replay = await fetch(running.base + '/v1/host/session-context', {
+    method: 'POST', headers: hostHeaders(), body: JSON.stringify(envelope),
+  });
+  assert.equal(replay.status, 403);
+  assert.equal((await replay.json()).error.code, 'HOST_CONTEXT_DENIED');
+
+  await new Promise(resolve => running.server.close(resolve));
+  store.close();
+  await rm(directory, { recursive: true, force: true });
 });
 
 test('Core denies malformed assertions and missing adapter authentication', async t => {
