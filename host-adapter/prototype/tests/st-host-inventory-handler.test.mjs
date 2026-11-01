@@ -486,6 +486,7 @@ test('Host session identity responses are private and never expose cookie materi
 test('Host identity route returns installation/account IDs only for the matching signed ST session', async () => {
   let observedHandle = null;
   const handler = createHostIdentityHandler({
+    getDataRoot: () => join(tmpdir(), 'st-host-global-data-root'),
     identityStore: {
       assertOutsideRoot: async () => true,
       resolveAuthenticatedAccount: async handle => {
