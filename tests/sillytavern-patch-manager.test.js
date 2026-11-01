@@ -162,7 +162,7 @@ test('Patch Manager requires every allowlisted native source target to be explic
     '@@ -0,0 +1 @@',
     '+must-be-declared',
     '',
-  ].join('\\n');
+  ].join('\n');
   writeFileSync(join(f.packageDir, 'integration.patch'), nativePatch);
   const bytes = readFileSync(join(f.packageDir, 'integration.patch'));
   writeFileSync(f.manifestPath, JSON.stringify({
@@ -225,7 +225,7 @@ function nativeFixture(t) {
   git(st, ['init', '-q']);
   git(st, ['config', 'user.email', 'test@example.invalid']);
   git(st, ['config', 'user.name', 'Patch Manager Test']);
-  writeFileSync(join(st, nativePath), 'export const startup = "original";\\n');
+  writeFileSync(join(st, nativePath), 'export const startup = "original";\n');
   git(st, ['add', nativePath]);
   git(st, ['commit', '-qm', 'base']);
   const targetCommit = git(st, ['rev-parse', 'HEAD']);
@@ -238,7 +238,7 @@ function nativeFixture(t) {
     '-export const startup = "original";',
     '+export const startup = "patched";',
     '',
-  ].join('\\n');
+  ].join('\n');
   writeFileSync(join(packageDir, 'native.patch'), nativePatch);
   const bytes = readFileSync(join(packageDir, 'native.patch'));
   const manifestPath = join(packageDir, 'manifest.json');
@@ -258,7 +258,7 @@ test('Patch Manager accepts an exact manifest-declared native ST source path and
     installSillyTavernPatchPackage({ stPath: f.st, manifestPath: f.manifestPath }).affected_files,
     [nativePath],
   );
-  assert.equal(readFileSync(join(f.st, nativePath), 'utf8'), 'export const startup = "patched";\\n');
+  assert.equal(readFileSync(join(f.st, nativePath), 'utf8'), 'export const startup = "patched";\n');
   assert.equal(
     installSillyTavernPatchPackage({ stPath: f.st, manifestPath: f.manifestPath }).status,
     'ALREADY_APPLIED',
@@ -267,7 +267,7 @@ test('Patch Manager accepts an exact manifest-declared native ST source path and
     uninstallSillyTavernPatchPackage({ stPath: f.st, packageId: 'logic-engine.native-test' }).status,
     'ROLLED_BACK',
   );
-  assert.equal(readFileSync(join(f.st, nativePath), 'utf8'), 'export const startup = "original";\\n');
+  assert.equal(readFileSync(join(f.st, nativePath), 'utf8'), 'export const startup = "original";\n');
   assert.equal(inspectSillyTavernPatchTarget(f.st).clean, true);
 });
 
@@ -281,6 +281,6 @@ test('Patch Manager recovers an interrupted native-source transaction without wi
   journal.state = 'APPLYING';
   writeFileSync(journalPath, JSON.stringify(journal));
   assert.equal(recoverSillyTavernPatchTransaction(f.st).status, 'RECOVERED_ROLLBACK');
-  assert.equal(readFileSync(join(f.st, nativePath), 'utf8'), 'export const startup = "original";\\n');
+  assert.equal(readFileSync(join(f.st, nativePath), 'utf8'), 'export const startup = "original";\n');
   assert.equal(inspectSillyTavernPatchTarget(f.st).clean, true);
 });
