@@ -78,32 +78,36 @@ export function createHostContextRoute({ identityStore, enumerate, corePost, con
         const conversationId = gate.resolveHostConversationId(request);
         if (typeof conversationId !== 'string') return response.sendStatus(403);
         try {
-            const bindingResult = await corePost('/v1/host-conversation-bindings/resolve', {
-                conversation_id: conversationId,
-            });
-            const worldId = bindingResult?.binding?.world_id;
-            if (!validText(worldId)) return safeFailure(response, 'CORE_WORLD_BINDING_INVALID', 409);
-            const actorResult = await corePost(
-                '/v1/worlds/' + encodeURIComponent(worldId) + '/actors/resolve',
-                { entity_id: config.actorEntityId },
-            );
-            const actorId = actorResult?.resolution?.actor?.entity_id;
-            if (!validText(actorId)) return safeFailure(response, 'CORE_ACTOR_BINDING_INVALID', 409);
             const account = await identityStore.resolveAuthenticatedAccount(request.user.profile.handle);
+            const hostContext = {
+                installation_id: account.host_installation_id,
+                account_id: account.authenticated_account_id,
+                session_id: request.session.logicEngineSessionId,
+            };
+            const coreResult = await corePost('/v1/host-conversation-bindings/resolve-context', {
+                conversation_id: conversationId,
+                host_context: hostContext,
+                actor_entity_id: config.actorEntityId,
+            });
+            const context = coreResult?.context;
+            if (!context || context.installation_id !== hostContext.installation_id
+                || context.account_id !== hostContext.account_id
+                || context.session_id !== hostContext.session_id
+                || context.conversation_id !== conversationId
+                || context.adapter_id !== config.adapterId
+                || !validText(context.world_id) || !validText(context.actor_id)) {
+                return safeFailure(response, 'CORE_HOST_CONTEXT_INVALID', 409);
+            }
             return response.status(200).json({
                 status: 'AUTHENTICATED_HOST_CONTEXT',
-                identity: {
-                    installation_id: account.host_installation_id,
-                    account_id: account.authenticated_account_id,
-                    session_id: request.session.logicEngineSessionId,
-                    conversation_id: conversationId,
-                },
+                identity: hostContext,
+                conversation_id: conversationId,
                 binding: {
-                    world_id: worldId,
-                    actor_id: actorId,
-                    adapter_id: config.adapterId,
+                    world_id: context.world_id,
+                    actor_id: context.actor_id,
+                    adapter_id: context.adapter_id,
                 },
-                authority: 'SERVER_SESSION_AND_CORE_BINDINGS',
+                authority: context.authority,
             });
         } catch (error) {
             const code = typeof error?.message === 'string' && /^[A-Z0-9_]{1,96}$/.test(error.message)
