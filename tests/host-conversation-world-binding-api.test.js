@@ -154,6 +154,10 @@ test('Core binding API refuses implicit reassignment and revocation prevents res
   const adapterHeaders = { ...headers, 'x-adapter-id': 'adapter-a', 'x-adapter-token': ADAPTER_A };
   await fetch(path, {
     method: 'POST', headers: adminHeaders,
+    body: json({ adapter_id: 'adapter-a', conversation_id: 'stable-chat-id', world_id: 'host-binding-world-a' }),
+  });
+  await fetch(path, {
+    method: 'POST', headers: adminHeaders,
     body: json({ adapter_id: 'adapter-a', conversation_id: PC_NEXT11_CONVERSATION_ID, world_id: 'host-binding-world-a' }),
   });
 
