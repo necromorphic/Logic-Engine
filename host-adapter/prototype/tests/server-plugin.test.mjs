@@ -31,7 +31,7 @@ test('Extension Gateway server plugin registers one namespaced ingress and no di
   });
 });
 
-test('Gateway context route fails closed until authenticated Core assertion transport exists', async () => {
+test('Gateway context route fails closed until the server identity store is configured', async () => {
   const routes = [];
   await init({
     use() {},
