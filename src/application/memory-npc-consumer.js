@@ -187,6 +187,8 @@ export class MemoryNpcConsumer {
       subject_id: actorEntityId,
       purpose: 'npc_decision',
     });
+    // Core query purpose describes the model-facing Host turn. Provider's
+    // fixed npc_decision purpose remains a separate Memory grant namespace.
     const coreQueryScope = Object.freeze({
       world_id: worldId,
       conversation_id: conversationId,
