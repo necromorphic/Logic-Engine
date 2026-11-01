@@ -687,7 +687,6 @@ diff --git a/src/endpoints/chats.js b/src/endpoints/chats.js
      if (!request.body) return response.sendStatus(400);
  
      const format = request.body.file_type;
-
 @@ -900,4 +903,4 @@
 -router.post('/group/delete', (request, response) => {
 +router.post('/group/delete', hostBulkMutationGuard, (request, response) => {
