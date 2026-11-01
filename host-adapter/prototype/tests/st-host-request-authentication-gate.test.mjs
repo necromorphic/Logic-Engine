@@ -13,8 +13,9 @@ function makeResponse() {
 
 const sessionId = '2e6b0a80-4e73-4c66-aaf3-7a6e62c7f401';
 const installationId = '3e6b0a80-4e73-4c66-aaf3-7a6e62c7f402';
+const accountId = '5e6b0a80-4e73-4c66-aaf3-7a6e62c7f404';
 const conversationUuid = '4e6b0a80-4e73-4c66-aaf3-7a6e62c7f403';
-const conversationId = [sessionId, installationId, conversationUuid].join(':');
+const conversationId = [installationId, accountId, conversationUuid].join(':');
 
 test('Host gate brands only the exact request after trusted conversation resolution', async () => {
   const resolved = new WeakMap();
@@ -46,22 +47,24 @@ test('Host gate brands only the exact request after trusted conversation resolut
   assert.equal(gate.resolveHostConversationId(clone), null);
 });
 
-test('Host gate rejects a conversation bound to a different signed session', async () => {
-  const request = {
-    user: { profile: { handle: 'alice' }, directories: {} },
-    session: { handle: 'alice', logicEngineSessionId: sessionId, logicEngineSessionHandle: 'alice' },
-  };
-  const gate = createHostRequestAuthenticationGate({
-    resolveConversationId: () => [installationId, sessionId, conversationUuid].join(':'),
-  });
-  const response = makeResponse();
-  let nextCalls = 0;
-  await gate.middleware(request, response, () => { nextCalls++; });
-  assert.equal(response.statusCode, 403);
-  assert.equal(nextCalls, 0);
-  assert.equal(gate.isAuthenticatedHostRequest(request), false);
+test('Host gate rejects missing or malformed signed session identity', async () => {
+  const gate = createHostRequestAuthenticationGate({ resolveConversationId: () => conversationId });
+  for (const session of [
+    { logicEngineSessionHandle: 'alice' },
+    { logicEngineSessionId: 'not-a-uuid', logicEngineSessionHandle: 'alice' },
+  ]) {
+    const request = {
+      user: { profile: { handle: 'alice' }, directories: {} },
+      session,
+    };
+    const response = makeResponse();
+    let nextCalls = 0;
+    await gate.middleware(request, response, () => { nextCalls++; });
+    assert.equal(response.statusCode, 403);
+    assert.equal(nextCalls, 0);
+    assert.equal(gate.isAuthenticatedHostRequest(request), false);
+  }
 });
-
 test('Host gate rejects mismatched account sessions and missing server user roots', async () => {
   const gate = createHostRequestAuthenticationGate({ resolveConversationId: () => conversationId });
   for (const request of [
