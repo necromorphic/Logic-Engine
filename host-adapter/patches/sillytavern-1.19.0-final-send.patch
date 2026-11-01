@@ -198,7 +198,7 @@
 @@ -0,0 +1,78 @@
 +import { execFileSync } from 'node:child_process';
 +import { realpath, readFile, lstat } from 'node:fs/promises';
-+import { dirname, resolve } from 'node:path';
++import { basename, dirname, resolve } from 'node:path';
 +import { fileURLToPath, pathToFileURL } from 'node:url';
 +
 +const stRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -229,6 +229,9 @@
 +    if (!['install', 'update', 'delete'].includes(action)
 +        || typeof extensionPath !== 'string' || !extensionPath.trim()) {
 +        throw new Error('LOGIC_ENGINE_EXTENSION_LIFECYCLE_INVALID');
++    }
++    if (basename(extensionPath).toLowerCase() !== 'logic-engine') {
++        return { status: 'NOT_MANAGED' };
 +    }
 +
 +    const extensionInfo = await lstat(extensionPath);
