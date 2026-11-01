@@ -169,9 +169,11 @@ export function createExtensionGateway({ hostAdapter, maxBodyBytes = EXTENSION_G
 }
 
 /**
- * Mount exactly one same-process ST route. This function must be called from
- * the managed, version-pinned ST startup integration before general body
- * parsers and before native generation routers. It opens no listener or port.
+ * Mount exactly one same-process ST route after ST's authenticated-session
+ * middleware and before native private/generation routers. The managed startup
+ * integration must exclude this exact path from global JSON body parsing so
+ * this handler can enforce its own byte limit on the raw request stream.
+ * It opens no listener or port.
  */
 export function mountExtensionGateway({ app, gateway } = {}) {
   if (!app || typeof app.post !== 'function'
