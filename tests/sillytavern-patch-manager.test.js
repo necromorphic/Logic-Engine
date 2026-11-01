@@ -110,3 +110,44 @@ test('Patch Manager recovers an interrupted apply journal to the verified baseli
   assert.equal((await manager.execute('status')).status, 'NOT_INSTALLED');
   assert.equal(await readFile(join(stRoot, 'src/host.js'), 'utf8'), original);
 });
+
+test('Patch Manager updates an owned patch by rolling back the previous pinned version first', async (t) => {
+  const { manager, stRoot } = await fixture(t);
+  await manager.execute('install');
+
+  const extensionRoot = join(stRoot, '..', 'extension');
+  const manifestPath = join(extensionRoot, 'patches', 'manifest.json');
+  const patchPath = join(extensionRoot, 'patches', 'test.patch');
+  const original = "export const host = 'stock';\\n";
+  const patchedV2 = "export const host = 'patched-v2';\\n";
+  const hookV2 = "export const finalSendHook = 'v2';\\n";
+  const patchV2 = [
+    '--- a/src/host.js',
+    '+++ b/src/host.js',
+    '@@ -1 +1 @@',
+    "-export const host = 'stock';",
+    "+export const host = 'patched-v2';",
+    '--- /dev/null',
+    '+++ b/src/hook.js',
+    '@@ -0,0 +1 @@',
+    "+export const finalSendHook = 'v2';",
+    '',
+  ].join('\\n');
+  const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+  manifest.patch.version = 'test-2';
+  manifest.patch.sha256 = hash(patchV2);
+  manifest.sourceFiles['src/host.js'].after = hash(patchedV2);
+  manifest.createdFiles['src/hook.js'] = hash(hookV2);
+  await writeFile(manifestPath, JSON.stringify(manifest));
+  await writeFile(patchPath, patchV2);
+
+  const updatedManager = new SillyTavernPatchManager({
+    extensionRoot,
+    stRoot,
+    manifestPath,
+    patchPath,
+  });
+  assert.equal((await updatedManager.execute('update')).status, 'INSTALLED');
+  assert.equal(await readFile(join(stRoot, 'src/host.js'), 'utf8'), patchedV2);
+  assert.equal((await updatedManager.execute('verify')).status, 'INSTALLED_AND_VERIFIED');
+});
