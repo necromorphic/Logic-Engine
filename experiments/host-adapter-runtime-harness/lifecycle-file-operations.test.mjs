@@ -400,7 +400,7 @@ test('pinned ST 1.19.0 supported chat mutations persist; rename, group deletion,
     return response;
   }, ['modified', 'replaced']);
   await finishLifecycleMutation(sendReceiptScope);
-  const sendPersisted = (await readFile(chatPath, 'utf8')).trim().split('\\n').map(line => JSON.parse(line));
+  const sendPersisted = (await readFile(chatPath, 'utf8')).trim().split('\n').map(line => JSON.parse(line));
   assert.equal(sendPersisted.length, 4);
   assert.equal(sendPersisted[3]._logicEngineLifecycle.messageId, '16161616-1616-4161-8161-161616161616');
 
@@ -420,7 +420,7 @@ test('pinned ST 1.19.0 supported chat mutations persist; rename, group deletion,
     return response;
   }, ['modified', 'replaced']);
   await finishLifecycleMutation(receiveReceiptScope);
-  const receivePersisted = (await readFile(chatPath, 'utf8')).trim().split('\\n').map(line => JSON.parse(line));
+  const receivePersisted = (await readFile(chatPath, 'utf8')).trim().split('\n').map(line => JSON.parse(line));
   assert.equal(receivePersisted.length, 5);
   assert.equal(receivePersisted[4]._logicEngineLifecycle.messageId, '18181818-1818-4181-8181-181818181818');
 
