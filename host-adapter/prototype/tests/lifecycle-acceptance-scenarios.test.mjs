@@ -271,3 +271,21 @@ test('destructive and import UI entry points invoke target-aware fail-closed Hos
     && exportChunk.indexOf('guardExport?.()') < exportChunk.indexOf('await saveChatConditional();'),
   'enrolled chat export must verify persisted state before its save');
 });
+
+test('pinned patch guards Data Maid, settings restore, account reset and account deletion', async () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const patch = await readFile(resolve(here, '../patches/sillytavern-1.19.0-lifecycle-hooks.patch'), 'utf8');
+  for (const required of [
+    "+router.post('/delete', hostBulkMutationGuard, async (req, res) => {",
+    "+router.post('/restore-snapshot', hostBulkMutationGuard, getFileNameValidationFunction('name'), async (request, response) => {",
+    "+router.post('/reset-settings', hostBulkMutationGuard, async (request, response) => {",
+    "if (process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR) {",
+    "HOST_USER_ROOT_RESET_UNSUPPORTED",
+    "HOST_USER_ACCOUNT_DELETE_UNSUPPORTED",
+    "Skipping unreceipted startup group metadata migration while Host inventory is enabled.",
+  ]) {
+    assert.ok(patch.includes(required), `missing fail-closed lifecycle protection: ${required}`);
+  }
+  assert.equal(patch.includes('/api/logic-engine'), false,
+    'additional mutation guards must not add a separate public Host API route');
+});
