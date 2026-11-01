@@ -7,7 +7,7 @@
 **Scope:** identity hand-off, Core World/Actor resolution, authenticated Memory Provider retrieval, result/error/revoke semantics.  
 **Not in scope:** branch merging, Security Gateway changes, Final-Send, production enablement, Lane A, Provider schema migration.
 
-This document is the interface contract and implementation ledger. The two private routes are present in stacked Core HTTP #867 and Host #850; the shared context-resolution route block and Memory retrieval request/result boundary are aligned across both candidates. The updated Core HTTP #867 exact-head Runtime CI passed (run `41342230341`); the updated Host #850 full Runtime CI is running (run `41342763063`). Core Lane B #846 previously passed its exact-head Runtime CI (run `41317936997`). The contract document's own CI will rerun after this ledger update. Memory → NPC remains fail-closed until deployment Provider configuration/data authorization and existing release gates are satisfied.
+This document is the interface contract and implementation ledger. The two private routes are present in stacked Core HTTP #867 and Host #850; the shared context-resolution route block and Memory retrieval request/result boundary are aligned across both candidates. The updated Core HTTP #867 exact-head Runtime CI passed (run `41342230341`). The updated Host #850 exact-head full repository Runtime suite passed in the Memory Provider blocker workflow (run `41342762936`); the separate Host PR composite Runtime workflow remains in progress (run `41342763063`). Core Lane B #846 previously passed its exact-head Runtime CI (run `41317936997`). The contract document's own CI will rerun after this ledger update. Memory → NPC remains fail-closed until deployment Provider configuration/data authorization and existing release gates are satisfied.
 
 ## 1. Binding decisions and ownership
 
@@ -355,7 +355,8 @@ The contract's wire format, identity projection, binding ownership, retrieval fa
 - [x] Core API technical-owner approval: two private routes, durable nonce guard, and existing consumer result envelope.
 - [x] Core retrieval exception mapping conforms to §6 in #867: unexpected consumer/runtime exceptions return generic HTTP 500 `INTERNAL_ERROR`; regression test verifies response secrecy and nonce replay protection.
 - [x] Updated exact-head full Runtime CI passes on Core HTTP #867 (`15e4d4fe`, run `41342230341`); all jobs, including `npm test`, completed successfully.
-- [ ] Updated exact-head full Runtime CI for Host #850 (`feb6a593`, run `41342763063`) is still running; do not treat Host as fully green until it completes.
+- [x] Updated exact-head full repository Runtime suite passes on Host #850 (`feb6a593`, Memory Provider blocker run `41342762936`).
+- [ ] The separate Host PR composite Runtime workflow (`41342763063`) remains in progress for its additional Host lifecycle/recalculation checks.
 - [x] Contract PR #866 full Runtime suite passed on retry (run `41331512380`, attempt 2); the first attempt's single failure was the unrelated Windows `remote-binding.test.js` listener/fetch test.
 - [x] Identity projection is aligned across Host #850 and Core HTTP #867. Route ownership is split at the PR-stack level: #846 is the Core foundation, #867 supplies Core HTTP routes, and #850 carries the Host candidate plus its coordinated route mirror. Remaining independent review, branch integration, and deployment gates are tracked in §11.
 
