@@ -358,12 +358,16 @@ const HOST_CONVERSATION_ID = new RegExp(
 );
 
 /**
- * Process-local request capability for an in-process Core adapter. The resolver
- * must map the exact authenticated request to canonical server-owned chat state.
+ * Process-local request capability for Core's Host adapter. Installation and
+ * account IDs come from the server-owned identity store; the conversation UUID
+ * comes from a deployment-owned resolver over canonical Host state. The
+ * session UUID remains a separate authenticated dimension and is never
+ * overloaded into the durable conversation identity.
  */
-export function createHostRequestAuthenticationGate({ resolveConversationId } = {}) {
-  if (typeof resolveConversationId !== 'function') {
-    throw new TypeError('A trusted Host conversation resolver is required.');
+export function createHostRequestAuthenticationGate({ identityStore, resolveConversationUuid } = {}) {
+  if (!identityStore || typeof identityStore.resolveAuthenticatedAccount !== 'function'
+    || typeof resolveConversationUuid !== 'function') {
+    throw new TypeError('A server-owned Host identity store and trusted conversation resolver are required.');
   }
   const authenticatedRequests = new WeakMap();
   async function middleware(request, response, next) {
@@ -376,14 +380,31 @@ export function createHostRequestAuthenticationGate({ resolveConversationId } = 
     if (!identity || (typeof request !== 'object' && typeof request !== 'function') || request === null) {
       return response.sendStatus(403);
     }
-    const { session } = identity;
     try {
-      const conversationId = await resolveConversationId(request);
-      if (typeof conversationId !== 'string' || !HOST_CONVERSATION_ID.test(conversationId)
-        || !conversationId.toLowerCase().startsWith(session.logicEngineSessionId.toLowerCase() + ':')) {
+      const accountIdentity = await identityStore.resolveAuthenticatedAccount(identity.userHandle);
+      const installationId = accountIdentity?.host_installation_id;
+      const accountId = accountIdentity?.authenticated_account_id;
+      if (!HOST_SESSION_UUID.test(installationId ?? '') || !HOST_SESSION_UUID.test(accountId ?? '')) {
         return response.sendStatus(403);
       }
-      authenticatedRequests.set(request, conversationId);
+      const conversationUuid = await resolveConversationUuid(request, Object.freeze({
+        host_installation_id: installationId,
+        authenticated_account_id: accountId,
+        host_session_id: identity.session.logicEngineSessionId,
+        host_user_handle: identity.userHandle,
+      }));
+      if (typeof conversationUuid !== 'string' || !HOST_SESSION_UUID.test(conversationUuid)) {
+        return response.sendStatus(403);
+      }
+      const conversationId = [installationId, accountId, conversationUuid].join(':');
+      if (!HOST_CONVERSATION_ID.test(conversationId)) return response.sendStatus(403);
+      authenticatedRequests.set(request, Object.freeze({
+        conversationId,
+        hostInstallationId: installationId,
+        authenticatedAccountId: accountId,
+        hostSessionId: identity.session.logicEngineSessionId,
+        conversationUuid,
+      }));
       return next();
     } catch {
       return response.sendStatus(403);
@@ -397,7 +418,7 @@ export function createHostRequestAuthenticationGate({ resolveConversationId } = 
     },
     resolveHostConversationId(request) {
       if (request === null || (typeof request !== 'object' && typeof request !== 'function')) return null;
-      return authenticatedRequests.get(request) ?? null;
+      return authenticatedRequests.get(request)?.conversationId ?? null;
     },
   });
 }
