@@ -1564,6 +1564,8 @@ def main() -> int:
     parser.add_argument("--role", help="logical role name for privileged enrollment")
     parser.add_argument("--parent", help="pre-provisioned broker-owned role directory (0700)")
     parser.add_argument("--basename", help="new database filename; existing entries are never adopted")
+    parser.add_argument("--confirm-quiesced", action="store_true",
+                        help="operator confirms every application process and SQLite connection is stopped")
     args = parser.parse_args()
     store = ManifestStore(args.manifest_root, args.anchor_root, args.app_uid)
     try:
@@ -1576,20 +1578,20 @@ def main() -> int:
             print(f"role enrolled: role={args.role} generation={manifest['generation']}")
             return 0
         if args.command == "disable":
-            if not args.role:
-                parser.error("disable requires --role; stop all application processes first")
+            if not args.role or not args.confirm_quiesced:
+                parser.error("disable requires --role and --confirm-quiesced after stopping all application processes")
             manifest = store.disable_role(args.role)
             print(f"role disabled: role={args.role} generation={manifest['generation']}")
             return 0
         if args.command == "rename":
-            if not args.role or not args.basename:
-                parser.error("rename requires --role and --basename; stop all application processes first")
+            if not args.role or not args.basename or not args.confirm_quiesced:
+                parser.error("rename requires --role, --basename and --confirm-quiesced after stopping all application processes")
             manifest = store.rename_role_database(args.role, args.basename)
             print(f"database renamed: role={args.role} generation={manifest['generation']}")
             return 0
         if args.command == "delete":
-            if not args.role:
-                parser.error("delete requires --role; stop all application processes first")
+            if not args.role or not args.confirm_quiesced:
+                parser.error("delete requires --role and --confirm-quiesced after stopping all application processes")
             manifest = store.delete_role_database(args.role)
             print(f"database deleted: role={args.role} generation={manifest['generation']}")
             return 0
