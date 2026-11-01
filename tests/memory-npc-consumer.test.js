@@ -78,7 +78,7 @@ function setup(t, { allowContent = true, authorizeQuery = true, authorizeCoreQue
   let candidateList = [candidate()];
   let lastCandidateAuthorization = null;
   const provider = {
-    authorizeQuery: async () => authorizeQuery,
+    authorizeQuery: () => authorizeQuery,
     retrieveCandidates: async () => ({
       completeness,
       index_health: 'ready',
