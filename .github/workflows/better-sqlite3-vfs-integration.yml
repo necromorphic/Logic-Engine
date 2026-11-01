@@ -117,7 +117,7 @@ jobs:
         env:
           BETTER_SQLITE3_PACKAGE_DIR: ${{ runner.temp }}\better-sqlite3\package
         run: |
-          node -e 'const Database = require(process.env.BETTER_SQLITE3_PACKAGE_DIR); const db = new Database(":memory:"); console.log("better-sqlite3 Windows prebuild", db.prepare("SELECT sqlite_version() AS version").get()); db.close();'
+          node -e 'const Database = require(process.env.BETTER_SQLITE3_PACKAGE_DIR); const db = new Database(":memory:"); const row = db.prepare("SELECT sqlite_version() AS version, sqlite_source_id() AS source_id").get(); const compileOptions = db.pragma("compile_options").map(x => x.compile_options); console.log("better-sqlite3 Windows runtime", JSON.stringify({ ...row, compileOptions }, null, 2)); if (row.version !== "3.53.4") throw new Error("Unexpected SQLite version"); if (row.source_id !== "2026-07-24 19:02:57 bf7c7f30031888f4e796e429ab3978879485813aaca6f641c7b33e4e09459bcc") throw new Error("Unexpected SQLite source ID"); db.close();'
       - name: Build secure VFS extension against better-sqlite3 bundled SQLite headers
         shell: pwsh
         run: |
