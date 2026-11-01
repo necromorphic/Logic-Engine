@@ -21,11 +21,10 @@ const authenticatedHostRequests = new WeakSet([hostRequest]);
 const isAuthenticatedHostRequest = request => authenticatedHostRequests.has(request);
 const trustedConversationIds = new WeakMap([[hostRequest, HOST_CONVERSATION_ID]]);
 const resolveHostConversationId = request => trustedConversationIds.get(request) ?? null;
-const resolveHostBindings = (_request, conversationId) => conversationId === HOST_CONVERSATION_ID
-  ? ({ world_id: 'memory-npc-world', actor_id: 'npc-a' }) : null;
-
 function setup(t, { allowContent = true, authorizeQuery = true, authorizeCoreQuery = true, authorizeCandidate = true, completeness = 'complete' } = {}) {
   let contentVisible = allowContent;
+  let hostBindings = { world_id: 'memory-npc-world', actor_id: 'npc-a' };
+  const resolveHostBindings = (_request, conversationId) => conversationId === HOST_CONVERSATION_ID ? hostBindings : null;
   const store = new SQLiteStore(':memory:');
   const engine = new LogicEngine(store);
   const bindings = new ActorBindingService(engine);
@@ -130,6 +129,7 @@ function setup(t, { allowContent = true, authorizeQuery = true, authorizeCoreQue
     store, engine, bindings, consumer: authenticatedConsumer, provider, authorizedReadService, scope, snapshot,
     setCandidates(next) { candidateList = next; },
     getLastCandidateAuthorization() { return lastCandidateAuthorization; },
+    setHostBindings(next) { hostBindings = next; },
     revokeContent() { contentVisible = false; },
     candidate,
   };
@@ -1371,4 +1371,13 @@ test('Core reapplies field visibility after asynchronous Provider authorization 
   assert.equal(result.reason, 'authorized_source_read_unavailable');
   assert.deepEqual(result.candidates, []);
   assert.equal(JSON.stringify(result).includes('authorized source text'), false);
+});
+
+test('Memory NPC retrieval fails closed when authenticated Host World/Actor bindings differ from Core', async t => {
+  const f = setup(t);
+  f.setHostBindings({ world_id: 'memory-npc-world', actor_id: 'different-actor' });
+  const result = await f.consumer.retrieveForNpc({ conversationId: HOST_CONVERSATION_ID });
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'query_access_unconfirmed');
+  assert.equal(f.getLastCandidateAuthorization(), null);
 });
