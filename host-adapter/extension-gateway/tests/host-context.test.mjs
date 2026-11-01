@@ -37,6 +37,18 @@ test('Gateway resolves stable installation/account/conversation identity with se
   assert.equal(resolved.authenticatedAccountId,accountId);
   assert.equal(calls.length,2);
 });
+test('Gateway rejects uppercase generation_type before dispatch', async () => {
+  await assert.rejects(
+    dispatchThroughExtensionGateway({ requestId, contextSize: 8192, type: 'NORMAL' }, {
+      fetchImpl: async () => { throw new Error('unexpected network call'); },
+      getHostContext: hostContext(),
+      storage: new MemoryStorage(),
+      cryptoProvider: { randomUUID: () => conversationUuid },
+    }),
+    /HOST_DISPATCH_GENERATION_TYPE_INVALID/,
+  );
+});
+
 test('Gateway dispatch sends only bounded identity metadata and uses ST CSRF headers',async()=>{
   const calls=[];
   const fetchImpl=async(url,options={})=>{
