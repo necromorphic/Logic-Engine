@@ -16,6 +16,7 @@ import {
 import { loadTrustedWorldPackCatalog } from './application/world-pack-catalog.js';
 import { createHostBoundNpcKnowledgeAuthorizers } from './application/npc-knowledge-authorization.js';
 import { createProcessScopedMechanicPolicyAuthority, defaultMechanicPolicyFieldPolicy } from './application/mechanic-policy-authority.js';
+import { createMemoryNpcProviderAdapter } from './application/memory-npc-provider-adapter.js';
 
 const token = process.env.ENGINE_API_TOKEN;
 const internalToken = process.env.ENGINE_INTERNAL_TOKEN || null;
@@ -242,18 +243,51 @@ if (hostRootIdentityRegistry.length > 0) {
   resolveHostRootIdentity = input => resolveAdapterHostRootIdentity(hostRootIdentityRegistry, input);
 }
 
+const logicEngine = new LogicEngine(store, {
+  trustedInitialKnowledgeSources, worldPackCatalog,
+  npcKnowledgeReadAuthorizer: npcKnowledgeAuthorizers.readAuthorizer,
+  npcKnowledgeVisibilityAuthorizer: npcKnowledgeAuthorizers.visibilityAuthorizer,
+});
+const memoryProviderAdapters = [];
+const memoryNpcConsumers = {};
+const memoryProviderPath = process.env.ENGINE_MEMORY_PROVIDER_DB_PATH;
+if (memoryProviderPath !== undefined) {
+  let contentFields;
+  try {
+    contentFields = JSON.parse(process.env.ENGINE_MEMORY_NPC_CONTENT_FIELDS || '[]');
+  } catch {
+    throw new Error('ENGINE_MEMORY_NPC_CONTENT_FIELDS must be a JSON array of Core-authorized fields.');
+  }
+  if (!Array.isArray(contentFields) || contentFields.length === 0) {
+    throw new Error('ENGINE_MEMORY_NPC_CONTENT_FIELDS must be a non-empty JSON array when Memory Provider is configured.');
+  }
+  for (const adapterId of Object.keys(adapterTokens)) {
+    const memoryAdapter = createMemoryNpcProviderAdapter({
+      engine: logicEngine,
+      providerPath: resolve(memoryProviderPath),
+      coordinatorPath,
+      adapterId,
+      trustedInitialKnowledgeSources,
+      fieldPolicy: mechanicPolicyAuthority,
+      contentFields,
+    });
+    memoryProviderAdapters.push(memoryAdapter);
+    memoryNpcConsumers[adapterId] = memoryAdapter.consumer;
+  }
+  const worldIds = store.db.prepare('SELECT world_id FROM worlds ORDER BY world_id').all();
+  for (const memoryAdapter of memoryProviderAdapters) {
+    for (const world of worldIds) await memoryAdapter.prepareWorld(world.world_id);
+  }
+}
 const server = createApiServer({
-  engine: new LogicEngine(store, {
-    trustedInitialKnowledgeSources, worldPackCatalog,
-    npcKnowledgeReadAuthorizer: npcKnowledgeAuthorizers.readAuthorizer,
-    npcKnowledgeVisibilityAuthorizer: npcKnowledgeAuthorizers.visibilityAuthorizer,
-  }), token, internalToken, approvalToken, adminToken, adapterTokens,
+  engine: logicEngine, token, internalToken, approvalToken, adminToken, adapterTokens,
   hostVersionLedger,
   hostRootInventoryJournal,
   resolveHostRootIdentity,
   resolveHostLifecycleIdentity: input => bindHostLifecycleAuthority(resolveAdapterHostLifecycleIdentity(hostRootIdentityRegistry, input)),
   hostLifecycleJournal: hostRootInventoryJournal,
   mechanicPolicyAuthority,
+  memoryNpcConsumers,
 });
 server.listen(port, host, () => process.stdout.write(
   'Logic-Engine API listening on http://' + host + ':' + port + '\nDatabase: ' + dbPath +
@@ -262,10 +296,14 @@ server.listen(port, host, () => process.stdout.write(
 ));
 function stop() {
   server.close(() => {
-    try { hostRootInventoryJournal?.close(); }
-    finally {
-      try { hostVersionLedger.close(); }
-      finally { store.close(); process.exit(0); }
+    try {
+      for (const adapter of memoryProviderAdapters) adapter.close();
+    } finally {
+      try { hostRootInventoryJournal?.close(); }
+      finally {
+        try { hostVersionLedger.close(); }
+        finally { store.close(); process.exit(0); }
+      }
     }
   });
 }
