@@ -2818,12 +2818,14 @@ static int probe_parse_manifest_win_identity(
   const unsigned char *file_id_text = sqlite3_value_text(file_id_value);
   char *end = NULL;
   unsigned long long volume;
-  if (!volume_text || !file_id_text || strlen((const char *)file_id_text) != 32)
+  if (!volume_text || !file_id_text || strlen((const char *)volume_text) != 16
+      || strlen((const char *)file_id_text) != 32)
     return 0;
   for (const unsigned char *p = volume_text; *p; ++p)
-    if (*p < '0' || *p > '9') return 0;
+    if (!((*p >= '0' && *p <= '9') || (*p >= 'a' && *p <= 'f')
+          || (*p >= 'A' && *p <= 'F'))) return 0;
   errno = 0;
-  volume = strtoull((const char *)volume_text, &end, 10);
+  volume = strtoull((const char *)volume_text, &end, 16);
   if (errno || !end || *end || volume == 0) return 0;
   memset(identity, 0, sizeof(*identity));
   identity->volume_serial = (ULONGLONG)volume;
