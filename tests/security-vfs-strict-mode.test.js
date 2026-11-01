@@ -32,8 +32,15 @@ test('strict Linux VFS build requires broker role enrollment', {
       () => db.prepare(
         'SELECT logic_engine_vfs_probe_bind_broker(?, ?)'
       ).get('not-enrolled', '/run/logic-engine-broker/broker.sock'),
-      /role missing/i,
-      'strict Linux builds retain the broker-binding API',
+      /no such function/i,
+      'strict Linux builds must not expose caller-controlled broker rebinding',
+    );
+    assert.throws(
+      () => db.prepare(
+        'SELECT logic_engine_vfs_probe_register_broker_role_from_host()'
+      ).get(),
+      /trusted Host VFS role path\/name and broker socket configuration are required/i,
+      'strict enrollment must require Host-owned process configuration',
     );
 
     const directory = mkdtempSync(join(tmpdir(), 'logic-engine-strict-broker-socket-'));
@@ -44,19 +51,37 @@ test('strict Linux VFS build requires broker role enrollment', {
         server.once('error', reject);
         server.listen(socketPath, resolve);
       });
+      const priorEnvironment = {
+        path: process.env.LOGIC_ENGINE_VFS_ROLE_PATH,
+        role: process.env.LOGIC_ENGINE_VFS_ROLE_NAME,
+        socket: process.env.LOGIC_ENGINE_BROKER_SOCKET,
+        uid: process.env.LOGIC_ENGINE_BROKER_UID,
+      };
+      process.env.LOGIC_ENGINE_VFS_ROLE_PATH = join(directory, 'core.sqlite');
+      process.env.LOGIC_ENGINE_VFS_ROLE_NAME = 'core';
+      process.env.LOGIC_ENGINE_BROKER_SOCKET = socketPath;
+      process.env.LOGIC_ENGINE_BROKER_UID = String(process.getuid());
       const before = db.prepare(
         'SELECT logic_engine_vfs_probe_broker_socket_policy_reject_count() AS count'
       ).get().count;
       assert.throws(
         () => db.prepare(
-          'SELECT logic_engine_vfs_probe_register_broker_role(?, ?, ?)'
-        ).get(join(directory, 'core.sqlite'), 'core', socketPath),
+          'SELECT logic_engine_vfs_probe_register_broker_role_from_host()'
+        ).get(),
         /broker role enrollment handshake failed/i,
         'strict Linux builds must reject an app-owned fake broker socket',
       );
       const after = db.prepare(
         'SELECT logic_engine_vfs_probe_broker_socket_policy_reject_count() AS count'
       ).get().count;
+      if (priorEnvironment.path === undefined) delete process.env.LOGIC_ENGINE_VFS_ROLE_PATH;
+      else process.env.LOGIC_ENGINE_VFS_ROLE_PATH = priorEnvironment.path;
+      if (priorEnvironment.role === undefined) delete process.env.LOGIC_ENGINE_VFS_ROLE_NAME;
+      else process.env.LOGIC_ENGINE_VFS_ROLE_NAME = priorEnvironment.role;
+      if (priorEnvironment.socket === undefined) delete process.env.LOGIC_ENGINE_BROKER_SOCKET;
+      else process.env.LOGIC_ENGINE_BROKER_SOCKET = priorEnvironment.socket;
+      if (priorEnvironment.uid === undefined) delete process.env.LOGIC_ENGINE_BROKER_UID;
+      else process.env.LOGIC_ENGINE_BROKER_UID = priorEnvironment.uid;
       assert.equal(after, before + 1,
         'the strict socket-owner policy must reject the app-owned endpoint before connect');
     } finally {
