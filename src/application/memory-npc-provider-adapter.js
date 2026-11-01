@@ -77,6 +77,9 @@ export function createMemoryNpcProviderAdapter({
   if (typeof adapterId !== 'string' || !adapterId.trim()) {
     throw new TypeError('Memory Provider adapter requires one configured authenticated adapterId');
   }
+  if (typeof isAuthenticatedHostRequest !== 'function') {
+    throw new TypeError('Memory Provider adapter requires the trusted Host authentication middleware verifier');
+  }
   if (!Array.isArray(trustedInitialKnowledgeSources)) {
     throw new TypeError('Memory Provider adapter requires the deployment-owned source registry');
   }
