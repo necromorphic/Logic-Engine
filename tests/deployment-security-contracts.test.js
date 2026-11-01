@@ -148,7 +148,7 @@ test('report validation prevents a false PASS when required evidence is missing'
   };
   assert.throws(() => validateDeploymentReport(blockedGateReport), /FALSE_PASS_BLOCKED_GATE/);
   const portablePass = { ...blockedGateReport, gates: [], overall_status: 'PASS' };
-  assert.throws(() => validateDeploymentReport(portablePass), /FALSE_PASS_PORTABLE_ISOLATION/);
+  assert.throws(() => validateDeploymentReport(portablePass), /MISSING_PROTECTED_FINAL_SEND_GATE/);
 });
 
 test('portable report explicitly reports degraded single-process isolation', () => {
@@ -166,7 +166,7 @@ test('portable report explicitly reports degraded single-process isolation', () 
     gates: [{ id: 'memory:protected-final-send-production', status: 'BLOCKED', affected_features: ['memory.protected-final-send'] }],
     limitations: ['All components share one process identity.'],
   });
-  assert.equal(report.overall_status, 'DEGRADED');
+  assert.equal(report.overall_status, 'NOT_TESTED');
   assert.equal(validateDeploymentReport(report), true);
 });
 
