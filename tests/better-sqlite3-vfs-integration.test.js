@@ -37,7 +37,7 @@ test('stock better-sqlite3 selects the secure VFS through SQLite URI in its own 
   // SQLite's URI vfs= parameter selects the named VFS without patching better-sqlite3.
   const db = new Database(databaseUri.href);
   try {
-    db.pragma('journal_mode = WAL');
+    assert.equal(db.pragma('journal_mode = WAL', { simple: true }), 'wal');
     db.exec('CREATE TABLE vfs_probe (id INTEGER PRIMARY KEY, value TEXT NOT NULL)');
     db.prepare('INSERT INTO vfs_probe (value) VALUES (?)').run('same-engine');
     assert.deepEqual(db.prepare('SELECT value FROM vfs_probe').pluck().all(), ['same-engine']);
