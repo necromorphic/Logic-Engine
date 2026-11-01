@@ -19,6 +19,7 @@ import { SQLiteMemoryProvider } from '../src/application/sqlite-memory-provider.
 import { enrollAcceptedHeadDomain } from '../src/security/enroll-accepted-head-domain.js';
 import { SQLiteStore } from '../src/storage/sqlite-store.js';
 import { LogicEngine } from '../src/application/engine.js';
+import { createProtectedMemoryFinalSend, PROTECTED_MEMORY_SENDER_ROUTES } from '../host-adapter/protected-memory-final-send.mjs';
 
 const coreToken = 'core-token-for-dispatch-gateway-tests-00000000000000000000000000000001';
 const providerToken = 'provider-token-for-dispatch-gateway-tests-00000000000000000000000000000002';
@@ -323,6 +324,53 @@ test('transport handoff begins while the shared coordinator is still held', asyn
   );
   contender.exec('BEGIN IMMEDIATE');
   contender.exec('ROLLBACK');
+});
+
+test('all protected sender families share one real Gateway and each causes exactly one upstream call', async () => {
+  const fixture = await createFixture();
+  let upstreamCalls = 0;
+  const prepared = {
+    model: 'selected-model',
+    worldId: 'world-1',
+    actorId: 'npc-1',
+    purpose: 'recall',
+    sources: sourceSet,
+    candidates: validRequest().candidates,
+  };
+  const finalSend = createProtectedMemoryFinalSend({
+    gateway: fixture.gateway,
+    resolveProtectedMemory: () => null,
+    fetchImpl: async () => {
+      upstreamCalls += 1;
+      return { status: 200, body: 'upstream-response' };
+    },
+  });
+  try {
+    for (const senderRoute of PROTECTED_MEMORY_SENDER_ROUTES) {
+      await finalSend({
+        senderRoute,
+        endpointUrl: 'https://provider.example/v1/chat/completions',
+        requestInit: {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ messages: [{ role: 'user', content: 'protected' }] }),
+        },
+        hostRequestContext: {},
+      });
+    }
+    assert.equal(upstreamCalls, PROTECTED_MEMORY_SENDER_ROUTES.length);
+    const ledger = new DatabaseSync(fixture.ledgerPath);
+    try {
+      assert.equal(
+        ledger.prepare('SELECT COUNT(*) AS n FROM dispatch_ledger WHERE status=?').get('COMPLETED').n,
+        PROTECTED_MEMORY_SENDER_ROUTES.length,
+      );
+    } finally {
+      ledger.close();
+    }
+  } finally {
+    await fixture.close();
+  }
 });
 
 test('FINAL RESPONSE REVALIDATION blocks Host release after Provider revoke during upstream send', async () => {
