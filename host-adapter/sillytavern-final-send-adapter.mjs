@@ -28,7 +28,7 @@ const ROUTE_BY_SOURCE_KEY = Object.freeze({
   MOONSHOT: 'moonshot',
   ZAI: 'zai',
   SILICONFLOW: 'siliconflow',
-  WORKERSAI: 'workers-ai',
+  WORKERS_AI: 'workers-ai',
 });
 
 function assertSourceMap(sources) {
