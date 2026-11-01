@@ -26,8 +26,8 @@ test('Final-Send patch routes every Chat Completions fetch and stream release th
   assert.match(source, /'kobold'/);
   assert.match(source, /'novelai-text'/);
   assert.match(source, /'horde-text'/);
-  assert.match(source, /response\\.write = function/);
-  assert.match(source, /response\\.end = function/);
+  assert.match(source, /response\.write = function/);
+  assert.match(source, /response\.end = function/);
   assert.match(source, /hostTransformsStream/);
 });
 
