@@ -299,6 +299,7 @@
       "then": {
         "properties": {
           "filesystemPolicy": {
+            "type": "object",
             "required": [
               "filesystem",
               "identitySource",
