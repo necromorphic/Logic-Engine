@@ -17,6 +17,7 @@ const ALLOWED_PACKAGE_ROOTS = Object.freeze([
 ]);
 const ALLOWED_NATIVE_SOURCE_PATHS = new Set([
   'src/server-startup.js',
+  'src/server-main.js',
   'src/endpoints/backends/chat-completions.js',
   'src/endpoints/backends/text-completions.js',
   'src/endpoints/backends/kobold.js',
