@@ -492,6 +492,59 @@ class ManifestStoreTests(unittest.TestCase):
         with self.assertRaises(StoreError):
             self.store.verify_roles()
 
+    def test_role_cannot_be_disabled_with_active_sidecars(self):
+        wal = self.role_parent / "core.sqlite-wal"
+        wal.write_bytes(b"wal-placeholder")
+        os.chmod(wal, 0o600)
+        wal_fd = os.open(wal, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
+        try:
+            wal_identity = fd_identity(wal_fd)
+        finally:
+            os.close(wal_fd)
+        import json
+        self.store.initialize(self.data(1))
+        value = json.loads(self.data(1))
+        value["generation"] = 2
+        value["roles"][0]["sidecars"] = [{
+            "kind": "wal", "identity": wal_identity,
+            "state": "creating", "generation": 2,
+        }]
+        self.store.commit(_canonical_json(value))
+        value["generation"] = 3
+        value["roles"][0]["sidecars"][0]["state"] = "active"
+        value["roles"][0]["sidecars"][0]["generation"] = 3
+        self.store.commit(_canonical_json(value))
+        value["generation"] = 4
+        value["roles"][0]["state"] = "disabled"
+        with self.assertRaisesRegex(StoreError, "disabling requires every sidecar to be retired"):
+            self.store.commit(_canonical_json(value))
+
+    def test_recovery_required_role_cannot_reactivate_transitional_sidecars(self):
+        wal = self.role_parent / "core.sqlite-wal"
+        wal.write_bytes(b"wal-placeholder")
+        os.chmod(wal, 0o600)
+        wal_fd = os.open(wal, os.O_RDONLY | os.O_NOFOLLOW)
+        try:
+            wal_identity = fd_identity(wal_fd)
+        finally:
+            os.close(wal_fd)
+        import json
+        self.store.initialize(self.data(1))
+        value = json.loads(self.data(1))
+        value["generation"] = 2
+        value["roles"][0]["sidecars"] = [{
+            "kind": "wal", "identity": wal_identity,
+            "state": "creating", "generation": 2,
+        }]
+        self.store.commit(_canonical_json(value))
+        value["generation"] = 3
+        value["roles"][0]["state"] = "recovery-required"
+        self.store.commit(_canonical_json(value))
+        value["generation"] = 4
+        value["roles"][0]["state"] = "active"
+        with self.assertRaisesRegex(StoreError, "recovery cannot reactivate transitional sidecars"):
+            self.store.commit(_canonical_json(value))
+
     def test_rejects_zero_identity_components(self):
         import json
         for component in ("device", "inode", "mountId"):
