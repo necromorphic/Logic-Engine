@@ -30,6 +30,26 @@ function requestMatchesAuthenticatedHostSession(request, conversationId) {
     && HOST_CONVERSATION_ID.test(conversationId);
 }
 
+
+async function resolveAuthenticatedHostConversation(request, conversationId, identityStore) {
+  const handle = request?.user?.profile?.handle;
+  const session = request?.session;
+  const sessionId = session?.logicEngineSessionId;
+  if (!identityStore || typeof identityStore.resolveAuthenticatedAccount !== 'function'
+    || !validId(handle) || !HOST_SESSION_UUID.test(sessionId ?? '')
+    || session?.logicEngineSessionHandle !== handle
+    || (session?.handle !== undefined && session.handle !== handle)
+    || typeof conversationId !== 'string' || !HOST_CONVERSATION_ID.test(conversationId)) return null;
+  const parts = conversationId.split(':');
+  if (parts.length !== 3 || parts[0] !== sessionId || !HOST_SESSION_UUID.test(parts[2])) return null;
+  let identity;
+  try { identity = await identityStore.resolveAuthenticatedAccount(handle); } catch { return null; }
+  if (!identity || !HOST_SESSION_UUID.test(identity.host_installation_id ?? '')
+    || !HOST_SESSION_UUID.test(identity.authenticated_account_id ?? '')
+    || parts[1] !== identity.host_installation_id) return null;
+  return { identity, hostSessionId: sessionId, conversationUuid: parts[2] };
+}
+
 const ALLOWED_FIELDS = new Set([
   'conversation_id', 'message_id', 'version_id', 'parent_version_id', 'content_sha256', 'active', 'deleted',
 ]);
@@ -73,9 +93,11 @@ function validCapture(body) {
 export function createHostDigestProxyHandler({
   env = process.env,
   fetchImpl = globalThis.fetch,
+  identityStore,
   timeoutMs = 5000,
 } = {}) {
   if (typeof fetchImpl !== 'function') throw new TypeError('A fetch implementation is required');
+  if (!identityStore || typeof identityStore.resolveAuthenticatedAccount !== 'function') throw new TypeError('A server-owned Host identity store is required');
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 30000) {
     throw new TypeError('timeoutMs must be an integer between 1 and 30000');
   }
@@ -86,7 +108,7 @@ export function createHostDigestProxyHandler({
         error: { code: 'LOGIC_ENGINE_PROXY_UNCONFIGURED', message: 'The server-side Logic-Engine bridge is not configured.' },
       });
     }
-    if (!requestMatchesAuthenticatedHostSession(request, request?.body?.conversation_id)) {
+    if (!await resolveAuthenticatedHostConversation(request, request?.body?.conversation_id, identityStore)) {
       return response.status(403).json({
         error: { code: 'HOST_SESSION_SCOPE_REQUIRED', message: 'The Host conversation is not bound to this authenticated SillyTavern session.' },
       });
@@ -169,9 +191,11 @@ function validReconciliation(body) {
 export function createHostInventoryReconcileProxyHandler({
   env = process.env,
   fetchImpl = globalThis.fetch,
+  identityStore,
   timeoutMs = 5000,
 } = {}) {
   if (typeof fetchImpl !== 'function') throw new TypeError('A fetch implementation is required');
+  if (!identityStore || typeof identityStore.resolveAuthenticatedAccount !== 'function') throw new TypeError('A server-owned Host identity store is required');
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 30000) {
     throw new TypeError('timeoutMs must be an integer between 1 and 30000');
   }
@@ -184,7 +208,7 @@ export function createHostInventoryReconcileProxyHandler({
     }
     let bodyBytes = Infinity;
     try { bodyBytes = Buffer.byteLength(JSON.stringify(request?.body)); } catch {}
-    if (!requestMatchesAuthenticatedHostSession(request, request?.body?.conversation_id)) {
+    if (!await resolveAuthenticatedHostConversation(request, request?.body?.conversation_id, identityStore)) {
       return response.status(403).json({
         error: { code: 'HOST_SESSION_SCOPE_REQUIRED', message: 'The Host conversation is not bound to this authenticated SillyTavern session.' },
       });
@@ -399,10 +423,11 @@ const HOST_LIFECYCLE_OPERATIONS = new Set([
 function parseBoundConversation(request, conversationId, identity) {
   if (!requestMatchesAuthenticatedHostSession(request, conversationId)) return null;
   const parts = conversationId.split(':');
-  if (parts.length !== 3 || parts[0] !== identity.host_installation_id
-    || parts[1] !== identity.authenticated_account_id
+  if (parts.length !== 3 || parts[0] !== request.session.logicEngineSessionId
+    || parts[1] !== identity.host_installation_id
     || !HOST_SESSION_UUID.test(parts[2])
-    || request.session.logicEngineSessionHandle !== request.user.profile.handle) return null;
+    || request.session.logicEngineSessionHandle !== request.user.profile.handle
+    || (request.session.handle !== undefined && request.session.handle !== request.user.profile.handle)) return null;
   return parts[2];
 }
 
