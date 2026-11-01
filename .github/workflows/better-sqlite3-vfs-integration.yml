@@ -86,7 +86,10 @@ jobs:
         env:
           BETTER_SQLITE3_PACKAGE_DIR: ${{ runner.temp }}/better-sqlite3/package
           LOGIC_ENGINE_VFS_PROBE_PATH: ${{ runner.temp }}/logic_engine_secure_vfs_probe.so
-        run: sudo -E python3 tests/run_better_sqlite3_cross_uid.py
+        run: |
+          python3 -m py_compile tests/run_better_sqlite3_cross_uid.py
+          NODE_BINARY="$(command -v node)"
+          sudo env NODE_BINARY="$NODE_BINARY" BETTER_SQLITE3_PACKAGE_DIR="$BETTER_SQLITE3_PACKAGE_DIR" LOGIC_ENGINE_VFS_PROBE_PATH="$LOGIC_ENGINE_VFS_PROBE_PATH" python3 tests/run_better_sqlite3_cross_uid.py
 
   windows-x64:
     runs-on: windows-latest
