@@ -4,6 +4,7 @@ import {
   createHostInventoryHandler,
   createHostRequestAuthenticationGate,
   createHostSessionHandler,
+  resolveHostDataDirectories,
 } from './st-host-inventory-handler.mjs';
 import {
   createHostDigestProxyHandler,
