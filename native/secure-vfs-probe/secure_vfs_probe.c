@@ -331,11 +331,15 @@ static int probe_broker_exchange(
       goto done;
     }
   }
-  if (snprintf(connect_path, sizeof(connect_path), "/proc/self/fd/%d/%s",
-               socket_parent_fd, socket_basename) <= 0
-      || strlen(connect_path) >= sizeof(address.sun_path)) {
-    probe_counter_increment(&g_broker_socket_policy_reject_count);
-    goto done;
+  {
+    int connect_length = snprintf(connect_path, sizeof(connect_path),
+                                  "/proc/self/fd/%d/%s",
+                                  socket_parent_fd, socket_basename);
+    if (connect_length <= 0 || (size_t)connect_length >= sizeof(connect_path)
+        || (size_t)connect_length >= sizeof(address.sun_path)) {
+      probe_counter_increment(&g_broker_socket_policy_reject_count);
+      goto done;
+    }
   }
 
   socket_fd = socket(AF_UNIX, SOCK_SEQPACKET, 0);
