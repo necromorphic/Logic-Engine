@@ -183,12 +183,29 @@ The following IDs are proposed for consistent policy and tests:
 
 Capability IDs are stable public contract identifiers once adopted. Changes require a schema/contract version decision and migration notes.
 
-## 8. Review questions before runtime implementation
+## 8. Phase 1 policy decisions
 
-1. Should a manifest allow multiple components to share one security domain explicitly, or should the runtime derive grouping from `security_domain` declarations?
-2. Should Portable mode permit environment secrets by default for backward compatibility, or require an explicit compatibility switch in every deployment?
-3. Which resource classes are mandatory in the first Portable profile, given the current runtime's configured Core DB, Coordinator DB, Host ledger and World Pack catalog?
-4. Should backup freshness anchoring be an optional capability in Portable mode with an explicit anti-rollback limitation, while Hardened mode requires it?
-5. Which service manager integrations are mandatory for Hardened Linux: systemd only, or a generic supervisor contract with systemd as one implementation?
+The following defaults are fixed for the first implementation. They are conservative and may be changed only through a versioned contract review.
 
-These questions must be resolved before code relies on the relevant semantics. No silent defaults should decide security-sensitive behavior.
+1. **Shared security domains:** multiple components may explicitly declare the same `security_domain`. The manifest makes the shared boundary visible; it does not claim isolation between members.
+2. **Environment secrets:** environment fallback is denied unless both `allow_environment_fallback: true` and `environment-compat` are explicitly declared. New deployment manifests must not silently inherit environment fallback.
+3. **Portable mandatory resources:** the first production manifest must declare the Core database, Coordinator database, Host-version ledger and trusted World Pack catalog. Provider stores, caches and logs are separately classified; caches may be rebuildable. This list is a deployment-template requirement, not a claim that current startup has already migrated to the manifest.
+4. **Backup freshness:** Portable/Desktop may run without an independent freshness anchor only with an explicit anti-rollback limitation. Hardened/Service cannot pass its backup/recovery gate without an independently protected freshness anchor.
+5. **Service integration:** use a generic supervisor/process contract. Windows Service Control Manager and Linux systemd are adapter implementations, not requirements embedded in Core. A Linux host without systemd must report its actual supervisor capability rather than silently substituting a claim.
+
+These decisions resolve the Phase 0 questions for implementation. They do not enable Hardened/Service or production Gateway routing.
+
+## 9. Runtime implementation status
+
+The first implementation slice now includes:
+
+- JSON Schema 2020-12 validation for deployment manifests and reports using the repository's AJV dependencies.
+- Semantic validation for unique component/resource IDs, known resource owners/access principals, explicit environment-secret fallback and hardened restore policy.
+- Shared capability evidence and fail-closed gate evaluation.
+- Windows/Linux platform identification adapter seam. Unsupported platform values are reported as `UNSUPPORTED`.
+- Read-only canonical resource path registry with deployment-root confinement, ancestor symlink rejection, duplicate/overlap detection and BigInt filesystem identity checks for hard-link aliases.
+- Explicit Linux owner-private directory/file provisioning. These operations report `DEGRADED`, not `PASS`, because Node path APIs do not pin directory handles against concurrent replacement.
+- Windows ACL provisioning, complete open-handle inspection, OS secret-store discovery, authenticated IPC, Hardened process identity separation and independent backup anti-rollback remain unimplemented and fail closed.
+- Read-only `npm run deployment:verify` assessment command. It requires explicit manifest and deployment-root paths and does not mutate databases, permissions, services, accounts or backups.
+
+The shared deployment contract tests run on Windows and Linux CI. Passing CI proves only disposable test behavior on those runners; it is not evidence about a user's live host.
