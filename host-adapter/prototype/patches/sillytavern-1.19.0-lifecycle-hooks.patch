@@ -736,20 +736,15 @@ diff --git a/src/endpoints/groups.js b/src/endpoints/groups.js
 +const hostBulkMutationGuard = createHostBulkMutationGuard({ pinnedHostCommit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127' });
 +
  export const router = express.Router();
-@@ -203,4 +206,4 @@
--router.post('/delete', getFileNameValidationFunction('id'), async (request, response) => {
-+router.post('/delete', hostBulkMutationGuard, getFileNameValidationFunction('id'), async (request, response) => {
-     if (!request.body || !request.body.id) {
-         return response.sendStatus(400);
-     }
-
-
 @@ -156,1 +159,1 @@
 -router.post('/create', (request, response) => {
 +router.post('/create', hostBulkMutationGuard, (request, response) => {
-@@ -190,1 +193,1 @@
+@@ -190,1 +194,1 @@
 -router.post('/edit', getFileNameValidationFunction('id'), (request, response) => {
 +router.post('/edit', hostBulkMutationGuard, getFileNameValidationFunction('id'), (request, response) => {
+@@ -203,1 +208,1 @@
+-router.post('/delete', getFileNameValidationFunction('id'), async (request, response) => {
++router.post('/delete', hostBulkMutationGuard, getFileNameValidationFunction('id'), async (request, response) => {
 diff --git a/src/endpoints/characters.js b/src/endpoints/characters.js
 --- a/src/endpoints/characters.js
 +++ b/src/endpoints/characters.js
@@ -760,37 +755,33 @@ diff --git a/src/endpoints/characters.js b/src/endpoints/characters.js
 +const hostBulkMutationGuard = createHostBulkMutationGuard({ pinnedHostCommit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127' });
 +
  // With 100 MB limit it would take roughly 3000 characters to reach this limit
-@@ -1416,2 +1419,5 @@
--router.post('/delete', validateAvatarUrlMiddleware, async function (request, response) {
-+router.post('/delete', hostBulkMutationGuard, validateAvatarUrlMiddleware, async function (request, response) {
-+}, async function (request, response) {
-     if (!request.body || !request.body.avatar_url) {
-
 @@ -1024,1 +1027,1 @@
 -router.post('/create', getFileNameValidationFunction('file_name'), async function (request, response) {
 +router.post('/create', hostBulkMutationGuard, getFileNameValidationFunction('file_name'), async function (request, response) {
-@@ -1053,1 +1056,1 @@
+@@ -1053,1 +1057,1 @@
 -router.post('/rename', validateAvatarUrlMiddleware, async function (request, response) {
 +router.post('/rename', hostBulkMutationGuard, validateAvatarUrlMiddleware, async function (request, response) {
-@@ -1101,1 +1104,1 @@
+@@ -1101,1 +1106,1 @@
 -router.post('/edit', validateAvatarUrlMiddleware, async function (request, response) {
 +router.post('/edit', hostBulkMutationGuard, validateAvatarUrlMiddleware, async function (request, response) {
-@@ -1142,1 +1145,1 @@
+@@ -1142,1 +1148,1 @@
 -router.post('/edit-avatar', validateAvatarUrlMiddleware, async function (request, response) {
 +router.post('/edit-avatar', hostBulkMutationGuard, validateAvatarUrlMiddleware, async function (request, response) {
-@@ -1193,1 +1196,1 @@
+@@ -1193,1 +1200,1 @@
 -router.post('/edit-attribute', validateAvatarUrlMiddleware, async function (request, response) {
 +router.post('/edit-attribute', hostBulkMutationGuard, validateAvatarUrlMiddleware, async function (request, response) {
-@@ -1328,1 +1331,1 @@
+@@ -1328,1 +1336,1 @@
 -router.post('/merge-attributes', getFileNameValidationFunction('avatar'), async function (request, response) {
 +router.post('/merge-attributes', hostBulkMutationGuard, getFileNameValidationFunction('avatar'), async function (request, response) {
-@@ -1560,1 +1563,1 @@
+@@ -1416,1 +1425,1 @@
+-router.post('/delete', validateAvatarUrlMiddleware, async function (request, response) {
++router.post('/delete', hostBulkMutationGuard, validateAvatarUrlMiddleware, async function (request, response) {
+@@ -1560,1 +1570,1 @@
 -router.post('/import', async function (request, response) {
 +router.post('/import', hostBulkMutationGuard, async function (request, response) {
-@@ -1601,1 +1604,1 @@
+@@ -1601,1 +1612,1 @@
 -router.post('/duplicate', validateAvatarUrlMiddleware, async function (request, response) {
 +router.post('/duplicate', hostBulkMutationGuard, validateAvatarUrlMiddleware, async function (request, response) {
-
 diff --git a/src/endpoints/backups.js b/src/endpoints/backups.js
 --- a/src/endpoints/backups.js
 +++ b/src/endpoints/backups.js
@@ -800,6 +791,7 @@ diff --git a/src/endpoints/backups.js b/src/endpoints/backups.js
  import { CHAT_BACKUPS_PREFIX, getChatInfo } from './chats.js';
 +import { createHostBulkMutationGuard } from './logic-engine-host-inventory-handler.mjs';
 +const hostBulkMutationGuard = createHostBulkMutationGuard({ pinnedHostCommit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127' });
++
 @@ -32,1 +35,1 @@
 -router.post('/chat/delete', async (request, response) => {
 +router.post('/chat/delete', hostBulkMutationGuard, async (request, response) => {
