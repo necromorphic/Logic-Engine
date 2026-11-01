@@ -303,6 +303,19 @@ test('portable assessment emits a schema-valid degraded report without enabling 
   assert.equal(result.report.overall_status, 'NOT_TESTED');
   assert.equal(validateDeploymentReport(result.report), true);
   assert.equal(result.report.limitations.some((item) => item.includes('single-process')), true);
+  assert.equal(result.patchInspection.files.status, 'NOT_TESTED');
+  assert.equal(result.patchInspection.backups.status, 'NOT_TESTED');
+  assert.equal(result.report.capabilities.find((item) => item.id === 'host.patch.files.integrity.inspect').status, 'NOT_TESTED');
+  assert.equal(result.report.capabilities.find((item) => item.id === 'host.patch.backups.integrity.inspect').status, 'NOT_TESTED');
+});
+
+test('pinned SillyTavern inspection rejects an unsafe or missing installation root', async () => {
+  const { inspectPinnedSillyTavernInstallation } = await import('../src/deployment/patch-inspector.js');
+  const missing = await inspectPinnedSillyTavernInstallation('');
+  assert.equal(missing.files.status, 'NOT_TESTED');
+  const unsafe = await inspectPinnedSillyTavernInstallation(join(tmpdir(), 'logic-engine-st-root-does-not-exist-' + process.pid));
+  assert.equal(unsafe.files.status, 'FAIL');
+  assert.equal(unsafe.backups.status, 'FAIL');
 });
 
 test('protected Memory final-send deployment gate requires every independent runtime invariant', () => {
