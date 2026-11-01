@@ -164,6 +164,52 @@ test('real ST server middleware -> Host Adapter -> Core HTTP assertion creates a
   assert.equal(ambiguousResponse.body.code, 'ACTOR_BINDING_AMBIGUOUS');
   actorBindingService.revoke(worldId, adapterId, 'host-session-actor-2');
 
+  // Introduce a second active actor after context resolution but before Core
+  // consumes the signed assertion. The final assertion fence must reject it.
+  const actorRaceEntityId = 'host-session-actor-race';
+  engine.commitEvent(worldId, {
+    event_id: 'host-session-actor-race',
+    idempotency_key: 'host-session-actor-race',
+    turn_id: 'host-session-actor-race',
+    event_type: 'action.completed',
+    expected_revision: 2,
+    effects: [{ kind: 'entity.create', entity_id: actorRaceEntityId, entity_type: 'character' }],
+  });
+  const actorRacedRoute = createHostContextRoute({
+    identityStore: {
+      async resolveAuthenticatedAccount(handle) {
+        assert.equal(handle, 'default-user');
+        return { host_installation_id: installationId, authenticated_account_id: accountId };
+      },
+    },
+    enumerate: async input => ({
+      filesystem: { status: 'complete' },
+      source: {
+        status: 'DOUBLE_SCAN_CANDIDATE',
+        files: [{ logical_identity: { conversation_uuid: conversationUuid } }],
+      },
+    }),
+    corePost: async (routeName, body) => {
+      if (routeName === '/v1/host-sessions/verify') {
+        actorBindingService.bind(worldId, adapterId, actorRaceEntityId);
+      }
+      return corePost(routeName, body);
+    },
+    config: { adapterId, actorEntityId: actorId, adapterToken },
+  });
+  const actorRacedRequest = {
+    user: { profile: { handle: 'default-user' }, directories },
+    session: { logicEngineSessionId: '88888888-8888-4888-8888-888888888888', logicEngineSessionHandle: 'default-user' },
+    body: { conversation_uuid: conversationUuid },
+  };
+  const actorRacedResponse = makeResponse();
+  await actorRacedRoute.middleware(actorRacedRequest, actorRacedResponse, () => {});
+  await actorRacedRoute.handler(actorRacedRequest, actorRacedResponse);
+  assert.equal(actorRacedResponse.statusCode, 409);
+  assert.equal(actorRacedResponse.body.status, 'NON_READY');
+  assert.equal(actorRacedResponse.body.code, 'ACTOR_BINDING_AMBIGUOUS');
+  actorBindingService.revoke(worldId, adapterId, actorRaceEntityId);
+
   // Revoke the durable conversation→World binding after Core resolved the
   // context but immediately before it consumes the signed assertion. Core must
   // independently re-resolve the canonical binding at capability creation.
