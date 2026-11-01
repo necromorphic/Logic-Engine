@@ -130,7 +130,10 @@ export function validateDeploymentReport(report) {
     throw new Error('DEPLOYMENT_REPORT_MISSING_PROTECTED_FINAL_SEND_GATE');
   }
   const capabilityEvidence = new Map(report.capabilities.map((item) => [item.id, item]));
-  const missingFinalSendEvidence = PROTECTED_FINAL_SEND_CAPABILITIES.filter((id) => capabilityEvidence.get(id)?.status !== 'PASS');
+  const missingFinalSendEvidence = PROTECTED_FINAL_SEND_CAPABILITIES.filter((id) => {
+    const evidence = capabilityEvidence.get(id);
+    return evidence?.status !== 'PASS' || evidence.required !== true;
+  });
   if (protectedFinalSendGate.status === 'PASS' && missingFinalSendEvidence.length > 0) {
     throw new Error('DEPLOYMENT_REPORT_FALSE_PASS_PROTECTED_FINAL_SEND:' + missingFinalSendEvidence.join(','));
   }
