@@ -16,7 +16,7 @@ function section(source, name) {
   const start = source.indexOf(marker);
   assert.notEqual(start, -1, 'missing systemd [' + name + '] section');
   const body = source.slice(start + marker.length);
-  const next = body.search(/^\\[/m);
+  const next = body.indexOf('\\n[');
   return next === -1 ? body : body.slice(0, next);
 }
 
