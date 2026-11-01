@@ -69,6 +69,28 @@ export class ActorBindingService {
     });
   }
 
+  resolveForAdapter(worldId, adapterId) {
+    if (!validId(worldId) || !validId(adapterId)) {
+      throw new EngineError('INVALID_ACTOR_RESOLUTION', 'world_id and adapter_id must be non-empty identifiers.', 400);
+    }
+    if (!this.engine.store.world(worldId)) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
+    const bindings = this.db.prepare('SELECT entity_id FROM actor_bindings WHERE world_id=? AND adapter_id=? AND active=1 ORDER BY entity_id')
+      .all(worldId, adapterId.trim());
+    if (bindings.length !== 1) {
+      throw new EngineError(bindings.length === 0 ? 'ACTOR_NOT_AUTHORIZED' : 'ACTOR_BINDING_AMBIGUOUS',
+        bindings.length === 0
+          ? 'The authenticated adapter has no active actor binding in this world.'
+          : 'The authenticated adapter has more than one active actor binding in this world.',
+        403);
+    }
+    const entity = this.db.prepare('SELECT entity_id,entity_type,status FROM entities WHERE world_id=? AND entity_id=?')
+      .get(worldId, bindings[0].entity_id);
+    if (!entity || entity.status === 'destroyed') {
+      throw new EngineError('ACTOR_ENTITY_NOT_ELIGIBLE', 'Bound actor is no longer an eligible canonical entity.', 409);
+    }
+    return { world_id: worldId, adapter_id: adapterId.trim(), actor: entity };
+  }
+
   resolve(worldId, adapterId, entityId) {
     if (!validId(worldId) || !validId(adapterId) || !validId(entityId)) {
       throw new EngineError('INVALID_ACTOR_RESOLUTION', 'world_id, adapter_id and entity_id must be non-empty identifiers.', 400);
