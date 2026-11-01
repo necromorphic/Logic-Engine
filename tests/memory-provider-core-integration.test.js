@@ -501,6 +501,7 @@ test('query denial is non-ready and does not disclose candidate identities or co
   assert.deepEqual(result.admitted, []);
   assert.equal(JSON.stringify(result).includes('memory:record-a'), false);
   assert.equal(JSON.stringify(result).includes('visible source-a'), false);
+  assertNoRejectedMetadataDisclosure(result);
 });
 
 test('per-record denial is filtered without leaking denied record identity or content', async (t) => {
@@ -518,6 +519,7 @@ test('per-record denial is filtered without leaking denied record identity or co
   assert.equal(JSON.stringify(result).includes('memory:record-a'), false);
   assert.equal(JSON.stringify(result).includes('visible source-a'), false);
   assert.equal(JSON.stringify(result).includes('never disclose source-a'), false);
+  assertNoRejectedMetadataDisclosure(result);
 });
 
 test('retrieval and context inclusion do not persist delivery, receipt, acquisition, or belief side effects', async (t) => {
