@@ -187,6 +187,7 @@ test('unconfigured proxy fails closed without making an upstream request', async
 test('proxy forwards only allowlisted digest fields with server-side credentials', async () => {
   let observed;
   const handler = createHostDigestProxyHandler({
+    identityStore,
     env: CONFIG,
     fetchImpl: async (url, options) => {
       observed = { url: String(url), options };
@@ -312,6 +313,7 @@ test('reconciliation proxy forwards a bounded digest-only snapshot to the Core r
 test('reconciliation proxy preserves stable conversation scope across authenticated session restarts and rejects malformed inventories', async () => {
   let calls = 0;
   const handler = createHostInventoryReconcileProxyHandler({
+    identityStore,
     env: CONFIG,
     fetchImpl: async () => { calls++; return { status: 201, json: async () => ({ inventory_status: 'REVIEW_ONLY' }) }; },
   });
@@ -488,7 +490,7 @@ test('lifecycle journal proxy derives account identity and signs only server-ver
   assert.equal(forgedReceipt.statusCode, 400);
 
   const mismatchedInstallation = responseRecorder();
-  await proxy.append(requestFor({ ...event, conversation_id: HOST_CONVERSATION_ID }), mismatchedInstallation);
+  await proxy.append(requestFor({ ...event, conversation_id: [SESSION_ID, 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', CONVERSATION_UUID].join(':') }), mismatchedInstallation);
   assert.equal(mismatchedInstallation.statusCode, 403);
   assert.equal(mismatchedInstallation.payload.error.code, 'HOST_SESSION_SCOPE_REQUIRED');
 });
