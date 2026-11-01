@@ -82,3 +82,30 @@ test('Linux role manifest requires an explicit application UID', () => {
   assert.equal(validate(manifest('windows', windowsIdentity)), true,
     'Windows manifest must not require a POSIX application UID');
 });
+
+
+test('SQLite role manifest schema models offline main-file lifecycle states', () => {
+  const renaming = manifest('linux', posixIdentity);
+  renaming.roles[0].state = 'renaming';
+  renaming.roles[0].sidecars[0].state = 'retired';
+  renaming.roles[0].pendingDatabaseBasename = 'logic-engine-renamed.sqlite';
+  assert.equal(validate(renaming), true, JSON.stringify(validate.errors));
+
+  for (const state of ['disabled', 'deleting', 'deleted']) {
+    const value = manifest('linux', posixIdentity);
+    value.roles[0].state = state;
+    value.roles[0].sidecars[0].state = 'retired';
+    assert.equal(validate(value), true, state + ': ' + JSON.stringify(validate.errors));
+  }
+
+  const missingRenameTarget = manifest('linux', posixIdentity);
+  missingRenameTarget.roles[0].state = 'renaming';
+  missingRenameTarget.roles[0].sidecars[0].state = 'retired';
+  assert.equal(validate(missingRenameTarget), false,
+    'renaming state must persist a destination basename');
+
+  const unexpectedRenameTarget = manifest('linux', posixIdentity);
+  unexpectedRenameTarget.roles[0].pendingDatabaseBasename = 'unexpected.sqlite';
+  assert.equal(validate(unexpectedRenameTarget), false,
+    'pending destination must not appear outside renaming state');
+});
