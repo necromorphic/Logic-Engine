@@ -145,3 +145,65 @@ export function createHostSessionHandler({ createId = randomUUID } = {}) {
     });
   };
 }
+
+
+const HOST_CONVERSATION_ID = new RegExp(
+  '^' + HOST_SESSION_UUID.source.slice(1, -1) + ':'
+    + HOST_SESSION_UUID.source.slice(1, -1) + ':'
+    + HOST_SESSION_UUID.source.slice(1, -1) + '$',
+  'i',
+);
+
+/**
+ * Creates a request-object capability for Core's in-process Host adapter.
+ * Mount this middleware only below SillyTavern's requireLoginMiddleware.
+ * resolveConversationId must resolve the requested chat against trusted,
+ * server-side Host state; it must not echo body/header/query identity.
+ */
+export function createHostRequestAuthenticationGate({ resolveConversationId } = {}) {
+  if (typeof resolveConversationId !== 'function') {
+    throw new TypeError('A trusted Host conversation resolver is required.');
+  }
+
+  const authenticatedRequests = new WeakMap();
+
+  async function middleware(request, response, next) {
+    response.set('Cache-Control', 'no-store, private');
+    response.set('Vary', 'Cookie');
+    const identity = getAuthenticatedHostIdentity(request, { requireDirectories: true });
+    if (!identity || (typeof request !== 'object' && typeof request !== 'function') || request === null) {
+      return response.sendStatus(403);
+    }
+
+    const { userHandle, session } = identity;
+    const sessionId = session.logicEngineSessionId;
+    if (typeof sessionId !== 'string' || !HOST_SESSION_UUID.test(sessionId)
+      || session.logicEngineSessionHandle !== userHandle) {
+      return response.sendStatus(403);
+    }
+
+    try {
+      const conversationId = await resolveConversationId(request);
+      if (typeof conversationId !== 'string' || !HOST_CONVERSATION_ID.test(conversationId)
+        || !conversationId.toLowerCase().startsWith(sessionId.toLowerCase() + ':')) {
+        return response.sendStatus(403);
+      }
+      authenticatedRequests.set(request, conversationId);
+      return next();
+    } catch {
+      return response.sendStatus(403);
+    }
+  }
+
+  return Object.freeze({
+    middleware,
+    isAuthenticatedHostRequest(request) {
+      return request !== null && (typeof request === 'object' || typeof request === 'function')
+        && authenticatedRequests.has(request);
+    },
+    resolveHostConversationId(request) {
+      if (request === null || (typeof request !== 'object' && typeof request !== 'function')) return null;
+      return authenticatedRequests.get(request) ?? null;
+    },
+  });
+}
