@@ -796,7 +796,7 @@ export function createHostMemoryDispatchProxyHandler({
       || !HOST_SESSION_UUID.test(body.request_id ?? '')
       || !Number.isSafeInteger(body.context_size) || body.context_size < 1 || body.context_size > 200000
       || typeof body.generation_type !== 'string'
-      || !/^[a-z][a-z0-9_-]{0,31}$/i.test(body.generation_type)) {
+      || !/^[a-z][a-z0-9_-]{0,31}$/.test(body.generation_type)) {
       return response.status(400).json({ status: 'NON_READY', code: 'HOST_DISPATCH_REQUEST_INVALID' });
     }
     const hostConversationParts = context.conversation_id.split(':');
