@@ -90,7 +90,7 @@ test('Host gate fails closed when trusted conversation resolution throws or retu
   for (const resolver of [
     () => { throw new Error('private resolver detail'); },
     () => 'caller-controlled-id',
-    () => [installationId, sessionId, conversationUuid].join(':'),
+    () => [installationId, 'not-a-uuid', conversationUuid].join(':'),
   ]) {
     const gate = createHostRequestAuthenticationGate({ resolveConversationId: resolver });
     const request = {
