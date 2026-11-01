@@ -1,5 +1,5 @@
-import { eventSource, event_types } from '../../../script.js';
-import { extension_settings, saveSettingsDebounced } from '../../../extensions.js';
+import { saveSettingsDebounced } from '../../../script.js';
+import { extension_settings } from '../../../extensions.js';
 
 const EXTENSION_KEY = 'logicEngine';
 const DEFAULTS = {
@@ -105,7 +105,6 @@ async function checkConnection() {
 export async function init() {
     getSettings();
     renderPanel();
-    eventSource.on(event_types.APP_READY, () => console.debug('[Logic-Engine] extension ready.'));
 }
 
 export function exit() {
