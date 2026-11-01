@@ -322,7 +322,7 @@
  import fs from 'node:fs';
  import express from 'express';
 -import fetch from 'node-fetch';
-+import { logicEngineFetch as fetch, runWithLogicEngineFinalSend } from '../../logic-engine-final-send-hook.js';
++import { logicEngineFetch as fetch, runWithLogicEngineFinalSend, logicEngineForwardFetchResponse } from '../../logic-engine-final-send-hook.js';
  
  import { forwardFetchResponse, delay } from '../../util.js';
  import { getOverrideHeaders, setAdditionalHeaders, setAdditionalHeadersByType } from '../../additional-headers.js';
