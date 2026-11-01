@@ -12,7 +12,7 @@ Client Extension is untrusted. Host Adapter authenticates the real ST session fr
 
 ## Source identity and patch scope
 
-The official 1.19.0 tag resolves to `7e8663cd9c184a550b37238218bdd32c6efc68e9`. The previous pin `06bde939fb1e9c4c8d8641d810f0a916b5bce127` is not the commit resolved by the official tag.
+The official 1.19.0 tag resolves to `7e8663cd9c184a550b37238218bdd32c6efc68e9`. The user-provided `SillyTavern-release.zip` is a different, one-commit-later checkout (`1.19.0-1-g06bde939f`, commit `06bde939fb1e9c4c8d8641d810f0a916b5bce127`); the uploaded archive's inspected files match that commit's Git blob hashes. Therefore the deployment Patch Manager target for this installation is the exact uploaded build `06bde...`, not the official tag commit `7e866...`. The two pins must remain separately labelled; never silently substitute one for the other.
 
 Patch Manager permits package-owned files only under the integrated client extension and Gateway plugin directories, plus exact native source files from a fixed code allowlist. Every target must also be declared in the package manifest. Native candidate paths:
 
