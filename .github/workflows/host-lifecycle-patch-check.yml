@@ -69,7 +69,7 @@ jobs:
           git -C sillytavern-host-checkout apply --check "$patch"
           git -C sillytavern-host-checkout apply "$patch"
           git -C sillytavern-host-checkout diff --check
-          expected=$(printf '%s\\n' \
+          expected=$(printf '%s\n' \
             public/script.js \
             public/scripts/bookmarks.js \
             public/scripts/group-chats.js \
@@ -83,7 +83,7 @@ jobs:
             src/endpoints/backups.js \
             src/endpoints/logic-engine-host-inventory-handler.mjs | sort)
           actual=$(git -C sillytavern-host-checkout diff --name-only | sort)
-          diff -u <(printf '%s\\n' "$expected") <(printf '%s\\n' "$actual")
+          diff -u <(printf '%s\n' "$expected") <(printf '%s\n' "$actual")
           for file in \
             public/script.js \
             src/server-main.js \
