@@ -128,7 +128,7 @@ export function createMemoryNpcProviderAdapter({
     const providerAdmin = Object.freeze({
       putRecord: (record) => provider.putRecord(record),
       grantQuery: (scope, allowed) => provider.grantQuery(scope, allowed),
-      revokeQuery: (scope) => provider.revokeQuery(scope),
+      revokeQuery: (scope) => provider.grantQuery(scope, false),
       grantRecord: (scope, recordRef, recordVersion, allowed) =>
         provider.grantRecord(scope, recordRef, recordVersion, allowed),
       revokeRecord: (scope, recordRef, recordVersion) =>
