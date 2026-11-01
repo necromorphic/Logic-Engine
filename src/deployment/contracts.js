@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
+import { PROTECTED_FINAL_SEND_CAPABILITIES } from './policy.js';
 import Ajv2020 from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
 
@@ -121,6 +122,18 @@ export function validateDeploymentReport(report) {
     if (component.status === 'PASS' && report.gates.some((gate) => gate.status === 'BLOCKED' && gate.affected_features.includes(component.id))) {
       throw new Error('DEPLOYMENT_REPORT_FALSE_PASS_COMPONENT:' + component.id);
     }
+  }
+  const protectedFinalSendGate = report.gates.find((gate) => gate.id === 'memory:protected-final-send-production');
+  if (!protectedFinalSendGate) {
+    throw new Error('DEPLOYMENT_REPORT_MISSING_PROTECTED_FINAL_SEND_GATE');
+  }
+  const capabilityEvidence = new Map(report.capabilities.map((item) => [item.id, item]));
+  const missingFinalSendEvidence = PROTECTED_FINAL_SEND_CAPABILITIES.filter((id) => capabilityEvidence.get(id)?.status !== 'PASS');
+  if (protectedFinalSendGate.status === 'PASS' && missingFinalSendEvidence.length > 0) {
+    throw new Error('DEPLOYMENT_REPORT_FALSE_PASS_PROTECTED_FINAL_SEND:' + missingFinalSendEvidence.join(','));
+  }
+  if (protectedFinalSendGate.status !== 'PASS' && report.overall_status === 'PASS') {
+    throw new Error('DEPLOYMENT_REPORT_PROTECTED_FINAL_SEND_GATE_BYPASSED');
   }
   if (report.profile === 'hardened-service' && report.overall_status === 'PASS') {
     const requiredBoundaryCapabilities = [
