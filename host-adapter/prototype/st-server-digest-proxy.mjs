@@ -1,3 +1,4 @@
+/* ARCHIVAL ONLY: legacy patched-ST transport; not imported by the Extension Gateway package. Do not deploy. */
 import { createHash, createHmac, randomUUID } from 'node:crypto';
 import pathModule from 'node:path';
 import { HostLifecycleReceiptStore } from './st-host-lifecycle-receipt-store.mjs';
