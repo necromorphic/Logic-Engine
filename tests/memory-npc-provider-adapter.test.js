@@ -97,6 +97,7 @@ test('real adapter composes file-backed SQLite Provider with Core query and cano
     assert.equal((await adapter.prepareWorld(worldId)).status, 'current');
     const result = await adapter.consumer.retrieveForNpc({
       worldId, actorEntityId: actorId, conversationId,
+      adapterId: 'caller-selected-spoofed-adapter',
     });
     assert.equal(result.status, 'ready');
     assert.equal(result.candidates.length, 1);
