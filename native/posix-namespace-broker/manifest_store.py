@@ -364,6 +364,8 @@ def _validate_manifest_transition(current: dict[str, Any], candidate: dict[str, 
                 pass
         else:
             enrolled = new_roles.get(name)
+            if "databaseIdentity" not in old_intent:
+                raise StoreError(f"pending enrollment {name}: opened identity must be committed before role enrollment")
             if (enrolled is None or name in old_roles or enrolled["state"] != "enrolling"
                     or enrolled["sidecars"]):
                 raise StoreError(f"pending enrollment {name}: intent can be retired only with its enrolling role")
