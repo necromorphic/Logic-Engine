@@ -3015,6 +3015,7 @@ static void probe_register_broker_role_values(
     entry->trusted_parent_fd = -1;
     entry->basename = basename;
     entry->broker_socket_path = stored_socket;
+    entry->broker_uid = candidate.broker_uid;
     stored_path = stored_role = stored_socket = basename = NULL;
   }
   probe_registry_unlock();
