@@ -13,7 +13,7 @@ const extensionPath = process.env.LOGIC_ENGINE_VFS_PROBE_PATH;
 test('patched better-sqlite3 registers and opens through its own named VFS', {
   skip: !packageRoot || !extensionPath,
 }, (t) => {
-  const Database = require(path.join(packageRoot, 'lib', 'database.js'));
+  const Database = require(packageRoot);
   const resolvedExtension = path.resolve(extensionPath);
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'logic-engine-better-sqlite3-vfs-'));
   const filename = path.join(directory, 'vectors.sqlite');
