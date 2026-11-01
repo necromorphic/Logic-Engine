@@ -145,8 +145,14 @@ export function registerWindowsManifestRole(database, manifest, roleName, databa
   const parentPath = path.win32.dirname(resolvedPath);
   const root = path.win32.parse(resolvedPath).root;
   const actualComponents = parentPath.slice(root.length).split('\\').filter(Boolean);
-  if (actualComponents.length !== role.parentComponents.length
-      || actualComponents.some((component, index) =>
+  /*
+   * parentComponents are relative to metadataRootIdentity, not necessarily
+   * relative to the volume root. The absolute path can therefore have trusted
+   * platform/runtime ancestors before the manifest-owned suffix.
+   */
+  const manifestSuffix = actualComponents.slice(-role.parentComponents.length);
+  if (actualComponents.length < role.parentComponents.length
+      || manifestSuffix.some((component, index) =>
         component.toLowerCase() !== role.parentComponents[index].toLowerCase())) {
     throw new TypeError('Database parent path does not match the trusted manifest component chain');
   }
