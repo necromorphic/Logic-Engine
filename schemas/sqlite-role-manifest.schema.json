@@ -193,6 +193,9 @@
         "databaseBasename": {
           "$ref": "#/$defs/component"
         },
+        "pendingDatabaseBasename": {
+          "$ref": "#/$defs/component"
+        },
         "databaseIdentity": {
           "$ref": "#/$defs/identity"
         },
@@ -201,7 +204,10 @@
             "enrolling",
             "active",
             "disabled",
-            "recovery-required"
+            "recovery-required",
+            "renaming",
+            "deleting",
+            "deleted"
           ]
         },
         "sidecars": {
@@ -210,7 +216,23 @@
             "$ref": "#/$defs/sidecar"
           }
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "state": { "const": "renaming" }
+            },
+            "required": ["state"]
+          },
+          "then": {
+            "required": ["pendingDatabaseBasename"]
+          },
+          "else": {
+            "not": { "required": ["pendingDatabaseBasename"] }
+          }
+        }
+      ]
     },
     "posixIdentity": {
       "type": "object",
