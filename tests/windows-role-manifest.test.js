@@ -163,3 +163,22 @@ test('Windows manifest enrollment rejects unknown fields and incomplete trust po
     fakeDatabase(), weakPolicy, 'core', 'C:\\LogicEngine\\data\\core.sqlite'
   ), /filesystem trust policy/);
 });
+
+test('Windows manifest enrollment rejects metadata-root aliases and duplicate sidecar kinds', () => {
+  const rootAlias = manifest();
+  rootAlias.roles[0].databaseIdentity = structuredClone(rootAlias.metadataRootIdentity);
+  assert.throws(() => registerWindowsManifestRole(
+    fakeDatabase(), rootAlias, 'core', 'C:\\LogicEngine\\data\\core.sqlite'
+  ), /Duplicate physical Windows identity/);
+
+  const duplicateKind = manifest();
+  duplicateKind.roles[0].sidecars.push({
+    kind: 'wal',
+    identity: identity('00000000000000A1', '77777777777777777777777777777777'),
+    state: 'active',
+    generation: 7,
+  });
+  assert.throws(() => registerWindowsManifestRole(
+    fakeDatabase(), duplicateKind, 'core', 'C:\\LogicEngine\\data\\core.sqlite'
+  ), /transitional or invalid sidecar/);
+});
