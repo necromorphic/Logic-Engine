@@ -104,7 +104,7 @@ export function createExtensionGateway({ hostAdapter, maxBodyBytes = EXTENSION_G
         ...details,
       }));
       if (result && typeof result.then === 'function') { Promise.resolve(result).catch(() => {}); return false; }
-      return true;
+      return result !== false;
     } catch {
       return false;
     }
