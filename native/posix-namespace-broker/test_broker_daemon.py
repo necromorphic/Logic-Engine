@@ -210,8 +210,11 @@ class BrokerDaemonTests(unittest.TestCase):
     def test_peer_uid_mismatch_cannot_open_or_mutate_namespace(self):
         for operation, payload in (
             (OP_OPEN_MAIN, b"core"),
+            (OP_OPEN_SIDECAR, b"core\\x00wal"),
+            (OP_ACCESS_ROLE_FILE, b"core\\x00wal"),
             (OP_DELETE_SIDECAR, b"core\\x00wal"),
             (OP_CREATE_SIDECAR, b"core\\x00wal"),
+            (OP_OPEN_OR_CREATE_SIDECAR, b"core\\x00wal"),
         ):
             with self.subTest(operation=operation):
                 response, fds = self.exchange(
