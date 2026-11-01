@@ -1,6 +1,6 @@
 # Extension Gateway + Patch Manager — implementation compatibility audit
 
-**Status:** Patch Manager native-source support in progress; protected generation remains FAIL-CLOSED.
+**Status:** Patch Manager native-source allowlist and transaction tests implemented; Extension Gateway core/client transport implemented; ST route mount and Authenticated Host Adapter wiring pending. Protected generation remains FAIL-CLOSED.
 **Target:** Official SillyTavern 1.19.0 tag, commit `7e8663cd9c184a550b37238218bdd32c6efc68e9`.
 **Decision:** Managed local source-level patching of the installed ST distribution is authorized through Logic-Engine Patch Manager. Official upstream remains read-only and unchanged.
 
@@ -49,9 +49,9 @@ Exact ST commit, clean-worktree preflight, manifest/hash validation, patch check
 |---|---|
 | Official ST source pin | VERIFIED |
 | Local source-level patch authorization | GRANTED |
-| Manager exact-path native allowlist | IMPLEMENTED IN BRANCH; CI VALIDATION PENDING |
-| Real ST session authentication | NOT WIRED |
-| Single Extension Gateway ingress | NOT IMPLEMENTED |
+| Manager exact-path native allowlist | IMPLEMENTED; focused CI PASSING |
+| Real ST session authentication | NOT WIRED; Host Adapter remains separate dependency |
+| Single Extension Gateway ingress | CORE IMPLEMENTED; ST MOUNT PENDING |
 | Core dispatch-start bound to senders | NOT WIRED |
 | Complete sender/transport inventory CI | NOT IMPLEMENTED |
 | Final-Send interception | NOT IMPLEMENTED |
