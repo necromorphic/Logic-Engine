@@ -10,7 +10,7 @@
 
 - **Client Extension:** untrusted UI/request-envelope producer.
 - **Extension Gateway:** sole ST-facing ingress; bounded envelope validation and routing only. It does not authenticate sessions, assign World/Actor, authorize, access Memory/NPC/Mechanics, send AI requests, or implement Final-Send Hook.
-- **Authenticated Host Adapter:** authenticates the actual ST session and establishes installation/account/conversation plus trusted Host context. It does not authorize Memory disclosure.
+- **Authenticated Host Adapter:** authenticates the actual ST session, establishes installation/account/conversation identity, obtains the canonical World/Actor binding from Core-owned binding resolution, and signs that complete identity context. It does not authorize Memory disclosure; Core re-resolves the bindings.
 - **Core Security Gateway:** sole authorization authority, including dispatch-start and final-response revalidation.
 - **Final-Send Hook:** Extension-owned interception/adaptation point, installed and maintained by Patch Manager. It is not an authorization authority or a Provider Relay.
 
@@ -57,7 +57,7 @@ Streaming uses separate backend-specific client senders. The generic non-streami
 ## Result and required operating state
 
 - The Extension Gateway/Host Adapter separation can be implemented and tested without native ST changes.
-- The Extension Gateway candidate is a routing-only, fail-closed ingress; its current dispatch route does not establish a protected native model send.
+- The Extension Gateway candidate is a routing-only, fail-closed ingress. Host Adapter now resolves exactly one active World/Actor binding from Core before dispatch and signs it; Core independently re-resolves it. This identity-binding step does not establish a protected native model send.
 - The Core dispatch primitive is not wired to every actual SillyTavern provider transport.
 - No supported Extension-only mechanism has been identified that supplies both synchronous pre-LLM transport interception and final-response revalidation across all native sender families.
 
