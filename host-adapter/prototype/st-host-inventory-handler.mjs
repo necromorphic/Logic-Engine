@@ -2,6 +2,27 @@ import { randomUUID } from 'node:crypto';
 
 const HOST_SESSION_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+function getAuthenticatedHostIdentity(request) {
+  const user = request?.user;
+  const session = request?.session;
+  const directories = user?.directories;
+  const userHandle = user?.profile?.handle;
+
+  // Server plugins are mounted after SillyTavern's requireLoginMiddleware.
+  // In default-user mode ST deliberately leaves session.handle unset; the
+  // authenticated request.user profile remains the authoritative account.
+  if (!session || !directories || typeof userHandle !== 'string' || !userHandle.trim()) {
+    return null;
+  }
+
+  if (session.handle !== undefined
+    && (typeof session.handle !== 'string' || session.handle !== userHandle)) {
+    return null;
+  }
+
+  return { userHandle, session, directories };
+}
+
 export function createHostInventoryHandler({
   enumerate,
   pinnedHostCommit,
@@ -16,16 +37,13 @@ export function createHostInventoryHandler({
   return async function hostInventoryHandler(request, response) {
     response.set('Cache-Control', 'no-store, private');
     response.set('Vary', 'Cookie');
-    const user = request?.user;
-    const directories = user?.directories;
-    const userHandle = user?.profile?.handle;
-    const sessionHandle = request?.session?.handle;
-    const sessionId = request?.session?.logicEngineSessionId;
-    const sessionIdentityHandle = request?.session?.logicEngineSessionHandle;
-    if (!directories || typeof userHandle !== 'string' || !userHandle.trim()
-      || typeof sessionHandle !== 'string' || sessionHandle !== userHandle
-      || typeof sessionId !== 'string' || !HOST_SESSION_UUID.test(sessionId)
-      || sessionIdentityHandle !== userHandle) {
+    const identity = getAuthenticatedHostIdentity(request);
+    if (!identity) return response.sendStatus(403);
+
+    const { userHandle, session, directories } = identity;
+    const sessionId = session.logicEngineSessionId;
+    if (typeof sessionId !== 'string' || !HOST_SESSION_UUID.test(sessionId)
+      || session.logicEngineSessionHandle !== userHandle) {
       return response.sendStatus(403);
     }
 
@@ -84,7 +102,6 @@ export function createHostInventoryHandler({
   };
 }
 
-
 /**
  * Issues a server-generated identity inside SillyTavern's authenticated,
  * signed cookie session. It is stable for that login session and rotates when
@@ -95,13 +112,10 @@ export function createHostSessionHandler({ createId = randomUUID } = {}) {
   return function hostSessionHandler(request, response) {
     response.set('Cache-Control', 'no-store, private');
     response.set('Vary', 'Cookie');
-    const session = request?.session;
-    const userHandle = request?.user?.profile?.handle;
-    if (!session || typeof userHandle !== 'string' || !userHandle.trim()
-      || typeof session.handle !== 'string' || session.handle !== userHandle) {
-      return response.sendStatus(403);
-    }
+    const identity = getAuthenticatedHostIdentity(request);
+    if (!identity) return response.sendStatus(403);
 
+    const { userHandle, session } = identity;
     const currentId = session.logicEngineSessionId;
     if (currentId !== undefined && !HOST_SESSION_UUID.test(currentId)) {
       return response.status(503).json({
