@@ -4,10 +4,25 @@ import { enumerateHostDataInventory } from './host-data-inventory.mjs';
 
 const HOST_SESSION_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+export function resolveHostDataDirectories(directories) {
+  if (!directories || typeof directories !== 'object' || Array.isArray(directories)) return null;
+  const resolved = {};
+  for (const key of ['root', 'chats', 'groups', 'groupChats']) {
+    const value = directories[key];
+    if (typeof value !== 'string' || !value.trim()) return null;
+    const absolute = path.resolve(value);
+    if (!path.isAbsolute(absolute)) return null;
+    resolved[key] = absolute;
+  }
+  return Object.freeze(resolved);
+}
+
 function getAuthenticatedHostIdentity(request, { requireDirectories = false, requireSessionIdentity = false } = {}) {
   const user = request?.user;
   const session = request?.session;
-  const directories = user?.directories;
+  const directories = requireDirectories
+    ? resolveHostDataDirectories(user?.directories)
+    : user?.directories;
   const userHandle = user?.profile?.handle;
   // ST default-user mode intentionally omits session.handle. A present value
   // must still match the authenticated middleware-populated profile handle.
