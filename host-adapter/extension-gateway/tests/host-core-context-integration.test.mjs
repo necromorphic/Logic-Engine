@@ -78,12 +78,6 @@ test('Host Adapter makes a real authenticated Core context-resolution call; inco
     'x-adapter-token': ADAPTER_TOKEN,
   };
 
-  const worldBinding = await post(coreUrl + '/v1/host-conversation-bindings', adminHeaders, {
-    adapter_id: ADAPTER_ID,
-    conversation_id: '11111111-1111-4111-8111-111111111111:22222222-2222-4222-8222-222222222222:33333333-3333-4333-8333-333333333333',
-    world_id: 'host-e2e-world',
-  });
-  assert.equal(worldBinding.status, 201);
   const actorBinding = await post(coreUrl + '/v1/worlds/host-e2e-world/actor-bindings', adminHeaders, {
     adapter_id: ADAPTER_ID,
     entity_id: 'host-e2e-actor',
@@ -148,6 +142,15 @@ test('Host Adapter makes a real authenticated Core context-resolution call; inco
   await adapter.identity(request, identityResponse);
   assert.equal(identityResponse.statusCode, 200);
   assert.equal(identityResponse.payload.identity_source, 'SERVER_PERSISTED_OPAQUE_IDENTITY');
+
+  const conversationId = identityResponse.payload.host_installation_id + ':'
+    + identityResponse.payload.authenticated_account_id + ':' + UUID;
+  const worldBinding = await post(coreUrl + '/v1/host-conversation-bindings', adminHeaders, {
+    adapter_id: ADAPTER_ID,
+    conversation_id: conversationId,
+    world_id: 'host-e2e-world',
+  });
+  assert.equal(worldBinding.status, 201);
 
   const gateResponse = responseRecorder();
   let passedGate = false;
