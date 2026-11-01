@@ -25,6 +25,8 @@ const hostRequest = {
   user: { profile: { handle: 'alice' } },
   session: { handle: 'alice', logicEngineSessionId: HOST_SESSION_ID, logicEngineSessionHandle: 'alice' },
 };
+const authenticatedHostRequests = new WeakSet([hostRequest]);
+const isAuthenticatedHostRequest = request => authenticatedHostRequests.has(request);
 
 const importedSource = {
   ...source,
@@ -79,7 +81,7 @@ function setup(t) {
     world_revision: snapshot.world_revision,
     commit_sequence: snapshot.commit_sequence,
   };
-  const hostSessionContext = createAuthenticatedHostSessionContext(hostRequest, HOST_CONVERSATION_ID);
+  const hostSessionContext = createAuthenticatedHostSessionContext(hostRequest, HOST_CONVERSATION_ID, isAuthenticatedHostRequest);
   return { store, engine, actors, conversations, authorizers, scope, hostSessionContext };
 }
 
@@ -97,7 +99,7 @@ test('production NPC query authorization requires a branded authenticated Host s
   assert.equal(authorizers.memoryQueryAuthorizer(scope, hostSessionContext), true);
   assert.equal(authorizers.memoryQueryAuthorizer(scope), false);
   const otherConversation = HOST_SESSION_ID + ':22222222-2222-4222-8222-222222222222:44444444-4444-4444-8444-444444444444';
-  const contextForOtherConversation = createAuthenticatedHostSessionContext(hostRequest, otherConversation);
+  const contextForOtherConversation = createAuthenticatedHostSessionContext(hostRequest, otherConversation, isAuthenticatedHostRequest);
   assert.equal(authorizers.memoryQueryAuthorizer(scope, contextForOtherConversation), false);
   const otherSessionId = OTHER_SESSION_ID;
   const otherSessionConversation = OTHER_SESSION_CONVERSATION;
@@ -105,7 +107,8 @@ test('production NPC query authorization requires a branded authenticated Host s
     user: { profile: { handle: 'bob' } },
     session: { handle: 'bob', logicEngineSessionId: otherSessionId, logicEngineSessionHandle: 'bob' },
   };
-  const otherSessionContext = createAuthenticatedHostSessionContext(otherSessionRequest, otherSessionConversation);
+  authenticatedHostRequests.add(otherSessionRequest);
+  const otherSessionContext = createAuthenticatedHostSessionContext(otherSessionRequest, otherSessionConversation, isAuthenticatedHostRequest);
   assert.notEqual(otherSessionContext, null);
   assert.equal(authorizers.memoryQueryAuthorizer({
     ...scope, conversation_id: otherSessionConversation,
@@ -113,7 +116,8 @@ test('production NPC query authorization requires a branded authenticated Host s
   assert.equal(authorizers.memoryQueryAuthorizer({
     ...scope, conversation_id: otherSessionConversation,
   }, hostSessionContext), false);
-  assert.equal(createAuthenticatedHostSessionContext(otherSessionRequest, HOST_CONVERSATION_ID), null);
+  assert.equal(createAuthenticatedHostSessionContext(otherSessionRequest, HOST_CONVERSATION_ID, isAuthenticatedHostRequest), null);
+  assert.equal(createAuthenticatedHostSessionContext({ ...hostRequest }, HOST_CONVERSATION_ID, isAuthenticatedHostRequest), null);
   assert.equal(authorizers.memoryQueryAuthorizer({
     ...scope, conversation_id: '44444444-4444-4444-8444-444444444444:22222222-2222-4222-8222-222222222222:33333333-3333-4333-8333-333333333333',
   }, hostSessionContext), false);
