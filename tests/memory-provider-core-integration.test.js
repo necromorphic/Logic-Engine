@@ -212,6 +212,7 @@ test('record revoke after retrieval but before first authorization is non-ready,
       return result;
     },
     authorizeCandidate: (...args) => s.provider.authorizeCandidate(...args),
+    checkCandidateGrant: (...args) => s.provider.checkCandidateGrant(...args),
   };
   const consumer = s.createConsumer(raceProvider);
   const result = await consumer.retrieveForNpc({
@@ -238,6 +239,7 @@ test('cross-connection revoke and re-grant after retrieval invalidates the captu
       return result;
     },
     authorizeCandidate: (...args) => s.provider.authorizeCandidate(...args),
+    checkCandidateGrant: (...args) => s.provider.checkCandidateGrant(...args),
   };
   const consumer = s.createConsumer(raceProvider);
   const result = await consumer.retrieveForNpc({

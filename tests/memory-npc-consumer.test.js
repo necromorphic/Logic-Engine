@@ -372,10 +372,11 @@ test('empty retrieval that is denied, incomplete, or unavailable is non-ready, n
   assert.equal(JSON.stringify(failed).includes('private provider diagnostic'), false);
 });
 
-test('Memory record denial is indistinguishable from an authorized empty candidate set, including stale hidden records', async (t) => {
+test('a returned Provider candidate that fails record authorization makes the whole result non-ready', async (t) => {
   const denied = setup(t, { authorizeCandidate: false });
   const result = await denied.consumer.retrieveForNpc(request());
-  assert.equal(result.status, 'ready');
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'memory_record_authorization_unconfirmed');
   assert.deepEqual(result.admitted, []);
   assert.deepEqual(result.candidates, []);
 
@@ -385,16 +386,15 @@ test('Memory record denial is indistinguishable from an authorized empty candida
   assert.equal(emptyResult.status, 'ready');
   assert.deepEqual(emptyResult.admitted, []);
   assert.deepEqual(emptyResult.candidates, []);
-  assert.deepEqual(result, emptyResult);
 
   denied.setCandidates([denied.candidate({
     freshness: { status: 'stale' },
   })]);
   const staleButDenied = await denied.consumer.retrieveForNpc(request());
-  assert.equal(staleButDenied.status, 'ready');
+  assert.equal(staleButDenied.status, 'non_ready');
+  assert.equal(staleButDenied.reason, 'memory_record_authorization_unconfirmed');
   assert.deepEqual(staleButDenied.admitted, []);
   assert.deepEqual(staleButDenied.candidates, []);
-  assert.deepEqual(staleButDenied, result);
 });
 
 test('duplicate canonical entity identities in an authorized read fail closed', async (t) => {
@@ -943,7 +943,8 @@ test('malformed and cross-scope candidate rows cannot be silently converted to c
 });
 
 test('filtered-empty result still validates the current Core snapshot after record denial', async (t) => {
-  const { consumer, engine, provider } = setup(t, { authorizeCandidate: false });
+  const { consumer, engine, setCandidates } = setup(t);
+  setCandidates([]);
   const rollback = engine.rollbackEvent('memory-npc-world', {
     root_event_id: 'unrelated-memory-npc',
     idempotency_key: 'rollback-denied-memory-npc',
@@ -1054,11 +1055,12 @@ test('rechecks earlier Memory candidates after a later async authorization revok
   };
 
   const result = await consumer.retrieveForNpc(request());
-  assert.equal(result.status, 'ready');
-  assert.deepEqual(result.admitted.map((entry) => entry.record_ref), ['memory:claim-2']);
-  assert.deepEqual(result.candidates.map((entry) => entry.record_ref), ['memory:claim-2']);
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'memory_record_authorization_unconfirmed');
+  assert.deepEqual(result.admitted, []);
+  assert.deepEqual(result.candidates, []);
   assert.equal(calls.get('memory:claim-1'), 2);
-  assert.equal(calls.get('memory:claim-2'), 3);
+  assert.equal(calls.get('memory:claim-2'), 1);
 });
 
 function candidateForMutation(provider, setCandidates) {
@@ -1239,7 +1241,7 @@ test('final dispatch revalidation returns fresh content and fails closed after a
   accessCase.provider.authorizeCandidate = async () => false;
   const revoked = await accessCase.consumer.revalidateForFinalDispatch(request(), prepared);
   assert.equal(revoked.status, 'non_ready');
-  assert.equal(revoked.reason, 'final_dispatch_source_or_authorization_changed');
+  assert.equal(revoked.reason, 'final_dispatch_source_not_current');
   assert.deepEqual(revoked.candidates, []);
 
   const sourceCase = setup(t);
