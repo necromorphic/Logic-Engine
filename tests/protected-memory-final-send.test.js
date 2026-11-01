@@ -89,13 +89,14 @@ test('unknown protected sender route fails closed with zero egress', async () =>
   let calls = 0;
   const finalSend = createProtectedMemoryFinalSend({
     gateway: { dispatchProtectedRequest: () => { throw new Error('must not dispatch'); } },
+    resolveProtectedMemory: () => context,
     fetchImpl: async () => { calls += 1; return { status: 200 }; },
   });
   assert.throws(() => finalSend({
     senderRoute: 'unregistered-provider',
     endpointUrl: 'https://provider.example/generate',
     requestInit: init(),
-    protectedMemory: context,
+    hostRequestContext: { trusted: true },
   }), /MEMORY_DISPATCH_NOT_READY/);
   assert.equal(calls, 0);
 });
@@ -110,6 +111,7 @@ test('stream forwarding is inside the transport promise so forwarding failure is
         return request.transport();
       },
     },
+    resolveProtectedMemory: () => context,
     fetchImpl: async () => {
       calls += 1;
       return { status: 200, body: 'stream' };
