@@ -3026,7 +3026,7 @@ static void probe_register_broker_role_values(
       || !probe_valid_role_name(role_value)
       || socket_value[0] != '/'
       || !probe_validate_broker_alias_path(path_value)) {
-    sqlite3_result_error(context, "canonical absolute database path, role and broker socket are required", -1);
+    sqlite3_result_error(context, "trusted Host role path, role name, broker socket, expected service UID and non-writable alias parent are required", -1);
     return;
   }
   if (strlen(path_value) > (size_t)g_parent_vfs->mxPathname
