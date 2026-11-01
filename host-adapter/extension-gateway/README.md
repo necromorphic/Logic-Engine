@@ -10,7 +10,27 @@ The browser extension uses SillyTavern's native `generate_interceptor` to stop n
 
 The server plugin is loaded by SillyTavern after `requireLoginMiddleware`. It owns the only public Host ingress and performs bounded envelope routing only. It delegates to an internal Authenticated Host Adapter; that component verifies the ST session, resolves installation/account/session/conversation from server-controlled identity and inventory, and calls Core using server-held credentials plus a short-lived signed Host assertion. The Gateway does not authenticate sessions, assign World/Actor, authorize, access Memory/NPC/Mechanics, handle AI sending, or implement the Final-Send Hook. Adapter helpers do not register separate Express routes.
 
-No `/api/logic-engine/*` route is mounted. No SillyTavern source file is patched or overwritten.
+No `/api/logic-engine/*` route is mounted. The pinned lifecycle patch adds only internal middleware hooks to existing SillyTavern mutation routes and a private helper import; it does not create another Host API route or contact Core directly.
+
+## Pinned lifecycle integration
+
+The exact pinned SillyTavern build requires the reviewed patch at
+`host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch`.
+Apply it only to commit `06bde939fb1e9c4c8d8641d810f0a916b5bce127`:
+
+```sh
+git -C /path/to/SillyTavern apply --unidiff-zero --check /path/to/Logic-Engine/host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch
+git -C /path/to/SillyTavern apply --unidiff-zero /path/to/Logic-Engine/host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch
+git -C /path/to/SillyTavern diff --check
+```
+
+The patch is restricted to the reviewed client mutation entry points, existing
+chat/group/character/backup endpoint middleware, the bounded Gateway JSON body
+limit, and a private helper re-export. Its allowlist is enforced in CI. The
+helper imports the installed plugin's server-owned guard functions; it mounts
+no Express route. All browser-facing Host calls remain under
+`/api/plugins/logic-engine-extension-gateway/*`. Internal ST endpoint middleware
+cannot call Core and cannot bypass the Gateway's server-side receipt endpoints.
 
 ## Installation layout
 
