@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { SQLiteStore } from '../src/storage/sqlite-store.js';
 import { LogicEngine } from '../src/application/engine.js';
 import { ActorBindingService } from '../src/application/actor-bindings.js';
+import { HostConversationWorldBindingService } from '../src/application/host-conversation-world-bindings.js';
 import { AuthorizedReadService } from '../src/application/authorized-read-service.js';
 import { MemoryNpcConsumer } from '../src/application/memory-npc-consumer.js';
 import { runWithAuthenticatedHostSession } from '../src/application/host-session-context.js';
@@ -38,6 +39,10 @@ function setup(t, { allowContent = true, authorizeQuery = true, authorizeCoreQue
     ],
   });
   bindings.bind('memory-npc-world', 'adapter-a', 'npc-a');
+  const hostConversationWorldBindingService = new HostConversationWorldBindingService(engine);
+  hostConversationWorldBindingService.bind({
+    adapterId: 'adapter-a', conversationId: HOST_CONVERSATION_ID, worldId: 'memory-npc-world',
+  });
   engine.commitEvent('memory-npc-world', {
     event_id: 'unrelated-memory-npc',
     idempotency_key: 'unrelated-memory-npc',
@@ -97,6 +102,7 @@ function setup(t, { allowContent = true, authorizeQuery = true, authorizeCoreQue
   const consumer = new MemoryNpcConsumer({
     authorizedReadService,
     actorBindingService: bindings,
+    hostConversationWorldBindingService,
     adapterId: 'adapter-a',
     memoryProvider: provider,
     coreQueryAuthorizer: (_scope, context) => authorizeCoreQuery && context?.conversation_id === HOST_CONVERSATION_ID,
