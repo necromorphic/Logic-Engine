@@ -107,7 +107,7 @@ function setup(t, { twoRecords = false, providerPath = null } = {}) {
     (context, entity, field) => field === 'entity_id'
       || (field === 'attributes.public_note' && entity.entity_id.startsWith('source-')));
   const consumer = new MemoryNpcConsumer({
-    authorizedReadService, actorBindingService: bindings, memoryProvider: provider,
+    authorizedReadService, actorBindingService: bindings, adapterId, memoryProvider: provider,
     coreQueryAuthorizer: coreAuthorizers.memoryQueryAuthorizer,
     contentFields: ['attributes.public_note'],
   });
@@ -141,7 +141,7 @@ test('real SQLite provider flows through Core authorized read and NPC admission'
   const s = setup(t);
   assert.equal((await s.prepare()).status, 'current');
   const result = await s.consumer.retrieveForNpc({
-    worldId: s.scope.world_id, adapterId: 'provider-e2e-adapter', actorEntityId: s.scope.subject_id,
+    worldId: s.scope.world_id, actorEntityId: s.scope.subject_id,
     conversationId: 'provider-e2e-conversation',
   });
   assert.equal(result.status, 'ready');
@@ -166,7 +166,7 @@ test('Core Host-conversation query authorization is required before Provider ret
   const s = setup(t);
   assert.equal((await s.prepare()).status, 'current');
   const result = await s.consumer.retrieveForNpc({
-    worldId: s.scope.world_id, adapterId: 'provider-e2e-adapter',
+    worldId: s.scope.world_id,
     actorEntityId: s.scope.subject_id, conversationId: 'unbound-conversation',
   });
   assert.equal(result.status, 'non_ready');
@@ -179,7 +179,7 @@ test('Core Host-conversation revocation during record validation blocks disclosu
   assert.equal((await s.prepare()).status, 'current');
   s.triggerCoreQueryRevocation();
   const result = await s.consumer.retrieveForNpc({
-    worldId: s.scope.world_id, adapterId: 'provider-e2e-adapter',
+    worldId: s.scope.world_id,
     actorEntityId: s.scope.subject_id, conversationId: 'provider-e2e-conversation',
   });
   assert.equal(result.status, 'non_ready');
