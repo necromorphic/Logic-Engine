@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { info, init } from '../server-plugin/index.mjs';
 
 function responseRecorder() {
@@ -51,4 +52,23 @@ test('Gateway source contains no direct SillyTavern endpoint mounting or Core UR
   assert.doesNotMatch(source, /\/api\/logic-engine/);
   assert.doesNotMatch(source, /request\.body\.(?:core_url|upstream_url|api_token|adapter_token)/);
   assert.match(source, /id: 'logic-engine-extension-gateway'/);
+});
+
+test('deployed server-plugin helper bundle is byte-identical to reviewed prototype sources', async () => {
+  const names = [
+    'st-host-identity-store.mjs',
+    'st-host-inventory-handler.mjs',
+    'st-host-lifecycle-receipt-store.mjs',
+    'st-server-digest-proxy.mjs',
+    'st-source-inventory.mjs',
+    'host-data-inventory.mjs',
+    'fs-inventory.js',
+    'windows-vss-snapshot.mjs',
+    'filesystem-reconciliation.mjs',
+  ];
+  for (const name of names) {
+    const bundled = await readFile(new URL('../server-plugin/' + name, import.meta.url), 'utf8');
+    const prototype = await readFile(new URL('../../prototype/' + name, import.meta.url), 'utf8');
+    assert.equal(bundled, prototype, 'server-plugin bundle drifted from prototype source: ' + name);
+  }
 });

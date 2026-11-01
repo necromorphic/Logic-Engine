@@ -12,7 +12,7 @@ const CONFIG = {
 };
 const canonical = value => Array.isArray(value) ? '[' + value.map(canonical).join(',') + ']' : value && typeof value === 'object' ? '{' + Object.keys(value).sort().map(key => JSON.stringify(key) + ':' + canonical(value[key])).join(',') + '}' : JSON.stringify(value);
 const SESSION_ID = '11111111-1111-4111-8111-111111111111';
-const HOST_CONVERSATION_ID = '22222222-2222-4222-8222-222222222222:11111111-1111-4111-8111-111111111111:33333333-3333-4333-8333-333333333333';
+const HOST_CONVERSATION_ID = '22222222-2222-4222-8222-222222222222:66666666-6666-4666-8666-666666666666:33333333-3333-4333-8333-333333333333';
 const LIFECYCLE_CONVERSATION_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa:22222222-2222-4222-8222-222222222222:33333333-3333-4333-8333-333333333333';
 const requestFor = (body, { sessionId = SESSION_ID, userHandle = 'alice', sessionHandle = userHandle } = {}) => ({
   body,
@@ -197,6 +197,31 @@ test('proxy forwards only allowlisted digest fields with server-side credentials
   assert.equal(observed.options.headers['x-adapter-token'], CONFIG.LOGIC_ENGINE_ADAPTER_TOKEN);
   assert.deepEqual(JSON.parse(observed.options.body), capture);
   assert.equal(observed.options.body.includes('raw'), false);
+});
+
+
+test('digest proxy accepts default-user mode only with the signed Host session identity', async () => {
+  let calls = 0;
+  const handler = createHostDigestProxyHandler({
+    env: CONFIG,
+    fetchImpl: async () => {
+      calls++;
+      return { status: 201, json: async () => ({ capture: { status: 'captured' } }) };
+    },
+  });
+  const request = requestFor(capture);
+  delete request.session.handle;
+  const accepted = responseRecorder();
+  await handler(request, accepted);
+  assert.equal(accepted.statusCode, 201);
+  const rejectedRequest = requestFor(capture);
+  delete rejectedRequest.session.handle;
+  rejectedRequest.session.logicEngineSessionHandle = 'another-user';
+  const rejected = responseRecorder();
+  await handler(rejectedRequest, rejected);
+  assert.equal(rejected.statusCode, 403);
+  assert.equal(rejected.payload.error.code, 'HOST_SESSION_SCOPE_REQUIRED');
+  assert.equal(calls, 1);
 });
 
 test('proxy rejects caller URLs, world IDs, raw text and malformed digests before upstream I/O', async () => {
