@@ -296,11 +296,11 @@ test('reconciliation proxy forwards a bounded digest-only snapshot to the Core r
   assert.deepEqual(JSON.parse(observed.options.body), snapshot);
 });
 
-test('reconciliation proxy rejects raw text, caller world scope, oversized row sets and oversized bodies', async () => {
+test('reconciliation proxy preserves stable conversation scope across authenticated session restarts and rejects malformed inventories', async () => {
   let calls = 0;
   const handler = createHostInventoryReconcileProxyHandler({
     env: CONFIG,
-    fetchImpl: async () => { calls++; throw Error('must not call upstream'); },
+    fetchImpl: async () => { calls++; return { status: 201, json: async () => ({ inventory_status: 'REVIEW_ONLY' }) }; },
   });
   const valid = {
     conversation_id: HOST_CONVERSATION_ID,
@@ -314,10 +314,9 @@ test('reconciliation proxy rejects raw text, caller world scope, oversized row s
       deleted: false,
     }],
   };
-  const wrongSessionResponse = responseRecorder();
-  await handler(requestFor(valid, { sessionId: '44444444-4444-4444-8444-444444444444' }), wrongSessionResponse);
-  assert.equal(wrongSessionResponse.statusCode, 403);
-  assert.equal(wrongSessionResponse.payload.error.code, 'HOST_SESSION_SCOPE_REQUIRED');
+  const restartedSessionResponse = responseRecorder();
+  await handler(requestFor(valid, { sessionId: '44444444-4444-4444-8444-444444444444' }), restartedSessionResponse);
+  assert.equal(restartedSessionResponse.statusCode, 201);
   for (const body of [
     { ...valid, world_id: 'attacker-world' },
     { ...valid, versions: [{ ...valid.versions[0], content: 'raw source text' }] },
@@ -339,7 +338,7 @@ test('reconciliation proxy rejects raw text, caller world scope, oversized row s
   await handler(requestFor({ ...valid, padding: 'x'.repeat(8 * 1024 * 1024) }), byteResponse);
   assert.equal(byteResponse.statusCode, 413);
   assert.equal(byteResponse.payload.error.code, 'HOST_INVENTORY_TOO_LARGE');
-  assert.equal(calls, 0);
+  assert.equal(calls, 1);
 });
 
 
