@@ -239,14 +239,65 @@ def _validate_manifest(data: bytes) -> dict[str, Any]:
         if role["state"] in ("disabled", "renaming", "deleting", "deleted") and any(
                 entry["state"] != "retired" for entry in sidecars):
             raise StoreError(f"role {name}: offline lifecycle state requires all sidecars retired")
+
+    pending_enrollments = obj.get("pendingEnrollments", [])
+    if not isinstance(pending_enrollments, list):
+        raise StoreError("manifest pendingEnrollments must be an array")
+    pending_names: set[str] = set()
+    for intent in pending_enrollments:
+        if not isinstance(intent, dict):
+            raise StoreError("pending enrollment entry must be an object")
+        required_intent_fields = {
+            "role", "parentComponents", "parentIdentities", "databaseBasename",
+        }
+        allowed_intent_fields = required_intent_fields | {"databaseIdentity"}
+        if not required_intent_fields <= set(intent) or set(intent) - allowed_intent_fields:
+            raise StoreError("pending enrollment has missing or unknown fields")
+        name = intent["role"]
+        if (not isinstance(name, str) or not name or len(name) > 128
+                or name[0] in ".-"
+                or any(not (ch.isascii() and (ch.isalnum() or ch in "._-")) for ch in name)
+                or name in seen or name in pending_names):
+            raise StoreError("pending enrollment role names must be unique and not already enrolled")
+        pending_names.add(name)
+        components = intent["parentComponents"]
+        identities = intent["parentIdentities"]
+        if (not isinstance(components, list) or not components
+                or not isinstance(identities, list) or len(components) != len(identities)):
+            raise StoreError(f"pending enrollment {name}: parent components/identities are invalid")
+        for component in components + [intent["databaseBasename"]]:
+            if (not isinstance(component, str) or not component or component in (".", "..")
+                    or "/" in component or "\x00" in component or "\\" in component):
+                raise StoreError(f"pending enrollment {name}: invalid path component")
+        for index, value in enumerate(identities):
+            check_identity(value, f"pending enrollment {name} parent identity {index}")
+        if "databaseIdentity" in intent:
+            check_identity(intent["databaseIdentity"], f"pending enrollment {name} database identity")
+
     # Physical file identities must be unique across protected roles. A manifest
     # that aliases one inode under multiple logical names makes ownership and
     # sidecar lifecycle transitions ambiguous.
     parent_identity_keys: set[tuple[str, str, str]] = set()
     file_identity_keys: set[tuple[str, str, str]] = set()
+    role_path_keys: set[tuple[tuple[str, str, str], str]] = set()
     for role in roles:
         for identity in role["parentIdentities"]:
             parent_identity_keys.add((identity["device"], identity["inode"], identity["mountId"]))
+        parent_identity = role["parentIdentities"][-1]
+        role_path_key = ((parent_identity["device"], parent_identity["inode"], parent_identity["mountId"]),
+                         role["databaseBasename"])
+        if role_path_key in role_path_keys:
+            raise StoreError("multiple roles claim the same parent/basename namespace entry")
+        role_path_keys.add(role_path_key)
+    for intent in pending_enrollments:
+        for identity in intent["parentIdentities"]:
+            parent_identity_keys.add((identity["device"], identity["inode"], identity["mountId"]))
+        parent_identity = intent["parentIdentities"][-1]
+        intent_path_key = ((parent_identity["device"], parent_identity["inode"], parent_identity["mountId"]),
+                           intent["databaseBasename"])
+        if intent_path_key in role_path_keys:
+            raise StoreError("pending enrollment aliases an enrolled role namespace entry")
+        role_path_keys.add(intent_path_key)
     for role in roles:
         if role["state"] != "deleted":
             database_identity = role["databaseIdentity"]
@@ -264,6 +315,13 @@ def _validate_manifest(data: bytes) -> dict[str, Any]:
             if key in parent_identity_keys or key in file_identity_keys:
                 raise StoreError("sidecar identity aliases a directory or another live role file")
             file_identity_keys.add(key)
+    for intent in pending_enrollments:
+        if "databaseIdentity" in intent:
+            identity = intent["databaseIdentity"]
+            key = (identity["device"], identity["inode"], identity["mountId"])
+            if key in parent_identity_keys or key in file_identity_keys:
+                raise StoreError("pending enrollment identity aliases a directory or another live role file")
+            file_identity_keys.add(key)
     return obj
 
 
@@ -280,6 +338,42 @@ def _validate_manifest_transition(current: dict[str, Any], candidate: dict[str, 
         added = new_roles[added_name]
         if added["state"] != "enrolling" or added["sidecars"]:
             raise StoreError("new roles must enter through privileged empty enrolling records")
+    old_pending = {entry["role"]: entry for entry in current.get("pendingEnrollments", [])}
+    new_pending = {entry["role"]: entry for entry in candidate.get("pendingEnrollments", [])}
+    for name in new_pending.keys() - old_pending.keys():
+        if name in old_roles or name in new_roles:
+            raise StoreError(f"pending enrollment {name}: role already exists")
+        if "databaseIdentity" in new_pending[name]:
+            raise StoreError(f"pending enrollment {name}: identity must be captured after intent commit")
+    for name, old_intent in old_pending.items():
+        new_intent = new_pending.get(name)
+        if new_intent is not None:
+            immutable = ("parentComponents", "parentIdentities", "databaseBasename", "role")
+            if any(new_intent[field] != old_intent[field] for field in immutable):
+                raise StoreError(f"pending enrollment {name}: intent path is immutable")
+            old_identity = old_intent.get("databaseIdentity")
+            new_identity = new_intent.get("databaseIdentity")
+            if old_identity is not None and new_identity != old_identity:
+                raise StoreError(f"pending enrollment {name}: captured identity is immutable")
+            if old_identity is None and new_identity is not None:
+                pass
+        else:
+            enrolled = new_roles.get(name)
+            if (enrolled is None or name in old_roles or enrolled["state"] != "enrolling"
+                    or enrolled["sidecars"]):
+                raise StoreError(f"pending enrollment {name}: intent can be retired only with its enrolling role")
+            if (enrolled["parentComponents"] != old_intent["parentComponents"]
+                    or enrolled["parentIdentities"] != old_intent["parentIdentities"]
+                    or enrolled["databaseBasename"] != old_intent["databaseBasename"]
+                    or ("databaseIdentity" in old_intent
+                        and enrolled["databaseIdentity"] != old_intent["databaseIdentity"])):
+                raise StoreError(f"pending enrollment {name}: enrolled role does not match committed intent")
+    for name in new_roles.keys() - old_roles.keys():
+        added = new_roles[name]
+        intent = old_pending.get(name)
+        if (added["state"] != "enrolling" or added["sidecars"] or intent is None
+                or name in new_pending):
+            raise StoreError("new roles must complete a committed broker-first enrollment intent")
     generation = candidate["generation"]
     role_state_transitions = {
         "enrolling": {"enrolling", "active", "disabled", "recovery-required"},
