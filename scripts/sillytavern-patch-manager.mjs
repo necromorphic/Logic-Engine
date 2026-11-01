@@ -386,6 +386,7 @@ export class SillyTavernPatchManager {
       return { status: 'INSTALLED', patchVersion: this.manifest.patch.version };
     } catch (error) {
       await this.restoreJournal(journal);
+      this._activeInstallBackups = null;
       throw error;
     }
   }
