@@ -157,7 +157,7 @@ test('host inventory route fails closed unless the deployment build claim matche
     hostBuildClaim: '',
   });
   const response = makeResponse();
-  await handler({ user: { profile: { handle: 'default-user' }, directories: {} }, session: { handle: 'default-user', logicEngineSessionId: '2e6b0a80-4e73-4c66-aaf3-7a6e62c7f401', logicEngineSessionHandle: 'default-user' } }, response);
+  await handler({ user: { profile: { handle: 'default-user' }, directories: absoluteTestDirectories }, session: { handle: 'default-user', logicEngineSessionId: '2e6b0a80-4e73-4c66-aaf3-7a6e62c7f401', logicEngineSessionHandle: 'default-user' } }, response);
   assert.equal(response.statusCode, 503);
   assert.deepEqual(response.body, { status: 'NON_READY', code: 'HOST_BUILD_NOT_PINNED' });
   assert.equal(calls, 0);
@@ -193,12 +193,9 @@ test('host inventory route passes only the authenticated user data roots and ret
   });
   const response = makeResponse();
   const directories = {
-    root: 'C:\\st\\data',
-    chats: 'C:\\st\\data\\chats',
-    groups: 'C:\\st\\data\\groups',
-    groupChats: 'C:\\st\\data\\group chats',
-    characters: 'C:\\st\\data\\characters',
-    backups: 'C:\\st\\data\\backups',
+    ...absoluteTestDirectories,
+    characters: resolve('/tmp/st-root/characters'),
+    backups: resolve('/tmp/st-root/backups'),
   };
   await handler({
     user: { profile: { handle: 'alice' }, directories },
@@ -210,10 +207,7 @@ test('host inventory route passes only the authenticated user data roots and ret
   assert.equal(response.headers.vary, 'Cookie');
   assert.deepEqual(observed, {
     directories: {
-      root: directories.root,
-      chats: directories.chats,
-      groups: directories.groups,
-      groupChats: directories.groupChats,
+      ...absoluteTestDirectories,
     },
     hostCommit: pinned,
   });
@@ -820,7 +814,7 @@ test('request authentication gate returns NON_READY when authoritative inventory
   const response = makeResponse();
   let nextCalls = 0;
   await gate.middleware({
-    user: { profile: { handle: 'default-user' }, directories: {} },
+    user: { profile: { handle: 'default-user' }, directories: absoluteTestDirectories },
     session: { logicEngineSessionId: defaultUserSessionId, logicEngineSessionHandle: 'default-user' },
   }, response, () => { nextCalls++; });
   assert.equal(response.statusCode, 503);
