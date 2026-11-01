@@ -164,7 +164,7 @@ export function createExtensionGateway({ hostAdapter, maxBodyBytes = EXTENSION_G
       const result = await hostAdapter.handleExtensionRequest({
         envelope,
         hostRequest: request,
-        receivedAt: now(),
+        receivedAt,
       });
       if (!result || !Number.isInteger(result.status) || result.status < 200 || result.status > 599
         || !Object.hasOwn(result, 'body')) {
@@ -218,4 +218,77 @@ export function mountExtensionGateway({ app, gateway } = {}) {
     method: 'POST',
     close: options => gateway.close(options),
   });
+}
+
+
+let registeredAuthenticatedHostAdapter = null;
+let registeredDiagnosticSink = null;
+let defaultGateway = null;
+let defaultMount = null;
+
+const hostAdapterDispatchProxy = Object.freeze({
+  async handleExtensionRequest(input) {
+    if (!registeredAuthenticatedHostAdapter) {
+      return { status: 503, body: { error: 'HOST_ADAPTER_UNAVAILABLE' } };
+    }
+    return registeredAuthenticatedHostAdapter.handleExtensionRequest(input);
+  },
+});
+
+function diagnosticSinkProxy(event) {
+  if (!registeredDiagnosticSink) return false;
+  return registeredDiagnosticSink(event);
+}
+
+/**
+ * Register the one trusted, server-side Host Adapter implementation.
+ * The caller must be a native Logic-Engine server composition module, never
+ * the browser Extension. Host Adapter owns ST session authentication.
+ */
+export function registerAuthenticatedHostAdapter(adapter, { onDiagnostic } = {}) {
+  if (!adapter || typeof adapter.handleExtensionRequest !== 'function'
+    || typeof onDiagnostic !== 'function'
+    || registeredAuthenticatedHostAdapter) {
+    throw new Error('EXTENSION_GATEWAY_HOST_ADAPTER_REGISTRATION_INVALID_OR_DUPLICATE');
+  }
+  registeredAuthenticatedHostAdapter = adapter;
+  registeredDiagnosticSink = onDiagnostic;
+  let active = true;
+  return () => {
+    if (!active) return false;
+    const lifecycle = defaultGateway?.getLifecycle();
+    if (lifecycle?.in_flight > 0) {
+      throw new Error('EXTENSION_GATEWAY_HOST_ADAPTER_STILL_IN_FLIGHT');
+    }
+    if (registeredAuthenticatedHostAdapter !== adapter) return false;
+    registeredAuthenticatedHostAdapter = null;
+    registeredDiagnosticSink = null;
+    active = false;
+    return true;
+  };
+}
+
+/**
+ * Mount the default in-process route from the pinned ST private-router setup.
+ * Without a registered Host Adapter and durable diagnostic sink, the route
+ * remains present but returns 503; there is no fallback ingress.
+ */
+export function mountDefaultExtensionGateway(app) {
+  if (!defaultGateway) {
+    defaultGateway = createExtensionGateway({
+      hostAdapter: hostAdapterDispatchProxy,
+      onDiagnostic: diagnosticSinkProxy,
+    });
+  }
+  if (defaultMount) throw new Error('EXTENSION_GATEWAY_MOUNT_INVALID_OR_DUPLICATE');
+  defaultMount = mountExtensionGateway({ app, gateway: defaultGateway });
+  return defaultMount;
+}
+
+export async function closeDefaultExtensionGateway({ drain = true } = {}) {
+  if (defaultMount) await defaultMount.close({ drain });
+  defaultMount = null;
+  defaultGateway = null;
+  registeredAuthenticatedHostAdapter = null;
+  registeredDiagnosticSink = null;
 }
