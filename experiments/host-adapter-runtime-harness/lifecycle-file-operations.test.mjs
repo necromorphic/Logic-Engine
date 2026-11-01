@@ -551,7 +551,7 @@ test('pinned ST 1.19.0 supported chat mutations persist; chat deletion, rename, 
   assert.match(exportResult.result.reason ?? '', /previously observed root inventory delta remains unresolved/,
     'an unchanged export cannot clear prior unresolved filesystem deltas');
 
-  const deleteChat = await observe(async () => {
+  const blockedDeleteChat = await observe(async () => {
     const response = await post('/api/chats/delete', {
       avatar_url: 'Harness Character.png', chatfile: 'chat-one.jsonl',
     });
