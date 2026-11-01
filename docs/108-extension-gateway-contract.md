@@ -10,7 +10,7 @@ The Gateway is a same-process route handler. It does not create a listener, API 
 
 - `POST /api/logic-engine/extension`
 
-The managed ST startup integration must mount this route before any general JSON body parser and before native generation routers. The Gateway consumes the request stream itself, with a hard maximum of 256 KiB. The official ST source remains read-only; any local integration patch belongs to the Logic-Engine Patch Manager package and must be pinned to the exact ST commit.
+The managed ST startup integration must exclude this exact path from the global JSON body parser, then mount the route after ST's authenticated-session middleware and before native private/generation routers. The Gateway consumes the untouched request stream itself, with a hard maximum of 256 KiB. The official ST source remains read-only; any local integration patch belongs to the Logic-Engine Patch Manager package and must be pinned to the exact ST commit.
 
 ## Envelope v1
 
@@ -62,9 +62,13 @@ Gateway does not authorize operation names, select a World/Actor, access Provide
 
 The mounted lifecycle handle exposes `close({ drain })`. ST shutdown integration must invoke it and await draining before tearing down Host Adapter dependencies.
 
+## Client Extension transport
+
+The packaged Client Extension registers through the SillyTavern Extension manifest and sends requests only to the same-origin `/api/logic-engine/extension` route. It uses SillyTavern's request headers (including its CSRF token), same-origin credentials, no-store caching, and redirect rejection. The browser component is untrusted and carries no Core credentials or authoritative identity fields. Its source-level inventory test requires exactly one `fetch()` call and rejects direct Core/Provider URL configuration.
+
 ## Current test evidence
 
-The isolated tests cover positive ingress, exact single-route registration, duplicate mount refusal, unknown path/method, malformed and forged identity envelopes, body size/content type, Host Adapter outage, and graceful drain/closed behavior.
+The isolated tests cover positive ingress, exact single-route registration, duplicate mount refusal, unknown path/method, malformed and forged identity envelopes, declared and chunked body-size limits, content type, Host Adapter outage, graceful drain/closed behavior, repeated request forwarding, and the Client Extension's single same-origin transport.
 
 These tests prove the Gateway module's local contract only. They do not yet prove:
 - the route is mounted in the target ST 1.19.0 process;
