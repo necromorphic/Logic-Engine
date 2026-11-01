@@ -25,7 +25,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p sillytavern/plugins/logic-engine-extension-gateway
-          cp host-adapter/extension-gateway/server-plugin/*.mjs host-adapter/extension-gateway/server-plugin/*.js sillytavern/plugins/logic-engine-extension-gateway/
+          cp host-adapter/extension-gateway/server-plugin/*.mjs host-adapter/extension-gateway/server-plugin/*.js host-adapter/extension-gateway/server-plugin/package.json sillytavern/plugins/logic-engine-extension-gateway/
           mkdir -p sillytavern/public/scripts/extensions/third-party/logic-engine-extension-gateway
           cp host-adapter/extension-gateway/index.js host-adapter/extension-gateway/gateway-policy.mjs host-adapter/extension-gateway/host-context.mjs host-adapter/extension-gateway/conversation-identity.mjs host-adapter/extension-gateway/manifest.json sillytavern/public/scripts/extensions/third-party/logic-engine-extension-gateway/
           patch="$PWD/host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch"
