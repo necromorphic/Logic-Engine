@@ -12,6 +12,8 @@ const LOCK_NAME = '.patch-manager.lock';
 const PATCH_ID = 'sillytavern-1.19.0-final-send-v1';
 
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
+const normalizeLineEndings = bytes => Buffer.from(bytes.toString('utf8').replace(/\\r\\n/g, '\\n'), 'utf8');
+const pinnedSourceHash = bytes => sha256(normalizeLineEndings(bytes));
 const fail = code => { throw new Error('LOGIC_ENGINE_PATCH_' + code); };
 
 async function exists(path) {
@@ -74,7 +76,8 @@ function replaceExactlyOnce(source, before, after, label) {
 
 export function patchChatCompletionsSource(source) {
   if (typeof source !== 'string') fail('SOURCE_INVALID');
-  let result = source;
+  const lineEnding = source.includes('\\r\\n') ? '\\r\\n' : '\\n';
+  let result = source.replace(/\\r\\n/g, '\\n');
   result = replaceExactlyOnce(
     result,
     "import fetch from 'node-fetch';",
@@ -105,7 +108,7 @@ export function patchChatCompletionsSource(source) {
     '\n    });\n});\n\nconst multimodalModels = express.Router();',
     'GENERATION_EXIT',
   );
-  return result;
+  return lineEnding === '\\n' ? result : result.replace(/\\n/g, '\\r\\n');
 }
 
 async function readJson(path) {
@@ -127,7 +130,7 @@ async function verifyPinnedHost(hostRoot) {
   for (const [relativePath, expectedHash] of Object.entries(SILLYTAVERN_TARGET.sourceHashes)) {
     const path = await assertRegularFile(rootReal, relativePath);
     const bytes = await readFile(path);
-    if (sha256(bytes) !== expectedHash) fail('HOST_SOURCE_HASH_MISMATCH_' + relativePath.replaceAll('/', '_').replaceAll('.', '_'));
+    if (pinnedSourceHash(bytes) !== expectedHash) fail('HOST_SOURCE_HASH_MISMATCH_' + relativePath.replaceAll('/', '_').replaceAll('.', '_'));
     files.set(relativePath, { path, bytes, hash: expectedHash });
   }
   return { root: rootReal, files };
@@ -228,6 +231,7 @@ export async function applyFinalSendPatch({ hostRoot, stateRoot, hookSourcePath 
       if (!inside(state, backupPath)) fail('INSTALLED_BACKUP_PATH_INVALID');
       const original = await readFile(backupPath).catch(() => null);
       if (!original || sha256(original) !== existingManifest.originalHash
+        || pinnedSourceHash(original) !== SILLYTAVERN_TARGET.sourceHashes[SILLYTAVERN_TARGET.endpointRelativePath]
         || sha256(Buffer.from(patchChatCompletionsSource(original.toString('utf8')), 'utf8')) !== existingManifest.patchedHash
         || sha256(await readFile(endpointPath)) !== existingManifest.patchedHash
         || sha256(await readFile(hookPath)) !== hookHash) {
