@@ -34,20 +34,13 @@ jobs:
           cp host-adapter/prototype/st-lifecycle-bridge.mjs sillytavern-host-checkout/public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs
           cp host-adapter/prototype/conversation-identity.mjs sillytavern-host-checkout/public/scripts/logic-engine-lifecycle/conversation-identity.mjs
           cp host-adapter/prototype/st-server-digest-proxy.mjs sillytavern-host-checkout/src/endpoints/logic-engine-lifecycle-proxy.mjs
-      - name: Fetch the exact persisted-identity Host inventory candidate from PR #800
+      - name: Stage the Host inventory candidate from the exact PR checkout
         run: |
-          git fetch origin 2ae9744bc0016295cc4399471a0b9c5e4c6fcc2e
           mkdir -p host-inventory-candidate
-          git show FETCH_HEAD:host-adapter/prototype/st-source-inventory.mjs > host-inventory-candidate/st-source-inventory.mjs
-          git show FETCH_HEAD:host-adapter/prototype/st-host-inventory-handler.mjs > host-inventory-candidate/st-host-inventory-handler.mjs
-          git show FETCH_HEAD:host-adapter/prototype/st-host-inventory-route.js > host-inventory-candidate/st-host-inventory-route.js
-          git show FETCH_HEAD:host-adapter/prototype/patches/sillytavern-1.19.0-source-inventory-route.patch > host-inventory-candidate/sillytavern-1.19.0-source-inventory-route.patch
-          mkdir -p host-adapter/prototype/tests
-          git show FETCH_HEAD:host-adapter/prototype/st-source-inventory.mjs > host-adapter/prototype/st-source-inventory.mjs
-          git show FETCH_HEAD:host-adapter/prototype/st-host-inventory-handler.mjs > host-adapter/prototype/st-host-inventory-handler.mjs
-          git show FETCH_HEAD:host-adapter/prototype/st-host-inventory-route.js > host-adapter/prototype/st-host-inventory-route.js
-          git show FETCH_HEAD:host-adapter/prototype/tests/st-host-inventory-handler.test.mjs > host-adapter/prototype/tests/st-host-inventory-handler.test.mjs
-          git show FETCH_HEAD:tests/host-source-inventory.test.js > tests/host-source-inventory.test.js
+          cp host-adapter/prototype/st-source-inventory.mjs host-inventory-candidate/st-source-inventory.mjs
+          cp host-adapter/prototype/st-host-inventory-handler.mjs host-inventory-candidate/st-host-inventory-handler.mjs
+          cp host-adapter/prototype/st-host-inventory-route.js host-inventory-candidate/st-host-inventory-route.js
+          cp host-adapter/prototype/patches/sillytavern-1.19.0-source-inventory-route.patch host-inventory-candidate/sillytavern-1.19.0-source-inventory-route.patch
       - name: Require authenticated session identity route in the exact Host candidate
         run: grep -F "router.get('/session', createHostSessionHandler())" host-inventory-candidate/st-host-inventory-route.js
       - name: Install prototype modules into the pinned host tree
