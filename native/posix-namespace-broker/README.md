@@ -112,8 +112,8 @@ production cross-UID socket permissions and full recovery remain open.
 0700 directory and a separate generation+SHA-256 anchor in another service-owned
 0700 directory. Both directory paths are opened component-by-component with
 `O_DIRECTORY|O_NOFOLLOW`; every ancestor must be owned by root or the broker
-service UID and must not be writable by group/other. The configured application
-UID is rejected as an owner when it can mutate an ancestor; root is never
+service UID and must not be writable by group/other. Other local UIDs, including
+the application UID, are never accepted as ancestor owners. Root is never
 accepted as the application identity. Role-parent verification applies the same
 ownership rule to every opened component. The broker service UID and application
 UID must be distinct.
