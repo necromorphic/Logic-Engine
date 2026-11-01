@@ -38,7 +38,14 @@ jobs:
           node --check sillytavern-host-checkout/plugins/logic-engine-extension-gateway/index.mjs
       - name: Verify plugin loader authentication boundary
         run: |
-          node --input-type=module -e "import fs from 'node:fs'; const main=fs.readFileSync('sillytavern-host-checkout/src/server-main.js','utf8'); const loader=fs.readFileSync('sillytavern-host-checkout/src/plugin-loader.js','utf8'); if(main.indexOf('app.use(requireLoginMiddleware)')<0 || main.indexOf('loadPlugins(app, pluginsDirectory)')<main.indexOf('app.use(requireLoginMiddleware)') || !loader.includes('app.use(`/api/plugins/${id}`, router)')) process.exit(1);"
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const main = fs.readFileSync('sillytavern-host-checkout/src/server-main.js', 'utf8');
+          const loader = fs.readFileSync('sillytavern-host-checkout/src/plugin-loader.js', 'utf8');
+          const auth = main.indexOf('app.use(requireLoginMiddleware)');
+          const plugins = main.indexOf('loadPlugins(app, pluginsDirectory)');
+          if (auth < 0 || plugins < auth || !loader.includes('app.use(`/api/plugins/${id}`, router)')) process.exit(1);
+          NODE
       - name: Run Host Gateway and identity regression tests
         run: node --test host-adapter/prototype/tests/*.test.mjs host-adapter/sillytavern-extension/tests/*.test.mjs
       - name: Check whitespace and patch independence
