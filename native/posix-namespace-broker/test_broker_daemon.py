@@ -186,6 +186,12 @@ class BrokerDaemonTests(unittest.TestCase):
         self.assertEqual(response[3], STATUS_UNSUPPORTED)
         self.assertEqual(fds, [])
 
+    def test_parent_directory_descriptor_operation_is_retired(self):
+        response, fds = self.exchange(6, b"core")
+        self.assertEqual(response[3], STATUS_UNSUPPORTED)
+        self.assertEqual(fds, [])
+        self.assertEqual(self.store.calls, [])
+
     def test_nonzero_flags_are_rejected(self):
         response, fds = self.exchange(OP_PING, flags=1)
         self.assertEqual(response[3], STATUS_BAD_REQUEST)
