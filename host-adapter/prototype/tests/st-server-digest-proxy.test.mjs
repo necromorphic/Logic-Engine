@@ -462,6 +462,7 @@ test('lifecycle journal proxy derives account identity and signs only server-ver
   });
   assert.equal(receiptCalls[0].type, 'prepare');
   assert.equal(receiptCalls[0].directories.root, resolve('/tmp/st-root'));
+  assert.equal(receiptCalls[0].directories.backups, resolve('/tmp/st-root/backups'));
 
   const committedEvent = {
     ...event,
@@ -563,6 +564,7 @@ test('lifecycle status performs durable server-side crash recovery before allowi
   assert.equal(recoveredScope.scope.mutation_id, '55555555-5555-4555-8555-555555555555');
   assert.equal(recoveredScope.scope.prepared_event_id, '66666666-6666-4666-8666-666666666666');
   assert.equal(recoveredScope.directories.root, resolve('/tmp/st-root'));
+  assert.equal(recoveredScope.directories.backups, resolve('/tmp/st-root/backups'));
   const eventBody = JSON.parse(calls[1].options.body);
   assert.equal(eventBody.event_type, 'MUTATION_COMMITTED');
   assert.equal(eventBody.receipt_digest, 'f'.repeat(64));
