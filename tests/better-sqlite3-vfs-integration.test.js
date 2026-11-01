@@ -28,7 +28,7 @@ test('patched better-sqlite3 registers and opens through its own named VFS', {
   // Register in better-sqlite3's embedded engine, not node:sqlite.
   console.error('[vfs-debug] stage=bootstrap-open');
   const bootstrap = new Database(':memory:');
-  try { console.error('[vfs-debug] stage=extension-load'); bootstrap.loadExtension(resolvedExtension); }
+  try { console.error('[vfs-debug] stage=extension-load'); bootstrap.loadExtension(resolvedExtension, 'sqlite3_secure_vfs_probe_init'); }
   finally { bootstrap.close(); }
 
   console.error('[vfs-debug] stage=target-open');
