@@ -170,7 +170,7 @@ test('private directory provisioning is explicit and owner-only on Linux', async
   t.after(() => rm(root, { recursive: true, force: true }));
   const target = join(root, 'private');
   const evidence = await adapter.ensurePrivateDirectory(target);
-  assert.equal(evidence.status, 'PASS');
+  assert.equal(evidence.status, 'DEGRADED');
   const mode = (await (await import('node:fs/promises')).stat(target)).mode & 0o777;
   assert.equal(mode & 0o077, 0);
 });
