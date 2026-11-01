@@ -65,7 +65,12 @@ test('Host Adapter resolves world and exactly one actor before signing the Host 
   assert.match(calls[0].url, /\/v1\/host-context\/resolve$/);
   assert.match(calls[1].url, /\/v1\/host\/memory-npc\/retrieve$/);
   const resolveBody = JSON.parse(calls[0].options.body);
-  assert.deepEqual(resolveBody, { conversation_id: conversationId });
+  assert.deepEqual(resolveBody, {
+    conversation_id: conversationId,
+    host_session_id: session,
+    host_installation_id: installation,
+    conversation_uuid: conversation,
+  });
   assert.equal(calls[0].options.headers['x-adapter-id'], 'st-gateway');
   assert.equal(calls[0].options.headers['x-adapter-token'], env.LOGIC_ENGINE_ADAPTER_TOKEN);
 
