@@ -185,8 +185,8 @@ def _validate_manifest(data: bytes) -> dict[str, Any]:
                 raise StoreError(f"{label}: non-canonical {key}")
     check_identity(root_identity, "metadataRootIdentity")
     roles = obj.get("roles")
-    if not isinstance(roles, list) or not roles:
-        raise StoreError("manifest roles must be a non-empty array")
+    if not isinstance(roles, list):
+        raise StoreError("manifest roles must be an array")
     seen: set[str] = set()
     for role in roles:
         if not isinstance(role, dict):
