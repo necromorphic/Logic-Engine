@@ -2,7 +2,7 @@
 
 **Contract:** Host ↔ Core authenticated Memory retrieval  
 **Version:** 1.0.0  
-**Status:** CONTRACT AGREED; Host/Core candidate CI green; contract PR full-suite validation retry pending; branch integration and deployment readiness remain pending  
+**Status:** CONTRACT AGREED; Host/Core candidate CI green; contract PR full-suite retry green; branch integration and deployment readiness remain pending  
 **Validated candidate heads (1 Nov 2026):** Host PR #850 `4aa26dcf2a9e5b5e65123f2cd72b40516e41a685`; Core PR #846 `832abf337530e9421f53eaed85760cb4a7f07313`; Core HTTP PR #867 `7e3895aeb91c983bf020e889acdad6c1909dd0e7`  
 **Scope:** identity hand-off, Core World/Actor resolution, authenticated Memory Provider retrieval, result/error/revoke semantics.  
 **Not in scope:** branch merging, Security Gateway changes, Final-Send, production enablement, Lane A, Provider schema migration.
@@ -260,7 +260,7 @@ Do not return secrets, raw request data, hidden entity values, Provider snippets
 | Missing/invalid API bearer | 401 | `UNAUTHORIZED` |
 | Missing/invalid adapter credentials | 403 | `ADAPTER_REQUIRED` |
 | No active conversation → World binding | 403 | `HOST_CONVERSATION_NOT_AUTHORIZED` |
-| World/Actor mismatch with signed assertion | 403 | `HOST_ASSERTION_BINDING_MISMATCH` |
+| Signed assertion World/Actor differs from Core's live binding | 200 | `{ "retrieval": { "status": "non_ready", "reason": "query_access_unconfirmed", ... } }` |
 | No active Actor binding | 403 | `ACTOR_NOT_AUTHORIZED` |
 | More than one active Actor binding | 403 | `ACTOR_BINDING_AMBIGUOUS` |
 | Bound Actor missing or destroyed | 409 | `ACTOR_ENTITY_NOT_ELIGIBLE` |
@@ -269,8 +269,7 @@ Do not return secrets, raw request data, hidden entity values, Provider snippets
 | No configured adapter-pinned Memory consumer | 503 | `MEMORY_NPC_CONSUMER_UNAVAILABLE` |
 | In-process nonce cache full (legacy runner mode) | 503 | `HOST_SESSION_ASSERTION_CAPACITY_EXCEEDED` |
 | Durable nonce store unavailable or write failure | 503 | `HOST_ASSERTION_REPLAY_GUARD_UNAVAILABLE` |
-| Durable nonce/epoch guard unavailable | 503 | `HOST_ASSERTION_REPLAY_GUARD_UNAVAILABLE` |
-| Core Memory consumer/Provider not configured | 503 | `MEMORY_RETRIEVAL_UNAVAILABLE` |
+| Core Memory consumer/Provider not configured | 503 | `MEMORY_NPC_CONSUMER_UNAVAILABLE` |
 | Authenticated retrieval completed but policy/data is not ready | 200 | `{ "retrieval": { "status": "non_ready", ... } }` with a stable reason |
 | Internal unexpected failure | 500 | `INTERNAL_ERROR`, generic message only |
 
@@ -344,6 +343,7 @@ The contract is technically reconciled. The delegated technical owner is respons
 - [x] Host API technical-owner approval: Host-local stable key remains local; Core requests use PC-NEXT-11 tuple.
 - [x] Core API technical-owner approval: two private routes, durable nonce guard, and existing consumer result envelope.
 - [x] Exact-head Runtime and integration CI pass on Host #850, Core #846, and Core HTTP #867; Host session rotation and Core nonce replay across restart are covered.
+- [x] Contract PR #866 full Runtime suite passed on retry (run `41331512380`, attempt 2); the first attempt's single failure was the unrelated Windows `remote-binding.test.js` listener/fetch test.
 - [x] Identity/route ownership discrepancy is resolved in the implementation candidates; remaining branch-integration and deployment gates are tracked in §11.
 
 
@@ -359,7 +359,7 @@ The technical owner has taken responsibility for both blocks and approved the bo
 ### Current wire behaviour
 
 - `POST /v1/host-context/resolve` is implemented in the Core candidate. It accepts only `conversation_id`, derives adapter identity from authenticated headers, resolves the active World binding and exactly one Actor through existing Core services, and returns the five-field context.
-- `POST /v1/host/memory-npc/retrieve` is implemented in the Core candidate. It verifies the exact assertion, atomically consumes its nonce in the dedicated SQLite replay store, establishes the branded AsyncLocalStorage context, and calls only the adapter-pinned `MemoryNpcConsumer.retrieveForNpc()` facade.
+- `POST /v1/host/memory-npc/retrieve` is implemented in the Core candidate. It verifies the exact assertion, atomically consumes its nonce in the dedicated SQLite replay store, establishes the branded AsyncLocalStorage context, and calls only the adapter-pinned `MemoryNpcConsumer.retrieveForNpc()` facade. Its HTTP 200 response is `{ "retrieval": <consumer-result> }`; the Host proxy forwards this wrapper unchanged.
 - Host keeps `installation_id:account_id:conversation_uuid` for Host-local lifecycle/storage correlation. For Core it sends `host_session_id:host_installation_id:conversation_uuid`; account UUID remains a separate signed assertion field.
 - A rotated ST session receives a new Core conversation tuple and requires an explicit binding for that tuple. There is no automatic rebind.
 - Runtime can optionally configure the real file-backed Provider with `ENGINE_MEMORY_PROVIDER_DB_PATH` and `ENGINE_MEMORY_NPC_CONTENT_FIELDS`. The Provider DB is separate from Core and shares the Coordinator. If this configuration is absent, or Provider grants/index/source authorization are not ready, retrieval fails closed. No ready-empty fallback is introduced.
