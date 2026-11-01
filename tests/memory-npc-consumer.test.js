@@ -1322,3 +1322,22 @@ test('Core derives world and actor from trusted conversation and unique adapter 
   assert.equal(ambiguous.reason, 'trusted_scope_unavailable');
   assert.deepEqual(ambiguous.candidates, []);
 });
+
+
+test('Core reapplies field visibility after asynchronous Provider authorization and before disclosure', async (t) => {
+  const s = setup(t);
+  const authorizeCandidate = s.provider.authorizeCandidate.bind(s.provider);
+  let calls = 0;
+  s.provider.authorizeCandidate = async (input) => {
+    calls += 1;
+    if (calls === 2) s.revokeContent();
+    return authorizeCandidate(input);
+  };
+
+  const result = await s.consumer.retrieveForNpc(request());
+  assert.equal(calls, 2);
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'authorized_source_read_unavailable');
+  assert.deepEqual(result.candidates, []);
+  assert.equal(JSON.stringify(result).includes('authorized source text'), false);
+});
