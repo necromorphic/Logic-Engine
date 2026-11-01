@@ -94,23 +94,41 @@ The backend must preserve SQLite locking semantics across processes, not just th
 
 ## 6. ST-VectorService / better-sqlite3 separate audit
 
-The supplied archive inventory identifies `better-sqlite3@13.0.3`, a separate native SQLite binding from Node's `node:sqlite`. Therefore the VFS registered in Node's bundled SQLite cannot be assumed to protect `vectors.sqlite`.
+The supplied ST-VectorService archive pins `better-sqlite3@13.0.3`, a separate native SQLite engine from Node's `node:sqlite`. The exact archived prebuilds are:
 
-The separate audit must verify the exact `better-sqlite3` binary's SQLite version/build options, whether its SQLite VFS is statically or dynamically linked, whether it exposes a supported way to register a custom VFS before `new Database(DB_PATH)`, and whether any global/default-VFS registration is isolated from or shared with other SQLite copies in the process. It must trace the service's main DB, WAL, SHM, temp files, checkpoint, close and crash/restart paths. A matching version string alone is not proof of matching ABI or VFS registration.
+| Platform | SHA-256 | Runtime evidence |
+|---|---|---|
+| Linux x64 | `6fd4292c6c5f352436cd85c9e1cb286978efa43c20ae350973f83414ced9991d` | SQLite 3.53.4; source ID checked in CI |
+| Windows x64 | `e21e5efd71fba66578e95b62554d9028064a80dafd7221bf8a8ef155de8d240a` | SQLite 3.53.4; exact prebuild smoke-tested in CI |
 
-The archive-level inventory records the service's dynamic `ST_VECTOR_ROOT`, startup open order, WAL configuration and shutdown checkpoint. A source audit of the archived `better-sqlite3@13.0.3` package confirms a separate statically linked SQLite 3.53.4 engine, `sqlite3_open_v2(..., NULL)` in the constructor, and extension loading only after the database handle is open. The actual platform prebuilds were extracted from the supplied ST-VectorService archive and fingerprinted without opening any database: `prebuilds/linux-x64.node` is ELF x86-64, SHA-256 `6fd4292c6c5f352436cd85c9e1cb286978efa43c20ae350973f83414ced9991d`; `prebuilds/win32-x64.node` is PE32+ x86-64, SHA-256 `e21e5efd71fba66578e95b62554d9028064a80dafd7221bf8a8ef155de8d240a`. Both binaries contain SQLite version string `3.53.4` and source-ID string `2026-07-24 19:02:57 bf7c7f30031888f4e796e429ab3978879485813aaca6f641c7b33e4e09459bcc`. The archived `lib/binding.js` selects the prebuild by `process.platform` and `process.arch` (with a separate Linux-musl choice), falling back to `build/Release/better_sqlite3.node` only when no matching prebuild exists. Thus a Windows x64 host selects the fingerprinted `win32-x64.node`, while a glibc Linux x64 host selects `linux-x64.node`; the actual runtime selection must still be confirmed on the deployed host. The archived service constructs `new Database(DB_PATH)` at `server.js:261`, then configures WAL and creates schema objects, so VFS registration must be moved ahead of that constructor. The Linux ELF dependency table and Windows PE import table show no external SQLite shared library/DLL; together with the embedded SQLite version/source-ID strings and the upstream build configuration, this supports the separate statically linked engine finding. No database file was opened or modified during this static audit.
+The package uses Node-API 10, so the runtime floor for this dependency is Node 22.14.0. Its archived build configuration sets `SQLITE_USE_URI=0`; URI `vfs=` selection is not a valid integration route. The binding's `Database::JS_new` calls `sqlite3_open_v2(..., vfs=NULL)`, selecting that SQLite engine's default VFS. Loading an extension after a file-backed database has opened is too late.
 
-A focused source patch is now included at `patches/better-sqlite3-vfs-option.patch`. It adds an explicit `vfs` constructor option and passes its validated name to `sqlite3_open_v2` instead of hardcoding a NULL VFS. The patch was checked against the uploaded `better-sqlite3@13.0.3` source files and applies cleanly. This is an integration seam only: it does not register or implement the secure VFS, and it has not yet been built into the ST-VectorService native addon. A local validation against the archived package source also passed the JavaScript constructor-option contract test (the ninth native constructor argument receives the selected VFS name; empty, non-string and NUL-containing names are rejected) and a C++ syntax-only compile of the complete `better_sqlite3.cpp` unity translation unit against the local Node 22.16.0 headers (the service target is Node 22.13.0, so this is a source-level check, not target-version build proof). The new `better-sqlite3 named VFS integration` CI workflow now downloads the exact 13.0.3 npm source release, applies this patch, builds the native addon from source under Node 22.13.0, and compiles the VFS probe against the package's bundled SQLite headers. At commit `a217c256b4ba35a899306dac08c2760cd315d20d`, the native addon build and extension compile both completed successfully; the end-to-end test then failed in its own validation harness (first an escaped-NUL fixture, then loading the internal factory instead of the package's public constructor). Those harness defects have been corrected in later commits; the rerun at the current branch head is still in progress. Thus a successful native link is now evidenced, but a successful runtime open through the patched addon is not yet claimed.
+The verified no-fork bootstrap sequence is:
 
-The required initialization order for the service is:
+1. Construct `new Database(':memory:')` using the exact better-sqlite3 binding.
+2. Load the secure VFS extension into that connection using its explicit entrypoint. The extension registers the VFS as the default in this SQLite engine, installs its auto-extension callback, and remains loaded with `SQLITE_OK_LOAD_PERMANENTLY`.
+3. Close the bootstrap connection.
+4. Open a separate in-memory registrar connection and enroll/validate the logical database role before any protected file-backed connection is constructed.
+5. Construct `new Database(DB_PATH)` normally. Its `vfs=NULL` open now selects the registered default VFS.
 
-1. Build the secure VFS extension against the exact SQLite engine embedded in the rebuilt better-sqlite3 addon (the audited source reports SQLite 3.53.4; confirm the resulting binary at build time).
-2. Open a temporary in-memory better-sqlite3 connection, load the extension there, and close that bootstrap connection. The extension must register the VFS with the same SQLite engine instance used by better-sqlite3.
-3. Only then open the protected database using `new Database(DB_PATH, { vfs: 'logic-engine-secure' })`.
-4. Fail startup if extension loading or named-VFS open fails. Do not fall back to `new Database(DB_PATH)`.
+This is not the Node `node:sqlite` VFS registration; the extension must be loaded into the exact SQLite instance embedded in better-sqlite3. The C++ constructor patch and named-URI route were removed. CI downloads the exact 13.0.3 package, verifies the archived prebuild fingerprint, builds the VFS extension against the package's bundled SQLite headers, and exercises the stock binding without modifying its native constructor.
 
-A real integration test must prove the extension is registered in the better-sqlite3 SQLite engine, verify the selected VFS name for the opened handle, and exercise DB/WAL/SHM, cross-process locking and crash recovery through that engine. The current node:sqlite probe cannot substitute for those tests.
+Current exact-prebuild CI evidence:
+- **Linux x64:** default VFS registration, main DB/rollback-journal/WAL/SHM I/O, broker protocol, distinct broker/app UIDs, broker-returned descriptors, WAL reader/writer snapshots, sidecar deletion, abrupt app exit with uncommitted WAL frames, broker restart/manifest reconciliation, WAL recovery and integrity check all pass.
+- **Windows x64:** default VFS registration in the stock archived prebuild; handle-relative main DB, rollback-journal, WAL and SHM operations; WAL reader/writer snapshot isolation; handle-relative sidecar deletion; and fail-closed rejection of a different valid SQLite file substituted at the registered DB pathname all pass.
 
+The Windows result is still a probe-level proof, not production approval. The application process currently obtains the pinned parent HANDLE from a path during enrollment; a production Windows broker/service must own the protected namespace and manifest authority, pass only the required file capabilities or broker each operation, and persist sidecar lifecycle transitions across restart. Windows crash recovery and a distinct-identity broker boundary are not yet proven. The current VFS also rejects unsupported temporary/super-journal file classes rather than silently delegating them; the production backend must support these securely or document and enforce the compatible SQLite operating modes.
+
+The ST-VectorService archive opens `vectors.sqlite` at `server.js:261`, after deriving `STORAGE_DIR` from `ST_VECTOR_ROOT`. The production host integration must load the production extension and validate role enrollment before that constructor. Use a pre-created logical alias path in an app-searchable but app-non-writable directory; do not expose the broker-owned physical database path. The service's existing `STORAGE_DIR` remains unchanged for JSON index files. A minimal app configuration is:
+
+```js
+const DB_PATH = process.env.ST_VECTOR_DB_PATH
+    ? path.resolve(process.env.ST_VECTOR_DB_PATH)
+    : path.join(STORAGE_DIR, 'vectors.sqlite');
+```
+
+The alias directory must be provisioned before service startup. The manifest/broker maps the alias to the protected role. Do not ship the current probe extension as a production library. Until the Windows broker, durable manifest lifecycle, all SQLite file classes, restart/recovery, and independent Security review are complete, ST-VectorService production activation remains unauthorized.
+ 
 ## 7. Acceptance matrix
 
 | Gate | Required evidence |
