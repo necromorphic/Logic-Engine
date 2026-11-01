@@ -211,6 +211,18 @@ def main() -> int:
                 initialized.stderr.decode(errors="replace")
             )
 
+        direct_open = subprocess.run(
+            [sys.executable, "-c",
+             "import os,sys; fd=os.open(sys.argv[1],os.O_RDONLY); os.close(fd)",
+             str(role_parent / "core.sqlite")],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            preexec_fn=drop_privileges(app_uid, app_gid),
+            check=False,
+        )
+        if direct_open.returncode == 0:
+            raise RuntimeError("application UID bypassed the broker and opened the protected main DB directly")
+
         socket_path = socket_dir / "broker.sock"
         broker_log_path = root / "broker.log"
         broker_log = open(broker_log_path, "ab", buffering=0)
