@@ -12,8 +12,52 @@ import { createHostSessionAssertionRunner } from '../application/host-session-co
 const MAX = 1048576;
 const MAX_HOST_VERSION_SNAPSHOT_BYTES = 8 * 1048576;
 const HOST_SESSION_UUID_PATTERN = '[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}';
-const HOST_SESSION_UUID = new RegExp('^' + HOST_SESSION_UUID_PATTERN + '
+const HOST_SESSION_UUID = new RegExp('^' + HOST_SESSION_UUID_PATTERN + '$', 'i');
+const HOST_PC_NEXT11_CONVERSATION_ID = new RegExp(
+  '^' + HOST_SESSION_UUID_PATTERN + ':' + HOST_SESSION_UUID_PATTERN + ':' + HOST_SESSION_UUID_PATTERN + '$', 'i',
+);
 const MAX_HOST_VERSION_SNAPSHOT_ENTRIES = 25000;
+
+function hasExactOwnDataKeys(value, expectedKeys) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  try {
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) return false;
+    const keys = Reflect.ownKeys(value);
+    if (keys.length !== expectedKeys.length
+      || keys.some(key => typeof key !== 'string' || !expectedKeys.includes(key))) return false;
+    return expectedKeys.every(key => {
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      return descriptor?.enumerable === true && Object.hasOwn(descriptor, 'value');
+    });
+  } catch {
+    return false;
+  }
+}
+
+function validMemoryNpcResult(retrieval) {
+  if (!retrieval || typeof retrieval !== 'object' || Array.isArray(retrieval)) return false;
+  try {
+    const status = Object.getOwnPropertyDescriptor(retrieval, 'status');
+    if (!status || !Object.hasOwn(status, 'value')) return false;
+    if (status.value === 'ready') {
+      return hasExactOwnDataKeys(retrieval, ['status', 'admitted', 'candidates', 'reason', 'snapshot'])
+        && Array.isArray(retrieval.admitted) && Array.isArray(retrieval.candidates)
+        && retrieval.reason === null
+        && hasExactOwnDataKeys(retrieval.snapshot, ['world_revision', 'commit_sequence'])
+        && Number.isSafeInteger(retrieval.snapshot.world_revision) && retrieval.snapshot.world_revision >= 0
+        && Number.isSafeInteger(retrieval.snapshot.commit_sequence) && retrieval.snapshot.commit_sequence >= 0;
+    }
+    if (status.value === 'non_ready') {
+      return hasExactOwnDataKeys(retrieval, ['status', 'admitted', 'candidates', 'reason'])
+        && Array.isArray(retrieval.admitted) && Array.isArray(retrieval.candidates)
+        && typeof retrieval.reason === 'string' && retrieval.reason.length > 0;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
 
 /** Resolve the active deployment-owned policy on every boundary check. */
 export function createActiveMechanicPolicyValidator(getActiveMechanicContextProvider, policyAuthority = null) {
