@@ -58,7 +58,13 @@ function send(res, status, data) {
 
 export function createApiServer({ engine, token, internalToken = null, approvalToken = null, adminToken = null, adapterTokens = {}, authorizedReadFieldPolicy = null, mechanicPolicyAuthority = null, getActiveMechanicContextProvider = () => null, hostVersionLedger = null, allowedOrigins = [] }) {
   if (!engine) throw new TypeError('engine required');
-  if (!Array.isArray(allowedOrigins) || allowedOrigins.some((origin) => typeof origin !== 'string' || origin !== origin.trim() || !/^https?:\/\/[^\s/]+(?::\d+)?$/.test(origin))) {
+  if (!Array.isArray(allowedOrigins) || allowedOrigins.some((origin) => {
+    if (typeof origin !== 'string' || origin !== origin.trim()) return true;
+    try {
+      const parsed = new URL(origin);
+      return !['http:', 'https:'].includes(parsed.protocol) || parsed.origin !== origin;
+    } catch { return true; }
+  })) {
     throw new TypeError('allowedOrigins must contain exact HTTP(S) origins without paths or wildcards');
   }
   const corsOrigins = new Set(allowedOrigins);
