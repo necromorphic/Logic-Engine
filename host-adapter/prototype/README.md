@@ -171,3 +171,28 @@ The pinned Host route exposes `GET /api/logic-engine/host/session`. It requires 
 This prevents two different authenticated ST sessions from silently reusing the same Core conversation binding. The session ID is not a credential and does not authenticate a request to Core; Core still trusts only the configured server-side adapter credential and its own conversation/world binding. The browser's localStorage installation ID remains a client-side namespace, not an installation attestation.
 
 The session ID survives a SillyTavern process restart only while the signed session cookie and the ST cookie-signing secret remain valid and unchanged. Logout/login, cookie loss, secret rotation, or account change rotates the identity. Existing enrollments created with the old `installationId:conversationUuid` format are not migrated automatically; the old marker/mapping mismatch fails closed and requires explicit re-binding. This is still not a durable server installation identity, a complete inventory proof, or Core world/actor authorization.
+
+
+## Standalone SillyTavern 1.19.0 server-plugin packaging — 1 Nov 2026
+
+A self-contained server-plugin candidate is now available in `server-plugin/`. It bundles the reviewed source inventory and authenticated route handlers, and registers only:
+
+- `GET /api/plugins/logic-engine-host/session`
+- `GET /api/plugins/logic-engine-host/inventory?conversation_uuid=<uuid>`
+
+Pinned-source review of ST commit `06bde939fb1e9c4c8d8641d810f0a916b5bce127` confirms that `requireLoginMiddleware` is mounted before server plugins are loaded. This permits the plugin to use the server-populated `request.user` and signed `request.session` without modifying `server-main.js` or `server-startup.js`.
+
+The route helper now supports both ST account modes:
+- Accounts enabled: `request.session.handle` must match `request.user.profile.handle`.
+- Default-user/no-accounts mode: `request.session.handle` may be absent, but the adapter-owned `logicEngineSessionHandle` must match the middleware-provided profile handle. The server-generated session UUID remains mandatory.
+
+The plugin package is self-contained: `index.mjs`, `st-source-inventory.mjs`, and `st-host-inventory-handler.mjs`. Its test asserts that the bundled helpers remain byte-identical to the reviewed prototype source files.
+
+**Candidate installation procedure (not yet performed on a live ST instance):**
+1. Copy the complete `server-plugin` directory to `SillyTavern/plugins/logic-engine-host/`.
+2. Enable `enableServerPlugins: true` in ST `config.yaml`; keep `enableServerPluginsAutoUpdate: false` unless the plugin is installed from a reviewed Git repository.
+3. Set `LOGIC_ENGINE_HOST_BUILD_SHA=06bde939fb1e9c4c8d8641d810f0a916b5bce127` only when the deployed ST checkout has been independently verified to that exact commit.
+4. Restart ST and verify the session endpoint returns a server-generated UUID. The inventory endpoint must remain NON_READY unless the pinned-build claim matches and the scanner returns a valid candidate.
+5. Do not treat a successful scan as authoritative completeness or enable Provider/NPC disclosure.
+
+This packaging removes the need for a core-source patch, but it does **not** close the existing inventory gaps: pre-enrollment history, import/export, copy/branch/restore, all deletion paths, external edits, filesystem snapshot races, and platform-specific race resistance remain unsupported. The inventory result remains `DOUBLE_SCAN_CANDIDATE` / `NON_AUTHORITATIVE`. No live ST installation or real Windows/Android/Termux persistence test has been performed. No Core API handoff or final NPC dispatch is enabled.
