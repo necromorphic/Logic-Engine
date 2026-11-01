@@ -107,6 +107,13 @@ test('real adapter composes file-backed SQLite Provider with Core query and cano
       resolveHostConversationId,
     });
 
+    const resolvedConversation = new HostConversationWorldBindingService(engine).resolve({
+      adapterId, conversationId,
+    });
+    const resolvedActor = new ActorBindingService(engine).resolveForAdapter(worldId, adapterId);
+    assert.equal(resolvedConversation.world_id, worldId);
+    assert.equal(resolvedActor.actor.entity_id, actorId);
+
     const scope = { world_id: worldId, subject_id: actorId, purpose: 'npc_decision' };
     const source = engine.getSnapshot(worldId, { entityIds: [sourceId], includeSourceVersions: true }).entities[0];
     const record = {
