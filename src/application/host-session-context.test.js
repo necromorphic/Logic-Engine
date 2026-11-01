@@ -81,7 +81,25 @@ test('in-process Host capability fails closed when trusted World/Actor bindings 
   ),null);
   assert.equal(createAuthenticatedHostSessionContext(
     request,conversationId,isAuthenticated,resolveConversation,()=>({world_id:worldId,actor_id:actorId,extra:'caller-controlled'}),resolveIdentity,
-  ).actor_id,actorId);
+  ),null);
+  assert.equal(createAuthenticatedHostSessionContext(
+    request,conversationId,isAuthenticated,resolveConversation,resolveBindings,()=>({
+      host_installation_id:installation,authenticated_account_id:account,extra:'caller-controlled',
+    }),
+  ),null);
+  let getterCalled=false;
+  const accessorIdentity={host_installation_id:installation};
+  Object.defineProperty(accessorIdentity,'authenticated_account_id',{
+    enumerable:true,get(){getterCalled=true;throw new Error('must not execute');},
+  });
+  assert.equal(createAuthenticatedHostSessionContext(
+    request,conversationId,isAuthenticated,resolveConversation,resolveBindings,()=>accessorIdentity,
+  ),null);
+  assert.equal(getterCalled,false);
+  const proxyIdentity=new Proxy({host_installation_id:installation,authenticated_account_id:account},{});
+  assert.equal(createAuthenticatedHostSessionContext(
+    request,conversationId,isAuthenticated,resolveConversation,resolveBindings,()=>proxyIdentity,
+  ),null);
 });
 
 test('signed Host assertion requires World and Actor identity in the HMAC envelope', () => {
