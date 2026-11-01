@@ -439,6 +439,7 @@ async function enumeratePinnedSillyTavernChatFilesInternal({
   const groupChatRoot = roots.groupChats;
   const referencedGroupChats = new Set();
   const groupIds = new Set();
+  let legacyGroupMetadataCount = 0;
 
   // Root-level chats and per-character chat directories.
   for (const entry of chatRoot.dirents) {
@@ -488,6 +489,9 @@ async function enumeratePinnedSillyTavernChatFilesInternal({
     if (!group || typeof group !== 'object' || Array.isArray(group)
       || !validLeaf(group.id) || !Array.isArray(group.chats) || groupIds.has(group.id)) {
       fail('SOURCE_GROUP_METADATA_INVALID');
+    }
+    if (Object.hasOwn(group, 'chat_metadata') || Object.hasOwn(group, 'past_metadata')) {
+      legacyGroupMetadataCount++;
     }
     groupIds.add(group.id);
     const localChats = new Set();
@@ -563,6 +567,7 @@ async function enumeratePinnedSillyTavernChatFilesInternal({
     scope: 'PINNED_SILLYTAVERN_CHAT_DATA_ROOTS',
     historical_boundary: 'CURRENT_FILE_SET_ONLY_ENROLLMENT_BASELINE_REQUIRED',
     file_count: files.length,
+    legacy_group_metadata_count: legacyGroupMetadataCount,
     total_bytes: totalBytes.toString(),
     logical_identity_status: logicalIdentityComplete ? 'CURRENT_FILE_IDENTITIES_VERIFIED' : 'INCOMPLETE',
     conversation_identity_count: logicalIdentitySeen.conversationIds.size,
@@ -585,6 +590,7 @@ async function enumeratePinnedSillyTavernChatFilesInternal({
       ...(logicalIdentityComplete ? [] : ['CURRENT_CHAT_LOGICAL_IDENTITY_INCOMPLETE']),
       'NO_CORE_WORLD_OR_SESSION_AUTHORIZATION',
       'NO_ACCEPTED_HEAD_AUTHORITY',
+      ...(legacyGroupMetadataCount ? ['LEGACY_GROUP_METADATA_MIGRATION_PENDING'] : []),
       'IMPORT_EXPORT_COPY_BRANCH_RESTORE_UNSUPPORTED',
       ...(snapshotLease ? ['NO_APPLICATION_LEVEL_ATOMIC_SNAPSHOT'] : [
         'NO_ATOMIC_DIRECTORY_SNAPSHOT',
