@@ -105,6 +105,11 @@ test('real adapter composes file-backed SQLite Provider with Core query and cano
     assert.equal(adapter.provider.authorizeCandidate, undefined);
     assert.equal(adapter.provider.authorizeQuery, undefined);
     assert.equal(adapter.consumer.memoryProvider, undefined);
+    const withoutHostContext = await adapter.consumer.retrieveForNpc({ worldId, actorEntityId: actorId, conversationId });
+    assert.equal(withoutHostContext.status, 'non_ready');
+    assert.equal(withoutHostContext.reason, 'query_access_unconfirmed');
+    assert.deepEqual(withoutHostContext.candidates, []);
+
     const result = await runWithAuthenticatedHostSession(hostRequest, conversationId, () => adapter.consumer.retrieveForNpc({
       worldId, actorEntityId: actorId, conversationId,
       adapterId: 'caller-selected-spoofed-adapter',
