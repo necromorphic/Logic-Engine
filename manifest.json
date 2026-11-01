@@ -1,0 +1,14 @@
+{
+    "display_name": "Logic-Engine",
+    "loading_order": 20,
+    "requires": [],
+    "optional": [],
+    "js": "index.js",
+    "css": "style.css",
+    "author": "necromorphic",
+    "version": "0.1.0",
+    "homePage": "https://github.com/necromorphic/Logic-Engine",
+    "hooks": {
+        "activate": "init"
+    }
+}
