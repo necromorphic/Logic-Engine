@@ -261,13 +261,6 @@ export class SQLiteMemoryProvider {
         lineage_json TEXT NOT NULL, created_at TEXT NOT NULL,
         PRIMARY KEY(world_id, record_ref, record_version)
       );
-      -- A record version is an immutable fact identity. Corrections are new
-      -- versions; permission changes belong in grant tables, not record rows.
-      CREATE TRIGGER IF NOT EXISTS memory_records_immutable_update
-      BEFORE UPDATE ON memory_records
-      BEGIN
-        SELECT RAISE(ABORT, 'MEMORY_RECORD_IMMUTABLE');
-      END;
       CREATE TABLE IF NOT EXISTS memory_index_entries (
         world_id TEXT NOT NULL, record_ref TEXT NOT NULL, record_version TEXT NOT NULL,
         indexed_at TEXT NOT NULL,
