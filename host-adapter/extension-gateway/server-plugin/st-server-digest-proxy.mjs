@@ -667,13 +667,15 @@ export function createHostLifecycleJournalProxy({
       }
       const lifecycle = result.payload.lifecycle;
       const pending = lifecycle.pending;
-      const directories = request?.user?.directories;
-      if (!durableReceiptStore || !pending
+      const directories = resolveHostDataDirectories(request?.user?.directories);
+      const dataRoot = typeof globalThis.DATA_ROOT === 'string' && globalThis.DATA_ROOT.trim()
+        ? pathModule.resolve(globalThis.DATA_ROOT) : null;
+      if (!durableReceiptStore || !pending || !directories
         || !HOST_SESSION_UUID.test(pending.mutation_id ?? '')
         || !HOST_SESSION_UUID.test(pending.prepared_event_id ?? '')
         || !HOST_LIFECYCLE_OPERATIONS.has(pending.operation)
         || !/^[a-f0-9]{64}$/.test(pending.mutation_digest ?? '')
-        || typeof directories?.root !== 'string' || !pathModule.isAbsolute(directories.root)) {
+        || typeof dataRoot !== 'string' || !pathModule.isAbsolute(dataRoot)) {
         return response.status(200).json({ lifecycle: {
           ...lifecycle,
           status: 'RECOVERY_REQUIRED',
