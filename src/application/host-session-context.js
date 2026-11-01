@@ -37,8 +37,20 @@ export function createAuthenticatedHostSessionContext(
       || session?.logicEngineSessionHandle !== userHandle
       || typeof sessionId !== 'string' || !HOST_SESSION_UUID.test(sessionId)
       || typeof conversationId !== 'string' || !HOST_CONVERSATION_ID.test(conversationId)) return null;
-    const [installationId, accountId, conversationUuid] = conversationId.split(':');
-    if (![installationId, accountId, conversationUuid].every(value => HOST_SESSION_UUID.test(value))) return null;
+    // Parse the three UUID segments without Array iteration. This gate must
+    // remain usable long enough for the Consumer to detect a polluted iterator
+    // and fail closed; authentication itself must not depend on mutable
+    // Array.prototype[Symbol.iterator].
+    const firstSeparator = conversationId.indexOf(':');
+    const lastSeparator = conversationId.lastIndexOf(':');
+    if (firstSeparator <= 0 || lastSeparator <= firstSeparator + 1
+      || conversationId.indexOf(':', lastSeparator + 1) !== -1) return null;
+    const installationId = conversationId.slice(0, firstSeparator);
+    const accountId = conversationId.slice(firstSeparator + 1, lastSeparator);
+    const conversationUuid = conversationId.slice(lastSeparator + 1);
+    if (!HOST_SESSION_UUID.test(installationId)
+      || !HOST_SESSION_UUID.test(accountId)
+      || !HOST_SESSION_UUID.test(conversationUuid)) return null;
 
     const bindings = resolveHostBindings(request, conversationId);
     if (!bindings || typeof bindings !== 'object' || Array.isArray(bindings)
