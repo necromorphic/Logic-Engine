@@ -4,7 +4,7 @@
 
 The browser extension uses SillyTavern's manifest-declared `generate_interceptor` as the Final-Send interception point. A protected generation is aborted before SillyTavern's native provider send. The extension then obtains an authenticated Host context through the native SillyTavern server-plugin route:
 
-`/api/plugins/logic-engine-host-adapter/context`
+`/api/plugins/logic-engine-extension-gateway/context`
 
 The browser never calls Core and never receives Core credentials. The server plugin route is mounted by SillyTavern's existing plugin loader after `requireLoginMiddleware`; no SillyTavern source patch or `/api/logic-engine/*` route is used.
 
@@ -24,7 +24,7 @@ Core API credentials and the adapter token are read only from the SillyTavern se
 
 ## Install
 
-Install the complete `host-adapter` directory as one SillyTavern server plugin directory named `logic-engine-host-adapter`. Its `package.json` selects `server-plugin/index.mjs`; the sibling `prototype` modules are required at runtime. Enable server plugins in SillyTavern configuration.
+Install the complete `host-adapter` directory as one SillyTavern server plugin directory named `logic-engine-extension-gateway`. Its `package.json` selects `server-plugin/index.mjs`; the sibling `prototype` modules are required at runtime. Enable server plugins in SillyTavern configuration.
 
 Install this extension directory using SillyTavern's normal third-party extension mechanism. The manifest declares the generation interceptor; no patch to SillyTavern source files is required.
 
