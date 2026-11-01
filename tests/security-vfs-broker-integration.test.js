@@ -176,6 +176,50 @@ test('Linux SQLite VFS obtains main and sidecar descriptors from the authenticat
     reopened.close();
   }
 
+  // Crash a separate process with an uncommitted WAL transaction, then
+  // reopen through the same broker and verify SQLite recovery preserves only
+  // committed rows. process.exit intentionally bypasses DatabaseSync.close().
+  const crashScript = `
+    const { DatabaseSync } = require('node:sqlite');
+    const { statSync } = require('node:fs');
+    const bootstrap = new DatabaseSync(':memory:', { allowExtension: true });
+    bootstrap.loadExtension(${JSON.stringify(extensionPath)}, 'sqlite3_secure_vfs_probe_init');
+    bootstrap.enableLoadExtension(false);
+    bootstrap.close();
+    const registrar = new DatabaseSync(':memory:');
+    const registered = registrar.prepare(
+      'SELECT logic_engine_vfs_probe_register_broker_role(?, ?, ?) AS registered'
+    ).get(${JSON.stringify(databasePath)}, 'core', ${JSON.stringify(socketPath)}).registered;
+    if (registered !== 1) process.exit(21);
+    const db = new DatabaseSync(${JSON.stringify(databasePath)});
+    db.exec('PRAGMA journal_mode=WAL; BEGIN IMMEDIATE;');
+    db.exec("INSERT INTO broker_probe VALUES('uncommitted-crash-row');");
+    const wal = statSync(${JSON.stringify(databasePath + '-wal')});
+    if (wal.size <= 32) process.exit(22);
+    process.exit(0);
+  `;
+  const crashed = spawn(process.execPath, ['--experimental-sqlite', '-e', crashScript], {
+    stdio: 'ignore',
+  });
+  const [crashCode] = await once(crashed, 'exit');
+  assert.equal(crashCode, 0, 'child must exit abruptly after writing uncommitted WAL frames');
+
+  const recovered = new DatabaseSync(databasePath);
+  try {
+    assert.equal(
+      recovered.prepare('SELECT count(*) AS count FROM broker_probe').get().count,
+      3,
+      'crash recovery must discard the uncommitted row and preserve committed transactions',
+    );
+    assert.equal(
+      recovered.prepare('PRAGMA integrity_check').get().integrity_check,
+      'ok',
+      'the recovered broker-backed database must pass integrity_check',
+    );
+  } finally {
+    recovered.close();
+  }
+
   const operations = readFileSync(logPath, 'utf8');
   assert.match(operations, /open:core:main/,
     'the broker must provide the main database descriptor');
