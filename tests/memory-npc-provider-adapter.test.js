@@ -50,6 +50,16 @@ test('real adapter composes file-backed SQLite Provider with Core query and cano
       adapterId, conversationId, worldId,
     });
 
+    assert.throws(() => createMemoryNpcProviderAdapter({
+      engine,
+      providerPath: corePath,
+      coordinatorPath,
+      adapterId,
+      trustedInitialKnowledgeSources: [],
+      fieldPolicy: () => true,
+      contentFields: ['attributes.public_note'],
+    }), /separate file from Core/);
+
     adapter = createMemoryNpcProviderAdapter({
       engine,
       providerPath,
