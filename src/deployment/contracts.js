@@ -86,6 +86,17 @@ export function validateDeploymentReport(report) {
   if (report.overall_status === 'PASS' && requiredFailures.length > 0) {
     throw new Error('DEPLOYMENT_REPORT_FALSE_PASS_REQUIRED_CAPABILITY');
   }
+  if (report.overall_status === 'PASS' && report.gates.some((gate) => gate.status === 'BLOCKED')) {
+    throw new Error('DEPLOYMENT_REPORT_FALSE_PASS_BLOCKED_GATE');
+  }
+  if (report.profile === 'portable-desktop' && report.overall_status === 'PASS') {
+    throw new Error('DEPLOYMENT_REPORT_FALSE_PASS_PORTABLE_ISOLATION');
+  }
+  for (const component of report.components) {
+    if (component.status === 'PASS' && report.gates.some((gate) => gate.status === 'BLOCKED' && gate.affected_features.includes(component.id))) {
+      throw new Error('DEPLOYMENT_REPORT_FALSE_PASS_COMPONENT:' + component.id);
+    }
+  }
   if (report.profile === 'hardened-service' && report.overall_status === 'PASS') {
     const requiredBoundaryCapabilities = [
       'process.identity.separate',
