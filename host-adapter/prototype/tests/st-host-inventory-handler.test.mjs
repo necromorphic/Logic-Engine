@@ -1,10 +1,10 @@
 import nodeTest from 'node:test';
 import assert from 'node:assert/strict';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 const test = nodeTest;
 
-import { createHostBulkMutationGuard, createHostIdentityHandler, createHostInventoryHandler, createHostLifecycleSaveGuard, createHostRequestAuthenticationGate, createHostSessionHandler } from '../st-host-inventory-handler.mjs';
+import { createHostBulkMutationGuard, createHostIdentityHandler, createHostInventoryHandler, createHostLifecycleSaveGuard, createHostRequestAuthenticationGate, createHostSessionHandler, resolveHostDataDirectories } from '../st-host-inventory-handler.mjs';
 
 function makeResponse() {
   return {
@@ -19,6 +19,22 @@ function makeResponse() {
 }
 
 const pinned = '06bde939fb1e9c4c8d8641d810f0a916b5bce127';
+
+test('relative ST account directories are resolved against the server working directory', () => {
+  const resolved = resolveHostDataDirectories({
+    root: './data/default-user',
+    chats: './data/default-user/chats',
+    groups: './data/default-user/groups',
+    groupChats: './data/default-user/group chats',
+  });
+  assert.deepEqual(resolved, {
+    root: resolve('./data/default-user'),
+    chats: resolve('./data/default-user/chats'),
+    groups: resolve('./data/default-user/groups'),
+    groupChats: resolve('./data/default-user/group chats'),
+  });
+  assert.equal(Object.isFrozen(resolved), true);
+});
 
 test('server bulk mutation guard blocks imports when any enrolled conversation exists', async () => {
   const root = join(tmpdir(), 'st-host-bulk-guard');
