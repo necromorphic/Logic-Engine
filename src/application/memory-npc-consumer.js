@@ -87,12 +87,15 @@ const nonReady = (reason) => Object.freeze({
  * access: Core source fields are re-read through AuthorizedReadService.
  */
 export class MemoryNpcConsumer {
-  constructor({ authorizedReadService, actorBindingService, memoryProvider, contentFields }) {
+  constructor({ authorizedReadService, actorBindingService, memoryProvider, coreQueryAuthorizer, contentFields }) {
     if (typeof authorizedReadService?.readEntityFields !== 'function') {
       throw new TypeError('MemoryNpcConsumer requires AuthorizedReadService');
     }
     if (typeof actorBindingService?.resolve !== 'function') {
       throw new TypeError('MemoryNpcConsumer requires Core ActorBindingService');
+    }
+    if (typeof coreQueryAuthorizer !== 'function') {
+      throw new TypeError('MemoryNpcConsumer requires trusted Core memory query authorization');
     }
     if (typeof memoryProvider?.authorizeQuery !== 'function'
       || typeof memoryProvider?.retrieveCandidates !== 'function'
@@ -110,6 +113,7 @@ export class MemoryNpcConsumer {
     }
     this.authorizedReadService = authorizedReadService;
     this.actorBindingService = actorBindingService;
+    this.coreQueryAuthorizer = coreQueryAuthorizer;
     this.memoryProvider = memoryProvider;
     this.contentFields = Object.freeze([...contentFields]);
   }
@@ -149,12 +153,13 @@ export class MemoryNpcConsumer {
     let worldId;
     let adapterId;
     let actorEntityId;
+    let conversationId;
     try {
-      if (object(request)) ({ worldId, adapterId, actorEntityId } = request);
+      if (object(request)) ({ worldId, adapterId, actorEntityId, conversationId } = request);
     } catch {
       return nonReady('trusted_scope_incomplete');
     }
-    if (!validId(worldId) || !validId(adapterId) || !validId(actorEntityId)) {
+    if (!validId(worldId) || !validId(adapterId) || !validId(actorEntityId) || !validId(conversationId)) {
       return nonReady('trusted_scope_incomplete');
     }
 
@@ -178,10 +183,24 @@ export class MemoryNpcConsumer {
       subject_id: actorEntityId,
       purpose: 'npc_decision',
     });
+    const coreQueryScope = Object.freeze({
+      world_id: worldId,
+      conversation_id: conversationId,
+      adapter_id: adapterId,
+      actor_id: actorEntityId,
+      recipient: 'model',
+      purpose: 'npc_turn_context',
+    });
+    const coreQueryAllowed = () => {
+      try { return this.coreQueryAuthorizer(coreQueryScope) === true; }
+      catch { return false; }
+    };
 
     let queryAllowed = false;
     try {
-      queryAllowed = await this.memoryProvider.authorizeQuery(scope) === true;
+      queryAllowed = coreQueryAllowed()
+        && await this.memoryProvider.authorizeQuery(scope) === true
+        && coreQueryAllowed();
     } catch {
       queryAllowed = false;
     }
@@ -192,7 +211,9 @@ export class MemoryNpcConsumer {
     // this narrows the race but does not claim an atomic disclosure guarantee.
     const queryStillAllowed = async () => {
       try {
-        return await this.memoryProvider.authorizeQuery(scope) === true;
+        if (!coreQueryAllowed()) return false;
+        const providerAllowed = await this.memoryProvider.authorizeQuery(scope) === true;
+        return providerAllowed && coreQueryAllowed();
       } catch {
         return false;
       }
@@ -286,6 +307,7 @@ export class MemoryNpcConsumer {
         })) {
         return nonReady('memory_snapshot_stale');
       }
+      if (!(await queryStillAllowed())) return nonReady('query_access_unconfirmed');
       return Object.freeze({
         status: 'ready',
         admitted: Object.freeze([]),
@@ -675,6 +697,8 @@ export class MemoryNpcConsumer {
       })) {
       return nonReady('memory_snapshot_stale');
     }
+
+    if (!(await queryStillAllowed())) return nonReady('query_access_unconfirmed');
 
     return Object.freeze({
       status: 'ready',
