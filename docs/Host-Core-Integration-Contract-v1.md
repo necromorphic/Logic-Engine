@@ -2,12 +2,12 @@
 
 **Contract:** Host ↔ Core authenticated Memory retrieval  
 **Version:** 1.0.0  
-**Status:** CONTRACT DEFINED; Host/Core candidate CI green; Core retrieval exception mapping correction and branch integration remain pending  
-**Validated candidate heads (1 Nov 2026):** Host PR #850 `4aa26dcf2a9e5b5e65123f2cd72b40516e41a685`; Core PR #846 `832abf337530e9421f53eaed85760cb4a7f07313`; Core HTTP PR #867 `7e3895aeb91c983bf020e889acdad6c1909dd0e7`  
+**Status:** CONTRACT DEFINED; retrieval exception mapping corrected in Core #867 and mirrored in Host #850; Host candidate CI green; Core full Runtime CI still running; independent Host/Core reviews and branch integration remain pending  
+**Validated candidate heads (1 Nov 2026):** Host PR #850 `35c59c1a6ab0bc8a486efd915441ab11227dd644`; Core Lane B PR #846 `832abf337530e9421f53eaed85760cb4a7f07313`; Core HTTP PR #867 `688eae3e00d25fe4a818884c9cb25526ac379c41`  
 **Scope:** identity hand-off, Core World/Actor resolution, authenticated Memory Provider retrieval, result/error/revoke semantics.  
 **Not in scope:** branch merging, Security Gateway changes, Final-Send, production enablement, Lane A, Provider schema migration.
 
-This document is the interface contract and implementation ledger. The shared private routes are present in the coordinated Core/Host candidates and their route blocks are byte-identical. Candidate CI is green. Memory → NPC remains fail-closed until deployment Provider configuration/data authorization and existing release gates are satisfied.
+This document is the interface contract and implementation ledger. The two private routes are present in stacked Core HTTP #867 and Host #850; their shared route implementation is being kept aligned. Host candidate CI is green; Core's full Runtime test job remains in progress. Memory → NPC remains fail-closed until deployment Provider configuration/data authorization and existing release gates are satisfied.
 
 ## 1. Binding decisions and ownership
 
@@ -283,7 +283,7 @@ The consumer's existing reason vocabulary remains the source of truth. It includ
 
 Reason strings are safe state labels, not a promise to reveal which record, field, or grant caused the refusal.
 
-**Implementation discrepancy — Core #867:** the current `/v1/host/memory-npc/retrieve` route catches both assertion-verification failures and exceptions thrown by `consumer.retrieveForNpc()`. After handling the known replay/expiry/capacity/replay-store errors, it maps every other exception to `401 HOST_SESSION_ASSERTION_INVALID`. This violates the route contract above: only malformed/invalid assertions should produce 401; an unexpected consumer/runtime exception must produce generic `500 INTERNAL_ERROR` without exposing details. Add a regression test with a consumer that throws an unexpected error, then narrow the catch mapping before claiming full implementation alignment.
+**Resolved implementation discrepancy — Core #867:** the route now distinguishes exceptions thrown inside `consumer.retrieveForNpc()` from assertion-verification failures. Unexpected Consumer/runtime exceptions propagate to the existing generic `500 INTERNAL_ERROR` envelope; only explicit `HOST_SESSION_ASSERTION_INVALID` verification errors map to 401. A regression test verifies the generic response, no detail disclosure, and nonce consumption (replay returns 409). The same route correction and byte-identical HTTP regression test are present in Host #850. Core full Runtime CI is still running; do not mark the correction CI-verified until that run completes.
 
 ## 7. Revocation and freshness rules
 
@@ -322,16 +322,16 @@ The active candidates have corrected the earlier identity-key and Memory-consume
 | Surface | Host #850 | Core #867 / Lane B #846 | Result |
 |---|---|---|---|
 | Core conversation tuple | Host-local key remains local; Core tuple is projected as `host_session_id:host_installation_id:conversation_uuid` | PC-NEXT-11 validator uses the same tuple; account UUID remains a separate assertion field | Aligned |
-| `POST /v1/host-context/resolve` | Route block present | Same route block present | Aligned |
-| `POST /v1/host/memory-npc/retrieve` | Route block present | Same route block present | Aligned |
+| `POST /v1/host-context/resolve` | Route block present | Implemented in stacked Core HTTP #867; not present in Lane B #846 alone | Aligned at the combined candidate level |
+| `POST /v1/host/memory-npc/retrieve` | Route block present | Implemented in stacked Core HTTP #867; not present in Lane B #846 alone | Aligned at the combined candidate level |
 | `HostConversationWorldBindingService` | Blob matches Core candidate | Hardened identifier validation | Aligned |
 | `MemoryNpcConsumer` | Blob matches Core candidate after sync | Hardened plain-data/proxy/array checks and authenticated-session context | Aligned |
 | Memory Provider adapter | Blob matches Core candidate | HTTP/runtime composition and Provider facade | Aligned |
-| Unexpected exception from `retrieveForNpc()` | Host maps non-2xx Core responses to bounded dispatch failure | Core #867 currently maps unclassified consumer callback exceptions to 401 `HOST_SESSION_ASSERTION_INVALID`; contract requires generic 500 `INTERNAL_ERROR` | **Not aligned; correction required** |
+| Unexpected exception from `retrieveForNpc()` | Host mirrors the shared route correction; proxy maps non-2xx Core responses to bounded dispatch failure | Core #867 propagates Consumer callback failures to generic 500 `INTERNAL_ERROR`; regression test added | Corrected; full Core CI pending |
 | NPC knowledge authorization + SQLite Memory Provider | Blobs match Lane B/Core candidate after sync | Core-owned authorization and Provider implementation | Aligned |
 | Host lifecycle and full-root inventory routes | Host adds four private routes | Not part of Core #867 | Host-owned extension; no collision with Core routes |
 
-The only intentional `src/api/server.js` difference is the Host-owned lifecycle/root-inventory routes and their trusted configuration. The shared Core route blocks for context resolution, Memory retrieval, version-ledger capture/reconcile, and conversation binding are identical between the two active candidates.
+The `src/api/server.js` files retain composition differences for Host-owned lifecycle/root-inventory routes and runtime wiring. The shared Core route blocks for context resolution and Memory retrieval are kept identical between Host #850 and Core HTTP #867; Lane B #846 is the lower stacked foundation and does not itself contain those HTTP route registrations.
 
 ### Historical baseline — superseded
 
@@ -339,16 +339,16 @@ The original review recorded a mismatch where Host sent `installation_id:account
 
 ## 10. Implementation acceptance checklist
 
-The contract's wire format, identity projection, binding ownership, retrieval facade, and version pins are reconciled. The implementation is not yet fully conformant: Core #867 must map unexpected consumer/runtime exceptions to the §6 generic 500 response. The delegated technical owner has approved the bounded D5 private-route and PC-NEXT-11 projection changes. Exact-head candidate CI is green; branch integration and deployment readiness remain separate gates.
+The contract's wire format, identity projection, binding ownership, retrieval facade, and version pins are reconciled. The §6 Consumer exception-mapping correction and regression test are now implemented in Core #867 and mirrored in Host #850. Host exact-head CI is green; Core full Runtime CI is still running. Independent maintainer reviews, branch integration, and deployment readiness remain separate gates.
 
 - [x] Coordinator technical review of the current Host #850 candidate: Host-local identity remains local; Core PC-NEXT-11 projection and private route blocks are present.
 - [x] Coordinator technical review of Core #846 and #867 candidates: binding services, assertion runner, Memory consumer, result envelope, context-resolution route, and retrieval route are present.
 - [x] Host API technical-owner approval: Host-local stable key remains local; Core requests use PC-NEXT-11 tuple.
 - [x] Core API technical-owner approval: two private routes, durable nonce guard, and existing consumer result envelope.
-- [ ] Core retrieval exception mapping conforms to §6: unexpected consumer/runtime exceptions return generic HTTP 500 `INTERNAL_ERROR`, with a regression test. Current #867 maps these exceptions to HTTP 401.
-- [x] Exact-head Runtime and integration CI pass on Host #850, Core #846, and Core HTTP #867; Host session rotation and Core nonce replay across restart are covered.
+- [x] Core retrieval exception mapping conforms to §6 in #867: unexpected consumer/runtime exceptions return generic HTTP 500 `INTERNAL_ERROR`; regression test verifies response secrecy and nonce replay protection. Full Core CI is still pending.
+- [ ] Exact-head full Runtime CI passes on the latest Host #850, Core Lane B #846, and Core HTTP #867 heads. Host #850 latest candidate run passed; Core #867 latest full Runtime job is still running. Previous green runs on older heads do not satisfy this latest-head gate.
 - [x] Contract PR #866 full Runtime suite passed on retry (run `41331512380`, attempt 2); the first attempt's single failure was the unrelated Windows `remote-binding.test.js` listener/fetch test.
-- [x] Identity/route ownership discrepancy is resolved in the implementation candidates; remaining branch-integration and deployment gates are tracked in §11.
+- [x] Identity projection is aligned across Host #850 and Core HTTP #867. Route ownership is split at the PR-stack level: #846 is the Core foundation, #867 supplies Core HTTP routes, and #850 carries the Host candidate plus its coordinated route mirror. Remaining independent review, branch integration, and deployment gates are tracked in §11.
 
 
 ## 11. Coordinated implementation status — 1 Nov 2026
@@ -374,11 +374,11 @@ The implementation uses `HostAssertionNonceStore` in a dedicated file configured
 
 ### Validation state
 
-Exact candidate heads checked on 1 Nov 2026 (all listed workflow runs completed successfully):
+Exact candidate heads checked on 1 Nov 2026 (latest validation state; not all latest-head runs are complete):
 
-- Core Lane B PR #846 HEAD `832abf337530e9421f53eaed85760cb4a7f07313`: Runtime tests, Host lifecycle patch check/validation, pinned SillyTavern audit, browser IndexedDB restart, and Memory Provider blocker 3 all completed successfully.
-- Core integration PR #867 HEAD `7e3895aeb91c983bf020e889acdad6c1909dd0e7`: Runtime tests completed successfully.
-- Host candidate PR #850 HEAD `4aa26dcf2a9e5b5e65123f2cd72b40516e41a685`: Gateway candidate check, static validation, both pinned SillyTavern source audits, browser IndexedDB restart, Memory Provider blocker 3, Core trusted acquisition, NPC boundary, Host inventory reconciliation, process contract, mechanics policy authority, Linux/Windows symlink security, and full Runtime tests all completed successfully.
+- Core Lane B PR #846 HEAD `832abf337530e9421f53eaed85760cb4a7f07313`: previous foundation checks passed; it does not include the stacked HTTP routes supplied by #867.
+- Core integration PR #867 latest HEAD `688eae3e00d25fe4a818884c9cb25526ac379c41`: seven non-`test` workflow jobs passed; the full `npm test` job remains in progress. Do not claim latest-head Runtime success yet.
+- Host candidate PR #850 latest HEAD `35c59c1a6ab0bc8a486efd915441ab11227dd644`: pinned-source acceptance, pinned-host-gateway, static validation, and all reported Host checks passed.
 
 The Host candidate now carries the same Core-owned Memory consumer, conversation binding validation, NPC knowledge authorization, and SQLite Memory Provider implementation as the Core/Lane B candidates. The shared Core HTTP route blocks are byte-identical; Host-specific lifecycle and root-inventory routes remain additional Host-owned API routes. A combined Host Adapter → real Core HTTP → consumer-facade test now covers default-user, accounts-enabled, and session-restart paths; its test-only Memory consumer does not prove configured production Provider readiness. This is candidate CI evidence, not a merge or production-readiness approval.
 
@@ -400,7 +400,7 @@ For `src/index.js`, retain Host #850's root-identity registry, lifecycle journal
 
 ### Remaining release blockers
 
-1. **Core retrieval exception mapping:** #867 currently maps unclassified exceptions thrown during the consumer callback to `401 HOST_SESSION_ASSERTION_INVALID`. Correct this to generic `500 INTERNAL_ERROR` and add a regression test; preserve the existing explicit 401/409/503 mappings for known assertion and replay-guard failures.
+1. **Latest Core full Runtime CI:** the correction is implemented and tested in the branch, but the latest full `npm test` job must finish successfully before this gate closes.
 2. Branch integration is still required. #867 is stacked on #846; #850 is independently based on `main` and overlaps 26 files with #846 and 8 files with #867. The shared Core route blocks are identical, but `src/api/server.js`, `src/index.js`, `.env.example`, and the overlapping adapter composition must be reconciled deliberately; do not merge the three PRs blindly.
    - Current `main` has advanced two commits beyond the base SHA recorded by #846. The delta is limited to `README.md` and `docs/progress-bars-2026-11-01.svg`; neither path is in #846's patch. Refresh/rebase #846 onto current `main` before integration, then re-run its full CI. Host #850 already uses current `main` as its base.
 3. Recommended integration order: land/rebase Core Lane B #846; integrate Core HTTP #867 on top of it; then rebase Host #850 onto the integrated Core result and resolve Host-owned lifecycle/inventory additions while retaining the identical shared route blocks. Re-run full CI after each rebase.
