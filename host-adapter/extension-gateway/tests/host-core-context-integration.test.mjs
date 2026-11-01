@@ -85,13 +85,13 @@ test('Host Adapter makes a real authenticated Core context-resolution call; inco
   assert.equal(actorBinding.status, 201);
 
   const coreCalls = [];
-  let resolvedCoreContext = null;
+  const resolvedCoreContexts = [];
   const fetchImpl = async (url, options) => {
     const response = await fetch(url, options);
     const parsedUrl = new URL(url);
     coreCalls.push(parsedUrl.pathname);
     if (parsedUrl.pathname === '/v1/host-context/resolve') {
-      resolvedCoreContext = await response.clone().json();
+      resolvedCoreContexts.push(await response.clone().json());
     }
     return response;
   };
@@ -159,14 +159,51 @@ test('Host Adapter makes a real authenticated Core context-resolution call; inco
   const dispatchResponse = responseRecorder();
   await adapter.dispatch(request, dispatchResponse);
   assert.equal(coreCalls[0], '/v1/host-context/resolve');
-  assert.equal(resolvedCoreContext.context.adapter_id, ADAPTER_ID);
-  assert.equal(resolvedCoreContext.context.world_id, 'host-e2e-world');
-  assert.equal(resolvedCoreContext.context.actor_id, 'host-e2e-actor');
-  assert.equal(resolvedCoreContext.context.conversation_id, identityResponse.payload.host_installation_id
-    + ':' + identityResponse.payload.authenticated_account_id + ':' + UUID);
+  assert.equal(resolvedCoreContexts[0].context.adapter_id, ADAPTER_ID);
+  assert.equal(resolvedCoreContexts[0].context.world_id, 'host-e2e-world');
+  assert.equal(resolvedCoreContexts[0].context.actor_id, 'host-e2e-actor');
+  const stableConversationId = identityResponse.payload.host_installation_id
+    + ':' + identityResponse.payload.authenticated_account_id + ':' + UUID;
+  assert.equal(resolvedCoreContexts[0].context.conversation_id, stableConversationId);
   assert.equal(dispatchResponse.statusCode, 503);
   assert.equal(dispatchResponse.payload.code, 'CORE_HOST_DISPATCH_ROUTE_UNAVAILABLE');
   assert.equal(coreCalls[1], '/v1/host/memory-npc/retrieve');
+
+  // Recreate the Host Adapter against the same server-owned identity directory.
+  // Installation/account identity must survive; the transient ST session rotates.
+  const restartedAdapter = createSillyTavernHostAdapter({ env, enumerate: authoritativeFixture, fetchImpl });
+  const restartedRequest = {
+    user: request.user,
+    session: {},
+    body: {
+      conversation_uuid: UUID,
+      request_id: '55555555-5555-4555-8555-555555555555',
+      context_size: 4096,
+      generation_type: 'normal',
+    },
+  };
+  const restartedSessionResponse = responseRecorder();
+  restartedAdapter.session(restartedRequest, restartedSessionResponse);
+  assert.equal(restartedSessionResponse.statusCode, 200);
+  assert.notEqual(restartedSessionResponse.payload.host_session_id, sessionResponse.payload.host_session_id);
+  const restartedIdentityResponse = responseRecorder();
+  await restartedAdapter.identity(restartedRequest, restartedIdentityResponse);
+  assert.equal(restartedIdentityResponse.payload.host_installation_id, identityResponse.payload.host_installation_id);
+  assert.equal(restartedIdentityResponse.payload.authenticated_account_id, identityResponse.payload.authenticated_account_id);
+  const restartedGateResponse = responseRecorder();
+  let restartedPassedGate = false;
+  await restartedAdapter.dispatchMiddleware(restartedRequest, restartedGateResponse, () => { restartedPassedGate = true; });
+  assert.equal(restartedPassedGate, true);
+  const restartedDispatchResponse = responseRecorder();
+  await restartedAdapter.dispatch(restartedRequest, restartedDispatchResponse);
+  assert.equal(restartedDispatchResponse.statusCode, 503);
+  assert.equal(restartedDispatchResponse.payload.code, 'CORE_HOST_DISPATCH_ROUTE_UNAVAILABLE');
+  assert.equal(coreCalls[2], '/v1/host-context/resolve');
+  assert.equal(coreCalls[3], '/v1/host/memory-npc/retrieve');
+  assert.equal(resolvedCoreContexts.length, 2);
+  assert.equal(resolvedCoreContexts[1].context.conversation_id, stableConversationId);
+  assert.equal(resolvedCoreContexts[1].context.world_id, 'host-e2e-world');
+  assert.equal(resolvedCoreContexts[1].context.actor_id, 'host-e2e-actor');
 
   // The production scanner currently emits DOUBLE_SCAN_CANDIDATE. Prove that
   // such a candidate cannot reach Core, even when the same server credentials exist.
