@@ -31,7 +31,7 @@ Pinned source findings:
 | `src/endpoints/extensions.js:92-138` | `POST /install` validates URL, computes an extension directory under the user's/global extensions directory, then runs `git.clone(..., extensionPath, ...)`. | It clones an extension repository into the extension directory. It does not execute an extension's Node entrypoint or apply patches to the ST installation root. |
 | `src/endpoints/extensions.js:169+` | `POST /update` resolves an extension directory and performs Git fetch/pull there. | Update is limited to the extension repository directory. |
 | `public/scripts/extensions.js` | Client installer calls `/api/extensions/install`; client manifests load browser JS/CSS. | Client Extension Manager does not provide a supported server route registration or arbitrary filesystem patch API. |
-| `src/plugin-loader.js:10,40-...` | Server plugins are gated by `enableServerPlugins`, loaded from the separate `plugins/` directory, and mounted under `/api/plugins/<id>`. | This is the rejected separate Server Companion mechanism; it is not used as a workaround. |
+| `src/plugin-loader.js:10,40-...` | Server plugins are gated by `enableServerPlugins`, loaded from `plugins/`, and mounted under `/api/plugins/<id>`. | The Gateway server artifact may be packaged only as a component of the single integrated Logic-Engine Extension package; a standalone Server Companion is rejected. The loader does not provide a pre-native-route hook. |
 | `src/server-main.js:248,278,313` | Login middleware is installed, native private routes are mounted, then server plugins are loaded later during startup. | A server plugin cannot use the supported loader to insert middleware before native generation routes. |
 
 Therefore Extension Manager alone cannot bootstrap the trusted Patch Manager or create the server-side Gateway route.
@@ -111,7 +111,7 @@ The remaining deployment task is to provide the package manifest and release art
 | Approved architecture | PRESERVED |
 | Extension Manager as client installer | CONFIRMED |
 | Extension Manager as trusted Patch Manager bootstrap | UNSUPPORTED |
-| Separate server plugin / Server Companion | REJECTED; not used |
+| Standalone Server Companion | REJECTED; Gateway server artifact allowed only inside the single managed Extension package |
 | Existing native-ST source patch artifacts | NOT AUTHORIZED; NOT INSTALLABLE BY PATCH MANAGER |
 | Patch Manager Extension-artifact transaction | IMPLEMENTED; exact-head CI pending |
 | Production Extension Gateway | REVIEW-ONLY CANDIDATE |
@@ -120,7 +120,7 @@ The remaining deployment task is to provide the package manifest and release art
 | Final response revalidation | NOT IMPLEMENTED |
 | Production protected sending | DENY / FAIL-CLOSED |
 
-**No architecture approval is requested.** The next engineering step is to connect the approved Patch Manager to the trusted local Logic-Engine installation/management host, then implement the versioned patch transaction and the single Gateway/Final-Send patch packages.
+**No architecture approval is requested.** The local Patch Manager CLI exists in the Logic-Engine Node deployment package. The remaining deployment step is to invoke it from the existing local installation workflow with the signed/versioned integrated Extension package; no browser or ST route may invoke filesystem operations.
 
 ## 8. Current engineering implementation status
 
@@ -129,8 +129,9 @@ The remaining deployment task is to provide the package manifest and release art
 - [x] Restrict all writes to the integrated Extension client/server directories; reject native ST source/config/routes and unrelated extensions.
 - [x] Implement exact-target/manifest checks, transactional backup/journal, rollback, recovery and user-edit protection.
 - [x] Add focused Patch Manager tests for allowed and rejected destinations.
-- [x] Focused Patch Manager CI: 6/6 tests passed on PR head `fc1231e00f80f35e4f4a9ee3e211874287940a72` (run 41298811265). The full Runtime workflow remains pending.
-- [ ] Produce the single approved ST patch package containing the sole Extension Gateway route, trusted Host Adapter integration, pre-LLM egress and final-response revalidation.
-- [ ] Add an integration manifest for the exact ST build, pinned patch digest and release package identity.
+- [ ] Focused Patch Manager CI on the latest allowlist/traversal-hardening head; earlier results do not validate the latest code.
+- [ ] Produce the single versioned Extension package containing the sole Extension Gateway ingress and trusted Host Adapter integration.
+- [ ] Verify whether the supported Extension Final-Send Hook can satisfy complete pre-LLM egress and final-response revalidation; if not, document exact route-level blockers and keep protected sending disabled.
+- [ ] Add an integration manifest for the exact ST build, pinned package digest and release identity.
 - [ ] Run disposable ST apply/lint/syntax/integration tests, then real installed-instance acceptance.
 - [ ] Prove all protected sender paths and actual upstream call counts; until then protected sending remains DENY / FAIL-CLOSED.
