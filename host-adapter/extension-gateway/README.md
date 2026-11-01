@@ -31,8 +31,8 @@ Enable SillyTavern's native `enableServerPlugins: true` setting. Keep server-plu
 - Stable conversation identity is `installation_id:account_id:conversation_uuid`; session identity is carried separately in the signed assertion.
 - The browser's localStorage and chat metadata are consistency/enrollment inputs, not authentication authorities.
 - The Authenticated Host Adapter resolves the conversation UUID against server-side inventory before signing any assertion.
-- The Gateway does not assign World or Actor. World and Actor are never accepted from the browser; Core resolves them from its own durable bindings.
-- Core Security Gateway remains the sole authorization authority.
+- The Gateway does not assign World or Actor. World and Actor are never accepted from the browser; the Host Adapter obtains them from Core-owned durable binding resolution and signs them into the trusted Host assertion.
+- Core Security Gateway independently re-resolves those bindings and remains the sole authorization authority.
 
 ## Dispatch boundary
 
