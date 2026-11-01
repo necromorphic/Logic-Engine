@@ -16,9 +16,15 @@ function safeFailure(response, code = 'HOST_GATEWAY_NOT_READY', status = 503) {
     return response.status(status).json({ status: 'NON_READY', code });
 }
 
-export function createHostConversationResolver({ identityStore, enumerate, pinnedHostCommit = PINNED_HOST_COMMIT }) {
+export function createHostConversationResolver({
+    identityStore,
+    enumerate,
+    pinnedHostCommit = PINNED_HOST_COMMIT,
+    verifyCompletenessProof = () => false,
+}) {
     if (!identityStore || typeof identityStore.resolveAuthenticatedAccount !== 'function'
-        || typeof enumerate !== 'function' || !/^[a-f0-9]{40}$/.test(pinnedHostCommit)) {
+        || typeof enumerate !== 'function' || typeof verifyCompletenessProof !== 'function'
+        || !/^[a-f0-9]{40}$/.test(pinnedHostCommit)) {
         throw new TypeError('A persistent identity store and trusted inventory enumerator are required.');
     }
     return async request => {
@@ -54,6 +60,25 @@ export function createHostConversationResolver({ identityStore, enumerate, pinne
         if (matches.length !== 1) throw new Error('HOST_CONVERSATION_IDENTITY_AMBIGUOUS');
         const identity = await identityStore.resolveAuthenticatedAccount(handle);
         if (!UUID.test(identity?.host_installation_id ?? '')) throw new Error('HOST_INSTALLATION_IDENTITY_INVALID');
+        let completenessVerified = false;
+        try {
+            completenessVerified = await verifyCompletenessProof({
+                inventory,
+                directories: {
+                    root: directories.root,
+                    chats: directories.chats,
+                    groups: directories.groups,
+                    groupChats: directories.groupChats,
+                },
+                host_commit: pinnedHostCommit,
+                host_installation_id: identity.host_installation_id,
+                authenticated_account_id: identity.authenticated_account_id,
+                conversation_uuid: conversationUuid,
+            }) === true;
+        } catch {
+            completenessVerified = false;
+        }
+        if (!completenessVerified) throw new Error('HOST_INVENTORY_COMPLETENESS_NOT_VERIFIED');
         return [
             identity.host_installation_id,
             identity.authenticated_account_id,
@@ -65,11 +90,12 @@ export function createHostConversationResolver({ identityStore, enumerate, pinne
 export function createHostContextRoute({ identityStore, enumerate, corePost, config }) {
     if (!identityStore || typeof identityStore.resolveAuthenticatedAccount !== 'function'
         || typeof enumerate !== 'function' || typeof corePost !== 'function'
+        || typeof verifyCompletenessProof !== 'function'
         || !config || !validText(config.adapterId) || !validText(config.actorEntityId)) {
         throw new TypeError('Host context route dependencies are incomplete.');
     }
     const gate = createHostRequestAuthenticationGate({
-        resolveConversationId: createHostConversationResolver({ identityStore, enumerate }),
+        resolveConversationId: createHostConversationResolver({ identityStore, enumerate, verifyCompletenessProof }),
     });
     const handler = async (request, response) => {
         response.set('Cache-Control', 'no-store, private');
