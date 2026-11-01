@@ -112,7 +112,7 @@ jobs:
           if ($actual -ne 'e21e5efd71fba66578e95b62554d9028064a80dafd7221bf8a8ef155de8d240a') {
             throw "better-sqlite3 Windows prebuild does not match the audited ST-VectorService archive: $actual"
           }
-      - name: Smoke-test the exact published Windows prebuild
+      - name: Verify exact Windows SQLite version, source ID and compile options
         shell: pwsh
         env:
           BETTER_SQLITE3_PACKAGE_DIR: ${{ runner.temp }}\better-sqlite3\package
