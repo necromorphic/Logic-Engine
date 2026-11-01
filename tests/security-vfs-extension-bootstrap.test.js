@@ -2,7 +2,7 @@ import test from 'node:test';
 import { spawn, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
 import assert from 'node:assert/strict';
-import { chmodSync, existsSync, linkSync, mkdirSync, mkdtempSync, renameSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, linkSync, mkdirSync, mkdtempSync, readdirSync, renameSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -568,6 +568,47 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
       'a rejected main-DB deletion must leave the replacement hardlink intact');
     assert.equal(existsSync(corePath), true,
       'a rejected main-DB deletion must leave the other role database intact');
+  }
+
+  // POSIX xDelete race: replace the checked source entry immediately before
+  // quarantine rename. The replacement must be retained in quarantine, not
+  // unlinked as if it were the enrolled database.
+  if (process.platform !== 'win32') {
+    const deleteRacePath = join(directory, 'delete-race.sqlite');
+    registerRole(deleteRacePath, 'delete-race');
+    const deleteRaceDb = new DatabaseSync(deleteRacePath);
+    try {
+      deleteRaceDb.exec('CREATE TABLE probe(value TEXT);');
+    } finally {
+      deleteRaceDb.close();
+    }
+    const injectionBefore = roleRegistrar.prepare(
+      'SELECT logic_engine_vfs_probe_race_injection_count() AS count'
+    ).get().count;
+    roleRegistrar.prepare('SELECT logic_engine_vfs_probe_configure_race(?, ?, 1)')
+      .get(deleteRacePath, corePath);
+    assert.throws(() => roleRegistrar.prepare(
+      'SELECT logic_engine_vfs_probe_delete_registered_role(?)'
+    ).get(deleteRacePath),
+    'a replacement raced into the POSIX xDelete source name must fail identity verification');
+    assert.equal(roleRegistrar.prepare(
+      'SELECT logic_engine_vfs_probe_race_injection_count() AS count'
+    ).get().count, injectionBefore + 1,
+    'the POSIX xDelete replacement must be injected at the destructive boundary');
+    assert.equal(existsSync(deleteRacePath), false,
+      'the raced replacement must be moved out of the source name');
+    const quarantinePath = join(directory, '.logic-engine-vfs-quarantine');
+    const quarantined = readdirSync(quarantinePath);
+    assert.equal(quarantined.length, 1,
+      'the identity-mismatched replacement must remain quarantined');
+    const quarantinedInfo = statSync(join(quarantinePath, quarantined[0]));
+    const targetInfo = statSync(corePath);
+    assert.equal(quarantinedInfo.dev, targetInfo.dev);
+    assert.equal(quarantinedInfo.ino, targetInfo.ino,
+      'quarantine must retain the exact replacement object instead of unlinking it');
+    assert.equal(existsSync(corePath), true,
+      'the replacement target database must remain intact');
+    rmSync(quarantinePath, { recursive: true, force: true });
   }
 
   // Windows main-DB xDelete must reject a substituted hardlink by handle identity.
