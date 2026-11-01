@@ -907,10 +907,9 @@ export class MemoryNpcConsumer {
         Object.fromEntries(this.contentFields.map((field) => [field, source[field]])));
     }
 
-    // Recheck query and exact record grants after the final field-bearing read.
-    // SQLite checks are synchronous, so no event-loop yield occurs before the
-    // envelope is returned. Revoke/re-grant is detected by the durable generation.
-    if (!queryStillAllowedSynchronously()) return nonReady('query_access_unconfirmed');
+    // Recheck exact Provider record grants after the final field-bearing read.
+    // SQLite checks are synchronous, so no event-loop yield occurs between the
+    // final Core authorization fence and envelope construction.
     for (const item of admitted) {
       try {
         if (this.#memoryProvider.checkCandidateGrant({
@@ -923,6 +922,11 @@ export class MemoryNpcConsumer {
         return nonReady(providerAuthorizationFailureReason(error, 'memory_record_authorization_unavailable'));
       }
     }
+    // Core conversation/world and actor bindings are checked last, after the
+    // Provider fence, so a revoke during that synchronous fence cannot slip
+    // through to a ready envelope. This remains a cross-database freshness
+    // fence, not an atomic lease with a later model transport.
+    if (!queryStillAllowedSynchronously()) return nonReady('query_access_unconfirmed');
 
     return Object.freeze({
       status: 'ready',
