@@ -75,6 +75,10 @@ test('Linux role manifest requires an explicit application UID', () => {
   negativeUid.filesystemPolicy.applicationUid = -1;
   assert.equal(validate(negativeUid), false, 'negative applicationUid must fail closed');
 
+  const rootUid = manifest('linux', posixIdentity);
+  rootUid.filesystemPolicy.applicationUid = 0;
+  assert.equal(validate(rootUid), false, 'root must not be the isolated application identity');
+
   assert.equal(validate(manifest('windows', windowsIdentity)), true,
     'Windows manifest must not require a POSIX application UID');
 });
