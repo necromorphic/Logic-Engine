@@ -21,16 +21,39 @@ function assertManifestShape(manifest) {
   }
   assertWindowsIdentity(manifest.metadataRootIdentity, 'metadata-root');
   const roleNames = new Set();
-  const physicalIds = new Set([
+  const directoryIds = new Set([
     `${manifest.metadataRootIdentity.volumeSerial.toLowerCase()}:${manifest.metadataRootIdentity.fileId.toLowerCase()}`,
   ]);
+  const physicalIds = new Set();
   const claimIdentity = (identity, label) => {
     const key = `${identity.volumeSerial.toLowerCase()}:${identity.fileId.toLowerCase()}`;
-    if (physicalIds.has(key)) {
+    if (directoryIds.has(key) || physicalIds.has(key)) {
       throw new TypeError(`Duplicate physical Windows identity in trusted role manifest: ${label}`);
     }
     physicalIds.add(key);
   };
+  /*
+   * Multiple roles may legitimately share one parent directory, and the
+   * metadata root may itself be an ancestor in a role's parent chain. Gather
+   * all directory identities first so file identities can never alias them.
+   */
+  for (const role of manifest.roles) {
+    if (!role || !Array.isArray(role.parentIdentities)
+        || !Array.isArray(role.parentComponents)
+        || role.parentComponents.length !== role.parentIdentities.length) {
+      throw new TypeError('Invalid Windows parent identity chain in trusted role manifest');
+    }
+    const parentIds = new Set();
+    for (const identity of role.parentIdentities) {
+      assertWindowsIdentity(identity, `parent ${role.role}`);
+      const key = `${identity.volumeSerial.toLowerCase()}:${identity.fileId.toLowerCase()}`;
+      if (parentIds.has(key)) {
+        throw new TypeError(`Duplicate parent directory identity in role ${role.role}`);
+      }
+      parentIds.add(key);
+      directoryIds.add(key);
+    }
+  }
   for (const role of manifest.roles) {
     if (!role || typeof role.role !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(role.role)
         || roleNames.has(role.role) || role.state !== 'active'
@@ -50,16 +73,6 @@ function assertManifestShape(manifest) {
           || /[\\/:*?"<>|\0]/.test(component) || /[. ]$/.test(component)) {
         throw new TypeError(`Invalid Windows parent component for role ${role.role}`);
       }
-    }
-    const parentIds = new Set();
-    for (const identity of role.parentIdentities) {
-      assertWindowsIdentity(identity, `parent ${role.role}`);
-      const parentKey = `${identity.volumeSerial.toLowerCase()}:${identity.fileId.toLowerCase()}`;
-      if (parentIds.has(parentKey)) {
-        throw new TypeError(`Duplicate parent directory identity in role ${role.role}`);
-      }
-      parentIds.add(parentKey);
-      claimIdentity(identity, `parent ${role.role}`);
     }
     claimIdentity(role.databaseIdentity, `database ${role.role}`);
     const sidecarKinds = new Set();
