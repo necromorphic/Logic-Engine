@@ -39,3 +39,9 @@ jobs:
           node --check public/scripts/extensions/third-party/logic-engine-extension-gateway/server-gateway.mjs
       - name: Run Extension Gateway security and lifecycle tests
         run: node --test tests/extension-gateway.test.js
+      - name: Fetch official SillyTavern 1.19.0 into a disposable directory
+        run: git clone --depth 1 --branch 1.19.0 https://github.com/SillyTavern/SillyTavern.git "$RUNNER_TEMP/SillyTavern"
+      - name: Install, inspect, and roll back Gateway on official SillyTavern 1.19.0
+        env:
+          SILLYTAVERN_PATH: ${{ runner.temp }}/SillyTavern
+        run: node --test tests/extension-gateway-st-integration.test.js
