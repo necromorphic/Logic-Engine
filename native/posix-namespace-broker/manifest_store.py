@@ -56,8 +56,7 @@ def _read_fd(fd: int, limit: int = MAX_BYTES) -> bytes:
         chunks.append(part)
 
 
-def _check_trusted_directory_component(info: os.stat_result, application_uid: int,
-                                          label: str) -> None:
+def _check_trusted_directory_component(info: os.stat_result, label: str) -> None:
     if not stat.S_ISDIR(info.st_mode):
         raise StoreError(f"{label} is not a directory")
     # Every ancestor that can rename or replace a protected directory must be
@@ -68,9 +67,6 @@ def _check_trusted_directory_component(info: os.stat_result, application_uid: in
         raise StoreError(f"{label} is not owned by root or the broker service UID")
     if info.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
         raise StoreError(f"{label} is group/other writable")
-    if application_uid != os.geteuid() and info.st_uid == application_uid \\
-            and info.st_mode & stat.S_IWUSR:
-        raise StoreError(f"{label} is application-writable")
 
 
 def _open_trusted_dir(path: str, application_uid: int) -> int:
@@ -86,8 +82,7 @@ def _open_trusted_dir(path: str, application_uid: int) -> int:
             os.close(fd)
             fd = next_fd
             info = os.fstat(fd)
-            _check_trusted_directory_component(info, application_uid,
-                                                "trusted path component")
+            _check_trusted_directory_component(info, "trusted path component")
         info = os.fstat(fd)
         if info.st_uid != os.geteuid():
             raise StoreError("trusted directory must be owned by the broker service UID")
@@ -393,8 +388,7 @@ def _open_role_parent(components: list[str], identities: list[dict[str, str]],
             os.close(fd)
             fd = next_fd
             info = os.fstat(fd)
-            _check_trusted_directory_component(info, application_uid,
-                                                "role parent component")
+            _check_trusted_directory_component(info, "role parent component")
             if _fd_identity(fd) != identities[index]:
                 raise StoreError(f"role parent identity mismatch at component {component}")
         if os.fstat(fd).st_uid != os.geteuid() or stat.S_IMODE(os.fstat(fd).st_mode) != 0o700:
