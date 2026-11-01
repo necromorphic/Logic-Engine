@@ -119,7 +119,7 @@ typedef struct ProbeDatabaseRole {
 static ProbeDatabaseRole g_database_roles[PROBE_MAX_DATABASE_ROLES];
 static int g_database_role_count = 0;
 #ifdef _WIN32
-#define PROBE_MAX_SIDECAR_IDENTITIES (PROBE_MAX_DATABASE_ROLES * 12)
+#define PROBE_MAX_SIDECAR_IDENTITIES (PROBE_MAX_DATABASE_ROLES * 128) /* bounded retired-generation headroom */
 typedef struct ProbeSidecarIdentity {
   int role_index;
   int kind; /* 1 = WAL, 2 = SHM, 3 = rollback journal */
@@ -130,7 +130,7 @@ static ProbeSidecarIdentity g_sidecar_identities[PROBE_MAX_SIDECAR_IDENTITIES];
 static int g_sidecar_identity_count = 0;
 static int g_delete_file_hook_count = 0;
 #else
-#define PROBE_MAX_SIDECAR_IDENTITIES (PROBE_MAX_DATABASE_ROLES * 12)
+#define PROBE_MAX_SIDECAR_IDENTITIES (PROBE_MAX_DATABASE_ROLES * 128) /* bounded retired-generation headroom */
 typedef struct ProbeSidecarIdentity {
   int role_index;
   int kind; /* 1 = WAL, 2 = SHM, 3 = rollback journal */
