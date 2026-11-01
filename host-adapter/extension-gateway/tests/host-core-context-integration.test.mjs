@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { mkdtemp, mkdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative as pathRelative } from 'node:path';
 
 import { SQLiteStore } from '../../../src/storage/sqlite-store.js';
 import { LogicEngine } from '../../../src/application/engine.js';
@@ -43,7 +43,7 @@ test('Host Adapter requires Core root proof before context resolution and binds 
   const globalDataRoot = join(directory, 'st-data');
   const root = join(globalDataRoot, 'default-user');
   const previousDataRoot = globalThis.DATA_ROOT;
-  globalThis.DATA_ROOT = globalDataRoot;
+  globalThis.DATA_ROOT = pathRelative(process.cwd(), globalDataRoot);
   const chats = join(root, 'chats');
   const groups = join(root, 'groups');
   const groupChats = join(root, 'groupChats');
@@ -113,7 +113,15 @@ test('Host Adapter requires Core root proof before context resolution and binds 
     identity: { dev: '1', ino: '1', mode: 33188, size: 0, mtimeMs: 0, ctimeMs: 0 },
     sha256: 'b'.repeat(64),
   }];
-  const authoritativeFixture = async () => ({
+  const relativeDirectories = {
+    root: pathRelative(process.cwd(), root),
+    chats: pathRelative(process.cwd(), chats),
+    groups: pathRelative(process.cwd(), groups),
+    groupChats: pathRelative(process.cwd(), groupChats),
+  };
+  const authoritativeFixture = async ({ directories }) => {
+    assert.deepEqual(directories, { root, chats, groups, groupChats });
+    return {
     filesystem: { status: 'complete', entries: rootEntries },
     source: {
       status: 'AUTHORITATIVE_COMPLETE',
@@ -123,7 +131,8 @@ test('Host Adapter requires Core root proof before context resolution and binds 
       status: 'AUTHORITATIVE_COMPLETE',
       manifest_sha256: 'a'.repeat(64),
     },
-  });
+  };
+  };
   // This proof stub is test-only. Production uses the Core root-inventory
   // response and must reject its current REVIEW_ONLY result.
   const testOnlyAuthoritativeRootProof = async ({ userHandle, rootPath, entries }) => {
@@ -147,7 +156,7 @@ test('Host Adapter requires Core root proof before context resolution and binds 
   const request = {
     user: {
       profile: { handle: ACCOUNT_HANDLE },
-      directories: { root, chats, groups, groupChats },
+      directories: relativeDirectories,
     },
     // ST default-user mode: session.handle is intentionally absent.
     session: {},
