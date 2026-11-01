@@ -18,6 +18,8 @@ const authenticatedHostRequests = new WeakSet([hostRequest]);
 const isAuthenticatedHostRequest = request => authenticatedHostRequests.has(request);
 const trustedConversationIds = new WeakMap([[hostRequest, HOST_CONVERSATION_ID]]);
 const resolveHostConversationId = request => trustedConversationIds.get(request) ?? null;
+const resolveHostBindings = (_request, conversationId) => conversationId === HOST_CONVERSATION_ID
+  ? ({ world_id: 'memory-npc-world', actor_id: 'npc-a' }) : null;
 
 function setup(t, { allowContent = true, authorizeQuery = true, authorizeCoreQuery = true, authorizeCandidate = true, completeness = 'complete' } = {}) {
   let contentVisible = allowContent;
@@ -114,9 +116,9 @@ function setup(t, { allowContent = true, authorizeQuery = true, authorizeCoreQue
   const authenticatedConsumer = new Proxy(consumer, {
     get(target, property) {
       if (property === 'retrieveForNpc') return (input) =>
-        runWithAuthenticatedHostSession(hostRequest, HOST_CONVERSATION_ID, () => target.retrieveForNpc(input), isAuthenticatedHostRequest, resolveHostConversationId);
+        runWithAuthenticatedHostSession(hostRequest, HOST_CONVERSATION_ID, () => target.retrieveForNpc(input), isAuthenticatedHostRequest, resolveHostConversationId, resolveHostBindings);
       if (property === 'revalidateForFinalDispatch') return (input, prepared) =>
-        runWithAuthenticatedHostSession(hostRequest, HOST_CONVERSATION_ID, () => target.revalidateForFinalDispatch(input, prepared), isAuthenticatedHostRequest, resolveHostConversationId);
+        runWithAuthenticatedHostSession(hostRequest, HOST_CONVERSATION_ID, () => target.revalidateForFinalDispatch(input, prepared), isAuthenticatedHostRequest, resolveHostConversationId, resolveHostBindings);
       return Reflect.get(target, property, target);
     },
   });
