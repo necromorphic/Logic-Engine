@@ -68,18 +68,8 @@ diff --git a/src/objects/database.cpp b/src/objects/database.cpp
 diff --git a/src/objects/database.cpp b/src/objects/database.cpp
 --- a/src/objects/database.cpp
 +++ b/src/objects/database.cpp
-@@ -1,3 +1,4 @@
+@@ -1,0 +1 @@
 +#include <cstdio>
-@@ -143,6 +144,7 @@ NODE_METHOD(Database::JS_new) {
+@@ -139,1 +140,2 @@
+ NODE_METHOD(Database::JS_new) {
 +	fprintf(stderr, "[better-sqlite3-vfs-debug] JS_new-enter argc=%u\\n", info.Length());
- 	REQUIRE_ARGUMENT_STRING(first, Napi::String filename);
-@@ -149,6 +151,7 @@ NODE_METHOD(Database::JS_new) {
- 	REQUIRE_ARGUMENT_ANY(eighth, Napi::Value buffer);
- 	REQUIRE_ARGUMENT_ANY(ninth, Napi::Value vfsName);
-+	fprintf(stderr, "[better-sqlite3-vfs-debug] args-validated null=%d undefined=%d\\n", vfsName.IsNull(), vfsName.IsUndefined());
-@@ -167,7 +170,9 @@ NODE_METHOD(Database::JS_new) {
--	if (sqlite3_open_v2(utf8.c_str(), &db_handle, mask, vfs_utf8.empty() ? NULL : vfs_utf8.c_str()) != SQLITE_OK) {
-+	fprintf(stderr, "[better-sqlite3-vfs-debug] sqlite-open-before vfs-length=%zu\\n", vfs_utf8.size());
-+	int open_status = sqlite3_open_v2(utf8.c_str(), &db_handle, mask, vfs_utf8.empty() ? NULL : vfs_utf8.c_str());
-+	fprintf(stderr, "[better-sqlite3-vfs-debug] sqlite-open-after status=%d\\n", open_status);
-+	if (open_status != SQLITE_OK) {
