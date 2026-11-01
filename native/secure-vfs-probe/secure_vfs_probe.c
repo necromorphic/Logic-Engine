@@ -3073,13 +3073,9 @@ static void probe_register_database_role(sqlite3_context *context, int argc, sql
   }
   if (manifest_expected) {
     manifest_basename = sqlite3_value_text(argv[6]);
-    expected_basename = manifest_basename
-      ? probe_utf8_to_wide((const char *)manifest_basename) : NULL;
-    if (!expected_basename
-        || !logic_engine_win_valid_basename(expected_basename)
+    if (!manifest_basename || !manifest_basename[0]
         || !probe_parse_manifest_win_identity(argv[2], argv[3], &expected_database)
         || !probe_parse_manifest_win_identity(argv[4], argv[5], &expected_parent)) {
-      sqlite3_free(expected_basename);
       sqlite3_result_error(context, "persistent manifest identity or basename encoding is invalid", -1);
       return;
     }
@@ -3113,7 +3109,22 @@ static void probe_register_database_role(sqlite3_context *context, int argc, sql
     return;
   }
 
+#ifdef _WIN32
+  if (manifest_expected) {
+    expected_basename = probe_utf8_to_wide((const char *)manifest_basename);
+    if (!expected_basename || !logic_engine_win_valid_basename(expected_basename)) {
+      sqlite3_free(expected_basename);
+      sqlite3_free(stored_path);
+      sqlite3_free(stored_role);
+      sqlite3_result_error(context, "persistent manifest basename encoding is invalid", -1);
+      return;
+    }
+  }
+#endif
   if (!probe_capture_role_identity(stored_path, &captured_role)) {
+#ifdef _WIN32
+    sqlite3_free(expected_basename);
+#endif
     sqlite3_free(stored_path);
     sqlite3_free(stored_role);
     sqlite3_result_error(context, "database role identity capture failed", -1);
