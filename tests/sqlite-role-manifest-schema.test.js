@@ -122,3 +122,24 @@ test('SQLite role manifest schema accepts a broker-initialized empty role invent
   initial.roles = [];
   assert.equal(validate(initial), true, JSON.stringify(validate.errors));
 });
+
+
+test('SQLite role manifest schema validates durable pending enrollment intents', () => {
+  const value = manifest('linux', posixIdentity);
+  const role = value.roles[0];
+  value.roles = [];
+  value.pendingEnrollments = [{
+    role: 'core',
+    parentComponents: role.parentComponents,
+    parentIdentities: role.parentIdentities,
+    databaseBasename: 'core.sqlite',
+  }];
+  assert.equal(validate(value), true, JSON.stringify(validate.errors));
+
+  value.pendingEnrollments[0].databaseIdentity = posixIdentity;
+  assert.equal(validate(value), true, JSON.stringify(validate.errors));
+
+  value.pendingEnrollments[0].databaseIdentity = { kind: 'posix', inode: '0' };
+  assert.equal(validate(value), false,
+    'pending enrollment identity must use the full canonical POSIX identity');
+});
