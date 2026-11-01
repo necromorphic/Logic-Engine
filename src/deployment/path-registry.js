@@ -8,32 +8,61 @@ function isWithin(parent, child) {
 
 async function canonicalizeWithoutFollowingLinks(candidate) {
   const absolute = resolve(candidate);
-  const suffix = [];
-  let cursor = absolute;
-  while (true) {
+  const root = parse(absolute).root;
+  const segments = absolute.slice(root.length).split(sep).filter(Boolean);
+  let cursor = root;
+  if (segments.length === 0) {
     try {
-      const item = await lstat(cursor);
-      if (item.isSymbolicLink()) {
-        return { status: 'FAIL', path: absolute, reason: 'SYMLINK_OR_REPARSE_ANCESTOR', at: cursor };
-      }
-      if (cursor !== absolute && !item.isDirectory()) {
-        return { status: 'FAIL', path: absolute, reason: 'NON_DIRECTORY_ANCESTOR', at: cursor };
-      }
-      const base = await realpath(cursor);
-      const canonical = resolve(base, ...suffix.reverse());
-      return { status: 'PASS', path: canonical, exists: cursor === absolute };
+      const item = await lstat(root);
+      if (item.isSymbolicLink()) return { status: 'FAIL', path: absolute, reason: 'SYMLINK_OR_REPARSE_ANCESTOR', at: root };
+      return { status: 'PASS', path: await realpath(root), exists: true, isDirectory: item.isDirectory() };
+    } catch (error) {
+      return { status: 'NOT_TESTED', path: absolute, reason: 'PATH_INSPECTION_ERROR', code: error?.code ?? 'unknown' };
+    }
+  }
+  for (let index = 0; index < segments.length; index++) {
+    const parent = cursor;
+    cursor = resolve(parent, segments[index]);
+    let item;
+    try {
+      item = await lstat(cursor);
     } catch (error) {
       if (error?.code !== 'ENOENT') {
         return { status: 'NOT_TESTED', path: absolute, reason: 'PATH_INSPECTION_ERROR', code: error?.code ?? 'unknown' };
       }
-      const parent = dirname(cursor);
-      if (parent === cursor) {
-        return { status: 'NOT_TESTED', path: absolute, reason: 'NO_EXISTING_ANCESTOR' };
+      let canonicalParent;
+      try {
+        canonicalParent = await realpath(parent);
+      } catch (parentError) {
+        return { status: 'NOT_TESTED', path: absolute, reason: 'PARENT_PATH_NOT_VERIFIED', code: parentError?.code ?? 'unknown' };
       }
-      suffix.push(cursor.slice(parent.length + (parent.endsWith(sep) ? 0 : 1)));
-      cursor = parent;
+      return {
+        status: 'PASS',
+        path: resolve(canonicalParent, ...segments.slice(index)),
+        exists: false,
+        isDirectory: false,
+      };
+    }
+    if (item.isSymbolicLink()) {
+      return { status: 'FAIL', path: absolute, reason: 'SYMLINK_OR_REPARSE_ANCESTOR', at: cursor };
+    }
+    if (index < segments.length - 1 && !item.isDirectory()) {
+      return { status: 'FAIL', path: absolute, reason: 'NON_DIRECTORY_ANCESTOR', at: cursor };
+    }
+    if (index === segments.length - 1) {
+      try {
+        return {
+          status: 'PASS',
+          path: await realpath(cursor),
+          exists: true,
+          isDirectory: item.isDirectory(),
+        };
+      } catch (error) {
+        return { status: 'NOT_TESTED', path: absolute, reason: 'PATH_REALPATH_FAILED', code: error?.code ?? 'unknown' };
+      }
     }
   }
+  return { status: 'NOT_TESTED', path: absolute, reason: 'PATH_INSPECTION_INCOMPLETE' };
 }
 
 export async function resolveDeploymentPathRegistry({
@@ -44,11 +73,11 @@ export async function resolveDeploymentPathRegistry({
   if (!manifest || !Array.isArray(manifest.resources)) throw new TypeError('DEPLOYMENT_MANIFEST_RESOURCES_REQUIRED');
   const root = resolve(deploymentRoot);
   const rootResult = await canonicalizeWithoutFollowingLinks(root);
-  if (rootResult.status !== 'PASS' || rootResult.exists !== true) {
+  if (rootResult.status !== 'PASS' || rootResult.exists !== true || rootResult.isDirectory !== true) {
     return Object.freeze({
       status: rootResult.status,
       resources: Object.freeze([]),
-      conflicts: Object.freeze([{ kind: rootResult.status === 'PASS' ? 'DEPLOYMENT_ROOT_MISSING' : 'DEPLOYMENT_ROOT_UNSAFE', ...rootResult }]),
+      conflicts: Object.freeze([{ kind: rootResult.status !== 'PASS' ? 'DEPLOYMENT_ROOT_UNSAFE' : rootResult.exists !== true ? 'DEPLOYMENT_ROOT_MISSING' : 'DEPLOYMENT_ROOT_NOT_DIRECTORY', ...rootResult }]),
     });
   }
 
