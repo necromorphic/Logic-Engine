@@ -19,7 +19,8 @@ test('Windows secure VFS keeps main DB and SQLite sidecars anchored after parent
   skip: process.platform !== 'win32' || !packageRoot || !extensionPath,
 }, (t) => {
   const Database = require(packageRoot);
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'logic-engine-win-handle-relative-'));
+  const tempBase = process.env.RUNNER_TEMP || os.tmpdir();
+  const root = fs.mkdtempSync(path.join(tempBase, 'logic-engine-win-handle-relative-'));
   const protectedDir = path.join(root, 'protected');
   const pinnedDir = path.join(root, 'protected-pinned');
   const attackerDir = path.join(root, 'attacker');
