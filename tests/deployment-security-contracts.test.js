@@ -245,18 +245,26 @@ test('deployment path registry rejects traversal and symlinked parent paths', as
   t.after(() => rm(outside, { recursive: true, force: true }));
   await mkdir(join(root, 'data'));
   await mkdir(join(outside, 'data'));
-  await symlink(outside, join(root, 'linked'));
-  const manifest = {
-    resources: [
-      { id: 'safe', owner_domain: 'runtime', kind: 'database', path: { source: 'deployment-root-relative', value: 'data/core.sqlite' } },
-      { id: 'escape', owner_domain: 'runtime', kind: 'database', path: { source: 'deployment-root-relative', value: '../outside.sqlite' } },
-      { id: 'linked', owner_domain: 'runtime', kind: 'database', path: { source: 'deployment-root-relative', value: 'linked/data/redirect.sqlite' } },
-    ],
-  };
-  const registry = await resolveDeploymentPathRegistry({ manifest, deploymentRoot: root });
+  let symlinkCreated = true;
+  try {
+    await symlink(outside, join(root, 'linked'));
+  } catch (error) {
+    if (process.platform === 'win32' && error.code === 'EPERM') symlinkCreated = false;
+    else throw error;
+  }
+  const resources = [
+    { id: 'safe', owner_domain: 'runtime', kind: 'database', path: { source: 'deployment-root-relative', value: 'data/core.sqlite' } },
+    { id: 'escape', owner_domain: 'runtime', kind: 'database', path: { source: 'deployment-root-relative', value: '../outside.sqlite' } },
+  ];
+  if (symlinkCreated) {
+    resources.push({ id: 'linked', owner_domain: 'runtime', kind: 'database', path: { source: 'deployment-root-relative', value: 'linked/data/redirect.sqlite' } });
+  }
+  const registry = await resolveDeploymentPathRegistry({ manifest: { resources }, deploymentRoot: root });
   assert.equal(registry.status, 'FAIL');
   assert.equal(registry.conflicts.some((item) => item.kind === 'PATH_ESCAPES_DEPLOYMENT_ROOT'), true);
-  assert.equal(registry.conflicts.some((item) => item.kind === 'SYMLINK_OR_REPARSE_ANCESTOR'), true);
+  if (symlinkCreated) {
+    assert.equal(registry.conflicts.some((item) => item.kind === 'SYMLINK_OR_REPARSE_ANCESTOR'), true);
+  }
 });
 
 test('deployment path registry detects hard-link aliases by opened filesystem identity', async (t) => {
