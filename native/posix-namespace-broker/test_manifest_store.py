@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 from manifest_store import (
     ManifestStore, StoreError, _anchor_bytes, _canonical_json, _open_role_parent, _validate_manifest,
-    _write_atomic, _quarantine_delete_at
+    _write_atomic, _quarantine_delete_at, _renameat2_noreplace
 )
 
 
@@ -119,6 +119,86 @@ class ManifestStoreTests(unittest.TestCase):
             os.close(db_fd)
         return manifest(generation, self.store.metadata_identity(),
                         components, identities, db_identity)
+
+    def test_offline_main_database_rename_and_delete_lifecycle(self):
+        self.store.initialize(self.data(1))
+        self.store.disable_role("core")
+        renamed = self.store.rename_role_database("core", "core-renamed.sqlite")
+        role = renamed["roles"][0]
+        self.assertEqual(role["state"], "disabled")
+        self.assertEqual(role["databaseBasename"], "core-renamed.sqlite")
+        self.assertFalse((self.role_parent / "core.sqlite").exists())
+        self.assertTrue((self.role_parent / "core-renamed.sqlite").exists())
+        deleted = self.store.delete_role_database("core")
+        self.assertEqual(deleted["roles"][0]["state"], "deleted")
+        self.assertFalse((self.role_parent / "core-renamed.sqlite").exists())
+        self.store.verify_roles()
+
+    def test_startup_completes_interrupted_main_database_rename(self):
+        import json
+        self.store.initialize(self.data(1))
+        self.store.disable_role("core")
+        current = self.store.load()
+        candidate = json.loads(_canonical_json(current))
+        candidate["generation"] += 1
+        candidate["roles"][0]["state"] = "renaming"
+        candidate["roles"][0]["pendingDatabaseBasename"] = "core-recovered.sqlite"
+        self.store.commit(_canonical_json(candidate))
+        parent_fd = os.open(self.role_parent,
+                            os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW)
+        try:
+            _renameat2_noreplace(parent_fd, "core.sqlite", parent_fd, "core-recovered.sqlite")
+            os.fsync(parent_fd)
+        finally:
+            os.close(parent_fd)
+        recovered = self.store.reconcile_main_lifecycle()
+        role = recovered["roles"][0]
+        self.assertEqual(role["state"], "disabled")
+        self.assertEqual(role["databaseBasename"], "core-recovered.sqlite")
+        self.assertNotIn("pendingDatabaseBasename", role)
+        self.assertTrue((self.role_parent / "core-recovered.sqlite").exists())
+
+    def test_startup_completes_interrupted_main_database_delete(self):
+        import json
+        self.store.initialize(self.data(1))
+        self.store.disable_role("core")
+        current = self.store.load()
+        candidate = json.loads(_canonical_json(current))
+        candidate["generation"] += 1
+        candidate["roles"][0]["state"] = "deleting"
+        self.store.commit(_canonical_json(candidate))
+        recovered = self.store.reconcile_main_lifecycle()
+        self.assertEqual(recovered["roles"][0]["state"], "deleted")
+        self.assertFalse(self.database.exists())
+
+    def test_startup_finishes_main_delete_after_quarantine_rename(self):
+        import json
+        self.store.initialize(self.data(1))
+        self.store.disable_role("core")
+        current = self.store.load()
+        candidate = json.loads(_canonical_json(current))
+        candidate["generation"] += 1
+        candidate["roles"][0]["state"] = "deleting"
+        self.store.commit(_canonical_json(candidate))
+        parent_fd = os.open(self.role_parent,
+                            os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW)
+        quarantine_fd = -1
+        try:
+            os.mkdir(".logic-engine-vfs-quarantine", 0o700, dir_fd=parent_fd)
+            quarantine_fd = os.open(".logic-engine-vfs-quarantine",
+                                    os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW,
+                                    dir_fd=parent_fd)
+            _renameat2_noreplace(parent_fd, "core.sqlite", quarantine_fd, "entry-crash")
+            os.fsync(quarantine_fd)
+            os.fsync(parent_fd)
+        finally:
+            if quarantine_fd >= 0:
+                os.close(quarantine_fd)
+            os.close(parent_fd)
+        recovered = self.store.reconcile_main_lifecycle()
+        self.assertEqual(recovered["roles"][0]["state"], "deleted")
+        self.assertFalse(self.database.exists())
+        self.assertFalse((self.role_parent / ".logic-engine-vfs-quarantine" / "entry-crash").exists())
 
     def test_broker_first_enrollment_creates_and_commits_main_role(self):
         import json
