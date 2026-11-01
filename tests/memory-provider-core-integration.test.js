@@ -183,6 +183,55 @@ test('real provider revocation during candidate B authorization excludes previou
   assert.deepEqual(result.candidates.map((candidate) => candidate.record_ref), ['memory:record-b']);
   assert.equal(JSON.stringify(result).includes('visible source-a'), false);
 });
+test('record revoke after retrieval but before first authorization is non-ready, never ready-empty', async (t) => {
+  const s = setup(t);
+  assert.equal((await s.prepare()).status, 'current');
+  const raceProvider = {
+    authorizeQuery: (...args) => s.provider.authorizeQuery(...args),
+    retrieveCandidates: async (...args) => {
+      const result = await s.provider.retrieveCandidates(...args);
+      s.provider.revokeRecord(s.scope, 'memory:record-a', 'record-v1');
+      return result;
+    },
+    authorizeCandidate: (...args) => s.provider.authorizeCandidate(...args),
+  };
+  const consumer = s.createConsumer(raceProvider);
+  const result = await consumer.retrieveForNpc({
+    worldId: s.scope.world_id,
+    actorEntityId: s.scope.subject_id,
+    conversationId: HOST_CONVERSATION_ID,
+  });
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'memory_record_access_revoked');
+  assert.deepEqual(result.candidates, []);
+  assert.deepEqual(result.admitted, []);
+});
+
+test('record revoke and re-grant after retrieval invalidates the captured authorization generation', async (t) => {
+  const s = setup(t);
+  assert.equal((await s.prepare()).status, 'current');
+  const raceProvider = {
+    authorizeQuery: (...args) => s.provider.authorizeQuery(...args),
+    retrieveCandidates: async (...args) => {
+      const result = await s.provider.retrieveCandidates(...args);
+      s.provider.revokeRecord(s.scope, 'memory:record-a', 'record-v1');
+      s.provider.grantRecord(s.scope, 'memory:record-a', 'record-v1', true);
+      return result;
+    },
+    authorizeCandidate: (...args) => s.provider.authorizeCandidate(...args),
+  };
+  const consumer = s.createConsumer(raceProvider);
+  const result = await consumer.retrieveForNpc({
+    worldId: s.scope.world_id,
+    actorEntityId: s.scope.subject_id,
+    conversationId: HOST_CONVERSATION_ID,
+  });
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'memory_authorization_changed');
+  assert.deepEqual(result.candidates, []);
+  assert.deepEqual(result.admitted, []);
+});
+
 test('real Provider record revoke after Core source retrieval blocks disclosure', async (t) => {
   const s = setup(t);
   assert.equal((await s.prepare()).status, 'current');
