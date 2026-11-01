@@ -121,7 +121,7 @@ Enrollment explicitly reports pre-enrollment history as `UNKNOWN_UNRECOVERABLE`;
 
 PR #800 carries the bounded pinned-ST current-file inventory and persisted logical message/swipe identity parser. The Host session endpoint is server-generated inside the authenticated signed cookie session and is bound to the account handle; it is a login-session identity, not installation attestation. PR #799 adds a separate Core reconciliation transport candidate and checks that the ST proxy's session UUID prefixes the conversation ID. None of these candidates adds a final-send Gateway, complete mutation coverage, deleted/pre-enrollment history, import/export/copy/restore lineage, durable installation identity, or production Core/Provider readiness.
 
-The current inventory uses file handles for bounded reads but pathname-based directory enumeration and a second path scan. It is not an atomic filesystem snapshot. The route's build SHA is an operator-supplied deployment assertion, not runtime source attestation.
+The inventory uses bounded file-handle reads. On Windows, the full-root regular-file inventory and pinned ST chat/source parser run against one shared read-only VSS point-in-time snapshot after reparse-point rejection; on non-Windows, the inventory uses independent stable double scans. The route's build SHA is an operator-supplied deployment assertion, not runtime source attestation, and neither scan mode supplies the deployment-owned accepted-root authority required for production readiness.
 
 **Disposition: HOST_SOURCE_ROUTE_IDENTIFIED; HOST_INVENTORY_NON_READY; FINAL_SEND_GATE_NOT_WIRED.** Do not enable production Memory → NPC.
 
