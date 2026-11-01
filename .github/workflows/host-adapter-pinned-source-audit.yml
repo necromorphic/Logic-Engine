@@ -67,9 +67,14 @@ jobs:
           Get-ChildItem Sillytavern/plugins/logic-engine-extension-gateway/*.mjs | ForEach-Object { node --check $_.FullName }
           node --check Sillytavern/public/scripts/extensions/third-party/logic-engine-extension-gateway/index.js
           node --check Sillytavern/public/scripts/extensions/third-party/logic-engine-extension-gateway/host-context.mjs
-          $files = @('public/script.js', 'public/scripts/bookmarks.js', 'public/scripts/group-chats.js', 'public/scripts/chat-backups.js', 'public/scripts/slash-commands.js', 'src/server-main.js', 'src/endpoints/backends/chat-completions.js', 'src/endpoints/chats.js', 'src/endpoints/groups.js', 'src/endpoints/characters.js', 'src/endpoints/backups.js')
+          $files = @('public/script.js', 'public/scripts/bookmarks.js', 'public/scripts/group-chats.js', 'public/scripts/chat-backups.js', 'public/scripts/slash-commands.js', 'src/server-main.js', 'src/endpoints/backends/chat-completions.js', 'src/endpoints/chats.js', 'src/endpoints/groups.js', 'src/endpoints/characters.js', 'src/endpoints/backups.js', 'src/endpoints/logic-engine-host-inventory-handler.mjs')
           foreach ($file in $files) { node --check (Join-Path Sillytavern $file) }
       - name: Run Host lifecycle and identity acceptance tests
         shell: pwsh
+        env:
+          SILLYTAVERN_DIR: Sillytavern
+          SILLYTAVERN_SOURCE_ROOT: Sillytavern
+          LOGIC_ENGINE_RUN_ST_LIFECYCLE_HARNESS: '1'
         run: |
           node --test host-adapter/extension-gateway/tests/*.test.mjs host-adapter/prototype/tests/lifecycle-acceptance-scenarios.test.mjs host-adapter/prototype/tests/pinned-st-source-audit.test.mjs host-adapter/prototype/tests/st-host-inventory-handler.test.mjs host-adapter/prototype/tests/st-server-digest-proxy.test.mjs src/application/host-session-context.test.js
+          node --test experiments/host-adapter-runtime-harness/lifecycle-file-operations.test.mjs
