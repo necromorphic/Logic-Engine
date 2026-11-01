@@ -25,6 +25,12 @@ const runPinnedSTHarness = process.env.LOGIC_ENGINE_RUN_ST_LIFECYCLE_HARNESS ===
 let express;
 let chatsRouter;
 let backupsRouter;
+let groupsRouter;
+let charactersRouter;
+let dataMaidRouter;
+let settingsRouter;
+let usersPrivateRouter;
+let usersAdminRouter;
 if (runPinnedSTHarness) {
   const requireFromST = createRequire(resolve(stRoot, 'package.json'));
   express = requireFromST('express');
@@ -32,6 +38,12 @@ if (runPinnedSTHarness) {
   stUtil.setConfigFilePath(resolve(stRoot, 'default/config.yaml'));
   ({ router: chatsRouter } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/chats.js')).href));
   ({ router: backupsRouter } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/backups.js')).href));
+  ({ router: groupsRouter } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/groups.js')).href));
+  ({ router: charactersRouter } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/characters.js')).href));
+  ({ router: dataMaidRouter } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/data-maid.js')).href));
+  ({ router: settingsRouter } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/settings.js')).href));
+  ({ router: usersPrivateRouter } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/users-private.js')).href));
+  ({ router: usersAdminRouter } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/users-admin.js')).href));
   const pluginRoot = resolve(stRoot, 'plugins/logic-engine-extension-gateway');
   const [inventoryHandlers, digestProxy, identityStoreModule, receiptStoreModule, hostInventoryModule, filesystemModule] = await Promise.all([
     import(pathToFileURL(join(pluginRoot, 'st-host-inventory-handler.mjs')).href),
@@ -152,7 +164,7 @@ test('pinned ST 1.19.0 supported chat mutations persist; chat deletion, rename, 
   const app = express();
   app.use(express.json({ limit: '5mb' }));
   app.use((request, _response, next) => {
-    request.user = { profile: { handle: hostHandle }, directories };
+    request.user = { profile: { handle: hostHandle, admin: true }, directories };
     request.session = hostSession;
     const uploadName = request.headers['x-harness-upload'];
     if (typeof uploadName === 'string' && uploadName && !uploadName.includes('..') && !uploadName.includes('/') && !uploadName.includes('\\')) {
@@ -162,6 +174,12 @@ test('pinned ST 1.19.0 supported chat mutations persist; chat deletion, rename, 
   });
   app.use('/api/chats', chatsRouter);
   app.use('/api/backups', backupsRouter);
+  app.use('/api/groups', groupsRouter);
+  app.use('/api/characters', charactersRouter);
+  app.use('/api/data-maid', dataMaidRouter);
+  app.use('/api/settings', settingsRouter);
+  app.use('/api/users-private', usersPrivateRouter);
+  app.use('/api/users-admin', usersAdminRouter);
   const server = app.listen(0, '127.0.0.1');
   await once(server, 'listening');
   const address = server.address();
@@ -748,4 +766,27 @@ test('pinned ST 1.19.0 supported chat mutations persist; chat deletion, rename, 
     assert.equal((await readFile(chatPath, 'utf8')).length > 0, true);
     return response;
   }, 'unchanged');
+
+  for (const [route, body] of [
+    ['/api/groups/create', {}],
+    ['/api/groups/edit', {}],
+    ['/api/groups/delete', {}],
+    ['/api/characters/delete', {}],
+    ['/api/backups/chat/delete', { name: backupName }],
+    ['/api/data-maid/delete', {}],
+    ['/api/settings/restore-snapshot', { name: 'settings-backup.json' }],
+    ['/api/users-private/reset-settings', {}],
+  ]) {
+    const response = await post(route, body);
+    assert.equal(response.status, 409, `${route}: ${JSON.stringify(response.result)}`);
+    assert.equal(response.result.code, 'HOST_LIFECYCLE_BULK_MUTATION_BLOCKED');
+  }
+
+  const rootReset = await post('/api/users-private/reset-step2', { code: 'unused' });
+  assert.equal(rootReset.status, 503);
+  assert.equal(rootReset.result.error.code, 'HOST_USER_ROOT_RESET_UNSUPPORTED');
+
+  const accountDelete = await post('/api/users-admin/delete', { handle: 'other-account', purge: true });
+  assert.equal(accountDelete.status, 503);
+  assert.equal(accountDelete.result.error.code, 'HOST_USER_ACCOUNT_DELETE_UNSUPPORTED');
 });
