@@ -752,3 +752,123 @@ diff --git a/src/endpoints/groups.js b/src/endpoints/groups.js
 @@ -203,1 +208,1 @@
 -router.post('/delete', getFileNameValidationFunction('id'), async (request, response) => {
 +router.post('/delete', hostBulkMutationGuard, getFileNameValidationFunction('id'), async (request, response) => {
+diff --git a/src/endpoints/characters.js b/src/endpoints/characters.js
+--- a/src/endpoints/characters.js
++++ b/src/endpoints/characters.js
+@@ -27,3 +27,6 @@
+ import cacheBuster from '../middleware/cacheBuster.js';
+ 
++import { createHostBulkMutationGuard } from './logic-engine-host-inventory-handler.mjs';
++const hostBulkMutationGuard = createHostBulkMutationGuard({ pinnedHostCommit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127' });
++
+ // With 100 MB limit it would take roughly 3000 characters to reach this limit
+@@ -1024,1 +1027,1 @@
+-router.post('/create', getFileNameValidationFunction('file_name'), async function (request, response) {
++router.post('/create', hostBulkMutationGuard, getFileNameValidationFunction('file_name'), async function (request, response) {
+@@ -1053,1 +1057,1 @@
+-router.post('/rename', validateAvatarUrlMiddleware, async function (request, response) {
++router.post('/rename', hostBulkMutationGuard, validateAvatarUrlMiddleware, async function (request, response) {
+@@ -1101,1 +1106,1 @@
+-router.post('/edit', validateAvatarUrlMiddleware, async function (request, response) {
++router.post('/edit', hostBulkMutationGuard, validateAvatarUrlMiddleware, async function (request, response) {
+@@ -1142,1 +1148,1 @@
+-router.post('/edit-avatar', validateAvatarUrlMiddleware, async function (request, response) {
++router.post('/edit-avatar', hostBulkMutationGuard, validateAvatarUrlMiddleware, async function (request, response) {
+@@ -1193,1 +1200,1 @@
+-router.post('/edit-attribute', validateAvatarUrlMiddleware, async function (request, response) {
++router.post('/edit-attribute', hostBulkMutationGuard, validateAvatarUrlMiddleware, async function (request, response) {
+@@ -1328,1 +1336,1 @@
+-router.post('/merge-attributes', getFileNameValidationFunction('avatar'), async function (request, response) {
++router.post('/merge-attributes', hostBulkMutationGuard, getFileNameValidationFunction('avatar'), async function (request, response) {
+@@ -1416,1 +1425,1 @@
+-router.post('/delete', validateAvatarUrlMiddleware, async function (request, response) {
++router.post('/delete', hostBulkMutationGuard, validateAvatarUrlMiddleware, async function (request, response) {
+@@ -1560,1 +1570,1 @@
+-router.post('/import', async function (request, response) {
++router.post('/import', hostBulkMutationGuard, async function (request, response) {
+@@ -1601,1 +1612,1 @@
+-router.post('/duplicate', validateAvatarUrlMiddleware, async function (request, response) {
++router.post('/duplicate', hostBulkMutationGuard, validateAvatarUrlMiddleware, async function (request, response) {
+diff --git a/src/endpoints/backups.js b/src/endpoints/backups.js
+--- a/src/endpoints/backups.js
++++ b/src/endpoints/backups.js
+@@ -3,3 +3,6 @@
+ import path from 'node:path';
+ import sanitize from 'sanitize-filename';
+ import { CHAT_BACKUPS_PREFIX, getChatInfo } from './chats.js';
++import { createHostBulkMutationGuard } from './logic-engine-host-inventory-handler.mjs';
++const hostBulkMutationGuard = createHostBulkMutationGuard({ pinnedHostCommit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127' });
++
+@@ -32,1 +35,1 @@
+-router.post('/chat/delete', async (request, response) => {
++router.post('/chat/delete', hostBulkMutationGuard, async (request, response) => {
+
+diff --git a/src/endpoints/logic-engine-host-inventory-handler.mjs b/src/endpoints/logic-engine-host-inventory-handler.mjs
+new file mode 100644
+--- /dev/null
++++ b/src/endpoints/logic-engine-host-inventory-handler.mjs
+@@ -0,0 +1,4 @@
++export {
++    createHostBulkMutationGuard,
++    createHostLifecycleSaveGuard,
++} from '../../plugins/logic-engine-extension-gateway/st-host-inventory-handler.mjs';
+
+diff --git a/src/endpoints/data-maid.js b/src/endpoints/data-maid.js
+--- a/src/endpoints/data-maid.js
++++ b/src/endpoints/data-maid.js
+@@ -8,2 +8,5 @@
+ import { isPathUnderParent, tryParse } from '../util.js';
+ import { SETTINGS_FILE } from '../constants.js';
++import { createHostBulkMutationGuard } from './logic-engine-host-inventory-handler.mjs';
++const hostBulkMutationGuard = createHostBulkMutationGuard({ pinnedHostCommit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127' });
++
+@@ -770,1 +773,1 @@
+-router.post('/delete', async (req, res) => {
++router.post('/delete', hostBulkMutationGuard, async (req, res) => {
+
+diff --git a/src/endpoints/settings.js b/src/endpoints/settings.js
+--- a/src/endpoints/settings.js
++++ b/src/endpoints/settings.js
+@@ -12,2 +12,5 @@
+ import { getAllUserHandles, getUserDirectories } from '../users.js';
+ import { getFileNameValidationFunction } from '../middleware/validateFileName.js';
++import { createHostBulkMutationGuard } from './logic-engine-host-inventory-handler.mjs';
++const hostBulkMutationGuard = createHostBulkMutationGuard({ pinnedHostCommit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127' });
++
+@@ -350,1 +353,1 @@
+-router.post('/restore-snapshot', getFileNameValidationFunction('name'), async (request, response) => {
++router.post('/restore-snapshot', hostBulkMutationGuard, getFileNameValidationFunction('name'), async (request, response) => {
+
+diff --git a/src/endpoints/users-private.js b/src/endpoints/users-private.js
+--- a/src/endpoints/users-private.js
++++ b/src/endpoints/users-private.js
+@@ -12,2 +12,5 @@
+ import { color, Cache, getConfigValue } from '../util.js';
+ import { getIpAddress, retryAfter } from '../express-common.js';
++import { createHostBulkMutationGuard } from './logic-engine-host-inventory-handler.mjs';
++const hostBulkMutationGuard = createHostBulkMutationGuard({ pinnedHostCommit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127' });
++
+@@ -184,1 +187,1 @@
+-router.post('/reset-settings', async (request, response) => {
++router.post('/reset-settings', hostBulkMutationGuard, async (request, response) => {
+@@ -261,1 +264,6 @@
+-router.post('/reset-step2', async (request, response) => {
++router.post('/reset-step2', (request, response, next) => {
++    if (process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR) {
++        return response.status(503).json({ error: { code: 'HOST_USER_ROOT_RESET_UNSUPPORTED' } });
++    }
++    return next();
++}, async (request, response) => {
+
+diff --git a/src/endpoints/users-admin.js b/src/endpoints/users-admin.js
+--- a/src/endpoints/users-admin.js
++++ b/src/endpoints/users-admin.js
+@@ -219,1 +219,6 @@
+-router.post('/delete', requireAdminMiddleware, async (request, response) => {
++router.post('/delete', requireAdminMiddleware, (request, response, next) => {
++    if (process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR) {
++        return response.status(503).json({ error: { code: 'HOST_USER_ACCOUNT_DELETE_UNSUPPORTED' } });
++    }
++    return next();
++}, async (request, response) => {
+
