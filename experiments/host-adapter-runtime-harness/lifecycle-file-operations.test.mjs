@@ -454,7 +454,7 @@ test('pinned ST 1.19.0 supported chat mutations persist; rename, group deletion,
       ],
       activeVersionIndex: 1,
     },
-  }];
+  }, sentUser, receivedAssistant];
   const swipeReceiptScope = await beginLifecycleMutation('create-swipe');
   const swipe = await observe(async () => {
     const response = await post('/api/chats/save', {
