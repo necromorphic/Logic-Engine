@@ -228,4 +228,11 @@ test('destructive and import UI entry points invoke target-aware fail-closed Hos
   assertBefore('export async function importCharacterChat(formData,', 'guardBulkMutation', "fetch('/api/chats/import'");
   assertBefore('export async function importGroupChat(formData,', 'guardBulkMutation', "fetch('/api/chats/group/import'");
   assertBefore('async restoreBackup(name)', 'guardBulkMutation', "fetch('/api/backups/chat/download'");
+  assert.ok(patch.includes("guardExport: async () =>"));
+  const exportEntry = patch.indexOf("$(document).on('click', '.exportChatButton, .exportRawChatButton'");
+  assert.ok(exportEntry >= 0, 'missing chat export entry point');
+  const exportChunk = patch.slice(exportEntry, exportEntry + 700);
+  assert.ok(exportChunk.indexOf('guardExport?.()') >= 0
+    && exportChunk.indexOf('guardExport?.()') < exportChunk.indexOf('await saveChatConditional();'),
+  'enrolled chat export must verify persisted state before its save');
 });
