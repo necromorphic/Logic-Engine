@@ -47,8 +47,8 @@ jobs:
       - name: Apply pinned lifecycle hooks through Extension Gateway
         run: |
           patch="$GITHUB_WORKSPACE/host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch"
-          git -C sillytavern-host-checkout apply --check "$patch"
-          git -C sillytavern-host-checkout apply "$patch"
+          git -C sillytavern-host-checkout apply --unidiff-zero --check "$patch"
+          git -C sillytavern-host-checkout apply --unidiff-zero "$patch"
           git -C sillytavern-host-checkout diff --check
           test ! -e sillytavern-host-checkout/src/endpoints/logic-engine-lifecycle.js
           ! grep -R -n -E '/api/logic-engine|logic-engine-lifecycle.js' \
