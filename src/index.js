@@ -114,6 +114,15 @@ const npcKnowledgeAuthorizers = createHostBoundNpcKnowledgeAuthorizers({
   adapterIds: Object.keys(adapterTokens),
   trustedInitialKnowledgeSources,
 });
+const hostVersionLedgerPath = process.env.ENGINE_HOST_VERSION_LEDGER_DB_PATH
+  ? resolve(process.env.ENGINE_HOST_VERSION_LEDGER_DB_PATH)
+  : resolve('./data/logic-engine-host-versions.sqlite');
+if (dbPath !== ':memory:' && aliasesSameFile(hostVersionLedgerPath, dbPath)) {
+  throw new Error('ENGINE_HOST_VERSION_LEDGER_DB_PATH must be separate from ENGINE_DB_PATH, including filesystem aliases.');
+}
+if (aliasesSameFile(hostVersionLedgerPath, coordinatorPath)) {
+  throw new Error('ENGINE_HOST_VERSION_LEDGER_DB_PATH must be separate from LOGIC_ENGINE_COORDINATOR_DB_PATH, including filesystem aliases.');
+}
 const assertionNoncePath = process.env.ENGINE_HOST_ASSERTION_NONCE_DB_PATH
   ? resolve(process.env.ENGINE_HOST_ASSERTION_NONCE_DB_PATH)
   : resolve('./data/logic-engine-host-assertion-nonces.sqlite');
@@ -130,15 +139,6 @@ const hostAssertionNonceStore = new HostAssertionNonceStore({
   coreDatabasePath,
   coordinatorPath,
 });
-const hostVersionLedgerPath = process.env.ENGINE_HOST_VERSION_LEDGER_DB_PATH
-  ? resolve(process.env.ENGINE_HOST_VERSION_LEDGER_DB_PATH)
-  : resolve('./data/logic-engine-host-versions.sqlite');
-if (dbPath !== ':memory:' && aliasesSameFile(hostVersionLedgerPath, dbPath)) {
-  throw new Error('ENGINE_HOST_VERSION_LEDGER_DB_PATH must be separate from ENGINE_DB_PATH, including filesystem aliases.');
-}
-if (aliasesSameFile(hostVersionLedgerPath, coordinatorPath)) {
-  throw new Error('ENGINE_HOST_VERSION_LEDGER_DB_PATH must be separate from LOGIC_ENGINE_COORDINATOR_DB_PATH, including filesystem aliases.');
-}
 // This deny-only verifier is deliberately not source authority. Until the trusted
 // Host/Core complete-inventory adapter is wired, reconciliation can never set READY.
 const hostVersionLedger = new HostVersionDigestLedger({
