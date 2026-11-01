@@ -24,10 +24,10 @@ export function createLogicEnginePlugin({
 
     function requireSession(req, res) {
         // SillyTavern mounts server plugins after requireLoginMiddleware.
-        // Still fail closed if the expected authenticated user context is absent.
+        // Still fail closed if the expected server-resolved user context is absent.
         const handle = req?.user?.profile?.handle;
         if (typeof handle !== 'string' || !handle.trim()) {
-            res.status(403).json({ error: { code: 'ST_SESSION_REQUIRED' } });
+            res.status(403).json({ error: { code: 'ST_USER_CONTEXT_REQUIRED' } });
             return null;
         }
         return handle;
@@ -44,7 +44,7 @@ export function createLogicEnginePlugin({
                     .update(installationScope + '\0' + handle, 'utf8')
                     .digest('hex');
                 return res.set('Cache-Control', 'no-store').json({
-                    authenticated: true,
+                    host_context_valid: true,
                     subject_id: subjectId,
                     adapter: 'sillytavern-server-plugin',
                     protocol_version: 'v1',
