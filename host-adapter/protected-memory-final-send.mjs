@@ -57,6 +57,7 @@ export function createProtectedMemoryFinalSend({ gateway, resolveProtectedMemory
     forwardResponse,
     transport: transportImpl,
     protectedMemoryOverride,
+    hostTransformsStream = false,
   }) {
     assertRequest(endpointUrl, requestInit);
 
@@ -80,7 +81,8 @@ export function createProtectedMemoryFinalSend({ gateway, resolveProtectedMemory
 
     if (!validRoute(senderRoute)) throw new Error('MEMORY_DISPATCH_NOT_READY');
     assertProtectedContext(protectedMemory);
-    if (typeof stream !== 'boolean' || stream && typeof forwardResponse !== 'function') {
+    if (typeof stream !== 'boolean' || typeof hostTransformsStream !== 'boolean'
+      || stream && !hostTransformsStream && typeof forwardResponse !== 'function') {
       throw new Error('MEMORY_DISPATCH_NOT_READY');
     }
 
@@ -106,6 +108,7 @@ export function createProtectedMemoryFinalSend({ gateway, resolveProtectedMemory
       body: exactBody,
       transport,
       forwardResponse,
+      hostTransformsStream,
       signal: controllerSignal,
     });
   };
