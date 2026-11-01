@@ -1,15 +1,16 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 
 /**
- * Bridge for SillyTavern's single /generate handler.
+ * Experimental Logic-Engine-side model of the desired SillyTavern generation
+ * boundary. This module is NOT an approved SillyTavern integration mechanism.
  *
- * Import the provider's node-fetch binding as nativeFetch, replace local fetch
- * with bridge.fetch, alias the existing forwardFetchResponse import to
- * nativeForwardFetchResponse, and wrap the /generate handler body with
- * bridge.run(request, response, async () => { ... }).
+ * Do not install it by editing SillyTavern imports, replacing its fetch binding,
+ * or wrapping its native /generate handler. Those steps modify Host source and
+ * are prohibited for this project. The supplied ST 1.19.0 Extension Manager and
+ * server-plugin APIs do not expose the required native final-send hook.
  *
- * This places every dedicated and generic sender's final fetch behind one
- * boundary without touching non-generation model-discovery fetches.
+ * Retained for isolated contract tests only. Its existence does not protect
+ * any native SillyTavern route until a supported non-invasive Host hook exists.
  */
 export function createSillyTavernGenerationBridge({
   finalSend,
