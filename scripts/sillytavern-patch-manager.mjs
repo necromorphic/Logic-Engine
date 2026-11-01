@@ -315,7 +315,7 @@ export class SillyTavernPatchManager {
   async rollbackUnlocked() {
     const state = await this.readState();
     if (!state) return { status: 'NOT_INSTALLED' };
-    if (state.status !== 'INSTALLED' || state.patchSha256 !== this.manifest.patch.sha256) {
+    if (state.status !== 'INSTALLED' || !/^[a-f0-9]{64}$/.test(state.patchSha256 ?? '')) {
       throw new Error('PATCH_STATE_UNRECOGNIZED');
     }
     const journal = {
