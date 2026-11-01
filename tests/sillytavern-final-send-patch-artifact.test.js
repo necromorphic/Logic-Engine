@@ -46,3 +46,8 @@ test('Logic-Engine Extension manifest opts into the server-side Patch Manager li
   assert.equal(extensionManifest.logic_engine_patch_manager.id, manifest.id);
   assert.equal(extensionManifest.logic_engine_patch_manager.manifestVersion, 1);
 });
+
+test('patch manifest pins both server-side lifecycle Hook modules', () => {
+  assert.match(manifest.createdFiles['src/logic-engine-final-send-hook.js'], /^[a-f0-9]{64}$/);
+  assert.match(manifest.createdFiles['src/logic-engine-extension-install-hook.js'], /^[a-f0-9]{64}$/);
+});
