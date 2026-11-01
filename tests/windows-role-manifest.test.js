@@ -122,3 +122,17 @@ test('Windows manifest enrollment rejects parent/database/active-sidecar identit
     fakeDatabase(), futureGeneration, 'core', 'C:\\LogicEngine\\data\\core.sqlite'
   ), /transitional or invalid sidecar/);
 });
+
+test('Windows manifest enrollment permits distinct roles to share a trusted parent directory', () => {
+  const sharedParent = manifest();
+  sharedParent.roles.push({
+    ...structuredClone(sharedParent.roles[0]),
+    role: 'vectors',
+    databaseBasename: 'vectors.sqlite',
+    databaseIdentity: identity('00000000000000A1', '66666666666666666666666666666666'),
+    sidecars: [],
+  });
+  assert.equal(registerWindowsManifestRole(
+    fakeDatabase(), sharedParent, 'vectors', 'C:\\LogicEngine\\data\\vectors.sqlite'
+  ), 1);
+});
