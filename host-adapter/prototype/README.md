@@ -180,3 +180,12 @@ The authenticated Host routes now support both ST account modes. In accounts-ena
 This check is valid only when the route is mounted after SillyTavern's `requireLoginMiddleware` in the pinned server pipeline. It is not a generic middleware substitute and does not make a fabricated request object trustworthy. The route response remains a non-authoritative inventory candidate; it does not establish installation attestation, complete lifecycle coverage, Core world/actor authorization, or production disclosure readiness.
 
 Regression coverage: `host-adapter/prototype/tests/st-default-user-session.test.mjs`.
+
+
+### In-process Core authentication capability
+
+`createHostRequestAuthenticationGate()` now provides the two callbacks required by `createMemoryNpcProviderAdapter`: `isAuthenticatedHostRequest` and `resolveHostConversationId`. The gate brands the exact Express request object in a private `WeakMap` only after the authenticated ST session has a valid Host session UUID and a deployment-owned resolver has matched the conversation to trusted server-side Host state. A copied request-shaped object cannot inherit the capability. The resolved conversation must be in the signed session's namespace.
+
+Mount `gate.middleware` only after ST's `requireLoginMiddleware`, and use the returned callbacks directly in the in-process Core adapter composition. The resolver is a required deployment-owned function: it must validate the requested conversation against canonical Host inventory and must never echo an unverified body/header/query value. This helper does not itself implement that inventory lookup or start a Core instance. It is not a network authentication protocol; the request object and WeakMap capability are process-local.
+
+Regression coverage: `host-adapter/prototype/tests/st-host-request-authentication-gate.test.mjs`.
