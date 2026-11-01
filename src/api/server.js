@@ -56,18 +56,8 @@ function send(res, status, data) {
   res.end(body);
 }
 
-export function createApiServer({ engine, token, internalToken = null, approvalToken = null, adminToken = null, adapterTokens = {}, authorizedReadFieldPolicy = null, mechanicPolicyAuthority = null, getActiveMechanicContextProvider = () => null, hostVersionLedger = null, allowedOrigins = [] }) {
+export function createApiServer({ engine, token, internalToken = null, approvalToken = null, adminToken = null, adapterTokens = {}, authorizedReadFieldPolicy = null, mechanicPolicyAuthority = null, getActiveMechanicContextProvider = () => null, hostVersionLedger = null }) {
   if (!engine) throw new TypeError('engine required');
-  if (!Array.isArray(allowedOrigins) || allowedOrigins.some((origin) => {
-    if (typeof origin !== 'string' || origin !== origin.trim()) return true;
-    try {
-      const parsed = new URL(origin);
-      return !['http:', 'https:'].includes(parsed.protocol) || parsed.origin !== origin;
-    } catch { return true; }
-  })) {
-    throw new TypeError('allowedOrigins must contain exact HTTP(S) origins without paths or wildcards');
-  }
-  const corsOrigins = new Set(allowedOrigins);
   if (typeof token !== 'string' || token.length < 16) throw new TypeError('API token must be at least 16 characters');
   if (internalToken !== null && (typeof internalToken !== 'string' || internalToken.length < 16 || internalToken === token)) {
     throw new TypeError('Internal token must be at least 16 characters and differ from API token');
@@ -113,19 +103,6 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
 
   return createServer(async (req, res) => {
     try {
-      const origin = req.headers.origin;
-      if (typeof origin === 'string' && corsOrigins.has(origin)) {
-        res.setHeader('access-control-allow-origin', origin);
-        res.setHeader('vary', 'Origin');
-        res.setHeader('access-control-allow-methods', 'GET, POST, DELETE, OPTIONS');
-        res.setHeader('access-control-allow-headers', 'Authorization, Content-Type, X-Adapter-Id, X-Adapter-Token, X-Admin-Token, X-Approval-Token, X-Engine-Internal-Token');
-        res.setHeader('access-control-max-age', '600');
-      }
-      if (req.method === 'OPTIONS') {
-        if (typeof origin !== 'string' || !corsOrigins.has(origin)) return send(res, 403, { error: { code: 'CORS_ORIGIN_DENIED', message: 'Origin is not allowlisted.' } });
-        res.writeHead(204, { 'cache-control': 'no-store' });
-        return res.end();
-      }
       const url = new URL(req.url || '/', 'http://127.0.0.1');
       if (req.method === 'GET' && url.pathname === '/health') return send(res, 200, { ok: true, service: 'logic-engine', protocol_version: 'v1' });
       const authorization = req.headers.authorization;
