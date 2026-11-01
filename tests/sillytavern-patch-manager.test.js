@@ -104,6 +104,17 @@ test('read-only deployment inspection refuses an ambiguous transaction journal',
   assert.equal((await manager.inspectInstalledReadOnly()).status, 'AMBIGUOUS_TRANSACTION');
 });
 
+test('rollback accepts canonical backup bytes from a CRLF Windows checkout', async (t) => {
+  const { manager, stRoot } = await fixture(t);
+  await manager.execute('install');
+  const statePath = join(stRoot, '.logic-engine-patch-manager', 'state.json');
+  const state = JSON.parse(await readFile(statePath, 'utf8'));
+  const backupPath = join(stRoot, '.logic-engine-patch-manager', state.backups['src/host.js'].backupPath);
+  const originalBackup = await readFile(backupPath, 'utf8');
+  await writeFile(backupPath, originalBackup.replace(/\\n/g, '\\r\\n'));
+  assert.equal((await manager.execute('uninstall')).status, 'ROLLED_BACK');
+});
+
 test('Patch Manager refuses user edits and preserves the conflicting file on rollback', async (t) => {
   const { manager, stRoot } = await fixture(t);
   await manager.execute('install');
