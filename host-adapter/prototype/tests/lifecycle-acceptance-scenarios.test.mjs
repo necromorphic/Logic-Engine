@@ -190,3 +190,19 @@ test('destructive and import UI entry points invoke target-aware fail-closed Hos
   assertBefore('export async function importGroupChat(formData,', 'guardBulkMutation', "fetch('/api/chats/group/import'");
   assertBefore('async restoreBackup(name)', 'guardBulkMutation', "fetch('/api/backups/chat/download'");
 });
+
+
+test('pinned browser bridge uses standalone authenticated server-plugin routes with ST CSRF protection', async () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const patch = await readFile(resolve(here, '../patches/sillytavern-1.19.0-lifecycle-hooks.patch'), 'utf8');
+  for (const route of [
+    '/api/plugins/logic-engine-host/session',
+    '/api/plugins/logic-engine-host/inventory',
+    '/api/plugins/logic-engine-host/host-version-ledger/reconcile',
+  ]) {
+    assert.ok(patch.includes(route), 'browser bridge must use installed server-plugin route ' + route);
+  }
+  assert.ok(patch.includes("'X-CSRF-Token': token"), 'POST reconciliation must carry SillyTavern CSRF token');
+  assert.ok(patch.includes("credentials: 'same-origin'"), 'Host routes must use same-origin cookie session');
+  assert.ok(patch.includes("cache: 'no-store'"), 'Host identity and inventory requests must not be cached');
+});
