@@ -36,13 +36,16 @@ export function createAuthenticatedHostSessionContext(
       || (session?.handle !== undefined && session.handle !== userHandle)
       || session?.logicEngineSessionHandle !== userHandle
       || typeof sessionId !== 'string' || !HOST_SESSION_UUID.test(sessionId)
-      || typeof conversationId !== 'string' || !HOST_CONVERSATION_ID.test(conversationId)
-      || !conversationId.toLowerCase().startsWith(sessionId.toLowerCase() + ':')) return null;
+      || typeof conversationId !== 'string' || !HOST_CONVERSATION_ID.test(conversationId)) return null;
+    const [installationId, accountId, conversationUuid] = conversationId.split(':');
+    if (![installationId, accountId, conversationUuid].every(value => HOST_SESSION_UUID.test(value))) return null;
 
     const bindings = resolveHostBindings(request, conversationId);
     if (!bindings || typeof bindings !== 'object' || Array.isArray(bindings)
       || !validBindingId(bindings.world_id) || !validBindingId(bindings.actor_id)) return null;
     const context = Object.freeze({
+      host_installation_id: installationId,
+      authenticated_account_id: accountId,
       host_session_id: sessionId,
       host_user_handle: userHandle,
       conversation_id: conversationId,
@@ -63,6 +66,10 @@ export function isAuthenticatedHostSessionContext(context, conversationId) {
       && contexts.has(context)
       && ['SIGNED_AUTHENTICATED_ST_SESSION', 'SIGNED_HOST_SESSION_ASSERTION'].includes(context.identity)
       && context.conversation_id === conversationId
+      && HOST_SESSION_UUID.test(context.host_installation_id ?? '')
+      && HOST_SESSION_UUID.test(context.authenticated_account_id ?? '')
+      && context.conversation_id.split(':')[0] === context.host_installation_id
+      && context.conversation_id.split(':')[1] === context.authenticated_account_id
       && validBindingId(context.world_id) && validBindingId(context.actor_id);
   } catch {
     return false;
@@ -124,7 +131,7 @@ function validHostSessionAssertion(assertion) {
       && HOST_CONVERSATION_ID.test(assertion.conversation_id)
       && validBindingId(assertion.world_id) && validBindingId(assertion.actor_id)
       && assertion.conversation_id.toLowerCase().startsWith(
-        assertion.host_session_id.toLowerCase() + ':' + assertion.host_installation_id.toLowerCase() + ':',
+        assertion.host_installation_id.toLowerCase() + ':' + assertion.authenticated_account_id.toLowerCase() + ':',
       )
       && Number.isSafeInteger(assertion.issued_at) && assertion.issued_at >= 0;
   } catch {
