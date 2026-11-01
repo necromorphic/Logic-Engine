@@ -78,3 +78,31 @@ These tests prove the Gateway module's local contract only. They do not yet prov
 - route inventory is complete for the installed ST build.
 
 Until those items pass, the Gateway block is **PARTIAL / NOT PRODUCTION READY** and protected operations remain **DENY / FAIL-CLOSED**.
+
+## Route and operation matrix
+
+| Request class | Gateway decision | Host Adapter called | Authorization owner |
+|---|---|---:|---|
+| POST /api/logic-engine/extension with valid v1 JSON envelope | Accept and route once | Yes | Core Security Gateway, via Host Adapter |
+| Same route with malformed/extra top-level fields, forged identity keys, invalid JSON, or invalid schema | 400 DENY | No | Not reached |
+| Same route with non-JSON content type | 415 DENY | No | Not reached |
+| Same route above configured 256 KiB maximum, including chunked bodies | 413 DENY | No | Not reached |
+| Unknown path or wrong method | 404 DENY | No | Not reached |
+| Valid envelope with unknown/unsupported operation name | Route as untrusted intent; no semantic approval | Yes | Host Adapter/Core must DENY |
+| Repeated request ID | Route each attempt independently | Yes | Host Adapter/Core reauthenticate and apply replay/idempotency policy |
+| Host Adapter missing, throws, or returns malformed result | 503 FAIL-CLOSED | Attempted at most once | No fallback |
+| Gateway draining/closed or diagnostic sink unavailable | 503 FAIL-CLOSED | No new dispatch | Not reached |
+| Direct browser/ST to Core, direct Provider, Memory Provider, NPC, Mechanics, or alternate connector | No route/transport exists | No | Unsupported |
+
+The Gateway's syntactic operation grammar is not an allow-list and is not an authorization decision. The Host Adapter must map only explicitly supported operations and pass every protected action through Core Security Gateway. An operation string supplied by the extension never grants capability.
+
+## Route inventory ownership
+
+The route inventory is generated from the exact managed patch package and pinned ST source. It contains one registration: POST /api/logic-engine/extension. The CI acceptance test checks that:
+- the installed server module contains one app.post(EXTENSION_GATEWAY_PATH, ...) registration;
+- the route is registered inside setupPrivateEndpoints, after requireLoginMiddleware has been installed and before native private routers;
+- the exact route is excluded from global body parsing so the Gateway can enforce its own raw-byte cap;
+- shutdown awaits Gateway drain before other server cleanup;
+- only the exact five manifest-declared paths are changed, and rollback restores a clean checkout.
+
+This proves the source-level route topology for the pinned tag. It is not a claim that arbitrary ST extensions cannot create their own unrelated HTTP endpoints; it proves only that Logic-Engine exposes one Gateway ingress and does not register an alternate Logic-Engine route.
