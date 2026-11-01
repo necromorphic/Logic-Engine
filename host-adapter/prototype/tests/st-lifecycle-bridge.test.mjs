@@ -547,9 +547,14 @@ test('unavailable bridge re-checks enrollment marker for the current chat before
   });
 
   assert.deepEqual(await bridge.beforeMutation('delete-message', [0]), { status: 'NOT_ENROLLED' });
+  assert.deepEqual(await bridge.guardExport(), { status: 'NOT_ENROLLED' });
   markers.set('logic-engine-host-lifecycle:chat-1', 'NON_READY');
   await assert.rejects(
     bridge.beforeMutation('delete-message', [0]),
+    /NON_READY: enrolled Host journal unavailable: IndexedDB unavailable/,
+  );
+  await assert.rejects(
+    bridge.guardExport(),
     /NON_READY: enrolled Host journal unavailable: IndexedDB unavailable/,
   );
 
