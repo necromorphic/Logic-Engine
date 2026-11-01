@@ -78,7 +78,7 @@ const identifiedMessage = ({ name = 'Harness User', isUser = true, mes, messageI
   _logicEngineLifecycle: identity(messageId, versionId, mes),
 });
 
-test('pinned ST 1.19.0 supported chat mutations persist; rename, bulk import and restore fail closed', {
+test('pinned ST 1.19.0 supported chat mutations persist; rename, group deletion, bulk import and restore fail closed', {
   skip: process.platform !== 'win32' || !runPinnedSTHarness,
   timeout: 600_000,
 }, async t => {
@@ -504,14 +504,13 @@ test('pinned ST 1.19.0 supported chat mutations persist; rename, bulk import and
 
   const groupDelete = await observe(async () => {
     const response = await post('/api/chats/group/delete', { id: 'group-harness' });
-    assert.equal(response.status, 200);
-    assert.equal(response.result.ok, true);
+    assert.equal(response.status, 409);
+    assert.equal(response.result.code, 'HOST_LIFECYCLE_BULK_MUTATION_BLOCKED');
     const metadata = JSON.parse(await readFile(groupMetadataPath, 'utf8'));
-    metadata.chats = metadata.chats.filter(id => id !== 'group-harness');
-    await writeFile(groupMetadataPath, JSON.stringify(metadata));
+    assert.ok(metadata.chats.includes('group-harness'));
+    assert.equal((await readFile(groupChatPath, 'utf8')).length > 0, true);
     return response;
-  }, 'removed');
-  assert.ok(groupDelete.result.delta.removed.some(entry => entry.path.endsWith('group-harness.jsonl')));
+  }, 'unchanged');
 
   const sessionIdentity = await get('/api/logic-engine/host/session');
   assert.equal(sessionIdentity.status, 200);
