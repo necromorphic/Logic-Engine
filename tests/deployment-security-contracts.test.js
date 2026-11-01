@@ -15,6 +15,7 @@ import {
   buildDeploymentReport,
 } from '../src/deployment/policy.js';
 import { createPlatformSecurityAdapter } from '../src/deployment/platform-adapter.js';
+import { assessDeployment } from '../src/deployment/index.js';
 import { resolveDeploymentPathRegistry } from '../src/deployment/path-registry.js';
 
 function portableManifest() {
@@ -220,4 +221,24 @@ test('deployment path registry refuses a missing deployment root', async () => {
   const registry = await resolveDeploymentPathRegistry({ manifest: { resources: [] }, deploymentRoot: root });
   assert.equal(registry.status, 'FAIL');
   assert.equal(registry.conflicts[0].kind, 'DEPLOYMENT_ROOT_MISSING');
+});
+
+test('Windows adapter refuses to claim unimplemented ACL and private-file guarantees', async () => {
+  const adapter = createPlatformSecurityAdapter({ platform: 'win32' });
+  assert.equal(adapter.platform, 'windows');
+  const directory = await adapter.ensurePrivateDirectory('C:\\deployment\\private');
+  const file = await adapter.ensurePrivateFile('C:\\deployment\\secrets');
+  assert.equal(directory.status, 'UNSUPPORTED');
+  assert.equal(file.status, 'UNSUPPORTED');
+});
+
+test('portable assessment emits a schema-valid degraded report without enabling hardened claims', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'logic-engine-assessment-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await mkdir(join(root, 'data'));
+  const result = await assessDeployment({ manifest: portableManifest(), deploymentRoot: root });
+  assert.equal(result.report.profile, 'portable-desktop');
+  assert.equal(result.report.overall_status, 'DEGRADED');
+  assert.equal(validateDeploymentReport(result.report), true);
+  assert.equal(result.report.limitations.some((item) => item.includes('single-process')), true);
 });
