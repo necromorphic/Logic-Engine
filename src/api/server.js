@@ -555,7 +555,8 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
           || conversationParts[0] !== hostContext.installation_id
           || conversationParts[1] !== hostContext.account_id
           || typeof body.actor_entity_id !== 'string' || body.actor_entity_id !== body.actor_entity_id.trim()
-          || body.actor_entity_id.length === 0 || body.actor_entity_id.length > 200) {
+          || body.actor_entity_id.length === 0 || body.actor_entity_id.length > 200
+          || [...body.actor_entity_id].some(character => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127)) {
           throw new EngineError('INVALID_AUTHENTICATED_HOST_CONTEXT',
             'Host context must contain server-authenticated installation, account and session UUIDs bound to the stable conversation identity, plus a configured actor entity.', 400);
         }
