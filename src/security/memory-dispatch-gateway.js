@@ -331,7 +331,8 @@ export class MemoryDispatchGateway {
       || typeof model !== 'string' || !/^[A-Za-z0-9._-]{1,128}$/.test(model)
       || typeof stream !== 'boolean'
       || typeof body !== 'string' || body.length === 0 || body.length > 4_000_000
-      || !validText(worldId, 200) || !validText(actorId, 200) || !validText(purpose, 200)) {
+      || !validText(worldId, 200) || !validText(actorId, 200) || !validText(purpose, 200)
+      || stream && typeof forwardResponse !== 'function') {
       throw new Error('MEMORY_DISPATCH_NOT_READY');
     }
     const sourceSet = normalizeSources(sources);
@@ -480,6 +481,7 @@ export class MemoryDispatchGateway {
     // lineage, Provider candidates and grant are all re-read under this lease.
     let finalRelease = null;
     let finalResponseAllowed = false;
+    let streamForwardPromise = null;
     try {
       finalRelease = beginCoordinatorLock(this.coordinatorDb);
       const currentAuthority = getAcceptedHeadStatusSync({
@@ -512,7 +514,16 @@ export class MemoryDispatchGateway {
       assertSameCandidates(currentProvider.candidates, candidateSet);
       assertSamePolicyAuthority(currentCore.policy_authority, policyAuthority);
 
-      this.#recordOutcome(requestId, 'COMPLETED', Number.isInteger(response?.status) ? response.status : null);
+      if (stream) {
+        // Start the first Host response write synchronously while the same
+        // Coordinator lease is held. Await stream I/O only after releasing it.
+        streamForwardPromise = forwardResponse(response);
+        if (!streamForwardPromise || typeof streamForwardPromise.then !== 'function') {
+          throw new Error('MEMORY_DISPATCH_STREAM_FORWARD_START_INVALID');
+        }
+      } else {
+        this.#recordOutcome(requestId, 'COMPLETED', Number.isInteger(response?.status) ? response.status : null);
+      }
       finalResponseAllowed = true;
     } catch {
       // Do not release a response whose authorization changed or could not be
@@ -520,10 +531,28 @@ export class MemoryDispatchGateway {
       // request digest; the already-issued upstream call cannot be recalled.
       try { this.#recordOutcome(requestId, 'UNKNOWN', null); } catch {}
     } finally {
-      try { finalRelease?.(); } catch {}
+      try { finalRelease?.(); } catch { finalResponseAllowed = false; }
     }
     if (!finalResponseAllowed) {
       throw new Error('MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED');
+    }
+
+    if (stream) {
+      try {
+        await streamForwardPromise;
+        const outcomeRelease = beginCoordinatorLock(this.coordinatorDb);
+        try {
+          this.#recordOutcome(requestId, 'COMPLETED', Number.isInteger(response?.status) ? response.status : null);
+        } finally {
+          outcomeRelease();
+        }
+      } catch {
+        try {
+          const outcomeRelease = beginCoordinatorLock(this.coordinatorDb);
+          try { this.#recordOutcome(requestId, 'UNKNOWN', null); } finally { outcomeRelease(); }
+        } catch {}
+        throw new Error('MEMORY_DISPATCH_OUTCOME_UNKNOWN');
+      }
     }
     return response;
   }
