@@ -17,6 +17,13 @@ const ALLOWED_PACKAGE_ROOTS = Object.freeze([
   'plugins/logic-engine-extension-gateway/',
 ]);
 
+function isAllowedPackagePath(filePath) {
+  if (typeof filePath !== 'string' || filePath.includes('\\\\') || filePath.includes('\\0')) return false;
+  const segments = filePath.split('/');
+  if (segments.some(segment => !segment || segment === '.' || segment === '..')) return false;
+  return ALLOWED_PACKAGE_ROOTS.some(prefix => filePath.startsWith(prefix));
+}
+
 function sha256(bytes) {
   return createHash('sha256').update(bytes).digest('hex');
 }
@@ -125,7 +132,7 @@ function patchPaths(root, patchText) {
       throw new Error('Patch contains a rename/copy or malformed path; only same-path edits are supported.');
     }
     const filePath = match[1];
-    if (!ALLOWED_PACKAGE_ROOTS.some(prefix => filePath.startsWith(prefix))) {
+    if (!isAllowedPackagePath(filePath)) {
       throw new Error('Patch Manager may modify only the integrated Logic-Engine Extension package directories.');
     }
     const absolute = resolve(root, filePath);
@@ -140,8 +147,7 @@ function patchPaths(root, patchText) {
 }
 
 function assertSafeTargetPath(root, filePath) {
-  if (typeof filePath !== 'string'
-    || !ALLOWED_PACKAGE_ROOTS.some(prefix => filePath.startsWith(prefix))) {
+  if (!isAllowedPackagePath(filePath)) {
     throw new Error('Journal path is outside the integrated Logic-Engine Extension package directories.');
   }
   const destination = resolve(root, filePath);
