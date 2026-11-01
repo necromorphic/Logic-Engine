@@ -59,8 +59,10 @@ test('real adapter composes file-backed SQLite Provider with Core query and cano
       fieldPolicy: () => true,
       contentFields: ['attributes.public_note'],
       authenticateHostCaller: (request) => request?.hostSessionProof === 'adapter-test-session'
-        ? { adapterId, worldId, actorEntityId: actorId, conversationId: request.conversationId }
-        : null,
+        ? { adapterId, worldId, actorEntityId: actorId, conversationId }
+        : request?.hostSessionProof === 'adapter-unbound-session'
+          ? { adapterId, worldId, actorEntityId: actorId, conversationId: 'not-bound' }
+          : null,
     }), /separate file from Core/);
 
     adapter = createMemoryNpcProviderAdapter({
@@ -72,8 +74,10 @@ test('real adapter composes file-backed SQLite Provider with Core query and cano
       fieldPolicy: (_context, _entity, field) => field === 'entity_id' || field === 'attributes.public_note',
       contentFields: ['attributes.public_note'],
       authenticateHostCaller: (request) => request?.hostSessionProof === 'adapter-test-session'
-        ? { adapterId, worldId, actorEntityId: actorId, conversationId: request.conversationId }
-        : null,
+        ? { adapterId, worldId, actorEntityId: actorId, conversationId }
+        : request?.hostSessionProof === 'adapter-unbound-session'
+          ? { adapterId, worldId, actorEntityId: actorId, conversationId: 'not-bound' }
+          : null,
     });
 
     const scope = { world_id: worldId, subject_id: actorId, purpose: 'npc_decision' };
@@ -102,7 +106,7 @@ test('real adapter composes file-backed SQLite Provider with Core query and cano
 
     assert.equal((await adapter.prepareWorld(worldId)).status, 'current');
     const result = await adapter.consumer.retrieveForNpc({
-      worldId, actorEntityId: actorId, conversationId,
+      worldId: 'attacker-world', actorEntityId: 'attacker-actor', conversationId: 'not-bound',
       adapterId: 'caller-selected-spoofed-adapter',
       hostSessionProof: 'adapter-test-session',
     });
@@ -115,8 +119,8 @@ test('real adapter composes file-backed SQLite Provider with Core query and cano
     });
 
     const unboundConversation = await adapter.consumer.retrieveForNpc({
-      worldId, actorEntityId: actorId, conversationId: 'not-bound',
-      hostSessionProof: 'adapter-test-session',
+      worldId, actorEntityId: actorId, conversationId: 'provider-selected-spoofed-conversation',
+      hostSessionProof: 'adapter-unbound-session',
     });
     assert.equal(unboundConversation.status, 'non_ready');
     assert.equal(unboundConversation.reason, 'query_access_unconfirmed');
