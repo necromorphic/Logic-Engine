@@ -269,7 +269,7 @@ export class SillyTavernPatchManager {
   async preflight() {
     await this.initialize();
     await this.verifyBaseline();
-    this.runGit(['apply', '--check', this.patchPath], this.stRoot);
+    this.runGit(['apply', '--ignore-whitespace', '--check', this.patchPath], this.stRoot);
     return { status: 'PREFLIGHT_OK', hostVersion: this.manifest.host.version, patchVersion: this.manifest.patch.version };
   }
 
@@ -280,7 +280,7 @@ export class SillyTavernPatchManager {
       return { status: 'ALREADY_INSTALLED', patchVersion: state.patchVersion };
     }
     await this.verifyBaseline();
-    this.runGit(['apply', '--check', this.patchPath], this.stRoot);
+    this.runGit(['apply', '--ignore-whitespace', '--check', this.patchPath], this.stRoot);
 
     await mkdir(this.backupsRoot, { recursive: true });
     await assertNoSymlinkComponents(this.stRoot, this.backupsRoot);
@@ -315,7 +315,7 @@ export class SillyTavernPatchManager {
     journal.phase = 'APPLYING';
     await this.writeJournal(journal);
     try {
-      this.runGit(['apply', this.patchPath], this.stRoot);
+      this.runGit(['apply', '--ignore-whitespace', this.patchPath], this.stRoot);
       await this.verifyInstalled();
       const installed = {
         manifestId: this.manifest.id,
@@ -413,7 +413,7 @@ export class SillyTavernPatchManager {
       await this.recoverUnlocked();
       if (command === 'preflight') {
         await this.verifyBaseline();
-        this.runGit(['apply', '--check', this.patchPath], this.stRoot);
+        this.runGit(['apply', '--ignore-whitespace', '--check', this.patchPath], this.stRoot);
         return { status: 'PREFLIGHT_OK' };
       }
       if (command === 'install') return this.installUnlocked();
