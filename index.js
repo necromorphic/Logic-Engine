@@ -1,5 +1,4 @@
-import { getRequestHeaders } from '../../../script.js';
-import { saveSettingsDebounced } from '../../../script.js';
+import { getRequestHeaders, saveSettingsDebounced } from '../../../../script.js';
 import { extension_settings } from '../../../extensions.js';
 
 const EXTENSION_KEY = 'logicEngine';
@@ -21,7 +20,7 @@ function persist() {
 }
 
 function renderPanel() {
-    const current = getSettings();
+    getSettings();
     panel = document.createElement('section');
     panel.id = 'logic_engine_extension';
     panel.className = 'logic-engine-extension';
