@@ -38,7 +38,7 @@ Install the browser extension directory under:
 
 `public/scripts/extensions/third-party/logic-engine-extension-gateway/`
 
-Copy every `.mjs` and `.js` file from `server-plugin/` under:
+Copy every `.mjs` and `.js` file plus `package.json` from `server-plugin/` under:
 
 `plugins/logic-engine-extension-gateway/`
 
