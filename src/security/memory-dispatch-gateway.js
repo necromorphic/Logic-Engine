@@ -195,6 +195,33 @@ function assertSyncResult(value) {
   return value;
 }
 
+function normalizePolicyAuthority(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)
+    || Object.keys(value).length !== 3
+    || Object.keys(value).some((key) => !['authority_id', 'generation', 'fingerprint'].includes(key))
+    || !validText(value.authority_id, 200)
+    || !Number.isSafeInteger(value.generation) || value.generation < 1
+    || typeof value.fingerprint !== 'string' || !/^[a-f0-9]{64}$/.test(value.fingerprint)) {
+    throw new Error('MEMORY_DISPATCH_NOT_READY');
+  }
+  return Object.freeze({
+    authority_id: value.authority_id,
+    generation: value.generation,
+    fingerprint: value.fingerprint,
+  });
+}
+
+function assertSamePolicyAuthority(actual, expected) {
+  let normalized;
+  try { normalized = normalizePolicyAuthority(actual); } catch {
+    throw new Error('MEMORY_DISPATCH_NOT_READY');
+  }
+  if (JSON.stringify(normalized) !== JSON.stringify(expected)) {
+    throw new Error('MEMORY_DISPATCH_NOT_READY');
+  }
+  return normalized;
+}
+
 /**
  * Sole-dispatch primitive for requests carrying protected Memory.
  *
@@ -323,6 +350,7 @@ export class MemoryDispatchGateway {
     }), 'utf8').digest('hex');
     let coreHead;
     let providerHead;
+    let policyAuthority;
     let release = null;
     let upstreamPromise = null;
     let upstreamStartError = null;
@@ -358,6 +386,7 @@ export class MemoryDispatchGateway {
       assertSameSources(core.sources, sourceSet);
       assertSameSources(provider.sources, sourceSet);
       assertSameCandidates(provider.candidates, candidateSet);
+      policyAuthority = normalizePolicyAuthority(core.policy_authority);
       coreHead = core.head;
       providerHead = provider.head;
 
@@ -444,11 +473,57 @@ export class MemoryDispatchGateway {
       throw new Error('MEMORY_DISPATCH_OUTCOME_UNKNOWN');
     }
 
-    const outcomeCode = Number.isInteger(response?.status) ? response.status : null;
+    // FINAL RESPONSE REVALIDATION: after upstream completion and immediately
+    // before Host release, reacquire the same cross-process Coordinator lease.
+    // A revoke/source mutation that committed while the request was in flight
+    // must be visible here. The exact Core policy tuple, accepted heads, source
+    // lineage, Provider candidates and grant are all re-read under this lease.
+    let finalRelease = null;
+    let finalResponseAllowed = false;
     try {
-      this.#recordOutcome(requestId, 'COMPLETED', outcomeCode);
+      finalRelease = beginCoordinatorLock(this.coordinatorDb);
+      const currentAuthority = getAcceptedHeadStatusSync({
+        port: this.authorityPort,
+        token: this.readToken,
+      });
+      if (currentAuthority.pending.core || currentAuthority.pending.provider
+        || !currentAuthority.enrolled.core || !currentAuthority.enrolled.provider
+        || currentAuthority.heads.core !== coreHead
+        || currentAuthority.heads.provider !== providerHead) {
+        throw new Error('MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED');
+      }
+
+      const currentCore = assertSyncResult(this.readCoreEvidence({
+        worldId, actorId, purpose, sources: sourceSet,
+      }));
+      const currentProvider = assertSyncResult(this.readProviderEvidence({
+        worldId, actorId, purpose, sources: sourceSet, candidates: candidateSet,
+      }));
+      if (currentCore.world_id !== worldId || currentCore.actor_id !== actorId
+        || currentCore.readiness !== 'READY' || currentCore.inventory_status !== 'READY'
+        || currentCore.head !== coreHead
+        || currentProvider.world_id !== worldId || currentProvider.actor_id !== actorId
+        || currentProvider.purpose !== purpose || currentProvider.granted !== true
+        || currentProvider.readiness !== 'READY' || currentProvider.head !== providerHead) {
+        throw new Error('MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED');
+      }
+      assertSameSources(currentCore.sources, sourceSet);
+      assertSameSources(currentProvider.sources, sourceSet);
+      assertSameCandidates(currentProvider.candidates, candidateSet);
+      assertSamePolicyAuthority(currentCore.policy_authority, policyAuthority);
+
+      this.#recordOutcome(requestId, 'COMPLETED', Number.isInteger(response?.status) ? response.status : null);
+      finalResponseAllowed = true;
     } catch {
-      throw new Error('MEMORY_DISPATCH_OUTCOME_UNKNOWN');
+      // Do not release a response whose authorization changed or could not be
+      // re-established. UNKNOWN also blocks a second attempt with the same
+      // request digest; the already-issued upstream call cannot be recalled.
+      try { this.#recordOutcome(requestId, 'UNKNOWN', null); } catch {}
+    } finally {
+      try { finalRelease?.(); } catch {}
+    }
+    if (!finalResponseAllowed) {
+      throw new Error('MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED');
     }
     return response;
   }
