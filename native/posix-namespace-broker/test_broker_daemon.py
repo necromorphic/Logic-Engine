@@ -216,6 +216,29 @@ class BrokerDaemonTests(unittest.TestCase):
             os.close(read_fd)
             os.close(write_fd)
 
+    def test_peer_uid_mismatch_cannot_open_or_mutate_namespace(self):
+        for operation, payload in (
+            (OP_OPEN_MAIN, b"core"),
+            (OP_DELETE_SIDECAR, b"core\\x00wal"),
+            (OP_CREATE_SIDECAR, b"core\\x00wal"),
+        ):
+            with self.subTest(operation=operation):
+                response, fds = self.exchange(
+                    operation, payload, allowed_uid=os.getuid() ^ 1
+                )
+                self.assertEqual(response[3], STATUS_UNAUTHORIZED)
+                self.assertEqual(fds, [])
+        self.assertEqual(self.store.calls, [])
+
+    def test_sidecar_request_cannot_supply_a_path_or_unknown_kind(self):
+        for payload in (b"core\\x00../escape", b"core\\x00wal/extra",
+                        b"core\\x00main"):
+            with self.subTest(payload=payload):
+                response, fds = self.exchange(OP_DELETE_SIDECAR, payload)
+                self.assertEqual(response[3], STATUS_BAD_REQUEST)
+                self.assertEqual(fds, [])
+        self.assertEqual(self.store.calls, [])
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
