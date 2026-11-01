@@ -173,17 +173,24 @@ export function inspectSillyTavernPatchTarget(stPath) {
 
 export function installSillyTavernPatchPackage({ stPath, manifestPath }) {
   const target = targetInfo(stPath);
-  if (!target.clean) throw new Error('Refusing to patch a dirty SillyTavern worktree; preserve and review local changes first.');
   const { manifest, manifestRoot, manifestDigest } = readManifest(manifestPath);
   if (target.commit !== manifest.target_git_commit) throw new Error('Unsupported SillyTavern commit; exact target commit required.');
   const paths = managerPaths(target.root);
   const prior = loadJournal(target.root);
   if (prior) {
     if (prior.package_id === manifest.package_id && prior.manifest_digest === manifestDigest && prior.state === 'APPLIED') {
+      for (const file of prior.files) {
+        const destination = assertSafeTargetPath(target.root, file.path);
+        const exists = existsSync(destination);
+        if (file.installed_sha256 === null ? exists : (!exists || !lstatSync(destination).isFile() || sha256(readFileSync(destination)) !== file.installed_sha256)) {
+          throw new Error('Installed package has drifted from its recorded state: ' + file.path);
+        }
+      }
       return { status: 'ALREADY_APPLIED', package_id: manifest.package_id, target_commit: target.commit };
     }
     throw new Error('A prior Patch Manager transaction exists; recover or uninstall it before proceeding.');
   }
+  if (!target.clean) throw new Error('Refusing to patch a dirty SillyTavern worktree; preserve and review local changes first.');
 
   const patchEntries = [];
   for (const item of manifest.patches) {
