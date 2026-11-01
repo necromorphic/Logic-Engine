@@ -63,6 +63,12 @@
       "items": {
         "$ref": "#/$defs/role"
       }
+    },
+    "pendingEnrollments": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/pendingEnrollment"
+      }
     }
   },
   "$defs": {
@@ -156,6 +162,40 @@
         "generation": {
           "type": "integer",
           "minimum": 1
+        }
+      }
+    },
+    "pendingEnrollment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "role",
+        "parentComponents",
+        "parentIdentities",
+        "databaseBasename"
+      ],
+      "properties": {
+        "role": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+        },
+        "parentComponents": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/component" }
+        },
+        "parentIdentities": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/posixIdentity" }
+        },
+        "databaseBasename": {
+          "$ref": "#/$defs/component"
+        },
+        "databaseIdentity": {
+          "$ref": "#/$defs/posixIdentity"
         }
       }
     },
