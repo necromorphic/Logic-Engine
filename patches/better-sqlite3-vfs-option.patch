@@ -1,0 +1,66 @@
+diff --git a/lib/database.js b/lib/database.js
+index 0000000..0000000 100644
+--- a/lib/database.js
++++ b/lib/database.js
+@@ -28,6 +28,7 @@ module.exports = function createDatabase(getAddon, allowNativeBinding) {
+ 		const timeout = 'timeout' in options ? options.timeout : 5000;
+ 		const verbose = 'verbose' in options ? options.verbose : null;
+ 		const nativeBinding = 'nativeBinding' in options ? options.nativeBinding : null;
++		const vfs = 'vfs' in options ? options.vfs : null;
+ 
+ 		// Validate interpreted options
+ 		if (readonly && anonymous && !buffer) throw new TypeError('In-memory/temporary databases cannot be readonly');
+@@ -36,6 +37,8 @@ module.exports = function createDatabase(getAddon, allowNativeBinding) {
+ 		if (verbose != null && typeof verbose !== 'function') throw new TypeError('Expected the "verbose" option to be a function');
+ 		if (!allowNativeBinding && 'nativeBinding' in options) throw new TypeError('The "nativeBinding" option is only supported by the default better-sqlite3 entrypoint');
+ 		if (allowNativeBinding && nativeBinding != null && typeof nativeBinding !== 'string' && typeof nativeBinding !== 'object') throw new TypeError('Expected the "nativeBinding" option to be a string or addon object');
++		if (vfs != null && (typeof vfs !== 'string' || vfs.length === 0 || vfs.includes('\\0'))) {
++			throw new TypeError('Expected the "vfs" option to be a non-empty SQLite VFS name');
++		}
+ 
+ 		// Load the native addon
+ 		const addon = getAddon(nativeBinding);
+@@ -51,7 +54,7 @@ module.exports = function createDatabase(getAddon, allowNativeBinding) {
+ 
+ 		Object.defineProperties(this, {
+-			[util.cppdb]: { value: new addon.Database(filename, filenameGiven, anonymous, readonly, fileMustExist, timeout, verbose || null, buffer || null) },
++			[util.cppdb]: { value: new addon.Database(filename, filenameGiven, anonymous, readonly, fileMustExist, timeout, verbose || null, buffer || null, vfs) },
+ 			...wrappers.getters,
+ 		});
+diff --git a/src/objects/database.cpp b/src/objects/database.cpp
+index 0000000..0000000 100644
+--- a/src/objects/database.cpp
++++ b/src/objects/database.cpp
+@@ -145,6 +145,7 @@ NODE_METHOD(Database::JS_new) {
+ 	REQUIRE_ARGUMENT_INT32(sixth, int timeout);
+ 	REQUIRE_ARGUMENT_ANY(seventh, Napi::Value logger);
+ 	REQUIRE_ARGUMENT_ANY(eighth, Napi::Value buffer);
++	REQUIRE_ARGUMENT_ANY(ninth, Napi::Value vfsName);
+ 
+ 	UseAddon;
+ 	UseIsolate;
+ 	sqlite3* db_handle;
+ 	std::string utf8 = filename.Utf8Value();
++	std::string vfs_utf8;
++	if (!vfsName.IsNull() && !vfsName.IsUndefined()) {
++		if (!vfsName.IsString()) {
++			ThrowError(env, 'Expected the "vfs" option to be a non-empty SQLite VFS name');
++			return env.Undefined();
++		}
++		vfs_utf8 = vfsName.As<Napi::String>().Utf8Value();
++		if (vfs_utf8.empty() || vfs_utf8.find('\\0') != std::string::npos) {
++			ThrowError(env, 'Expected the "vfs" option to be a non-empty SQLite VFS name');
++			return env.Undefined();
++		}
++	}
+ 	int mask = readonly ? SQLITE_OPEN_READONLY
+ 		: must_exist ? SQLITE_OPEN_READWRITE
+ 		: (SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE);
+ 
+-	if (sqlite3_open_v2(utf8.c_str(), &db_handle, mask, NULL) != SQLITE_OK) {
++	if (sqlite3_open_v2(utf8.c_str(), &db_handle, mask, vfs_utf8.empty() ? NULL : vfs_utf8.c_str()) != SQLITE_OK) {
+ 		ThrowSqliteError(env, addon, db_handle);
+ 		int status = sqlite3_close(db_handle);
+ 		assert(status == SQLITE_OK); ((void)status);
+ 		return env.Undefined();
+ 	}
