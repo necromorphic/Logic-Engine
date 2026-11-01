@@ -195,7 +195,7 @@
 +}
 --- /dev/null
 +++ b/src/logic-engine-extension-install-hook.js
-@@ -0,0 +1,69 @@
+@@ -0,0 +1,78 @@
 +import { execFileSync } from 'node:child_process';
 +import { realpath, readFile, lstat } from 'node:fs/promises';
 +import { dirname, resolve } from 'node:path';
@@ -231,6 +231,10 @@
 +        throw new Error('LOGIC_ENGINE_EXTENSION_LIFECYCLE_INVALID');
 +    }
 +
++    const extensionInfo = await lstat(extensionPath);
++    if (extensionInfo.isSymbolicLink() || !extensionInfo.isDirectory()) {
++        throw new Error('LOGIC_ENGINE_EXTENSION_ROOT_UNSAFE');
++    }
 +    const trustedExtensionRoot = await realpath(extensionPath);
 +    assertTrustedRepository(trustedExtensionRoot);
 +    const manifestPath = resolve(trustedExtensionRoot, 'manifest.json');
@@ -244,7 +248,12 @@
 +        return { status: 'NOT_MANAGED' };
 +    }
 +
-+    const managerPath = resolve(trustedExtensionRoot, 'scripts/sillytavern-patch-manager.mjs');
++    const scriptsPath = resolve(trustedExtensionRoot, 'scripts');
++    const scriptsInfo = await lstat(scriptsPath);
++    if (scriptsInfo.isSymbolicLink() || !scriptsInfo.isDirectory()) {
++        throw new Error('LOGIC_ENGINE_PATCH_MANAGER_DIRECTORY_UNSAFE');
++    }
++    const managerPath = resolve(scriptsPath, 'sillytavern-patch-manager.mjs');
 +    const managerInfo = await lstat(managerPath);
 +    if (managerInfo.isSymbolicLink() || !managerInfo.isFile()) {
 +        throw new Error('LOGIC_ENGINE_PATCH_MANAGER_UNSAFE');
