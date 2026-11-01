@@ -9,7 +9,7 @@
 There are two Logic-Engine components because SillyTavern separates browser extensions from server plugins:
 
 1. **Client extension** — installed from SillyTavern's **Extensions → Install extension** panel. It adds the Logic-Engine settings panel and calls only same-origin Host Adapter routes. It contains no Core or adapter credentials.
-2. **Server plugin** — runs inside SillyTavern's server plugin loader. It authenticates the request using SillyTavern's existing authenticated `req.user` context, then checks the local Logic-Engine Core. It keeps server-side responsibilities out of the browser.
+2. **Server plugin** — runs inside SillyTavern's server plugin loader. It uses the server-resolved `req.user` context supplied after SillyTavern's `requireLoginMiddleware`, then checks the local Logic-Engine Core. It keeps server-side responsibilities out of the browser.
 
 Neither component changes SillyTavern source or replaces the configured model/API provider.
 
@@ -63,7 +63,7 @@ The extension does not ask for an API key. The model provider remains configured
 - The client extension is loadable through the normal Extension Manager.
 - The browser talks only to same-origin `/api/plugins/logic-engine/*` routes.
 - SillyTavern's server-side `requireLoginMiddleware` runs before server-plugin routes in the inspected 1.19.0 source. The plugin independently requires `req.user.profile.handle` and fails closed if it is absent.
-- The server plugin derives a pseudonymous subject identifier from the authenticated ST account and deployment host ID; it does not accept identity from browser request fields.
+- The server plugin derives a pseudonymous subject identifier from the server-resolved ST user context and deployment host ID; it does not accept identity from browser request fields.
 - The server plugin calls only the configured Core `/health` endpoint. The browser cannot supply or override the Core URL.
 - Core credentials are not sent to or stored in the browser.
 - The model/API provider is not replaced.
@@ -79,6 +79,6 @@ This is a real installation and authenticated session-connectivity slice, not th
 - implement PRE-LLM EGRESS or FINAL RESPONSE REVALIDATION for native generation;
 - authorize Core Commit from LLM output.
 
-A client extension cannot be the trusted Host Adapter. The server plugin is the trusted-side starting point, but its current routes are limited to session identity and Core health. Do not send protected context to the model through this incomplete path.
+A client extension cannot be the trusted Host Adapter. The server plugin is the trusted-side starting point, but its current routes are limited to user context and Core health. Do not send protected context to the model through this incomplete path.
 
 Memory → NPC remains `DISABLED / FAIL-CLOSED`. No SillyTavern source patch and no model-provider replacement are part of this integration.
