@@ -182,7 +182,6 @@ test('Extension Gateway plugin is mounted after ST authentication and contains n
   assert.ok(loginMiddleware >= 0, 'requireLoginMiddleware must be installed');
   assert.ok(pluginLoadIndex > loginMiddleware, 'server plugins must load after ST authentication');
   assert.ok(pluginLoader.includes("app.use(`/api/plugins/${id}`, router)"));
-  assert.ok(pluginLoader.includes("app.use(`/api/plugins/${id}`, router)"));
   assert.match(gatewayPlugin, /id: 'logic-engine-extension-gateway'/);
   assert.equal(gatewayPlugin.includes('LOGIC_ENGINE_CORE_URL'), false);
   assert.equal(gatewayPlugin.includes('LOGIC_ENGINE_API_TOKEN'), false);
