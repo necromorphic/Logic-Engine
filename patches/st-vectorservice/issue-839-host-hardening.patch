@@ -20,10 +20,11 @@
 -    console.log(
 -        `[SecurityDiagnostic] keyLength=${API_KEY.length}, sha256=${fingerprint}`
 -    );
+-}
 +// better-sqlite3@13.0.3 uses Node-API 10. Fail before storage or DB access.
 +if (Number(process.versions.napi || 0) < 10) {
 +    throw new Error('ST-VectorService requires Node.js with Node-API >= 10 (Node >= 22.14.0).');
- }
++}
  const DEFAULT_MODEL = 'bge-m3';
  
 @@ -58,17 +51,6 @@
