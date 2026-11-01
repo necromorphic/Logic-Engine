@@ -564,6 +564,7 @@ test('content field configuration must match fields the Core read boundary can d
       authorizeQuery() {},
       retrieveCandidates() {},
       authorizeCandidate() {},
+      checkCandidateGrant() {},
     },
     contentFields: ['attributes.'],
   }), /trusted field allowlist/);
