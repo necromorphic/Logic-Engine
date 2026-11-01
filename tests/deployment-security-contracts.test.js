@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, rm, symlink } from 'node:fs/promises';
+import { link, mkdtemp, mkdir, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -15,6 +15,7 @@ import {
   buildDeploymentReport,
 } from '../src/deployment/policy.js';
 import { createPlatformSecurityAdapter } from '../src/deployment/platform-adapter.js';
+import { resolveDeploymentPathRegistry } from '../src/deployment/path-registry.js';
 
 function portableManifest() {
   return {
@@ -172,4 +173,51 @@ test('private directory provisioning is explicit and owner-only on Linux', async
   assert.equal(evidence.status, 'PASS');
   const mode = (await (await import('node:fs/promises')).stat(target)).mode & 0o777;
   assert.equal(mode & 0o077, 0);
+});
+
+test('deployment path registry rejects traversal and symlinked parent paths', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'logic-engine-path-registry-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const outside = await mkdtemp(join(tmpdir(), 'logic-engine-path-outside-'));
+  t.after(() => rm(outside, { recursive: true, force: true }));
+  await mkdir(join(root, 'data'));
+  await mkdir(join(outside, 'data'));
+  await symlink(outside, join(root, 'linked'));
+  const manifest = {
+    resources: [
+      { id: 'safe', owner_domain: 'runtime', kind: 'database', path: { source: 'deployment-root-relative', value: 'data/core.sqlite' } },
+      { id: 'escape', owner_domain: 'runtime', kind: 'database', path: { source: 'deployment-root-relative', value: '../outside.sqlite' } },
+      { id: 'linked', owner_domain: 'runtime', kind: 'database', path: { source: 'deployment-root-relative', value: 'linked/data/redirect.sqlite' } },
+    ],
+  };
+  const registry = await resolveDeploymentPathRegistry({ manifest, deploymentRoot: root });
+  assert.equal(registry.status, 'FAIL');
+  assert.equal(registry.conflicts.some((item) => item.kind === 'PATH_ESCAPES_DEPLOYMENT_ROOT'), true);
+  assert.equal(registry.conflicts.some((item) => item.kind === 'SYMLINK_OR_REPARSE_ANCESTOR'), true);
+});
+
+test('deployment path registry detects hard-link aliases by opened filesystem identity', async (t) => {
+  if (process.platform !== 'linux') return t.skip('Hard-link identity fixture currently runs on Linux.');
+  const root = await mkdtemp(join(tmpdir(), 'logic-engine-hardlink-registry-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const first = join(root, 'first.sqlite');
+  const second = join(root, 'second.sqlite');
+  await (await import('node:fs/promises')).writeFile(first, 'fixture');
+  await link(first, second);
+  const manifest = {
+    resources: [
+      { id: 'first', owner_domain: 'runtime', kind: 'database', path: { source: 'deployment-root-relative', value: 'first.sqlite' } },
+      { id: 'second', owner_domain: 'runtime', kind: 'database', path: { source: 'deployment-root-relative', value: 'second.sqlite' } },
+    ],
+  };
+  const registry = await resolveDeploymentPathRegistry({ manifest, deploymentRoot: root });
+  assert.equal(registry.status, 'FAIL');
+  assert.equal(registry.conflicts.some((item) => item.kind === 'SAME_FILE_IDENTITY_ALIAS'), true);
+});
+
+test('deployment path registry refuses a missing deployment root', async () => {
+  const root = join(tmpdir(), 'logic-engine-no-such-deployment-root-' + process.pid);
+  const registry = await resolveDeploymentPathRegistry({ manifest: { resources: [] }, deploymentRoot: root });
+  assert.equal(registry.status, 'FAIL');
+  assert.equal(registry.conflicts[0].kind, 'DEPLOYMENT_ROOT_MISSING');
 });
