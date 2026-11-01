@@ -162,8 +162,36 @@ export function registerWindowsManifestRole(database, manifest, roleName, databa
       !== role.databaseBasename.toLowerCase()) {
     throw new TypeError('Database path basename does not match the trusted manifest');
   }
+  // Validate the metadata root and every directory in the manifest-owned
+  // suffix against identities obtained from freshly opened, handle-relative
+  // directory chains. Checking only the final parent would miss an ancestor
+  // replacement that happens to preserve the same child names.
+  const metadataRootComponents = actualComponents.slice(
+    0, actualComponents.length - role.parentComponents.length
+  );
+  const metadataRootPath = metadataRootComponents.length > 0
+    ? path.win32.join(root, ...metadataRootComponents)
+    : root;
+  const validateDirectory = (directoryPath, identity, label) => {
+    assertWindowsIdentity(identity, label);
+    const checked = database.prepare(
+      'SELECT logic_engine_vfs_probe_validate_manifest_directory_identity(?, ?, ?) AS validated'
+    ).get(directoryPath, identity.volumeSerial, identity.fileId);
+    if (checked?.validated !== 1) {
+      throw new Error(`Secure VFS rejected manifest directory identity: ${label}`);
+    }
+  };
+  validateDirectory(metadataRootPath, manifest.metadataRootIdentity, 'metadata root');
+  let parentPathCursor = metadataRootPath;
+  for (let index = 0; index < role.parentComponents.length; index += 1) {
+    parentPathCursor = path.win32.join(parentPathCursor, role.parentComponents[index]);
+    validateDirectory(
+      parentPathCursor,
+      role.parentIdentities[index],
+      `parent ${index + 1} for ${roleName}`
+    );
+  }
   const parentIdentity = role.parentIdentities.at(-1);
-  assertWindowsIdentity(parentIdentity, `final parent ${roleName}`);
   const result = database.prepare(
     'SELECT logic_engine_vfs_probe_register_database_role_manifest(?, ?, ?, ?, ?, ?, ?) AS registered'
   ).get(
