@@ -105,7 +105,7 @@ test('identity route fails closed when its persistent registry is inside the ST 
   const dataRoot = path.join(root, 'st-data');
   await mkdir(dataRoot);
   const store = new HostIdentityStore({ directory: path.join(dataRoot, 'identity') });
-  const handler = createHostIdentityHandler({ identityStore: store });
+  const handler = createHostIdentityHandler({ identityStore: store, getDataRoot: () => dataRoot });
   const response = { statusCode: null, body: null, headers: {},
     set(name, value) { this.headers[name] = value; return this; },
     status(code) { this.statusCode = code; return this; },
@@ -127,7 +127,7 @@ test('identity route returns opaque persistent IDs only after session/account bi
   const store = new HostIdentityStore({ directory: path.join(root, 'identity') });
   const dataRoot = path.join(root, 'st-data');
   await mkdir(dataRoot);
-  const handler = createHostIdentityHandler({ identityStore: store });
+  const handler = createHostIdentityHandler({ identityStore: store, getDataRoot: () => dataRoot });
   const response = { statusCode: null, body: null, headers: {},
     set(name, value) { this.headers[name] = value; return this; },
     status(code) { this.statusCode = code; return this; },
