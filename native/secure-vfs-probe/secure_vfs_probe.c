@@ -2001,7 +2001,22 @@ static int probe_posix_quarantine_delete(int parent_fd, const char *name,
       || moved_info.st_dev != expected->st_dev
       || moved_info.st_ino != expected->st_ino
       || moved_info.st_nlink != expected->st_nlink
-      || moved_info.st_uid != expected->st_uid) goto done;
+      || moved_info.st_uid != expected->st_uid) {
+    /*
+     * The entry moved by renameat2 is not the object that was checked before
+     * the move (or it cannot be safely identified). Never unlink it. Restore
+     * it to the original name only if that name is still absent; NOREPLACE
+     * prevents clobbering a concurrent creator. If restoration loses that
+     * race, retain the entry in quarantine for operator/recovery handling.
+     * Either way deletion fails closed.
+     */
+    if (syscall(SYS_renameat2, quarantine_fd, candidate, parent_fd, name,
+                RENAME_NOREPLACE) == 0) {
+      (void)fsync(parent_fd);
+      (void)fsync(quarantine_fd);
+    }
+    goto done;
+  }
   if (unlinkat(quarantine_fd, candidate, 0) != 0 || fsync(quarantine_fd) != 0) goto done;
   result = 0;
 done:
