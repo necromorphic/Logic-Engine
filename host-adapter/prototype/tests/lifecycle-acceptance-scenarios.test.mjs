@@ -228,6 +228,12 @@ test('destructive and import UI entry points invoke target-aware fail-closed Hos
   assertBefore('export async function importCharacterChat(formData,', 'guardBulkMutation', "fetch('/api/chats/import'");
   assertBefore('export async function importGroupChat(formData,', 'guardBulkMutation', "fetch('/api/chats/group/import'");
   assertBefore('async restoreBackup(name)', 'guardBulkMutation', "fetch('/api/backups/chat/download'");
+  assert.ok(patch.includes('diff --git a/src/endpoints/groups.js b/src/endpoints/groups.js'),
+    'group metadata/chat deletion needs a server-side route guard');
+  assert.ok(patch.includes("+router.post('/delete', hostBulkMutationGuard, getFileNameValidationFunction('id'), async (request, response) => {"),
+    'group delete endpoint must guard its multi-file unlink operation');
+  assert.ok(patch.includes("const hostBulkMutationGuard = createHostBulkMutationGuard({ pinnedHostCommit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127' });"),
+    'group delete must use the pinned inventory guard');
   assert.ok(patch.includes("guardExport: async () =>"));
   const exportEntry = patch.indexOf("$(document).on('click', '.exportChatButton, .exportRawChatButton'");
   assert.ok(exportEntry >= 0, 'missing chat export entry point');
