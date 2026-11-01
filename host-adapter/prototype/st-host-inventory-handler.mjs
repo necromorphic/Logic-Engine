@@ -380,7 +380,10 @@ export function createHostRequestAuthenticationGate({ resolveConversationId } = 
     if (!current
       || current.userHandle !== admitted.userHandle
       || current.session.logicEngineSessionId !== admitted.sessionId
-      || current.session.logicEngineSessionHandle !== admitted.userHandle) return null;
+      || current.session.logicEngineSessionHandle !== admitted.userHandle) {
+      authenticatedRequests.delete(request);
+      return null;
+    }
     return admitted;
   }
   async function middleware(request, response, next) {
