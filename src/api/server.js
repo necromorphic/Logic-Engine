@@ -365,8 +365,28 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
         }
         try {
           const runner = hostSessionAssertionRunners.get(adapterId);
-          const context = await runner.run(body.assertion, body.signature,
-            () => getAuthenticatedHostSessionContext());
+          const context = await runner.run(body.assertion, body.signature, () => {
+            const authenticated = getAuthenticatedHostSessionContext();
+            if (!authenticated || authenticated.identity !== 'SIGNED_HOST_SESSION_ASSERTION') {
+              throw new Error('HOST_SESSION_ASSERTION_REJECTED');
+            }
+            // The signed World/Actor values are claims from the Host Adapter.
+            // Re-resolve both durable Core bindings at capability creation so a
+            // revoke/rebind between the earlier context lookup and assertion
+            // verification cannot mint a stale authenticated capability.
+            const binding = hostConversationBindings.resolve({
+              adapterId,
+              conversationId: authenticated.conversation_id,
+            });
+            const actor = actorBindings.resolve(binding.world_id, adapterId, authenticated.actor_id);
+            if (binding.adapter_id !== adapterId
+              || binding.conversation_id !== authenticated.conversation_id
+              || binding.world_id !== authenticated.world_id
+              || actor.actor.entity_id !== authenticated.actor_id) {
+              throw new Error('HOST_SESSION_BINDING_CHANGED');
+            }
+            return authenticated;
+          });
           if (!context || context.identity !== 'SIGNED_HOST_SESSION_ASSERTION') {
             return send(res, 403, { error: { code: 'HOST_SESSION_ASSERTION_REJECTED', message: 'Host session assertion was rejected.' } });
           }
