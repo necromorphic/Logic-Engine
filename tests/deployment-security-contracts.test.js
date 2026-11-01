@@ -13,6 +13,7 @@ import {
   evaluateDeploymentGates,
   aggregateDeploymentStatus,
   buildDeploymentReport,
+  PROTECTED_FINAL_SEND_CAPABILITIES,
 } from '../src/deployment/policy.js';
 import { createPlatformSecurityAdapter } from '../src/deployment/platform-adapter.js';
 import { assessDeployment } from '../src/deployment/index.js';
@@ -103,12 +104,12 @@ test('hardened profile requires real process, filesystem, IPC and independent ba
     'backup.freshness-anchor.available',
   ].map((id) => createCapabilityEvidence({ id, status: 'PASS', required: true }));
   const gates = evaluateDeploymentGates({ profile: 'hardened-service', components, capabilities });
-  assert.equal(gates.every((gate) => gate.status === 'PASS'), true);
-  assert.equal(aggregateDeploymentStatus({ profile: 'hardened-service', capabilities, gates }), 'PASS');
+  assert.equal(gates.filter((gate) => gate.status === 'PASS').length, 4);
+  assert.equal(gates.find((gate) => gate.id === 'memory:protected-final-send-production').status, 'BLOCKED');
+  assert.equal(aggregateDeploymentStatus({ profile: 'hardened-service', capabilities, gates }), 'NOT_TESTED');
   const missing = capabilities.slice(0, 3);
   const blocked = evaluateDeploymentGates({ profile: 'hardened-service', components, capabilities: missing });
-  assert.equal(blocked.filter((gate) => gate.status === 'BLOCKED').length, 1);
-  assert.equal(blocked.find((gate) => gate.status === 'BLOCKED').id, 'backup:independent-freshness-anchor');
+  assert.equal(blocked.filter((gate) => gate.status === 'BLOCKED').some((gate) => gate.id === 'backup:independent-freshness-anchor'), true);
 });
 
 test('report validation prevents a false PASS when required evidence is missing', () => {
@@ -129,7 +130,7 @@ test('report validation prevents a false PASS when required evidence is missing'
       adapter_version: '1.0.0',
       limitations: [],
     }],
-    gates: [],
+    gates: [{ id: 'memory:protected-final-send-production', status: 'BLOCKED', affected_features: ['memory.protected-final-send'] }],
     limitations: [],
   };
   assert.throws(() => validateDeploymentReport(report), /FALSE_PASS_REQUIRED_CAPABILITY/);
@@ -143,7 +144,7 @@ test('report validation prevents a false PASS when required evidence is missing'
       adapter_version: '1.0.0',
       limitations: [],
     }],
-    gates: [{ id: 'core:filesystem.access.effective', status: 'BLOCKED', affected_features: ['core'] }],
+    gates: [{ id: 'memory:protected-final-send-production', status: 'BLOCKED', affected_features: ['memory.protected-final-send'] }, { id: 'core:filesystem.access.effective', status: 'BLOCKED', affected_features: ['core'] }],
   };
   assert.throws(() => validateDeploymentReport(blockedGateReport), /FALSE_PASS_BLOCKED_GATE/);
   const portablePass = { ...blockedGateReport, gates: [], overall_status: 'PASS' };
@@ -162,7 +163,7 @@ test('portable report explicitly reports degraded single-process isolation', () 
     runtime: { name: 'node', version: process.version },
     components: [{ id: 'core', execution_mode: 'in-process' }],
     capabilities,
-    gates: [],
+    gates: [{ id: 'memory:protected-final-send-production', status: 'BLOCKED', affected_features: ['memory.protected-final-send'] }],
     limitations: ['All components share one process identity.'],
   });
   assert.equal(report.overall_status, 'DEGRADED');
@@ -271,4 +272,36 @@ test('portable assessment emits a schema-valid degraded report without enabling 
   assert.equal(result.report.overall_status, 'DEGRADED');
   assert.equal(validateDeploymentReport(result.report), true);
   assert.equal(result.report.limitations.some((item) => item.includes('single-process')), true);
+});
+
+test('protected Memory final-send deployment gate requires every independent runtime invariant', () => {
+  const components = [{ id: 'core', enabled: true, requires_capabilities: [] }];
+  const absent = evaluateDeploymentGates({ profile: 'portable-desktop', components, capabilities: [] });
+  const gate = absent.find((item) => item.id === 'memory:protected-final-send-production');
+  assert.equal(gate.status, 'BLOCKED');
+  for (const id of PROTECTED_FINAL_SEND_CAPABILITIES) {
+    const partial = PROTECTED_FINAL_SEND_CAPABILITIES
+      .filter((candidate) => candidate !== id)
+      .map((candidate) => createCapabilityEvidence({ id: candidate, status: 'PASS', required: true }));
+    const result = evaluateDeploymentGates({ profile: 'portable-desktop', components, capabilities: partial });
+    assert.equal(result.find((item) => item.id === 'memory:protected-final-send-production').status, 'BLOCKED', id);
+  }
+  const complete = PROTECTED_FINAL_SEND_CAPABILITIES
+    .map((id) => createCapabilityEvidence({ id, status: 'PASS', required: true }));
+  const result = evaluateDeploymentGates({ profile: 'portable-desktop', components, capabilities: complete });
+  assert.equal(result.find((item) => item.id === 'memory:protected-final-send-production').status, 'PASS');
+});
+
+test('deployment assessment never accepts manifest-only final-send assertions', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'logic-engine-final-send-gate-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await mkdir(join(root, 'data'));
+  const result = await assessDeployment({ manifest: portableManifest(), deploymentRoot: root });
+  const gate = result.report.gates.find((item) => item.id === 'memory:protected-final-send-production');
+  assert.equal(gate.status, 'BLOCKED');
+  for (const id of PROTECTED_FINAL_SEND_CAPABILITIES) {
+    const evidence = result.report.capabilities.find((item) => item.id === id);
+    assert.equal(evidence.status, 'NOT_TESTED');
+    assert.equal(evidence.required, true);
+  }
 });
