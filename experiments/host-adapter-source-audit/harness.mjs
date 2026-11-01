@@ -18,7 +18,7 @@ test('audit input matches the exact pinned SillyTavern source digests', async ()
   assert.equal(manifest.host.commit, targetSha);
   for (const [relativePath, expected] of Object.entries(manifest.sourceFiles)) {
     const bytes = await readFile(resolve(root, relativePath));
-    const canonical = Buffer.from(bytes.toString('utf8').replace(/\\r\\n/g, '\\n'), 'utf8');
+    const canonical = Buffer.from(bytes.toString('utf8').replace(/\r\n/g, '\n'), 'utf8');
     const digest = createHash('sha256').update(canonical).digest('hex');
     const expectedDigest = typeof expected === 'string' ? expected : expected.before;
     assert.equal(digest, expectedDigest, 'Pinned source mismatch: ' + relativePath);
