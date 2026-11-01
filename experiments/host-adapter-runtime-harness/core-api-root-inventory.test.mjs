@@ -47,6 +47,12 @@ function responseCapture() {
 test('Host inventory route persists digest-only root baselines and deltas through the authenticated Core API across restart', async t => {
   const parent = await mkdtemp(join(tmpdir(), 'logic-engine-host-root-api-'));
   const root = join(parent, 'st-data');
+  const previousDataRoot = globalThis.DATA_ROOT;
+  globalThis.DATA_ROOT = root;
+  t.after(() => {
+    if (previousDataRoot === undefined) delete globalThis.DATA_ROOT;
+    else globalThis.DATA_ROOT = previousDataRoot;
+  });
   const identityDirectory = join(parent, 'host-identity');
   const coreDirectory = join(parent, 'core-state');
   const coreDbPath = join(coreDirectory, 'host-root-inventory.sqlite');
