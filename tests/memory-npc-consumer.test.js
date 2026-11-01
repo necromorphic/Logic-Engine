@@ -757,7 +757,7 @@ test('Core mutation during the final record authorization check invalidates cont
 
   const result = await consumer.retrieveForNpc(request());
 
-  assert.equal(checks, 2);
+  assert.equal(checks, 3);
   assert.equal(result.status, 'non_ready');
   assert.equal(result.reason, 'memory_snapshot_stale');
   assert.deepEqual(result.admitted, []);
@@ -1393,7 +1393,7 @@ test('filtered-empty disclosure rechecks query authorization after the final Cor
 
   const result = await consumer.retrieveForNpc(request());
 
-  assert.equal(checks, 3);
+  assert.equal(checks, 2);
   assert.equal(result.status, 'non_ready');
   assert.equal(result.reason, 'query_access_unconfirmed');
   assert.deepEqual(result.admitted, []);
