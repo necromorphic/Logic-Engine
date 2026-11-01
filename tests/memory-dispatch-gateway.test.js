@@ -540,6 +540,49 @@ test('FINAL RESPONSE REVALIDATION blocks Host release after Provider revoke duri
   }
 });
 
+test('revoke after upstream completion but before response.end prevents the actual Host write', async () => {
+  const fixture = await createFixture();
+  let hostWrites = 0;
+  try {
+    const request = validRequest('revoke-before-response-end');
+    await fixture.gateway.dispatchProtectedRequest(request);
+    fixture.setProviderGranted(false);
+    assert.throws(
+      () => fixture.gateway.authorizeResponseWrite(request.requestId, () => { hostWrites += 1; }, { final: true }),
+      /MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED/,
+    );
+    assert.equal(hostWrites, 0, 'the final Express write must not occur after revoke');
+    const ledger = new DatabaseSync(fixture.ledgerPath);
+    try {
+      assert.equal(ledger.prepare('SELECT status FROM dispatch_ledger WHERE request_id=?')
+        .get(request.requestId).status, 'UNKNOWN');
+    } finally {
+      ledger.close();
+    }
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('streaming revalidates every chunk and stops the stream after revoke', async () => {
+  const fixture = await createFixture();
+  const hostChunks = [];
+  const request = validRequest('revoke-between-stream-chunks', { stream: true });
+  try {
+    await assert.rejects(fixture.gateway.dispatchProtectedRequest({
+      ...request,
+      forwardResponse: async () => {
+        fixture.gateway.authorizeResponseWrite(request.requestId, () => hostChunks.push('chunk-1'));
+        fixture.setProviderGranted(false);
+        fixture.gateway.authorizeResponseWrite(request.requestId, () => hostChunks.push('chunk-2'));
+      },
+    }), /MEMORY_DISPATCH_OUTCOME_UNKNOWN/);
+    assert.deepEqual(hostChunks, ['chunk-1'], 'no chunk after revoke may be written');
+  } finally {
+    await fixture.close();
+  }
+});
+
 test('FINAL RESPONSE REVALIDATION rejects Provider record authorization-generation changes during upstream send', async () => {
   let releaseTransport;
   const transportGate = new Promise((resolve) => { releaseTransport = resolve; });
