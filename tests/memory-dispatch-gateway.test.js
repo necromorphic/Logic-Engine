@@ -339,14 +339,16 @@ test('all protected sender families share one real Gateway and each causes exact
   };
   const finalSend = createProtectedMemoryFinalSend({
     gateway: fixture.gateway,
-    resolveProtectedMemory: () => null,
+    resolveProtectedMemory: (hostRequestContext) => hostRequestContext,
     fetchImpl: async () => {
       upstreamCalls += 1;
       return { status: 200, body: 'upstream-response' };
     },
   });
   try {
+    let routeIndex = 0;
     for (const senderRoute of PROTECTED_MEMORY_SENDER_ROUTES) {
+      routeIndex += 1;
       await finalSend({
         senderRoute,
         endpointUrl: 'https://provider.example/v1/chat/completions',
@@ -355,7 +357,7 @@ test('all protected sender families share one real Gateway and each causes exact
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ messages: [{ role: 'user', content: 'protected' }] }),
         },
-        hostRequestContext: {},
+        hostRequestContext: { ...prepared, requestId: 'sender-route-' + routeIndex },
       });
     }
     assert.equal(upstreamCalls, PROTECTED_MEMORY_SENDER_ROUTES.length);
