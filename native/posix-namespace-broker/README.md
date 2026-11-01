@@ -116,7 +116,12 @@ Provision one dedicated service-owned directory per role on a qualified
 `ext4`, `xfs` or `btrfs` filesystem. The final directory must be owned by the
 broker service UID with exact mode `0700`; every ancestor is checked for trusted
 ownership and non-writability. The application UID must be distinct from the
-broker service UID and must not be able to modify the role directory.
+broker service UID and must not be able to modify the role directory. Run the
+broker as a dedicated non-root service account whose primary GID equals the
+dedicated application socket group (the same value passed as `--app-gid`);
+the daemon refuses to start if that identity does not match. The socket parent
+must be service-owned mode `0710`, and the socket itself service-owned mode
+`0620`.
 
 Enrollment first commits a durable `pendingEnrollments` intent containing
 the role and pinned parent identity, before creating any database file. The
