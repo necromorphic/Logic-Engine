@@ -231,7 +231,7 @@ class ManifestStoreTests(unittest.TestCase):
         finally:
             os.close(fd)
         current = self.store.load()
-        self.assertEqual(current["generation"], 3)
+        self.assertEqual(current["generation"], 5)
         role = next(entry for entry in current["roles"] if entry["role"] == "vectors")
         self.assertEqual(role["state"], "active")
         self.assertEqual(role["databaseBasename"], "vectors.sqlite")
@@ -281,16 +281,20 @@ class ManifestStoreTests(unittest.TestCase):
         current = self.store.load()
         candidate = json.loads(_canonical_json(current))
         candidate["generation"] += 1
-        candidate["roles"].append({
+        candidate.setdefault("pendingEnrollments", []).append({
             "role": "interrupted",
             "parentComponents": components,
             "parentIdentities": identities,
             "databaseBasename": "interrupted.sqlite",
-            "databaseIdentity": database_identity,
-            "state": "enrolling",
-            "sidecars": [],
         })
         self.store.commit(_canonical_json(candidate))
+        # Simulate restart after the durable enrollment intent. Recovery must
+        # capture the already-created file identity, persist the enrolling
+        # role, then independently complete its activation.
+        pending = self.store.reconcile_pending_enrollments()
+        self.assertTrue(any(entry["role"] == "interrupted"
+                            and entry["state"] == "enrolling"
+                            for entry in pending["roles"]))
         reconciled = self.store.reconcile_enrolling_roles()
         role = next(entry for entry in reconciled["roles"]
                     if entry["role"] == "interrupted")
@@ -312,7 +316,7 @@ class ManifestStoreTests(unittest.TestCase):
             "role": "bypass",
             "parentComponents": current["roles"][0]["parentComponents"],
             "parentIdentities": current["roles"][0]["parentIdentities"],
-            "databaseBasename": "core.sqlite",
+            "databaseBasename": "bypass.sqlite",
             "databaseIdentity": {
                 "kind": "posix", "device": "99999991",
                 "inode": "99999992", "mountId": "99999993",
@@ -320,7 +324,7 @@ class ManifestStoreTests(unittest.TestCase):
             "state": "active",
             "sidecars": [],
         })
-        with self.assertRaisesRegex(StoreError, "empty enrolling"):
+        with self.assertRaisesRegex(StoreError, "committed broker-first enrollment intent"):
             self.store.commit(_canonical_json(candidate))
 
     def test_broker_first_enrollment_never_adopts_existing_database(self):
@@ -362,6 +366,7 @@ class ManifestStoreTests(unittest.TestCase):
         value = json.loads(self.data(1))
         second = dict(value["roles"][0])
         second["role"] = "vectors"
+        second["databaseBasename"] = "vectors.sqlite"
         reused_identity = {
             "kind": "posix", "device": "99999999",
             "inode": "99999998", "mountId": "99999997"
