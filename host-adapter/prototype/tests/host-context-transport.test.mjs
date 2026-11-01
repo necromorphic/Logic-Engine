@@ -165,7 +165,6 @@ test('Gateway fails closed when Core denies current bindings or returns an inval
 
 test('Gateway refuses insecure remote Core URLs and incomplete server credentials', async () => {
   const { handler, request, calls } = fixture();
-  handler.dependencies;
   const unsafe = fixture();
   unsafe.env.LOGIC_ENGINE_CORE_URL = 'http://core.internal.example:8787';
   const unsafeHandler = createHostContextTransportHandler({
