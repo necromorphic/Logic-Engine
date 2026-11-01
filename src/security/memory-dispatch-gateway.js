@@ -18,6 +18,7 @@ export function createDispatchRequestSignature(secret, request) {
   const canonical = JSON.stringify({
     request_id: request.requestId,
     route: request.route,
+    sender_route: request.senderRoute,
     model: request.model,
     stream: request.stream,
     body_digest: bodyDigest,
@@ -41,6 +42,16 @@ export function verifyDispatchRequestSignature(secret, request, signature) {
 
 export const SUPPORTED_PROTECTED_MEMORY_ROUTES = Object.freeze([
   'host-selected-chat-generation',
+]);
+
+// One authoritative registry for every protected SillyTavern chat-completion
+// sender family audited against the pinned 1.19.0 release.
+export const PROTECTED_MEMORY_SENDER_ROUTES = Object.freeze([
+  'claude', 'google-ai-studio', 'vertex-ai', 'ai21', 'mistral', 'cohere',
+  'deepseek', 'xai', 'aimlapi', 'electronhub', 'chutes', 'minimax',
+  'azure-openai', 'openai', 'openrouter', 'custom', 'perplexity', 'groq',
+  'fireworks', 'nanogpt', 'pollinations', 'moonshot', 'zai', 'siliconflow',
+  'workers-ai',
 ]);
 
 const ASYNC_FUNCTION_PROTOTYPE = Object.getPrototypeOf(async function () {}).constructor;
@@ -272,6 +283,7 @@ export class MemoryDispatchGateway {
             request_id TEXT PRIMARY KEY,
             request_digest TEXT NOT NULL CHECK(length(request_digest)=64),
             route TEXT NOT NULL CHECK(route='host-selected-chat-generation'),
+            sender_route TEXT NOT NULL CHECK(sender_route IN ('claude','google-ai-studio','vertex-ai','ai21','mistral','cohere','deepseek','xai','aimlapi','electronhub','chutes','minimax','azure-openai','openai','openrouter','custom','perplexity','groq','fireworks','nanogpt','pollinations','moonshot','zai','siliconflow','workers-ai')),
             model TEXT NOT NULL,
             stream INTEGER NOT NULL CHECK(stream IN (0,1)),
             world_id TEXT NOT NULL,
@@ -281,6 +293,9 @@ export class MemoryDispatchGateway {
             candidates_json TEXT NOT NULL,
             core_head INTEGER NOT NULL CHECK(core_head > 0),
             provider_head INTEGER NOT NULL CHECK(provider_head > 0),
+            policy_authority_id TEXT NOT NULL,
+            policy_generation INTEGER NOT NULL CHECK(policy_generation > 0),
+            policy_fingerprint TEXT NOT NULL CHECK(length(policy_fingerprint)=64),
             status TEXT NOT NULL CHECK(status IN ('DISPATCH_STARTED','COMPLETED','UNKNOWN')),
             outcome_code INTEGER,
             started_at TEXT NOT NULL,
@@ -302,8 +317,9 @@ export class MemoryDispatchGateway {
         }
         const columns = new Set(this.db.prepare('PRAGMA table_info(dispatch_ledger)').all().map((row) => row.name));
         const required = [
-          'request_id', 'request_digest', 'route', 'model', 'stream', 'world_id', 'actor_id', 'purpose',
-          'sources_json', 'candidates_json', 'core_head', 'provider_head', 'status', 'outcome_code',
+          'request_id', 'request_digest', 'route', 'sender_route', 'model', 'stream', 'world_id', 'actor_id', 'purpose',
+          'sources_json', 'candidates_json', 'core_head', 'provider_head', 'policy_authority_id', 'policy_generation',
+          'policy_fingerprint', 'status', 'outcome_code',
           'started_at', 'finished_at',
         ];
         if (required.some((column) => !columns.has(column))) throw new Error('DISPATCH_LEDGER_SCHEMA_INCOMPLETE');
@@ -326,8 +342,9 @@ export class MemoryDispatchGateway {
     }
   }
 
-  async dispatchProtectedRequest({ requestId, route, model, stream, body, worldId, actorId, purpose, sources, candidates, transport, forwardResponse, signal }) {
+  async dispatchProtectedRequest({ requestId, route, senderRoute, model, stream, body, worldId, actorId, purpose, sources, candidates, transport, forwardResponse, signal }) {
     if (!validText(requestId, 200) || !SUPPORTED_PROTECTED_MEMORY_ROUTES.includes(route)
+      || !PROTECTED_MEMORY_SENDER_ROUTES.includes(senderRoute)
       || typeof model !== 'string' || !/^[A-Za-z0-9._-]{1,128}$/.test(model)
       || typeof stream !== 'boolean'
       || typeof body !== 'string' || body.length === 0 || body.length > 4_000_000
@@ -340,6 +357,7 @@ export class MemoryDispatchGateway {
     assertSourcesMatchCandidates(sourceSet, candidateSet);
     const requestDigest = createHash('sha256').update(JSON.stringify({
       route,
+      sender_route: senderRoute,
       model,
       stream,
       body_digest: createHash('sha256').update(body, 'utf8').digest('hex'),
@@ -413,13 +431,14 @@ export class MemoryDispatchGateway {
         if (unresolvedReplay) throw new Error('MEMORY_DISPATCH_REPLAY_BLOCKED');
         this.db.prepare(`
           INSERT INTO dispatch_ledger(
-            request_id,request_digest,route,model,stream,world_id,actor_id,purpose,sources_json,candidates_json,
-            core_head,provider_head,status,outcome_code,started_at,finished_at
-          ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,'DISPATCH_STARTED',NULL,?,NULL)
+            request_id,request_digest,route,sender_route,model,stream,world_id,actor_id,purpose,sources_json,candidates_json,
+            core_head,provider_head,policy_authority_id,policy_generation,policy_fingerprint,status,outcome_code,started_at,finished_at
+          ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'DISPATCH_STARTED',NULL,?,NULL)
         `).run(
           requestId,
           requestDigest,
           route,
+          senderRoute,
           model,
           stream ? 1 : 0,
           worldId,
@@ -429,6 +448,9 @@ export class MemoryDispatchGateway {
           JSON.stringify(candidateSet),
           coreHead,
           providerHead,
+          policyAuthority.authority_id,
+          policyAuthority.generation,
+          policyAuthority.fingerprint,
           new Date().toISOString(),
         );
         this.db.exec('COMMIT');
