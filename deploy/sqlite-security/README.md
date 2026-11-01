@@ -8,14 +8,15 @@ This layer does not make the current VFS probe production-ready. Production data
 
 ## Linux / systemd
 
-1. Install the application under /opt/logic-engine and use Node.js 22.13+ at /usr/bin/node.
-2. Copy logic-engine.service to /etc/systemd/system/.
-3. Store environment values in /etc/logic-engine/logic-engine.env and protect it with root-only permissions (chmod 0600).
-4. Configure every Logic-Engine SQLite path beneath /var/lib/logic-engine.
-5. Verify with systemd-analyze verify and inspect systemd-analyze security.
-6. Enable/start only after the native VFS production integration and trusted role manifest gates are satisfied.
+1. Install the application under /opt/logic-engine and use Node.js 22.14+ at /usr/bin/node (the exact archived ST-VectorService addon requires Node-API 10).
+2. Provision the distinct static `logic-engine-app` and `logic-engine-broker` identities as described below.
+3. Install both `logic-engine.service` and `logic-engine-sqlite-broker.service` into /etc/systemd/system/.
+4. Create `/etc/logic-engine/logic-engine.env` for non-secret application settings and the root-owned, app-group-readable `sqlite-broker.env` for broker/role bindings.
+5. Keep ordinary app state beneath `/var/lib/logic-engine`; protected SQLite files live only in broker-owned role directories and are addressed by a non-writable logical alias directory.
+6. Run `systemd-analyze verify` for both units and inspect `systemd-analyze security`.
+7. Do not enable/start production DB roles until the manifest has been initialized, the role enrolled, and the production VFS and independent Security-review gates are satisfied.
 
-The unit uses DynamicUser, a private StateDirectory with mode 0700, UMask=0077 and systemd filesystem sandboxing. Do not manually chown the state directory to a guessed numeric UID.
+The app unit uses a static application UID so the broker can authenticate it exactly. The broker runs under a separate static UID and the app's dedicated primary group. Both units use `UMask=0077` and systemd filesystem sandboxing; the app unit requires the broker unit and cannot start before broker startup reconciliation succeeds.
 
 ## Linux broker/application identity split
 
