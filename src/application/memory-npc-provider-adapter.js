@@ -113,6 +113,23 @@ export function createMemoryNpcProviderAdapter({
   try {
     const actorBindingService = new ActorBindingService(engine);
     const hostConversationWorldBindingService = new HostConversationWorldBindingService(engine);
+    // Bind the authenticated Host capability to the exact Core-owned World and
+    // unique Actor binding. The resolver is deployment-composed here; callers
+    // cannot provide or override adapter/world/actor selectors.
+    const resolveHostBindings = (_request, conversationId) => {
+      const conversationBinding = hostConversationWorldBindingService.resolve({
+        adapterId, conversationId,
+      });
+      const worldId = conversationBinding?.world_id;
+      if (typeof worldId !== 'string' || !worldId.trim()) return null;
+      const actorBinding = actorBindingService.resolveForAdapter(worldId, adapterId);
+      const actorId = actorBinding?.actor?.entity_id;
+      const exactBinding = actorBindingService.resolve(worldId, adapterId, actorId);
+      if (exactBinding?.world_id !== worldId
+        || exactBinding?.adapter_id !== adapterId
+        || exactBinding?.actor?.entity_id !== actorId) return null;
+      return { world_id: worldId, actor_id: actorId };
+    };
     const authorizedReadService = new AuthorizedReadService(engine, actorBindingService, fieldPolicy);
     const coreAuthorizers = createHostBoundNpcKnowledgeAuthorizers({
       store: engine.store,
@@ -153,6 +170,7 @@ export function createMemoryNpcProviderAdapter({
       runWithAuthenticatedHostSession(request, conversationId, callback) {
         return runWithAuthenticatedHostSession(
           request, conversationId, callback, isAuthenticatedHostRequest, resolveHostConversationId,
+          resolveHostBindings,
         );
       },
       async prepareWorld(worldId) {
