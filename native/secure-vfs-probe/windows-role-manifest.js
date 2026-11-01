@@ -123,9 +123,11 @@ function assertManifestShape(manifest) {
       }
       sidecarKinds.add(sidecar.kind);
       assertWindowsIdentity(sidecar.identity, `${role.role} ${sidecar.kind} sidecar`);
-      if (sidecar.state !== 'retired') {
-        claimIdentity(sidecar.identity, `${role.role} ${sidecar.kind} sidecar`);
-      }
+      // Retired records remain part of the durable identity history. They
+      // must not alias a live DB/sidecar or another role's retired object:
+      // otherwise restart reconciliation cannot distinguish identity reuse
+      // from reuse of a still-linked file identity.
+      claimIdentity(sidecar.identity, `${role.role} ${sidecar.kind} sidecar`);
     }
   }
 }
