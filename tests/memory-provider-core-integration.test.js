@@ -232,6 +232,33 @@ test('real SQLite Provider preserves evidence classification without promoting r
   }
 });
 
+test('real Provider diagnostics, snippets, and candidate counts never cross the NPC result envelope', async (t) => {
+  const s = setup(t);
+  assert.equal((await s.prepare()).status, 'current');
+  const originalRetrieve = s.provider.retrieveCandidates.bind(s.provider);
+  s.provider.retrieveCandidates = async (...args) => ({
+    ...(await originalRetrieve(...args)),
+    diagnostics: { private_trace: 'private-provider-diagnostic-317', candidate_count: 999 },
+    snippets: ['private-provider-snippet-317'],
+    candidate_count: 999,
+    rejected_count: 42,
+  });
+
+  const result = await s.consumer.retrieveForNpc({
+    worldId: s.scope.world_id,
+    actorEntityId: s.scope.subject_id,
+    conversationId: HOST_CONVERSATION_ID,
+  });
+  assert.equal(result.status, 'ready');
+  assert.equal(result.candidates.length, 1);
+  assertNoRejectedMetadataDisclosure(result);
+  const serialized = JSON.stringify(result);
+  assert.equal(serialized.includes('private-provider-diagnostic-317'), false);
+  assert.equal(serialized.includes('private-provider-snippet-317'), false);
+  assert.equal(serialized.includes('candidate_count'), false);
+  assert.equal(serialized.includes('rejected_count'), false);
+});
+
 test('real provider revocation during candidate B authorization excludes previously allowed A', async (t) => {
   const s = setup(t, { twoRecords: true });
   assert.equal((await s.prepare()).status, 'current');
