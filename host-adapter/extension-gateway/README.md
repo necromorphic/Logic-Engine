@@ -8,7 +8,7 @@ The browser extension uses SillyTavern's native `generate_interceptor` to stop n
 
 `/api/plugins/logic-engine-extension-gateway/*`
 
-The server plugin is loaded by SillyTavern after `requireLoginMiddleware`. It owns the only public Host ingress, resolves installation/account/session/conversation from server-controlled identity and inventory, and calls Core using server-held credentials plus a short-lived signed Host assertion. Adapter helpers are internal functions; they do not register separate Express routes.
+The server plugin is loaded by SillyTavern after `requireLoginMiddleware`. It owns the only public Host ingress and performs bounded envelope routing only. It delegates to an internal Authenticated Host Adapter; that component verifies the ST session, resolves installation/account/session/conversation from server-controlled identity and inventory, and calls Core using server-held credentials plus a short-lived signed Host assertion. The Gateway does not authenticate sessions, assign World/Actor, authorize, access Memory/NPC/Mechanics, handle AI sending, or implement the Final-Send Hook. Adapter helpers do not register separate Express routes.
 
 No `/api/logic-engine/*` route is mounted. No SillyTavern source file is patched or overwritten.
 
@@ -30,8 +30,9 @@ Enable SillyTavern's native `enableServerPlugins: true` setting. Keep server-plu
 - The Host session UUID is generated in SillyTavern's signed session and rotates when the authenticated account changes. Core validates this session separately from the stable conversation tuple.
 - Stable conversation identity is `installation_id:account_id:conversation_uuid`; session identity is carried separately in the signed assertion.
 - The browser's localStorage and chat metadata are consistency/enrollment inputs, not authentication authorities.
-- The Gateway resolves the conversation UUID against server-side inventory before signing any assertion.
-- World and actor are never accepted from the browser; Core resolves them from its own durable bindings.
+- The Authenticated Host Adapter resolves the conversation UUID against server-side inventory before signing any assertion.
+- The Gateway does not assign World or Actor. World and Actor are never accepted from the browser; Core resolves them from its own durable bindings.
+- Core Security Gateway remains the sole authorization authority.
 
 ## Dispatch boundary
 
