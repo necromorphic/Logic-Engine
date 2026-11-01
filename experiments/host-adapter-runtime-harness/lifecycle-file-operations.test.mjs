@@ -474,6 +474,52 @@ test('pinned ST 1.19.0 supported chat mutations persist; rename, group deletion,
   assert.ok([...swipe.result.delta.modified, ...swipe.result.delta.replaced].some(entry => entry.path.endsWith('chat-one.jsonl')));
   await finishLifecycleMutation(swipeReceiptScope);
 
+  const selectedSwipeChat = swipeChat.map((message, index) => index === 2 ? {
+    ...message,
+    swipe_id: 0,
+    _logicEngineLifecycle: { ...message._logicEngineLifecycle, activeVersionIndex: 0 },
+  } : message);
+  const selectSwipeReceiptScope = await beginLifecycleMutation('select-swipe');
+  const selectSwipe = await observe(async () => {
+    const response = await post('/api/chats/save', {
+      avatar_url: 'Harness Character.png', file_name: 'chat-one', chat: selectedSwipeChat, force: true,
+    }, { 'x-harness-operation': 'select-swipe' });
+    assert.equal(response.status, 200, JSON.stringify(response));
+    assert.equal(response.result.ok, true);
+    const persisted = (await readFile(chatPath, 'utf8')).trim().split('\\n').map(line => JSON.parse(line));
+    assert.equal(persisted[2].swipe_id, 0);
+    assert.equal(persisted[2]._logicEngineLifecycle.activeVersionIndex, 0);
+    assert.equal(persisted[2]._logicEngineLifecycle.versions.length, 2);
+    return response;
+  }, ['modified', 'replaced']);
+  await finishLifecycleMutation(selectSwipeReceiptScope);
+
+  const deletedSwipeChat = selectedSwipeChat.map((message, index) => index === 2 ? {
+    ...message,
+    swipes: ['first reply'],
+    swipe_info: [message.swipe_info[0]],
+    swipe_id: 0,
+    _logicEngineLifecycle: {
+      ...message._logicEngineLifecycle,
+      versions: [message._logicEngineLifecycle.versions[0]],
+      activeVersionIndex: 0,
+    },
+  } : message);
+  const deleteSwipeReceiptScope = await beginLifecycleMutation('delete-swipe');
+  const deleteSwipe = await observe(async () => {
+    const response = await post('/api/chats/save', {
+      avatar_url: 'Harness Character.png', file_name: 'chat-one', chat: deletedSwipeChat, force: true,
+    }, { 'x-harness-operation': 'delete-swipe' });
+    assert.equal(response.status, 200, JSON.stringify(response));
+    assert.equal(response.result.ok, true);
+    const persisted = (await readFile(chatPath, 'utf8')).trim().split('\\n').map(line => JSON.parse(line));
+    assert.deepEqual(persisted[2].swipes, ['first reply']);
+    assert.equal(persisted[2]._logicEngineLifecycle.versions.length, 1);
+    assert.equal(persisted[2]._logicEngineLifecycle.activeVersionIndex, 0);
+    return response;
+  }, ['modified', 'replaced']);
+  await finishLifecycleMutation(deleteSwipeReceiptScope);
+
   const deleteMessageChat = [
     header(),
     editedUserMessage(),
