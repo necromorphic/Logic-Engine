@@ -93,3 +93,10 @@ Do not silently declare ST-VectorService out of scope. Choose one of these expli
 - replace/alter the driver architecture so the service uses a single explicitly controlled SQLite engine/VFS boundary, with compatibility and migration tests.
 
 Until one strategy is implemented and independently reviewed, ST-VectorService's SQLite store remains outside the protection proven by PR #798. No production activation is authorized by this inventory.
+
+
+## Required ST-VectorService host integration (pending production VFS)
+
+The supplied ST-VectorService archive has no root `engines` declaration, while its installed `better-sqlite3@13.0.3` addon requires Node-API 10. Before shipping that dependency, the service package must declare `"engines": { "node": ">=22.14.0" }` and fail fast before the first database constructor when `Number(process.versions.napi) < 10`. The SillyTavern archive itself advertises a broader Node floor, so this constraint belongs to the separate ST-VectorService process/package and must be documented in its install instructions.
+
+The current service opens its database at `server.js:261`, after creating `vector_storage` and before WAL/schema setup. Once the production secure VFS library exists for the service's exact platform and SQLite 3.53.4 build, change that sequence to: (1) validate Node-API 10; (2) create a temporary `new Database(':memory:')`; (3) load the production VFS extension using its fixed trusted path and explicit entrypoint; (4) close the bootstrap connection; (5) construct `new Database(DB_PATH)` normally; (6) immediately perform role-manifest enrollment/validation before schema or WAL work. Do not load the current identity-probe library in production: its source explicitly states it is not a production secure VFS.
