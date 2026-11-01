@@ -172,7 +172,7 @@ test('context route fails closed when Core world or actor binding cannot be reso
     ]) {
         const route = createHostContextRoute({
             ...dependencies(),
-            config: { adapterId: 'st-adapter', actorEntityId: 'npc-kiryu' },
+            config: { adapterId: 'st-adapter', actorEntityId: 'npc-kiryu', adapterToken },
             corePost,
         });
         const request = makeRequest();
