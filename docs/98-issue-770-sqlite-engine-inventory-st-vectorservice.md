@@ -47,7 +47,7 @@ Source files inspected:
 - [`binding.gyp`](https://github.com/WiseLibs/better-sqlite3/blob/v13.0.3/binding.gyp) and [`deps/sqlite3.gyp`](https://github.com/WiseLibs/better-sqlite3/blob/v13.0.3/deps/sqlite3.gyp): when building from source, `deps/sqlite3/sqlite3.c` is compiled as a static SQLite library and linked into the `better_sqlite3` native addon.
 - [`deps/sqlite3/sqlite3.h`](https://github.com/WiseLibs/better-sqlite3/blob/v13.0.3/deps/sqlite3/sqlite3.h): exact tag reports SQLite 3.53.4, source ID `2026-07-24 19:02:57 bf7c7f30031888f4e796e429ab3978879485813aaca6f641c7b33e4e09459bcc`.
 - [`src/objects/database.cpp`](https://github.com/WiseLibs/better-sqlite3/blob/v13.0.3/src/objects/database.cpp): `Database::JS_new` calls `sqlite3_open_v2(filename, ..., mask, NULL)`; the VFS argument is hard-coded to NULL, selecting that SQLite instance's default VFS.
-- The same file's `JS_loadExtension` calls `sqlite3_load_extension(db->db_handle, ...)` on an already-created database handle. Loading an extension through this API is therefore too late to secure the initial `new Database(DB_PATH)` open.
+- The same file's `JS_loadExtension` calls `sqlite3_load_extension(db->db_handle, ...)` on an already-created database handle. This cannot secure that connection's own initial open, but an in-memory bootstrap connection can load a persistent VFS extension before any protected DB connection is constructed.
 - [`lib/binding.js`](https://github.com/WiseLibs/better-sqlite3/blob/v13.0.3/lib/binding.js): runtime loads a platform prebuild when present, otherwise the package's compiled `build/Release/better_sqlite3.node`. The VFS and SQLite build used by the actual installed binary must be verified, not inferred from Node's `node:sqlite` version.
 
 ### Exact archive prebuild audit
@@ -71,19 +71,14 @@ The Windows x64 binary was fingerprinted and its embedded version string inspect
 
 The ST-VectorService `better-sqlite3` connection is **not covered** by the Node 22.13.0 / SQLite 3.47.2 VFS registration. The supplied Linux x64 prebuild was runtime-confirmed to embed SQLite 3.53.4 with the source ID above; the packaged Windows x64 binary contains the same version string. SQLite VFS registrations are local to the SQLite library instance. However, the embedded build reports `USE_URI`, so the unmodified binding can select a named VFS through SQLite's `file:` URI `vfs=` parameter. The supported sequence is: open an in-memory bootstrap connection in this exact better-sqlite3 engine; load the secure VFS extension into that connection; close the bootstrap connection (the extension returns `SQLITE_OK_LOAD_PERMANENTLY`); then open the protected DB using a URI with `vfs=<registered-name>`. The in-memory bootstrap open does not access a protected role. The integration test must assert `USE_URI`, verify the probe VFS receives main and WAL opens, and verify close/reopen through the same URI. This avoids modifying the better-sqlite3 native constructor.
 
-A valid integration therefore requires the stock-binding URI route, provided the exact deployed binary retains `USE_URI` and the probe test proves VFS selection. A controlled fork/rebuild is a fallback only if a target platform build lacks `USE_URI` or cannot select the named VFS through URI:
-1. builds the secure backend against the exact SQLite 3.53.4 amalgamation and compile options used by the deployed addon;
-2. registers it in the better-sqlite3 engine before the first protected database is opened;
-3. changes the database open path to select the secure VFS explicitly;
-4. fails closed if registration or role-manifest validation did not complete;
-5. runs the same DB/WAL/SHM/locking/restart/crash adversarial suite on the addon-specific engine.
+Primary integration uses the unmodified binding and the URI VFS selector. A controlled fork/rebuild is a fallback only if a target platform binary lacks `USE_URI` or fails the URI selection test. Any fallback must build the secure backend against the exact SQLite amalgamation and compile options, register it before the first protected DB is opened, select it explicitly, fail closed on registration/manifest errors, and run the DB/WAL/SHM/locking/restart/crash suite on that addon-specific engine.
 
 **Remaining evidence gap:** the packaged Linux and Windows x64 prebuilds have now been extracted and fingerprinted; the Linux binary's SQLite source ID and compile options were queried at runtime. The exact binary selected by the deployed Windows host has not been runtime-queried on Windows, and the installed service's actual loaded module path has not been captured from a running process. No SQLite database contents were opened or changed.
 
 ## Security consequences for Issue #770
 
 1. The deployment inventory must treat ST-VectorService as a separate protected SQLite engine/role, not as a database already covered by the Node `node:sqlite` VFS proof.
-2. The `better-sqlite3` native binding needs an independently verified interception/registration strategy. A VFS registered only in the Node `node:sqlite` SQLite engine cannot be assumed to cover the separately compiled SQLite engine embedded in `better-sqlite3`.
+2. The `better-sqlite3` engine needs independent VFS registration and selection evidence. A VFS registered only in the Node `node:sqlite` engine cannot cover the separately compiled SQLite engine embedded in `better-sqlite3`; the stock-binding URI route must be validated against each deployed platform binary.
 3. Its DB, WAL and SHM files must be included in the same trusted directory/identity and sidecar ownership model.
 4. The dynamic `ST_VECTOR_ROOT` setting means the final storage path is deployment-configurable; a hard-coded path assumption is invalid.
 5. Startup opens the DB before the HTTP listener is started. Any secure registration must therefore happen before `new Database(DB_PATH)`, not after service startup.
