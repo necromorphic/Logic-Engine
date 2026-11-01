@@ -54,7 +54,17 @@ export function runWithLogicEngineFinalSend(request, response, handler) {
     return generationContext.run(active, async () => {
         // Host preparation is asynchronous and happens inside the native
         // authenticated route, before any provider-specific sender is entered.
-        await active.adapter.prepare(request, response);
+        try {
+            await active.adapter.prepare(request, response);
+        } catch {
+            // Never return Core/Provider diagnostics through the native route.
+            if (!response.headersSent) {
+                response.status(503).send({ error: { message: 'Protected generation unavailable' } });
+            } else if (!response.writableEnded) {
+                response.end();
+            }
+            return undefined;
+        }
         return handler();
     });
 }
