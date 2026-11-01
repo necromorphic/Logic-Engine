@@ -38,6 +38,41 @@ export class HostIdentityStore {
     if (!stat?.isDirectory() || stat.isSymbolicLink()) throw new Error('HOST_IDENTITY_DIRECTORY_UNSAFE');
   }
 
+  /**
+   * Installation identity must survive restoration/replacement of the ST data
+   * root. Resolve both paths through existing ancestors so a symlinked parent
+   * cannot make an apparently external directory point back into the root.
+   */
+  async assertOutsideRoot(root) {
+    if (typeof root !== 'string' || !path.isAbsolute(root)) {
+      throw new Error('HOST_IDENTITY_DATA_ROOT_INVALID');
+    }
+    const realRoot = await fs.realpath(root);
+    let probe = this.directory;
+    let realParent;
+    while (!realParent) {
+      try {
+        realParent = await fs.realpath(probe);
+      } catch (error) {
+        if (error?.code !== 'ENOENT' && error?.code !== 'ENOTDIR') throw error;
+        const parent = path.dirname(probe);
+        if (parent === probe) throw error;
+        probe = parent;
+      }
+    }
+    const isWithinRoot = relative => relative === ''
+      || (relative !== '..' && !relative.startsWith('..' + path.sep) && !path.isAbsolute(relative));
+    if (isWithinRoot(path.relative(realRoot, realParent))) {
+      throw new Error('HOST_IDENTITY_DIRECTORY_INSIDE_DATA_ROOT');
+    }
+    await this.#prepareDirectory();
+    const realDirectory = await fs.realpath(this.directory);
+    if (isWithinRoot(path.relative(realRoot, realDirectory))) {
+      throw new Error('HOST_IDENTITY_DIRECTORY_INSIDE_DATA_ROOT');
+    }
+    return true;
+  }
+
   async #read(filePath) {
     let handle;
     try {
