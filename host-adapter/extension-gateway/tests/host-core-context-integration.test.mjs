@@ -69,6 +69,11 @@ test('Host Adapter makes a real authenticated Core context-resolution call; inco
   });
   core.listen(0, '127.0.0.1');
   await once(core, 'listening');
+  t.after(async () => {
+    await new Promise(resolve => core.close(resolve));
+    store.close();
+    await rm(directory, { recursive: true, force: true });
+  });
   const coreUrl = 'http://127.0.0.1:' + core.address().port;
   const coreHeaders = { authorization: 'Bearer ' + API_TOKEN };
   const adminHeaders = { ...coreHeaders, 'x-admin-token': ADMIN_TOKEN };
@@ -190,9 +195,4 @@ test('Host Adapter makes a real authenticated Core context-resolution call; inco
   assert.equal(deniedGateResponse.payload.code, 'HOST_CONTEXT_UNAVAILABLE');
   assert.equal(deniedCoreCalls, 0);
 
-  t.after(async () => {
-    await new Promise(resolve => core.close(resolve));
-    store.close();
-    await rm(directory, { recursive: true, force: true });
-  });
 });
