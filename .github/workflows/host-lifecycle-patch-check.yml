@@ -51,12 +51,16 @@ jobs:
         run: |
           node --check host-adapter/server-plugin/index.mjs
           node --check host-adapter/server-plugin/context-route.mjs
+          node --check host-adapter/extension-gateway/index.js
+          node --check host-adapter/extension-gateway/host-client.mjs
+          node --check host-adapter/extension-gateway/gateway-policy.mjs
           node --check host-adapter/prototype/st-host-inventory-handler.mjs
           node --check host-adapter/prototype/st-host-identity-store.mjs
           node --check host-adapter/prototype/host-data-inventory.mjs
       - name: Run Host prototype, server-plugin and inventory tests
         run: |
           node --test host-adapter/server-plugin/tests/*.test.mjs
+          node --test host-adapter/extension-gateway/tests/*.test.mjs
           node --test host-adapter/prototype/tests/*.test.mjs tests/host-source-inventory.test.js
       - name: Verify plugin deployment tree has no ST source modifications
         run: |
