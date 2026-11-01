@@ -7,13 +7,15 @@ const contexts = new WeakSet();
 const requestContext = new AsyncLocalStorage();
 
 /**
- * Build a non-serializable capability from the actual authenticated
- * SillyTavern server request. request.session must be the signed session
- * populated by SillyTavern's cookie-session middleware; never pass a browser
- * body, decoded client payload, or caller-constructed identity object here.
+ * Build a non-serializable capability only after a deployment-owned Host
+ * request authenticator confirms that this exact request passed SillyTavern's
+ * server authentication middleware. The authenticator must be captured from
+ * trusted server composition; it must not trust request body/header fields.
  */
-export function createAuthenticatedHostSessionContext(request, conversationId) {
+export function createAuthenticatedHostSessionContext(request, conversationId, isAuthenticatedHostRequest) {
   try {
+    if (typeof isAuthenticatedHostRequest !== 'function'
+      || isAuthenticatedHostRequest(request) !== true) return null;
     const session = request?.session;
     const userHandle = request?.user?.profile?.handle;
     const sessionId = session?.logicEngineSessionId;
@@ -53,9 +55,9 @@ export function isAuthenticatedHostSessionContext(context, conversationId) {
  * The callback receives no identity arguments: Core/consumer code reads the
  * branded capability from AsyncLocalStorage, not from caller request data.
  */
-export function runWithAuthenticatedHostSession(request, conversationId, callback) {
+export function runWithAuthenticatedHostSession(request, conversationId, callback, isAuthenticatedHostRequest) {
   if (typeof callback !== 'function') throw new TypeError('A Host operation callback is required');
-  const context = createAuthenticatedHostSessionContext(request, conversationId);
+  const context = createAuthenticatedHostSessionContext(request, conversationId, isAuthenticatedHostRequest);
   if (!context) throw new Error('HOST_SESSION_AUTHENTICATION_REQUIRED');
   return requestContext.run(context, callback);
 }
