@@ -20,7 +20,7 @@ const actorId='actor-player';
 const resolveBindings=()=>({world_id:worldId,actor_id:actorId});
 const resolveIdentity=()=>({host_installation_id:installation,authenticated_account_id:account});
 
-test('in-process Host capability binds stable installation/account/conversation and keeps session separate',async()=>{
+test('in-process Host capability binds session-scoped conversation with separately resolved installation/account',async()=>{
   const request={session:{logicEngineSessionId:session,logicEngineSessionHandle:userHandle},user:{profile:{handle:userHandle}}};
   const isAuthenticated=()=>true;
   const resolveConversation=()=>conversationId;
