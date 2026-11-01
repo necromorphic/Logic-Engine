@@ -1,5 +1,3 @@
-import { randomUUID } from 'node:crypto';
-
 export const EXTENSION_GATEWAY_PATH = '/api/logic-engine/extension';
 export const EXTENSION_GATEWAY_MAX_BODY_BYTES = 256 * 1024;
 
@@ -183,5 +181,9 @@ export function mountExtensionGateway({ app, gateway } = {}) {
   }
   mountedApps.add(app);
   app.post(EXTENSION_GATEWAY_PATH, (request, response) => gateway.handle(request, response));
-  return Object.freeze({ path: EXTENSION_GATEWAY_PATH, method: 'POST' });
+  return Object.freeze({
+    path: EXTENSION_GATEWAY_PATH,
+    method: 'POST',
+    close: options => gateway.close(options),
+  });
 }
