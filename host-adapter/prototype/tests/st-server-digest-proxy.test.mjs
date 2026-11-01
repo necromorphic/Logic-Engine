@@ -385,6 +385,7 @@ test('lifecycle journal proxy derives account identity and signs only server-ver
     },
   };
   const receiptStore = {
+    assertOutsideRoot: async root => assert.equal(root, GLOBAL_DATA_ROOT),
     prepare: async (scope, directories) => {
       receiptCalls.push({ type: 'prepare', scope, directories });
       return { status: 'appended', prepared: { occurred_at: '2026-10-31T00:00:00.000Z' } };
