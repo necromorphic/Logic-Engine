@@ -32,6 +32,30 @@ if (!/^[1-9][0-9]*$/.test(brokerUidText || '')
   throw new Error('LOGIC_ENGINE_BROKER_UID must be the distinct trusted broker service UID');
 }
 
+function assertBrokerOwnedAliasParent(directory) {
+  const absolute = path.resolve(directory);
+  const root = path.parse(absolute).root;
+  let current = root;
+  for (const component of absolute.slice(root.length).split(path.sep).filter(Boolean)) {
+    current = path.join(current, component);
+    const info = fs.lstatSync(current);
+    if (!info.isDirectory() || info.isSymbolicLink()
+        || (info.uid !== 0 && info.uid !== Number(brokerUidText))
+        || (info.mode & 0o022) !== 0) {
+      throw new Error('The logical DB alias parent chain must contain only broker/root-owned, non-group/world-writable directories');
+    }
+    try {
+      fs.accessSync(current, fs.constants.W_OK);
+      throw new Error('The application UID must not be able to mutate the logical DB alias parent chain');
+    } catch (error) {
+      if (error?.code !== 'EACCES' && error?.code !== 'EPERM') throw error;
+    }
+  }
+  fs.accessSync(absolute, fs.constants.X_OK);
+}
+
+assertBrokerOwnedAliasParent(path.dirname(dbPath));
+
 fs.mkdirSync(storageDirectory, { recursive: true });
 const storageInfo = fs.lstatSync(storageDirectory);
 if (!storageInfo.isDirectory() || storageInfo.isSymbolicLink()
