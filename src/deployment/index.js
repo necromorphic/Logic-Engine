@@ -2,8 +2,9 @@ import { createPlatformSecurityAdapter } from './platform-adapter.js';
 import { resolveDeploymentPathRegistry } from './path-registry.js';
 import { buildDeploymentReport, createCapabilityEvidence, evaluateDeploymentGates, PROTECTED_FINAL_SEND_CAPABILITIES } from './policy.js';
 import { validateDeploymentManifest, validateDeploymentReport } from './contracts.js';
+import { inspectPinnedSillyTavernInstallation } from './patch-inspector.js';
 
-export async function assessDeployment({ manifest, deploymentRoot, platformAdapter = createPlatformSecurityAdapter() }) {
+export async function assessDeployment({ manifest, deploymentRoot, sillyTavernRoot = process.env.LOGIC_ENGINE_SILLYTAVERN_ROOT, platformAdapter = createPlatformSecurityAdapter() }) {
   const validation = validateDeploymentManifest(manifest);
   const identity = await platformAdapter.identifyPlatform();
   const capabilities = await platformAdapter.collectEvidence();
@@ -23,6 +24,26 @@ export async function assessDeployment({ manifest, deploymentRoot, platformAdapt
     if (platformEvidenceIndex >= 0) capabilities.splice(platformEvidenceIndex, 1, unsupportedPlatformEvidence);
     else capabilities.push(unsupportedPlatformEvidence);
   }
+
+  const patchInspection = await inspectPinnedSillyTavernInstallation(sillyTavernRoot);
+  capabilities.push(createCapabilityEvidence({
+    id: 'host.patch.files.integrity.inspect',
+    status: patchInspection.files.status,
+    required: false,
+    evidenceSource: 'deployment-pinned-st-inspector',
+    observedSummary: patchInspection.files.summary,
+    adapterVersion: '1.0.0',
+    limitations: ['Filesystem inspection does not prove which modules are already loaded in the running SillyTavern process.'],
+  }));
+  capabilities.push(createCapabilityEvidence({
+    id: 'host.patch.backups.integrity.inspect',
+    status: patchInspection.backups.status,
+    required: false,
+    evidenceSource: 'deployment-pinned-st-inspector',
+    observedSummary: patchInspection.backups.summary,
+    adapterVersion: '1.0.0',
+    limitations: ['Backup digest verification does not establish an independent freshness anchor or anti-rollback guarantee.'],
+  }));
 
   // These are runtime integration attestations, not manifest claims. Until a trusted
   // Host/Gateway verifier supplies evidence, production Memory final-send stays blocked.
@@ -101,5 +122,5 @@ export async function assessDeployment({ manifest, deploymentRoot, platformAdapt
     limitations,
   });
   validateDeploymentReport(report);
-  return Object.freeze({ validation, pathRegistry, report });
+  return Object.freeze({ validation, pathRegistry, patchInspection, report });
 }
