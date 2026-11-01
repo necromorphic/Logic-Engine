@@ -78,7 +78,7 @@ test('strict Linux VFS build requires broker role enrollment', {
         'an application-writable alias parent must be rejected before broker IPC');
       // /var/lib is root-owned and non-writable by the runner UID; the
       // fake socket remains app-owned and must be rejected at the broker boundary.
-      process.env.LOGIC_ENGINE_VFS_ROLE_PATH = '/var/lib/logic-engine-strict-probe.sqlite';
+      process.env.LOGIC_ENGINE_VFS_ROLE_PATH = `/var/lib/logic-engine-strict-probe-${process.pid}.sqlite`;
       process.env.LOGIC_ENGINE_VFS_ROLE_NAME = 'core';
       process.env.LOGIC_ENGINE_BROKER_SOCKET = socketPath;
       process.env.LOGIC_ENGINE_BROKER_UID = String(process.getuid() + 1);
