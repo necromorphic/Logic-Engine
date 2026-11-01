@@ -962,6 +962,21 @@ export class SQLiteMemoryProvider {
       });
   }
 
+
+  checkCandidateGrant(input) {
+    this.#assertAcceptedHeadCurrent();
+    if (!isPlainDataRecord(input)) return false;
+    const { world_id, subject_id, purpose, record_ref, record_version, authorization_generation } = input;
+    if (!validId(world_id) || !validId(subject_id) || !validId(purpose)
+      || !validId(record_ref) || !validId(record_version)
+      || !Number.isSafeInteger(authorization_generation) || authorization_generation < 1) return false;
+    const grant = this.#db.prepare('SELECT allowed,authorization_generation FROM memory_record_grants WHERE world_id=? AND subject_id=? AND purpose=? AND record_ref=? AND record_version=?')
+      .get(world_id, subject_id, purpose, record_ref, record_version);
+    if (!grant || grant.allowed !== 1) throw new Error('MEMORY_RECORD_ACCESS_REVOKED');
+    if (grant.authorization_generation !== authorization_generation) throw new Error('MEMORY_AUTHORIZATION_CHANGED');
+    return true;
+  }
+
   putRecord(record) {
     // Reject executable caller objects and snapshot nested lineage before any
     // identity validation or persistence. The method is synchronous, so this
