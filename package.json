@@ -14,7 +14,7 @@
     "benchmark:replay": "node benchmarks/replay-rollback-growth.mjs",
     "deployment:verify": "node scripts/deployment/verify.mjs"
   },
-  "devDependencies": {
+  "dependencies": {
     "ajv": "8.17.1",
     "ajv-formats": "3.0.1"
   }
