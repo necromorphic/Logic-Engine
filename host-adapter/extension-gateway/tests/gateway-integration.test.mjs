@@ -12,6 +12,9 @@ test('protected generation is aborted before authenticated Host context dispatch
         if (url === '/csrf-token') {
             return { ok: true, json: async () => ({ token: 'csrf-token' }) };
         }
+        if (url === '/api/plugins/logic-engine-host-adapter/session') {
+            return { ok: true, json: async () => ({ host_session_id: '2e6b0a80-4e73-4c66-aaf3-7a6e62c7f401' }) };
+        }
         return {
             ok: true,
             json: async () => ({
@@ -34,7 +37,7 @@ test('protected generation is aborted before authenticated Host context dispatch
         assert.equal(aborted, true);
         assert.equal(dispatched.hostContext.status, 'AUTHENTICATED_HOST_CONTEXT');
         assert.equal(dispatched.hostContext.binding.world_id, 'world');
-        assert.equal(calls[1].url, '/api/plugins/logic-engine-host-adapter/context');
+        assert.equal(calls[2].url, '/api/plugins/logic-engine-host-adapter/context');
         assert.equal(getStatus().status, 'DISPATCH_DELEGATED');
     } finally {
         globalThis.fetch = originalFetch;
