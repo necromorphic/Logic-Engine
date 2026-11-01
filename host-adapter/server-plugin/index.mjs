@@ -3,9 +3,9 @@ import { HostIdentityStore } from '../prototype/st-host-identity-store.mjs';
 import { enumerateHostDataInventory } from '../prototype/host-data-inventory.mjs';
 import {
     createHostIdentityHandler,
-    createHostRequestAuthenticationGate,
     createHostSessionHandler,
 } from '../prototype/st-host-inventory-handler.mjs';
+import { createHostContextRoute } from './context-route.mjs';
 
 export const info = Object.freeze({
     id: 'logic-engine-host-adapter',
@@ -104,82 +104,12 @@ export async function init(router) {
         return;
     }
 
-    const resolveConversationId = async request => {
-        const handle = request?.user?.profile?.handle;
-        const session = request?.session;
-        const directories = request?.user?.directories;
-        const conversationUuid = request?.body?.conversation_uuid;
-        if (!validText(handle) || !session || session.logicEngineSessionHandle !== handle
-            || !UUID.test(session.logicEngineSessionId ?? '') || !UUID.test(conversationUuid ?? '')
-            || !directories || !['root', 'chats', 'groups', 'groupChats'].every(key =>
-                typeof directories[key] === 'string' && path.isAbsolute(directories[key]))) {
-            throw new Error('HOST_REQUEST_IDENTITY_INVALID');
-        }
-        const inventory = await enumerateHostDataInventory({
-            directories: {
-                root: directories.root,
-                chats: directories.chats,
-                groups: directories.groups,
-                groupChats: directories.groupChats,
-            },
-            hostCommit: PINNED_HOST_COMMIT,
-        });
-        if (inventory?.filesystem?.status !== 'complete'
-            || inventory?.source?.status !== 'DOUBLE_SCAN_CANDIDATE'
-            || !Array.isArray(inventory?.source?.files)) {
-            throw new Error('HOST_CONVERSATION_INVENTORY_INCOMPLETE');
-        }
-        const matches = inventory.source.files.filter(file =>
-            file?.logical_identity?.conversation_uuid === conversationUuid);
-        if (matches.length !== 1) throw new Error('HOST_CONVERSATION_IDENTITY_AMBIGUOUS');
-        const identity = await identityStore.resolveAuthenticatedAccount(handle);
-        return [
-            session.logicEngineSessionId,
-            identity.host_installation_id,
-            conversationUuid,
-        ].join(':');
-    };
-
-    const gate = createHostRequestAuthenticationGate({ resolveConversationId });
-    router.post('/context', gate.middleware, async (request, response) => {
-        response.set('Cache-Control', 'no-store, private');
-        response.set('Vary', 'Cookie');
-        if (!gate.isAuthenticatedHostRequest(request)) return response.sendStatus(403);
-        const conversationId = gate.resolveHostConversationId(request);
-        if (typeof conversationId !== 'string') return response.sendStatus(403);
-        try {
-            const bindingResult = await corePost(config, '/v1/host-conversation-bindings/resolve', {
-                conversation_id: conversationId,
-            });
-            const worldId = bindingResult?.binding?.world_id;
-            if (!validText(worldId)) return safeFailure(response, 'CORE_WORLD_BINDING_INVALID', 409);
-            const actorResult = await corePost(
-                config,
-                '/v1/worlds/' + encodeURIComponent(worldId) + '/actors/resolve',
-                { entity_id: config.actorEntityId },
-            );
-            const actorId = actorResult?.resolution?.actor?.entity_id;
-            if (!validText(actorId)) return safeFailure(response, 'CORE_ACTOR_BINDING_INVALID', 409);
-            const account = await identityStore.resolveAuthenticatedAccount(request.user.profile.handle);
-            return response.status(200).json({
-                status: 'AUTHENTICATED_HOST_CONTEXT',
-                identity: {
-                    installation_id: account.host_installation_id,
-                    account_id: account.authenticated_account_id,
-                    session_id: request.session.logicEngineSessionId,
-                    conversation_id: conversationId,
-                },
-                binding: {
-                    world_id: worldId,
-                    actor_id: actorId,
-                    adapter_id: config.adapterId,
-                },
-                authority: 'SERVER_SESSION_AND_CORE_BINDINGS',
-            });
-        } catch (error) {
-            const code = typeof error?.message === 'string' && /^[A-Z0-9_]{1,96}$/.test(error.message)
-                ? error.message : 'CORE_CONTEXT_RESOLUTION_FAILED';
-            return safeFailure(response, code, 409);
-        }
+    const contextRoute = createHostContextRoute({
+        identityStore,
+        enumerate: enumerateHostDataInventory,
+        config: { adapterId: config.adapterId, actorEntityId: config.actorEntityId },
+        corePost: (route, body) => corePost(config, route, body),
     });
+    router.post('/context', contextRoute.middleware, contextRoute.handler);
+
 }
