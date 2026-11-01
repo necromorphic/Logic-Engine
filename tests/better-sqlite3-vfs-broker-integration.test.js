@@ -81,6 +81,17 @@ test('better-sqlite3 uses brokered main, journal, WAL and SHM descriptors with c
   ).get(databasePath, 'core', socketPath).registered;
   assert.equal(enroll(), 1, 'broker-first enrollment must validate the main DB before any local path open');
 
+  // The expected service UID is copied into the registered role at enrollment;
+  // later environment mutation must not retarget or disable broker authorization.
+  const enrolledBrokerUid = process.env.LOGIC_ENGINE_BROKER_UID;
+  process.env.LOGIC_ENGINE_BROKER_UID = String(process.getuid() + 1);
+  let writer;
+  try {
+    writer = new Database(databasePath);
+  } finally {
+    process.env.LOGIC_ENGINE_BROKER_UID = enrolledBrokerUid;
+  }
+
   assert.throws(
     () => registrar.prepare(
       'SELECT logic_engine_vfs_probe_delete_registered_role(?)',
@@ -91,7 +102,6 @@ test('better-sqlite3 uses brokered main, journal, WAL and SHM descriptors with c
   assert.equal(existsSync(databasePath), true,
     'main DB deletion must remain available only through the offline broker-identity lifecycle');
 
-  const writer = new Database(databasePath);
   let reader;
   let readerTransactionActive = false;
   try {
