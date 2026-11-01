@@ -144,7 +144,7 @@ test('extension manifest and UI use the supported ST extension lifecycle', async
   assert.match(html, /logic_engine_check/);
   assert.match(html, /logic_engine_context/);
   const bundledIdentity = await readFile(resolve(root, 'conversation-identity.mjs'), 'utf8');
-  const canonicalIdentity = await readFile(resolve(root, '..', '..', 'prototype', 'conversation-identity.mjs'), 'utf8');
+  const canonicalIdentity = await readFile(resolve(root, '..', 'prototype', 'conversation-identity.mjs'), 'utf8');
   assert.equal(bundledIdentity, canonicalIdentity);
   assert.match(html, /api\/plugins\/logic-engine-extension-gateway/);
   assert.doesNotMatch(js, /LOGIC_ENGINE_CORE_URL|host-version-ledger|logicEngineHostLifecycle/);
