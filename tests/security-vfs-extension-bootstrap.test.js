@@ -46,7 +46,11 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
   registerRole(workerPath, 'worker');
   registerRole(corePath, 'core-anchor');
 
+  let manifestEnrollmentOpenCountDelta = 0;
   if (process.platform === 'win32') {
+    const manifestOpenCountBefore = roleRegistrar.prepare(
+      'SELECT logic_engine_vfs_probe_open_count() AS count'
+    ).get().count;
     const manifestDbPath = join(directory, 'manifest-enrolled.sqlite');
     const manifestWalPath = `${manifestDbPath}-wal`;
     const manifestShmPath = `${manifestDbPath}-shm`;
@@ -95,6 +99,10 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
       roleRegistrar, manifest, 'manifest-enrolled', manifestDbPath
     ), 1,
     'Windows manifest enrollment must bind the DB and final parent handle identities');
+    const manifestOpenCountAfter = roleRegistrar.prepare(
+      'SELECT logic_engine_vfs_probe_open_count() AS count'
+    ).get().count;
+    manifestEnrollmentOpenCountDelta = manifestOpenCountAfter - manifestOpenCountBefore;
   }
 
   const unregisteredPath = join(directory, 'unregistered.sqlite');
@@ -779,7 +787,8 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
   try {
     second.exec('CREATE TABLE probe(value TEXT);');
     const opened = second.prepare('SELECT logic_engine_vfs_probe_open_count() AS count').get().count;
-    const expectedOpenCount = (process.platform === 'win32' ? 14 : 18) + aliasPathOpenCountDelta;
+    const expectedOpenCount = (process.platform === 'win32' ? 14 : 18)
+      + aliasPathOpenCountDelta + manifestEnrollmentOpenCountDelta;
     assert.equal(opened, expectedOpenCount,
       'the VFS must remain registered across worker, Core, reader, journal, journal-race, SHM-race, coordinator and Windows/POSIX directory-anchor connections');
 
