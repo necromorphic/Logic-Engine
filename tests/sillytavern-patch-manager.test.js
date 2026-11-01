@@ -53,6 +53,13 @@ async function fixture(t) {
   return { manager, stRoot, original, patched, patchPath };
 }
 
+test('Patch Manager hashes pinned source text canonically across CRLF checkouts', async (t) => {
+  const { manager, stRoot, original } = await fixture(t);
+  const sourcePath = join(stRoot, 'src/host.js');
+  await writeFile(sourcePath, original.replace(/\\n/g, '\\r\\n'));
+  assert.equal(await manager.hashAt('src/host.js'), hash(original));
+});
+
 test('Patch Manager rejects a non-UTF-8 patch artifact', async (t) => {
   const { manager, patchPath } = await fixture(t);
   await writeFile(patchPath, Buffer.from([0xff, 0xfe, 0x00]));
