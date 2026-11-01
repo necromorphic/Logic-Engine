@@ -21,9 +21,9 @@ const HOST_SESSION_ID = '11111111-1111-4111-8111-111111111111';
 const HOST_INSTALLATION_ID = '22222222-2222-4222-8222-222222222222';
 const HOST_ACCOUNT_ID = '33333333-3333-4333-8333-333333333333';
 const HOST_CONVERSATION_UUID = '44444444-4444-4444-8444-444444444444';
-const HOST_CONVERSATION_ID = HOST_INSTALLATION_ID + ':' + HOST_ACCOUNT_ID + ':' + HOST_CONVERSATION_UUID;
-const OTHER_SESSION_ID = '44444444-4444-4444-8444-444444444444';
-const OTHER_SESSION_CONVERSATION = HOST_INSTALLATION_ID + ':' + HOST_ACCOUNT_ID + ':66666666-6666-4666-8666-666666666666';
+const HOST_CONVERSATION_ID = HOST_SESSION_ID + ':' + HOST_INSTALLATION_ID + ':' + HOST_CONVERSATION_UUID;
+const OTHER_SESSION_ID = '55555555-5555-4555-8555-555555555555';
+const OTHER_SESSION_CONVERSATION = OTHER_SESSION_ID + ':' + HOST_INSTALLATION_ID + ':66666666-6666-4666-8666-666666666666';
 const hostRequest = {
   user: { profile: { handle: 'alice' } },
   session: { handle: 'alice', logicEngineSessionId: HOST_SESSION_ID, logicEngineSessionHandle: 'alice' },
@@ -32,6 +32,11 @@ const authenticatedHostRequests = new WeakSet([hostRequest]);
 const isAuthenticatedHostRequest = request => authenticatedHostRequests.has(request);
 const trustedConversationIds = new WeakMap([[hostRequest, HOST_CONVERSATION_ID]]);
 const resolveHostConversationId = request => trustedConversationIds.get(request) ?? null;
+const trustedHostIdentities = new WeakMap([[hostRequest, {
+  host_installation_id: HOST_INSTALLATION_ID,
+  authenticated_account_id: HOST_ACCOUNT_ID,
+}]]);
+const resolveHostIdentity = request => trustedHostIdentities.get(request) ?? null;
 const resolveHostBindings = () => ({ world_id: 'world-a', actor_id: 'npc-a' });
 
 const importedSource = {
@@ -87,7 +92,7 @@ function setup(t) {
     world_revision: snapshot.world_revision,
     commit_sequence: snapshot.commit_sequence,
   };
-  const hostSessionContext = createAuthenticatedHostSessionContext(hostRequest, HOST_CONVERSATION_ID, isAuthenticatedHostRequest, resolveHostConversationId, resolveHostBindings);
+  const hostSessionContext = createAuthenticatedHostSessionContext(hostRequest, HOST_CONVERSATION_ID, isAuthenticatedHostRequest, resolveHostConversationId, resolveHostBindings, resolveHostIdentity);
   return { store, engine, actors, conversations, authorizers, scope, hostSessionContext };
 }
 
@@ -117,19 +122,21 @@ test('production NPC query authorization requires a branded authenticated Host s
   };
   authenticatedHostRequests.add(defaultUserRequest);
   trustedConversationIds.set(defaultUserRequest, HOST_CONVERSATION_ID);
+  trustedHostIdentities.set(defaultUserRequest, { host_installation_id: HOST_INSTALLATION_ID, authenticated_account_id: HOST_ACCOUNT_ID });
   const defaultUserContext = createAuthenticatedHostSessionContext(
-    defaultUserRequest, HOST_CONVERSATION_ID, isAuthenticatedHostRequest, resolveHostConversationId, resolveHostBindings,
+    defaultUserRequest, HOST_CONVERSATION_ID, isAuthenticatedHostRequest, resolveHostConversationId, resolveHostBindings, resolveHostIdentity,
   );
   assert.ok(defaultUserContext);
-  const otherConversation = HOST_INSTALLATION_ID + ':' + HOST_ACCOUNT_ID + ':77777777-7777-4777-8777-777777777777';
+  const otherConversation = HOST_SESSION_ID + ':' + HOST_INSTALLATION_ID + ':77777777-7777-4777-8777-777777777777';
   const otherConversationRequest = {
     user: hostRequest.user,
     session: hostRequest.session,
   };
   authenticatedHostRequests.add(otherConversationRequest);
   trustedConversationIds.set(otherConversationRequest, otherConversation);
+  trustedHostIdentities.set(otherConversationRequest, { host_installation_id: HOST_INSTALLATION_ID, authenticated_account_id: HOST_ACCOUNT_ID });
   const contextForOtherConversation = createAuthenticatedHostSessionContext(
-    otherConversationRequest, otherConversation, isAuthenticatedHostRequest, resolveHostConversationId, resolveHostBindings,
+    otherConversationRequest, otherConversation, isAuthenticatedHostRequest, resolveHostConversationId, resolveHostBindings, resolveHostIdentity,
   );
   assert.equal(authorizers.memoryQueryAuthorizer(scope, contextForOtherConversation), false);
   const otherSessionId = OTHER_SESSION_ID;
@@ -140,8 +147,9 @@ test('production NPC query authorization requires a branded authenticated Host s
   };
   authenticatedHostRequests.add(otherSessionRequest);
   trustedConversationIds.set(otherSessionRequest, otherSessionConversation);
+  trustedHostIdentities.set(otherSessionRequest, { host_installation_id: HOST_INSTALLATION_ID, authenticated_account_id: '88888888-8888-4888-8888-888888888888' });
   const otherSessionContext = createAuthenticatedHostSessionContext(
-    otherSessionRequest, otherSessionConversation, isAuthenticatedHostRequest, resolveHostConversationId, resolveHostBindings,
+    otherSessionRequest, otherSessionConversation, isAuthenticatedHostRequest, resolveHostConversationId, resolveHostBindings, resolveHostIdentity,
   );
   assert.notEqual(otherSessionContext, null);
   assert.equal(authorizers.memoryQueryAuthorizer({
