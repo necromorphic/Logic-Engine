@@ -39,6 +39,8 @@ test('Patch Manager installs the sole Extension Gateway into a disposable offici
   const startup = readFileSync(resolve(stPath, 'src/server-startup.js'), 'utf8');
   const gateway = readFileSync(resolve(stPath, 'public/scripts/extensions/third-party/logic-engine-extension-gateway/server-gateway.mjs'), 'utf8');
   const client = readFileSync(resolve(stPath, 'public/scripts/extensions/third-party/logic-engine-extension-gateway/index.js'), 'utf8');
+  const constants = readFileSync(resolve(stPath, 'src/constants.js'), 'utf8');
+  const extensionRoutes = readFileSync(resolve(stPath, 'src/endpoints/extensions.js'), 'utf8');
 
   assert.ok(main.indexOf('app.use(requireLoginMiddleware)') < main.indexOf('setupPrivateEndpoints(app)'));
   assert.match(main, /request\.path !== EXTENSION_GATEWAY_PATH && request\.is\('application\/json'\)/);
@@ -47,6 +49,10 @@ test('Patch Manager installs the sole Extension Gateway into a disposable offici
   assert.match(startup, /mountDefaultExtensionGateway\(app\);[\s\S]*?app\.use\('\/', userDataRouter\)/);
   assert.equal((gateway.match(/app\.post\(EXTENSION_GATEWAY_PATH/g) || []).length, 1);
   assert.match(client, /const GATEWAY_PATH = '\/api\/logic-engine\/extension'/);
+  assert.ok(constants.includes("globalExtensions: 'public/scripts/extensions/third-party'"));
+  assert.ok(extensionRoutes.includes('readdirSync(PUBLIC_DIRECTORIES.globalExtensions)'));
+  assert.ok(extensionRoutes.includes('hasManifest(PUBLIC_DIRECTORIES.globalExtensions, f)'));
+  assert.ok(extensionRoutes.includes('third-party/${f}'));
   assert.equal(git(['status', '--porcelain=v1', '--untracked-files=all']).split('\n').filter(Boolean).length, 2);
   for (const extensionFile of [
     'public/scripts/extensions/third-party/logic-engine-extension-gateway/index.js',
