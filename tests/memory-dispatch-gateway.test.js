@@ -737,6 +737,65 @@ test('gateway startup rejects any requested non-loopback bind', async () => {
   );
 });
 
+test('real process crash after transport handoff recovers UNKNOWN on fresh Gateway startup', async () => {
+  const fixture = await createFixture();
+  const counterPath = join(fixture.directory, 'upstream-call-count.txt');
+  try {
+    fixture.gateway.close();
+    const moduleUrl = new URL('../src/security/memory-dispatch-gateway.js', import.meta.url).href;
+    const script = [
+      'import { appendFileSync } from "node:fs";',
+      'import { MemoryDispatchGateway } from ' + JSON.stringify(moduleUrl) + ';',
+      'const [ledgerPath, coordinatorPath, authorityPort, readToken, counterPath, requestJson] = process.argv.slice(1);',
+      'const gateway = new MemoryDispatchGateway({',
+      '  ledgerPath, coordinatorPath, authorityPort: Number(authorityPort), readToken,',
+      '  readCoreEvidence: ({ worldId, actorId, sources }) => ({ head: 1, world_id: worldId, actor_id: actorId, readiness: "READY", inventory_status: "READY", policy_authority: { authority_id: "test-memory-policy", generation: 1, fingerprint: "' + 'd'.repeat(64) + '" }, sources }),',
+      '  readProviderEvidence: ({ worldId, actorId, purpose, sources, candidates }) => ({ head: 1, world_id: worldId, actor_id: actorId, purpose, granted: true, readiness: "READY", sources, candidates }),',
+      '});',
+      'const request = JSON.parse(requestJson);',
+      'gateway.dispatchProtectedRequest({ ...request, transport: () => { appendFileSync(counterPath, "x"); process.stdout.write("HANDOFF\\n"); process.exit(77); } });',
+      'setTimeout(() => process.exit(78), 5000);',
+    ].join('\\n');
+    const child = spawn(process.execPath, [
+      '--input-type=module', '-e', script,
+      fixture.ledgerPath, fixture.coordinatorPath, String(fixture.port), readToken,
+      counterPath, JSON.stringify(validRequest('process-crash-after-handoff')),
+    ], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
+      env: {
+        PATH: process.env.PATH || '',
+        SystemRoot: process.env.SystemRoot || '',
+        WINDIR: process.env.WINDIR || '',
+      },
+    });
+    const exitPromise = once(child, 'exit');
+    const [chunk] = await once(child.stdout, 'data');
+    assert.match(String(chunk), /HANDOFF/);
+    const [exitCode] = await exitPromise;
+    assert.equal(exitCode, 77, 'child must terminate immediately after the one transport handoff');
+
+    fixture.reopenGateway();
+    assert.equal((await import('node:fs')).readFileSync(counterPath, 'utf8'), 'x');
+    const ledger = new DatabaseSync(fixture.ledgerPath);
+    try {
+      assert.equal(
+        ledger.prepare('SELECT status FROM dispatch_ledger WHERE request_id=?')
+          .get('process-crash-after-handoff').status,
+        'UNKNOWN',
+      );
+    } finally {
+      ledger.close();
+    }
+    await assert.rejects(
+      fixture.gateway.dispatchProtectedRequest(validRequest('process-crash-replay-new-id')),
+      /MEMORY_DISPATCH_REPLAY_BLOCKED/,
+    );
+  } finally {
+    await fixture.close();
+  }
+});
+
 test('gateway startup converts stale DISPATCH_STARTED rows to UNKNOWN and blocks new-ID replay', async () => {
   const fixture = await createFixture();
   try {
