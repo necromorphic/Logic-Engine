@@ -226,6 +226,11 @@
             "required": ["state"]
           },
           "then": {
+            "properties": {
+              "pendingDatabaseBasename": {
+                "$ref": "#/$defs/component"
+              }
+            },
             "required": ["pendingDatabaseBasename"]
           },
           "else": {
