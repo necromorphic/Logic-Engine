@@ -290,9 +290,18 @@ static int probe_broker_exchange(
   unsigned long long expected_uid_value = 0;
   int expected_uid_valid = 0;
   if (expected_uid_text && expected_uid_text[0]) {
+    const unsigned char *digit = (const unsigned char *)expected_uid_text;
+    expected_uid_valid = 1;
+    if (digit[0] == '0' && digit[1] != '\\0') expected_uid_valid = 0;
+    for (; *digit; ++digit) {
+      if (*digit < '0' || *digit > '9') {
+        expected_uid_valid = 0;
+        break;
+      }
+    }
     errno = 0;
     expected_uid_value = strtoull(expected_uid_text, &expected_uid_end, 10);
-    expected_uid_valid = errno == 0 && expected_uid_end
+    expected_uid_valid = expected_uid_valid && errno == 0 && expected_uid_end
       && *expected_uid_end == '\\0'
       && expected_uid_value <= (unsigned long long)((uid_t)-1);
   }
