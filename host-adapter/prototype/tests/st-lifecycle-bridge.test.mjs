@@ -212,7 +212,7 @@ test('persisted ST inventory is cross-checked against stable conversation identi
   assert.equal(blockedSync.status, 'NON_READY');
   assert.equal(publishedSnapshots.length, publishedBeforeSync + 1);
 
-  inventory = structuredClone(makePersistedInventory(chat, { sessionId: '5e6b0a80-4e73-4c66-aaf3-7a6e62c7f404', conversationUuid }));
+  inventory = await makePersistedInventory(chat, { sessionId: '5e6b0a80-4e73-4c66-aaf3-7a6e62c7f404', conversationUuid });
   inventory.host_session_id = '5e6b0a80-4e73-4c66-aaf3-7a6e62c7f404';
   const wrongSession = await f.bridge.verifyPersistedInventory();
   assert.equal(wrongSession.status, 'MATCHED_NON_AUTHORITATIVE');
