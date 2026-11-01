@@ -203,3 +203,32 @@ test("does not accept inherited required fields as supplied input", () => {
     delete Object.prototype.id;
   }
 });
+
+test("rejects benign Proxy review inputs before invoking their get traps", () => {
+  let getCalls = 0;
+  const input = new Proxy(base(), {
+    get(target, key, receiver) {
+      getCalls += 1;
+      return Reflect.get(target, key, receiver);
+    },
+  });
+  assert.equal(evaluateNpcDecisionReconsideration(input).status, "non_ready");
+  assert.equal(getCalls, 0);
+});
+
+test("rejects Proxy change arrays before invoking their reflection traps", () => {
+  let trapCalls = 0;
+  const input = base();
+  input.current_context.changes = new Proxy(input.current_context.changes, {
+    get(target, key, receiver) {
+      trapCalls += 1;
+      return Reflect.get(target, key, receiver);
+    },
+    getOwnPropertyDescriptor(target, key) {
+      trapCalls += 1;
+      return Reflect.getOwnPropertyDescriptor(target, key);
+    },
+  });
+  assert.equal(evaluateNpcDecisionReconsideration(input).status, "non_ready");
+  assert.equal(trapCalls, 0);
+});
