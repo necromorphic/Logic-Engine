@@ -52,6 +52,7 @@ export function createMemoryNpcProviderAdapter({
   trustedInitialKnowledgeSources,
   fieldPolicy,
   contentFields,
+  authenticateHostCaller,
 }) {
   if (!engine?.store?.db || typeof engine.getSnapshot !== 'function') {
     throw new TypeError('Memory Provider adapter requires the live Core LogicEngine and persistent store');
@@ -82,6 +83,9 @@ export function createMemoryNpcProviderAdapter({
   }
   if (!Array.isArray(contentFields) || contentFields.length === 0) {
     throw new TypeError('Memory Provider adapter requires an explicit content field allowlist');
+  }
+  if (typeof authenticateHostCaller !== 'function') {
+    throw new TypeError('Memory Provider adapter requires a trusted authenticated Host caller resolver');
   }
 
   const canonicalSourceValidator = createCanonicalEntitySourceVersionValidator(engine);
@@ -114,11 +118,24 @@ export function createMemoryNpcProviderAdapter({
       adapterId,
       memoryProvider: provider,
       coreQueryAuthorizer: coreAuthorizers.memoryQueryAuthorizer,
+      authenticateHostCaller,
       contentFields,
     });
 
+    // Do not expose the Provider's consumer-facing retrieval/authorization
+    // API from this composition. Administrative ingestion and grant mutation
+    // remain available only through this deliberately narrow control surface.
+    const providerAdmin = Object.freeze({
+      putRecord: (record) => provider.putRecord(record),
+      grantQuery: (scope, allowed) => provider.grantQuery(scope, allowed),
+      revokeQuery: (scope) => provider.revokeQuery(scope),
+      grantRecord: (scope, recordRef, recordVersion, allowed) =>
+        provider.grantRecord(scope, recordRef, recordVersion, allowed),
+      revokeRecord: (scope, recordRef, recordVersion) =>
+        provider.revokeRecord(scope, recordRef, recordVersion),
+    });
     return Object.freeze({
-      provider,
+      providerAdmin,
       consumer,
       async prepareWorld(worldId) {
         await provider.rebuildIndex(worldId);
