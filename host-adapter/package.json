@@ -1,5 +1,5 @@
 {
-  "name": "logic-engine-host-adapter",
+  "name": "logic-engine-extension-gateway",
   "private": true,
   "type": "module",
   "main": "server-plugin/index.mjs"
