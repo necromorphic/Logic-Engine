@@ -11,7 +11,7 @@ import { pathToFileURL } from 'node:url';
 
 import { withWindowsVssSnapshot } from '../../host-adapter/prototype/windows-vss-snapshot.mjs';
 import { enumerateStableFileInventoryFromWindowsSnapshot } from '../../host-adapter/prototype/fs-inventory.js';
-import { enumerateHostDataInventory } from '../../host-adapter/prototype/host-data-inventory.mjs';
+import { enumerateHostDataInventory as enumeratePinnedHostDataInventory } from '../../host-adapter/prototype/host-data-inventory.mjs';
 import { HostLifecycleReceiptStore } from '../../host-adapter/prototype/st-host-lifecycle-receipt-store.mjs';
 import { HostIdentityStore } from '../../host-adapter/prototype/st-host-identity-store.mjs';
 import { createHostLifecycleJournalProxy } from '../../host-adapter/prototype/st-server-digest-proxy.mjs';
@@ -197,7 +197,7 @@ test('pinned ST 1.19.0 supported chat mutations persist; rename, group deletion,
   };
   const receiptStore = new HostLifecycleReceiptStore({
     directory: join(identityDirectory, 'lifecycle-receipts'),
-    enumerate: enumerateHostDataInventory,
+    enumerate: enumeratePinnedHostDataInventory,
     hostCommit: expectedSha,
   });
   const identityStore = new HostIdentityStore({ directory: identityDirectory });
