@@ -209,7 +209,8 @@ test('proxy forwards only allowlisted digest fields with server-side credentials
 
 test('proxy rejects caller URLs, world IDs, raw text and malformed digests before upstream I/O', async () => {
   let calls = 0;
-  const handler = createHostDigestProxyHandler({ env: CONFIG, fetchImpl: async () => { calls++; } });
+  const handler = createHostDigestProxyHandler({ identityStore,
+    env: CONFIG, fetchImpl: async () => { calls++; } });
   for (const body of [
     { ...capture, url: 'http://attacker.invalid' },
     { ...capture, world_id: 'attacker-world' },
@@ -229,7 +230,8 @@ test('proxy rejects caller URLs, world IDs, raw text and malformed digests befor
 
 test('capture proxy requires a new session-scoped conversation identity after ST session rotation', async () => {
   let calls = 0;
-  const handler = createHostDigestProxyHandler({ env: CONFIG, fetchImpl: async () => { calls++; return { status: 201, json: async () => ({ capture: { status: 'captured' } }) }; } });
+  const handler = createHostDigestProxyHandler({ identityStore,
+    env: CONFIG, fetchImpl: async () => { calls++; return { status: 201, json: async () => ({ capture: { status: 'captured' } }) }; } });
   const restartedSession = responseRecorder();
   const newSessionId = '44444444-4444-4444-8444-444444444444';
   const newSessionCapture = { ...capture, conversation_id: [newSessionId, INSTALLATION_ID, CONVERSATION_UUID].join(':') };
@@ -254,7 +256,8 @@ test('proxy rejects upstream URL credentials and paths from configuration', asyn
   ]) {
     const response = responseRecorder();
     await createHostDigestProxyHandler({
-      env: { ...CONFIG, LOGIC_ENGINE_CORE_URL: value },
+      identityStore,
+    env: { ...CONFIG, LOGIC_ENGINE_CORE_URL: value },
       fetchImpl: async () => { throw Error('must not call upstream'); },
     })(requestFor(capture), response);
     assert.equal(response.statusCode, 503);
@@ -264,6 +267,7 @@ test('proxy rejects upstream URL credentials and paths from configuration', asyn
 test('proxy maps upstream transport failures to a generic response without leaking details', async () => {
   const response = responseRecorder();
   await createHostDigestProxyHandler({
+    identityStore,
     env: CONFIG,
     fetchImpl: async () => { throw Error('private upstream secret and raw body'); },
   })(requestFor(capture), response);
