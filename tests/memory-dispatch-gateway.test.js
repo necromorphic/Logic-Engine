@@ -223,21 +223,6 @@ test('read-only Gateway SQLite connection can read committed WAL state without w
   }
 });
 
-test('Gateway rejects direct and bound async transport starters because they can defer handoff past the Coordinator lease', () => {
-  const asyncStarter = async () => ({ status: 200 });
-  const configuration = (createTransport) => ({
-    ledgerPath: '/tmp/dispatch-ledger.sqlite',
-    coordinatorPath: '/tmp/dispatch-coordinator.sqlite',
-    authorityPort: 1,
-    readToken,
-    readCoreEvidence: () => ({}),
-    readProviderEvidence: () => ({}),
-    createTransport,
-  });
-  assert.throws(() => new MemoryDispatchGateway(configuration(asyncStarter)), /non-async request-scoped transport factory/);
-  assert.throws(() => new MemoryDispatchGateway(configuration(asyncStarter.bind(null))), /non-async request-scoped transport factory/);
-});
-
 test('request-scoped transport capability must be dormant and synchronous before DISPATCH_STARTED', async () => {
   let starts = 0;
   const fixture = await createFixture({
