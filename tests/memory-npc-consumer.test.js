@@ -1229,7 +1229,7 @@ test('final dispatch revalidation returns fresh content and fails closed after a
   accessCase.provider.authorizeCandidate = async () => false;
   const revoked = await accessCase.consumer.revalidateForFinalDispatch(request(), prepared);
   assert.equal(revoked.status, 'non_ready');
-  assert.equal(revoked.reason, 'final_dispatch_source_or_authorization_changed');
+  assert.equal(revoked.reason, 'final_dispatch_source_not_current');
   assert.deepEqual(revoked.candidates, []);
 
   const sourceCase = setup(t);
