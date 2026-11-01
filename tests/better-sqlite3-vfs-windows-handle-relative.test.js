@@ -22,23 +22,18 @@ test('Windows secure VFS keeps main DB and SQLite sidecars anchored after parent
   const tempBase = process.env.RUNNER_TEMP || os.tmpdir();
   const root = fs.mkdtempSync(path.join(tempBase, 'logic-engine-win-handle-relative-'));
   const protectedDir = path.join(root, 'protected');
-  const pinnedDir = path.join(root, 'protected-pinned');
-  const attackerDir = path.join(root, 'attacker');
+  const attackerSeedDir = path.join(root, 'attacker-seed');
+  const pinnedRoot = root + '-pinned';
+  const attackerDir = path.join(root, 'protected');
   fs.mkdirSync(protectedDir);
-  fs.mkdirSync(attackerDir);
+  fs.mkdirSync(attackerSeedDir);
   t.after(() => {
-    try {
-      const protectedStat = fs.lstatSync(protectedDir);
-      if (protectedStat.isSymbolicLink()) fs.unlinkSync(protectedDir);
-      else fs.rmSync(protectedDir, { recursive: true, force: true });
-    } catch {}
-    fs.rmSync(pinnedDir, { recursive: true, force: true });
-    fs.rmSync(attackerDir, { recursive: true, force: true });
     fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(pinnedRoot, { recursive: true, force: true });
   });
 
   const databasePath = path.join(protectedDir, 'vectors.sqlite');
-  const attackerPath = path.join(attackerDir, 'vectors.sqlite');
+  const attackerSeedPath = path.join(attackerSeedDir, 'vectors.sqlite');
   const trusted = new Database(databasePath);
   try {
     trusted.exec('CREATE TABLE origin (value TEXT NOT NULL)');
@@ -46,14 +41,15 @@ test('Windows secure VFS keeps main DB and SQLite sidecars anchored after parent
   } finally {
     trusted.close();
   }
-  const attacker = new Database(attackerPath);
+  const attacker = new Database(attackerSeedPath);
   try {
     attacker.exec('CREATE TABLE origin (value TEXT NOT NULL)');
     attacker.prepare('INSERT INTO origin VALUES (?)').run('attacker-decoy');
   } finally {
     attacker.close();
   }
-  const attackerHash = sha256(attackerPath);
+  const attackerHash = sha256(attackerSeedPath);
+  const pinnedAttackerSeedPath = path.join(pinnedRoot, 'attacker-seed', 'vectors.sqlite');
 
   const childSource = String.raw`
     const assert = require('node:assert/strict');
@@ -61,8 +57,10 @@ test('Windows secure VFS keeps main DB and SQLite sidecars anchored after parent
     const path = require('node:path');
     const Database = require(process.env.BETTER_SQLITE3_PACKAGE_DIR);
     const databasePath = process.env.LOGIC_ENGINE_TEST_DATABASE_PATH;
-    const pinnedDir = process.env.LOGIC_ENGINE_TEST_PINNED_DIR;
+    const pinnedRoot = process.env.LOGIC_ENGINE_TEST_PINNED_ROOT;
     const attackerDir = process.env.LOGIC_ENGINE_TEST_ATTACKER_DIR;
+    const attackerSeedPath = process.env.LOGIC_ENGINE_TEST_ATTACKER_SEED_PATH;
+    const attackerHash = process.env.LOGIC_ENGINE_TEST_ATTACKER_HASH;
     const extensionPath = process.env.LOGIC_ENGINE_VFS_PROBE_PATH;
 
     const bootstrap = new Database(':memory:');
@@ -87,21 +85,20 @@ test('Windows secure VFS keeps main DB and SQLite sidecars anchored after parent
     ).registered;
     assert.equal(registered, 1, 'role must be anchored to the opened parent HANDLE');
 
-    // Replace the original parent path with a junction to an attacker-controlled
-    // directory after the VFS has pinned the trusted parent HANDLE.
-    fs.renameSync(path.dirname(databasePath), pinnedDir);
-    try {
-      fs.symlinkSync(attackerDir, path.dirname(databasePath), 'junction');
-    } catch {
-      require('node:child_process').execFileSync(
-        process.env.ComSpec || 'cmd.exe',
-        ['/d', '/c', 'mklink /J "' + path.dirname(databasePath) + '" "' + attackerDir + '"'],
-        { stdio: 'pipe' },
-      );
-    }
-    assert.equal(fs.realpathSync(path.dirname(databasePath)).toLowerCase(),
-      path.resolve(attackerDir).toLowerCase(),
-      'the original DB pathname must now resolve to the attacker directory');
+    // Replace an ancestor of the pinned DB directory. The retained parent
+    // HANDLE points into the renamed tree; the old absolute path now resolves
+    // to a newly-created attacker directory containing a decoy DB.
+    const root = path.dirname(path.dirname(databasePath));
+    fs.renameSync(root, pinnedRoot);
+    fs.mkdirSync(root);
+    fs.mkdirSync(attackerDir);
+    const attackerPath = path.join(attackerDir, path.basename(databasePath));
+    fs.copyFileSync(attackerSeedPath, attackerPath);
+    assert.equal(
+      require('node:crypto').createHash('sha256').update(fs.readFileSync(attackerPath)).digest('hex'),
+      attackerHash,
+      'the replacement path must contain the attacker decoy before SQLite opens',
+    );
 
     const writer = new Database(databasePath);
     let reader;
@@ -162,17 +159,20 @@ test('Windows secure VFS keeps main DB and SQLite sidecars anchored after parent
       BETTER_SQLITE3_PACKAGE_DIR: packageRoot,
       LOGIC_ENGINE_VFS_PROBE_PATH: extensionPath,
       LOGIC_ENGINE_TEST_DATABASE_PATH: databasePath,
-      LOGIC_ENGINE_TEST_PINNED_DIR: pinnedDir,
+      LOGIC_ENGINE_TEST_PINNED_ROOT: pinnedRoot,
       LOGIC_ENGINE_TEST_ATTACKER_DIR: attackerDir,
+      LOGIC_ENGINE_TEST_ATTACKER_SEED_PATH: pinnedAttackerSeedPath,
+      LOGIC_ENGINE_TEST_ATTACKER_HASH: attackerHash,
     },
     timeout: 120000,
   });
   assert.equal(result.status, 0,
     `Windows handle-relative child failed (status=${result.status}, signal=${result.signal})\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`);
 
+  const attackerPath = path.join(attackerDir, 'vectors.sqlite');
   assert.equal(sha256(attackerPath), attackerHash,
     'attacker decoy DB must remain byte-for-byte unchanged');
-  const pinned = new Database(path.join(pinnedDir, 'vectors.sqlite'));
+  const pinned = new Database(path.join(pinnedRoot, 'protected', 'vectors.sqlite'));
   try {
     assert.deepEqual(
       pinned.prepare('SELECT value FROM origin ORDER BY rowid').pluck().all(),
