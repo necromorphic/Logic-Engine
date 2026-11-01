@@ -1,3 +1,7 @@
+#if defined(__linux__) && !defined(_GNU_SOURCE)
+#define _GNU_SOURCE
+#endif
+
 /*
  * Logic-Engine SQLite VFS identity probe.
  *
@@ -120,6 +124,9 @@ typedef struct ProbeDatabaseRole {
 } ProbeDatabaseRole;
 static ProbeDatabaseRole g_database_roles[PROBE_MAX_DATABASE_ROLES];
 static int g_database_role_count = 0;
+#if defined(__linux__)
+static void probe_counter_increment(int *counter);
+#endif
 #ifdef _WIN32
 #define PROBE_MAX_SIDECAR_IDENTITIES (PROBE_MAX_DATABASE_ROLES * 128) /* bounded retired-generation headroom */
 typedef struct ProbeSidecarIdentity {
