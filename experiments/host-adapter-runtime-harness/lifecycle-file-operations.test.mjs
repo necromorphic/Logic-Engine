@@ -78,7 +78,7 @@ const identifiedMessage = ({ name = 'Harness User', isUser = true, mes, messageI
   _logicEngineLifecycle: identity(messageId, versionId, mes),
 });
 
-test('pinned ST 1.19.0 chat create/edit/swipe/delete/rename mutate real files; bulk import and restore fail closed', {
+test('pinned ST 1.19.0 supported chat mutations persist; rename, bulk import and restore fail closed', {
   skip: process.platform !== 'win32' || !runPinnedSTHarness,
   timeout: 600_000,
 }, async t => {
@@ -397,16 +397,12 @@ test('pinned ST 1.19.0 chat create/edit/swipe/delete/rename mutate real files; b
     const response = await post('/api/chats/rename', {
       avatar_url: 'Harness Character.png', original_file: 'chat-one.jsonl', renamed_file: 'chat-renamed.jsonl',
     });
-    assert.equal(response.status, 200);
-    assert.equal(response.result.ok, true);
-    assert.equal((await readFile(renamedPath, 'utf8')).length > 0, true);
+    assert.equal(response.status, 409);
+    assert.equal(response.result.code, 'HOST_LIFECYCLE_BULK_MUTATION_BLOCKED');
+    assert.equal((await readFile(join(directories.chats, 'Harness Character', 'chat-one.jsonl'), 'utf8')).length > 0, true);
+    await assert.rejects(readFile(renamedPath, 'utf8'), { code: 'ENOENT' });
     return response;
-  }, ['added', 'moved']);
-  const renamedInPlace = rename.result.delta.moved.some(entry =>
-    entry.from.endsWith('chat-one.jsonl') && entry.to.endsWith('chat-renamed.jsonl'));
-  const renamedAsReplace = rename.result.delta.removed.some(entry => entry.path.endsWith('chat-one.jsonl'))
-    && rename.result.delta.added.some(entry => entry.path.endsWith('chat-renamed.jsonl'));
-  assert.ok(renamedInPlace || renamedAsReplace, JSON.stringify(rename.result.delta));
+  }, 'unchanged');
 
   const importUpload = 'import-chat.jsonl';
   await writeFile(join(uploads, importUpload), JSON.stringify(identifiedHeader(
