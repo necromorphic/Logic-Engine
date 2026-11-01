@@ -14,7 +14,10 @@ import { mapMemoryEvidenceToNpcEpistemicStatus } from '../src/npc/epistemic-stat
 import { runWithAuthenticatedHostSession } from '../src/application/host-session-context.js';
 
 const HOST_SESSION_ID = '11111111-1111-4111-8111-111111111111';
-const HOST_CONVERSATION_ID = HOST_SESSION_ID + ':22222222-2222-4222-8222-222222222222:33333333-3333-4333-8333-333333333333';
+const HOST_INSTALLATION_ID = '22222222-2222-4222-8222-222222222222';
+const HOST_ACCOUNT_ID = '33333333-3333-4333-8333-333333333333';
+const HOST_CONVERSATION_UUID = '44444444-4444-4444-8444-444444444444';
+const HOST_CONVERSATION_ID = HOST_INSTALLATION_ID + ':' + HOST_ACCOUNT_ID + ':' + HOST_CONVERSATION_UUID;
 const hostRequest = {
   user: { profile: { handle: 'integration-user' } },
   session: { handle: 'integration-user', logicEngineSessionId: HOST_SESSION_ID, logicEngineSessionHandle: 'integration-user' },
@@ -56,6 +59,17 @@ function setup(t, { twoRecords = false, providerPath = null, evidenceAssessment 
   const coreAuthorizers = createHostBoundNpcKnowledgeAuthorizers({
     store, adapterIds: [adapterId], trustedInitialKnowledgeSources: [],
   });
+  const resolveHostBindings = (_request, conversationId) => {
+    const conversation = hostConversationBindings.resolve({ adapterId, conversationId });
+    const world_id = conversation?.world_id;
+    if (typeof world_id !== 'string') return null;
+    const actorBinding = bindings.resolveForAdapter(world_id, adapterId);
+    const actor_id = actorBinding?.actor?.entity_id;
+    const exact = bindings.resolve(world_id, adapterId, actor_id);
+    if (exact?.world_id !== world_id || exact?.adapter_id !== adapterId
+      || exact?.actor?.entity_id !== actor_id) return null;
+    return { world_id, actor_id };
+  };
   let provider;
   let triggerRace = false;
   let triggerQueryRevocation = false;
@@ -129,9 +143,9 @@ function setup(t, { twoRecords = false, providerPath = null, evidenceAssessment 
     return new Proxy(rawConsumer, {
       get(target, property) {
         if (property === 'retrieveForNpc') return (request) =>
-          runWithAuthenticatedHostSession(hostRequest, HOST_CONVERSATION_ID, () => target.retrieveForNpc(request), isAuthenticatedHostRequest, resolveHostConversationId);
+          runWithAuthenticatedHostSession(hostRequest, HOST_CONVERSATION_ID, () => target.retrieveForNpc(request), isAuthenticatedHostRequest, resolveHostConversationId, resolveHostBindings);
         if (property === 'revalidateForFinalDispatch') return (request, prepared) =>
-          runWithAuthenticatedHostSession(hostRequest, HOST_CONVERSATION_ID, () => target.revalidateForFinalDispatch(request, prepared), isAuthenticatedHostRequest, resolveHostConversationId);
+          runWithAuthenticatedHostSession(hostRequest, HOST_CONVERSATION_ID, () => target.revalidateForFinalDispatch(request, prepared), isAuthenticatedHostRequest, resolveHostConversationId, resolveHostBindings);
         return Reflect.get(target, property, target);
       },
     });
