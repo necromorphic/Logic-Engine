@@ -59,21 +59,25 @@ export async function inspectPinnedSillyTavernInstallation(stRoot) {
 
     let installedCount = 0;
     let baselineCount = 0;
+    const changedSourceEntries = Object.entries(manifest.sourceFiles)
+      .filter(([, expected]) => typeof expected !== 'string');
     for (const [relativePath, expected] of Object.entries(manifest.sourceFiles)) {
       const actual = await hashAt(root, relativePath);
-      const before = typeof expected === 'string' ? expected : expected.before;
-      const after = typeof expected === 'string' ? expected : expected.after;
-      if (actual === after) installedCount += 1;
-      else if (actual === before) baselineCount += 1;
+      if (typeof expected === 'string') {
+        if (actual !== expected) throw new Error('SILLYTAVERN_SOURCE_DRIFT:' + relativePath);
+        continue;
+      }
+      if (actual === expected.after) installedCount += 1;
+      else if (actual === expected.before) baselineCount += 1;
       else throw new Error('SILLYTAVERN_SOURCE_DRIFT:' + relativePath);
     }
-    if (baselineCount === Object.keys(manifest.sourceFiles).length) {
+    if (baselineCount === changedSourceEntries.length) {
       return Object.freeze({
         files: { status: 'NOT_TESTED', summary: 'Pinned SillyTavern baseline is present; Final-Send patch is not installed.' },
         backups: { status: 'NOT_TESTED', summary: 'No installed patch backup set is expected for an unpatched baseline.' },
       });
     }
-    if (installedCount !== Object.keys(manifest.sourceFiles).length) {
+    if (installedCount !== changedSourceEntries.length) {
       throw new Error('SILLYTAVERN_PATCH_STATE_MIXED');
     }
 
