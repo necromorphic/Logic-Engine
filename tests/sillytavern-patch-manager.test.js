@@ -49,8 +49,15 @@ async function fixture(t) {
   };
   await writeFile(manifestPath, JSON.stringify(manifest));
   const manager = new SillyTavernPatchManager({ extensionRoot, stRoot, manifestPath, patchPath });
-  return { manager, stRoot, original, patched };
+  return { manager, stRoot, original, patched, patchPath };
 }
+
+test('Patch Manager verifies canonical LF patch digest when Windows checks out CRLF text', async (t) => {
+  const { manager, patchPath } = await fixture(t);
+  const lfPatch = await readFile(patchPath, 'utf8');
+  await writeFile(patchPath, lfPatch.replace(/\n/g, '\r\n'));
+  assert.equal((await manager.execute('preflight')).status, 'PREFLIGHT_OK');
+});
 
 test('Patch Manager performs preflight, backup, apply, verify and uninstall', async (t) => {
   const { manager, stRoot, original, patched } = await fixture(t);
