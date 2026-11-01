@@ -164,11 +164,16 @@
 +export function logicEngineFetch(endpointUrl, requestInit) {
 +    const active = generationContext.getStore();
 +    if (!active) return nativeFetch(endpointUrl, requestInit);
-+    if (/\\/(?:extra\\/abort|abort)(?:[?#]|$)/i.test(String(endpointUrl))) return nativeFetch(endpointUrl, requestInit);\n+    const senderRoute = active.adapter.resolveSenderRoute(active.request, active.route);
++    if (/\\/(?:extra\\/abort|abort)(?:[?#]|$)/i.test(String(endpointUrl))) return nativeFetch(endpointUrl, requestInit);
++    const senderRoute = active.adapter.resolveSenderRoute(active.request, active.route);
 +    if (typeof senderRoute !== 'string' || !senderRoute) {
 +        throw new Error('LOGIC_ENGINE_FINAL_SEND_SENDER_UNKNOWN');
 +    }
-+    const body = active.request.body ?? {};\n+    const stream = active.route === 'kobold' || active.route === 'novelai-text'\n+        ? Boolean(body.streaming)\n+        : active.route === 'horde-text' ? false : Boolean(body.stream);
++    const body = active.request.body ?? {};
++    const stream = active.route === 'kobold' || active.route === 'novelai-text'
++        ? Boolean(body.streaming)
++        : active.route === 'horde-text' ? false : Boolean(body.stream);
++    const hostTransformsStream = active.route === 'text-completions' && body.api_type === 'ollama' && stream;
 +    const transport = () => nativeFetch(endpointUrl, requestInit);
 +    const forwardResponse = stream ? (upstream) => {
 +        if (active.protectedForward) return active.protectedForward;
@@ -185,6 +190,7 @@
 +        stream,
 +        transport,
 +        forwardResponse,
++        hostTransformsStream,
 +    });
 +}
 +
