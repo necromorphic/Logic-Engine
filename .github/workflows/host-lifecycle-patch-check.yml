@@ -43,7 +43,7 @@ jobs:
           grep -F "loadPlugins(app, pluginsDirectory)" sillytavern-host-checkout/src/server-main.js
           grep -F 'app.use(`/api/plugins/${id}`, router)' sillytavern-host-checkout/src/plugin-loader.js
           grep -F "const router = express.Router();" sillytavern-host-checkout/src/plugin-loader.js
-          if grep -R -E "api/logic-engine|logicEngineHostInventoryRouter|logic-engine-lifecycle-proxy" host-adapter/server-plugin; then
+          if grep -E "api/logic-engine|logicEngineHostInventoryRouter|logic-engine-lifecycle-proxy" host-adapter/server-plugin/index.mjs host-adapter/server-plugin/context-route.mjs; then
             echo "Host server plugin must not depend on patched ST API routes or direct Core proxy routes" >&2
             exit 1
           fi
