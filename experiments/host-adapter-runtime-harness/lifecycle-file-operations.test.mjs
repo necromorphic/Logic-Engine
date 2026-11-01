@@ -9,12 +9,15 @@ import { join, resolve } from 'node:path';
 import { once } from 'node:events';
 import { pathToFileURL } from 'node:url';
 
-import { withWindowsVssSnapshot } from '../../host-adapter/prototype/windows-vss-snapshot.mjs';
-import { enumerateStableFileInventoryFromWindowsSnapshot } from '../../host-adapter/prototype/fs-inventory.js';
-import { enumerateHostDataInventory as enumeratePinnedHostDataInventory } from '../../host-adapter/prototype/host-data-inventory.mjs';
-import { HostLifecycleReceiptStore } from '../../host-adapter/prototype/st-host-lifecycle-receipt-store.mjs';
-import { HostIdentityStore } from '../../host-adapter/prototype/st-host-identity-store.mjs';
-import { createHostLifecycleJournalProxy } from '../../host-adapter/prototype/st-server-digest-proxy.mjs';
+let withWindowsVssSnapshot;
+let enumerateStableFileInventoryFromWindowsSnapshot;
+let enumeratePinnedHostDataInventory;
+let HostLifecycleReceiptStore;
+let HostIdentityStore;
+let createHostLifecycleJournalProxy;
+let createHostSessionHandler;
+let createHostIdentityHandler;
+let createHostInventoryHandler;
 
 const stRoot = resolve(process.env.SILLYTAVERN_DIR ?? 'SillyTavern');
 const expectedSha = '06bde939fb1e9c4c8d8641d810f0a916b5bce127';
@@ -29,6 +32,22 @@ if (runPinnedSTHarness) {
   stUtil.setConfigFilePath(resolve(stRoot, 'default/config.yaml'));
   ({ router: chatsRouter } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/chats.js')).href));
   ({ router: backupsRouter } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/backups.js')).href));
+  const pluginRoot = resolve(stRoot, 'plugins/logic-engine-extension-gateway');
+  const [inventoryHandlers, digestProxy, identityStoreModule, receiptStoreModule, hostInventoryModule, filesystemModule] = await Promise.all([
+    import(pathToFileURL(join(pluginRoot, 'st-host-inventory-handler.mjs')).href),
+    import(pathToFileURL(join(pluginRoot, 'st-server-digest-proxy.mjs')).href),
+    import(pathToFileURL(join(pluginRoot, 'st-host-identity-store.mjs')).href),
+    import(pathToFileURL(join(pluginRoot, 'st-host-lifecycle-receipt-store.mjs')).href),
+    import(pathToFileURL(join(pluginRoot, 'host-data-inventory.mjs')).href),
+    import(pathToFileURL(join(pluginRoot, 'fs-inventory.js')).href),
+  ]);
+  ({ createHostSessionHandler, createHostIdentityHandler, createHostInventoryHandler } = inventoryHandlers);
+  ({ createHostLifecycleJournalProxy } = digestProxy);
+  ({ HostIdentityStore } = identityStoreModule);
+  ({ HostLifecycleReceiptStore } = receiptStoreModule);
+  ({ enumerateHostDataInventory: enumeratePinnedHostDataInventory } = hostInventoryModule);
+  ({ withWindowsVssSnapshot } = await import(pathToFileURL(join(pluginRoot, 'windows-vss-snapshot.mjs')).href));
+  ({ enumerateStableFileInventoryFromWindowsSnapshot } = filesystemModule);
 }
 
 const sourceFingerprint = 'st-1.19.0-real-file-operation-harness';
@@ -143,7 +162,6 @@ test('pinned ST 1.19.0 supported chat mutations persist; chat deletion, rename, 
   });
   app.use('/api/chats', chatsRouter);
   app.use('/api/backups', backupsRouter);
-  app.use('/api/logic-engine/host', hostInventoryRouter);
   const server = app.listen(0, '127.0.0.1');
   await once(server, 'listening');
   const address = server.address();
@@ -227,24 +245,31 @@ test('pinned ST 1.19.0 supported chat mutations persist; chat deletion, rename, 
     operation,
     mutation_digest: digest(operation + ':' + randomUUID()),
   });
+  const gatewayRouter = express.Router();
+  gatewayRouter.get('/session', createHostSessionHandler());
+  gatewayRouter.get('/identity', createHostIdentityHandler({ identityStore }));
+  gatewayRouter.get('/inventory', createHostInventoryHandler({
+    enumerate: enumeratePinnedHostDataInventory,
+    pinnedHostCommit: expectedSha,
+    hostBuildClaim: expectedSha,
+  }));
+  gatewayRouter.post('/host-lifecycle/events', lifecycleProxy.append);
+  gatewayRouter.get('/host-lifecycle/status', lifecycleProxy.status);
+  app.use('/api/plugins/logic-engine-extension-gateway', gatewayRouter);
+
   const publishLifecycleEvent = async (scope, eventType, eventId = randomUUID()) => {
-    const response = { statusCode: 200, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; return this; } };
-    await lifecycleProxy.append({
-      user: { profile: { handle: hostHandle }, directories },
-      session: hostSession,
-      body: {
-        conversation_id: lifecycleConversationId,
-        event_id: eventId,
-        event_type: eventType,
-        mutation_id: scope.mutation_id,
-        operation: scope.operation,
-        mutation_digest: scope.mutation_digest,
-        occurred_at: new Date().toISOString(),
-      },
-    }, response);
-    assert.equal(response.statusCode, 201, JSON.stringify(response.body));
-    assert.equal(response.body.lifecycle.status, 'appended', JSON.stringify(response.body));
-    return response.body;
+    const response = await post('/api/plugins/logic-engine-extension-gateway/host-lifecycle/events', {
+      conversation_id: lifecycleConversationId,
+      event_id: eventId,
+      event_type: eventType,
+      mutation_id: scope.mutation_id,
+      operation: scope.operation,
+      mutation_digest: scope.mutation_digest,
+      occurred_at: new Date().toISOString(),
+    });
+    assert.equal(response.status, 201, JSON.stringify(response.result));
+    assert.equal(response.result.lifecycle.status, 'appended', JSON.stringify(response.result));
+    return response.result;
   };
   const beginLifecycleMutation = async operation => {
     const scope = lifecycleScope(operation);
@@ -684,29 +709,26 @@ test('pinned ST 1.19.0 supported chat mutations persist; chat deletion, rename, 
     return response;
   }, 'unchanged');
 
-  const sessionIdentity = await get('/api/logic-engine/host/session');
+  const sessionIdentity = await get('/api/plugins/logic-engine-extension-gateway/session');
   assert.equal(sessionIdentity.status, 200);
   assert.equal(sessionIdentity.result.host_session_id, '99999999-9999-4999-8999-999999999999');
-  const accountIdentity = await get('/api/logic-engine/host/identity');
+  const accountIdentity = await get('/api/plugins/logic-engine-extension-gateway/identity');
   assert.equal(accountIdentity.status, 200);
   assert.match(accountIdentity.result.host_installation_id, /^[0-9a-f-]{36}$/i);
   assert.match(accountIdentity.result.authenticated_account_id, /^[0-9a-f-]{36}$/i);
   assert.equal(accountIdentity.result.host_session_id, sessionIdentity.result.host_session_id);
-  const repeatedIdentity = await get('/api/logic-engine/host/identity');
+  const repeatedIdentity = await get('/api/plugins/logic-engine-extension-gateway/identity');
   assert.equal(repeatedIdentity.result.host_installation_id, accountIdentity.result.host_installation_id);
   assert.equal(repeatedIdentity.result.authenticated_account_id, accountIdentity.result.authenticated_account_id);
 
-  const { enumerateHostDataInventory } = await import(
-    pathToFileURL(resolve(stRoot, 'src/endpoints/host-data-inventory.mjs')).href + '?inventory-diagnostic'
-  );
-  const diagnosticInventory = await enumerateHostDataInventory({
+  const diagnosticInventory = await enumeratePinnedHostDataInventory({
     directories,
     hostCommit: expectedSha,
   });
   assert.equal(diagnosticInventory.source.status, 'DOUBLE_SCAN_CANDIDATE',
     JSON.stringify(diagnosticInventory.source));
   assert.equal(diagnosticInventory.source.authority, 'NON_AUTHORITATIVE');
-  const inventory = await get('/api/logic-engine/host/inventory?conversation_uuid=aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
+  const inventory = await get('/api/plugins/logic-engine-extension-gateway/inventory?conversation_uuid=aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
   assert.equal(inventory.status, 200, JSON.stringify(inventory.result));
   assert.equal(inventory.result.filesystem_inventory.status, 'complete');
   assert.equal(inventory.result.filesystem_inventory.snapshot_alignment, 'SHARED_VSS_SNAPSHOT');
