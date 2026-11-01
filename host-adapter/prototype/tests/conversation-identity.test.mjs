@@ -7,6 +7,8 @@ const SESSION_A = 'aaaaaaaa-1111-4111-8111-111111111111';
 const SESSION_B = 'bbbbbbbb-2222-4222-8222-222222222222';
 const INSTALL_A = '11111111-1111-4111-8111-111111111111';
 const INSTALL_B = '22222222-2222-4222-8222-222222222222';
+const ACCOUNT_A = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+const ACCOUNT_B = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
 const CHAT_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const CHAT_B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const prefix = 'logic-engine-host-lifecycle:';
@@ -25,12 +27,13 @@ const resolver = async ({
   locator = 'chat-file.jsonl',
   hostSessionId = SESSION_A,
   hostInstallationId = INSTALL_A,
+  authenticatedAccountId = ACCOUNT_A,
   metadata = {},
   storage = new Storage(),
   saveMetadata = async () => {},
   ...rest
 } = {}) => resolveStableHostConversationIdentity({
-  locator, hostSessionId, hostInstallationId, metadata, storage, saveMetadata,
+  locator, hostSessionId, hostInstallationId, authenticatedAccountId, metadata, storage, saveMetadata,
   cryptoProvider: webcrypto,
   getCurrentLocator: () => locator,
   getCurrentMetadata: () => metadata,
@@ -43,7 +46,7 @@ test('uses the authenticated server installation identity for stable conversatio
   let saves = 0;
   const result = await resolver({ metadata, storage, saveMetadata: async () => { saves++; } });
   assert.equal(result.status, 'READY_FOR_REVIEW');
-  assert.equal(result.conversationId, INSTALL_A + ':' + metadata.logic_engine_conversation_id);
+  assert.equal(result.conversationId, INSTALL_A + ':' + ACCOUNT_A + ':' + metadata.logic_engine_conversation_id);
   assert.equal(storage.getItem('logic-engine-host-installation-id'), INSTALL_A);
   assert.match(metadata.logic_engine_conversation_id, /^[0-9a-f-]{36}$/i);
   assert.equal(saves, 1);
@@ -56,7 +59,7 @@ test('a locator binding prevents silent identity replacement or metadata deletio
   const storage = new Storage();
   storage.setItem('logic-engine-host-installation-id', INSTALL_A);
   const metadata = { logic_engine_conversation_id: CHAT_A };
-  storage.setItem(locatorKey('chat-file.jsonl'), INSTALL_A + ':' + CHAT_A);
+  storage.setItem(locatorKey('chat-file.jsonl'), INSTALL_A + ':' + ACCOUNT_A + ':' + CHAT_A);
   metadata.logic_engine_conversation_id = CHAT_B;
   await assert.rejects(resolver({ metadata, storage }), /locator metadata is missing or inconsistent/);
   delete metadata.logic_engine_conversation_id;
@@ -94,9 +97,19 @@ test('imported chat metadata is scoped to the authenticated server installation 
   storage.setItem('logic-engine-host-installation-id', INSTALL_A);
   const metadata = { logic_engine_conversation_id: CHAT_A };
   const result = await resolver({ locator: 'imported.jsonl', metadata, storage, hostInstallationId: INSTALL_B });
-  assert.equal(result.conversationId, INSTALL_B + ':' + CHAT_A);
+  assert.equal(result.conversationId, INSTALL_B + ':' + ACCOUNT_A + ':' + CHAT_A);
   assert.notEqual(result.conversationId, INSTALL_A + ':' + CHAT_A);
   assert.equal(storage.getItem('logic-engine-host-installation-id'), INSTALL_B);
+});
+
+test('same conversation metadata is isolated between authenticated accounts on one installation', async () => {
+  const storage = new Storage();
+  const metadata = { logic_engine_conversation_id: CHAT_A };
+  const first = await resolver({ metadata, storage, authenticatedAccountId: ACCOUNT_A });
+  const second = await resolver({ metadata, storage, authenticatedAccountId: ACCOUNT_B });
+  assert.notEqual(first.conversationId, second.conversationId);
+  assert.equal(first.conversationId, INSTALL_A + ':' + ACCOUNT_A + ':' + CHAT_A);
+  assert.equal(second.conversationId, INSTALL_A + ':' + ACCOUNT_B + ':' + CHAT_A);
 });
 
 test('cached browser installation identity cannot override server identity when enrollment exists', async () => {
