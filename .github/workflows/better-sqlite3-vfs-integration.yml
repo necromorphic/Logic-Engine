@@ -57,11 +57,28 @@ jobs:
         run: |
           cd "$RUNNER_TEMP/better-sqlite3/package"
           npm install --no-audit --no-fund
-      - name: Smoke-test the published better-sqlite3 prebuild
+      - name: Smoke-test the exact published better-sqlite3 prebuild
         run: |
           node -e 'const Database = require(process.env.BETTER_SQLITE3_PACKAGE_DIR); const db = new Database(":memory:"); console.log("better-sqlite3 prebuild", db.prepare("SELECT sqlite_version() AS version").get()); db.close();'
         env:
           BETTER_SQLITE3_PACKAGE_DIR: ${{ runner.temp }}/better-sqlite3/package
+      - name: Build secure VFS extension against the exact packaged SQLite headers
+        run: |
+          package="$RUNNER_TEMP/better-sqlite3/package"
+          cc -O2 -fPIC -shared -I "$package/deps/sqlite3" -I "$GITHUB_WORKSPACE/native/secure-vfs-probe" "$GITHUB_WORKSPACE/native/secure-vfs-probe/secure_vfs_probe.c" -o "$RUNNER_TEMP/logic_engine_secure_vfs_probe.so"
+      - name: Exercise the exact published Linux prebuild through default VFS and broker protocol
+        env:
+          BETTER_SQLITE3_PACKAGE_DIR: ${{ runner.temp }}/better-sqlite3/package
+          LOGIC_ENGINE_VFS_PROBE_PATH: ${{ runner.temp }}/logic_engine_secure_vfs_probe.so
+        run: node --test tests/better-sqlite3-vfs-integration.test.js tests/better-sqlite3-vfs-broker-integration.test.js
+      - name: Verify distinct-UID production broker boundary and broker restart recovery with the published prebuild
+        env:
+          BETTER_SQLITE3_PACKAGE_DIR: ${{ runner.temp }}/better-sqlite3/package
+          LOGIC_ENGINE_VFS_PROBE_PATH: ${{ runner.temp }}/logic_engine_secure_vfs_probe.so
+        run: |
+          python3 -m py_compile tests/run_better_sqlite3_cross_uid.py
+          NODE_BINARY="$(command -v node)"
+          sudo env NODE_BINARY="$NODE_BINARY" BETTER_SQLITE3_PACKAGE_DIR="$BETTER_SQLITE3_PACKAGE_DIR" LOGIC_ENGINE_VFS_PROBE_PATH="$LOGIC_ENGINE_VFS_PROBE_PATH" python3 tests/run_better_sqlite3_cross_uid.py
       - name: Build the exact better-sqlite3 source instead of its bundled prebuild
         run: |
           cd "$RUNNER_TEMP/better-sqlite3/package"
@@ -70,26 +87,14 @@ jobs:
           test -f build/Release/better_sqlite3.node
       - name: Smoke-test the source-built better-sqlite3 constructor (Node-API 10)
         run: |
-          node -e 'const Database = require(process.env.BETTER_SQLITE3_PACKAGE_DIR); const db = new Database(":memory:"); console.log("better-sqlite3 smoke", db.prepare("SELECT sqlite_version() AS version").get()); db.close();'
+          node -e 'const Database = require(process.env.BETTER_SQLITE3_PACKAGE_DIR); const db = new Database(":memory:"); console.log("better-sqlite3 source build", db.prepare("SELECT sqlite_version() AS version").get()); db.close();'
         env:
           BETTER_SQLITE3_PACKAGE_DIR: ${{ runner.temp }}/better-sqlite3/package
-      - name: Build secure VFS extension against bundled SQLite headers
-        run: |
-          package="$RUNNER_TEMP/better-sqlite3/package"
-          cc -O2 -fPIC -shared -I "$package/deps/sqlite3" -I "$GITHUB_WORKSPACE/native/secure-vfs-probe" "$GITHUB_WORKSPACE/native/secure-vfs-probe/secure_vfs_probe.c" -o "$RUNNER_TEMP/logic_engine_secure_vfs_probe.so"
-      - name: Exercise the stock better-sqlite3 engine through default VFS registration
+      - name: Exercise the source-built better-sqlite3 engine through default VFS registration
         env:
           BETTER_SQLITE3_PACKAGE_DIR: ${{ runner.temp }}/better-sqlite3/package
           LOGIC_ENGINE_VFS_PROBE_PATH: ${{ runner.temp }}/logic_engine_secure_vfs_probe.so
-        run: node --test tests/better-sqlite3-vfs-integration.test.js tests/better-sqlite3-vfs-broker-integration.test.js
-      - name: Verify distinct-UID production broker boundary and broker restart recovery
-        env:
-          BETTER_SQLITE3_PACKAGE_DIR: ${{ runner.temp }}/better-sqlite3/package
-          LOGIC_ENGINE_VFS_PROBE_PATH: ${{ runner.temp }}/logic_engine_secure_vfs_probe.so
-        run: |
-          python3 -m py_compile tests/run_better_sqlite3_cross_uid.py
-          NODE_BINARY="$(command -v node)"
-          sudo env NODE_BINARY="$NODE_BINARY" BETTER_SQLITE3_PACKAGE_DIR="$BETTER_SQLITE3_PACKAGE_DIR" LOGIC_ENGINE_VFS_PROBE_PATH="$LOGIC_ENGINE_VFS_PROBE_PATH" python3 tests/run_better_sqlite3_cross_uid.py
+        run: node --test tests/better-sqlite3-vfs-integration.test.js
 
   windows-x64:
     runs-on: windows-latest
