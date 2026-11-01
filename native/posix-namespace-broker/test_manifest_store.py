@@ -184,8 +184,8 @@ class ManifestStoreTests(unittest.TestCase):
                             os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW)
         quarantine_fd = -1
         try:
-            os.mkdir(".logic-engine-vfs-quarantine", 0o700, dir_fd=parent_fd)
-            quarantine_fd = os.open(".logic-engine-vfs-quarantine",
+            os.mkdir(".le-quarantine", 0o700, dir_fd=parent_fd)
+            quarantine_fd = os.open(".le-quarantine",
                                     os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW,
                                     dir_fd=parent_fd)
             _renameat2_noreplace(parent_fd, "core.sqlite", quarantine_fd, "entry-crash")
@@ -198,7 +198,7 @@ class ManifestStoreTests(unittest.TestCase):
         recovered = self.store.reconcile_main_lifecycle()
         self.assertEqual(recovered["roles"][0]["state"], "deleted")
         self.assertFalse(self.database.exists())
-        self.assertFalse((self.role_parent / ".logic-engine-vfs-quarantine" / "entry-crash").exists())
+        self.assertFalse((self.role_parent / ".le-quarantine" / "entry-crash").exists())
 
     def test_broker_first_enrollment_creates_and_commits_main_role(self):
         import json
