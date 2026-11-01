@@ -49,7 +49,7 @@ const rootEntries = [{
 test('root inventory persistence forwards only bounded digest metadata with server identity and credentials', async () => {
   let observed;
   const identityStore = {
-    assertOutsideRoot: async root => assert.equal(root, GLOBAL_DATA_ROOT),
+    assertOutsideRoot: async root => assert.equal(root, resolve(GLOBAL_DATA_ROOT)),
     resolveAuthenticatedAccount: async handle => {
       assert.equal(handle, 'alice');
       return {
@@ -102,7 +102,7 @@ test('root inventory persistence falls back from first baseline to observation o
   const persist = createHostRootInventoryPersistence({
     env: CONFIG,
     identityStore: {
-      assertOutsideRoot: async root => assert.equal(root, GLOBAL_DATA_ROOT),
+      assertOutsideRoot: async root => assert.equal(root, resolve(GLOBAL_DATA_ROOT)),
       resolveAuthenticatedAccount: async () => ({
         host_installation_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
         authenticated_account_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
@@ -142,14 +142,14 @@ test('root inventory persistence fails closed on invalid identity, malformed man
   let calls = 0;
   const persist = createHostRootInventoryPersistence({
     env: CONFIG,
-    identityStore: { assertOutsideRoot: async root => assert.equal(root, GLOBAL_DATA_ROOT), resolveAuthenticatedAccount: async () => ({ host_installation_id: 'bad', authenticated_account_id: 'also-bad' }) },
+    identityStore: { assertOutsideRoot: async root => assert.equal(root, resolve(GLOBAL_DATA_ROOT)), resolveAuthenticatedAccount: async () => ({ host_installation_id: 'bad', authenticated_account_id: 'also-bad' }) },
     fetchImpl: async () => { calls++; throw new Error('must not call'); },
   });
   const invalidIdentity = await persist({ userHandle: 'alice', rootPath: '/srv/st/data', entries: rootEntries });
   assert.equal(invalidIdentity.status, 'NON_READY');
   const invalidManifest = await createHostRootInventoryPersistence({
     env: CONFIG,
-    identityStore: { assertOutsideRoot: async root => assert.equal(root, GLOBAL_DATA_ROOT), resolveAuthenticatedAccount: async () => ({
+    identityStore: { assertOutsideRoot: async root => assert.equal(root, resolve(GLOBAL_DATA_ROOT)), resolveAuthenticatedAccount: async () => ({
       host_installation_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
       authenticated_account_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
     }) },
@@ -158,7 +158,7 @@ test('root inventory persistence fails closed on invalid identity, malformed man
   assert.equal(invalidManifest.status, 'NON_READY');
   const oversized = await createHostRootInventoryPersistence({
     env: CONFIG,
-    identityStore: { assertOutsideRoot: async root => assert.equal(root, GLOBAL_DATA_ROOT), resolveAuthenticatedAccount: async () => ({
+    identityStore: { assertOutsideRoot: async root => assert.equal(root, resolve(GLOBAL_DATA_ROOT)), resolveAuthenticatedAccount: async () => ({
       host_installation_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
       authenticated_account_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
     }) },
@@ -375,7 +375,7 @@ test('lifecycle journal proxy derives account identity and signs only server-ver
   let observed;
   const receiptCalls = [];
   const identityStore = {
-    assertOutsideRoot: async root => assert.equal(root, GLOBAL_DATA_ROOT),
+    assertOutsideRoot: async root => assert.equal(root, resolve(GLOBAL_DATA_ROOT)),
     resolveAuthenticatedAccount: async handle => {
       assert.equal(handle, 'alice');
       return {
@@ -385,7 +385,7 @@ test('lifecycle journal proxy derives account identity and signs only server-ver
     },
   };
   const receiptStore = {
-    assertOutsideRoot: async root => assert.equal(root, GLOBAL_DATA_ROOT),
+    assertOutsideRoot: async root => assert.equal(root, resolve(GLOBAL_DATA_ROOT)),
     prepare: async (scope, directories) => {
       receiptCalls.push({ type: 'prepare', scope, directories });
       return { status: 'appended', prepared: { occurred_at: '2026-10-31T00:00:00.000Z' } };
@@ -461,7 +461,7 @@ test('lifecycle journal proxy derives account identity and signs only server-ver
     occurred_at: '2026-10-31T00:00:00.000Z',
   });
   assert.equal(receiptCalls[0].type, 'prepare');
-  assert.equal(receiptCalls[0].directories.root, '/tmp/st-root');
+  assert.equal(receiptCalls[0].directories.root, resolve('/tmp/st-root'));
 
   const committedEvent = {
     ...event,
@@ -529,7 +529,7 @@ test('lifecycle status performs durable server-side crash recovery before allowi
   const proxy = createHostLifecycleJournalProxy({
     env: CONFIG,
     identityStore: {
-      assertOutsideRoot: async root => assert.equal(root, GLOBAL_DATA_ROOT),
+      assertOutsideRoot: async root => assert.equal(root, resolve(GLOBAL_DATA_ROOT)),
       resolveAuthenticatedAccount: async () => ({
         host_installation_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
         authenticated_account_id: '22222222-2222-4222-8222-222222222222',
@@ -562,7 +562,7 @@ test('lifecycle status performs durable server-side crash recovery before allowi
   assert.equal(calls.length, 3);
   assert.equal(recoveredScope.scope.mutation_id, '55555555-5555-4555-8555-555555555555');
   assert.equal(recoveredScope.scope.prepared_event_id, '66666666-6666-4666-8666-666666666666');
-  assert.equal(recoveredScope.directories.root, '/tmp/st-root');
+  assert.equal(recoveredScope.directories.root, resolve('/tmp/st-root'));
   const eventBody = JSON.parse(calls[1].options.body);
   assert.equal(eventBody.event_type, 'MUTATION_COMMITTED');
   assert.equal(eventBody.receipt_digest, 'f'.repeat(64));
@@ -574,7 +574,7 @@ test('lifecycle journal proxy status is session-bound and forwards only server-d
   const proxy = createHostLifecycleJournalProxy({
     env: CONFIG,
     identityStore: {
-      assertOutsideRoot: async root => assert.equal(root, GLOBAL_DATA_ROOT),
+      assertOutsideRoot: async root => assert.equal(root, resolve(GLOBAL_DATA_ROOT)),
       resolveAuthenticatedAccount: async () => ({
         host_installation_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
         authenticated_account_id: '22222222-2222-4222-8222-222222222222',
