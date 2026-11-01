@@ -149,15 +149,27 @@ test('real adapter composes file-backed SQLite Provider with Core query and cano
     assert.equal(withoutHostContext.reason, 'query_access_unconfirmed');
     assert.deepEqual(withoutHostContext.candidates, []);
 
-    const result = await adapter.runWithAuthenticatedHostSession(hostRequest, conversationId, () => adapter.consumer.retrieveForNpc({
-      worldId, actorEntityId: actorId, conversationId,
-      adapterId: 'caller-selected-spoofed-adapter',
-    }));
+    const { result, afterLogout } = await adapter.runWithAuthenticatedHostSession(
+      hostRequest, conversationId, async () => {
+        const result = await adapter.consumer.retrieveForNpc({
+          worldId, actorEntityId: actorId, conversationId,
+          adapterId: 'caller-selected-spoofed-adapter',
+        });
+        authenticatedHostRequests.delete(hostRequest);
+        const afterLogout = await adapter.consumer.retrieveForNpc({
+          worldId, actorEntityId: actorId, conversationId,
+        });
+        return { result, afterLogout };
+      },
+    );
     assert.equal(result.status, 'ready');
     assert.equal(result.candidates.length, 1);
     assert.deepEqual(result.candidates[0].content, {
       'attributes.public_note': 'real Core source value',
     });
+    assert.equal(afterLogout.status, 'non_ready');
+    assert.equal(afterLogout.reason, 'query_access_unconfirmed');
+    assert.deepEqual(afterLogout.candidates, []);
     assert.throws(() => adapter.runWithAuthenticatedHostSession(
       hostRequest, 'caller-selected-conversation', () => adapter.consumer.retrieveForNpc({
         worldId, actorEntityId: actorId, conversationId: 'caller-selected-conversation',
