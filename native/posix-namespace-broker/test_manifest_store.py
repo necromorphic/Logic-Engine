@@ -120,6 +120,46 @@ class ManifestStoreTests(unittest.TestCase):
         return manifest(generation, self.store.metadata_identity(),
                         components, identities, db_identity)
 
+    def test_broker_first_enrollment_creates_and_commits_main_role(self):
+        import json
+        self.store.initialize(self.data(1))
+        parent = self.role_parent / "vectors-data"
+        parent.mkdir(mode=0o700)
+        os.chmod(parent, 0o700)
+        fd = self.store.enroll_role("vectors", str(parent), "vectors.sqlite")
+        try:
+            self.assertEqual(os.fstat(fd).st_size, 0)
+            self.assertEqual(os.read(fd, 1), b"")
+        finally:
+            os.close(fd)
+        current = self.store.load()
+        self.assertEqual(current["generation"], 3)
+        role = next(entry for entry in current["roles"] if entry["role"] == "vectors")
+        self.assertEqual(role["state"], "active")
+        self.assertEqual(role["databaseBasename"], "vectors.sqlite")
+        self.assertEqual(role["databaseIdentity"], fd_identity(
+            os.open(parent / "vectors.sqlite", os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
+        ))
+        opened = self.store.open_role_file("vectors", "main")
+        try:
+            self.assertEqual(os.fstat(opened).st_ino, os.stat(parent / "vectors.sqlite").st_ino)
+        finally:
+            os.close(opened)
+
+    def test_broker_first_enrollment_never_adopts_existing_database(self):
+        self.store.initialize(self.data(1))
+        parent = self.role_parent / "existing-data"
+        parent.mkdir(mode=0o700)
+        os.chmod(parent, 0o700)
+        existing = parent / "vectors.sqlite"
+        existing.write_bytes(b"untrusted-existing")
+        os.chmod(existing, 0o600)
+        with self.assertRaisesRegex(StoreError, "never adopts existing files"):
+            self.store.enroll_role("vectors", str(parent), "vectors.sqlite")
+        self.assertEqual(existing.read_bytes(), b"untrusted-existing")
+        self.assertFalse(any(entry["role"] == "vectors"
+                             for entry in self.store.load()["roles"]))
+
     def test_rejects_database_identity_aliased_across_roles(self):
         import json
         value = json.loads(self.data(1))
