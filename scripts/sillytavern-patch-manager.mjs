@@ -72,6 +72,8 @@ function runGit(args, cwd) {
   const candidates = process.platform === 'win32'
     ? [
       process.env.GIT_EXECUTABLE,
+      'C:\\Program Files\\Git\\cmd\\git.exe',
+      'C:\\Program Files (x86)\\Git\\cmd\\git.exe',
       resolve(process.env.ProgramFiles || 'C:\\Program Files', 'Git', 'cmd', 'git.exe'),
       'git',
     ].filter(Boolean)
