@@ -31,6 +31,8 @@ const ROUTE_BY_SOURCE_KEY = Object.freeze({
   WORKERS_AI: 'workers-ai',
 });
 
+const UNREGISTERED_SENDER_ROUTE = 'unregistered';
+
 function assertSourceMap(sources) {
   if (!sources || typeof sources !== 'object' || Array.isArray(sources)) {
     throw new TypeError('SillyTavern CHAT_COMPLETION_SOURCES is required.');
@@ -42,6 +44,7 @@ function assertSourceMap(sources) {
       || !PROTECTED_MEMORY_SENDER_ROUTES.includes(senderRoute)) {
       throw new Error('SILLYTAVERN_SOURCE_REGISTRY_MISMATCH: ' + key);
     }
+    if (map.has(sourceValue)) throw new Error('SILLYTAVERN_SOURCE_REGISTRY_DUPLICATE: ' + key);
     map.set(sourceValue, senderRoute);
   }
   return map;
@@ -72,15 +75,19 @@ export function createSillyTavernFinalSendAdapter({
   return Object.freeze({
     resolveSenderRoute(request) {
       const source = request?.body?.chat_completion_source;
-      const route = sourceMap.get(source);
-      if (!route) throw new Error('MEMORY_DISPATCH_NOT_READY');
-      return route;
+      // Unregistered ST senders remain native for explicitly unprotected
+      // generations. Protected classification happens before route admission
+      // in createProtectedMemoryFinalSend, which rejects this sentinel.
+      return sourceMap.get(source) ?? UNREGISTERED_SENDER_ROUTE;
     },
 
     dispatch(args) {
-      if (!args || sourceMap.get(args.request?.body?.chat_completion_source) !== args.senderRoute
-        || !PROTECTED_MEMORY_SENDER_ROUTES.includes(args.senderRoute)
+      if (!args || typeof args.senderRoute !== 'string' || !args.senderRoute
         || typeof args.transport !== 'function') {
+        throw new Error('MEMORY_DISPATCH_NOT_READY');
+      }
+      const expectedRoute = sourceMap.get(args.request?.body?.chat_completion_source);
+      if (expectedRoute ? expectedRoute !== args.senderRoute : args.senderRoute !== UNREGISTERED_SENDER_ROUTE) {
         throw new Error('MEMORY_DISPATCH_NOT_READY');
       }
       return finalSend({
