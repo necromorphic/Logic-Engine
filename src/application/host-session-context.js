@@ -44,7 +44,15 @@ export function createAuthenticatedHostSessionContext(
       identity: 'SIGNED_AUTHENTICATED_ST_SESSION',
     });
     contexts.add(context);
-    contextBindings.set(context, { kind: 'request', request, conversationId, hostSessionId: sessionId, hostUserHandle: userHandle, isAuthenticatedHostRequest, resolveHostConversationId });
+    contextBindings.set(context, {
+      kind: 'request',
+      request,
+      conversationId,
+      hostSessionId: sessionId,
+      hostUserHandle: userHandle,
+      isAuthenticatedHostRequest,
+      resolveHostConversationId,
+    });
     return context;
   } catch {
     return null;
@@ -59,7 +67,13 @@ function isLiveAuthenticatedHostContext(context, conversationId) {
       const currentSeconds = Math.floor(binding.now() / 1000);
       return Number.isSafeInteger(currentSeconds) && currentSeconds <= binding.expiresAt;
     }
-    const { request, hostSessionId, hostUserHandle, isAuthenticatedHostRequest, resolveHostConversationId } = binding;
+    const {
+      request,
+      hostSessionId,
+      hostUserHandle,
+      isAuthenticatedHostRequest,
+      resolveHostConversationId,
+    } = binding;
     if (isAuthenticatedHostRequest(request) !== true
       || resolveHostConversationId(request) !== conversationId) return false;
     const session = request?.session;
