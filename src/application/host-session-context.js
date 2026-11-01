@@ -116,7 +116,7 @@ export function runWithAuthenticatedHostSession(
 ) {
   if (typeof callback !== 'function') throw new TypeError('A Host operation callback is required');
   const context = createAuthenticatedHostSessionContext(
-    request, conversationId, isAuthenticatedHostRequest, resolveHostConversationId, resolveHostBindings,
+    request, conversationId, isAuthenticatedHostRequest, resolveHostConversationId, resolveHostBindings, resolveHostIdentity,
   );
   if (!context) throw new Error('HOST_SESSION_AUTHENTICATION_REQUIRED');
   return requestContext.run({
@@ -126,6 +126,7 @@ export function runWithAuthenticatedHostSession(
     isAuthenticatedHostRequest,
     resolveHostConversationId,
     resolveHostBindings,
+    resolveHostIdentity,
     invalidated: false,
   }, callback);
 }
@@ -135,7 +136,8 @@ export function getAuthenticatedHostSessionContext() {
   if (!active || active.invalidated || !active.context
     || typeof active.isAuthenticatedHostRequest !== 'function'
     || typeof active.resolveHostConversationId !== 'function'
-    || typeof active.resolveHostBindings !== 'function') return null;
+    || typeof active.resolveHostBindings !== 'function'
+    || typeof active.resolveHostIdentity !== 'function') return null;
   // A capability is live only while the exact middleware-owned request and
   // its signed session/account/World/Actor bindings remain unchanged. This
   // revalidation makes rotation, logout, account switching and binding revoke
@@ -146,6 +148,7 @@ export function getAuthenticatedHostSessionContext() {
     active.isAuthenticatedHostRequest,
     active.resolveHostConversationId,
     active.resolveHostBindings,
+    active.resolveHostIdentity,
   );
   if (!refreshed) {
     active.invalidated = true;
