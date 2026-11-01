@@ -1,0 +1,41 @@
+name: Extension Gateway contract
+
+on:
+  pull_request:
+    paths:
+      - "src/deployment/extension-gateway.js"
+      - "public/scripts/extensions/third-party/logic-engine-extension-gateway/**"
+      - "tests/extension-gateway.test.js"
+      - "docs/108-extension-gateway-contract.md"
+      - ".github/workflows/extension-gateway.yml"
+  push:
+    branches: [main, "feature/extension-gateway"]
+    paths:
+      - "src/deployment/extension-gateway.js"
+      - "public/scripts/extensions/third-party/logic-engine-extension-gateway/**"
+      - "tests/extension-gateway.test.js"
+      - ".github/workflows/extension-gateway.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: extension-gateway-contract-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gateway-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22.13.0"
+      - name: Syntax-check packaged Extension modules
+        run: |
+          node --check public/scripts/extensions/third-party/logic-engine-extension-gateway/index.js
+          node --check public/scripts/extensions/third-party/logic-engine-extension-gateway/server-gateway.mjs
+      - name: Run Extension Gateway security and lifecycle tests
+        run: node --test tests/extension-gateway.test.js
