@@ -89,8 +89,12 @@ export function validateDeploymentReport(report) {
   if (report.overall_status === 'PASS' && requiredFailures.length > 0) {
     throw new Error('DEPLOYMENT_REPORT_FALSE_PASS_REQUIRED_CAPABILITY');
   }
-  if (report.overall_status === 'PASS' && report.gates.some((gate) => gate.status === 'BLOCKED')) {
+  if (report.gates.some((gate) => gate.status === 'BLOCKED')
+    && ['PASS', 'DEGRADED'].includes(report.overall_status)) {
     throw new Error('DEPLOYMENT_REPORT_FALSE_PASS_BLOCKED_GATE');
+  }
+  if (report.overall_status === 'PASS' && report.capabilities.some((item) => item.status !== 'PASS')) {
+    throw new Error('DEPLOYMENT_REPORT_FALSE_PASS_NONPASS_CAPABILITY');
   }
   if (report.profile === 'portable-desktop' && report.overall_status === 'PASS') {
     throw new Error('DEPLOYMENT_REPORT_FALSE_PASS_PORTABLE_ISOLATION');
