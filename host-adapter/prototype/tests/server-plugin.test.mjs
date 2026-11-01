@@ -49,7 +49,7 @@ test('Gateway context route fails closed until authenticated Core assertion tran
   assert.equal(response.statusCode, 503);
   assert.deepEqual(response.body, {
     status: 'NON_READY',
-    code: 'GATEWAY_CORE_CONTEXT_TRANSPORT_NOT_CONFIGURED',
+    code: 'HOST_IDENTITY_STORE_NOT_CONFIGURED',
   });
 });
 
@@ -61,6 +61,7 @@ test('bundled plugin dependencies resolve locally and do not escape the plugin p
     'windows-vss-snapshot.mjs',
     'st-host-inventory-handler.mjs',
     'st-host-identity-store.mjs',
+    'host-context-transport.mjs',
   ]) {
     const bundled = await readFile(path.join(pluginRoot, filename), 'utf8');
     const canonical = await readFile(path.join(here, '..', filename), 'utf8');
