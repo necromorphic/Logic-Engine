@@ -76,8 +76,9 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
       },
       roles: [{
         role: 'manifest-enrolled',
-        parentComponents: [path.win32.basename(path.win32.dirname(manifestDbPath))],
-        parentIdentities: [databaseIdentity.parentIdentity],
+        // The DB parent itself is the metadata root in this isolated test.
+        parentComponents: [],
+        parentIdentities: [],
         databaseBasename: path.win32.basename(manifestDbPath),
         databaseIdentity: databaseIdentity.databaseIdentity,
         state: 'active',
