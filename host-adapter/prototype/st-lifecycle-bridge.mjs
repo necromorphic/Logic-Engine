@@ -891,5 +891,6 @@ export function createUnavailableStLifecycleBridge({ getConversationId, storage 
     enrollCurrentConversation: async () => { throw error; },
     beforeMutation: async () => assertUnavailableSafe(),
     afterMutation: async () => assertUnavailableSafe(),
+    guardExport: async () => assertUnavailableSafe(),
   });
 }
