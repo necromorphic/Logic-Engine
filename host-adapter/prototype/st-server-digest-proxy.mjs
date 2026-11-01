@@ -27,7 +27,6 @@ function requestMatchesAuthenticatedHostSession(request, conversationId) {
     && sessionHandle === userHandle
     && typeof sessionId === 'string' && HOST_SESSION_UUID.test(sessionId)
     && typeof conversationId === 'string'
-    && HOST_CONVERSATION_ID.test(conversationId)
     && HOST_CONVERSATION_ID.test(conversationId);
 }
 
