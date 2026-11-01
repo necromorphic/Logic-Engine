@@ -70,6 +70,12 @@ function message(mes, messageId, versionId) {
 test('SillyTavern lifecycle proxy authenticates PREPARED/COMMITTED receipts and recovers pending mutations through Core API after restart', async t => {
   const parent = await mkdtemp(join(tmpdir(), 'logic-engine-host-lifecycle-api-'));
   const root = join(parent, 'st-data');
+  const previousDataRoot = globalThis.DATA_ROOT;
+  globalThis.DATA_ROOT = root;
+  t.after(() => {
+    if (previousDataRoot === undefined) delete globalThis.DATA_ROOT;
+    else globalThis.DATA_ROOT = previousDataRoot;
+  });
   const chats = join(root, 'chats');
   const groups = join(root, 'groups');
   const groupChats = join(root, 'group chats');
