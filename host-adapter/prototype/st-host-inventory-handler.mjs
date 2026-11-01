@@ -298,7 +298,17 @@ export function createHostLifecycleSaveGuard({ enumerate = enumerateHostDataInve
         ? error.message : 'UNKNOWN';
       return response.status(503).json({ status: 'NON_READY', code: 'HOST_LIFECYCLE_SAVE_INVENTORY_UNAVAILABLE', reason });
     }
-    if (inventory?.filesystem?.status !== 'complete' || inventory?.source?.status !== 'DOUBLE_SCAN_CANDIDATE' || !Array.isArray(inventory?.source?.files)) return response.status(503).json({ status: 'NON_READY', code: 'HOST_LIFECYCLE_SAVE_INVENTORY_INCOMPLETE' });
+    if (inventory?.filesystem?.status !== 'complete' || inventory?.source?.status !== 'DOUBLE_SCAN_CANDIDATE' || !Array.isArray(inventory?.source?.files)) {
+      const safeCode = value => typeof value === 'string' && /^[A-Z0-9_]{1,96}$/.test(value) ? value : null;
+      return response.status(503).json({
+        status: 'NON_READY',
+        code: 'HOST_LIFECYCLE_SAVE_INVENTORY_INCOMPLETE',
+        filesystem_status: safeCode(inventory?.filesystem?.status),
+        filesystem_code: safeCode(inventory?.filesystem?.code),
+        source_status: safeCode(inventory?.source?.status),
+        source_code: safeCode(inventory?.source?.code),
+      });
+    }
     const body = request?.body;
     const isGroup = request?.path === '/group/save' || request?.originalUrl?.split('?')[0]?.endsWith('/group/save');
     const locator = isGroup ? (typeof body?.id === 'string' ? body.id : '') : (typeof body?.avatar_url === 'string' && typeof body?.file_name === 'string' ? body.avatar_url.replace(/\.png$/i, '') + '/' + body.file_name + '.jsonl' : '');
