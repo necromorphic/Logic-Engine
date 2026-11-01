@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHmac, timingSafeEqual } from 'node:crypto';
+import { types as utilTypes } from 'node:util';
 
 const HOST_SESSION_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const HOST_CONVERSATION_ID = new RegExp('^' + HOST_SESSION_UUID.source.slice(1, -1) + ':'
@@ -20,6 +21,24 @@ const ASSERTION_KEYS = Object.freeze([
   'host_session_id', 'conversation_id', 'world_id', 'actor_id', 'issued_at', 'nonce',
 ]);
 const requestContext = new AsyncLocalStorage();
+
+function isExactPlainDataRecord(value, expectedKeys) {
+  if (value === null || typeof value !== 'object' || Array.isArray(value) || utilTypes.isProxy(value)) return false;
+  try {
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) return false;
+    const keys = Reflect.ownKeys(value);
+    if (keys.length !== expectedKeys.length) return false;
+    for (const key of keys) if (typeof key !== 'string' || !expectedKeys.includes(key)) return false;
+    for (const key of expectedKeys) {
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      if (!descriptor || descriptor.enumerable !== true || !Object.hasOwn(descriptor, 'value')) return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Build a non-serializable capability only after a deployment-owned Host
@@ -60,16 +79,18 @@ export function createAuthenticatedHostSessionContext(
       || !HOST_SESSION_UUID.test(conversationUuid)) return null;
 
     const identity = resolveHostIdentity(request, conversationId);
-    if (!identity || typeof identity !== 'object' || Array.isArray(identity)
-      || !HOST_SESSION_UUID.test(identity.host_installation_id ?? '')
-      || !HOST_SESSION_UUID.test(identity.authenticated_account_id ?? '')
-      || identity.host_installation_id !== installationId) return null;
+    if (!isExactPlainDataRecord(identity, ['host_installation_id', 'authenticated_account_id'])) return null;
+    const identityInstallationId = identity.host_installation_id;
+    const authenticatedAccountId = identity.authenticated_account_id;
+    if (!HOST_SESSION_UUID.test(identityInstallationId ?? '')
+      || !HOST_SESSION_UUID.test(authenticatedAccountId ?? '')
+      || identityInstallationId !== installationId) return null;
     const bindings = resolveHostBindings(request, conversationId);
-    if (!bindings || typeof bindings !== 'object' || Array.isArray(bindings)
+    if (!isExactPlainDataRecord(bindings, ['world_id', 'actor_id'])
       || !validBindingId(bindings.world_id) || !validBindingId(bindings.actor_id)) return null;
     const context = Object.freeze({
       host_installation_id: installationId,
-      authenticated_account_id: identity.authenticated_account_id,
+      authenticated_account_id: authenticatedAccountId,
       host_session_id: sessionId,
       host_user_handle: userHandle,
       conversation_id: conversationId,
@@ -187,7 +208,7 @@ function canonicalAssertion(assertion) {
 
 function validHostSessionAssertion(assertion) {
   try {
-    if (!assertion || typeof assertion !== 'object' || Array.isArray(assertion)
+    if (!assertion || typeof assertion !== 'object' || Array.isArray(assertion) || utilTypes.isProxy(assertion)
       || (Object.getPrototypeOf(assertion) !== Object.prototype && Object.getPrototypeOf(assertion) !== null)
       || Reflect.ownKeys(assertion).length !== ASSERTION_KEYS.length
       || ASSERTION_KEYS.some(key => !Object.hasOwn(assertion, key))
