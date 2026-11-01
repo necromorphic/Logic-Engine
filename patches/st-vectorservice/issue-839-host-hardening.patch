@@ -1,0 +1,58 @@
+--- a/ST-VectorService/server.js
++++ b/ST-VectorService/server.js
+@@ -1,6 +1,5 @@
+ 
+ import express from 'express';
+-import crypto from 'node:crypto';
+ import Database from 'better-sqlite3';
+ import path from 'node:path';
+ import fs from 'node:fs';
+@@ -12,15 +11,9 @@
+ const OLLAMA_URL =
+     process.env.OLLAMA_URL || 'http://127.0.0.1:11434';
+ const API_KEY = process.env.ST_VECTOR_API_KEY?.trim();
+-if (API_KEY) {
+-    const fingerprint = crypto
+-        .createHash('sha256')
+-        .update(API_KEY, 'utf8')
+-        .digest('hex');
+-
+-    console.log(
+-        `[SecurityDiagnostic] keyLength=${API_KEY.length}, sha256=${fingerprint}`
+-    );
++// better-sqlite3@13.0.3 uses Node-API 10. Fail before storage or DB access.
++if (Number(process.versions.napi || 0) < 10) {
++    throw new Error('ST-VectorService requires Node.js with Node-API >= 10 (Node >= 22.14.0).');
+ }
+ const DEFAULT_MODEL = 'bge-m3';
+ 
+@@ -58,17 +51,6 @@
+     const match = authorization.match(/^Bearer\\s+(.+)$/i);
+     const receivedToken = match ? match[1].trim() : '';
+ 
+-    const receivedHash = crypto
+-        .createHash('sha256')
+-        .update(receivedToken, 'utf8')
+-        .digest('hex');
+-
+-    console.log('[AuthDiagnostic]', {
+-        path: req.originalUrl,
+-        tokenLength: receivedToken.length,
+-        tokenHash: receivedHash,
+-        tokenMatches: receivedToken === API_KEY,
+-    });
+ 
+     if (receivedToken !== API_KEY) {
+         return res.status(401).json({ error: 'Unauthorized' });
+--- a/ST-VectorService/package.json
++++ b/ST-VectorService/package.json
+@@ -15,5 +15,8 @@
+     },
+     "keywords": [],
+     "author": "",
+-    "license": "ISC"
++    "license": "ISC",
++    "engines": {
++        "node": ">=22.14.0"
++    }
+ }
