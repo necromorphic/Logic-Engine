@@ -17,6 +17,7 @@ import { loadTrustedWorldPackCatalog } from './application/world-pack-catalog.js
 import { createHostBoundNpcKnowledgeAuthorizers } from './application/npc-knowledge-authorization.js';
 import { createProcessScopedMechanicPolicyAuthority, defaultMechanicPolicyFieldPolicy } from './application/mechanic-policy-authority.js';
 import { createMemoryNpcProviderAdapter } from './application/memory-npc-provider-adapter.js';
+import { HostAssertionNonceStore } from './application/host-assertion-nonce-store.js';
 
 const token = process.env.ENGINE_API_TOKEN;
 const internalToken = process.env.ENGINE_INTERNAL_TOKEN || null;
@@ -131,6 +132,22 @@ if (dbPath !== ':memory:' && aliasesSameFile(hostVersionLedgerPath, dbPath)) {
 if (aliasesSameFile(hostVersionLedgerPath, coordinatorPath)) {
   throw new Error('ENGINE_HOST_VERSION_LEDGER_DB_PATH must be separate from LOGIC_ENGINE_COORDINATOR_DB_PATH, including filesystem aliases.');
 }
+const assertionNoncePath = process.env.ENGINE_HOST_ASSERTION_NONCE_DB_PATH
+  ? resolve(process.env.ENGINE_HOST_ASSERTION_NONCE_DB_PATH)
+  : resolve('./data/logic-engine-host-assertion-nonces.sqlite');
+const coreDatabasePath = store.db.prepare('PRAGMA database_list').all()
+  .find(entry => entry.name === 'main')?.file;
+if (typeof coreDatabasePath !== 'string' || !coreDatabasePath) {
+  throw new Error('Host assertion nonce storage requires a file-backed Core database.');
+}
+if (aliasesSameFile(assertionNoncePath, hostVersionLedgerPath)) {
+  throw new Error('ENGINE_HOST_ASSERTION_NONCE_DB_PATH must be separate from ENGINE_HOST_VERSION_LEDGER_DB_PATH.');
+}
+const hostAssertionNonceStore = new HostAssertionNonceStore({
+  path: assertionNoncePath,
+  coreDatabasePath,
+  coordinatorPath,
+});
 // This deny-only verifier is deliberately not source authority. Until the trusted
 // Host/Core complete-inventory adapter is wired, reconciliation can never set READY.
 const hostVersionLedger = new HostVersionDigestLedger({
@@ -210,6 +227,7 @@ if (hostRootIdentityRegistry.length > 0) {
     : resolve('./data/logic-engine-host-lifecycle.sqlite');
   for (const [name, candidate] of [
     ['ENGINE_HOST_LIFECYCLE_DB_PATH', hostLifecyclePath],
+    ['ENGINE_HOST_ASSERTION_NONCE_DB_PATH', assertionNoncePath],
     ['ENGINE_HOST_VERSION_LEDGER_DB_PATH', hostVersionLedgerPath],
     ['ENGINE_DB_PATH', dbPath],
     ['LOGIC_ENGINE_COORDINATOR_DB_PATH', coordinatorPath],
@@ -288,6 +306,7 @@ const server = createApiServer({
   hostLifecycleJournal: hostRootInventoryJournal,
   mechanicPolicyAuthority,
   memoryNpcConsumers,
+  hostAssertionNonceStore,
 });
 server.listen(port, host, () => process.stdout.write(
   'Logic-Engine API listening on http://' + host + ':' + port + '\nDatabase: ' + dbPath +
@@ -298,6 +317,7 @@ function stop() {
   server.close(() => {
     try {
       for (const adapter of memoryProviderAdapters) adapter.close();
+      hostAssertionNonceStore.close();
     } finally {
       try { hostRootInventoryJournal?.close(); }
       finally {
