@@ -59,19 +59,19 @@ test('Windows manifest enrollment passes exact DB and final-parent identities to
   ), 1);
   assert.match(db.calls[0].sql, /validate_manifest_directory_identity/);
   assert.deepEqual(db.calls[0].args, [
-    'C:\\\\',
+    'C:\\',
     '00000000000000A1',
     '11111111111111111111111111111111',
   ]);
   assert.match(db.calls[1].sql, /validate_manifest_directory_identity/);
   assert.deepEqual(db.calls[1].args, [
-    'C:\\\\LogicEngine',
+    'C:\\LogicEngine',
     '00000000000000A1',
     '22222222222222222222222222222222',
   ]);
   assert.match(db.calls[2].sql, /validate_manifest_directory_identity/);
   assert.deepEqual(db.calls[2].args, [
-    'C:\\\\LogicEngine\\\\data',
+    'C:\\LogicEngine\\data',
     '00000000000000A1',
     '33333333333333333333333333333333',
   ]);
