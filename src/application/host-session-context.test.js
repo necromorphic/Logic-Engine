@@ -13,17 +13,18 @@ const installation='11111111-1111-4111-8111-111111111111';
 const account='22222222-2222-4222-8222-222222222222';
 const session='33333333-3333-4333-8333-333333333333';
 const conversation='44444444-4444-4444-8444-444444444444';
-const conversationId=installation+':'+account+':'+conversation;
+const conversationId=session+':'+installation+':'+conversation;
 const userHandle='default-user';
 const worldId='world-main';
 const actorId='actor-player';
 const resolveBindings=()=>({world_id:worldId,actor_id:actorId});
+const resolveIdentity=()=>({host_installation_id:installation,authenticated_account_id:account});
 
-test('in-process Host capability binds stable installation/account/conversation and keeps session separate',async()=>{
+test('in-process Host capability binds session-scoped conversation with separately resolved installation/account',async()=>{
   const request={session:{logicEngineSessionId:session,logicEngineSessionHandle:userHandle},user:{profile:{handle:userHandle}}};
   const isAuthenticated=()=>true;
   const resolveConversation=()=>conversationId;
-  const context=createAuthenticatedHostSessionContext(request,conversationId,isAuthenticated,resolveConversation,resolveBindings);
+  const context=createAuthenticatedHostSessionContext(request,conversationId,isAuthenticated,resolveConversation,resolveBindings,resolveIdentity);
   assert.equal(context.host_installation_id,installation);
   assert.equal(context.authenticated_account_id,account);
   assert.equal(context.host_session_id,session);
@@ -33,7 +34,7 @@ test('in-process Host capability binds stable installation/account/conversation 
   assert.equal(isAuthenticatedHostSessionContext(context,conversationId),true);
   await runWithAuthenticatedHostSession(request,conversationId,()=>{
     assert.equal(getAuthenticatedHostSessionContext().host_session_id,session);
-  },isAuthenticated,resolveConversation,resolveBindings);
+  },isAuthenticated,resolveConversation,resolveBindings,resolveIdentity);
 });
 
 test('signed Host assertion accepts stable conversation tuple and rejects mismatched installation/account',()=>{
@@ -61,7 +62,7 @@ test('signed Host assertion accepts stable conversation tuple and rejects mismat
   assert.equal(result.host_session_id,session);
   assert.equal(result.world_id,worldId);
   assert.equal(result.actor_id,actorId);
-  const wrong={...assertion,nonce:'66666666-6666-4666-8666-666666666666',conversation_id:session+':'+installation+':'+conversation};
+  const wrong={...assertion,nonce:'66666666-6666-4666-8666-666666666666',conversation_id:session+':99999999-9999-4999-8999-999999999999:'+conversation};
   const wrongCanonical=JSON.stringify([
     wrong.protocol_version,wrong.host_installation_id,wrong.authenticated_account_id,
     wrong.host_session_id,wrong.conversation_id,wrong.world_id,wrong.actor_id,wrong.issued_at,wrong.nonce,
@@ -76,11 +77,29 @@ test('in-process Host capability fails closed when trusted World/Actor bindings 
   const resolveConversation=()=>conversationId;
   assert.equal(createAuthenticatedHostSessionContext(request,conversationId,isAuthenticated,resolveConversation),null);
   assert.equal(createAuthenticatedHostSessionContext(
-    request,conversationId,isAuthenticated,resolveConversation,()=>({world_id:worldId,actor_id:''}),
+    request,conversationId,isAuthenticated,resolveConversation,()=>({world_id:worldId,actor_id:''}),resolveIdentity,
   ),null);
   assert.equal(createAuthenticatedHostSessionContext(
-    request,conversationId,isAuthenticated,resolveConversation,()=>({world_id:worldId,actor_id:actorId,extra:'caller-controlled'}),
-  ).actor_id,actorId);
+    request,conversationId,isAuthenticated,resolveConversation,()=>({world_id:worldId,actor_id:actorId,extra:'caller-controlled'}),resolveIdentity,
+  ),null);
+  assert.equal(createAuthenticatedHostSessionContext(
+    request,conversationId,isAuthenticated,resolveConversation,resolveBindings,()=>({
+      host_installation_id:installation,authenticated_account_id:account,extra:'caller-controlled',
+    }),
+  ),null);
+  let getterCalled=false;
+  const accessorIdentity={host_installation_id:installation};
+  Object.defineProperty(accessorIdentity,'authenticated_account_id',{
+    enumerable:true,get(){getterCalled=true;throw new Error('must not execute');},
+  });
+  assert.equal(createAuthenticatedHostSessionContext(
+    request,conversationId,isAuthenticated,resolveConversation,resolveBindings,()=>accessorIdentity,
+  ),null);
+  assert.equal(getterCalled,false);
+  const proxyIdentity=new Proxy({host_installation_id:installation,authenticated_account_id:account},{});
+  assert.equal(createAuthenticatedHostSessionContext(
+    request,conversationId,isAuthenticated,resolveConversation,resolveBindings,()=>proxyIdentity,
+  ),null);
 });
 
 test('signed Host assertion requires World and Actor identity in the HMAC envelope', () => {
