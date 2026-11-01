@@ -228,6 +228,32 @@ test('Gateway rejects direct and bound async transport starters because they can
   assert.throws(() => new MemoryDispatchGateway(configuration(asyncStarter.bind(null))), /non-async request-scoped transport factory/);
 });
 
+test('request-scoped transport capability must be dormant and synchronous before DISPATCH_STARTED', async () => {
+  let starts = 0;
+  const fixture = await createFixture({
+    createTransport: () => async () => {
+      starts += 1;
+      return { status: 200 };
+    },
+  });
+  try {
+    await assert.rejects(
+      fixture.gateway.dispatchProtectedRequest(validRequest('async-capability-request')),
+      /MEMORY_DISPATCH_NOT_READY/,
+    );
+    assert.equal(starts, 0, 'an async capability must be rejected without invoking it');
+    const ledger = new DatabaseSync(fixture.ledgerPath);
+    try {
+      assert.equal(ledger.prepare('SELECT COUNT(*) AS n FROM dispatch_ledger').get().n, 0,
+        'invalid capability must be rejected before durable DISPATCH_STARTED');
+    } finally {
+      ledger.close();
+    }
+  } finally {
+    await fixture.close();
+  }
+});
+
 test('dispatch rejects Provider evidence whose exact candidate record/version set differs from the signed request', async () => {
   const fixture = await createFixture({
     providerCandidatesOverride: [{
