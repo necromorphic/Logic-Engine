@@ -659,11 +659,11 @@ test('pinned ST 1.19.0 supported chat mutations persist; rename, group deletion,
 
   const deleteChat = await observe(async () => {
     const response = await post('/api/chats/delete', {
-      avatar_url: 'Harness Character.png', chatfile: 'chat-renamed.jsonl',
+      avatar_url: 'Harness Character.png', chatfile: 'chat-one.jsonl',
     });
     assert.equal(response.status, 409);
     assert.equal(response.result.code, 'HOST_LIFECYCLE_BULK_MUTATION_BLOCKED');
-    assert.equal((await readFile(renamedPath, 'utf8')).length > 0, true);
+    assert.equal((await readFile(chatPath, 'utf8')).length > 0, true);
     return response;
   }, 'unchanged');
 });
