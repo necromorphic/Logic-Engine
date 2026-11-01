@@ -328,6 +328,51 @@ export class MemoryDispatchGateway {
           'started_at', 'finished_at',
         ];
         if (required.some((column) => !columns.has(column))) throw new Error('DISPATCH_LEDGER_SCHEMA_INCOMPLETE');
+        const tableSql = this.db.prepare(
+          "SELECT sql FROM sqlite_master WHERE type='table' AND name='dispatch_ledger'",
+        ).get()?.sql ?? '';
+        if (!tableSql.includes("'horde-text'")) {
+          // Expand the exact sender CHECK constraint without discarding durable
+          // dispatch history. Migration is serialized by the shared Coordinator.
+          this.db.exec(`
+            BEGIN IMMEDIATE;
+            DROP INDEX IF EXISTS dispatch_ledger_status_started;
+            DROP INDEX IF EXISTS dispatch_ledger_unresolved_digest;
+            ALTER TABLE dispatch_ledger RENAME TO dispatch_ledger_legacy;
+            CREATE TABLE dispatch_ledger (
+              request_id TEXT PRIMARY KEY,
+              request_digest TEXT NOT NULL CHECK(length(request_digest)=64),
+              route TEXT NOT NULL CHECK(route='host-selected-chat-generation'),
+              sender_route TEXT NOT NULL CHECK(sender_route IN ('claude','google-ai-studio','vertex-ai','ai21','mistral','cohere','deepseek','xai','aimlapi','electronhub','chutes','minimax','azure-openai','openai','openrouter','custom','perplexity','groq','fireworks','nanogpt','pollinations','moonshot','zai','siliconflow','workers-ai','text-completions','kobold','novelai-text','horde-text')),
+              model TEXT NOT NULL,
+              stream INTEGER NOT NULL CHECK(stream IN (0,1)),
+              world_id TEXT NOT NULL,
+              actor_id TEXT NOT NULL,
+              purpose TEXT NOT NULL,
+              sources_json TEXT NOT NULL,
+              candidates_json TEXT NOT NULL,
+              core_head INTEGER NOT NULL CHECK(core_head > 0),
+              provider_head INTEGER NOT NULL CHECK(provider_head > 0),
+              policy_authority_id TEXT NOT NULL,
+              policy_generation INTEGER NOT NULL CHECK(policy_generation > 0),
+              policy_fingerprint TEXT NOT NULL CHECK(length(policy_fingerprint)=64),
+              status TEXT NOT NULL CHECK(status IN ('DISPATCH_STARTED','COMPLETED','UNKNOWN')),
+              outcome_code INTEGER,
+              started_at TEXT NOT NULL,
+              finished_at TEXT
+            );
+            INSERT INTO dispatch_ledger SELECT
+              request_id,request_digest,route,sender_route,model,stream,world_id,actor_id,purpose,
+              sources_json,candidates_json,core_head,provider_head,policy_authority_id,policy_generation,
+              policy_fingerprint,status,outcome_code,started_at,finished_at
+            FROM dispatch_ledger_legacy;
+            DROP TABLE dispatch_ledger_legacy;
+            CREATE INDEX dispatch_ledger_status_started ON dispatch_ledger(status, started_at);
+            CREATE UNIQUE INDEX dispatch_ledger_unresolved_digest
+              ON dispatch_ledger(request_digest) WHERE status IN ('DISPATCH_STARTED','UNKNOWN');
+            COMMIT;
+          `);
+        }
       }
       // A durable STARTED row left by a process crash has an ambiguous outcome.
       // Never retry it automatically; persist UNKNOWN before accepting new work.
