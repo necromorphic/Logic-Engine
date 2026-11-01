@@ -27,14 +27,15 @@ const requestContext = new AsyncLocalStorage();
  * trusted server composition; it must not trust request body/header fields.
  */
 export function createAuthenticatedHostSessionContext(
-  request, conversationId, isAuthenticatedHostRequest, resolveHostConversationId, resolveHostBindings,
+  request, conversationId, isAuthenticatedHostRequest, resolveHostConversationId, resolveHostBindings, resolveHostIdentity,
 ) {
   try {
     if (typeof isAuthenticatedHostRequest !== 'function'
       || isAuthenticatedHostRequest(request) !== true
       || typeof resolveHostConversationId !== 'function'
       || resolveHostConversationId(request) !== conversationId
-      || typeof resolveHostBindings !== 'function') return null;
+      || typeof resolveHostBindings !== 'function'
+      || typeof resolveHostIdentity !== 'function') return null;
     const session = request?.session;
     const userHandle = request?.user?.profile?.handle;
     const sessionId = session?.logicEngineSessionId;
@@ -43,21 +44,29 @@ export function createAuthenticatedHostSessionContext(
       || session?.logicEngineSessionHandle !== userHandle
       || typeof sessionId !== 'string' || !HOST_SESSION_UUID.test(sessionId)
       || typeof conversationId !== 'string' || !HOST_CONVERSATION_ID.test(conversationId)) return null;
-    const conversationParts = conversationId.split(':');
-    if (conversationParts.length !== 3) return null;
-    const installationId = conversationParts[0];
-    const accountId = conversationParts[1];
-    const conversationUuid = conversationParts[2];
-    if (!HOST_SESSION_UUID.test(installationId)
-      || !HOST_SESSION_UUID.test(accountId)
+    const firstSeparator = conversationId.indexOf(':');
+    const lastSeparator = conversationId.lastIndexOf(':');
+    if (firstSeparator <= 0 || lastSeparator <= firstSeparator + 1
+      || conversationId.indexOf(':', lastSeparator + 1) !== -1) return null;
+    const conversationSessionId = conversationId.slice(0, firstSeparator);
+    const installationId = conversationId.slice(firstSeparator + 1, lastSeparator);
+    const conversationUuid = conversationId.slice(lastSeparator + 1);
+    if (!HOST_SESSION_UUID.test(conversationSessionId)
+      || conversationSessionId !== sessionId
+      || !HOST_SESSION_UUID.test(installationId)
       || !HOST_SESSION_UUID.test(conversationUuid)) return null;
 
+    const identity = resolveHostIdentity(request, conversationId);
+    if (!identity || typeof identity !== 'object' || Array.isArray(identity)
+      || !HOST_SESSION_UUID.test(identity.host_installation_id ?? '')
+      || !HOST_SESSION_UUID.test(identity.authenticated_account_id ?? '')
+      || identity.host_installation_id !== installationId) return null;
     const bindings = resolveHostBindings(request, conversationId);
     if (!bindings || typeof bindings !== 'object' || Array.isArray(bindings)
       || !validBindingId(bindings.world_id) || !validBindingId(bindings.actor_id)) return null;
     const context = Object.freeze({
       host_installation_id: installationId,
-      authenticated_account_id: accountId,
+      authenticated_account_id: identity.authenticated_account_id,
       host_session_id: sessionId,
       host_user_handle: userHandle,
       conversation_id: conversationId,
@@ -80,8 +89,12 @@ export function isAuthenticatedHostSessionContext(context, conversationId) {
       && context.conversation_id === conversationId
       && HOST_SESSION_UUID.test(context.host_installation_id ?? '')
       && HOST_SESSION_UUID.test(context.authenticated_account_id ?? '')
-      && context.conversation_id.split(':')[0] === context.host_installation_id
-      && context.conversation_id.split(':')[1] === context.authenticated_account_id
+      && context.conversation_id.slice(0, context.conversation_id.indexOf(':')) === context.host_session_id
+      && context.conversation_id.slice(
+        context.conversation_id.indexOf(':') + 1,
+        context.conversation_id.lastIndexOf(':'),
+      ) === context.host_installation_id
+      && HOST_SESSION_UUID.test(context.host_session_id ?? '')
       && validBindingId(context.world_id) && validBindingId(context.actor_id);
   } catch {
     return false;
@@ -94,11 +107,11 @@ export function isAuthenticatedHostSessionContext(context, conversationId) {
  * branded capability from AsyncLocalStorage, not from caller request data.
  */
 export function runWithAuthenticatedHostSession(
-  request, conversationId, callback, isAuthenticatedHostRequest, resolveHostConversationId, resolveHostBindings,
+  request, conversationId, callback, isAuthenticatedHostRequest, resolveHostConversationId, resolveHostBindings, resolveHostIdentity,
 ) {
   if (typeof callback !== 'function') throw new TypeError('A Host operation callback is required');
   const context = createAuthenticatedHostSessionContext(
-    request, conversationId, isAuthenticatedHostRequest, resolveHostConversationId, resolveHostBindings,
+    request, conversationId, isAuthenticatedHostRequest, resolveHostConversationId, resolveHostBindings, resolveHostIdentity,
   );
   if (!context) throw new Error('HOST_SESSION_AUTHENTICATION_REQUIRED');
   return requestContext.run(context, callback);
@@ -143,7 +156,7 @@ function validHostSessionAssertion(assertion) {
       && HOST_CONVERSATION_ID.test(assertion.conversation_id)
       && validBindingId(assertion.world_id) && validBindingId(assertion.actor_id)
       && assertion.conversation_id.toLowerCase().startsWith(
-        assertion.host_installation_id.toLowerCase() + ':' + assertion.authenticated_account_id.toLowerCase() + ':',
+        assertion.host_session_id.toLowerCase() + ':' + assertion.host_installation_id.toLowerCase() + ':',
       )
       && Number.isSafeInteger(assertion.issued_at) && assertion.issued_at >= 0;
   } catch {
