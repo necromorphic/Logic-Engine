@@ -135,15 +135,17 @@ The caller owns the descriptor and may transfer it to the authenticated
 application process using `SCM_RIGHTS`.
 
 `broker_daemon.py` returns validated descriptors to authenticated clients.
-The Linux VFS now has an opt-in client binding via
+The Linux VFS has an opt-in broker binding via
 `logic_engine_vfs_probe_bind_broker(role, socketPath)`: main opens use
-`OPEN_MAIN`, WAL/SHM/journal opens use `OPEN_OR_CREATE_SIDECAR`, access/stat
-checks use `ACCESS_ROLE_FILE` and broker-opened descriptors, and sidecar
-deletion uses `DELETE_SIDECAR`. The parent SQLite VFS still supplies its native
-`sqlite3_io_methods`, including I/O, locks, WAL and SHM. The end-to-end VFS
-test currently uses a same-UID fake broker; the production manifest store and
-daemon operations are tested separately. Cross-UID service deployment and
-broker-first enrollment are not yet integrated.
+`OPEN_MAIN`, WAL/SHM/journal opens use `OPEN_OR_CREATE_SIDECAR`, access checks
+use `ACCESS_ROLE_FILE`, and sidecar deletion uses `DELETE_SIDECAR`. The exact
+archived ST-VectorService Linux x64 `better-sqlite3@13.0.3` prebuild is exercised
+against the manifest-backed daemon with distinct application and broker UIDs.
+Tests cover descriptor-backed main/WAL byte I/O, rollback journal, SHM mapping
+and locks, reader/writer snapshots, sidecar lifecycle, abrupt application exit,
+broker restart, WAL recovery and integrity checks. The parent SQLite VFS still
+supplies platform lock and SHM methods; this is an integration feasibility
+probe, not a production-owned `sqlite3_file` implementation.
 
 The anchor replacement is the commit point. On restart, if the anchor references
 the staged manifest, verification completes the rename. A manifest that does not
@@ -238,15 +240,14 @@ integration, and Windows parity.
 
 ## Explicit limitations
 
-This remains an incomplete broker/VFS increment. It does not yet implement:
+This remains an incomplete broker/VFS increment. Outstanding production work:
 
-- a dedicated service account, service manager integration or authenticated administrative enrollment;
-- a platform-backed monotonic anti-rollback anchor;
-- main-file creation/deletion, `RENAME`, `SYNC_DIR` and complete crash/restart sidecar reconciliation;
-- full SQLite VFS integration on Windows and production cross-UID Linux deployment; Linux main/sidecar open/access/delete is now an opt-in partial path;
-- complete protected directory ownership and namespace mutation policy;
-- complete VFS callback coverage, production locking/WAL/SHM verification, and crash/restart recovery;
-- Windows support.
+- privileged provisioning/enrollment and an independently protected monotonic anti-rollback anchor;
+- main-file creation/deletion lifecycle and a reviewed policy for rename/directory sync;
+- a Windows broker/service with a durable authenticated manifest and restart lifecycle;
+- a production-owned SQLite file object covering every supported file class and all applicable I/O, locking, WAL/SHM and durability methods (the current probe delegates platform lock/SHM methods);
+- crash injection across every durable manifest transition, including Windows;
+- independent Security review of the exact release candidate and its deployment boundary.
 
 ### Separate SQLite-engine inventory
 
