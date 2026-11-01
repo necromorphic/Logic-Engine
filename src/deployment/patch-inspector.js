@@ -52,6 +52,10 @@ async function hashAt(root, relativePath) {
 }
 
 export async function verifyPinnedPatchManagerBackups(root, state, pinnedManifest = manifest) {
+  if (!state || typeof state.backupId !== 'string'
+    || !/^\\d{4}-\\d{2}-\\d{2}T\\d{2}-\\d{2}-\\d{2}-\\d{3}Z-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(state.backupId)) {
+    throw new Error('PATCH_MANAGER_STATE_IDENTITY_INVALID');
+  }
   const managerRelative = '.logic-engine-patch-manager';
   await assertRegularDirectory(root, managerRelative);
   await assertRegularDirectory(root, managerRelative + '/backups');
