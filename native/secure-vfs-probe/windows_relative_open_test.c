@@ -60,7 +60,9 @@ int wmain(void) {
   int parent_moved = 0;
 
   if (logic_engine_win_valid_basename(L"CON")
-      || logic_engine_win_valid_basename(L"core.sqlite.")) {
+      || logic_engine_win_valid_basename(L"core.sqlite.")
+      || logic_engine_win_valid_basename(L"CONIN$")
+      || logic_engine_win_valid_basename(L"CLOCK$")) {
     fail(L"Windows basename validation");
     goto cleanup;
   }
