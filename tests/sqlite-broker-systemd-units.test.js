@@ -12,9 +12,12 @@ const app = readFileSync(
 );
 
 function section(source, name) {
-  const match = source.match(new RegExp('^\\[' + name + '\\]\\s*$([\\s\\S]*?)(?=^\\[|$)', 'm'));
-  assert.ok(match, 'missing systemd [' + name + '] section');
-  return match[1];
+  const marker = '[' + name + ']';
+  const start = source.indexOf(marker);
+  assert.notEqual(start, -1, 'missing systemd [' + name + '] section');
+  const body = source.slice(start + marker.length);
+  const next = body.search(/^\\[/m);
+  return next === -1 ? body : body.slice(0, next);
 }
 
 test('POSIX broker runs under a distinct service UID and the application socket group', () => {
