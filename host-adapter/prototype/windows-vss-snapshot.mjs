@@ -129,7 +129,7 @@ async function runPowerShell(script, env, timeout = 120_000) {
  * The lease is process-local and unforgeable by callers. Its root is valid only
  * inside the callback and is released in finally.
  */
-export async function withWindowsVssSnapshot(rootPath, callback) {
+async function withWindowsVssSnapshotExclusive(rootPath, callback) {
   if (process.platform !== 'win32') throw new Error('HOST_VSS_PLATFORM_UNSUPPORTED');
   if (typeof rootPath !== 'string' || !rootPath.trim() || !isAbsolute(rootPath)) throw new Error('HOST_VSS_ROOT_INVALID');
   if (typeof callback !== 'function') throw new Error('HOST_VSS_CALLBACK_INVALID');
@@ -185,4 +185,22 @@ export function isActiveWindowsVssSnapshot(lease) {
     && lease.provider === 'windows-vss-client-accessible'
     && lease.consistency === 'VSS_POINT_IN_TIME_READ_ONLY'
     && lease.reparsePoints === 'ALL_FILE_ATTRIBUTE_REPARSE_POINT_ENTRIES_REJECTED');
+}
+
+
+// VSS snapshot creation is serialized by the Windows provider. Queue requests
+// in this process for the full lease lifetime; cross-process WMI busy responses
+// remain bounded/retried by the provider script above.
+let snapshotQueue = Promise.resolve();
+
+export async function withWindowsVssSnapshot(rootPath, callback) {
+  const previous = snapshotQueue;
+  let release;
+  snapshotQueue = new Promise(resolve => { release = resolve; });
+  await previous;
+  try {
+    return await withWindowsVssSnapshotExclusive(rootPath, callback);
+  } finally {
+    release();
+  }
 }
