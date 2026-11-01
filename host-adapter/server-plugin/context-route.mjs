@@ -95,6 +95,7 @@ export function createHostContextRoute({ identityStore, enumerate, corePost, con
                 || context.session_id !== hostContext.session_id
                 || context.conversation_id !== conversationId
                 || context.adapter_id !== config.adapterId
+                || context.authority !== 'AUTHENTICATED_ADAPTER_AND_CORE_BINDINGS'
                 || !validText(context.world_id) || !validText(context.actor_id)) {
                 return safeFailure(response, 'CORE_HOST_CONTEXT_INVALID', 409);
             }
