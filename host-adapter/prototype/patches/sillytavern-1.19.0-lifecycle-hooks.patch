@@ -869,9 +869,9 @@ diff --git a/src/endpoints/groups.js b/src/endpoints/groups.js
 --- a/src/endpoints/groups.js
 +++ b/src/endpoints/groups.js
 @@ -50,2 +50,6 @@
-             const needsMigration = ['chat_metadata', 'past_metadata'].some(key => Object.hasOwn(groupData, key));
-+            if (needsMigration && process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR) {
-+                console.warn(color.yellow('Skipping unreceipted startup group metadata migration while Host inventory is enabled.'));
-+                continue;
-+            }
-             if (!needsMigration) {
+                    const needsMigration = ['chat_metadata', 'past_metadata'].some(key => Object.hasOwn(groupData, key));
++                    if (needsMigration && process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR) {
++                        console.warn(color.yellow('Skipping unreceipted startup group metadata migration while Host inventory is enabled.'));
++                        continue;
++                    }
+                    if (!needsMigration) {
