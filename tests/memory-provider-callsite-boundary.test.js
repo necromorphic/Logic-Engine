@@ -23,16 +23,16 @@ function walk(directory) {
 
 function sourceFiles(directory) {
   return walk(join(root, directory)).map((absolute) => ({
-    path: relative(root, absolute).replaceAll('\\\\', '/'),
+    path: relative(root, absolute).replaceAll('\\', '/'),
     content: readFileSync(absolute, 'utf8'),
   }));
 }
 
-const sensitiveModuleReference = /(?:sqlite-memory-provider|memory-npc-consumer|memory-provider-import-internal)(?:\\.js)?/i;
-const sensitiveNames = /\\b(?:SQLiteMemoryProvider|MemoryNpcConsumer|createInternalMemoryImportFacadeForTest)\\b/;
-const providerAdminCall = /\\.\\s*(?:putRecord|grantQuery|grantRecord|revokeRecord|revokeQuery|captureRawMessage|selectActiveRawVersion|markRawSourceDeleted|purgeRawSource|registerRawDerivedCopy)\\s*\\(/g;
+const sensitiveModuleReference = /(?:sqlite-memory-provider|memory-npc-consumer|memory-provider-import-internal)(?:\.js)?/i;
+const sensitiveNames = /\b(?:SQLiteMemoryProvider|MemoryNpcConsumer|createInternalMemoryImportFacadeForTest)\b/;
+const providerAdminCall = /\.\s*(?:putRecord|grantQuery|grantRecord|revokeRecord|revokeQuery|captureRawMessage|selectActiveRawVersion|markRawSourceDeleted|purgeRawSource|registerRawDerivedCopy)\s*\(/g;
 const productionDirectories = ['src', 'host-adapter', 'scripts'];
-const isTestOrFixture = (path) => /(?:^|\\/)(?:tests?|fixtures|experiments)(?:\\/|$)/i.test(path);
+const isTestOrFixture = (path) => /(?:^|\/)(?:tests?|fixtures|experiments)(?:\/|$)/i.test(path);
 
 function productionFiles() {
   return productionDirectories.flatMap((directory) => sourceFiles(directory))
@@ -43,7 +43,7 @@ test('Provider/Consumer references are confined to their implementations and one
   const production = productionFiles();
   const composition = production.filter(({ path }) => path === compositionBoundaryPath);
   assert.equal(composition.length, 1, 'exactly one approved Provider/Consumer composition boundary must exist');
-  assert.match(composition[0].content, /export function createMemoryNpcProviderAdapter\\b/);
+  assert.match(composition[0].content, /export function createMemoryNpcProviderAdapter\b/);
   const violations = [];
   for (const file of production.filter(({ path }) => ![
     providerPath, consumerPath, internalImportTestSeam, compositionBoundaryPath,
@@ -69,7 +69,7 @@ test('the approved composition factory is not wired into the production runtime 
   const packageJson = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
   assert.equal(sensitiveModuleReference.test(JSON.stringify(packageJson.exports ?? {})), false,
     'Package exports must not expose Provider/Consumer implementation modules.');
-  const forbiddenRoute = /(?:memory-provider|memory-npc-consumer|memory\\/(?:retrieve|grant|revoke|records)|provider\\/(?:retrieve|grant|revoke))/i;
+  const forbiddenRoute = /(?:memory-provider|memory-npc-consumer|memory\/(?:retrieve|grant|revoke|records)|provider\/(?:retrieve|grant|revoke))/i;
   assert.equal(forbiddenRoute.test(api), false,
     'The public HTTP API must not expose Provider/Consumer retrieval or administration routes.');
 });
@@ -81,7 +81,7 @@ test('SillyTavern Host/extension code cannot import or call Provider/Consumer di
     if (sensitiveModuleReference.test(file.content) || sensitiveNames.test(file.content)) {
       violations.push(file.path + ': direct Provider/Consumer reference');
     }
-    if (/\\/(?:v1\\/)?(?:memory-provider|memory-npc-consumer|memory\\/(?:retrieve|grant|revoke))/i.test(file.content)) {
+    if (/\/(?:v1\/)?(?:memory-provider|memory-npc-consumer|memory\/(?:retrieve|grant|revoke))/i.test(file.content)) {
       violations.push(file.path + ': direct Provider/Consumer endpoint reference');
     }
   }
