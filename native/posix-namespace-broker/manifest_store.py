@@ -207,7 +207,7 @@ def _validate_manifest(data: bytes) -> dict[str, Any]:
             raise StoreError(f"role {name}: parent component/identity count mismatch")
         for component in components + [role.get("databaseBasename")]:
             if (not isinstance(component, str) or not component or component in (".", "..")
-                    or "/" in component or "\x00" in component or "\\" in component):
+                    or len(component) > 255 or "/" in component or "\x00" in component or "\\" in component):
                 raise StoreError(f"role {name}: invalid path component")
         for index, value in enumerate(identities):
             check_identity(value, f"role {name} parent identity {index}")
@@ -267,12 +267,12 @@ def _validate_manifest(data: bytes) -> dict[str, Any]:
         pending_names.add(name)
         components = intent["parentComponents"]
         identities = intent["parentIdentities"]
-        if (not isinstance(components, list) or not components
+        if (not isinstance(components, list) or not components or len(components) > 256
                 or not isinstance(identities, list) or len(components) != len(identities)):
             raise StoreError(f"pending enrollment {name}: parent components/identities are invalid")
         for component in components + [intent["databaseBasename"]]:
             if (not isinstance(component, str) or not component or component in (".", "..")
-                    or "/" in component or "\x00" in component or "\\" in component):
+                    or len(component) > 255 or "/" in component or "\x00" in component or "\\" in component):
                 raise StoreError(f"pending enrollment {name}: invalid path component")
         for index, value in enumerate(identities):
             check_identity(value, f"pending enrollment {name} parent identity {index}")
