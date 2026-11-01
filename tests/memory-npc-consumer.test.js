@@ -146,6 +146,42 @@ const request = () => ({
   conversationId: HOST_CONVERSATION_ID,
 });
 
+test('Core disclosure envelope rejects proxies, extra fields, sparse entities and unrequested identities', async (t) => {
+  const corruptions = [
+    ['extra top-level field', (read) => ({ ...read, diagnostics: 'must not cross Core boundary' })],
+    ['Proxy envelope', (read) => new Proxy(read, {})],
+    ['sparse entity array', (read) => ({ ...read, entities: new Array(read.entities.length) })],
+    ['unrequested entity identity', (read) => ({
+      ...read, entities: read.entities.map((entity) => ({ ...entity, entity_id: 'unrequested-entity' })),
+    })],
+    ['accessor-backed entity', (read) => ({
+      ...read,
+      entities: read.entities.map((entity) => {
+        const malformed = { 'attributes.public_note': entity['attributes.public_note'] };
+        Object.defineProperty(malformed, 'entity_id', {
+          enumerable: true, get() { throw new Error('entity getter must not execute'); },
+        });
+        return malformed;
+      }),
+    })],
+    ['extra entity field', (read) => ({
+      ...read, entities: read.entities.map((entity) => ({ ...entity, internal_diagnostic: 'must not cross Core boundary' })),
+    })],
+  ];
+  for (const [name, corrupt] of corruptions) {
+    await t.test(name, async (t) => {
+      const { consumer, authorizedReadService } = setup(t);
+      const originalRead = authorizedReadService.readEntityFields.bind(authorizedReadService);
+      authorizedReadService.readEntityFields = (input) => corrupt(originalRead(input));
+      const result = await consumer.retrieveForNpc(request());
+      assert.equal(result.status, 'non_ready', JSON.stringify(result));
+      assert.equal(result.reason, 'authorized_source_read_invalid');
+      assert.deepEqual(result.candidates, []);
+      assert.doesNotMatch(JSON.stringify(result), /must not cross Core boundary/);
+    });
+  }
+});
+
 test('joins trusted Memory record authorization, Core authorized source read, and NPC admission without exposing provider content', async (t) => {
   const { consumer, engine, store, getLastCandidateAuthorization } = setup(t);
   const before = {
