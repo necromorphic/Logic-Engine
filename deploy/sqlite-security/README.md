@@ -65,25 +65,42 @@ substitutions with their numeric results before saving it. The broker service
 uses the UID/GID values; the app reads the same root-owned file to bind the
 strict VFS to the expected broker UID, socket and logical role.
 
-The manifest and rollback anchor must be initialized by the broker identity
-before the broker service can start. Enroll a new main DB only after that
-initialization, using the manifest-store administrative CLI as
-`logic-engine-broker`; the `enroll` command creates a new file and refuses
-to adopt an existing database. Main DB disable/rename/delete require the
-application to be stopped and the explicit `--confirm-quiesced` flag.
-Never expose those administrative commands on the application socket.
+Initialize the empty manifest as the broker identity before starting
+the broker service. Determine the filesystem from the actual protected role
+mount; only `ext4`, `xfs` and `btrfs` are accepted:
 
-Install both units, run `systemd-analyze verify`, and confirm that the broker
-reaches its startup-reconciliation-ready state before starting the app. The
-application's logical alias directory is deliberately not writable by the app;
-do not add it to `ReadWritePaths`. The broker's actual role directory remains
+```sh
+APP_UID="$(id -u logic-engine-app)"
+ROLE_FS="$(findmnt -n -o FSTYPE --target /var/lib/logic-engine-broker/roles/core)"
+sudo -u logic-engine-broker python3 /opt/logic-engine/native/posix-namespace-broker/init_manifest.py \\
+  --manifest-root /var/lib/logic-engine-broker/manifest \\
+  --anchor-root /var/lib/logic-engine-broker/anchor \\
+  --app-uid "$APP_UID" --filesystem "$ROLE_FS"
+
+sudo -u logic-engine-broker python3 /opt/logic-engine/native/posix-namespace-broker/manifest_store.py \\
+  --manifest-root /var/lib/logic-engine-broker/manifest \\
+  --anchor-root /var/lib/logic-engine-broker/anchor \\
+  --app-uid "$APP_UID" enroll --role core \\
+  --parent /var/lib/logic-engine-broker/roles/core --basename core.sqlite
+```
+
+The first command creates generation 1 with no roles and pins the metadata
+root identity. The second commits broker-first enrollment and creates a new
+main DB; it refuses to adopt an existing file. Do not run initialization again
+after the anchor exists. Main DB disable/rename/delete require the application
+to be stopped and the explicit `--confirm-quiesced` flag. Never expose those
+administrative commands on the application socket.
+
+After enrollment, install both units, run `systemd-analyze verify`, then start
+the broker and confirm startup reconciliation completes before starting the
+app. The app unit has `Requires=` and `After=` dependencies on the broker.
+The logical alias directory is deliberately not writable by the app; do not
+add it to `ReadWritePaths`. The broker's actual role directory remains
 inaccessible to the app.
 
 **Deployment limitation:** these unit definitions and identity instructions
-are a POSIX deployment slice, not a completed installer. Initial manifest
-generation, trusted environment-file provisioning, actual host-specific UID
-verification, complete custom SQLite file methods and independent Security
-review are still release gates. Do not enable production DB roles using the
+are a POSIX deployment slice, not a completed installer. Actual host-specific UID/ACL verification, complete custom SQLite file
+methods and independent Security review are still release gates. Do not enable production DB roles using the
 current probe.
 
 ## Windows service
