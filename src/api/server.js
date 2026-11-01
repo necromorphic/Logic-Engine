@@ -371,10 +371,18 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
         const adapterId = adapterIdFor(req);
         if (!adapterId) return send(res, 403, { error: { code: 'ADAPTER_REQUIRED', message: 'An authenticated adapter identity is required.' } });
         const body = await readBody(req);
+        const contextKeys = ['conversation_id', 'host_session_id', 'host_installation_id', 'conversation_uuid'];
         if (!body || typeof body !== 'object' || Array.isArray(body)
-          || Object.keys(body).some(key => key !== 'conversation_id')
+          || Object.keys(body).length !== contextKeys.length
+          || Object.keys(body).some(key => !contextKeys.includes(key))
+          || !HOST_SESSION_UUID.test(body.host_session_id ?? '')
+          || !HOST_SESSION_UUID.test(body.host_installation_id ?? '')
+          || !HOST_SESSION_UUID.test(body.conversation_uuid ?? '')
           || typeof body.conversation_id !== 'string'
-          || !HOST_PC_NEXT11_CONVERSATION_ID.test(body.conversation_id)) {
+          || !HOST_PC_NEXT11_CONVERSATION_ID.test(body.conversation_id)
+          || body.conversation_id !== [
+            body.host_session_id, body.host_installation_id, body.conversation_uuid,
+          ].join(':')) {
           throw new EngineError('INVALID_HOST_CONTEXT_RESOLUTION',
             'Host context resolution accepts only the canonical PC-NEXT-11 conversation_id.', 400);
         }
