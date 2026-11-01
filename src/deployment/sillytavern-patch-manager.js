@@ -235,7 +235,7 @@ export function installSillyTavernPatchPackage({ stPath, manifestPath }) {
     for (const entry of patchEntries) runGit(target.root, ['apply', entry.path]);
     const dirty = runGit(target.root, ['status', '--porcelain=v1', '--untracked-files=all']);
     const expected = new Set(affected.flatMap((file) => ['M ' + file, '?? ' + file]));
-    const actual = dirty.split('\n').filter(Boolean);
+    const actual = dirty.split('\n').map((line) => line.trimStart()).filter(Boolean);
     if (actual.some((line) => !expected.has(line)) || actual.length !== expected.size) {
       throw new Error('Post-apply worktree diff does not match the declared patch file set.');
     }
