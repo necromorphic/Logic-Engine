@@ -111,6 +111,41 @@ static inline int logic_engine_win_identity_equal(
     && memcmp(&a->file_id, &b->file_id, sizeof(a->file_id)) == 0;
 }
 
+static inline wchar_t logic_engine_win_ascii_lower(wchar_t value) {
+  return value >= L'A' && value <= L'Z' ? (wchar_t)(value - L'A' + L'a') : value;
+}
+
+static inline int logic_engine_win_reserved_device_name(const wchar_t *basename) {
+  wchar_t stem[5];
+  size_t i = 0;
+  while (basename[i] && basename[i] != L'.' && i < 4) {
+    stem[i] = logic_engine_win_ascii_lower(basename[i]);
+    ++i;
+  }
+  stem[i] = L'\0';
+  if (i == 3 && (wcscmp(stem, L"con") == 0 || wcscmp(stem, L"prn") == 0
+      || wcscmp(stem, L"aux") == 0 || wcscmp(stem, L"nul") == 0)) return 1;
+  if (i == 4 && stem[3] >= L'1' && stem[3] <= L'9'
+      && (wcsncmp(stem, L"com", 3) == 0 || wcsncmp(stem, L"lpt", 3) == 0)) return 1;
+  return 0;
+}
+
+static inline int logic_engine_win_valid_basename(const wchar_t *basename) {
+  size_t chars, i;
+  if (!basename || !basename[0]) return 0;
+  chars = wcslen(basename);
+  if (chars > 255 || basename[chars - 1] == L'.' || basename[chars - 1] == L' '
+      || wcscmp(basename, L".") == 0 || wcscmp(basename, L"..") == 0
+      || logic_engine_win_reserved_device_name(basename)) return 0;
+  for (i = 0; i < chars; ++i) {
+    wchar_t value = basename[i];
+    if (value < 32 || value == L'\\' || value == L'/' || value == L':'
+        || value == L'<' || value == L'>' || value == L'"'
+        || value == L'|' || value == L'?' || value == L'*') return 0;
+  }
+  return 1;
+}
+
 /* Open one child relative to a pinned directory handle. No absolute fallback. */
 static inline HANDLE logic_engine_win_open_relative(
   HANDLE parent, const wchar_t *basename, ACCESS_MASK access,
@@ -130,9 +165,7 @@ static inline HANDLE logic_engine_win_open_relative(
     return INVALID_HANDLE_VALUE;
   }
   chars = wcslen(basename);
-  if (chars > 32760 || wcschr(basename, L'\\') || wcschr(basename, L'/')
-      || wcschr(basename, L':') || wcscmp(basename, L".") == 0
-      || wcscmp(basename, L"..") == 0) {
+  if (chars > 32760 || !logic_engine_win_valid_basename(basename)) {
     SetLastError(ERROR_ACCESS_DENIED);
     return INVALID_HANDLE_VALUE;
   }
