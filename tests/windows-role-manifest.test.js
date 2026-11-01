@@ -140,13 +140,13 @@ test('Windows manifest enrollment permits distinct roles to share a trusted pare
 test('Windows manifest enrollment rejects path-chain mismatch, relative paths, and dot components', () => {
   const db = fakeDatabase();
   assert.throws(() => registerWindowsManifestRole(
-    db, manifest(), 'core', 'C:\\\\LogicEngine\\\\other\\\\core.sqlite'
+    db, manifest(), 'core', 'C:\\LogicEngine\\other\\core.sqlite'
   ), /parent path does not match/);
   assert.throws(() => registerWindowsManifestRole(
-    db, manifest(), 'core', 'LogicEngine\\\\data\\\\core.sqlite'
+    db, manifest(), 'core', 'LogicEngine\\data\\core.sqlite'
   ), /absolute drive-letter/);
   assert.throws(() => registerWindowsManifestRole(
-    db, manifest(), 'core', 'C:\\\\LogicEngine\\\\data\\\\..\\\\core.sqlite'
+    db, manifest(), 'core', 'C:\\LogicEngine\\data\\..\\core.sqlite'
   ), /normalized/);
 });
 
@@ -154,12 +154,12 @@ test('Windows manifest enrollment rejects unknown fields and incomplete trust po
   const unknown = manifest();
   unknown.roles[0].unexpected = true;
   assert.throws(() => registerWindowsManifestRole(
-    fakeDatabase(), unknown, 'core', 'C:\\\\LogicEngine\\\\data\\\\core.sqlite'
+    fakeDatabase(), unknown, 'core', 'C:\\LogicEngine\\data\\core.sqlite'
   ), /Unexpected or missing fields/);
 
   const weakPolicy = manifest();
   weakPolicy.filesystemPolicy.directoryMutationBoundary = 'application-process';
   assert.throws(() => registerWindowsManifestRole(
-    fakeDatabase(), weakPolicy, 'core', 'C:\\\\LogicEngine\\\\data\\\\core.sqlite'
+    fakeDatabase(), weakPolicy, 'core', 'C:\\LogicEngine\\data\\core.sqlite'
   ), /filesystem trust policy/);
 });
