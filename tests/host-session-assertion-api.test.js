@@ -58,9 +58,8 @@ test('real ST server middleware -> Host Adapter -> Core HTTP assertion creates a
     effects: [{ kind: 'entity.create', entity_id: actorId, entity_type: 'character' }],
   });
   new ActorBindingService(engine).bind(worldId, adapterId, actorId);
-  new HostConversationWorldBindingService(engine).bind({
-    adapterId, conversationId, worldId,
-  });
+  const conversationBindings = new HostConversationWorldBindingService(engine);
+  conversationBindings.bind({ adapterId, conversationId, worldId });
 
   const core = createApiServer({
     engine,
@@ -139,6 +138,49 @@ test('real ST server middleware -> Host Adapter -> Core HTTP assertion creates a
     actor_id: actorId,
     adapter_id: adapterId,
   });
+
+  // Revoke the durable conversation→World binding after Core resolved the
+  // context but immediately before it consumes the signed assertion. Core must
+  // independently re-resolve the canonical binding at capability creation.
+  const racedRoute = createHostContextRoute({
+    identityStore: {
+      async resolveAuthenticatedAccount(handle) {
+        assert.equal(handle, 'default-user');
+        return { host_installation_id: installationId, authenticated_account_id: accountId };
+      },
+    },
+    enumerate: async input => {
+      assert.deepEqual(input.directories, directories);
+      return {
+        filesystem: { status: 'complete' },
+        source: {
+          status: 'DOUBLE_SCAN_CANDIDATE',
+          files: [{ logical_identity: { conversation_uuid: conversationUuid } }],
+        },
+      };
+    },
+    corePost: async (routeName, body) => {
+      if (routeName === '/v1/host-sessions/verify') {
+        conversationBindings.revoke({
+          adapterId,
+          conversationId,
+          reason: 'revoke-before-assertion',
+        });
+      }
+      return corePost(routeName, body);
+    },
+    config: { adapterId, actorEntityId: actorId, adapterToken },
+  });
+  const racedRequest = {
+    user: { profile: { handle: 'default-user' }, directories },
+    session: { logicEngineSessionId: '66666666-6666-4666-8666-666666666666', logicEngineSessionHandle: 'default-user' },
+    body: { conversation_uuid: conversationUuid },
+  };
+  const racedResponse = makeResponse();
+  await racedRoute.middleware(racedRequest, racedResponse, () => {});
+  await racedRoute.handler(racedRequest, racedResponse);
+  assert.equal(racedResponse.statusCode, 409);
+  assert.equal(racedResponse.body.status, 'NON_READY');
 });
 
 test('Core Host assertion nonce remains consumed after Core API restart', async t => {
