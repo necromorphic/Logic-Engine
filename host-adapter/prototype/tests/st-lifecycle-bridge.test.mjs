@@ -909,6 +909,36 @@ test('failed server PREPARED does not strand a local pending mutation before any
   assert.equal((await f.journal.verifyIntegrity('chat-1')).status, 'INTEGRITY_OK');
 });
 
+test('server PREPARED is recoverable when the browser IndexedDB append fails before native Host write', async () => {
+  const published = [];
+  let remoteStatus = { status: 'NO_PENDING_MUTATION' };
+  const f = makeFixture(undefined, {
+    publishLifecycleEvent: async event => {
+      published.push(structuredClone(event));
+      if (event.event_type === 'MUTATION_PREPARED') {
+        remoteStatus = { status: 'PENDING_MUTATION', mutation_id: event.mutation_id, operation: event.operation };
+      }
+      if (event.event_type === 'MUTATION_ABORTED') remoteStatus = { status: 'NO_PENDING_MUTATION' };
+      return { lifecycle: { status: 'appended' } };
+    },
+    getLifecycleStatus: async () => remoteStatus,
+  });
+  await f.bridge.enrollCurrentConversation();
+  f.db.failNextWrite = true;
+  await assert.rejects(f.bridge.beforeMutation('edit-message', [0]), /simulated disk full/);
+  assert.equal(published.filter(event => event.event_type === 'MUTATION_PREPARED').length, 1);
+  assert.equal((await f.journal.pendingMutation('chat-1')).status, 'NO_PENDING_MUTATION');
+  assert.equal(f.saveCount, 1);
+
+  // The server-side receipt reconciler has verified that disk still matches
+  // the pre-state and has closed the orphaned PREPARED event as ABORTED.
+  published.push({ event_type: 'MUTATION_ABORTED', event_id: 'server-recovery' });
+  remoteStatus = { status: 'NO_PENDING_MUTATION' };
+  const next = await f.bridge.beforeMutation('edit-message', [0]);
+  assert.equal(next.operation, 'before:edit-message');
+  assert.equal(published.filter(event => event.event_type === 'MUTATION_PREPARED').length, 2);
+});
+
 test('Core receives a durable prepare before mutation and a matching commit after native persistence', async () => {
   const events = [];
   let remote = { status: 'NO_PENDING_MUTATION' };
