@@ -92,13 +92,9 @@ export function createSillyTavernHostAdapter({
           hostCommit: PINNED_SILLYTAVERN_COMMIT,
         });
         if (hostInventory?.filesystem?.status !== 'complete'
-          || !Array.isArray(hostInventory?.filesystem?.entries)
-          || hostInventory?.source?.status !== 'AUTHORITATIVE_COMPLETE'
-          || hostInventory?.authority?.status !== 'AUTHORITATIVE_COMPLETE'
-          || !/^[a-f0-9]{64}$/.test(hostInventory?.authority?.manifest_sha256 ?? '')
-          || !Array.isArray(hostInventory?.source?.files)
-          || hostInventory.source.files.filter(file =>
-            file?.logical_identity?.conversation_uuid === conversationUuid).length !== 1) return null;
+          || !Array.isArray(hostInventory?.filesystem?.entries)) {
+          return { status: 'NON_READY', code: 'HOST_INVENTORY_NOT_AUTHORITATIVE' };
+        }
 
         // Core must independently accept the full-root manifest before this
         // request can acquire a Host context. A local scan or baseline alone
@@ -112,6 +108,15 @@ export function createSillyTavernHostAdapter({
           || rootProof.integrity_status !== 'INTEGRITY_OK'
           || !Number.isSafeInteger(rootProof.sequence)
           || !/^[a-f0-9]{64}$/.test(rootProof.manifest_sha256 ?? '')) {
+          return { status: 'NON_READY', code: 'HOST_INVENTORY_NOT_AUTHORITATIVE' };
+        }
+
+        if (hostInventory?.source?.status !== 'AUTHORITATIVE_COMPLETE'
+          || hostInventory?.authority?.status !== 'AUTHORITATIVE_COMPLETE'
+          || !/^[a-f0-9]{64}$/.test(hostInventory?.authority?.manifest_sha256 ?? '')
+          || !Array.isArray(hostInventory?.source?.files)
+          || hostInventory.source.files.filter(file =>
+            file?.logical_identity?.conversation_uuid === conversationUuid).length !== 1) {
           return { status: 'NON_READY', code: 'HOST_INVENTORY_NOT_AUTHORITATIVE' };
         }
 
