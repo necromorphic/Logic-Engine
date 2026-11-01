@@ -73,6 +73,8 @@ If the process crashes between creation and manifest persistence, an unregistere
 
 Manifest writes use a same-directory temporary file, restrictive permissions/ACL, flush of file contents, atomic replacement, and flush of the metadata directory where supported. The broker/service must serialize writers and validate generation on every update.
 
+The current Windows probe now refuses `xDelete` for a manifest-bound main database. This is intentional fail-closed behavior: until a durable `deleting`/`retired` main-role transition is implemented in the manifest authority, deleting the file while retaining an active role record would make restart reconciliation unsafe. Sidecar deletion remains identity-checked in the native handle-relative path, but its lifecycle update is not yet durably committed to the Windows manifest.
+
 ## 5. Restart, WAL and crash recovery protocol
 
 Startup order:
