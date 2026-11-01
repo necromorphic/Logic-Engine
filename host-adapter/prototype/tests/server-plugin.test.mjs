@@ -38,6 +38,9 @@ test('bundled server-plugin helpers stay byte-identical to the reviewed prototyp
     'st-host-inventory-handler.mjs',
     'st-server-digest-proxy.mjs',
     'windows-vss-snapshot.mjs',
+    'host-data-inventory.mjs',
+    'fs-inventory.js',
+    'st-host-lifecycle-receipt-store.mjs',
   ]) {
     const canonical = await readFile(path.join(prototypeRoot, filename), 'utf8');
     const bundled = await readFile(path.join(prototypeRoot, 'server-plugin', filename), 'utf8');
