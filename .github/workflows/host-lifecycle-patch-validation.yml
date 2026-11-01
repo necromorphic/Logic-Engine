@@ -21,10 +21,14 @@ jobs:
           node --check host-adapter/extension-gateway/host-context.mjs
           node --check host-adapter/extension-gateway/gateway-policy.mjs
           node --check host-adapter/extension-gateway/server-plugin/index.mjs
-          node --check host-adapter/prototype/st-host-inventory-handler.mjs
-          node --check host-adapter/prototype/st-server-digest-proxy.mjs
+          node --check host-adapter/extension-gateway/server-plugin/host-adapter.mjs
+          node --check host-adapter/extension-gateway/server-plugin/st-host-inventory-handler.mjs
+          node --check host-adapter/extension-gateway/server-plugin/st-server-digest-proxy.mjs
           node --check src/application/host-session-context.js
           node --check src/application/host-session-context.test.js
           grep -F "id: 'logic-engine-extension-gateway'" host-adapter/extension-gateway/server-plugin/index.mjs
           ! grep -R -n '/api/logic-engine' host-adapter/extension-gateway
+          ! grep -n '/api/logic-engine' host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch
           grep -F "installation_id:account_id:conversation_uuid" host-adapter/extension-gateway/README.md
+          grep -F "host-lifecycle/events" host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch
+          grep -F "host-lifecycle/status" host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch
