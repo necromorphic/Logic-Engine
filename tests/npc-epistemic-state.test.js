@@ -226,7 +226,7 @@ test("belief evidence references are canonical regardless of request ordering", 
     revision_rule_ref: "rule-canonical-order",
     evidence_refs: ["evidence-z", "evidence-m", "evidence-a"],
   });
-  const reverse = apply(state, {
+  const reverse = apply(forward.state, {
     type: "belief_updated",
     proposition_ref: "prop-secret-location",
     stance: "believes_true",
