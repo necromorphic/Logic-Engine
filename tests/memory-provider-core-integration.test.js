@@ -179,8 +179,10 @@ test('real provider revocation during candidate B authorization excludes previou
     worldId: s.scope.world_id, actorEntityId: s.scope.subject_id,
     conversationId: HOST_CONVERSATION_ID,
     });
-  assert.equal(result.status, 'ready');
-  assert.deepEqual(result.candidates.map((candidate) => candidate.record_ref), ['memory:record-b']);
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'memory_record_access_revoked');
+  assert.deepEqual(result.candidates, []);
+  assert.deepEqual(result.admitted, []);
   assert.equal(JSON.stringify(result).includes('visible source-a'), false);
 });
 test('record revoke after retrieval but before first authorization is non-ready, never ready-empty', async (t) => {
@@ -251,7 +253,7 @@ test('real Provider record revoke after Core source retrieval blocks disclosure'
     conversationId: HOST_CONVERSATION_ID,
   });
   assert.equal(result.status, 'non_ready');
-  assert.equal(result.reason, 'memory_record_authorization_unconfirmed');
+  assert.equal(result.reason, 'memory_record_access_revoked');
   assert.deepEqual(result.candidates, []);
   assert.equal(JSON.stringify(result).includes('visible source-a'), false);
 });
