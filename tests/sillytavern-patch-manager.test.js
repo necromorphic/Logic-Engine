@@ -107,6 +107,7 @@ test('Patch Manager rejects patches to SillyTavern source, native routes, config
     'public/script.js',
     'config.yaml',
     'public/scripts/extensions/third-party/other-extension/index.js',
+    'public/scripts/extensions/third-party/logic-engine-extension-gateway/../../../../../src/server-startup.js',
   ];
   for (const forbiddenPath of forbiddenPaths) {
     const badPatch = [
