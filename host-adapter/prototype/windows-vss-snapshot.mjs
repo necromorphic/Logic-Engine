@@ -13,6 +13,22 @@ $ErrorActionPreference = 'Stop'
 $root = [System.IO.Path]::GetFullPath($env:LE_VSS_ROOT)
 $volumeRoot = [System.IO.Path]::GetPathRoot($root)
 $relative = $root.Substring($volumeRoot.Length).TrimStart('\')
+# Reject a reparse-point ancestor on the live path before asking VSS to create
+# a snapshot. The same walk is repeated against the snapshot below to close the
+# race between preflight and the point-in-time capture.
+$preflightRoot = $volumeRoot
+if ($relative.Length -gt 0) {
+  foreach ($component in $relative.Split([System.IO.Path]::DirectorySeparatorChar)) {
+    $preflightRoot = Join-Path $preflightRoot $component
+    $preflightAttributes = [System.IO.File]::GetAttributes($preflightRoot)
+    if (($preflightAttributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+      throw 'HOST_VSS_REPARSE_POINT_PRESENT'
+    }
+    if (($preflightAttributes -band [System.IO.FileAttributes]::Directory) -eq 0) {
+      throw 'HOST_VSS_ROOT_NOT_DIRECTORY'
+    }
+  }
+}
 $created = $null
 # VSS serializes snapshot creation system-wide. Concurrent host scans may
 # receive WMI return code 9; retry that transient busy state, but fail closed
