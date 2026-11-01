@@ -228,6 +228,10 @@ test('destructive and import UI entry points invoke target-aware fail-closed Hos
   assertBefore('export async function importCharacterChat(formData,', 'guardBulkMutation', "fetch('/api/chats/import'");
   assertBefore('export async function importGroupChat(formData,', 'guardBulkMutation', "fetch('/api/chats/group/import'");
   assertBefore('async restoreBackup(name)', 'guardBulkMutation', "fetch('/api/backups/chat/download'");
+  assert.ok(patch.includes('diff --git a/src/endpoints/characters.js b/src/endpoints/characters.js'),
+    'recursive character chat deletion needs a server-side guard');
+  assert.ok(patch.includes('if (request.body?.delete_chats == true) return hostBulkMutationGuard(request, response, next);'),
+    'character deletion guard must cover the recursive chat deletion branch');
   for (const route of [
     "+router.post('/rename', validateAvatarUrlMiddleware, hostBulkMutationGuard, async function (request, response) {",
     "+router.post('/delete', validateAvatarUrlMiddleware, hostBulkMutationGuard, function (request, response) {",
