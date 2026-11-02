@@ -112,15 +112,28 @@ test('same conversation metadata is isolated between authenticated accounts on o
   assert.equal(second.conversationId, INSTALL_A + ':' + ACCOUNT_B + ':' + CHAT_A);
 });
 
-test('cached browser installation identity cannot override server identity when enrollment exists', async () => {
+test('cached browser installation identity cannot override server identity when the active chat is enrolled', async () => {
   const storage = new Storage();
   storage.setItem('logic-engine-host-installation-id', INSTALL_A);
-  storage.setItem(prefix + INSTALL_A + ':' + ACCOUNT_A + ':' + CHAT_A, 'enrolled:chat.jsonl');
+  storage.setItem(prefix + INSTALL_A + ':' + ACCOUNT_A + ':' + CHAT_A, 'enrolled:chat-file.jsonl');
   await assert.rejects(
-    resolver({ metadata: {}, storage, hostInstallationId: INSTALL_B }),
+    resolver({ locator: 'chat-file.jsonl', metadata: {}, storage, hostInstallationId: INSTALL_B }),
     /enrolled Host installation identity migration required/,
   );
   assert.equal(storage.getItem('logic-engine-host-installation-id'), INSTALL_A);
+});
+
+test('unrelated enrolled chats do not block identity cache migration for a fresh chat', async () => {
+  const storage = new Storage();
+  storage.setItem('logic-engine-host-installation-id', INSTALL_A);
+  storage.setItem(prefix + INSTALL_A + ':' + ACCOUNT_A + ':' + CHAT_A, 'enrolled:older-chat.jsonl');
+  storage.setItem(locatorKey('older-chat.jsonl'), INSTALL_A + ':' + ACCOUNT_A + ':' + CHAT_A);
+  const metadata = {};
+  const result = await resolver({ locator: 'fresh-chat.jsonl', metadata, storage, hostInstallationId: INSTALL_B });
+  assert.equal(result.status, 'READY_FOR_REVIEW');
+  assert.equal(result.conversationId, INSTALL_B + ':' + ACCOUNT_A + ':' + metadata.logic_engine_conversation_id);
+  assert.equal(storage.getItem('logic-engine-host-installation-id'), INSTALL_B);
+  assert.equal(storage.getItem(prefix + INSTALL_A + ':' + ACCOUNT_A + ':' + CHAT_A), 'enrolled:older-chat.jsonl');
 });
 
 test('un-enrolled browser cache migrates to the authenticated server installation identity', async () => {
