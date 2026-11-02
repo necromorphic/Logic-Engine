@@ -524,6 +524,31 @@ test('Host identity route returns installation/account IDs only for the matching
   assert.equal(response.headers.vary, 'Cookie');
 });
 
+test('Host identity route returns a bounded diagnostic token without leaking filesystem paths', async () => {
+  const handler = createHostIdentityHandler({
+    getDataRoot: () => join(tmpdir(), 'st-host-global-data-root'),
+    identityStore: {
+      assertOutsideRoot: async () => { throw new Error('HOST_IDENTITY_DIRECTORY_INSIDE_DATA_ROOT'); },
+      resolveAuthenticatedAccount: async () => { throw new Error('must not resolve account'); },
+    },
+  });
+  const response = makeResponse();
+  await handler({
+    user: { profile: { handle: 'alice' } },
+    session: {
+      logicEngineSessionId: '33333333-3333-4333-8333-333333333333',
+      logicEngineSessionHandle: 'alice',
+    },
+  }, response);
+  assert.equal(response.statusCode, 503);
+  assert.deepEqual(response.body, {
+    status: 'NON_READY',
+    code: 'HOST_IDENTITY_UNAVAILABLE',
+    reason: 'HOST_IDENTITY_DIRECTORY_INSIDE_DATA_ROOT',
+  });
+  assert.equal(JSON.stringify(response.body).includes(tmpdir()), false);
+});
+
 test('Host identity route rejects a session/account mismatch before resolving identity', async () => {
   let calls = 0;
   const handler = createHostIdentityHandler({
