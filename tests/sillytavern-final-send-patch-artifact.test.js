@@ -65,13 +65,13 @@ test('patch manifest pins both server-side lifecycle Hook modules', () => {
 
 test('Patch Manager update runs after the native Extension git update has completed', () => {
   const source = patch.toString('utf8');
-  const updateHunkStart = source.indexOf('@@ -203,6 +213,7 @@');
-  const updateHunkEnd = source.indexOf('@@ -463,6 +474,7 @@', updateHunkStart);
-  assert.ok(updateHunkStart >= 0 && updateHunkEnd > updateHunkStart);
-  const updateHunk = source.slice(updateHunkStart, updateHunkEnd);
+  const fileStart = source.indexOf('--- a/src/endpoints/extensions.js');
+  const fileEnd = source.indexOf('\n--- a/', fileStart + 1);
+  assert.ok(fileStart >= 0 && fileEnd > fileStart);
+  const extensionPatch = source.slice(fileStart, fileEnd);
   const managerCall = "await runLogicEngineExtensionLifecycle({ action: 'update', extensionPath });";
-  assert.ok(updateHunk.indexOf("await git.fetch('origin');") < updateHunk.indexOf(managerCall));
-  assert.ok(updateHunk.indexOf("const shortCommitHash = fullCommitHash.slice(0, 7);") < updateHunk.indexOf(managerCall));
+  assert.ok(extensionPatch.indexOf("await git.fetch('origin');") < extensionPatch.indexOf(managerCall));
+  assert.ok(extensionPatch.indexOf("const shortCommitHash = fullCommitHash.slice(0, 7);") < extensionPatch.indexOf(managerCall));
 });
 
 test('native ST Extension install/update/delete lifecycle invokes only the pinned Logic-Engine manager', () => {
