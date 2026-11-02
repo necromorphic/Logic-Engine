@@ -20,6 +20,12 @@ The probe now intercepts both low-level delete syscalls in addition to its VFS `
 
 This closes the identified **callback bypass** in the feasibility probe. For broker-bound roles, runtime main-file `xDelete` remains fail-closed; main-file create/delete/rename are privileged offline `ManifestStore` operations with durable lifecycle intent, identity checks, quarantine/no-replace behavior, and startup reconciliation. The application UID cannot mutate the broker-owned protected directory directly.
 
+### Windows manifest lifecycle guard
+
+The current Windows manifest reader is not a lifecycle coordinator. It can validate the enrolled main-file, parent-directory and sidecar identities, but it cannot durably transition an active sidecar through deleting/retired states or reconcile an interrupted delete after restart. The VFS therefore rejects `xDelete` and the low-level `DeleteFileW` path for every manifest-bound role file (main, WAL, SHM and rollback journal). This is intentionally stricter than handle-relative deletion for non-manifest test roles: deleting a sidecar handle while leaving an active persistent manifest record would create a stale identity and an unsafe restart/recreate ambiguity.
+
+Production Windows closure still requires a service-owned lifecycle coordinator that serializes open/create/delete/rename, commits durable intent before namespace mutation, validates the exact opened handle, and reconciles every interrupted transition before the application starts. Until that exists, manifest-bound Windows databases must not be treated as production-ready.
+
 ## 2. POSIX deletion: why a direct VFS fix is not available
 
 Linux/POSIX exposes name-based `unlinkat(dirfd, name)`, not a standard unlink-by-open-file-descriptor primitive. The current `fstatat(dirfd,name) → unlinkat(dirfd,name)` sequence therefore has a replacement window. Repeating the stat, opening the child first, using `openat2`, or moving the name into a quarantine directory does not by itself make the final unlink target object-bound when an attacker can mutate that directory.
