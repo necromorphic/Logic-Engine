@@ -9,7 +9,7 @@
   "patch": {
     "version": "1.0.0",
     "path": "host-adapter/patches/sillytavern-1.19.0-final-send.patch",
-    "sha256": "ce0820932630368fe72f66a3b8d2ba1071932b31315da42542098a37606b4083"
+    "sha256": "e9ad811fc855f4d46828a6fe45373e3ae869bf96c1cbeac5685a03b5389a6ad4"
   },
   "sourceFiles": {
     "package.json": "5b6e0634a63872c33603bf803217613a388f2e5dbd5990f7b30d254bfbf027c2",
@@ -30,11 +30,11 @@
     },
     "src/endpoints/novelai.js": {
       "before": "0b6b41052ae0311ae6e716955b0805a44b1b63e3a58bf403b81becf0ff1b04ce",
-      "after": "7592e9301f542a5d77b3296e6e9d04d8d7e817f0aeb9bdae5dc7f03a72ac6491"
+      "after": "a10ba308ae446063b1efb8e664467103b463d2e104f73d4df9c116f78bcb78f3"
     },
     "src/endpoints/horde.js": {
       "before": "9a0280cfa2c5498f540b8593b100e80cbacdefa563038a6cc6c60c9c9923f3f4",
-      "after": "894ff62ffb534a8744faa30d11affc5f1ca544fd8f037e79d6be7d6bfa6457a6"
+      "after": "a93838e9a5d26e17e0c95b83cb41146f50be1b4948bae57e094874c0b2d6e574"
     },
     "src/constants.js": "a8e507bf5f9e335810247476b28428e6e44f1b0a371df41cea748b36e70d29a7",
     "src/util.js": "d33d67234af4e188bb7fcfac9c3ca7952c19e8c58791e96b19f9ad748dd168cd",
