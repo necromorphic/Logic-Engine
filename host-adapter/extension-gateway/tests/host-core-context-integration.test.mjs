@@ -356,11 +356,11 @@ test('Host Adapter requires Core root proof before context resolution and binds 
   assert.equal(accountsDispatchResponse.payload.retrieval.status, 'ready');
   assert.equal(retrievalContexts[1].conversation_id, accountsConversationId);
   assert.equal(retrievalContexts[1].authenticated_account_id, accountsIdentityResponse.payload.authenticated_account_id);
-  assert.equal(coreCalls[2], '/v1/host-context/resolve');
-  assert.equal(coreCalls[3], '/v1/host/memory-npc/retrieve');
-  assert.equal(resolvedCoreContexts[1].context.conversation_id, accountsConversationId);
-  assert.equal(resolvedCoreContexts[1].context.world_id, 'host-e2e-world');
-  assert.equal(resolvedCoreContexts[1].context.actor_id, 'host-e2e-actor');
+  assert.equal(coreCalls[6], '/v1/host-context/resolve');
+  assert.equal(coreCalls[7], '/v1/host/memory-npc/retrieve');
+  assert.equal(resolvedCoreContexts[3].context.conversation_id, accountsConversationId);
+  assert.equal(resolvedCoreContexts[3].context.world_id, 'host-e2e-world');
+  assert.equal(resolvedCoreContexts[3].context.actor_id, 'host-e2e-actor');
 
   // Recreate the Host Adapter against the same server-owned identity directory.
   // Installation/account identity must survive; the transient ST session rotates.
@@ -408,12 +408,12 @@ test('Host Adapter requires Core root proof before context resolution and binds 
   assert.equal(retrievalContexts[2].host_installation_id, restartedIdentityResponse.payload.host_installation_id);
   assert.equal(retrievalContexts[2].authenticated_account_id, restartedIdentityResponse.payload.authenticated_account_id);
   assert.notEqual(retrievalContexts[2].host_session_id, retrievalContexts[0].host_session_id);
-  assert.equal(coreCalls[4], '/v1/host-context/resolve');
-  assert.equal(coreCalls[5], '/v1/host/memory-npc/retrieve');
-  assert.equal(resolvedCoreContexts.length, 3);
-  assert.equal(resolvedCoreContexts[2].context.conversation_id, restartedConversationId);
-  assert.equal(resolvedCoreContexts[2].context.world_id, 'host-e2e-world');
-  assert.equal(resolvedCoreContexts[2].context.actor_id, 'host-e2e-actor');
+  assert.equal(coreCalls[8], '/v1/host-context/resolve');
+  assert.equal(coreCalls[9], '/v1/host/memory-npc/retrieve');
+  assert.equal(resolvedCoreContexts.length, 5);
+  assert.equal(resolvedCoreContexts[4].context.conversation_id, restartedConversationId);
+  assert.equal(resolvedCoreContexts[4].context.world_id, 'host-e2e-world');
+  assert.equal(resolvedCoreContexts[4].context.actor_id, 'host-e2e-actor');
 
   // The production scanner currently emits DOUBLE_SCAN_CANDIDATE. Prove that
   // such a candidate cannot reach Core, even when the same server credentials exist.
