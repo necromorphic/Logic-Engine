@@ -1,0 +1,50 @@
+{
+  "id": "logic-engine-sillytavern-final-send",
+  "manifestVersion": 1,
+  "host": {
+    "name": "SillyTavern",
+    "version": "1.19.0",
+    "commit": "06bde939fb1e9c4c8d8641d810f0a916b5bce127"
+  },
+  "patch": {
+    "version": "1.0.0",
+    "path": "host-adapter/patches/sillytavern-1.19.0-final-send.patch",
+    "sha256": "9ea8fab124ec73abf00c4686a917d9a67b4c467863b8ed99362fdb815227715e"
+  },
+  "sourceFiles": {
+    "package.json": "5b6e0634a63872c33603bf803217613a388f2e5dbd5990f7b30d254bfbf027c2",
+    "src/plugin-loader.js": "994cbfde97c4ef3a2e2a8078e005e61698ded61a52741cad1efe049ee2bedee9",
+    "src/server-main.js": "567d8a9d52e70816e74f119409933f2b42ad03132d7ef01f8db3ae145c2fe7bf",
+    "src/server-startup.js": "646bee9eefa67ed62d2f2157aef88872145b90e6d4c4c32490ad4e1792f9c0ba",
+    "src/endpoints/backends/chat-completions.js": {
+      "before": "53f429859efcfb29dd8becfebf7ff0ae49256ea795a0c81c320930fab5a407e7",
+      "after": "dcc1f3585995b3ac2d5f3a3527dc8357509aa848e2fd68cb661efd9f4ba5998f"
+    },
+    "src/constants.js": "a8e507bf5f9e335810247476b28428e6e44f1b0a371df41cea748b36e70d29a7",
+    "src/util.js": "d33d67234af4e188bb7fcfac9c3ca7952c19e8c58791e96b19f9ad748dd168cd",
+    "src/endpoints/extensions.js": {
+      "before": "44185c46cc31650ea770d35460114483ecafabb2b672ecc3b13b18868215e292",
+      "after": "c9ce78d092bba50353d2cc11f11094510d2ef7e8a9aad1f89dd5637a0c306378"
+    },
+    "src/endpoints/backends/text-completions.js": {
+      "before": "877b2b6279091c70495e561c00ce021592205e1d42ea4fe5f20f23dd67071971",
+      "after": "c439b7f20f0df53511f75ca62767d9a4f4a25e15fd2685657559449ee3c448e1"
+    },
+    "src/endpoints/backends/kobold.js": {
+      "before": "ce23d72599580d5822d17fda14c8413882237c1ab984b1be63ee063256286801",
+      "after": "f9c89f053a3548b9ea942bf9f1f4cce9b648c31d646b21da94e46f61cbf24a94"
+    },
+    "src/endpoints/novelai.js": {
+      "before": "0b6b41052ae0311ae6e716955b0805a44b1b63e3a58bf403b81becf0ff1b04ce",
+      "after": "ab35c2dd29da41c1c7c578e4f3c3bd5a2736a345f5aa8be38c665a05df6d3b68"
+    },
+    "src/endpoints/horde.js": {
+      "before": "9a0280cfa2c5498f540b8593b100e80cbacdefa563038a6cc6c60c9c9923f3f4",
+      "after": "a93838e9a5d26e17e0c95b83cb41146f50be1b4948bae57e094874c0b2d6e574"
+    }
+  },
+  "createdFiles": {
+    "src/logic-engine-final-send-hook.js": "ba9d598283e25ae4fd0298d875c40229a028f494fdbbce2dba1eb3cf281de700",
+    "src/logic-engine-extension-install-hook.js": "46f6f793e26da8bc82266f3bdc1d6c50867f67ee6e7cbe4b97a8b432fae0243e"
+  }
+}
