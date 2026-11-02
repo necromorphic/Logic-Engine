@@ -11,6 +11,9 @@ import {
   getFinalSendPatchStatus,
   patchChatCompletionsSource,
   restoreFinalSendPatch,
+  repairFinalSendPatch,
+  updateFinalSendPatch,
+  uninstallFinalSendPatch,
 } from './manager.mjs';
 import { SILLYTAVERN_TARGET } from './target.mjs';
 
@@ -127,4 +130,54 @@ test('Patch Manager refuses to overwrite local edits made after installation', a
     /LOGIC_ENGINE_PATCH_RESTORE_DRIFT/,
   );
   assert.deepEqual(await readFile(endpoint), edited);
+});
+
+
+test('repair verifies an intact installation without replacing it', async t => {
+  const fixture = await createPinnedFixture(t);
+  if (!fixture) return;
+  const installed = await applyFinalSendPatch({
+    hostRoot: fixture.host, stateRoot: fixture.state, hookSourcePath,
+  });
+  assert.equal(installed.status, 'installed');
+  const repaired = await repairFinalSendPatch({
+    hostRoot: fixture.host, stateRoot: fixture.state, hookSourcePath,
+  });
+  assert.equal(repaired.operation, 'repair');
+  assert.equal(repaired.status, 'installed');
+});
+
+test('repair refuses drift and preserves user edits', async t => {
+  const fixture = await createPinnedFixture(t);
+  if (!fixture) return;
+  await applyFinalSendPatch({ hostRoot: fixture.host, stateRoot: fixture.state, hookSourcePath });
+  const endpoint = join(fixture.host, SILLYTAVERN_TARGET.endpointRelativePath);
+  const edited = Buffer.concat([await readFile(endpoint), Buffer.from('\\n// user change\\n')]);
+  await writeFile(endpoint, edited);
+  await assert.rejects(
+    repairFinalSendPatch({ hostRoot: fixture.host, stateRoot: fixture.state, hookSourcePath }),
+    /LOGIC_ENGINE_PATCH_REPAIR_DRIFT/,
+  );
+  assert.deepEqual(await readFile(endpoint), edited);
+});
+
+test('update is idempotent for the same managed patch and uninstall restores exact upstream bytes', async t => {
+  const fixture = await createPinnedFixture(t);
+  if (!fixture) return;
+  const original = await readFile(join(sourceRoot, SILLYTAVERN_TARGET.endpointRelativePath));
+  const first = await updateFinalSendPatch({
+    hostRoot: fixture.host, stateRoot: fixture.state, hookSourcePath,
+  });
+  assert.equal(first.status, 'installed');
+  const second = await updateFinalSendPatch({
+    hostRoot: fixture.host, stateRoot: fixture.state, hookSourcePath,
+  });
+  assert.equal(second.operation, 'update');
+  assert.equal(second.status, 'installed');
+  const removed = await uninstallFinalSendPatch({
+    hostRoot: fixture.host, stateRoot: fixture.state,
+  });
+  assert.equal(removed.operation, 'uninstall');
+  assert.deepEqual(await readFile(join(fixture.host, SILLYTAVERN_TARGET.endpointRelativePath)), original);
+  await assert.rejects(readFile(join(fixture.host, SILLYTAVERN_TARGET.hookRelativePath)), { code: 'ENOENT' });
 });
