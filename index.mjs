@@ -4,7 +4,10 @@ import { updateFinalSendPatch, getFinalSendPatchStatus } from './host-adapter/pa
 
 const PLUGIN_OWNER = 'logic-engine-extension:host-adapter-v1';
 const PLUGIN_ROOT = dirname(fileURLToPath(import.meta.url));
-const PATCH_STATE = join(PLUGIN_ROOT, 'data', 'final-send-patch');
+const SILLYTAVERN_ROOT = resolve(PLUGIN_ROOT, '..', '..');
+// Keep recovery material outside plugins/logic-engine so removing or replacing
+// the Extension cannot delete the only byte-exact upstream backup.
+const PATCH_STATE = join(SILLYTAVERN_ROOT, 'data', 'logic-engine', 'final-send-patch');
 let registeredHook = null;
 let registeredAdapter = null;
 
@@ -95,7 +98,7 @@ export async function init(router) {
     throw new TypeError('SillyTavern server plugin requires an Express router');
   }
 
-  const hostRoot = resolve(PLUGIN_ROOT, '..', '..');
+  const hostRoot = SILLYTAVERN_ROOT;
   const hookSourcePath = join(PLUGIN_ROOT, 'host-adapter', 'patch-manager', 'logic-engine-final-send-hook.js');
   const patchResult = await updateFinalSendPatch({
     hostRoot,
