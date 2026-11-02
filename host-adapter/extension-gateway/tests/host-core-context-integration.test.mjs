@@ -82,17 +82,29 @@ test('Host Adapter requires Core root proof before context resolution and binds 
     ],
   });
   new ActorBindingService(engine).bind('host-e2e-world', ADAPTER_ID, 'host-e2e-actor');
-  const memoryAdapter = createMemoryNpcProviderAdapter({
+  let memoryAdapter;
+  let providerScope;
+  let revokeDuringFinalRead = false;
+  let contentFieldReadCount = 0;
+  memoryAdapter = createMemoryNpcProviderAdapter({
     engine,
     providerPath: join(directory, 'memory-provider.sqlite'),
     coordinatorPath,
     adapterId: ADAPTER_ID,
     trustedInitialKnowledgeSources: [],
-    fieldPolicy: (_context, entity, field) => field === 'entity_id'
-      || (field === 'attributes.public_note' && entity.entity_id === 'host-e2e-source'),
+    fieldPolicy: (_context, entity, field) => {
+      if (field === 'attributes.public_note') {
+        contentFieldReadCount += 1;
+        if (revokeDuringFinalRead && contentFieldReadCount === 2) {
+          memoryAdapter.provider.revokeRecord(providerScope, 'memory:host-e2e', 'record-v1');
+        }
+        return entity.entity_id === 'host-e2e-source';
+      }
+      return field === 'entity_id';
+    },
     contentFields: ['attributes.public_note'],
   });
-  const providerScope = {
+  providerScope = {
     world_id: 'host-e2e-world',
     subject_id: 'host-e2e-actor',
     purpose: 'npc_decision',
@@ -453,8 +465,10 @@ test('Host Adapter requires Core root proof before context resolution and binds 
   assert.equal(resolvedCoreContexts[4].context.world_id, 'host-e2e-world');
   assert.equal(resolvedCoreContexts[4].context.actor_id, 'host-e2e-actor');
 
-  // A real Provider grant revocation must survive the same Host → Core HTTP path.
-  memoryAdapter.provider.revokeRecord(providerScope, 'memory:host-e2e', 'record-v1');
+  // Revoke the real SQLite Provider grant during the final field-bearing Core read,
+  // while this exact request is travelling through Host Adapter → Core HTTP.
+  revokeDuringFinalRead = true;
+  contentFieldReadCount = 0;
   restartedRequest.body.request_id = '88888888-8888-4888-8888-888888888888';
   const revokedGateResponse = responseRecorder();
   let revokedPassedGate = false;
@@ -465,6 +479,7 @@ test('Host Adapter requires Core root proof before context resolution and binds 
   assert.equal(revokedDispatchResponse.statusCode, 200);
   assert.equal(revokedDispatchResponse.payload.retrieval.status, 'non_ready');
   assert.equal(revokedDispatchResponse.payload.retrieval.reason, 'memory_record_access_revoked');
+  assert.equal(contentFieldReadCount, 2);
   assert.deepEqual(revokedDispatchResponse.payload.retrieval.candidates, []);
   assert.deepEqual(revokedDispatchResponse.payload.retrieval.admitted, []);
 
