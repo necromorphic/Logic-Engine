@@ -254,3 +254,56 @@ test('restart recovery rolls back an interrupted apply before refusing changed p
   await assert.rejects(readFile(hook), { code: 'ENOENT' });
   await assert.rejects(readFile(join(fixture.state, 'pending.json')), { code: 'ENOENT' });
 });
+
+
+test('restore recovery completes after each destructive uninstall boundary', async t => {
+  for (const phase of ['before-endpoint-restore', 'after-endpoint-restore', 'after-hook-removal']) {
+    await t.test(phase, async t2 => {
+      const fixture = await createPinnedFixture(t2);
+      if (!fixture) return;
+      const installed = await applyFinalSendPatch({
+        hostRoot: fixture.host, stateRoot: fixture.state, hookSourcePath,
+      });
+      assert.equal(installed.status, 'installed');
+      const manifestPath = join(fixture.state, 'manifest.json');
+      const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+      const endpoint = join(fixture.host, manifest.endpointRelativePath);
+      const hook = join(fixture.host, manifest.hookRelativePath);
+      const original = await readFile(join(fixture.state, manifest.backupRelativePath));
+      const pending = {
+        patchId: manifest.patchId,
+        endpointRelativePath: manifest.endpointRelativePath,
+        hookRelativePath: manifest.hookRelativePath,
+        backupRelativePath: manifest.backupRelativePath,
+        originalHash: manifest.originalHash,
+        patchedHash: manifest.patchedHash,
+        hookHash: manifest.hookHash,
+      };
+      await writeFile(join(fixture.state, 'restore-pending.json'), JSON.stringify(pending));
+      if (phase !== 'before-endpoint-restore') await writeFile(endpoint, original);
+      if (phase === 'after-hook-removal') await rm(hook);
+      const result = await restoreFinalSendPatch({ hostRoot: fixture.host, stateRoot: fixture.state });
+      assert.equal(result.status, 'restored');
+      assert.deepEqual(await readFile(endpoint), original);
+      await assert.rejects(readFile(hook), { code: 'ENOENT' });
+      await assert.rejects(readFile(manifestPath), { code: 'ENOENT' });
+      await assert.rejects(readFile(join(fixture.state, 'restore-pending.json')), { code: 'ENOENT' });
+    });
+  }
+});
+
+test('Patch Manager recovery state survives removal of the Extension directory', async t => {
+  const fixture = await createPinnedFixture(t);
+  if (!fixture) return;
+  const extensionDir = join(fixture.host, 'plugins', 'logic-engine');
+  await mkdir(extensionDir, { recursive: true });
+  await applyFinalSendPatch({ hostRoot: fixture.host, stateRoot: fixture.state, hookSourcePath });
+  const manifest = JSON.parse(await readFile(join(fixture.state, 'manifest.json'), 'utf8'));
+  const backup = join(fixture.state, manifest.backupRelativePath);
+  const original = await readFile(backup);
+  await rm(extensionDir, { recursive: true, force: true });
+  assert.deepEqual(await readFile(backup), original);
+  const result = await restoreFinalSendPatch({ hostRoot: fixture.host, stateRoot: fixture.state });
+  assert.equal(result.status, 'restored');
+  assert.deepEqual(await readFile(join(fixture.host, SILLYTAVERN_TARGET.endpointRelativePath)), original);
+});
