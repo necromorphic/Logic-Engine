@@ -252,4 +252,61 @@ test('better-sqlite3 uses brokered main, journal, WAL and SHM descriptors with c
     'the broker must provision the SHM sidecar used by SQLite locking');
   assert.match(operations, /delete:core:(wal|shm)/,
     'SQLite sidecar teardown must be mediated by the broker');
+
+  // A broker outage must not fall back to the parent VFS or a pathname unlink.
+  // Keep a live WAL sidecar, stop the broker, and ask SQLite to leave WAL mode.
+  const outage = new Database(databasePath);
+  let restartedBroker;
+  try {
+    assert.equal(outage.pragma('journal_mode=WAL', { simple: true }), 'wal');
+    outage.pragma('wal_autocheckpoint=0');
+    outage.prepare('INSERT INTO broker_probe VALUES (?)').run('broker-outage-guard');
+    const walPath = databasePath + '-wal';
+    assert.equal(existsSync(walPath), true, 'WAL sidecar must exist before broker outage');
+
+    const brokerExit = once(broker, 'exit');
+    broker.kill('SIGTERM');
+    await brokerExit;
+
+    assert.throws(
+      () => outage.pragma('journal_mode=DELETE', { simple: true }),
+      /disk I\\/O error|SQLITE_IOERR|unable to open|unable to delete/i,
+      'sidecar deletion must fail closed while broker IPC is unavailable',
+    );
+    assert.equal(existsSync(walPath), true,
+      'broker outage must not trigger a pathname-based fallback deletion');
+
+    restartedBroker = spawn(python, [
+      brokerScript, socketPath, databasePath, logPath,
+      String(process.getuid()), String(process.getgid()),
+    ], { stdio: 'ignore' });
+    t.after(async () => {
+      if (restartedBroker.exitCode === null && !restartedBroker.killed) {
+        const exited = once(restartedBroker, 'exit');
+        restartedBroker.kill('SIGTERM');
+        await Promise.race([exited, delay(1000)]);
+        if (restartedBroker.exitCode === null) {
+          const forcedExit = once(restartedBroker, 'exit');
+          restartedBroker.kill('SIGKILL');
+          await forcedExit;
+        }
+      }
+    });
+    let restartedReady = false;
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      if (existsSync(socketPath)) {
+        restartedReady = true;
+        break;
+      }
+      if (restartedBroker.exitCode !== null) {
+        throw new Error('restarted test broker exited before creating its socket');
+      }
+      await delay(20);
+    }
+    assert.equal(restartedReady, true, 'broker socket must return after restart');
+    assert.equal(outage.pragma('journal_mode=DELETE', { simple: true }), 'delete',
+      'the same sidecar lifecycle must complete after broker restart');
+  } finally {
+    outage.close();
+  }
 });
