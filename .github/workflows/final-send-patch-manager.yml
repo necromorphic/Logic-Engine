@@ -4,7 +4,11 @@ on:
   pull_request:
     paths:
       - "index.mjs"
-      - "host-adapter/patch-manager/**"
+      - "host-adapter/patches/**"
+      - "host-adapter/sillytavern-final-send-adapter.mjs"
+      - "scripts/sillytavern-patch-manager.mjs"
+      - "tests/sillytavern-patch-manager.test.js"
+      - "tests/sillytavern-final-send-patch-artifact.test.js"
       - ".github/workflows/final-send-patch-manager.yml"
   workflow_dispatch:
 
@@ -40,7 +44,7 @@ jobs:
         shell: bash
         run: |
           test "$(git -C SillyTavern rev-parse HEAD)" = "06bde939fb1e9c4c8d8641d810f0a916b5bce127"
-      - name: Test Patch Manager against exact Host source
+      - name: Test unified Patch Manager against exact Host source
         env:
           SILLYTAVERN_DIR: SillyTavern
-        run: node --test host-adapter/patch-manager/manager.test.mjs
+        run: node --test tests/sillytavern-patch-manager.test.js tests/sillytavern-final-send-patch-artifact.test.js
