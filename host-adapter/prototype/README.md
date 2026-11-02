@@ -281,7 +281,3 @@ The consolidated inventory candidate supports both SillyTavern account modes. In
 `createHostRequestAuthenticationGate()` is a process-local capability for a future in-process Core composition. It marks only the exact authenticated Express request after a deployment-owned resolver returns the canonical `hostSessionId:installationId:conversationUuid` value. It does not trust body/query/header conversation IDs, and copying the request object does not copy the capability. The resolver must use server-owned inventory and session state. This gate is not a cross-process assertion protocol and is not, by itself, a Core call or Provider authorization.
 
 The Host candidate remains NON_READY until the resolver is wired to the canonical inventory, the actual Core retrieval call is composed with the correct deployment topology, and every supported lifecycle route has operation-specific persisted-state receipts and exact-head runtime evidence.
-
-### Supplemental fix for un-enrolled chats
-
-After applying the base lifecycle patch, apply `patches/sillytavern-1.19.0-lifecycle-unenrolled-chat-fix.patch` as well. It keeps ordinary SillyTavern mutations available when the active chat has no lifecycle enrollment, while retaining fail-closed identity migration checks for enrolled chats. The Host lifecycle patch-check workflow applies and syntax-checks both patches in order.
