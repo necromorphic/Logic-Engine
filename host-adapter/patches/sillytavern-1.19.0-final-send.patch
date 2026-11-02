@@ -447,7 +447,7 @@
      const apiKey = readSecret(request.user.directories, SECRET_KEYS.HORDE) || ANONYMOUS_KEY;
      const url = 'https://aihorde.net/api/v2/generate/text/async';
      const agent = await getClientAgent();
-@@ -209,5 +210,6 @@
+@@ -209,4 +210,5 @@
          console.error(error);
          return response.send({ error: true });
      }
