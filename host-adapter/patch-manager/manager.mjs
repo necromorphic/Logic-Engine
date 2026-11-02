@@ -393,6 +393,9 @@ export async function restoreFinalSendPatch({ hostRoot, stateRoot }) {
   const root = resolve(hostRoot);
   const state = resolve(stateRoot);
   await mkdir(state, { recursive: true });
+  // Restore reads the durable journal and backup before apply can run its
+  // preflight, so validate the entire state-root ancestry here as well.
+  await assertSafeDirectoryTree(state);
   const release = await acquireLock(state);
   try {
     const rootReal = await realpath(root).catch(() => null);
