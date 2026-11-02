@@ -235,7 +235,8 @@ export class SillyTavernPatchManager {
       if (await this.hashAt(relativePath) !== after) throw new Error('PATCH_VERIFY_FAILED: ' + relativePath);
     }
     for (const [relativePath, expected] of Object.entries(this.manifest.createdFiles)) {
-      if (await this.hashAt(relativePath) !== expected) throw new Error('PATCH_VERIFY_FAILED: ' + relativePath);
+      const actual = await this.hashAt(relativePath);
+      if (actual !== expected) throw new Error('PATCH_VERIFY_FAILED: ' + relativePath + ' expected=' + expected + ' actual=' + actual);
     }
     return true;
   }
