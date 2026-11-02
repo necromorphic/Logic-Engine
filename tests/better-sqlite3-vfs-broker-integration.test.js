@@ -270,7 +270,7 @@ test('better-sqlite3 uses brokered main, journal, WAL and SHM descriptors with c
 
     assert.throws(
       () => outage.pragma('journal_mode=DELETE', { simple: true }),
-      /disk I\\/O error|SQLITE_IOERR|unable to open|unable to delete/i,
+      /disk I\/O error|SQLITE_IOERR|unable to open|unable to delete/i,
       'sidecar deletion must fail closed while broker IPC is unavailable',
     );
     assert.equal(existsSync(walPath), true,
