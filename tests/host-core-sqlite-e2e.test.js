@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { createHmac } from 'node:crypto';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -12,15 +12,13 @@ import { ActorBindingService } from '../src/application/actor-bindings.js';
 import { HostConversationWorldBindingService } from '../src/application/host-conversation-world-bindings.js';
 import { createMemoryNpcProviderAdapter } from '../src/application/memory-npc-provider-adapter.js';
 import { HostAssertionNonceStore } from '../src/application/host-assertion-nonce-store.js';
-import { createHostSessionAssertionRunner } from '../src/application/host-session-context.js';
 import { createApiServer } from '../src/api/server.js';
-import { createHostMemoryDispatchProxyHandler } from '../host-adapter/prototype/st-server-digest-proxy.mjs';
+import { createSillyTavernHostAdapter } from '../host-adapter/extension-gateway/server-plugin/host-adapter.mjs';
+import { HostIdentityStore } from '../host-adapter/extension-gateway/server-plugin/st-host-identity-store.mjs';
 
 const API_TOKEN = 'host-core-sqlite-api-token-long-enough';
 const ADAPTER_TOKEN = 'host-core-sqlite-adapter-token-long-enough';
 const ADAPTER_ID = 'st-host-sqlite-e2e';
-const INSTALLATION = '11111111-1111-4111-8111-111111111111';
-const ACCOUNT = '22222222-2222-4222-8222-222222222222';
 const SESSION = '33333333-3333-4333-8333-333333333333';
 const CONVERSATION = '44444444-4444-4444-8444-444444444444';
 const REQUEST_ID = '55555555-5555-4555-8555-555555555555';
@@ -43,6 +41,11 @@ test('Host dispatch proxy retrieves a real SQLite Provider record through Core H
   const providerPath = join(directory, 'memory-provider.sqlite');
   const coordinatorPath = resolve(join(directory, 'coordinator.sqlite'));
   const previousCoordinator = process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH;
+  const previousDataRoot = globalThis.DATA_ROOT;
+  const dataRoot = join(directory, 'st-data');
+  const identityDirectory = join(directory, 'host-identity');
+  mkdirSync(dataRoot, { recursive: true });
+  globalThis.DATA_ROOT = dataRoot;
   process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH = coordinatorPath;
 
   let store;
@@ -50,13 +53,23 @@ test('Host dispatch proxy retrieves a real SQLite Provider record through Core H
   let nonceStore;
   let server;
   try {
+    const identityStore = new HostIdentityStore({ directory: identityDirectory });
+    const hostIdentity = await identityStore.resolveAuthenticatedAccount('e2e-user');
+    const conversationId = SESSION + ':' + hostIdentity.host_installation_id + ':' + CONVERSATION;
+    const hostConversationKey = hostIdentity.host_installation_id + ':'
+      + hostIdentity.authenticated_account_id + ':' + CONVERSATION;
+    const directories = {
+      root: join(dataRoot, 'default-user'),
+      chats: join(dataRoot, 'default-user', 'chats'),
+      groups: join(dataRoot, 'default-user', 'groups'),
+      groupChats: join(dataRoot, 'default-user', 'groupChats'),
+    };
+    for (const directoryPath of Object.values(directories)) mkdirSync(directoryPath, { recursive: true });
     store = new SQLiteStore(corePath);
     const engine = new LogicEngine(store);
     const worldId = 'host-core-sqlite-world';
     const actorId = 'host-core-sqlite-npc';
     const sourceId = 'host-core-sqlite-source';
-    const conversationId = SESSION + ':' + INSTALLATION + ':' + CONVERSATION;
-    const hostConversationKey = INSTALLATION + ':' + ACCOUNT + ':' + CONVERSATION;
 
     engine.createWorld({
       world_id: worldId,
@@ -115,32 +128,6 @@ test('Host dispatch proxy retrieves a real SQLite Provider record through Core H
     providerAdapter.provider.grantRecord(scope, record.record_ref, record.record_version, true);
     assert.equal((await providerAdapter.prepareWorld(worldId)).status, 'current');
 
-    const diagnosticAssertion = {
-      protocol_version: 1,
-      host_installation_id: INSTALLATION,
-      authenticated_account_id: ACCOUNT,
-      host_session_id: SESSION,
-      conversation_id: conversationId,
-      world_id: worldId,
-      actor_id: actorId,
-      issued_at: Math.floor(Date.now() / 1000),
-      nonce: '66666666-6666-4666-8666-666666666666',
-    };
-    const diagnosticSignature = createHmac('sha256', ADAPTER_TOKEN).update(JSON.stringify([
-      diagnosticAssertion.protocol_version, diagnosticAssertion.host_installation_id,
-      diagnosticAssertion.authenticated_account_id, diagnosticAssertion.host_session_id,
-      diagnosticAssertion.conversation_id, diagnosticAssertion.world_id,
-      diagnosticAssertion.actor_id, diagnosticAssertion.issued_at, diagnosticAssertion.nonce,
-    ]), 'utf8').digest('hex');
-    const diagnosticRunner = createHostSessionAssertionRunner({ secret: ADAPTER_TOKEN });
-    const diagnosticRetrieval = await diagnosticRunner.run(
-      diagnosticAssertion, diagnosticSignature,
-      () => providerAdapter.consumer.retrieveForNpc({ conversationId }),
-    );
-    if (diagnosticRetrieval.status !== 'ready') {
-      throw new Error('Direct signed-context Consumer diagnostic: ' + JSON.stringify(diagnosticRetrieval));
-    }
-
     nonceStore = new HostAssertionNonceStore({
       path: join(directory, 'host-assertion-nonces.sqlite'),
       coreDatabasePath: corePath,
@@ -162,25 +149,67 @@ test('Host dispatch proxy retrieves a real SQLite Provider record through Core H
       LOGIC_ENGINE_ADAPTER_ID: ADAPTER_ID,
       LOGIC_ENGINE_ADAPTER_TOKEN: ADAPTER_TOKEN,
     };
-    const proxy = createHostMemoryDispatchProxyHandler({
-      env,
-      resolveHostContext: () => ({
-        host_installation_id: INSTALLATION,
-        authenticated_account_id: ACCOUNT,
-        host_session_id: SESSION,
-        conversation_id: hostConversationKey,
+    const authoritativeInventory = {
+      filesystem: { status: 'complete', entries: [] },
+      source: {
+        status: 'AUTHORITATIVE_COMPLETE',
+        files: [{ logical_identity: { conversation_uuid: CONVERSATION } }],
+      },
+      authority: {
+        status: 'AUTHORITATIVE_COMPLETE',
+        manifest_sha256: 'a'.repeat(64),
+      },
+    };
+    const hostFetchRequests = [];
+    const hostFetch = async (url, init) => {
+      const parsed = new URL(url);
+      if (parsed.pathname === '/v1/host/memory-npc/retrieve') {
+        hostFetchRequests.push({ url: parsed.href, init: { ...init } });
+      }
+      return fetch(url, init);
+    };
+    const hostAdapter = createSillyTavernHostAdapter({
+      env: {
+        ...env,
+        LOGIC_ENGINE_HOST_IDENTITY_DIR: identityDirectory,
+        LOGIC_ENGINE_HOST_BUILD_SHA: '06bde939fb1e9c4c8d8641d810f0a916b5bce127',
+      },
+      enumerate: async () => structuredClone(authoritativeInventory),
+      fetchImpl: hostFetch,
+      persistRootInventory: async () => ({
+        status: 'AUTHORITATIVE_COMPLETE',
+        integrity_status: 'INTEGRITY_OK',
+        sequence: 1,
+        manifest_sha256: 'b'.repeat(64),
       }),
     });
-    const invoke = async () => {
+    const makeHostRequest = (overrides = {}) => ({
+      user: {
+        profile: { handle: 'e2e-user' },
+        directories,
+      },
+      session: {
+        handle: 'e2e-user',
+        logicEngineSessionId: SESSION,
+        logicEngineSessionHandle: 'e2e-user',
+        ...(overrides.session ?? {}),
+      },
+      body: {
+        request_id: REQUEST_ID,
+        conversation_uuid: CONVERSATION,
+        context_size: 4096,
+        generation_type: 'normal',
+        ...(overrides.body ?? {}),
+      },
+      ...(overrides.request ?? {}),
+    });
+    const invoke = async (adapter = hostAdapter, request = makeHostRequest()) => {
+      const middlewareResponse = responseRecorder();
+      let passed = false;
+      await adapter.dispatchMiddleware(request, middlewareResponse, () => { passed = true; });
+      if (!passed) return middlewareResponse;
       const response = responseRecorder();
-      await proxy({
-        body: {
-          request_id: REQUEST_ID,
-          conversation_uuid: CONVERSATION,
-          context_size: 4096,
-          generation_type: 'normal',
-        },
-      }, response);
+      await adapter.dispatch(request, response);
       return response;
     };
 
@@ -192,6 +221,79 @@ test('Host dispatch proxy retrieves a real SQLite Provider record through Core H
       retrieved.payload.retrieval.candidates[0].content['attributes.public_note'],
       'retrieved from real SQLite Provider',
     );
+    assert.equal(hostFetchRequests.length, 1, 'the installed Gateway adapter must perform one Core Memory HTTP request');
+
+    // The actual ST authentication gate rejects a session/account identity mismatch
+    // before any outbound Core request is made.
+    const callsBeforeIdentityMismatch = hostFetchRequests.length;
+    const identityMismatch = await invoke(hostAdapter, makeHostRequest({
+      session: { logicEngineSessionHandle: 'different-account' },
+    }));
+    assert.equal(identityMismatch.statusCode, 403);
+    assert.equal(hostFetchRequests.length, callsBeforeIdentityMismatch);
+
+    // Incomplete Host inventory must fail closed before the dispatch capability
+    // is minted and before Core receives any request.
+    const incompleteHostAdapter = createSillyTavernHostAdapter({
+      env: {
+        ...env,
+        LOGIC_ENGINE_HOST_IDENTITY_DIR: identityDirectory,
+        LOGIC_ENGINE_HOST_BUILD_SHA: '06bde939fb1e9c4c8d8641d810f0a916b5bce127',
+      },
+      enumerate: async () => ({
+        filesystem: { status: 'incomplete', entries: [] },
+        source: { status: 'AUTHORITATIVE_COMPLETE', files: [{ logical_identity: { conversation_uuid: CONVERSATION } }] },
+        authority: { status: 'AUTHORITATIVE_COMPLETE', manifest_sha256: 'c'.repeat(64) },
+      }),
+      fetchImpl: hostFetch,
+      persistRootInventory: async () => { throw new Error('must not persist incomplete inventory'); },
+    });
+    const incompleteInventory = await invoke(incompleteHostAdapter);
+    assert.equal(incompleteInventory.statusCode, 503);
+    assert.equal(incompleteInventory.payload.code, 'HOST_INVENTORY_NOT_AUTHORITATIVE');
+    assert.equal(hostFetchRequests.length, callsBeforeIdentityMismatch);
+
+    // Core rejects both a tampered HMAC and a correctly signed but expired timestamp.
+    const captured = hostFetchRequests[0];
+    const capturedBody = JSON.parse(captured.init.body);
+    const invalidHmac = await fetch(captured.url, {
+      method: 'POST',
+      headers: captured.init.headers,
+      body: JSON.stringify({ ...capturedBody, signature: '0'.repeat(64) }),
+    });
+    assert.equal(invalidHmac.status, 401);
+    assert.equal((await invalidHmac.json()).error.code, 'HOST_SESSION_ASSERTION_INVALID');
+    const expiredAssertion = {
+      ...capturedBody.assertion,
+      issued_at: Math.floor(Date.now() / 1000) - 60,
+      nonce: '77777777-7777-4777-8777-777777777777',
+    };
+    const expiredCanonical = JSON.stringify([
+      expiredAssertion.protocol_version, expiredAssertion.host_installation_id,
+      expiredAssertion.authenticated_account_id, expiredAssertion.host_session_id,
+      expiredAssertion.conversation_id, expiredAssertion.world_id, expiredAssertion.actor_id,
+      expiredAssertion.issued_at, expiredAssertion.nonce,
+    ]);
+    const expiredSignature = createHmac('sha256', ADAPTER_TOKEN)
+      .update(expiredCanonical, 'utf8').digest('hex');
+    const expiredTimestamp = await fetch(captured.url, {
+      method: 'POST',
+      headers: captured.init.headers,
+      body: JSON.stringify({
+        ...capturedBody, assertion: expiredAssertion, signature: expiredSignature,
+      }),
+    });
+    assert.equal(expiredTimestamp.status, 401);
+    assert.equal((await expiredTimestamp.json()).error.code, 'HOST_SESSION_ASSERTION_EXPIRED');
+
+    // Replaying the exact accepted request is rejected by Core's durable SQLite nonce store.
+    const replay = await fetch(captured.url, {
+      method: 'POST',
+      headers: captured.init.headers,
+      body: captured.init.body,
+    });
+    assert.equal(replay.status, 409);
+    assert.equal((await replay.json()).error.code, 'HOST_SESSION_ASSERTION_REPLAYED');
 
     providerAdapter.provider.revokeRecord(scope, record.record_ref, record.record_version);
     const revoked = await invoke();
@@ -207,6 +309,8 @@ test('Host dispatch proxy retrieves a real SQLite Provider record through Core H
     try { store?.close(); } catch {}
     if (previousCoordinator === undefined) delete process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH;
     else process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH = previousCoordinator;
+    if (previousDataRoot === undefined) delete globalThis.DATA_ROOT;
+    else globalThis.DATA_ROOT = previousDataRoot;
     rmSync(directory, { recursive: true, force: true });
   }
 });
