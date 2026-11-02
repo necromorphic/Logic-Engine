@@ -36,6 +36,14 @@ test('Final-Send patch is pinned to the exact audited SillyTavern 1.19.0 source'
   assert.equal(hash, manifest.patch.sha256);
   assert.equal(manifest.sourceFiles['src/endpoints/backends/chat-completions.js'].before,
     '53f429859efcfb29dd8becfebf7ff0ae49256ea795a0c81c320930fab5a407e7');
+  assert.equal(manifest.sourceFiles['src/endpoints/backends/text-completions.js'].before,
+    '877b2b6279091c70495e561c00ce021592205e1d42ea4fe5f20f23dd67071971');
+  assert.equal(manifest.sourceFiles['src/endpoints/backends/kobold.js'].before,
+    'ce23d72599580d5822d17fda14c8413882237c1ab984b1be63ee063256286801');
+  assert.equal(manifest.sourceFiles['src/endpoints/novelai.js'].before,
+    '0b6b41052ae0311ae6e716955b0805a44b1b63e3a58bf403b81becf0ff1b04ce');
+  assert.equal(manifest.sourceFiles['src/endpoints/horde.js'].before,
+    '9a0280cfa2c5498f540b8593b100e80cbacdefa563038a6cc6c60c9c9923f3f4');
 });
 
 test('Final-Send patch routes every Chat Completions fetch and stream release through the hook seam', () => {
@@ -45,10 +53,17 @@ test('Final-Send patch routes every Chat Completions fetch and stream release th
   assert.match(source, /logicEngineForwardFetchResponse/);
   assert.match(source, /forwardFetchResponse as nativeForwardFetchResponse/);
   assert.match(source, /src\/logic-engine-final-send-hook\.js/);
-  assert.equal(source.includes('text-completions.js'), false);
-  assert.equal(source.includes('kobold.js'), false);
-  assert.equal(source.includes('novelai.js'), false);
-  assert.equal(source.includes('horde.js'), false);
+  for (const routeFile of [
+    'src/endpoints/backends/text-completions.js',
+    'src/endpoints/backends/kobold.js',
+    'src/endpoints/novelai.js',
+    'src/endpoints/horde.js',
+  ]) {
+    assert.ok(source.includes('--- a/' + routeFile), 'missing protected generation route patch: ' + routeFile);
+  }
+  assert.match(source, /hostRoute: active\.route/);
+  assert.match(source, /logicEngineFinalSendTerminal/);
+  assert.match(source, /response\.destroy\(\)/);
   assert.match(source, /response\.write = function/);
   assert.match(source, /response\.end = function/);
   assert.match(source, /hostTransformsStream/);
@@ -58,9 +73,13 @@ test('Final-Send patch routes every Chat Completions fetch and stream release th
     'endpoint-relative imports must not point to a nonexistent endpoints-local Hook');
 });
 
-test('patch manifest pins Chat Completions plus required Host lifecycle source files only', () => {
+test('patch manifest pins every protected generation route plus required Host lifecycle source files', () => {
   for (const path of [
     'src/endpoints/backends/chat-completions.js',
+    'src/endpoints/backends/text-completions.js',
+    'src/endpoints/backends/kobold.js',
+    'src/endpoints/novelai.js',
+    'src/endpoints/horde.js',
     'src/server-main.js',
     'src/server-startup.js',
     'src/plugin-loader.js',
