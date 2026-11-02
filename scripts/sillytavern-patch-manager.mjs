@@ -425,8 +425,15 @@ export class SillyTavernPatchManager {
       this._activeInstallBackups = null;
       return { status: 'INSTALLED', patchVersion: this.manifest.patch.version };
     } catch (error) {
-      await this.restoreJournal(journal);
       this._activeInstallBackups = null;
+      try {
+        await this.restoreJournal(journal);
+      } catch (rollbackError) {
+        throw new AggregateError(
+          [error, rollbackError],
+          'PATCH_INSTALL_FAILED_AND_ROLLBACK_FAILED: ' + error.message + ' | ' + rollbackError.message,
+        );
+      }
       throw error;
     } finally {
       await rm(patchRoot, { recursive: true, force: true });
