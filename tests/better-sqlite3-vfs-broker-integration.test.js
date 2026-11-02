@@ -266,7 +266,15 @@ test('better-sqlite3 uses brokered main, journal, WAL and SHM descriptors with c
 
     const brokerExit = once(broker, 'exit');
     broker.kill('SIGTERM');
-    await brokerExit;
+    await Promise.race([brokerExit, delay(1000)]);
+    if (broker.exitCode === null) {
+      const forcedExit = once(broker, 'exit');
+      broker.kill('SIGKILL');
+      await forcedExit;
+    }
+    // The fake test broker has no production cleanup contract; remove its
+    // stale socket after forced termination before starting the replacement.
+    rmSync(socketPath, { force: true });
 
     assert.throws(
       () => outage.pragma('journal_mode=DELETE', { simple: true }),
