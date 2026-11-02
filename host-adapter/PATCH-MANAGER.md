@@ -1,20 +1,20 @@
 # SillyTavern Final-Send Patch Manager
 
-**Status:** implementation in progress; local deployment only.  
+**Status:** source patch and local lifecycle manager implemented; production Host/Core/Provider binding is NOT READY. Do not enable protected Memory dispatch.  
 **Pinned host:** SillyTavern 1.19.0, source commit `06bde939fb1e9c4c8d8641d810f0a916b5bce127`.
 
 ## Deployment entrypoint
 
-The Logic-Engine deployment entrypoint installs the pinned local ST patch, including a server-side bridge in ST's existing `/api/extensions/install`, `/api/extensions/update`, and `/api/extensions/delete` handlers. Once this bootstrap is present, installing/updating/deleting the Logic-Engine Extension through SillyTavern's normal Extensions UI automatically invokes Patch Manager inside the existing ST server process. No extra process or API endpoint is created.
+The Logic-Engine deployment entrypoint installs a pinned local patch into the installed SillyTavern tree. The patch adds server-side calls to the existing `/api/extensions/install`, `/api/extensions/update`, and `/api/extensions/delete` handlers. These calls invoke Patch Manager inside the existing ST process; they do not create a new HTTP endpoint or resident process.
 
-The deployment entrypoint is also available for initial bootstrap and repair:
+Initial bootstrap and repair:
 
 ```powershell
 $env:LOGIC_ENGINE_SILLYTAVERN_ROOT = "C:\path\to\SillyTavern"
 npm run install:extension
 ```
 
-Or run the manager lifecycle directly:
+Direct lifecycle commands:
 
 ```powershell
 node scripts/sillytavern-patch-manager.mjs preflight --st-root "C:\path\to\SillyTavern"
@@ -25,52 +25,55 @@ node scripts/sillytavern-patch-manager.mjs update --st-root "C:\path\to\SillyTav
 node scripts/sillytavern-patch-manager.mjs uninstall --st-root "C:\path\to\SillyTavern"
 ```
 
-The manager runs either in the existing Logic-Engine deployment process or is dynamically imported by the already-patched native ST extension-management route after a trusted server-side clone/update. It is not a resident service, ST Server Companion, API server, relay, or alternate provider connector.
-
-The browser-side ST manifest hooks are not trusted to perform filesystem changes. The local source patch adds the server-side invocation at the native extension lifecycle boundary. The server route passes only its own sanitized, server-derived `extensionPath`; the Hook checks the exact Logic-Engine manifest marker before loading the manager from that cloned repository.
+The native lifecycle Hook accepts only the server-derived Extension path, checks the exact manifest marker, validates the canonical HTTPS GitHub origin, and dynamically imports Patch Manager from that Extension. The browser-side Extension is not trusted to perform filesystem operations.
 
 ## Lifecycle guarantees implemented
 
-- **Preflight:** checks exact ST version, pinned source revision identity through SHA-256 fingerprints, patch artifact hash, all audited native route/loader files, and `git apply --check`.
-- **Backup:** copies every source file that the patch changes into `.logic-engine-patch-manager/backups/<transaction-id>/` before applying.
-- **Apply:** records a durable transaction journal before invoking `git apply`.
-- **Verify:** verifies exact post-patch hashes for modified and newly created files.
-- **Read-only deployment inspection:** `inspectInstalledReadOnly()` independently hashes the live patched files and every required pre-patch backup against the pinned manifest, rejects missing/extra backup records and any active transaction journal, and performs no writes. This is an inspection result, not a signed runtime attestation or an independent anti-rollback freshness proof.
-- **Rollback / Uninstall:** restores only files still matching the exact known patched hash (or known pre-patch hash during interrupted recovery); refuses to overwrite unknown user edits.
-- **Update:** the native ST `/api/extensions/update` handler invokes the manager after Git pull; it verifies the installed patch version and, when a newer manifest is supplied, rolls back the owned patch and installs the new pinned artifact.
-- **Extension delete:** the native ST `/api/extensions/delete` handler invokes `uninstall` before deleting the Extension directory. A rollback conflict blocks deletion so the recovery code and artifacts remain available.
-- **Extension install:** the native ST `/api/extensions/install` handler invokes `install` after cloning and validating the Extension manifest but before returning success. If Patch Manager fails, the cloned Extension directory is retained for recovery instead of being removed with its transaction artifacts.
-- **Repair:** rolls back the manager-owned patch and reapplies it from a verified baseline.
-- **Crash recovery:** a journal is recovered before the next operation. Stale lock files are reclaimed only when the recorded process is provably absent; malformed/ambiguous locks deny.
-- **Fail-closed:** any source/version/hash mismatch, patch conflict, backup-integrity failure, ambiguous lock, or user modification returns `DENY_FAIL_CLOSED`.
+- Preflight checks the exact ST version, source-file fingerprints, patch artifact digest, and `git apply --check`.
+- Every modified source file is backed up before apply; a durable transaction journal is written before mutation.
+- Verify checks exact post-patch hashes for modified and created files.
+- Read-only inspection re-hashes installed files and backups, checks the complete backup set, and rejects an active journal. It is not a signed runtime attestation or anti-rollback freshness proof.
+- Rollback/uninstall restores only files matching known manager-owned hashes and preserves unknown user edits.
+- Install/update/delete lifecycle hooks invoke the manager from the native ST server route. A rollback conflict blocks Extension deletion.
+- Crash recovery processes the journal before the next operation; ambiguous locks and source states fail closed.
 
-Manager state and backups live under the SillyTavern root in `.logic-engine-patch-manager/`. No user data or provider configuration is copied or modified.
+Manager state and backups are stored under `.logic-engine-patch-manager/` inside the ST root.
 
-## Current patch content
+## Current patch coverage
 
-The pinned patch:
-- adds a trusted server-side lifecycle Hook to the existing native `/api/extensions/install`, `/api/extensions/update`, and `/api/extensions/delete` handlers; the Hook only activates for the `Logic-Engine` extension folder and the exact HTTPS origin `github.com/necromorphic/Logic-Engine`;
-- wraps the native `POST /api/backends/chat-completions/generate` handler in request-scoped AsyncLocalStorage context;
-- replaces the module's `node-fetch` binding with a hook-aware wrapper, covering the 13 early-return provider senders and the generic fallback within that module;
-- wraps the first streaming response-forward call so the registered adapter can perform the Gateway-controlled write and prevent a duplicate legacy write;
-- adds `src/logic-engine-final-send-hook.js` with a single adapter registration point;
-- adds `src/logic-engine-extension-install-hook.js`, which imports the manager from the trusted, cloned Logic-Engine Extension for install/update/delete without adding a new HTTP route.
+The pinned patch currently instruments five native generation handler families:
 
-The adapter is required before the native Chat Completions generation handler can run. Missing adapter registration rejects the route with `LOGIC_ENGINE_FINAL_SEND_ADAPTER_UNAVAILABLE`; it does not fall back to direct provider fetch. Calls to model-list and other non-generation functions in the module remain on native fetch because they run outside the generation context.
+1. `POST /api/backends/chat-completions/generate` — one handler containing 25 pinned provider-source families (13 dedicated senders plus the generic sender families).
+2. `POST /api/backends/text-completions/generate`.
+3. `POST /api/backends/kobold/generate`.
+4. `POST /api/novelai/generate` (text generation only; image generation is not included).
+5. `POST /api/horde/generate-text`.
 
-The sender map is pinned to the actual protected `CHAT_COMPLETION_SOURCES` keys/values from ST 1.19.0. An unregistered sender is allowed to use the native transport only when the trusted Host classifier explicitly returns `null` (not protected Memory); if classification is protected or indeterminate, the unregistered sender is denied before transport. This preserves ordinary ST provider compatibility without creating a protected-send bypass.
+The patch wraps each handler in request-scoped AsyncLocalStorage, routes generation fetches through the shared hook, and intercepts Express response writes. Model-list and other non-generation fetches outside those request contexts remain native. Abort requests are excluded from generation dispatch.
 
-## Important incomplete integration gates
+The adapter maps all 25 Chat Completions source keys to the Core sender registry. Unknown sender families are permitted only when the trusted Host classifier explicitly returns `null`; protected or indeterminate classifications are denied before transport.
 
-This is not yet production-ready and must not be treated as a completed protected dispatch integration:
+## Evidence on current branch
 
-1. The Logic-Engine server-side Extension adapter has not yet been implemented/registered against a production Core Gateway instance. The patch deliberately fails closed until that trusted adapter exists.
-2. **Non-stream Host response release is not yet linearized.** The current Gateway revalidates after upstream completion, but returns the provider `Response` to the ST sender; that sender parses/transforms it and calls Express `response.send()` later. There is no second Coordinator-protected revalidation at that actual Host release point. Streaming has a response-forward callback under the lease; non-stream does not yet have an equivalent two-phase release capability. Protected non-stream sends must remain disabled until the final transformed payload is released through a Gateway-owned callback and a revoke-between-upstream-and-`response.send()` integration test proves zero release.
-2. The current Gateway's synchronous evidence readers, Coordinator and Core policy authority must be connected to the real deployment-owned Core/Provider state without introducing a browser-to-Core call, separate API port, relay, or second authorization authority.
-3. The patch currently instruments the Chat Completions generation module only. Text Completion, Kobold, NovelAI and Horde are separately routed and are not in the current protected sender registry. They remain outside the protected Memory contract and must not receive protected Memory until separately admitted and covered.
-4. The local lifecycle bridge must be bootstrapped once by the Logic-Engine deployment entrypoint. After that bootstrap, the patched native ST server routes invoke Patch Manager automatically during the normal Extension install/update/delete operations. The browser-side lifecycle hooks are not used for filesystem access. The lifecycle Hook verifies the exact HTTPS origin `github.com/necromorphic/Logic-Engine` before importing the manager from the cloned Extension.
+At HEAD `dba987d797a095f9eb965dc8fd214e44493683ed`:
 
-The patch manager is a deployment mechanism, not an authorization mechanism. Core Security Gateway remains the sole authority. No API port, Provider Relay, Provider Base URL substitution, Browser/ST-to-Core request, or separate ST Server Companion is introduced.
+- Exact-source Patch Manager preflight, install, installed-file verification, Node syntax checks, real-handler fake-provider integration, and uninstall/rollback all passed on pinned SillyTavern 1.19.0.
+- The real-handler harness exercised one request through each of the five native handler families and measured exactly one fake-provider request and one Gateway dispatch per request. It also exercised the Kobold post-handoff failure path and verified no retry.
+- Adapter tests cover the full 25-source route map, unknown-route denial, terminal response tombstones, and the separately routed generation families.
+- Gateway integration tests cover sender-family dispatch, durable dispatch-start ordering, revalidation, revoke/policy rotation, streaming release, replay denial, and crash recovery. These are Logic-Engine-side tests, not a live deployment attestation.
+
+Pinned-source audit: https://github.com/necromorphic/Logic-Engine/actions/runs/41407694803
+
+## Production blockers — do not enable protected Memory
+
+1. **No production adapter registration/bootstrap exists yet.** The patched ST hook exposes `registerLogicEngineFinalSendAdapter`, but the current Extension manifest and deployment entrypoint do not instantiate a production adapter or call that registration function. With no adapter, the patched generation handlers deliberately return `503 LOGIC_ENGINE_FINAL_SEND_ADAPTER_UNAVAILABLE`. This is fail-closed, but it also means ordinary generation is unavailable after patch installation until the bootstrap is implemented.
+2. **No real deployment-owned Core/Provider binding exists.** The adapter still needs trusted server-side identity/context resolution, the actual Core `MemoryDispatchGateway` instance, synchronous Core/Provider evidence readers, accepted-head authority configuration, and the shared Coordinator path. The browser must not provide these authorities.
+3. **Live revoke-at-egress proof is still required.** Gateway tests cover final response revalidation and synchronous writes under the Coordinator. The pinned fake-provider harness uses a fake Gateway; it does not prove a live revoke race against production Core/Provider stores at the actual ST response write.
+4. **Crash/restart and upstream call-count evidence is currently test-harness evidence.** Production process restart and provider-side request-count attestations are not available from the CI harness.
+
+The Gateway performs a post-inference revalidation and the ST response wrapper invokes `authorizeResponseWrite` synchronously for each write and final end. This is the intended release boundary, but the full deployed proof remains blocked by items 1–3.
+
+The patch manager is deployment plumbing, not an authorization authority. Core Security Gateway remains the sole Memory authorization authority. No merge, production activation, or Memory → NPC enablement is authorized by this document.
 
 ## Tests
 
@@ -78,4 +81,4 @@ The patch manager is a deployment mechanism, not an authorization mechanism. Cor
 node --test tests/sillytavern-patch-manager.test.js tests/sillytavern-final-send-patch-artifact.test.js
 ```
 
-The tests exercise lifecycle operations, rollback conflict preservation, unknown-source denial, repair, patch/manifest integrity, and pinned route coverage. Exact-source apply and Node syntax checks were performed against the supplied SillyTavern 1.19.0 archive before committing the patch artifact. CI results must be checked on the exact final commit before deployment.
+The exact pinned-source CI job additionally installs the patch, checks all modified JavaScript files, runs the patched native-handler fake-provider harness, and uninstalls the patch. Always verify the final commit's CI before deployment.
