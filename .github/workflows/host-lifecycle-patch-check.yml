@@ -55,12 +55,12 @@ jobs:
       - name: Apply-check and apply lifecycle, inventory, then delete-safety patches
         run: |
           cd sillytavern-host-checkout
-          git apply --check "$GITHUB_WORKSPACE/host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch"
-          git apply "$GITHUB_WORKSPACE/host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch"
-          git apply --check "$GITHUB_WORKSPACE/host-inventory-candidate/sillytavern-1.19.0-source-inventory-route.patch"
-          git apply "$GITHUB_WORKSPACE/host-inventory-candidate/sillytavern-1.19.0-source-inventory-route.patch"
-          git apply --check "$GITHUB_WORKSPACE/host-adapter/prototype/patches/issue-258-direction-a-delete-safety.patch"
-          git apply "$GITHUB_WORKSPACE/host-adapter/prototype/patches/issue-258-direction-a-delete-safety.patch"
+          git apply --unidiff-zero --check "$GITHUB_WORKSPACE/host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch"
+          git apply --unidiff-zero "$GITHUB_WORKSPACE/host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch"
+          git apply --unidiff-zero --check "$GITHUB_WORKSPACE/host-inventory-candidate/sillytavern-1.19.0-source-inventory-route.patch"
+          git apply --unidiff-zero "$GITHUB_WORKSPACE/host-inventory-candidate/sillytavern-1.19.0-source-inventory-route.patch"
+          git apply --unidiff-zero --check "$GITHUB_WORKSPACE/host-adapter/prototype/patches/issue-258-direction-a-delete-safety.patch"
+          git apply --unidiff-zero "$GITHUB_WORKSPACE/host-adapter/prototype/patches/issue-258-direction-a-delete-safety.patch"
           git diff --check
       - name: Syntax-check patched host, route candidate, and standalone server plugin
         run: |
