@@ -31,6 +31,9 @@ jobs:
           patch="$PWD/host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch"
           git -C sillytavern apply --unidiff-zero --check "$patch"
           git -C sillytavern apply --unidiff-zero "$patch"
+          delta_patch="$PWD/host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-unenrolled-chat-fix.patch"
+          git -C sillytavern apply --check "$delta_patch"
+          git -C sillytavern apply "$delta_patch"
           git -C sillytavern diff --check
           expected=$(printf '%s\n' 'public/script.js' 'public/scripts/bookmarks.js' 'public/scripts/group-chats.js' 'public/scripts/chat-backups.js' 'public/scripts/slash-commands.js' 'src/server-main.js' 'src/endpoints/backends/chat-completions.js' 'src/endpoints/chats.js' 'src/endpoints/groups.js' 'src/endpoints/characters.js' 'src/endpoints/backups.js' 'src/endpoints/data-maid.js' 'src/endpoints/settings.js' 'src/endpoints/users-private.js' 'src/endpoints/users-admin.js' 'src/endpoints/logic-engine-host-inventory-handler.mjs')
           actual=$({ git -C sillytavern diff --name-only; git -C sillytavern ls-files --others --exclude-standard; } | sort)
