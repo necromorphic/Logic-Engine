@@ -282,6 +282,9 @@ export class MemoryDispatchGateway {
       release = beginCoordinatorLock(this.coordinatorDb);
       const existed = existsSync(this.ledgerPath);
       this.db = new DatabaseSync(this.ledgerPath);
+      // Make the dispatch-start commit explicitly durable; do not rely on
+      // SQLite build defaults for the no-upstream-retry security boundary.
+      this.db.exec('PRAGMA busy_timeout=5000; PRAGMA synchronous=FULL;');
       if (!existed) {
         this.db.exec(`
           CREATE TABLE dispatch_ledger (
