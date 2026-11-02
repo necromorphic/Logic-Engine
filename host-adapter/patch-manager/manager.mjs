@@ -375,7 +375,7 @@ export async function repairFinalSendPatch(options) {
   if (status.status === 'drifted' || status.status === 'unmanaged') {
     fail('REPAIR_DRIFT');
   }
-  const result = await applyFinalSendPatch(options);
+  const result = await updateFinalSendPatch(options);
   return Object.freeze({ ...result, operation: 'repair' });
 }
 
