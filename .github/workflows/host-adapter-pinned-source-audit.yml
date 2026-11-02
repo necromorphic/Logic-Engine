@@ -53,6 +53,17 @@ jobs:
           )
           echo SillyTavern target SHA: %actual%
 
+      - name: Stage lifecycle helpers and apply the reviewed Host patch
+        shell: cmd
+        run: |
+          mkdir SillyTavern\public\scripts\logic-engine-lifecycle
+          copy host-adapter\prototype\lifecycle-journal.mjs SillyTavern\public\scripts\logic-engine-lifecycle\lifecycle-journal.mjs
+          copy host-adapter\prototype\st-lifecycle-bridge.mjs SillyTavern\public\scripts\logic-engine-lifecycle\st-lifecycle-bridge.mjs
+          copy host-adapter\prototype\conversation-identity.mjs SillyTavern\public\scripts\logic-engine-lifecycle\conversation-identity.mjs
+          copy host-adapter\prototype\st-server-digest-proxy.mjs SillyTavern\src\endpoints\logic-engine-lifecycle-proxy.mjs
+          git -C SillyTavern apply --unidiff-zero --check ..\host-adapter\prototype\patches\sillytavern-1.19.0-lifecycle-hooks.patch
+          git -C SillyTavern apply --unidiff-zero ..\host-adapter\prototype\patches\sillytavern-1.19.0-lifecycle-hooks.patch
+
       - name: Run source-level lifecycle assertions
         env:
           SILLYTAVERN_DIR: SillyTavern
