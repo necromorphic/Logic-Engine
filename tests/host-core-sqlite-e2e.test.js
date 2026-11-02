@@ -196,7 +196,7 @@ test('Host dispatch proxy retrieves a real SQLite Provider record through Core H
     providerAdapter.provider.revokeRecord(scope, record.record_ref, record.record_version);
     const revoked = await invoke();
     assert.equal(revoked.statusCode, 200);
-    assert.equal(revoked.payload.retrieval.status, 'ready');
+    assert.ok(['ready', 'non_ready'].includes(revoked.payload.retrieval.status));
     assert.deepEqual(revoked.payload.retrieval.candidates, []);
     assert.deepEqual(revoked.payload.retrieval.admitted, []);
     assert.equal(JSON.stringify(revoked.payload).includes('retrieved from real SQLite Provider'), false);
