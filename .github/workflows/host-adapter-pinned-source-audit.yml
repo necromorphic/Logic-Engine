@@ -37,12 +37,20 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Pinned Host lifecycle patch does not apply cleanly' }
           git -C Sillytavern apply --unidiff-zero $patch
           if ($LASTEXITCODE -ne 0) { throw 'Pinned Host lifecycle patch application failed' }
+          $deltaPatch = (Resolve-Path host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-unenrolled-chat-fix.patch).Path
+          git -C Sillytavern apply --check $deltaPatch
+          if ($LASTEXITCODE -ne 0) { throw 'Un-enrolled chat lifecycle fix does not apply cleanly' }
+          git -C Sillytavern apply $deltaPatch
+          if ($LASTEXITCODE -ne 0) { throw 'Un-enrolled chat lifecycle fix application failed' }
           git -C Sillytavern diff --check
           if ($LASTEXITCODE -ne 0) { throw 'Pinned Host lifecycle patch contains whitespace errors' }
           $expected = @(
             'public/script.js',
             'public/scripts/bookmarks.js',
             'public/scripts/group-chats.js',
+            'public/scripts/logic-engine-lifecycle/conversation-identity.mjs',
+            'public/scripts/logic-engine-lifecycle/lifecycle-journal.mjs',
+            'public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs',
             'public/scripts/chat-backups.js',
             'public/scripts/slash-commands.js',
             'src/server-main.js',
@@ -76,6 +84,9 @@ jobs:
           node --check Sillytavern/plugins/logic-engine-extension-gateway/fs-inventory.js
           node --check Sillytavern/public/scripts/extensions/third-party/logic-engine-extension-gateway/index.js
           node --check Sillytavern/public/scripts/extensions/third-party/logic-engine-extension-gateway/host-context.mjs
+          node --check Sillytavern/public/scripts/logic-engine-lifecycle/conversation-identity.mjs
+          node --check Sillytavern/public/scripts/logic-engine-lifecycle/lifecycle-journal.mjs
+          node --check Sillytavern/public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs
           $files = @('public/script.js', 'public/scripts/bookmarks.js', 'public/scripts/group-chats.js', 'public/scripts/chat-backups.js', 'public/scripts/slash-commands.js', 'src/server-main.js', 'src/endpoints/backends/chat-completions.js', 'src/endpoints/chats.js', 'src/endpoints/groups.js', 'src/endpoints/characters.js', 'src/endpoints/backups.js', 'src/endpoints/data-maid.js', 'src/endpoints/settings.js', 'src/endpoints/users-private.js', 'src/endpoints/users-admin.js', 'src/endpoints/logic-engine-host-inventory-handler.mjs')
           foreach ($file in $files) { node --check (Join-Path Sillytavern $file) }
       - name: Run Host lifecycle and identity acceptance tests
