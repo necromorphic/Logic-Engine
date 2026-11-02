@@ -22,10 +22,10 @@ test('Final-Send patch routes every Chat Completions fetch and stream release th
   assert.match(source, /logicEngineForwardFetchResponse/);
   assert.match(source, /forwardFetchResponse as nativeForwardFetchResponse/);
   assert.match(source, /src\/logic-engine-final-send-hook\.js/);
-  assert.match(source, /'text-completions'/);
-  assert.match(source, /'kobold'/);
-  assert.match(source, /'novelai-text'/);
-  assert.match(source, /'horde-text'/);
+  assert.equal(source.includes('text-completions.js'), false);
+  assert.equal(source.includes('kobold.js'), false);
+  assert.equal(source.includes('novelai.js'), false);
+  assert.equal(source.includes('horde.js'), false);
   assert.match(source, /response\.write = function/);
   assert.match(source, /response\.end = function/);
   assert.match(source, /hostTransformsStream/);
@@ -35,12 +35,9 @@ test('Final-Send patch routes every Chat Completions fetch and stream release th
     'endpoint-relative imports must not point to a nonexistent endpoints-local Hook');
 });
 
-test('patch manifest includes source identity checks for every separately routed generation family', () => {
+test('patch manifest pins Chat Completions plus required Host lifecycle source files only', () => {
   for (const path of [
-    'src/endpoints/backends/text-completions.js',
-    'src/endpoints/backends/kobold.js',
-    'src/endpoints/novelai.js',
-    'src/endpoints/horde.js',
+    'src/endpoints/backends/chat-completions.js',
     'src/server-main.js',
     'src/server-startup.js',
     'src/plugin-loader.js',
