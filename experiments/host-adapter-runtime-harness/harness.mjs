@@ -39,8 +39,17 @@ for (const name of Object.keys(originalConsoleMethods)) {
 const providerRequests = [];
 const fakeProvider = http.createServer((req, res) => {
   providerRequests.push({ method: req.method, path: req.url });
-  req.resume();
+  const requestChunks = [];
+  req.on('data', chunk => requestChunks.push(chunk));
   req.on('end', () => {
+    let requestBody = {};
+    try { requestBody = JSON.parse(Buffer.concat(requestChunks).toString('utf8')); } catch {}
+    if (req.url.includes('/chat/completions') && requestBody.stream === true) {
+      res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' });
+      res.write('data: {"id":"fake-stream","choices":[{"index":0,"delta":{"role":"assistant","content":"stream-ok"},"finish_reason":null}]}\\n\\n');
+      res.end('data: {"id":"fake-stream","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\\n\\ndata: [DONE]\\n\\n');
+      return;
+    }
     let body;
     if (req.url.includes('/chat/completions')) {
       body = {
@@ -128,6 +137,9 @@ const gateway = {
         await response.arrayBuffer();
         throw new Error('FAKE_DISPATCH_FAILED_AFTER_HANDOFF');
       });
+    }
+    if (request.stream && typeof request.forwardResponse === 'function') {
+      return Promise.resolve(upstream).then(response => request.forwardResponse(response));
     }
     return upstream;
   },
@@ -324,7 +336,20 @@ test('all five pinned protected ST generation handlers use one Gateway handoff a
   ]);
   assert.equal(gatewayDispatches, 5, 'each protected route must enter the shared Gateway exactly once');
   assert.deepEqual(dispatchRoutes, ['openai', 'text-completions', 'kobold', 'novelai-text', 'horde-text']);
-  assert.equal(finalRevalidations, 5, 'every client response must pass final Gateway revalidation');
+  assert.equal(finalRevalidations, 5, 'every non-stream client response must pass final Gateway revalidation');
+
+  const streamingResponse = await fetch(requests[0].url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ ...requests[0].body, stream: true }),
+  });
+  assert.equal(streamingResponse.status, 200, 'streaming Chat Completions must use the Gateway-controlled forwarder');
+  const streamingText = await streamingResponse.text();
+  assert.ok(streamingText.includes('stream-ok'), 'the native ST response forwarder must release the upstream stream');
+  assert.equal(providerRequests.length, 6, 'streaming must perform exactly one upstream request');
+  assert.equal(gatewayDispatches, 6, 'streaming must enter the Gateway exactly once');
+  assert.equal(dispatchRoutes[5], 'openai');
+  assert.equal(finalRevalidations, 6, 'streaming response end must pass final Gateway revalidation');
 
   const unauthenticated = await fetch(requests[0].url, {
     method: 'POST',
@@ -332,8 +357,8 @@ test('all five pinned protected ST generation handlers use one Gateway handoff a
     body: JSON.stringify(requests[0].body),
   });
   assert.equal(unauthenticated.status, 503, 'generation must stop before provider dispatch without an authenticated ST session');
-  assert.equal(providerRequests.length, 5);
-  assert.equal(gatewayDispatches, 5);
+  assert.equal(providerRequests.length, 6);
+  assert.equal(gatewayDispatches, 6);
 
   const spoofedMemory = await fetch(requests[0].url, {
     method: 'POST',
@@ -367,7 +392,7 @@ test('all five pinned protected ST generation handlers use one Gateway handoff a
       can_abort: false,
     }),
   }));
-  assert.equal(providerRequests.length, 6, 'terminal Kobold failure must not retry the upstream call');
-  assert.equal(gatewayDispatches, 6, 'failed protected dispatch must still be admitted only once');
-  assert.equal(providerRequests[5].path, '/v1/generate');
+  assert.equal(providerRequests.length, 7, 'terminal Kobold failure must not retry the upstream call');
+  assert.equal(gatewayDispatches, 7, 'failed protected dispatch must still be admitted only once');
+  assert.equal(providerRequests[6].path, '/v1/generate');
 });
