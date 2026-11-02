@@ -616,6 +616,15 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
           mainOpens: roleRegistrar.prepare(
             'SELECT logic_engine_vfs_probe_open_count() AS value'
           ).get().value,
+          nativeOpens: roleRegistrar.prepare(
+            'SELECT logic_engine_vfs_probe_native_open_count() AS value'
+          ).get().value,
+          identityRejects: roleRegistrar.prepare(
+            'SELECT logic_engine_vfs_probe_identity_reject_count() AS value'
+          ).get().value,
+          reusedDescriptorAccepts: roleRegistrar.prepare(
+            'SELECT logic_engine_vfs_probe_reused_descriptor_accept_count() AS value'
+          ).get().value,
           journalOpens: roleRegistrar.prepare(
             'SELECT logic_engine_vfs_probe_journal_open_count() AS value'
           ).get().value,
