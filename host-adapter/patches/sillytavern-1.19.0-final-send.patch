@@ -83,7 +83,7 @@
              throw manifestError;
          }
      } catch (error) {
-@@ -200,9 +210,10 @@
+@@ -200,11 +210,12 @@
          if (!isUpToDate) {
              await git.pull('origin', currentBranch.current);
              console.info(`Extension has been updated at ${extensionPath}`);
@@ -94,6 +94,8 @@
          const fullCommitHash = await git.revparse(['HEAD']);
          const shortCommitHash = fullCommitHash.slice(0, 7);
 +        await runLogicEngineExtensionLifecycle({ action: 'update', extensionPath });
+ 
+         return response.send({ shortCommitHash, extensionPath, isUpToDate, remoteUrl });
 @@ -463,6 +474,7 @@
              return response.status(404).send(`Directory does not exist at ${extensionPath}`);
          }
@@ -357,7 +359,7 @@
  router.post('/status', async function (request, response) {
 --- a/src/endpoints/novelai.js
 +++ b/src/endpoints/novelai.js
-@@ -2,6 +2,6 @@
+@@ -2,9 +2,10 @@
  import { Buffer } from 'node:buffer';
  
 -import fetch from 'node-fetch';
@@ -365,11 +367,11 @@
  import express from 'express';
  
  import { readSecret, SECRET_KEYS } from './secrets.js';
-@@ -7,4 +7,5 @@
- import { readSecret, SECRET_KEYS } from './secrets.js';
 -import { readAllChunks, extractFileFromZipBuffer, forwardFetchResponse } from '../util.js';
 +import { readAllChunks, extractFileFromZipBuffer, forwardFetchResponse as nativeForwardFetchResponse } from '../util.js';
 +const forwardFetchResponse = (upstream, response) => logicEngineForwardFetchResponse(upstream, response, nativeForwardFetchResponse);
+ 
+ const API_NOVELAI = 'https://api.novelai.net';
  
  const API_NOVELAI = 'https://api.novelai.net';
 @@ -165,6 +166,7 @@
