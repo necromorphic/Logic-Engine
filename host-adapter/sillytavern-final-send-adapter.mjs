@@ -107,8 +107,55 @@ export function createSillyTavernFinalSendAdapter({
     dispatch(args) {
       if (!args || typeof args.senderRoute !== 'string' || !args.senderRoute
         || typeof args.transport !== 'function') {
+        const error = new Error('MEMORY_DISPATCH_NOT_READY');
+        if (args?.response && typeof args.response === 'object') {
+          requestIdByResponse.set(args.response, { requestId: null, state: 'denied' });
+          throw terminalError(error);
+        }
+        throw error;
+      }
+
+      let protectedMemory;
+      try {
+        protectedMemory = resolveProtectedMemory(args.request);
+      } catch (error) {
+        if (args.response && typeof args.response === 'object') {
+          requestIdByResponse.set(args.response, { requestId: null, state: 'denied' });
+          throw terminalError(error);
+        }
+        throw error;
+      }
+      if (protectedMemory && typeof protectedMemory.then === 'function') {
+        if (args.response && typeof args.response === 'object') {
+          requestIdByResponse.set(args.response, { requestId: null, state: 'denied' });
+          throw terminalError(new Error('MEMORY_DISPATCH_NOT_READY'));
+        }
         throw new Error('MEMORY_DISPATCH_NOT_READY');
       }
+      if (protectedMemory === undefined) {
+        if (args.response && typeof args.response === 'object') {
+          requestIdByResponse.set(args.response, { requestId: null, state: 'denied' });
+          throw terminalError(new Error('MEMORY_DISPATCH_NOT_READY'));
+        }
+        throw new Error('MEMORY_DISPATCH_NOT_READY');
+      }
+      if (protectedMemory !== null) {
+        if (!args.response || typeof args.response !== 'object'
+          || typeof protectedMemory.requestId !== 'string' || !protectedMemory.requestId) {
+          if (args.response && typeof args.response === 'object') {
+            requestIdByResponse.set(args.response, { requestId: null, state: 'denied' });
+          }
+          throw terminalError(new Error('MEMORY_DISPATCH_NOT_READY'));
+        }
+        requestIdByResponse.set(args.response, { requestId: protectedMemory.requestId, state: 'pending' });
+      }
+
+      const release = args.response ? requestIdByResponse.get(args.response) : null;
+      const deny = (error) => {
+        if (!release) throw error;
+        release.state = 'denied';
+        throw terminalError(error);
+      };
       const hostRoute = args.hostRoute ?? 'chat-completions';
       const expectedRoute = hostRoute === 'chat-completions'
         ? sourceMap.get(args.request?.body?.chat_completion_source)
@@ -116,26 +163,9 @@ export function createSillyTavernFinalSendAdapter({
       if (expectedRoute
         ? expectedRoute !== args.senderRoute
         : args.senderRoute !== UNREGISTERED_SENDER_ROUTE) {
-        throw new Error('MEMORY_DISPATCH_NOT_READY');
+        return deny(new Error('MEMORY_DISPATCH_NOT_READY'));
       }
-      const protectedMemory = resolveProtectedMemory(args.request);
-      if (protectedMemory && typeof protectedMemory.then === 'function') {
-        throw new Error('MEMORY_DISPATCH_NOT_READY');
-      }
-      if (protectedMemory === undefined) throw new Error('MEMORY_DISPATCH_NOT_READY');
-      if (protectedMemory !== null) {
-        if (!args.response || typeof args.response !== 'object'
-          || typeof protectedMemory.requestId !== 'string' || !protectedMemory.requestId) {
-          throw new Error('MEMORY_DISPATCH_NOT_READY');
-        }
-        requestIdByResponse.set(args.response, { requestId: protectedMemory.requestId, state: 'pending' });
-      }
-      const release = args.response ? requestIdByResponse.get(args.response) : null;
-      const deny = (error) => {
-        if (!release) throw error;
-        release.state = 'denied';
-        throw terminalError(error);
-      };
+
       let result;
       try {
         result = finalSend({
