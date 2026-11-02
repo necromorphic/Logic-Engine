@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
+import { createHmac } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -11,6 +12,7 @@ import { ActorBindingService } from '../src/application/actor-bindings.js';
 import { HostConversationWorldBindingService } from '../src/application/host-conversation-world-bindings.js';
 import { createMemoryNpcProviderAdapter } from '../src/application/memory-npc-provider-adapter.js';
 import { HostAssertionNonceStore } from '../src/application/host-assertion-nonce-store.js';
+import { createHostSessionAssertionRunner } from '../src/application/host-session-context.js';
 import { createApiServer } from '../src/api/server.js';
 import { createHostMemoryDispatchProxyHandler } from '../host-adapter/prototype/st-server-digest-proxy.mjs';
 
@@ -113,6 +115,32 @@ test('Host dispatch proxy retrieves a real SQLite Provider record through Core H
     providerAdapter.provider.grantRecord(scope, record.record_ref, record.record_version, true);
     assert.equal((await providerAdapter.prepareWorld(worldId)).status, 'current');
 
+    const diagnosticAssertion = {
+      protocol_version: 1,
+      host_installation_id: INSTALLATION,
+      authenticated_account_id: ACCOUNT,
+      host_session_id: SESSION,
+      conversation_id: conversationId,
+      world_id: worldId,
+      actor_id: actorId,
+      issued_at: Math.floor(Date.now() / 1000),
+      nonce: '66666666-6666-4666-8666-666666666666',
+    };
+    const diagnosticSignature = createHmac('sha256', ADAPTER_TOKEN).update(JSON.stringify([
+      diagnosticAssertion.protocol_version, diagnosticAssertion.host_installation_id,
+      diagnosticAssertion.authenticated_account_id, diagnosticAssertion.host_session_id,
+      diagnosticAssertion.conversation_id, diagnosticAssertion.world_id,
+      diagnosticAssertion.actor_id, diagnosticAssertion.issued_at, diagnosticAssertion.nonce,
+    ]), 'utf8').digest('hex');
+    const diagnosticRunner = createHostSessionAssertionRunner({ secret: ADAPTER_TOKEN });
+    const diagnosticRetrieval = await diagnosticRunner.run(
+      diagnosticAssertion, diagnosticSignature,
+      () => providerAdapter.consumer.retrieveForNpc({ conversationId }),
+    );
+    if (diagnosticRetrieval.status !== 'ready') {
+      throw new Error('Direct signed-context Consumer diagnostic: ' + JSON.stringify(diagnosticRetrieval));
+    }
+
     nonceStore = new HostAssertionNonceStore({
       path: join(directory, 'host-assertion-nonces.sqlite'),
       coreDatabasePath: corePath,
@@ -158,7 +186,7 @@ test('Host dispatch proxy retrieves a real SQLite Provider record through Core H
 
     const retrieved = await invoke();
     assert.equal(retrieved.statusCode, 200);
-    assert.equal(retrieved.payload.retrieval.status, 'ready', JSON.stringify(retrieved.payload));
+    if (retrieved.payload.retrieval.status !== 'ready') throw new Error('HTTP retrieval diagnostic: ' + JSON.stringify(retrieved.payload));
     assert.equal(retrieved.payload.retrieval.candidates.length, 1);
     assert.equal(
       retrieved.payload.retrieval.candidates[0].content['attributes.public_note'],
