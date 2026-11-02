@@ -47,7 +47,7 @@ export async function resolveStableHostConversationIdentity({
     throw Error('NON_READY: malformed cached Host installation identity');
   }
   if (cachedInstallationId && cachedInstallationId !== hostInstallationId) {
-    if (hasAnyHostEnrollment(storage)) {
+    if (hostLocatorHasEnrollment(locator, storage)) {
       throw Error('NON_READY: enrolled Host installation identity migration required');
     }
     storage.setItem(INSTALLATION_KEY, hostInstallationId);
