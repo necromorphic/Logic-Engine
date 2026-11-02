@@ -322,6 +322,29 @@ test('Extension startup update recovers a partially restored patch before status
   assert.equal((await readFile(hook)).length > 0, true);
 });
 
+test('Patch Manager refuses a symlinked durable state root', async t => {
+  const fixture = await createPinnedFixture(t);
+  if (!fixture) return;
+  const externalState = fixture.state + '-external';
+  await mkdir(externalState, { recursive: true });
+  try {
+    await symlink(externalState, fixture.state, 'junction');
+  } catch (error) {
+    if (['EPERM', 'EACCES', 'ENOSYS'].includes(error?.code)) {
+      t.skip('Directory symlink creation is not permitted in this environment');
+      return;
+    }
+    throw error;
+  }
+  const endpoint = join(fixture.host, SILLYTAVERN_TARGET.endpointRelativePath);
+  const original = await readFile(endpoint);
+  await assert.rejects(
+    applyFinalSendPatch({ hostRoot: fixture.host, stateRoot: fixture.state, hookSourcePath }),
+    /LOGIC_ENGINE_PATCH_STATE_PATH_UNSAFE/,
+  );
+  assert.deepEqual(await readFile(endpoint), original);
+});
+
 test('restore refuses a symlinked backup instead of reading outside the durable state root', async t => {
   const fixture = await createPinnedFixture(t);
   if (!fixture) return;
