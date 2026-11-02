@@ -43,16 +43,15 @@ jobs:
           cp host-adapter/prototype/patches/sillytavern-1.19.0-source-inventory-route.patch host-inventory-candidate/sillytavern-1.19.0-source-inventory-route.patch
       - name: Require authenticated session identity route in the exact Host candidate
         run: grep -F "router.get('/session', createHostSessionHandler())" host-inventory-candidate/st-host-inventory-route.js
-      - name: Stage legacy route candidate and standalone authenticated server plugin
+      - name: Stage legacy route candidate and current Extension Gateway server plugin
         run: |
           cp host-inventory-candidate/st-source-inventory.mjs sillytavern-host-checkout/src/endpoints/logic-engine-st-source-inventory.mjs
           cp host-inventory-candidate/st-host-inventory-handler.mjs sillytavern-host-checkout/src/endpoints/logic-engine-host-inventory-handler.mjs
           cp host-inventory-candidate/st-host-inventory-route.js sillytavern-host-checkout/src/endpoints/logic-engine-host-inventory.js
-          mkdir -p sillytavern-host-checkout/plugins/logic-engine-host
-          cp host-adapter/prototype/server-plugin/index.mjs sillytavern-host-checkout/plugins/logic-engine-host/index.mjs
-          cp host-adapter/prototype/server-plugin/st-source-inventory.mjs sillytavern-host-checkout/plugins/logic-engine-host/st-source-inventory.mjs
-          cp host-adapter/prototype/server-plugin/st-host-inventory-handler.mjs sillytavern-host-checkout/plugins/logic-engine-host/st-host-inventory-handler.mjs
-          cp host-adapter/prototype/server-plugin/st-server-digest-proxy.mjs sillytavern-host-checkout/plugins/logic-engine-host/st-server-digest-proxy.mjs
+          mkdir -p sillytavern-host-checkout/plugins/logic-engine-extension-gateway
+          cp host-adapter/extension-gateway/server-plugin/*.mjs sillytavern-host-checkout/plugins/logic-engine-extension-gateway/
+          cp host-adapter/extension-gateway/server-plugin/*.js sillytavern-host-checkout/plugins/logic-engine-extension-gateway/
+          cp host-adapter/extension-gateway/server-plugin/package.json sillytavern-host-checkout/plugins/logic-engine-extension-gateway/package.json
       - name: Apply-check and apply lifecycle, inventory, then delete-safety patches
         run: |
           cd sillytavern-host-checkout
@@ -75,10 +74,9 @@ jobs:
           node --check sillytavern-host-checkout/src/endpoints/logic-engine-st-source-inventory.mjs
           node --check sillytavern-host-checkout/src/endpoints/logic-engine-host-inventory-handler.mjs
           node --check sillytavern-host-checkout/src/endpoints/logic-engine-host-inventory.js
-          node --check sillytavern-host-checkout/plugins/logic-engine-host/index.mjs
-          node --check sillytavern-host-checkout/plugins/logic-engine-host/st-source-inventory.mjs
-          node --check sillytavern-host-checkout/plugins/logic-engine-host/st-host-inventory-handler.mjs
-          node --check sillytavern-host-checkout/plugins/logic-engine-host/st-server-digest-proxy.mjs
+          for file in sillytavern-host-checkout/plugins/logic-engine-extension-gateway/*.mjs sillytavern-host-checkout/plugins/logic-engine-extension-gateway/*.js; do
+            node --check "$file"
+          done
           node --check sillytavern-host-checkout/src/server-startup.js
           node --check sillytavern-host-checkout/src/server-main.js
           node --check sillytavern-host-checkout/src/endpoints/backends/chat-completions.js
