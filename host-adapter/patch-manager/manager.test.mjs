@@ -1,4 +1,5 @@
-import test from 'node:test';\nimport { createHash } from 'node:crypto';
+import test from 'node:test';
+import { createHash } from 'node:crypto';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
