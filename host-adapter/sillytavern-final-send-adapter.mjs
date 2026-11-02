@@ -97,7 +97,10 @@ export function createSillyTavernFinalSendAdapter({
         throw new Error('MEMORY_DISPATCH_NOT_READY');
       }
       const expectedRoute = sourceMap.get(args.request?.body?.chat_completion_source);
-      if (expectedRoute ? expectedRoute !== args.senderRoute : args.senderRoute !== UNREGISTERED_SENDER_ROUTE) {
+      const isNativeGenerationRoute = Object.values(HOST_ROUTE_SENDER_MAP).includes(args.senderRoute);
+      if (expectedRoute
+        ? expectedRoute !== args.senderRoute
+        : !isNativeGenerationRoute && args.senderRoute !== UNREGISTERED_SENDER_ROUTE) {
         throw new Error('MEMORY_DISPATCH_NOT_READY');
       }
       const protectedMemory = resolveProtectedMemory(args.request);
