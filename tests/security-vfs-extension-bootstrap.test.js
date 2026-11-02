@@ -646,7 +646,31 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
       'the main-delete alias test role must be enrolled before its first open');
     const deleteAliasDb = new DatabaseSync(deleteAliasPath);
     try {
-      deleteAliasDb.exec('CREATE TABLE probe(value TEXT);');
+      try {
+        deleteAliasDb.exec('CREATE TABLE probe(value TEXT);');
+      } catch (error) {
+        const diagnostics = {
+          parentXOpen: roleRegistrar.prepare(
+            'SELECT logic_engine_vfs_probe_parent_xopen_diagnostics() AS value'
+          ).get().value,
+          mainOpens: roleRegistrar.prepare(
+            'SELECT logic_engine_vfs_probe_open_count() AS value'
+          ).get().value,
+          journalOpens: roleRegistrar.prepare(
+            'SELECT logic_engine_vfs_probe_journal_open_count() AS value'
+          ).get().value,
+          sidecarChecks: roleRegistrar.prepare(
+            'SELECT logic_engine_vfs_probe_sidecar_identity_check_count() AS value'
+          ).get().value,
+          sidecarRejects: roleRegistrar.prepare(
+            'SELECT logic_engine_vfs_probe_sidecar_identity_reject_count() AS value'
+          ).get().value,
+          unlinkHooks: roleRegistrar.prepare(
+            'SELECT logic_engine_vfs_probe_unlink_hook_count() AS value'
+          ).get().value,
+        };
+        throw new Error(`main-delete alias probe setup failed: ${error.message}; diagnostics=${JSON.stringify(diagnostics)}`);
+      }
     } finally {
       deleteAliasDb.close();
     }
