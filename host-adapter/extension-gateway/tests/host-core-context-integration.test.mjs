@@ -4,6 +4,7 @@ import { once } from 'node:events';
 import { mkdtemp, mkdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, relative as pathRelative } from 'node:path';
+import { createHmac } from 'node:crypto';
 
 import { SQLiteStore } from '../../../src/storage/sqlite-store.js';
 import { LogicEngine } from '../../../src/application/engine.js';
@@ -118,9 +119,31 @@ test('Host Adapter requires Core root proof before context resolution and binds 
 
   const coreCalls = [];
   const resolvedCoreContexts = [];
+  let dispatchFaultMode = null;
+  let capturedDispatchBody = null;
   const fetchImpl = async (url, options) => {
-    const response = await fetch(url, options);
     const parsedUrl = new URL(url);
+    let outgoingOptions = options;
+    if (parsedUrl.pathname === '/v1/host/memory-npc/retrieve' && options?.body) {
+      const outgoingBody = JSON.parse(options.body);
+      capturedDispatchBody = outgoingBody;
+      if (dispatchFaultMode === 'invalid-signature') {
+        outgoingBody.signature = (outgoingBody.signature[0] === '0' ? '1' : '0')
+          + outgoingBody.signature.slice(1);
+      } else if (dispatchFaultMode === 'expired-timestamp') {
+        outgoingBody.assertion.issued_at = Math.floor(Date.now() / 1000) - 3600;
+        const assertion = outgoingBody.assertion;
+        const canonicalAssertion = JSON.stringify([
+          assertion.protocol_version, assertion.host_installation_id, assertion.authenticated_account_id,
+          assertion.host_session_id, assertion.conversation_id, assertion.world_id, assertion.actor_id,
+          assertion.issued_at, assertion.nonce,
+        ]);
+        outgoingBody.signature = createHmac('sha256', ADAPTER_TOKEN)
+          .update(canonicalAssertion, 'utf8').digest('hex');
+      }
+      outgoingOptions = { ...options, body: JSON.stringify(outgoingBody) };
+    }
+    const response = await fetch(url, outgoingOptions);
     coreCalls.push(parsedUrl.pathname);
     if (parsedUrl.pathname === '/v1/host-context/resolve') {
       resolvedCoreContexts.push(await response.clone().json());
@@ -261,6 +284,33 @@ test('Host Adapter requires Core root proof before context resolution and binds 
   assert.equal(retrievalContexts[0].conversation_id, stableConversationId);
   assert.equal(retrievalContexts[0].host_installation_id, identityResponse.payload.host_installation_id);
   assert.equal(retrievalContexts[0].authenticated_account_id, identityResponse.payload.authenticated_account_id);
+  // Negative assertions travel through the same Host Adapter → Core HTTP path.
+  dispatchFaultMode = 'invalid-signature';
+  const invalidSignatureResponse = responseRecorder();
+  await adapter.dispatch(request, invalidSignatureResponse);
+  assert.equal(invalidSignatureResponse.statusCode, 502);
+  assert.equal(invalidSignatureResponse.payload.code, 'CORE_HOST_DISPATCH_REJECTED');
+  dispatchFaultMode = null;
+
+  dispatchFaultMode = 'expired-timestamp';
+  const expiredTimestampResponse = responseRecorder();
+  await adapter.dispatch(request, expiredTimestampResponse);
+  assert.equal(expiredTimestampResponse.statusCode, 502);
+  assert.equal(expiredTimestampResponse.payload.code, 'CORE_HOST_DISPATCH_REJECTED');
+  dispatchFaultMode = null;
+
+  // Re-submit the exact assertion accepted by the successful Host dispatch.
+  // Core's durable nonce ledger must reject it before invoking the Consumer.
+  assert.ok(capturedDispatchBody);
+  const replayResponse = await post(
+    coreUrl + '/v1/host/memory-npc/retrieve',
+    { ...coreHeaders, 'x-adapter-id': ADAPTER_ID, 'x-adapter-token': ADAPTER_TOKEN },
+    capturedDispatchBody,
+  );
+  assert.equal(replayResponse.status, 409);
+  assert.equal((await replayResponse.json()).error.code, 'HOST_SESSION_ASSERTION_REPLAYED');
+  assert.equal(retrievalContexts.length, 1);
+
 
   // Accounts-enabled mode: ST supplies session.handle and it must bind to the
   // middleware-authenticated profile handle, while the account ID remains
