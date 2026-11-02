@@ -532,7 +532,13 @@ export class SillyTavernPatchManager {
       }
       if (command === 'update') {
         const state = await this.readState();
-        if (state?.patchVersion === this.manifest.patch.version) {
+        const sameInstalledArtifact = state?.status === 'INSTALLED'
+          && state.hostVersion === this.manifest.host.version
+          && state.hostCommit === this.manifest.host.commit
+          && state.patchVersion === this.manifest.patch.version
+          && state.patchSha256 === this.manifest.patch.sha256
+          && JSON.stringify(state.createdFiles) === JSON.stringify(this.manifest.createdFiles);
+        if (sameInstalledArtifact) {
           await this.verifyInstalled();
           return { status: 'UP_TO_DATE', patchVersion: state.patchVersion };
         }
