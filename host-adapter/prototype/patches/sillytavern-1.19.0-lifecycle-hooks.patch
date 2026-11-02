@@ -820,22 +820,22 @@ new file mode 100644
 +    createHostLifecycleSaveGuard,
 +    createHostRequestAuthenticationGate,
 +} from '../../plugins/logic-engine-extension-gateway/st-host-inventory-handler.mjs';
-+
-+diff --git a/src/endpoints/logic-engine-host-identity-store.mjs b/src/endpoints/logic-engine-host-identity-store.mjs
-+new file mode 100644
-+--- /dev/null
-++++ b/src/endpoints/logic-engine-host-identity-store.mjs
-+@@ -0,0 +1 @@
-++export { HostIdentityStore } from '../../plugins/logic-engine-extension-gateway/st-host-identity-store.mjs';
-++
-+diff --git a/src/endpoints/host-data-inventory.mjs b/src/endpoints/host-data-inventory.mjs
-+new file mode 100644
-+--- /dev/null
-++++ b/src/endpoints/host-data-inventory.mjs
-+@@ -0,0 +1 @@
-++export { enumerateHostDataInventory } from '../../plugins/logic-engine-extension-gateway/host-data-inventory.mjs';
-++
-+diff --git a/src/endpoints/data-maid.js b/src/endpoints/data-maid.js
+
+diff --git a/src/endpoints/logic-engine-host-identity-store.mjs b/src/endpoints/logic-engine-host-identity-store.mjs
+new file mode 100644
+--- /dev/null
++++ b/src/endpoints/logic-engine-host-identity-store.mjs
+@@ -0,0 +1 @@
++export { HostIdentityStore } from '../../plugins/logic-engine-extension-gateway/st-host-identity-store.mjs';
+
+diff --git a/src/endpoints/host-data-inventory.mjs b/src/endpoints/host-data-inventory.mjs
+new file mode 100644
+--- /dev/null
++++ b/src/endpoints/host-data-inventory.mjs
+@@ -0,0 +1 @@
++export { enumerateHostDataInventory } from '../../plugins/logic-engine-extension-gateway/host-data-inventory.mjs';
+
+diff --git a/src/endpoints/data-maid.js b/src/endpoints/data-maid.js
 --- a/src/endpoints/data-maid.js
 +++ b/src/endpoints/data-maid.js
 @@ -8,2 +8,5 @@
