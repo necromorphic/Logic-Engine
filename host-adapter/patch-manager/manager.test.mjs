@@ -292,6 +292,36 @@ test('restore recovery completes after each destructive uninstall boundary', asy
   }
 });
 
+test('Extension startup update recovers a partially restored patch before status validation', async t => {
+  const fixture = await createPinnedFixture(t);
+  if (!fixture) return;
+  await applyFinalSendPatch({ hostRoot: fixture.host, stateRoot: fixture.state, hookSourcePath });
+  const manifestPath = join(fixture.state, 'manifest.json');
+  const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+  const endpoint = join(fixture.host, manifest.endpointRelativePath);
+  const hook = join(fixture.host, manifest.hookRelativePath);
+  const original = await readFile(join(fixture.state, manifest.backupRelativePath));
+  await writeFile(join(fixture.state, 'restore-pending.json'), JSON.stringify({
+    patchId: manifest.patchId,
+    endpointRelativePath: manifest.endpointRelativePath,
+    hookRelativePath: manifest.hookRelativePath,
+    backupRelativePath: manifest.backupRelativePath,
+    originalHash: manifest.originalHash,
+    patchedHash: manifest.patchedHash,
+    hookHash: manifest.hookHash,
+  }));
+  // Simulate process death after endpoint restoration but before hook removal.
+  await writeFile(endpoint, original);
+  const result = await updateFinalSendPatch({
+    hostRoot: fixture.host, stateRoot: fixture.state, hookSourcePath,
+  });
+  assert.equal(result.status, 'installed');
+  assert.notDeepEqual(await readFile(endpoint), original);
+  await assert.rejects(readFile(join(fixture.state, 'restore-pending.json')), { code: 'ENOENT' });
+  assert.equal((await getFinalSendPatchStatus({ hostRoot: fixture.host, stateRoot: fixture.state })).status, 'installed');
+  assert.equal((await readFile(hook)).length > 0, true);
+});
+
 test('restore refuses a symlinked backup instead of reading outside the durable state root', async t => {
   const fixture = await createPinnedFixture(t);
   if (!fixture) return;
