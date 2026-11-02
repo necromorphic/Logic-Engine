@@ -98,7 +98,7 @@
  
 --- /dev/null
 +++ b/src/logic-engine-final-send-hook.js
-@@ -0,0 +1,116 @@
+@@ -0,0 +1,133 @@
 +import { AsyncLocalStorage } from 'node:async_hooks';
 +import nativeFetch from 'node-fetch';
 +
@@ -108,6 +108,7 @@
 +
 +function assertAdapter(candidate) {
 +    if (!candidate || typeof candidate !== 'object'
++        || typeof candidate.prepare !== 'function'
 +        || typeof candidate.dispatch !== 'function'
 +        || typeof candidate.forwardResponse !== 'function'
 +        || typeof candidate.resolveSenderRoute !== 'function') {
@@ -146,15 +147,30 @@
 +        response.set('cache-control', 'no-store');
 +        return response.status(503).send({ error: { code: 'LOGIC_ENGINE_FINAL_SEND_ADAPTER_UNAVAILABLE' } });
 +    }
-+    const nativeWrite = response.write.bind(response);
-+    const nativeEnd = response.end.bind(response);
-+    response.write = function (...args) {
-+        return adapter.authorizeResponseWrite(response, () => nativeWrite(...args), false);
-+    };
-+    response.end = function (...args) {
-+        return adapter.authorizeResponseWrite(response, () => nativeEnd(...args), true);
-+    };
-+    return generationContext.run({ request, response, adapter, route, protectedForward: null }, async () => {
++    if (typeof adapter.authorizeResponseWrite === 'function') {
++        const nativeWrite = response.write.bind(response);
++        const nativeEnd = response.end.bind(response);
++        response.write = function (...args) {
++            return adapter.authorizeResponseWrite(response, () => nativeWrite(...args), false);
++        };
++        response.end = function (...args) {
++            return adapter.authorizeResponseWrite(response, () => nativeEnd(...args), true);
++        };
++    }
++    return generationContext.run({ request, response, adapter, route, protectedForward: null, prepared: false }, async () => {
++        try {
++            await adapter.prepare(request, response);
++            const active = generationContext.getStore();
++            if (active) active.prepared = true;
++        } catch {
++            if (!response.headersSent) {
++                response.set('cache-control', 'no-store');
++                response.status(503).send({ error: { code: 'LOGIC_ENGINE_HOST_PREPARATION_FAILED' } });
++            } else if (!response.writableEnded) {
++                response.end();
++            }
++            return;
++        }
 +        try {
 +            return await handler();
 +        } catch (error) {
@@ -171,6 +187,7 @@
 +export function logicEngineFetch(endpointUrl, requestInit) {
 +    const active = generationContext.getStore();
 +    if (!active) return nativeFetch(endpointUrl, requestInit);
++    if (active.prepared !== true) throw new Error('LOGIC_ENGINE_HOST_PREPARATION_REQUIRED');
 +    if (/\/(?:extra\/abort|abort)(?:[?#]|$)/i.test(String(endpointUrl))) return nativeFetch(endpointUrl, requestInit);
 +    const senderRoute = active.adapter.resolveSenderRoute(active.request, active.route);
 +    if (typeof senderRoute !== 'string' || !senderRoute) {
@@ -430,7 +447,7 @@
      const apiKey = readSecret(request.user.directories, SECRET_KEYS.HORDE) || ANONYMOUS_KEY;
      const url = 'https://aihorde.net/api/v2/generate/text/async';
      const agent = await getClientAgent();
-@@ -209,4 +210,5 @@
+@@ -209,5 +210,6 @@
          console.error(error);
          return response.send({ error: true });
      }
