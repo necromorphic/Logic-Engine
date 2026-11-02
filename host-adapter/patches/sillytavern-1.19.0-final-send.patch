@@ -49,7 +49,7 @@
  const multimodalModels = express.Router();
 --- a/src/endpoints/extensions.js
 +++ b/src/endpoints/extensions.js
-@@ -8,6 +8,7 @@
+@@ -9,6 +10,7 @@
  import { PUBLIC_DIRECTORIES } from '../constants.js';
  import { color, getConfigValue, isValidUrl } from '../util.js';
  import { createGitClient } from '../git/client.js';
@@ -305,7 +305,7 @@
 -import { forwardFetchResponse, trimV1, getConfigValue } from '../../util.js';
 +import { forwardFetchResponse as nativeForwardFetchResponse, trimV1, getConfigValue } from '../../util.js';
 +const forwardFetchResponse = (upstream, response) => logicEngineForwardFetchResponse(upstream, response, nativeForwardFetchResponse);
-@@ -270,6 +270,7 @@
+@@ -270,6 +271,7 @@
  });
  
  router.post('/generate', async function (request, response) {
@@ -313,7 +313,7 @@
      if (!request.body) return response.sendStatus(400);
  
      try {
-@@ -437,5 +438,6 @@
+@@ -437,5 +439,6 @@
              : response.end();
      }
 +    }, 'text-completions');
@@ -332,7 +332,7 @@
 +import { forwardFetchResponse as nativeForwardFetchResponse, delay } from '../../util.js';
 +const forwardFetchResponse = (upstream, response) => logicEngineForwardFetchResponse(upstream, response, nativeForwardFetchResponse);
  import { getOverrideHeaders, setAdditionalHeaders, setAdditionalHeadersByType } from '../../additional-headers.js';
-@@ -8,6 +8,7 @@
+@@ -9,6 +10,7 @@
  export const router = express.Router();
  
  router.post('/generate', async function (request, response_generate) {
@@ -340,7 +340,7 @@
      if (!request.body) return response_generate.sendStatus(400);
  
      if (request.body.api_server.indexOf('localhost') != -1) {
-@@ -136,6 +137,7 @@
+@@ -138,6 +140,7 @@
  
      console.error('Max retries exceeded. Giving up.');
      return response_generate.send({ error: true });
@@ -370,7 +370,7 @@
      if (!req.body) return res.sendStatus(400);
  
      const api_key_novel = readSecret(req.user.directories, SECRET_KEYS.NOVEL);
-@@ -296,6 +297,7 @@
+@@ -296,6 +298,7 @@
      } catch (error) {
          return res.send({ error: true });
      }
