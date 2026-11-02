@@ -74,15 +74,14 @@ test('adapter sends exact native transport through Core Gateway for protected co
 });
 
 
-test('non-Chat-Completions routes cannot enter protected Memory dispatch', async () => {
+test('all registered non-Chat-Completions generation routes enter the shared Gateway', async () => {
   const routes = ['text-completions', 'kobold', 'novelai-text', 'horde-text'];
-  let gatewayCalls = 0;
-  let transportCalls = 0;
+  const gatewayRoutes = [];
   const adapter = createSillyTavernFinalSendAdapter({
     gateway: {
-      dispatchProtectedRequest() {
-        gatewayCalls += 1;
-        throw new Error('unexpected Gateway admission');
+      dispatchProtectedRequest(request) {
+        gatewayRoutes.push(request.senderRoute);
+        return request.transport();
       },
     },
     resolveProtectedMemory: () => protectedMemory,
@@ -91,18 +90,20 @@ test('non-Chat-Completions routes cannot enter protected Memory dispatch', async
   });
   for (const route of routes) {
     const request = { body: { stream: false } };
-    await assert.rejects(adapter.dispatch({
+    const result = await adapter.dispatch({
       request,
       response: {},
       senderRoute: adapter.resolveSenderRoute(request, route),
+      hostRoute: route,
       endpointUrl: 'https://provider.example/generate',
       requestInit: { method: 'POST', body: '{"model":"test"}' },
       stream: false,
-      transport: async () => { transportCalls += 1; return { status: 200 }; },
-    }), /MEMORY_DISPATCH_NOT_READY/);
+      transport: async () => ({ status: 200, route }),
+    });
+    assert.equal(result.status, 200);
+    assert.equal(result.route, route);
   }
-  assert.equal(gatewayCalls, 0);
-  assert.equal(transportCalls, 0);
+  assert.deepEqual(gatewayRoutes, routes);
 });
 
 test('adapter denies unknown native sender before any transport handoff', async () => {
