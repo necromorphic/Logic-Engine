@@ -3,7 +3,7 @@ import { constants as fsConstants } from 'node:fs';
 import {
   lstat, mkdir, readFile, rename, rm, unlink, open, realpath,
 } from 'node:fs/promises';
-import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { dirname, isAbsolute, join, parse, relative, resolve, sep } from 'node:path';
 import { SILLYTAVERN_TARGET } from './target.mjs';
 
 const MANIFEST_NAME = 'manifest.json';
@@ -42,6 +42,21 @@ async function assertRegularFile(root, relativePath) {
   const info = await lstat(absolute);
   if (!info.isFile()) fail('HOST_FILE_TYPE_INVALID');
   return absolute;
+}
+
+async function assertSafeDirectoryTree(absolutePath) {
+  const target = resolve(absolutePath);
+  const volumeRoot = parse(target).root;
+  let current = volumeRoot;
+  for (const component of relative(volumeRoot, target).split(sep).filter(Boolean)) {
+    current = join(current, component);
+    const info = await lstat(current).catch(error => {
+      if (error?.code === 'ENOENT') return null;
+      throw error;
+    });
+    if (!info || info.isSymbolicLink() || !info.isDirectory()) fail('STATE_PATH_UNSAFE');
+  }
+  return target;
 }
 
 async function assertSafePathParents(root, relativePath, { allowMissingLeaf = false } = {}) {
@@ -263,6 +278,7 @@ export async function applyFinalSendPatch({ hostRoot, stateRoot, hookSourcePath 
   const state = resolve(stateRoot);
   if (inside(root, state) && inside(resolve(root, 'src'), state)) fail('STATE_INSIDE_HOST_SOURCE');
   await mkdir(state, { recursive: true });
+  await assertSafeDirectoryTree(state);
   const release = await acquireLock(state);
   try {
     const rootReal = await realpath(root).catch(() => null);
