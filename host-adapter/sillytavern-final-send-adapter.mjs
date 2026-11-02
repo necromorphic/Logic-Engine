@@ -223,6 +223,11 @@ export function createSillyTavernFinalSendAdapter({
     authorizeResponseWrite(response, write, final = false) {
       const release = requestIdByResponse.get(response);
       if (!release) return write();
+      // SillyTavern's native stream forwarder may call response.end() once
+      // when the upstream body ends and again when the client socket closes.
+      // After one authorized final end, later final-end calls are idempotent
+      // no-ops; they must never invoke the native writer a second time.
+      if (release.state === 'completed' && final === true) return undefined;
       if (release.state !== 'pending') {
         throw terminalError(new Error('MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED'));
       }
