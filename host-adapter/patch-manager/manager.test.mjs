@@ -152,7 +152,7 @@ test('repair refuses drift and preserves user edits', async t => {
   if (!fixture) return;
   await applyFinalSendPatch({ hostRoot: fixture.host, stateRoot: fixture.state, hookSourcePath });
   const endpoint = join(fixture.host, SILLYTAVERN_TARGET.endpointRelativePath);
-  const edited = Buffer.concat([await readFile(endpoint), Buffer.from('\\n// user change\\n')]);
+  const edited = Buffer.concat([await readFile(endpoint), Buffer.from('\n// user change\n')]);
   await writeFile(endpoint, edited);
   await assert.rejects(
     repairFinalSendPatch({ hostRoot: fixture.host, stateRoot: fixture.state, hookSourcePath }),
@@ -187,8 +187,8 @@ test('pinned non-target source hash verification tolerates Windows CRLF checkout
   const fixture = await createPinnedFixture(t);
   if (!fixture) return;
   const loader = join(fixture.host, 'src/plugin-loader.js');
-  const lf = (await readFile(loader, 'utf8')).replace(/\\r?\\n/g, '\\n');
-  await writeFile(loader, lf.replace(/\\n/g, '\\r\\n'), 'utf8');
+  const lf = (await readFile(loader, 'utf8')).replace(/\r?\n/g, '\n');
+  await writeFile(loader, lf.replace(/\n/g, '\r\n'), 'utf8');
   const first = await applyFinalSendPatch({
     hostRoot: fixture.host, stateRoot: fixture.state, hookSourcePath,
   });
