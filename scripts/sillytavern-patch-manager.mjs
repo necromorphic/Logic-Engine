@@ -142,6 +142,7 @@ export class SillyTavernPatchManager {
     // Git may materialize text patches with CRLF on Windows. The manifest
     // pins canonical UTF-8/LF bytes so the same artifact verifies on every OS.
     const canonicalPatchBytes = Buffer.from(this.patchBytes.toString('utf8').replace(/\r\n/g, '\n'), 'utf8');
+    this.canonicalPatchBytes = canonicalPatchBytes;
     if (sha256(canonicalPatchBytes) !== this.manifest.patch.sha256) throw new Error('PATCH_ARTIFACT_INTEGRITY_MISMATCH');
     if (this.manifest.id !== 'logic-engine-sillytavern-final-send'
       || this.manifest.host?.name !== 'SillyTavern'
@@ -340,7 +341,9 @@ export class SillyTavernPatchManager {
         await mkdir(dirname(target), { recursive: true });
         await writeFile(target, bytes.toString('utf8').replace(/\r\n/g, '\n'), 'utf8');
       }
-      this.runGit(['apply', '--ignore-whitespace', '--check', this.patchPath], temporaryRoot);
+      const canonicalPatchPath = resolve(temporaryRoot, 'logic-engine-final-send.patch');
+      await writeFile(canonicalPatchPath, this.canonicalPatchBytes, { flag: 'wx', mode: 0o600 });
+      this.runGit(['apply', '--ignore-whitespace', '--check', canonicalPatchPath], temporaryRoot);
     } finally {
       await rm(temporaryRoot, { recursive: true, force: true });
     }
@@ -395,9 +398,12 @@ export class SillyTavernPatchManager {
     journal.phase = 'APPLYING';
     await this.writeJournal(journal);
     this._activeInstallBackups = backups;
+    const patchRoot = await mkdtemp(resolve(tmpdir(), 'logic-engine-st-patch-'));
+    const canonicalPatchPath = resolve(patchRoot, 'logic-engine-final-send.patch');
     try {
+      await writeFile(canonicalPatchPath, this.canonicalPatchBytes, { flag: 'wx', mode: 0o600 });
       await this.normalizePatchTargetsForApply();
-      this.runGit(['apply', '--ignore-whitespace', this.patchPath], this.stRoot);
+      this.runGit(['apply', '--ignore-whitespace', canonicalPatchPath], this.stRoot);
       await this.restorePatchTargetLineEndings();
       await this.verifyInstalled();
       const installed = {
@@ -422,6 +428,8 @@ export class SillyTavernPatchManager {
       await this.restoreJournal(journal);
       this._activeInstallBackups = null;
       throw error;
+    } finally {
+      await rm(patchRoot, { recursive: true, force: true });
     }
   }
 
