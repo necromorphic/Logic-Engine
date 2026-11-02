@@ -65,6 +65,9 @@ test('Final-Send patch routes every Chat Completions fetch and stream release th
   assert.match(source, /logicEngineFinalSendTerminal/);
   assert.match(source, /response\.destroy\(\)/);
   assert.match(source, /if \(error\?\.logicEngineFinalSendTerminal === true\) throw error;/);
+  for (const routeId of ['text-completions', 'kobold', 'novelai-text', 'horde-text']) {
+    assert.ok(source.includes(`}, '${routeId}');`), 'missing explicit Final-Send route binding: ' + routeId);
+  }
   assert.match(source, /response\.write = function/);
   assert.match(source, /response\.end = function/);
   assert.match(source, /hostTransformsStream/);
