@@ -44,6 +44,28 @@ async function assertRegularFile(root, relativePath) {
   return absolute;
 }
 
+async function assertSafePathParents(root, relativePath, { allowMissingLeaf = false } = {}) {
+  const absolute = resolve(root, relativePath);
+  if (!inside(root, absolute) || absolute === root) fail('PATH_ESCAPE');
+  const components = relative(root, absolute).split(sep).filter(Boolean);
+  let current = root;
+  for (let index = 0; index < components.length; index += 1) {
+    current = join(current, components[index]);
+    const info = await lstat(current).catch(error => {
+      if (error?.code === 'ENOENT') return null;
+      throw error;
+    });
+    if (!info) {
+      if (allowMissingLeaf && index === components.length - 1) return absolute;
+      fail('HOST_PATH_MISSING_OR_REPARSE');
+    }
+    if (info.isSymbolicLink()) fail('HOST_PATH_MISSING_OR_REPARSE');
+    if (index < components.length - 1 && !info.isDirectory()) fail('HOST_PATH_NOT_DIRECTORY');
+    if (index === components.length - 1 && !info.isFile()) fail('HOST_FILE_TYPE_INVALID');
+  }
+  return absolute;
+}
+
 async function atomicWrite(path, bytes, mode = 0o600) {
   const directory = dirname(path);
   await mkdir(directory, { recursive: true });
@@ -156,16 +178,20 @@ async function recoverInterruptedRestore(stateRoot, hostRoot) {
     || pending.endpointRelativePath !== SILLYTAVERN_TARGET.endpointRelativePath
     || pending.hookRelativePath !== SILLYTAVERN_TARGET.hookRelativePath) fail('RESTORE_RECOVERY_STATE_INVALID');
 
-  const targetPath = resolve(hostRoot, pending.endpointRelativePath);
-  const hookPath = resolve(hostRoot, pending.hookRelativePath);
-  const backupPath = resolve(stateRoot, pending.backupRelativePath);
-  if (!inside(hostRoot, targetPath) || !inside(hostRoot, hookPath)
-    || !inside(stateRoot, backupPath)) fail('RESTORE_RECOVERY_PATH_INVALID');
+  const targetPath = await assertSafePathParents(hostRoot, pending.endpointRelativePath);
+  const hookPath = await assertSafePathParents(hostRoot, pending.hookRelativePath, { allowMissingLeaf: true });
+  const backupPath = await assertRegularFile(stateRoot, pending.backupRelativePath);
 
   const original = await readFile(backupPath).catch(() => null);
   if (!original || sha256(original) !== pending.originalHash) fail('RESTORE_RECOVERY_BACKUP_INVALID');
-  const currentTarget = await readFile(targetPath).catch(() => null);
-  const currentHook = await readFile(hookPath).catch(() => null);
+  const currentTarget = await readFile(targetPath).catch(error => {
+    if (error?.code === 'ENOENT') return null;
+    throw error;
+  });
+  const currentHook = await readFile(hookPath).catch(error => {
+    if (error?.code === 'ENOENT') return null;
+    throw error;
+  });
   const manifestPath = join(stateRoot, MANIFEST_NAME);
   const manifest = await readJson(manifestPath);
 
@@ -363,12 +389,9 @@ export async function restoreFinalSendPatch({ hostRoot, stateRoot }) {
     if (!manifest || manifest.status !== 'installed' || manifest.patchId !== PATCH_ID) {
       fail('PATCH_NOT_INSTALLED');
     }
-    const endpointPath = resolve(root, manifest.endpointRelativePath);
-    const hookPath = resolve(root, manifest.hookRelativePath);
-    const backupPath = resolve(state, manifest.backupRelativePath);
-    if (!inside(root, endpointPath) || !inside(root, hookPath) || !inside(state, backupPath)) {
-      fail('RESTORE_PATH_INVALID');
-    }
+    const endpointPath = await assertRegularFile(rootReal, manifest.endpointRelativePath);
+    const hookPath = await assertRegularFile(rootReal, manifest.hookRelativePath);
+    const backupPath = await assertRegularFile(state, manifest.backupRelativePath);
     const endpoint = await readFile(endpointPath);
     const hook = await readFile(hookPath);
     const original = await readFile(backupPath);
