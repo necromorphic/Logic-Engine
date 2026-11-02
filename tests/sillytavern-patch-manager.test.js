@@ -208,7 +208,7 @@ test('Patch Manager recovers an interrupted apply journal to the verified baseli
   assert.equal(await readFile(join(stRoot, 'src/host.js'), 'utf8'), original);
 });
 
-test('Patch Manager updates an owned patch by rolling back the previous pinned version first', async (t) => {
+test('Patch Manager updates a changed artifact even when its version label is unchanged', async (t) => {
   const { manager, stRoot } = await fixture(t);
   await manager.execute('install');
 
@@ -231,7 +231,6 @@ test('Patch Manager updates an owned patch by rolling back the previous pinned v
     '',
   ].join('\\n');
   const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
-  manifest.patch.version = 'test-2';
   manifest.patch.sha256 = hash(patchV2);
   manifest.sourceFiles['src/host.js'].after = hash(patchedV2);
   manifest.createdFiles['src/hook.js'] = hash(hookV2);
