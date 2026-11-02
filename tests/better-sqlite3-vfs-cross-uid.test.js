@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
 import { existsSync, mkdirSync, openSync, renameSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
@@ -188,6 +188,51 @@ test('distinct-UID broker protects better-sqlite3 main, journal, WAL and SHM fil
     if (readerTransactionActive) reader?.exec('ROLLBACK;');
     reader?.close();
     writer.close();
+  }
+
+  // Prove SQLite's WAL write lock is enforced across OS processes when both
+  // connections obtain their DB/SHM handles through the distinct-UID broker.
+  const lockHolder = new Database(databasePath);
+  try {
+    lockHolder.exec('BEGIN IMMEDIATE;');
+    lockHolder.prepare('INSERT INTO broker_probe VALUES (?)').run('cross-process-lock-holder');
+    const contenderScript = `
+      const Database = require(process.env.BETTER_SQLITE3_PACKAGE_DIR);
+      const bootstrap = new Database(':memory:');
+      bootstrap.loadExtension(process.env.LOGIC_ENGINE_VFS_PROBE_PATH, 'sqlite3_secure_vfs_probe_init');
+      bootstrap.close();
+      const registrar = new Database(':memory:');
+      const registered = registrar.prepare(
+        'SELECT logic_engine_vfs_probe_register_broker_role_from_host() AS registered'
+      ).get().registered;
+      if (registered !== 1) process.exit(31);
+      const contender = new Database(process.env.LOGIC_ENGINE_DATABASE_PATH);
+      contender.pragma('busy_timeout = 300');
+      try {
+        contender.exec('BEGIN IMMEDIATE;');
+        contender.exec('ROLLBACK;');
+        process.exit(32);
+      } catch (error) {
+        if (error.code !== 'SQLITE_BUSY') process.exit(33);
+      } finally {
+        contender.close();
+        registrar.close();
+      }
+    `;
+    const contender = spawnSync(process.execPath, ['-e', contenderScript], {
+      encoding: 'utf8',
+      env: process.env,
+      timeout: 30000,
+    });
+    assert.equal(
+      contender.status,
+      0,
+      'a second OS process must observe SQLITE_BUSY while the first process owns BEGIN IMMEDIATE: '
+        + String(contender.stderr || contender.error || contender.status),
+    );
+  } finally {
+    lockHolder.exec('ROLLBACK;');
+    lockHolder.close();
   }
 
   const crashScript = `
