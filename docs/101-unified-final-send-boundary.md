@@ -1,5 +1,8 @@
 # Unified final-send boundary — pinned SillyTavern route audit
 
+> **Historical document.** Its rejection of source patching is superseded for the managed SillyTavern 1.19.0 deployment candidate by [ADR 103](./103-managed-sillytavern-source-patch-decision.md). The sender inventory and route-coverage findings remain valid; this document is not an independent deployment prohibition.
+
+
 **Status:** historical route audit and implementation experiment; NOT an approved integration procedure. The proposed Host source patch is rejected because SillyTavern must remain unmodified. The current target contract and extension feasibility findings are in [document 102](./102-target-trust-boundaries-and-st-extension-feasibility.md).  
 **Target Host:** SillyTavern commit `06bde939fb1e9c4c8d8641d810f0a916b5bce127` (1.19.0-1-g06bde939).  
 **Logic-Engine base:** `main` at `0c3debcb01946f6f8c94811b192e7277422e990a`.  
