@@ -158,7 +158,7 @@ test('Core registers Host root-inventory and lifecycle routes with deployment-bo
     event_id: '77777777-7777-4777-8777-777777777777',
     event_type: 'MUTATION_PREPARED',
     mutation_id: '88888888-8888-4888-8888-888888888888',
-    operation: 'chat-save',
+    operation: 'edit-message',
     mutation_digest: DIGEST('prepared-mutation'),
     occurred_at: '2026-11-02T00:00:00.000Z',
   };
