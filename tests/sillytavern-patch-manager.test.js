@@ -91,7 +91,7 @@ test('Patch Manager applies contextual hunks from a CRLF-checked-out patch artif
   const original = "const before = true;\nexport const host = 'stock';\nconst after = true;\n";
   const patched = "const before = true;\nexport const host = 'patched';\nconst after = true;\n";
   const sourcePath = join(stRoot, 'src/host.js');
-  await writeFile(sourcePath, original.replace(/\n/g, '\\r\n'));
+  await writeFile(sourcePath, original.replace(/\n/g, String.fromCharCode(13, 10)));
 
   const contextualPatch = [
     '--- a/src/host.js',
@@ -110,11 +110,11 @@ test('Patch Manager applies contextual hunks from a CRLF-checked-out patch artif
   };
   manifest.patch.sha256 = hash(Buffer.from(contextualPatch, 'utf8'));
   await writeFile(manager.manifestPath, JSON.stringify(manifest));
-  await writeFile(patchPath, contextualPatch.replace(/\n/g, '\\r\n'));
+  await writeFile(patchPath, contextualPatch.replace(/\n/g, String.fromCharCode(13, 10)));
 
   assert.equal((await manager.execute('preflight')).status, 'PREFLIGHT_OK');
   assert.equal((await manager.execute('install')).status, 'INSTALLED');
-  assert.equal(await readFile(sourcePath, 'utf8'), patched.replace(/\n/g, '\\r\n'));
+  assert.equal(await readFile(sourcePath, 'utf8'), patched.replace(/\n/g, String.fromCharCode(13, 10)));
 });
 
 test('Patch Manager performs preflight, backup, apply, verify and uninstall', async (t) => {
