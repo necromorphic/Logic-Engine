@@ -181,3 +181,20 @@ test('update is idempotent for the same managed patch and uninstall restores exa
   assert.deepEqual(await readFile(join(fixture.host, SILLYTAVERN_TARGET.endpointRelativePath)), original);
   await assert.rejects(readFile(join(fixture.host, SILLYTAVERN_TARGET.hookRelativePath)), { code: 'ENOENT' });
 });
+
+
+test('pinned non-target source hash verification tolerates Windows CRLF checkout normalization', async t => {
+  const fixture = await createPinnedFixture(t);
+  if (!fixture) return;
+  const loader = join(fixture.host, 'src/plugin-loader.js');
+  const lf = (await readFile(loader, 'utf8')).replace(/\\r?\\n/g, '\\n');
+  await writeFile(loader, lf.replace(/\\n/g, '\\r\\n'), 'utf8');
+  const first = await applyFinalSendPatch({
+    hostRoot: fixture.host, stateRoot: fixture.state, hookSourcePath,
+  });
+  assert.equal(first.status, 'installed');
+  const second = await applyFinalSendPatch({
+    hostRoot: fixture.host, stateRoot: fixture.state, hookSourcePath,
+  });
+  assert.equal(second.status, 'installed');
+});
