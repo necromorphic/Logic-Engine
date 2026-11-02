@@ -10,10 +10,10 @@ on:
       - "host-adapter/sillytavern-generation-bridge.mjs"
       - "tests/sillytavern-final-send-adapter.test.js"
       - "tests/protected-memory-final-send.test.js"
-      - "tests/sillytavern-generation-bridge.test.js tests/sillytavern-server-plugin-bootstrap.test.js"
       - "tests/sillytavern-server-plugin-bootstrap.test.js"
-      - "host-adapter/sillytavern-final-send-adapter.mjs"
+      - "scripts/install-logic-engine-extension.mjs"
       - "scripts/sillytavern-patch-manager.mjs"
+      - "manifest.json"
       - "tests/sillytavern-patch-manager.test.js"
       - "tests/sillytavern-final-send-patch-artifact.test.js"
       - ".github/workflows/final-send-patch-manager.yml"
@@ -56,4 +56,4 @@ jobs:
       - name: Test unified Patch Manager and Final-Send contracts against exact Host source
         env:
           SILLYTAVERN_DIR: SillyTavern
-        run: node --test tests/sillytavern-patch-manager.test.js tests/sillytavern-final-send-patch-artifact.test.js tests/sillytavern-final-send-adapter.test.js tests/protected-memory-final-send.test.js tests/sillytavern-generation-bridge.test.js
+        run: node --test tests/sillytavern-patch-manager.test.js tests/sillytavern-final-send-patch-artifact.test.js tests/sillytavern-final-send-adapter.test.js tests/protected-memory-final-send.test.js tests/sillytavern-generation-bridge.test.js tests/sillytavern-server-plugin-bootstrap.test.js
