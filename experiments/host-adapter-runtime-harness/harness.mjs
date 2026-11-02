@@ -366,8 +366,8 @@ test('all five pinned protected ST generation handlers use one Gateway handoff a
     body: JSON.stringify({ ...requests[0].body, logic_engine_protected_context: { worldId: 'spoofed' } }),
   });
   assert.equal(spoofedMemory.status, 503, 'browser-supplied protected Memory markers must be rejected');
-  assert.equal(providerRequests.length, 5);
-  assert.equal(gatewayDispatches, 5);
+  assert.equal(providerRequests.length, 6);
+  assert.equal(gatewayDispatches, 6);
 
   assert.ok(suppressedDebugCalls > 0, 'the upstream request-body debug paths must be suppressed');
   assert.equal(
