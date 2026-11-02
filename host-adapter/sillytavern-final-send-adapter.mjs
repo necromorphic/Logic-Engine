@@ -110,7 +110,7 @@ export function createSillyTavernFinalSendAdapter({
           || typeof protectedMemory.requestId !== 'string' || !protectedMemory.requestId) {
           throw new Error('MEMORY_DISPATCH_NOT_READY');
         }
-        requestIdByResponse.set(args.response, protectedMemory.requestId);
+        requestIdByResponse.set(args.response, { requestId: protectedMemory.requestId, state: 'pending' });
       }
       let result;
       try {
@@ -126,7 +126,10 @@ export function createSillyTavernFinalSendAdapter({
           hostTransformsStream: args.hostTransformsStream === true,
         });
       } catch (error) {
-        if (args.response) requestIdByResponse.delete(args.response);
+        if (args.response) {
+          const release = requestIdByResponse.get(args.response);
+          if (release) release.state = 'denied';
+        }
         throw error;
       }
       if (result && typeof result.then === 'function') {
@@ -139,14 +142,20 @@ export function createSillyTavernFinalSendAdapter({
     },
 
     authorizeResponseWrite(response, write, final = false) {
-      const requestId = requestIdByResponse.get(response);
-      if (!requestId) return write();
+      const release = requestIdByResponse.get(response);
+      if (!release) return write();
+      if (release.state !== 'pending') {
+        throw new Error('MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED');
+      }
       try {
-        const result = gateway.authorizeResponseWrite(requestId, write, { final });
-        if (final) requestIdByResponse.delete(response);
+        const result = gateway.authorizeResponseWrite(release.requestId, write, { final });
+        if (final) release.state = 'completed';
         return result;
       } catch (error) {
-        requestIdByResponse.delete(response);
+        // Keep a terminal tombstone in the WeakMap. Deleting the entry would
+        // make a later Express error/fallback write look like an unprotected
+        // response and bypass the final-send gate.
+        release.state = 'denied';
         throw error;
       }
     },
