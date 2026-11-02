@@ -9,8 +9,9 @@ import { createHmac } from 'node:crypto';
 import { SQLiteStore } from '../../../src/storage/sqlite-store.js';
 import { LogicEngine } from '../../../src/application/engine.js';
 import { createApiServer } from '../../../src/api/server.js';
-import { getAuthenticatedHostSessionContext } from '../../../src/application/host-session-context.js';
 import { HostAssertionNonceStore } from '../../../src/application/host-assertion-nonce-store.js';
+import { createMemoryNpcProviderAdapter } from '../../../src/application/memory-npc-provider-adapter.js';
+import { ActorBindingService } from '../../../src/application/actor-bindings.js';
 import { createSillyTavernHostAdapter } from '../server-plugin/host-adapter.mjs';
 
 const API_TOKEN = 'core-api-token-long-enough-123456';
@@ -54,28 +55,15 @@ test('Host Adapter requires Core root proof before context resolution and binds 
   await Promise.all([mkdir(chats, { recursive: true }), mkdir(groups, { recursive: true }), mkdir(groupChats, { recursive: true })]);
   const corePath = join(directory, 'core.sqlite');
   const coordinatorPath = join(directory, 'coordinator.sqlite');
-  const store = new SQLiteStore(':memory:');
+  const previousCoordinatorPath = process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH;
+  process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH = coordinatorPath;
+  const store = new SQLiteStore(corePath);
   const engine = new LogicEngine(store);
   const nonceStore = new HostAssertionNonceStore({
     path: join(directory, 'host-assertion-nonces.sqlite'),
     coreDatabasePath: corePath,
     coordinatorPath,
   });
-  const retrievalContexts = [];
-  const memoryConsumer = {
-    adapterId: ADAPTER_ID,
-    async retrieveForNpc({ conversationId }) {
-      const context = getAuthenticatedHostSessionContext();
-      assert.equal(context.conversation_id, conversationId);
-      assert.equal(context.world_id, 'host-e2e-world');
-      assert.equal(context.actor_id, 'host-e2e-actor');
-      retrievalContexts.push({ ...context });
-      return {
-        status: 'ready', admitted: [], candidates: [], reason: null,
-        snapshot: { world_revision: 1, commit_sequence: retrievalContexts.length },
-      };
-    },
-  };
   engine.createWorld({
     world_id: 'host-e2e-world',
     world_pack_id: 'test.host-e2e',
@@ -87,25 +75,69 @@ test('Host Adapter requires Core root proof before context resolution and binds 
     turn_id: 'host-e2e-seed-actor',
     event_type: 'action.completed',
     expected_revision: 0,
-    effects: [{ kind: 'entity.create', entity_id: 'host-e2e-actor', entity_type: 'character' }],
+    effects: [
+      { kind: 'entity.create', entity_id: 'host-e2e-actor', entity_type: 'character' },
+      { kind: 'entity.create', entity_id: 'host-e2e-source', entity_type: 'character',
+        attributes: { public_note: 'Core-authorized memory fact' } },
+    ],
   });
+  new ActorBindingService(engine).bind('host-e2e-world', ADAPTER_ID, 'host-e2e-actor');
+  const memoryAdapter = createMemoryNpcProviderAdapter({
+    engine,
+    providerPath: join(directory, 'memory-provider.sqlite'),
+    coordinatorPath,
+    adapterId: ADAPTER_ID,
+    trustedInitialKnowledgeSources: [],
+    fieldPolicy: (_context, entity, field) => field === 'entity_id'
+      || (field === 'attributes.public_note' && entity.entity_id === 'host-e2e-source'),
+    contentFields: ['attributes.public_note'],
+  });
+  const providerScope = {
+    world_id: 'host-e2e-world',
+    subject_id: 'host-e2e-actor',
+    purpose: 'npc_decision',
+  };
+  const sourceVersion = engine.getSnapshot('host-e2e-world', {
+    entityIds: ['host-e2e-source'], includeSourceVersions: true,
+  }).entities[0]?.source_version;
+  assert.equal(typeof sourceVersion, 'string');
+  memoryAdapter.provider.grantQuery(providerScope, true);
+  memoryAdapter.provider.putRecord({
+    ...providerScope,
+    record_ref: 'memory:host-e2e',
+    record_version: 'record-v1',
+    source_kind: 'canonical_entity',
+    source_entity_id: 'host-e2e-source',
+    source_version: sourceVersion,
+    content_kind: 'claim',
+    epistemic_kind: 'acquired_report',
+    producer_kind: 'memory-index',
+    content_disposition: 'usable',
+    evidence_assessment: 'unassessed',
+    lineage: [{ source_kind: 'canonical_entity', entity_id: 'host-e2e-source', source_version: sourceVersion }],
+  });
+  memoryAdapter.provider.grantRecord(providerScope, 'memory:host-e2e', 'record-v1', true);
+  await memoryAdapter.prepareWorld('host-e2e-world');
   const core = createApiServer({
     engine,
     token: API_TOKEN,
     adminToken: ADMIN_TOKEN,
     adapterTokens: { [ADAPTER_ID]: ADAPTER_TOKEN },
-    memoryNpcConsumers: { [ADAPTER_ID]: memoryConsumer },
+    memoryNpcConsumers: { [ADAPTER_ID]: memoryAdapter.consumer },
     hostAssertionNonceStore: nonceStore,
   });
   core.listen(0, '127.0.0.1');
   await once(core, 'listening');
   t.after(async () => {
     await new Promise(resolve => core.close(resolve));
+    memoryAdapter.close();
     nonceStore.close();
     store.close();
     await rm(directory, { recursive: true, force: true });
     if (previousDataRoot === undefined) delete globalThis.DATA_ROOT;
     else globalThis.DATA_ROOT = previousDataRoot;
+    if (previousCoordinatorPath === undefined) delete process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH;
+    else process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH = previousCoordinatorPath;
   });
   const coreUrl = 'http://127.0.0.1:' + core.address().port;
   const coreHeaders = { authorization: 'Bearer ' + API_TOKEN };
@@ -283,9 +315,14 @@ test('Host Adapter requires Core root proof before context resolution and binds 
   assert.equal(dispatchResponse.statusCode, 200);
   assert.equal(dispatchResponse.payload.retrieval.status, 'ready');
   assert.equal(coreCalls[1], '/v1/host/memory-npc/retrieve');
-  assert.equal(retrievalContexts[0].conversation_id, stableConversationId);
-  assert.equal(retrievalContexts[0].host_installation_id, identityResponse.payload.host_installation_id);
-  assert.equal(retrievalContexts[0].authenticated_account_id, identityResponse.payload.authenticated_account_id);
+  assert.equal(capturedSuccessfulDispatchBody.assertion.conversation_id, stableConversationId);
+  assert.equal(capturedSuccessfulDispatchBody.assertion.host_installation_id, identityResponse.payload.host_installation_id);
+  assert.equal(capturedSuccessfulDispatchBody.assertion.authenticated_account_id, identityResponse.payload.authenticated_account_id);
+  assert.equal(dispatchResponse.payload.retrieval.candidates.length, 1);
+  assert.equal(dispatchResponse.payload.retrieval.candidates[0].record_ref, 'memory:host-e2e');
+  assert.deepEqual(dispatchResponse.payload.retrieval.candidates[0].content, {
+    'attributes.public_note': 'Core-authorized memory fact',
+  });
   // Negative assertions travel through the same Host Adapter → Core HTTP path.
   dispatchFaultMode = 'invalid-signature';
   const invalidSignatureResponse = responseRecorder();
@@ -311,7 +348,7 @@ test('Host Adapter requires Core root proof before context resolution and binds 
   );
   assert.equal(replayResponse.status, 409);
   assert.equal((await replayResponse.json()).error.code, 'HOST_SESSION_ASSERTION_REPLAYED');
-  assert.equal(retrievalContexts.length, 1);
+  assert.equal(replay.status, 409);
 
 
   // Accounts-enabled mode: ST supplies session.handle and it must bind to the
@@ -354,8 +391,9 @@ test('Host Adapter requires Core root proof before context resolution and binds 
   await adapter.dispatch(accountsEnabledRequest, accountsDispatchResponse);
   assert.equal(accountsDispatchResponse.statusCode, 200);
   assert.equal(accountsDispatchResponse.payload.retrieval.status, 'ready');
-  assert.equal(retrievalContexts[1].conversation_id, accountsConversationId);
-  assert.equal(retrievalContexts[1].authenticated_account_id, accountsIdentityResponse.payload.authenticated_account_id);
+  assert.equal(capturedSuccessfulDispatchBody.assertion.conversation_id, accountsConversationId);
+  assert.equal(capturedSuccessfulDispatchBody.assertion.authenticated_account_id, accountsIdentityResponse.payload.authenticated_account_id);
+  assert.equal(accountsDispatchResponse.payload.retrieval.candidates[0].record_ref, 'memory:host-e2e');
   assert.equal(coreCalls[6], '/v1/host-context/resolve');
   assert.equal(coreCalls[7], '/v1/host/memory-npc/retrieve');
   assert.equal(resolvedCoreContexts[3].context.conversation_id, accountsConversationId);
@@ -404,16 +442,31 @@ test('Host Adapter requires Core root proof before context resolution and binds 
   await restartedAdapter.dispatch(restartedRequest, restartedDispatchResponse);
   assert.equal(restartedDispatchResponse.statusCode, 200);
   assert.equal(restartedDispatchResponse.payload.retrieval.status, 'ready');
-  assert.equal(retrievalContexts[2].conversation_id, restartedConversationId);
-  assert.equal(retrievalContexts[2].host_installation_id, restartedIdentityResponse.payload.host_installation_id);
-  assert.equal(retrievalContexts[2].authenticated_account_id, restartedIdentityResponse.payload.authenticated_account_id);
-  assert.notEqual(retrievalContexts[2].host_session_id, retrievalContexts[0].host_session_id);
+  assert.equal(capturedSuccessfulDispatchBody.assertion.conversation_id, restartedConversationId);
+  assert.equal(capturedSuccessfulDispatchBody.assertion.host_installation_id, restartedIdentityResponse.payload.host_installation_id);
+  assert.equal(capturedSuccessfulDispatchBody.assertion.authenticated_account_id, restartedIdentityResponse.payload.authenticated_account_id);
+  assert.equal(restartedDispatchResponse.payload.retrieval.candidates[0].record_ref, 'memory:host-e2e');
   assert.equal(coreCalls[8], '/v1/host-context/resolve');
   assert.equal(coreCalls[9], '/v1/host/memory-npc/retrieve');
   assert.equal(resolvedCoreContexts.length, 5);
   assert.equal(resolvedCoreContexts[4].context.conversation_id, restartedConversationId);
   assert.equal(resolvedCoreContexts[4].context.world_id, 'host-e2e-world');
   assert.equal(resolvedCoreContexts[4].context.actor_id, 'host-e2e-actor');
+
+  // A real Provider grant revocation must survive the same Host → Core HTTP path.
+  memoryAdapter.provider.revokeRecord(providerScope, 'memory:host-e2e', 'record-v1');
+  restartedRequest.body.request_id = '88888888-8888-4888-8888-888888888888';
+  const revokedGateResponse = responseRecorder();
+  let revokedPassedGate = false;
+  await restartedAdapter.dispatchMiddleware(restartedRequest, revokedGateResponse, () => { revokedPassedGate = true; });
+  assert.equal(revokedPassedGate, true);
+  const revokedDispatchResponse = responseRecorder();
+  await restartedAdapter.dispatch(restartedRequest, revokedDispatchResponse);
+  assert.equal(revokedDispatchResponse.statusCode, 200);
+  assert.equal(revokedDispatchResponse.payload.retrieval.status, 'non_ready');
+  assert.equal(revokedDispatchResponse.payload.retrieval.reason, 'memory_record_access_revoked');
+  assert.deepEqual(revokedDispatchResponse.payload.retrieval.candidates, []);
+  assert.deepEqual(revokedDispatchResponse.payload.retrieval.admitted, []);
 
   // The production scanner currently emits DOUBLE_SCAN_CANDIDATE. Prove that
   // such a candidate cannot reach Core, even when the same server credentials exist.
