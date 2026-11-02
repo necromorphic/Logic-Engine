@@ -46,8 +46,8 @@ const fakeProvider = http.createServer((req, res) => {
     try { requestBody = JSON.parse(Buffer.concat(requestChunks).toString('utf8')); } catch {}
     if (req.url.includes('/chat/completions') && requestBody.stream === true) {
       res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' });
-      res.write('data: {"id":"fake-stream","choices":[{"index":0,"delta":{"role":"assistant","content":"stream-ok"},"finish_reason":null}]}\\n\\n');
-      res.end('data: {"id":"fake-stream","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\\n\\ndata: [DONE]\\n\\n');
+      res.write('data: {"id":"fake-stream","choices":[{"index":0,"delta":{"role":"assistant","content":"stream-ok"},"finish_reason":null}]}\n\n');
+      res.end('data: {"id":"fake-stream","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n');
       return;
     }
     let body;
