@@ -13,7 +13,11 @@ if (process.platform !== 'linux' || typeof process.getuid !== 'function') {
   );
 }
 
-const require = createRequire(import.meta.url);
+const serverEntry = process.env.LOGIC_ENGINE_ST_VECTOR_SERVER_ENTRY;
+if (!serverEntry || !path.isAbsolute(serverEntry) || !fs.statSync(serverEntry).isFile()) {
+  throw new Error('LOGIC_ENGINE_ST_VECTOR_SERVER_ENTRY must identify the absolute installed ST-VectorService server.js file');
+}
+const require = createRequire(serverEntry);
 const packageRoot = process.env.BETTER_SQLITE3_PACKAGE_DIR;
 const Database = require(packageRoot || 'better-sqlite3');
 
