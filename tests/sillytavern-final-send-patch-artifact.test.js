@@ -64,6 +64,7 @@ test('Final-Send patch routes every Chat Completions fetch and stream release th
   assert.match(source, /hostRoute: active\.route/);
   assert.match(source, /logicEngineFinalSendTerminal/);
   assert.match(source, /response\.destroy\(\)/);
+  assert.match(source, /if \(error\?\.logicEngineFinalSendTerminal === true\) throw error;/);
   assert.match(source, /response\.write = function/);
   assert.match(source, /response\.end = function/);
   assert.match(source, /hostTransformsStream/);
