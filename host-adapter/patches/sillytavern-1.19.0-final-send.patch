@@ -83,7 +83,7 @@
              throw manifestError;
          }
      } catch (error) {
-@@ -210,1 +210,2 @@
+@@ -208,3 +218,4 @@
          const shortCommitHash = fullCommitHash.slice(0, 7);
 +        await runLogicEngineExtensionLifecycle({ action: 'update', extensionPath });
  
