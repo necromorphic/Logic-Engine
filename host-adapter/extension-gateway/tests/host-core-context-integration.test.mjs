@@ -12,6 +12,12 @@ import { createApiServer } from '../../../src/api/server.js';
 import { HostAssertionNonceStore } from '../../../src/application/host-assertion-nonce-store.js';
 import { createMemoryNpcProviderAdapter } from '../../../src/application/memory-npc-provider-adapter.js';
 import { ActorBindingService } from '../../../src/application/actor-bindings.js';
+import { HostLifecycleJournal } from '../../../src/application/host-lifecycle-journal.js';
+import {
+  parseHostRootIdentityRegistry,
+  resolveAdapterHostRootIdentity,
+  resolveRegisteredHostRootIdentity,
+} from '../../../src/application/host-root-inventory-identity.js';
 import { createSillyTavernHostAdapter } from '../server-plugin/host-adapter.mjs';
 
 const API_TOKEN = 'core-api-token-long-enough-123456';
@@ -63,6 +69,13 @@ test('Host Adapter requires Core root proof before context resolution and binds 
     path: join(directory, 'host-assertion-nonces.sqlite'),
     coreDatabasePath: corePath,
     coordinatorPath,
+  });
+  let hostRootIdentityRegistry = Object.freeze([]);
+  const hostRootInventoryJournal = new HostLifecycleJournal({
+    path: join(directory, 'host-lifecycle.sqlite'),
+    coordinatorPath,
+    resolveIdentity: () => ({ authorized: false }),
+    resolveRootIdentity: input => resolveRegisteredHostRootIdentity(hostRootIdentityRegistry, input),
   });
   engine.createWorld({
     world_id: 'host-e2e-world',
@@ -137,12 +150,15 @@ test('Host Adapter requires Core root proof before context resolution and binds 
     adapterTokens: { [ADAPTER_ID]: ADAPTER_TOKEN },
     memoryNpcConsumers: { [ADAPTER_ID]: memoryAdapter.consumer },
     hostAssertionNonceStore: nonceStore,
+    hostRootInventoryJournal,
+    resolveHostRootIdentity: input => resolveAdapterHostRootIdentity(hostRootIdentityRegistry, input),
   });
   core.listen(0, '127.0.0.1');
   await once(core, 'listening');
   t.after(async () => {
     await new Promise(resolve => core.close(resolve));
     memoryAdapter.close();
+    hostRootInventoryJournal.close();
     nonceStore.close();
     store.close();
     await rm(directory, { recursive: true, force: true });
@@ -264,12 +280,26 @@ test('Host Adapter requires Core root proof before context resolution and binds 
     },
   };
   const productionCoreCalls = [];
+  const productionRootResponses = [];
   const productionAdapter = createSillyTavernHostAdapter({
     env,
     enumerate: authoritativeFixture,
     fetchImpl: async (url, options) => {
+      const pathname = new URL(url).pathname;
+      productionCoreCalls.push(pathname);
+      if (pathname.startsWith('/v1/host-root-inventory/') && options?.body) {
+        const body = JSON.parse(options.body);
+        hostRootIdentityRegistry = parseHostRootIdentityRegistry(JSON.stringify([{
+          adapter_id: ADAPTER_ID,
+          host_installation_id: body.host_installation_id,
+          authenticated_account_id: body.authenticated_account_id,
+          root_id: body.root_id,
+        }]));
+      }
       const response = await fetch(url, options);
-      productionCoreCalls.push(new URL(url).pathname);
+      if (pathname.startsWith('/v1/host-root-inventory/')) {
+        productionRootResponses.push({ status: response.status, payload: await response.clone().json() });
+      }
       return response;
     },
   });
@@ -291,6 +321,9 @@ test('Host Adapter requires Core root proof before context resolution and binds 
   assert.equal(productionGateResponse.statusCode, 503);
   assert.equal(productionGateResponse.payload.code, 'HOST_INVENTORY_NOT_AUTHORITATIVE');
   assert.ok(productionCoreCalls.some(path => path.startsWith('/v1/host-root-inventory/')));
+  assert.equal(productionRootResponses[0].status, 200);
+  assert.equal(productionRootResponses[0].payload.inventory_status, 'REVIEW_ONLY');
+  assert.equal(productionRootResponses[0].payload.reconciliation.status, 'BASELINED_REVIEW_ONLY');
   assert.equal(productionCoreCalls.includes('/v1/host-context/resolve'), false);
 
   const sessionResponse = responseRecorder();
