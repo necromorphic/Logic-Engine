@@ -467,6 +467,16 @@ export async function repairFinalSendPatch(options) {
  * Any conflict leaves the Host unmodified or restored to its original source.
  */
 export async function updateFinalSendPatch(options) {
+  // Startup reaches this operation through the Extension init path. Recover a
+  // durable uninstall journal before status inspection: an interrupted restore
+  // intentionally makes the installed bytes look drifted until recovery runs.
+  if (typeof options?.stateRoot !== 'string' || !isAbsolute(options.stateRoot)) {
+    throw new TypeError('Patch Manager update requires an absolute stateRoot.');
+  }
+  const restorePendingPath = join(resolve(options.stateRoot), RESTORE_PENDING_NAME);
+  if (await exists(restorePendingPath)) {
+    await restoreFinalSendPatch(options);
+  }
   const status = await getFinalSendPatchStatus(options);
   if (status.status === 'drifted' || status.status === 'unmanaged') {
     fail('UPDATE_DRIFT');
