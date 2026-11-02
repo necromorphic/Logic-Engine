@@ -43,7 +43,10 @@ let stopping = false;
 async function shutdown() {
   if (stopping) return;
   stopping = true;
-  if (server?.listening) await new Promise(resolve => server.close(resolve));
+  if (server?.listening) {
+    server.closeAllConnections?.();
+    await new Promise(resolve => server.close(resolve));
+  }
   try { nonceStore?.close(); } catch {}
   try { providerAdapter?.close(); } catch {}
   try { store.close(); } catch {}
@@ -133,5 +136,8 @@ try {
   process.exitCode = 1;
 }
 
+process.on('message', message => {
+  if (message?.type === 'shutdown') void shutdown().then(() => process.exit(0));
+});
 process.on('SIGTERM', () => { void shutdown().then(() => process.exit(0)); });
 process.on('SIGINT', () => { void shutdown().then(() => process.exit(0)); });
