@@ -66,6 +66,6 @@ Run:
 node --test host-adapter/patch-manager/manager.test.mjs
 ```
 
-The dedicated GitHub workflow checks the exact pinned SillyTavern source on Linux and Windows. Tests cover install, idempotent startup, byte-exact restore, source drift refusal, and refusal to overwrite local edits.
+The dedicated GitHub workflow checks the exact pinned SillyTavern source on Linux and Windows. Tests cover install, idempotent startup, update, repair, uninstall, byte-exact restore, source drift refusal, and refusal to overwrite local edits.
 
 Live acceptance still requires a real SillyTavern process with the Logic-Engine plugin installed, actual provider requests across sender families, exact upstream call counts, revoke-before-dispatch zero-egress, revoke-during-inference response suppression, restart recovery, and confirmation that the installed plugin's authenticated Host Adapter calls the in-process Core Gateway. Until then, protected Memory stays disabled.
