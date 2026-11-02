@@ -83,7 +83,10 @@
              throw manifestError;
          }
      } catch (error) {
-@@ -202,6 +212,7 @@
+@@ -200,9 +210,10 @@
+         if (!isUpToDate) {
+             await git.pull('origin', currentBranch.current);
+             console.info(`Extension has been updated at ${extensionPath}`);
          } else {
              console.info(`Extension is up to date at ${extensionPath}`);
          }
@@ -301,10 +304,14 @@
  import express from 'express';
  import _ from 'lodash';
  
-@@ -16,1 +16,2 @@
+@@ -14,5 +14,6 @@
+     OPENAI_KEYS,
+ } from '../../constants.js';
 -import { forwardFetchResponse, trimV1, getConfigValue } from '../../util.js';
 +import { forwardFetchResponse as nativeForwardFetchResponse, trimV1, getConfigValue } from '../../util.js';
 +const forwardFetchResponse = (upstream, response) => logicEngineForwardFetchResponse(upstream, response, nativeForwardFetchResponse);
+ import { setAdditionalHeaders } from '../../additional-headers.js';
+ import { createHash } from 'node:crypto';
 @@ -270,6 +271,7 @@
  });
  
@@ -358,10 +365,13 @@
  import express from 'express';
  
  import { readSecret, SECRET_KEYS } from './secrets.js';
-@@ -8,1 +8,2 @@
+@@ -7,4 +7,5 @@
+ import { readSecret, SECRET_KEYS } from './secrets.js';
 -import { readAllChunks, extractFileFromZipBuffer, forwardFetchResponse } from '../util.js';
 +import { readAllChunks, extractFileFromZipBuffer, forwardFetchResponse as nativeForwardFetchResponse } from '../util.js';
 +const forwardFetchResponse = (upstream, response) => logicEngineForwardFetchResponse(upstream, response, nativeForwardFetchResponse);
+ 
+ const API_NOVELAI = 'https://api.novelai.net';
 @@ -165,6 +166,7 @@
  });
  
