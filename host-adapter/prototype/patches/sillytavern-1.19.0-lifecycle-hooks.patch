@@ -1013,3 +1013,1345 @@ diff --git a/src/endpoints/users-admin.js b/src/endpoints/users-admin.js
      try {
          if (!request.body.handle) {
              console.warn('Delete user failed: Missing required fields');
+
+diff --git a/public/scripts/logic-engine-lifecycle/lifecycle-journal.mjs b/public/scripts/logic-engine-lifecycle/lifecycle-journal.mjs
+new file mode 100644
+--- /dev/null
++++ b/public/scripts/logic-engine-lifecycle/lifecycle-journal.mjs
++const REQUIRED_COVERAGE = Object.freeze(['create-message','message-send','message-receive','create-swipe','select-swipe','delete-swipe','delete-message','delete-chat','delete-group-chat','delete-character-chat-recursive','edit-message','regenerate','generation-start','generation-end','generation-stop','cancel-generation','partial-generation','persistence-ordering','clear-chat','import','import-character-chat','import-group-chat','export','copy-branch','restore','backup-restore','create-branch','group-metadata-migration','chat-switch','external-edit','rollback','restart','replay']);
++const canonical = x => Array.isArray(x) ? '[' + x.map(canonical).join(',') + ']' : x && typeof x === 'object' ? '{' + Object.keys(x).sort().map(k => JSON.stringify(k) + ':' + canonical(x[k])).join(',') + '}' : JSON.stringify(x);
++const digest = async x => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(canonical(x))))].map(n => n.toString(16).padStart(2, '0')).join('');
++const id = () => { if (!crypto.randomUUID) throw Error('crypto.randomUUID unavailable; NON_READY'); return crypto.randomUUID(); };
++/** Opt-in IndexedDB journal. Never stores raw message text; caller must await before mutating ST state. */
++export class HostLifecycleJournal {
++  #db; #locks = new Map(); #bad = new Map();
++  constructor(db) { if (!db) throw TypeError('IndexedDB database required'); this.#db = db; }
++  static async open(name = 'logic-engine-host-lifecycle-v1') {
++    if (!globalThis.indexedDB) throw Error('IndexedDB unavailable; NON_READY');
++    const req = indexedDB.open(name, 2);
++    req.onupgradeneeded = () => { const db = req.result; if (!db.objectStoreNames.contains('records')) { const s = db.createObjectStore('records', { keyPath: 'id' }); s.createIndex('conversationId', 'conversationId'); } if (!db.objectStoreNames.contains('heads')) db.createObjectStore('heads', { keyPath: 'conversationId' }); };
++    const db = await new Promise((resolve, reject) => { req.onsuccess = () => resolve(req.result); req.onerror = () => reject(req.error); req.onblocked = () => reject(Error('IndexedDB upgrade blocked; NON_READY')); });
++    return new HostLifecycleJournal(db);
++  }
++  async #records(cid) {
++    const tx = this.#db.transaction(['records'], 'readonly'), done = txDone(tx);
++    const req = tx.objectStore('records').index('conversationId').getAll(IDBKeyRange.only(cid));
++    const rows = await new Promise((resolve, reject) => { req.onsuccess = () => resolve(req.result); req.onerror = () => reject(req.error); });
++    await done; return rows.sort((a,b) => a.sequence-b.sequence);
++  }
++  async #head(cid) {
++    const tx = this.#db.transaction(['heads'], 'readonly'), done = txDone(tx), req = tx.objectStore('heads').get(cid);
++    const head = await new Promise((resolve, reject) => { req.onsuccess = () => resolve(req.result ?? null); req.onerror = () => reject(req.error); });
++    await done; return head;
++  }
++  async #verifyStored(cid, rows) {
++    const chain = await this.#verify(rows); if (!chain.ok) return chain;
++    const head = await this.#head(cid), tail = rows.at(-1);
++    if (!tail && head) return { ok: false, reason: 'records missing but head checkpoint exists' };
++    if (tail && (!head || head.sequence !== tail.sequence || head.recordDigest !== tail.recordDigest)) return { ok: false, reason: 'head checkpoint mismatch' };
++    return { ok: true };
++  }
++  async #put(row, { requireNoPendingMutation = false, requirePendingMutationOperation = null } = {}) {
++    const tx = this.#db.transaction(['records','heads'], 'readwrite', { durability: 'strict' });
++    const done = txDone(tx);
++    const records = tx.objectStore('records');
++    const heads = tx.objectStore('heads');
++    let rowsReady = false;
++    let headReady = false;
++    let currentRows = [];
++    let currentHead;
++    let validationFailure = null;
++    let expectedFailure = false;
++    const abortWith = (reason, expected = false) => {
++      if (validationFailure) return;
++      validationFailure = reason;
++      expectedFailure = expected;
++      try { tx.abort(); } catch {}
++    };
++    const commitIfReady = () => {
++      if (!rowsReady || !headReady || validationFailure) return;
++      currentRows.sort((a, b) => a.sequence - b.sequence);
++      const tail = currentRows.at(-1) ?? null;
++      if (currentRows.length !== row.sequence - 1
++        || (tail?.recordDigest ?? null) !== row.previousRecordDigest) {
++        abortWith('journal changed during append; retry from the verified head', true);
++        return;
++      }
++      if (tail
++        ? (!currentHead || currentHead.sequence !== tail.sequence || currentHead.recordDigest !== tail.recordDigest)
++        : Boolean(currentHead)) {
++        abortWith('journal head checkpoint changed during append', true);
++        return;
++      }
++      const lifecycleRows = currentRows.filter(record =>
++        typeof record.operation === 'string'
++        && (record.operation.startsWith('before:') || record.operation.startsWith('after:')));
++      const latestLifecycle = lifecycleRows.at(-1);
++      if (requireNoPendingMutation && latestLifecycle?.operation.startsWith('before:')) {
++        abortWith('cannot append checkpoint while Host lifecycle mutation is pending: '
++          + latestLifecycle.operation.slice('before:'.length), true);
++        return;
++      }
++      if (requirePendingMutationOperation !== null
++        && latestLifecycle?.operation !== 'before:' + requirePendingMutationOperation) {
++        abortWith('after receipt has no matching durable beforeMutation for '
++          + requirePendingMutationOperation, true);
++        return;
++      }
++      try {
++        records.add(row);
++        heads.put({
++          conversationId: row.conversationId,
++          sequence: row.sequence,
++          recordDigest: row.recordDigest,
++          sourceFingerprint: row.sourceFingerprint,
++        });
++      } catch (error) {
++        abortWith(error?.message || 'journal append transaction failed');
++      }
++    };
++    const rowsRequest = records.index('conversationId').getAll(IDBKeyRange.only(row.conversationId));
++    rowsRequest.onsuccess = () => {
++      currentRows = rowsRequest.result ?? [];
++      rowsReady = true;
++      commitIfReady();
++    };
++    rowsRequest.onerror = () => abortWith('journal records could not be read in append transaction');
++    const headRequest = heads.get(row.conversationId);
++    headRequest.onsuccess = () => {
++      currentHead = headRequest.result;
++      headReady = true;
++      commitIfReady();
++    };
++    headRequest.onerror = () => abortWith('journal head could not be read in append transaction');
++    try {
++      await done;
++    } catch (error) {
++      if (validationFailure && expectedFailure) return { status: 'NON_READY', reason: validationFailure };
++      if (validationFailure) throw Error(validationFailure);
++      throw error;
++    }
++    return null;
++  }
++  async enroll({ conversationId, sourceFingerprint, messages }) {
++    if (!conversationId || !sourceFingerprint || !Array.isArray(messages)) throw TypeError('Invalid baseline');
++    if ((await this.#records(conversationId)).length || await this.#head(conversationId)) throw Error('Already enrolled or checkpoint exists; explicit re-baseline is not supported');
++    const mapping = [];
++    for (let i=0;i<messages.length;i++) {
++      const m=messages[i], versions=Array.isArray(m.versions)&&m.versions.length?m.versions:[m.text ?? ''];
++      mapping.push({ messageId:id(), messageIndex:i, role:String(m.role ?? 'unknown'), activeVersionIndex:Number.isInteger(m.activeVersionIndex)?m.activeVersionIndex:0,
++        versions: await Promise.all(versions.map(async (text,j)=>({versionId:id(), versionIndex:j, payloadDigest:await digest(String(text))}))) });
++    }
++    const row=await this.append({conversationId,eventId:id(),operation:'baseline',sourceFingerprint,payload:{captureBoundary:'enrollment-forward-only',messages:mapping}});
++    if (row?.status === 'NON_READY') throw Error('NON_READY: baseline append rejected: ' + row.reason);
++    return {mapping, baselineSequence:row.sequence, preEnrollmentHistory:'UNKNOWN_UNRECOVERABLE'};
++  }
++  async append({conversationId,eventId,operation,payload,sourceFingerprint=null,requireNoPendingMutation=false}) {
++    if (!conversationId || !eventId || typeof operation !== 'string' || !operation || !payload || typeof payload !== 'object') throw TypeError('Invalid event');
++    const prev=this.#locks.get(conversationId)||Promise.resolve(); let release; const hold=new Promise(r=>release=r), chain=prev.then(()=>hold); this.#locks.set(conversationId,chain); await prev;
++    try {
++      if(this.#bad.has(conversationId)) throw Error('NON_READY: '+this.#bad.get(conversationId));
++      const rows=await this.#records(conversationId), check=await this.#verifyStored(conversationId, rows);
++      if(!check.ok) return this.#fail(conversationId,check.reason);
++      if (typeof requireNoPendingMutation !== 'boolean') throw TypeError('requireNoPendingMutation must be a boolean');
++      const eventDigest=await digest({conversationId,eventId,operation,payload,sourceFingerprint}), duplicate=rows.find(r=>r.eventId===eventId);
++      if(duplicate) return duplicate.eventDigest===eventDigest?duplicate:this.#fail(conversationId,'event ID conflict: '+eventId);
++      const lifecycleRows = rows.filter(row =>
++        typeof row.operation === 'string'
++        && (row.operation.startsWith('before:') || row.operation.startsWith('after:')));
++      const latestLifecycle = lifecycleRows.at(-1);
++      if ((requireNoPendingMutation || operation.startsWith('before:'))
++        && latestLifecycle?.operation.startsWith('before:')) {
++        return { status: 'NON_READY', reason: 'cannot append checkpoint while Host lifecycle mutation is pending: '
++          + latestLifecycle.operation.slice('before:'.length) };
++      }
++      if (operation.startsWith('after:')
++        && latestLifecycle?.operation !== 'before:' + operation.slice('after:'.length)) {
++        return { status: 'NON_READY', reason: 'after receipt has no matching durable beforeMutation for '
++          + operation.slice('after:'.length) };
++      }
++      if(operation==='baseline'&&rows.length) return this.#fail(conversationId,'baseline already exists');
++      if(operation!=='baseline'&&!rows.length) return this.#fail(conversationId,'event before baseline');
++      const p=rows.at(-1), base={id:conversationId+':'+String((p?.sequence||0)+1).padStart(12,'0'),schemaVersion:2,conversationId,sequence:(p?.sequence||0)+1,eventId,operation,sourceFingerprint,payload,eventDigest,previousRecordDigest:p?.recordDigest??null};
++      const row={...base,recordDigest:await digest(base)};
++      const requiredPendingOperation = operation.startsWith('after:') ? operation.slice('after:'.length) : null;
++      let putResult;
++      try {
++        putResult = await this.#put(row, {
++          requireNoPendingMutation: requireNoPendingMutation || operation.startsWith('before:'),
++          requirePendingMutationOperation: requiredPendingOperation,
++        });
++      } catch (error) {
++        this.#bad.set(conversationId, 'durable append failed: ' + (error?.message || error));
++        throw Error('NON_READY: durable append failed; caller MUST abort mutation ('
++          + (error?.message || error) + ')');
++      }
++      if (putResult?.status === 'NON_READY') return putResult;
++      return row;
++    } finally { release(); if(this.#locks.get(conversationId)===chain) this.#locks.delete(conversationId); }
++  }
++  async isEnrolled(cid) {
++    const rows = await this.#records(cid);
++    return rows.length > 0 && rows[0].operation === 'baseline';
++  }
++  async latestSourceFingerprint(cid) {
++    const rows = await this.#records(cid);
++    return rows.at(-1)?.sourceFingerprint ?? null;
++  }
++  async exportCaptureLedger(cid) {
++    const integrity = await this.verifyIntegrity(cid);
++    if (integrity.status !== 'INTEGRITY_OK') {
++      throw Error('NON_READY: cannot export an unverified Host capture ledger: ' + integrity.reason);
++    }
++    const records = await this.#records(cid);
++    return {
++      status: 'REVIEW_ONLY',
++      conversationId: cid,
++      captureBoundary: 'enrollment-forward-only',
++      preEnrollmentHistory: 'UNKNOWN_UNRECOVERABLE',
++      sourceFingerprint: integrity.sourceFingerprint,
++      sequence: integrity.sequence,
++      records,
++    };
++  }
++  async latestIdentitySnapshot(cid) {
++    const rows = await this.#records(cid);
++    for (let index = rows.length - 1; index >= 0; index--) {
++      const row = rows[index];
++      if (Array.isArray(row.payload?.changes)) {
++        return row.payload.changes;
++      }
++      if (row.operation === 'baseline' && Array.isArray(row.payload?.messages)) {
++        return row.payload.messages;
++      }
++    }
++    return null;
++  }
++  async beforeMutation(args) {
++    if(!Array.isArray(args.affectedVersions)) throw TypeError('affectedVersions must be an array');
++    const result=await this.append({...args,operation:'before:'+args.operation,payload:{affectedVersions:args.affectedVersions,details:args.details??{}}});
++    if(result?.status==='NON_READY') throw Error('NON_READY: '+result.reason+'; caller MUST abort mutation');
++    return result;
++  }
++  async pendingMutation(conversationId) {
++    if (this.#bad.has(conversationId)) {
++      return { status: 'NON_READY', reason: this.#bad.get(conversationId) };
++    }
++    let rows;
++    try {
++      rows = await this.#records(conversationId);
++    } catch (error) {
++      return this.#fail(conversationId, 'journal unreadable: ' + (error?.message || error));
++    }
++    const check = await this.#verifyStored(conversationId, rows);
++    if (!check.ok) return this.#fail(conversationId, check.reason);
++    if (!rows.length || rows[0].operation !== 'baseline') {
++      return { status: 'NON_READY', reason: 'missing baseline' };
++    }
++    const lifecycleRows = rows.filter(row =>
++      typeof row.operation === 'string'
++      && (row.operation.startsWith('before:') || row.operation.startsWith('after:')));
++    const latest = lifecycleRows.at(-1);
++    if (!latest || !latest.operation.startsWith('before:')) {
++      return { status: 'NO_PENDING_MUTATION' };
++    }
++    return {
++      status: 'PENDING_MUTATION',
++      operation: latest.operation.slice('before:'.length),
++      eventId: latest.eventId,
++      sequence: latest.sequence,
++    };
++  }
++  async verifyIntegrity(cid) {
++    if (this.#bad.has(cid)) return { status: 'NON_READY', reason: this.#bad.get(cid) };
++    let rows;
++    try {
++      rows = await this.#records(cid);
++    } catch (error) {
++      return this.#fail(cid, 'journal unreadable: ' + (error?.message || error));
++    }
++    const check = await this.#verifyStored(cid, rows);
++    if (!check.ok) return this.#fail(cid, check.reason);
++    if (!rows.length || rows[0].operation !== 'baseline') {
++      return { status: 'NON_READY', reason: 'missing baseline' };
++    }
++    return {
++      status: 'INTEGRITY_OK',
++      sequence: rows.at(-1).sequence,
++      sourceFingerprint: rows.at(-1).sourceFingerprint ?? null,
++    };
++  }
++  async status(cid,{instrumentedPaths=[],sourceFingerprintMatches=false}={}) {
++    if(this.#bad.has(cid)) return {status:'NON_READY',reason:this.#bad.get(cid)};
++    let rows; try { rows=await this.#records(cid); } catch(e) { return this.#fail(cid,'journal unreadable: '+(e?.message||e)); }
++    const check=await this.#verifyStored(cid,rows); if(!check.ok) return this.#fail(cid,check.reason);
++    if(!rows.length||rows[0].operation!=='baseline') return {status:'NON_READY',reason:'missing baseline'};
++    const missing=REQUIRED_COVERAGE.filter(p=>!instrumentedPaths.includes(p));
++    if(missing.length) return {status:'NON_READY',reason:'incomplete mutation instrumentation',missingPaths:missing,baselineBoundary:'enrollment-forward-only'};
++    if(!sourceFingerprintMatches) return {status:'NON_READY',reason:'source fingerprint mismatch or unverified'};
++    return {status:'NON_READY',reason:'native hook coverage has no trusted pinned-source attestation',sequence:rows.at(-1).sequence,baselineBoundary:'enrollment-forward-only'};
++  }
++  async #verify(rows) {
++    let previous=null;
++    for(let i=0;i<rows.length;i++) { const r=rows[i]; if(r.schemaVersion!==2)return {ok:false,reason:'unsupported journal schema at '+(i+1)}; if(r.sequence!==i+1)return {ok:false,reason:'sequence gap at '+(i+1)}; if(r.previousRecordDigest!==previous)return {ok:false,reason:'chain mismatch at '+r.sequence}; const {recordDigest,...base}=r; if(await digest(base)!==recordDigest)return {ok:false,reason:'record digest mismatch at '+r.sequence}; if(await digest({conversationId:r.conversationId,eventId:r.eventId,operation:r.operation,payload:r.payload,sourceFingerprint:r.sourceFingerprint})!==r.eventDigest)return {ok:false,reason:'event digest mismatch at '+r.sequence}; previous=recordDigest; }
++    return {ok:true};
++  }
++  #fail(cid,reason) { this.#bad.set(cid,reason); return {status:'NON_READY',reason}; }
++}
++function txDone(tx) { return new Promise((resolve,reject)=>{tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error||Error('IndexedDB transaction failed'));tx.onabort=()=>reject(tx.error||Error('IndexedDB transaction aborted'));}); }
++export async function contentDigest(text) { return digest(String(text)); }
++export async function fingerprintSource(messages, sourceLocator = null) {
++  const projection = messages.map(message => ({
++    role: message.is_user ? 'user' : message.is_system ? 'system' : 'assistant',
++    isUser: message.is_user === true,
++    isSystem: message.is_system === true,
++    systemType: message.extra?.type ?? null,
++    name: message.name ?? null,
++    currentMessage: message.mes ?? '',
++    versions: Array.isArray(message.swipes) && message.swipes.length ? message.swipes : [message.mes ?? ''],
++    activeVersionIndex: Number.isInteger(message.swipe_id) ? message.swipe_id : 0,
++  }));
++  return digest({ sourceLocator: sourceLocator ?? null, projection });
++}
++export const lifecycleJournalContract=Object.freeze({schemaVersion:2,requiredCoveragePaths:REQUIRED_COVERAGE});
+
+diff --git a/public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs b/public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs
+new file mode 100644
+--- /dev/null
++++ b/public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs
++import { contentDigest, fingerprintSource } from './lifecycle-journal.mjs';
++const rawVersions = message => Array.isArray(message.swipes) && message.swipes.length ? message.swipes : [message.mes ?? ''];
++const roleOf = message => message.is_user ? 'user' : message.is_system ? 'system' : 'assistant';
++const activeIndex = message => Number.isInteger(message.swipe_id) ? message.swipe_id : 0;
++const HOST_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
++const PINNED_SILLYTAVERN_COMMIT = '06bde939fb1e9c4c8d8641d810f0a916b5bce127';
++async function rawContentDigest(text) {
++  const bytes = new TextEncoder().encode(String(text));
++  return [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))]
++    .map(value => value.toString(16).padStart(2, '0')).join('');
++}
++const CURRENTLY_HOOKED_PATHS = Object.freeze(['create-message', 'message-send', 'message-receive', 'create-swipe', 'select-swipe', 'delete-swipe', 'delete-message', 'edit-message']);
++const CURRENTLY_GUARDED_READ_ONLY_PATHS = Object.freeze(['export']);
++const newId = () => {
++  if (!globalThis.crypto?.randomUUID) throw Error('crypto.randomUUID unavailable; Host capture NON_READY');
++  return globalThis.crypto.randomUUID();
++};
++/**
++ * Opt-in adapter boundary for explicit native ST hooks.
++ * This is not a complete inventory until every mutation path is wired and tested.
++ */
++export function createStLifecycleBridge({ journal, getConversationId, getSourceLocator = () => null, getChat, saveChat, publishDigest = null, publishSnapshot = null, getPersistedInventory = null, publishLifecycleEvent = null, getLifecycleStatus = null }) {
++  if (!journal || !getConversationId || !getChat || !saveChat) throw TypeError('Missing Host lifecycle bridge dependency');
++  if (publishDigest !== null && typeof publishDigest !== 'function') throw TypeError('publishDigest must be a trusted callback');
++  if (publishSnapshot !== null && typeof publishSnapshot !== 'function') throw TypeError('publishSnapshot must be a trusted callback');
++  if (getPersistedInventory !== null && typeof getPersistedInventory !== 'function') throw TypeError('getPersistedInventory must be a trusted callback');
++  if (publishLifecycleEvent !== null && typeof publishLifecycleEvent !== 'function') throw TypeError('publishLifecycleEvent must be a trusted callback');
++  if (getLifecycleStatus !== null && typeof getLifecycleStatus !== 'function') throw TypeError('getLifecycleStatus must be a trusted callback');
++  const publishQueues = new Map();
++  const coreCaptureStates = new Map();
++  function sortParentFirst(entries) {
++    const groups = new Map();
++    for (const entry of entries) {
++      const group = groups.get(entry.message_id) ?? [];
++      group.push(entry);
++      groups.set(entry.message_id, group);
++    }
++    const ordered = [];
++    for (const [messageId, group] of groups) {
++      const pending = [...group];
++      const pendingIds = new Set(pending.map(entry => entry.version_id));
++      const emitted = new Set();
++      while (pending.length) {
++        const ready = pending.map((entry, index) => ({ entry, index }))
++          .filter(({ entry }) => entry.parent_version_id === null
++            || !pendingIds.has(entry.parent_version_id) || emitted.has(entry.parent_version_id));
++        if (!ready.length) throw Error('NON_READY: cyclic Host version lineage for message ' + messageId);
++        ready.sort((a, b) => Number(a.entry.active) - Number(b.entry.active)
++          || a.entry.version_id.localeCompare(b.entry.version_id));
++        const { entry, index } = ready[0];
++        pending.splice(index, 1);
++        ordered.push(entry);
++        emitted.add(entry.version_id);
++      }
++    }
++    return ordered;
++  }
++  async function publishCurrentDigestInventory(conversationId, chat, tombstones = []) {
++    if (!publishDigest && !publishSnapshot) {
++      const state = { status: 'NOT_CONFIGURED', published: false, versionCount: 0 };
++      coreCaptureStates.set(conversationId, state);
++      return state;
++    }
++    const entries = [];
++    for (const message of chat) {
++      const identity = message?._logicEngineLifecycle;
++      if (!identity || !Array.isArray(identity.versions) || !identity.versions.length
++        || !Number.isInteger(identity.activeVersionIndex)
++        || identity.activeVersionIndex < 0 || identity.activeVersionIndex >= identity.versions.length) {
++        throw Error('NON_READY: cannot publish Host version inventory with missing identity metadata');
++      }
++      for (let index = 0; index < identity.versions.length; index++) {
++        const version = identity.versions[index];
++        if (!version?.versionId || !/^[a-f0-9]{64}$/.test(version.payloadDigest)) {
++          throw Error('NON_READY: cannot publish Host version inventory with invalid digest identity');
++        }
++        entries.push({
++          conversation_id: conversationId,
++          message_id: identity.messageId,
++          version_id: version.versionId,
++          parent_version_id: version.parentVersionId ?? null,
++          content_sha256: version.payloadDigest,
++          active: index === identity.activeVersionIndex,
++          deleted: false,
++        });
++      }
++    }
++    const tombstoneEntries = [];
++    for (const tombstone of tombstones) {
++      if (!tombstone || typeof tombstone.messageId !== 'string' || typeof tombstone.versionId !== 'string'
++        || !/^[a-f0-9]{64}$/.test(tombstone.payloadDigest)) {
++        throw Error('NON_READY: cannot publish malformed Host tombstone');
++      }
++      tombstoneEntries.push({
++        conversation_id: conversationId,
++        message_id: tombstone.messageId,
++        version_id: tombstone.versionId,
++        parent_version_id: tombstone.parentVersionId ?? null,
++        content_sha256: tombstone.payloadDigest,
++        active: false,
++        deleted: true,
++      });
++    }
++    // Core requires a declared parent to exist before a newly observed child.
++    // Current versions are parent-first; tombstones follow because their live rows
++    // must already exist in Core and deletion must not precede the last child capture.
++    const orderedEntries = [...sortParentFirst(entries), ...tombstoneEntries];
++    const previous = publishQueues.get(conversationId) ?? Promise.resolve();
++    const current = previous.catch(() => {}).then(async () => {
++      if (publishSnapshot) {
++        // Current lifecycle coverage is incomplete and has no trusted pinned-source
++        // attestation. Never claim complete=true; Core must reject this review-only
++        // projection even if a deployment later changes its verifier accidentally.
++        try {
++          const result = await publishSnapshot({
++            conversation_id: conversationId,
++            complete: false,
++            versions: orderedEntries.map(entry => ({
++              message_id: entry.message_id,
++              version_id: entry.version_id,
++              parent_version_id: entry.parent_version_id,
++              content_sha256: entry.content_sha256,
++              active: entry.active,
++              deleted: entry.deleted,
++            })),
++          });
++          const reconciliation = result?.reconciliation;
++          const state = {
++            status: 'NON_READY',
++            published: false,
++            versionCount: orderedEntries.length,
++            code: typeof reconciliation?.code === 'string' ? reconciliation.code : 'HOST_INVENTORY_NOT_READY',
++          };
++          coreCaptureStates.set(conversationId, state);
++          return state;
++        } catch {
++          const state = { status: 'NON_READY', published: false, versionCount: orderedEntries.length, code: 'HOST_INVENTORY_TRANSPORT_FAILED' };
++          coreCaptureStates.set(conversationId, state);
++          return state;
++        }
++      }
++      for (const entry of orderedEntries) {
++        try { await publishDigest(entry); } catch {
++          const state = { status: 'NON_READY', published: false, versionCount: orderedEntries.length };
++          coreCaptureStates.set(conversationId, state);
++          return state;
++        }
++      }
++      const state = { status: 'CAPTURED_REVIEW_ONLY', published: true, versionCount: orderedEntries.length };
++      coreCaptureStates.set(conversationId, state);
++      return state;
++    });
++    publishQueues.set(conversationId, current);
++    try { return await current; }
++    finally { if (publishQueues.get(conversationId) === current) publishQueues.delete(conversationId); }
++  }
++  async function currentFingerprint(chat = getChat()) {
++    if (!Array.isArray(chat)) throw Error('NON_READY: current chat is not an array');
++    return fingerprintSource(chat, getSourceLocator());
++  }
++  async function enrolledOrFailClosed(conversationId) {
++    const enrolled = await journal.isEnrolled(conversationId);
++    const marker = globalThis.localStorage?.getItem('logic-engine-host-lifecycle:' + conversationId);
++    if (!enrolled && marker) throw Error('NON_READY: enrollment marker exists without a valid journal baseline');
++    return enrolled;
++  }
++  async function enrollCurrentConversation() {
++    const conversationId = await getConversationId(), chat = getChat();
++    if (!conversationId || !Array.isArray(chat)) throw Error('No active conversation; enrollment refused');
++    const fingerprint = await currentFingerprint(chat);
++    const descriptors = chat.map(message => ({
++      role: roleOf(message),
++      versions: rawVersions(message),
++      activeVersionIndex: activeIndex(message),
++    }));
++    const result = await journal.enroll({ conversationId, sourceFingerprint: fingerprint, messages: descriptors });
++    try {
++      for (let i = 0; i < chat.length; i++) {
++        const identity = result.mapping[i];
++        chat[i]._logicEngineLifecycle = {
++          messageId: identity.messageId,
++          versions: identity.versions.map(version => ({ ...version, parentVersionId: null })),
++          activeVersionIndex: identity.activeVersionIndex,
++        };
++      }
++      await saveChat();
++    } catch (error) {
++      // The durable baseline now exists but native metadata may not. Subsequent
++      // fingerprint/identity validation must fail closed; enrollment cannot be retried.
++      throw Error('NON_READY: baseline persisted but native identity metadata could not be saved; ' + (error?.message || error));
++    }
++    const coreCapture = await publishCurrentDigestInventory(conversationId, chat);
++    return {
++      conversationId,
++      baselineSequence: result.baselineSequence,
++      preEnrollmentHistory: result.preEnrollmentHistory,
++      messageCount: chat.length,
++      status: 'REVIEW_ONLY',
++      coreCaptureStatus: coreCapture.status,
++    };
++  }
++  async function assertIdentitySnapshotMatches(conversationId, chat) {
++    const recorded = await journal.latestIdentitySnapshot(conversationId);
++    if (!Array.isArray(recorded) || recorded.length !== chat.length) {
++      throw Error('NON_READY: identity snapshot is missing or has a different message count; abort mutation');
++    }
++    const messageIds = new Set();
++    const versionIds = new Set();
++    for (let index = 0; index < chat.length; index++) {
++      const message = chat[index];
++      const identity = message?._logicEngineLifecycle;
++      const prior = recorded[index];
++      const versions = rawVersions(message);
++      if (!identity || !prior || identity.messageId !== prior.messageId
++        || (prior.messageIndex ?? index) !== index
++        || identity.activeVersionIndex !== activeIndex(message)
++        || identity.activeVersionIndex !== prior.activeVersionIndex
++        || !Array.isArray(identity.versions) || !Array.isArray(prior.versions)
++        || identity.versions.length !== versions.length
++        || identity.versions.length !== prior.versions.length
++        || messageIds.has(identity.messageId)) {
++        throw Error('NON_READY: identity metadata differs from journal; abort mutation');
++      }
++      messageIds.add(identity.messageId);
++      for (let versionIndex = 0; versionIndex < versions.length; versionIndex++) {
++        const current = identity.versions[versionIndex];
++        const expected = prior.versions[versionIndex];
++        if (!current || !expected || !current.versionId || versionIds.has(current.versionId)
++          || current.versionId !== expected.versionId
++          || current.versionIndex !== versionIndex || expected.versionIndex !== versionIndex
++          || current.payloadDigest !== expected.payloadDigest
++          || current.payloadDigest !== await contentDigest(versions[versionIndex])
++          || (current.parentVersionId ?? null) !== (expected.parentVersionId ?? null)) {
++          throw Error('NON_READY: version identity or digest differs from journal; abort mutation');
++        }
++        versionIds.add(current.versionId);
++      }
++    }
++  }
++  async function beforeMutation(operation, messageIndexes, details = {}) {
++    const conversationId = await getConversationId();
++    if (!conversationId || !(await enrolledOrFailClosed(conversationId))) return { status: 'NOT_ENROLLED' };
++    if (getLifecycleStatus) {
++      let remote;
++      try { remote = await getLifecycleStatus(conversationId); }
++      catch { throw Error('NON_READY: Core lifecycle journal status is unavailable; abort mutation'); }
++      if (!remote || remote.status === 'NON_READY') {
++        throw Error('NON_READY: Core lifecycle journal integrity is unavailable; abort mutation');
++      }
++      if (remote.status === 'PENDING_MUTATION') {
++        // A crash may have occurred after the local after-receipt was committed
++        // but before Core received it. Replay that exact digest-only receipt.
++        let ledger;
++        try { ledger = await journal.exportCaptureLedger(conversationId); } catch {}
++        const replay = ledger?.records?.find(row =>
++          row.operation === 'after:' + remote.operation
++          && row.payload?.mutationId === remote.mutation_id);
++        if (replay && publishLifecycleEvent) {
++          const mutationId = replay.payload?.mutationId;
++          const mutationDigest = replay.payload?.mutationDigest;
++          const receiptDigest = replay.payload?.receiptDigest;
++          const occurredAt = replay.payload?.lifecycleOccurredAt;
++          if (!HOST_UUID.test(mutationId ?? '') || !/^[a-f0-9]{64}$/.test(mutationDigest ?? '')
++            || !/^[a-f0-9]{64}$/.test(receiptDigest ?? '')
++            || typeof occurredAt !== 'string' || !Number.isFinite(Date.parse(occurredAt))
++            || mutationId !== remote.mutation_id) {
++            throw Error('NON_READY: local persisted receipt is incomplete or does not match Core pending mutation');
++          }
++          let replayResult;
++          try {
++            replayResult = await publishLifecycleEvent({
++              conversation_id: conversationId,
++              event_id: replay.eventId,
++              event_type: 'MUTATION_COMMITTED',
++              mutation_id: mutationId,
++              operation: remote.operation,
++              mutation_digest: mutationDigest,
++              occurred_at: occurredAt,
++            });
++          } catch {
++            throw Error('NON_READY: Core lifecycle receipt replay failed; abort mutation');
++          }
++          if (!replayResult || !['appended', 'duplicate'].includes(replayResult?.lifecycle?.status)) {
++            throw Error('NON_READY: Core lifecycle receipt replay was rejected; abort mutation');
++          }
++          remote = await getLifecycleStatus(conversationId);
++        }
++        if (remote?.status !== 'NO_PENDING_MUTATION') {
++          throw Error('NON_READY: Core has an unresolved Host mutation (' + remote.operation + '); abort mutation');
++        }
++      }
++      if (remote.status !== 'NO_PENDING_MUTATION') {
++        throw Error('NON_READY: Core lifecycle journal is not in an accepted state; abort mutation');
++      }
++    }
++    const pending = await journal.pendingMutation(conversationId);
++    if (pending.status === 'NON_READY') throw Error('NON_READY: lifecycle journal integrity failed: ' + pending.reason);
++    if (pending.status === 'PENDING_MUTATION') {
++      throw Error('NON_READY: previous lifecycle operation is incomplete (' + pending.operation + '); abort mutation');
++    }
++    if (!CURRENTLY_HOOKED_PATHS.includes(operation)) {
++      throw Error('NON_READY: unsupported/uninstrumented Host lifecycle operation ' + String(operation) + '; abort mutation before source change');
++    }
++    const chat = getChat(), fingerprint = await currentFingerprint(chat);
++    const latestFingerprint = await journal.latestSourceFingerprint(conversationId);
++    if (latestFingerprint !== fingerprint) {
++      throw Error('NON_READY: source fingerprint differs from journal; abort mutation');
++    }
++    await assertIdentitySnapshotMatches(conversationId, chat);
++    if (!Array.isArray(messageIndexes)) throw TypeError('messageIndexes must be an array');
++    if (messageIndexes.some(index => !Number.isInteger(index) || index < 0 || index >= chat.length)) {
++      throw Error('NON_READY: mutation contains an invalid source message index; abort mutation');
++    }
++    if (new Set(messageIndexes).size !== messageIndexes.length) {
++      throw Error('NON_READY: mutation contains duplicate source message indexes; abort mutation');
++    }
++    const affectedVersions = [];
++    for (const index of messageIndexes) {
++      const message = chat[index], identity = message?._logicEngineLifecycle;
++      if (!message || !identity || !Array.isArray(identity.versions)) {
++        throw Error('NON_READY: missing durable identity mapping; abort mutation');
++      }
++      const versions = rawVersions(message);
++      if (versions.length !== identity.versions.length) {
++        throw Error('NON_READY: version inventory mismatch; abort mutation');
++      }
++      for (let versionIndex = 0; versionIndex < identity.versions.length; versionIndex++) {
++        const version = identity.versions[versionIndex];
++        affectedVersions.push({
++          messageId: identity.messageId,
++          versionId: version.versionId,
++          versionIndex,
++          role: roleOf(message),
++          parentVersionId: version.parentVersionId ?? null,
++          payloadDigest: version.payloadDigest,
++        });
++      }
++    }
++    // eventId was previously omitted here, making every enrolled mutation fail
++    // with "Invalid event" before reaching the journal.
++    const mutationId = newId();
++    const occurredAt = new Date().toISOString();
++    const detailsDigest = await contentDigest(JSON.stringify(details ?? {}));
++    const mutationDigest = await contentDigest(JSON.stringify({
++      protocolVersion: 1, mutationId, operation, sourceFingerprint: fingerprint,
++      affectedVersions, detailsDigest,
++    }));
++    const eventId = newId();
++    // Persist the server-side PREPARED receipt before the browser journal marker.
++    // If the local append then fails, the next authenticated status check can
++    // recover the server pending state from the durable pre-mutation file snapshot.
++    if (publishLifecycleEvent) {
++      let result;
++      try {
++        result = await publishLifecycleEvent({
++          conversation_id: conversationId,
++          event_id: eventId,
++          event_type: 'MUTATION_PREPARED',
++          mutation_id: mutationId,
++          operation,
++          mutation_digest: mutationDigest,
++          occurred_at: occurredAt,
++        });
++      } catch {
++        throw Error('NON_READY: Core did not durably accept the prepared Host mutation');
++      }
++      if (!result || !['appended', 'duplicate'].includes(result?.lifecycle?.status)) {
++        throw Error('NON_READY: Core did not durably accept the prepared Host mutation');
++      }
++    }
++    return journal.beforeMutation({
++      conversationId,
++      eventId,
++      operation,
++      affectedVersions,
++      sourceFingerprint: fingerprint,
++      details: { hostLifecycle: { mutationId, mutationDigest, occurredAt, detailsDigest } },
++    });
++  }
++  async function afterMutation(operation, { removedSwipeIndex = null, selectedMessageIndex = null, createdMessageIndex = null } = {}) {
++    const conversationId = await getConversationId();
++    if (!conversationId || !(await enrolledOrFailClosed(conversationId))) return { status: 'NOT_ENROLLED' };
++    const pending = await journal.pendingMutation(conversationId);
++    if (pending.status === 'NON_READY') throw Error('NON_READY: lifecycle journal integrity failed: ' + pending.reason);
++    if (pending.status !== 'PENDING_MUTATION' || pending.operation !== operation) {
++      throw Error('NON_READY: afterMutation has no matching durable beforeMutation for ' + operation);
++    }
++    let localLedger;
++    try { localLedger = await journal.exportCaptureLedger(conversationId); } catch {
++      throw Error('NON_READY: local lifecycle journal cannot provide the exact prepared intent');
++    }
++    const preparedRecord = localLedger?.records?.find(row =>
++      row.eventId === pending.eventId && row.operation === 'before:' + operation);
++    const preparedMetadata = preparedRecord?.payload?.details?.hostLifecycle;
++    if (!preparedMetadata || !HOST_UUID.test(preparedMetadata.mutationId ?? '')
++      || !/^[a-f0-9]{64}$/.test(preparedMetadata.mutationDigest ?? '')
++      || typeof preparedMetadata.occurredAt !== 'string'
++      || !Number.isFinite(Date.parse(preparedMetadata.occurredAt))) {
++      throw Error('NON_READY: local prepared intent metadata is missing or malformed');
++    }
++    const chat = getChat();
++    if (!Array.isArray(chat)) throw Error('NON_READY: current chat is not an array');
++    // Preserve explicit deletion evidence before identities disappear from the
++    // current chat projection. The journal is still review-only; this does not
++    // authorize Provider reconciliation or claim complete native inventory.
++    const tombstones = [];
++    const priorIdentitySnapshot = await journal.latestIdentitySnapshot(conversationId);
++    const liveMessageIds = new Set(chat.map(message => message?._logicEngineLifecycle?.messageId).filter(Boolean));
++    if (operation === 'delete-message' && Array.isArray(priorIdentitySnapshot)) {
++      for (const priorMessage of priorIdentitySnapshot) {
++        if (liveMessageIds.has(priorMessage.messageId)) continue;
++        for (const version of priorMessage.versions ?? []) {
++          tombstones.push({
++            messageId: priorMessage.messageId,
++            versionId: version.versionId,
++            versionIndex: version.versionIndex,
++            payloadDigest: version.payloadDigest,
++            parentVersionId: version.parentVersionId ?? null,
++            deleted: true,
++            active: false,
++            reason: 'message-deleted',
++          });
++        }
++      }
++    }
++    if (['create-message', 'message-send', 'message-receive'].includes(operation)) {
++      const validCreatedIndex = Number.isInteger(createdMessageIndex)
++        && createdMessageIndex >= 0
++        && createdMessageIndex < chat.length;
++      const appendOnly = operation !== 'message-send';
++      if (!validCreatedIndex || (appendOnly && createdMessageIndex !== chat.length - 1)) {
++        throw Error('NON_READY: creation hook lacks an exact source insertion boundary; abort inventory checkpoint');
++      }
++      const expectedPriorFingerprint = await journal.latestSourceFingerprint(conversationId);
++      const priorChat = chat.slice();
++      priorChat.splice(createdMessageIndex, 1);
++      const actualPriorFingerprint = await currentFingerprint(priorChat);
++      if (actualPriorFingerprint !== expectedPriorFingerprint) {
++        throw Error('NON_READY: pre-existing source changed before create-message checkpoint; abort inventory checkpoint');
++      }
++    }
++    const versionPayloads = [];
++    for (let i = 0; i < chat.length; i++) {
++      const message = chat[i], versions = rawVersions(message);
++      let identity = message._logicEngineLifecycle;
++      if (!identity) {
++        if (!['create-message', 'message-send', 'message-receive'].includes(operation) || i !== createdMessageIndex) {
++          throw Error('NON_READY: missing durable identity on pre-existing message; abort inventory checkpoint');
++        }
++        identity = { messageId: newId(), versions: [], activeVersionIndex: activeIndex(message) };
++        message._logicEngineLifecycle = identity;
++      }
++      if (operation === 'delete-swipe' && selectedMessageIndex === i && Number.isInteger(removedSwipeIndex)) {
++        if (removedSwipeIndex < 0 || removedSwipeIndex >= identity.versions.length) {
++          throw Error('NON_READY: deleted swipe has no matching version identity');
++        }
++        const removed = identity.versions[removedSwipeIndex];
++        tombstones.push({
++          messageId: identity.messageId,
++          versionId: removed.versionId,
++          versionIndex: removed.versionIndex ?? removedSwipeIndex,
++          payloadDigest: removed.payloadDigest,
++          parentVersionId: removed.parentVersionId ?? null,
++          deleted: true,
++          active: false,
++          reason: 'swipe-deleted',
++        });
++        identity.versions.splice(removedSwipeIndex, 1);
++      }
++      const priorVersionInventory = identity.versions.slice();
++      const nextVersions = [];
++      for (let j = 0; j < versions.length; j++) {
++        const textDigest = await contentDigest(versions[j]);
++        const prior = identity.versions[j];
++        if (prior && prior.payloadDigest === textDigest) {
++          // Slot indexes can shift when a swipe is deleted; version identity must not.
++          nextVersions.push({ ...prior, versionIndex: j });
++        } else {
++          if (prior) {
++            tombstones.push({
++              messageId: identity.messageId,
++              versionId: prior.versionId,
++              versionIndex: prior.versionIndex ?? j,
++              payloadDigest: prior.payloadDigest,
++              parentVersionId: prior.parentVersionId ?? null,
++              deleted: true,
++              active: false,
++              reason: 'version-replaced',
++            });
++          }
++          const versionId = newId();
++          const parentVersionId = prior?.versionId
++            ?? identity.versions[identity.activeVersionIndex]?.versionId
++            ?? null;
++          nextVersions.push({
++            versionId,
++            versionIndex: j,
++            payloadDigest: textDigest,
++            parentVersionId,
++          });
++          // Store only identity, lineage and digest; raw content is excluded by the approved retention contract.
++          versionPayloads.push({
++            messageId: identity.messageId,
++            versionId,
++            versionIndex: j,
++            role: roleOf(message),
++            parentVersionId,
++            payloadDigest: textDigest,
++          });
++        }
++      }
++      const retainedVersionIds = new Set(nextVersions.map(version => version.versionId));
++      for (const priorVersion of priorVersionInventory) {
++        if (retainedVersionIds.has(priorVersion.versionId)
++          || tombstones.some(tombstone => tombstone.messageId === identity.messageId
++            && tombstone.versionId === priorVersion.versionId)) continue;
++        tombstones.push({
++          messageId: identity.messageId,
++          versionId: priorVersion.versionId,
++          versionIndex: priorVersion.versionIndex,
++          payloadDigest: priorVersion.payloadDigest,
++          parentVersionId: priorVersion.parentVersionId ?? null,
++          deleted: true,
++          active: false,
++          reason: 'version-removed',
++        });
++      }
++      identity.versions = nextVersions;
++      identity.activeVersionIndex = activeIndex(message);
++    }
++    const fingerprint = await currentFingerprint(chat);
++    // Save native state before advancing the journal checkpoint. If save or the
++    // subsequent append fails, the journal remains behind and the next pre-hook
++    // rejects the fingerprint mismatch instead of silently claiming completeness.
++    await saveChat();
++    const changes = chat.map((message, messageIndex) => ({
++      messageId: message._logicEngineLifecycle.messageId,
++      messageIndex,
++      activeVersionIndex: message._logicEngineLifecycle.activeVersionIndex,
++      versions: message._logicEngineLifecycle.versions,
++    }));
++    const occurredAt = new Date().toISOString();
++    const afterPayload = {
++      changes, removedSwipeIndex, selectedMessageIndex, versionPayloads, tombstones,
++      mutationId: preparedMetadata.mutationId,
++      mutationDigest: preparedMetadata.mutationDigest,
++    };
++    const receiptDigest = await contentDigest(JSON.stringify({
++      protocolVersion: 1,
++      mutationId: preparedMetadata.mutationId,
++      mutationDigest: preparedMetadata.mutationDigest,
++      operation,
++      sourceFingerprint: fingerprint,
++      payload: afterPayload,
++    }));
++    afterPayload.lifecycleOccurredAt = occurredAt;
++    afterPayload.receiptDigest = receiptDigest;
++    const event = await journal.append({
++      conversationId,
++      eventId: newId(),
++      operation: 'after:' + operation,
++      sourceFingerprint: fingerprint,
++      payload: afterPayload,
++    });
++    if (event?.status === 'NON_READY') throw Error('NON_READY: post-mutation journal append rejected: ' + event.reason);
++    if (publishLifecycleEvent) {
++      // This local event proves the browser journal checkpoint. The authenticated
++      // server proxy independently rescans persisted files and issues the terminal
++      // receipt only after its operation-specific disk transition checks pass.
++      // Core production readiness remains deny-only because the inventory is not
++      // yet backed by an accepted authoritative root snapshot.
++      let result;
++      try {
++        result = await publishLifecycleEvent({
++          conversation_id: conversationId,
++          event_id: event.eventId,
++          event_type: 'MUTATION_COMMITTED',
++          mutation_id: preparedMetadata.mutationId,
++          operation,
++          mutation_digest: preparedMetadata.mutationDigest,
++          occurred_at: occurredAt,
++        });
++      } catch {
++        throw Error('NON_READY: Core did not durably accept the completed Host mutation');
++      }
++      if (!result || !['appended', 'duplicate'].includes(result?.lifecycle?.status)) {
++        throw Error('NON_READY: Core did not durably accept the completed Host mutation');
++      }
++    }
++    const coreCapture = await publishCurrentDigestInventory(conversationId, chat, tombstones);
++    return { sequence: event.sequence, messageCount: chat.length, status: 'REVIEW_ONLY', coreCaptureStatus: coreCapture.status };
++  }
++  async function verifyPersistedInventory(conversationId = null) {
++    const id = conversationId ?? await getConversationId();
++    if (typeof id !== 'string') return { status: 'NON_READY', reason: 'Host conversation identity unavailable' };
++    const parts = id.split(':');
++    if (parts.length !== 3 || !parts.every(part => HOST_UUID.test(part))) {
++      return { status: 'NON_READY', reason: 'Host conversation identity is not installation/account/conversation bound' };
++    }
++    if (typeof getPersistedInventory !== 'function') {
++      return { status: 'NON_READY', reason: 'persisted Host inventory route unavailable' };
++    }
++    let inventory;
++    try {
++      inventory = await getPersistedInventory();
++    } catch {
++      return { status: 'NON_READY', reason: 'persisted Host inventory request failed' };
++    }
++    if (!inventory || inventory.status !== 'DOUBLE_SCAN_CANDIDATE'
++      || inventory.authority !== 'NON_AUTHORITATIVE'
++      || inventory.completeness !== 'DOUBLE_SCANNED_PATH_VIEW_ONLY'
++      || inventory.host_commit !== PINNED_SILLYTAVERN_COMMIT
++      || inventory.host_build_claim !== PINNED_SILLYTAVERN_COMMIT
++      || inventory.host_build_claim_type !== 'DEPLOYMENT_ASSERTION_NOT_RUNTIME_ATTESTATION'
++      || !HOST_UUID.test(inventory.host_session_id ?? '')
++      || inventory.host_session_identity !== 'SIGNED_AUTHENTICATED_ST_SESSION'
++      || typeof inventory.host_user_handle !== 'string'
++      || inventory.host_user_handle !== inventory.authenticated_user_handle
++      || inventory.requested_conversation_uuid !== parts[2]
++      || !/^[a-f0-9]{64}$/.test(inventory.inventory_sha256)
++      || !Array.isArray(inventory.files)) {
++      return { status: 'NON_READY', reason: 'persisted Host inventory is not bound to the current authenticated conversation' };
++    }
++    const matches = inventory.files.filter(file =>
++      file?.logical_identity?.conversation_uuid === parts[2]);
++    if (matches.length !== 1) {
++      return { status: 'NON_READY', reason: 'persisted Host inventory does not contain exactly one current conversation' };
++    }
++    const logical = matches[0].logical_identity;
++    const chat = getChat();
++    if (!logical || logical.identity_status !== 'CURRENT_IDENTITIES_VERIFIED'
++      || logical.missing_message_identity_count !== 0
++      || !Array.isArray(logical.messages) || !Array.isArray(chat)
++      || logical.messages.length !== chat.length
++      || logical.message_count !== chat.length
++      || logical.identified_message_count !== chat.length) {
++      return { status: 'NON_READY', reason: 'persisted Host conversation identity inventory is incomplete' };
++    }
++    let versionCount = 0;
++    for (let messageIndex = 0; messageIndex < chat.length; messageIndex++) {
++      const message = chat[messageIndex];
++      const identity = message?._logicEngineLifecycle;
++      const persisted = logical.messages[messageIndex];
++      const versions = rawVersions(message);
++      if (!identity || !persisted || persisted.message_id !== identity.messageId
++        || persisted.active_version_index !== identity.activeVersionIndex
++        || identity.activeVersionIndex !== activeIndex(message)
++        || !Array.isArray(persisted.versions) || !Array.isArray(identity.versions)
++        || persisted.versions.length !== versions.length
++        || identity.versions.length !== versions.length) {
++        return { status: 'NON_READY', reason: 'persisted Host message identity differs from the active conversation' };
++      }
++      for (let versionIndex = 0; versionIndex < versions.length; versionIndex++) {
++        const currentVersion = identity.versions[versionIndex];
++        const persistedVersion = persisted.versions[versionIndex];
++        const journalDigest = await contentDigest(versions[versionIndex]);
++        const persistedBytesDigest = await rawContentDigest(versions[versionIndex]);
++        if (!currentVersion || !persistedVersion
++          || persistedVersion.version_index !== versionIndex
++          || persistedVersion.version_id !== currentVersion.versionId
++          || persistedVersion.parent_version_id !== (currentVersion.parentVersionId ?? null)
++          || currentVersion.payloadDigest !== journalDigest
++          || persistedVersion.content_sha256 !== persistedBytesDigest
++          || persistedVersion.active !== (versionIndex === identity.activeVersionIndex)) {
++          return { status: 'NON_READY', reason: 'persisted Host version identity or digest differs from the active conversation' };
++        }
++        versionCount++;
++      }
++    }
++    return Object.freeze({
++      status: 'MATCHED_NON_AUTHORITATIVE',
++      authority: 'NON_AUTHORITATIVE',
++      completeness: inventory.completeness,
++      host_session_bound: true,
++      installation_attestation: false,
++      conversation_uuid: parts[2],
++      message_count: chat.length,
++      version_count: versionCount,
++      inventory_sha256: inventory.inventory_sha256,
++    });
++  }
++  async function syncCurrentDigestInventory() {
++    const conversationId = await getConversationId();
++    if (!conversationId || !(await enrolledOrFailClosed(conversationId))) return { status: 'NOT_ENROLLED' };
++    if (getPersistedInventory) {
++      const persisted = await verifyPersistedInventory(conversationId);
++      if (persisted.status !== 'MATCHED_NON_AUTHORITATIVE') return persisted;
++    }
++    const integrity = await journal.verifyIntegrity(conversationId);
++    if (integrity.status !== 'INTEGRITY_OK') return { status: 'NON_READY', reason: integrity.reason };
++    const chat = getChat();
++    const fingerprint = await currentFingerprint(chat);
++    if (integrity.sourceFingerprint !== fingerprint) {
++      return { status: 'NON_READY', reason: 'current Host source differs from the durable journal checkpoint' };
++    }
++    await assertIdentitySnapshotMatches(conversationId, chat);
++    const exported = await journal.exportCaptureLedger(conversationId);
++    if (exported.status !== 'REVIEW_ONLY' || !Array.isArray(exported.records)) {
++      return { status: 'NON_READY', reason: 'durable Host journal cannot provide a replayable digest ledger' };
++    }
++    const tombstoneMap = new Map();
++    for (const record of exported.records) {
++      for (const tombstone of record.payload?.tombstones ?? []) {
++        tombstoneMap.set(JSON.stringify([tombstone.messageId, tombstone.versionId]), tombstone);
++      }
++    }
++    return publishCurrentDigestInventory(conversationId, chat, [...tombstoneMap.values()]);
++  }
++  function getCoreCaptureStatus() {
++    const conversationId = getConversationId();
++    return Promise.resolve(conversationId).then(id => id ? (coreCaptureStates.get(id) ?? { status: 'NOT_SYNCED' }) : { status: 'NO_CONVERSATION' });
++  }
++  async function reconcileCurrentConversation() {
++    const conversationId = await getConversationId();
++    if (!conversationId || !(await enrolledOrFailClosed(conversationId))) return { status: 'NOT_ENROLLED' };
++    const persisted = getPersistedInventory
++      ? await verifyPersistedInventory(conversationId) : null;
++    if (persisted && persisted.status !== 'MATCHED_NON_AUTHORITATIVE') return persisted;
++    const integrity = await journal.verifyIntegrity(conversationId);
++    if (integrity.status !== 'INTEGRITY_OK') return integrity;
++    const current = await currentFingerprint();
++    const recorded = integrity.sourceFingerprint;
++    if (current !== recorded) {
++      return {
++        status: 'NON_READY',
++        reason: 'current source fingerprint differs from the last durable journal checkpoint',
++        currentFingerprint: current,
++        recordedFingerprint: recorded,
++      };
++    }
++    const chat = getChat();
++    const messageIds = new Set();
++    const versionIds = new Set();
++    for (const message of chat) {
++      const identity = message?._logicEngineLifecycle;
++      const versions = rawVersions(message);
++      if (!identity || typeof identity.messageId !== 'string' || !identity.messageId
++        || !Array.isArray(identity.versions) || identity.versions.length !== versions.length) {
++        return { status: 'NON_READY', reason: 'native identity metadata is missing or does not match current versions' };
++      }
++      if (messageIds.has(identity.messageId)) {
++        return { status: 'NON_READY', reason: 'duplicate logical message identity' };
++      }
++      messageIds.add(identity.messageId);
++      if (!Number.isInteger(identity.activeVersionIndex)
++        || identity.activeVersionIndex < 0
++        || identity.activeVersionIndex >= versions.length
++        || identity.activeVersionIndex !== activeIndex(message)) {
++        return { status: 'NON_READY', reason: 'active version selection does not match native source' };
++      }
++      for (let index = 0; index < versions.length; index++) {
++        const version = identity.versions[index];
++        if (!version || typeof version.versionId !== 'string' || !version.versionId
++          || versionIds.has(version.versionId)) {
++          return { status: 'NON_READY', reason: 'missing or duplicate logical version identity' };
++        }
++        versionIds.add(version.versionId);
++        if (version.payloadDigest !== await contentDigest(versions[index])) {
++          return { status: 'NON_READY', reason: 'version digest does not match native source content' };
++        }
++      }
++    }
++    const recordedSnapshot = await journal.latestIdentitySnapshot(conversationId);
++    if (!Array.isArray(recordedSnapshot) || recordedSnapshot.length !== chat.length) {
++      return { status: 'NON_READY', reason: 'journal identity snapshot is missing or has a different message count' };
++    }
++    // The source fingerprint intentionally covers native chat content, not our
++    // sidecar identity metadata. Compare the latter against the last journaled
++    // snapshot too, so a restore/copy that reuses content but swaps IDs cannot pass.
++    for (let index = 0; index < chat.length; index++) {
++      const currentIdentity = chat[index]?._logicEngineLifecycle;
++      const recordedIdentity = recordedSnapshot[index];
++      if (!currentIdentity
++        || currentIdentity.messageId !== recordedIdentity.messageId
++        || (recordedIdentity.messageIndex ?? index) !== index
++        || currentIdentity.activeVersionIndex !== recordedIdentity.activeVersionIndex
++        || !Array.isArray(currentIdentity.versions)
++        || !Array.isArray(recordedIdentity.versions)
++        || currentIdentity.versions.length !== recordedIdentity.versions.length) {
++        return { status: 'NON_READY', reason: 'native identity metadata differs from the last journaled identity snapshot' };
++      }
++      for (let versionIndex = 0; versionIndex < currentIdentity.versions.length; versionIndex++) {
++        const currentVersion = currentIdentity.versions[versionIndex];
++        const recordedVersion = recordedIdentity.versions[versionIndex];
++        if (!currentVersion || !recordedVersion
++          || currentVersion.versionId !== recordedVersion.versionId
++          || currentVersion.versionIndex !== versionIndex
++          || recordedVersion.versionIndex !== versionIndex
++          || currentVersion.payloadDigest !== recordedVersion.payloadDigest
++          || (currentVersion.parentVersionId ?? null) !== (recordedVersion.parentVersionId ?? null)) {
++          return { status: 'NON_READY', reason: 'native version identity differs from the last journaled version snapshot' };
++        }
++      }
++    }
++    // Integrity is not completeness: this patch does not intercept every mutation
++    // path. Keep reconciliation NON_READY until all required paths are wired.
++    const readiness = await journal.status(conversationId, {
++      instrumentedPaths: [...CURRENTLY_HOOKED_PATHS, ...CURRENTLY_GUARDED_READ_ONLY_PATHS],
++      sourceFingerprintMatches: true,
++    });
++    return persisted ? Object.freeze({
++      ...readiness,
++      persistedInventoryStatus: persisted.status,
++      persistedInventorySha256: persisted.inventory_sha256,
++    }) : readiness;
++  }
++  async function guardExport() {
++    const conversationId = await getConversationId();
++    if (!conversationId || !(await enrolledOrFailClosed(conversationId))) {
++      return { status: 'NOT_ENROLLED' };
++    }
++    if (typeof getLifecycleStatus !== 'function') {
++      throw Error('NON_READY: Core lifecycle status is unavailable; abort export save');
++    }
++    let remote;
++    try { remote = await getLifecycleStatus(conversationId); }
++    catch { throw Error('NON_READY: Core lifecycle status is unavailable; abort export save'); }
++    if (!remote || remote.status !== 'NO_PENDING_MUTATION') {
++      throw Error('NON_READY: unresolved Core lifecycle mutation; abort export save');
++    }
++    const pending = await journal.pendingMutation(conversationId);
++    if (pending.status !== 'NO_PENDING_MUTATION') {
++      throw Error('NON_READY: local Host lifecycle journal is not clear; abort export save');
++    }
++    const integrity = await journal.verifyIntegrity(conversationId);
++    if (integrity.status !== 'INTEGRITY_OK') {
++      throw Error('NON_READY: Host lifecycle journal integrity is unavailable; abort export save');
++    }
++    const persisted = await verifyPersistedInventory(conversationId);
++    if (persisted.status !== 'MATCHED_NON_AUTHORITATIVE') {
++      throw Error('NON_READY: persisted Host state does not match the active conversation; abort export save');
++    }
++    return { status: 'READ_ONLY_EXPORT_VERIFIED', conversationId };
++  }
++  return Object.freeze({
++    enrollCurrentConversation,
++    beforeMutation,
++    afterMutation,
++    syncCurrentDigestInventory,
++    verifyPersistedInventory,
++    getCoreCaptureStatus,
++    currentFingerprint,
++    reconcileCurrentConversation,
++    guardExport,
++  });
++}
++/**
++ * Fallback when IndexedDB cannot be opened. It must re-check the current chat's
++ * enrollment marker on every mutation; the bridge promise may have been created
++ * before a chat was enrolled or before the user switched conversations.
++ */
++export function createUnavailableStLifecycleBridge({ getConversationId, storage = globalThis.localStorage, error }) {
++  if (typeof getConversationId !== 'function') throw TypeError('getConversationId is required');
++  if (!error) throw TypeError('original journal-open error is required');
++  const assertUnavailableSafe = async () => {
++    const conversationId = await getConversationId();
++    const marker = conversationId
++      ? storage?.getItem('logic-engine-host-lifecycle:' + conversationId)
++      : null;
++    if (marker) {
++      throw Error('NON_READY: enrolled Host journal unavailable: ' + (error?.message || error));
++    }
++    return { status: 'NOT_ENROLLED' };
++  };
++  return Object.freeze({
++    enrollCurrentConversation: async () => { throw error; },
++    beforeMutation: async () => assertUnavailableSafe(),
++    afterMutation: async () => assertUnavailableSafe(),
++    guardExport: async () => assertUnavailableSafe(),
++  });
++}
+
+diff --git a/public/scripts/logic-engine-lifecycle/conversation-identity.mjs b/public/scripts/logic-engine-lifecycle/conversation-identity.mjs
+new file mode 100644
+--- /dev/null
++++ b/public/scripts/logic-engine-lifecycle/conversation-identity.mjs
++const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
++const MARKER_PREFIX = 'logic-engine-host-lifecycle:';
++const LOCATOR_PREFIX = 'logic-engine-host-lifecycle-locator:';
++const INSTALLATION_KEY = 'logic-engine-host-installation-id';
++const locatorKey = locator => LOCATOR_PREFIX + locator;
++const validUuid = value => typeof value === 'string' && UUID.test(value);
++/**
++ * Resolve a stable Host conversation identity without treating the mutable
++ * SillyTavern filename as identity. Persistence and collision checks are
++ * injected so the logic can be tested independently of a browser.
++ *
++ * This is an identity/lineage guard, not a trust authority. The result remains
++ * review-only until Core authorizes the adapter/conversation/world binding.
++ */
++export async function resolveStableHostConversationIdentity({
++  locator,
++  hostSessionId,
++  hostInstallationId,
++  authenticatedAccountId,
++  metadata,
++  storage,
++  saveMetadata,
++  getCurrentLocator = () => locator,
++  getCurrentMetadata = () => metadata,
++  pendingRenameId = null,
++  cryptoProvider = globalThis.crypto,
++}) {
++  if (typeof locator !== 'string' || !locator.trim()) return { status: 'NON_READY', reason: 'NO_ACTIVE_CONVERSATION' };
++  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
++    throw Error('NON_READY: current Host chat metadata is unavailable');
++  }
++  if (!storage || typeof storage.getItem !== 'function' || typeof storage.setItem !== 'function'
++    || typeof storage.removeItem !== 'function' || typeof storage.key !== 'function') {
++    throw Error('NON_READY: Host identity storage unavailable');
++  }
++  if (typeof saveMetadata !== 'function') throw TypeError('saveMetadata is required');
++  if (typeof cryptoProvider?.randomUUID !== 'function') throw Error('NON_READY: crypto.randomUUID unavailable');
++  if (!validUuid(hostSessionId)) return { status: 'NON_READY', reason: 'HOST_SESSION_ID_UNAVAILABLE' };
++  if (!validUuid(hostInstallationId)) return { status: 'NON_READY', reason: 'HOST_INSTALLATION_ID_UNAVAILABLE' };
++  if (!validUuid(authenticatedAccountId)) return { status: 'NON_READY', reason: 'HOST_AUTHENTICATED_ACCOUNT_ID_UNAVAILABLE' };
++  // Installation identity is server-owned. localStorage is only a consistency
++  // cache and must never mint or override the authenticated server identity.
++  const cachedInstallationId = storage.getItem(INSTALLATION_KEY);
++  if (cachedInstallationId !== null && !validUuid(cachedInstallationId)) {
++    throw Error('NON_READY: malformed cached Host installation identity');
++  }
++  if (cachedInstallationId && cachedInstallationId !== hostInstallationId) {
++    if (hasAnyHostEnrollment(storage)) {
++      throw Error('NON_READY: enrolled Host installation identity migration required');
++    }
++    storage.setItem(INSTALLATION_KEY, hostInstallationId);
++    if (storage.getItem(INSTALLATION_KEY) !== hostInstallationId) {
++      throw Error('NON_READY: Host installation identity cache update failed');
++    }
++  } else if (!cachedInstallationId) {
++    storage.setItem(INSTALLATION_KEY, hostInstallationId);
++    if (storage.getItem(INSTALLATION_KEY) !== hostInstallationId) {
++      throw Error('NON_READY: Host installation identity cache save failed');
++    }
++  }
++  const installationId = hostInstallationId;
++  const accountId = authenticatedAccountId;
++  const existing = metadata.logic_engine_conversation_id;
++  const legacyMarker = MARKER_PREFIX + locator;
++  const currentLocatorKey = locatorKey(locator);
++  const mappedId = storage.getItem(currentLocatorKey);
++  if (existing !== undefined && !validUuid(existing)) {
++    throw Error('NON_READY: malformed stable Host conversation identity');
++  }
++  if (mappedId && (!validUuid(existing) || mappedId !== installationId + ':' + accountId + ':' + existing)) {
++    throw Error('NON_READY: Host locator metadata is missing or inconsistent');
++  }
++  if (validUuid(existing)) {
++    const resolvedId = installationId + ':' + accountId + ':' + existing;
++    const activeMarker = MARKER_PREFIX + resolvedId;
++    if (storage.getItem(legacyMarker) && legacyMarker !== activeMarker) {
++      throw Error('NON_READY: legacy Host enrollment marker conflicts with installation identity');
++    }
++    for (let i = 0; i < storage.length; i++) {
++      const key = storage.key(i);
++      if (typeof key !== 'string') continue;
++      const value = storage.getItem(key);
++      if (key.startsWith(MARKER_PREFIX) && key.endsWith(':' + accountId + ':' + existing) && key !== activeMarker) {
++        throw Error('NON_READY: Host conversation identity is already enrolled elsewhere');
++      }
++      if (key.startsWith(MARKER_PREFIX) && typeof value === 'string'
++        && value.endsWith(':' + locator) && key !== activeMarker) {
++        throw Error('NON_READY: Host locator is associated with another conversation identity');
++      }
++    }
++    if (!mappedId && storage.getItem(activeMarker) && pendingRenameId !== resolvedId) {
++      throw Error('NON_READY: enrolled Host conversation has no matching locator binding');
++    }
++    return { status: 'READY_FOR_REVIEW', conversationId: resolvedId, hostSessionId, installationId, conversationUuid: existing };
++  }
++  if (mappedId) throw Error('NON_READY: Host locator is bound but its stable metadata identity is missing');
++  if (storage.getItem(legacyMarker)) throw Error('NON_READY: legacy identity migration required');
++  for (let i = 0; i < storage.length; i++) {
++    const key = storage.key(i);
++    const value = typeof key === 'string' ? storage.getItem(key) : null;
++    if (typeof key === 'string' && key.startsWith(MARKER_PREFIX)
++      && typeof value === 'string' && value.endsWith(':' + locator)) {
++      throw Error('NON_READY: enrolled Host locator has no stable metadata identity');
++    }
++  }
++  const originalMetadata = metadata;
++  const conversationUuid = cryptoProvider.randomUUID();
++  metadata.logic_engine_conversation_id = conversationUuid;
++  if (getCurrentMetadata() !== originalMetadata || getCurrentLocator() !== locator) {
++    delete originalMetadata.logic_engine_conversation_id;
++    throw Error('NON_READY: Host conversation changed during identity enrollment');
++  }
++  try {
++    await saveMetadata();
++  } catch (error) {
++    delete originalMetadata.logic_engine_conversation_id;
++    throw Error('NON_READY: durable Host conversation identity could not be saved: ' + (error?.message || error));
++  }
++  if (getCurrentMetadata() !== originalMetadata || getCurrentLocator() !== locator
++    || originalMetadata.logic_engine_conversation_id !== conversationUuid) {
++    throw Error('NON_READY: Host conversation identity changed during persistence');
++  }
++  return {
++    status: 'READY_FOR_REVIEW',
++    conversationId: installationId + ':' + accountId + ':' + conversationUuid,
++    hostSessionId,
++    installationId,
++    conversationUuid,
++    created: true,
++  };
++}
++export function hostLocatorHasEnrollment(locator, storage) {
++  if (typeof locator !== 'string' || !locator.trim() || !storage
++    || typeof storage.getItem !== 'function' || typeof storage.key !== 'function') return true;
++  if (storage.getItem(locatorKey(locator)) !== null || storage.getItem(MARKER_PREFIX + locator) !== null) return true;
++  for (let i = 0; i < storage.length; i++) {
++    const key = storage.key(i);
++    const value = typeof key === 'string' ? storage.getItem(key) : null;
++    if (typeof key === 'string' && key.startsWith(MARKER_PREFIX)
++      && typeof value === 'string' && value.endsWith(':' + locator)) return true;
++  }
++  return false;
++}
++export function hasAnyHostEnrollment(storage) {
++  if (!storage || typeof storage.getItem !== 'function') return true;
++  for (let i = 0; i < storage.length; i++) {
++    const key = storage.key(i);
++    if (typeof key === 'string' && (key.startsWith(MARKER_PREFIX) || key.startsWith(LOCATOR_PREFIX))) return true;
++  }
++  return false;
++}
++export const stableHostIdentityContract = Object.freeze({
++  installationKey: INSTALLATION_KEY,
++  sessionIdentityKey: 'logicEngineSessionId',
++  conversationIdFormat: 'installationId:accountId:conversationUuid',
++  markerPrefix: MARKER_PREFIX,
++  identityMetadataKey: 'logic_engine_conversation_id',
++  locatorBindingPrefix: 'logic-engine-host-lifecycle-locator:',
++  authority: 'NON_AUTHORITATIVE',
++});
