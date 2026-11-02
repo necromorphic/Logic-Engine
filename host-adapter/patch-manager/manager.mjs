@@ -212,7 +212,6 @@ export async function applyFinalSendPatch({ hostRoot, stateRoot, hookSourcePath 
     if (existingManifest) {
       if (existingManifest.patchId !== PATCH_ID
         || existingManifest.hostCommit !== SILLYTAVERN_TARGET.commit
-        || existingManifest.originalHash !== SILLYTAVERN_TARGET.sourceHashes[SILLYTAVERN_TARGET.endpointRelativePath]
         || existingManifest.hookHash !== hookHash
         || existingManifest.endpointRelativePath !== SILLYTAVERN_TARGET.endpointRelativePath
         || existingManifest.hookRelativePath !== SILLYTAVERN_TARGET.hookRelativePath) {
