@@ -83,7 +83,7 @@
              throw manifestError;
          }
      } catch (error) {
-@@ -203,6 +213,7 @@
+@@ -202,6 +212,7 @@
          } else {
              console.info(`Extension is up to date at ${extensionPath}`);
          }
@@ -301,6 +301,10 @@
  import express from 'express';
  import _ from 'lodash';
  
+@@ -16,1 +16,2 @@
+-import { forwardFetchResponse, trimV1, getConfigValue } from '../../util.js';
++import { forwardFetchResponse as nativeForwardFetchResponse, trimV1, getConfigValue } from '../../util.js';
++const forwardFetchResponse = (upstream, response) => logicEngineForwardFetchResponse(upstream, response, nativeForwardFetchResponse);
 @@ -270,6 +270,7 @@
  });
  
@@ -318,13 +322,15 @@
  const ollama = express.Router();
 --- a/src/endpoints/backends/kobold.js
 +++ b/src/endpoints/backends/kobold.js
-@@ -1,6 +1,6 @@
+@@ -1,6 +1,7 @@
  import fs from 'node:fs';
  import express from 'express';
 -import fetch from 'node-fetch';
 +import { logicEngineFetch as fetch, runWithLogicEngineFinalSend, logicEngineForwardFetchResponse } from '../../logic-engine-final-send-hook.js';
  
- import { forwardFetchResponse, delay } from '../../util.js';
+-import { forwardFetchResponse, delay } from '../../util.js';
++import { forwardFetchResponse as nativeForwardFetchResponse, delay } from '../../util.js';
++const forwardFetchResponse = (upstream, response) => logicEngineForwardFetchResponse(upstream, response, nativeForwardFetchResponse);
  import { getOverrideHeaders, setAdditionalHeaders, setAdditionalHeadersByType } from '../../additional-headers.js';
 @@ -8,6 +8,7 @@
  export const router = express.Router();
@@ -352,6 +358,10 @@
  import express from 'express';
  
  import { readSecret, SECRET_KEYS } from './secrets.js';
+@@ -8,1 +8,2 @@
+-import { readAllChunks, extractFileFromZipBuffer, forwardFetchResponse } from '../util.js';
++import { readAllChunks, extractFileFromZipBuffer, forwardFetchResponse as nativeForwardFetchResponse } from '../util.js';
++const forwardFetchResponse = (upstream, response) => logicEngineForwardFetchResponse(upstream, response, nativeForwardFetchResponse);
 @@ -165,6 +165,7 @@
  });
  
@@ -392,23 +402,3 @@
  });
  
  router.post('/sd-samplers', async (_, response) => {
-
-
---- a/src/endpoints/backends/text-completions.js
-+++ b/src/endpoints/backends/text-completions.js
-@@ -16,1 +16,2 @@
--import { forwardFetchResponse, trimV1, getConfigValue } from '../../util.js';
-+import { forwardFetchResponse as nativeForwardFetchResponse, trimV1, getConfigValue } from '../../util.js';
-+const forwardFetchResponse = (upstream, response) => logicEngineForwardFetchResponse(upstream, response, nativeForwardFetchResponse);
---- a/src/endpoints/backends/kobold.js
-+++ b/src/endpoints/backends/kobold.js
-@@ -5,1 +5,2 @@
--import { forwardFetchResponse, delay } from '../../util.js';
-+import { forwardFetchResponse as nativeForwardFetchResponse, delay } from '../../util.js';
-+const forwardFetchResponse = (upstream, response) => logicEngineForwardFetchResponse(upstream, response, nativeForwardFetchResponse);
---- a/src/endpoints/novelai.js
-+++ b/src/endpoints/novelai.js
-@@ -8,1 +8,2 @@
--import { readAllChunks, extractFileFromZipBuffer, forwardFetchResponse } from '../util.js';
-+import { readAllChunks, extractFileFromZipBuffer, forwardFetchResponse as nativeForwardFetchResponse } from '../util.js';
-+const forwardFetchResponse = (upstream, response) => logicEngineForwardFetchResponse(upstream, response, nativeForwardFetchResponse);
