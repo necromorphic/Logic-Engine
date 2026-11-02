@@ -292,11 +292,21 @@ test('all five pinned protected ST generation handlers use one Gateway handoff a
   ];
 
   for (const item of requests) {
-    const response = await fetch(item.url, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(item.body),
-    });
+    let response;
+    try {
+      response = await fetch(item.url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(item.body),
+      });
+    } catch (error) {
+      throw new Error(
+        item.route + ' handler transport failed; providerRequests='
+          + JSON.stringify(providerRequests) + '; gatewayDispatches=' + gatewayDispatches
+          + '; cause=' + (error.cause?.code ?? error.cause?.message ?? error.message),
+        { cause: error },
+      );
+    }
     assert.equal(response.status, 200, item.route + ' handler should return the fake provider response');
     assert.ok(item.verify(await response.json()), item.route + ' handler response shape');
   }
