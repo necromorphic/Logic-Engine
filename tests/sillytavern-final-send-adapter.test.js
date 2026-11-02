@@ -186,11 +186,16 @@ test('protected response stays terminal after final write and cannot be written 
   adapter.authorizeResponseWrite(response, () => writes.push('first'), true);
   assert.deepEqual(writes, ['first']);
   assert.deepEqual(leases, [{ requestId: protectedMemory.requestId, final: true }]);
+  assert.equal(
+    adapter.authorizeResponseWrite(response, () => writes.push('duplicate-end'), true),
+    undefined,
+    'a duplicate native Express end after the authorized final end must be idempotent',
+  );
   assert.throws(
-    () => adapter.authorizeResponseWrite(response, () => writes.push('bypass'), true),
+    () => adapter.authorizeResponseWrite(response, () => writes.push('bypass-write'), false),
     /MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED/,
   );
-  assert.deepEqual(writes, ['first'], 'a second Express end must not fall through as unprotected');
+  assert.deepEqual(writes, ['first'], 'duplicate end and post-final writes must never invoke the native writer again');
 });
 
 test('revoke denial leaves a terminal response tombstone and blocks fallback Express writes', async () => {
