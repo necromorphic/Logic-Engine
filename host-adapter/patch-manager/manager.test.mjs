@@ -386,3 +386,33 @@ test('Patch Manager recovery state survives removal of the Extension directory',
   assert.equal(result.status, 'restored');
   assert.deepEqual(await readFile(join(fixture.host, SILLYTAVERN_TARGET.endpointRelativePath)), original);
 });
+
+test('restore refuses a symlinked durable state root before reading external backup or journal', async t => {
+  const fixture = await createPinnedFixture(t);
+  if (!fixture) return;
+  await applyFinalSendPatch({ hostRoot: fixture.host, stateRoot: fixture.state, hookSourcePath });
+  const externalState = fixture.state + '-external';
+  await mkdir(externalState, { recursive: true });
+  await copyFile(join(fixture.state, 'manifest.json'), join(externalState, 'manifest.json'));
+  await copyFile(
+    join(fixture.state, JSON.parse(await readFile(join(fixture.state, 'manifest.json'), 'utf8')).backupRelativePath),
+    join(externalState, 'backup.bin'),
+  );
+  const linkedState = fixture.state + '-link';
+  try {
+    await symlink(externalState, linkedState, 'junction');
+  } catch (error) {
+    if (['EPERM', 'EACCES', 'ENOSYS'].includes(error?.code)) {
+      t.skip('Directory symlink creation is not permitted in this environment');
+      return;
+    }
+    throw error;
+  }
+  const endpoint = join(fixture.host, SILLYTAVERN_TARGET.endpointRelativePath);
+  const patched = await readFile(endpoint);
+  await assert.rejects(
+    restoreFinalSendPatch({ hostRoot: fixture.host, stateRoot: linkedState }),
+    /LOGIC_ENGINE_PATCH_STATE_PATH_UNSAFE/,
+  );
+  assert.deepEqual(await readFile(endpoint), patched);
+});
