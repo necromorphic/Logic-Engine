@@ -198,3 +198,19 @@ test('pinned non-target source hash verification tolerates Windows CRLF checkout
   });
   assert.equal(second.status, 'installed');
 });
+
+
+test('repair safely migrates an intact managed patch to an updated hook payload', async t => {
+  const fixture = await createPinnedFixture(t);
+  if (!fixture) return;
+  await applyFinalSendPatch({ hostRoot: fixture.host, stateRoot: fixture.state, hookSourcePath });
+  const updatedHook = join(fixture.state, 'updated-hook.js');
+  const updatedBytes = Buffer.concat([await readFile(hookSourcePath), Buffer.from('\\n// updated hook payload\\n')]);
+  await writeFile(updatedHook, updatedBytes);
+  const repaired = await repairFinalSendPatch({
+    hostRoot: fixture.host, stateRoot: fixture.state, hookSourcePath: updatedHook,
+  });
+  assert.equal(repaired.operation, 'repair');
+  assert.equal(repaired.status, 'installed');
+  assert.deepEqual(await readFile(join(fixture.host, SILLYTAVERN_TARGET.hookRelativePath)), updatedBytes);
+});
