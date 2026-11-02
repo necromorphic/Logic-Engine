@@ -45,9 +45,6 @@ jobs:
         run: grep -F "router.get('/session', createHostSessionHandler())" host-inventory-candidate/st-host-inventory-route.js
       - name: Stage legacy route candidate and current Extension Gateway server plugin
         run: |
-          cp host-inventory-candidate/st-source-inventory.mjs sillytavern-host-checkout/src/endpoints/logic-engine-st-source-inventory.mjs
-          cp host-inventory-candidate/st-host-inventory-handler.mjs sillytavern-host-checkout/src/endpoints/logic-engine-host-inventory-handler.mjs
-          cp host-inventory-candidate/st-host-inventory-route.js sillytavern-host-checkout/src/endpoints/logic-engine-host-inventory.js
           mkdir -p sillytavern-host-checkout/plugins/logic-engine-extension-gateway
           cp host-adapter/extension-gateway/server-plugin/*.mjs sillytavern-host-checkout/plugins/logic-engine-extension-gateway/
           cp host-adapter/extension-gateway/server-plugin/*.js sillytavern-host-checkout/plugins/logic-engine-extension-gateway/
