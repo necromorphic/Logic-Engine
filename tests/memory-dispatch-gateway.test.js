@@ -184,6 +184,16 @@ const validRequest = (requestId = 'request-001', overrides = {}) => ({
   ...overrides,
 });
 
+test('dispatch ledger explicitly uses SQLite FULL synchronous durability', async () => {
+  const fixture = await createFixture();
+  try {
+    const row = fixture.gateway.db.prepare('PRAGMA synchronous').get();
+    assert.equal(row.synchronous, 2, 'dispatch-start must use SQLite synchronous=FULL');
+  } finally {
+    await fixture.close();
+  }
+});
+
 test('Host dispatch signature binds the exact body, route, model, identity, and source versions with locale-independent source ordering', () => {
   const request = validRequest('signed-request');
   const secret = 'host-dispatch-signing-secret-00000000000000000000000000000001';
