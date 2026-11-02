@@ -91,7 +91,7 @@ test('Host adapter retrieves SQLite Memory from an independently running Core pr
         SESSION_ID: SESSION,
         HOST_INSTALLATION_ID: hostIdentity.host_installation_id,
       },
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
     });
     const ready = await waitForReady(coreProcess);
     assert.notEqual(coreProcess.pid, process.pid, 'Core HTTP must run in a separate OS process');
@@ -159,8 +159,10 @@ test('Host adapter retrieves SQLite Memory from an independently running Core pr
     );
   } finally {
     if (coreProcess && coreProcess.exitCode === null && coreProcess.signalCode === null) {
-      coreProcess.kill('SIGTERM');
-      await once(coreProcess, 'exit').catch(() => {});
+      const exited = once(coreProcess, 'exit').catch(() => {});
+      if (coreProcess.connected) coreProcess.send({ type: 'shutdown' });
+      else coreProcess.kill('SIGTERM');
+      await exited;
     }
     if (previousDataRoot === undefined) delete globalThis.DATA_ROOT;
     else globalThis.DATA_ROOT = previousDataRoot;
