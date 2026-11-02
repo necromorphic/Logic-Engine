@@ -31,13 +31,6 @@ const ROUTE_BY_SOURCE_KEY = Object.freeze({
   WORKERS_AI: 'workers-ai',
 });
 
-const HOST_ROUTE_SENDER_MAP = Object.freeze({
-  'text-completions': 'text-completions',
-  kobold: 'kobold',
-  'novelai-text': 'novelai-text',
-  'horde-text': 'horde-text',
-});
-
 const UNREGISTERED_SENDER_ROUTE = 'unregistered';
 
 function assertSourceMap(sources) {
@@ -81,9 +74,7 @@ export function createSillyTavernFinalSendAdapter({
   });
 
   return Object.freeze({
-    resolveSenderRoute(request, hostRoute) {
-      const nativeRoute = HOST_ROUTE_SENDER_MAP[hostRoute];
-      if (nativeRoute) return nativeRoute;
+    resolveSenderRoute(request) {
       const source = request?.body?.chat_completion_source;
       // Unregistered ST senders remain native for explicitly unprotected
       // generations. Protected classification happens before route admission
@@ -97,10 +88,9 @@ export function createSillyTavernFinalSendAdapter({
         throw new Error('MEMORY_DISPATCH_NOT_READY');
       }
       const expectedRoute = sourceMap.get(args.request?.body?.chat_completion_source);
-      const isNativeGenerationRoute = Object.values(HOST_ROUTE_SENDER_MAP).includes(args.senderRoute);
       if (expectedRoute
         ? expectedRoute !== args.senderRoute
-        : !isNativeGenerationRoute && args.senderRoute !== UNREGISTERED_SENDER_ROUTE) {
+        : args.senderRoute !== UNREGISTERED_SENDER_ROUTE) {
         throw new Error('MEMORY_DISPATCH_NOT_READY');
       }
       const protectedMemory = resolveProtectedMemory(args.request);
