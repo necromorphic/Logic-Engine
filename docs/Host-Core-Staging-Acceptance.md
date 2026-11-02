@@ -37,7 +37,6 @@ The default `coreQueryAuthorizer = () => false` on the low-level Consumer constr
 Required deployment configuration includes:
 
 - `ENGINE_API_TOKEN` — Core HTTP bearer secret;
-- `ENGINE_ADAPTER_TOKENS` — JSON object mapping each adapter ID to its unique Host/Core shared secret;
 - `ENGINE_MEMORY_PROVIDER_DB_PATH` — durable Provider SQLite path; when absent, the Memory retrieval consumer is not created;
 - `ENGINE_MEMORY_NPC_CONTENT_FIELDS` — non-empty JSON allowlist of Core-authorized fields;
 - `LOGIC_ENGINE_COORDINATOR_DB_PATH` — absolute path to the shared Coordinator database;
@@ -48,7 +47,7 @@ Required deployment configuration includes:
 - `ENGINE_HOST_LIFECYCLE_DB_PATH` — durable lifecycle journal SQLite path (defaults to `./data/logic-engine-host-lifecycle.sqlite`);
 - `ENGINE_HOST_ASSERTION_NONCE_DB_PATH` — durable assertion replay SQLite path (defaults to `./data/logic-engine-host-assertion-nonces.sqlite`);
 - `ENGINE_HOST_VERSION_LEDGER_DB_PATH` — durable Host version ledger path (defaults to `./data/logic-engine-host-versions.sqlite`);
-- `ENGINE_HOST_BUILD_SHA` / `LOGIC_ENGINE_HOST_BUILD_SHA` — pinned Host build claim used by the respective Core/Host process; it is a deployment claim, not runtime attestation;
+- `LOGIC_ENGINE_HOST_BUILD_SHA` — pinned Host build claim supplied to the SillyTavern Host adapter; it is a deployment claim, not runtime attestation;
 - `ENGINE_TRUSTED_INITIAL_KNOWLEDGE_SOURCES` — deployment-owned source registry (may be an empty array when no such trusted sources are configured);
 - `LOGIC_ENGINE_WORLD_PACK_CATALOG_PATH` — deployment-controlled World Pack catalog path required by Core startup.
 
