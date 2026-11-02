@@ -26,7 +26,7 @@ defaults:
 
 jobs:
   pinned-source-audit:
-    runs-on: [self-hosted, Windows, X64]
+    runs-on: windows-latest
     timeout-minutes: 15
     steps:
       - name: Checkout Logic-Engine
