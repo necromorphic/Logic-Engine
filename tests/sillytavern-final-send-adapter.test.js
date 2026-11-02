@@ -57,6 +57,7 @@ test('adapter sends exact native transport through Core Gateway for protected co
   const body = JSON.stringify({ messages: [{ role: 'user', content: 'protected' }] });
   const response = await adapter.dispatch({
     request: { body: { chat_completion_source: 'makersuite', stream: false } },
+    response: {},
     senderRoute: 'google-ai-studio',
     endpointUrl: 'https://provider.example/v1/chat/completions',
     requestInit: { method: 'POST', body },
@@ -148,6 +149,7 @@ test('adapter denies unknown native sender before any transport handoff', async 
   });
   await assert.rejects(adapter.dispatch({
     request: { body: { chat_completion_source: 'not-registered' } },
+    response: {},
     senderRoute: 'unknown',
     endpointUrl: 'https://provider.example/generate',
     requestInit: { method: 'POST', body: '{}' },
