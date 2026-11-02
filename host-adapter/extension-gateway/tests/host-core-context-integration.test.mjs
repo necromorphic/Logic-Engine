@@ -121,12 +121,14 @@ test('Host Adapter requires Core root proof before context resolution and binds 
   const resolvedCoreContexts = [];
   let dispatchFaultMode = null;
   let capturedDispatchBody = null;
+  let capturedSuccessfulDispatchBody = null;
   const fetchImpl = async (url, options) => {
     const parsedUrl = new URL(url);
     let outgoingOptions = options;
     if (parsedUrl.pathname === '/v1/host/memory-npc/retrieve' && options?.body) {
       const outgoingBody = JSON.parse(options.body);
       capturedDispatchBody = outgoingBody;
+      if (dispatchFaultMode === null) capturedSuccessfulDispatchBody = outgoingBody;
       if (dispatchFaultMode === 'invalid-signature') {
         outgoingBody.signature = (outgoingBody.signature[0] === '0' ? '1' : '0')
           + outgoingBody.signature.slice(1);
@@ -301,11 +303,11 @@ test('Host Adapter requires Core root proof before context resolution and binds 
 
   // Re-submit the exact assertion accepted by the successful Host dispatch.
   // Core's durable nonce ledger must reject it before invoking the Consumer.
-  assert.ok(capturedDispatchBody);
+  assert.ok(capturedSuccessfulDispatchBody);
   const replayResponse = await post(
     coreUrl + '/v1/host/memory-npc/retrieve',
     { ...coreHeaders, 'x-adapter-id': ADAPTER_ID, 'x-adapter-token': ADAPTER_TOKEN },
-    capturedDispatchBody,
+    capturedSuccessfulDispatchBody,
   );
   assert.equal(replayResponse.status, 409);
   assert.equal((await replayResponse.json()).error.code, 'HOST_SESSION_ASSERTION_REPLAYED');
