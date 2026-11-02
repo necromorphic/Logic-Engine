@@ -51,27 +51,31 @@ The pinned patch currently instruments five native generation handler families:
 
 The patch wraps each handler in request-scoped AsyncLocalStorage, routes generation fetches through the shared hook, and intercepts Express response writes. Model-list and other non-generation fetches outside those request contexts remain native. Abort requests are excluded from generation dispatch.
 
-The adapter maps all 25 Chat Completions source keys to the Core sender registry. Unknown sender families are permitted only when the trusted Host classifier explicitly returns `null`; protected or indeterminate classifications are denied before transport.
+The adapter maps all 25 Chat Completions source keys to the Core sender registry and accepts the route-aware `resolveSenderRoute(request, hostRoute)` contract shared with #855. It also requires asynchronous `prepare(request, response)` before any native sender executes. Preparation validates the authenticated ST user/session, rejects browser-supplied protected-Memory marker fields, and can call a trusted `prepareHostContext` callback. The resulting server-owned context is passed only to the synchronous `resolveProtectedMemory(request, hostContext)` resolver. Unknown sender families are permitted only when the trusted Host classifier explicitly returns `null`; protected or indeterminate classifications are denied before transport.
+
+The #855 root server plugin now registers a fail-closed adapter implementing the same preparation and route-aware sender-resolution contract. That adapter preserves ordinary native generation while protected Memory remains disabled; it does not expose `authorizeResponseWrite` and therefore is not a protected-dispatch adapter. The five-route coverage described above comes from this #844 patch, not from the narrower managed patch in #855.
 
 ## Evidence on current branch
 
-At HEAD `dba987d797a095f9eb965dc8fd214e44493683ed`:
+At HEAD `131a1d6c81110209cb82f8ddbe2056a0a4c7d6e4` (CI still running):
 
-- Exact-source Patch Manager preflight, install, installed-file verification, Node syntax checks, real-handler fake-provider integration, and uninstall/rollback all passed on pinned SillyTavern 1.19.0.
+- The preceding exact-source audit passed Patch Manager preflight, install, installed-file verification, Node syntax checks, real-handler fake-provider integration, and uninstall/rollback on pinned SillyTavern 1.19.0 (HEAD `83ddbf5d3aa6d6089219b9317947821d2376a549`).
 - The real-handler harness exercised one request through each of the five native handler families and measured exactly one fake-provider request and one Gateway dispatch per request. It also exercised the Kobold post-handoff failure path and verified no retry.
 - Adapter tests cover the full 25-source route map, unknown-route denial, terminal response tombstones, and the separately routed generation families.
 - Gateway integration tests cover sender-family dispatch, durable dispatch-start ordering, revalidation, revoke/policy rotation, streaming release, replay denial, and crash recovery. These are Logic-Engine-side tests, not a live deployment attestation.
 
-Pinned-source audit: https://github.com/necromorphic/Logic-Engine/actions/runs/41407694803
+Previous passing pinned-source audit: https://github.com/necromorphic/Logic-Engine/actions/runs/41408750484
+
+Current Hook/adapter contract audit: https://github.com/necromorphic/Logic-Engine/actions/runs/41410030407
 
 ## Production blockers — do not enable protected Memory
 
-1. **No production adapter registration/bootstrap exists yet.** The patched ST hook exposes `registerLogicEngineFinalSendAdapter`, but the current Extension manifest and deployment entrypoint do not instantiate a production adapter or call that registration function. With no adapter, the patched generation handlers deliberately return `503 LOGIC_ENGINE_FINAL_SEND_ADAPTER_UNAVAILABLE`. This is fail-closed, but it also means ordinary generation is unavailable after patch installation until the bootstrap is implemented.
+1. **The #855 registration is fail-closed only.** The #855 server-plugin entrypoint registers a Host adapter at ST startup and keeps ordinary unprotected generation available. It does not create protected Memory context or call Core Gateway. The #844 patch used alone, without the #855 registration entrypoint, still returns `503 LOGIC_ENGINE_FINAL_SEND_ADAPTER_UNAVAILABLE`.
 2. **No real deployment-owned Core/Provider binding exists.** The adapter still needs trusted server-side identity/context resolution, the actual Core `MemoryDispatchGateway` instance, synchronous Core/Provider evidence readers, accepted-head authority configuration, and the shared Coordinator path. The browser must not provide these authorities.
 3. **Live revoke-at-egress proof is still required.** Gateway tests cover final response revalidation and synchronous writes under the Coordinator. The pinned fake-provider harness uses a fake Gateway; it does not prove a live revoke race against production Core/Provider stores at the actual ST response write.
 4. **Crash/restart and upstream call-count evidence is currently test-harness evidence.** Production process restart and provider-side request-count attestations are not available from the CI harness.
 
-The Gateway performs a post-inference revalidation and the ST response wrapper invokes `authorizeResponseWrite` synchronously for each write and final end. This is the intended release boundary, but the full deployed proof remains blocked by items 1–3.
+For a protected adapter, the Gateway performs post-inference revalidation and the ST response wrapper invokes `authorizeResponseWrite` synchronously for each write and final end. The #855 fail-closed adapter does not claim this capability because it never inserts protected Memory. The full deployed proof remains blocked by items 1–3.
 
 The patch manager is deployment plumbing, not an authorization authority. Core Security Gateway remains the sole Memory authorization authority. No merge, production activation, or Memory → NPC enablement is authorized by this document.
 
