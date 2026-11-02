@@ -1,10 +1,10 @@
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { updateFinalSendPatch, getFinalSendPatchStatus } from './host-adapter/patch-manager/manager.mjs';
+import { SillyTavernPatchManager } from './scripts/sillytavern-patch-manager.mjs';
 
 const PLUGIN_OWNER = 'logic-engine-extension:host-adapter-v1';
 const PLUGIN_ROOT = dirname(fileURLToPath(import.meta.url));
-const PATCH_STATE = join(PLUGIN_ROOT, 'data', 'final-send-patch');
+let patchManager = null;
 let registeredHook = null;
 let registeredAdapter = null;
 
@@ -108,12 +108,14 @@ export async function init(router) {
   }
 
   const hostRoot = resolve(PLUGIN_ROOT, '..', '..');
-  const hookSourcePath = join(PLUGIN_ROOT, 'host-adapter', 'patch-manager', 'logic-engine-final-send-hook.js');
-  const patchResult = await updateFinalSendPatch({
-    hostRoot,
-    stateRoot: PATCH_STATE,
-    hookSourcePath,
+  const manager = new SillyTavernPatchManager({
+    extensionRoot: PLUGIN_ROOT,
+    stRoot: hostRoot,
   });
+  // The same manager/state/journal is used by the native Extension lifecycle
+  // Hook. Startup is the bootstrap; it never applies a second independent patch.
+  const patchResult = await manager.execute('update');
+  patchManager = manager;
 
   try {
     const hookPath = join(hostRoot, 'src', 'logic-engine-final-send-hook.js');
@@ -129,21 +131,22 @@ export async function init(router) {
     registeredHook = hook;
   } catch (error) {
     try {
-      const { restoreFinalSendPatch } = await import('./host-adapter/patch-manager/manager.mjs');
-      await restoreFinalSendPatch({ hostRoot, stateRoot: PATCH_STATE });
+      await manager.execute('uninstall');
     } catch {
       // A drifted patch is never overwritten during rollback. The Host remains
-      // fail-closed and Patch Manager status will report the unresolved state.
+      // fail-closed and the shared Patch Manager journal remains available.
     }
     throw error;
   }
 
   router.get('/final-send/status', async (_request, response) => {
-    const patch = await getFinalSendPatchStatus({ hostRoot, stateRoot: PATCH_STATE });
+    const patch = await manager.inspectInstalledReadOnly();
+    const installed = patch.status === 'INSTALLED_AND_BACKUPS_VERIFIED';
     response.set('Cache-Control', 'no-store, private');
-    return response.status(patch.status === 'installed' ? 200 : 503).json({
+    return response.status(installed ? 200 : 503).json({
       patch: patch.status,
       hostCommit: patch.hostCommit ?? null,
+      patchVersion: patch.patchVersion ?? null,
       gateway: 'NOT_WIRED',
       memoryNpc: 'DISABLED_FAIL_CLOSED',
     });
@@ -161,4 +164,9 @@ export async function exit() {
   registeredNativeForward = () => {
     throw new Error('LOGIC_ENGINE_NATIVE_RESPONSE_WRITER_UNAVAILABLE');
   };
+  const manager = patchManager;
+  patchManager = null;
+  // Restore the single manager-owned patch when this server plugin is unloaded.
+  // On a normal restart init() reapplies/verifies it before requests are served.
+  if (manager) await manager.execute('uninstall');
 }
