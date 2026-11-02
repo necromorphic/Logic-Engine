@@ -79,7 +79,7 @@ test('real adapter composes file-backed SQLite Provider with Core query and cano
       contentFields: ['attributes.public_note'],
     }), /separate file from Core/);
 
-    assert.throws(() => createMemoryNpcProviderAdapter({
+    const httpAdapter = createMemoryNpcProviderAdapter({
       engine,
       providerPath,
       coordinatorPath,
@@ -87,7 +87,9 @@ test('real adapter composes file-backed SQLite Provider with Core query and cano
       trustedInitialKnowledgeSources: [],
       fieldPolicy: () => true,
       contentFields: ['attributes.public_note'],
-    }), /trusted Host authentication middleware verifier/);
+    });
+    assert.equal(httpAdapter.runWithAuthenticatedHostSession, undefined);
+    httpAdapter.close();
 
     assert.throws(() => createMemoryNpcProviderAdapter({
       engine,
@@ -98,19 +100,7 @@ test('real adapter composes file-backed SQLite Provider with Core query and cano
       fieldPolicy: () => true,
       contentFields: ['attributes.public_note'],
       isAuthenticatedHostRequest: request => authenticatedHostRequests.has(request),
-    }), /trusted Host conversation identity resolver/);
-
-    assert.throws(() => createMemoryNpcProviderAdapter({
-      engine,
-      providerPath,
-      coordinatorPath,
-      adapterId,
-      trustedInitialKnowledgeSources: [],
-      fieldPolicy: () => true,
-      contentFields: ['attributes.public_note'],
-      isAuthenticatedHostRequest: request => authenticatedHostRequests.has(request),
-      resolveHostConversationId,
-    }), /trusted Host installation\/account identity resolver/);
+    }), /all three trusted resolver functions/);
 
     adapter = createMemoryNpcProviderAdapter({
       engine,

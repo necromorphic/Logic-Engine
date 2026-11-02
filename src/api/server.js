@@ -7,10 +7,57 @@ import { ActorBindingService } from '../application/actor-bindings.js';
 import { AuthorizedReadService } from '../application/authorized-read-service.js';
 import { isMechanicPolicyAuthority, defaultMechanicPolicyFieldPolicy } from '../application/mechanic-policy-authority.js';
 import { HostConversationWorldBindingService } from '../application/host-conversation-world-bindings.js';
+import { createHostSessionAssertionRunner } from '../application/host-session-context.js';
 
 const MAX = 1048576;
 const MAX_HOST_VERSION_SNAPSHOT_BYTES = 8 * 1048576;
+const HOST_SESSION_UUID_PATTERN = '[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}';
+const HOST_SESSION_UUID = new RegExp('^' + HOST_SESSION_UUID_PATTERN + '$', 'i');
+const HOST_PC_NEXT11_CONVERSATION_ID = new RegExp(
+  '^' + HOST_SESSION_UUID_PATTERN + ':' + HOST_SESSION_UUID_PATTERN + ':' + HOST_SESSION_UUID_PATTERN + '$', 'i',
+);
 const MAX_HOST_VERSION_SNAPSHOT_ENTRIES = 25000;
+
+function hasExactOwnDataKeys(value, expectedKeys) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  try {
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) return false;
+    const keys = Reflect.ownKeys(value);
+    if (keys.length !== expectedKeys.length
+      || keys.some(key => typeof key !== 'string' || !expectedKeys.includes(key))) return false;
+    return expectedKeys.every(key => {
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      return descriptor?.enumerable === true && Object.hasOwn(descriptor, 'value');
+    });
+  } catch {
+    return false;
+  }
+}
+
+function validMemoryNpcResult(retrieval) {
+  if (!retrieval || typeof retrieval !== 'object' || Array.isArray(retrieval)) return false;
+  try {
+    const status = Object.getOwnPropertyDescriptor(retrieval, 'status');
+    if (!status || !Object.hasOwn(status, 'value')) return false;
+    if (status.value === 'ready') {
+      return hasExactOwnDataKeys(retrieval, ['status', 'admitted', 'candidates', 'reason', 'snapshot'])
+        && Array.isArray(retrieval.admitted) && Array.isArray(retrieval.candidates)
+        && retrieval.reason === null
+        && hasExactOwnDataKeys(retrieval.snapshot, ['world_revision', 'commit_sequence'])
+        && Number.isSafeInteger(retrieval.snapshot.world_revision) && retrieval.snapshot.world_revision >= 0
+        && Number.isSafeInteger(retrieval.snapshot.commit_sequence) && retrieval.snapshot.commit_sequence >= 0;
+    }
+    if (status.value === 'non_ready') {
+      return hasExactOwnDataKeys(retrieval, ['status', 'admitted', 'candidates', 'reason'])
+        && Array.isArray(retrieval.admitted) && Array.isArray(retrieval.candidates)
+        && typeof retrieval.reason === 'string' && retrieval.reason.length > 0;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
 
 /** Resolve the active deployment-owned policy on every boundary check. */
 export function createActiveMechanicPolicyValidator(getActiveMechanicContextProvider, policyAuthority = null) {
@@ -56,7 +103,7 @@ function send(res, status, data) {
   res.end(body);
 }
 
-export function createApiServer({ engine, token, internalToken = null, approvalToken = null, adminToken = null, adapterTokens = {}, authorizedReadFieldPolicy = null, mechanicPolicyAuthority = null, getActiveMechanicContextProvider = () => null, hostVersionLedger = null }) {
+export function createApiServer({ engine, token, internalToken = null, approvalToken = null, adminToken = null, adapterTokens = {}, authorizedReadFieldPolicy = null, mechanicPolicyAuthority = null, getActiveMechanicContextProvider = () => null, hostVersionLedger = null, memoryNpcConsumers = {}, hostAssertionNonceStore = null }) {
   if (!engine) throw new TypeError('engine required');
   if (typeof token !== 'string' || token.length < 16) throw new TypeError('API token must be at least 16 characters');
   if (internalToken !== null && (typeof internalToken !== 'string' || internalToken.length < 16 || internalToken === token)) {
@@ -87,6 +134,27 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
     const secret = req.headers['x-adapter-token'];
     return typeof id === 'string' && Object.hasOwn(adapterTokens, id) && secretMatches(secret, adapterTokens[id]) ? id : null;
   };
+  if (hostAssertionNonceStore !== null
+    && typeof hostAssertionNonceStore.consume !== 'function') {
+    throw new TypeError('Host assertion nonce store must expose atomic consume().');
+  }
+  if (!memoryNpcConsumers || typeof memoryNpcConsumers !== 'object' || Array.isArray(memoryNpcConsumers)
+    || Object.entries(memoryNpcConsumers).some(([id, consumer]) => !Object.hasOwn(adapterTokens, id)
+      || typeof consumer?.retrieveForNpc !== 'function')) {
+    throw new TypeError('Memory NPC consumers must be trusted, adapter-pinned consumer instances.');
+  }
+  const hostAssertionRunners = Object.fromEntries(Object.entries(adapterTokens)
+    .map(([id, secret]) => [id, createHostSessionAssertionRunner({
+      secret,
+      consumeNonce: (nonce, expiresAt, currentSeconds) => {
+        if (!hostAssertionNonceStore) throw new Error('HOST_ASSERTION_REPLAY_GUARD_UNAVAILABLE');
+        try {
+          return hostAssertionNonceStore.consume(id, nonce, expiresAt, currentSeconds);
+        } catch {
+          throw new Error('HOST_ASSERTION_REPLAY_GUARD_UNAVAILABLE');
+        }
+      },
+    })]));
   const proposals = new ProposalService(engine, {
     validateMechanicPolicy: createActiveMechanicPolicyValidator(getActiveMechanicContextProvider, mechanicPolicyAuthority),
   });
@@ -296,6 +364,103 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
         return send(res, 200, { binding: hostConversationBindings.resolve({
           adapterId, conversationId: body.conversation_id,
         }) });
+      }
+
+      if (url.pathname === '/v1/host-context/resolve') {
+        if (req.method !== 'POST') return send(res, 405, { error: { code: 'METHOD_NOT_ALLOWED', message: 'Unsupported Host context resolution operation.' } });
+        const adapterId = adapterIdFor(req);
+        if (!adapterId) return send(res, 403, { error: { code: 'ADAPTER_REQUIRED', message: 'An authenticated adapter identity is required.' } });
+        const body = await readBody(req);
+        const contextKeys = ['conversation_id', 'host_session_id', 'host_installation_id', 'conversation_uuid'];
+        if (!body || typeof body !== 'object' || Array.isArray(body)
+          || Object.keys(body).length !== contextKeys.length
+          || Object.keys(body).some(key => !contextKeys.includes(key))
+          || !HOST_SESSION_UUID.test(body.host_session_id ?? '')
+          || !HOST_SESSION_UUID.test(body.host_installation_id ?? '')
+          || !HOST_SESSION_UUID.test(body.conversation_uuid ?? '')
+          || typeof body.conversation_id !== 'string'
+          || !HOST_PC_NEXT11_CONVERSATION_ID.test(body.conversation_id)
+          || body.conversation_id !== [
+            body.host_session_id, body.host_installation_id, body.conversation_uuid,
+          ].join(':')) {
+          throw new EngineError('INVALID_HOST_CONTEXT_RESOLUTION',
+            'Host context resolution accepts only the canonical PC-NEXT-11 conversation_id.', 400);
+        }
+        const conversation = hostConversationBindings.resolve({
+          adapterId, conversationId: body.conversation_id,
+        });
+        const actor = actorBindings.resolveForAdapter(conversation.world_id, adapterId);
+        if (!actor?.actor || typeof actor.actor.entity_id !== 'string'
+          || typeof actor.actor.entity_type !== 'string') {
+          throw new EngineError('HOST_ACTOR_BINDING_UNAVAILABLE',
+            'Exactly one active actor binding is required.', 409);
+        }
+        return send(res, 200, { context: {
+          adapter_id: adapterId,
+          conversation_id: conversation.conversation_id,
+          world_id: conversation.world_id,
+          actor_id: actor.actor.entity_id,
+          actor_type: actor.actor.entity_type,
+        } });
+      }
+
+      if (url.pathname === '/v1/host/memory-npc/retrieve') {
+        if (req.method !== 'POST') return send(res, 405, { error: { code: 'METHOD_NOT_ALLOWED', message: 'Unsupported Host Memory retrieval operation.' } });
+        const adapterId = adapterIdFor(req);
+        if (!adapterId) return send(res, 403, { error: { code: 'ADAPTER_REQUIRED', message: 'An authenticated adapter identity is required.' } });
+        const consumer = memoryNpcConsumers[adapterId];
+        if (!consumer) return send(res, 503, { error: { code: 'MEMORY_NPC_CONSUMER_UNAVAILABLE', message: 'The trusted Memory NPC consumer is not configured for this adapter.' } });
+        const body = await readBody(req, 64 * 1024);
+        const allowed = ['assertion', 'signature', 'request_id', 'context_size', 'generation_type'];
+        if (!body || typeof body !== 'object' || Array.isArray(body)
+          || Object.keys(body).length !== allowed.length
+          || Object.keys(body).some(key => !allowed.includes(key))
+          || typeof body.request_id !== 'string' || !HOST_SESSION_UUID.test(body.request_id)
+          || !Number.isSafeInteger(body.context_size) || body.context_size < 1 || body.context_size > 200000
+          || typeof body.generation_type !== 'string' || !/^[a-z][a-z0-9_-]{0,31}$/.test(body.generation_type)) {
+          throw new EngineError('INVALID_HOST_MEMORY_RETRIEVAL', 'Host Memory retrieval request metadata is invalid.', 400);
+        }
+        let consumerFailed = false;
+        try {
+          const retrieval = await hostAssertionRunners[adapterId].run(
+            body.assertion, body.signature,
+            async () => {
+              try {
+                return await consumer.retrieveForNpc({ conversationId: body.assertion.conversation_id });
+              } catch (error) {
+                // Keep Consumer/runtime failures distinct from assertion
+                // verification failures even when their messages collide.
+                consumerFailed = true;
+                throw error;
+              }
+            },
+          );
+          if (!validMemoryNpcResult(retrieval)) {
+            return send(res, 503, { error: { code: 'MEMORY_NPC_RESULT_INVALID', message: 'Core Memory returned an invalid result envelope.' } });
+          }
+          return send(res, 200, { retrieval });
+        } catch (error) {
+          // The signed assertion has already been verified before the callback
+          // runs. Never misreport a Consumer/runtime exception as an auth error.
+          if (consumerFailed) throw error;
+          const code = typeof error?.message === 'string' ? error.message : '';
+          if (code === 'HOST_SESSION_ASSERTION_REPLAYED') {
+            return send(res, 409, { error: { code, message: 'Host assertion nonce was already consumed.' } });
+          }
+          if (code === 'HOST_SESSION_ASSERTION_EXPIRED') {
+            return send(res, 401, { error: { code, message: 'Host assertion is outside its acceptance window.' } });
+          }
+          if (code === 'HOST_SESSION_ASSERTION_CAPACITY_EXCEEDED') {
+            return send(res, 503, { error: { code, message: 'Host assertion verifier is at capacity.' } });
+          }
+          if (code === 'HOST_ASSERTION_REPLAY_GUARD_UNAVAILABLE') {
+            return send(res, 503, { error: { code, message: 'Durable Host assertion replay protection is unavailable.' } });
+          }
+          if (code === 'HOST_SESSION_ASSERTION_INVALID') {
+            return send(res, 401, { error: { code, message: 'Host assertion could not be authenticated.' } });
+          }
+          throw error;
+        }
       }
       const hostBindingParts = url.pathname.split('/').filter(Boolean);
       if (hostBindingParts[0] === 'v1' && hostBindingParts[1] === 'host-conversation-bindings'
