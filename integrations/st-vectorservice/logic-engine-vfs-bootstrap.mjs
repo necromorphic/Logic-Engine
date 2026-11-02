@@ -13,11 +13,17 @@ if (process.platform !== 'linux' || typeof process.getuid !== 'function') {
   );
 }
 
-const serverEntry = process.env.LOGIC_ENGINE_ST_VECTOR_SERVER_ENTRY;
-if (!serverEntry || !path.isAbsolute(serverEntry) || !fs.statSync(serverEntry).isFile()) {
+const configuredServerEntry = process.env.LOGIC_ENGINE_ST_VECTOR_SERVER_ENTRY;
+if (!configuredServerEntry || !path.isAbsolute(configuredServerEntry)) {
   throw new Error('LOGIC_ENGINE_ST_VECTOR_SERVER_ENTRY must identify the absolute installed ST-VectorService server.js file');
 }
-const require = createRequire(serverEntry);
+const serverEntryPath = fs.realpathSync(configuredServerEntry);
+const serverEntryInfo = fs.lstatSync(serverEntryPath);
+if (!serverEntryInfo.isFile() || serverEntryInfo.isSymbolicLink()
+    || path.basename(serverEntryPath).toLowerCase() !== 'server.js') {
+  throw new Error('LOGIC_ENGINE_ST_VECTOR_SERVER_ENTRY must resolve to a regular server.js file');
+}
+const require = createRequire(serverEntryPath);
 const packageRoot = process.env.BETTER_SQLITE3_PACKAGE_DIR;
 const Database = require(packageRoot || 'better-sqlite3');
 
@@ -113,4 +119,4 @@ try {
   if (error?.code !== 'ENOENT') throw error;
 }
 
-export { dbPath, storageDirectory };
+export { dbPath, serverEntryPath, storageDirectory };
