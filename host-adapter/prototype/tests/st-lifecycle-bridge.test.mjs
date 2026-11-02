@@ -65,6 +65,8 @@ function makeFixture(chat = [{ is_user: true, mes: 'hello' }, { is_user: false, 
   getPersistedInventory = null,
   publishLifecycleEvent = null,
   getLifecycleStatus = null,
+  isLocatorEnrolled = () => true,
+  getConversationId: getConversationIdOverride = null,
 } = {}) {
   let failSave = false;
   const db = new FakeDB();
@@ -73,8 +75,9 @@ function makeFixture(chat = [{ is_user: true, mes: 'hello' }, { is_user: false, 
   let sourceLocator = 'chat-file-1';
   const bridge = createStLifecycleBridge({
     journal,
-    getConversationId: () => conversationId,
+    getConversationId: getConversationIdOverride ?? (() => conversationId),
     getSourceLocator: () => sourceLocator,
+    isLocatorEnrolled,
     getChat: () => chat,
     publishDigest,
     publishSnapshot,
@@ -502,6 +505,37 @@ test('native save failure leaves the journal behind so the next mutation fails c
   await assert.rejects(f.bridge.afterMutation('edit-message'), /simulated native chat save failure/);
   f.setFailSave(false);
   await assert.rejects(f.bridge.beforeMutation('delete-message', [0]), /previous lifecycle operation is incomplete/);
+});
+
+test('un-enrolled chat mutations bypass unrelated installation identity migration', async () => {
+  let identityResolutionCalls = 0;
+  const f = makeFixture(undefined, {
+    isLocatorEnrolled: locator => locator === 'previously-enrolled-chat.jsonl',
+    getConversationId: async () => {
+      identityResolutionCalls++;
+      throw Error('NON_READY: enrolled Host installation identity migration required');
+    },
+  });
+
+  assert.deepEqual(
+    await f.bridge.beforeMutation('message-send', []),
+    { status: 'NOT_ENROLLED' },
+  );
+  f.chat.push({ is_user: true, mes: 'ordinary user message' });
+  assert.deepEqual(
+    await f.bridge.afterMutation('message-send', { createdMessageIndex: f.chat.length - 1 }),
+    { status: 'NOT_ENROLLED' },
+  );
+  assert.deepEqual(await f.bridge.guardExport(), { status: 'NOT_ENROLLED' });
+  assert.equal(identityResolutionCalls, 0, 'un-enrolled ST operations must not resolve or migrate Host identity');
+
+  f.setLocator('previously-enrolled-chat.jsonl');
+  await assert.rejects(
+    f.bridge.beforeMutation('message-send', []),
+    /enrolled Host installation identity migration required/,
+    'an enrolled chat must retain the strict identity migration guard',
+  );
+  assert.equal(identityResolutionCalls, 1);
 });
 
 test('empty chat enrollment is explicit and does not imply pre-enrollment history', async () => {
