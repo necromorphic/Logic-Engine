@@ -36,6 +36,13 @@ const SENDER_ROUTE_MAP = Object.freeze({
   workers_ai: 'workers-ai',
 });
 
+const HOST_ROUTE_MAP = Object.freeze({
+  'text-completions': 'text-completions',
+  kobold: 'kobold',
+  'novelai-text': 'novelai-text',
+  'horde-text': 'horde-text',
+});
+
 function assertAuthenticatedStRequest(request) {
   const handle = request?.user?.profile?.handle;
   const session = request?.session;
@@ -62,7 +69,12 @@ function createFailClosedAdapter() {
       // No server-side Memory context is created while the deployment gate is
       // DISABLED. The final-send hook still owns the native egress call site.
     },
-    resolveSenderRoute(request) {
+    resolveSenderRoute(request, hostRoute = 'chat-completions') {
+      if (hostRoute !== 'chat-completions') {
+        const route = HOST_ROUTE_MAP[hostRoute];
+        if (!route) throw new Error('LOGIC_ENGINE_FINAL_SEND_SENDER_UNKNOWN');
+        return route;
+      }
       const source = request?.body?.chat_completion_source;
       const route = typeof source === 'string' ? SENDER_ROUTE_MAP[source] : null;
       if (!route) throw new Error('LOGIC_ENGINE_FINAL_SEND_SENDER_UNKNOWN');
