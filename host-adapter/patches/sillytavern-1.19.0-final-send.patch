@@ -98,7 +98,7 @@
  
 --- /dev/null
 +++ b/src/logic-engine-final-send-hook.js
-@@ -0,0 +1,105 @@
+@@ -0,0 +1,116 @@
 +import { AsyncLocalStorage } from 'node:async_hooks';
 +import nativeFetch from 'node-fetch';
 +
@@ -154,7 +154,17 @@
 +    response.end = function (...args) {
 +        return adapter.authorizeResponseWrite(response, () => nativeEnd(...args), true);
 +    };
-+    return generationContext.run({ request, response, adapter, route, protectedForward: null }, handler);
++    return generationContext.run({ request, response, adapter, route, protectedForward: null }, async () => {
++        try {
++            return await handler();
++        } catch (error) {
++            if (error?.logicEngineFinalSendTerminal === true) {
++                if (typeof response.destroy === 'function' && !response.destroyed) response.destroy();
++                return;
++            }
++            throw error;
++        }
++    });
 +}
 +
 +/** Replacement for the node-fetch import, scoped to the native generation route. */
@@ -182,6 +192,7 @@
 +        request: active.request,
 +        response: active.response,
 +        senderRoute,
++        hostRoute: active.route,
 +        endpointUrl,
 +        requestInit,
 +        stream,
@@ -288,4 +299,140 @@
 +        throw error;
 +    }
 +}
-
+--- a/src/endpoints/backends/text-completions.js
++++ b/src/endpoints/backends/text-completions.js
+@@ -1,5 +1,5 @@
+ import { Readable } from 'node:stream';
+-import fetch from 'node-fetch';
++import { logicEngineFetch as fetch, runWithLogicEngineFinalSend, logicEngineForwardFetchResponse } from '../../logic-engine-final-send-hook.js';
+ import express from 'express';
+ import _ from 'lodash';
+ 
+@@ -13,9 +13,11 @@
+     FEATHERLESS_KEYS,
+     OPENAI_KEYS,
+ } from '../../constants.js';
+-import { forwardFetchResponse, trimV1, getConfigValue } from '../../util.js';
++import { forwardFetchResponse as nativeForwardFetchResponse, trimV1, getConfigValue } from '../../util.js';
+ import { setAdditionalHeaders } from '../../additional-headers.js';
+ import { createHash } from 'node:crypto';
++
++const forwardFetchResponse = (upstream, response) => logicEngineForwardFetchResponse(upstream, response, nativeForwardFetchResponse);
+ 
+ export const router = express.Router();
+ 
+@@ -270,6 +272,7 @@
+ });
+ 
+ router.post('/generate', async function (request, response) {
++    return runWithLogicEngineFinalSend(request, response, async () => {
+     if (!request.body) return response.sendStatus(400);
+ 
+     try {
+@@ -438,6 +441,7 @@
+             ? response.send(value)
+             : response.end();
+     }
++    });
+ });
+ 
+ const ollama = express.Router();
+--- a/src/endpoints/backends/kobold.js
++++ b/src/endpoints/backends/kobold.js
+@@ -1,14 +1,17 @@
+ import fs from 'node:fs';
+ import express from 'express';
+-import fetch from 'node-fetch';
+-
+-import { forwardFetchResponse, delay } from '../../util.js';
++import { logicEngineFetch as fetch, runWithLogicEngineFinalSend, logicEngineForwardFetchResponse } from '../../logic-engine-final-send-hook.js';
++
++import { forwardFetchResponse as nativeForwardFetchResponse, delay } from '../../util.js';
+ import { getOverrideHeaders, setAdditionalHeaders, setAdditionalHeadersByType } from '../../additional-headers.js';
+ import { TEXTGEN_TYPES } from '../../constants.js';
+ 
++const forwardFetchResponse = (upstream, response) => logicEngineForwardFetchResponse(upstream, response, nativeForwardFetchResponse);
++
+ export const router = express.Router();
+ 
+ router.post('/generate', async function (request, response_generate) {
++    return runWithLogicEngineFinalSend(request, response_generate, async () => {
+     if (!request.body) return response_generate.sendStatus(400);
+ 
+     if (request.body.api_server.indexOf('localhost') != -1) {
+@@ -120,6 +123,7 @@
+                 return response_generate.send(data);
+             }
+         } catch (error) {
++            if (error?.logicEngineFinalSendTerminal === true) throw error;
+             // response
+             switch (error?.status) {
+                 case 403:
+@@ -138,6 +142,7 @@
+ 
+     console.error('Max retries exceeded. Giving up.');
+     return response_generate.send({ error: true });
++    });
+ });
+ 
+ router.post('/status', async function (request, response) {
+--- a/src/endpoints/novelai.js
++++ b/src/endpoints/novelai.js
+@@ -1,15 +1,17 @@
+ import util from 'node:util';
+ import { Buffer } from 'node:buffer';
+ 
+-import fetch from 'node-fetch';
++import { logicEngineFetch as fetch, runWithLogicEngineFinalSend, logicEngineForwardFetchResponse } from '../logic-engine-final-send-hook.js';
+ import express from 'express';
+ 
+ import { readSecret, SECRET_KEYS } from './secrets.js';
+-import { readAllChunks, extractFileFromZipBuffer, forwardFetchResponse } from '../util.js';
++import { readAllChunks, extractFileFromZipBuffer, forwardFetchResponse as nativeForwardFetchResponse } from '../util.js';
+ 
+ const API_NOVELAI = 'https://api.novelai.net';
+ const TEXT_NOVELAI = 'https://text.novelai.net';
+ const IMAGE_NOVELAI = 'https://image.novelai.net';
++
++const forwardFetchResponse = (upstream, response) => logicEngineForwardFetchResponse(upstream, response, nativeForwardFetchResponse);
+ 
+ // Constants for skip_cfg_above_sigma (Variety+) calculation
+ const REFERENCE_PIXEL_COUNT = 1011712;   // 832 * 1216 reference image size
+@@ -165,6 +167,7 @@
+ });
+ 
+ router.post('/generate', async function (req, res) {
++    return runWithLogicEngineFinalSend(req, res, async () => {
+     if (!req.body) return res.sendStatus(400);
+ 
+     const api_key_novel = readSecret(req.user.directories, SECRET_KEYS.NOVEL);
+@@ -295,6 +298,7 @@
+     } catch (error) {
+         return res.send({ error: true });
+     }
++    });
+ });
+ 
+ router.post('/generate-image', async (request, response) => {
+--- a/src/endpoints/horde.js
++++ b/src/endpoints/horde.js
+@@ -1,4 +1,4 @@
+-import fetch from 'node-fetch';
++import { logicEngineFetch as fetch, runWithLogicEngineFinalSend } from '../logic-engine-final-send-hook.js';
+ import express from 'express';
+ import { AIHorde, ModelGenerationInputStableSamplers, ModelInterrogationFormTypes, HordeAsyncRequestStates } from '@zeldafan0225/ai_horde';
+ import { getVersion, delay, Cache } from '../util.js';
+@@ -181,6 +181,7 @@
+ });
+ 
+ router.post('/generate-text', async (request, response) => {
++    return runWithLogicEngineFinalSend(request, response, async () => {
+     const apiKey = readSecret(request.user.directories, SECRET_KEYS.HORDE) || ANONYMOUS_KEY;
+     const url = 'https://aihorde.net/api/v2/generate/text/async';
+     const agent = await getClientAgent();
+@@ -209,4 +210,5 @@
+         console.error(error);
+         return response.send({ error: true });
+     }
++    });
+ });
