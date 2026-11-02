@@ -73,6 +73,38 @@ test('adapter sends exact native transport through Core Gateway for protected co
   assert.equal(captured.body, body);
 });
 
+
+test('separately routed native generation handlers pass route admission and use the shared Gateway', async () => {
+  const routes = ['text-completions', 'kobold', 'novelai-text', 'horde-text'];
+  const calls = [];
+  const adapter = createSillyTavernFinalSendAdapter({
+    gateway: {
+      dispatchProtectedRequest(request) {
+        calls.push(request.senderRoute);
+        return request.transport();
+      },
+      authorizeResponseWrite(_requestId, write) { return write(); },
+    },
+    resolveProtectedMemory: () => protectedMemory,
+    chatCompletionSources: sources,
+    nativeForwardFetchResponse: async () => {},
+  });
+  for (const route of routes) {
+    const result = await adapter.dispatch({
+      request: { body: { stream: false } },
+      response: {},
+      senderRoute: adapter.resolveSenderRoute({}, route),
+      endpointUrl: 'https://provider.example/generate',
+      requestInit: { method: 'POST', body: '{"model":"test"}' },
+      stream: false,
+      transport: async () => ({ status: 200, route }),
+    });
+    assert.equal(result.status, 200);
+    assert.equal(result.route, route);
+  }
+  assert.deepEqual(calls, routes);
+});
+
 test('adapter denies unknown native sender before any transport handoff', async () => {
   let handoffs = 0;
   const adapter = createSillyTavernFinalSendAdapter({
