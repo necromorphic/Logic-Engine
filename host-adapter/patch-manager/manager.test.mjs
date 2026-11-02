@@ -1,4 +1,4 @@
-import test from 'node:test';
+import test from 'node:test';\nimport { createHash } from 'node:crypto';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -213,4 +213,43 @@ test('repair safely migrates an intact managed patch to an updated hook payload'
   assert.equal(repaired.operation, 'repair');
   assert.equal(repaired.status, 'installed');
   assert.deepEqual(await readFile(join(fixture.host, SILLYTAVERN_TARGET.hookRelativePath)), updatedBytes);
+});
+
+
+test('restart recovery rolls back an interrupted apply before refusing changed pinned source', async t => {
+  const fixture = await createPinnedFixture(t);
+  if (!fixture) return;
+  const endpointRelativePath = SILLYTAVERN_TARGET.endpointRelativePath;
+  const hookRelativePath = SILLYTAVERN_TARGET.hookRelativePath;
+  const endpoint = join(fixture.host, endpointRelativePath);
+  const hook = join(fixture.host, hookRelativePath);
+  const original = await readFile(endpoint);
+  const patched = Buffer.from(patchChatCompletionsSource(original.toString('utf8')), 'utf8');
+  const hookBytes = await readFile(hookSourcePath);
+  const hash = bytes => createHash('sha256').update(bytes).digest('hex');
+  const backupRelativePath = 'backups/recovery/chat-completions.js';
+  const backup = join(fixture.state, backupRelativePath);
+  await mkdir(join(fixture.state, 'backups/recovery'), { recursive: true });
+  await writeFile(backup, original);
+  await writeFile(hook, hookBytes);
+  await writeFile(endpoint, patched);
+  await writeFile(join(fixture.state, 'pending.json'), JSON.stringify({
+    patchId: 'sillytavern-1.19.0-final-send-v1',
+    hostCommit: SILLYTAVERN_TARGET.commit,
+    endpointRelativePath,
+    hookRelativePath,
+    backupRelativePath,
+    originalHash: hash(original),
+    patchedHash: hash(patched),
+    hookHash: hash(hookBytes),
+  }));
+  const loader = join(fixture.host, 'src/plugin-loader.js');
+  await writeFile(loader, Buffer.concat([await readFile(loader), Buffer.from('\\n// source drift\\n')]));
+  await assert.rejects(
+    applyFinalSendPatch({ hostRoot: fixture.host, stateRoot: fixture.state, hookSourcePath }),
+    /LOGIC_ENGINE_PATCH_HOST_SOURCE_HASH_MISMATCH/,
+  );
+  assert.deepEqual(await readFile(endpoint), original);
+  await assert.rejects(readFile(hook), { code: 'ENOENT' });
+  await assert.rejects(readFile(join(fixture.state, 'pending.json')), { code: 'ENOENT' });
 });
