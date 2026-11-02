@@ -38,11 +38,21 @@ Required deployment configuration includes:
 
 - `ENGINE_API_TOKEN` — Core HTTP bearer secret;
 - `ENGINE_ADAPTER_TOKENS` — JSON object mapping each adapter ID to its unique Host/Core shared secret;
-- `ENGINE_MEMORY_PROVIDER_DB_PATH` — durable Provider SQLite path;
+- `ENGINE_MEMORY_PROVIDER_DB_PATH` — durable Provider SQLite path; when absent, the Memory retrieval consumer is not created;
 - `ENGINE_MEMORY_NPC_CONTENT_FIELDS` — non-empty JSON allowlist of Core-authorized fields;
 - `LOGIC_ENGINE_COORDINATOR_DB_PATH` — absolute path to the shared Coordinator database;
 - `ENGINE_DB_PATH` — Core canonical database path;
-- `ENGINE_TRUSTED_INITIAL_KNOWLEDGE_SOURCES` — deployment-owned source registry (may be an empty array when no such trusted sources are configured).
+- `ENGINE_ADAPTER_TOKENS` — JSON object mapping each adapter ID to a unique server-to-server secret;
+- `ENGINE_HOST_ROOT_IDENTITIES` — JSON array of deployment-approved `{ adapter_id, host_installation_id, authenticated_account_id, root_id }` bindings; an empty array leaves Host root lifecycle authority unconfigured;
+- `ENGINE_HOST_AUTHORITY_ID` and `ENGINE_HOST_AUTHORITY_GENERATION` — deployment-owned lifecycle authority identity and positive generation; both are required for an active root lifecycle authority;
+- `ENGINE_HOST_LIFECYCLE_DB_PATH` — durable lifecycle journal SQLite path (defaults to `./data/logic-engine-host-lifecycle.sqlite`);
+- `ENGINE_HOST_ASSERTION_NONCE_DB_PATH` — durable assertion replay SQLite path (defaults to `./data/logic-engine-host-assertion-nonces.sqlite`);
+- `ENGINE_HOST_VERSION_LEDGER_DB_PATH` — durable Host version ledger path (defaults to `./data/logic-engine-host-versions.sqlite`);
+- `ENGINE_HOST_BUILD_SHA` / `LOGIC_ENGINE_HOST_BUILD_SHA` — pinned Host build claim used by the respective Core/Host process; it is a deployment claim, not runtime attestation;
+- `ENGINE_TRUSTED_INITIAL_KNOWLEDGE_SOURCES` — deployment-owned source registry (may be an empty array when no such trusted sources are configured);
+- `LOGIC_ENGINE_WORLD_PACK_CATALOG_PATH` — deployment-controlled World Pack catalog path required by Core startup.
+
+The SillyTavern Host adapter also reads `globalThis.DATA_ROOT` from the SillyTavern server runtime to resolve the authenticated user's data directories. This is a Host-process runtime global; it is not expected to be set by Core `src/index.js`. The adapter fails closed with `HOST_IDENTITY_DATA_ROOT_UNAVAILABLE` if it is absent.
 
 The adapter token is also the HMAC-SHA256 key for that adapter's Host assertion. The Core API bearer and adapter token are distinct credentials. The adapter token is server-to-server only; it must not be exposed to browser code, prompts, query strings, or logs. Configure the matching value in the SillyTavern server-side Host extension and Core runtime. This version has no dual-key overlap/rotation protocol; rotate the two sides as one coordinated maintenance change and repeat the staging acceptance checks.
 
@@ -60,11 +70,11 @@ Its fixtures include the ST request/session object, authoritative inventory enum
 
 `tests/host-core-cross-process.test.js` launches the Core HTTP server in a separate operating-system process using `tests/fixtures/host-core-sqlite-core-server.mjs`. The Host adapter remains in the test process and reaches Core over an actual loopback TCP HTTP connection. Core opens its own file-backed Core, Provider, Coordinator, and nonce SQLite databases. The test asserts the child PID differs from the Host test PID and verifies a retrieved candidate crosses the process/network boundary.
 
-The cross-process test still uses a fixture ST request, fixture inventory, and fixture root-proof result. It is not a live SillyTavern deployment test and does not establish behavior under real machine-to-machine network partitions, TLS termination, DNS, or production process supervision.
+The cross-process test proves OS-process separation and a real loopback TCP HTTP exchange between the Host adapter runtime and Core. It still runs the Host adapter inside the test harness rather than a separately booted SillyTavern server, and uses a fixture ST request, fixture inventory, and fixture root-proof result. It therefore does not prove live ST authentication integration or behavior under real machine-to-machine network partitions, TLS termination, DNS, or production process supervision.
 
 ### Revocation and recipient semantics
 
-The retrieval HTTP route is intentionally read-only. It does not expose a caller-controlled Provider revoke endpoint. Revocation is an authorization/lifecycle operation owned by Core/Provider control paths; the retrieval path must observe the resulting denied grant and disclose no candidate. The E2E Provider-level revoke test verifies this read-side behavior, but it is not a test of an HTTP revoke API.
+The retrieval HTTP route is intentionally read-only. It does not expose a caller-controlled Provider-record revoke endpoint. The `DELETE /v1/host-conversation-bindings/{adapter}/{conversation}` lifecycle operation (where configured) revokes a conversation binding; it is not a Provider-record revoke API and must not be described as one. Provider record revocation is performed through the trusted Core/Provider control path; retrieval must observe the resulting denied grant and disclose no candidate. The E2E Provider-level revoke test verifies this read-side behavior, but it is not a test of an HTTP Provider-record revoke API.
 
 `recipient` is fixed to `model` by the Consumer contract, not accepted from the request body. The production Core authorizer explicitly rejects any query scope whose recipient is not `model`. A separate user-selectable recipient API is not part of this integration.
 
