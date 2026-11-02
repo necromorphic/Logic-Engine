@@ -57,7 +57,6 @@ test('Patch Manager hashes pinned source text canonically across CRLF checkouts'
   const { manager, stRoot, original } = await fixture(t);
   const sourcePath = join(stRoot, 'src/host.js');
   await writeFile(sourcePath, original.replace(/\n/g, '\r\n'));
-  await manager.initialize();
   assert.equal(await manager.hashAt('src/host.js'), hash(original));
 });
 
@@ -109,7 +108,6 @@ test('Patch Manager applies contextual hunks from a CRLF-checked-out patch artif
     before: hash(Buffer.from(original, 'utf8')),
     after: hash(Buffer.from(patched, 'utf8')),
   };
-  manifest.createdFiles = {};
   manifest.patch.sha256 = hash(Buffer.from(contextualPatch, 'utf8'));
   await writeFile(manager.manifestPath, JSON.stringify(manifest));
   await writeFile(patchPath, contextualPatch.replace(/\n/g, String.fromCharCode(13, 10)));
@@ -210,16 +208,16 @@ test('Patch Manager recovers an interrupted apply journal to the verified baseli
   assert.equal(await readFile(join(stRoot, 'src/host.js'), 'utf8'), original);
 });
 
-test('Patch Manager updates an owned patch by rolling back the previous pinned version first', async (t) => {
+test('Patch Manager updates a changed artifact even when its version label is unchanged', async (t) => {
   const { manager, stRoot } = await fixture(t);
   await manager.execute('install');
 
   const extensionRoot = join(stRoot, '..', 'extension');
   const manifestPath = join(extensionRoot, 'patches', 'manifest.json');
   const patchPath = join(extensionRoot, 'patches', 'test.patch');
-  const original = "export const host = 'stock';\n";
-  const patchedV2 = "export const host = 'patched-v2';\n";
-  const hookV2 = "export const finalSendHook = 'v2';\n";
+  const original = "export const host = 'stock';\\n";
+  const patchedV2 = "export const host = 'patched-v2';\\n";
+  const hookV2 = "export const finalSendHook = 'v2';\\n";
   const patchV2 = [
     '--- a/src/host.js',
     '+++ b/src/host.js',
@@ -231,9 +229,8 @@ test('Patch Manager updates an owned patch by rolling back the previous pinned v
     '@@ -0,0 +1 @@',
     "+export const finalSendHook = 'v2';",
     '',
-  ].join('\n');
+  ].join('\\n');
   const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
-  manifest.patch.version = 'test-2';
   manifest.patch.sha256 = hash(patchV2);
   manifest.sourceFiles['src/host.js'].after = hash(patchedV2);
   manifest.createdFiles['src/hook.js'] = hash(hookV2);
