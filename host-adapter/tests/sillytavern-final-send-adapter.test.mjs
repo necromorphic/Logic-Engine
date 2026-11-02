@@ -12,10 +12,15 @@ const sourceKeys = [
 const sources = Object.fromEntries(sourceKeys.map((key) => [key, key]));
 const requestInit = { method: 'POST', body: '{"model":"test-model"}', headers: {} };
 
-function createAdapter({ resolveProtectedMemory, gateway = { dispatchProtectedRequest: () => 'gateway' } }) {
+function createAdapter({
+  resolveProtectedMemory,
+  gateway = { dispatchProtectedRequest: () => 'gateway' },
+  prepareHostContext,
+}) {
   return createSillyTavernFinalSendAdapter({
     gateway,
     resolveProtectedMemory,
+    prepareHostContext,
     chatCompletionSources: sources,
     nativeForwardFetchResponse: async () => undefined,
   });
@@ -176,4 +181,58 @@ test('registered protected sender is delegated to the Core Gateway', () => {
   let hostWrites = 0;
   adapter.authorizeResponseWrite(response, () => { hostWrites += 1; }, true);
   assert.equal(hostWrites, 1);
+});
+
+
+test('prepare requires an authenticated SillyTavern session before generation', async () => {
+  const adapter = createAdapter({ resolveProtectedMemory: () => null });
+  await assert.rejects(
+    adapter.prepare({ body: {} }, {}),
+    /LOGIC_ENGINE_HOST_SESSION_NOT_AUTHENTICATED/,
+  );
+});
+
+test('prepare rejects browser-supplied protected Memory markers', async () => {
+  const adapter = createAdapter({ resolveProtectedMemory: () => null });
+  const request = {
+    user: { profile: { handle: 'test-user' } },
+    session: { handle: 'test-user' },
+    body: { logic_engine_protected_context: { worldId: 'spoofed' } },
+  };
+  await assert.rejects(adapter.prepare(request, {}), /LOGIC_ENGINE_UNTRUSTED_MEMORY_MARKER/);
+});
+
+test('trusted asynchronous Host preparation is passed to the synchronous Memory resolver', async () => {
+  const trustedHostContext = Object.freeze({
+    installationId: 'installation-1',
+    accountId: 'account-1',
+    conversationId: 'conversation-1',
+  });
+  let resolvedContext;
+  const adapter = createAdapter({
+    prepareHostContext: async request => {
+      assert.equal(request.user.profile.handle, 'test-user');
+      return trustedHostContext;
+    },
+    resolveProtectedMemory: (_request, hostContext) => {
+      resolvedContext = hostContext;
+      return null;
+    },
+  });
+  const request = {
+    user: { profile: { handle: 'test-user' } },
+    session: { handle: 'test-user' },
+    body: { chat_completion_source: 'OPENAI' },
+  };
+  await adapter.prepare(request, {});
+  const result = await adapter.dispatch({
+    request,
+    senderRoute: 'openai',
+    endpointUrl: 'https://provider.example/v1/chat/completions',
+    requestInit,
+    stream: false,
+    transport: async () => ({ status: 200 }),
+  });
+  assert.equal(result.status, 200);
+  assert.equal(resolvedContext, trustedHostContext);
 });
