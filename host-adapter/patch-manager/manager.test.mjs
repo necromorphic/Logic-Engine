@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { constants as fsConstants } from 'node:fs';
-import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import {
@@ -290,6 +290,32 @@ test('restore recovery completes after each destructive uninstall boundary', asy
       await assert.rejects(readFile(join(fixture.state, 'restore-pending.json')), { code: 'ENOENT' });
     });
   }
+});
+
+test('restore refuses a symlinked backup instead of reading outside the durable state root', async t => {
+  const fixture = await createPinnedFixture(t);
+  if (!fixture) return;
+  await applyFinalSendPatch({ hostRoot: fixture.host, stateRoot: fixture.state, hookSourcePath });
+  const manifestPath = join(fixture.state, 'manifest.json');
+  const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+  const backupPath = join(fixture.state, manifest.backupRelativePath);
+  const outsideBackup = join(fixture.host, 'outside-backup.bin');
+  await copyFile(backupPath, outsideBackup);
+  await rm(backupPath);
+  try {
+    await symlink(outsideBackup, backupPath);
+  } catch (error) {
+    if (['EPERM', 'EACCES', 'ENOSYS'].includes(error?.code)) {
+      t.skip('Symlink creation is not permitted in this environment');
+      return;
+    }
+    throw error;
+  }
+  await assert.rejects(
+    restoreFinalSendPatch({ hostRoot: fixture.host, stateRoot: fixture.state }),
+    /LOGIC_ENGINE_PATCH_HOST_PATH_MISSING_OR_REPARSE/,
+  );
+  assert.equal((await readFile(join(fixture.host, SILLYTAVERN_TARGET.endpointRelativePath))).length > 0, true);
 });
 
 test('Patch Manager recovery state survives removal of the Extension directory', async t => {
