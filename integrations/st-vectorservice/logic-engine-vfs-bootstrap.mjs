@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
+import { assertVectorServiceDatabasePath } from './database-path-contract.mjs';
 
 // This adapter speaks the Linux POSIX namespace-broker protocol. Do not let
 // Windows fall through to process.getuid() or attempt to treat a Unix socket
@@ -27,15 +28,7 @@ const brokerUidText = process.env.LOGIC_ENGINE_BROKER_UID;
 if (!extensionPath || !path.isAbsolute(extensionPath) || !fs.existsSync(extensionPath)) {
   throw new Error('LOGIC_ENGINE_VFS_PROBE_PATH must name the installed secure VFS extension');
 }
-if (!dbPath || !path.isAbsolute(dbPath)) {
-  throw new Error('LOGIC_ENGINE_VFS_ROLE_PATH must be the absolute Host-configured logical DB path');
-}
-const expectedDbPath = path.join(storageDirectory, 'vectors.sqlite');
-if (path.resolve(dbPath) !== expectedDbPath) {
-  throw new Error(
-    `LOGIC_ENGINE_VFS_ROLE_PATH must exactly match ST-VectorService DB_PATH (${expectedDbPath}); refusing to protect a different database path.`,
-  );
-}
+assertVectorServiceDatabasePath(dbPath, storageDirectory);
 if (!brokerSocket || !path.isAbsolute(brokerSocket)) {
   throw new Error('LOGIC_ENGINE_BROKER_SOCKET must name the configured broker socket');
 }
