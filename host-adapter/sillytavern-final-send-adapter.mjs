@@ -134,7 +134,10 @@ export function createSillyTavernFinalSendAdapter({
       }
       if (result && typeof result.then === 'function') {
         return result.catch((error) => {
-          if (args.response) requestIdByResponse.delete(args.response);
+          if (args.response) {
+            const release = requestIdByResponse.get(args.response);
+            if (release) release.state = 'denied';
+          }
           throw error;
         });
       }
