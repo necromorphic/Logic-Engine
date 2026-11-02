@@ -27,6 +27,8 @@ on:
       - 'tests/better-sqlite3-vfs-cross-uid-recovery.test.js'
       - 'tests/better-sqlite3-vfs-windows-handle-relative.test.js'
       - 'tests/st-vectorservice-vfs-bootstrap-platform.test.js'
+      - 'tests/st-vectorservice-vfs-database-path.test.js'
+      - 'integrations/st-vectorservice/**'
       - 'tests/run_better_sqlite3_cross_uid.py'
       - 'native/posix-namespace-broker/**'
       - '.github/workflows/better-sqlite3-vfs-integration.yml'
