@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { SillyTavernPatchManager } from './scripts/sillytavern-patch-manager.mjs';
@@ -108,6 +109,11 @@ export async function init(router) {
   }
 
   const hostRoot = resolve(PLUGIN_ROOT, '..', '..');
+  const legacyStateRoot = join(PLUGIN_ROOT, 'data', 'final-send-patch');
+  if (existsSync(join(legacyStateRoot, 'manifest.json'))
+    || existsSync(join(legacyStateRoot, 'pending.json'))) {
+    throw new Error('LOGIC_ENGINE_LEGACY_PATCH_MANAGER_STATE_PRESENT; restore with the pre-consolidation plugin before upgrading');
+  }
   const manager = new SillyTavernPatchManager({
     extensionRoot: PLUGIN_ROOT,
     stRoot: hostRoot,
