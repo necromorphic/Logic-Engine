@@ -506,7 +506,7 @@ export class SillyTavernPatchManager {
       await this.recoverUnlocked();
       if (command === 'preflight') {
         await this.verifyBaseline();
-        this.runGit(['apply', '--ignore-whitespace', '--check', this.patchPath], this.stRoot);
+        await this.preflightPatchApplicability();
         return { status: 'PREFLIGHT_OK' };
       }
       if (command === 'install') return this.installUnlocked();
