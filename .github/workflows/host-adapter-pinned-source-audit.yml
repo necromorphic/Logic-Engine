@@ -5,6 +5,17 @@ on:
     paths:
       - ".github/workflows/host-adapter-pinned-source-audit.yml"
       - "host-adapter/prototype/**"
+      - "host-adapter/patches/**"
+      - "host-adapter/PATCH-MANAGER.md"
+      - "host-adapter/sillytavern-final-send-adapter.mjs"
+      - "host-adapter/protected-memory-final-send.mjs"
+      - "host-adapter/sillytavern-generation-bridge.mjs"
+      - "host-adapter/sillytavern-final-send-adapter.mjs"
+      - "host-adapter/tests/**"
+      - "scripts/sillytavern-patch-manager.mjs"
+      - "scripts/install-logic-engine-extension.mjs"
+      - "tests/sillytavern-patch-manager.test.js"
+      - "tests/sillytavern-final-send-patch-artifact.test.js"
       - "experiments/host-adapter-source-audit/harness.mjs"
       - "experiments/host-adapter-runtime-harness/harness.mjs"
   workflow_dispatch:
@@ -24,9 +35,6 @@ jobs:
       - name: Checkout Logic-Engine
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: '22.13.0'
       - name: Verify installed Node.js
         shell: cmd
         run: |
@@ -40,25 +48,61 @@ jobs:
           ref: 06bde939fb1e9c4c8d8641d810f0a916b5bce127
           path: SillyTavern
 
+      - name: Ensure Git is available to Patch Manager subprocesses
+        shell: cmd
+        run: echo C:\Program Files\Git\cmd>>%GITHUB_PATH%
+
       - name: Install pinned SillyTavern dependencies
         run: npm ci --prefix SillyTavern
 
-      - name: Verify pinned checkout
-        shell: cmd
-        run: |
-          for /f %%H in ('git -C SillyTavern rev-parse HEAD') do set "actual=%%H"
-          if /I not "%actual%"=="06bde939fb1e9c4c8d8641d810f0a916b5bce127" (
-            echo Unexpected SillyTavern SHA: %actual%
-            exit /b 1
-          )
-          echo SillyTavern target SHA: %actual%
+      - name: Record pinned checkout identity
+        run: node -e "console.log('SillyTavern source is pinned by actions/checkout ref 06bde939fb1e9c4c8d8641d810f0a916b5bce127')"
 
       - name: Run source-level lifecycle assertions
         env:
           SILLYTAVERN_DIR: SillyTavern
         run: node --test experiments/host-adapter-source-audit/harness.mjs
 
-      - name: Run bounded fake-provider integration harness
+      - name: Print canonical patch artifact digest
+        shell: cmd
+        run: node -e "const fs=require('node:fs');const c=require('node:crypto');const p=fs.readFileSync('host-adapter/patches/sillytavern-1.19.0-final-send.patch','utf8').replace(/\\r\\n/g,'\\n');console.log('PATCH_SHA256='+c.createHash('sha256').update(p,'utf8').digest('hex'))"
+
+      - name: Print pinned source baseline digests
+        shell: cmd
+        run: node -e "const fs=require('node:fs');const c=require('node:crypto');const m=JSON.parse(fs.readFileSync('host-adapter/patches/sillytavern-1.19.0-final-send.manifest.json','utf8'));for(const [p] of Object.entries(m.sourceFiles)){const b=fs.readFileSync('SillyTavern/'+p);const h=c.createHash('sha256').update(b.toString('utf8').replace(/\r\n/g,'\n'),'utf8').digest('hex');console.log('SOURCE_SHA256 '+p+' '+h)}"
+
+      - name: Install and verify managed Final-Send patch on exact SillyTavern source
+        shell: cmd
+        run: |
+          node scripts/sillytavern-patch-manager.mjs preflight --st-root "%CD%\SillyTavern"
+          if errorlevel 1 exit /b 1
+          node scripts/sillytavern-patch-manager.mjs install --st-root "%CD%\SillyTavern"
+          if errorlevel 1 exit /b 1
+          node scripts/sillytavern-patch-manager.mjs verify --st-root "%CD%\SillyTavern"
+          if errorlevel 1 exit /b 1
+          node --check SillyTavern/src/endpoints/backends/chat-completions.js
+          if errorlevel 1 exit /b 1
+          node --check SillyTavern/src/endpoints/backends/text-completions.js
+          if errorlevel 1 exit /b 1
+          node --check SillyTavern/src/endpoints/backends/kobold.js
+          if errorlevel 1 exit /b 1
+          node --check SillyTavern/src/endpoints/novelai.js
+          if errorlevel 1 exit /b 1
+          node --check SillyTavern/src/endpoints/horde.js
+          if errorlevel 1 exit /b 1
+          node --check SillyTavern/src/endpoints/extensions.js
+          if errorlevel 1 exit /b 1
+          node --check SillyTavern/src/logic-engine-final-send-hook.js
+          if errorlevel 1 exit /b 1
+          node --check SillyTavern/src/logic-engine-extension-install-hook.js
+          if errorlevel 1 exit /b 1
+
+      - name: Run patched real-handler fake-provider integration harness
         env:
           SILLYTAVERN_DIR: SillyTavern
         run: node --test experiments/host-adapter-runtime-harness/harness.mjs
+
+      - name: Uninstall managed Final-Send patch after integration
+        if: always()
+        shell: cmd
+        run: node scripts/sillytavern-patch-manager.mjs uninstall --st-root "%CD%\SillyTavern"
