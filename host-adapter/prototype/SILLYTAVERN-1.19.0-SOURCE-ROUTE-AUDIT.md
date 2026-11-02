@@ -121,7 +121,7 @@ Enrollment explicitly reports pre-enrollment history as `UNKNOWN_UNRECOVERABLE`;
 
 PR #800 carries the bounded pinned-ST current-file inventory and persisted logical message/swipe identity parser. The Host session endpoint is server-generated inside the authenticated signed cookie session and is bound to the account handle; it is a login-session identity, not installation attestation. PR #799 adds a separate Core reconciliation transport candidate and checks that the ST proxy's session UUID prefixes the conversation ID. None of these candidates adds a final-send Gateway, complete mutation coverage, deleted/pre-enrollment history, import/export/copy/restore lineage, durable installation identity, or production Core/Provider readiness.
 
-The current inventory uses file handles for bounded reads but pathname-based directory enumeration and a second path scan. It is not an atomic filesystem snapshot. The route's build SHA is an operator-supplied deployment assertion, not runtime source attestation.
+The inventory uses bounded file-handle reads. On Windows, the full-root regular-file inventory and pinned ST chat/source parser run against one shared read-only VSS point-in-time snapshot after reparse-point rejection; on non-Windows, the inventory uses independent stable double scans. The route's build SHA is an operator-supplied deployment assertion, not runtime source attestation, and neither scan mode supplies the deployment-owned accepted-root authority required for production readiness.
 
 **Disposition: HOST_SOURCE_ROUTE_IDENTIFIED; HOST_INVENTORY_NON_READY; FINAL_SEND_GATE_NOT_WIRED.** Do not enable production Memory → NPC.
 
@@ -145,3 +145,21 @@ Therefore the eventual implementation must choose one of two architectures and p
 The pinned SillyTavern 1.19.0 `package.json` declares `engines.node: >=20`, while Logic-Engine requires `>=22.13.0` for its current `node:sqlite` implementation. Thus the Host-process Gateway option is **not supported by SilencingTavern's declared minimum runtime**; it may only be considered when the deployed Host runtime is explicitly verified as Node >=22.13.0, or after a compatible secure SQLite layer is selected. Do not infer runtime support from the package minimum or from a successful patch-apply workflow.
 
 A simple Core HTTP authorize-then-send proxy is explicitly rejected as a substitute for the synchronous transport-start linearization property. This architecture decision must be resolved before implementing the final-send patch across the 13 provider-specific early-return senders and the OpenAI-compatible fetch path.
+
+
+## Durable lifecycle receipt integration status (PR #842 current candidate)
+
+The server lifecycle proxy is wired to `HostLifecycleReceiptStore` for PREPARED, COMMITTED, ABORTED and pending-status recovery. The receipt directory is required to be outside the SillyTavern data root. PREPARED performs a fresh bounded pinned-host inventory and durably stores the target file identity/digest, logical message/version inventory, and digests of non-target root/source artifacts before Core accepts the prepared event. COMMITTED performs another inventory and accepts only the operation-specific persisted logical transition with a changed target file and unchanged unrelated root/source artifacts. Recovery can resolve only an exact pre-state (ABORTED) or a verified expected post-state (COMMITTED); partial or ambiguous state remains RECOVERY_REQUIRED.
+
+SillyTavern 1.19.0 `trySaveChat()` also schedules a timestamped JSONL backup after writing the target chat. The receipt store now treats the backup directory as a constrained side-effect set: new backup files are accepted only when their SHA-256 equals the exact post-write target chat digest; pre-existing backups must remain unchanged, and backup deletions/modifications or unrelated root drift reject the receipt. The receipt digest sent to Core contains no raw chat bytes or paths.
+
+This advances the implementation beyond the earlier source-only prototype, but it does not make the inventory authoritative. The source scanner still reports `DOUBLE_SCAN_CANDIDATE` / `NON_AUTHORITATIVE`, uses pathname directory enumeration rather than an atomic directory-handle snapshot, and does not prove a trusted deployment-owned root authority. The one-use save permit also does not bind exact request-body bytes to a pre-authorized post-state digest. These remain fail-closed production gaps.
+
+Operation disposition at this candidate:
+
+- Message create/send/receive, edit, swipe create/select/delete and message deletion are in the Core/receipt-store allowlist and have unit/integration coverage. The exact pinned-host file harness exercises the real ST save routes and persists create/edit/swipe/message-delete changes; lifecycle receipt coverage is being extended to the real file harness.
+- Chat rename, chat/group/recursive deletion, imports, group imports, branch/copy operations and backup restore remain unsupported. The patched pinned server routes block the destructive/import operations while enrolled conversations exist. This is containment, not lifecycle completion.
+- Export is read-only. It is allowed as a download and must not generate a mutation receipt or clear unresolved root-inventory drift.
+- Pending recovery is same-session only. A renewed signed ST session cannot resolve a PREPARED mutation from the previous session; it remains NON_READY/RECOVERY_REQUIRED.
+
+Do not infer production readiness from passing source audit, patch-apply, isolated receipt-store tests, or the fake-provider harness. Acceptance requires the exact pinned ST 1.19.0 real-file harness, browser IndexedDB restart, Core journal restart/replay and all security/test jobs to pass on the same exact HEAD.
