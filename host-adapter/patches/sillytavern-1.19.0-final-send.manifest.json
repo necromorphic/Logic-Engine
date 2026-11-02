@@ -28,19 +28,19 @@
     },
     "src/endpoints/backends/text-completions.js": {
       "before": "877b2b6279091c70495e561c00ce021592205e1d42ea4fe5f20f23dd67071971",
-      "after": "364ef8d7a45c9516add4b1df8fcdd6077ab7084185a6d4ec147fb090196c4c2e"
+      "after": "c439b7f20f0df53511f75ca62767d9a4f4a25e15fd2685657559449ee3c448e1"
     },
     "src/endpoints/backends/kobold.js": {
       "before": "ce23d72599580d5822d17fda14c8413882237c1ab984b1be63ee063256286801",
-      "after": "0832eea9f9da0b94cbc31072468645785e63b50c3dd2a2d9e9047630963415f6"
+      "after": "f9c89f053a3548b9ea942bf9f1f4cce9b648c31d646b21da94e46f61cbf24a94"
     },
     "src/endpoints/novelai.js": {
       "before": "0b6b41052ae0311ae6e716955b0805a44b1b63e3a58bf403b81becf0ff1b04ce",
-      "after": "bddd3af55307c01d20628f00c7325c12cd01739dc1c278e1a4e34ec100f3db00"
+      "after": "ab35c2dd29da41c1c7c578e4f3c3bd5a2736a345f5aa8be38c665a05df6d3b68"
     },
     "src/endpoints/horde.js": {
       "before": "9a0280cfa2c5498f540b8593b100e80cbacdefa563038a6cc6c60c9c9923f3f4",
-      "after": "35ff64ecbbad89539c91c0056445bb5979fdb7c556ac3cb8e8fc0ead361f73ae"
+      "after": "a93838e9a5d26e17e0c95b83cb41146f50be1b4948bae57e094874c0b2d6e574"
     }
   },
   "createdFiles": {
