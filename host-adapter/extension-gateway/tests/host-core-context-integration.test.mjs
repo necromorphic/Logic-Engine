@@ -412,6 +412,24 @@ test('Host Adapter requires Core root proof before context resolution and binds 
   assert.equal(resolvedCoreContexts[3].context.world_id, 'host-e2e-world');
   assert.equal(resolvedCoreContexts[3].context.actor_id, 'host-e2e-actor');
 
+  // If the middleware-authenticated account changes while the old signed
+  // Host session is present, Host rotates the session and resolves the new
+  // account from request.user.profile rather than reusing the old account ID.
+  const switchedAccountRequest = {
+    user: { profile: { handle: 'bob' }, directories: request.user.directories },
+    session: { ...accountsEnabledRequest.session },
+    body: { ...request.body, request_id: '99999999-9999-4999-8999-999999999999' },
+  };
+  const switchedSessionResponse = responseRecorder();
+  adapter.session(switchedAccountRequest, switchedSessionResponse);
+  assert.equal(switchedSessionResponse.statusCode, 200);
+  assert.notEqual(switchedSessionResponse.payload.host_session_id, accountsSessionResponse.payload.host_session_id);
+  const switchedIdentityResponse = responseRecorder();
+  await adapter.identity(switchedAccountRequest, switchedIdentityResponse);
+  assert.equal(switchedIdentityResponse.statusCode, 200);
+  assert.notEqual(switchedIdentityResponse.payload.authenticated_account_id, accountsIdentityResponse.payload.authenticated_account_id);
+  assert.equal(switchedIdentityResponse.payload.host_installation_id, accountsIdentityResponse.payload.host_installation_id);
+
   // Recreate the Host Adapter against the same server-owned identity directory.
   // Installation/account identity must survive; the transient ST session rotates.
   const restartedAdapter = createSillyTavernHostAdapter({
