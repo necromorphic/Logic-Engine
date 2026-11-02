@@ -158,7 +158,7 @@ test('Host dispatch proxy retrieves a real SQLite Provider record through Core H
 
     const retrieved = await invoke();
     assert.equal(retrieved.statusCode, 200);
-    assert.equal(retrieved.payload.retrieval.status, 'ready');
+    assert.equal(retrieved.payload.retrieval.status, 'ready', JSON.stringify(retrieved.payload));
     assert.equal(retrieved.payload.retrieval.candidates.length, 1);
     assert.equal(
       retrieved.payload.retrieval.candidates[0].content['attributes.public_note'],
