@@ -43,8 +43,9 @@ jobs:
           cp host-adapter/prototype/patches/sillytavern-1.19.0-source-inventory-route.patch host-inventory-candidate/sillytavern-1.19.0-source-inventory-route.patch
       - name: Require authenticated session identity route in the exact Host candidate
         run: grep -F "router.get('/session', createHostSessionHandler())" host-inventory-candidate/st-host-inventory-route.js
-      - name: Stage legacy route candidate and current Extension Gateway server plugin
+      - name: Stage current Host route and Extension Gateway server plugin
         run: |
+          cp host-inventory-candidate/st-host-inventory-route.js sillytavern-host-checkout/src/endpoints/logic-engine-host-inventory.js
           mkdir -p sillytavern-host-checkout/plugins/logic-engine-extension-gateway
           cp host-adapter/extension-gateway/server-plugin/*.mjs sillytavern-host-checkout/plugins/logic-engine-extension-gateway/
           cp host-adapter/extension-gateway/server-plugin/*.js sillytavern-host-checkout/plugins/logic-engine-extension-gateway/
