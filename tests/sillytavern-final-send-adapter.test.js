@@ -186,7 +186,8 @@ test('revoke denial leaves a terminal response tombstone and blocks fallback Exp
   });
   assert.throws(
     () => adapter.authorizeResponseWrite(response, () => { writes += 1; }, true),
-    /MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED/,
+    (error) => error.message === 'MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED'
+      && error.logicEngineFinalSendTerminal === true,
   );
   assert.throws(
     () => adapter.authorizeResponseWrite(response, () => { writes += 1; }, true),
@@ -215,7 +216,8 @@ test('asynchronous protected dispatch failure cannot clear the response protecti
     requestInit: { method: 'POST', body: '{"messages":[]}' },
     stream: false,
     transport: async () => ({ status: 200 }),
-  }), /dispatch denied/);
+  }), (error) => error.message === 'dispatch denied'
+    && error.logicEngineFinalSendTerminal === true);
   assert.throws(
     () => adapter.authorizeResponseWrite(response, () => { writes += 1; }, true),
     /MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED/,
