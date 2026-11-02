@@ -21,13 +21,13 @@ function createAdapter({ resolveProtectedMemory, gateway = { dispatchProtectedRe
   });
 }
 
-test('native non-chat text generator routes resolve into the protected sender registry', () => {
+test('non-Chat-Completions routes are not admitted into the protected sender registry', () => {
   const adapter = createAdapter({ resolveProtectedMemory: () => null });
-  assert.equal(adapter.resolveSenderRoute({}, 'text-completions'), 'text-completions');
-  assert.equal(adapter.resolveSenderRoute({}, 'kobold'), 'kobold');
-  assert.equal(adapter.resolveSenderRoute({}, 'novelai-text'), 'novelai-text');
-  assert.equal(adapter.resolveSenderRoute({}, 'horde-text'), 'horde-text');
-  assert.equal(adapter.resolveSenderRoute({}, 'not-a-generation-route'), 'unregistered');
+  assert.equal(adapter.resolveSenderRoute({ body: { chat_completion_source: 'OPENAI' } }), 'openai');
+  assert.equal(adapter.resolveSenderRoute({}, 'text-completions'), 'unregistered');
+  assert.equal(adapter.resolveSenderRoute({}, 'kobold'), 'unregistered');
+  assert.equal(adapter.resolveSenderRoute({}, 'novelai-text'), 'unregistered');
+  assert.equal(adapter.resolveSenderRoute({}, 'horde-text'), 'unregistered');
 });
 
 test('unregistered SillyTavern sender remains native for explicitly unprotected generation', async () => {
@@ -74,13 +74,28 @@ test('unregistered SillyTavern sender is denied for protected Memory generation'
   }), /MEMORY_DISPATCH_NOT_READY/);
 });
 
-test('all separately routed native text generators map to the shared protected sender registry', () => {
-  const adapter = createAdapter({ resolveProtectedMemory: () => null });
-  assert.equal(adapter.resolveSenderRoute({}, 'text-completions'), 'text-completions');
-  assert.equal(adapter.resolveSenderRoute({}, 'kobold'), 'kobold');
-  assert.equal(adapter.resolveSenderRoute({}, 'novelai-text'), 'novelai-text');
-  assert.equal(adapter.resolveSenderRoute({}, 'horde-text'), 'horde-text');
-  assert.equal(adapter.resolveSenderRoute({}, 'unrecognized-generation-route'), 'unregistered');
+test('unknown non-Chat-Completions routes remain unregistered and cannot enter protected dispatch', () => {
+  const adapter = createAdapter({ resolveProtectedMemory: () => ({
+    requestId: 'request-non-chat',
+    model: 'test-model',
+    worldId: 'world-1',
+    actorId: 'actor-1',
+    purpose: 'npc_decision',
+    sources: [{ source_kind: 'canonical_entity', source_entity_id: 'entity-1', source_version: 'v1' }],
+    candidates: [{ record_ref: 'record-1', record_version: 'v1', authorization_generation: 1,
+      source_kind: 'canonical_entity', source_entity_id: 'entity-1', source_version: 'v1' }],
+  }) });
+  for (const hostRoute of ['text-completions', 'kobold', 'novelai-text', 'horde-text']) {
+    const request = { body: { chat_completion_source: 'OPENAI' } };
+    assert.throws(() => adapter.dispatch({
+      request,
+      senderRoute: adapter.resolveSenderRoute({}, hostRoute),
+      endpointUrl: 'https://provider.example/v1/chat/completions',
+      requestInit,
+      stream: false,
+      transport: async () => ({ status: 200 }),
+    }), /MEMORY_DISPATCH_NOT_READY/);
+  }
 });
 
 test('registered protected sender is delegated to the Core Gateway', () => {
