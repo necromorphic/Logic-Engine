@@ -2,6 +2,16 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 
+// This adapter speaks the Linux POSIX namespace-broker protocol. Do not let
+// Windows fall through to process.getuid() or attempt to treat a Unix socket
+// path as a Windows service endpoint. Windows needs its own service-backed
+// manifest/lifecycle adapter before ST-VectorService can enable protected DBs.
+if (process.platform !== 'linux' || typeof process.getuid !== 'function') {
+  throw new Error(
+    'ST-VectorService secure VFS bootstrap currently requires Linux POSIX broker support; Windows lifecycle integration is not available.',
+  );
+}
+
 const require = createRequire(import.meta.url);
 const packageRoot = process.env.BETTER_SQLITE3_PACKAGE_DIR;
 const Database = require(packageRoot || 'better-sqlite3');
