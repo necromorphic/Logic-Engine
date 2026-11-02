@@ -8,6 +8,7 @@ import { SILLYTAVERN_TARGET } from './target.mjs';
 
 const MANIFEST_NAME = 'manifest.json';
 const PENDING_NAME = 'pending.json';
+const RESTORE_PENDING_NAME = 'restore-pending.json';
 const LOCK_NAME = '.patch-manager.lock';
 const PATCH_ID = 'sillytavern-1.19.0-final-send-v1';
 
@@ -147,6 +148,47 @@ async function acquireLock(stateRoot) {
   return async () => rm(lockPath, { recursive: true, force: true });
 }
 
+async function recoverInterruptedRestore(stateRoot, hostRoot) {
+  const pendingPath = join(stateRoot, RESTORE_PENDING_NAME);
+  const pending = await readJson(pendingPath);
+  if (!pending) return false;
+  if (pending.patchId !== PATCH_ID
+    || pending.endpointRelativePath !== SILLYTAVERN_TARGET.endpointRelativePath
+    || pending.hookRelativePath !== SILLYTAVERN_TARGET.hookRelativePath) fail('RESTORE_RECOVERY_STATE_INVALID');
+
+  const targetPath = resolve(hostRoot, pending.endpointRelativePath);
+  const hookPath = resolve(hostRoot, pending.hookRelativePath);
+  const backupPath = resolve(stateRoot, pending.backupRelativePath);
+  if (!inside(hostRoot, targetPath) || !inside(hostRoot, hookPath)
+    || !inside(stateRoot, backupPath)) fail('RESTORE_RECOVERY_PATH_INVALID');
+
+  const original = await readFile(backupPath).catch(() => null);
+  if (!original || sha256(original) !== pending.originalHash) fail('RESTORE_RECOVERY_BACKUP_INVALID');
+  const currentTarget = await readFile(targetPath).catch(() => null);
+  const currentHook = await readFile(hookPath).catch(() => null);
+  const manifestPath = join(stateRoot, MANIFEST_NAME);
+  const manifest = await readJson(manifestPath);
+
+  if (manifest && (manifest.patchId !== PATCH_ID
+    || manifest.patchedHash !== pending.patchedHash
+    || manifest.hookHash !== pending.hookHash
+    || manifest.originalHash !== pending.originalHash)) fail('RESTORE_RECOVERY_MANIFEST_MISMATCH');
+
+  if (currentTarget && sha256(currentTarget) === pending.patchedHash) {
+    await atomicWrite(targetPath, original);
+  } else if (!currentTarget || sha256(currentTarget) !== pending.originalHash) {
+    fail('RESTORE_RECOVERY_TARGET_DRIFT');
+  }
+
+  if (currentHook) {
+    if (sha256(currentHook) !== pending.hookHash) fail('RESTORE_RECOVERY_HOOK_DRIFT');
+    await unlink(hookPath);
+  }
+  if (manifest) await unlink(manifestPath);
+  await unlink(pendingPath);
+  return true;
+}
+
 async function recoverInterruptedApply(stateRoot, hostRoot) {
   const pendingPath = join(stateRoot, PENDING_NAME);
   const pending = await readJson(pendingPath);
@@ -201,6 +243,7 @@ export async function applyFinalSendPatch({ hostRoot, stateRoot, hookSourcePath 
     if (!rootReal) fail('HOST_ROOT_MISSING');
     // Recover an interrupted transaction before inspecting either baseline or
     // installed state. Recovery is idempotent across process restarts.
+    await recoverInterruptedRestore(state, rootReal);
     await recoverInterruptedApply(state, rootReal);
 
     const manifestPath = join(state, MANIFEST_NAME);
@@ -310,6 +353,11 @@ export async function restoreFinalSendPatch({ hostRoot, stateRoot }) {
   await mkdir(state, { recursive: true });
   const release = await acquireLock(state);
   try {
+    const rootReal = await realpath(root).catch(() => null);
+    if (!rootReal) fail('HOST_ROOT_MISSING');
+    if (await recoverInterruptedRestore(state, rootReal)) {
+      return Object.freeze({ status: 'restored', patchId: PATCH_ID, recovered: true });
+    }
     const manifestPath = join(state, MANIFEST_NAME);
     const manifest = await readJson(manifestPath);
     if (!manifest || manifest.status !== 'installed' || manifest.patchId !== PATCH_ID) {
@@ -329,9 +377,19 @@ export async function restoreFinalSendPatch({ hostRoot, stateRoot }) {
       || sha256(original) !== manifest.originalHash) {
       fail('RESTORE_DRIFT');
     }
-    await atomicWrite(endpointPath, original);
-    await unlink(hookPath);
-    await unlink(manifestPath);
+    await atomicJson(join(state, RESTORE_PENDING_NAME), {
+      patchId: PATCH_ID,
+      endpointRelativePath: manifest.endpointRelativePath,
+      hookRelativePath: manifest.hookRelativePath,
+      backupRelativePath: manifest.backupRelativePath,
+      originalHash: manifest.originalHash,
+      patchedHash: manifest.patchedHash,
+      hookHash: manifest.hookHash,
+      startedAt: new Date().toISOString(),
+    });
+    // Recovery owns completion from this point. Every destructive step is
+    // preceded by a durable journal so a restart can finish the same restore.
+    await recoverInterruptedRestore(state, rootReal);
     return Object.freeze({ status: 'restored', patchId: PATCH_ID });
   } finally {
     await release();
