@@ -310,8 +310,20 @@ export function createHostIdentityHandler({
       await identityStore.assertOutsideRoot(dataRoot);
       const identity = await identityStore.resolveAuthenticatedAccount(userHandle);
       return response.status(200).json({ ...identity, host_session_id: session.logicEngineSessionId });
-    } catch {
-      return response.status(503).json({ status: 'NON_READY', code: 'HOST_IDENTITY_UNAVAILABLE' });
+    } catch (error) {
+      // Expose only a bounded diagnostic token. Never return filesystem paths,
+      // account handles, or raw exception text to the browser.
+      const message = typeof error?.message === 'string' ? error.message : '';
+      const reason = /^[A-Z0-9_]{1,96}$/.test(message)
+        ? message
+        : ['EACCES', 'EPERM', 'ENOENT', 'EEXIST', 'EINVAL', 'ENOTDIR', 'EISDIR'].includes(error?.code)
+          ? error.code
+          : 'UNKNOWN';
+      return response.status(503).json({
+        status: 'NON_READY',
+        code: 'HOST_IDENTITY_UNAVAILABLE',
+        reason,
+      });
     }
   };
 }
