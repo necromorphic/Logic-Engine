@@ -56,13 +56,17 @@ export function createProtectedMemoryFinalSend({ gateway, resolveProtectedMemory
     stream = false,
     forwardResponse,
     transport: transportImpl,
+    protectedMemoryOverride,
+    hostTransformsStream = false,
   }) {
     assertRequest(endpointUrl, requestInit);
 
     // Classification is performed synchronously from trusted server-side
     // request context. It must never be inferred from browser JSON or an
     // optional caller-supplied "protected" flag.
-    const protectedMemory = resolveProtectedMemory(hostRequestContext);
+    const protectedMemory = protectedMemoryOverride !== undefined
+      ? protectedMemoryOverride
+      : resolveProtectedMemory(hostRequestContext);
     if (protectedMemory && typeof protectedMemory.then === 'function') {
       throw new Error('MEMORY_DISPATCH_NOT_READY');
     }
@@ -77,7 +81,8 @@ export function createProtectedMemoryFinalSend({ gateway, resolveProtectedMemory
 
     if (!validRoute(senderRoute)) throw new Error('MEMORY_DISPATCH_NOT_READY');
     assertProtectedContext(protectedMemory);
-    if (typeof stream !== 'boolean' || stream && typeof forwardResponse !== 'function') {
+    if (typeof stream !== 'boolean' || typeof hostTransformsStream !== 'boolean'
+      || stream && !hostTransformsStream && typeof forwardResponse !== 'function') {
       throw new Error('MEMORY_DISPATCH_NOT_READY');
     }
 
@@ -103,6 +108,7 @@ export function createProtectedMemoryFinalSend({ gateway, resolveProtectedMemory
       body: exactBody,
       transport,
       forwardResponse,
+      hostTransformsStream,
       signal: controllerSignal,
     });
   };
