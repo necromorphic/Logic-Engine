@@ -49,7 +49,7 @@ The 25 sender-family registry in Core is the acceptance inventory. The disabled 
 
 ## Current implementation boundary
 
-The root plugin now uses the shared `SillyTavernPatchManager` from `scripts/sillytavern-patch-manager.mjs` as the sole patch owner. It calls `manager.execute('update')` at server-plugin startup, then registers the fail-closed Host Adapter against the installed Hook. The native Extension lifecycle Hook uses the same manager implementation and the same `.logic-engine-patch-manager/` state, lock, journal, backup set, and rollback procedure. The former independent `host-adapter/patch-manager` implementation has been removed.
+The root plugin now uses the shared `SillyTavernPatchManager` from `scripts/sillytavern-patch-manager.mjs` as the sole patch owner. It calls `manager.execute('update')` at server-plugin startup, then registers the fail-closed Host Adapter against the installed Hook. The native Extension lifecycle Hook uses the same manager implementation and the same `.logic-engine-patch-manager/` state, lock, journal, backup set, and rollback procedure. The former independent `host-adapter/patch-manager` implementation has been removed. Startup detects state from the former `plugins/logic-engine/data/final-send-patch` manager and refuses an automatic migration; restore that legacy patch with the pre-consolidation plugin version before upgrading. This prevents two managers' backup formats from being mixed.
 
 The root plugin registers a fail-closed Host Adapter that:
 - validates that the native request carries SillyTavern's authenticated user/session context;
