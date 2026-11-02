@@ -13,6 +13,8 @@ on:
       - 'tests/better-sqlite3-vfs-windows-handle-relative.test.js'
       - 'tests/better-sqlite3-vfs-cross-uid.test.js'
       - 'tests/st-vectorservice-vfs-bootstrap-platform.test.js'
+      - 'tests/st-vectorservice-vfs-database-path.test.js'
+      - 'integrations/st-vectorservice/**'
       - 'native/posix-namespace-broker/**'
       - '.github/workflows/better-sqlite3-vfs-integration.yml'
   pull_request:
@@ -74,7 +76,7 @@ jobs:
         env:
           BETTER_SQLITE3_PACKAGE_DIR: ${{ runner.temp }}/better-sqlite3/package
           LOGIC_ENGINE_VFS_PROBE_PATH: ${{ runner.temp }}/logic_engine_secure_vfs_probe.so
-        run: node --test tests/better-sqlite3-vfs-integration.test.js tests/better-sqlite3-vfs-windows-handle-relative.test.js tests/st-vectorservice-vfs-bootstrap-platform.test.js tests/better-sqlite3-vfs-broker-integration.test.js
+        run: node --test tests/better-sqlite3-vfs-integration.test.js tests/better-sqlite3-vfs-windows-handle-relative.test.js tests/st-vectorservice-vfs-bootstrap-platform.test.js tests/st-vectorservice-vfs-database-path.test.js tests/better-sqlite3-vfs-broker-integration.test.js
       - name: Build strict Linux VFS without unbrokered enrollment API
         run: |
           package="$RUNNER_TEMP/better-sqlite3/package"
@@ -141,4 +143,4 @@ jobs:
         env:
           BETTER_SQLITE3_PACKAGE_DIR: ${{ runner.temp }}\better-sqlite3\package
           LOGIC_ENGINE_VFS_PROBE_PATH: ${{ runner.temp }}\logic_engine_secure_vfs_probe.dll
-        run: node --test tests/better-sqlite3-vfs-integration.test.js tests/better-sqlite3-vfs-windows-handle-relative.test.js tests/st-vectorservice-vfs-bootstrap-platform.test.js
+        run: node --test tests/better-sqlite3-vfs-integration.test.js tests/better-sqlite3-vfs-windows-handle-relative.test.js tests/st-vectorservice-vfs-bootstrap-platform.test.js tests/st-vectorservice-vfs-database-path.test.js
