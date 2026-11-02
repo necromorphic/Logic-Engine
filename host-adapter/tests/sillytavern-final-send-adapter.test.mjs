@@ -21,13 +21,13 @@ function createAdapter({ resolveProtectedMemory, gateway = { dispatchProtectedRe
   });
 }
 
-test('non-Chat-Completions routes are not admitted into the protected sender registry', () => {
+test('adapter maps all pinned non-Chat-Completions route families', () => {
   const adapter = createAdapter({ resolveProtectedMemory: () => null });
   assert.equal(adapter.resolveSenderRoute({ body: { chat_completion_source: 'OPENAI' } }), 'openai');
-  assert.equal(adapter.resolveSenderRoute({}, 'text-completions'), 'unregistered');
-  assert.equal(adapter.resolveSenderRoute({}, 'kobold'), 'unregistered');
-  assert.equal(adapter.resolveSenderRoute({}, 'novelai-text'), 'unregistered');
-  assert.equal(adapter.resolveSenderRoute({}, 'horde-text'), 'unregistered');
+  assert.equal(adapter.resolveSenderRoute({}, 'text-completions'), 'text-completions');
+  assert.equal(adapter.resolveSenderRoute({}, 'kobold'), 'kobold');
+  assert.equal(adapter.resolveSenderRoute({}, 'novelai-text'), 'novelai-text');
+  assert.equal(adapter.resolveSenderRoute({}, 'horde-text'), 'horde-text');
 });
 
 test('unregistered SillyTavern sender remains native for explicitly unprotected generation', async () => {
@@ -74,7 +74,7 @@ test('unregistered SillyTavern sender is denied for protected Memory generation'
   }), /MEMORY_DISPATCH_NOT_READY/);
 });
 
-test('unknown non-Chat-Completions routes remain unregistered and cannot enter protected dispatch', () => {
+test('unknown native route remains unregistered and cannot enter protected dispatch', () => {
   const adapter = createAdapter({ resolveProtectedMemory: () => ({
     requestId: 'request-non-chat',
     model: 'test-model',
@@ -85,17 +85,53 @@ test('unknown non-Chat-Completions routes remain unregistered and cannot enter p
     candidates: [{ record_ref: 'record-1', record_version: 'v1', authorization_generation: 1,
       source_kind: 'canonical_entity', source_entity_id: 'entity-1', source_version: 'v1' }],
   }) });
-  for (const hostRoute of ['text-completions', 'kobold', 'novelai-text', 'horde-text']) {
+  assert.throws(() => adapter.dispatch({
+    request: { body: {} },
+    senderRoute: adapter.resolveSenderRoute({}, 'unknown-route'),
+    hostRoute: 'unknown-route',
+    endpointUrl: 'https://provider.example/v1/chat/completions',
+    requestInit,
+    stream: false,
+    transport: async () => ({ status: 200 }),
+  }), /MEMORY_DISPATCH_NOT_READY/);
+});
+
+test('all four protected non-Chat-Completions routes dispatch through Core Gateway', async () => {
+  const routes = ['text-completions', 'kobold', 'novelai-text', 'horde-text'];
+  const calls = [];
+  const adapter = createAdapter({
+    resolveProtectedMemory: () => ({
+      requestId: 'request-routes',
+      model: 'test-model',
+      worldId: 'world-1',
+      actorId: 'actor-1',
+      purpose: 'npc_decision',
+      sources: [{ source_kind: 'canonical_entity', source_entity_id: 'entity-1', source_version: 'v1' }],
+      candidates: [{ record_ref: 'record-1', record_version: 'v1', authorization_generation: 1,
+        source_kind: 'canonical_entity', source_entity_id: 'entity-1', source_version: 'v1' }],
+    }),
+    gateway: {
+      dispatchProtectedRequest(request) {
+        calls.push(request.senderRoute);
+        return request.transport();
+      },
+    },
+  });
+  for (const hostRoute of routes) {
     const request = { body: {} };
-    assert.throws(() => adapter.dispatch({
+    const result = await adapter.dispatch({
       request,
-      senderRoute: adapter.resolveSenderRoute({}, hostRoute),
-      endpointUrl: 'https://provider.example/v1/chat/completions',
+      response: {},
+      senderRoute: adapter.resolveSenderRoute(request, hostRoute),
+      hostRoute,
+      endpointUrl: 'https://provider.example/generate',
       requestInit,
       stream: false,
       transport: async () => ({ status: 200 }),
-    }), /MEMORY_DISPATCH_NOT_READY/);
+    });
+    assert.equal(result.status, 200);
   }
+  assert.deepEqual(calls, routes);
 });
 
 test('registered protected sender is delegated to the Core Gateway', () => {
