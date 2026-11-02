@@ -56,6 +56,8 @@ The root plugin currently registers a fail-closed Host Adapter that:
 - passes ordinary non-Memory chat requests to SillyTavern's original native fetch;
 - does not create or inject Memory context and does not authorize protected dispatch.
 
+The fail-closed adapter's `resolveSenderRoute(request, hostRoute)` now accepts the shared route-aware Hook signature and maps the four additional route identifiers used by the broader Final-Send contract (`text-completions`, `kobold`, `novelai-text`, `horde-text`). This is interface compatibility only: this PR's own managed patch still wraps Chat Completions only. Those four routes are intercepted only when the broader #844 patch is installed. The #844 Hook also supports an optional `authorizeResponseWrite` capability; this fail-closed adapter does not expose it because it never inserts protected Memory or claims a Core release authorization.
+
 The production Core Gateway + real Provider consumer is not yet registered as the dispatch adapter. Therefore this patch proves the managed native interception seam and preserves ordinary generation while protected Memory remains disabled. It does not claim P0.4 E2E completion or production Memory→NPC readiness.
 
 ## Verification
