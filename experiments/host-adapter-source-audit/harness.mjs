@@ -6,9 +6,13 @@ import { resolve } from 'node:path';
 const root = process.env.SILLYTAVERN_DIR ?? resolve(process.cwd(), 'SillyTavern');
 const targetSha = '06bde939fb1e9c4c8d8641d810f0a916b5bce127';
 
-const [events, script] = await Promise.all([
+const [events, script, textCompletions, kobold, novelAi, horde] = await Promise.all([
   readFile(resolve(root, 'public/scripts/events.js'), 'utf8'),
   readFile(resolve(root, 'public/script.js'), 'utf8'),
+  readFile(resolve(root, 'src/endpoints/backends/text-completions.js'), 'utf8'),
+  readFile(resolve(root, 'src/endpoints/backends/kobold.js'), 'utf8'),
+  readFile(resolve(root, 'src/endpoints/novelai.js'), 'utf8'),
+  readFile(resolve(root, 'src/endpoints/horde.js'), 'utf8'),
 ]);
 
 test('audit input targets the pinned SillyTavern release', async () => {
@@ -17,6 +21,16 @@ test('audit input targets the pinned SillyTavern release', async () => {
   const packageJson = JSON.parse(await readFile(resolve(root, 'package.json'), 'utf8'));
   assert.equal(manifest.host.commit, targetSha);
   assert.equal(packageJson.version, manifest.host.version);
+});
+
+test('pinned source contains all separately routed protected generation handlers', () => {
+  assert.match(textCompletions, /router\.post\('\/generate'/);
+  assert.match(kobold, /router\.post\('\/generate'/);
+  assert.match(novelAi, /router\.post\('\/generate'/);
+  assert.match(horde, /router\.post\('\/generate-text'/);
+  assert.match(textCompletions, /request\.body\.stream/);
+  assert.match(kobold, /request\.body\.streaming/);
+  assert.match(novelAi, /req\.body\.streaming/);
 });
 
 test('pinned event catalog declares lifecycle hooks under audit', () => {
