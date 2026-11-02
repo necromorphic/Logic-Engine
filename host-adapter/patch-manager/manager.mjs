@@ -364,3 +364,46 @@ export async function getFinalSendPatchStatus({ hostRoot, stateRoot }) {
   }
   return Object.freeze({ status: 'installed', patchId: manifest.patchId, hostCommit: manifest.hostCommit });
 }
+
+
+/**
+ * Repair is deliberately conservative: it may install a missing managed patch
+ * or re-verify an intact installation, but it never overwrites drifted files.
+ */
+export async function repairFinalSendPatch(options) {
+  const status = await getFinalSendPatchStatus(options);
+  if (status.status === 'drifted' || status.status === 'unmanaged') {
+    fail('REPAIR_DRIFT');
+  }
+  const result = await applyFinalSendPatch(options);
+  return Object.freeze({ ...result, operation: 'repair' });
+}
+
+/**
+ * Update the managed hook/patch in place only when the installed bytes are
+ * intact. If the hook payload changed, restore the byte-exact upstream backup
+ * first, then run the normal pinned preflight/backup/apply/verify transaction.
+ * Any conflict leaves the Host unmodified or restored to its original source.
+ */
+export async function updateFinalSendPatch(options) {
+  const status = await getFinalSendPatchStatus(options);
+  if (status.status === 'drifted' || status.status === 'unmanaged') {
+    fail('UPDATE_DRIFT');
+  }
+  if (status.status === 'installed') {
+    const state = resolve(options.stateRoot);
+    const manifest = await readJson(join(state, MANIFEST_NAME));
+    const hookSource = await readFile(options.hookSourcePath);
+    if (manifest?.hookHash !== sha256(hookSource)) {
+      await restoreFinalSendPatch(options);
+    }
+  }
+  const result = await applyFinalSendPatch(options);
+  return Object.freeze({ ...result, operation: 'update' });
+}
+
+/** Uninstall restores the exact verified upstream bytes; drift is never clobbered. */
+export async function uninstallFinalSendPatch(options) {
+  const result = await restoreFinalSendPatch(options);
+  return Object.freeze({ ...result, operation: 'uninstall' });
+}
