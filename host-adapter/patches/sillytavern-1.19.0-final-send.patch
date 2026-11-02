@@ -333,7 +333,7 @@
              ? response.send(value)
              : response.end();
      }
-+    });
++    }, 'text-completions');
  });
  
  const ollama = express.Router();
@@ -372,7 +372,7 @@
  
      console.error('Max retries exceeded. Giving up.');
      return response_generate.send({ error: true });
-+    });
++    }, 'kobold');
  });
  
  router.post('/status', async function (request, response) {
@@ -410,7 +410,7 @@
      } catch (error) {
          return res.send({ error: true });
      }
-+    });
++    }, 'novelai-text');
  });
  
  router.post('/generate-image', async (request, response) => {
@@ -434,5 +434,5 @@
          console.error(error);
          return response.send({ error: true });
      }
-+    });
++    }, 'horde-text');
  });
