@@ -1,4 +1,6 @@
 diff --git a/public/script.js b/public/script.js
+--- a/public/script.js
++++ b/public/script.js
 @@ -1674,6 +1674,7 @@
          })).then(journal => createStLifecycleBridge({
              journal,
@@ -7,7 +9,7 @@ diff --git a/public/script.js b/public/script.js
 +            isLocatorEnrolled: locator => hostLocatorHasEnrollment(locator, localStorage),
              getChat: () => chat,
              saveChat: () => saveChatConditional(),
-@@ -1745,7 +1745,9 @@
+@@ -1745,7 +1746,9 @@
          })).catch(async error => {
 -            if (hasAnyHostEnrollment(localStorage)) throw Error('NON_READY: enrolled Host journal or authenticated session identity unavailable: ' + error.message);
 +            if (hostLocatorHasEnrollment(getCurrentChatId(), localStorage)) throw Error('NON_READY: enrolled Host journal or authenticated session identity unavailable: ' + error.message);
@@ -20,6 +22,8 @@ diff --git a/public/script.js b/public/script.js
              });
 
 diff --git a/public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs b/public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs
+--- a/public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs
++++ b/public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs
 @@ -21,8 +21,9 @@
   * Opt-in adapter boundary for explicit native ST hooks.
   * This is not a complete inventory until every mutation path is wired and tested.
