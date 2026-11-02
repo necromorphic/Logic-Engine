@@ -25,19 +25,19 @@ const protectedMemory = {
   }],
 };
 
-test('adapter maps every pinned SillyTavern sender key to the Gateway sender registry', () => {
+test('adapter maps every pinned Chat Completions sender key and leaves unknown senders unregistered', () => {
   const adapter = createSillyTavernFinalSendAdapter({
     gateway: { dispatchProtectedRequest: request => request.transport() },
     resolveProtectedMemory: () => null,
     chatCompletionSources: sources,
     nativeForwardFetchResponse: async () => {},
   });
-  for (const source of Object.values(sources)) {
-    assert.equal(adapter.resolveSenderRoute({ body: { chat_completion_source: source } }) !== '', true);
+  for (const [key, source] of Object.entries(sources)) {
+    assert.notEqual(adapter.resolveSenderRoute({ body: { chat_completion_source: source } }), 'unregistered', key);
   }
-  assert.throws(() => adapter.resolveSenderRoute({
+  assert.equal(adapter.resolveSenderRoute({
     body: { chat_completion_source: 'cometapi' },
-  }), /MEMORY_DISPATCH_NOT_READY/);
+  }), 'unregistered');
 });
 
 test('adapter sends exact native transport through Core Gateway for protected context', async () => {
@@ -74,35 +74,35 @@ test('adapter sends exact native transport through Core Gateway for protected co
 });
 
 
-test('separately routed native generation handlers pass route admission and use the shared Gateway', async () => {
+test('non-Chat-Completions routes cannot enter protected Memory dispatch', async () => {
   const routes = ['text-completions', 'kobold', 'novelai-text', 'horde-text'];
-  const calls = [];
+  let gatewayCalls = 0;
+  let transportCalls = 0;
   const adapter = createSillyTavernFinalSendAdapter({
     gateway: {
-      dispatchProtectedRequest(request) {
-        calls.push(request.senderRoute);
-        return request.transport();
+      dispatchProtectedRequest() {
+        gatewayCalls += 1;
+        throw new Error('unexpected Gateway admission');
       },
-      authorizeResponseWrite(_requestId, write) { return write(); },
     },
     resolveProtectedMemory: () => protectedMemory,
     chatCompletionSources: sources,
     nativeForwardFetchResponse: async () => {},
   });
   for (const route of routes) {
-    const result = await adapter.dispatch({
-      request: { body: { stream: false } },
+    const request = { body: { stream: false } };
+    await assert.rejects(adapter.dispatch({
+      request,
       response: {},
-      senderRoute: adapter.resolveSenderRoute({}, route),
+      senderRoute: adapter.resolveSenderRoute(request, route),
       endpointUrl: 'https://provider.example/generate',
       requestInit: { method: 'POST', body: '{"model":"test"}' },
       stream: false,
-      transport: async () => ({ status: 200, route }),
-    });
-    assert.equal(result.status, 200);
-    assert.equal(result.route, route);
+      transport: async () => { transportCalls += 1; return { status: 200 }; },
+    }), /MEMORY_DISPATCH_NOT_READY/);
   }
-  assert.deepEqual(calls, routes);
+  assert.equal(gatewayCalls, 0);
+  assert.equal(transportCalls, 0);
 });
 
 test('adapter denies unknown native sender before any transport handoff', async () => {
