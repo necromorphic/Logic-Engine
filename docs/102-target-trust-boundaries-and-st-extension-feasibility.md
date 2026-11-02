@@ -1,5 +1,8 @@
 # Target trust boundaries and SillyTavern extension feasibility
 
+> **Decision update:** The original non-modification constraint and the conclusion in §5 are superseded for the explicitly pinned SillyTavern 1.19.0 candidate by [ADR 103](./103-managed-sillytavern-source-patch-decision.md). Source modification is permitted only as a managed, hash-pinned, reversible local patch with durable external backup, fail-closed drift detection, and crash-recoverable uninstall. This is a bounded exception, not permission to patch arbitrary SillyTavern versions. All trust-boundary and authorization requirements in this document remain in force.
+
+
 **Status:** target architecture reference; implementation is incomplete.  
 **Host baseline inspected:** SillyTavern 1.19.0 release archive; package version 1.19.0.  
 **Logic-Engine baseline:** current-main base used by PR #844, `0c3debcb01946f6f8c94811b192e7277422e990a`.  
