@@ -1855,14 +1855,18 @@ static int probe_win_delete_role(int role_index, const wchar_t *relative_name,
   FILE_STANDARD_INFO standard_info;
   DWORD error;
   /*
-   * The persistent role manifest has no durable main-database deletion
-   * transition yet. Deleting the file while retaining an active manifest
-   * record would make restart reconciliation ambiguous and could permit
-   * accidental re-enrollment of a replacement. Keep manifest-bound main
-   * databases undeletable until the broker/manifest lifecycle owns this
-   * operation end-to-end.
+   * The Windows manifest adapter is currently read-only: it can validate
+   * durable main/sidecar identities, but it has no service-owned transition
+   * that atomically records a sidecar as deleting/retired and recovers that
+   * transition after a crash. Deleting only the opened sidecar handle would
+   * leave an active persistent identity pointing at an absent pathname; a
+   * later process could neither safely recreate it nor distinguish a crash
+   * from substitution. Therefore every manifest-bound namespace delete,
+   * including WAL/SHM/journal, fails closed until the durable Windows
+   * lifecycle coordinator is implemented. Non-manifest probe roles remain
+   * available only for the explicitly scoped handle-relative tests.
    */
-  if (is_main && role->manifest_bound) return SQLITE_IOERR_DELETE;
+  if (role->manifest_bound) return SQLITE_IOERR_DELETE;
   if (!is_main) {
     if (!suffix || !probe_win_sidecar_kind(suffix)) return SQLITE_IOERR_DELETE;
     if (!probe_win_sidecar_identity_lookup(role_index, suffix, &expected_sidecar)) {
