@@ -91,3 +91,101 @@ test('adapter denies unknown native sender before any transport handoff', async 
   }), /MEMORY_DISPATCH_NOT_READY/);
   assert.equal(handoffs, 0);
 });
+
+
+test('protected response stays terminal after final write and cannot be written again', async () => {
+  const response = {};
+  const writes = [];
+  const leases = [];
+  const adapter = createSillyTavernFinalSendAdapter({
+    gateway: {
+      dispatchProtectedRequest: async () => ({ status: 200 }),
+      authorizeResponseWrite(requestId, write, options) {
+        leases.push({ requestId, final: options.final });
+        return write();
+      },
+    },
+    resolveProtectedMemory: () => protectedMemory,
+    chatCompletionSources: sources,
+    nativeForwardFetchResponse: async () => {},
+  });
+  await adapter.dispatch({
+    request: { body: { chat_completion_source: 'makersuite', stream: false } },
+    response,
+    senderRoute: 'google-ai-studio',
+    endpointUrl: 'https://provider.example/v1/chat/completions',
+    requestInit: { method: 'POST', body: '{"messages":[]}' },
+    stream: false,
+    transport: async () => ({ status: 200 }),
+  });
+  adapter.authorizeResponseWrite(response, () => writes.push('first'), true);
+  assert.deepEqual(writes, ['first']);
+  assert.deepEqual(leases, [{ requestId: protectedMemory.requestId, final: true }]);
+  assert.throws(
+    () => adapter.authorizeResponseWrite(response, () => writes.push('bypass'), true),
+    /MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED/,
+  );
+  assert.deepEqual(writes, ['first'], 'a second Express end must not fall through as unprotected');
+});
+
+test('revoke denial leaves a terminal response tombstone and blocks fallback Express writes', async () => {
+  const response = {};
+  let writes = 0;
+  const adapter = createSillyTavernFinalSendAdapter({
+    gateway: {
+      dispatchProtectedRequest: async () => ({ status: 200 }),
+      authorizeResponseWrite() {
+        throw new Error('MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED');
+      },
+    },
+    resolveProtectedMemory: () => protectedMemory,
+    chatCompletionSources: sources,
+    nativeForwardFetchResponse: async () => {},
+  });
+  await adapter.dispatch({
+    request: { body: { chat_completion_source: 'makersuite', stream: false } },
+    response,
+    senderRoute: 'google-ai-studio',
+    endpointUrl: 'https://provider.example/v1/chat/completions',
+    requestInit: { method: 'POST', body: '{"messages":[]}' },
+    stream: false,
+    transport: async () => ({ status: 200 }),
+  });
+  assert.throws(
+    () => adapter.authorizeResponseWrite(response, () => { writes += 1; }, true),
+    /MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED/,
+  );
+  assert.throws(
+    () => adapter.authorizeResponseWrite(response, () => { writes += 1; }, true),
+    /MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED/,
+  );
+  assert.equal(writes, 0, 'neither the protected response nor an error fallback may be written');
+});
+
+test('asynchronous protected dispatch failure cannot clear the response protection tombstone', async () => {
+  const response = {};
+  let writes = 0;
+  const adapter = createSillyTavernFinalSendAdapter({
+    gateway: {
+      dispatchProtectedRequest: async () => { throw new Error('dispatch denied'); },
+      authorizeResponseWrite(_requestId, write) { return write(); },
+    },
+    resolveProtectedMemory: () => protectedMemory,
+    chatCompletionSources: sources,
+    nativeForwardFetchResponse: async () => {},
+  });
+  await assert.rejects(adapter.dispatch({
+    request: { body: { chat_completion_source: 'makersuite', stream: false } },
+    response,
+    senderRoute: 'google-ai-studio',
+    endpointUrl: 'https://provider.example/v1/chat/completions',
+    requestInit: { method: 'POST', body: '{"messages":[]}' },
+    stream: false,
+    transport: async () => ({ status: 200 }),
+  }), /dispatch denied/);
+  assert.throws(
+    () => adapter.authorizeResponseWrite(response, () => { writes += 1; }, true),
+    /MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED/,
+  );
+  assert.equal(writes, 0);
+});
