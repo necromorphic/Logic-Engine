@@ -29,6 +29,10 @@ test('Final-Send patch routes every Chat Completions fetch and stream release th
   assert.match(source, /response\.write = function/);
   assert.match(source, /response\.end = function/);
   assert.match(source, /hostTransformsStream/);
+  assert.ok(source.includes("from '../logic-engine-final-send-hook.js'"),
+    'endpoint modules must resolve the Hook from src/endpoints to src/');
+  assert.equal(source.includes("from './logic-engine-final-send-hook.js'"), false,
+    'endpoint-relative imports must not point to a nonexistent endpoints-local Hook');
 });
 
 test('patch manifest includes source identity checks for every separately routed generation family', () => {
