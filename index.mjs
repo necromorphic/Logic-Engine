@@ -1,6 +1,6 @@
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { applyFinalSendPatch, getFinalSendPatchStatus } from './host-adapter/patch-manager/manager.mjs';
+import { updateFinalSendPatch, getFinalSendPatchStatus } from './host-adapter/patch-manager/manager.mjs';
 
 const PLUGIN_OWNER = 'logic-engine-extension:host-adapter-v1';
 const PLUGIN_ROOT = dirname(fileURLToPath(import.meta.url));
@@ -97,7 +97,7 @@ export async function init(router) {
 
   const hostRoot = resolve(PLUGIN_ROOT, '..', '..');
   const hookSourcePath = join(PLUGIN_ROOT, 'host-adapter', 'patch-manager', 'logic-engine-final-send-hook.js');
-  const patchResult = await applyFinalSendPatch({
+  const patchResult = await updateFinalSendPatch({
     hostRoot,
     stateRoot: PATCH_STATE,
     hookSourcePath,
