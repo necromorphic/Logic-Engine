@@ -30,6 +30,12 @@ if (!extensionPath || !path.isAbsolute(extensionPath) || !fs.existsSync(extensio
 if (!dbPath || !path.isAbsolute(dbPath)) {
   throw new Error('LOGIC_ENGINE_VFS_ROLE_PATH must be the absolute Host-configured logical DB path');
 }
+const expectedDbPath = path.join(storageDirectory, 'vectors.sqlite');
+if (path.resolve(dbPath) !== expectedDbPath) {
+  throw new Error(
+    `LOGIC_ENGINE_VFS_ROLE_PATH must exactly match ST-VectorService DB_PATH (${expectedDbPath}); refusing to protect a different database path.`,
+  );
+}
 if (!brokerSocket || !path.isAbsolute(brokerSocket)) {
   throw new Error('LOGIC_ENGINE_BROKER_SOCKET must name the configured broker socket');
 }
