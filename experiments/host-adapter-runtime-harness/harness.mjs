@@ -198,7 +198,8 @@ test('all five pinned protected ST generation handlers use one Gateway handoff a
   const app = express();
   app.use(express.json({ limit: '1mb' }));
   app.use((req, _res, next) => {
-    req.user = { directories: { root: userRoot } };
+    req.user = { profile: { handle: 'harness-user' }, directories: { root: userRoot } };
+    req.session = { handle: 'harness-user' };
     next();
   });
   app.use('/api/backends/chat-completions', chatCompletionsRouter);
