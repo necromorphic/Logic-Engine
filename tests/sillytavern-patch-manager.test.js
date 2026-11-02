@@ -88,10 +88,10 @@ test('Patch Manager verifies canonical LF patch digest when Windows checks out C
 
 test('Patch Manager applies contextual hunks from a CRLF-checked-out patch artifact', async (t) => {
   const { manager, stRoot, patchPath } = await fixture(t);
-  const original = "const before = true;\\nexport const host = 'stock';\\nconst after = true;\\n";
-  const patched = "const before = true;\\nexport const host = 'patched';\\nconst after = true;\\n";
+  const original = "const before = true;\nexport const host = 'stock';\nconst after = true;\n";
+  const patched = "const before = true;\nexport const host = 'patched';\nconst after = true;\n";
   const sourcePath = join(stRoot, 'src/host.js');
-  await writeFile(sourcePath, original.replace(/\\n/g, '\\r\\n'));
+  await writeFile(sourcePath, original.replace(/\n/g, '\\r\n'));
 
   const contextualPatch = [
     '--- a/src/host.js',
@@ -102,7 +102,7 @@ test('Patch Manager applies contextual hunks from a CRLF-checked-out patch artif
     "+export const host = 'patched';",
     ' const after = true;',
     '',
-  ].join('\\n');
+  ].join('\n');
   const manifest = JSON.parse(await readFile(manager.manifestPath, 'utf8'));
   manifest.sourceFiles['src/host.js'] = {
     before: hash(Buffer.from(original, 'utf8')),
@@ -110,11 +110,11 @@ test('Patch Manager applies contextual hunks from a CRLF-checked-out patch artif
   };
   manifest.patch.sha256 = hash(Buffer.from(contextualPatch, 'utf8'));
   await writeFile(manager.manifestPath, JSON.stringify(manifest));
-  await writeFile(patchPath, contextualPatch.replace(/\\n/g, '\\r\\n'));
+  await writeFile(patchPath, contextualPatch.replace(/\n/g, '\\r\n'));
 
   assert.equal((await manager.execute('preflight')).status, 'PREFLIGHT_OK');
   assert.equal((await manager.execute('install')).status, 'INSTALLED');
-  assert.equal(await readFile(sourcePath, 'utf8'), patched.replace(/\\n/g, '\\r\\n'));
+  assert.equal(await readFile(sourcePath, 'utf8'), patched.replace(/\n/g, '\\r\n'));
 });
 
 test('Patch Manager performs preflight, backup, apply, verify and uninstall', async (t) => {
