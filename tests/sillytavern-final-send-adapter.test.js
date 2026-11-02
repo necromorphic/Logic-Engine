@@ -106,6 +106,38 @@ test('all registered non-Chat-Completions generation routes enter the shared Gat
   assert.deepEqual(gatewayRoutes, routes);
 });
 
+test('protected route mismatch leaves a terminal response tombstone', () => {
+  const response = {};
+  let gatewayCalls = 0;
+  let transportCalls = 0;
+  let writes = 0;
+  const adapter = createSillyTavernFinalSendAdapter({
+    gateway: {
+      dispatchProtectedRequest() { gatewayCalls += 1; },
+      authorizeResponseWrite(_requestId, write) { return write(); },
+    },
+    resolveProtectedMemory: () => protectedMemory,
+    chatCompletionSources: sources,
+    nativeForwardFetchResponse: async () => {},
+  });
+  assert.throws(() => adapter.dispatch({
+    request: { body: {} },
+    response,
+    senderRoute: 'text-completions',
+    hostRoute: 'kobold',
+    endpointUrl: 'https://provider.example/generate',
+    requestInit: { method: 'POST', body: '{}' },
+    stream: false,
+    transport: async () => { transportCalls += 1; return { status: 200 }; },
+  }), error => error.message === 'MEMORY_DISPATCH_NOT_READY'
+    && error.logicEngineFinalSendTerminal === true);
+  assert.throws(() => adapter.authorizeResponseWrite(response, () => { writes += 1; }, true),
+    error => error.logicEngineFinalSendTerminal === true);
+  assert.equal(gatewayCalls, 0);
+  assert.equal(transportCalls, 0);
+  assert.equal(writes, 0);
+});
+
 test('adapter denies unknown native sender before any transport handoff', async () => {
   let handoffs = 0;
   const adapter = createSillyTavernFinalSendAdapter({
