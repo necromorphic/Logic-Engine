@@ -9,9 +9,9 @@ const hash = createHash('sha256').update(patch).digest('hex');
 
 
 test('managed unified-diff patch hunk counts are internally consistent', () => {
-  const lines = patch.toString('utf8').split('\\n');
+  const lines = patch.toString('utf8').split('\n');
   for (let index = 0; index < lines.length; index += 1) {
-    const match = lines[index].match(/^@@ -\\d+(?:,(\\d+))? \\+\\d+(?:,(\\d+))? @@/);
+    const match = lines[index].match(/^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@/);
     if (!match) continue;
     let oldLines = 0;
     let newLines = 0;
@@ -23,14 +23,13 @@ test('managed unified-diff patch hunk counts are internally consistent', () => {
       if (line.startsWith(' ')) { oldLines += 1; newLines += 1; }
       else if (line.startsWith('-')) oldLines += 1;
       else if (line.startsWith('+')) newLines += 1;
-      else if (line.startsWith('\\\\ No newline')) continue;
+      else if (line.startsWith('\\ No newline')) continue;
       else if (line === '') continue;
     }
     assert.equal(oldLines, Number(match[1] ?? 1), 'old hunk line count at patch line ' + (index + 1));
     assert.equal(newLines, Number(match[2] ?? 1), 'new hunk line count at patch line ' + (index + 1));
   }
 });
-
 test('Final-Send patch is pinned to the exact audited SillyTavern 1.19.0 source', () => {
   assert.equal(manifest.host.version, '1.19.0');
   assert.equal(manifest.host.commit, '06bde939fb1e9c4c8d8641d810f0a916b5bce127');
