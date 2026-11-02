@@ -40,6 +40,23 @@ const ROUTE_BY_HOST_ROUTE = Object.freeze({
 
 const UNREGISTERED_SENDER_ROUTE = 'unregistered';
 
+function assertAuthenticatedHostRequest(request) {
+  const handle = request?.user?.profile?.handle;
+  const session = request?.session;
+  if (!session || typeof handle !== 'string' || !handle.trim()
+    || (session.handle !== undefined && session.handle !== handle)) {
+    throw new Error('LOGIC_ENGINE_HOST_SESSION_NOT_AUTHENTICATED');
+  }
+  const body = request.body;
+  if (body && typeof body === 'object' && (
+    Object.hasOwn(body, 'logic_engine_memory')
+    || Object.hasOwn(body, 'logic_engine_protected_context')
+    || Object.hasOwn(body, 'memory_dispatch')
+  )) {
+    throw new Error('LOGIC_ENGINE_UNTRUSTED_MEMORY_MARKER');
+  }
+}
+
 function terminalError(error) {
   const value = error instanceof Error ? error : new Error(String(error));
   try {
@@ -80,12 +97,15 @@ export function createSillyTavernFinalSendAdapter({
   resolveProtectedMemory,
   chatCompletionSources,
   nativeForwardFetchResponse,
+  prepareHostContext = async () => null,
 }) {
-  if (typeof nativeForwardFetchResponse !== 'function') {
-    throw new TypeError('Native SillyTavern response writer is required.');
+  if (typeof nativeForwardFetchResponse !== 'function'
+    || typeof prepareHostContext !== 'function') {
+    throw new TypeError('Native SillyTavern response writer and trusted Host preparation callback are required.');
   }
   const sourceMap = assertSourceMap(chatCompletionSources);
   const requestIdByResponse = new WeakMap();
+  const preparedContextByRequest = new WeakMap();
   const finalSend = createProtectedMemoryFinalSend({
     gateway,
     resolveProtectedMemory,
@@ -93,6 +113,15 @@ export function createSillyTavernFinalSendAdapter({
   });
 
   return Object.freeze({
+    async prepare(request, response) {
+      if (!request || typeof request !== 'object' || !response || typeof response !== 'object') {
+        throw new TypeError('Invalid authenticated SillyTavern request context.');
+      }
+      assertAuthenticatedHostRequest(request);
+      const hostContext = await prepareHostContext(request, response);
+      preparedContextByRequest.set(request, hostContext ?? null);
+    },
+
     resolveSenderRoute(request, hostRoute = 'chat-completions') {
       if (hostRoute !== 'chat-completions') {
         return ROUTE_BY_HOST_ROUTE[hostRoute] ?? UNREGISTERED_SENDER_ROUTE;
@@ -117,7 +146,10 @@ export function createSillyTavernFinalSendAdapter({
 
       let protectedMemory;
       try {
-        protectedMemory = resolveProtectedMemory(args.request);
+        protectedMemory = resolveProtectedMemory(
+          args.request,
+          preparedContextByRequest.get(args.request),
+        );
       } catch (error) {
         if (args.response && typeof args.response === 'object') {
           requestIdByResponse.set(args.response, { requestId: null, state: 'denied' });
