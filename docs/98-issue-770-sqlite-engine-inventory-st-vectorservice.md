@@ -75,6 +75,11 @@ Primary integration uses the unmodified binding and default VFS registration. A 
 
 **Remaining evidence gap:** the packaged Linux and Windows x64 prebuilds have been extracted and fingerprinted; the Linux source ID and compile options were queried at runtime, and Windows CI now queries the exact archived binary on Windows. The installed service's actual loaded module path has not been captured from the user's running deployment. The archive's production `vectors.sqlite` and sidecars were not opened or changed.
 
+
+### Temporary-file and sidecar inventory
+
+The archived `server.js` sets `PRAGMA temp_store = MEMORY` before creating its schema. Static inspection found no `ATTACH DATABASE` statements or separate temporary-database opens in the service source. Therefore the current application path does not intentionally create file-backed temp databases or multi-database super-journals. The persistent DB uses WAL mode, so the protected namespace must cover the main DB, `-wal`, and `-shm`; rollback-journal handling remains implemented defensively in the VFS. This is an application-source finding, not a general guarantee that SQLite will never request another file class under future code or changed PRAGMAs. The VFS continues to reject unsupported file classes fail-closed.
+
 ## Security consequences for Issue #770
 
 1. The deployment inventory must treat ST-VectorService as a separate protected SQLite engine/role, not as a database already covered by the Node `node:sqlite` VFS proof.
@@ -105,14 +110,8 @@ The supplied ST-VectorService archive pins `better-sqlite3@13.0.3` in `package-l
 
 The better-sqlite3 JavaScript constructor checks that `path.dirname(DB_PATH)` exists before SQLite VFS dispatch. Therefore the app-facing DB path must be a logical alias in a pre-created, app-searchable but app-non-writable directory; it must not be the private broker-owned database path. The VFS maps that alias to the manifest role and broker/handle-relative file. The alias file itself need not exist. The Linux broker integration CI asserts that the alias parent is visible, the app cannot create the alias file, SQLite can open the DB through the VFS, and no plaintext alias file is created. The current Windows test uses a local pinned-handle probe and does not yet prove a separate-identity alias/broker boundary.
 
-Recommended minimal ST-VectorService configuration change:
+No change to `server.js`, vectorization routes, or vectorization behavior is required for the VFS bootstrap. The secure launcher imports `logic-engine-vfs-bootstrap.mjs` before dynamically importing the original `server.js`. The bootstrap resolves `better-sqlite3` from the configured absolute server entry path, so it loads the same package instance that the unchanged server entry imports. It also requires `LOGIC_ENGINE_VFS_ROLE_PATH` to equal the exact existing `STORAGE_DIR/vectors.sqlite` path; a different protected path is rejected before the server starts.
 
-```js
-const DB_PATH = process.env.ST_VECTOR_DB_PATH
-    ? path.resolve(process.env.ST_VECTOR_DB_PATH)
-    : path.join(STORAGE_DIR, 'vectors.sqlite');
-```
+Deployment must pre-provision `STORAGE_DIR` as an app-searchable, app-non-writable directory and preserve its existing JSON-index contents. The DB alias is the existing `vectors.sqlite` name inside that directory; the alias file itself must not exist. The broker manifest points to the protected DB object, while the VFS maps the logical alias to the broker-owned file descriptor. The secure launcher is invoked with `LOGIC_ENGINE_ST_VECTOR_SERVER_ENTRY` set to the absolute original `server.js` path. No vectorization patch is applied.
 
-Keep `STORAGE_DIR` unchanged for JSON index files and its existing recursive directory creation/traversal. Deployment must provision the alias directory before starting ST-VectorService and deny the app UID write permission to it. The broker manifest points to the actual protected DB path; `ST_VECTOR_DB_PATH` contains only the logical alias. The same alias contract applies on Windows, where the backend must map it to a pinned root HANDLE and relative database name.
-
-The archive's package metadata does not declare the runtime floor. The exact 13.0.3 prebuilds require Node-API 10, so deployment must use Node >=22.14.0 (or add an explicit startup guard/engine constraint).
+The archive's package metadata does not declare the runtime floor. The exact 13.0.3 prebuilds require Node-API 10, so deployment must use Node >=22.14.0.
