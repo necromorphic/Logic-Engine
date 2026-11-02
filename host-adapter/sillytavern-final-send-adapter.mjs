@@ -31,7 +31,26 @@ const ROUTE_BY_SOURCE_KEY = Object.freeze({
   WORKERS_AI: 'workers-ai',
 });
 
+const ROUTE_BY_HOST_ROUTE = Object.freeze({
+  'text-completions': 'text-completions',
+  kobold: 'kobold',
+  'novelai-text': 'novelai-text',
+  'horde-text': 'horde-text',
+});
+
 const UNREGISTERED_SENDER_ROUTE = 'unregistered';
+
+function terminalError(error) {
+  const value = error instanceof Error ? error : new Error(String(error));
+  try {
+    Object.defineProperty(value, 'logicEngineFinalSendTerminal', { value: true });
+    return value;
+  } catch {
+    const wrapped = new Error(value.message, { cause: value });
+    Object.defineProperty(wrapped, 'logicEngineFinalSendTerminal', { value: true });
+    return wrapped;
+  }
+}
 
 function assertSourceMap(sources) {
   if (!sources || typeof sources !== 'object' || Array.isArray(sources)) {
@@ -74,7 +93,10 @@ export function createSillyTavernFinalSendAdapter({
   });
 
   return Object.freeze({
-    resolveSenderRoute(request) {
+    resolveSenderRoute(request, hostRoute = 'chat-completions') {
+      if (hostRoute !== 'chat-completions') {
+        return ROUTE_BY_HOST_ROUTE[hostRoute] ?? UNREGISTERED_SENDER_ROUTE;
+      }
       const source = request?.body?.chat_completion_source;
       // Unregistered ST senders remain native for explicitly unprotected
       // generations. Protected classification happens before route admission
@@ -87,7 +109,10 @@ export function createSillyTavernFinalSendAdapter({
         || typeof args.transport !== 'function') {
         throw new Error('MEMORY_DISPATCH_NOT_READY');
       }
-      const expectedRoute = sourceMap.get(args.request?.body?.chat_completion_source);
+      const hostRoute = args.hostRoute ?? 'chat-completions';
+      const expectedRoute = hostRoute === 'chat-completions'
+        ? sourceMap.get(args.request?.body?.chat_completion_source)
+        : ROUTE_BY_HOST_ROUTE[hostRoute];
       if (expectedRoute
         ? expectedRoute !== args.senderRoute
         : args.senderRoute !== UNREGISTERED_SENDER_ROUTE) {
@@ -105,6 +130,12 @@ export function createSillyTavernFinalSendAdapter({
         }
         requestIdByResponse.set(args.response, { requestId: protectedMemory.requestId, state: 'pending' });
       }
+      const release = args.response ? requestIdByResponse.get(args.response) : null;
+      const deny = (error) => {
+        if (!release) throw error;
+        release.state = 'denied';
+        throw terminalError(error);
+      };
       let result;
       try {
         result = finalSend({
@@ -119,20 +150,10 @@ export function createSillyTavernFinalSendAdapter({
           hostTransformsStream: args.hostTransformsStream === true,
         });
       } catch (error) {
-        if (args.response) {
-          const release = requestIdByResponse.get(args.response);
-          if (release) release.state = 'denied';
-        }
-        throw error;
+        return deny(error);
       }
       if (result && typeof result.then === 'function') {
-        return result.catch((error) => {
-          if (args.response) {
-            const release = requestIdByResponse.get(args.response);
-            if (release) release.state = 'denied';
-          }
-          throw error;
-        });
+        return result.catch(deny);
       }
       return result;
     },
@@ -141,7 +162,7 @@ export function createSillyTavernFinalSendAdapter({
       const release = requestIdByResponse.get(response);
       if (!release) return write();
       if (release.state !== 'pending') {
-        throw new Error('MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED');
+        throw terminalError(new Error('MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED'));
       }
       try {
         const result = gateway.authorizeResponseWrite(release.requestId, write, { final });
@@ -152,7 +173,7 @@ export function createSillyTavernFinalSendAdapter({
         // make a later Express error/fallback write look like an unprotected
         // response and bypass the final-send gate.
         release.state = 'denied';
-        throw error;
+        throw terminalError(error);
       }
     },
 
