@@ -227,15 +227,16 @@ export class MemoryNpcConsumer {
     // context produced from SillyTavern's authenticated signed server session.
     let hostSessionContext;
     try { hostSessionContext = getAuthenticatedHostSessionContext(); } catch {}
-    if (!isAuthenticatedHostSessionContext(hostSessionContext, conversationId)
-      || hostSessionContext.world_id !== worldId
-      || hostSessionContext.actor_id !== actorEntityId) {
+    if (!isAuthenticatedHostSessionContext(hostSessionContext, conversationId)) {
       return nonReady('query_access_unconfirmed');
     }
 
     // Bind the caller to a canonical actor before querying Memory. This must
     // happen even for complete-empty results, which otherwise bypass the later
-    // AuthorizedReadService call entirely.
+    // AuthorizedReadService call entirely. Validate the durable actor binding
+    // before comparing it with the authenticated Host assertion so a broken or
+    // revoked Core binding is classified as an actor-binding failure, not as a
+    // generic Host query-authentication failure.
     try {
       const binding = this.actorBindingService.resolve(worldId, adapterId, actorEntityId);
       if (!object(binding)
@@ -246,6 +247,9 @@ export class MemoryNpcConsumer {
       }
     } catch {
       return nonReady('actor_binding_unavailable');
+    }
+    if (hostSessionContext.world_id !== worldId || hostSessionContext.actor_id !== actorEntityId) {
+      return nonReady('query_access_unconfirmed');
     }
 
     const scope = Object.freeze({
