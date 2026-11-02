@@ -86,7 +86,7 @@ test('unknown non-Chat-Completions routes remain unregistered and cannot enter p
       source_kind: 'canonical_entity', source_entity_id: 'entity-1', source_version: 'v1' }],
   }) });
   for (const hostRoute of ['text-completions', 'kobold', 'novelai-text', 'horde-text']) {
-    const request = { body: { chat_completion_source: 'OPENAI' } };
+    const request = { body: {} };
     assert.throws(() => adapter.dispatch({
       request,
       senderRoute: adapter.resolveSenderRoute({}, hostRoute),
