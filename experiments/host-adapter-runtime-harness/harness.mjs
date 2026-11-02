@@ -199,7 +199,9 @@ test('all five pinned protected ST generation handlers use one Gateway handoff a
   app.use(express.json({ limit: '1mb' }));
   app.use((req, _res, next) => {
     req.user = { profile: { handle: 'harness-user' }, directories: { root: userRoot } };
-    req.session = { handle: 'harness-user' };
+    if (req.headers['x-harness-no-session'] !== '1') {
+      req.session = { handle: 'harness-user' };
+    }
     next();
   });
   app.use('/api/backends/chat-completions', chatCompletionsRouter);
@@ -323,6 +325,25 @@ test('all five pinned protected ST generation handlers use one Gateway handoff a
   assert.equal(gatewayDispatches, 5, 'each protected route must enter the shared Gateway exactly once');
   assert.deepEqual(dispatchRoutes, ['openai', 'text-completions', 'kobold', 'novelai-text', 'horde-text']);
   assert.equal(finalRevalidations, 5, 'every client response must pass final Gateway revalidation');
+
+  const unauthenticated = await fetch(requests[0].url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-harness-no-session': '1' },
+    body: JSON.stringify(requests[0].body),
+  });
+  assert.equal(unauthenticated.status, 503, 'generation must stop before provider dispatch without an authenticated ST session');
+  assert.equal(providerRequests.length, 5);
+  assert.equal(gatewayDispatches, 5);
+
+  const spoofedMemory = await fetch(requests[0].url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ ...requests[0].body, logic_engine_protected_context: { worldId: 'spoofed' } }),
+  });
+  assert.equal(spoofedMemory.status, 503, 'browser-supplied protected Memory markers must be rejected');
+  assert.equal(providerRequests.length, 5);
+  assert.equal(gatewayDispatches, 5);
+
   assert.ok(suppressedDebugCalls > 0, 'the upstream request-body debug paths must be suppressed');
   assert.equal(
     JSON.stringify(loggedOutput).includes(sentinel),
