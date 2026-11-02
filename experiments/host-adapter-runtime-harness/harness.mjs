@@ -91,6 +91,7 @@ https.request = function (input, options, callback) {
   }
   const redirected = {
     ...(options && typeof options === 'object' ? options : {}),
+    protocol: 'http:',
     hostname: '127.0.0.1',
     host: '127.0.0.1',
     port: providerAddress.port,
