@@ -222,7 +222,7 @@ export async function applyFinalSendPatch({ hostRoot, stateRoot, hookSourcePath 
       for (const [relativePath, expectedHash] of Object.entries(SILLYTAVERN_TARGET.sourceHashes)) {
         if (relativePath === SILLYTAVERN_TARGET.endpointRelativePath) continue;
         const sourcePath = await assertRegularFile(rootReal, relativePath);
-        if (sha256(await readFile(sourcePath)) !== expectedHash) fail('HOST_SOURCE_HASH_MISMATCH_' + relativePath.replaceAll('/', '_').replaceAll('.', '_'));
+        if (pinnedSourceHash(await readFile(sourcePath)) !== expectedHash) fail('HOST_SOURCE_HASH_MISMATCH_' + relativePath.replaceAll('/', '_').replaceAll('.', '_'));
       }
       const endpointPath = await assertRegularFile(rootReal, SILLYTAVERN_TARGET.endpointRelativePath);
       const hookPath = await assertRegularFile(rootReal, SILLYTAVERN_TARGET.hookRelativePath);
