@@ -61,6 +61,7 @@ function containsUntrustedMemoryMarker(body) {
 }
 
 function createFailClosedAdapter({ memoryNpcEnabled }) {
+  const preparedUnprotectedRequests = new WeakSet();
   return Object.freeze({
     async prepare(request) {
       assertAuthenticatedStRequest(request);
@@ -78,6 +79,7 @@ function createFailClosedAdapter({ memoryNpcEnabled }) {
         // They never fall through to the native sender.
         throw new Error('LOGIC_ENGINE_NPC_GATEWAY_NOT_WIRED');
       }
+      preparedUnprotectedRequests.add(request);
     },
     resolveSenderRoute(request, hostRoute = 'chat-completions') {
       if (hostRoute !== 'chat-completions') {
@@ -92,10 +94,14 @@ function createFailClosedAdapter({ memoryNpcEnabled }) {
       // passes through ordinary responses or the 503 emitted by prepare().
       return write();
     },
-    dispatch({ transport }) {
-      // This is the only non-protected path. A future server-owned Memory
-      // context must be handed to the in-process Core Gateway; it must never
-      // be downgraded to this direct native transport.
+    dispatch({ request, transport }) {
+      // The native path is available only after this exact request completed
+      // Host preparation and was classified as ordinary/unprotected.
+      if (!request || typeof request !== 'object' || !preparedUnprotectedRequests.has(request)) {
+        throw new Error('LOGIC_ENGINE_HOST_PREPARATION_REQUIRED');
+      }
+      preparedUnprotectedRequests.delete(request);
+      if (typeof transport !== 'function') throw new Error('LOGIC_ENGINE_NATIVE_TRANSPORT_REQUIRED');
       return transport();
     },
     forwardResponse(upstream, response) {
