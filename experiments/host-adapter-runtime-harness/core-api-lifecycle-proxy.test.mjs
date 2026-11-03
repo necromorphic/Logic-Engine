@@ -106,6 +106,7 @@ test('SillyTavern lifecycle proxy authenticates PREPARED/COMMITTED receipts and 
   const identity = await identityStore.resolveAuthenticatedAccount('Harness User');
   const rootId = digest(resolve(root));
   const rootIdentity = {
+    adapter_id: ADAPTER_ID,
     host_installation_id: identity.host_installation_id,
     authenticated_account_id: identity.authenticated_account_id,
     root_id: rootId,
@@ -181,8 +182,7 @@ test('SillyTavern lifecycle proxy authenticates PREPARED/COMMITTED receipts and 
     LOGIC_ENGINE_ADAPTER_TOKEN: ADAPTER_TOKEN,
   };
   const resolveRootIdentity = input => ({
-    authorized: input.adapterId === ADAPTER_ID
-      && input.host_installation_id === identity.host_installation_id
+    authorized: input.host_installation_id === identity.host_installation_id
       && input.authenticated_account_id === identity.authenticated_account_id
       && input.root_id === rootId,
     ...rootIdentity,
