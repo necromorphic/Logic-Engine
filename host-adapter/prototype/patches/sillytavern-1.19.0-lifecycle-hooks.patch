@@ -2567,8 +2567,7 @@ diff --git a/src/plugin-loader.js b/src/plugin-loader.js
 +        const hostAuthorityConfigured = Boolean(process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR);
  
          // Server plugins are disabled.
-@@ -45,4 +46,5 @@
-         // Server plugins are disabled.
+@@ -46,3 +47,4 @@
          if (!enableServerPlugins) {
 +            if (hostAuthorityConfigured) throw new Error('HOST_SERVER_PLUGINS_DISABLED');
              return emptyFn;
