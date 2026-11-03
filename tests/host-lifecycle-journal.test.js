@@ -316,6 +316,18 @@ const makeRootAttestation = result => {
   return attestation;
 };
 
+test('root inventory paths use locale-independent code-unit ordering', t => {
+  const { journal } = setup(t);
+  const entries = [
+    rootFile('chats/a.jsonl', '102', 'a'),
+    rootFile('chats/z.jsonl', '103', 'z'),
+    rootFile('chats/ä.jsonl', '104', 'umlaut'),
+  ];
+  const accepted = journal.enrollRootInventory(rootInput({ entries }));
+  assert.equal(accepted.status, 'BASELINED_REVIEW_ONLY');
+  assert.equal(accepted.file_count, 3);
+});
+
 test('Core requires a signed pinned-source completeness attestation before root inventory becomes authoritative', t => {
   const { journal } = setup(t, () => true, () => true, ({ attestation }) =>
     attestation.signature === signRootAttestation(attestation));
