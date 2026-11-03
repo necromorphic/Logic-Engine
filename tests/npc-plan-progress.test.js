@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { advanceNpcPlan } from "../src/npc/plan-progress.js";
+import { advanceNpcPlan, getNpcPlanActiveStep } from "../src/npc/plan-progress.js";
 
 const plan = () => ({
   id: "investigate-rumor",
@@ -200,30 +200,74 @@ test("fails closed when Array.prototype iterator is replaced", () => {
   assert.deepEqual(result, { status: "non_ready", plan: null });
 });
 
-test("rejects benign Proxy plan objects before invoking their get traps", () => {
-  let getCalls = 0;
-  const candidate = new Proxy(plan(), {
-    get(target, key, receiver) {
-      getCalls += 1;
-      return Reflect.get(target, key, receiver);
-    },
+
+test("reads the active plan step without changing plan state", () => {
+  const original = plan();
+  const before = structuredClone(original);
+  assert.deepEqual(getNpcPlanActiveStep(original), {
+    status: "ready",
+    step: { id: "ask-contact", action_id: "ask-contact" },
   });
-  assert.deepEqual(advanceNpcPlan(candidate, { type: "abandon" }), { status: "non_ready", plan: null });
-  assert.equal(getCalls, 0);
+  assert.deepEqual(original, before);
 });
 
-test("rejects Proxy step arrays before invoking their reflection traps", () => {
-  let trapCalls = 0;
-  const steps = new Proxy(plan().steps, {
-    get(target, key, receiver) {
-      trapCalls += 1;
-      return Reflect.get(target, key, receiver);
-    },
-    getOwnPropertyDescriptor(target, key) {
-      trapCalls += 1;
-      return Reflect.getOwnPropertyDescriptor(target, key);
-    },
+test("active-step inspection rejects blocked, terminal, malformed, and hostile plans", () => {
+  const blocked = plan();
+  blocked.status = "blocked";
+  blocked.steps[0].status = "blocked";
+  const completed = { ...plan(), status: "completed" };
+  completed.steps = completed.steps.map((step) => ({ ...step, status: "completed" }));
+  const malformed = plan();
+  malformed.steps[1].status = "active";
+  const hostile = new Proxy({}, {
+    getPrototypeOf() { throw new Error("prototype trap"); },
   });
-  assert.deepEqual(advanceNpcPlan({ ...plan(), steps }, { type: "abandon" }), { status: "non_ready", plan: null });
-  assert.equal(trapCalls, 0);
+
+  for (const candidate of [blocked, completed, malformed, hostile, null]) {
+    assert.deepEqual(getNpcPlanActiveStep(candidate), {
+      status: "non_ready",
+      step: null,
+    });
+  }
+});
+
+
+test("rejects Proxy-backed plan, steps array, step and event before invoking traps", () => {
+  let traps = 0;
+  const hostile = new Proxy({}, {
+    getPrototypeOf() { traps += 1; throw new Error("must not inspect proxy"); },
+    ownKeys() { traps += 1; throw new Error("must not enumerate proxy"); },
+  });
+  const hostileArray = new Proxy([], {
+    getOwnPropertyDescriptor() { traps += 1; throw new Error("must not inspect proxy array"); },
+    getPrototypeOf() { traps += 1; throw new Error("must not inspect proxy array prototype"); },
+  });
+  const valid = plan();
+  const withHostileArray = { ...valid, steps: hostileArray };
+  const withHostileStep = { ...valid, steps: [hostile] };
+  const cases = [
+    [hostile, { type: "abandon" }],
+    [withHostileArray, { type: "abandon" }],
+    [withHostileStep, { type: "abandon" }],
+    [valid, hostile],
+  ];
+  for (const [candidate, event] of cases) {
+    assert.deepEqual(advanceNpcPlan(candidate, event), { status: "non_ready", plan: null });
+  }
+  assert.equal(traps, 0);
+});
+
+test("rejects arrays with custom prototypes and extra own properties", () => {
+  const customPrototype = plan();
+  Object.setPrototypeOf(customPrototype.steps, {});
+  const extended = plan();
+  extended.steps.metadata = "not part of a canonical plan";
+  const symbolExtended = plan();
+  symbolExtended.steps[Symbol("metadata")] = true;
+  for (const candidate of [customPrototype, extended, symbolExtended]) {
+    assert.deepEqual(advanceNpcPlan(candidate, { type: "abandon" }), {
+      status: "non_ready",
+      plan: null,
+    });
+  }
 });
