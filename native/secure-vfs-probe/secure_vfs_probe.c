@@ -1267,8 +1267,7 @@ static int probe_xOpen_parent(sqlite3_vfs *vfs, const char *name, sqlite3_file *
   const int unhandled_file_classes = SQLITE_OPEN_TEMP_DB
     | SQLITE_OPEN_TEMP_JOURNAL | SQLITE_OPEN_SUBJOURNAL
     | SQLITE_OPEN_SUPER_JOURNAL | SQLITE_OPEN_TRANSIENT_DB;
-  if ((flags & unhandled_file_classes) != 0
-      && (flags & SQLITE_OPEN_MEMORY) == 0) {
+  if ((flags & unhandled_file_classes) != 0) {
     return SQLITE_CANTOPEN;
   }
   if ((flags & (SQLITE_OPEN_MAIN_DB | SQLITE_OPEN_WAL | SQLITE_OPEN_MAIN_JOURNAL
@@ -2452,30 +2451,55 @@ static void probe_temp_file_class_rejected(sqlite3_context *context, int argc, s
    * no OS open was attempted.
    */
   for (size_t i = 0; i < sizeof(rejected_classes) / sizeof(rejected_classes[0]); ++i) {
+    for (int memory_variant = 0; memory_variant <= 1; ++memory_variant) {
+      sqlite3_file *file = (sqlite3_file *)sqlite3_malloc64((sqlite3_uint64)g_probe_vfs.szOsFile);
+      int out_flags = 0;
+      int rc;
+      char *name;
+      if (!file) {
+        sqlite3_result_error_nomem(context);
+        return;
+      }
+      memset(file, 0, (size_t)g_probe_vfs.szOsFile);
+      name = sqlite3_mprintf("probe-unhandled-file-class-%u-%u",
+        (unsigned int)i, (unsigned int)memory_variant);
+      if (!name) {
+        sqlite3_free(file);
+        sqlite3_result_error_nomem(context);
+        return;
+      }
+      rc = probe_xOpen(&g_probe_vfs, name, file,
+        rejected_classes[i] | (memory_variant ? SQLITE_OPEN_MEMORY : 0)
+          | SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, &out_flags);
+      if (rc == SQLITE_OK && file->pMethods && file->pMethods->xClose) {
+        file->pMethods->xClose(file);
+      }
+      if (rc != SQLITE_CANTOPEN) all_rejected_without_parent_open = 0;
+      sqlite3_free(name);
+      sqlite3_free(file);
+    }
+  }
+
+  /* A pure in-memory DB remains supported; it must not touch the OS namespace. */
+  {
     sqlite3_file *file = (sqlite3_file *)sqlite3_malloc64((sqlite3_uint64)g_probe_vfs.szOsFile);
     int out_flags = 0;
     int rc;
-    char *name;
     if (!file) {
       sqlite3_result_error_nomem(context);
       return;
     }
     memset(file, 0, (size_t)g_probe_vfs.szOsFile);
-    name = sqlite3_mprintf("probe-unhandled-file-class-%u", (unsigned int)i);
-    if (!name) {
-      sqlite3_free(file);
-      sqlite3_result_error_nomem(context);
-      return;
-    }
-    rc = probe_xOpen(&g_probe_vfs, name, file,
-      rejected_classes[i] | SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, &out_flags);
+    rc = probe_xOpen(&g_probe_vfs, NULL, file,
+      SQLITE_OPEN_MEMORY | SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, &out_flags);
     if (rc == SQLITE_OK && file->pMethods && file->pMethods->xClose) {
       file->pMethods->xClose(file);
+    } else {
+      all_rejected_without_parent_open = 0;
     }
-    if (rc != SQLITE_CANTOPEN) all_rejected_without_parent_open = 0;
-    sqlite3_free(name);
     sqlite3_free(file);
   }
+
   if (g_native_open_count != opens_before) all_rejected_without_parent_open = 0;
   sqlite3_result_int(context, all_rejected_without_parent_open);
 }
