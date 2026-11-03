@@ -552,8 +552,10 @@ async function enumeratePinnedSillyTavernChatFilesInternal({
   const directoriesDigest = directoriesSeen.map(({ kind, identity, names }) => ({ kind, identity, names }))
     .sort((a, b) => a.kind.localeCompare(b.kind));
   const chatFiles = files.filter(file => file.logical_identity);
-  const logicalIdentityComplete = chatFiles.length > 0
-    && chatFiles.every(file => file.logical_identity.identity_status === 'CURRENT_IDENTITIES_VERIFIED');
+  // An empty chat set is a complete current-state result. Any chat file
+  // that does exist must carry a fully verified conversation/message identity.
+  const logicalIdentityComplete = chatFiles.every(file =>
+    file.logical_identity.identity_status === 'CURRENT_IDENTITIES_VERIFIED');
   const inventorySha256 = digest(Buffer.from(canonical({
     host_commit: hostCommit,
     files,
