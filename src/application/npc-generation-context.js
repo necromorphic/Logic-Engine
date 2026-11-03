@@ -373,5 +373,89 @@ function createNpcGenerationContextReceiver({
     return Object.freeze({ status: 'accepted', context: receipt.context, reason: null });
   }
 
-  return Object.freeze({ receive, issueDispatchHandoff, consumeDispatchHandoff });
+  // Non-authorizing prompt projection for the exact issued handoff. It
+  // exposes bounded data only; the opaque handoff remains private and
+  // unconsumed until Gateway calls consumeDispatchHandoff() under its lease.
+  function projectDispatchHandoff(handoff, request) {
+    const receipt = handoff && typeof handoff === 'object' ? dispatchHandoffs.get(handoff) : null;
+    if (!receipt || consumedHandoffs.has(handoff) || !validateRequest(request)
+      || receipt.request_id !== request.request_id
+      || receipt.generation_id !== request.generation_id
+      || receipt.generation_type !== request.generation_type) {
+      return nonReady('dispatch_projection_rejected');
+    }
+    const context = receipt.context;
+    const laneA = context?.lanes?.lane_a;
+    const laneB = context?.lanes?.lane_b;
+    if (!isPlainDataRecord(laneA) || laneA.lane !== 'A' || !densePlainArray(laneA.items)
+      || !isPlainDataRecord(laneB) || laneB.lane !== 'B' || laneB.status !== 'ready'
+      || !densePlainArray(laneB.candidates) || !densePlainArray(laneB.admitted)
+      || laneB.candidates.length !== laneB.admitted.length) {
+      return nonReady('dispatch_projection_invalid');
+    }
+    try {
+      const contentBlocks = [];
+      for (const item of laneA.items) {
+        if (!isPlainDataRecord(item)
+          || !validId(item.acquisition_kind) || !validId(item.subject_ref)
+          || !validId(item.predicate)) return nonReady('dispatch_projection_invalid');
+        contentBlocks.push({
+          epistemic_kind: item.acquisition_kind,
+          evidence_assessment: 'unassessed',
+          content: {
+            subject_ref: item.subject_ref,
+            predicate: item.predicate,
+            value: item.value,
+          },
+        });
+      }
+      const candidates = [];
+      const sourceByIdentity = new Map();
+      for (let index = 0; index < laneB.candidates.length; index += 1) {
+        const candidate = laneB.candidates[index];
+        const admitted = laneB.admitted[index];
+        if (!isPlainDataRecord(candidate) || !isPlainDataRecord(admitted)
+          || !validId(candidate.record_ref) || !validId(candidate.record_version)
+          || !Number.isSafeInteger(candidate.authorization_generation)
+          || candidate.authorization_generation < 1
+          || !validId(candidate.source_entity_id) || !validId(candidate.source_version)
+          || !validId(candidate.epistemic_kind)
+          || !['unassessed', 'supported', 'disputed', 'insufficient'].includes(candidate.evidence_assessment)
+          || admitted.record_ref !== candidate.record_ref
+          || admitted.record_version !== candidate.record_version) {
+          return nonReady('dispatch_projection_invalid');
+        }
+        candidates.push({
+          record_ref: candidate.record_ref,
+          record_version: candidate.record_version,
+          authorization_generation: candidate.authorization_generation,
+          source_kind: 'canonical_entity',
+          source_entity_id: candidate.source_entity_id,
+          source_version: candidate.source_version,
+        });
+        const sourceIdentity = JSON.stringify([candidate.source_entity_id, candidate.source_version]);
+        sourceByIdentity.set(sourceIdentity, {
+          source_kind: 'canonical_entity',
+          source_entity_id: candidate.source_entity_id,
+          source_version: candidate.source_version,
+        });
+        contentBlocks.push({
+          epistemic_kind: candidate.epistemic_kind,
+          evidence_assessment: candidate.evidence_assessment,
+          content: candidate.content,
+        });
+      }
+      const sources = [...sourceByIdentity.values()].sort((a, b) =>
+        a.source_entity_id < b.source_entity_id ? -1
+          : a.source_entity_id > b.source_entity_id ? 1
+            : a.source_version < b.source_version ? -1
+              : a.source_version > b.source_version ? 1 : 0);
+      const projection = immutableCopy({ contentBlocks, sources, candidates });
+      return Object.freeze({ status: 'ready', projection, reason: null });
+    } catch {
+      return nonReady('dispatch_projection_invalid');
+    }
+  }
+
+  return Object.freeze({ receive, issueDispatchHandoff, consumeDispatchHandoff, projectDispatchHandoff });
 }
