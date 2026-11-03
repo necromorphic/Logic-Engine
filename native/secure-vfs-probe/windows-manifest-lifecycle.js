@@ -29,7 +29,10 @@ function assertRecord(value, label) {
 
 function assertIdentity(identity, label) {
   assertRecord(identity, label);
-  if (identity.kind !== 'windows'
+  const keys = Object.keys(identity).sort();
+  if (keys.length !== 3
+      || keys[0] !== 'fileId' || keys[1] !== 'kind' || keys[2] !== 'volumeSerial'
+      || identity.kind !== 'windows'
       || typeof identity.volumeSerial !== 'string'
       || !/^[0-9A-Fa-f]{16}$/.test(identity.volumeSerial)
       || typeof identity.fileId !== 'string'
@@ -96,6 +99,15 @@ function cryptoRandomId() {
 
 function assertIntent(intent) {
   assertRecord(intent, 'pending lifecycle intent');
+  const keys = Object.keys(intent).sort();
+  const expected = [
+    'baseGeneration', 'basename', 'expectedIdentity', 'kind', 'operation',
+    'operationId', 'role', 'schemaVersion', 'targetGeneration',
+  ].sort();
+  if (keys.length !== expected.length
+      || keys.some((key, index) => key !== expected[index])) {
+    throw new TypeError('Pending Windows manifest lifecycle intent has unknown or missing fields');
+  }
   if (intent.schemaVersion !== 1
       || !/^[0-9a-f]{32}$/.test(intent.operationId)
       || !['create-sidecar', 'delete-sidecar'].includes(intent.operation)
