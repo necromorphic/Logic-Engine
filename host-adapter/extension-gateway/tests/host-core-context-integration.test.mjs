@@ -338,7 +338,9 @@ test('Host Adapter requires Core root proof before context resolution and binds 
   });
   const productionRequest = {
     user: request.user,
-    session: {},
+    // Share the already-authenticated ST session: creating a second session
+    // for the same installation/account would correctly revoke the first.
+    session: request.session,
     body: { ...request.body, request_id: '77777777-7777-4777-8777-777777777777' },
   };
   const productionSessionResponse = responseRecorder();
