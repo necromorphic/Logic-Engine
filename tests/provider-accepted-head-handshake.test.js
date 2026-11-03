@@ -76,6 +76,7 @@ test('Provider mutations advance accepted head before commit and fail closed whe
   const previousEnv = {};
   let child;
   let provider;
+  let observer;
   let providerDb;
   try {
     setEnv('LOGIC_ENGINE_COORDINATOR_DB_PATH', coordinatorPath, previousEnv);
@@ -138,10 +139,11 @@ test('Provider mutations advance accepted head before commit and fail closed whe
     // cross-process Coordinator lease and must not mutate Provider state.
     await provider.rebuildIndex(scope.world_id);
     await provider.reconcile(scope.world_id);
+    observer = new SQLiteMemoryProvider({ ...providerOptions(providerPath, coordinatorPath), observerOnly: true });
     const coordinatorObserver = openCoordinatorDatabase(coordinatorPath);
     const providerLease = beginCoordinatorLock(coordinatorObserver);
     try {
-      const evidence = provider.readDispatchEvidenceSync({
+      const evidence = observer.readDispatchEvidenceSync({
         worldId: scope.world_id,
         actorId: scope.subject_id,
         purpose: scope.purpose,
@@ -162,29 +164,31 @@ test('Provider mutations advance accepted head before commit and fail closed whe
         }],
         coordinatorLease: providerLease,
       });
-      assert.deepEqual(evidence, {
-        world_id: scope.world_id,
-        actor_id: scope.subject_id,
-        purpose: scope.purpose,
-        granted: true,
-        readiness: 'READY',
-        head: providerDb.prepare('SELECT head FROM accepted_head_state WHERE singleton=1').get().head,
-        sources: [{
-          source_kind: 'canonical_entity',
-          source_entity_id: dispatchRecord.source_entity_id,
-          source_version: dispatchRecord.source_version,
-        }],
-        candidates: [{
-          record_ref: dispatchRecord.record_ref,
-          record_version: dispatchRecord.record_version,
-          authorization_generation: providerDb.prepare(
-            'SELECT authorization_generation FROM memory_record_grants WHERE world_id=? AND subject_id=? AND purpose=? AND record_ref=? AND record_version=?',
-          ).get(scope.world_id, scope.subject_id, scope.purpose, dispatchRecord.record_ref, dispatchRecord.record_version).authorization_generation,
-          source_kind: 'canonical_entity',
-          source_entity_id: dispatchRecord.source_entity_id,
-          source_version: dispatchRecord.source_version,
-        }],
-      });
+      assert.equal(evidence.world_id, scope.world_id);
+      assert.equal(evidence.actor_id, scope.subject_id);
+      assert.equal(evidence.purpose, scope.purpose);
+      assert.equal(evidence.granted, true);
+      assert.equal(evidence.readiness, 'READY');
+      assert.equal(evidence.head, providerDb.prepare(
+        'SELECT head FROM accepted_head_state WHERE singleton=1',
+      ).get().head);
+      assert.deepEqual(evidence.sources, [{
+        source_kind: 'canonical_entity',
+        source_entity_id: dispatchRecord.source_entity_id,
+        source_version: dispatchRecord.source_version,
+      }]);
+      assert.deepEqual(evidence.candidates, [{
+        record_ref: dispatchRecord.record_ref,
+        record_version: dispatchRecord.record_version,
+        authorization_generation: providerDb.prepare(
+          'SELECT authorization_generation FROM memory_record_grants WHERE world_id=? AND subject_id=? AND purpose=? AND record_ref=? AND record_version=?',
+        ).get(scope.world_id, scope.subject_id, scope.purpose, dispatchRecord.record_ref, dispatchRecord.record_version).authorization_generation,
+        source_kind: 'canonical_entity',
+        source_entity_id: dispatchRecord.source_entity_id,
+        source_version: dispatchRecord.source_version,
+      }]);
+      assert.ok(Number.isSafeInteger(evidence.provider_evidence_cursor.data_version));
+      assert.match(evidence.provider_evidence_cursor.candidate_digest, /^[a-f0-9]{64}$/);
     } finally {
       providerLease();
       coordinatorObserver.close();
@@ -213,7 +217,7 @@ test('Provider mutations advance accepted head before commit and fail closed whe
     const revokeCoordinator = openCoordinatorDatabase(coordinatorPath);
     const revokeLease = beginCoordinatorLock(revokeCoordinator);
     try {
-      assert.throws(() => provider.readDispatchEvidenceSync({
+      assert.throws(() => observer.readDispatchEvidenceSync({
         worldId: scope.world_id,
         actorId: scope.subject_id,
         purpose: scope.purpose,
