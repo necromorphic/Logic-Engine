@@ -256,7 +256,6 @@ diff --git a/src/endpoints/image-metadata.js b/src/endpoints/image-metadata.js
 @@ -704 +706 @@
 -router.post('/all', async function (request, response) {
 +router.post('/all', hostUnsupportedMutationGuard, async function (request, response) {
-
 diff --git a/src/endpoints/stable-diffusion.js b/src/endpoints/stable-diffusion.js
 --- a/src/endpoints/stable-diffusion.js
 +++ b/src/endpoints/stable-diffusion.js
@@ -272,7 +271,6 @@ diff --git a/src/endpoints/stable-diffusion.js b/src/endpoints/stable-diffusion.
 @@ -534 +536 @@
 -comfy.post('/rename-workflow', getFileNameValidationFunction('old_name'), getFileNameValidationFunction('new_name'), async (request, response) => {
 +comfy.post('/rename-workflow', hostUnsupportedMutationGuard, getFileNameValidationFunction('old_name'), getFileNameValidationFunction('new_name'), async (request, response) => {
-
 diff --git a/src/endpoints/thumbnails.js b/src/endpoints/thumbnails.js
 --- a/src/endpoints/thumbnails.js
 +++ b/src/endpoints/thumbnails.js
