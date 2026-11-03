@@ -33,6 +33,8 @@ function setup() {
   let visible = true;
   let memoryCurrent = true;
   let revokeAtFinalFence = false;
+  let readAuthorizationRef = 'core-read-1';
+  let memoryResultFactory = memoryResult;
   const engine = {
     getSnapshot: () => scope.snapshot,
     readNpcKnowledge(input) {
@@ -42,7 +44,7 @@ function setup() {
         status: 'ready', world_id: scope.world_id, actor_id: scope.actor_id,
         conversation_id: scope.conversation_id, adapter_id: scope.adapter_id,
         recipient: 'model', purpose: 'npc_turn_context',
-        snapshot: { ...scope.snapshot }, authorization_ref: 'core-read-1',
+        snapshot: { ...scope.snapshot }, authorization_ref: readAuthorizationRef,
         truncated: false, items: [acquisition],
       };
     },
@@ -59,10 +61,10 @@ function setup() {
     },
   };
   const consumer = {
-    async retrieveForNpc() { return memoryCurrent ? memoryResult() : { status: 'non_ready' }; },
+    async retrieveForNpc() { return memoryCurrent ? memoryResultFactory() : { status: 'non_ready' }; },
     async revalidateForFinalDispatch(_request, prepared) {
-      return memoryCurrent && !revokeAtFinalFence && JSON.stringify(prepared) === JSON.stringify(memoryResult())
-        ? memoryResult() : { status: 'non_ready' };
+      return memoryCurrent && !revokeAtFinalFence && JSON.stringify(prepared) === JSON.stringify(memoryResultFactory())
+        ? memoryResultFactory() : { status: 'non_ready' };
     },
   };
   const runtime = createCoreNpcGenerationContextRuntime({
@@ -75,6 +77,8 @@ function setup() {
     setVisible: value => { visible = value; },
     setMemoryCurrent: value => { memoryCurrent = value; },
     setRevokeAtFinalFence: value => { revokeAtFinalFence = value; },
+    setReadAuthorizationRef: value => { readAuthorizationRef = value; },
+    setMemoryResultFactory: value => { memoryResultFactory = value; },
   };
 }
 
@@ -110,6 +114,26 @@ test('receiver rejects a context after Core scope changes', async () => {
   const { runtime, setScope } = setup();
   const built = await runtime.build(request);
   setScope({ ...scope, actor_id: 'npc-2', snapshot: scope.snapshot });
+  const received = await runtime.receive(built.context, request);
+  assert.equal(received.status, 'non_ready');
+});
+
+test('receiver rejects changed Lane A authorization even when visible items are unchanged', async () => {
+  const { runtime, setReadAuthorizationRef } = setup();
+  const built = await runtime.build(request);
+  setReadAuthorizationRef('core-read-rotated');
+  const received = await runtime.receive(built.context, request);
+  assert.equal(received.status, 'non_ready');
+});
+
+test('receiver rejects changed Lane B admission metadata even when candidates are unchanged', async () => {
+  const { runtime, setMemoryResultFactory } = setup();
+  const built = await runtime.build(request);
+  setMemoryResultFactory(() => {
+    const current = memoryResult();
+    current.admitted = [{ record_ref: 'memory:other', record_version: 'v1' }];
+    return current;
+  });
   const received = await runtime.receive(built.context, request);
   assert.equal(received.status, 'non_ready');
 });

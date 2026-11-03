@@ -233,7 +233,11 @@ export function createNpcGenerationContextBuilder({
         }),
         lane_b: immutableCopy({
           lane: 'B', core_purpose: PURPOSE, provider_purpose: 'npc_decision',
+          status: laneB.result.status,
+          admitted: laneB.result.admitted,
           candidates: laneB.result.candidates,
+          reason: laneB.result.reason,
+          snapshot: laneB.result.snapshot,
         }),
       });
     } catch { return nonReady('generation_context_invalid'); }
