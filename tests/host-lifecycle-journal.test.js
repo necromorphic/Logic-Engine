@@ -206,6 +206,7 @@ test('durable lifecycle journal survives close/reopen and replay remains idempot
     host_installation_id: input.host_installation_id,
     authenticated_account_id: input.authenticated_account_id,
     root_id: input.root_id,
+  source_manifest_sha256: sourceManifestSha256,
   });
   let first = new HostLifecycleJournal({ path, coordinatorPath, resolveIdentity, resolveRootIdentity, verifyMutationReceipt: () => true });
   first.enrollRootInventory({ host_installation_id: installation, authenticated_account_id: account,
@@ -491,6 +492,7 @@ test('root inventory baseline is installation/account/root scoped and survives S
     host_installation_id: input.host_installation_id,
     authenticated_account_id: input.authenticated_account_id,
     root_id: input.root_id,
+  source_manifest_sha256: sourceManifestSha256,
   });
   const first = new HostLifecycleJournal({ path, coordinatorPath, resolveIdentity, resolveRootIdentity });
   const enrolled = first.enrollRootInventory(rootInput());
@@ -629,6 +631,7 @@ test('root inventory delta chain survives close/reopen and rejects changed repla
     host_installation_id: input.host_installation_id,
     authenticated_account_id: input.authenticated_account_id,
     root_id: input.root_id,
+  source_manifest_sha256: sourceManifestSha256,
   });
   const first = new HostLifecycleJournal({ path, coordinatorPath, resolveIdentity, resolveRootIdentity });
   const baseline = rootInput();
@@ -902,6 +905,7 @@ test('terminal receipt is rejected by default and leaves the mutation pending', 
     host_installation_id: input.host_installation_id,
     authenticated_account_id: input.authenticated_account_id,
     root_id: input.root_id,
+  source_manifest_sha256: sourceManifestSha256,
   });
   const journal = new HostLifecycleJournal({ path, coordinatorPath, resolveIdentity, resolveRootIdentity });
   journal.enrollRootInventory({ host_installation_id: installation, authenticated_account_id: account,
@@ -972,6 +976,7 @@ test('prepared Core mutation survives SQLite restart and can be completed by ide
     host_installation_id: input.host_installation_id,
     authenticated_account_id: input.authenticated_account_id,
     root_id: input.root_id,
+  source_manifest_sha256: sourceManifestSha256,
   });
   const first = new HostLifecycleJournal({ path, coordinatorPath, resolveIdentity, resolveRootIdentity, verifyMutationReceipt: () => true });
   first.enrollRootInventory({ host_installation_id: installation, authenticated_account_id: account,
