@@ -77,13 +77,14 @@ The candidate now carries a patch for exact ST commit `06bde939fb1e9c4c8d8641d81
 
 The patch now:
 - records message create/send/receive/edit/swipe/delete lifecycle transitions and requires a matching prepared receipt before native chat persistence;
-- applies fail-closed bulk guards to chat/group/character mutations, chat import, backup deletion, Data Maid deletion, settings restore and settings reset;
-- returns 503 for whole-user-root reset and administrator account deletion while Host identity storage is enabled;
-- skips unreceipted startup group metadata migration while Host is enabled; the source scanner reports legacy metadata as a blocker.
+- guards 47 pinned per-user mutation routes across chats, groups, characters, avatars, files, World Info, presets, quick replies, themes, backgrounds, assets, vectors, settings, backups and Data Maid;
+- blocks extension install/update/switch/move/delete and all administrative account mutations while Host identity storage is enabled;
+- returns 503 for whole-user-root reset and skips unreceipted startup group metadata migration while Host is enabled;
+- keeps bulk chat rename/delete/import/export, backup restore, group cascade, character recursive deletion and vector purge fail-closed for enrolled histories until operation-specific receipts are implemented.
 
-Import/restore operations are blocked rather than accepted without receipts. Export remains read-only and is guarded by the browser lifecycle bridge. These are protection boundaries, not proof that every possible extension or filesystem writer is covered.
+The route contract is machine-checked against the applied pinned SillyTavern source. A separate Windows runtime-harness extension now mounts the actual endpoint routers and attempts representative mutations; it expects a 409/503 denial before the route handler can persist changes. Static route presence is not being represented as successful operation support.
 
-The Windows pinned-source workflow now installs the exact ST dependencies, applies the patch, checks its changed-file allowlist, and executes the real endpoint/file-operation harness. The current exact-HEAD run has not yet produced a successful runtime result, so this remains pending evidence.
+The Windows pinned-source workflow applies the patch to exact SillyTavern commit `06bde939fb1e9c4c8d8641d810f0a916b5bce127`, checks the source diff and syntax, and runs the real endpoint/file-operation harness.
 
 ## 4. Acceptance test matrix still required
 
@@ -96,7 +97,7 @@ For every supported operation above, the real-file harness must capture and comp
 5. Delete/restore: test normal delete, recursive/cascade delete, backup restore, settings/user restore where applicable, interrupted rename/copy, and external file replacement using disposable real data roots.
 6. Missed-change detection: perform uninstrumented add/edit/delete/restore between scans; detector must produce a mismatch and invalidate READY.
 
-The harness must include fault injection at each multi-step filesystem boundary (for example rename copy-before-unlink and group cascade between child deletion and metadata deletion). Tests must assert disk bytes and directory membership, not only mocked callbacks or emitted events.
+The harness must include fault injection at each multi-step filesystem boundary (for example rename copy-before-unlink and group cascade between child deletion and metadata deletion). Tests must assert disk bytes and directory membership, not only mocked callbacks or emitted events. The current harness covers successful message-level save operations and representative fail-closed route families; it does not yet establish successful import/export/restore/move/delete receipts.
 
 
 ## 6. Draft filesystem inventory primitive added after source audit
