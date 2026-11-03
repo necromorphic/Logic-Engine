@@ -146,6 +146,24 @@ export function createSillyTavernHostAdapter({
     });
   }
 
+  function readGenerationEnvelope(request, hostRoute) {
+    if (!['chat-completions', 'text-completions', 'kobold', 'novelai-text', 'horde-text'].includes(hostRoute)) {
+      return Object.freeze({ status: 'NON_READY', code: 'HOST_GENERATION_ROUTE_UNREGISTERED' });
+    }
+    const generationBody = hostRoute === 'horde-text' ? request?.body?.params : request?.body;
+    const conversationUuid = generationBody?.logic_engine_conversation_uuid;
+    const requestId = generationBody?.logic_engine_request_id;
+    const contextSize = generationBody?.logic_engine_context_size;
+    const generationType = generationBody?.logic_engine_generation_type;
+    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    if (!identityStore || !uuid.test(conversationUuid ?? '') || !uuid.test(requestId ?? '')
+      || !Number.isSafeInteger(contextSize) || contextSize < 1 || contextSize > 200000
+      || typeof generationType !== 'string' || !/^[a-z][a-z0-9_-]{0,31}$/.test(generationType)) {
+      return Object.freeze({ status: 'NON_READY', code: 'HOST_GENERATION_ENVELOPE_INVALID' });
+    }
+    return Object.freeze({ status: 'READY', conversationUuid, requestId, contextSize, generationType });
+  }
+
   return Object.freeze({
     session,
     identity,
@@ -154,23 +172,36 @@ export function createSillyTavernHostAdapter({
     lifecycleStatus,
     dispatchMiddleware,
     dispatch,
+    authenticateGenerationRequest: async (request, hostRoute) => {
+      const envelope = readGenerationEnvelope(request, hostRoute);
+      if (envelope.status !== 'READY') return envelope;
+      if (!authentication) return Object.freeze({ status: 'NON_READY', code: 'HOST_IDENTITY_STORE_UNCONFIGURED' });
+      const result = await authentication.authenticate(request, envelope.conversationUuid);
+      if (result.status !== 'READY') return result;
+      return Object.freeze({
+        status: 'READY',
+        context: result.context,
+        conversationUuid: envelope.conversationUuid,
+        requestId: envelope.requestId,
+        generationType: envelope.generationType,
+      });
+    },
+    isAuthenticatedHostRequest: request => authentication?.isAuthenticatedHostRequest(request) === true,
+    resolveHostConversationId: request => authentication?.resolveHostConversationId(request) ?? null,
+    resolveHostContext: request => authentication?.resolveHostContext(request) ?? null,
+    resolveHostIdentity: (request, conversationId) => {
+      const context = authentication?.resolveHostContext(request);
+      if (!context || context.conversation_id !== conversationId) return null;
+      return Object.freeze({
+        host_installation_id: context.host_installation_id,
+        authenticated_account_id: context.authenticated_account_id,
+      });
+    },
     async prepareGenerationContext(request, hostRoute) {
-      if (!['chat-completions', 'text-completions', 'kobold', 'novelai-text', 'horde-text'].includes(hostRoute)) {
-        return Object.freeze({ status: 'NON_READY', code: 'HOST_GENERATION_ROUTE_UNREGISTERED' });
-      }
-      const generationBody = hostRoute === 'horde-text'
-        ? request?.body?.params
-        : request?.body;
-      const conversationUuid = generationBody?.logic_engine_conversation_uuid;
-      const requestId = generationBody?.logic_engine_request_id;
-      const contextSize = generationBody?.logic_engine_context_size;
-      const generationType = generationBody?.logic_engine_generation_type;
-      const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-      if (!identityStore || !uuid.test(conversationUuid ?? '') || !uuid.test(requestId ?? '')
-        || !Number.isSafeInteger(contextSize) || contextSize < 1 || contextSize > 200000
-        || typeof generationType !== 'string' || !/^[a-z][a-z0-9_-]{0,31}$/.test(generationType)) {
-        return Object.freeze({ status: 'NON_READY', code: 'HOST_GENERATION_ENVELOPE_INVALID' });
-      }
+      const envelope = readGenerationEnvelope(request, hostRoute);
+      if (envelope.status !== 'READY') return envelope;
+      const { conversationUuid, requestId, contextSize, generationType } = envelope;
+      if (!authentication) return Object.freeze({ status: 'NON_READY', code: 'HOST_IDENTITY_STORE_UNCONFIGURED' });
       const result = await authentication.authenticate(request, conversationUuid);
       if (result.status !== 'READY') return result;
       const captured = {
