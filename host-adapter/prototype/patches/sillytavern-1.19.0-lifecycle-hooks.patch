@@ -1184,9 +1184,10 @@ diff --git a/src/endpoints/users-private.js b/src/endpoints/users-private.js
 diff --git a/src/endpoints/users-admin.js b/src/endpoints/users-admin.js
 --- a/src/endpoints/users-admin.js
 +++ b/src/endpoints/users-admin.js
-@@ -4,0 +5,2 @@
+@@ -4,0 +5,3 @@
 +import { createHostUnsupportedMutationGuard } from './logic-engine-host-inventory-handler.mjs';
 +const hostUnsupportedMutationGuard = createHostUnsupportedMutationGuard();
++const hostAccountDeleteGuard = createHostUnsupportedMutationGuard({ code: 'HOST_USER_ACCOUNT_DELETE_UNSUPPORTED' });
 @@ -66 +68 @@
 -router.post('/disable', requireAdminMiddleware, async (request, response) => {
 +router.post('/disable', requireAdminMiddleware, hostUnsupportedMutationGuard, async (request, response) => {
@@ -1204,7 +1205,7 @@ diff --git a/src/endpoints/users-admin.js b/src/endpoints/users-admin.js
 +router.post('/create', requireAdminMiddleware, hostUnsupportedMutationGuard, async (request, response) => {
 @@ -216 +218 @@
 -router.post('/delete', requireAdminMiddleware, async (request, response) => {
-+router.post('/delete', requireAdminMiddleware, hostUnsupportedMutationGuard, async (request, response) => {
++router.post('/delete', requireAdminMiddleware, hostAccountDeleteGuard, async (request, response) => {
 diff --git a/public/scripts/logic-engine-lifecycle/lifecycle-journal.mjs b/public/scripts/logic-engine-lifecycle/lifecycle-journal.mjs
 new file mode 100644
 --- /dev/null
@@ -2544,17 +2545,3 @@ new file mode 100644
 +  locatorBindingPrefix: 'logic-engine-host-lifecycle-locator:',
 +  authority: 'NON_AUTHORITATIVE',
 +});
-diff --git a/src/endpoints/users-admin.js b/src/endpoints/users-admin.js
---- a/src/endpoints/users-admin.js
-+++ b/src/endpoints/users-admin.js
-@@ -17,3 +17,5 @@
- } from '../users.js';
- import { DEFAULT_USER } from '../constants.js';
-+import { createHostUnsupportedMutationGuard } from './logic-engine-host-inventory-handler.mjs';
-+const hostAccountDeleteGuard = createHostUnsupportedMutationGuard({ code: 'HOST_USER_ACCOUNT_DELETE_UNSUPPORTED' });
- 
-@@ -217,3 +219,3 @@
- });
- 
--router.post('/delete', requireAdminMiddleware, async (request, response) => {
-+router.post('/delete', requireAdminMiddleware, hostAccountDeleteGuard, async (request, response) => {
