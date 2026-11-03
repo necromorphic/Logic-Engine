@@ -225,3 +225,32 @@ test('Core runtime exposes an opaque one-shot handoff only after receiver accept
   assert.equal(consumed.context, built.context);
   assert.equal(runtime.consumeDispatchHandoff(issued.handoff, request).status, 'non_ready');
 });
+
+
+test('synchronous dispatch fence revalidates Lane A visibility and exact Core scope after handoff', async () => {
+  const { runtime, setVisible, setScope } = setup();
+  const built = await runtime.build(request);
+  assert.equal(built.status, 'ready');
+  const accepted = await runtime.receive(built.context, request);
+  assert.equal(accepted.status, 'accepted');
+  const issued = runtime.issueDispatchHandoff(accepted, request);
+  assert.equal(issued.status, 'ready');
+  const consumed = runtime.consumeDispatchHandoff(issued.handoff, request);
+  assert.equal(consumed.status, 'accepted');
+
+  assert.equal(runtime.revalidateLaneAForDispatch(consumed.context, request).status, 'ready');
+  setVisible(false);
+  assert.equal(runtime.revalidateLaneAForDispatch(consumed.context, request).status, 'non_ready');
+
+  setVisible(true);
+  setScope({ ...scope, actor_id: 'npc-2', snapshot: scope.snapshot });
+  assert.equal(runtime.revalidateLaneAForDispatch(consumed.context, request).status, 'non_ready');
+});
+
+test('synchronous dispatch fence rejects copied contexts and unconsumed handoff contexts', async () => {
+  const { runtime } = setup();
+  const built = await runtime.build(request);
+  assert.equal(runtime.revalidateLaneAForDispatch(built.context, request).status, 'non_ready');
+  const copied = { ...built.context };
+  assert.equal(runtime.revalidateLaneAForDispatch(copied, request).status, 'non_ready');
+});
