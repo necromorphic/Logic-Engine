@@ -434,7 +434,7 @@ function makeNpcProviderBody(hostRoute) {
       ],
       logic_engine_context_size: 4096,
       memory_dispatch: { forged: true },
-      metadata: { host_context: { conversation_uuid: 'forged' } },
+      metadata: { host_context: { conversation_uuid: 'forged' }, session_id: 'host-only', chat_id: 'host-only', installation_id: 'host-only', account_id: 'host-only' },
     };
   }
   if (hostRoute === 'novelai-text') return { model: 'test-model', input: 'What do you know?' };
@@ -449,6 +449,10 @@ function makeNpcRequestInit(body) {
       authorization: 'Bearer provider-secret',
       'x-logic-engine-conversation-uuid': 'host-only',
       'x-host-session-id': 'host-only',
+      'x-conversation-id': 'host-only',
+      'x-world-id': 'host-only',
+      'x-actor-id': 'host-only',
+      'x-generation-id': 'host-only',
     },
     body: JSON.stringify(body),
   };
@@ -505,9 +509,17 @@ test('all 29 registered sender identities inject NPC context into exact outbound
     assert.equal(JSON.stringify(outboundBody).includes('logic_engine_'), false, senderRoute);
     assert.equal(JSON.stringify(outboundBody).includes('memory_dispatch'), false, senderRoute);
     assert.equal(JSON.stringify(outboundBody).includes('host_context'), false, senderRoute);
+    assert.equal(JSON.stringify(outboundBody).includes('session_id'), false, senderRoute);
+    assert.equal(JSON.stringify(outboundBody).includes('chat_id'), false, senderRoute);
+    assert.equal(JSON.stringify(outboundBody).includes('installation_id'), false, senderRoute);
+    assert.equal(JSON.stringify(outboundBody).includes('account_id'), false, senderRoute);
     assert.equal(outboundInit.headers.authorization, 'Bearer provider-secret', senderRoute);
     assert.equal(Object.keys(outboundInit.headers).some((key) => key.toLowerCase().startsWith('x-logic-engine-')), false);
     assert.equal(Object.keys(outboundInit.headers).some((key) => key.toLowerCase().startsWith('x-host-')), false);
+    assert.equal(Object.keys(outboundInit.headers).some((key) => key.toLowerCase().startsWith('x-conversation-')), false);
+    assert.equal(Object.keys(outboundInit.headers).some((key) => key.toLowerCase().startsWith('x-world-')), false);
+    assert.equal(Object.keys(outboundInit.headers).some((key) => key.toLowerCase().startsWith('x-actor-')), false);
+    assert.equal(Object.keys(outboundInit.headers).some((key) => key.toLowerCase().startsWith('x-generation-')), false);
     assert.equal(harness.gatewayCalls[0].body, outboundInit.body, senderRoute);
     assert.equal(harness.gatewayCalls[0].senderRoute, senderRoute);
   }
