@@ -698,6 +698,16 @@ test('all protected sender families share one real Gateway and each causes exact
       const hostRoute = ['text-completions', 'kobold', 'novelai-text'].includes(senderRoute)
         ? senderRoute
         : 'chat-completions';
+      const requestContext = validRequest(requestId);
+      const hostRequestContext = {
+        ...prepared,
+        requestId,
+        conversationId: requestContext.conversationId,
+        adapterId: requestContext.adapterId,
+        generationRequest: requestContext.generationRequest,
+        npcContextHandoff: requestContext.npcContextHandoff,
+        contentBlocks: requestContext.contentBlocks,
+      };
       const providerBody = hostRoute === 'chat-completions'
         ? { messages: [{ role: 'user', content: 'protected' }] }
         : hostRoute === 'novelai-text' ? { input: 'protected' } : { prompt: 'protected' };
@@ -710,7 +720,7 @@ test('all protected sender families share one real Gateway and each causes exact
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify(providerBody),
         },
-        hostRequestContext: { ...prepared, requestId },
+        hostRequestContext,
       });
       fixture.gateway.authorizeResponseWrite(requestId, () => undefined, { final: true });
     }
