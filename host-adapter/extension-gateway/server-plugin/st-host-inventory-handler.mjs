@@ -62,7 +62,7 @@ export function createHostInventoryHandler({
     const sessionId = session.logicEngineSessionId;
 
     // This is an operator-supplied deployment claim, not runtime source attestation.
-    if (hostBuildClaim !== pinnedHostCommit) {
+    if (hostBuildClaim && hostBuildClaim !== pinnedHostCommit) {
       return response.status(503).json({
         status: 'NON_READY',
         code: 'HOST_BUILD_NOT_PINNED',
@@ -180,7 +180,9 @@ export function createHostInventoryHandler({
         ...responseInventory,
         host_user_handle: userHandle,
         host_build_claim: hostBuildClaim,
-        host_build_claim_type: 'DEPLOYMENT_ASSERTION_NOT_RUNTIME_ATTESTATION',
+        host_build_claim_type: hostBuildClaim ? 'DEPLOYMENT_ASSERTION_ONLY' : 'ABSENT',
+        host_source_identity_status: sourceIdentity?.status ?? 'NON_READY',
+        ...(sourceIdentity?.manifest_sha256 ? { host_source_manifest_sha256: sourceIdentity.manifest_sha256 } : {}),
       });
     } catch {
       // Never return absolute paths, chat IDs, file counts, or per-source failures on denial.
