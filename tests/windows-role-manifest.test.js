@@ -94,7 +94,7 @@ test('Windows manifest enrollment passes exact DB and final-parent identities to
     'core.sqlite',
   ]);
   assert.match(db.calls[4].sql, /set_manifest_sidecar_count/);
-  assert.deepEqual(db.calls[4].args, ['core', 1]);
+  assert.deepEqual(db.calls[4].args, ['core', 1n]);
   assert.match(db.calls[5].sql, /register_manifest_sidecar/);
   assert.deepEqual(db.calls[5].args, [
     'core', 'wal', '00000000000000A1',
