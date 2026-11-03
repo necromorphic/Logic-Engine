@@ -2183,22 +2183,38 @@ test('Gateway rejects NPC candidates without source-version lineage', async () =
   }
 });
 
-test('Gateway fails closed while Lane A facts have no approved prompt projection', async () => {
+test('Gateway accepts only the exact combined Lane A and Lane B prompt projection', async () => {
   const fixture = await createFixture();
   try {
-    const request = validRequest('npc-lane-a-projection-pending');
+    const request = validRequest('npc-lane-a-projection');
     request.npcContextHandoff.context.lanes.lane_a.items.push({
       acquisition_id: 'acquisition-1',
       fact_id: 'fact-1',
+      subject_ref: 'entity:npc-1',
       predicate: 'location',
       value: 'Kamurocho',
       acquisition_kind: 'direct_observation',
       provenance_ref: 'event-1',
       provenance_digest: 'e'.repeat(64),
       acquisition_authorization_ref: 'authorization-1',
+      source_event_ids: ['event-1'],
     });
-    await assert.rejects(() => fixture.gateway.dispatchProtectedRequest(request), /MEMORY_DISPATCH_NOT_READY/);
-    assert.equal(fixture.calls.length, 0);
+    request.contentBlocks.unshift({
+      epistemic_kind: 'direct_observation',
+      evidence_assessment: 'unassessed',
+      content: {
+        subject_ref: 'entity:npc-1',
+        predicate: 'location',
+        value: 'Kamurocho',
+      },
+    });
+    const parsed = JSON.parse(request.body);
+    parsed.messages[0].content = testNpcMemoryText(request.contentBlocks);
+    request.body = JSON.stringify(parsed);
+    const result = await fixture.gateway.dispatchProtectedRequest(request);
+    assert.equal(result.status, 'dispatched');
+    assert.equal(fixture.calls.length, 1);
+    assert.match(fixture.calls[0].request.body, /Kamurocho/);
   } finally {
     await fixture.close();
   }
