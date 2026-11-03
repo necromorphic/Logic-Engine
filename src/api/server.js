@@ -429,7 +429,8 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
           if (error?.message === 'HOST_ROOT_INVENTORY_COMPLETENESS_EVENT_ID_CONFLICT'
             || error?.message === 'HOST_ROOT_INVENTORY_NOT_ELIGIBLE_FOR_COMPLETENESS'
             || error?.message === 'HOST_ROOT_INVENTORY_COMPLETENESS_PROOF_INVALID'
-            || error?.message === 'HOST_ROOT_INVENTORY_COMPLETENESS_CHAIN_INVALID') {
+            || error?.message === 'HOST_ROOT_INVENTORY_COMPLETENESS_CHAIN_INVALID'
+            || error?.message === 'HOST_ROOT_INVENTORY_COMPLETENESS_SOURCE_CHANGED') {
             throw new EngineError(error.message, 'Core rejected the Host root-inventory completeness proof.', 409);
           }
           if (error instanceof TypeError) {
