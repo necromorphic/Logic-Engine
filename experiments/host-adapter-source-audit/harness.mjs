@@ -24,6 +24,7 @@ const mutationPaths = [
   'src/endpoints/data-maid.js',
   'src/endpoints/vectors.js',
   'src/endpoints/users-private.js',
+  'src/endpoints/users-public.js',
   'src/users.js',
   'src/endpoints/users-admin.js',
   'src/endpoints/extensions.js',
