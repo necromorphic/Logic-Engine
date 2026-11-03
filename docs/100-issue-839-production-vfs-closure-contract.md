@@ -154,19 +154,13 @@ The alias directory must be provisioned before service startup. The manifest/bro
 Until every row is evidenced on the exact reviewed HEAD, this PR remains Draft and no production database role may be activated.
 
 
-## 8. ST-VectorService host-hardening patch verification (2026-11-01)
+## 8. ST-VectorService host-hardening audit note (2026-11-01)
 
-A separate, unapplied host patch is stored at `patches/st-vectorservice/issue-839-host-hardening.patch`. It is deliberately separate from the vectorization/indexing patch and does not modify embedding requests, model selection, chunking, index formats, vector storage contents, or retrieval behavior.
+The supplied ST-VectorService archive was inspected for deployment-security issues. The audit identified credential-derived diagnostics in `server.js` (configured API-key SHA-256 fingerprint at startup, and received bearer-token length/fingerprint during authentication) and a Node-API compatibility requirement for the archived `better-sqlite3@13.0.3` binary.
 
-The patch:
-- removes startup and per-request logs containing API-key/bearer-token hashes and token lengths;
-- checks Node-API >= 10 before constructing or opening storage, matching the exact `better-sqlite3@13.0.3` runtime requirement;
-- declares Node >=22.14.0 consistently in `package.json` and the root package-lock package metadata.
+A local, unapplied hardening edit was previously dry-run/applied to extracted archive copies for syntax and package-metadata checks. **No reproducible host-hardening patch file is tracked in this PR**, and the supplied `server.js`, package metadata and vectorization/indexing behavior have not been changed by this branch. Do not treat that local check as an available deployment artifact or as evidence that the installed ST-VectorService has been hardened.
 
-The archived `server.js` uses CRLF. The patch preserves those line endings in its server.js hunks. It was dry-run applied and then applied to extracted copies of all three target files from the supplied archive; `node --check server.js` passed and package/lock engine metadata matched. The patch does not include VFS bootstrap or role enrollment: those remain blocked on a production VFS backend and service deployment contract. No vectorization patch or vector data was modified.
-
-This is host hardening and compatibility verification only. It does not close the ST-VectorService VFS integration acceptance gate or authorize deployment.
-
+If a host-hardening patch is later added, it must remain separate from the vectorization/indexing patch and must not alter embedding requests, model selection, chunking, index formats, vector storage contents or retrieval behavior. It should remove credential-derived diagnostics and declare/enforce the Node-API runtime requirement. VFS bootstrap and role enrollment remain separate production gates and must not be implemented by shipping the current probe extension.
 
 ### 2026-11-01 Windows manifest identity-history validation
 
