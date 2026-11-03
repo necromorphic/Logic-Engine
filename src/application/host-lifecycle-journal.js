@@ -114,6 +114,39 @@ function validateRootEntries(entries) {
   return normalized;
 }
 
+function validRootInventoryAttestation(attestation, expected) {
+  if (!isPlainRecord(attestation)) return false;
+  const keys = Reflect.ownKeys(attestation);
+  if (keys.length !== ROOT_ATTESTATION_KEYS.length) return false;
+  for (let index = 0; index < keys.length; index += 1) {
+    if (typeof keys[index] !== 'string' || !ROOT_ATTESTATION_KEYS.includes(keys[index])) return false;
+  }
+  for (let index = 0; index < ROOT_ATTESTATION_KEYS.length; index += 1) {
+    if (!Object.hasOwn(attestation, ROOT_ATTESTATION_KEYS[index])) return false;
+  }
+  return attestation.protocol_version === 1
+    && attestation.adapter_id === expected.adapter_id
+    && attestation.host_installation_id === expected.host_installation_id
+    && attestation.authenticated_account_id === expected.authenticated_account_id
+    && attestation.root_id === expected.root_id
+    && attestation.inventory_sequence === expected.inventory_sequence
+    && attestation.manifest_sha256 === expected.manifest_sha256
+    && attestation.inventory_head_sha256 === expected.inventory_head_sha256
+    && attestation.covered_delta_sha256 === expected.covered_delta_sha256
+    && attestation.coverage_id === HOST_INVENTORY_COVERAGE_ID
+    && attestation.pinned_host_commit === HOST_INVENTORY_PINNED_COMMIT
+    && attestation.patch_blob_sha === HOST_INVENTORY_PATCH_BLOB_SHA
+    && attestation.host_handler_blob_sha === HOST_INVENTORY_HANDLER_BLOB_SHA
+    && attestation.source_identity_status === 'CURRENT_IDENTITIES_VERIFIED'
+    && attestation.snapshot_alignment === 'SHARED_VSS_SNAPSHOT'
+    && validDigest(attestation.snapshot_sha256)
+    && attestation.lifecycle_sequence === expected.lifecycle_sequence
+    && attestation.lifecycle_head_sha256 === expected.lifecycle_head_sha256
+    && Number.isSafeInteger(attestation.issued_at) && attestation.issued_at > 0
+    && typeof attestation.nonce === 'string' && UUID.test(attestation.nonce)
+    && validDigest(attestation.signature);
+}
+
 function rootPhysicalId(entry) {
   return process.platform === 'win32'
     ? 'win:' + entry.identity.ino
@@ -906,9 +939,19 @@ export class HostLifecycleJournal {
           authenticated_account_id: identity.authenticated_account_id,
           root_id: identity.root_id,
         };
+        const latestEvent = JSON.parse(rows.at(-1).canonical_event_json);
+        const expectedAttestation = {
+          ...attestationIdentity,
+          inventory_sequence: root.sequence,
+          manifest_sha256: root.latest_manifest_sha256,
+          inventory_head_sha256: root.head_sha256,
+          covered_delta_sha256: latestEvent.delta_sha256 ?? null,
+          lifecycle_sequence: lifecycleHead.sequence,
+          lifecycle_head_sha256: lifecycleHead.head_sha256,
+        };
         if (canonical(attestation) === attestationRow.canonical_attestation_json
           && sha256(canonical(attestation)) === attestationRow.attestation_sha256
-          && attestation.signature
+          && validRootInventoryAttestation(attestation, expectedAttestation)
           && this.verifyRootInventoryAttestation({
             attestation, identity: attestationIdentity, inventory: root, lifecycleHead,
           }) === true) {
@@ -1086,6 +1129,112 @@ export class HostLifecycleJournal {
       return { ...recorded, delta, ...(restoringBaseline ? {
         reason: 'previously observed root inventory delta remains unresolved',
       } : {}) };
+    });
+  }
+
+  attestRootInventory(input) {
+    if (!isPlainRecord(input) || !validText(input.host_installation_id)
+      || !validText(input.authenticated_account_id) || !validDigest(input.root_id)
+      || !isPlainRecord(input.attestation)) {
+      throw new TypeError('Invalid Host root inventory attestation envelope.');
+    }
+    return this.#withWrite(() => {
+      this.#assertRootIdentity(input);
+      let trustedIdentity;
+      try {
+        trustedIdentity = this.resolveRootIdentity({
+          host_installation_id: input.host_installation_id,
+          authenticated_account_id: input.authenticated_account_id,
+          root_id: input.root_id,
+        });
+      } catch {
+        throw new Error('HOST_ROOT_INVENTORY_IDENTITY_NOT_AUTHORIZED');
+      }
+      if (!isPlainRecord(trustedIdentity) || trustedIdentity.authorized !== true
+        || !validText(trustedIdentity.adapter_id)) {
+        throw new Error('HOST_ROOT_INVENTORY_IDENTITY_NOT_AUTHORIZED');
+      }
+      const rows = this.db.prepare(
+        'SELECT event_id,event_type,manifest_sha256,delta_sha256,sequence,event_sha256,previous_sha256,canonical_event_json FROM host_root_inventory_events WHERE host_installation_id=? AND authenticated_account_id=? AND root_id=? ORDER BY sequence'
+      ).all(input.host_installation_id, input.authenticated_account_id, input.root_id);
+      const root = this.#verifyRootInventoryRows(input.host_installation_id,
+        input.authenticated_account_id, input.root_id, rows);
+      if (!root.valid) throw new Error(root.reason);
+      const latestEvent = JSON.parse(rows.at(-1).canonical_event_json);
+      if (latestEvent.event_type === 'DELTA_LIMIT_EXCEEDED') {
+        throw new Error('HOST_ROOT_INVENTORY_DELTA_REQUIRES_MANUAL_RECOVERY');
+      }
+      const lifecycleHead = this.#getLifecycleHead(input.host_installation_id, input.authenticated_account_id);
+      const expected = {
+        adapter_id: trustedIdentity.adapter_id,
+        host_installation_id: input.host_installation_id,
+        authenticated_account_id: input.authenticated_account_id,
+        root_id: input.root_id,
+        inventory_sequence: root.sequence,
+        manifest_sha256: root.latest_manifest_sha256,
+        inventory_head_sha256: root.head_sha256,
+        covered_delta_sha256: latestEvent.delta_sha256 ?? null,
+        lifecycle_sequence: lifecycleHead.sequence,
+        lifecycle_head_sha256: lifecycleHead.head_sha256,
+      };
+      const attestation = input.attestation;
+      if (!validRootInventoryAttestation(attestation, expected)) {
+        throw new Error('HOST_ROOT_INVENTORY_ATTESTATION_INVALID');
+      }
+      const nowSeconds = Math.floor(Date.now() / 1000);
+      if (Math.abs(nowSeconds - attestation.issued_at) > 30) {
+        throw new Error('HOST_ROOT_INVENTORY_ATTESTATION_EXPIRED');
+      }
+      const existing = this.db.prepare(
+        'SELECT attestation_sha256,canonical_attestation_json FROM host_root_inventory_attestations WHERE host_installation_id=? AND authenticated_account_id=? AND root_id=? AND inventory_sequence=?'
+      ).get(input.host_installation_id, input.authenticated_account_id, input.root_id, root.sequence);
+      const canonicalAttestation = canonical(attestation);
+      const attestationSha256 = sha256(canonicalAttestation);
+      if (existing) {
+        if (existing.attestation_sha256 !== attestationSha256
+          || existing.canonical_attestation_json !== canonicalAttestation) {
+          throw new Error('HOST_ROOT_INVENTORY_ATTESTATION_CONFLICT');
+        }
+        return {
+          status: 'AUTHORITATIVE_COMPLETE',
+          duplicate: true,
+          integrity_status: 'INTEGRITY_OK',
+          sequence: root.sequence,
+          manifest_sha256: root.latest_manifest_sha256,
+          journal_head_sha256: root.head_sha256,
+          attestation_sha256: attestationSha256,
+        };
+      }
+      const nonceUsed = this.db.prepare(
+        'SELECT 1 AS used FROM host_root_inventory_attestations WHERE nonce=?'
+      ).get(attestation.nonce);
+      if (nonceUsed) throw new Error('HOST_ROOT_INVENTORY_ATTESTATION_REPLAYED');
+      let verified = false;
+      try {
+        verified = this.verifyRootInventoryAttestation({
+          attestation,
+          identity: expected,
+          inventory: root,
+          lifecycleHead,
+        }) === true;
+      } catch {}
+      if (!verified) throw new Error('HOST_ROOT_INVENTORY_ATTESTATION_SIGNATURE_INVALID');
+      this.db.prepare(
+        'INSERT INTO host_root_inventory_attestations (host_installation_id,authenticated_account_id,root_id,inventory_sequence,manifest_sha256,inventory_head_sha256,lifecycle_sequence,lifecycle_head_sha256,nonce,attestation_sha256,canonical_attestation_json) VALUES(?,?,?,?,?,?,?,?,?,?,?)'
+      ).run(input.host_installation_id, input.authenticated_account_id, input.root_id,
+        root.sequence, root.latest_manifest_sha256, root.head_sha256,
+        lifecycleHead.sequence, lifecycleHead.head_sha256, attestation.nonce,
+        attestationSha256, canonicalAttestation);
+      return {
+        status: 'AUTHORITATIVE_COMPLETE',
+        integrity_status: 'INTEGRITY_OK',
+        sequence: root.sequence,
+        manifest_sha256: root.latest_manifest_sha256,
+        journal_head_sha256: root.head_sha256,
+        lifecycle_sequence: lifecycleHead.sequence,
+        lifecycle_head_sha256: lifecycleHead.head_sha256,
+        attestation_sha256: attestationSha256,
+      };
     });
   }
 
