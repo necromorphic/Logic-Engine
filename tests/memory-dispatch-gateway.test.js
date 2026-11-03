@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { once } from 'node:events';
+import { once, EventEmitter } from 'node:events';
 import { spawn } from 'node:child_process';
 import {
   advanceAcceptedHeadSync,
@@ -558,6 +558,35 @@ test('FINAL RESPONSE REVALIDATION blocks Host release after Provider revoke duri
     } finally {
       ledger.close();
     }
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('client disconnect before response finish records UNKNOWN and prevents replay', async () => {
+  const fixture = await createFixture();
+  try {
+    await fixture.gateway.dispatchProtectedRequest(validRequest('client-close-unknown'));
+    const response = new EventEmitter();
+    response.writableEnded = false;
+    response.destroyed = false;
+    response.writableFinished = false;
+    fixture.gateway.authorizeResponseWrite('client-close-unknown', () => {
+      response.emit('close');
+    }, { final: true, response });
+    await Promise.resolve();
+    const db = new DatabaseSync(fixture.ledgerPath);
+    try {
+      assert.equal(db.prepare('SELECT status FROM dispatch_ledger WHERE request_id=?')
+        .get('client-close-unknown').status, 'UNKNOWN');
+    } finally {
+      db.close();
+    }
+    await assert.rejects(
+      fixture.gateway.dispatchProtectedRequest(validRequest('client-close-unknown-new-id')),
+      /MEMORY_DISPATCH_REPLAY_BLOCKED/,
+    );
+    assert.equal(fixture.calls.length, 1);
   } finally {
     await fixture.close();
   }
