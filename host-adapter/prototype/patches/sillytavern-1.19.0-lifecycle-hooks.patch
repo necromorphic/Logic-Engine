@@ -1114,7 +1114,7 @@ diff --git a/src/endpoints/users-private.js b/src/endpoints/users-private.js
 @@ -156 +168 @@
 -router.post('/backup', async (request, response) => {
 +router.post('/backup', hostUnsupportedMutationGuard, async (request, response) => {
-@@ -181,7 +193,7 @@
+@@ -181,6 +193,6 @@
      }
  });
  
