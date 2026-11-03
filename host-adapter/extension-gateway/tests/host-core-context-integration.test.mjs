@@ -14,6 +14,7 @@ import { HostAssertionNonceStore } from '../../../src/application/host-assertion
 import { createSillyTavernHostAdapter } from '../server-plugin/host-adapter.mjs';
 import { CORE_ATTESTED_SOURCE_BLOCKERS } from '../server-plugin/st-host-inventory-handler.mjs';
 import { PINNED_PATCH_BUNDLE_SHA256, PINNED_HOST_HANDLER_GIT_BLOB_SHA } from '../server-plugin/st-source-attestation.mjs';
+import { PINNED_ST_MUTATION_COVERAGE_SHA256 } from '../server-plugin/st-mutation-route-contract.mjs';
 
 const API_TOKEN = 'core-api-token-long-enough-123456';
 const ADMIN_TOKEN = 'core-admin-token-long-enough-123456';
@@ -223,7 +224,7 @@ test('Host Adapter requires Core root proof before context resolution and binds 
       mutation_coverage: {
         status: 'VERIFIED',
         source_commit: PINNED_HOST_COMMIT,
-        coverage_manifest_sha256: 'a'.repeat(64),
+        coverage_manifest_sha256: PINNED_ST_MUTATION_COVERAGE_SHA256,
         route_count: 47,
         source_files_sha256: 'b'.repeat(64),
       },
@@ -271,7 +272,7 @@ test('Host Adapter requires Core root proof before context resolution and binds 
     verifyMutationCoverage: async () => ({
       status: 'VERIFIED',
       source_commit: PINNED_HOST_COMMIT,
-      coverage_manifest_sha256: 'a'.repeat(64),
+      coverage_manifest_sha256: PINNED_ST_MUTATION_COVERAGE_SHA256,
       route_count: 92,
       source_files_sha256: 'b'.repeat(64),
     }),
@@ -458,7 +459,7 @@ test('Host Adapter requires Core root proof before context resolution and binds 
     verifyMutationCoverage: async () => ({
       status: 'VERIFIED',
       source_commit: PINNED_HOST_COMMIT,
-      coverage_manifest_sha256: 'a'.repeat(64),
+      coverage_manifest_sha256: PINNED_ST_MUTATION_COVERAGE_SHA256,
       route_count: 92,
       source_files_sha256: 'b'.repeat(64),
     }),
