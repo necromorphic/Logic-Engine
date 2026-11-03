@@ -244,6 +244,9 @@ diff --git a/src/endpoints/assets.js b/src/endpoints/assets.js
 @@ -6,0 +7,2 @@
 +import { createHostUnsupportedMutationGuard } from './logic-engine-host-inventory-handler.mjs';
 +const hostUnsupportedMutationGuard = createHostUnsupportedMutationGuard();
+@@ -190 +192 @@
+-router.post('/download', async (request, response) => {
++router.post('/download', hostUnsupportedMutationGuard, async (request, response) => {
 @@ -269 +271 @@
 -router.post('/delete', async (request, response) => {
 +router.post('/delete', hostUnsupportedMutationGuard, async (request, response) => {
