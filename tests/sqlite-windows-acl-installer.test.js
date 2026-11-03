@@ -37,3 +37,12 @@ test('Windows service installer keeps binaries read-only and state writable for 
   assert.match(installer, /Set-PrivateTreeAcl \$StateDirectory \$sid "F"/);
   assert.match(installer, /InstallDirectory and StateDirectory must be separate, non-overlapping trees/);
 });
+
+test('Windows service environment file ACL is reset, restricted and verified', () => {
+  assert.match(installer, /function Set-PrivateFileAcl/);
+  assert.match(installer, /Set-PrivateFileAcl \$EnvironmentFile \$sid/);
+  assert.match(installer, /icacls\.exe \$Path \/reset \/C/);
+  assert.match(installer, /icacls\.exe \$Path \/inheritance:r \/C/);
+  assert.match(installer, /AreAccessRulesProtected/);
+  assert.match(installer, /Unexpected environment-file ACL principal or deny rule remains/);
+});
