@@ -145,7 +145,8 @@ function normalizeHostContext(value) {
 }
 
 function normalizeLaneA(value) {
-  if (value === undefined || value === null) return Object.freeze({ lane: 'A', purpose: 'npc_turn_context', items: Object.freeze([]) });
+  // Lane A is part of the complete Core-issued NPC context. Missing Lane A is
+  // not equivalent to a verified empty lane and must never be defaulted away.
   const keys = ['lane', 'purpose', 'authorization_ref', 'visibility_authorization_ref', 'items'];
   if (!value || typeof value !== 'object' || Array.isArray(value) || utilTypes.isProxy(value)
     || Object.getPrototypeOf(value) !== Object.prototype
