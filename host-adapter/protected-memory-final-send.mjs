@@ -18,13 +18,6 @@ function arrayContains(values, expected) {
   return false;
 }
 
-function ownKeyContains(keys, expected) {
-  for (let index = 0; index < keys.length; index += 1) {
-    if (keys[index] === expected) return true;
-  }
-  return false;
-}
-
 const validRoute = route => arrayContains(PROTECTED_MEMORY_SENDER_ROUTES, route);
 
 function assertProtectedContext(context) {
@@ -39,14 +32,16 @@ function assertProtectedContext(context) {
   }
 }
 
-const CHAT_COMPLETION_ROUTES = new Set();
+const CHAT_COMPLETION_ROUTES = [];
 for (let index = 0; index < PROTECTED_MEMORY_SENDER_ROUTES.length; index += 1) {
   const route = PROTECTED_MEMORY_SENDER_ROUTES[index];
   if (route !== 'text-completions' && route !== 'kobold'
-    && route !== 'novelai-text' && route !== 'horde-text') CHAT_COMPLETION_ROUTES.add(route);
+    && route !== 'novelai-text' && route !== 'horde-text') {
+    CHAT_COMPLETION_ROUTES[CHAT_COMPLETION_ROUTES.length] = route;
+  }
 }
 
-const HOST_ONLY_FIELDS = new Set([
+const HOST_ONLY_FIELDS = [
   'logic_engine_conversation_uuid',
   'logic_engine_request_id',
   'logic_engine_generation_id',
@@ -55,7 +50,7 @@ const HOST_ONLY_FIELDS = new Set([
   'logic_engine_memory',
   'logic_engine_protected_context',
   'memory_dispatch',
-]);
+];
 
 function removeHostOnlyFields(value) {
   if (Array.isArray(value)) {
@@ -66,7 +61,7 @@ function removeHostOnlyFields(value) {
   const keys = Object.keys(value);
   for (let index = 0; index < keys.length; index += 1) {
     const key = keys[index];
-    if (HOST_ONLY_FIELDS.has(key)) delete value[key];
+    if (arrayContains(HOST_ONLY_FIELDS, key)) delete value[key];
     else removeHostOnlyFields(value[key]);
   }
 }
@@ -215,7 +210,7 @@ function serializeProtectedRequestBody(requestInit, senderRoute, laneAItems, con
   removeHostOnlyFields(body);
   const context = renderNpcContext(laneAItems, contentBlocks);
   if (context) {
-    if (CHAT_COMPLETION_ROUTES.has(senderRoute)) {
+    if (arrayContains(CHAT_COMPLETION_ROUTES, senderRoute)) {
       if (!Array.isArray(body.messages)) throw new Error('PROTECTED_MEMORY_FINAL_SEND_MESSAGES_MISSING');
       let insertionIndex = 0;
       while (insertionIndex < body.messages.length
