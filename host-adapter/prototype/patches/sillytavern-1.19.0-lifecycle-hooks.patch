@@ -972,7 +972,7 @@ diff --git a/src/users.js b/src/users.js
  import { filterValidIpPatterns, getIpFromRequest } from './express-common.js';
  import { extensionsEnabledFeatureGuard } from './endpoints/extensions.js';
 +import { revokeHostSessionBeforeLogout } from '../plugins/logic-engine-extension-gateway/st-host-session-revocation.mjs';
-@@ -740,3 +740,11 @@
+@@ -740,3 +740,12 @@
  export function shouldRedirectToLogin(request) {
      return ENABLE_ACCOUNTS && !request.user;
  }
@@ -999,7 +999,7 @@ diff --git a/src/users.js b/src/users.js
                  request.session.handle = userHandle;
                  request.session.version = getAccountVersion(user);
                  return true;
-@@ -925,5 +935,6 @@
+@@ -925,6 +936,7 @@
              const user = await storage.getItem(toKey(userHandle));
              // Verify pass again here just to be sure
              if (user && user.enabled && user.password && user.password === getPasswordHash(password, user.salt)) {
