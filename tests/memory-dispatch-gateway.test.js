@@ -225,7 +225,7 @@ const validRequest = (requestId = 'request-001', overrides = {}) => ({
 test('Gateway signing is independent of mutable Array prototype methods and iteration', () => {
   const secret = 'host-dispatch-signing-secret-00000000000000000000000000000001';
   const request = validRequest('poisoned-array-prototypes');
-  const names = ['map', 'sort', 'some', 'every', 'forEach', 'includes', 'concat', Symbol.iterator];
+  const names = ['map', 'sort', 'some', 'every', 'forEach', 'includes', 'concat', 'push', 'pop', 'shift', 'unshift', 'splice', Symbol.iterator];
   const descriptors = new Array(names.length);
   const poison = () => { throw new Error('POISONED_ARRAY_METHOD_CALLED'); };
   try {
