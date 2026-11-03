@@ -56,9 +56,9 @@ function renderNpcContext(contentBlocks) {
     evidence_assessment: block.evidence_assessment,
     content: block.content,
   }));
-  return '[Logic Engine NPC Memory Context]\\n'
+  return '[Logic Engine NPC Memory Context]\n'
     + JSON.stringify(bounded)
-    + '\\n[/Logic Engine NPC Memory Context]';
+    + '\n[/Logic Engine NPC Memory Context]';
 }
 
 function serializeProtectedRequestBody(requestInit, senderRoute, contentBlocks) {
@@ -83,7 +83,7 @@ function serializeProtectedRequestBody(requestInit, senderRoute, contentBlocks) 
       if (typeof body[promptKey] !== 'string') {
         throw new Error('PROTECTED_MEMORY_FINAL_SEND_PROMPT_MISSING');
       }
-      body[promptKey] = context + '\\n\\n' + body[promptKey];
+      body[promptKey] = context + '\n\n' + body[promptKey];
     }
   }
   const serialized = JSON.stringify(body);
