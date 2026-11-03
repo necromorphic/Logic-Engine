@@ -45,7 +45,7 @@ test('Core HTTP accepts only a signed, pinned, lifecycle-complete root attestati
   const coordinatorPath = resolve(join(directory, 'coordinator.sqlite'));
   const store = new SQLiteStore(corePath);
   const engine = new LogicEngine(store);
-  const resolveRootIdentity = input => input.host_installation_id === INSTALLATION
+  const resolveHostRootIdentity = input => input.host_installation_id === INSTALLATION
     && input.authenticated_account_id === ACCOUNT && input.root_id === ROOT_ID
     ? {
       authorized: true, adapter_id: ADAPTER_ID,
@@ -73,7 +73,7 @@ test('Core HTTP accepts only a signed, pinned, lifecycle-complete root attestati
         root_id: ROOT_ID,
       }).snapshot_fingerprint,
     }),
-    resolveRootIdentity,
+    resolveRootIdentity: resolveHostRootIdentity,
     verifyRootInventoryAttestation: ({ attestation, identity }) => {
       if (identity.adapter_id !== ADAPTER_ID) return false;
       return attestation.signature === sign(attestation);
