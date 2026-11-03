@@ -129,7 +129,7 @@ async function createFixture({ sendUpstream, createTransport, coreHead = 1, prov
       policy_authority,
       sources,
     }),
-    readProviderEvidence: ({ worldId, actorId, purpose, sources, candidates }) => ({
+    readProviderEvidence: ({ worldId, actorId, purpose, sources, candidates, providerEvidenceCursor }) => ({
       head: providerHead,
       world_id: worldId,
       actor_id: actorId,
@@ -138,6 +138,7 @@ async function createFixture({ sendUpstream, createTransport, coreHead = 1, prov
       readiness: 'READY',
       sources,
       candidates: currentProviderCandidatesOverride ?? candidates,
+      provider_evidence_cursor: providerEvidenceCursor,
     }),
     readHostEvidence: ({ hostContext: binding, worldId, actorId }) => ({
       status: hostInventoryReady ? 'READY' : 'NON_READY',
@@ -209,6 +210,7 @@ const validRequest = (requestId = 'request-001', overrides = {}) => ({
     visibility_authorization_ref: 'core-visibility-policy',
     items: [],
   },
+  providerEvidenceCursor: { data_version: 7, candidate_digest: 'f'.repeat(64) },
   candidates: [{
     record_ref: 'record-42',
     record_version: 'record-version-3',
