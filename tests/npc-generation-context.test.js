@@ -194,7 +194,7 @@ test('receiver rejects a context when its first scope resolution has a different
   const { builder } = setup();
   const built = await builder.build(request);
   const changed = { ...scope, snapshot: { world_revision: 4, commit_sequence: 20 } };
-  const receiver = createNpcGenerationContextReceiver({
+  const receiver = builder.createReceiver({
     resolveScope: async () => changed,
     revalidateEvidence: async () => true,
     revalidateScope: async () => scope,
