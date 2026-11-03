@@ -82,13 +82,13 @@ A filesystem scan is evidence for the current file set only. It is not, by itsel
 
 ## 5. Remaining P0 acceptance blockers
 
-1. **Trusted source-completeness attestation producer:** production currently records baseline/observation, but does not yet create the signed deployment attestation required by Core. The deployment build claim is explicitly not runtime source attestation.
-2. **Installed-source identity:** prove the actual installed patched SillyTavern source and Host handler identities at runtime; do not infer this from an environment variable or a local filesystem scan.
-3. **Route-completeness proof:** prove every mutation route that can change the enrolled root is receipted or explicitly blocked in the installed source. The static pinned-source audit is a CI guard, not proof about an arbitrary running installation.
-4. **Real Windows acceptance:** run VSS-backed create/edit/delete, restart, restore, import/export/move denial, logout, account switch, and session rotation against the exact pinned patched installation.
-5. **Lifecycle extensions:** implement operation-specific receipts for rename/move, import, export, and backup restore before enabling those operations for enrolled conversations.
+1. **Windows pinned-source acceptance:** the source-manifest generator now verifies the exact pinned checkout, patched route files, browser lifecycle files, Gateway files, and installed Host handler. CI generates the manifest only after its Windows acceptance suite succeeds and uploads it as `host-pinned-source-manifest`. That CI result and artifact have not yet been accepted for deployment.
+2. **Real deployment manifest installation:** the generated `pinned-source-manifest.json` must be installed beside the Gateway server plugin. Runtime source identity is fail-closed if the manifest is missing, malformed, or any pinned file digest differs.
+3. **Live Windows acceptance:** run the exact patched installation through VSS-backed create/edit/delete/clear-chat, restart, restore/import/export/move denial, logout, account switch, session rotation, and recovery scenarios. This is separate from the repository CI harness.
+4. **Unresolved lifecycle coverage:** source status remains non-authoritative while any required coverage path or source blocker remains. Branch creation/copy is blocked for enrolled conversations; clear-chat is implemented as sequential delete-message receipts. Import/export/restore/move and account-root mutation routes remain blocked until operation-specific receipts are implemented.
+5. **Deployment boundary:** the source manifest is generated from the pinned checkout and its exact patched files. Do not generate it from an arbitrary release ZIP or treat `LOGIC_ENGINE_HOST_BUILD_SHA` as source proof.
 
-Until these gates are closed, Host reports review/non-ready state and Core must refuse Memory disclosure. This is intentional fail-closed behavior, not a successful production acceptance.
+The signed root-inventory attestation producer is now wired: it submits an HMAC-signed proof only for a shared Windows VSS snapshot and a verified pinned-source manifest. Core still refuses authority on any invalid delta, pending mutation, source mismatch, missing manifest, or unresolved blocker. No production acceptance is claimed yet.
 
 ## 6. Source evidence and limits
 
