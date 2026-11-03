@@ -21,6 +21,28 @@ const canonical = value => Array.isArray(value)
     ? '{' + Object.keys(value).sort().map(key => JSON.stringify(key) + ':' + canonical(value[key])).join(',') + '}'
     : JSON.stringify(value);
 
+test('pinned source manifest covers every installed Gateway helper', () => {
+  for (const name of [
+    'index.mjs',
+    'package.json',
+    'host-adapter.mjs',
+    'host-data-inventory.mjs',
+    'st-host-identity-store.mjs',
+    'st-host-inventory-handler.mjs',
+    'st-host-lifecycle-receipt-store.mjs',
+    'st-host-session-revocation.mjs',
+    'st-server-digest-proxy.mjs',
+    'st-source-attestation.mjs',
+    'st-source-inventory.mjs',
+    'filesystem-reconciliation.mjs',
+    'fs-inventory.js',
+    'windows-vss-snapshot.mjs',
+  ]) {
+    assert.ok(SOURCE_FILE_PATHS.includes('plugins/logic-engine-extension-gateway/' + name),
+      'source manifest omits installed Gateway helper: ' + name);
+  }
+});
+
 async function createManifestRoot() {
   const root = await mkdtemp(path.join(tmpdir(), 'host-source-attestation-'));
   const files = [];
