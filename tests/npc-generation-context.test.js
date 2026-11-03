@@ -203,3 +203,31 @@ test('receiver rejects a context when its first scope resolution has a different
   assert.equal(result.status, 'non_ready');
   assert.equal(result.reason, 'context_scope_changed');
 });
+
+test('Lane B envelope rejects another NPC and mismatched request scope or authorization purpose', async t => {
+  const cases = [
+    ['actor_id', 'npc-2'],
+    ['conversation_id', 'conversation-2'],
+    ['world_id', 'world-2'],
+    ['adapter_id', 'adapter-2'],
+    ['recipient', 'browser'],
+    ['core_purpose', 'npc_action_evaluation'],
+    ['provider_purpose', 'npc_turn_context'],
+    ['lane', 'A'],
+  ];
+  for (const [field, value] of cases) await t.test(field, async () => {
+    const bad = laneB();
+    bad[field] = value;
+    const configured = createNpcGenerationContextBuilder({
+      resolveScope: async () => scope,
+      readLaneA: async () => laneA(),
+      readLaneB: async () => bad,
+      revalidateEvidence: async () => true,
+      revalidateScope: async () => scope,
+    });
+    const result = await configured.build(request);
+    assert.equal(result.status, 'non_ready');
+    assert.equal(result.context, null);
+    assert.doesNotMatch(JSON.stringify(result), /Lane B report/);
+  });
+});
