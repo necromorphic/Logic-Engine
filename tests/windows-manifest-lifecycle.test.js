@@ -217,6 +217,39 @@ test('reconcile clears an intent when its matching manifest generation was alrea
   assert.equal(h.state.intent, null);
 });
 
+test('reconcile refuses a retired sidecar name that reappears before intent cleanup', async () => {
+  const retired = {
+    kind: 'wal', identity: identity('5'), state: 'retired', generation: 2,
+  };
+  const h = makeHarness({
+    manifest: makeManifest([retired], 2),
+    files: new Map([[sidecarKey, { identity: identity('5') }]]),
+  });
+  h.state.intent = {
+    schemaVersion: 1,
+    operationId: 'c'.repeat(32),
+    operation: 'delete-sidecar',
+    role: 'core',
+    kind: 'wal',
+    basename: 'core.sqlite-wal',
+    baseGeneration: 1,
+    targetGeneration: 2,
+    expectedIdentity: identity('5'),
+  };
+  await assert.rejects(h.coordinator.reconcile(), /name was recreated/);
+  assert.equal(h.state.intent !== null, true);
+  assert.equal(h.state.files.has(sidecarKey), true);
+});
+
+test('lifecycle refuses to allocate a generation beyond the safe integer range', async () => {
+  const h = makeHarness({
+    manifest: makeManifest([], Number.MAX_SAFE_INTEGER),
+  });
+  await assert.rejects(h.coordinator.createSidecar('core', 'wal'), /generation is exhausted/);
+  assert.equal(h.state.intent, null);
+  assert.equal(h.state.files.size, 0);
+});
+
 test('reconcile fails closed on generation gaps and malformed intents', async () => {
   const h = makeHarness();
   h.state.intent = {
