@@ -1,4 +1,8 @@
 import test from 'node:test';
+import { spawn } from 'node:child_process';
+import { once } from 'node:events';
+import { pathToFileURL } from 'node:url';
+import { resolve } from 'node:path';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
@@ -143,6 +147,87 @@ test('final Provider read lease excludes authorization mutation from a second Pr
     () => first.provider.withAuthorizedReadLease(first.scope, [leaseCandidate], () => 'must not disclose'),
     /MEMORY_RECORD_ACCESS_REVOKED/,
   );
+});
+
+test('final Provider read lease excludes cross-process authorization revoke until disclosure callback returns', async (t) => {
+  const s = setup(t);
+  s.provider.grantQuery(s.scope, true);
+  s.provider.grantRecord(s.scope, s.record.record_ref, s.record.record_version, true);
+  s.provider.putRecord(s.record);
+  await s.provider.rebuildIndex(s.scope.world_id);
+  assert.equal((await s.provider.reconcile(s.scope.world_id)).status, 'current');
+  const candidate = (await s.provider.retrieveCandidates(s.scope)).candidates[0];
+  const leaseCandidate = {
+    record_ref: candidate.record.ref,
+    record_version: candidate.record.version,
+    authorization_generation: candidate.authorization_generation,
+  };
+
+  const markerPath = join(dirname(s.path), 'cross-process-revoke-complete');
+  const moduleUrl = pathToFileURL(resolve('src/application/sqlite-memory-provider.js')).href;
+  const script = `
+    import { SQLiteMemoryProvider } from ${JSON.stringify(moduleUrl)};
+    import { writeFileSync } from 'node:fs';
+    const provider = new SQLiteMemoryProvider({
+      path: process.env.TEST_PROVIDER_PATH,
+      coordinatorPath: process.env.TEST_COORDINATOR_PATH,
+      getSnapshot: async () => ({ world_revision: 4, commit_sequence: 2 }),
+      validateSourceVersion: async () => true,
+      validateInventory: async () => true,
+    });
+    process.stdout.write('READY\\n');
+    process.stdin.setEncoding('utf8').once('data', chunk => {
+      if (chunk.trim() !== 'REVOKE') process.exit(2);
+      provider.revokeRecord(
+        { world_id: 'world-a', subject_id: 'npc-a', purpose: 'npc_decision' },
+        'memory:record-a', 'record-v1',
+      );
+      writeFileSync(process.env.TEST_MARKER_PATH, 'revoked');
+      provider.close();
+      process.stdout.write('REVOKED\\n');
+    });
+  `;
+  const child = spawn(process.execPath, ['--input-type=module', '-e', script], {
+    env: {
+      ...process.env,
+      TEST_PROVIDER_PATH: s.path,
+      TEST_COORDINATOR_PATH: s.coordinatorPath,
+      TEST_MARKER_PATH: markerPath,
+    },
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  let stdout = '';
+  let stderr = '';
+  child.stdout.setEncoding('utf8').on('data', chunk => { stdout += chunk; });
+  child.stderr.setEncoding('utf8').on('data', chunk => { stderr += chunk; });
+  const exitPromise = once(child, 'exit');
+  try {
+    await Promise.race([
+      once(child.stdout, 'data'),
+      exitPromise.then(() => { throw new Error('Provider revoke worker exited before initialization: ' + stderr); }),
+    ]);
+    assert.match(stdout, /READY/);
+    const disclosed = s.provider.withAuthorizedReadLease(s.scope, [leaseCandidate], () => {
+      child.stdin.write('REVOKE\\n');
+      // Keep the synchronous disclosure lease held while the independent
+      // process reaches the shared Coordinator and attempts its revoke.
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 350);
+      assert.equal(existsSync(markerPath), false);
+      return 'final-envelope';
+    });
+    assert.equal(disclosed, 'final-envelope');
+    const [code] = await exitPromise;
+    assert.equal(code, 0, stderr);
+    assert.match(stdout, /REVOKED/);
+    assert.equal(existsSync(markerPath), true);
+    assert.throws(
+      () => s.provider.withAuthorizedReadLease(s.scope, [leaseCandidate], () => 'must not disclose'),
+      /MEMORY_RECORD_ACCESS_REVOKED/,
+    );
+  } finally {
+    try { child.kill(); } catch {}
+    rmSync(markerPath, { force: true });
+  }
 });
 
 test('file-backed Provider rejects coordinator DB path alias before opening the database', (t) => {
