@@ -122,6 +122,16 @@ test('revoked, stale, partial and unavailable Lane B evidence fails closed', asy
   });
 });
 
+test('Lane B admission assessment must match its exact candidate evidence', async () => {
+  const bad = laneB();
+  bad.result.admitted[0].epistemic_kind = 'rumor';
+  bad.result.admitted[0].evidence_assessment = 'supported';
+  const { builder } = setup({ laneB: () => bad });
+  const result = await builder.build(request);
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.context, null);
+});
+
 test('conflicting and insufficient assessments remain evidence labels, never belief assertions', async () => {
   const b = laneB();
   b.result.candidates[0].evidence_assessment = 'insufficient';
