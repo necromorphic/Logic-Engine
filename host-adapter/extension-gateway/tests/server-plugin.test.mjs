@@ -429,6 +429,7 @@ test('host inventory clears only blockers covered by verified source and Core VS
   assert.deepEqual(response.body.blockers, [
     'NO_APPLICATION_LEVEL_ATOMIC_SNAPSHOT',
     'PLATFORM_SPECIFIC_RACE_RESISTANCE_REQUIRES_SECURITY_REVIEW',
+    'UNVERIFIED_MUTATION_RUNTIME_ACCEPTANCE',
   ]);
 });
 
