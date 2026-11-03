@@ -265,10 +265,10 @@ test('all three synchronous protected non-Chat-Completions routes dispatch throu
   assert.deepEqual(calls, routes);
 });
 
-test('adapter rejects native dispatch when the exact request has not been prepared', () => {
+test('adapter rejects native dispatch when the exact request has not been prepared', async () => {
   let transportCalls = 0;
   const adapter = createAdapter({ resolveProtectedMemory: () => ({ status: 'unprotected' }) });
-  assert.throws(() => adapter.dispatch({
+  await assert.rejects(() => adapter.dispatch({
     request: {},
     senderRoute: 'openai',
     hostRoute: 'chat-completions',
