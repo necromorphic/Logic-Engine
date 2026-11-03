@@ -236,7 +236,12 @@ test('Gateway signing is independent of mutable Array prototype methods and iter
         value: poison, writable: true, configurable: true,
       });
     }
-    assert.doesNotThrow(() => createDispatchRequestSignature(secret, request));
+    let signed = false;
+    try {
+      createDispatchRequestSignature(secret, request);
+      signed = true;
+    } catch {}
+    if (!signed) throw new Error('Gateway signing invoked a poisoned Array prototype method');
   } finally {
     for (let index = 0; index < names.length; index += 1) {
       const key = names[index];
