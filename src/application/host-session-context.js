@@ -215,7 +215,17 @@ export function runWithAuthenticatedHostSession(
   };
   try {
     const result = requestContext.run(context, callback);
-    if (result && typeof result.then === 'function') return Promise.resolve(result).finally(revokeContext);
+    if (result && typeof result.then === 'function') {
+      return Promise.resolve(result).then(value => {
+        if (!isAuthenticatedHostSessionContext(context, conversationId)) {
+          throw new Error('HOST_SESSION_REVOKED');
+        }
+        return value;
+      }).finally(revokeContext);
+    }
+    if (!isAuthenticatedHostSessionContext(context, conversationId)) {
+      throw new Error('HOST_SESSION_REVOKED');
+    }
     revokeContext();
     return result;
   } catch (error) {
