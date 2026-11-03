@@ -161,11 +161,19 @@ export function createSillyTavernFinalSendAdapter({
         throw error;
       }
 
+      if (!args.request || typeof args.request !== 'object' || !preparedContextByRequest.has(args.request)) {
+        if (args.response && typeof args.response === 'object') {
+          requestIdByResponse.set(args.response, { requestId: null, state: 'denied' });
+        }
+        throw terminalError(new Error('MEMORY_DISPATCH_HOST_PREPARATION_REQUIRED'));
+      }
+      const preparedHostContext = preparedContextByRequest.get(args.request);
+      preparedContextByRequest.delete(args.request);
       let protectionResolution;
       try {
         protectionResolution = resolveProtectedMemory(
           args.request,
-          preparedContextByRequest.get(args.request),
+          preparedHostContext,
         );
       } catch (error) {
         if (args.response && typeof args.response === 'object') {
