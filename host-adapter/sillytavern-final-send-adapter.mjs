@@ -144,7 +144,7 @@ export function createSillyTavernFinalSendAdapter({
       if (hostContext?.status === 'NON_READY') {
         throw terminalError(new Error(hostContext.code || 'MEMORY_DISPATCH_NOT_READY'));
       }
-      preparedContextByRequest.set(request, Object.freeze({ hostContext: hostContext ?? null, hostRoute }));
+      preparedContextByRequest.set(request, Object.freeze({ request, hostContext: hostContext ?? null, hostRoute }));
     },
 
     resolveSenderRoute(request, hostRoute = 'chat-completions') {
