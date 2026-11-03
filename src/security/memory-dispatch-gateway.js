@@ -49,7 +49,7 @@ export const SUPPORTED_PROTECTED_MEMORY_ROUTES = Object.freeze([
 // sender family audited against the pinned 1.19.0 release.
 export const PROTECTED_MEMORY_SENDER_ROUTES = Object.freeze([
   'claude', 'google-ai-studio', 'vertex-ai', 'ai21', 'mistral', 'cohere',
-  'deepseek', 'xai', 'aimlapi', 'electronhub', 'chutes', 'minimax',
+  'deepseek', 'xai', 'aimlapi', 'electronhub', 'chutes', 'cometapi', 'minimax',
   'azure-openai', 'openai', 'openrouter', 'custom', 'perplexity', 'groq',
   'fireworks', 'nanogpt', 'pollinations', 'moonshot', 'zai', 'siliconflow',
   'workers-ai', 'text-completions', 'kobold', 'novelai-text', 'horde-text',
@@ -294,7 +294,7 @@ export class MemoryDispatchGateway {
             request_id TEXT PRIMARY KEY,
             request_digest TEXT NOT NULL CHECK(length(request_digest)=64),
             route TEXT NOT NULL CHECK(route='host-selected-chat-generation'),
-            sender_route TEXT NOT NULL CHECK(sender_route IN ('claude','google-ai-studio','vertex-ai','ai21','mistral','cohere','deepseek','xai','aimlapi','electronhub','chutes','minimax','azure-openai','openai','openrouter','custom','perplexity','groq','fireworks','nanogpt','pollinations','moonshot','zai','siliconflow','workers-ai','text-completions','kobold','novelai-text','horde-text')),
+            sender_route TEXT NOT NULL CHECK(sender_route IN ('claude','google-ai-studio','vertex-ai','ai21','mistral','cohere','deepseek','xai','aimlapi','electronhub','chutes','cometapi','minimax','azure-openai','openai','openrouter','custom','perplexity','groq','fireworks','nanogpt','pollinations','moonshot','zai','siliconflow','workers-ai','text-completions','kobold','novelai-text','horde-text')),
             model TEXT NOT NULL,
             stream INTEGER NOT NULL CHECK(stream IN (0,1)),
             world_id TEXT NOT NULL,
@@ -337,7 +337,7 @@ export class MemoryDispatchGateway {
         const tableSql = this.db.prepare(
           "SELECT sql FROM sqlite_master WHERE type='table' AND name='dispatch_ledger'",
         ).get()?.sql ?? '';
-        if (!tableSql.includes("'horde-text'")) {
+        if (!tableSql.includes("'horde-text'") || !tableSql.includes("'cometapi'")) {
           // Expand the exact sender CHECK constraint without discarding durable
           // dispatch history. Migration is serialized by the shared Coordinator.
           this.db.exec(`
@@ -349,7 +349,7 @@ export class MemoryDispatchGateway {
               request_id TEXT PRIMARY KEY,
               request_digest TEXT NOT NULL CHECK(length(request_digest)=64),
               route TEXT NOT NULL CHECK(route='host-selected-chat-generation'),
-              sender_route TEXT NOT NULL CHECK(sender_route IN ('claude','google-ai-studio','vertex-ai','ai21','mistral','cohere','deepseek','xai','aimlapi','electronhub','chutes','minimax','azure-openai','openai','openrouter','custom','perplexity','groq','fireworks','nanogpt','pollinations','moonshot','zai','siliconflow','workers-ai','text-completions','kobold','novelai-text','horde-text')),
+              sender_route TEXT NOT NULL CHECK(sender_route IN ('claude','google-ai-studio','vertex-ai','ai21','mistral','cohere','deepseek','xai','aimlapi','electronhub','chutes','cometapi','minimax','azure-openai','openai','openrouter','custom','perplexity','groq','fireworks','nanogpt','pollinations','moonshot','zai','siliconflow','workers-ai','text-completions','kobold','novelai-text','horde-text')),
               model TEXT NOT NULL,
               stream INTEGER NOT NULL CHECK(stream IN (0,1)),
               world_id TEXT NOT NULL,
