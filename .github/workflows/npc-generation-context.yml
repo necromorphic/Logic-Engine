@@ -9,7 +9,7 @@ on:
       - "tests/memory-npc-provider-adapter.test.js"
       - ".github/workflows/npc-generation-context.yml"
   push:
-    branches: [main]
+    branches: [main, 'npc/**']
     paths:
       - "src/application/npc-generation-context*.js"
       - "src/application/memory-npc-provider-adapter.js"
