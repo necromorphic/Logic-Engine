@@ -105,7 +105,7 @@ current probe.
 
 ## Windows service
 
-Run elevated PowerShell from a trusted installation directory. First use -WhatIf, inspect the paths, then rerun without -WhatIf. The WhatIf pass validates existing path ancestors and descendants (including reparse-point rejection) but performs no provisioning: it does not create the state directory or service, and it reports that no changes were made:
+Run elevated PowerShell from a trusted installation directory. First use -WhatIf, inspect the paths, then rerun without -WhatIf. The WhatIf pass validates existing path ancestors and descendants (including reparse-point rejection) and rejects an existing non-directory state path, but performs no provisioning: it does not create the state directory or service, and it reports that no changes were made:
 
     .\install-windows-service.ps1 -ServiceName LogicEngine -InstallDirectory C:\LogicEngine -StateDirectory C:\ProgramData\LogicEngine\State -WhatIf
 
