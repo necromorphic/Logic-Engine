@@ -74,6 +74,14 @@ function validId(value) {
     && ![...value].some(character => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127);
 }
 
+function validateRequest(request) {
+  return exactDataRecord(request, ['request_id', 'generation_id', 'generation_type'])
+    && validId(request.request_id)
+    && validId(request.generation_id)
+    && typeof request.generation_type === 'string'
+    && /^[a-z][a-z0-9_-]{0,31}$/.test(request.generation_type);
+}
+
 function validSnapshot(value) {
   return value && typeof value === 'object'
     && Number.isSafeInteger(value.world_revision) && value.world_revision >= 0
