@@ -1,4 +1,4 @@
-import { isDeepStrictEqual, types as utilTypes } from 'node:util';
+import { types as utilTypes } from 'node:util';
 import { createNpcGenerationContextBuilder, createNpcGenerationContextReceiver } from './npc-generation-context.js';
 
 const PURPOSE = 'npc_turn_context';
@@ -240,7 +240,7 @@ export function createCoreNpcGenerationContextRuntime({
 
   async function revalidateBuild(scope, envelopes) {
     const freshA = readLaneA(scope);
-    if (freshA.status !== 'ready' || !isDeepStrictEqual(freshA, envelopes.laneA)) return false;
+    if (freshA.status !== 'ready' || JSON.stringify(freshA) !== JSON.stringify(envelopes.laneA)) return false;
     let freshB;
     try {
       freshB = await consumer.revalidateForFinalDispatch(
@@ -249,7 +249,7 @@ export function createCoreNpcGenerationContextRuntime({
       );
     } catch { return false; }
     return freshB?.status === 'ready'
-      && isDeepStrictEqual(freshB, envelopes.laneB.result);
+      && JSON.stringify(freshB) === JSON.stringify(envelopes.laneB.result);
   }
 
   async function revalidateIssuedContext(context) {
