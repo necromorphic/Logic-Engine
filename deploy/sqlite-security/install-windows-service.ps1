@@ -142,7 +142,10 @@ if ($EnvironmentFile) { Assert-NoReparsePointAncestors $EnvironmentFile }
 # Dry-run must inspect existing descendants too; repeat immediately before ACL
 # mutation inside ShouldProcess to narrow the validation-to-use window.
 Assert-NoReparsePoints $InstallDirectory
-if (Test-Path -LiteralPath $StateDirectory -PathType Container) {
+if (Test-Path -LiteralPath $StateDirectory) {
+  if (-not (Test-Path -LiteralPath $StateDirectory -PathType Container)) {
+    throw "StateDirectory exists but is not a directory: $StateDirectory"
+  }
   Assert-NoReparsePoints $StateDirectory
 }
 if (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue) { throw "Service already exists; refusing to replace it." }
