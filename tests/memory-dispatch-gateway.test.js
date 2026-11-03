@@ -352,8 +352,7 @@ test('startup migrates an existing dispatch ledger to include CometAPI without l
         INSERT INTO dispatch_ledger SELECT * FROM dispatch_ledger_legacy;
         DROP TABLE dispatch_ledger_legacy;
         CREATE INDEX dispatch_ledger_status_started ON dispatch_ledger(status, started_at);
-        CREATE UNIQUE INDEX dispatch_ledger_unresolved_digest
-          ON dispatch_ledger(request_digest) WHERE status IN ('DISPATCH_STARTED','UNKNOWN');
+        CREATE UNIQUE INDEX dispatch_ledger_generation_digest ON dispatch_ledger(request_digest);
         COMMIT;
       `);
     } finally {
@@ -393,7 +392,7 @@ test('startup migrates an existing dispatch ledger to include CometAPI without l
   }
 });
 
-test('Gateway refuses ledger migration when completed generation identities collide', async () => {
+test('Gateway refuses non-empty legacy request-digest ledgers without discarding ambiguous history', async () => {
   const fixture = await createFixture();
   try {
     const completed = validRequest('generation-identity-collision-original');
@@ -420,7 +419,7 @@ test('Gateway refuses ledger migration when completed generation identities coll
 
     assert.throws(
       () => fixture.reopenGateway(),
-      /DISPATCH_LEDGER_GENERATION_IDENTITY_COLLISION/,
+      /DISPATCH_LEDGER_LEGACY_DIGEST_REQUIRES_RECONCILIATION/,
     );
     const verify = new DatabaseSync(fixture.ledgerPath);
     try {
