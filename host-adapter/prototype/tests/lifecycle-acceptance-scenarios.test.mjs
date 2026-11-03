@@ -283,7 +283,8 @@ test('pinned patch guards Data Maid, settings restore, account reset and account
     "if (process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR) {",
     "HOST_USER_ROOT_RESET_UNSUPPORTED",
     "HOST_USER_ACCOUNT_DELETE_UNSUPPORTED",
-    "Skipping unreceipted startup group metadata migration while Host inventory is enabled.",
+    "assertHostStartupMigrationAllowed",
+    "Skipping startup group metadata migration:",
   ]) {
     assert.ok(patch.includes(required), `missing fail-closed lifecycle protection: ${required}`);
   }
