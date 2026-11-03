@@ -9,6 +9,7 @@ import { LogicEngine } from '../src/application/engine.js';
 import { ActorBindingService } from '../src/application/actor-bindings.js';
 import { HostConversationWorldBindingService } from '../src/application/host-conversation-world-bindings.js';
 import { createMemoryNpcProviderAdapter } from '../src/application/memory-npc-provider-adapter.js';
+import { createNpcGenerationContextHostBridge } from '../src/application/npc-generation-context-host-bridge.js';
 import { createHostBoundNpcKnowledgeAuthorizers } from '../src/application/npc-knowledge-authorization.js';
 import { createHostSessionAssertionRunner, getAuthenticatedHostSessionContext } from '../src/application/host-session-context.js';
 
@@ -227,7 +228,26 @@ test('real adapter composes file-backed SQLite Provider with Core query and cano
         });
         const received = await adapter.npcGenerationContext.receive(built.context, generationRequest);
         assert.equal(received.status, 'accepted');
-        return { built, received };
+
+        const bridgeRequest = Object.freeze({
+          request_id: 'real-adapter-generation-request-2',
+          generation_id: 'real-adapter-generation-2',
+          generation_type: 'normal',
+        });
+        const hostBridge = createNpcGenerationContextHostBridge({
+          runtime: adapter.npcGenerationContext,
+          createRequestMetadata: () => bridgeRequest,
+        });
+        const hostResponse = {};
+        const prepared = await hostBridge.prepare(hostRequest, hostResponse);
+        assert.equal(prepared.status, 'ready');
+        const handoff = hostBridge.consume(hostRequest, hostResponse);
+        assert.equal(handoff.status, 'accepted');
+        assert.equal(handoff.context.actor_id, actorId);
+        assert.equal(handoff.laneB.lane, 'B');
+        assert.match(handoff.laneB.candidates[0].source_version, /^core-entity-v1:[1-9][0-9]*$/);
+        assert.equal(handoff.revalidateLaneA().status, 'ready');
+        return { built, received, handoff };
       },
     );
     assert.equal(generation.built.context.lanes.lane_b.provider_purpose, 'npc_decision');
