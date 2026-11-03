@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
@@ -16,12 +16,13 @@ const message = '00000000-0000-4000-8000-000000000002';
 const version = '00000000-0000-4000-8000-000000000003';
 const digest = (text) => createHash('sha256').update(text).digest('hex');
 
-function setup(t, authorize = () => true, authorizeRoot = () => true) {
+function setup(t, authorize = () => true, authorizeRoot = () => true, verifyRootAttestation = () => false) {
   const directory = mkdtempSync(join(tmpdir(), 'logic-host-lifecycle-journal-'));
   const journal = new HostLifecycleJournal({
     path: join(directory, 'host-journal.sqlite'),
     coordinatorPath: join(directory, 'coordinator.sqlite'),
     verifyMutationReceipt: () => true,
+    verifyRootInventoryAttestation: verifyRootAttestation,
     resolveIdentity: (input) => ({
       authorized: authorize(input) === true,
       host_installation_id: input.host_installation_id,
@@ -34,6 +35,7 @@ function setup(t, authorize = () => true, authorizeRoot = () => true) {
     }),
     resolveRootIdentity: (input) => ({
       authorized: authorizeRoot(input) === true,
+      adapter_id: 'test-adapter',
       host_installation_id: input.host_installation_id,
       authenticated_account_id: input.authenticated_account_id,
       root_id: input.root_id,
@@ -272,6 +274,103 @@ const rootInput = (overrides = {}) => ({
   event_id: 'root-event-1',
   entries: rootEntries(digest('first')),
   ...overrides,
+});
+
+const canonicalAttestation = value => value && typeof value === 'object'
+  ? '{' + Object.keys(value).sort().map(key => JSON.stringify(key) + ':' + canonicalAttestation(value[key])).join(',') + '}'
+  : JSON.stringify(value);
+const ROOT_ATTESTATION_SECRET = 'host-root-attestation-test-secret-long-enough';
+const signRootAttestation = attestation => {
+  const { signature: _signature, ...proof } = attestation;
+  return createHmac('sha256', ROOT_ATTESTATION_SECRET)
+    .update(canonicalAttestation(proof), 'utf8').digest('hex');
+};
+const makeRootAttestation = result => {
+  const attestation = {
+    protocol_version: 1,
+    adapter_id: 'test-adapter',
+    host_installation_id: installation,
+    authenticated_account_id: account,
+    root_id: rootId,
+    inventory_sequence: result.sequence,
+    manifest_sha256: result.manifest_sha256,
+    inventory_head_sha256: result.event_sha256 ?? result.journal_head_sha256,
+    covered_delta_sha256: result.delta_sha256 ?? null,
+    coverage_id: 'ST-1.19.0-HOST-LIFECYCLE-P0-V1',
+    pinned_host_commit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127',
+    patch_blob_sha: 'aa11464e0f8c3784d39b674f0212e4fb12279d7b',
+    host_handler_blob_sha: '81ec8a51d3db28a3042833a6a2648fdaf8bf6d9d',
+    source_identity_status: 'CURRENT_IDENTITIES_VERIFIED',
+    snapshot_alignment: 'SHARED_VSS_SNAPSHOT',
+    snapshot_sha256: digest('verified-vss-snapshot-' + result.sequence),
+    lifecycle_sequence: result.lifecycle_sequence ?? 0,
+    lifecycle_head_sha256: result.lifecycle_head_sha256 ?? '0'.repeat(64),
+    issued_at: Math.floor(Date.now() / 1000),
+    nonce: result.sequence === 1
+      ? '55555555-5555-4555-8555-555555555555'
+      : '66666666-6666-4666-8666-666666666666',
+    signature: '',
+  };
+  attestation.signature = signRootAttestation(attestation);
+  return attestation;
+};
+
+test('Core requires a signed pinned-source completeness attestation before root inventory becomes authoritative', t => {
+  const { journal } = setup(t, () => true, () => true, ({ attestation }) =>
+    attestation.signature === signRootAttestation(attestation));
+  const baseline = journal.enrollRootInventory(rootInput());
+  assert.equal(baseline.status, 'BASELINED_REVIEW_ONLY');
+  const trusted = {
+    authority_id: authority.authority_id,
+    generation: authority.generation,
+    adapter_id: 'test-adapter',
+    host_installation_id: installation,
+    authenticated_account_id: account,
+    root_id: rootId,
+  };
+  assert.equal(journal.getAuthoritySnapshot(trusted).authority_status, 'REVIEW_ONLY');
+
+  const baselineAttestation = makeRootAttestation(baseline);
+  const accepted = journal.attestRootInventory({
+    host_installation_id: installation,
+    authenticated_account_id: account,
+    root_id: rootId,
+    attestation: baselineAttestation,
+  });
+  assert.equal(accepted.status, 'AUTHORITATIVE_COMPLETE');
+  assert.equal(accepted.integrity_status, 'INTEGRITY_OK');
+  assert.equal(journal.getAuthoritySnapshot(trusted).authority_status, 'AUTHORITATIVE_COMPLETE');
+
+  const changed = journal.observeRootInventory(rootInput({
+    event_id: 'root-event-2',
+    entries: rootEntries(digest('changed')),
+  }));
+  assert.equal(changed.status, 'NON_READY');
+  assert.equal(journal.getAuthoritySnapshot(trusted).authority_status, 'REVIEW_ONLY');
+
+  const changedAttestation = makeRootAttestation(changed);
+  const restoredAuthority = journal.attestRootInventory({
+    host_installation_id: installation,
+    authenticated_account_id: account,
+    root_id: rootId,
+    attestation: changedAttestation,
+  });
+  assert.equal(restoredAuthority.status, 'AUTHORITATIVE_COMPLETE');
+  assert.equal(restoredAuthority.integrity_status, 'INTEGRITY_OK');
+  assert.equal(journal.getAuthoritySnapshot(trusted).authority_status, 'AUTHORITATIVE_COMPLETE');
+
+  assert.equal(journal.attestRootInventory({
+    host_installation_id: installation,
+    authenticated_account_id: account,
+    root_id: rootId,
+    attestation: changedAttestation,
+  }).duplicate, true);
+  assert.throws(() => journal.attestRootInventory({
+    host_installation_id: installation,
+    authenticated_account_id: account,
+    root_id: rootId,
+    attestation: { ...changedAttestation, covered_delta_sha256: digest('wrong-delta') },
+  }), /HOST_ROOT_INVENTORY_ATTESTATION_INVALID/);
 });
 
 test('root inventory baseline is installation/account/root scoped and survives SQLite restart', (t) => {
