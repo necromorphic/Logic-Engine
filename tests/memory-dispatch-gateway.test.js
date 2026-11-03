@@ -73,12 +73,20 @@ function installTestTransport(gateway, factory) {
   return gateway;
 }
 
+const issuedFakeNpcHandoffs = new WeakSet();
+
+function createFakeNpcContextHandoff(context, generationRequest) {
+  const handoff = Object.freeze({ generationRequest, context });
+  issuedFakeNpcHandoffs.add(handoff);
+  return handoff;
+}
+
 function createFakeNpcContextRuntime(isLaneAReady = () => true) {
   const consumed = new WeakSet();
   return {
     consumeDispatchHandoff(handoff, generationRequest) {
-      if (!handoff || typeof handoff !== 'object' || consumed.has(handoff)
-        || !handoff.context || !handoff.generationRequest
+      if (!handoff || typeof handoff !== 'object' || !issuedFakeNpcHandoffs.has(handoff)
+        || consumed.has(handoff) || !handoff.context || !handoff.generationRequest
         || JSON.stringify(handoff.generationRequest) !== JSON.stringify(generationRequest)) {
         return { status: 'non_ready' };
       }
@@ -286,7 +294,7 @@ const validRequest = (requestId = 'request-001', overrides = {}) => {
   }));
   const contextRequest = { ...base, conversationId, adapterId };
   const npcContext = makeTestNpcContext(contextRequest, generationRequest);
-  const npcContextHandoff = base.npcContextHandoff ?? { generationRequest, context: npcContext };
+  const npcContextHandoff = base.npcContextHandoff ?? createFakeNpcContextHandoff(npcContext, generationRequest);
   const hostRoute = base.hostRoute ?? (['text-completions', 'kobold', 'novelai-text'].includes(base.senderRoute)
     ? base.senderRoute
     : 'chat-completions');
@@ -1309,8 +1317,9 @@ test('real process crash after transport handoff recovers UNKNOWN on fresh Gatew
       'import { appendFileSync } from "node:fs";',
       'import { MemoryDispatchGateway } from ' + JSON.stringify(moduleUrl) + ';',
       'const [ledgerPath, coordinatorPath, authorityPort, readToken, counterPath, requestJson] = process.argv.slice(1);',
+      'const issuedHandoffs = new WeakSet();',
       'const npcContextRuntime = {',
-      '  consumeDispatchHandoff(handoff, request) { return handoff?.context && JSON.stringify(handoff.generationRequest) === JSON.stringify(request) ? { status: "accepted", context: handoff.context } : { status: "non_ready" }; },',
+      '  consumeDispatchHandoff(handoff, request) { return issuedHandoffs.has(handoff) && handoff?.context && JSON.stringify(handoff.generationRequest) === JSON.stringify(request) ? { status: "accepted", context: handoff.context } : { status: "non_ready" }; },',
       '  revalidateLaneAForDispatch(context, request) { return context?.request_id === request.request_id ? { status: "ready" } : { status: "non_ready" }; },',
       '};',
       'const gateway = new MemoryDispatchGateway({',
@@ -1319,6 +1328,9 @@ test('real process crash after transport handoff recovers UNKNOWN on fresh Gatew
       '  readProviderEvidence: ({ worldId, actorId, purpose, sources, candidates }) => ({ head: 1, world_id: worldId, actor_id: actorId, purpose, granted: true, readiness: "READY", sources, candidates }),',
       '});',
       'const request = JSON.parse(requestJson);',
+      'const serializedHandoff = request.npcContextHandoff;',
+      'request.npcContextHandoff = Object.freeze({ generationRequest: request.generationRequest, context: serializedHandoff.context });',
+      'issuedHandoffs.add(request.npcContextHandoff);',
       'gateway.dispatchProtectedRequest({ ...request, transport: () => { appendFileSync(counterPath, "x"); process.stdout.write("HANDOFF\\n", () => process.exit(77)); return new Promise(() => {}); } });',
       'setTimeout(() => process.exit(78), 5000);',
     ].join('\\n');
