@@ -253,3 +253,9 @@ diff --git a/src/endpoints/files.js b/src/endpoints/files.js
 @@ -54 +56 @@
 -router.post('/delete', async (request, response) => {
 +router.post('/delete', hostUnsupportedMutationGuard, async (request, response) => {
+diff --git a/src/endpoints/image-metadata.js b/src/endpoints/image-metadata.js
+--- a/src/endpoints/image-metadata.js
++++ b/src/endpoints/image-metadata.js
+@@ -700 +702 @@
+-router.post('/all', async function (request, response) {
++router.post('/all', hostUnsupportedMutationGuard, async function (request, response) {
