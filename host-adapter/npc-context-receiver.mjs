@@ -1,3 +1,5 @@
+import { types as utilTypes } from 'node:util';
+
 const ID = value => typeof value === 'string'
   && value === value.trim()
   && value.length > 0
@@ -11,7 +13,7 @@ const UUID = value => typeof value === 'string'
   && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 
 function exactDataRecord(value, keys) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)
+  if (!value || typeof value !== 'object' || utilTypes.isProxy(value) || Array.isArray(value)
     || Object.getPrototypeOf(value) !== Object.prototype) return false;
   const actual = Reflect.ownKeys(value);
   if (actual.length !== keys.length || actual.some(key => typeof key !== 'string' || !keys.includes(key))) return false;
@@ -22,7 +24,7 @@ function exactDataRecord(value, keys) {
 }
 
 function denseArray(value, max) {
-  if (!Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype
+  if (!Array.isArray(value) || utilTypes.isProxy(value) || Object.getPrototypeOf(value) !== Array.prototype
     || value.length > max) return false;
   for (let index = 0; index < value.length; index += 1) {
     if (!Object.hasOwn(value, index)) return false;
@@ -33,7 +35,7 @@ function denseArray(value, max) {
 }
 
 function copyContent(content) {
-  if (!content || typeof content !== 'object' || Array.isArray(content)
+  if (!content || typeof content !== 'object' || utilTypes.isProxy(content) || Array.isArray(content)
     || Object.getPrototypeOf(content) !== Object.prototype) return null;
   const keys = Reflect.ownKeys(content);
   if (keys.length === 0 || keys.length > 32) return null;
