@@ -1,4 +1,4 @@
-import { isProxy } from 'node:util/types';
+import { types as utilTypes } from 'node:util';
 import { PROTECTED_MEMORY_SENDER_ROUTES } from '../src/security/memory-dispatch-gateway.js';
 
 /**
@@ -18,6 +18,8 @@ function arrayContains(values, expected) {
   return false;
 }
 
+const isProxy = utilTypes.isProxy;
+const isAsyncFunction = utilTypes.isAsyncFunction;
 const ASYNC_FUNCTION_CONSTRUCTOR = Object.getPrototypeOf(async function asyncResolverMarker() {}).constructor;
 
 const validRoute = route => arrayContains(PROTECTED_MEMORY_SENDER_ROUTES, route);
@@ -286,6 +288,7 @@ export function createProtectedMemoryFinalSend({ gateway, resolveProtectedMemory
   if (!gateway || typeof gateway.dispatchProtectedRequest !== 'function'
     || typeof resolveProtectedMemory !== 'function'
     || resolveProtectedMemory instanceof ASYNC_FUNCTION_CONSTRUCTOR
+    || isAsyncFunction(resolveProtectedMemory)
     || typeof fetchImpl !== 'function') {
     throw new TypeError('Invalid protected Memory final-send configuration.');
   }
