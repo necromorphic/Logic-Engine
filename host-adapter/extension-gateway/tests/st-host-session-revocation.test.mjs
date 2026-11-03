@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
 import { createHostSessionRevocationClient } from '../server-plugin/st-host-session-revocation.mjs';
+import { createHostSessionHandler } from '../server-plugin/st-host-inventory-handler.mjs';
 
 const INSTALLATION = '11111111-1111-4111-8111-111111111111';
 const ACCOUNT = '22222222-2222-4222-8222-222222222222';
@@ -77,4 +78,46 @@ test('revocation failure rejects and prevents logout/session rotation', async ()
     revoke({ session: { logicEngineSessionId: SESSION, logicEngineSessionHandle: 'alice' } }, 'logout'),
     /HOST_SESSION_REVOCATION_UNAVAILABLE/,
   );
+});
+
+test('Host session rotation revokes the old capability before issuing a new session ID', async () => {
+  const oldSession = {
+    logicEngineSessionId: SESSION,
+    logicEngineSessionHandle: 'alice',
+  };
+  const calls = [];
+  const handler = createHostSessionHandler({
+    createId: () => '55555555-5555-4555-8555-555555555555',
+    revokeSession: async (request, reason) => {
+      calls.push({ sessionId: request.session.logicEngineSessionId, reason });
+    },
+  });
+  const response = {
+    status(code) { this.statusCode = code; return this; },
+    json(value) { this.payload = value; return this; },
+  };
+  await handler({ session: oldSession, user: { profile: { handle: 'bob' } } }, response);
+  assert.deepEqual(calls, [{ sessionId: SESSION, reason: 'session_rotation' }]);
+  assert.equal(oldSession.logicEngineSessionId, '55555555-5555-4555-8555-555555555555');
+  assert.equal(oldSession.logicEngineSessionHandle, 'bob');
+  assert.equal(response.statusCode, 200);
+});
+
+test('Host session rotation preserves the old session when revocation fails', async () => {
+  const oldSession = {
+    logicEngineSessionId: SESSION,
+    logicEngineSessionHandle: 'alice',
+  };
+  const handler = createHostSessionHandler({
+    createId: () => '55555555-5555-4555-8555-555555555555',
+    revokeSession: async () => { throw new Error('upstream unavailable'); },
+  });
+  const response = {
+    status(code) { this.statusCode = code; return this; },
+    json(value) { this.payload = value; return this; },
+  };
+  await handler({ session: oldSession, user: { profile: { handle: 'bob' } } }, response);
+  assert.equal(response.statusCode, 503);
+  assert.equal(oldSession.logicEngineSessionId, SESSION);
+  assert.equal(oldSession.logicEngineSessionHandle, 'alice');
 });
