@@ -352,6 +352,8 @@ test('complete-empty Lane B remains an explicit empty Lane B projection without 
   const consumed = runtime.consumeDispatchHandoff(prepared.handoff, request);
   assert.equal(consumed.status, 'accepted');
   assert.equal(consumed.context.lanes.lane_a.items.length, 1);
+  assert.equal(runtime.revalidateLaneAForDispatch(consumed.context, { ...request }).status, 'non_ready');
+  assert.equal(runtime.getLaneBDispatchEvidence(consumed.context, { ...request }).status, 'non_ready');
   const evidence = runtime.getLaneBDispatchEvidence(consumed.context, request);
   assert.equal(evidence.status, 'ready');
   assert.deepEqual(evidence.sources, []);
