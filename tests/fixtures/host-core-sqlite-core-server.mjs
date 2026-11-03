@@ -133,6 +133,7 @@ try {
       host_session_id: input.host_session_id,
       conversation_uuid: input.conversation_uuid,
       root_id: 'a'.repeat(64), authority_id: 'cross-process-test-authority',
+      authority_status: 'REVIEW_ONLY',
       generation: 1, snapshot_fingerprint: 'b'.repeat(64),
     }),
     resolveHostMemoryIdentity: input => ({
