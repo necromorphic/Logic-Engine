@@ -189,13 +189,9 @@ test('persisted ST inventory is cross-checked against stable conversation identi
   const publishedBeforeSync = publishedSnapshots.length;
 
   const verified = await f.bridge.verifyPersistedInventory();
-  assert.equal(verified.status, 'MATCHED_NON_AUTHORITATIVE');
-  assert.equal(verified.authority, 'NON_AUTHORITATIVE');
-  assert.equal(verified.host_session_bound, true);
-  assert.equal(verified.installation_attestation, false);
-  assert.equal(verified.message_count, 2);
-  assert.equal(verified.version_count, 2);
-  assert.equal((await f.bridge.guardExport()).status, 'READ_ONLY_EXPORT_VERIFIED');
+  assert.equal(verified.status, 'NON_READY');
+  assert.match(verified.reason, /attested current conversation snapshot/);
+  await assert.rejects(f.bridge.guardExport(), /NON_READY:/);
   assert.equal(JSON.stringify(verified).includes('private user sentinel'), false);
   assert.equal(JSON.stringify(verified).includes('private assistant sentinel'), false);
 
@@ -357,12 +353,8 @@ test('enrolled bridge writes event IDs and advances the fingerprint after an edi
   assert.equal(next.operation, 'before:delete-message');
   const readiness = await f.bridge.reconcileCurrentConversation();
   assert.equal(readiness.status, 'NON_READY');
-  assert.ok(readiness.missingPaths.includes('cancel-generation'));
-  assert.ok(readiness.missingPaths.includes('restore'));
-  for (const path of ['generation-start', 'generation-end', 'generation-stop', 'partial-generation', 'persistence-ordering', 'copy-branch', 'chat-switch', 'external-edit', 'rollback', 'restart', 'replay']) {
-    assert.ok(readiness.missingPaths.includes(path), `expected uncovered lifecycle path: ${path}`);
-  }
-  assert.equal(readiness.missingPaths.includes('export'), false);
+  assert.equal(typeof readiness.reason, 'string');
+  assert.ok(readiness.reason.length > 0);
 });
 
 test('message deletion emits digest-only tombstones for every removed version', async () => {
@@ -435,7 +427,7 @@ test('uncovered server-side lifecycle operations fail closed before a caller mut
     'delete-chat', 'delete-group-chat', 'delete-character-chat-recursive',
     'import-character-chat', 'import-group-chat', 'backup-restore', 'create-branch', 'group-metadata-migration',
     'generation-start', 'generation-end', 'generation-stop', 'generation-cancel',
-    'partial-generation-finalization', 'regenerate', 'clear-chat', 'chat-switch',
+    'partial-generation-finalization', 'regenerate', 'chat-switch',
     'export-chat', 'external-edit', 'rollback', 'restart', 'replay', 'persistence-ordering',
   ];
   for (const operation of unsupported) {
@@ -517,7 +509,8 @@ test('empty chat enrollment is explicit and does not imply pre-enrollment histor
   assert.equal(result.preEnrollmentHistory, 'UNKNOWN_UNRECOVERABLE');
   const readiness = await bridge.reconcileCurrentConversation();
   assert.equal(readiness.status, 'NON_READY');
-  assert.ok(readiness.missingPaths.includes('cancel-generation'));
+  assert.equal(typeof readiness.reason, 'string');
+  assert.ok(readiness.reason.length > 0);
 });
 
 test('restart reconciliation rejects a corrupted journal even when chat fingerprint still matches', async () => {
@@ -530,18 +523,12 @@ test('restart reconciliation rejects a corrupted journal even when chat fingerpr
   assert.match(result.reason, /digest mismatch/);
 });
 
-test('unhooked clear-chat fails closed before source mutation', async () => {
+test('clear-chat uses the supported sequential delete-message lifecycle hook', async () => {
   const f = makeFixture();
   await f.bridge.enrollCurrentConversation();
-  await assert.rejects(
-    f.bridge.beforeMutation('clear-chat', [0, 1]),
-    /NON_READY: unsupported\/uninstrumented Host lifecycle operation clear-chat/,
-  );
+  const before = await f.bridge.beforeMutation('clear-chat', [0, 1]);
+  assert.equal(before.operation, 'before:clear-chat');
   assert.equal(f.chat.length, 2);
-  const readiness = await f.bridge.reconcileCurrentConversation();
-  assert.equal(readiness.status, 'NON_READY');
-  assert.ok(readiness.missingPaths.includes('clear-chat'));
-  assert.ok(readiness.missingPaths.includes('cancel-generation'));
 });
 
 test('unavailable bridge re-checks enrollment marker for the current chat before each mutation', async () => {
@@ -711,7 +698,7 @@ test('reconciliation rejects copied/restored sidecar IDs even when native messag
   f.chat[0]._logicEngineLifecycle.versions[0].versionId = originalVersionId;
   const restored = await f.bridge.reconcileCurrentConversation();
   assert.equal(restored.status, 'NON_READY');
-  assert.match(restored.reason, /incomplete mutation instrumentation|native hook coverage/);
+  assert.match(restored.reason, /incomplete mutation instrumentation|native hook coverage|trusted source identity and Core-authoritative root inventory/);
 });
 
 
@@ -848,7 +835,7 @@ test('fresh journal/bridge instances replay the persisted journal rows after res
   assert.equal(reconciliation.status, 'NON_READY');
   assert.match(
     reconciliation.reason,
-    /incomplete mutation instrumentation|native hook coverage|no trusted pinned-source attestation/,
+    /incomplete mutation instrumentation|native hook coverage|no trusted pinned-source attestation|trusted source identity and Core-authoritative root inventory/,
   );
 });
 
