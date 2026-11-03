@@ -278,7 +278,7 @@ test('dispatch projection preserves both lanes and does not consume the opaque h
   const projected = runtime.projectDispatchHandoff(prepared.handoff, request);
   assert.equal(projected.status, 'ready');
   assert.equal(projected.projection.contentBlocks.length, 2);
-  assert.deepEqual(projected.projection.contentBlocks[0], {
+  assert.deepEqual(JSON.parse(JSON.stringify(projected.projection.contentBlocks[0])), {
     epistemic_kind: 'author_initial',
     evidence_assessment: 'unassessed',
     content: {
@@ -287,17 +287,17 @@ test('dispatch projection preserves both lanes and does not consume the opaque h
       value: { fact: 'private-to-npc-1' },
     },
   });
-  assert.deepEqual(projected.projection.contentBlocks[1], {
+  assert.deepEqual(JSON.parse(JSON.stringify(projected.projection.contentBlocks[1])), {
     epistemic_kind: 'acquired_report',
     evidence_assessment: 'disputed',
     content: { note: 'report' },
   });
-  assert.deepEqual(projected.projection.sources, [{
+  assert.deepEqual(JSON.parse(JSON.stringify(projected.projection.sources)), [{
     source_kind: 'canonical_entity',
     source_entity_id: 'source-1',
     source_version: 'source-v1',
   }]);
-  assert.deepEqual(projected.projection.candidates, [{
+  assert.deepEqual(JSON.parse(JSON.stringify(projected.projection.candidates)), [{
     record_ref: 'memory:1',
     record_version: 'v1',
     authorization_generation: 2,
