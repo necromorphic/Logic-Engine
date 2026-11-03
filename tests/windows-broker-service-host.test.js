@@ -65,3 +65,20 @@ test('Windows metadata store exposes only fixed metadata names and no path fallb
   assert.match(store, /le_win_store_read\(store, LE_STORE_MANIFEST/);
   assert.match(store, /never caller-provided paths/);
 });
+
+const namespace = await readFile(new URL('../native/windows-namespace-broker/windows_namespace_adapter.c', import.meta.url), 'utf8');
+const namespaceHeader = await readFile(new URL('../native/windows-namespace-broker/windows_namespace_adapter.h', import.meta.url), 'utf8');
+test('Windows SQLite sidecar adapter is handle-relative and identity-bound',()=>{
+ assert.match(namespace,/logic_engine_win_open_relative\(parent, basename/);
+ assert.match(namespace,/FILE_CREATE/);
+ assert.match(namespace,/FILE_OPEN/);
+ assert.match(namespace,/FILE_NON_DIRECTORY_FILE/);
+ assert.match(namespace,/logic_engine_win_identity_equal\(expected, &observed\)/);
+ assert.match(namespace,/SetFileInformationByHandle\(\*opened, FileDispositionInfo/);
+ assert.match(namespace,/CloseHandle\(\*opened\)/);
+ assert.match(namespace,/FlushFileBuffers\(parent\)/);
+ assert.match(namespace,/le_win_namespace_valid_sidecar/);
+ assert.match(namespaceHeader,/le_win_namespace_create_sidecar/);
+ assert.match(namespaceHeader,/le_win_namespace_open_sidecar/);
+ assert.match(namespaceHeader,/le_win_namespace_delete_sidecar/);
+});
