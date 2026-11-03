@@ -86,10 +86,11 @@ export async function init(router) {
         if (!memoryEnabled) return null;
         return hostAdapter.prepareGenerationContext(request, hostRoute);
       },
-      resolveProtectedMemory: (request, prepared) => {
+      resolveProtectedMemory: prepared => {
         if (!memoryEnabled) return null;
         const host = prepared?.hostContext;
-        if (!host || host.status !== 'READY') return undefined;
+        const request = prepared?.request;
+        if (!host || host.status !== 'READY' || !request) return undefined;
         const received = receiveNpcContext({
           retrieval: host.retrieval,
           hostContext: host.coreContext,
