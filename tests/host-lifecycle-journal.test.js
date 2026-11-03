@@ -496,6 +496,31 @@ test('Final-Send root evidence is READY only with a current signed attestation u
   } finally {
     release();
   }
+
+  const currentAuthority = journal.getAuthoritySnapshot(trusted);
+  journal.append({
+    event_id: '77777777-7777-4777-8777-777777777777',
+    host_installation_id: installation,
+    authenticated_account_id: account,
+    host_session_id: hostSession,
+    conversation_uuid: conversation,
+    authority_id: authority.authority_id,
+    generation: authority.generation,
+    snapshot_fingerprint: currentAuthority.snapshot_fingerprint,
+    event_type: 'MUTATION_PREPARED',
+    mutation_id: '88888888-8888-4888-8888-888888888888',
+    operation: 'edit-message',
+    mutation_digest: digest('pending-final-send-mutation'),
+    occurred_at: new Date().toISOString(),
+  });
+  release = beginCoordinatorLock(journal.coordinator);
+  try {
+    const pendingEvidence = journal.readAuthoritySnapshotUnderLease(trusted, release);
+    assert.equal(pendingEvidence.status, 'NON_READY');
+    assert.equal(pendingEvidence.reason, 'HOST_LIFECYCLE_MUTATION_PENDING');
+  } finally {
+    release();
+  }
 });
 
 test('signed root completeness attestation survives SQLite restart and remains bound to the same lifecycle head', t => {
