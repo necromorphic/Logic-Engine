@@ -133,8 +133,8 @@ export function createSillyTavernHostAdapter({
           host_installation_id: identityRecord.host_installation_id,
           authenticated_account_id: identityRecord.authenticated_account_id,
           host_session_id: sessionId,
-          conversation_id: identityRecord.host_installation_id + ':'
-            + identityRecord.authenticated_account_id + ':' + conversationUuid,
+          conversation_id: sessionId + ':'
+            + identityRecord.host_installation_id + ':' + conversationUuid,
         };
       },
     });
