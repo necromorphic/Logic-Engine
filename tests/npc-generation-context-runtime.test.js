@@ -38,6 +38,7 @@ function setup() {
   let readAuthorizationRef = 'core-read-1';
   let readActorId = scope.actor_id;
   let memoryResultFactory = memoryResult;
+  let afterMemoryRevalidation = null;
   const engine = {
     getSnapshot: () => scope.snapshot,
     readNpcKnowledge(input) {
@@ -68,8 +69,12 @@ function setup() {
   const consumer = {
     async retrieveForNpc() { return memoryCurrent ? memoryResultFactory() : { status: 'non_ready' }; },
     async revalidateForFinalDispatch(_request, prepared) {
-      return memoryCurrent && !revokeAtFinalFence && JSON.stringify(prepared) === JSON.stringify(memoryResultFactory())
+      const result = memoryCurrent && !revokeAtFinalFence && JSON.stringify(prepared) === JSON.stringify(memoryResultFactory())
         ? memoryResultFactory() : { status: 'non_ready' };
+      const callback = afterMemoryRevalidation;
+      afterMemoryRevalidation = null;
+      if (callback) callback();
+      return result;
     },
   };
   const runtime = createCoreNpcGenerationContextRuntime({
@@ -86,6 +91,7 @@ function setup() {
     setReadAuthorizationRef: value => { readAuthorizationRef = value; },
     setReadActorId: value => { readActorId = value; },
     setMemoryResultFactory: value => { memoryResultFactory = value; },
+    setAfterMemoryRevalidation: callback => { afterMemoryRevalidation = callback; },
   };
 }
 
@@ -184,4 +190,22 @@ test('Core runtime remains usable when Array.prototype iteration is polluted', a
   } finally {
     Array.prototype[Symbol.iterator] = originalIterator;
   }
+});
+
+test('build rejects Lane A revocation that occurs during asynchronous Lane B revalidation', async () => {
+  const { runtime, setDenyOnVisibilityCall, setAfterMemoryRevalidation } = setup();
+  setAfterMemoryRevalidation(() => setDenyOnVisibilityCall(3));
+  const built = await runtime.build(request);
+  assert.equal(built.status, 'non_ready');
+  assert.equal(built.context, null);
+});
+
+test('receiver rejects Lane A revocation that occurs during asynchronous Lane B revalidation', async () => {
+  const { runtime, setDenyOnVisibilityCall, setAfterMemoryRevalidation } = setup();
+  const built = await runtime.build(request);
+  assert.equal(built.status, 'ready');
+  setAfterMemoryRevalidation(() => setDenyOnVisibilityCall(4));
+  const received = await runtime.receive(built.context, request);
+  assert.equal(received.status, 'non_ready');
+  assert.equal(received.reason, 'context_evidence_changed');
 });
