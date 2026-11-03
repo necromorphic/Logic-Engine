@@ -54,6 +54,7 @@ const canonical = (value) => Array.isArray(value)
     ? '{' + Object.keys(value).sort().map((key) => JSON.stringify(key) + ':' + canonical(value[key])).join(',') + '}'
     : JSON.stringify(value);
 const sha256 = (value) => createHash('sha256').update(value, 'utf8').digest('hex');
+const compareText = (left, right) => left < right ? -1 : left > right ? 1 : 0;
 
 const MAX_ROOT_INVENTORY_ENTRIES = 25_000;
 const MAX_ROOT_INVENTORY_BYTES = 8 * 1024 * 1024;
@@ -92,7 +93,7 @@ function validateRootEntries(entries) {
       || !Number.isFinite(entry.identity.mtimeMs) || entry.identity.mtimeMs < 0
       || !Number.isFinite(entry.identity.ctimeMs) || entry.identity.ctimeMs < 0
       || !validDigest(entry.sha256) || seen.has(entry.path)
-      || (previous !== null && entry.path.localeCompare(previous) < 0)) {
+      || (previous !== null && compareText(entry.path, previous) < 0)) {
       throw new TypeError('HOST_ROOT_INVENTORY_ENTRY_INVALID');
     }
     const physicalId = process.platform === 'win32'
