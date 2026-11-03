@@ -80,7 +80,7 @@ These operations are not used to establish conversation identity, do not write c
 
 ## 2A. Machine-checked mutation-route guard matrix
 
-The pinned route verifier now checks **81 distinct POST route declarations** and **81 required middleware assertions** across the primary lifecycle routes and the additional fail-closed mutation patch. Where patch layers touch the same route, the contract records the exact guard present after the ordered patch composition; it does not assume two guards are installed.
+The pinned route verifier now checks **92 distinct POST route declarations** and **92 required middleware assertions** across the primary lifecycle routes and the additional fail-closed mutation patch. Where patch layers touch the same route, the contract records the exact guard present after the ordered patch composition; it does not assume two guards are installed.
 
 The additional guard matrix covers content imports, image metadata and image upload/delete, moving-UI settings, preset save/delete/restore, Quick Reply save/delete, secret write/delete/rotate/rename, sprite upload/delete, stats writes, theme writes, World Info import/edit/delete, vector insert/delete/purge, extension install/update/switch/move/delete, background and avatar mutations, asset/file mutations, and ComfyUI workflow save/delete/rename.
 
