@@ -191,9 +191,14 @@ export function createMemoryNpcProviderAdapter({
         snapshot: { world_revision: snapshot.world_revision, commit_sequence: snapshot.commit_sequence },
       };
     };
-    const npcGenerationContext = createCoreNpcGenerationContextRuntime({
-      engine, consumer: consumerFacade, adapterId, resolveAuthenticatedScope: resolveAuthenticatedNpcScope,
-    });
+    // The generation-context runtime is available only when the deployment
+    // has configured the independent Core per-acquisition visibility authority.
+    // Without it, preserve the existing Memory adapter but expose no context builder.
+    const npcGenerationContext = typeof engine.npcKnowledgeVisibilityAuthorizer === 'function'
+      ? createCoreNpcGenerationContextRuntime({
+        engine, consumer: consumerFacade, adapterId, resolveAuthenticatedScope: resolveAuthenticatedNpcScope,
+      })
+      : null;
 
     const adapter = {
       adapterId,
