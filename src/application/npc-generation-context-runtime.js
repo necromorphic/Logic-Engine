@@ -402,6 +402,7 @@ export function createCoreNpcGenerationContextRuntime({
       candidates: toPlainData(laneBContext.candidates),
       reason: laneBContext.reason,
       snapshot: toPlainData(laneBContext.snapshot),
+      provider_evidence_cursor: toPlainData(laneBContext.provider_evidence_cursor),
     } : null;
     if (preparedResult === null) return false;
     let freshB;
