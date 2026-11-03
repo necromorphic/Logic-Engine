@@ -236,11 +236,12 @@ export function createSillyTavernHostAdapter({
         : request?.body;
       const conversationUuid = generationBody?.logic_engine_conversation_uuid;
       const requestId = generationBody?.logic_engine_request_id;
+      const generationId = generationBody?.logic_engine_generation_id;
       const contextSize = generationBody?.logic_engine_context_size;
       const generationType = generationBody?.logic_engine_generation_type;
       const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
       if (!identityStore || !uuid.test(conversationUuid ?? '') || !uuid.test(requestId ?? '')
-        || !Number.isSafeInteger(contextSize) || contextSize < 1 || contextSize > 200000
+        || !uuid.test(generationId ?? '') || !Number.isSafeInteger(contextSize) || contextSize < 1 || contextSize > 200000
         || typeof generationType !== 'string' || !/^[a-z][a-z0-9_-]{0,31}$/.test(generationType)) {
         return Object.freeze({ status: 'NON_READY', code: 'HOST_GENERATION_ENVELOPE_INVALID' });
       }
