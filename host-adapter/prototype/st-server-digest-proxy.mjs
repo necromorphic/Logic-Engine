@@ -19,7 +19,7 @@ const HOST_SESSION_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a
 const HOST_CONVERSATION_ID = new RegExp('^' + HOST_SESSION_UUID.source.slice(1, -1) + ':'
   + HOST_SESSION_UUID.source.slice(1, -1) + ':' + HOST_SESSION_UUID.source.slice(1, -1) + '$', 'i');
 
-function requestMatchesAuthenticatedHostSession(request, conversationId) {
+function requestMatchesAuthenticatedHostSession(request, context) {
   const session = request?.session;
   const userHandle = request?.user?.profile?.handle;
   const sessionHandle = session?.handle;
@@ -29,8 +29,11 @@ function requestMatchesAuthenticatedHostSession(request, conversationId) {
     && (sessionHandle === undefined || sessionHandle === userHandle)
     && sessionIdentityHandle === userHandle
     && typeof sessionId === 'string' && HOST_SESSION_UUID.test(sessionId)
-    && typeof conversationId === 'string'
-    && HOST_CONVERSATION_ID.test(conversationId);
+    && context && context.host_session_id === sessionId
+    && typeof context.conversation_id === 'string'
+    && context.conversation_id === [
+      context.host_installation_id, context.authenticated_account_id, context.conversation_uuid,
+    ].join(':');
 }
 
 const ALLOWED_FIELDS = new Set([
