@@ -132,6 +132,7 @@ if (dbPath !== ':memory:' && aliasesSameFile(hostVersionLedgerPath, dbPath)) {
 if (aliasesSameFile(hostVersionLedgerPath, coordinatorPath)) {
   throw new Error('ENGINE_HOST_VERSION_LEDGER_DB_PATH must be separate from LOGIC_ENGINE_COORDINATOR_DB_PATH, including filesystem aliases.');
 }
+const memoryProviderPath = process.env.ENGINE_MEMORY_PROVIDER_DB_PATH;
 const assertionNoncePath = process.env.ENGINE_HOST_ASSERTION_NONCE_DB_PATH
   ? resolve(process.env.ENGINE_HOST_ASSERTION_NONCE_DB_PATH)
   : resolve('./data/logic-engine-host-assertion-nonces.sqlite');
@@ -285,7 +286,6 @@ const logicEngine = new LogicEngine(store, {
 });
 const memoryProviderAdapters = [];
 const memoryNpcConsumers = {};
-const memoryProviderPath = process.env.ENGINE_MEMORY_PROVIDER_DB_PATH;
 if (memoryProviderPath !== undefined) {
   let contentFields;
   try {
