@@ -503,7 +503,7 @@ export class MemoryDispatchGateway {
           INSERT INTO dispatch_ledger(
             request_id,request_digest,route,sender_route,model,stream,world_id,actor_id,adapter_id,conversation_id,purpose,sources_json,candidates_json,
             core_head,provider_head,policy_authority_id,policy_generation,policy_fingerprint,status,outcome_code,started_at,finished_at
-          ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'DISPATCH_STARTED',NULL,?,NULL)
+          ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'DISPATCH_STARTED',NULL,?,NULL)
         `).run(
           requestId,
           requestDigest,
