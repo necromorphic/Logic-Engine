@@ -76,6 +76,7 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
   let hostIdentityAllowed = true;
   let hostIdentitySnapshot = {
     root_id: 'a'.repeat(64), authority_id: 'test-host-authority',
+    authority_status: 'AUTHORITATIVE_COMPLETE',
     generation: 1, snapshot_fingerprint: 'b'.repeat(64),
   };
   const resolveHostLifecycleIdentity = input => hostIdentityAllowed
@@ -229,6 +230,22 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
   assert.equal((await unregisteredRead.json()).error.code, 'HOST_ROOT_IDENTITY_UNAUTHORIZED');
   assert.equal(calls, 1);
   hostIdentityAllowed = true;
+
+  // A valid hash chain is not sufficient: review-only inventory must not
+  // authorize a Memory read until Host supplies a completeness attestation.
+  hostIdentitySnapshot = { ...hostIdentitySnapshot, authority_status: 'BASELINED_REVIEW_ONLY' };
+  const reviewOnlyAssertion = {
+    ...assertion, nonce: '15151515-1515-4515-8515-151515151515',
+    issued_at: Math.floor(Date.now() / 1000),
+  };
+  const reviewOnlyRead = await post(base, '/v1/host/memory-npc/retrieve', adapterHeaders, {
+    ...body, assertion: reviewOnlyAssertion, signature: sign(reviewOnlyAssertion),
+    request_id: '16161616-1616-4616-8616-161616161616',
+  });
+  assert.equal(reviewOnlyRead.status, 401);
+  assert.equal((await reviewOnlyRead.json()).error.code, 'HOST_ROOT_IDENTITY_UNAUTHORIZED');
+  assert.equal(calls, 1);
+  hostIdentitySnapshot = { ...hostIdentitySnapshot, authority_status: 'AUTHORITATIVE_COMPLETE' };
 
   const wrongAccountAssertion = {
     ...assertion, authenticated_account_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
@@ -435,6 +452,7 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
   assert.equal((await snapshotRaceResponse.json()).error.code, 'HOST_ROOT_IDENTITY_BINDING_CHANGED');
   hostIdentitySnapshot = {
     root_id: 'a'.repeat(64), authority_id: 'test-host-authority',
+    authority_status: 'AUTHORITATIVE_COMPLETE',
     generation: 1, snapshot_fingerprint: 'b'.repeat(64),
   };
   consumerStartedResolve = null;
