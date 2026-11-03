@@ -1363,6 +1363,13 @@ static int probe_xOpen_parent(sqlite3_vfs *vfs, const char *name, sqlite3_file *
     sqlite3_free(canonical_name);
     return SQLITE_CANTOPEN;
   }
+#ifdef _WIN32
+  if (role_index >= 0 && g_database_roles[role_index].manifest_bound
+      && !g_database_roles[role_index].manifest_ready) {
+    sqlite3_free(canonical_name);
+    return SQLITE_CANTOPEN;
+  }
+#endif
 
   /*
    * Sidecar names must map to the exact enrolled DB pathname plus a known
@@ -1389,6 +1396,13 @@ static int probe_xOpen_parent(sqlite3_vfs *vfs, const char *name, sqlite3_file *
       sqlite3_free(canonical_name);
       return SQLITE_CANTOPEN;
     }
+#ifdef _WIN32
+    if (g_database_roles[sidecar_role_index].manifest_bound
+        && !g_database_roles[sidecar_role_index].manifest_ready) {
+      sqlite3_free(canonical_name);
+      return SQLITE_CANTOPEN;
+    }
+#endif
   }
 
   is_race_target = open_name && g_race_path
@@ -1811,6 +1825,7 @@ static int probe_win_access_role(int role_index, const wchar_t *relative_name,
                                  int is_main, int flags, int *result) {
   ProbeDatabaseRole *role = &g_database_roles[role_index];
   DWORD desired = FILE_READ_ATTRIBUTES;
+  if (role->manifest_bound && !role->manifest_ready) return SQLITE_IOERR_ACCESS;
   HANDLE handle;
   LogicEngineWinFileIdentity actual;
   DWORD error;
