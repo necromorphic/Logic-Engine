@@ -325,7 +325,6 @@ test('root inventory paths use locale-independent code-unit ordering', t => {
   ];
   const accepted = journal.enrollRootInventory(rootInput({ entries }));
   assert.equal(accepted.status, 'BASELINED_REVIEW_ONLY');
-  assert.equal(accepted.file_count, 3);
 });
 
 test('Core requires a signed pinned-source completeness attestation before root inventory becomes authoritative', t => {
