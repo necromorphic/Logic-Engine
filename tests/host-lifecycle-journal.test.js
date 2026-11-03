@@ -365,6 +365,19 @@ test('Core requires a signed pinned-source completeness attestation before root 
   assert.equal(restoredAuthority.integrity_status, 'INTEGRITY_OK');
   assert.equal(journal.getAuthoritySnapshot(trusted).authority_status, 'AUTHORITATIVE_COMPLETE');
 
+  assert.equal(journal.attestRootInventory({
+    host_installation_id: installation,
+    authenticated_account_id: account,
+    root_id: rootId,
+    attestation: changedAttestation,
+  }).duplicate, true);
+  assert.throws(() => journal.attestRootInventory({
+    host_installation_id: installation,
+    authenticated_account_id: account,
+    root_id: rootId,
+    attestation: { ...changedAttestation, covered_delta_sha256: digest('wrong-delta') },
+  }), /HOST_ROOT_INVENTORY_ATTESTATION_INVALID/);
+
   authority.snapshot_fingerprint = journal.getAuthoritySnapshot(trusted).snapshot_fingerprint;
   journal.append({
     event_id: '77777777-7777-4777-8777-777777777777',
@@ -383,19 +396,6 @@ test('Core requires a signed pinned-source completeness attestation before root 
   });
   assert.equal(journal.getAuthoritySnapshot(trusted).authority_status, 'REVIEW_ONLY',
     'a lifecycle event after the signed snapshot invalidates its completeness attestation');
-
-  assert.equal(journal.attestRootInventory({
-    host_installation_id: installation,
-    authenticated_account_id: account,
-    root_id: rootId,
-    attestation: changedAttestation,
-  }).duplicate, true);
-  assert.throws(() => journal.attestRootInventory({
-    host_installation_id: installation,
-    authenticated_account_id: account,
-    root_id: rootId,
-    attestation: { ...changedAttestation, covered_delta_sha256: digest('wrong-delta') },
-  }), /HOST_ROOT_INVENTORY_ATTESTATION_INVALID/);
 
   const changedAgain = journal.observeRootInventory(rootInput({
     event_id: 'root-event-3',
