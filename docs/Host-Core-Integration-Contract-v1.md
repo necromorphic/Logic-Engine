@@ -296,6 +296,12 @@ Do not return secrets, raw request data, hidden entity values, Provider snippets
 | Invalid context body / unknown key / malformed PC-NEXT-11 tuple | 400 | `INVALID_HOST_CONTEXT_RESOLUTION` |
 | Invalid retrieval envelope / bounded metadata | 400 | `INVALID_HOST_MEMORY_RETRIEVAL` |
 | Invalid, tampered, or malformed signed assertion | 401 | `HOST_SESSION_ASSERTION_INVALID` |
+| Assertion installation/account/session/conversation tuple is not enrolled by Root Inventory Authority | 401 | `HOST_ROOT_IDENTITY_UNAUTHORIZED` |
+| Assertion session was revoked by logout/session rotation | 401 | `HOST_SESSION_REVOKED` |
+| Durable session-revocation status unavailable | 503 | `HOST_SESSION_REVOCATION_STATUS_UNAVAILABLE` |
+| Invalid signed session-revocation event | 401 | `HOST_SESSION_REVOCATION_INVALID` |
+| Replayed session-revocation event | 409 | `HOST_SESSION_REVOCATION_REPLAYED` |
+| Durable session-revocation write unavailable | 503 | `HOST_SESSION_REVOCATION_UNAVAILABLE` |
 | Missing/invalid API bearer | 401 | `UNAUTHORIZED` |
 | Missing/invalid adapter credentials | 403 | `ADAPTER_REQUIRED` |
 | No active conversation → World binding | 403 | `HOST_CONVERSATION_NOT_AUTHORIZED` |
@@ -513,6 +519,14 @@ The current Core Actor resolver confirms the documented outcomes: zero active bi
 - The Memory Provider remains deployment-configured and fail-closed when unavailable or unauthorized. This contract does not enable production Memory → NPC traffic, claim linearizable revoke through Final-Send, modify Security Gateway, or include Final-Send.
 
 **Current decision: CONTRACT TECHNICALLY ALIGNED; ACCEPTANCE PENDING INDEPENDENT HOST/CORE REVIEWS AND CONTROLLED BRANCH INTEGRATION.**
+
+## 13.1 P0 security integration update — 3 Nov 2026
+
+The current Core follow-up branch adds a server-to-server signed `POST /v1/host/session/revoke` contract and a durable revocation table in the dedicated Host assertion SQLite database. The event nonce and revocation row are committed atomically. The Memory retrieval route now requires the deployment-provided `resolveHostLifecycleIdentity` authority to approve the exact adapter, installation, account, session, and conversation UUID tuple, including a valid root digest and authority snapshot. A correctly signed HMAC assertion alone is not sufficient to authorize a root identity.
+
+The assertion capability rechecks durable session revocation while the asynchronous Consumer/Provider operation is active and again after it returns. A revocation during retrieval discards the result and maps to `401 HOST_SESSION_REVOKED`; restart does not clear the revocation. The Result Envelope and Provider interface remain unchanged. Tests cover invalid signatures, duplicate revocation nonce, logout during a suspended retrieval, session-rotation revocation, unauthorized Root Inventory identity, and revocation persistence after reopening the SQLite file.
+
+**Host-side integration is still required:** SillyTavern server logout and session-rotation hooks must call the new route before destroying/rotating the session. Until that Host hook is implemented and verified against the pinned SillyTavern source, the end-to-end logout acceptance gate remains open and the PR remains Draft.
 
 ## 13. Current exact-head contract revalidation — 2 Nov 2026
 
