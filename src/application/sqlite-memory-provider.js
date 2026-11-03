@@ -846,6 +846,51 @@ export class SQLiteMemoryProvider {
     this.#grantRecord(scope, recordRef, recordVersion, false);
   }
 
+  /**
+   * Serialize the final Core disclosure decision with every Provider mutation
+   * and every Host session revocation using the shared Coordinator. The
+   * callback is deliberately synchronous: no authorization lease may cross an
+   * await boundary. This is the final read-side fence, not a write API.
+   */
+  withAuthorizedReadLease(scope, candidates, callback) {
+    if (!isPlainDataRecord(scope) || !Array.isArray(candidates)
+      || typeof callback !== 'function' || callback.constructor?.name === 'AsyncFunction') {
+      throw new TypeError('Invalid Provider authorized-read lease input');
+    }
+    scope = { world_id: scope.world_id, subject_id: scope.subject_id, purpose: scope.purpose };
+    if (!validId(scope.world_id) || !validId(scope.subject_id) || !validId(scope.purpose)
+      || candidates.length > 50) throw new TypeError('Invalid Provider authorized-read scope');
+    const stableCandidates = candidates.map(candidate => {
+      if (!isPlainDataRecord(candidate)
+        || !validId(candidate.record_ref) || !validId(candidate.record_version)
+        || !Number.isSafeInteger(candidate.authorization_generation)
+        || candidate.authorization_generation < 1) {
+        throw new TypeError('Invalid Provider authorized-read candidate');
+      }
+      return {
+        record_ref: candidate.record_ref,
+        record_version: candidate.record_version,
+        authorization_generation: candidate.authorization_generation,
+      };
+    });
+    return this.#withCoordinatorLock(() => {
+      this.#assertAcceptedHeadCurrent();
+      if (!this.#authorizeQuery(scope)) throw new Error('MEMORY_QUERY_DENIED');
+      for (const candidate of stableCandidates) {
+        this.checkCandidateGrant({
+          ...scope,
+          ...candidate,
+        });
+      }
+      const result = callback();
+      if (result !== null && (typeof result === 'object' || typeof result === 'function')
+        && typeof result.then === 'function') {
+        throw new TypeError('Provider authorized-read callback must be synchronous');
+      }
+      return result;
+    });
+  }
+
   authorizeQuery(scope) {
     return this.#authorizeQuery(scope);
   }
