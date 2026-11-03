@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -48,17 +48,20 @@ try {
   for (const patchPath of [lifecyclePatchPath, unenrolledFixPatchPath, rootMutationPatchPath]) {
     execFileSync('git', ['-C', expectedRoot, 'apply', '--unidiff-zero', patchPath], { stdio: 'ignore' });
   }
-  await mkdir(path.join(expectedRoot, 'plugins'), { recursive: true });
-  await cp(
-    path.join(repoRoot, 'host-adapter/extension-gateway/server-plugin'),
-    path.join(expectedRoot, 'plugins/logic-engine-extension-gateway'),
-    { recursive: true },
-  );
-  await cp(
-    path.join(repoRoot, 'host-adapter/extension-gateway'),
-    path.join(expectedRoot, 'public/scripts/extensions/third-party/logic-engine-extension-gateway'),
-    { recursive: true },
-  );
+  const expectedPluginDir = path.join(expectedRoot, 'plugins/logic-engine-extension-gateway');
+  const expectedClientDir = path.join(expectedRoot, 'public/scripts/extensions/third-party/logic-engine-extension-gateway');
+  await mkdir(expectedPluginDir, { recursive: true });
+  await mkdir(expectedClientDir, { recursive: true });
+  const serverPluginDir = path.join(repoRoot, 'host-adapter/extension-gateway/server-plugin');
+  for (const name of await readdir(serverPluginDir)) {
+    if (name.endsWith('.mjs') || name.endsWith('.js') || name === 'package.json') {
+      await copyFile(path.join(serverPluginDir, name), path.join(expectedPluginDir, name));
+    }
+  }
+  const clientSourceDir = path.join(repoRoot, 'host-adapter/extension-gateway');
+  for (const name of ['index.js', 'gateway-policy.mjs', 'host-context.mjs', 'conversation-identity.mjs', 'manifest.json']) {
+    await copyFile(path.join(clientSourceDir, name), path.join(expectedClientDir, name));
+  }
   const installedHandlerSource = await readFile(path.join(sourceRoot, 'plugins/logic-engine-extension-gateway/st-host-inventory-handler.mjs'));
   if (gitBlobSha(installedHandlerSource) !== handlerBlobSha) {
     throw new Error('HOST_INSTALLED_HANDLER_DIFFERS_FROM_PINNED_HANDLER');
