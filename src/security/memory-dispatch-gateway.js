@@ -180,7 +180,7 @@ function normalizeLaneA(value) {
   });
 }
 
-const NON_CHAT_SENDER_ROUTES = new Set(['text-completions', 'kobold', 'novelai-text']);
+const NON_CHAT_SENDER_ROUTES = new Set(['text-completions', 'kobold', 'novelai-text', 'horde-text']);
 const HOST_ROUTE_BY_SENDER = new Map(PROTECTED_MEMORY_SENDER_ROUTES.map(senderRoute => [
   senderRoute,
   NON_CHAT_SENDER_ROUTES.has(senderRoute) ? senderRoute : 'chat-completions',
