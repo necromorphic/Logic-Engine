@@ -23,6 +23,8 @@ The Gateway receives a non-serializable, request-scoped transport capability fro
 ## Pinned generation-route inventory
 
 The local patch wraps these five native ST generation handlers:
+The uploaded archive's full `src/endpoints` route scan found no additional native text-generation handler: `azure.js` `/generate` is TTS; OpenAI/Google/Anthropic/Minimax/Volcengine routes are image/audio/caption or metadata operations. All 26 chat provider sources funnel through the common Chat Completions handler.
+
 
 | Native route | Gateway sender identities |
 |---|---|
