@@ -115,6 +115,7 @@ export async function revokeHostSessionBeforeLogout(request, {
   fetchImpl = globalThis.fetch,
   getDataRoot = () => typeof globalThis.DATA_ROOT === 'string' && globalThis.DATA_ROOT.trim()
     ? path.resolve(globalThis.DATA_ROOT) : null,
+  reason = 'logout',
 } = {}) {
   if (!request?.session || request.session.logicEngineSessionId === undefined) return false;
   const directory = env.LOGIC_ENGINE_HOST_IDENTITY_DIR;
@@ -123,5 +124,5 @@ export async function revokeHostSessionBeforeLogout(request, {
   }
   const identityStore = new HostIdentityStore({ directory });
   const revoke = createHostSessionRevocationClient({ env, fetchImpl, identityStore, getDataRoot });
-  return revoke(request, 'logout');
+  return revoke(request, reason);
 }
