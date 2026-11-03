@@ -147,6 +147,23 @@ const request = () => ({
   conversationId: HOST_CONVERSATION_ID,
 });
 
+test('Final-Send Core evidence reader denies non-file-backed Core and absent Coordinator lease', (t) => {
+  const { consumer, scope } = setup(t);
+  assert.throws(() => consumer.readDispatchEvidenceSync({
+    worldId: scope.world_id,
+    actorId: scope.subject_id,
+    purpose: scope.purpose,
+    sources: [],
+    hostContext: {
+      adapter_id: 'adapter-a',
+      core_conversation_id: HOST_CONVERSATION_ID,
+      world_id: scope.world_id,
+      actor_id: scope.subject_id,
+    },
+    coordinatorLease: () => {},
+  }), /MEMORY_DISPATCH_NOT_READY/);
+});
+
 test('Core disclosure envelope rejects malformed, incomplete and unrequested data', async (t) => {
   const corruptions = [
     ['null envelope', () => null, 'authorized_source_read_invalid'],
