@@ -152,9 +152,12 @@ export async function verifyPinnedSourceIdentity({
       return { status: 'NON_READY', code: 'HOST_SOURCE_ROOT_INVALID' };
     }
     const root = await realpath(installRoot);
-    const manifestFile = typeof manifestPath === 'string' && path.isAbsolute(manifestPath)
-      ? manifestPath
-      : path.join(root, 'plugins', 'logic-engine-extension-gateway', 'pinned-source-manifest.json');
+    const manifestFile = path.join(root, 'plugins', 'logic-engine-extension-gateway', 'pinned-source-manifest.json');
+    if (manifestPath !== undefined
+      && (typeof manifestPath !== 'string' || !path.isAbsolute(manifestPath)
+        || path.resolve(manifestPath) !== manifestFile)) {
+      return { status: 'NON_READY', code: 'HOST_SOURCE_MANIFEST_PATH_INVALID' };
+    }
     const manifestStat = await lstat(manifestFile);
     if (!manifestStat.isFile() || manifestStat.isSymbolicLink()) {
       return { status: 'NON_READY', code: 'HOST_SOURCE_MANIFEST_UNAVAILABLE' };
@@ -167,9 +170,7 @@ export async function verifyPinnedSourceIdentity({
     const clientPrefix = 'public/scripts/extensions/third-party/logic-engine-extension-gateway/';
     const pluginNames = SOURCE_FILE_PATHS.filter(file => file.startsWith(pluginPrefix))
       .map(file => file.slice(pluginPrefix.length));
-    const manifestIsInstalled = path.resolve(manifestFile)
-      === path.resolve(root, pluginPrefix, 'pinned-source-manifest.json');
-    if (manifestIsInstalled) pluginNames.push('pinned-source-manifest.json');
+    pluginNames.push('pinned-source-manifest.json');
     const clientNames = SOURCE_FILE_PATHS.filter(file => file.startsWith(clientPrefix))
       .map(file => file.slice(clientPrefix.length));
     // SillyTavern server plugins and third-party browser extensions can add
