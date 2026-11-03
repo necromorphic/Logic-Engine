@@ -18,6 +18,8 @@ on:
       - 'docs/security/sqlite-database-role-inventory.md'
       - 'native/secure-vfs-probe/README.md'
       - 'deploy/sqlite-security/**'
+      - 'tests/sqlite-windows-acl-installer.test.js'
+      - 'tests/sqlite-windows-acl-installer.test.js'
       - 'schemas/sqlite-role-manifest.schema.json'
       - 'tests/sqlite-role-manifest-schema.test.js'
       - '.github/workflows/security-vfs-extension-bootstrap.yml'
@@ -81,6 +83,8 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '22.13.0'
+      - name: Test recursive Windows service ACL policy
+        run: node --test tests/sqlite-windows-acl-installer.test.js
       - name: Parse and test Windows service installer path guards
         shell: pwsh
         run: |
