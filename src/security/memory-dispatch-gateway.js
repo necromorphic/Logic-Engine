@@ -566,6 +566,12 @@ export class MemoryDispatchGateway {
       assertSameSources(provider.sources, sourceSet);
       assertSameCandidates(provider.candidates, candidateSet);
       policyAuthority = normalizePolicyAuthority(core.policy_authority);
+      if (laneASnapshot.items.length > 0) {
+        const laneAResult = revalidateLaneA(release);
+        if (!laneAResult || laneAResult.status !== 'ready' || typeof laneAResult.then === 'function') {
+          throw new Error('MEMORY_DISPATCH_LANE_A_REVALIDATION_DENIED');
+        }
+      }
       coreHead = core.head;
       providerHead = provider.head;
 
