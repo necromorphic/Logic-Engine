@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -52,6 +52,24 @@ const [events, script, groupChats, chatBackups, serverMain, hostRoutePatch, life
 const mutationSources = Object.fromEntries(
   mutationPaths.map((path, index) => [path, mutationContents[index]]),
 );
+
+const endpointDirectory = resolve(root, 'src/endpoints');
+const endpointEntries = await readdir(endpointDirectory, { withFileTypes: true });
+const endpointMutationCandidates = [];
+const filesystemMutationPrimitive = /\\b(?:fs|fsPromises|fs\\.promises)\\.(?:writeFile(?:Sync)?|writeFileAtomicSync?|writeFileSyncAtomic|tryWriteFileSync|copyFile(?:Sync)?|rename(?:Sync)?|unlink(?:Sync)?|rm(?:Sync)?|mkdir(?:Sync)?|createWriteStream)\\b|\\b(?:writeFileAtomicSync?|writeFileSyncAtomic|tryWriteFileSync)\\s*\\(/;
+for (const entry of endpointEntries) {
+  if (!entry.isFile() || !entry.name.endsWith('.js')) continue;
+  const relative = 'src/endpoints/' + entry.name;
+  const source = mutationSources[relative] ?? await readFile(resolve(root, relative), 'utf8');
+  if (filesystemMutationPrimitive.test(source) && !mutationPaths.includes(relative)) {
+    endpointMutationCandidates.push(relative);
+  }
+}
+
+test('every endpoint module with direct filesystem mutation primitives is in the reviewed source inventory', () => {
+  assert.deepEqual(endpointMutationCandidates, [],
+    'Add each newly discovered mutating endpoint to mutationPaths, SOURCE_FILE_PATHS, and an explicit route disposition');
+});
 
 test('audit input is the exact pinned SillyTavern commit', async () => {
   if (existsSync(resolve(root, '.git'))) {
