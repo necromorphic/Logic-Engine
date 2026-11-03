@@ -129,7 +129,7 @@ async function createFixture({ sendUpstream, createTransport, coreHead = 1, prov
       policy_authority,
       sources,
     }),
-    readProviderEvidence: ({ worldId, actorId, purpose, sources, candidates }) => ({
+    readProviderEvidence: ({ worldId, actorId, purpose, sources, candidates, providerEvidenceCursor }) => ({
       head: providerHead,
       world_id: worldId,
       actor_id: actorId,
@@ -138,6 +138,7 @@ async function createFixture({ sendUpstream, createTransport, coreHead = 1, prov
       readiness: 'READY',
       sources,
       candidates: currentProviderCandidatesOverride ?? candidates,
+      provider_evidence_cursor: providerEvidenceCursor,
     }),
     readHostEvidence: ({ hostContext: binding, worldId, actorId }) => ({
       status: hostInventoryReady ? 'READY' : 'NON_READY',
@@ -202,6 +203,14 @@ const validRequest = (requestId = 'request-001', overrides = {}) => ({
   purpose: 'recall',
   sources: sourceSet,
   hostContext,
+  laneA: {
+    lane: 'A',
+    purpose: 'npc_turn_context',
+    authorization_ref: 'core-read-authorization',
+    visibility_authorization_ref: 'core-visibility-policy',
+    items: [],
+  },
+  providerEvidenceCursor: { data_version: 7, candidate_digest: 'f'.repeat(64) },
   candidates: [{
     record_ref: 'record-42',
     record_version: 'record-version-3',
@@ -804,6 +813,21 @@ test('local Core or Provider head mismatch prevents dispatch before transport', 
   try {
     await assert.rejects(
       fixture.gateway.dispatchProtectedRequest(validRequest('stale-local-head')),
+      /MEMORY_DISPATCH_NOT_READY/,
+    );
+    assert.equal(fixture.calls.length, 0);
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('missing Lane A is NON_READY and cannot be treated as an empty Core projection', async () => {
+  const fixture = await createFixture();
+  try {
+    const request = validRequest('missing-lane-a');
+    delete request.laneA;
+    await assert.rejects(
+      fixture.gateway.dispatchProtectedRequest(request),
       /MEMORY_DISPATCH_NOT_READY/,
     );
     assert.equal(fixture.calls.length, 0);

@@ -11,7 +11,10 @@ import { MemoryNpcConsumer } from './memory-npc-consumer.js';
 import { createHostBoundNpcKnowledgeAuthorizers } from './npc-knowledge-authorization.js';
 import { SQLiteMemoryProvider } from './sqlite-memory-provider.js';
 import { isMechanicPolicyAuthority } from './mechanic-policy-authority.js';
-import { runWithAuthenticatedHostSession } from './host-session-context.js';
+import { getAuthenticatedHostSessionContext, isAuthenticatedHostSessionContext, runWithAuthenticatedHostSession } from './host-session-context.js';
+import { createCoreNpcGenerationContextRuntime } from './npc-generation-context-runtime.js';
+
+const validCoreId = value => typeof value === 'string' && value.length > 0 && value.length <= 200 && value === value.trim();
 
 function canonicalFilePath(path) {
   let candidate = resolve(path);
@@ -167,9 +170,42 @@ export function createMemoryNpcProviderAdapter({
       readDispatchEvidenceSync: (...args) => consumer.readDispatchEvidenceSync(...args),
     });
 
+    const resolveAuthenticatedNpcScope = () => {
+      const hostContext = getAuthenticatedHostSessionContext();
+      if (!isAuthenticatedHostSessionContext(hostContext, hostContext?.conversation_id)) throw new Error('HOST_SESSION_AUTHENTICATION_REQUIRED');
+      const conversation = hostConversationWorldBindingService.resolve({ adapterId, conversationId: hostContext.conversation_id });
+      const worldId = conversation?.world_id;
+      if (!validCoreId(worldId) || hostContext.world_id !== worldId) throw new Error('HOST_CONVERSATION_BINDING_CHANGED');
+      const actorBinding = actorBindingService.resolveForAdapter(worldId, adapterId);
+      const actorId = actorBinding?.actor?.entity_id;
+      const exactBinding = actorBindingService.resolve(worldId, adapterId, actorId);
+      if (!validCoreId(actorId) || exactBinding?.world_id !== worldId
+        || exactBinding?.adapter_id !== adapterId || exactBinding?.actor?.entity_id !== actorId
+        || hostContext.actor_id !== actorId) throw new Error('HOST_ACTOR_BINDING_CHANGED');
+      const snapshot = engine.getSnapshot(worldId);
+      if (!snapshot || snapshot.status !== 'active'
+        || !Number.isSafeInteger(snapshot.world_revision) || snapshot.world_revision < 0
+        || !Number.isSafeInteger(snapshot.commit_sequence) || snapshot.commit_sequence < 0) throw new Error('CORE_WORLD_SNAPSHOT_UNAVAILABLE');
+      return {
+        world_id: worldId, actor_id: actorId, conversation_id: hostContext.conversation_id,
+        adapter_id: adapterId, recipient: 'model', purpose: 'npc_turn_context',
+        snapshot: { world_revision: snapshot.world_revision, commit_sequence: snapshot.commit_sequence },
+      };
+    };
+    // The generation-context runtime is available only when the deployment
+    // has configured the independent Core per-acquisition visibility authority.
+    // Without it, preserve the existing Memory adapter but expose no context builder.
+    const npcGenerationContext = typeof engine.npcKnowledgeReadAuthorizer === 'function'
+      && typeof engine.npcKnowledgeVisibilityAuthorizer === 'function'
+      ? createCoreNpcGenerationContextRuntime({
+        engine, consumer: consumerFacade, adapterId, resolveAuthenticatedScope: resolveAuthenticatedNpcScope,
+      })
+      : null;
+
     const adapter = {
       adapterId,
       provider: providerControl,
+      npcGenerationContext,
       consumer: consumerFacade,
       // Internal Final-Send composition only. This is a synchronous, read-only
       // evidence seam and still requires the exact shared Coordinator lease.

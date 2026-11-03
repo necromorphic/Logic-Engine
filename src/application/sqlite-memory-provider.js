@@ -191,6 +191,7 @@ export class SQLiteMemoryProvider {
   #queryAuthorizationGeneration;
   #recordAuthorizationGeneration;
   #acceptedHeadConfig;
+  #observerOnly;
 
   constructor(options = {}) {
     if (!isPlainDataRecord(options)) throw new TypeError('SQLiteMemoryProvider requires plain data options');
@@ -201,9 +202,11 @@ export class SQLiteMemoryProvider {
       validateSourceVersion,
       validateInventory,
       authorizeRawRead = null,
+      observerOnly = false,
     } = options;
     // Reject non-string paths before Node path helpers can coerce caller-owned
     // objects and execute their Symbol.toPrimitive/valueOf hooks.
+    if (typeof observerOnly !== 'boolean') throw new TypeError('SQLiteMemoryProvider observerOnly must be boolean');
     if (typeof path !== 'string' || path.length === 0) {
       throw new TypeError('SQLiteMemoryProvider path must be a non-empty string');
     }
@@ -214,6 +217,7 @@ export class SQLiteMemoryProvider {
     if (typeof validateSourceVersion !== 'function') {
       throw new TypeError('SQLiteMemoryProvider requires trusted validateSourceVersion');
     }
+    this.#observerOnly = observerOnly;
     this.#getSnapshot = getSnapshot;
     this.#validateSourceVersion = validateSourceVersion;
     if (typeof validateInventory !== 'function') {
@@ -250,7 +254,7 @@ export class SQLiteMemoryProvider {
     let startupError = null;
     try {
       releaseStartupLock = this.#acquireCoordinatorLock();
-      this.#db = new DatabaseSync(path);
+      this.#db = new DatabaseSync(path, observerOnly ? { readOnly: true } : undefined);
       const schemaSql = `
       PRAGMA foreign_keys = ON;
       CREATE TABLE IF NOT EXISTS memory_records (
@@ -329,7 +333,32 @@ export class SQLiteMemoryProvider {
           ON DELETE CASCADE
       );
     `;
-      if (!this.#acceptedHeadConfig) {
+      if (observerOnly) {
+        if (!this.#acceptedHeadConfig) throw new Error('PROVIDER_ACCEPTED_HEAD_AUTHORITY_REQUIRED');
+        const existingObjects = new Set(this.#db.prepare(
+          "SELECT type || ':' || name AS object_name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'",
+        ).all().map((row) => row.object_name));
+        const requiredObjects = [...schemaSql.matchAll(/CREATE\s+(?:UNIQUE\s+)?(TABLE|INDEX)\s+IF\s+NOT\s+EXISTS\s+([A-Za-z_][A-Za-z0-9_]*)/gi)]
+          .map((match) => match[1].toLowerCase() + ':' + match[2]);
+        if (requiredObjects.some((objectName) => !existingObjects.has(objectName))) {
+          throw new Error('PROVIDER_SCHEMA_INCOMPLETE');
+        }
+        const status = getAcceptedHeadStatusSync({
+          port: this.#acceptedHeadConfig.port,
+          token: this.#acceptedHeadConfig.token,
+        });
+        const local = this.#db.prepare(
+          'SELECT head,enrolled,last_operation_id,last_operation_digest FROM accepted_head_state WHERE singleton=1',
+        ).get();
+        if (!local || local.enrolled !== 1 || !Number.isSafeInteger(local.head) || local.head < 1
+          || status.pending.core || status.pending.provider
+          || status.operations.core || status.operations.provider
+          || !status.enrolled.core || !status.enrolled.provider
+          || status.heads.provider !== local.head || status.heads.core < 1) {
+          throw new Error('PROVIDER_ACCEPTED_HEAD_MISMATCH');
+        }
+      } else {
+        if (!this.#acceptedHeadConfig) {
         const hasHeadTable = this.#db.prepare("SELECT 1 AS present FROM sqlite_master WHERE type='table' AND name='accepted_head_state'").get();
         if (hasHeadTable && this.#db.prepare('SELECT enrolled FROM accepted_head_state WHERE singleton=1').get()?.enrolled === 1) {
           throw new Error('PROVIDER_ACCEPTED_HEAD_AUTHORITY_REQUIRED');
@@ -386,6 +415,8 @@ export class SQLiteMemoryProvider {
           throw new Error('PROVIDER_ACCEPTED_HEAD_MISMATCH');
         }
       }
+
+      }
     } catch (error) {
       startupError = error;
     } finally {
@@ -441,6 +472,22 @@ export class SQLiteMemoryProvider {
   }
 
   #withImmediateTransaction(work) {
+    if (this.#observerOnly) {
+      return this.#withCoordinatorLock(() => {
+        this.#db.exec('BEGIN');
+        this.#transactionDepth += 1;
+        try {
+          const result = work();
+          this.#db.exec('COMMIT');
+          return result;
+        } catch (error) {
+          try { this.#db.exec('ROLLBACK'); } catch {}
+          throw error;
+        } finally {
+          this.#transactionDepth -= 1;
+        }
+      });
+    }
     return this.#withCoordinatorLock(() => {
       this.#db.exec('BEGIN IMMEDIATE');
       this.#transactionDepth += 1;
@@ -756,6 +803,7 @@ export class SQLiteMemoryProvider {
   }
 
   #setState(worldId, indexHealth, reconciliation, snapshot = null, failureCode = null) {
+    if (this.#observerOnly) throw new Error('PROVIDER_OBSERVER_READ_ONLY');
     this.#withSerializedWrite(() => {
       this.#db.prepare(`INSERT INTO memory_index_state
         (world_id,index_health,source_reconciliation,snapshot_revision,snapshot_sequence,failure_code,updated_at)
