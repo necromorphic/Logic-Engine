@@ -457,6 +457,9 @@ function normalizeRootInventoryResponse(upstream) {
     ...(Number.isSafeInteger(reconciliation.sequence) ? { sequence: reconciliation.sequence } : {}),
     ...(typeof reconciliation.manifest_sha256 === 'string' ? { manifest_sha256: reconciliation.manifest_sha256 } : {}),
     ...(typeof reconciliation.delta_sha256 === 'string' ? { delta_sha256: reconciliation.delta_sha256 } : {}),
+    ...(typeof reconciliation.source_manifest_sha256 === 'string'
+      && /^[a-f0-9]{64}$/.test(reconciliation.source_manifest_sha256)
+      ? { source_manifest_sha256: reconciliation.source_manifest_sha256 } : {}),
     ...(reconciliation.reason ? { reason: reconciliation.reason } : {}),
     ...(reconciliation.counts ? { counts: reconciliation.counts } : {}),
     ...(reconciliation.duplicate ? { duplicate: true } : {}),
