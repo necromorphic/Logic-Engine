@@ -258,6 +258,17 @@ export class SQLiteStore {
     this.coordinatorLeaseDepth = 0;
     try {
       if (readOnly && corePath === ':memory:') throw new Error('CORE_READ_ONLY_REQUIRES_FILE_BACKED_STORE');
+      if (readOnly) {
+        if (!existsSync(corePath) || !coordinatorPath || !existsSync(coordinatorPath)) {
+          throw new Error('CORE_READ_ONLY_REQUIRES_EXISTING_FILES');
+        }
+        const coordinatorCheck = new DatabaseSync(resolve(coordinatorPath), { readOnly: true });
+        try {
+          if (!coordinatorCheck.prepare(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='coordinator_lock'",
+          ).get()) throw new Error('CORE_COORDINATOR_SCHEMA_UNAVAILABLE');
+        } finally { coordinatorCheck.close(); }
+      }
       this.db = new DatabaseSync(corePath, readOnly ? { readOnly: true } : undefined);
       if (this.coordinatorDb) {
         this.coordinatorRelease = beginCoordinatorLock(this.coordinatorDb);
