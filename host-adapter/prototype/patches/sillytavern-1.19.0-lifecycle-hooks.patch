@@ -1084,23 +1084,23 @@ diff --git a/src/endpoints/users-private.js b/src/endpoints/users-private.js
  const RESET_POINTS = getConfigValue('rateLimiting.accountsResetMaxAttempts', 5, 'number');
  const PREFER_REAL_IP_HEADER = getConfigValue('rateLimiting.preferRealIpHeader', false, 'boolean');
  const RESET_CACHE = new Cache(5 * 60 * 1000);
-@@ -34,0 +38,6 @@
+@@ -34,0 +40,6 @@
 +        try {
 +            await revokeHostSessionBeforeLogout(request);
 +        } catch {
 +            return response.status(503).json({ error: 'Host session revocation unavailable; session was not logged out.' });
 +        }
 +
-@@ -68 +72 @@
+@@ -68 +80 @@
 -router.post('/change-avatar', async (request, response) => {
 +router.post('/change-avatar', hostUnsupportedMutationGuard, async (request, response) => {
-@@ -103 +109 @@
+@@ -103 +115 @@
 -router.post('/change-password', async (request, response) => {
 +router.post('/change-password', hostUnsupportedMutationGuard, async (request, response) => {
-@@ -156 +164 @@
+@@ -156 +168 @@
 -router.post('/backup', async (request, response) => {
 +router.post('/backup', hostUnsupportedMutationGuard, async (request, response) => {
-@@ -181,7 +184,7 @@
+@@ -181,7 +193,7 @@
      }
  });
  
@@ -1108,10 +1108,10 @@ diff --git a/src/endpoints/users-private.js b/src/endpoints/users-private.js
 +router.post('/reset-settings', hostBulkMutationGuard, async (request, response) => {
      try {
          const password = request.body.password;
-@@ -204 +218 @@
+@@ -204 +216 @@
 -router.post('/change-name', async (request, response) => {
 +router.post('/change-name', hostUnsupportedMutationGuard, async (request, response) => {
-@@ -258,7 +261,12 @@
+@@ -258,7 +270,12 @@
      }
  });
  
