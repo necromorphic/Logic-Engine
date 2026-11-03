@@ -33,3 +33,23 @@ test('legacy group metadata migration is visible as a Host inventory blocker', {
   assert.equal(inventory.legacy_group_metadata_count, 1);
   assert.ok(inventory.blockers.includes('LEGACY_GROUP_METADATA_MIGRATION_PENDING'));
 });
+
+test('an empty chat root can still produce a complete current logical-identity inventory', {
+  skip: process.platform === 'win32',
+}, async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'logic-engine-empty-chat-root-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const directories = {
+    chats: path.join(root, 'chats'),
+    groups: path.join(root, 'groups'),
+    groupChats: path.join(root, 'group chats'),
+  };
+  await Promise.all(Object.values(directories).map(directory => mkdir(directory, { recursive: true })));
+
+  const inventory = await enumeratePinnedSillyTavernChatFiles({ directories, hostCommit: HOST_COMMIT });
+  assert.equal(inventory.status, 'DOUBLE_SCAN_CANDIDATE');
+  assert.equal(inventory.file_count, 0);
+  assert.equal(inventory.logical_identity_status, 'CURRENT_FILE_IDENTITIES_VERIFIED');
+  assert.deepEqual(inventory.files, []);
+  assert.ok(!inventory.blockers.includes('CURRENT_CHAT_LOGICAL_IDENTITY_INCOMPLETE'));
+});
