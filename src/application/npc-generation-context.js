@@ -171,7 +171,11 @@ function validateLaneB(envelope, scope) {
         || !/^core-entity-v1:[1-9][0-9]*$/.test(candidate.source_version)
         || !validId(candidate.epistemic_kind)
         || !['unassessed', 'supported', 'disputed', 'insufficient'].includes(candidate.evidence_assessment)
-        || admitted.record_ref !== candidate.record_ref || admitted.record_version !== candidate.record_version) return false;
+        || admitted.record_ref !== candidate.record_ref || admitted.record_version !== candidate.record_version
+        || (Object.hasOwn(admitted, 'epistemic_kind')
+          && admitted.epistemic_kind !== candidate.epistemic_kind)
+        || (Object.hasOwn(admitted, 'evidence_assessment')
+          && admitted.evidence_assessment !== candidate.evidence_assessment)) return false;
       const identity = JSON.stringify([candidate.record_ref, candidate.record_version]);
       if (identities.has(identity)) return false;
       identities.add(identity);
