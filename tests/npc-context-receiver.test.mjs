@@ -74,6 +74,10 @@ test('receiver converts only matching Core-admitted candidates into Gateway meta
     evidence_assessment: 'supported',
     content: { 'attributes.public_note': 'A trusted source statement.' },
   }]);
+  assert.equal(result.hostContext.core_conversation_id, hostContext.conversation_id);
+  assert.equal(result.hostContext.host_session_id, hostBinding.host_session_id);
+  assert.equal(result.hostContext.root_id, hostBinding.root_id);
+  assert.equal(result.hostContext.root_inventory_sequence, 1);
 });
 
 test('authorized complete-empty result is preserved as an empty ready context', () => {
