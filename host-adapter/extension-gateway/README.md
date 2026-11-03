@@ -1,13 +1,14 @@
 # SillyTavern Host Adapter and Final-Send integration
 
-**Status: integration candidate. Protected Memory → NPC remains NON_READY / FAIL-CLOSED.**
+**Status: production-composition candidate; exact-head acceptance remains pending. Protected Memory remains FAIL-CLOSED until all deployment authorities and CI gates are ready.**
 
 ## One generation ingress and one model egress path
 
-The browser Extension does not intercept, abort, or independently dispatch generation. It listens to SillyTavern's awaited generation-data events and adds only four untrusted correlation fields to the native request:
+The browser Extension does not intercept, abort, or independently dispatch generation. It listens to SillyTavern's awaited generation-data events and adds only five untrusted correlation fields to the native request:
 
 - `logic_engine_conversation_uuid`
 - `logic_engine_request_id`
+- `logic_engine_generation_id`
 - `logic_engine_context_size`
 - `logic_engine_generation_type`
 
@@ -15,7 +16,7 @@ For Chat Completions it attaches these at `CHAT_COMPLETION_SETTINGS_READY`; for 
 
 The managed pinned SillyTavern Final-Send Hook wraps all five native generation route families. The server-side Final-Send plugin derives the actual route from the Express request path, authenticates the Host session, and calls `createSillyTavernHostAdapter.prepareGenerationContext()` on that same request. The Host Adapter re-resolves the supplied conversation UUID against its complete server-side inventory, obtains Core's World/Actor binding, and retrieves the Core Memory NPC result. The NPC Context Receiver validates the exact ready envelope and source lineage before any content can be serialized into the upstream provider request.
 
-**Current wiring state:** this directory's `server-plugin/index.mjs` is the separate public Host-ingress plugin; it registers only bounded Host Adapter routes. The native Final-Send Hook is owned by the repository-root `index.mjs`, installed as `plugins/logic-engine/index.mjs`. That entrypoint imports the NPC Context Receiver, constructs and registers the Final-Send adapter with the patched Hook, and uses an explicit `unavailableGateway` stub. Therefore the receiver/adapter registration is connected, but a real protected dispatch is not: complete-empty retrieval may use native generation, while non-empty protected context is denied before provider transport. Production remains NON_READY until the stub is replaced by a real Gateway with synchronous Core, Provider and Host evidence readers under the shared Coordinator.
+**Current wiring state:** this directory's `server-plugin/index.mjs` is the separate public Host-ingress plugin; it registers only bounded Host Adapter routes. The native Final-Send Hook is owned by the repository-root `index.mjs`, installed as `plugins/logic-engine/index.mjs`. That entrypoint now constructs `createEmbeddedGatewayRuntime()`, registers its real `MemoryDispatchGateway`, and connects `createNpcGenerationContextHostBridge()` to the authenticated Host request/response lifecycle. The opaque one-shot handoff is consumed synchronously at dispatch; the Host AsyncLocalStorage capability remains active through model execution and final response revalidation. The embedded Gateway composes synchronous Core, Provider and Host evidence readers under the shared Coordinator. Host session revocation is re-read from the separate `ENGINE_HOST_ASSERTION_NONCE_DB_PATH` ledger at dispatch-start and final release; the Core revocation writer acquires the same Coordinator lease before committing. `unavailableGateway` is retained only when Memory integration is explicitly disabled.
 
 There is no browser-facing `/dispatch` route. The old prototype that aborted native generation and returned Memory context to the browser has been removed from the installed Extension path. The only protected model egress is the native sender call intercepted by the managed Final-Send Hook.
 
@@ -49,16 +50,18 @@ Enable SillyTavern's native `enableServerPlugins: true` setting. Keep server-plu
 - `LOGIC_ENGINE_HOST_IDENTITY_DIR` must be an absolute deployment-owned directory outside SillyTavern's global `DATA_ROOT`.
 - `LOGIC_ENGINE_HOST_BUILD_SHA` is a deployment claim matched to the pinned commit, not runtime attestation.
 
-The current Host root-inventory authority is review-only. A first baseline, unchanged review-only result, or unverified mutation is not production-authoritative. Consequently, the protected generation path remains NON_READY unless Core returns an authoritative complete inventory result.
+Host root-inventory authority is accepted only when the persisted lifecycle chain is complete and the latest signed Root Inventory Attestation verifies against the deployment-owned root identity registry and exact pinned source-manifest digest. The embedded Gateway rechecks this read-only authority under its shared Coordinator lease at dispatch-start and final response release. First baselines, review-only inventory, unverified mutations, missing registry entries or invalid signatures remain NON_READY. Fresh-account lifecycle genesis support is still tracked by PR #880.
 
 ## NPC Context Receiver and serialization
 
-The server-side `receiveNpcContext()` accepts only a Core-produced `status: ready` envelope, verifies admitted/candidate identity pairs, requires exact source versions, rejects accessors/Proxy-backed values and bounds content size. It derives World/Actor from Core context and retains the authenticated Host tuple plus root inventory head.
+The Core NPC Generation Context Builder produces an immutable context with separate Lane A (Core-authorized knowledge acquisitions) and Lane B (Provider-backed Memory evidence). The Host bridge binds its opaque handoff to the exact SillyTavern request and response objects; it never serializes context across HTTP or browser boundaries. The Gateway consumes that handoff once and obtains the Lane-B evidence cursor and Lane-A revalidation closure.
 
-The protected Final-Send serializer injects admitted content into the actual provider body after native provider transformations: a system message for Chat Completions, or the appropriate prompt/input field for Text Completions, Kobold, NovelAI and Horde. Host-only correlation fields are stripped before upstream transport. The Gateway ledger receives source/candidate metadata and the exact serialized body digest; Memory content is not copied into the durable ledger.
+The protected Final-Send serializer projects Lane A and Lane B into separate labelled sections after native provider transformations: a system message for Chat Completions, or the appropriate prompt/input field for Text Completions, Kobold, NovelAI and Horde. Lane A retains acquisition/fact/subject/predicate/value and provenance; internal authorization references stay in the Gateway evidence envelope and are not copied into the model prompt. Lane B retains epistemic kind and evidence assessment. Host-only correlation fields, including request and generation IDs, are stripped before upstream transport. The Gateway ledger receives source/candidate metadata and the exact serialized body digest; Memory content is not copied into the durable ledger.
 
 ## Current production gate
 
-The Host request → Core retrieval → NPC Context Receiver → Final-Send adapter registration → exact request serialization path is implemented as an integration candidate. The in-process Gateway is still intentionally unavailable: production Core/Provider/Host evidence readers are not yet composed under the shared Coordinator. The server plugin therefore uses a non-transport Gateway stub. A non-empty protected Memory result is denied before native egress; it cannot fall through to an alternative sender. An authorized complete-empty result contains no protected content and may use the ordinary native path.
+The Host request → Core scope resolution → NPC Builder/Receiver → one-shot Host bridge → Gateway → model transport → Final-Send response release path is now composed in the root plugin. The Gateway performs durable dispatch-start, accepted-head/Core/Provider/Host evidence reads and final response revalidation. Non-empty Lane A and Lane B are projected separately; a complete-empty result may use native generation only after both lanes are independently revalidated and empty. Any missing handoff, non-ready lane, unknown sender, revoke race, stale Host inventory, missing authority or ambiguous dispatch is terminal and cannot fall through to an alternative sender.
+
+This is still an integration candidate, not P0 acceptance: PR #880's fresh-account genesis, exact-head CI, pinned installed-source attestation, and the full sender/stream/revoke/retry/cancel/crash matrix remain outstanding.
 
 Do not enable `LOGIC_ENGINE_MEMORY_NPC_ENABLED=true` for production until the real Gateway readers, Host inventory revalidation, accepted-head checks, Coordinator lease, revoke race, crash/restart replay and final response write tests all pass on the same commit.
