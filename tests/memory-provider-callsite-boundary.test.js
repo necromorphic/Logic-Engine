@@ -23,7 +23,7 @@ function walk(directory) {
 
 function sourceFiles(directory) {
   return walk(join(root, directory)).map((absolute) => ({
-    path: relative(root, absolute).replaceAll('\\', '/'),
+    path: relative(root, absolute).replaceAll('\', '/'),
     content: readFileSync(absolute, 'utf8'),
   }));
 }
@@ -133,8 +133,8 @@ test('SillyTavern Host/extension code cannot import or call Provider/Consumer di
 
 test('production API cannot wire the legacy Host HTTP route to a Consumer', () => {
   const entrypoint = readFileSync(join(root, 'src/index.js'), 'utf8');
-  assert.doesNotMatch(entrypoint, /memoryNpcConsumers\\s*\\[\\s*adapterId\\s*\\]\\s*=/);
-  assert.doesNotMatch(entrypoint, /\\n\\s*memoryNpcConsumers,\\s*\\n/);
+  assert.doesNotMatch(entrypoint, /memoryNpcConsumers\s*\[\s*adapterId\s*\]\s*=/);
+  assert.doesNotMatch(entrypoint, /\n\s*memoryNpcConsumers,\s*\n/);
   assert.match(entrypoint, /legacy HTTP Host→Consumer retrieval bridge is intentionally not/);
 });
 
@@ -144,11 +144,11 @@ test('production NPC retrieval is confined to the in-process embedded Gateway co
   const dispatchServer = readFileSync(join(root, 'src/security/memory-dispatch-gateway-server.js'), 'utf8');
   assert.match(hostEntrypoint, /createEmbeddedGatewayRuntime/);
   assert.match(hostEntrypoint, /createNpcGenerationContextHostBridge/);
-  assert.match(embedded, /observerOnly:\\s*true/);
-  assert.match(embedded, /readCoreEvidence:\\s*input\\s*=>\\s*providerAdapter\\.consumer\\.readDispatchEvidenceSync/);
-  assert.match(embedded, /readProviderEvidence:\\s*input\\s*=>\\s*providerAdapter\\.readDispatchEvidenceSync/);
+  assert.match(embedded, /observerOnly:\s*true/);
+  assert.match(embedded, /readCoreEvidence:\s*input\s*=>\s*providerAdapter\.consumer\.readDispatchEvidenceSync/);
+  assert.match(embedded, /readProviderEvidence:\s*input\s*=>\s*providerAdapter\.readDispatchEvidenceSync/);
   assert.match(dispatchServer, /IN_PROCESS_TRANSPORT_REQUIRED/);
-  assert.doesNotMatch(dispatchServer, /gateway\\.dispatchProtectedRequest\\s*\\(/);
+  assert.doesNotMatch(dispatchServer, /gateway\.dispatchProtectedRequest\s*\(/);
 });
 
 test('Provider write/grant/revoke methods are callable only inside the approved Core composition boundary', () => {
