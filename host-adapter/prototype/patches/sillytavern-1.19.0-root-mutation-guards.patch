@@ -232,10 +232,18 @@ diff --git a/src/endpoints/avatars.js b/src/endpoints/avatars.js
 @@ -4,0 +5,2 @@
 +import { createHostUnsupportedMutationGuard } from './logic-engine-host-inventory-handler.mjs';
 +const hostUnsupportedMutationGuard = createHostUnsupportedMutationGuard();
-@@ -22 +24 @@
+@@ -17,6 +19,6 @@
+ router.post('/get', function (request, response) {
+     const images = getImages(request.user.directories.avatars);
+     response.send(images);
+ });
+ 
 -router.post('/delete', getFileNameValidationFunction('avatar'), function (request, response) {
 +router.post('/delete', hostUnsupportedMutationGuard, getFileNameValidationFunction('avatar'), function (request, response) {
-@@ -41 +43 @@
+@@ -39,3 +41,3 @@
+     return response.sendStatus(404);
+ });
+ 
 -router.post('/upload', getFileNameValidationFunction('overwrite_name'), async (request, response) => {
 +router.post('/upload', hostUnsupportedMutationGuard, getFileNameValidationFunction('overwrite_name'), async (request, response) => {
 diff --git a/src/endpoints/assets.js b/src/endpoints/assets.js
