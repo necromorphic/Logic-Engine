@@ -91,13 +91,13 @@ test('Host session revocation waits for an in-flight shared Coordinator lease', 
   const moduleUrl = pathToFileURL(resolve('src/application/host-assertion-nonce-store.js')).href;
   const script = `
     import { HostAssertionNonceStore } from ${JSON.stringify(moduleUrl)};
+    process.stdout.write('STARTED\\n');
     const store = new HostAssertionNonceStore({
       path: process.env.TEST_NONCE_PATH,
       coreDatabasePath: process.env.TEST_CORE_PATH,
       coordinatorPath: process.env.TEST_COORDINATOR_PATH,
       providerDatabasePath: process.env.TEST_PROVIDER_PATH,
     });
-    process.stdout.write('STARTED\\n');
     const result = store.revokeSession(
       'st-adapter',
       {"host_installation_id":"11111111-1111-4111-8111-111111111111","authenticated_account_id":"22222222-2222-4222-8222-222222222222","host_session_id":"33333333-3333-4333-8333-333333333333"},
