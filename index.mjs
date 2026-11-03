@@ -76,9 +76,8 @@ function buildProtectedMemory(request, prepared, npcBridge) {
     return undefined;
   }
 
-  // Lane A is fully read and revalidated, but its model projection has not yet
-  // been approved. Never silently omit non-empty Lane A from the model context.
-  if (laneA.items.length !== 0) return undefined;
+  // Lane A and Lane B remain distinct in the provider request. Final-Send
+  // serializes each lane under its own label and preserves Lane A provenance.
 
   const contentBlocks = laneBContext.candidates.map(candidate => Object.freeze({
     epistemic_kind: candidate.epistemic_kind,
@@ -88,8 +87,8 @@ function buildProtectedMemory(request, prepared, npcBridge) {
 
   // A complete, revalidated empty Lane A + Lane B is explicitly unprotected.
   // Any incomplete or unknown state above returns undefined and is terminal.
-  if (contentBlocks.length === 0 && accepted.laneB.sources.length === 0
-    && accepted.laneB.candidates.length === 0) return null;
+  if (laneA.items.length === 0 && contentBlocks.length === 0
+    && accepted.laneB.sources.length === 0 && accepted.laneB.candidates.length === 0) return null;
 
   const hostBinding = host.context;
   const coreContext = host.coreContext;
