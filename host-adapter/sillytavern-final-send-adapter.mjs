@@ -40,6 +40,12 @@ const ROUTE_BY_HOST_ROUTE = Object.freeze({
 
 const UNREGISTERED_SENDER_ROUTE = 'unregistered';
 
+function isPlainRecord(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
 function assertAuthenticatedHostRequest(request) {
   const handle = request?.user?.profile?.handle;
   const session = request?.session;
@@ -155,9 +161,9 @@ export function createSillyTavernFinalSendAdapter({
         throw error;
       }
 
-      let protectedMemory;
+      let protectionResolution;
       try {
-        protectedMemory = resolveProtectedMemory(
+        protectionResolution = resolveProtectedMemory(
           args.request,
           preparedContextByRequest.get(args.request),
         );
@@ -168,21 +174,33 @@ export function createSillyTavernFinalSendAdapter({
         }
         throw error;
       }
-      if (protectedMemory && typeof protectedMemory.then === 'function') {
+      if (protectionResolution && typeof protectionResolution.then === 'function') {
         if (args.response && typeof args.response === 'object') {
           requestIdByResponse.set(args.response, { requestId: null, state: 'denied' });
           throw terminalError(new Error('MEMORY_DISPATCH_NOT_READY'));
         }
         throw new Error('MEMORY_DISPATCH_NOT_READY');
       }
-      if (protectedMemory === undefined) {
+      if (!isPlainRecord(protectionResolution)) {
         if (args.response && typeof args.response === 'object') {
           requestIdByResponse.set(args.response, { requestId: null, state: 'denied' });
-          throw terminalError(new Error('MEMORY_DISPATCH_NOT_READY'));
         }
-        throw new Error('MEMORY_DISPATCH_NOT_READY');
+        throw terminalError(new Error('MEMORY_DISPATCH_NOT_READY'));
       }
-      if (protectedMemory !== null) {
+      const resolutionKeys = Reflect.ownKeys(protectionResolution);
+      const isUnprotected = protectionResolution.status === 'unprotected'
+        && resolutionKeys.length === 1;
+      const isProtected = protectionResolution.status === 'ready'
+        && resolutionKeys.length === 2 && Object.hasOwn(protectionResolution, 'context')
+        && isPlainRecord(protectionResolution.context);
+      if (!isUnprotected && !isProtected) {
+        if (args.response && typeof args.response === 'object') {
+          requestIdByResponse.set(args.response, { requestId: null, state: 'denied' });
+        }
+        throw terminalError(new Error('MEMORY_DISPATCH_NOT_READY'));
+      }
+      const protectedMemory = isProtected ? protectionResolution.context : null;
+      if (isProtected) {
         if (!args.response || typeof args.response !== 'object'
           || typeof protectedMemory.requestId !== 'string' || !protectedMemory.requestId) {
           if (args.response && typeof args.response === 'object') {
@@ -199,7 +217,7 @@ export function createSillyTavernFinalSendAdapter({
         release.state = 'denied';
         throw terminalError(error);
       };
-      if (protectedMemory !== null && args.response) {
+      if (isProtected && args.response) {
         if (protectedDispatchByResponse.has(args.response)) {
           return deny(new Error('MEMORY_DISPATCH_DUPLICATE_HOST_SEND'));
         }
@@ -229,7 +247,7 @@ export function createSillyTavernFinalSendAdapter({
           stream: args.stream,
           forwardResponse: args.forwardResponse,
           transport: args.transport,
-          protectedMemoryOverride: protectedMemory,
+          protectedMemoryOverride: protectionResolution,
           hostTransformsStream: args.hostTransformsStream === true,
         });
       } catch (error) {
