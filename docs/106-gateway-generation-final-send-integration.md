@@ -79,7 +79,7 @@ No browser-to-Core call, second generation ingress, relay, extra API port or Bas
 | Revoke before dispatch-start | Real Provider revoke race tests | PASS at Gateway level |
 | Revoke during inference suppresses response | Gateway revalidation tests | PASS at Gateway level |
 | Revoke between chunks suppresses later stream writes | Gateway stream write tests | PASS at Gateway level |
-| Actual non-stream Express end is revalidated | Hook wraps Express `response.end`; Gateway `authorizeResponseWrite` is called from the wrapper | Implemented; production wiring not proven |
+| Actual non-stream Express end is revalidated | Hook wraps Express `response.end`; Gateway `authorizeResponseWrite` is called from the wrapper; patched real-handler harness now simulates revoke immediately before `response.end` and expects client egress suppression | Implemented; exact-head CI pending; production Core/Provider wiring not proven |
 | Retry cannot send twice per Host response | New adapter WeakSet guard and regression test | Implemented; exact-head CI pending |
 | NPC Context Receiver is wired into native generation | #870 receiver exists; no trusted native request-to-conversation mapping or bootstrap composition yet | BLOCKED |
 | Production Core/Provider evidence readers and shared Coordinator are supplied to the Gateway | Gateway constructor supports them; plugin bootstrap currently registers a fail-closed adapter instead | BLOCKED |
