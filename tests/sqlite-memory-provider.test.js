@@ -79,14 +79,20 @@ test('final authorized-read lease serializes query and record grants with a sync
   // Security-boundary copying must not depend on mutable Array.prototype
   // methods. Prototype pollution must not run attacker-controlled code here.
   const originalMap = Array.prototype.map;
+  const originalPush = Array.prototype.push;
+  const originalIterator = Array.prototype[Symbol.iterator];
   try {
     Array.prototype.map = () => { throw new Error('polluted Array.prototype.map executed'); };
+    Array.prototype.push = () => { throw new Error('polluted Array.prototype.push executed'); };
+    Array.prototype[Symbol.iterator] = () => { throw new Error('polluted Array iterator executed'); };
     assert.equal(
-      s.provider.withAuthorizedReadLease(s.scope, [leaseCandidate], () => 'authorized-with-polluted-map'),
-      'authorized-with-polluted-map',
+      s.provider.withAuthorizedReadLease(s.scope, [leaseCandidate], () => 'authorized-with-polluted-array-prototype'),
+      'authorized-with-polluted-array-prototype',
     );
   } finally {
     Array.prototype.map = originalMap;
+    Array.prototype.push = originalPush;
+    Array.prototype[Symbol.iterator] = originalIterator;
   }
 
   let hostileCallbackInvoked = false;
