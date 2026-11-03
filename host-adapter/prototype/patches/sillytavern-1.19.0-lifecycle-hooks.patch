@@ -2528,7 +2528,7 @@ new file mode 100644
 diff --git a/src/endpoints/users-admin.js b/src/endpoints/users-admin.js
 --- a/src/endpoints/users-admin.js
 +++ b/src/endpoints/users-admin.js
-@@ -17,2 +17,4 @@
+@@ -17,3 +17,5 @@
  } from '../users.js';
  import { DEFAULT_USER } from '../constants.js';
 +import { createHostUnsupportedMutationGuard } from './logic-engine-host-inventory-handler.mjs';
