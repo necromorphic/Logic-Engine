@@ -63,6 +63,9 @@ const validId = (value) => typeof value === 'string'
     const code = character.charCodeAt(0);
     return code < 32 || code === 127;
   });
+const validSourceVersion = value => typeof value === 'string'
+  && /^core-entity-v1:[1-9][0-9]*$/.test(value)
+  && Number.isSafeInteger(Number(value.slice('core-entity-v1:'.length)));
 // Core snapshot cursors are non-negative safe integers. Accepting arbitrary
 // finite numbers or strings would let malformed provider metadata pass the
 // structural gate even though it cannot represent a canonical Core cursor.
@@ -511,6 +514,9 @@ export class MemoryNpcConsumer {
         // Do not report item-level rejection reasons or counts to the caller.
         continue;
       }
+      if (!validSourceVersion(candidate.source?.source_version)) {
+        return nonReady('memory_lineage_invalid');
+      }
 
       let recordAllowed;
       try {
@@ -797,7 +803,9 @@ export class MemoryNpcConsumer {
         record_ref: candidate.record.ref,
         record_version: candidate.record.version,
         authorization_generation: candidate.authorization_generation,
+        source_kind: candidate.source.kind,
         source_entity_id: candidate.source.entity_id,
+        source_version: candidate.source.source_version,
         epistemic_kind: candidate.epistemic_kind,
         evidence_assessment: candidate.lifecycle?.evidence_assessment,
         content: Object.fromEntries(this.contentFields.map((field) => [field, source[field]])),
