@@ -414,6 +414,9 @@ static int le_win_store_replace(
   size_t rename_bytes;
   FILE_RENAME_INFO *rename_info = NULL;
   BOOL renamed = FALSE;
+#ifdef LE_STORE_DIAGNOSTICS
+  const char *failure_stage = "open temp file";
+#endif
   if (!store || !store->locked || !target || !bytes || length == 0
       || length > LE_STORE_MAX_BYTES || !validate
       || !validate(bytes, length, store->validator_context)) {
@@ -439,12 +442,18 @@ static int le_win_store_replace(
       FILE_SHARE_READ, FILE_CREATE, FILE_NON_DIRECTORY_FILE,
       FILE_ATTRIBUTE_NORMAL, NULL, NULL);
   if (file == INVALID_HANDLE_VALUE) return 0;
+#ifdef LE_STORE_DIAGNOSTICS
+  failure_stage = "write temp file";
+#endif
   while (written_total < length) {
     DWORD chunk = 0;
     if (!WriteFile(file, bytes + written_total, length - written_total, &chunk, NULL)
         || chunk == 0) goto cleanup;
     written_total += chunk;
   }
+#ifdef LE_STORE_DIAGNOSTICS
+  failure_stage = "flush temp file";
+#endif
   if (!FlushFileBuffers(file)) goto cleanup;
   rename_bytes = offsetof(FILE_RENAME_INFO, FileName) + wcslen(target) * sizeof(wchar_t);
   rename_info = (FILE_RENAME_INFO *)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, rename_bytes);
@@ -453,15 +462,24 @@ static int le_win_store_replace(
   rename_info->RootDirectory = store->directory;
   rename_info->FileNameLength = (DWORD)(wcslen(target) * sizeof(wchar_t));
   memcpy(rename_info->FileName, target, rename_info->FileNameLength);
+#ifdef LE_STORE_DIAGNOSTICS
+  failure_stage = "handle-relative rename";
+#endif
   if (!SetFileInformationByHandle(file, FileRenameInfo, rename_info, (DWORD)rename_bytes)) goto cleanup;
   renamed = TRUE;
   /* Directory flush is a hard gate: never report a durable commit if NTFS
    * refuses to flush the containing directory handle. */
+#ifdef LE_STORE_DIAGNOSTICS
+  failure_stage = "flush parent directory";
+#endif
   if (!FlushFileBuffers(store->directory)) goto cleanup;
   HeapFree(GetProcessHeap(), 0, rename_info);
   CloseHandle(file);
   return 1;
 cleanup:
+#ifdef LE_STORE_DIAGNOSTICS
+  fprintf(stderr, "manifest store failed at %s (GetLastError=%lu)\\n", failure_stage, (unsigned long)GetLastError());
+#endif
   if (rename_info) HeapFree(GetProcessHeap(), 0, rename_info);
   if (file != INVALID_HANDLE_VALUE) {
     if (!renamed) {
