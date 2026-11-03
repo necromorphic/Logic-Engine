@@ -111,6 +111,12 @@ export function receiveNpcContext({
     || !UUID(hostBinding.host_installation_id) || !UUID(hostBinding.authenticated_account_id)
     || !UUID(hostBinding.host_session_id) || !UUID(hostBinding.conversation_uuid)
     || !ID(hostBinding.conversation_id)
+    || hostBinding.conversation_id !== [
+      hostBinding.host_installation_id, hostBinding.authenticated_account_id, hostBinding.conversation_uuid,
+    ].join(':')
+    || hostContext.conversation_id !== [
+      hostBinding.host_session_id, hostBinding.host_installation_id, hostBinding.conversation_uuid,
+    ].join(':')
     || !/^[a-f0-9]{64}$/.test(hostBinding.root_id ?? '')
     || !Number.isSafeInteger(hostBinding.root_inventory_sequence) || hostBinding.root_inventory_sequence < 1
     || !/^[a-f0-9]{64}$/.test(hostBinding.root_manifest_sha256 ?? '')) {
