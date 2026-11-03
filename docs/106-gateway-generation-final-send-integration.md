@@ -76,7 +76,9 @@ The reader performs no write, reconciliation, or nested Coordinator acquisition.
 
 A focused verifier test covers valid HMAC, tampering, account substitution, wrong key, accessor properties and malformed signatures.
 
-**Still not a production activation:** the root SillyTavern plugin currently registers `unavailableGateway`; the in-process NPC handoff bridge and the complete Lane A/Lane B model projection have not yet been composed into that plugin entrypoint. This change removes the Host-reader stub inside the embedded runtime, but it does not claim that the end-to-end Host → Core → NPC → Gateway → Model → Final-Send path is active. The separate Host genesis bootstrap in PR #880 and exact-head CI remain dependencies.
+**Production composition advanced:** the root SillyTavern plugin now constructs `createEmbeddedGatewayRuntime()`, registers its `MemoryDispatchGateway`, and connects the authenticated Host preparation path to `createNpcGenerationContextHostBridge()`. The exact Host response is bound to the one-shot handoff; the authenticated Host session remains in AsyncLocalStorage through Gateway dispatch and Final-Send release. `unavailableGateway` remains only for the explicitly disabled Memory mode.
+
+The model projection is intentionally partial: Lane B content is projected, while non-empty Lane A is denied until its approved model projection is supplied. Native fallback is permitted only after the in-process runtime has returned a complete, revalidated empty Lane A and Lane B. Any incomplete/unknown state is terminal. PR #880's fresh-account lifecycle genesis support, exact-head CI, and full route/revoke/crash acceptance remain dependencies; this PR is not yet P0 acceptance.
 
 ## Remaining production blockers
 
