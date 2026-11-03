@@ -2490,8 +2490,9 @@ static void probe_temp_file_class_rejected(sqlite3_context *context, int argc, s
       return;
     }
     memset(file, 0, (size_t)g_probe_vfs.szOsFile);
-    rc = probe_xOpen(&g_probe_vfs, NULL, file,
-      SQLITE_OPEN_MEMORY | SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, &out_flags);
+    rc = probe_xOpen(&g_probe_vfs, ":memory:", file,
+      SQLITE_OPEN_MEMORY | SQLITE_OPEN_MAIN_DB
+        | SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, &out_flags);
     if (rc == SQLITE_OK && file->pMethods && file->pMethods->xClose) {
       file->pMethods->xClose(file);
     } else {
