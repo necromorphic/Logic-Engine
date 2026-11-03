@@ -149,7 +149,7 @@ export function createCoreNpcGenerationContextRuntime({
     });
   }
 
-  function readLaneA(input) {
+  function readLaneA(input, coordinatorLease = null) {
     let trustedScope;
     try { trustedScope = resolveScope(); } catch { return Object.freeze({ status: 'non_ready', lane: 'A' }); }
     const expectedRevision = input?.snapshot?.world_revision ?? input?.expected_revision;
@@ -161,7 +161,7 @@ export function createCoreNpcGenerationContextRuntime({
       || expectedCommitSequence !== trustedScope.snapshot.commit_sequence) {
       return Object.freeze({ status: 'non_ready', lane: 'A' });
     }
-    const read = engine.readNpcKnowledge({
+    const readInput = {
       world_id: trustedScope.world_id,
       actor_id: trustedScope.actor_id,
       conversation_id: trustedScope.conversation_id,
@@ -171,7 +171,10 @@ export function createCoreNpcGenerationContextRuntime({
       expected_revision: expectedRevision,
       expected_commit_sequence: expectedCommitSequence,
       limit: 200,
-    });
+    };
+    const read = coordinatorLease
+      ? engine.readNpcKnowledgeUnderCoordinatorLease(readInput, coordinatorLease)
+      : engine.readNpcKnowledge(readInput);
     if (!exactDataRecord(read, [
       'status', 'world_id', 'conversation_id', 'adapter_id', 'actor_id', 'recipient',
       'purpose', 'snapshot', 'authorization_ref', 'truncated', 'items',
@@ -449,7 +452,7 @@ export function createCoreNpcGenerationContextRuntime({
   // Synchronous Lane A fence for the Gateway's shared-Coordinator critical
   // section. Lane B admission/grant/source freshness remains the Gateway's
   // independent synchronous Provider responsibility.
-  function revalidateLaneAForDispatch(context, request) {
+  function revalidateLaneAForDispatch(context, request, coordinatorLease = null) {
     if (!context || typeof context !== 'object' || dispatchableContexts.get(context) !== request
       || !request || context.request_id !== request.request_id
       || context.generation_id !== request.generation_id
@@ -468,13 +471,18 @@ export function createCoreNpcGenerationContextRuntime({
       || scope.snapshot.commit_sequence !== context.snapshot.commit_sequence) {
       return Object.freeze({ status: 'non_ready', reason: 'dispatch_scope_changed' });
     }
-    const freshA = readLaneA({
-      world_id: scope.world_id, actor_id: scope.actor_id,
-      conversation_id: scope.conversation_id, adapter_id: scope.adapter_id,
-      recipient: RECIPIENT, purpose: PURPOSE,
-      expected_revision: scope.snapshot.world_revision,
-      expected_commit_sequence: scope.snapshot.commit_sequence,
-    });
+    let freshA;
+    try {
+      freshA = readLaneA({
+        world_id: scope.world_id, actor_id: scope.actor_id,
+        conversation_id: scope.conversation_id, adapter_id: scope.adapter_id,
+        recipient: RECIPIENT, purpose: PURPOSE,
+        expected_revision: scope.snapshot.world_revision,
+        expected_commit_sequence: scope.snapshot.commit_sequence,
+      }, coordinatorLease);
+    } catch {
+      return Object.freeze({ status: 'non_ready', reason: 'dispatch_lane_a_unavailable' });
+    }
     const laneAContext = context.lanes?.lane_a;
     if (freshA.status !== 'ready'
       || freshA.read_authorization_ref !== laneAContext?.authorization_ref
@@ -580,5 +588,7 @@ export function createCoreNpcGenerationContextRuntime({
     consumeDispatchHandoff,
     getLaneBDispatchEvidence,
     revalidateLaneAForDispatch,
+    revalidateLaneAForDispatchUnderCoordinatorLease: (context, request, lease) =>
+      revalidateLaneAForDispatch(context, request, lease),
   });
 }
