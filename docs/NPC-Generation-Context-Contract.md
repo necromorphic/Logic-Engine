@@ -1,6 +1,6 @@
 # NPC Generation Context Builder / Receiver Contract
 
-**Status:** implementation candidate; no model dispatch or production enablement.
+**Status:** Core-composed generation-context candidate; Host model-dispatch integration and production enablement remain disabled.
 
 ## Purpose
 
@@ -17,6 +17,10 @@ Convert two separately authorized Core evidence envelopes into one immutable, re
 - `revalidateScope(scope)`: re-read active bindings and the Core snapshot after both reads.
 
 The builder does not accept caller-supplied World, Actor, conversation, adapter, records, fields, or authorization references. A callback failure, non-ready lane, malformed envelope, stale cursor, incomplete read, mismatched scope, or changed binding returns a content-free `non_ready` result.
+
+The Core runtime composition is implemented in `src/application/npc-generation-context-runtime.js` and is created only for an adapter with a configured real `MemoryNpcConsumer`. It obtains scope from the branded Host assertion context and re-resolves the active Core conversation and Actor bindings. Lane A calls `LogicEngine.readNpcKnowledge()`, then invokes the deployment-wired per-acquisition visibility authorizer and includes only allowed acquisitions with their individual decision references. A truncated acquisition read is non-ready. Lane B calls the adapter-pinned `MemoryNpcConsumer.retrieveForNpc()`; the final build fence calls `revalidateForFinalDispatch()` and compares the fresh result with the prepared result.
+
+Core exposes this candidate through authenticated `POST /v1/host/npc-generation-context`. The route consumes a fresh signed Host assertion and durable nonce, then returns only the immutable generation context. The existing `/v1/host/memory-npc/retrieve` contract is unchanged. Host does not yet call the new route or pass its context through the final Gateway; that remains a separate Host/Gateway integration gate.
 
 ## Lane contracts
 

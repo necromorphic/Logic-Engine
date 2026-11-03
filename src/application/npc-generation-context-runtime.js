@@ -217,7 +217,7 @@ export function createCoreNpcGenerationContextRuntime({
     try { scope = resolveScope(); } catch { return false; }
     const freshA = readLaneA(scope);
     if (freshA.status !== 'ready'
-      || !isDeepStrictEqual(freshA.items, context?.lanes?.lane_a?.items)
+      || JSON.stringify(freshA.items) !== JSON.stringify(context?.lanes?.lane_a?.items)
       || freshA.snapshot.world_revision !== context?.snapshot?.world_revision
       || freshA.snapshot.commit_sequence !== context?.snapshot?.commit_sequence) return false;
     let freshB;
@@ -226,7 +226,7 @@ export function createCoreNpcGenerationContextRuntime({
     return freshB?.status === 'ready'
       && freshB.snapshot?.world_revision === context.snapshot.world_revision
       && freshB.snapshot?.commit_sequence === context.snapshot.commit_sequence
-      && isDeepStrictEqual(freshB.candidates, context?.lanes?.lane_b?.candidates);
+      && JSON.stringify(freshB.candidates) === JSON.stringify(context?.lanes?.lane_b?.candidates);
   }
 
   const builder = createNpcGenerationContextBuilder({
