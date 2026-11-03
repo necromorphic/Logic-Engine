@@ -54,7 +54,7 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: '22.13.0'
+          node-version: '22.14.0'
       - name: Provide Node path for systemd unit validation
         run: |
           if [ ! -x /usr/bin/node ]; then sudo ln -s "$(command -v node)" /usr/bin/node; fi
@@ -82,7 +82,7 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: '22.13.0'
+          node-version: '22.14.0'
       - name: Test recursive Windows service ACL policy
         run: node --test tests/sqlite-windows-acl-installer.test.js
       - name: Parse and test Windows service installer path guards
@@ -188,7 +188,7 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: '22.13.0'
+          node-version: '22.14.0'
       - name: Install schema validation dependency
         run: npm install --no-package-lock --no-audit --no-fund
       - name: Validate persistent role manifest schema
