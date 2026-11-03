@@ -39,6 +39,12 @@ const patchBlobSha = sha256(Buffer.from(
   lifecycleBlobSha + '\n' + unenrolledFixBlobSha + '\n' + rootMutationBlobSha, 'utf8',
 ));
 const handlerBlobSha = gitBlobSha(handlerSource);
+if (patchBlobSha !== PINNED_PATCH_BUNDLE_SHA256) {
+  throw new Error('HOST_PINNED_PATCH_BUNDLE_SHA_MISMATCH:' + patchBlobSha);
+}
+if (handlerBlobSha !== PINNED_HOST_HANDLER_GIT_BLOB_SHA) {
+  throw new Error('HOST_PINNED_HANDLER_BLOB_SHA_MISMATCH:' + handlerBlobSha);
+}
 
 const worktreeParent = await mkdtemp(path.join(tmpdir(), 'host-pinned-source-tree-'));
 const expectedRoot = path.join(worktreeParent, 'SillyTavern');
