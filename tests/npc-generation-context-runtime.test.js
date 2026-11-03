@@ -137,3 +137,17 @@ test('receiver rejects changed Lane B admission metadata even when candidates ar
   const received = await runtime.receive(built.context, request);
   assert.equal(received.status, 'non_ready');
 });
+
+test('Core runtime remains usable when Array.prototype iteration is polluted', async () => {
+  const { runtime } = setup();
+  const originalIterator = Array.prototype[Symbol.iterator];
+  try {
+    Array.prototype[Symbol.iterator] = function () { throw new Error('polluted array iterator'); };
+    const built = await runtime.build(request);
+    assert.equal(built.status, 'ready', built.reason);
+    const received = await runtime.receive(built.context, request);
+    assert.equal(received.status, 'accepted');
+  } finally {
+    Array.prototype[Symbol.iterator] = originalIterator;
+  }
+});

@@ -197,16 +197,16 @@ export function createNpcGenerationContextBuilder({
     let laneA;
     let laneB;
     try {
-      [laneA, laneB] = await Promise.all([
-        readLaneA(Object.freeze({
-          world_id: scope.world_id, actor_id: scope.actor_id, conversation_id: scope.conversation_id,
-          adapter_id: scope.adapter_id, recipient: RECIPIENT, purpose: PURPOSE,
-          expected_revision: scope.snapshot.world_revision,
-          expected_commit_sequence: scope.snapshot.commit_sequence, limit: 200,
-        })),
-        readLaneB(Object.freeze({ conversation_id: scope.conversation_id })),
-      ]);
-    } catch { return nonReady('generation_evidence_unavailable'); }
+      laneA = await readLaneA(Object.freeze({
+        world_id: scope.world_id, actor_id: scope.actor_id, conversation_id: scope.conversation_id,
+        adapter_id: scope.adapter_id, recipient: RECIPIENT, purpose: PURPOSE,
+        expected_revision: scope.snapshot.world_revision,
+        expected_commit_sequence: scope.snapshot.commit_sequence, limit: 200,
+      }));
+    } catch { return nonReady('lane_a_evidence_unavailable'); }
+    try {
+      laneB = await readLaneB(Object.freeze({ conversation_id: scope.conversation_id }));
+    } catch { return nonReady('lane_b_evidence_unavailable'); }
 
     if (!validateLaneA(laneA, scope)) return nonReady('lane_a_evidence_not_current_or_authorized');
     if (!validateLaneB(laneB, scope)) return nonReady('lane_b_evidence_not_current_or_authorized');
