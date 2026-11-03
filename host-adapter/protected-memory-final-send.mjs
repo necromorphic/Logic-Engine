@@ -192,9 +192,17 @@ function scrubHeaders(headers) {
   return output;
 }
 
+function assertPlainDataRecordShallow(value) {
+  if (!isPlainRecord(value)) throw new Error('MEMORY_DISPATCH_NOT_READY');
+  for (const key of Reflect.ownKeys(value)) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (!descriptor || !Object.hasOwn(descriptor, 'value')) throw new Error('MEMORY_DISPATCH_NOT_READY');
+  }
+}
+
 function assertProtectedContext(context) {
-  if (!context || typeof context !== 'object' || Array.isArray(context)
-    || typeof context.requestId !== 'string' || !context.requestId
+  assertPlainDataRecordShallow(context);
+  if (typeof context.requestId !== 'string' || !context.requestId
     || typeof context.model !== 'string' || !context.model
     || typeof context.worldId !== 'string' || !context.worldId
     || typeof context.actorId !== 'string' || !context.actorId
@@ -268,14 +276,17 @@ export function createProtectedMemoryFinalSend({ gateway, resolveProtectedMemory
     }
     // Native transport is permitted only after an explicit Host classification.
     // null/undefined/unknown is never interpreted as an ordinary request.
-    if (!isPlainRecord(resolution) || !['unprotected', 'ready', 'non_ready'].includes(resolution.status)) {
+    assertPlainDataRecordShallow(resolution);
+    const statusDescriptor = Object.getOwnPropertyDescriptor(resolution, 'status');
+    if (!statusDescriptor || !Object.hasOwn(statusDescriptor, 'value')
+      || !['unprotected', 'ready', 'non_ready'].includes(statusDescriptor.value)) {
       throw new Error('MEMORY_DISPATCH_NOT_READY');
     }
-    if (resolution.status === 'unprotected') {
+    if (statusDescriptor.value === 'unprotected') {
       if (Reflect.ownKeys(resolution).length !== 1) throw new Error('MEMORY_DISPATCH_NOT_READY');
       return invokeTransport(transportImpl, fetchImpl, endpointUrl, requestInit);
     }
-    if (resolution.status !== 'ready' || Reflect.ownKeys(resolution).length !== 2
+    if (statusDescriptor.value !== 'ready' || Reflect.ownKeys(resolution).length !== 2
       || !Object.hasOwn(resolution, 'context')) {
       throw new Error('MEMORY_DISPATCH_NOT_READY');
     }
