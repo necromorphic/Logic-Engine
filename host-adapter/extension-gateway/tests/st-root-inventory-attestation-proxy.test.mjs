@@ -91,6 +91,7 @@ test('root inventory proxy signs a VSS-aligned pinned-source attestation after C
   assert.equal(result.integrity_status, 'INTEGRITY_OK');
   assert.equal(calls.length, 2);
   assert.equal(calls[1].url.pathname, '/v1/host-root-inventory/attest');
+  assert.equal(JSON.parse(calls[0].options.body).source_manifest_sha256, 'e'.repeat(64));
   const body = JSON.parse(calls[1].options.body);
   assert.equal(body.attestation.snapshot_alignment, 'SHARED_VSS_SNAPSHOT');
   assert.equal(body.attestation.snapshot_sha256, 'd'.repeat(64));
