@@ -80,6 +80,8 @@ Core's append-only Root Inventory journal verifies monotonic sequence, previous 
 
 A filesystem scan is evidence for the current file set only. It is not, by itself, source-route completeness proof or Core authorization.
 
+The Host now verifies the pinned-source manifest against the installed ST route files, browser lifecycle files, Gateway server files, and handler blob. Only a verified source manifest plus a shared VSS snapshot allows the server to create an HMAC-signed root attestation using the adapter credential. Core independently validates the signature, exact root journal head, inventory sequence/digest, lifecycle head, nonce, expiry, and registered installation/account/root binding. An unchanged already-attested manifest is reused without creating a conflicting duplicate attestation.
+
 ## 5. Remaining P0 acceptance blockers
 
 1. **Windows pinned-source acceptance:** the source-manifest generator now verifies the exact pinned checkout, patched route files, browser lifecycle files, Gateway files, and installed Host handler. CI generates the manifest only after its Windows acceptance suite succeeds and uploads it as `host-pinned-source-manifest`. That CI result and artifact have not yet been accepted for deployment.
