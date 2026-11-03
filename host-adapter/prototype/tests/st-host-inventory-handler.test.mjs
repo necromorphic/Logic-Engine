@@ -179,7 +179,10 @@ test('host inventory route passes only the authenticated user data roots and ret
   assert.equal(response.headers.vary, 'Cookie');
   assert.deepEqual(observed, {
     directories: {
-      ...absoluteTestDirectories,
+      root: absoluteTestDirectories.root,
+      chats: absoluteTestDirectories.chats,
+      groups: absoluteTestDirectories.groups,
+      groupChats: absoluteTestDirectories.groupChats,
     },
     hostCommit: pinned,
   });
