@@ -3,6 +3,8 @@
 Status: **staging integration evidence**  
 Applies to: `integration/host-core-v1` / PR #870
 
+> **Scope update (2026-11-03):** This document preserves the original Host/Core retrieval-staging evidence and fixture boundaries. Its historical statements that Final-Send/Gateway are not included describe the earlier staging scope and are superseded by the integrated production-composition candidate documented in [106-gateway-generation-final-send-integration.md](106-gateway-generation-final-send-integration.md). The current branch now wires the Host, Core, NPC Context Runtime, read-only Provider observer, shared Coordinator, MemoryDispatchGateway and managed SillyTavern Final-Send Hook. This update does not claim live deployment acceptance or authorize Memory → NPC activation.
+
 ## 1. What this integration proves
 
 The staging retrieval path is:
