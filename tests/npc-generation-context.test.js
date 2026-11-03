@@ -270,6 +270,7 @@ test('opaque dispatch handoff is minted only from a successful receiver receipt 
   assert.equal(Object.isFrozen(minted.handoff), true);
   assert.equal(JSON.stringify(minted.handoff), '{}');
 
+  assert.equal(receiver.consumeDispatchHandoff(minted.handoff, { ...request }).status, 'non_ready');
   const consumed = receiver.consumeDispatchHandoff(minted.handoff, request);
   assert.equal(consumed.status, 'accepted');
   assert.equal(consumed.context, built.context);
@@ -286,6 +287,7 @@ test('opaque dispatch handoff cannot be issued or consumed for another request o
   assert.equal(receiver.issueDispatchHandoff(accepted, {
     ...request, request_id: 'request-2',
   }).status, 'non_ready');
+  assert.equal(receiver.issueDispatchHandoff(accepted, { ...request }).status, 'non_ready');
 
   const minted = receiver.issueDispatchHandoff(accepted, request);
   assert.equal(minted.status, 'ready');
