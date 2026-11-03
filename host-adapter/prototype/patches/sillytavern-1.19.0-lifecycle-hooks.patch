@@ -1003,6 +1003,13 @@ diff --git a/src/endpoints/users-private.js b/src/endpoints/users-private.js
      try {
          if (!request.body.code) {
              console.warn('Reset step 2 failed: Missing required fields');
+@@ -34,0 +35,6 @@
++        try {
++            await revokeHostSessionBeforeLogout(request);
++        } catch {
++            return response.status(503).json({ error: 'Host session revocation unavailable; session was not logged out.' });
++        }
++
 diff --git a/src/endpoints/users-admin.js b/src/endpoints/users-admin.js
 --- a/src/endpoints/users-admin.js
 +++ b/src/endpoints/users-admin.js
