@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createHmac } from 'node:crypto';
@@ -65,6 +65,19 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
     coordinatorPath,
     providerDatabasePath,
   }), /must be separate from Core, Coordinator, and Provider databases/);
+  const danglingProviderAlias = join(directory, 'nonce-provider-dangling-alias.sqlite');
+  try {
+    symlinkSync(providerDatabasePath, danglingProviderAlias);
+    assert.throws(() => new HostAssertionNonceStore({
+      path: danglingProviderAlias,
+      coreDatabasePath: corePath,
+      coordinatorPath,
+      providerDatabasePath,
+    }), /must be separate from Core, Coordinator, and Provider databases/);
+  } catch (error) {
+    if (!['EPERM', 'EACCES'].includes(error?.code)) throw error;
+    t.diagnostic('Skipped dangling-symlink alias probe because this runner cannot create file symlinks.');
+  }
   engine.createWorld({
     world_id: 'host-memory-world', world_pack_id: 'test.host-memory',
     world_pack_version: '1', game_time: '2026-01-01T00:00:00Z',
