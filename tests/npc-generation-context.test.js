@@ -31,7 +31,7 @@ const laneB = () => ({
     status: 'ready', admitted: [{ record_ref: 'memory:1', record_version: 'v1' }],
     candidates: [{
       record_ref: 'memory:1', record_version: 'v1', authorization_generation: 2,
-      source_entity_id: 'source-1', epistemic_kind: 'acquired_report',
+      source_entity_id: 'source-1', source_version: 'source-v1', epistemic_kind: 'acquired_report',
       evidence_assessment: 'disputed', content: { note: 'Lane B report' },
     }],
     reason: null, snapshot: { ...scope.snapshot },
