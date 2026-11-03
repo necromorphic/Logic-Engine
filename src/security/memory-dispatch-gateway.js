@@ -395,11 +395,12 @@ function assertNpcContextBinding({
     || !Array.isArray(laneA.items)
     || !plainDataRecord(laneB,
       ['lane', 'admitted', 'candidates'],
-      ['lane', 'core_purpose', 'provider_purpose', 'status', 'admitted', 'candidates', 'reason', 'snapshot'])
+      ['lane', 'core_purpose', 'provider_purpose', 'status', 'admitted', 'candidates', 'reason', 'snapshot', 'provider_evidence_cursor'])
     || laneB.lane !== 'B' || laneB.core_purpose !== 'npc_turn_context'
     || laneB.provider_purpose !== purpose || laneB.status !== 'ready'
     || laneB.reason !== null
     || !Array.isArray(laneB.admitted) || !Array.isArray(laneB.candidates)
+    || !normalizeProviderEvidenceCursor(laneB.provider_evidence_cursor)
     || laneB.candidates.length !== candidateSet.length
     || stableJson(context.snapshot) !== stableJson(laneB.snapshot)) {
     throw new Error('MEMORY_DISPATCH_NOT_READY');
