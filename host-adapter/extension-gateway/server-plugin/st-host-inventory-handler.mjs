@@ -100,11 +100,6 @@ export function createHostInventoryHandler({
             userHandle,
             rootPath: directories.root,
             entries: filesystem.entries,
-            filesystem,
-            source,
-            mutationCoverage: inventory.mutation_coverage ?? null,
-            snapshotAlignment: inventory.snapshot_alignment ?? 'UNKNOWN',
-            hostCommit: pinnedHostCommit,
           });
         } catch {
           rootInventory = { status: 'NON_READY', reason: 'ROOT_INVENTORY_PERSISTENCE_FAILED' };
@@ -115,48 +110,24 @@ export function createHostInventoryHandler({
         && rootInventory.sequence > 0
         && typeof rootInventory.manifest_sha256 === 'string'
         && /^[a-f0-9]{64}$/.test(rootInventory.manifest_sha256);
-      const mutationCoverageVerified = inventory.mutation_coverage?.status === 'VERIFIED'
-        && inventory.mutation_coverage.source_commit === pinnedHostCommit
-        && /^[a-f0-9]{64}$/.test(inventory.mutation_coverage.coverage_manifest_sha256 ?? '')
-        && Number.isSafeInteger(inventory.mutation_coverage.route_count)
-        && inventory.mutation_coverage.route_count > 0
-        && /^[a-f0-9]{64}$/.test(inventory.mutation_coverage.source_files_sha256 ?? '');
-      const rootInventoryAuthoritative = rootInventoryPersisted
-        && rootInventory.status === 'AUTHORITATIVE_COMPLETE'
-        && Number.isSafeInteger(rootInventory.completeness_sequence)
-        && rootInventory.completeness_sequence > 0
-        && /^[a-f0-9]{64}$/.test(rootInventory.proof_sha256 ?? '');
       const blockers = [
-        ...(source.logical_identity_status === 'CURRENT_FILE_IDENTITIES_VERIFIED'
-          ? [] : ['CURRENT_CHAT_LOGICAL_IDENTITY_INCOMPLETE']),
-        ...(source.legacy_group_metadata_count === 0
-          ? [] : ['LEGACY_GROUP_METADATA_MIGRATION_PENDING']),
-        ...(rootInventoryAuthoritative ? [] : [
-          'NO_AUTHORITATIVE_COMPLETE_ROOT_MANIFEST',
-          'NO_CORE_ACCEPTED_ROOT_COMPLETENESS_PROOF',
+        ...source.blockers,
+        ...(rootInventoryPersisted ? [] : [
+          'NO_DURABLE_FULL_ROOT_BASELINE',
+          'NO_FULL_ROOT_PER_FILE_DIFF',
         ]),
         ...(rootInventoryPersisted && rootInventory.status === 'NON_READY'
           ? ['ROOT_INVENTORY_DELTA_UNRESOLVED'] : []),
-        ...(mutationCoverageVerified ? [] : ['UNVERIFIED_MUTATION_ROUTE_COVERAGE']),
+        'NO_GLOBAL_SILLYTAVERN_DATA_ROOT_COVERAGE',
+        'NO_SEMANTIC_CHARACTER_PERSONA_IDENTITY',
+        'UNVERIFIED_MUTATION_ROUTE_COVERAGE',
+        'UNVERIFIED_MUTATION_RUNTIME_ACCEPTANCE',
         ...(inventory.snapshot_alignment === 'SHARED_VSS_SNAPSHOT'
           ? [] : ['NO_SHARED_POINT_IN_TIME_SNAPSHOT']),
-        ...(filesystem.scan_passes === 2 ? [] : ['ROOT_INVENTORY_SCAN_PASSES_UNVERIFIED']),
-        ...(filesystem.reparse_points === 'ALL_FILE_ATTRIBUTE_REPARSE_POINT_ENTRIES_REJECTED'
-          ? [] : ['ROOT_REPARSE_POINT_AUDIT_UNVERIFIED']),
       ];
-      const limitations = [...new Set([
-        ...source.blockers,
-        'INVENTORY_SCOPE_IS_AUTHENTICATED_PER_USER_DATA_ROOT_ONLY',
-        'PRE_ENROLLMENT_DELETED_HISTORY_IS_NOT_CLAIMED',
-        'UNRECEIPTED_BULK_CHAT_OPERATIONS_REMAIN_FAIL_CLOSED',
-        'GLOBAL_SILLYTAVERN_INSTALLATION_FILES_ARE_OUTSIDE_THIS_USER_ROOT',
-        'EXTERNAL_ST_VECTOR_SERVICE_STORAGE_IS_OUTSIDE_HOST_ROOT_MANIFEST',
-      ])];
       const responseInventory = {
         ...source,
         blockers: [...new Set(blockers)],
-        limitations,
-        mutation_coverage: inventory.mutation_coverage ?? { status: 'NON_READY' },
         filesystem_inventory: {
           status: filesystem.status,
           snapshot_sha256: filesystem.snapshot_sha256,
@@ -181,9 +152,6 @@ export function createHostInventoryHandler({
             integrity_status: rootInventory.integrity_status,
             sequence: rootInventory.sequence,
             manifest_sha256: rootInventory.manifest_sha256,
-            ...(rootInventory.proof_sha256 ? { proof_sha256: rootInventory.proof_sha256 } : {}),
-            ...(Number.isSafeInteger(rootInventory.completeness_sequence)
-              ? { completeness_sequence: rootInventory.completeness_sequence } : {}),
             ...(rootInventory.delta_sha256 ? { delta_sha256: rootInventory.delta_sha256 } : {}),
             ...(rootInventory.counts ? { counts: rootInventory.counts } : {}),
             ...(rootInventory.reason ? { reason: rootInventory.reason } : {}),
@@ -217,7 +185,7 @@ export function createHostInventoryHandler({
  * signed cookie session. It is stable for that login session and rotates when
  * the authenticated account changes. It is not an installation attestation.
  */
-export function createHostSessionHandler({ createId = randomUUID, revokeSession = null } = {}) {
+export function createHostSessionHandler({ createId = randomUUID } = {}) {
   if (typeof createId !== 'function') throw new TypeError('createId must be a function');
   return function hostSessionHandler(request, response) {
     response.set('Cache-Control', 'no-store, private');
@@ -234,13 +202,9 @@ export function createHostSessionHandler({ createId = randomUUID, revokeSession 
       });
     }
 
-    const sendSession = sessionId => response.status(200).json({
-      host_session_id: sessionId,
-      host_session_identity: 'SIGNED_AUTHENTICATED_ST_SESSION',
-      host_user_handle: userHandle,
-    });
-    const issueReplacement = () => {
-      const sessionId = createId();
+    let sessionId = currentId;
+    if (!sessionId || session.logicEngineSessionHandle !== userHandle) {
+      sessionId = createId();
       if (typeof sessionId !== 'string' || !HOST_SESSION_UUID.test(sessionId)) {
         return response.status(503).json({
           status: 'NON_READY',
@@ -249,29 +213,13 @@ export function createHostSessionHandler({ createId = randomUUID, revokeSession 
       }
       session.logicEngineSessionId = sessionId;
       session.logicEngineSessionHandle = userHandle;
-      return sendSession(sessionId);
-    };
-
-    let sessionId = currentId;
-    if (sessionId && session.logicEngineSessionHandle !== userHandle) {
-      if (typeof revokeSession !== 'function') {
-        return response.status(503).json({ status: 'NON_READY', code: 'HOST_SESSION_REVOCATION_UNAVAILABLE' });
-      }
-      return Promise.resolve()
-        .then(() => revokeSession(request, 'session_rotation'))
-        .then(revoked => revoked === true
-          ? issueReplacement()
-          : response.status(503).json({
-            status: 'NON_READY',
-            code: 'HOST_SESSION_REVOCATION_UNAVAILABLE',
-          }))
-        .catch(() => response.status(503).json({
-          status: 'NON_READY',
-          code: 'HOST_SESSION_REVOCATION_UNAVAILABLE',
-        }));
     }
-    if (!sessionId) return issueReplacement();
-    return sendSession(sessionId);
+
+    return response.status(200).json({
+      host_session_id: sessionId,
+      host_session_identity: 'SIGNED_AUTHENTICATED_ST_SESSION',
+      host_user_handle: userHandle,
+    });
   };
 }
 
