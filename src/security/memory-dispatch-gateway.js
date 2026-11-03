@@ -385,18 +385,17 @@ function assertNpcContextBinding({
   }
   const laneA = context.lanes?.lane_a;
   const laneB = context.lanes?.lane_b;
-  if (!isPlainRecord(laneA) || laneA.lane !== 'A' || laneA.purpose !== 'npc_turn_context'
-    || laneA.world_id !== worldId || laneA.actor_id !== actorId
-    || laneA.conversation_id !== conversationId || laneA.adapter_id !== adapterId
-    || laneA.recipient !== 'model' || !Array.isArray(laneA.items)
-    || !isPlainRecord(laneB) || laneB.lane !== 'B' || laneB.core_purpose !== 'npc_turn_context'
+  if (!plainDataRecord(laneA, ['lane', 'purpose', 'authorization_ref', 'visibility_authorization_ref', 'items'])
+    || laneA.lane !== 'A' || laneA.purpose !== 'npc_turn_context'
+    || !validText(laneA.authorization_ref, 200)
+    || !validText(laneA.visibility_authorization_ref, 200)
+    || !Array.isArray(laneA.items)
+    || !plainDataRecord(laneB, ['lane', 'core_purpose', 'provider_purpose', 'status', 'admitted', 'candidates', 'reason', 'snapshot'])
+    || laneB.lane !== 'B' || laneB.core_purpose !== 'npc_turn_context'
     || laneB.provider_purpose !== purpose || laneB.status !== 'ready'
-    || laneB.world_id !== worldId || laneB.actor_id !== actorId
-    || laneB.conversation_id !== conversationId || laneB.adapter_id !== adapterId
-    || laneB.recipient !== 'model' || laneB.reason !== null
+    || laneB.reason !== null
     || !Array.isArray(laneB.admitted) || !Array.isArray(laneB.candidates)
     || laneB.candidates.length !== candidateSet.length
-    || stableJson(context.snapshot) !== stableJson(laneA.snapshot)
     || stableJson(context.snapshot) !== stableJson(laneB.snapshot)) {
     throw new Error('MEMORY_DISPATCH_NOT_READY');
   }
