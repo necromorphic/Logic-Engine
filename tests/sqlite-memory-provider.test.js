@@ -534,6 +534,7 @@ test('persists raw record identity/version and rebuilds its derived index after 
   assert.equal(result.candidates[0].record.ref, 'memory:record-a');
   assert.equal(result.candidates[0].record.version, 'record-v1');
   assert.equal(result.candidates[0].source.entity_id, 'entity-source-a');
+  assert.equal(result.candidates[0].source.source_version, 'source-v1');
 });
 
 test('durable record survives ingest index-write failure and recovers after restart/rebuild', async (t) => {
