@@ -109,6 +109,21 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
       return consumerResultOverride ?? { status: 'ready', admitted: [], candidates: [], reason: null, snapshot: { world_revision: 0, commit_sequence: 0 } };
     },
   };
+
+  assert.throws(() => createApiServer({
+    engine, token: API_TOKEN,
+    adapterTokens: { [ADAPTER_ID]: ADAPTER_TOKEN },
+    memoryNpcConsumers: { [ADAPTER_ID]: consumer },
+    hostAssertionNonceStore: { consume() { return true; } },
+    resolveHostLifecycleIdentity,
+  }), /must expose atomic consume\(\), revokeSession\(\), and isSessionRevoked\(\)/);
+  assert.throws(() => createApiServer({
+    engine, token: API_TOKEN,
+    adapterTokens: { [ADAPTER_ID]: ADAPTER_TOKEN },
+    memoryNpcConsumers: { [ADAPTER_ID]: consumer },
+    resolveHostLifecycleIdentity,
+  }), /requires a durable Host assertion nonce and revocation store/);
+
   let server = createApiServer({
     engine, token: API_TOKEN, adminToken: ADMIN_TOKEN,
     adapterTokens: { [ADAPTER_ID]: ADAPTER_TOKEN },
