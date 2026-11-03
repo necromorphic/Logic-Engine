@@ -138,7 +138,7 @@ test('Provider mutations advance accepted head before commit and fail closed whe
         purpose: scope.purpose,
         granted: true,
         readiness: 'READY',
-        head: 3,
+        head: providerDb.prepare('SELECT head FROM accepted_head_state WHERE singleton=1').get().head,
         sources: [],
         candidates: [],
       });
