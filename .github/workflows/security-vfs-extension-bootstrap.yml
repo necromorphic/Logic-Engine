@@ -10,8 +10,6 @@ on:
       - 'native/secure-vfs-probe/*.c'
       - 'native/windows-namespace-broker/**'
       - 'tests/windows-broker-service-host.test.js'
-      - 'native/windows-namespace-broker/**'
-      - 'tests/windows-broker-service-host.test.js'
       - 'native/secure-vfs-probe/*.h'
       - 'native/secure-vfs-probe/*.js'
       - 'tests/windows-manifest-lifecycle.test.js'
@@ -31,6 +29,8 @@ on:
   pull_request:
     paths:
       - 'native/secure-vfs-probe/*.c'
+      - 'native/windows-namespace-broker/**'
+      - 'tests/windows-broker-service-host.test.js'
       - 'native/secure-vfs-probe/*.js'
       - 'tests/windows-manifest-lifecycle.test.js'
       - 'tests/sqlite-windows-acl-installer.test.js'
