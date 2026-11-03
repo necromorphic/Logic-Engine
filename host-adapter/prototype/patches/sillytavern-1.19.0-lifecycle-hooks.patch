@@ -1051,3 +1051,45 @@ diff --git a/src/endpoints/settings.js b/src/endpoints/settings.js
 @@ -340,1 +340,1 @@
 -router.post('/make-snapshot', async (request, response) => {
 +router.post('/make-snapshot', hostBulkMutationGuard, async (request, response) => {
+
+diff --git a/src/endpoints/extensions.js b/src/endpoints/extensions.js
+--- a/src/endpoints/extensions.js
++++ b/src/endpoints/extensions.js
+@@ -81,1 +81,7 @@
+ router.use(extensionsEnabledFeatureGuard);
++const hostSourceMutationGuard = (request, response, next) => {
++    if (process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR) {
++        return response.status(503).json({ error: { code: 'HOST_EXTENSION_SOURCE_MUTATION_UNSUPPORTED' } });
++    }
++    return next();
++};
+ 
+@@ -92,1 +98,1 @@
+-router.post('/install', async (request, response) => {
++router.post('/install', hostSourceMutationGuard, async (request, response) => {
+@@ -169,1 +175,1 @@
+-router.post('/update', async (request, response) => {
++router.post('/update', hostSourceMutationGuard, async (request, response) => {
+@@ -266,1 +272,1 @@
+-router.post('/switch', async (request, response) => {
++router.post('/switch', hostSourceMutationGuard, async (request, response) => {
+@@ -329,1 +335,1 @@
+-router.post('/move', async (request, response) => {
++router.post('/move', hostSourceMutationGuard, async (request, response) => {
+@@ -442,1 +448,1 @@
+-router.post('/delete', async (request, response) => {
++router.post('/delete', hostSourceMutationGuard, async (request, response) => {
+
+diff --git a/src/endpoints/users-admin.js b/src/endpoints/users-admin.js
+--- a/src/endpoints/users-admin.js
++++ b/src/endpoints/users-admin.js
+@@ -20,1 +20,8 @@
+ export const router = express.Router();
++router.use((request, response, next) => {
++    if (process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR && request.method === 'POST'
++        && !['/get', '/slugify'].includes(request.path)) {
++        return response.status(503).json({ error: { code: 'HOST_USER_ACCOUNT_MUTATION_UNSUPPORTED' } });
++    }
++    return next();
++});
+ 
