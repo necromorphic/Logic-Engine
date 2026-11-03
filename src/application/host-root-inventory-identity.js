@@ -34,8 +34,16 @@ export function parseHostRootIdentityRegistry(serialized = '[]') {
       root_id: record.root_id,
       source_manifest_sha256: record.source_manifest_sha256,
     });
-    const key = JSON.stringify(Object.values(normalized));
-    if (seen.has(key)) throw new TypeError('ENGINE_HOST_ROOT_IDENTITIES contains a duplicate binding.');
+    // The journal resolver intentionally receives only installation,
+    // account and root identity. Those fields must resolve to exactly one
+    // deployment authority; allowing a second adapter or manifest digest for
+    // the same tuple would make the journal's independent lookup ambiguous.
+    const key = JSON.stringify([
+      normalized.host_installation_id,
+      normalized.authenticated_account_id,
+      normalized.root_id,
+    ]);
+    if (seen.has(key)) throw new TypeError('ENGINE_HOST_ROOT_IDENTITIES contains an ambiguous root identity binding.');
     seen.add(key);
     return normalized;
   }));
