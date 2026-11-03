@@ -113,6 +113,7 @@ test('file-backed Provider restart/rebuild preserves current direct source and d
   assert.equal(allowed.completeness, 'complete');
   assert.equal(allowed.candidates.length, 1);
   assert.equal(allowed.candidates[0].source.entity_id, 'source-a');
+  assert.equal(allowed.candidates[0].source.source_version, String(source.updated_revision));
 
   s.provider.revokeRecord(s.scope, record.record_ref, record.record_version);
   s.replaceProvider();
