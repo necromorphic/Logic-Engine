@@ -161,11 +161,12 @@ function validateLaneB(envelope, scope) {
       const candidate = result.candidates[i];
       const admitted = result.admitted[i];
       if (!exactRecord(candidate, ['record_ref', 'record_version', 'authorization_generation',
-        'source_entity_id', 'epistemic_kind', 'evidence_assessment', 'content'])
+        'source_entity_id', 'source_version', 'epistemic_kind', 'evidence_assessment', 'content'])
         || !plainDataRecord(admitted, ['record_ref', 'record_version'], ['record_ref', 'record_version', 'epistemic_kind', 'evidence_assessment'])
         || !validId(candidate.record_ref) || !validId(candidate.record_version)
         || !Number.isSafeInteger(candidate.authorization_generation) || candidate.authorization_generation < 1
-        || !validId(candidate.source_entity_id) || !validId(candidate.epistemic_kind)
+        || !validId(candidate.source_entity_id) || !validId(candidate.source_version)
+        || !validId(candidate.epistemic_kind)
         || !['unassessed', 'supported', 'disputed', 'insufficient'].includes(candidate.evidence_assessment)
         || admitted.record_ref !== candidate.record_ref || admitted.record_version !== candidate.record_version) return false;
       const identity = JSON.stringify([candidate.record_ref, candidate.record_version]);
