@@ -442,22 +442,32 @@ function assertNpcContextBinding({
     || JSON.stringify(admittedKeys) !== JSON.stringify(expectedAdmittedKeys)) {
     throw new Error('MEMORY_DISPATCH_NOT_READY');
   }
-  const expectedBlocks = [
-    ...laneA.items.map((item) => ({
+  const expectedBlocks = [];
+  for (let index = 0; index < laneA.items.length; index += 1) {
+    const item = laneA.items[index];
+    if (!plainDataRecord(item,
+      ['acquisition_id', 'fact_id', 'subject_ref', 'predicate', 'value', 'acquisition_kind',
+        'provenance_ref', 'provenance_digest', 'acquisition_authorization_ref',
+        'source_event_ids', 'visibility_authorization_ref'],
+      ['acquisition_id', 'fact_id', 'subject_ref', 'predicate', 'value', 'acquisition_kind',
+        'provenance_ref', 'provenance_digest', 'acquisition_authorization_ref',
+        'source_event_ids', 'visibility_authorization_ref'])
+      || !validText(item.acquisition_kind, 100) || !validText(item.subject_ref, 200)
+      || !validText(item.predicate, 200)) throw new Error('MEMORY_DISPATCH_NOT_READY');
+    expectedBlocks.push({
       epistemic_kind: item.acquisition_kind,
       evidence_assessment: 'unassessed',
-      content: {
-        subject_ref: item.subject_ref,
-        predicate: item.predicate,
-        value: item.value,
-      },
-    })),
-    ...laneB.candidates.map((candidate) => ({
+      content: { subject_ref: item.subject_ref, predicate: item.predicate, value: item.value },
+    });
+  }
+  for (let index = 0; index < laneB.candidates.length; index += 1) {
+    const candidate = laneB.candidates[index];
+    expectedBlocks.push({
       epistemic_kind: candidate.epistemic_kind,
       evidence_assessment: candidate.evidence_assessment,
       content: candidate.content,
-    })),
-  ];
+    });
+  }
   if (stableJson(normalizeNpcContentBlocks(contentBlocks)) !== stableJson(normalizeNpcContentBlocks(expectedBlocks))) {
     throw new Error('MEMORY_DISPATCH_NOT_READY');
   }
