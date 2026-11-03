@@ -15,6 +15,7 @@ import {
 } from './st-server-digest-proxy.mjs';
 import { HostIdentityStore } from './st-host-identity-store.mjs';
 import { enumerateHostDataInventory } from './host-data-inventory.mjs';
+import { createHostSessionRevocationClient } from './st-host-session-revocation.mjs';
 
 const PINNED_SILLYTAVERN_COMMIT = '06bde939fb1e9c4c8d8641d810f0a916b5bce127';
 
@@ -51,7 +52,10 @@ export function createSillyTavernHostAdapter({
     ? injectedPersistRootInventory ?? createHostRootInventoryPersistence({ identityStore, env, fetchImpl })
     : null;
 
-  const session = createHostSessionHandler();
+  const revokeSession = identityStore
+    ? createHostSessionRevocationClient({ env, fetchImpl, identityStore })
+    : null;
+  const session = createHostSessionHandler({ revokeSession });
   const identity = identityStore
     ? createHostIdentityHandler({ identityStore })
     : unavailable('HOST_IDENTITY_STORE_UNCONFIGURED');
