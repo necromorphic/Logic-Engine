@@ -197,9 +197,9 @@ test('pinned ST chat-history mutation routes are guarded or explicitly unsupport
         'Host must not create missing account directories after root authority is enabled');
     assert.ok(usersSource.includes('Skipping system prompt migration while Host authority is active.'),
         'system-prompt migration must not mutate account-root files while Host is active');
-    assert.ok(usersSource.includes('delete request.session.logicEngineSessionId;'),
+    assert.ok(usersSource.includes('delete session.logicEngineSessionId;'),
         'revoked Host session identifiers must be cleared after account-version invalidation');
-    assert.ok(usersSource.includes('delete request.session.logicEngineSessionHandle;'),
+    assert.ok(usersSource.includes('delete session.logicEngineSessionHandle;'),
         'revoked Host account binding must be cleared after account-version invalidation');
     const serverMain = read('src/server-main.js');
     assert.ok(serverMain.includes('const hostAuthorityConfigured = Boolean(process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR)'),
