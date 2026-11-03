@@ -112,6 +112,8 @@ typedef struct ProbeDatabaseRole {
   int identity_set;
   int manifest_bound;
 #ifdef _WIN32
+  int manifest_ready;
+
   LogicEngineWinFileIdentity identity;
   LogicEngineWinDirectoryAnchor anchor;
   HANDLE trusted_handle;
@@ -3595,10 +3597,10 @@ static void probe_register_database_role(sqlite3_context *context, int argc, sql
 #endif
     entry->identity_set = 1;
 #ifdef _WIN32
-    /* The 8-argument alias form validates DB/parent identities but records
-     * sidecar identities dynamically for the handle-relative path-swap test.
-     * The 7-argument form requires sidecars to be pre-enrolled persistently. */
+    /* Manifest-bound roles remain unavailable until every declared sidecar
+     * identity has been enrolled and the adapter explicitly finalizes them. */
     entry->manifest_bound = manifest_persisted;
+    entry->manifest_ready = !manifest_persisted;
 #endif
     g_database_role_count += 1;
   }
