@@ -139,9 +139,6 @@ export function createSillyTavernFinalSendAdapter({
       }
       assertAuthenticatedHostRequest(request);
       const hostRoute = prepareHostContext ? resolveHostRoute(request) : null;
-      if (prepareHostContext && !hostRoute) {
-        throw terminalError(new Error('LOGIC_ENGINE_FINAL_SEND_ROUTE_UNREGISTERED'));
-      }
       const hostContext = prepareHostContext
         ? await prepareHostContext(request, response, hostRoute) : null;
       if (hostContext?.status === 'NON_READY') {
