@@ -193,7 +193,7 @@ test('Host Adapter requires Core root proof before context resolution and binds 
     extensions: pathRelative(process.cwd(), extensions),
   };
   const authoritativeFixture = async ({ directories }) => {
-    assert.deepEqual(directories, { root, chats, groups, groupChats });
+    assert.deepEqual(directories, { root, chats, groups, groupChats, extensions });
     return {
       filesystem: {
         status: 'complete',
