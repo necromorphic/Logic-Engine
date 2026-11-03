@@ -256,3 +256,19 @@ diff --git a/src/endpoints/image-metadata.js b/src/endpoints/image-metadata.js
 @@ -704 +706 @@
 -router.post('/all', async function (request, response) {
 +router.post('/all', hostUnsupportedMutationGuard, async function (request, response) {
+
+diff --git a/src/endpoints/stable-diffusion.js b/src/endpoints/stable-diffusion.js
+--- a/src/endpoints/stable-diffusion.js
++++ b/src/endpoints/stable-diffusion.js
+@@ -15,0 +16,2 @@
++import { createHostUnsupportedMutationGuard } from './logic-engine-host-inventory-handler.mjs';
++const hostUnsupportedMutationGuard = createHostUnsupportedMutationGuard();
+@@ -509 +511 @@
+-comfy.post('/save-workflow', async (request, response) => {
++comfy.post('/save-workflow', hostUnsupportedMutationGuard, async (request, response) => {
+@@ -521 +523 @@
+-comfy.post('/delete-workflow', async (request, response) => {
++comfy.post('/delete-workflow', hostUnsupportedMutationGuard, async (request, response) => {
+@@ -534 +536 @@
+-comfy.post('/rename-workflow', getFileNameValidationFunction('old_name'), getFileNameValidationFunction('new_name'), async (request, response) => {
++comfy.post('/rename-workflow', hostUnsupportedMutationGuard, getFileNameValidationFunction('old_name'), getFileNameValidationFunction('new_name'), async (request, response) => {
