@@ -130,6 +130,7 @@ const decode = (value) => JSON.parse(value);
 const encode = (value) => JSON.stringify(value);
 
 const rawDigest = (value) => createHash('sha256').update(value, 'utf8').digest('hex');
+const ASYNC_FUNCTION_PROTOTYPE = Object.getPrototypeOf(async function () {}).constructor;
 
 function databaseSchemaDigest(db) {
   return hashRequest(db.prepare(`
@@ -1295,6 +1296,11 @@ export class SQLiteMemoryProvider {
     ).get(worldId, actorId, purpose);
     if (queryGrant?.allowed !== 1) throw new Error('MEMORY_DISPATCH_NOT_READY');
 
+    if (this.#validateSourceVersion instanceof ASYNC_FUNCTION_PROTOTYPE) {
+      throw new Error('MEMORY_DISPATCH_NOT_READY');
+    }
+
+    const compareCodeUnits = (left, right) => left < right ? -1 : left > right ? 1 : 0;
     const normalizedSources = [];
     const sourceKeys = new Set();
     for (const source of sources) {
@@ -1313,8 +1319,8 @@ export class SQLiteMemoryProvider {
         source_version: source.source_version,
       });
     }
-    normalizedSources.sort((a, b) => a.source_entity_id.localeCompare(b.source_entity_id)
-      || a.source_version.localeCompare(b.source_version));
+    normalizedSources.sort((a, b) => compareCodeUnits(a.source_entity_id, b.source_entity_id)
+      || compareCodeUnits(a.source_version, b.source_version));
 
     const normalizedCandidates = [];
     const candidateKeys = new Set();
@@ -1392,10 +1398,10 @@ export class SQLiteMemoryProvider {
       });
     }
 
-    normalizedCandidates.sort((a, b) => a.record_ref.localeCompare(b.record_ref)
-      || a.record_version.localeCompare(b.record_version)
-      || a.source_entity_id.localeCompare(b.source_entity_id)
-      || a.source_version.localeCompare(b.source_version));
+    normalizedCandidates.sort((a, b) => compareCodeUnits(a.record_ref, b.record_ref)
+      || compareCodeUnits(a.record_version, b.record_version)
+      || compareCodeUnits(a.source_entity_id, b.source_entity_id)
+      || compareCodeUnits(a.source_version, b.source_version));
     if (normalizedSources.length !== candidateSources.size
       || normalizedSources.some(source => !candidateSources.has(
         JSON.stringify([source.source_entity_id, source.source_version]),
