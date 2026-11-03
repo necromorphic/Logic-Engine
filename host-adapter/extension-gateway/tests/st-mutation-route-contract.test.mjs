@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { verifyPinnedSillyTavernMutationCoverage, PINNED_ST_MUTATION_ROUTE_COUNT, PINNED_ST_MUTATION_GUARD_ASSERTION_COUNT } from '../server-plugin/st-mutation-route-contract.mjs';
+import { verifyPinnedSillyTavernMutationCoverage, PINNED_ST_MUTATION_ROUTE_COUNT, PINNED_ST_MUTATION_GUARD_ASSERTION_COUNT, hasPinnedPostRouteGuards } from '../server-plugin/st-mutation-route-contract.mjs';
 
 const root = process.env.SILLYTAVERN_SOURCE_ROOT ?? null;
 
@@ -17,37 +17,12 @@ test('every reviewed per-user mutation route and global Host guard is present in
   assert.match(coverage.coverage_manifest_sha256, /^[a-f0-9]{64}$/);
 });
 
-import { hasPinnedPostRouteGuards } from '../server-plugin/st-mutation-route-contract.mjs';
-
 test('mutation route coverage checks every declaration, not only the first matching route', () => {
-  assert.equal(
-    hasPinnedPostRouteGuards(
-      "router.post('/delete', hostUnsupportedMutationGuard, handler);",
-      '/delete',
-      ['hostUnsupportedMutationGuard'],
-    ),
-    true,
-  );
-
-  assert.equal(
-    hasPinnedPostRouteGuards(
-      "router.post('/delete', hostUnsupportedMutationGuard, handler);\\nrouter.post('/delete', handler);",
-      '/delete',
-      ['hostUnsupportedMutationGuard'],
-    ),
-    false,
-    'a later unguarded duplicate must invalidate route coverage',
-  );
-
-  assert.equal(
-    hasPinnedPostRouteGuards(
-      "router.post('/delete', hostUnsupportedMutationGuard, first);\\nrouter.post(\\"/delete\\", hostUnsupportedMutationGuard, second);",
-      '/delete',
-      ['hostUnsupportedMutationGuard'],
-    ),
-    true,
-    'every duplicate declaration is checked independently',
-  );
+  assert.equal(hasPinnedPostRouteGuards("router.post('/delete', hostUnsupportedMutationGuard, handler);", '/delete', ['hostUnsupportedMutationGuard']), true);
+  const bypass = "router.post('/delete', hostUnsupportedMutationGuard, handler);" + String.fromCharCode(10) + "router.post('/delete', handler);";
+  assert.equal(hasPinnedPostRouteGuards(bypass, '/delete', ['hostUnsupportedMutationGuard']), false, 'a later unguarded duplicate must invalidate route coverage');
+  const guardedDuplicates = "router.post('/delete', hostUnsupportedMutationGuard, first);" + String.fromCharCode(10) + 'router.post("/delete", hostUnsupportedMutationGuard, second);';
+  assert.equal(hasPinnedPostRouteGuards(guardedDuplicates, '/delete', ['hostUnsupportedMutationGuard']), true);
 });
 
 test('mutation route coverage rejects missing routes and incomplete guard sets', () => {
