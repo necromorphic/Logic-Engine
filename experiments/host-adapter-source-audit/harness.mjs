@@ -26,8 +26,15 @@ const mutationPaths = [
   'src/endpoints/users-private.js',
   'src/endpoints/users-admin.js',
   'src/endpoints/extensions.js',
+  'src/endpoints/content-manager.js',
+  'src/endpoints/image-metadata.js',
+  'src/endpoints/images.js',
+  'src/endpoints/moving-ui.js',
+  'src/endpoints/secrets.js',
+  'src/endpoints/sprites.js',
+  'src/endpoints/stats.js',
 ];
-const [events, script, groupChats, chatBackups, serverMain, hostRoutePatch, lifecyclePatch, ...mutationContents] = await Promise.all([
+const [events, script, groupChats, chatBackups, serverMain, hostRoutePatch, lifecyclePatch, rootMutationPatch, ...mutationContents] = await Promise.all([
   readFile(resolve(root, 'public/scripts/events.js'), 'utf8'),
   readFile(resolve(root, 'public/script.js'), 'utf8'),
   readFile(resolve(root, 'public/scripts/group-chats.js'), 'utf8'),
@@ -35,6 +42,7 @@ const [events, script, groupChats, chatBackups, serverMain, hostRoutePatch, life
   readFile(resolve(root, 'src/server-main.js'), 'utf8'),
   readFile(resolve(process.cwd(), 'host-adapter/prototype/patches/sillytavern-1.19.0-source-inventory-route.patch'), 'utf8'),
   readFile(resolve(process.cwd(), 'host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch'), 'utf8'),
+  readFile(resolve(process.cwd(), 'host-adapter/prototype/patches/sillytavern-1.19.0-root-mutation-guards.patch'), 'utf8'),
   ...mutationPaths.map(path => readFile(resolve(root, path), 'utf8')),
 ]);
 const mutationSources = Object.fromEntries(
@@ -165,6 +173,13 @@ test('pinned server mutation routes remain in the reviewed inventory', () => {
     'src/endpoints/users-private.js': ['/reset-settings', '/reset-step2'],
     'src/endpoints/users-admin.js': ['/delete'],
     'src/endpoints/extensions.js': ['/install', '/update', '/switch', '/move', '/delete'],
+    'src/endpoints/content-manager.js': ['/importURL', '/importUUID'],
+    'src/endpoints/image-metadata.js': ['/folders/create', '/folders/set-thumbnails', '/folders/update', '/folders/delete', '/folders/assign', '/folders/unassign', '/', '/cleanup'],
+    'src/endpoints/images.js': ['/upload', '/delete'],
+    'src/endpoints/moving-ui.js': ['/save'],
+    'src/endpoints/secrets.js': ['/write', '/delete', '/rotate', '/rename', '/settings'],
+    'src/endpoints/sprites.js': ['/delete', '/upload-zip', '/upload'],
+    'src/endpoints/stats.js': ['/recreate', '/update'],
   };
 
   for (const [file, routes] of Object.entries(routeRequirements)) {
@@ -265,4 +280,68 @@ test('every pinned chat-history mutation route is either receipted or fail-close
   assert.match(groups, /assertHostStartupMigrationAllowed/);
   assert.match(groups, /await assertHostStartupMigrationAllowed\(\{/,
     'startup group metadata migration must check enrolled histories before writes');
+});
+
+
+test('additional account-root and source mutation routes are fail-closed under Host authority', () => {
+  const requirements = [
+    ['src/endpoints/content-manager.js', '/importURL'],
+    ['src/endpoints/content-manager.js', '/importUUID'],
+    ['src/endpoints/image-metadata.js', '/folders/create'],
+    ['src/endpoints/image-metadata.js', '/folders/set-thumbnails'],
+    ['src/endpoints/image-metadata.js', '/folders/update'],
+    ['src/endpoints/image-metadata.js', '/folders/delete'],
+    ['src/endpoints/image-metadata.js', '/folders/assign'],
+    ['src/endpoints/image-metadata.js', '/folders/unassign'],
+    ['src/endpoints/image-metadata.js', '/'],
+    ['src/endpoints/image-metadata.js', '/cleanup'],
+    ['src/endpoints/images.js', '/upload'],
+    ['src/endpoints/images.js', '/delete'],
+    ['src/endpoints/moving-ui.js', '/save'],
+    ['src/endpoints/presets.js', '/save'],
+    ['src/endpoints/presets.js', '/delete'],
+    ['src/endpoints/presets.js', '/restore'],
+    ['src/endpoints/quick-replies.js', '/save'],
+    ['src/endpoints/quick-replies.js', '/delete'],
+    ['src/endpoints/secrets.js', '/write'],
+    ['src/endpoints/secrets.js', '/delete'],
+    ['src/endpoints/secrets.js', '/rotate'],
+    ['src/endpoints/secrets.js', '/rename'],
+    ['src/endpoints/secrets.js', '/settings'],
+    ['src/endpoints/sprites.js', '/delete'],
+    ['src/endpoints/sprites.js', '/upload-zip'],
+    ['src/endpoints/sprites.js', '/upload'],
+    ['src/endpoints/stats.js', '/recreate'],
+    ['src/endpoints/stats.js', '/update'],
+    ['src/endpoints/themes.js', '/save'],
+    ['src/endpoints/themes.js', '/delete'],
+    ['src/endpoints/worldinfo.js', '/delete'],
+    ['src/endpoints/worldinfo.js', '/import'],
+    ['src/endpoints/worldinfo.js', '/edit'],
+    ['src/endpoints/vectors.js', '/insert'],
+    ['src/endpoints/vectors.js', '/delete'],
+    ['src/endpoints/vectors.js', '/purge-all'],
+    ['src/endpoints/vectors.js', '/purge'],
+    ['src/endpoints/extensions.js', '/install'],
+    ['src/endpoints/extensions.js', '/update'],
+    ['src/endpoints/extensions.js', '/switch'],
+    ['src/endpoints/extensions.js', '/move'],
+    ['src/endpoints/extensions.js', '/delete'],
+    ['src/endpoints/backgrounds.js', '/delete'],
+    ['src/endpoints/backgrounds.js', '/rename'],
+    ['src/endpoints/backgrounds.js', '/upload'],
+    ['src/endpoints/avatars.js', '/delete'],
+    ['src/endpoints/avatars.js', '/upload'],
+    ['src/endpoints/assets.js', '/delete'],
+    ['src/endpoints/assets.js', '/character'],
+    ['src/endpoints/files.js', '/upload'],
+    ['src/endpoints/files.js', '/delete'],
+  ];
+  for (const [file, route] of requirements) {
+    const source = mutationSources[file];
+    const escaped = route.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const expression = new RegExp("router\\.post\\(['\\\"]" + escaped + "['\\\"]\\s*,\\s*hostUnsupportedMutationGuard\\s*,");
+    assert.match(source, expression, file + ' ' + route + ' must be fail-closed');
+  }
+  assert.match(rootMutationPatch, /createHostUnsupportedMutationGuard/);
 });
