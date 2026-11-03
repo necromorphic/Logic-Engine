@@ -155,6 +155,17 @@ export function createProtectedMemoryFinalSend({ gateway, resolveProtectedMemory
       throw new Error('MEMORY_DISPATCH_NOT_READY');
     }
 
+    const laneAItems = protectedMemory.laneA?.items;
+    const laneARevalidator = protectedMemory.revalidateLaneAUnderCoordinatorLease
+      ?? protectedMemory.revalidateLaneA;
+    if (laneAItems !== undefined && (!Array.isArray(laneAItems) || laneAItems.length > 200)) {
+      throw new Error('MEMORY_DISPATCH_NOT_READY');
+    }
+    if (Array.isArray(laneAItems) && laneAItems.length > 0
+      && typeof laneARevalidator !== 'function') {
+      throw new Error('MEMORY_DISPATCH_LANE_A_REVALIDATION_REQUIRED');
+    }
+
     const exactBody = serializeProtectedRequestBody(requestInit, senderRoute, protectedMemory.contentBlocks ?? []);
     const model = protectedMemory.model;
     const controllerSignal = requestInit.signal;
@@ -170,6 +181,7 @@ export function createProtectedMemoryFinalSend({ gateway, resolveProtectedMemory
 
     return gateway.dispatchProtectedRequest({
       ...protectedMemory,
+      revalidateLaneA: laneARevalidator,
       route: 'host-selected-chat-generation',
       senderRoute,
       model,
