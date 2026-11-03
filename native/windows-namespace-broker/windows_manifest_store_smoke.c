@@ -66,9 +66,20 @@ int main(void) {
   if (!le_win_namespace_flush(sidecar) || !le_win_namespace_flush_parent(store.directory)) goto unlock_store;
   if (!le_win_namespace_open_sidecar(store.directory, L"smoke-wal", &sidecar_identity, &reopened, &reopened_identity)) goto unlock_store;
   if (!logic_engine_win_identity_equal(&sidecar_identity, &reopened_identity)) goto unlock_store;
+  CloseHandle(reopened);
+  reopened = INVALID_HANDLE_VALUE;
   wrong_identity = sidecar_identity;
   wrong_identity.file_id.Identifier[0] ^= 0x01;
-  if (le_win_namespace_open_sidecar(store.directory, L"smoke-wal", &wrong_identity, &reopened, &reopened_identity)) goto unlock_store;
+  if (le_win_namespace_open_sidecar(store.directory, L"smoke-wal", &wrong_identity, &reopened, &reopened_identity)) {
+    if (reopened != INVALID_HANDLE_VALUE) CloseHandle(reopened);
+    reopened = INVALID_HANDLE_VALUE;
+    goto unlock_store;
+  }
+  if (le_win_namespace_open_sidecar(store.directory, L"smoke-wal", NULL, &reopened, &reopened_identity)) {
+    if (reopened != INVALID_HANDLE_VALUE) CloseHandle(reopened);
+    reopened = INVALID_HANDLE_VALUE;
+    goto unlock_store;
+  }
   if (!le_win_namespace_delete_sidecar(store.directory, &sidecar, &sidecar_identity)) goto unlock_store;
   result = 0;
 unlock_store:
