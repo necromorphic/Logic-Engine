@@ -60,7 +60,7 @@ const MAX_ROOT_INVENTORY_BYTES = 8 * 1024 * 1024;
 const MAX_ROOT_DELTA_FILES = 5_000;
 const HOST_INVENTORY_COVERAGE_ID = 'ST-1.19.0-HOST-LIFECYCLE-P0-V1';
 const HOST_INVENTORY_PINNED_COMMIT = '06bde939fb1e9c4c8d8641d810f0a916b5bce127';
-const HOST_INVENTORY_PATCH_BLOB_SHA = '1198e1a3c2d7b7a2413aedd45e8ad6ebbe19fb51c05ae6880a9f489025cbf9f4';
+const HOST_INVENTORY_PATCH_BLOB_SHA = '9adf8569a6960667dff219d8e69cbcba4c928100a2858d68f6bc06bc9fee9e7a';
 const HOST_INVENTORY_HANDLER_BLOB_SHA = 'a1581f4c39ca7bc7f30b52b155c4ae6222fa7abf';
 const ROOT_ATTESTATION_KEYS = Object.freeze([
   'protocol_version', 'adapter_id', 'host_installation_id', 'authenticated_account_id', 'root_id',
