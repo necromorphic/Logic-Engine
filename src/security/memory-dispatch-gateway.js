@@ -234,6 +234,7 @@ export class MemoryDispatchGateway {
     this.readCoreEvidence = readCoreEvidence;
     this.readProviderEvidence = readProviderEvidence;
     this.sendUpstream = sendUpstream;
+    this.finalizingRequestIds = new Set();
 
     this.coordinatorDb = openCoordinatorDatabase(this.coordinatorPath);
     this.db = null;
@@ -446,12 +447,147 @@ export class MemoryDispatchGateway {
     }
 
     const outcomeCode = Number.isInteger(response?.status) ? response.status : null;
-    try {
-      this.#recordOutcome(requestId, 'COMPLETED', outcomeCode);
-    } catch {
-      throw new Error('MEMORY_DISPATCH_OUTCOME_UNKNOWN');
-    }
+    // Keep DISPATCH_STARTED durable until the actual Host response writer
+    // accepts the final end() call and emits finish. A crash or disconnected
+    // client before that point is an UNKNOWN delivery, never a replayable
+    // COMPLETED dispatch.
     return response;
+  }
+
+  /**
+   * Sole client-egress gate. Re-read current Core and Provider evidence while
+   * holding the same Coordinator lease used by revoke/source mutations, then
+   * invoke the real Express write synchronously before releasing that lease.
+   */
+  authorizeResponseWrite(requestId, write, { final = false, response = null } = {}) {
+    if (!validText(requestId, 200) || typeof write !== 'function'
+      || typeof final !== 'boolean') {
+      throw new Error('MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED');
+    }
+    if (this.finalizingRequestIds.has(requestId)) {
+      throw new Error('MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED');
+    }
+
+    let release;
+    try {
+      release = beginCoordinatorLock(this.coordinatorDb);
+      const row = this.db.prepare(
+        'SELECT * FROM dispatch_ledger WHERE request_id=? LIMIT 1',
+      ).get(requestId);
+      if (!row || row.status !== 'DISPATCH_STARTED') {
+        throw new Error('MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED');
+      }
+
+      let sources;
+      let candidates;
+      try {
+        sources = normalizeSources(JSON.parse(row.sources_json));
+        candidates = normalizeCandidates(JSON.parse(row.candidates_json));
+        assertSourcesMatchCandidates(sources, candidates);
+      } catch {
+        throw new Error('MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED');
+      }
+
+      const authority = getAcceptedHeadStatusSync({
+        port: this.authorityPort,
+        token: this.readToken,
+      });
+      if (authority.pending.core || authority.pending.provider
+        || !authority.enrolled.core || !authority.enrolled.provider) {
+        throw new Error('MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED');
+      }
+      const core = assertSyncResult(this.readCoreEvidence({
+        worldId: row.world_id,
+        actorId: row.actor_id,
+        purpose: row.purpose,
+        sources,
+      }));
+      const provider = assertSyncResult(this.readProviderEvidence({
+        worldId: row.world_id,
+        actorId: row.actor_id,
+        purpose: row.purpose,
+        sources,
+        candidates,
+      }));
+      if (core.world_id !== row.world_id || core.actor_id !== row.actor_id
+        || core.readiness !== 'READY' || core.inventory_status !== 'READY'
+        || !Number.isSafeInteger(core.head) || core.head !== authority.heads.core
+        || core.head !== row.core_head
+        || provider.world_id !== row.world_id || provider.actor_id !== row.actor_id
+        || provider.purpose !== row.purpose || provider.granted !== true
+        || provider.readiness !== 'READY'
+        || !Number.isSafeInteger(provider.head) || provider.head !== authority.heads.provider
+        || provider.head !== row.provider_head) {
+        throw new Error('MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED');
+      }
+      assertSameSources(core.sources, sources);
+      assertSameSources(provider.sources, sources);
+      assertSameCandidates(provider.candidates, candidates);
+
+      if (final) {
+        if (!response || typeof response.once !== 'function'
+          || response.writableEnded === true || response.destroyed === true) {
+          throw new Error('MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED');
+        }
+        this.finalizingRequestIds.add(requestId);
+        let settled = false;
+        const settle = (status) => {
+          if (settled) return;
+          settled = true;
+          this.finalizingRequestIds.delete(requestId);
+          // Response events can fire synchronously in test doubles. Defer the
+          // durable outcome update until this egress Coordinator lease releases.
+          queueMicrotask(() => {
+            let outcomeRelease;
+            try {
+              outcomeRelease = beginCoordinatorLock(this.coordinatorDb);
+              this.#recordOutcome(requestId, status, status === 'COMPLETED' ? 200 : null);
+            } catch {
+              // Leave DISPATCH_STARTED durable. Startup recovery converts it
+              // to UNKNOWN, which is deliberately non-replayable.
+            } finally {
+              try { outcomeRelease?.(); } catch {}
+            }
+          });
+        };
+        response.once('finish', () => settle('COMPLETED'));
+        response.once('close', () => {
+          if (response.writableFinished !== true) settle('UNKNOWN');
+        });
+      }
+
+      let result;
+      try {
+        result = write();
+        if (result && typeof result.then === 'function') {
+          throw new Error('MEMORY_DISPATCH_RESPONSE_WRITE_MUST_BE_SYNCHRONOUS');
+        }
+      } catch (error) {
+        if (final) this.finalizingRequestIds.delete(requestId);
+        try { this.#recordOutcome(requestId, 'UNKNOWN', null); } catch {}
+        throw error;
+      }
+      return result;
+    } catch (error) {
+      if (error?.message === 'MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED') {
+        try {
+          const row = this.db.prepare(
+            'SELECT status FROM dispatch_ledger WHERE request_id=? LIMIT 1',
+          ).get(requestId);
+          if (row?.status === 'DISPATCH_STARTED') this.#recordOutcome(requestId, 'UNKNOWN', null);
+        } catch {}
+        throw error;
+      }
+      try {
+        const row = this.db.prepare(
+          'SELECT status FROM dispatch_ledger WHERE request_id=? LIMIT 1',
+        ).get(requestId);
+        if (row?.status === 'DISPATCH_STARTED') this.#recordOutcome(requestId, 'UNKNOWN', null);
+      } catch {}
+      throw new Error('MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED');
+    } finally {
+      try { release?.(); } catch {}
+    }
   }
 
   #recordOutcome(requestId, status, outcomeCode) {
