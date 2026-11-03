@@ -298,12 +298,3 @@ diff --git a/src/endpoints/thumbnails.js b/src/endpoints/thumbnails.js
          // Try to generate thumbnail if it doesn't exist
          if (!fs.existsSync(pathToCachedFile)) {
              const thumbResult = await generateThumbnail(request.user.directories, type, file, false);
-diff --git a/src/endpoints/users-admin.js b/src/endpoints/users-admin.js
---- a/src/endpoints/users-admin.js
-+++ b/src/endpoints/users-admin.js
-@@ -18,0 +19,2 @@
-+import { createHostUnsupportedMutationGuard } from './logic-engine-host-inventory-handler.mjs';
-+const hostUnsupportedMutationGuard = createHostUnsupportedMutationGuard();
-@@ -219 +221 @@
--router.post('/delete', requireAdminMiddleware, async (request, response) => {
-+router.post('/delete', requireAdminMiddleware, hostUnsupportedMutationGuard, async (request, response) => {
