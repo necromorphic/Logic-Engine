@@ -379,7 +379,8 @@ export function createHostRootInventoryPersistence({
       const eligibleForCompleteness = ['BASELINED_REVIEW_ONLY', 'UNCHANGED_REVIEW_ONLY'].includes(normalizedRoot.status)
         || (normalizedRoot.status === 'NON_READY'
           && validCurrentManifest
-          && normalizedRoot.reason !== 'HOST_ROOT_INVENTORY_DELTA_LIMIT');
+          && !(typeof normalizedRoot.reason === 'string'
+            && normalizedRoot.reason.includes('HOST_ROOT_INVENTORY_DELTA_LIMIT')));
       if (!eligibleForCompleteness || !validCurrentManifest) return normalizedRoot;
 
       // A Core completeness proof is emitted only when the full-root VSS
