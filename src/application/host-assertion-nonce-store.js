@@ -61,6 +61,16 @@ export class HostAssertionNonceStore {
         ) WITHOUT ROWID;
         CREATE INDEX IF NOT EXISTS host_assertion_nonces_expiry
           ON host_assertion_nonces(expires_at);
+        CREATE TABLE IF NOT EXISTS host_session_revocations (
+          adapter_id TEXT NOT NULL,
+          host_installation_id TEXT NOT NULL,
+          authenticated_account_id TEXT NOT NULL,
+          host_session_id TEXT NOT NULL,
+          revoked_at INTEGER NOT NULL,
+          reason TEXT NOT NULL CHECK(reason IN ('logout', 'session_rotation')),
+          event_nonce TEXT NOT NULL,
+          PRIMARY KEY(adapter_id, host_installation_id, authenticated_account_id, host_session_id)
+        ) WITHOUT ROWID;
       `);
     } catch (error) {
       this.#db.close();
@@ -81,6 +91,61 @@ export class HostAssertionNonceStore {
       VALUES(?, ?, ?, ?)
     `).run(adapterId, nonce, expiresAt, currentSeconds);
     return result.changes === 1;
+  }
+
+  revokeSession(adapterId, identity, eventNonce, revokedAt, reason) {
+    const uuid = value => typeof value === 'string'
+      && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+    if (typeof adapterId !== 'string' || !adapterId.trim()
+      || !identity || !uuid(identity.host_installation_id)
+      || !uuid(identity.authenticated_account_id) || !uuid(identity.host_session_id)
+      || !uuid(eventNonce) || !Number.isSafeInteger(revokedAt) || revokedAt < 0
+      || !['logout', 'session_rotation'].includes(reason)) {
+      throw new TypeError('Host session revocation input is invalid.');
+    }
+    this.#db.exec('BEGIN IMMEDIATE');
+    try {
+      const nonce = this.#db.prepare(`
+        INSERT OR IGNORE INTO host_assertion_nonces(adapter_id, nonce, expires_at, consumed_at)
+        VALUES(?, ?, ?, ?)
+      `).run(adapterId, eventNonce, revokedAt + 120, revokedAt);
+      if (nonce.changes !== 1) {
+        this.#db.exec('ROLLBACK');
+        return false;
+      }
+      this.#db.prepare(`
+        INSERT INTO host_session_revocations(
+          adapter_id, host_installation_id, authenticated_account_id,
+          host_session_id, revoked_at, reason, event_nonce
+        ) VALUES(?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(adapter_id, host_installation_id, authenticated_account_id, host_session_id)
+        DO UPDATE SET revoked_at = MIN(revoked_at, excluded.revoked_at),
+          reason = excluded.reason, event_nonce = excluded.event_nonce
+      `).run(adapterId, identity.host_installation_id, identity.authenticated_account_id,
+        identity.host_session_id, revokedAt, reason, eventNonce);
+      this.#db.exec('COMMIT');
+      return true;
+    } catch (error) {
+      try { this.#db.exec('ROLLBACK'); } catch {}
+      throw error;
+    }
+  }
+
+  isSessionRevoked(adapterId, identity) {
+    const uuid = value => typeof value === 'string'
+      && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+    if (typeof adapterId !== 'string' || !adapterId.trim()
+      || !identity || !uuid(identity.host_installation_id)
+      || !uuid(identity.authenticated_account_id) || !uuid(identity.host_session_id)) {
+      return true;
+    }
+    return Boolean(this.#db.prepare(`
+      SELECT 1 FROM host_session_revocations
+      WHERE adapter_id = ? AND host_installation_id = ?
+        AND authenticated_account_id = ? AND host_session_id = ?
+      LIMIT 1
+    `).get(adapterId, identity.host_installation_id, identity.authenticated_account_id,
+      identity.host_session_id));
   }
 
   close() {
