@@ -742,37 +742,6 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
             body.assertion, body.signature,
             async () => {
               const assertionConversation = body.assertion.conversation_id.split(':');
-              // HMAC proves who issued the assertion, not that its World/Actor
-              // fields are still the Core-authorized bindings. Resolve both
-              // from Core-owned registries after signature verification.
-              const resolveCoreWorldActor = () => {
-                let conversationBinding;
-                let actorBinding;
-                try {
-                  conversationBinding = hostConversationBindings.resolve({
-                    adapterId,
-                    conversationId: body.assertion.conversation_id,
-                  });
-                  if (!conversationBinding || !validBindingId(conversationBinding.world_id)) {
-                    throw new Error('HOST_CORE_BINDING_UNAUTHORIZED');
-                  }
-                  actorBinding = actorBindings.resolveForAdapter(conversationBinding.world_id, adapterId);
-                } catch {
-                  throw new Error('HOST_CORE_BINDING_UNAUTHORIZED');
-                }
-                if (!actorBinding?.actor || !validBindingId(actorBinding.actor.entity_id)) {
-                  throw new Error('HOST_CORE_BINDING_UNAUTHORIZED');
-                }
-                return Object.freeze({
-                  world_id: conversationBinding.world_id,
-                  actor_id: actorBinding.actor.entity_id,
-                });
-              };
-              const admittedCoreBinding = resolveCoreWorldActor();
-              if (admittedCoreBinding.world_id !== body.assertion.world_id
-                || admittedCoreBinding.actor_id !== body.assertion.actor_id) {
-                throw new Error('HOST_CORE_BINDING_UNAUTHORIZED');
-              }
               let trustedHostIdentity = null;
               if (typeof resolveHostMemoryIdentity === 'function'
                 && assertionConversation.length === 3
@@ -876,12 +845,6 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
           }
           if (code === 'HOST_ASSERTION_REPLAY_GUARD_UNAVAILABLE') {
             return send(res, 503, { error: { code, message: 'Durable Host assertion replay protection is unavailable.' } });
-          }
-          if (code === 'HOST_CORE_BINDING_UNAUTHORIZED') {
-            return send(res, 401, { error: { code, message: 'Core World/Actor binding does not authorize this Host assertion.' } });
-          }
-          if (code === 'HOST_CORE_BINDING_CHANGED') {
-            return send(res, 409, { error: { code, message: 'Core World/Actor binding changed during Memory retrieval.' } });
           }
           if (code === 'HOST_ROOT_IDENTITY_STATUS_UNAVAILABLE') {
             return send(res, 503, { error: { code, message: 'Host Root Inventory authority status is unavailable.' } });
