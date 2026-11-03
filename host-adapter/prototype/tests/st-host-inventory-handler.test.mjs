@@ -224,7 +224,7 @@ test('host inventory route passes only the authenticated user data roots and ret
   assert.equal(response.body.filesystem_inventory.entries, undefined);
   assert.equal(response.body.host_user_handle, 'alice');
   assert.equal(response.body.requested_conversation_uuid, '4e6b0a80-4e73-4c66-aaf3-7a6e62c7f403');
-  assert.equal(response.body.host_build_claim_type, 'ABSENT');
+  assert.equal(response.body.host_build_claim_type, 'DEPLOYMENT_ASSERTION_ONLY');
   assert.equal(response.body.host_source_identity_status, 'NON_READY');
   assert.equal(JSON.stringify(response.body).includes('raw-chat-message'), false);
 });
