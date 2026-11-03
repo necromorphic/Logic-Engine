@@ -138,9 +138,12 @@ export function createSillyTavernFinalSendAdapter({
         throw new TypeError('Invalid authenticated SillyTavern request context.');
       }
       assertAuthenticatedHostRequest(request);
-      const hostRoute = resolveHostRoute(request);
-      if (!hostRoute) throw terminalError(new Error('LOGIC_ENGINE_FINAL_SEND_ROUTE_UNREGISTERED'));
-      const hostContext = await prepareHostContext(request, response, hostRoute);
+      const hostRoute = prepareHostContext ? resolveHostRoute(request) : null;
+      if (prepareHostContext && !hostRoute) {
+        throw terminalError(new Error('LOGIC_ENGINE_FINAL_SEND_ROUTE_UNREGISTERED'));
+      }
+      const hostContext = prepareHostContext
+        ? await prepareHostContext(request, response, hostRoute) : null;
       if (hostContext?.status === 'NON_READY') {
         throw terminalError(new Error(hostContext.code || 'MEMORY_DISPATCH_NOT_READY'));
       }
