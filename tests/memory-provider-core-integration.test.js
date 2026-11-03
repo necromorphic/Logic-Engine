@@ -86,6 +86,7 @@ function setup(t, { twoRecords = false, providerPath = null, evidenceAssessment 
   let triggerRace = false;
   let triggerQueryRevocation = false;
   let triggerCoreQueryRevocation = false;
+  let triggerCoreActorRevocation = false;
   let sourceValidatorOverride = null;
   let inventoryValidatorOverride = null;
   const snapshotReader = async (id) => {
@@ -110,6 +111,10 @@ function setup(t, { twoRecords = false, providerPath = null, evidenceAssessment 
       hostConversationBindings.revoke({
         adapterId, conversationId: HOST_CONVERSATION_ID, reason: 'test revoke query access',
       });
+    }
+    if (triggerCoreActorRevocation && record.record_ref === 'memory:record-a') {
+      triggerCoreActorRevocation = false;
+      bindings.revoke(worldId, adapterId, actorId);
     }
     return sourceValidatorOverride ? sourceValidatorOverride(record) : canonicalSourceValidator(record);
   };
@@ -197,6 +202,7 @@ function setup(t, { twoRecords = false, providerPath = null, evidenceAssessment 
     triggerRace() { triggerRace = true; },
     triggerQueryRevocation() { triggerQueryRevocation = true; },
     triggerCoreQueryRevocation() { triggerCoreQueryRevocation = true; },
+    triggerCoreActorRevocation() { triggerCoreActorRevocation = true; },
     hostConversationBindings,
     setSourceValidator(fn) { sourceValidatorOverride = fn; },
     setInventoryValidator(fn) { inventoryValidatorOverride = fn; },
@@ -370,6 +376,22 @@ test('Core Host-conversation revocation during record validation blocks disclosu
     actorEntityId: s.scope.subject_id,
     conversationId: HOST_CONVERSATION_ID,
   }), /HOST_SESSION_REVOKED/);
+});
+
+test('Core Actor binding revocation during candidate validation blocks disclosure', async (t) => {
+  const s = setup(t);
+  assert.equal((await s.prepare()).status, 'current');
+  s.triggerCoreActorRevocation();
+
+  const result = await s.consumer.retrieveForNpc({
+    worldId: s.scope.world_id,
+    actorEntityId: s.scope.subject_id,
+    conversationId: HOST_CONVERSATION_ID,
+  });
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'query_access_unconfirmed');
+  assert.deepEqual(result.admitted, []);
+  assert.deepEqual(result.candidates, []);
 });
 
 test('query access revoked during candidate source validation never becomes ready-empty', async (t) => {
