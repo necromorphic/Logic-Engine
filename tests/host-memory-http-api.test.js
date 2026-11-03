@@ -464,6 +464,17 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   const unavailableBase = 'http://127.0.0.1:' + server.address().port;
+  const unavailableRevocation = {
+    protocol_version: 1, host_installation_id: INSTALLATION,
+    authenticated_account_id: ACCOUNT, host_session_id: SESSION,
+    issued_at: Math.floor(Date.now() / 1000),
+    nonce: '26262626-2626-4626-8626-262626262626', reason: 'logout',
+  };
+  const unavailableRevokeResponse = await post(unavailableBase, '/v1/host/session/revoke', adapterHeaders, {
+    ...unavailableRevocation, signature: signRevocation(unavailableRevocation),
+  });
+  assert.equal(unavailableRevokeResponse.status, 503);
+  assert.equal((await unavailableRevokeResponse.json()).error.code, 'HOST_SESSION_REVOCATION_UNAVAILABLE');
   const unavailableAssertion = {
     ...assertion, nonce: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
     issued_at: Math.floor(Date.now() / 1000),
