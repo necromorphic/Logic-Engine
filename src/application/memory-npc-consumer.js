@@ -512,6 +512,13 @@ export class MemoryNpcConsumer {
         continue;
       }
 
+      // The Provider's canonical source version is part of the immutable
+      // lineage identity consumed by Gateway. Missing lineage is corruption,
+      // not an item-level filter that may be converted into ready-empty.
+      if (!validId(candidate.source?.source_version)) {
+        return nonReady('memory_lineage_invalid');
+      }
+
       let recordAllowed;
       try {
         recordAllowed = await this.#memoryProvider.authorizeCandidate({
@@ -675,6 +682,7 @@ export class MemoryNpcConsumer {
       const identity = recordIdentityKey(candidate.record.ref, candidate.record.version);
       const signature = {
         source_entity_id: candidate.source.entity_id,
+        source_version: candidate.source.source_version,
         content_kind: candidate.content_kind,
         epistemic_kind: candidate.epistemic_kind,
         producer_kind: candidate.producer?.kind,
