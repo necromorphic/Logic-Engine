@@ -117,7 +117,7 @@ test('Core HTTP accepts only a signed, pinned, lifecycle-complete root attestati
     patch_blob_sha: '4a8d16b4d94de0aa90c770e0776035a204bdf650f3f2d30b900c12be61607a75',
     host_handler_blob_sha: 'bbba9e5579ac4700dc07ff5d0a15428d2c303802',
     source_identity_status: 'CURRENT_IDENTITIES_VERIFIED',
-    source_manifest_sha256: digest('pinned-source-manifest'),
+    source_manifest_sha256: newSourceManifestSha256,
     snapshot_alignment: 'SHARED_VSS_SNAPSHOT',
     snapshot_sha256: digest('vss-snapshot'),
     lifecycle_sequence: baselinePayload.reconciliation.lifecycle_sequence,
@@ -145,21 +145,20 @@ test('Core HTTP accepts only a signed, pinned, lifecycle-complete root attestati
   assert.equal(replay.status, 200);
   assert.equal((await replay.json()).reconciliation.duplicate, true);
 
-  // Simulate a deployment trust-policy upgrade invalidating the old attestation.
-  // Core advances the append-only root sequence with an empty reconciliation
-  // event so a new proof can be accepted without replacing the old row.
-  allowAttestationVerification = false;
+  // A source manifest change on an unchanged account root must advance the
+  // append-only inventory sequence so Core can accept a new source proof.
+  const newSourceManifestSha256 = digest('new-pinned-source-manifest');
   const refreshed = journal.observeRootInventory({
     ...identity,
     event_id: '77777777-7777-4777-8777-777777777777',
     entries,
+    source_manifest_sha256: newSourceManifestSha256,
   });
   assert.equal(refreshed.status, 'NON_READY');
   assert.equal(refreshed.reason, 'HOST_ROOT_INVENTORY_ATTESTATION_REFRESH_REQUIRED');
   assert.equal(refreshed.sequence, baselinePayload.reconciliation.sequence + 1);
   assert.equal(Object.values(refreshed.delta).reduce((sum, values) => sum + values.length, 0), 0);
 
-  allowAttestationVerification = true;
   const refreshedAttestation = {
     ...attestation,
     inventory_sequence: refreshed.sequence,
