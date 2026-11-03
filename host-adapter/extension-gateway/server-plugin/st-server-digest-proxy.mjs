@@ -426,7 +426,7 @@ export function createHostRootInventoryPersistence({
           upstream_status: attestationResponse.status,
         };
       }
-      return normalizeRootInventoryResponse(attestationPayload);
+      return normalizeRootInventoryResponse({ status: attestationResponse.status, payload: attestationPayload });
     } catch {
       return { status: 'NON_READY', reason: 'LOGIC_ENGINE_UNREACHABLE' };
     }
