@@ -46,6 +46,14 @@ These routes are present in the pinned modules but do not receive protected NPC 
 
 The Hook patch is scoped to the five text-generation handler entrypoints listed above. It does not classify these unrelated endpoints as protected text senders.
 
+### Protected prompt construction and Host metadata scrubbing
+
+`createProtectedMemoryFinalSend` now requires a server-resolved `contentBlocks` array for every protected request. It serializes only each block's `epistemic_kind`, `evidence_assessment`, and `content`; inserts a system message after existing system/developer instructions for Chat Completions; and prefixes the `prompt`/`input` fields for Text Completions, Kobold, and NovelAI text. Horde is rejected before this step.
+
+Before dispatch it recursively removes Host-only fields (`logic_engine_*`, memory-dispatch/NPC-context markers, conversation/world/actor/generation/session/chat/installation/account identifiers) from the provider JSON body and strips corresponding Host headers. The exact post-injection body is both the Gateway ledger body and the body passed to the captured native transport capability. Regression tests cover all 29 registered sender identities and verify that Host metadata is absent while provider credentials remain.
+
+This closes the prompt serialization/injection seam, but it does **not** replace the opaque NPC Context handoff. The production Host composition must still source `contentBlocks` from the same in-process Core context that the Gateway consumes and independently revalidates; that handoff consumption remains a P0 blocker.
+
 ## Integration contract between #870 and #844
 
 The #870 Host Adapter/Core integration provides the underlying contracts:
