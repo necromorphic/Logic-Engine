@@ -117,7 +117,7 @@ test('receiver rejects source-version, admission and scope mismatches', () => {
   }), /NPC_CONTEXT_SCOPE_INVALID/);
 });
 
-test('receiver rejects accessor, Proxy, nested object and oversized content values', () => {
+test('receiver rejects accessor, Proxy, excessive nesting and oversized content values', () => {
   const accessor = candidate();
   Object.defineProperty(accessor, 'source_version', { enumerable: true, get() { throw new Error('getter executed'); } });
   assert.throws(() => receiveNpcContext({
@@ -129,7 +129,7 @@ test('receiver rejects accessor, Proxy, nested object and oversized content valu
     hostContext, hostBinding, requestId, model: 'google/gemini-test',
   }), /NPC_CONTEXT_NON_READY/);
   assert.throws(() => receiveNpcContext({
-    retrieval: retrieval({ candidates: [candidate({ content: { nested: { secret: true } } })] }),
+    retrieval: retrieval({ candidates: [candidate({ content: { nested: { level2: { level3: { level4: { level5: { secret: true } } } } } } })] }),
     hostContext, hostBinding, requestId, model: 'google/gemini-test',
   }), /NPC_CONTEXT_CONTENT_INVALID/);
   assert.throws(() => receiveNpcContext({
