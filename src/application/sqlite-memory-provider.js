@@ -1269,7 +1269,7 @@ export class SQLiteMemoryProvider {
     if (!this.#coordinatorDb || !isCoordinatorLease(coordinatorLease, this.#coordinatorDb)
       || !this.#acceptedHeadConfig
       || !validId(worldId) || !validId(actorId) || !validId(purpose)
-      || !Array.isArray(sources) || sources.length > 256
+      || !isPlainDataArray(sources) || sources.length > 256
       || !isPlainDataArray(candidates) || candidates.length > 50) {
       throw new Error('MEMORY_DISPATCH_NOT_READY');
     }
