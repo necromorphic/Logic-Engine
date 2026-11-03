@@ -342,46 +342,18 @@ test('prepareForDispatch fails closed when Core cannot prove canonical source-ve
 
 
 test('complete-empty Lane B remains an explicit empty Lane B projection without fabricating lineage', async () => {
-  const { runtime } = setup();
-  // The adapter test harness exposes a ready-empty Provider result via the
-  // consumer's stable result factory.
-  const emptyRuntime = createCoreNpcGenerationContextRuntime({
-    engine: {
-      getSnapshot: (_worldId, options = {}) => options.includeSourceVersions === true
-        ? { world_id: scope.world_id, ...scope.snapshot, entities: [] }
-        : scope.snapshot,
-      readNpcKnowledge: () => ({
-        status: 'ready', world_id: scope.world_id, actor_id: scope.actor_id,
-        conversation_id: scope.conversation_id, adapter_id: scope.adapter_id,
-        recipient: 'model', purpose: 'npc_turn_context',
-        snapshot: { ...scope.snapshot }, authorization_ref: 'core-read-1',
-        truncated: false, items: [acquisition],
-      }),
-      npcKnowledgeVisibilityAuthorizer: input => ({
-        status: 'allowed', world_id: input.world_id, conversation_id: input.conversation_id,
-        adapter_id: input.adapter_id, actor_id: input.actor_id, recipient: input.recipient,
-        purpose: input.purpose, world_revision: input.world_revision,
-        commit_sequence: input.commit_sequence, acquisition_id: input.acquisition_id,
-        authorization_ref: 'visibility-1',
-      }),
-    },
-    consumer: {
-      async retrieveForNpc() {
-        return { status: 'ready', admitted: [], candidates: [], reason: null, snapshot: { ...scope.snapshot } };
-      },
-      async revalidateForFinalDispatch(_request, prepared) { return prepared; },
-    },
-    adapterId: 'adapter-1',
-    resolveAuthenticatedScope: () => scope,
-  });
-  const prepared = await emptyRuntime.prepareForDispatch(request);
+  const { runtime, setMemoryResultFactory } = setup();
+  setMemoryResultFactory(() => ({
+    status: 'ready', admitted: [], candidates: [], reason: null,
+    snapshot: { ...scope.snapshot },
+  }));
+  const prepared = await runtime.prepareForDispatch(request);
   assert.equal(prepared.status, 'ready');
-  const consumed = emptyRuntime.consumeDispatchHandoff(prepared.handoff, request);
+  const consumed = runtime.consumeDispatchHandoff(prepared.handoff, request);
   assert.equal(consumed.status, 'accepted');
   assert.equal(consumed.context.lanes.lane_a.items.length, 1);
-  const evidence = emptyRuntime.getLaneBDispatchEvidence(consumed.context, request);
+  const evidence = runtime.getLaneBDispatchEvidence(consumed.context, request);
   assert.equal(evidence.status, 'ready');
   assert.deepEqual(evidence.sources, []);
   assert.deepEqual(evidence.candidates, []);
-  void runtime;
 });
