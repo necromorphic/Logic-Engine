@@ -46,6 +46,7 @@ These operations do not yet have operation-specific persisted lineage receipts. 
 | Startup group metadata migration | Legacy group metadata rewrite | Blocked whenever Host authority is configured; pre-migration scans cannot authorize writes |
 | Server startup account-root migrations | Content seeding, disk-cache verification, flat-secret migration, settings backup initialization, stats initialization, system-prompt migration | Skipped whenever Host authority is configured |
 | Legacy public-to-user data migration | `migrateUserData()` copies and deletes legacy public data | Startup fails with `HOST_LIFECYCLE_LEGACY_USER_DATA_MIGRATION_BLOCKED` if legacy public data still exists; migrate with Host disabled before enabling authority |
+| Account-directory initialization | `ensurePublicDirectoriesExist()` creates missing per-user folders | Startup fails with `HOST_LIFECYCLE_USER_DIRECTORY_MISSING` instead of changing the account root while Host authority is configured |
 | Browser character/group import and group-bookmark copy | Import/copy/restore path | Client guard; server bulk guards remain authoritative |
 
 **Consequences:** chat rename/move, import, export, backup restore, group deletion, character/group CRUD, account profile changes, and account/root reset are not enabled while Host authority is active. They remain blocked rather than being represented as completed lifecycle operations. A future implementation must add an operation-specific persisted lifecycle receipt for each operation before removing its guard.
