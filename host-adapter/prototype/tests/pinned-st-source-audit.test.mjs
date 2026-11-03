@@ -111,11 +111,17 @@ test('pinned ST chat-history mutation routes are guarded or explicitly unsupport
         ['src/endpoints/data-maid.js', "router.post('/delete', hostBulkMutationGuard"],
         ['src/endpoints/settings.js', "router.post('/restore-snapshot', hostBulkMutationGuard"],
         ['src/endpoints/users-private.js', "router.post('/reset-settings', hostBulkMutationGuard"],
+        ['src/endpoints/users-public.js', "router.post('/recover-step2', hostUnsupportedMutationGuard"],
     ];
     for (const [relativePath, required] of requirements) {
         assert.ok(read(relativePath).includes(required), relativePath + ' missing route guard: ' + required);
     }
 
+    const stableDiffusion = read('src/endpoints/stable-diffusion.js');
+    for (const route of ['save-workflow', 'delete-workflow', 'rename-workflow']) {
+        assert.ok(stableDiffusion.includes(`comfy.post('/${route}', hostUnsupportedMutationGuard`),
+            `ComfyUI workflow mutation /${route} must be fail-closed while Host authority is active`);
+    }
     const privateUsers = read('src/endpoints/users-private.js');
     assert.ok(privateUsers.includes('HOST_USER_ROOT_RESET_UNSUPPORTED'),
         'full user-root reset must remain explicitly fail-closed');
