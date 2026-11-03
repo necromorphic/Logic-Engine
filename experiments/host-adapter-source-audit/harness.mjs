@@ -95,15 +95,14 @@ test('server and browser extension loaders reject unreviewed third-party code be
   assert.ok(pluginStart >= 0, 'lifecycle patch must include the server plugin loader');
   const pluginEnd = lifecyclePatch.indexOf('\ndiff --git ', pluginStart + 10);
   const pluginSection = lifecyclePatch.slice(pluginStart, pluginEnd < 0 ? undefined : pluginEnd);
-  const files = pluginSection.indexOf('const files = fs.readdirSync(pluginsPath)');
+  const files = pluginLoader.indexOf('const files = fs.readdirSync(pluginsPath)');
   const update = pluginSection.indexOf('Skipping server-plugin auto-update while Host authority is active.');
   const allowlist = pluginSection.indexOf('HOST_UNREVIEWED_SERVER_PLUGIN_BLOCKED');
-  const firstImport = Math.min(
-    pluginSection.indexOf('await loadFromDirectory(app, pluginFilePath, exitHooks)'),
-    pluginSection.indexOf('await loadFromFile(app, pluginFilePath, exitHooks)'),
-  );
-  assert.ok(files >= 0 && update > files && allowlist > update && firstImport > allowlist,
-    'server plugin updates must be disabled in Host mode and unreviewed plugins rejected before import');
+  const pluginFilePath = pluginSection.indexOf('const pluginFilePath = path.join(pluginsPath, file)');
+  assert.ok(files >= 0 && pluginLoader.indexOf('await updatePlugins(pluginsPath)') > files
+    && pluginSection.includes('if (hostAuthorityConfigured) {')
+    && update >= 0 && allowlist > update && pluginFilePath > allowlist,
+  'server plugin updates must be disabled in Host mode and unreviewed plugins rejected before import');
 
   const extensionStart = rootMutationPatch.indexOf('diff --git a/src/endpoints/extensions.js ');
   const extensionEnd = rootMutationPatch.indexOf('\ndiff --git ', extensionStart + 10);
@@ -385,10 +384,15 @@ test('Host inventory route is mounted only behind SillyTavern authentication mid
 
 test('every pinned chat-history mutation route is either receipted or fail-closed', () => {
   const section = file => {
-    const start = lifecyclePatch.indexOf('diff --git a/' + file + ' ');
-    assert.ok(start >= 0, 'missing lifecycle patch section: ' + file);
-    const end = lifecyclePatch.indexOf('\ndiff --git ', start + 10);
-    return lifecyclePatch.slice(start, end < 0 ? undefined : end);
+    const extract = patch => {
+      const start = patch.indexOf('diff --git a/' + file + ' ');
+      if (start < 0) return '';
+      const end = patch.indexOf('\ndiff --git ', start + 10);
+      return patch.slice(start, end < 0 ? undefined : end);
+    };
+    const combined = [extract(lifecyclePatch), extract(rootMutationPatch)].filter(Boolean).join('\n');
+    assert.ok(combined, 'missing lifecycle/root-mutation patch section: ' + file);
+    return combined;
   };
   const guardedRoutes = [
     ['src/endpoints/chats.js', '/save', 'hostLifecycleSaveGuard'],
