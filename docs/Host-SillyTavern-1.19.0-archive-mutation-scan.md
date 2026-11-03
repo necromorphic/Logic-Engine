@@ -40,7 +40,13 @@ This is a static candidate scan, not a route-level proof. It searched endpoint m
 - The pinned Host source audit currently has explicit chat/account mutation anchors and a narrower route-guard matrix. This archive scan adds candidates that require source-level disposition before a complete route-coverage attestation can be signed.
 - No candidate route in this document is claimed to be safe merely because a later root scan might detect a changed file.
 
-## 3. Required next implementation pass
+## 3. Current disposition in PR #874
+
+The additional mutation candidates identified above are now patched with `createHostUnsupportedMutationGuard` and included in the pinned-source route audit. The guard returns `503 NON_READY / HOST_MUTATION_ROUTE_UNSUPPORTED` whenever Host deployment identity is configured or a Host session capability is active. It runs before the original mutation handler.
+
+This is deliberately a fail-closed interim contract: it prevents unreceipted account-root and installed-source mutations from silently bypassing Host lifecycle/inventory. It does not implement receipts for those operations, and it does not establish completeness by itself. Route-specific receipts and a runtime source attestation remain P0 work.
+
+## 4. Required next implementation pass
 
 For each candidate route, record: (1) exact resolved write targets, (2) whether the target is inside the enrolled account root or the SillyTavern installation/global root, (3) whether the route is receipted, blocked, or invalidates source authority, and (4) a pinned-source test asserting that disposition. Do not turn this candidate scan into a blanket allowlist.
 
