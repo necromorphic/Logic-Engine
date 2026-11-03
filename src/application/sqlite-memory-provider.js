@@ -6,7 +6,7 @@ import { advanceAcceptedHeadSync, finalizeAcceptedHeadSync, getAcceptedHeadStatu
 import { hashRequest } from '../core/request-hash.js';
 import { existsSync, realpathSync, statSync } from 'node:fs';
 import { basename, dirname, isAbsolute, resolve } from 'node:path';
-import { beginCoordinatorLock, openCoordinatorDatabase } from '../storage/coordinator-lock.js';
+import { beginCoordinatorLock, isCoordinatorLease, openCoordinatorDatabase } from '../storage/coordinator-lock.js';
 
 const canonicalFilePath = (path) => {
   let candidate = resolve(path);
@@ -1254,6 +1254,165 @@ export class SQLiteMemoryProvider {
       try { this.#setState(worldId, 'unavailable', 'stale', null, 'FINAL_RECONCILIATION_COMMIT_FAILED'); } catch {}
       return { status: 'unavailable', reason: 'FINAL_RECONCILIATION_COMMIT_FAILED' };
     }
+  }
+
+  /**
+   * Read-only Provider evidence for the in-process Final-Send Gateway.
+   *
+   * The caller must already hold the shared Coordinator lease. This method
+   * never opens a second lease, awaits Core, mutates readiness, or repairs
+   * Provider state. It rechecks the durable query/record grants, their
+   * persisted authorization generations, index membership, direct-source
+   * lineage and Core-owned source-version validator under that lease.
+   */
+  readDispatchEvidenceSync({ worldId, actorId, purpose, sources, candidates, coordinatorLease } = {}) {
+    if (!this.#coordinatorDb || !isCoordinatorLease(coordinatorLease, this.#coordinatorDb)
+      || !this.#acceptedHeadConfig
+      || !validId(worldId) || !validId(actorId) || !validId(purpose)
+      || !Array.isArray(sources) || sources.length > 256
+      || !isPlainDataArray(candidates) || candidates.length > 50) {
+      throw new Error('MEMORY_DISPATCH_NOT_READY');
+    }
+
+    // An accepted Provider head is mandatory. The normal non-accepted test
+    // Provider and review-only stores are never eligible for protected egress.
+    this.#assertAcceptedHeadCurrent();
+    const head = this.#db.prepare(
+      'SELECT head,enrolled FROM accepted_head_state WHERE singleton=1',
+    ).get();
+    if (!head || head.enrolled !== 1 || !Number.isSafeInteger(head.head) || head.head < 1) {
+      throw new Error('MEMORY_DISPATCH_NOT_READY');
+    }
+
+    const state = this.#db.prepare(
+      'SELECT index_health,source_reconciliation FROM memory_index_state WHERE world_id=?',
+    ).get(worldId);
+    if (!state || state.index_health !== 'ready' || state.source_reconciliation !== 'current') {
+      throw new Error('MEMORY_DISPATCH_NOT_READY');
+    }
+    const queryGrant = this.#db.prepare(
+      'SELECT allowed FROM memory_query_grants WHERE world_id=? AND subject_id=? AND purpose=?',
+    ).get(worldId, actorId, purpose);
+    if (queryGrant?.allowed !== 1) throw new Error('MEMORY_DISPATCH_NOT_READY');
+
+    const normalizedSources = [];
+    const sourceKeys = new Set();
+    for (const source of sources) {
+      if (!isPlainDataRecord(source)
+        || Reflect.ownKeys(source).length !== 3
+        || source.source_kind !== 'canonical_entity'
+        || !validId(source.source_entity_id) || !validId(source.source_version)) {
+        throw new Error('MEMORY_DISPATCH_NOT_READY');
+      }
+      const key = JSON.stringify([source.source_entity_id, source.source_version]);
+      if (sourceKeys.has(key)) throw new Error('MEMORY_DISPATCH_NOT_READY');
+      sourceKeys.add(key);
+      normalizedSources.push({
+        source_kind: 'canonical_entity',
+        source_entity_id: source.source_entity_id,
+        source_version: source.source_version,
+      });
+    }
+    normalizedSources.sort((a, b) => a.source_entity_id.localeCompare(b.source_entity_id)
+      || a.source_version.localeCompare(b.source_version));
+
+    const normalizedCandidates = [];
+    const candidateKeys = new Set();
+    const candidateSources = new Set();
+    const readCandidate = this.#db.prepare(`
+      SELECT r.*,i.record_ref AS indexed_record_ref,g.allowed,g.authorization_generation
+      FROM memory_records r
+      JOIN memory_index_entries i USING(world_id,record_ref,record_version)
+      JOIN memory_record_grants g
+        ON g.world_id=r.world_id AND g.subject_id=r.subject_id AND g.purpose=r.purpose
+        AND g.record_ref=r.record_ref AND g.record_version=r.record_version
+      WHERE r.world_id=? AND r.subject_id=? AND r.purpose=?
+        AND r.record_ref=? AND r.record_version=?
+      LIMIT 1
+    `);
+
+    for (const candidate of candidates) {
+      if (!isPlainDataRecord(candidate)
+        || Reflect.ownKeys(candidate).length !== 6
+        || !validId(candidate.record_ref) || !validId(candidate.record_version)
+        || !Number.isSafeInteger(candidate.authorization_generation) || candidate.authorization_generation < 1
+        || candidate.source_kind !== 'canonical_entity'
+        || !validId(candidate.source_entity_id) || !validId(candidate.source_version)) {
+        throw new Error('MEMORY_DISPATCH_NOT_READY');
+      }
+      const identity = JSON.stringify([candidate.record_ref, candidate.record_version]);
+      if (candidateKeys.has(identity)) throw new Error('MEMORY_DISPATCH_NOT_READY');
+      candidateKeys.add(identity);
+
+      const row = readCandidate.get(
+        worldId, actorId, purpose, candidate.record_ref, candidate.record_version,
+      );
+      if (!row || row.allowed !== 1
+        || row.authorization_generation !== candidate.authorization_generation
+        || row.source_kind !== 'canonical_entity'
+        || row.source_entity_id !== candidate.source_entity_id
+        || row.source_version !== candidate.source_version
+        || row.indexed_record_ref !== candidate.record_ref
+        || row.content_disposition !== 'usable'
+        || !['claim', 'report', 'summary', 'author_initial', 'imported', 'inference'].includes(row.content_kind)
+        || !['canonical', 'acquired_report', 'rumor', 'inference', 'authored_initial', 'imported'].includes(row.epistemic_kind)
+        || !['unassessed', 'supported', 'disputed', 'insufficient'].includes(row.evidence_assessment)) {
+        throw new Error('MEMORY_DISPATCH_NOT_READY');
+      }
+
+      let lineage;
+      try { lineage = JSON.parse(row.lineage_json); } catch {
+        throw new Error('MEMORY_DISPATCH_NOT_READY');
+      }
+      if (!validDirectLineage(row, lineage)) throw new Error('MEMORY_DISPATCH_NOT_READY');
+      let sourceCurrent;
+      try {
+        sourceCurrent = this.#validateSourceVersion({
+          world_id: worldId,
+          source_kind: row.source_kind,
+          source_entity_id: row.source_entity_id,
+          source_version: row.source_version,
+          lineage,
+        });
+      } catch {
+        throw new Error('MEMORY_DISPATCH_NOT_READY');
+      }
+      if (sourceCurrent !== true || (sourceCurrent && typeof sourceCurrent.then === 'function')) {
+        throw new Error('MEMORY_DISPATCH_NOT_READY');
+      }
+
+      candidateSources.add(JSON.stringify([row.source_entity_id, row.source_version]));
+      normalizedCandidates.push({
+        record_ref: row.record_ref,
+        record_version: row.record_version,
+        authorization_generation: row.authorization_generation,
+        source_kind: row.source_kind,
+        source_entity_id: row.source_entity_id,
+        source_version: row.source_version,
+      });
+    }
+
+    normalizedCandidates.sort((a, b) => a.record_ref.localeCompare(b.record_ref)
+      || a.record_version.localeCompare(b.record_version)
+      || a.source_entity_id.localeCompare(b.source_entity_id)
+      || a.source_version.localeCompare(b.source_version));
+    if (normalizedSources.length !== candidateSources.size
+      || normalizedSources.some(source => !candidateSources.has(
+        JSON.stringify([source.source_entity_id, source.source_version]),
+      ))) {
+      throw new Error('MEMORY_DISPATCH_NOT_READY');
+    }
+
+    return Object.freeze({
+      world_id: worldId,
+      actor_id: actorId,
+      purpose,
+      granted: true,
+      readiness: 'READY',
+      head: head.head,
+      sources: Object.freeze(normalizedSources.map(source => Object.freeze(source))),
+      candidates: Object.freeze(normalizedCandidates.map(candidate => Object.freeze(candidate))),
+    });
   }
 
   async retrieveCandidates(scope) {
