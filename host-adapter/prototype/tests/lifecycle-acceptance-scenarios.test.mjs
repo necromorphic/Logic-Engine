@@ -311,6 +311,8 @@ test('destructive and import UI entry points invoke target-aware fail-closed Hos
 test('pinned patch guards Data Maid, settings restore, account reset and account deletion', async () => {
   const here = dirname(fileURLToPath(import.meta.url));
   const patch = await readFile(resolve(here, '../patches/sillytavern-1.19.0-lifecycle-hooks.patch'), 'utf8');
+  const rootMutationPatch = await readFile(resolve(here, '../patches/sillytavern-1.19.0-root-mutation-guards.patch'), 'utf8');
+  const reviewedPatches = patch + '\\n' + rootMutationPatch;
   for (const required of [
     "+router.post('/delete', hostBulkMutationGuard, async (req, res) => {",
     "+router.post('/export', validateAvatarUrlMiddleware, hostBulkMutationGuard, async function (request, response) {",
@@ -325,8 +327,8 @@ test('pinned patch guards Data Maid, settings restore, account reset and account
     "assertHostStartupMigrationAllowed",
     "Skipping startup group metadata migration:",
   ]) {
-    assert.ok(patch.includes(required), `missing fail-closed lifecycle protection: ${required}`);
+    assert.ok(reviewedPatches.includes(required), `missing fail-closed lifecycle protection: ${required}`);
   }
-  assert.equal(patch.includes('/api/logic-engine'), false,
+  assert.equal(reviewedPatches.includes('/api/logic-engine'), false,
     'additional mutation guards must not add a separate public Host API route');
 });
