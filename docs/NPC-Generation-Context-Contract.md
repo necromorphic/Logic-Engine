@@ -42,7 +42,7 @@ The generated `npc-generation-context/v1` object binds:
 - exact Core `world_revision` + `commit_sequence`;
 - separately frozen `lanes.lane_a` and `lanes.lane_b` payloads.
 
-Input data is copied into plain immutable data. Proxies, accessors, sparse/extended arrays, cycles, non-finite numbers, malformed identities, duplicate evidence identities, and unexpected envelope fields fail closed. Contexts are branded by object identity in a private WeakMap; serializing/cloning one does not preserve receiver eligibility.
+Input data is copied into plain immutable data. Proxies, accessors, sparse/extended arrays, cycles, non-finite numbers, malformed identities, duplicate evidence identities, and unexpected envelope fields fail closed. Contexts are branded by object identity in a private WeakMap owned by the issuing Builder instance; only the Receiver created by that same Builder can accept them. A different adapter/runtime cannot accept another Builder's context, even if request IDs and scope values happen to match. Serializing/cloning one does not preserve receiver eligibility.
 
 ## Receiver
 
