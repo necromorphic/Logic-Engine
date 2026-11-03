@@ -149,7 +149,6 @@ test('adapter denies unknown native sender before any transport handoff', async 
   });
   await assert.rejects(adapter.dispatch({
     request: { body: { chat_completion_source: 'not-registered' } },
-
     response: {},
     senderRoute: 'unknown',
     endpointUrl: 'https://provider.example/generate',
