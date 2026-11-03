@@ -71,13 +71,13 @@ static HANDLE authenticated_process(HANDLE pipe) {
  return NULL;
 }
 static void client(HANDLE pipe) {
- Header q,r;BYTE payload[MAX_PACKET-sizeof(Header)];DWORD available=0;HANDLE process;
- if(!auth(pipe)||(process=authenticated_process(pipe))==NULL||!readn(pipe,&q,sizeof(q))){if(process)CloseHandle(process);return;}
+ Header q,r;BYTE payload[MAX_PACKET-sizeof(Header)];DWORD available=0;HANDLE process=NULL;
+ if(!auth(pipe)||(process=authenticated_process(pipe))==NULL||!readn(pipe,&q,sizeof(q)))goto done;
  q.magic=net32(q.magic);q.version=net16(q.version);q.operation=net16(q.operation);
  q.flags=net32(q.flags);q.request_id=net64(q.request_id);q.payload_length=net32(q.payload_length);
- if(q.magic!=MAGIC||q.version!=VERSION||q.flags||q.payload_length>sizeof(payload))return;
- if(q.payload_length&&!readn(pipe,payload,q.payload_length))return;
- if(!PeekNamedPipe(pipe,NULL,0,NULL,&available,NULL)||available)return;
+ if(q.magic!=MAGIC||q.version!=VERSION||q.flags||q.payload_length>sizeof(payload))goto done;
+ if(q.payload_length&&!readn(pipe,payload,q.payload_length))goto done;
+ if(!PeekNamedPipe(pipe,NULL,0,NULL,&available,NULL)||available)goto done;
  ZeroMemory(&r,sizeof(r));r.magic=MAGIC;r.version=VERSION;r.operation=q.operation;r.request_id=q.request_id;
  if(q.operation==1&&!q.payload_length)r.flags=0;
  else if(q.operation>=2&&q.operation<=8)r.flags=3; /* UNSUPPORTED: backend absent */
@@ -85,7 +85,8 @@ static void client(HANDLE pipe) {
  r.magic=net32(r.magic);r.version=net16(r.version);r.operation=net16(r.operation);
  r.flags=net32(r.flags);r.request_id=net64(r.request_id);r.payload_length=net32(r.payload_length);
  (void)writen(pipe,&r,sizeof(r));
- CloseHandle(process);
+ done:
+ if(process)CloseHandle(process);
 }
 static void run(void) {
  SECURITY_ATTRIBUTES sa;PSECURITY_DESCRIPTOR sd=NULL;ZeroMemory(&sa,sizeof(sa));
