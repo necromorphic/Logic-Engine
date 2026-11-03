@@ -537,13 +537,17 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
         const counts = result.delta
           ? Object.fromEntries(Object.entries(result.delta).map(([key, rows]) => [key, rows.length]))
           : undefined;
+        const complete = result.status === 'AUTHORITATIVE_COMPLETE'
+          && integrity.authority_status === 'AUTHORITATIVE_COMPLETE';
         const reviewOnly = result.status === 'BASELINED_REVIEW_ONLY'
           || result.status === 'UNCHANGED_REVIEW_ONLY' || result.status === 'duplicate';
         const response = {
-          inventory_status: reviewOnly ? 'REVIEW_ONLY' : 'NON_READY',
+          inventory_status: complete ? 'AUTHORITATIVE_COMPLETE' : reviewOnly ? 'REVIEW_ONLY' : 'NON_READY',
           reconciliation: {
             status: result.status,
             integrity_status: integrity.status,
+            authority_status: integrity.authority_status ?? 'REVIEW_ONLY',
+            ...(result.attestation_sha256 ? { attestation_sha256: result.attestation_sha256 } : {}),
             ...(result.sequence !== undefined ? { sequence: result.sequence } : {}),
             ...(result.manifest_sha256 ? { manifest_sha256: result.manifest_sha256 } : {}),
             ...(result.delta_sha256 ? { delta_sha256: result.delta_sha256 } : {}),
@@ -556,7 +560,7 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
             ...(counts ? { counts } : {}),
           },
         };
-        return send(res, reviewOnly ? 200 : 409, response);
+        return send(res, complete || reviewOnly ? 200 : 409, response);
       }
       if (url.pathname === '/v1/host-version-ledger/capture') {
         if (req.method !== 'POST') return send(res, 405, { error: { code: 'METHOD_NOT_ALLOWED', message: 'Unsupported Host version-ledger operation.' } });
