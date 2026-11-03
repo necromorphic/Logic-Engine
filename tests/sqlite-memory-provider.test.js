@@ -53,6 +53,50 @@ function setup(t, options = {}) {
   };
 }
 
+test('final authorized-read lease serializes query and record grants with a synchronous disclosure callback', async (t) => {
+  const s = setup(t);
+  s.provider.grantQuery(s.scope, true);
+  s.provider.grantRecord(s.scope, s.record.record_ref, s.record.record_version, true);
+  s.provider.putRecord(s.record);
+  await s.provider.rebuildIndex(s.scope.world_id);
+  assert.equal((await s.provider.reconcile(s.scope.world_id)).status, 'current');
+
+  const retrieved = await s.provider.retrieveCandidates(s.scope);
+  assert.equal(retrieved.candidates.length, 1);
+  const candidate = retrieved.candidates[0];
+  const leaseCandidate = {
+    record_ref: candidate.record.ref,
+    record_version: candidate.record.version,
+    authorization_generation: candidate.authorization_generation,
+  };
+
+  assert.equal(s.provider.withAuthorizedReadLease(s.scope, [leaseCandidate], () => 'authorized'), 'authorized');
+  assert.throws(
+    () => s.provider.withAuthorizedReadLease(s.scope, [leaseCandidate], async () => 'must not await'),
+    /must be synchronous/,
+  );
+
+  s.provider.revokeRecord(s.scope, candidate.record.ref, candidate.record.version);
+  assert.throws(
+    () => s.provider.withAuthorizedReadLease(s.scope, [leaseCandidate], () => 'must not disclose'),
+    /MEMORY_RECORD_ACCESS_REVOKED/,
+  );
+
+  s.provider.grantRecord(s.scope, candidate.record.ref, candidate.record.version, true);
+  const regranted = await s.provider.retrieveCandidates(s.scope);
+  const newCandidate = regranted.candidates[0];
+  assert.notEqual(newCandidate.authorization_generation, candidate.authorization_generation);
+  s.provider.grantQuery(s.scope, false);
+  assert.throws(
+    () => s.provider.withAuthorizedReadLease(s.scope, [{
+      record_ref: newCandidate.record.ref,
+      record_version: newCandidate.record.version,
+      authorization_generation: newCandidate.authorization_generation,
+    }], () => 'must not disclose'),
+    /MEMORY_QUERY_DENIED/,
+  );
+});
+
 test('file-backed Provider rejects coordinator DB path alias before opening the database', (t) => {
   const directory = mkdtempSync(join(tmpdir(), 'logic-memory-provider-alias-'));
   const path = join(directory, 'provider.sqlite');
