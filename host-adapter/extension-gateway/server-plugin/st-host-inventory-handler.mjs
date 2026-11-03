@@ -186,9 +186,9 @@ export function createHostInventoryHandler({
  * signed cookie session. It is stable for that login session and rotates when
  * the authenticated account changes. It is not an installation attestation.
  */
-export function createHostSessionHandler({ createId = randomUUID } = {}) {
+export function createHostSessionHandler({ createId = randomUUID, revokeSession = null } = {}) {
   if (typeof createId !== 'function') throw new TypeError('createId must be a function');
-  return function hostSessionHandler(request, response) {
+  return async function hostSessionHandler(request, response) {
     response.set('Cache-Control', 'no-store, private');
     response.set('Vary', 'Cookie');
     const identity = getAuthenticatedHostIdentity(request);
@@ -204,6 +204,16 @@ export function createHostSessionHandler({ createId = randomUUID } = {}) {
     }
 
     let sessionId = currentId;
+    if (sessionId && session.logicEngineSessionHandle !== userHandle) {
+      if (typeof revokeSession !== 'function') {
+        return response.status(503).json({ status: 'NON_READY', code: 'HOST_SESSION_REVOCATION_UNAVAILABLE' });
+      }
+      try {
+        await revokeSession(request, 'session_rotation');
+      } catch {
+        return response.status(503).json({ status: 'NON_READY', code: 'HOST_SESSION_REVOCATION_UNAVAILABLE' });
+      }
+    }
     if (!sessionId || session.logicEngineSessionHandle !== userHandle) {
       sessionId = createId();
       if (typeof sessionId !== 'string' || !HOST_SESSION_UUID.test(sessionId)) {
