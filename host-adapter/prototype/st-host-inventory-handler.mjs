@@ -183,6 +183,7 @@ export function createHostInventoryHandler({
             integrity_status: rootInventory.integrity_status,
             sequence: rootInventory.sequence,
             manifest_sha256: rootInventory.manifest_sha256,
+            ...(rootInventory.source_manifest_sha256 ? { source_manifest_sha256: rootInventory.source_manifest_sha256 } : {}),
             ...(rootInventory.delta_sha256 ? { delta_sha256: rootInventory.delta_sha256 } : {}),
             ...(rootInventory.counts ? { counts: rootInventory.counts } : {}),
             ...(rootInventory.reason ? { reason: rootInventory.reason } : {}),
