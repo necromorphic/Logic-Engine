@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { isUtf8 } from 'node:buffer';
 import { execFileSync } from 'node:child_process';
 import {
-  lstat, mkdir, mkdtemp, open, readFile, realpath, rename, rm, stat, unlink, writeFile,
+  copyFile, lstat, mkdir, mkdtemp, open, readFile, realpath, rename, rm, stat, unlink, writeFile,
 } from 'node:fs/promises';
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { tmpdir } from 'node:os';
