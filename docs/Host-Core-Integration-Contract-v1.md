@@ -520,14 +520,6 @@ The current Core Actor resolver confirms the documented outcomes: zero active bi
 
 **Current decision: CONTRACT TECHNICALLY ALIGNED; ACCEPTANCE PENDING INDEPENDENT HOST/CORE REVIEWS AND CONTROLLED BRANCH INTEGRATION.**
 
-## 13.1 P0 security integration update — 3 Nov 2026
-
-The current Core follow-up branch adds a server-to-server signed `POST /v1/host/session/revoke` contract and a durable revocation table in the dedicated Host assertion SQLite database. The event nonce and revocation row are committed atomically. The Memory retrieval route now requires the deployment-provided `resolveHostLifecycleIdentity` authority to approve the exact adapter, installation, account, session, and conversation UUID tuple, including a valid root digest and authority snapshot. A correctly signed HMAC assertion alone is not sufficient to authorize a root identity.
-
-The assertion capability rechecks durable session revocation while the asynchronous Consumer/Provider operation is active and again after it returns. A revocation during retrieval discards the result and maps to `401 HOST_SESSION_REVOKED`; restart does not clear the revocation. The Result Envelope and Provider interface remain unchanged. Tests cover invalid signatures, duplicate revocation nonce, logout during a suspended retrieval, session-rotation revocation, unauthorized Root Inventory identity, and revocation persistence after reopening the SQLite file.
-
-**Host-side integration is still required:** SillyTavern server logout and session-rotation hooks must call the new route before destroying/rotating the session. Until that Host hook is implemented and verified against the pinned SillyTavern source, the end-to-end logout acceptance gate remains open and the PR remains Draft.
-
 ## 13. Current exact-head contract revalidation — 2 Nov 2026
 
 This section supersedes all earlier candidate-head, CI, and cross-branch comparison snapshots in §§1 and 9–12. Contract version remains **1.0.0**; the wire schemas and route versions are unchanged.
@@ -574,3 +566,12 @@ The Host-only `src/api/server.js` composition must be preserved; do not replace 
 - No branch was rebased, merged, or otherwise integrated. No Security Gateway, Final-Send, or production enablement work was performed.
 
 **Current decision: WIRE CONTRACT AND CURRENT HOST/CORE CANDIDATE IMPLEMENTATIONS ARE TECHNICALLY ALIGNED. DOCUMENT CI AND THE TWO SIDED TECHNICAL-OWNER ACK RECORDS ARE THE REMAINING CONTRACT-TRACKING ACTIONS. Independent maintainer reviews and branch integration are separate gates, not prerequisites in the original contract-only task.**
+
+
+## 14. P0 security integration update — 3 Nov 2026
+
+The current Core follow-up branch adds a server-to-server signed `POST /v1/host/session/revoke` contract and a durable revocation table in the dedicated Host assertion SQLite database. The event nonce and revocation row are committed atomically. The Memory retrieval route now requires the deployment-provided `resolveHostLifecycleIdentity` authority to approve the exact adapter, installation, account, session, and conversation UUID tuple, including a valid root digest and authority snapshot. A correctly signed HMAC assertion alone is not sufficient to authorize a root identity.
+
+The assertion capability rechecks durable session revocation while the asynchronous Consumer/Provider operation is active and again after it returns. A revocation during retrieval discards the result and maps to `401 HOST_SESSION_REVOKED`; restart does not clear the revocation. The Result Envelope and Provider interface remain unchanged. Tests cover invalid signatures, duplicate revocation nonce, logout during a suspended retrieval, session-rotation revocation, unauthorized Root Inventory identity, and revocation persistence after reopening the SQLite file.
+
+**Host-side integration is still required:** SillyTavern server logout and session-rotation hooks must call the new route before destroying/rotating the session. Until that Host hook is implemented and verified against the pinned SillyTavern source, the end-to-end logout acceptance gate remains open and the PR remains Draft.
