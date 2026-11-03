@@ -45,7 +45,7 @@ Manager state, transaction journal and byte-exact backups are stored under `data
 
 The pinned patch currently instruments five native generation handler families:
 
-1. `POST /api/backends/chat-completions/generate` — one handler containing 25 pinned provider-source families (13 dedicated senders plus the generic sender families).
+1. `POST /api/backends/chat-completions/generate` — one handler containing 26 pinned provider-source identities (13 dedicated senders plus 13 identities through the generic sender).
 2. `POST /api/backends/text-completions/generate`.
 3. `POST /api/backends/kobold/generate`.
 4. `POST /api/novelai/generate` (text generation only; image generation is not included).
@@ -61,7 +61,7 @@ The #855 root server plugin now registers a fail-closed adapter implementing the
 
 - The exact-pinned-source audit previously passed Patch Manager preflight, install, installed-file verification, syntax checks, real-handler fake-provider integration, and uninstall/rollback on SillyTavern 1.19.0.
 - The real-handler harness exercises all five native text-generation handlers, one provider request per handler, Chat Completions streaming, terminal Kobold retry suppression, and now a simulated Provider revoke immediately before the actual Express `response.end()`.
-- Adapter tests cover all 29 sender identities, unknown-route denial, terminal response tombstones, one protected dispatch per Express response, and the separately routed generation families.
+- Adapter tests cover all 30 sender identities, unknown-route denial, terminal response tombstones, one protected dispatch per Express response, and the separately routed generation families.
 - Gateway tests cover durable dispatch-start, revoke races, final-write authorization, streaming chunk suppression, replay denial, and crash/restart recovery.
 - Patch Manager tests now cover durable backups outside the Extension directory and recovery after interruption during restore.
 
@@ -73,7 +73,7 @@ The current branch has new code and regression tests beyond the last completed s
 2. **No real deployment-owned Core/Provider binding exists.** The adapter still needs trusted server-side identity/context resolution, the actual Core `MemoryDispatchGateway` instance, synchronous Core/Provider evidence readers, accepted-head authority configuration, and the shared Coordinator path. The browser must not provide these authorities.
 3. **Live revoke-at-egress proof is still required.** Gateway tests cover final response revalidation and synchronous writes under the Coordinator. The pinned fake-provider harness uses a fake Gateway; it does not prove a live revoke race against production Core/Provider stores at the actual ST response write.
 4. **Crash/restart and upstream call-count evidence is currently test-harness evidence.** Production process restart and provider-side request-count attestations are not available from the CI harness.
-5. **Production bootstrap remains fail-closed.** #855's root server-plugin entrypoint imports the same `scripts/sillytavern-patch-manager.mjs` manager and owns startup registration; its current adapter is deliberately fail-closed and does not supply the real Core Gateway or NPC Context Receiver. #844 carries the multi-route patch, 29-entry sender registry, Gateway adapter and updated durable manager. The #868 standalone manager was a refactor scoped to the Chat Completions endpoint; its durable-state/restore requirements have been ported into the multi-route manager rather than replacing the five-route patch. The remaining consolidation is to compose #855's single startup entrypoint with #844's updated manager/adapter and the #870 Host/Core receiver, then prove one owner and one installed patch on a live ST process.
+5. **Production bootstrap remains fail-closed.** #855's root server-plugin entrypoint imports the same `scripts/sillytavern-patch-manager.mjs` manager and owns startup registration; its current adapter is deliberately fail-closed and does not supply the real Core Gateway or NPC Context Receiver. #844 carries the multi-route patch, 30-entry sender registry, Gateway adapter and updated durable manager. The #868 standalone manager was a refactor scoped to the Chat Completions endpoint; its durable-state/restore requirements have been ported into the multi-route manager rather than replacing the five-route patch. The remaining consolidation is to compose #855's single startup entrypoint with #844's updated manager/adapter and the #870 Host/Core receiver, then prove one owner and one installed patch on a live ST process.
 
 For a protected adapter, the Gateway performs post-inference revalidation and the ST response wrapper invokes `authorizeResponseWrite` synchronously for each write and final end. The #855 fail-closed adapter does not claim this capability because it never inserts protected Memory. The full deployed proof remains blocked by items 1–3.
 
