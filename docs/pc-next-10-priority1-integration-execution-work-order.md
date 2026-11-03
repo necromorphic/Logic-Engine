@@ -1,5 +1,19 @@
 # PC-NEXT-10 — Priority 1 integration execution work order
 
+## Fresh implementation snapshot — 2026-11-04
+
+Integration base inspected: `integration/host-core-v1` at `e56d2109a654112eb0fe501fbf240599c4366ed6` when this reconciliation was written. Refresh the branch and every PR head before acting; this is a point-in-time snapshot, not a permanent status claim.
+
+- **Gateway primitive:** current source implements the approved `DISPATCH_STARTED` → synchronous transport-start-under-lease → release-before-await ordering.
+- **Host production composition:** still a candidate; the current server-plugin path uses a non-transport Gateway stub. Complete pinned SillyTavern sender coverage and post-save persisted lifecycle receipts remain open.
+- **Core/Provider:** accepted-head, source-version, Provider reconciliation and adapter-bound Host inventory primitives exist, but production trusted-authorizer composition and complete inventory proof remain separate gates.
+- **Security:** secure SQLite-open/VFS implementation and native broker closure are not complete. PR #915 is an ADR/inventory guard, not a secure-open implementation.
+- **NPC:** PR #913 extracts pure plan-progress/autonomy reducers; it does not authenticate outcomes, persist plans, or enable autonomous execution. GoalPlanRepository and goal-family selection remain review candidates.
+- **Current draft candidates:** #904, #906, #907, #908, #910, #912, #913, #914 and #915 require exact-head CI/review; none is treated as merged or production-ready here.
+
+Release state remains Host NON_READY; Stage 2 NO-GO; Memory → NPC DISABLED / FAIL-CLOSED; production protected ST context NO-GO.
+
+
 **Status:** DRAFT EXECUTION SPECIFICATION — documentation only; no implementation or release approval.  
 **Date:** 2026-10-30.  
 **Repository:** `necromorphic/Logic-Engine`.  

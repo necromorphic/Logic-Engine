@@ -1,5 +1,18 @@
 # PC-NEXT-08 — Trusted authorization implementation breakdown
 
+## Decision status — 2026-11-04
+
+ADR #809 and PC-NEXT-11 supersede the unresolved decision placeholders below:
+
+- **D0 — resolved:** Option B is approved. The durable `DISPATCH_STARTED` commit and synchronous actual transport-start callback occur under the shared Coordinator lease; the lease is released before awaiting network response/stream. Remaining work is implementation and evidence, not another generic owner-approval round.
+- **D1 — resolved for the first Provider consumer slice:** Lane B, direct `canonical_entity` only, is the first Provider consumer slice. Lane A remains a distinct Core-owned acquisition lane and may be implemented independently. The lanes MUST NOT be silently combined into one model context.
+- **D2 — ownership fixed:** Host resolves the authenticated server-side session/account and actor selection; Core validates the exact adapter/world/actor binding. Caller-supplied actor/world fields are not authority.
+- **D3 — authority owner fixed:** Core owns disclosure policy and its versioned authority evidence. The deployment-owned authority/configuration and its production composition still require implementation and review; Mechanics policy authority is not a substitute.
+- **D4 — egress owner fixed:** the PC-side Security Gateway is the sole protected outbound transport and final disclosure boundary. Exact deployment topology and all-sender SillyTavern wiring remain acceptance work.
+
+No approval here enables production. Host remains NON_READY; Stage 2 NO-GO; Memory → NPC DISABLED / FAIL-CLOSED; production protected ST context NO-GO.
+
+
 **Status:** IMPLEMENTATION PLAN / DRAFT. No production implementation is authorized by this document.  
 **Parent:** PC-NEXT-07 Draft v3 + reconciliation addendum.  
 **Audit baseline:** `main` `40704c1b6a2b5e6b31379973683f90e4b50eee9c` (2026-10-30).  

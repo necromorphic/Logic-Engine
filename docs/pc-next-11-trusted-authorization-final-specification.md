@@ -1,5 +1,12 @@
 # PC-NEXT-11 — Trusted authorization and protected egress specification
 
+## Current implementation status — 2026-11-04
+
+The current integration contains a bounded Gateway primitive whose source follows the approved ordering in §9: shared Coordinator lease, synchronous authority revalidation, durable `DISPATCH_STARTED`, synchronous transport-start callback while the lease remains held, then lease release before response/stream awaiting. The Host server-plugin composition is still a non-transport stub, and complete pinned SillyTavern sender coverage, production evidence-source composition, deployment-wide writer participation, secure SQLite open and target-PC restore/ACL evidence remain unproven.
+
+This specification remains normative for the target contract, not evidence that the target path is deployed. All release statuses in §15 remain unchanged.
+
+
 **Status:** FINAL TECHNICAL SPECIFICATION / IMPLEMENTATION EVIDENCE GATES OPEN.  
 **Version:** 1.1 — 2026-10-30.  
 **Normative baseline:** `main` `c9818ad2d5a0748aa42b566abb1978896866ed31`.  

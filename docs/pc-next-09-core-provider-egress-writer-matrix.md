@@ -1,5 +1,12 @@
 # PC-NEXT-09 — Core / Provider / egress writer and callsite matrix
 
+## Current integration reconciliation — 2026-11-04
+
+The Gateway ordering statement in §1 is updated by approved ADR #809 and PC-NEXT-11. The current `MemoryDispatchGateway.dispatchProtectedRequest()` acquires the shared Coordinator lease, performs synchronous Core/Provider/Host evidence revalidation, durably commits `DISPATCH_STARTED`, and invokes the dormant transport capability synchronously before releasing the lease. It awaits the returned Promise only after release.
+
+This proves the primitive's source-level ordering, not production composition. The current Host server-plugin composition still uses a non-transport Gateway stub; every pinned SillyTavern provider sender, production Core/Provider/Host evidence source, and deployment-wide shared coordinator participation remain separate release gates.
+
+
 **Status:** SOURCE INVENTORY — PARTIAL, NOT A COMPLETENESS CERTIFICATE.  
 **Audit baseline:** `main` `40704c1b6a2b5e6b31379973683f90e4b50eee9c` (2026-10-30).  
 **Parent:** PC-NEXT-07 Draft v3; PC-NEXT-08 implementation breakdown.  

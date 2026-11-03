@@ -1,5 +1,12 @@
 # PC-NEXT-07 — Trusted authorization flow (Draft v3)
 
+## Current normative status — 2026-11-04
+
+This Draft v3 document is retained as design history. The binding cross-block decision is approved ADR #809, and PC-NEXT-11 is the final normative specification. Where this draft's §16 describes the revocation/dispatch guarantee as unresolved, that statement is historical and is superseded: **Option B is approved**.
+
+The approved order is: acquire the shared Coordinator lease; revalidate Core, Provider and Host authority; durably commit `DISPATCH_STARTED`; synchronously invoke the actual transport-start callback while still holding the lease; release the lease before awaiting the response/stream. The current `MemoryDispatchGateway.dispatchProtectedRequest()` source follows this order. This source-level fact does not prove production route wiring, coverage of every pinned SillyTavern sender, all-writer participation or release readiness. Host remains NON_READY; Stage 2 NO-GO; Memory → NPC DISABLED / FAIL-CLOSED; production protected ST context NO-GO.
+
+
 **Status:** DRAFT; specification decisions recorded, implementation prerequisites remain.  
 **Audit baseline:** `main` `40704c1b6a2b5e6b31379973683f90e4b50eee9c` (2026-10-30).  
 **Scope:** documentation only. No production code, schema, runtime configuration, database, tests, PR state, or release status is changed.
