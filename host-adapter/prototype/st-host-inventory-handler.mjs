@@ -507,20 +507,18 @@ export function createHostRequestAuthenticationGate({ resolveConversationId } = 
     throw new TypeError('A trusted Host conversation resolver is required.');
   }
   const authenticatedRequests = new WeakMap();
-  async function middleware(request, response, next) {
-    response.set('Cache-Control', 'no-store, private');
-    response.set('Vary', 'Cookie');
+  async function authenticate(request, conversationUuid = request?.body?.conversation_uuid) {
     const identity = getAuthenticatedHostIdentity(request, {
       requireDirectories: true,
       requireSessionIdentity: true,
     });
     if (!identity || (typeof request !== 'object' && typeof request !== 'function') || request === null) {
-      return response.sendStatus(403);
+      return Object.freeze({ status: 'DENIED' });
     }
     try {
-      const binding = await resolveConversationId(request);
+      const binding = await resolveConversationId(request, conversationUuid);
       if (binding === null || binding === undefined || binding?.status === 'NON_READY') {
-        return response.status(503).json({
+        return Object.freeze({
           status: 'NON_READY',
           code: binding?.code === 'HOST_INVENTORY_NOT_AUTHORITATIVE'
             ? binding.code : 'HOST_CONTEXT_UNAVAILABLE',
@@ -531,33 +529,53 @@ export function createHostRequestAuthenticationGate({ resolveConversationId } = 
       const exactBinding = binding && typeof binding === 'object' && !Array.isArray(binding)
         && Object.getPrototypeOf(binding) === Object.prototype
         && Object.keys(binding).sort().join(',') ===
-          'authenticated_account_id,conversation_id,host_installation_id,host_session_id';
+          'authenticated_account_id,conversation_id,host_installation_id,host_session_id,root_id,root_inventory_sequence,root_manifest_sha256';
       if (!exactBinding
         || !validUuid(binding.host_installation_id)
         || !validUuid(binding.authenticated_account_id)
         || !validUuid(binding.host_session_id)
         || binding.host_session_id !== sessionId
         || typeof binding.conversation_id !== 'string'
-        || !HOST_CONVERSATION_ID.test(binding.conversation_id)) {
-        return response.sendStatus(403);
+        || !HOST_CONVERSATION_ID.test(binding.conversation_id)
+        || typeof binding.root_id !== 'string' || !/^[a-f0-9]{64}$/.test(binding.root_id)
+        || !Number.isSafeInteger(binding.root_inventory_sequence) || binding.root_inventory_sequence < 1
+        || typeof binding.root_manifest_sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(binding.root_manifest_sha256)) {
+        return Object.freeze({ status: 'DENIED' });
       }
       const parts = binding.conversation_id.split(':');
       if (parts[0] !== binding.host_installation_id
         || parts[1] !== binding.authenticated_account_id
-        || !validUuid(parts[2])) return response.sendStatus(403);
-      authenticatedRequests.set(request, Object.freeze({
+        || !validUuid(parts[2])
+        || parts[2] !== conversationUuid) return Object.freeze({ status: 'DENIED' });
+      const context = Object.freeze({
         host_installation_id: binding.host_installation_id,
         authenticated_account_id: binding.authenticated_account_id,
         host_session_id: binding.host_session_id,
         conversation_id: binding.conversation_id,
-      }));
-      return next();
+        conversation_uuid: conversationUuid,
+        root_id: binding.root_id,
+        root_inventory_sequence: binding.root_inventory_sequence,
+        root_manifest_sha256: binding.root_manifest_sha256,
+      });
+      authenticatedRequests.set(request, context);
+      return Object.freeze({ status: 'READY', context });
     } catch {
-      return response.sendStatus(403);
+      return Object.freeze({ status: 'DENIED' });
     }
+  }
+  async function middleware(request, response, next) {
+    response.set('Cache-Control', 'no-store, private');
+    response.set('Vary', 'Cookie');
+    const result = await authenticate(request);
+    if (result.status === 'NON_READY') {
+      return response.status(503).json({ status: 'NON_READY', code: result.code });
+    }
+    if (result.status !== 'READY') return response.sendStatus(403);
+    return next();
   }
   return Object.freeze({
     middleware,
+    authenticate,
     isAuthenticatedHostRequest(request) {
       return request !== null && (typeof request === 'object' || typeof request === 'function')
         && authenticatedRequests.has(request);
