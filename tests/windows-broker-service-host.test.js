@@ -34,7 +34,9 @@ test('Windows broker keeps filesystem operations disabled without backend', () =
 });
 
 test('Windows broker metadata store uses a pinned directory and durable handle-relative updates', () => {
-  assert.match(store, /CreateFileW\(configured_directory/);
+  assert.match(store, /logic_engine_win_anchor_path\(configured_directory/);
+  assert.match(store, /logic_engine_win_open_relative\(anchor.parent, anchor.basename/);
+  assert.doesNotMatch(store, /CreateFileW\(configured_directory/);
   assert.match(store, /FILE_FLAG_OPEN_REPARSE_POINT/);
   assert.match(store, /logic_engine_win_open_relative\(store->directory/);
   assert.match(store, /LockFileEx\(lock,\s*LOCKFILE_EXCLUSIVE_LOCK/);
