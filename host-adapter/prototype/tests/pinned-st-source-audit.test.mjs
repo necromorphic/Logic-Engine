@@ -79,3 +79,41 @@ for (const [relativePath, required] of anchors) {
         }
     });
 }
+
+
+test('pinned ST chat-history mutation routes are guarded or explicitly unsupported', { skip: !root }, () => {
+    const read = relativePath => fs.readFileSync(path.join(root, relativePath), 'utf8');
+    const requirements = [
+        ['src/endpoints/chats.js', "router.post('/save', validateAvatarUrlMiddleware, hostLifecycleSaveGuard"],
+        ['src/endpoints/chats.js', "router.post('/rename', validateAvatarUrlMiddleware, hostBulkMutationGuard"],
+        ['src/endpoints/chats.js', "router.post('/delete', validateAvatarUrlMiddleware, hostBulkMutationGuard"],
+        ['src/endpoints/chats.js', "router.post('/export', validateAvatarUrlMiddleware, hostBulkMutationGuard"],
+        ['src/endpoints/chats.js', "router.post('/group/import', hostBulkMutationGuard"],
+        ['src/endpoints/chats.js', "router.post('/import', hostBulkMutationGuard"],
+        ['src/endpoints/chats.js', "router.post('/group/delete', hostBulkMutationGuard"],
+        ['src/endpoints/chats.js', "router.post('/group/save', hostLifecycleSaveGuard"],
+        ['src/endpoints/groups.js', "router.post('/create', hostBulkMutationGuard"],
+        ['src/endpoints/groups.js', "router.post('/edit', hostBulkMutationGuard"],
+        ['src/endpoints/groups.js', "router.post('/delete', hostBulkMutationGuard"],
+        ['src/endpoints/characters.js', "router.post('/rename', hostBulkMutationGuard"],
+        ['src/endpoints/characters.js', "router.post('/delete', hostBulkMutationGuard"],
+        ['src/endpoints/characters.js', "router.post('/import', hostBulkMutationGuard"],
+        ['src/endpoints/characters.js', "router.post('/duplicate', hostBulkMutationGuard"],
+        ['src/endpoints/backups.js', "router.post('/chat/delete', hostBulkMutationGuard"],
+        ['src/endpoints/data-maid.js', "router.post('/delete', hostBulkMutationGuard"],
+        ['src/endpoints/settings.js', "router.post('/restore-snapshot', hostBulkMutationGuard"],
+        ['src/endpoints/users-private.js', "router.post('/reset-settings', hostBulkMutationGuard"],
+    ];
+    for (const [relativePath, required] of requirements) {
+        assert.ok(read(relativePath).includes(required), relativePath + ' missing route guard: ' + required);
+    }
+
+    const privateUsers = read('src/endpoints/users-private.js');
+    assert.ok(privateUsers.includes('HOST_USER_ROOT_RESET_UNSUPPORTED'),
+        'full user-root reset must remain explicitly fail-closed');
+    assert.ok(privateUsers.includes('assertHostStartupMigrationAllowed'),
+        'startup group metadata migration must be gated by full Host inventory');
+    const adminUsers = read('src/endpoints/users-admin.js');
+    assert.ok(adminUsers.includes('HOST_USER_ACCOUNT_DELETE_UNSUPPORTED'),
+        'account-root deletion must remain explicitly fail-closed');
+});
