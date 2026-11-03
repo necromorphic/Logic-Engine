@@ -253,30 +253,89 @@ function assertSameProviderEvidenceCursor(current, expected) {
   }
 }
 
-function normalizeSources(sources) {
-  if (!Array.isArray(sources) || sources.length > 256) {
+function readStrictArray(value, maxLength) {
+  if (!Array.isArray(value) || utilTypes.isProxy(value) || value.length > maxLength) {
     throw new Error('MEMORY_DISPATCH_NOT_READY');
   }
-  const normalized = sources.map((source) => {
-    if (!source || typeof source !== 'object' || Array.isArray(source)
-      || Object.keys(source).some((key) => !['source_kind', 'source_entity_id', 'source_version'].includes(key))
-      || source.source_kind !== 'canonical_entity'
+  let keys;
+  try { keys = Reflect.ownKeys(value); } catch { throw new Error('MEMORY_DISPATCH_NOT_READY'); }
+  if (keys.length !== value.length + 1 || !keys.includes('length')) {
+    throw new Error('MEMORY_DISPATCH_NOT_READY');
+  }
+  const items = new Array(value.length);
+  for (let index = 0; index < value.length; index += 1) {
+    let descriptor;
+    try { descriptor = Object.getOwnPropertyDescriptor(value, String(index)); }
+    catch { throw new Error('MEMORY_DISPATCH_NOT_READY'); }
+    if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) {
+      throw new Error('MEMORY_DISPATCH_NOT_READY');
+    }
+    items[index] = descriptor.value;
+  }
+  return items;
+}
+
+function readStrictRecord(value, keys) {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || utilTypes.isProxy(value)) {
+    throw new Error('MEMORY_DISPATCH_NOT_READY');
+  }
+  try {
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) throw new Error('MEMORY_DISPATCH_NOT_READY');
+    const ownKeys = Reflect.ownKeys(value);
+    if (ownKeys.length !== keys.length
+      || ownKeys.some(key => typeof key !== 'string' || !keys.includes(key))) {
+      throw new Error('MEMORY_DISPATCH_NOT_READY');
+    }
+    const record = Object.create(null);
+    for (const key of keys) {
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) {
+        throw new Error('MEMORY_DISPATCH_NOT_READY');
+      }
+      record[key] = descriptor.value;
+    }
+    return record;
+  } catch {
+    throw new Error('MEMORY_DISPATCH_NOT_READY');
+  }
+}
+
+function insertionSort(items, compare) {
+  for (let index = 1; index < items.length; index += 1) {
+    const current = items[index];
+    let position = index;
+    while (position > 0 && compare(items[position - 1], current) > 0) {
+      items[position] = items[position - 1];
+      position -= 1;
+    }
+    items[position] = current;
+  }
+  return items;
+}
+
+function normalizeSources(sources) {
+  const input = readStrictArray(sources, 256);
+  const normalized = new Array(input.length);
+  for (let index = 0; index < input.length; index += 1) {
+    const source = readStrictRecord(input[index], ['source_kind', 'source_entity_id', 'source_version']);
+    if (source.source_kind !== 'canonical_entity'
       || !validText(source.source_entity_id, 200)
       || !validText(source.source_version, 200)) {
       throw new Error('MEMORY_DISPATCH_NOT_READY');
     }
-    return Object.freeze({
+    normalized[index] = Object.freeze({
       source_kind: source.source_kind,
       source_entity_id: source.source_entity_id,
       source_version: source.source_version,
     });
-  });
-  const compareCodeUnits = (left, right) => left < right ? -1 : left > right ? 1 : 0;
-  normalized.sort((a, b) => compareCodeUnits(a.source_entity_id, b.source_entity_id)
-    || compareCodeUnits(a.source_version, b.source_version));
-  for (let i = 1; i < normalized.length; i += 1) {
-    if (normalized[i - 1].source_entity_id === normalized[i].source_entity_id
-      && normalized[i - 1].source_version === normalized[i].source_version) {
+  }
+  insertionSort(normalized, (a, b) => (a.source_entity_id < b.source_entity_id ? -1
+    : a.source_entity_id > b.source_entity_id ? 1 : 0)
+    || (a.source_version < b.source_version ? -1 : a.source_version > b.source_version ? 1 : 0));
+  for (let index = 1; index < normalized.length; index += 1) {
+    if (normalized[index - 1].source_entity_id === normalized[index].source_entity_id
+      && normalized[index - 1].source_version === normalized[index].source_version) {
       throw new Error('MEMORY_DISPATCH_NOT_READY');
     }
   }
@@ -285,19 +344,20 @@ function normalizeSources(sources) {
 
 
 function normalizeCandidates(candidates) {
-  if (!Array.isArray(candidates) || candidates.length > 50) {
-    throw new Error('MEMORY_DISPATCH_NOT_READY');
-  }
-  const normalized = candidates.map((candidate) => {
-    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)
-      || Object.keys(candidate).some((key) => !['record_ref', 'record_version', 'authorization_generation', 'source_kind', 'source_entity_id', 'source_version'].includes(key))
-      || !validText(candidate.record_ref, 200) || !validText(candidate.record_version, 200)
+  const input = readStrictArray(candidates, 50);
+  const normalized = new Array(input.length);
+  for (let index = 0; index < input.length; index += 1) {
+    const candidate = readStrictRecord(input[index], [
+      'record_ref', 'record_version', 'authorization_generation',
+      'source_kind', 'source_entity_id', 'source_version',
+    ]);
+    if (!validText(candidate.record_ref, 200) || !validText(candidate.record_version, 200)
       || !Number.isSafeInteger(candidate.authorization_generation) || candidate.authorization_generation < 1
       || candidate.source_kind !== 'canonical_entity'
       || !validText(candidate.source_entity_id, 200) || !validText(candidate.source_version, 200)) {
       throw new Error('MEMORY_DISPATCH_NOT_READY');
     }
-    return Object.freeze({
+    normalized[index] = Object.freeze({
       record_ref: candidate.record_ref,
       record_version: candidate.record_version,
       authorization_generation: candidate.authorization_generation,
@@ -305,15 +365,14 @@ function normalizeCandidates(candidates) {
       source_entity_id: candidate.source_entity_id,
       source_version: candidate.source_version,
     });
-  });
-  const compare = (a, b) => a < b ? -1 : a > b ? 1 : 0;
-  normalized.sort((a, b) => compare(a.record_ref, b.record_ref)
-    || compare(a.record_version, b.record_version)
-    || compare(a.source_entity_id, b.source_entity_id)
-    || compare(a.source_version, b.source_version));
-  for (let i = 1; i < normalized.length; i += 1) {
-    if (normalized[i - 1].record_ref === normalized[i].record_ref
-      && normalized[i - 1].record_version === normalized[i].record_version) {
+  }
+  insertionSort(normalized, (a, b) => (a.record_ref < b.record_ref ? -1 : a.record_ref > b.record_ref ? 1 : 0)
+    || (a.record_version < b.record_version ? -1 : a.record_version > b.record_version ? 1 : 0)
+    || (a.source_entity_id < b.source_entity_id ? -1 : a.source_entity_id > b.source_entity_id ? 1 : 0)
+    || (a.source_version < b.source_version ? -1 : a.source_version > b.source_version ? 1 : 0));
+  for (let index = 1; index < normalized.length; index += 1) {
+    if (normalized[index - 1].record_ref === normalized[index].record_ref
+      && normalized[index - 1].record_version === normalized[index].record_version) {
       throw new Error('MEMORY_DISPATCH_NOT_READY');
     }
   }
