@@ -170,6 +170,9 @@ export function createMemoryNpcProviderAdapter({
       adapterId,
       provider: providerControl,
       consumer: consumerFacade,
+      // Internal Final-Send composition only. This is a synchronous, read-only
+      // evidence seam and still requires the exact shared Coordinator lease.
+      readDispatchEvidenceSync: input => provider.readDispatchEvidenceSync(input),
       async prepareWorld(worldId) {
         await provider.rebuildIndex(worldId);
         return provider.reconcile(worldId);
