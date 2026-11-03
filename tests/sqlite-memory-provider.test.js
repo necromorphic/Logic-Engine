@@ -106,7 +106,7 @@ test('final authorized-read lease serializes query and record grants with a sync
 
 test('final Provider read lease excludes authorization mutation from a second Provider connection', async (t) => {
   const first = setup(t);
-  const second = setup(t, { coordinatorPath: first.coordinatorPath });
+  const second = setup(t, { path: first.path, coordinatorPath: first.coordinatorPath });
   first.provider.grantQuery(first.scope, true);
   first.provider.grantRecord(first.scope, first.record.record_ref, first.record.record_version, true);
   first.provider.putRecord(first.record);
