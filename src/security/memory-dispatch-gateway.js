@@ -201,7 +201,7 @@ function isPlainRecord(value) {
   return prototype === Object.prototype || prototype === null;
 }
 
-function plainDataRecord(value, allowedKeys, requiredKeys = allowedKeys) {
+function plainDataRecord(value, requiredKeys, allowedKeys = requiredKeys) {
   if (!isPlainRecord(value) || !Array.isArray(allowedKeys) || !Array.isArray(requiredKeys)) return false;
   const keys = Reflect.ownKeys(value);
   if (keys.length < requiredKeys.length
