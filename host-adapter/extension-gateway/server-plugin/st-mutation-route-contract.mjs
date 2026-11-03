@@ -187,6 +187,23 @@ export const PINNED_ST_UNSUPPORTED_MUTATION_ROUTES = Object.freeze({
     '/delete-workflow': 'hostUnsupportedMutationGuard',
     '/rename-workflow': 'hostUnsupportedMutationGuard',
   }),
+  'src/endpoints/users-public.js': Object.freeze({
+    '/recover-step2': 'hostUnsupportedMutationGuard',
+  }),
+  'src/endpoints/users-private.js': Object.freeze({
+    '/change-avatar': 'hostUnsupportedMutationGuard',
+    '/change-password': 'hostUnsupportedMutationGuard',
+    '/backup': 'hostUnsupportedMutationGuard',
+    '/change-name': 'hostUnsupportedMutationGuard',
+  }),
+  'src/endpoints/users-admin.js': Object.freeze({
+    '/disable': 'hostUnsupportedMutationGuard',
+    '/enable': 'hostUnsupportedMutationGuard',
+    '/promote': 'hostUnsupportedMutationGuard',
+    '/demote': 'hostUnsupportedMutationGuard',
+    '/create': 'hostUnsupportedMutationGuard',
+    '/delete': 'hostAccountDeleteGuard',
+  }),
 });
 
 const PINNED_ST_ALL_MUTATION_ROUTES = Object.freeze(Object.fromEntries(
