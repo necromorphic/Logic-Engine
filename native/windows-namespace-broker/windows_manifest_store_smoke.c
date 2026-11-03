@@ -40,6 +40,12 @@ unlock_store:
 close_store:
   le_win_store_close(&store);
 done:
+  {
+    wchar_t child[MAX_PATH];
+    if (SUCCEEDED(StringCchPrintfW(child, _countof(child), L\"%s\\manifest.json\", directory))) DeleteFileW(child);
+    if (SUCCEEDED(StringCchPrintfW(child, _countof(child), L\"%s\\store.lock\", directory))) DeleteFileW(child);
+    if (SUCCEEDED(StringCchPrintfW(child, _countof(child), L\"%s\\intent.json\", directory))) DeleteFileW(child);
+  }
   RemoveDirectoryW(directory);
   return result;
 }
