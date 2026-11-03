@@ -3,7 +3,6 @@ import { types as utilTypes } from 'node:util';
 const ID_MAX = 200;
 const PURPOSE = 'npc_turn_context';
 const RECIPIENT = 'model';
-const issuedContexts = new WeakMap();
 
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const validId = value => typeof value === 'string' && value.length > 0
@@ -189,6 +188,9 @@ export function createNpcGenerationContextBuilder({
 }) {
   const dependencies = { resolveScope, readLaneA, readLaneB, revalidateEvidence, revalidateScope };
   const dependencyNames = Object.keys(dependencies);
+  // Each builder owns its own issuance registry. A different adapter/runtime
+  // must not be able to accept a context issued by this builder.
+  const issuedContexts = new WeakMap();
   for (let index = 0; index < dependencyNames.length; index += 1) {
     const name = dependencyNames[index];
     if (typeof dependencies[name] !== 'function') throw new TypeError(name + ' must be a trusted Core callback');
@@ -271,7 +273,12 @@ export function createNpcGenerationContextBuilder({
     return Object.freeze({ status: 'ready', context, reason: null });
   }
 
-  return Object.freeze({ build });
+  return Object.freeze({
+    build,
+    createReceiver: receiverOptions => createNpcGenerationContextReceiver({
+      ...receiverOptions, issuedContexts,
+    }),
+  });
 }
 
 /**
@@ -279,8 +286,9 @@ export function createNpcGenerationContextBuilder({
  * this module's builder and rechecks the request binding and live Core scope.
  * It does not send to a model or create a transport lease.
  */
-export function createNpcGenerationContextReceiver({ resolveScope, revalidateEvidence, revalidateScope }) {
-  if (typeof resolveScope !== 'function' || typeof revalidateEvidence !== 'function'
+function createNpcGenerationContextReceiver({ resolveScope, revalidateEvidence, revalidateScope, issuedContexts }) {
+  if (!(issuedContexts instanceof WeakMap)
+    || typeof resolveScope !== 'function' || typeof revalidateEvidence !== 'function'
     || typeof revalidateScope !== 'function') {
     throw new TypeError('Receiver requires trusted Core scope and evidence callbacks');
   }
