@@ -4,6 +4,7 @@ import { isAbsolute, resolve } from 'node:path';
 
 const execFileAsync = promisify(execFile);
 const activeLeases = new WeakSet();
+let vssOperationTail = Promise.resolve();
 const GUID = /^[{]?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}[}]?$/i;
 
 // Static PowerShell source: paths and identifiers are passed through the child
@@ -15,15 +16,15 @@ $volumeRoot = [System.IO.Path]::GetPathRoot($root)
 $relative = $root.Substring($volumeRoot.Length).TrimStart('\')
 $created = $null
 # VSS serializes snapshot creation system-wide. Concurrent host scans may
-# receive WMI return code 10; retry that transient busy state, but fail closed
+# receive WMI return codes 9/10; serialize local scans and retry cross-process busy state, but fail closed
 # after a bounded wait rather than racing or falling back to the live tree.
 for ($attempt = 0; $attempt -lt 60; $attempt++) {
   $created = ([WmiClass]'Win32_ShadowCopy').Create($volumeRoot, 'ClientAccessible')
-  if ([int]$created.ReturnValue -ne 10) { break }
+  if (@(9, 10) -notcontains [int]$created.ReturnValue) { break }
   Start-Sleep -Milliseconds 500
 }
 if ($created.ReturnValue -ne 0) {
-  if ([int]$created.ReturnValue -eq 10) { throw 'HOST_VSS_CREATE_BUSY:10' }
+  if (@(9, 10) -contains [int]$created.ReturnValue) { throw "HOST_VSS_CREATE_BUSY:$($created.ReturnValue)" }
   throw "HOST_VSS_CREATE_FAILED:$($created.ReturnValue)"
 }
 $id = [string]$created.ShadowID
@@ -129,7 +130,7 @@ async function runPowerShell(script, env, timeout = 120_000) {
  * The lease is process-local and unforgeable by callers. Its root is valid only
  * inside the callback and is released in finally.
  */
-export async function withWindowsVssSnapshot(rootPath, callback) {
+async function withWindowsVssSnapshotUnlocked(rootPath, callback) {
   if (process.platform !== 'win32') throw new Error('HOST_VSS_PLATFORM_UNSUPPORTED');
   if (typeof rootPath !== 'string' || !rootPath.trim() || !isAbsolute(rootPath)) throw new Error('HOST_VSS_ROOT_INVALID');
   if (typeof callback !== 'function') throw new Error('HOST_VSS_CALLBACK_INVALID');
@@ -178,6 +179,17 @@ export async function withWindowsVssSnapshot(rootPath, callback) {
     activeLeases.delete(lease);
     await runPowerShell(DELETE_SCRIPT, { LE_VSS_SNAPSHOT_ID: descriptor.snapshotId }, 60_000);
   }
+}
+
+function withVssOperationLock(work) {
+  const previous = vssOperationTail;
+  let release;
+  vssOperationTail = new Promise(resolve => { release = resolve; });
+  return previous.then(work).finally(() => release());
+}
+
+export function withWindowsVssSnapshot(rootPath, callback) {
+  return withVssOperationLock(() => withWindowsVssSnapshotUnlocked(rootPath, callback));
 }
 
 export function isActiveWindowsVssSnapshot(lease) {
