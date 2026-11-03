@@ -268,6 +268,7 @@ const logicEngine = new LogicEngine(store, {
 });
 const memoryProviderAdapters = [];
 const memoryNpcConsumers = {};
+const memoryNpcGenerationContexts = {};
 const memoryProviderPath = process.env.ENGINE_MEMORY_PROVIDER_DB_PATH;
 if (memoryProviderPath !== undefined) {
   let contentFields;
@@ -291,6 +292,9 @@ if (memoryProviderPath !== undefined) {
     });
     memoryProviderAdapters.push(memoryAdapter);
     memoryNpcConsumers[adapterId] = memoryAdapter.consumer;
+    if (memoryAdapter.npcGenerationContext) {
+      memoryNpcGenerationContexts[adapterId] = memoryAdapter.npcGenerationContext;
+    }
   }
   const worldIds = store.db.prepare('SELECT world_id FROM worlds ORDER BY world_id').all();
   for (const memoryAdapter of memoryProviderAdapters) {
@@ -306,6 +310,7 @@ const server = createApiServer({
   hostLifecycleJournal: hostRootInventoryJournal,
   mechanicPolicyAuthority,
   memoryNpcConsumers,
+  memoryNpcGenerationContexts,
   hostAssertionNonceStore,
 });
 server.listen(port, host, () => process.stdout.write(
