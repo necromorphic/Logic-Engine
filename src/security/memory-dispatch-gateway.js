@@ -823,6 +823,7 @@ export class MemoryDispatchGateway {
     let coreHead;
     let providerHead;
     let providerCursorSnapshot;
+    let npcProviderEvidenceCursor;
     let policyAuthority;
     let npcContext;
     let release = null;
@@ -862,6 +863,7 @@ export class MemoryDispatchGateway {
         || laneBEvidence.provider_purpose !== purpose) {
         throw new Error('MEMORY_DISPATCH_NOT_READY');
       }
+      npcProviderEvidenceCursor = normalizeProviderEvidenceCursor(laneBEvidence.provider_evidence_cursor);
       sourceSet = normalizeSources(laneBEvidence.sources);
       candidateSet = normalizeCandidates(laneBEvidence.candidates);
       assertSourcesMatchCandidates(sourceSet, candidateSet);
@@ -922,6 +924,7 @@ export class MemoryDispatchGateway {
         coordinatorLease: release,
       }));
       providerCursorSnapshot = normalizeProviderEvidenceCursor(provider.provider_evidence_cursor);
+      assertSameProviderEvidenceCursor(providerCursorSnapshot, npcProviderEvidenceCursor);
       const host = assertSyncResult(this.readHostEvidence({
         hostContext: hostContextSnapshot, worldId, actorId, purpose,
         coordinatorLease: release,
@@ -1089,6 +1092,7 @@ export class MemoryDispatchGateway {
     }
     assertSameSources(currentLaneB.sources, context.sources);
     assertSameCandidates(currentLaneB.candidates, context.candidates);
+    assertSameProviderEvidenceCursor(currentLaneB.provider_evidence_cursor, context.providerEvidenceCursor);
     const currentLaneB = assertSyncResult(this.npcContextRuntime.getLaneBDispatchEvidence(
       context.npcContext, context.generationRequest,
     ));
