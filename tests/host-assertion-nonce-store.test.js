@@ -135,7 +135,7 @@ test('Host session revocation waits for an in-flight shared Coordinator lease', 
     assert.match(stdout, /READY/);
     coordinator = openCoordinatorDatabase(coordinatorPath);
     release = beginCoordinatorLock(coordinator);
-    child.stdin.write('REVOKE\\n');
+    child.stdin.end('REVOKE\\n');
     await new Promise(resolveTimer => setTimeout(resolveTimer, 150));
     assert.doesNotMatch(stdout, /REVOKED/);
     assert.equal(exited, false);
