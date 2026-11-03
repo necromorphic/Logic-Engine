@@ -2,104 +2,43 @@ import { existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { SillyTavernPatchManager } from './scripts/sillytavern-patch-manager.mjs';
+import { createSillyTavernHostAdapter } from './host-adapter/extension-gateway/server-plugin/host-adapter.mjs';
+import { createSillyTavernFinalSendAdapter } from './host-adapter/sillytavern-final-send-adapter.mjs';
+import { receiveNpcContext } from './host-adapter/npc-context-receiver.mjs';
 
 const PLUGIN_OWNER = 'logic-engine-extension:host-adapter-v1';
 const PLUGIN_ROOT = dirname(fileURLToPath(import.meta.url));
 let registeredHook = null;
 let registeredAdapter = null;
 
-const SENDER_ROUTE_MAP = Object.freeze({
-  claude: 'claude',
-  makersuite: 'google-ai-studio',
-  vertexai: 'vertex-ai',
-  ai21: 'ai21',
-  mistralai: 'mistral',
-  cohere: 'cohere',
-  deepseek: 'deepseek',
-  xai: 'xai',
-  aimlapi: 'aimlapi',
-  electronhub: 'electronhub',
-  chutes: 'chutes',
-  minimax: 'minimax',
-  azure_openai: 'azure-openai',
-  openai: 'openai',
-  openrouter: 'openrouter',
-  custom: 'custom',
-  perplexity: 'perplexity',
-  groq: 'groq',
-  fireworks: 'fireworks',
-  nanogpt: 'nanogpt',
-  pollinations: 'pollinations',
-  moonshot: 'moonshot',
-  zai: 'zai',
-  siliconflow: 'siliconflow',
-  workers_ai: 'workers-ai',
+const unavailableGateway = Object.freeze({
+  dispatchProtectedRequest() {
+    // This is deliberately not a transport. Until Core/Provider/Host evidence
+    // readers are composed with the shared Coordinator, protected context
+    // cannot reach a native sender and must not downgrade to direct fetch.
+    throw new Error('MEMORY_DISPATCH_NOT_READY');
+  },
+  authorizeResponseWrite() {
+    throw new Error('MEMORY_DISPATCH_NOT_READY');
+  },
 });
 
-const HOST_ROUTE_MAP = Object.freeze({
-  'text-completions': 'text-completions',
-  kobold: 'kobold',
-  'novelai-text': 'novelai-text',
-  'horde-text': 'horde-text',
-});
-
-function assertAuthenticatedStRequest(request) {
-  const handle = request?.user?.profile?.handle;
-  const session = request?.session;
-  if (!session || typeof handle !== 'string' || !handle.trim()
-    || (session.handle !== undefined && session.handle !== handle)) {
-    throw new Error('LOGIC_ENGINE_HOST_SESSION_NOT_AUTHENTICATED');
+function resolveRequestModel(request, prepared) {
+  const body = prepared.hostRoute === 'horde-text'
+    ? request?.body?.params
+    : request?.body;
+  const candidate = body?.model ?? body?.model_name ?? body?.model_id ?? 'native-' + prepared.hostRoute;
+  if (typeof candidate !== 'string' || !/^[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+){0,3}$/.test(candidate)
+    || candidate.length > 128) {
+    throw new Error('NPC_CONTEXT_MODEL_ID_INVALID');
   }
+  return candidate;
 }
-
-function containsUntrustedMemoryMarker(body) {
-  if (!body || typeof body !== 'object') return false;
-  return Object.hasOwn(body, 'logic_engine_memory')
-    || Object.hasOwn(body, 'logic_engine_protected_context')
-    || Object.hasOwn(body, 'memory_dispatch');
-}
-
-function createFailClosedAdapter() {
-  return Object.freeze({
-    async prepare(request) {
-      assertAuthenticatedStRequest(request);
-      if (containsUntrustedMemoryMarker(request.body)) {
-        throw new Error('LOGIC_ENGINE_UNTRUSTED_MEMORY_MARKER');
-      }
-      // No server-side Memory context is created while the deployment gate is
-      // DISABLED. The final-send hook still owns the native egress call site.
-    },
-    resolveSenderRoute(request, hostRoute = 'chat-completions') {
-      if (hostRoute !== 'chat-completions') {
-        const route = HOST_ROUTE_MAP[hostRoute];
-        if (!route) throw new Error('LOGIC_ENGINE_FINAL_SEND_SENDER_UNKNOWN');
-        return route;
-      }
-      const source = request?.body?.chat_completion_source;
-      const route = typeof source === 'string' ? SENDER_ROUTE_MAP[source] : null;
-      if (!route) throw new Error('LOGIC_ENGINE_FINAL_SEND_SENDER_UNKNOWN');
-      return route;
-    },
-    dispatch({ transport }) {
-      // This is the only non-protected path. A future server-owned Memory
-      // context must be handed to the in-process Core Gateway; it must never
-      // be downgraded to this direct native transport.
-      return transport();
-    },
-    forwardResponse(upstream, response) {
-      return registeredNativeForward(upstream, response);
-    },
-  });
-}
-
-let registeredNativeForward = () => {
-  throw new Error('LOGIC_ENGINE_NATIVE_RESPONSE_WRITER_UNAVAILABLE');
-};
 
 export const info = Object.freeze({
   id: 'logic-engine',
   name: 'Logic Engine',
-  description: 'Core-authorized SillyTavern final-send integration with managed pinned Host patch',
+  description: 'Core-authorized SillyTavern generation and fail-closed Final-Send integration',
 });
 
 export async function init(router) {
@@ -117,33 +56,58 @@ export async function init(router) {
     extensionRoot: PLUGIN_ROOT,
     stRoot: hostRoot,
   });
-  // The same manager/state/journal is used by the native Extension lifecycle
-  // Hook. Startup is the bootstrap; it never applies a second independent patch.
   // Native generation modules are imported before server plugins initialize.
-  // Applying the patch here would change files on disk but leave this process's
-  // already-loaded routers unpatched. Startup must only verify a patch installed
-  // before process start; install/update lifecycle changes require a restart.
+  // Startup only verifies the already-installed patch; install/update must
+  // happen before restart and normal shutdown never removes it.
   const patchResult = await manager.inspectInstalledReadOnly();
   if (patchResult.status !== 'INSTALLED_AND_BACKUPS_VERIFIED') {
     throw new Error('LOGIC_ENGINE_FINAL_SEND_PATCH_NOT_INSTALLED_OR_VERIFIED_RESTART_REQUIRED');
   }
 
+  const memoryEnabled = process.env.LOGIC_ENGINE_MEMORY_NPC_ENABLED === 'true';
+  const hostAdapter = createSillyTavernHostAdapter();
   try {
     const hookPath = join(hostRoot, 'src', 'logic-engine-final-send-hook.js');
     const hook = await import(pathToFileURL(hookPath).href);
     const nativeUtilPath = join(hostRoot, 'src', 'util.js');
     const nativeUtil = await import(pathToFileURL(nativeUtilPath).href);
-    if (typeof nativeUtil.forwardFetchResponse !== 'function') {
-      throw new Error('LOGIC_ENGINE_NATIVE_RESPONSE_WRITER_UNAVAILABLE');
+    const constantsPath = join(hostRoot, 'src', 'constants.js');
+    const nativeConstants = await import(pathToFileURL(constantsPath).href);
+    if (typeof nativeUtil.forwardFetchResponse !== 'function'
+      || !nativeConstants.CHAT_COMPLETION_SOURCES) {
+      throw new Error('LOGIC_ENGINE_NATIVE_SILLYTAVERN_CONTRACT_UNAVAILABLE');
     }
-    registeredNativeForward = nativeUtil.forwardFetchResponse;
-    registeredAdapter = createFailClosedAdapter();
+
+    registeredAdapter = createSillyTavernFinalSendAdapter({
+      gateway: unavailableGateway,
+      chatCompletionSources: nativeConstants.CHAT_COMPLETION_SOURCES,
+      nativeForwardFetchResponse: nativeUtil.forwardFetchResponse,
+      prepareHostContext: async (request, _response, hostRoute) => {
+        if (!memoryEnabled) return null;
+        return hostAdapter.prepareGenerationContext(request, hostRoute);
+      },
+      resolveProtectedMemory: (request, prepared) => {
+        if (!memoryEnabled) return null;
+        const host = prepared?.hostContext;
+        if (!host || host.status !== 'READY') return undefined;
+        const received = receiveNpcContext({
+          retrieval: host.retrieval,
+          hostContext: host.coreContext,
+          hostBinding: host.context,
+          requestId: host.requestId,
+          model: resolveRequestModel(request, prepared),
+          purpose: 'npc_decision',
+        });
+        // A verified complete-empty result carries no protected content and
+        // does not need the Memory egress lease. Every non-empty result must
+        // pass the in-process Gateway; its current production reader composition
+        // is intentionally unavailable, so it is denied without native fallback.
+        return received.candidates.length === 0 ? null : received;
+      },
+    });
     hook.registerLogicEngineFinalSendAdapter(registeredAdapter, PLUGIN_OWNER);
     registeredHook = hook;
   } catch (error) {
-    // Keep the managed source patch and its durable journal intact. A missing
-    // or conflicting adapter leaves the Hook fail-closed; uninstall is owned
-    // only by the Extension delete lifecycle, never by plugin startup failure.
     throw error;
   }
 
@@ -155,8 +119,8 @@ export async function init(router) {
       patch: patch.status,
       hostCommit: patch.hostCommit ?? null,
       patchVersion: patch.patchVersion ?? null,
-      gateway: 'NOT_WIRED',
-      memoryNpc: 'DISABLED_FAIL_CLOSED',
+      gateway: 'NOT_WIRED_FAIL_CLOSED',
+      memoryNpc: memoryEnabled ? 'PREPARE_ONLY_FAIL_CLOSED' : 'DISABLED_FAIL_CLOSED',
     });
   });
 
@@ -169,10 +133,6 @@ export async function exit() {
   }
   registeredHook = null;
   registeredAdapter = null;
-  registeredNativeForward = () => {
-    throw new Error('LOGIC_ENGINE_NATIVE_RESPONSE_WRITER_UNAVAILABLE');
-  };
   // Do not uninstall on normal server shutdown/unload. The patched native
-  // route modules are loaded for this process and must remain patched on disk
-  // for the next startup. Extension deletion owns explicit uninstall.
+  // route modules remain installed for the next process startup.
 }
