@@ -1,4 +1,4 @@
-import { createHash, createHmac, timingSafeEqual, randomUUID } from 'node:crypto';
+import { createHash, createHmac, randomUUID } from 'node:crypto';
 import { lstat, readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -15,6 +15,7 @@ export const SOURCE_FILE_PATHS = Object.freeze([
   'public/scripts/chat-backups.js',
   'public/scripts/slash-commands.js',
   'src/server-main.js',
+  'src/plugin-loader.js',
   'src/users.js',
   'src/endpoints/backends/chat-completions.js',
   'src/endpoints/chats.js',
@@ -44,14 +45,22 @@ export const SOURCE_FILE_PATHS = Object.freeze([
   'src/endpoints/avatars.js',
   'src/endpoints/assets.js',
   'src/endpoints/files.js',
+  'plugins/logic-engine-extension-gateway/index.mjs',
+  'plugins/logic-engine-extension-gateway/package.json',
   'plugins/logic-engine-extension-gateway/host-adapter.mjs',
   'plugins/logic-engine-extension-gateway/st-host-inventory-handler.mjs',
+  'plugins/logic-engine-extension-gateway/st-source-attestation.mjs',
   'plugins/logic-engine-extension-gateway/st-source-inventory.mjs',
   'plugins/logic-engine-extension-gateway/fs-inventory.js',
   'plugins/logic-engine-extension-gateway/windows-vss-snapshot.mjs',
   'plugins/logic-engine-extension-gateway/st-server-digest-proxy.mjs',
   'plugins/logic-engine-extension-gateway/st-host-identity-store.mjs',
   'plugins/logic-engine-extension-gateway/st-host-session-revocation.mjs',
+  'public/scripts/extensions/third-party/logic-engine-extension-gateway/index.js',
+  'public/scripts/extensions/third-party/logic-engine-extension-gateway/host-context.mjs',
+  'public/scripts/extensions/third-party/logic-engine-extension-gateway/gateway-policy.mjs',
+  'public/scripts/extensions/third-party/logic-engine-extension-gateway/conversation-identity.mjs',
+  'public/scripts/extensions/third-party/logic-engine-extension-gateway/manifest.json',
 ]);
 
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
