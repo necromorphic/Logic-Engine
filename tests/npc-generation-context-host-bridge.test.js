@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createNpcGenerationContextHostBridge } from '../src/application/npc-generation-context-host-bridge.js';
+import { createNpcGenerationRequestMetadata } from '../host-adapter/npc-generation-request-metadata.mjs';
 
 const requestMetadata = Object.freeze({
   request_id: 'request-1', generation_id: 'generation-1', generation_type: 'normal',
@@ -164,4 +165,43 @@ test('Host bridge rejects reuse of one frozen request-metadata object across Hos
   const second = await bridge.prepare({}, {});
   assert.equal(second.status, 'non_ready');
   assert.equal(second.reason, 'request_metadata_reused');
+});
+
+test('Host bridge mints fresh request metadata and ignores browser-supplied correlation fields', async () => {
+  const seen = [];
+  const handoff = Object.freeze({});
+  const bridge = createNpcGenerationContextHostBridge({
+    runtime: {
+      async prepareForDispatch(metadata) {
+        seen.push(metadata);
+        return { status: 'ready', handoff };
+      },
+      consumeDispatchHandoff() { return { status: 'non_ready' }; },
+      getLaneBDispatchEvidence() { return { status: 'non_ready' }; },
+      revalidateLaneAForDispatch() { return { status: 'non_ready' }; },
+      revalidateLaneAForDispatchUnderCoordinatorLease() { return { status: 'non_ready' }; },
+    },
+    createRequestMetadata: () => createNpcGenerationRequestMetadata(),
+  });
+  const firstRequest = {
+    body: {
+      logic_engine_request_id: 'browser-forged-request',
+      logic_engine_generation_id: 'browser-forged-generation',
+      logic_engine_generation_type: 'forged',
+    },
+  };
+  const secondRequest = { body: firstRequest.body };
+  assert.equal((await bridge.prepare(firstRequest, {})).status, 'ready');
+  assert.equal((await bridge.prepare(secondRequest, {})).status, 'ready');
+  assert.equal(seen.length, 2);
+  for (const metadata of seen) {
+    assert.equal(Object.isFrozen(metadata), true);
+    assert.match(metadata.request_id, /^[0-9a-f-]{36}$/i);
+    assert.match(metadata.generation_id, /^[0-9a-f-]{36}$/i);
+    assert.equal(metadata.generation_type, 'normal');
+    assert.notEqual(metadata.request_id, 'browser-forged-request');
+    assert.notEqual(metadata.generation_id, 'browser-forged-generation');
+  }
+  assert.notEqual(seen[0].request_id, seen[1].request_id);
+  assert.notEqual(seen[0].generation_id, seen[1].generation_id);
 });
