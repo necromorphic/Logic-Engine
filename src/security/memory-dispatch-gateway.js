@@ -86,22 +86,19 @@ export const PROTECTED_MEMORY_SENDER_ROUTES = Object.freeze([
   'workers-ai', 'text-completions', 'kobold', 'novelai-text', 'horde-text',
 ]);
 
-const ASYNC_FUNCTION_PROTOTYPE = Object.getPrototypeOf(async function () {});
-const GENERATOR_FUNCTION_PROTOTYPE = Object.getPrototypeOf(function* () {});
-const ASYNC_GENERATOR_FUNCTION_PROTOTYPE = Object.getPrototypeOf(async function* () {});
-const intrinsicGetPrototypeOf = Object.getPrototypeOf;
 const intrinsicFunctionToString = Function.prototype.toString;
 const intrinsicReflectApply = Reflect.apply;
 const intrinsicStringEndsWith = String.prototype.endsWith;
 const isProxy = utilTypes.isProxy;
+const isAsyncFunction = utilTypes.isAsyncFunction;
+const isGeneratorFunction = utilTypes.isGeneratorFunction;
+const isAsyncGeneratorFunction = utilTypes.isAsyncGeneratorFunction;
 
 function isSynchronousCallable(callback) {
-  if (typeof callback !== 'function' || isProxy(callback)) return false;
+  if (typeof callback !== 'function' || isProxy(callback)
+    || isAsyncFunction(callback) || isGeneratorFunction(callback)
+    || isAsyncGeneratorFunction(callback)) return false;
   try {
-    const prototype = intrinsicGetPrototypeOf(callback);
-    if (prototype === ASYNC_FUNCTION_PROTOTYPE
-      || prototype === GENERATOR_FUNCTION_PROTOTYPE
-      || prototype === ASYNC_GENERATOR_FUNCTION_PROTOTYPE) return false;
     // Bound functions stringify as native code. Their target kind (sync/async)
     // is intentionally opaque, so reject them rather than invoke an untrusted
     // callback to discover whether it returns a Promise. Use captured intrinsics
