@@ -124,6 +124,7 @@ const { createSillyTavernFinalSendAdapter } = await import(
 let gatewayDispatches = 0;
 let finalRevalidations = 0;
 let failAfterHandoffRoute = null;
+let denyNextFinalWrite = false;
 let requestSequence = 0;
 const dispatchRoutes = [];
 const gateway = {
@@ -145,7 +146,13 @@ const gateway = {
   },
   authorizeResponseWrite(requestId, write, options) {
     assert.equal(typeof requestId, 'string');
-    if (options.final) finalRevalidations += 1;
+    if (options.final) {
+      finalRevalidations += 1;
+      if (denyNextFinalWrite) {
+        denyNextFinalWrite = false;
+        throw new Error('FAKE_PROVIDER_REVOKED_BEFORE_HOST_EGRESS');
+      }
+    }
     return write();
   },
 };
@@ -369,6 +376,19 @@ test('all five pinned protected ST generation handlers use one Gateway handoff a
   assert.equal(providerRequests.length, 6);
   assert.equal(gatewayDispatches, 6);
 
+  // Simulate a Provider revoke after the upstream response has arrived but
+  // immediately before Express response.end(). The real Hook must route that
+  // final write through Gateway authorization and suppress client egress.
+  denyNextFinalWrite = true;
+  await assert.rejects(fetch(requests[0].url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(requests[0].body),
+  }));
+  assert.equal(providerRequests.length, 7, 'one upstream call may finish before revoke is observed');
+  assert.equal(gatewayDispatches, 7, 'revoked response must still have exactly one dispatch-start');
+  assert.equal(finalRevalidations, 7, 'the actual Express final write must invoke Gateway revalidation');
+
   assert.ok(suppressedDebugCalls > 0, 'the upstream request-body debug paths must be suppressed');
   assert.equal(
     JSON.stringify(loggedOutput).includes(sentinel),
@@ -392,7 +412,7 @@ test('all five pinned protected ST generation handlers use one Gateway handoff a
       can_abort: false,
     }),
   }));
-  assert.equal(providerRequests.length, 7, 'terminal Kobold failure must not retry the upstream call');
-  assert.equal(gatewayDispatches, 7, 'failed protected dispatch must still be admitted only once');
-  assert.equal(providerRequests[6].path, '/v1/generate');
+  assert.equal(providerRequests.length, 8, 'terminal Kobold failure must not retry the upstream call');
+  assert.equal(gatewayDispatches, 8, 'failed protected dispatch must still be admitted only once');
+  assert.equal(providerRequests[7].path, '/v1/generate');
 });
