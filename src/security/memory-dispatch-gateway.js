@@ -982,7 +982,9 @@ export class MemoryDispatchGateway {
 
       // This is the one permitted upstream handoff. It is invoked synchronously
       // after the durable start commit and before releasing the Coordinator.
-      try {
+      if (signal?.aborted) {
+        upstreamStartError = new Error('MEMORY_DISPATCH_CANCELLED_AFTER_START');
+      } else try {
         upstreamPromise = transport(exactBody);
         if (!upstreamPromise || typeof upstreamPromise.then !== 'function') {
           throw new Error('MEMORY_DISPATCH_TRANSPORT_START_INVALID');
@@ -1076,6 +1078,17 @@ export class MemoryDispatchGateway {
       hostRoute: context.hostRoute,
       senderRoute: context.senderRoute,
     });
+    const currentLaneB = assertSyncResult(this.npcContextRuntime.getLaneBDispatchEvidence(
+      context.npcContext, context.generationRequest,
+    ));
+    if (currentLaneB.status !== 'ready' || currentLaneB.lane !== 'B'
+      || currentLaneB.world_id !== context.worldId || currentLaneB.actor_id !== context.actorId
+      || currentLaneB.conversation_id !== context.hostContext.core_conversation_id
+      || currentLaneB.adapter_id !== context.hostContext.adapter_id) {
+      throw new Error('MEMORY_DISPATCH_LANE_B_REVALIDATION_DENIED');
+    }
+    assertSameSources(currentLaneB.sources, context.sources);
+    assertSameCandidates(currentLaneB.candidates, context.candidates);
     const laneAResult = assertSyncResult(this.npcContextRuntime.revalidateLaneAForDispatch(
       context.npcContext, context.generationRequest,
     ));
