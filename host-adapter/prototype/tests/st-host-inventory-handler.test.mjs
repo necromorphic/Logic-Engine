@@ -296,6 +296,85 @@ test('host inventory persists the full root manifest server-side and removes onl
   assert.equal(JSON.stringify(response.body).includes('chats/main.jsonl'), false);
 });
 
+test('host inventory clears only blockers covered by verified source and Core VSS attestation', async () => {
+  let persistedInput;
+  const coveredSourceBlockers = [
+    'NO_PRE_ENROLLMENT_DELETED_HISTORY',
+    'NO_COMPLETE_MESSAGE_OR_SWIPE_REVISION_HISTORY',
+    'NO_HOST_INSTALLATION_BINDING',
+    'NO_CORE_WORLD_OR_SESSION_AUTHORIZATION',
+    'NO_ACCEPTED_HEAD_AUTHORITY',
+    'IMPORT_EXPORT_COPY_BRANCH_RESTORE_UNSUPPORTED',
+    'NO_APPLICATION_LEVEL_ATOMIC_SNAPSHOT',
+    'PLATFORM_SPECIFIC_RACE_RESISTANCE_REQUIRES_SECURITY_REVIEW',
+  ];
+  const handler = createHostInventoryHandler({
+    enumerate: async () => ({
+      filesystem: {
+        status: 'complete',
+        root: '/srv/st/data',
+        snapshot_sha256: 'b'.repeat(64),
+        file_count: 1,
+        total_bytes: 64,
+        entries: [{
+          path: 'chats/main.jsonl',
+          identity: { dev: '1', ino: '2', mode: 33188, size: 64, mtimeMs: 1, ctimeMs: 1 },
+          sha256: 'c'.repeat(64),
+        }],
+      },
+      source: {
+        status: 'DOUBLE_SCAN_CANDIDATE',
+        authority: 'NON_AUTHORITATIVE',
+        inventory_sha256: 'a'.repeat(64),
+        blockers: coveredSourceBlockers,
+        files: [],
+      },
+      snapshot_alignment: 'SHARED_VSS_SNAPSHOT',
+    }),
+    verifySourceIdentity: async () => ({
+      status: 'CURRENT_IDENTITIES_VERIFIED',
+      manifest_sha256: 'e'.repeat(64),
+      patch_blob_sha: 'f'.repeat(64),
+      host_handler_blob_sha: '1'.repeat(64),
+    }),
+    persistRootInventory: async input => {
+      persistedInput = input;
+      return {
+        status: 'AUTHORITATIVE_COMPLETE',
+        integrity_status: 'INTEGRITY_OK',
+        sequence: 1,
+        manifest_sha256: 'd'.repeat(64),
+        upstream_status: 200,
+      };
+    },
+    pinnedHostCommit: pinned,
+    hostBuildClaim: '',
+  });
+  const response = makeResponse();
+  const directories = {
+    root: '/srv/st/data',
+    chats: '/srv/st/data/chats',
+    groups: '/srv/st/data/groups',
+    groupChats: '/srv/st/data/group chats',
+  };
+  await handler({
+    user: { profile: { handle: 'alice' }, directories },
+    session: {
+      handle: 'alice',
+      logicEngineSessionId: '2e6b0a80-4e73-4c66-aaf3-7a6e62c7f401',
+      logicEngineSessionHandle: 'alice',
+    },
+    query: { conversation_uuid: '4e6b0a80-4e73-4c66-aaf3-7a6e62c7f403' },
+  }, response);
+  assert.equal(response.statusCode, 200);
+  assert.equal(persistedInput.snapshotAlignment, 'SHARED_VSS_SNAPSHOT');
+  assert.equal(persistedInput.snapshotSha256, 'b'.repeat(64));
+  assert.equal(persistedInput.sourceIdentity.status, 'CURRENT_IDENTITIES_VERIFIED');
+  assert.equal(response.body.host_source_identity_status, 'CURRENT_IDENTITIES_VERIFIED');
+  assert.equal(response.body.root_inventory_reconciliation.status, 'AUTHORITATIVE_COMPLETE');
+  assert.deepEqual(response.body.blockers, []);
+});
+
 test('persisted but unexplained root drift remains an explicit NON_READY blocker', async () => {
   const handler = createHostInventoryHandler({
     enumerate: async () => ({
