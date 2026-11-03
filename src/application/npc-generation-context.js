@@ -191,6 +191,7 @@ export function createNpcGenerationContextBuilder({
   // Each builder owns its own issuance registry. A different adapter/runtime
   // must not be able to accept a context issued by this builder.
   const issuedContexts = new WeakMap();
+  const consumedContexts = new WeakSet();
   for (let index = 0; index < dependencyNames.length; index += 1) {
     const name = dependencyNames[index];
     if (typeof dependencies[name] !== 'function') throw new TypeError(name + ' must be a trusted Core callback');
@@ -276,7 +277,7 @@ export function createNpcGenerationContextBuilder({
   return Object.freeze({
     build,
     createReceiver: receiverOptions => createNpcGenerationContextReceiver({
-      ...receiverOptions, issuedContexts,
+      ...receiverOptions, issuedContexts, consumedContexts,
     }),
   });
 }
@@ -286,16 +287,14 @@ export function createNpcGenerationContextBuilder({
  * this module's builder and rechecks the request binding and live Core scope.
  * It does not send to a model or create a transport lease.
  */
-function createNpcGenerationContextReceiver({ resolveScope, revalidateEvidence, revalidateScope, issuedContexts }) {
-  if (!(issuedContexts instanceof WeakMap)
+function createNpcGenerationContextReceiver({ resolveScope, revalidateEvidence, revalidateScope, issuedContexts, consumedContexts }) {
+  if (!(issuedContexts instanceof WeakMap) || !(consumedContexts instanceof WeakSet)
     || typeof resolveScope !== 'function' || typeof revalidateEvidence !== 'function'
     || typeof revalidateScope !== 'function') {
     throw new TypeError('Receiver requires trusted Core scope and evidence callbacks');
   }
-  // A builder-issued context is a one-shot receiver capability. Consume it
-  // synchronously before any await so concurrent or repeated dispatch attempts
-  // cannot reuse the same generation context.
-  const consumedContexts = new WeakSet();
+  // The Builder owns this one-shot registry, shared by every Receiver it
+  // creates. Consume synchronously before any await to block concurrent reuse.
   async function receive(context, request) {
     const issued = context && typeof context === 'object' ? issuedContexts.get(context) : null;
     if (!issued || !validateRequest(request)
