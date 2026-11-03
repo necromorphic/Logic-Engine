@@ -6,6 +6,7 @@ const HOST_SESSION_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a
 const HOST_CONVERSATION_ID = new RegExp('^' + HOST_SESSION_UUID.source.slice(1, -1) + ':'
   + HOST_SESSION_UUID.source.slice(1, -1) + ':' + HOST_SESSION_UUID.source.slice(1, -1) + '$', 'i');
 const contexts = new WeakSet();
+const signedAssertionRequests = new WeakSet();
 const validBindingId = value => {
   if (typeof value !== 'string' || value !== value.trim()
     || value.length === 0 || value.length > 200) return false;
@@ -28,22 +29,10 @@ function isExactPlainDataRecord(value, expectedKeys) {
     if (prototype !== Object.prototype && prototype !== null) return false;
     const keys = Reflect.ownKeys(value);
     if (keys.length !== expectedKeys.length) return false;
-    for (let index = 0; index < keys.length; index += 1) {
-      const key = keys[index];
-      if (typeof key !== 'string') return false;
-      let expected = false;
-      for (let expectedIndex = 0; expectedIndex < expectedKeys.length; expectedIndex += 1) {
-        if (expectedKeys[expectedIndex] === key) {
-          expected = true;
-          break;
-        }
-      }
-      if (!expected) return false;
-    }
-    for (let index = 0; index < expectedKeys.length; index += 1) {
-      const descriptor = Object.getOwnPropertyDescriptor(value, expectedKeys[index]);
-      if (descriptor === undefined || descriptor.enumerable !== true
-        || !Object.hasOwn(descriptor, 'value')) return false;
+    for (const key of keys) if (typeof key !== 'string' || !expectedKeys.includes(key)) return false;
+    for (const key of expectedKeys) {
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      if (!descriptor || descriptor.enumerable !== true || !Object.hasOwn(descriptor, 'value')) return false;
     }
     return true;
   } catch {
@@ -70,11 +59,13 @@ export function createAuthenticatedHostSessionContext(
     const session = request?.session;
     const userHandle = request?.user?.profile?.handle;
     const sessionId = session?.logicEngineSessionId;
-    if (typeof userHandle !== 'string' || userHandle !== userHandle.trim() || !userHandle
+    if (typeof userHandle !== 'string' || !userHandle.trim()
       || (session?.handle !== undefined && session.handle !== userHandle)
       || session?.logicEngineSessionHandle !== userHandle
       || typeof sessionId !== 'string' || !HOST_SESSION_UUID.test(sessionId)
       || typeof conversationId !== 'string' || !HOST_CONVERSATION_ID.test(conversationId)) return null;
+    // Approved PC-NEXT-11 identity: hostSessionId:installationId:conversationUuid.
+    // The authenticated account UUID is resolved separately from trusted server state.
     const firstSeparator = conversationId.indexOf(':');
     const lastSeparator = conversationId.lastIndexOf(':');
     if (firstSeparator <= 0 || lastSeparator <= firstSeparator + 1
@@ -105,7 +96,9 @@ export function createAuthenticatedHostSessionContext(
       conversation_id: conversationId,
       world_id: bindings.world_id,
       actor_id: bindings.actor_id,
-      identity: 'SIGNED_AUTHENTICATED_ST_SESSION',
+      identity: signedAssertionRequests.has(request)
+        ? 'SIGNED_HOST_SESSION_ASSERTION'
+        : 'SIGNED_AUTHENTICATED_ST_SESSION',
     });
     contexts.add(context);
     return context;
@@ -118,8 +111,7 @@ export function isAuthenticatedHostSessionContext(context, conversationId) {
   try {
     return context !== null && typeof context === 'object'
       && contexts.has(context)
-      && (context.identity === 'SIGNED_AUTHENTICATED_ST_SESSION'
-        || context.identity === 'SIGNED_HOST_SESSION_ASSERTION')
+      && ['SIGNED_AUTHENTICATED_ST_SESSION', 'SIGNED_HOST_SESSION_ASSERTION'].includes(context.identity)
       && context.conversation_id === conversationId
       && HOST_SESSION_UUID.test(context.host_installation_id ?? '')
       && HOST_SESSION_UUID.test(context.authenticated_account_id ?? '')
@@ -148,12 +140,55 @@ export function runWithAuthenticatedHostSession(
     request, conversationId, isAuthenticatedHostRequest, resolveHostConversationId, resolveHostBindings, resolveHostIdentity,
   );
   if (!context) throw new Error('HOST_SESSION_AUTHENTICATION_REQUIRED');
-  return requestContext.run(context, callback);
+  return requestContext.run({
+    context,
+    request,
+    conversationId,
+    isAuthenticatedHostRequest,
+    resolveHostConversationId,
+    resolveHostBindings,
+    resolveHostIdentity,
+    invalidated: false,
+  }, callback);
 }
 
 export function getAuthenticatedHostSessionContext() {
-  const context = requestContext.getStore();
-  return isAuthenticatedHostSessionContext(context, context?.conversation_id) ? context : null;
+  const active = requestContext.getStore();
+  if (!active || active.invalidated || !active.context
+    || typeof active.isAuthenticatedHostRequest !== 'function'
+    || typeof active.resolveHostConversationId !== 'function'
+    || typeof active.resolveHostBindings !== 'function'
+    || typeof active.resolveHostIdentity !== 'function') return null;
+  // A capability is live only while the exact middleware-owned request and
+  // its signed session/account/World/Actor bindings remain unchanged. This
+  // revalidation makes rotation, logout, account switching and binding revoke
+  // invalidate an already-entered async request context.
+  const refreshed = createAuthenticatedHostSessionContext(
+    active.request,
+    active.conversationId,
+    active.isAuthenticatedHostRequest,
+    active.resolveHostConversationId,
+    active.resolveHostBindings,
+    active.resolveHostIdentity,
+  );
+  if (!refreshed) {
+    active.invalidated = true;
+    return null;
+  }
+  const original = active.context;
+  const unchanged = refreshed.host_installation_id === original.host_installation_id
+    && refreshed.authenticated_account_id === original.authenticated_account_id
+    && refreshed.host_session_id === original.host_session_id
+    && refreshed.host_user_handle === original.host_user_handle
+    && refreshed.conversation_id === original.conversation_id
+    && refreshed.world_id === original.world_id
+    && refreshed.actor_id === original.actor_id
+    && refreshed.identity === original.identity;
+  if (!unchanged || !isAuthenticatedHostSessionContext(original, active.conversationId)) {
+    active.invalidated = true;
+    return null;
+  }
+  return original;
 }
 
 
@@ -174,31 +209,18 @@ function canonicalAssertion(assertion) {
 function validHostSessionAssertion(assertion) {
   try {
     if (!assertion || typeof assertion !== 'object' || Array.isArray(assertion) || utilTypes.isProxy(assertion)
-      || (Object.getPrototypeOf(assertion) !== Object.prototype && Object.getPrototypeOf(assertion) !== null)) return false;
-    const ownKeys = Reflect.ownKeys(assertion);
-    if (ownKeys.length !== ASSERTION_KEYS.length) return false;
-    for (let index = 0; index < ASSERTION_KEYS.length; index += 1) {
-      const key = ASSERTION_KEYS[index];
+      || (Object.getPrototypeOf(assertion) !== Object.prototype && Object.getPrototypeOf(assertion) !== null)
+      || Reflect.ownKeys(assertion).length !== ASSERTION_KEYS.length
+      || ASSERTION_KEYS.some(key => !Object.hasOwn(assertion, key))
+      || Reflect.ownKeys(assertion).some(key => typeof key !== 'string' || !ASSERTION_KEYS.includes(key))) return false;
+    for (const key of ASSERTION_KEYS) {
       const descriptor = Object.getOwnPropertyDescriptor(assertion, key);
       if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) return false;
     }
-    for (let index = 0; index < ownKeys.length; index += 1) {
-      const key = ownKeys[index];
-      if (typeof key !== 'string') return false;
-      let known = false;
-      for (let keyIndex = 0; keyIndex < ASSERTION_KEYS.length; keyIndex += 1) {
-        if (ASSERTION_KEYS[keyIndex] === key) {
-          known = true;
-          break;
-        }
-      }
-      if (!known) return false;
-    }
     return assertion.protocol_version === 1
-      && typeof assertion.host_installation_id === 'string' && HOST_SESSION_UUID.test(assertion.host_installation_id)
-      && typeof assertion.authenticated_account_id === 'string' && HOST_SESSION_UUID.test(assertion.authenticated_account_id)
-      && typeof assertion.host_session_id === 'string' && HOST_SESSION_UUID.test(assertion.host_session_id)
-      && typeof assertion.nonce === 'string' && HOST_SESSION_UUID.test(assertion.nonce)
+      && [assertion.host_installation_id, assertion.authenticated_account_id,
+        assertion.host_session_id, assertion.nonce].every(value =>
+        typeof value === 'string' && HOST_SESSION_UUID.test(value))
       && typeof assertion.conversation_id === 'string'
       && HOST_CONVERSATION_ID.test(assertion.conversation_id)
       && validBindingId(assertion.world_id) && validBindingId(assertion.actor_id)
@@ -213,9 +235,9 @@ function validHostSessionAssertion(assertion) {
 
 /**
  * Verifies a short-lived Host assertion signed by the server-held adapter
- * secret, then creates the same non-serializable Core capability used by the
- * in-process Host gate. The nonce cache is process-local; expired assertions
- * cannot be replayed after restart.
+ * secret, then enters the same non-serializable Core capability boundary as
+ * the in-process Host gate. Deployments should supply a durable nonce consumer
+ * so replay protection survives Core restarts.
  */
 export function createHostSessionAssertionRunner({
   secret,
@@ -252,33 +274,48 @@ export function createHostSessionAssertionRunner({
       if (provided.length !== expected.length || !timingSafeEqual(provided, expected)) {
         throw new Error('HOST_SESSION_ASSERTION_INVALID');
       }
+      const expiresAt = assertion.issued_at + maxAgeSeconds;
       if (consumeNonce !== null) {
-        let consumed;
-        try {
-          consumed = consumeNonce(assertion.nonce, assertion.issued_at + maxAgeSeconds, currentSeconds);
-        } catch {
-          throw new Error('HOST_ASSERTION_REPLAY_GUARD_UNAVAILABLE');
-        }
-        if (consumed !== true) throw new Error('HOST_SESSION_ASSERTION_REPLAYED');
+        let consumed = false;
+        try { consumed = consumeNonce(assertion.nonce, expiresAt, currentSeconds) === true; } catch {}
+        if (!consumed) throw new Error('HOST_SESSION_ASSERTION_REPLAYED');
       } else {
-        for (const [nonce, expiresAt] of usedNonces) {
-          if (expiresAt < currentSeconds) usedNonces.delete(nonce);
+        for (const [nonce, expiry] of usedNonces) {
+          if (expiry < currentSeconds) usedNonces.delete(nonce);
         }
         if (usedNonces.has(assertion.nonce)) throw new Error('HOST_SESSION_ASSERTION_REPLAYED');
         if (usedNonces.size >= maxRememberedNonces) throw new Error('HOST_SESSION_ASSERTION_CAPACITY_EXCEEDED');
-        usedNonces.set(assertion.nonce, assertion.issued_at + maxAgeSeconds);
+        usedNonces.set(assertion.nonce, expiresAt);
       }
-      const context = Object.freeze({
-        host_installation_id: assertion.host_installation_id,
-        authenticated_account_id: assertion.authenticated_account_id,
-        host_session_id: assertion.host_session_id,
-        conversation_id: assertion.conversation_id,
-        world_id: assertion.world_id,
-        actor_id: assertion.actor_id,
-        identity: 'SIGNED_HOST_SESSION_ASSERTION',
-      });
-      contexts.add(context);
-      return requestContext.run(context, callback);
+
+      // The Express request cannot cross the process boundary. Once its HMAC
+      // is verified, build a private request object whose verifier and binding
+      // resolvers are closed over the signed fields, then enter the shared
+      // runWithAuthenticatedHostSession() capability boundary.
+      const authenticatedAccountId = assertion.authenticated_account_id;
+      const syntheticRequest = {
+        user: { profile: { handle: authenticatedAccountId } },
+        session: {
+          handle: authenticatedAccountId,
+          logicEngineSessionId: assertion.host_session_id,
+          logicEngineSessionHandle: authenticatedAccountId,
+        },
+      };
+      signedAssertionRequests.add(syntheticRequest);
+      return runWithAuthenticatedHostSession(
+        syntheticRequest,
+        assertion.conversation_id,
+        callback,
+        request => request === syntheticRequest,
+        request => request === syntheticRequest ? assertion.conversation_id : null,
+        request => request === syntheticRequest
+          ? { world_id: assertion.world_id, actor_id: assertion.actor_id }
+          : null,
+        request => request === syntheticRequest ? {
+          host_installation_id: assertion.host_installation_id,
+          authenticated_account_id: assertion.authenticated_account_id,
+        } : null,
+      );
     },
   });
 }
