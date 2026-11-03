@@ -78,6 +78,16 @@ The recursive pinned-source audit also found filesystem primitives in four endpo
 
 These operations are not used to establish conversation identity, do not write chat histories, and do not mutate the authenticated account root. The source manifest pins their exact implementations so a later change to their path behavior cannot silently enter an authoritative Host deployment. The shared tokenizer cache is explicitly outside the per-user inventory boundary; no claim is made that the per-user root manifest covers it.
 
+## 2A. Machine-checked mutation-route guard matrix
+
+The pinned route verifier now checks **73 distinct POST route declarations** and **101 required middleware assertions** across the primary lifecycle routes and the additional fail-closed mutation patch. Overlapping routes deliberately require both their operation-specific guard and the Host-wide unsupported-mutation guard; they are not collapsed into a single boolean assertion.
+
+The additional guard matrix covers content imports, image metadata and image upload/delete, moving-UI settings, preset save/delete/restore, Quick Reply save/delete, secret write/delete/rotate/rename, sprite upload/delete, stats writes, theme writes, World Info import/edit/delete, vector insert/delete/purge, extension install/update/switch/move/delete, background and avatar mutations, asset/file mutations, and ComfyUI workflow save/delete/rename.
+
+The verifier reads the actual patched endpoint source files and requires each declared route line to contain every expected guard. The resulting route count and guard-assertion count are checked independently. The matrix digest is bound to the pinned SillyTavern commit and is included in the Host inventory candidate metadata; the deployed source manifest separately hashes the exact installed endpoint bytes.
+
+This is still a fail-closed disposition, not support for those operations: until operation-specific receipts exist, the route must reject before its original handler executes.
+
 ## 3. Authentication and session lifecycle
 
 | SillyTavern path | Required ordering | Disposition |
