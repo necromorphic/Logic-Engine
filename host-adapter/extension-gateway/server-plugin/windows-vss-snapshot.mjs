@@ -14,16 +14,17 @@ $root = [System.IO.Path]::GetFullPath($env:LE_VSS_ROOT)
 $volumeRoot = [System.IO.Path]::GetPathRoot($root)
 $relative = $root.Substring($volumeRoot.Length).TrimStart('\')
 $created = $null
-# VSS serializes snapshot creation system-wide. Concurrent host scans may
-# receive WMI return code 10; retry that transient busy state, but fail closed
-# after a bounded wait rather than racing or falling back to the live tree.
+# VSS serializes snapshot creation system-wide. Concurrent host scans can
+# receive transient provider-busy/provider-veto WMI return codes 9 or 10.
+# Retry only these outcomes, with a bounded 30s wait; never fall back to live data.
+$transientBusyCodes = @(9, 10)
 for ($attempt = 0; $attempt -lt 60; $attempt++) {
   $created = ([WmiClass]'Win32_ShadowCopy').Create($volumeRoot, 'ClientAccessible')
-  if ([int]$created.ReturnValue -ne 10) { break }
+  if ($transientBusyCodes -notcontains [int]$created.ReturnValue) { break }
   Start-Sleep -Milliseconds 500
 }
 if ($created.ReturnValue -ne 0) {
-  if ([int]$created.ReturnValue -eq 10) { throw 'HOST_VSS_CREATE_BUSY:10' }
+  if ($transientBusyCodes -contains [int]$created.ReturnValue) { throw "HOST_VSS_CREATE_BUSY:$($created.ReturnValue)" }
   throw "HOST_VSS_CREATE_FAILED:$($created.ReturnValue)"
 }
 $id = [string]$created.ShadowID
