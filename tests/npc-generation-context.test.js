@@ -111,6 +111,7 @@ test('revoked, stale, partial and unavailable Lane B evidence fails closed', asy
     ['stale source', () => ({ ...laneB(), status: 'non_ready' })],
     ['partial retrieval', () => ({ ...laneB(), result: { ...laneB().result, status: 'non_ready' } })],
     ['unknown assessment', () => { const x = laneB(); x.result.candidates[0].evidence_assessment = 'confirmed'; return x; }],
+    ['missing source version', () => { const x = laneB(); delete x.result.candidates[0].source_version; return x; }],
   ];
   for (const [name, make] of cases) await t.test(name, async () => {
     const { builder } = setup({ laneB: make });
