@@ -418,7 +418,7 @@ test('empty legacy request-digest ledger upgrades to permanent generation identi
       const indexSql = verify.prepare(
         "SELECT sql FROM sqlite_master WHERE type='index' AND name='dispatch_ledger_generation_digest'",
       ).get()?.sql ?? '';
-      assert.match(indexSql, /CREATE UNIQUE INDEX dispatch_ledger_generation_digest ON dispatch_ledger\\(request_digest\\)/i);
+      assert.match(indexSql, /CREATE UNIQUE INDEX dispatch_ledger_generation_digest ON dispatch_ledger\(request_digest\)/i);
       assert.equal(verify.prepare(
         "SELECT COUNT(*) AS count FROM sqlite_master WHERE type='index' AND name='dispatch_ledger_unresolved_digest'",
       ).get().count, 0);
