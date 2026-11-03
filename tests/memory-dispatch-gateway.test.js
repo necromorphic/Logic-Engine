@@ -446,6 +446,22 @@ test('Lane A revoke during model execution blocks final response release', async
   }
 });
 
+test('bound async response writer is rejected before it can execute', async (t) => {
+  const fixture = await createFixture();
+  t.after(() => fixture.close());
+  const request = validRequest('async-response-writer-rejected');
+  const response = await fixture.gateway.dispatchProtectedRequest(request);
+  let writes = 0;
+  const asyncWrite = (async () => { writes += 1; }).bind(null);
+  Object.defineProperty(asyncWrite, 'constructor', { value: Function });
+  assert.throws(
+    () => fixture.gateway.authorizeResponseWrite(request.requestId, asyncWrite),
+    /Invalid protected response release capability/,
+  );
+  assert.equal(writes, 0);
+  fixture.gateway.authorizeResponseWrite(request.requestId, () => response, { final: true });
+});
+
 test('Lane A revoke between streamed response writes blocks the next chunk', async () => {
   let laneAReads = 0;
   const fixture = await createFixture({
