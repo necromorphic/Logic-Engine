@@ -98,7 +98,7 @@ function stripCanonicalSourceLineage(result) {
     status: result.status,
     admitted: result.admitted,
     candidates: result.candidates.map(candidate => {
-      const { source_kind, source_version, ...providerCandidate } = candidate;
+      const { source_kind, ...providerCandidate } = candidate;
       return providerCandidate;
     }),
     reason: result.reason,
