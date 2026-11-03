@@ -85,6 +85,15 @@ test('protected transport remains dormant until Gateway invokes the capability',
   assert.equal(calls, 1);
 });
 
+test('bound async Host resolver is rejected even when its constructor property is shadowed', () => {
+  const asyncResolver = (async () => context).bind(null);
+  Object.defineProperty(asyncResolver, 'constructor', { value: Function });
+  assert.throws(() => createProtectedMemoryFinalSend({
+    gateway: { dispatchProtectedRequest: () => { throw new Error('must not dispatch'); } },
+    resolveProtectedMemory: asyncResolver,
+  }), /Invalid protected Memory final-send configuration/);
+});
+
 test('indeterminate trusted Memory classification fails closed instead of using direct fetch', () => {
   let calls = 0;
   const finalSend = createProtectedMemoryFinalSend({
