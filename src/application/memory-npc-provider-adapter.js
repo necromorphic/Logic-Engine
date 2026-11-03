@@ -194,7 +194,8 @@ export function createMemoryNpcProviderAdapter({
     // The generation-context runtime is available only when the deployment
     // has configured the independent Core per-acquisition visibility authority.
     // Without it, preserve the existing Memory adapter but expose no context builder.
-    const npcGenerationContext = typeof engine.npcKnowledgeVisibilityAuthorizer === 'function'
+    const npcGenerationContext = typeof engine.npcKnowledgeReadAuthorizer === 'function'
+      && typeof engine.npcKnowledgeVisibilityAuthorizer === 'function'
       ? createCoreNpcGenerationContextRuntime({
         engine, consumer: consumerFacade, adapterId, resolveAuthenticatedScope: resolveAuthenticatedNpcScope,
       })
