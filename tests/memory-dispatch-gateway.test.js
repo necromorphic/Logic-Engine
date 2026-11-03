@@ -222,6 +222,19 @@ const validRequest = (requestId = 'request-001', overrides = {}) => ({
   ...overrides,
 });
 
+test('dispatch signature snapshot rejects getters and Proxy objects without executing them', () => {
+  const secret = 'host-dispatch-signing-secret-00000000000000000000000000000001';
+  let getterCalls = 0;
+  const request = { ...validRequest('signature-getter') };
+  Object.defineProperty(request, 'body', {
+    enumerable: true, get() { getterCalls += 1; return '{}'; },
+  });
+  assert.throws(() => createDispatchRequestSignature(secret, request), /Invalid signed dispatch request/);
+  assert.equal(getterCalls, 0);
+  assert.throws(() => createDispatchRequestSignature(secret, new Proxy(validRequest('signature-proxy'), {})),
+    /Invalid signed dispatch request/);
+});
+
 test('Gateway snapshots its outer request envelope without invoking getters or Proxy traps', async () => {
   const fixture = await createFixture();
   let getterCalls = 0;
