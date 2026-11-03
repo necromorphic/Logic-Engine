@@ -313,7 +313,7 @@ export function createHostBulkMutationGuard({
   enumerate = enumerateHostDataInventory,
   pinnedHostCommit,
 } = {}) {
-  if ( typeof enumerate !== 'function' || typeof pinnedHostCommit !== 'string'
+  if (typeof enumerate !== 'function' || typeof pinnedHostCommit !== 'string'
     || !/^[a-f0-9]{40}$/.test(pinnedHostCommit)) {
     throw new TypeError('Host bulk mutation guard configuration is invalid.');
   }
@@ -341,7 +341,9 @@ export async function assertHostStartupMigrationAllowed({
     || !/^[a-f0-9]{40}$/.test(pinnedHostCommit)) {
     throw new Error('HOST_LIFECYCLE_STARTUP_MIGRATION_CONFIGURATION_INVALID');
   }
-  if (process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR) {\n    throw new Error('HOST_LIFECYCLE_STARTUP_MIGRATION_BLOCKED');\n  }\n  const resolved = resolveHostDataDirectories(directories);
+  if (process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR) {
+    throw new Error('HOST_LIFECYCLE_STARTUP_MIGRATION_BLOCKED');
+  }\n  const resolved = resolveHostDataDirectories(directories);
   if (!resolved) throw new Error('HOST_LIFECYCLE_STARTUP_MIGRATION_DIRECTORIES_INVALID');
 
   let inventory;
