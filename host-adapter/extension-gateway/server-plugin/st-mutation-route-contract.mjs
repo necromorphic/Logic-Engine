@@ -130,7 +130,9 @@ function escapeRegExp(value) {
  * contract, not a deployment environment variable or browser assertion.
  */
 export async function verifyPinnedSillyTavernMutationCoverage({
-  sourceRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..'),
+  // Installed at <SillyTavern>/plugins/logic-engine-extension-gateway/server-plugin.
+  // Three parent traversals resolve the actual pinned SillyTavern source root.
+  sourceRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..'),
 } = {}) {
   if (typeof sourceRoot !== 'string' || !sourceRoot.trim()) {
     throw new TypeError('A SillyTavern source root is required for mutation-route attestation.');
