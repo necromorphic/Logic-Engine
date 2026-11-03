@@ -223,14 +223,17 @@ export async function verifyPinnedSillyTavernMutationCoverage({
     const bytes = await readFile(join(sourceRoot, relative));
     files.set(relative, createHash('sha256').update(bytes).digest('hex'));
     const source = bytes.toString('utf8');
-    if (relative.endsWith('extensions.js') && !source.includes('HOST_EXTENSION_SOURCE_MUTATION_UNSUPPORTED')) {
+    if (relative.endsWith('extensions.js')
+      && (!source.includes('hostUnsupportedMutationGuard')
+        || !source.includes('const hostAuthorityConfigured = Boolean(process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR)')
+        || !source.includes('.filter(f => !hostAuthorityConfigured)')
+        || !source.includes(".filter(f => !hostAuthorityConfigured || f === 'logic-engine-extension-gateway')"))) {
       throw new Error('HOST_ST_EXTENSION_SOURCE_MUTATION_GUARD_MISSING');
     }
     if (relative.endsWith('users-admin.js')
-      && (!source.includes('HOST_USER_ACCOUNT_MUTATION_UNSUPPORTED')
-        || !source.includes('router.use(')
-        || !source.includes("request.method === 'POST'")
-        || !source.includes("!['/get', '/slugify'].includes(request.path)"))) {
+      && (!source.includes('hostUnsupportedMutationGuard')
+        || !source.includes('hostAccountDeleteGuard')
+        || !source.includes("HOST_USER_ACCOUNT_DELETE_UNSUPPORTED"))) {
       throw new Error('HOST_ST_ACCOUNT_MUTATION_GUARD_MISSING');
     }
     if (relative.endsWith('users.js')
