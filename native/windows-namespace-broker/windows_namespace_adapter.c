@@ -79,6 +79,14 @@ int le_win_namespace_open_sidecar(
   return 1;
 }
 
+int le_win_namespace_flush_parent(HANDLE parent) {
+  if (!parent || parent == INVALID_HANDLE_VALUE) {
+    SetLastError(ERROR_INVALID_HANDLE);
+    return 0;
+  }
+  return FlushFileBuffers(parent) != 0;
+}
+
 int le_win_namespace_flush(HANDLE opened) {
   if (!opened || opened == INVALID_HANDLE_VALUE) {
     SetLastError(ERROR_INVALID_HANDLE);
@@ -88,19 +96,21 @@ int le_win_namespace_flush(HANDLE opened) {
 }
 
 int le_win_namespace_delete_sidecar(
-    HANDLE parent, HANDLE opened,
+    HANDLE parent, HANDLE *opened,
     const LogicEngineWinFileIdentity *expected) {
   LogicEngineWinFileIdentity observed;
   FILE_DISPOSITION_INFO disposition;
   if (!parent || parent == INVALID_HANDLE_VALUE || !opened
-      || opened == INVALID_HANDLE_VALUE || !expected
-      || !le_win_namespace_regular_file(opened, &observed)
+      || !*opened || *opened == INVALID_HANDLE_VALUE || !expected
+      || !le_win_namespace_regular_file(*opened, &observed)
       || !logic_engine_win_identity_equal(expected, &observed)) {
     SetLastError(ERROR_ACCESS_DENIED);
     return 0;
   }
   disposition.DeleteFile = TRUE;
-  if (!SetFileInformationByHandle(opened, FileDispositionInfo,
+  if (!SetFileInformationByHandle(*opened, FileDispositionInfo,
       &disposition, sizeof(disposition))) return 0;
+  if (!CloseHandle(*opened)) return 0;
+  *opened = INVALID_HANDLE_VALUE;
   return FlushFileBuffers(parent) != 0;
 }
