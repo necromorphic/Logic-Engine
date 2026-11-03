@@ -247,7 +247,9 @@ export function createEmbeddedGatewayRuntime({ hostAdapter, adapterId = process.
       close() {
         try { gateway?.close?.(); } finally {
           try { hostJournal?.close?.(); } finally {
-            try { providerAdapter?.close?.(); } finally { store?.close?.(); }
+            try { hostSessionRevocationReader?.close?.(); } finally {
+              try { providerAdapter?.close?.(); } finally { store?.close?.(); }
+            }
           }
         }
       },
