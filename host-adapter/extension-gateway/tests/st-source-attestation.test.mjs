@@ -56,6 +56,8 @@ async function createManifestRoot() {
     await writeFile(target, bytes);
     files.push({ path: relative, sha256: sha256(bytes) });
   }
+  await writeFile(path.join(root, 'plugins/.gitkeep'), '');
+  await writeFile(path.join(root, 'public/scripts/extensions/third-party/.gitkeep'), '');
   const proof = {
     protocol_version: 1,
     pinned_host_commit: PINNED_HOST_COMMIT,
