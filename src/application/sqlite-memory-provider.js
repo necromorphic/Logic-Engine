@@ -858,8 +858,9 @@ export class SQLiteMemoryProvider {
    * await boundary. This is the final read-side fence, not a write API.
    */
   withAuthorizedReadLease(scope, candidates, callback) {
-    if (!isPlainDataRecord(scope) || !Array.isArray(candidates)
-      || typeof callback !== 'function' || Object.getPrototypeOf(callback) === Object.getPrototypeOf(async function () {})) {
+    if (!isPlainDataRecord(scope) || !isPlainDataArray(candidates)
+      || typeof callback !== 'function' || isProxy(callback)
+      || Object.getPrototypeOf(callback) === Object.getPrototypeOf(async function () {})) {
       throw new TypeError('Invalid Provider authorized-read lease input');
     }
     scope = { world_id: scope.world_id, subject_id: scope.subject_id, purpose: scope.purpose };
