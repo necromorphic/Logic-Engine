@@ -80,7 +80,7 @@ These operations are not used to establish conversation identity, do not write c
 
 ## 2A. Machine-checked mutation-route guard matrix
 
-The pinned route verifier now checks **73 distinct POST route declarations** and **101 required middleware assertions** across the primary lifecycle routes and the additional fail-closed mutation patch. Overlapping routes deliberately require both their operation-specific guard and the Host-wide unsupported-mutation guard; they are not collapsed into a single boolean assertion.
+The pinned route verifier now checks **81 distinct POST route declarations** and **108 required middleware assertions** across the primary lifecycle routes and the additional fail-closed mutation patch. Overlapping routes deliberately require both their operation-specific guard and the Host-wide unsupported-mutation guard; they are not collapsed into a single boolean assertion.
 
 The additional guard matrix covers content imports, image metadata and image upload/delete, moving-UI settings, preset save/delete/restore, Quick Reply save/delete, secret write/delete/rotate/rename, sprite upload/delete, stats writes, theme writes, World Info import/edit/delete, vector insert/delete/purge, extension install/update/switch/move/delete, background and avatar mutations, asset/file mutations, and ComfyUI workflow save/delete/rename.
 
