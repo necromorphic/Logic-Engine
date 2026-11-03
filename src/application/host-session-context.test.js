@@ -199,11 +199,11 @@ test('cross-process Host assertion capability expires during an asynchronous Pro
   ]);
   const signature=createHmac('sha256',secret).update(canonical,'utf8').digest('hex');
 
-  await runner.run(assertion,signature,async()=>{
+  await assert.rejects(runner.run(assertion,signature,async()=>{
     assert.ok(getAuthenticatedHostSessionContext());
     await Promise.resolve();
     nowMs+=31_000;
     assert.equal(getAuthenticatedHostSessionContext(),null);
-  });
+  }), /HOST_SESSION_REVOKED/);
   assert.equal(getAuthenticatedHostSessionContext(),null);
 });
