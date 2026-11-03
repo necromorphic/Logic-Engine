@@ -240,9 +240,12 @@ export function createSillyTavernFinalSendAdapter({
         && statusDescriptor.value === 'ready' && resolutionKeys.length === 2
         && contextDescriptor && Object.hasOwn(contextDescriptor, 'value')
         && isPlainRecord(contextDescriptor.value);
+      const verifiedEmptyContext = bridgeTransfer
+        && Array.isArray(bridgeTransfer.projection?.contentBlocks)
+        && bridgeTransfer.projection.contentBlocks.length === 0;
       if (!isUnprotected && !isProtected
         || (npcContextHostBridge && isProtected && !bridgeTransfer)
-        || (bridgeTransfer && !isProtected)) {
+        || (bridgeTransfer && !isProtected && !(isUnprotected && verifiedEmptyContext))) {
         if (args.response && typeof args.response === 'object') {
           requestIdByResponse.set(args.response, { requestId: null, state: 'denied' });
         }
