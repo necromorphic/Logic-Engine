@@ -6,6 +6,7 @@ import { ActorBindingService } from '../src/application/actor-bindings.js';
 import { HostConversationWorldBindingService } from '../src/application/host-conversation-world-bindings.js';
 import { AuthorizedReadService } from '../src/application/authorized-read-service.js';
 import { MemoryNpcConsumer } from '../src/application/memory-npc-consumer.js';
+import { createHostBoundNpcKnowledgeAuthorizers } from '../src/application/npc-knowledge-authorization.js';
 import { runWithAuthenticatedHostSession } from '../src/application/host-session-context.js';
 
 const HOST_SESSION_ID = '66666666-6666-4666-8666-666666666666';
@@ -123,13 +124,19 @@ function setup(t, { allowContent = true, authorizeQuery = true, authorizeCoreQue
       return result;
     },
   };
+  const coreAuthorizers = createHostBoundNpcKnowledgeAuthorizers({
+    store,
+    adapterIds: ['adapter-a'],
+    trustedInitialKnowledgeSources: [],
+  });
   const consumer = new MemoryNpcConsumer({
     authorizedReadService,
     actorBindingService: bindings,
     hostConversationWorldBindingService,
     adapterId: 'adapter-a',
     memoryProvider: provider,
-    coreQueryAuthorizer: (_scope, context) => authorizeCoreQuery && context?.conversation_id === HOST_CONVERSATION_ID,
+    coreQueryAuthorizer: (queryScope, context) => authorizeCoreQuery
+      && coreAuthorizers.memoryQueryAuthorizer(queryScope, context),
     contentFields: ['attributes.public_note'],
   });
   const authenticatedConsumer = new Proxy(consumer, {
@@ -143,7 +150,8 @@ function setup(t, { allowContent = true, authorizeQuery = true, authorizeCoreQue
   });
   t.after(() => store.close());
   return {
-    store, engine, bindings, consumer: authenticatedConsumer, provider, authorizedReadService, scope, snapshot,
+    store, engine, bindings, hostConversationWorldBindingService,
+    consumer: authenticatedConsumer, provider, authorizedReadService, scope, snapshot,
     setCandidates(next) { candidateList = next; },
     getLastCandidateAuthorization() { return lastCandidateAuthorization; },
     setHostBindings(next) { hostBindings = next; },
@@ -355,6 +363,33 @@ test('query denial and incomplete Memory results fail closed without returning c
   assert.equal(result.status, 'non_ready');
   assert.equal(result.reason, 'memory_result_partial');
   assert.deepEqual(result.candidates, []);
+});
+
+test('Core Host conversation and Actor bindings are re-resolved after an awaited Provider read', async (t) => {
+  for (const kind of ['conversation', 'actor']) {
+    await t.test(kind + ' revocation during Provider retrieval', async (subtest) => {
+      const setupState = setup(subtest);
+      const { consumer, provider, bindings, hostConversationWorldBindingService } = setupState;
+      const retrieveCandidates = provider.retrieveCandidates.bind(provider);
+      provider.retrieveCandidates = async (...args) => {
+        if (kind === 'conversation') {
+          hostConversationWorldBindingService.revoke({
+            adapterId: 'adapter-a',
+            conversationId: HOST_CONVERSATION_ID,
+            reason: 'revoke during provider read',
+          });
+        } else {
+          bindings.revoke('memory-npc-world', 'adapter-a', 'npc-a');
+        }
+        return retrieveCandidates(...args);
+      };
+
+      const result = await consumer.retrieveForNpc(request());
+      assert.equal(result.status, 'non_ready');
+      assert.equal(result.reason, 'query_access_unconfirmed');
+      assert.deepEqual(result.candidates, []);
+    });
+  }
 });
 
 test('query access revoked during retrieval prevents ready-empty and content-bearing results', async (t) => {
