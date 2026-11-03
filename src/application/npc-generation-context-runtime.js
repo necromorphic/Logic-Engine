@@ -80,6 +80,24 @@ function validSnapshot(value) {
     && Number.isSafeInteger(value.commit_sequence) && value.commit_sequence >= 0;
 }
 
+function validSourceVersion(value) {
+  return typeof value === 'string' && /^core-entity-v1:[1-9][0-9]*$/.test(value);
+}
+
+function stripCanonicalSourceLineage(result) {
+  if (!result || result.status !== 'ready' || !Array.isArray(result.candidates)) return null;
+  return {
+    status: result.status,
+    admitted: result.admitted,
+    candidates: result.candidates.map(candidate => {
+      const { source_kind, source_version, ...providerCandidate } = candidate;
+      return providerCandidate;
+    }),
+    reason: result.reason,
+    snapshot: result.snapshot,
+  };
+}
+
 /**
  * Compose the generic builder with the live Core reader and the adapter-pinned
  * MemoryNpcConsumer. resolveAuthenticatedScope must derive identity from the
@@ -244,13 +262,65 @@ export function createCoreNpcGenerationContextRuntime({
     });
   }
 
+  function attachCanonicalSourceLineage(result, trustedScope) {
+    if (!result || result.status !== 'ready' || !validSnapshot(result.snapshot)
+      || !Array.isArray(result.candidates) || result.candidates.length > 50) return null;
+    if (result.candidates.length === 0) return result;
+    const entityIds = [];
+    const seen = new Set();
+    for (const candidate of result.candidates) {
+      if (!exactDataRecord(candidate, [
+        'record_ref', 'record_version', 'authorization_generation',
+        'source_entity_id', 'epistemic_kind', 'evidence_assessment', 'content',
+      ]) || !validId(candidate.source_entity_id)) return null;
+      if (!seen.has(candidate.source_entity_id)) {
+        seen.add(candidate.source_entity_id);
+        entityIds.push(candidate.source_entity_id);
+      }
+    }
+    if (entityIds.length === 0 || entityIds.length > 50) return null;
+    let snapshot;
+    try {
+      snapshot = engine.getSnapshot(trustedScope.world_id, {
+        entityIds, includeSourceVersions: true,
+      });
+    } catch { return null; }
+    if (!snapshot || snapshot.world_id !== trustedScope.world_id
+      || snapshot.world_revision !== result.snapshot.world_revision
+      || snapshot.commit_sequence !== result.snapshot.commit_sequence
+      || !densePlainArray(snapshot.entities) || snapshot.entities.length !== entityIds.length) return null;
+    const versions = new Map();
+    for (const entity of snapshot.entities) {
+      if (!exactDataRecord(entity, [
+        'entity_id', 'entity_type', 'status', 'attributes', 'created_by_event_id',
+        'updated_revision', 'source_version',
+      ]) || !validId(entity.entity_id) || !seen.has(entity.entity_id)
+        || versions.has(entity.entity_id) || entity.status !== 'active'
+        || !validSourceVersion(entity.source_version)) return null;
+      versions.set(entity.entity_id, entity.source_version);
+    }
+    if (versions.size !== entityIds.length) return null;
+    return Object.freeze({
+      ...result,
+      candidates: Object.freeze(result.candidates.map(candidate => Object.freeze({
+        ...candidate,
+        source_kind: 'canonical_entity',
+        source_version: versions.get(candidate.source_entity_id),
+      }))),
+    });
+  }
+
   async function readLaneB(input) {
     let trustedScope;
     try { trustedScope = resolveScope(); } catch { return Object.freeze({ status: 'non_ready', lane: 'B' }); }
     if (input?.conversation_id !== trustedScope.conversation_id) {
       return Object.freeze({ status: 'non_ready', lane: 'B' });
     }
-    const result = await consumer.retrieveForNpc({ conversationId: trustedScope.conversation_id });
+    let result;
+    try {
+      result = await consumer.retrieveForNpc({ conversationId: trustedScope.conversation_id });
+      result = attachCanonicalSourceLineage(result, trustedScope);
+    } catch { result = null; }
     if (!result || result.status !== 'ready' || !validSnapshot(result.snapshot)) {
       return Object.freeze({ status: 'non_ready', lane: 'B' });
     }
@@ -277,10 +347,13 @@ export function createCoreNpcGenerationContextRuntime({
     if (freshA.status !== 'ready' || JSON.stringify(freshA) !== JSON.stringify(envelopes.laneA)) return false;
     let freshB;
     try {
+      const providerResult = stripCanonicalSourceLineage(envelopes.laneB.result);
+      if (!providerResult) return false;
       freshB = await consumer.revalidateForFinalDispatch(
         { conversationId: scope.conversation_id },
-        envelopes.laneB.result,
+        providerResult,
       );
+      freshB = attachCanonicalSourceLineage(freshB, scope);
     } catch { return false; }
     // Lane B revalidation is asynchronous. Re-read Lane A after that await so
     // a visibility revoke during the Provider/Core checks cannot survive the
@@ -318,10 +391,13 @@ export function createCoreNpcGenerationContextRuntime({
     if (preparedResult === null) return false;
     let freshB;
     try {
+      const providerResult = stripCanonicalSourceLineage(toPlainData(preparedResult));
+      if (!providerResult) return false;
       freshB = await consumer.revalidateForFinalDispatch(
         { conversationId: scope.conversation_id },
-        toPlainData(preparedResult),
+        providerResult,
       );
+      freshB = attachCanonicalSourceLineage(freshB, scope);
     } catch { return false; }
     // Revalidate Lane A again after the asynchronous Lane B check. The
     // dispatch-start Gateway must still serialize this with durable revoke
