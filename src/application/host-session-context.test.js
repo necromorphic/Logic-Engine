@@ -162,14 +162,14 @@ test('in-process Host capability is invalidated immediately by logout, session r
     request.session.handle = userHandle;
     request.session.logicEngineSessionHandle = userHandle;
     request.session.logicEngineSessionId = session;
-    await runWithAuthenticatedHostSession(
+    await assert.rejects(runWithAuthenticatedHostSession(
       request, conversationId, async () => {
         assert.ok(getAuthenticatedHostSessionContext());
         mutate();
         assert.equal(getAuthenticatedHostSessionContext(), null);
       },
       isAuthenticated, resolveConversation, resolveCurrentBindings, resolveCurrentIdentity,
-    );
+    ), /HOST_SESSION_REVOKED/);
   };
 
   await verifyInvalidation(() => { authenticated = false; });
@@ -260,7 +260,7 @@ test('a Host capability cannot be revived after one failed live revalidation', a
     authenticated_account_id: account,
   });
 
-  await runWithAuthenticatedHostSession(
+  await assert.rejects(runWithAuthenticatedHostSession(
     request, conversationId, async () => {
       assert.ok(getAuthenticatedHostSessionContext());
       authenticated = false;
@@ -268,5 +268,5 @@ test('a Host capability cannot be revived after one failed live revalidation', a
       authenticated = true;
       assert.equal(getAuthenticatedHostSessionContext(), null);
     }, isAuthenticated, resolveConversation, resolveLiveBindings, resolveLiveIdentity,
-  );
+  ), /HOST_SESSION_REVOKED/);
 });
