@@ -147,8 +147,9 @@ test('adapter denies unknown native sender before any transport handoff', async 
     chatCompletionSources: sources,
     nativeForwardFetchResponse: async () => {},
   });
-  assert.throws(() => adapter.dispatch({
+  await assert.rejects(adapter.dispatch({
     request: { body: { chat_completion_source: 'not-registered' } },
+
     response: {},
     senderRoute: 'unknown',
     endpointUrl: 'https://provider.example/generate',
@@ -298,7 +299,7 @@ test('one protected Host response cannot dispatch the model twice after a comple
 
   const first = await dispatch();
   assert.equal(first.status, 200);
-  assert.throws(() => dispatch(), /MEMORY_DISPATCH_DUPLICATE_HOST_SEND/);
+  await assert.rejects(dispatch(), /MEMORY_DISPATCH_DUPLICATE_HOST_SEND/);
   assert.equal(gatewayCalls, 1);
   assert.equal(upstreamCalls, 1);
 });
