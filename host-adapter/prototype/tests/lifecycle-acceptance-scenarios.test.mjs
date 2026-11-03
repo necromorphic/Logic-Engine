@@ -166,7 +166,8 @@ test('pinned SillyTavern patch uses the existing authenticated inventory and dig
   assert.ok(proxy.includes('LOGIC_ENGINE_ADAPTER_TOKEN'));
   assert.ok(proxy.includes('HOST_SESSION_SCOPE_REQUIRED'));
   assert.ok(proxy.includes('requestMatchesAuthenticatedHostSession'));
-  assert.equal(proxy.includes("'world_id'"), false);
+  assert.ok(proxy.includes("Object.keys(body).sort().join(',') !== 'context_size,conversation_uuid,generation_type,request_id'"),
+    'the browser dispatch envelope must reject caller-supplied world_id and actor_id rather than trusting them');
 });
 
 test('pinned patch journals edit and swipe deletion only after awaited native save', async () => {
