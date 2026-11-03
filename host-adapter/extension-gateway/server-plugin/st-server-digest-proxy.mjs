@@ -371,6 +371,7 @@ export function createHostRootInventoryPersistence({
         upstream = await post('/v1/host-root-inventory/observe', randomUUID());
       }
       const normalized = normalizeRootInventoryResponse(upstream);
+      if (normalized.status === 'AUTHORITATIVE_COMPLETE') return normalized;
       if (sourceIdentity?.status !== 'CURRENT_IDENTITIES_VERIFIED'
         || snapshotAlignment !== 'SHARED_VSS_SNAPSHOT'
         || !/^[a-f0-9]{64}$/.test(snapshotSha256 ?? '')) {
