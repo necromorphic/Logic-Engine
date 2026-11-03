@@ -68,9 +68,13 @@ try {
   for (const name of ['index.js', 'gateway-policy.mjs', 'host-context.mjs', 'conversation-identity.mjs', 'manifest.json']) {
     await copyFile(path.join(clientSourceDir, name), path.join(expectedClientDir, name));
   }
-  const installedHandlerSource = await readFile(path.join(sourceRoot, 'plugins/logic-engine-extension-gateway/st-host-inventory-handler.mjs'));
-  if (gitBlobSha(installedHandlerSource) !== handlerBlobSha) {
-    throw new Error('HOST_INSTALLED_HANDLER_DIFFERS_FROM_PINNED_HANDLER');
+  // The patched ST endpoint handler and the Extension Gateway handler are
+  // separate runtime artifacts. Pin the former to the patch bundle's prototype
+  // source; the SOURCE_FILE_PATHS comparison below independently binds the
+  // latter to the exact server-plugin module copied from this repository.
+  const installedEndpointHandler = await readFile(path.join(sourceRoot, 'src/endpoints/logic-engine-host-inventory-handler.mjs'));
+  if (gitBlobSha(installedEndpointHandler) !== handlerBlobSha) {
+    throw new Error('HOST_INSTALLED_ENDPOINT_HANDLER_DIFFERS_FROM_PINNED_HANDLER');
   }
 
   for (const relativePath of SOURCE_FILE_PATHS) {
