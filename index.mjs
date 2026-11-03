@@ -61,7 +61,7 @@ function createNpcBridge(providerAdapter) {
 }
 
 function buildProtectedMemory(request, prepared, npcBridge) {
-  const host = prepared?.host;
+  const host = prepared?.hostContext?.host;
   if (!host || host.status !== 'READY' || !prepared.response) return undefined;
   const accepted = npcBridge.consume(request, prepared.response);
   if (accepted?.status !== 'accepted' || !accepted.context || accepted.laneB?.status !== 'ready') {
@@ -208,7 +208,7 @@ export async function init(router) {
       },
       resolveProtectedMemory: (request, prepared) => {
         if (!memoryEnabled) return null;
-        return buildProtectedMemory(request, prepared?.hostContext, npcBridge);
+        return buildProtectedMemory(request, prepared, npcBridge);
       },
     });
     hook.registerLogicEngineFinalSendAdapter(registeredAdapter, PLUGIN_OWNER);
