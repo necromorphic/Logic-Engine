@@ -1086,12 +1086,11 @@ diff --git a/src/endpoints/users-private.js b/src/endpoints/users-private.js
  
 -router.post('/reset-settings', async (request, response) => {
 +router.post('/reset-settings', hostBulkMutationGuard, async (request, response) => {
+     try {
+         const password = request.body.password;
 @@ -204 +218 @@
 -router.post('/change-name', async (request, response) => {
 +router.post('/change-name', hostUnsupportedMutationGuard, async (request, response) => {
-     try {
-         const password = request.body.password;
- 
 @@ -258,7 +261,12 @@
      }
  });
