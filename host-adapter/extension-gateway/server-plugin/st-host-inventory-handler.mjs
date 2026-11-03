@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { lstat, open } from 'node:fs/promises';
 import { enumerateHostDataInventory } from './host-data-inventory.mjs';
+import { verifyPinnedSillyTavernMutationCoverage } from './st-mutation-route-contract.mjs';
 
 const HOST_SESSION_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -59,12 +60,14 @@ export function createHostInventoryHandler({
   pinnedHostCommit,
   hostBuildClaim,
   verifySourceIdentity = null,
+  verifyMutationCoverage = verifyPinnedSillyTavernMutationCoverage,
   persistRootInventory = null,
 }) {
   if (typeof enumerate !== 'function'
     || typeof pinnedHostCommit !== 'string' || !/^[a-f0-9]{40}$/.test(pinnedHostCommit)
     || typeof hostBuildClaim !== 'string'
     || (verifySourceIdentity !== null && typeof verifySourceIdentity !== 'function')
+    || typeof verifyMutationCoverage !== 'function'
     || (persistRootInventory !== null && typeof persistRootInventory !== 'function')) {
     throw new TypeError('Host inventory handler configuration is invalid.');
   }
@@ -112,7 +115,12 @@ export function createHostInventoryHandler({
       }
       const source = inventory.source;
       const filesystem = inventory.filesystem;
-      const mutationCoverage = inventory.mutation_coverage;
+      let mutationCoverage = null;
+      try {
+        mutationCoverage = await verifyMutationCoverage();
+      } catch {
+        mutationCoverage = { status: 'NON_READY' };
+      }
       const mutationCoverageVerified = mutationCoverage?.status === 'VERIFIED'
         && mutationCoverage.source_commit === pinnedHostCommit
         && /^[a-f0-9]{64}$/.test(mutationCoverage.coverage_manifest_sha256 ?? '')
