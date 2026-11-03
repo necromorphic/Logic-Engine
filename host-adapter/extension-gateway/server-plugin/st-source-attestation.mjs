@@ -13,6 +13,7 @@ export const SOURCE_FILE_PATHS = Object.freeze([
   'public/scripts/bookmarks.js',
   'public/scripts/group-chats.js',
   'public/scripts/chat-backups.js',
+  'public/scripts/extensions.js',
   'public/scripts/slash-commands.js',
   'src/server-main.js',
   'src/plugin-loader.js',
