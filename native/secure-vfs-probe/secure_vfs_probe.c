@@ -3398,8 +3398,18 @@ static void probe_register_manifest_sidecar(sqlite3_context *context, int argc,
           NULL, NULL);
       if (observed != INVALID_HANDLE_VALUE) {
         LogicEngineWinFileIdentity actual, active_identity;
-        int has_active = probe_win_sidecar_identity_lookup(
-          role_index, suffix, &active_identity);
+        int has_active = 0;
+        /* This function already holds g_registry_mutex; inspect the registry
+           directly rather than calling the locking lookup helper recursively. */
+        for (int active_index = 0; active_index < g_sidecar_identity_count; ++active_index) {
+          ProbeSidecarIdentity *active = &g_sidecar_identities[active_index];
+          if (active->role_index == role_index && active->kind == kind
+              && !active->retired) {
+            active_identity = active->identity;
+            has_active = 1;
+            break;
+          }
+        }
         /* A retired historical identity must be absent from the live name.
            The name may nevertheless exist for the separately enrolled active
            generation of this same role/kind; accept only that exact identity. */
