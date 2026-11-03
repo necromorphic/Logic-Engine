@@ -268,7 +268,6 @@ export class MemoryNpcConsumer {
     }
 
     const normalizedSources = [];
-    const sourceIds = [];
     const seen = new Set();
     for (const source of sources) {
       if (!object(source) || source.source_kind !== 'canonical_entity'
@@ -280,7 +279,6 @@ export class MemoryNpcConsumer {
       const key = JSON.stringify([source.source_entity_id, source.source_version]);
       if (seen.has(key)) throw new Error('MEMORY_DISPATCH_NOT_READY');
       seen.add(key);
-      sourceIds.push(source.source_entity_id);
       normalizedSources.push({
         source_kind: 'canonical_entity',
         source_entity_id: source.source_entity_id,
