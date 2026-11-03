@@ -124,3 +124,23 @@ test('Host session rotation preserves the old session when revocation fails', as
   assert.equal(oldSession.logicEngineSessionId, SESSION);
   assert.equal(oldSession.logicEngineSessionHandle, 'alice');
 });
+
+test('session rotation rejects a non-confirming revocation result', async () => {
+  const oldSession = {
+    logicEngineSessionId: SESSION,
+    logicEngineSessionHandle: 'alice',
+  };
+  const handler = createHostSessionHandler({
+    createId: () => '55555555-5555-4555-8555-555555555555',
+    revokeSession: async () => false,
+  });
+  const response = {
+    set() { return this; },
+    status(code) { this.statusCode = code; return this; },
+    json(value) { this.payload = value; return this; },
+  };
+  await handler({ session: oldSession, user: { profile: { handle: 'bob' } } }, response);
+  assert.equal(response.statusCode, 503);
+  assert.equal(oldSession.logicEngineSessionId, SESSION);
+  assert.equal(oldSession.logicEngineSessionHandle, 'alice');
+});
