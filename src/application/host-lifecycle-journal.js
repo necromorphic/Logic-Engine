@@ -1107,6 +1107,7 @@ export class HostLifecycleJournal {
           return { status: 'NON_READY', duplicate: true,
             reason: 'previously observed root inventory delta remains unresolved',
             sequence: integrity.sequence, manifest_sha256: manifestSha256,
+            journal_head_sha256: integrity.head_sha256,
             lifecycle_sequence: lifecycleHead.sequence,
             lifecycle_head_sha256: lifecycleHead.head_sha256,
             ...(rows.at(-1).delta_sha256 ? { delta_sha256: rows.at(-1).delta_sha256 } : {}) };
@@ -1114,6 +1115,7 @@ export class HostLifecycleJournal {
         const lifecycleHead = this.#getLifecycleHead(input.host_installation_id, input.authenticated_account_id);
         return { status: 'UNCHANGED_REVIEW_ONLY', sequence: integrity.sequence,
           manifest_sha256: manifestSha256,
+          journal_head_sha256: integrity.head_sha256,
           lifecycle_sequence: lifecycleHead.sequence,
           lifecycle_head_sha256: lifecycleHead.head_sha256 };
       }
