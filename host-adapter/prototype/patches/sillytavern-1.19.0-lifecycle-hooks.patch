@@ -1052,7 +1052,8 @@ diff --git a/src/users.js b/src/users.js
      } catch (error) {
          console.error('Error during auto-login:', error);
 +        if (['HOST_SESSION_REVOCATION_UNAVAILABLE', 'HOST_SESSION_REVOCATION_IDENTITY_INVALID'].includes(error?.message)) return response.status(503).send('Host session revocation unavailable; account was not switched.');
-     }diff --git a/src/endpoints/users-public.js b/src/endpoints/users-public.js
+      } 
+diff --git a/src/endpoints/users-public.js b/src/endpoints/users-public.js
 --- a/src/endpoints/users-public.js
 +++ b/src/endpoints/users-public.js
 @@ -7,2 +7,5 @@
