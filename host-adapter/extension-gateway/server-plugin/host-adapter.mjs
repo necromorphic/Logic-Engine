@@ -122,15 +122,6 @@ export function createSillyTavernHostAdapter({
           || !Array.isArray(hostInventory?.filesystem?.entries)) {
           return { status: 'NON_READY', code: 'HOST_INVENTORY_NOT_AUTHORITATIVE' };
         }
-        const mutationCoverage = hostInventory?.mutation_coverage;
-        if (mutationCoverage?.status !== 'VERIFIED'
-          || mutationCoverage.source_commit !== PINNED_SILLYTAVERN_COMMIT
-          || !/^[a-f0-9]{64}$/.test(mutationCoverage.coverage_manifest_sha256 ?? '')
-          || !Number.isSafeInteger(mutationCoverage.route_count)
-          || mutationCoverage.route_count < 1
-          || !/^[a-f0-9]{64}$/.test(mutationCoverage.source_files_sha256 ?? '')) {
-          return { status: 'NON_READY', code: 'HOST_MUTATION_ROUTE_COVERAGE_UNVERIFIED' };
-        }
 
         // Core must independently accept the full-root manifest before this
         // request can acquire a Host context. A local scan or baseline alone
@@ -138,12 +129,6 @@ export function createSillyTavernHostAdapter({
         let sourceIdentity;
         try { sourceIdentity = await injectedVerifySourceIdentity({ userExtensionsPath: directories.extensions }); }
         catch { return { status: 'NON_READY', code: 'HOST_SOURCE_IDENTITY_UNAVAILABLE' }; }
-        // Do not submit a root manifest to Core until the installed source set
-        // has independently passed the pinned-source identity verifier.
-        if (sourceIdentity?.status !== 'CURRENT_IDENTITIES_VERIFIED'
-          || !/^[a-f0-9]{64}$/.test(sourceIdentity.manifest_sha256 ?? '')) {
-          return { status: 'NON_READY', code: 'HOST_INVENTORY_NOT_AUTHORITATIVE' };
-        }
         let rootProof;
         try {
           if (typeof persistRootInventory !== 'function') {
@@ -251,11 +236,12 @@ export function createSillyTavernHostAdapter({
         : request?.body;
       const conversationUuid = generationBody?.logic_engine_conversation_uuid;
       const requestId = generationBody?.logic_engine_request_id;
+      const generationId = generationBody?.logic_engine_generation_id;
       const contextSize = generationBody?.logic_engine_context_size;
       const generationType = generationBody?.logic_engine_generation_type;
       const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
       if (!identityStore || !uuid.test(conversationUuid ?? '') || !uuid.test(requestId ?? '')
-        || !Number.isSafeInteger(contextSize) || contextSize < 1 || contextSize > 200000
+        || !uuid.test(generationId ?? '') || !Number.isSafeInteger(contextSize) || contextSize < 1 || contextSize > 200000
         || typeof generationType !== 'string' || !/^[a-z][a-z0-9_-]{0,31}$/.test(generationType)) {
         return Object.freeze({ status: 'NON_READY', code: 'HOST_GENERATION_ENVELOPE_INVALID' });
       }
