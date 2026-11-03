@@ -49,6 +49,7 @@ export function resolveAdapterHostRootIdentity(registry, input) {
     && record.root_id === input.root_id);
   return match ? Object.freeze({
     authorized: true,
+    adapter_id: match.adapter_id,
     host_installation_id: match.host_installation_id,
     authenticated_account_id: match.authenticated_account_id,
     root_id: match.root_id,
@@ -64,6 +65,7 @@ export function resolveRegisteredHostRootIdentity(registry, input) {
     && record.root_id === input.root_id);
   return match ? Object.freeze({
     authorized: true,
+    adapter_id: match.adapter_id,
     host_installation_id: match.host_installation_id,
     authenticated_account_id: match.authenticated_account_id,
     root_id: match.root_id,
