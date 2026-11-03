@@ -112,6 +112,13 @@ export function createHostInventoryHandler({
       }
       const source = inventory.source;
       const filesystem = inventory.filesystem;
+      const mutationCoverage = inventory.mutation_coverage;
+      const mutationCoverageVerified = mutationCoverage?.status === 'VERIFIED'
+        && mutationCoverage.source_commit === pinnedHostCommit
+        && /^[a-f0-9]{64}$/.test(mutationCoverage.coverage_manifest_sha256 ?? '')
+        && Number.isSafeInteger(mutationCoverage.route_count)
+        && mutationCoverage.route_count > 0
+        && /^[a-f0-9]{64}$/.test(mutationCoverage.source_files_sha256 ?? '');
       let sourceIdentity = { status: 'NON_READY', code: 'HOST_SOURCE_IDENTITY_VERIFIER_UNAVAILABLE' };
       if (typeof verifySourceIdentity === 'function') {
         try { sourceIdentity = await verifySourceIdentity({ userExtensionsPath: directories.extensions }); } catch {}
@@ -133,6 +140,7 @@ export function createHostInventoryHandler({
             snapshotAlignment: inventory.snapshot_alignment,
             snapshotSha256: filesystem.snapshot_sha256,
             sourceIdentity,
+            mutationCoverage,
           });
         } catch {
           rootInventory = { status: 'NON_READY', reason: 'ROOT_INVENTORY_PERSISTENCE_FAILED' };
@@ -144,6 +152,7 @@ export function createHostInventoryHandler({
         && typeof rootInventory.manifest_sha256 === 'string'
         && /^[a-f0-9]{64}$/.test(rootInventory.manifest_sha256);
       const rootInventoryAuthoritative = rootInventoryPersisted
+        && mutationCoverageVerified
         && rootInventory.status === 'AUTHORITATIVE_COMPLETE'
         && /^[a-f0-9]{64}$/.test(rootInventory.attestation_sha256 ?? '')
         && Number.isSafeInteger(rootInventory.lifecycle_sequence)
@@ -173,8 +182,7 @@ export function createHostInventoryHandler({
           && !rootInventoryAuthoritative ? ['UNVERIFIED_ROOT_INVENTORY_ATTESTATION'] : []),
         ...(sourceIdentity?.status === 'CURRENT_IDENTITIES_VERIFIED'
           ? [] : ['UNVERIFIED_PINNED_SOURCE_IDENTITY']),
-        ...(sourceIdentity?.status === 'CURRENT_IDENTITIES_VERIFIED'
-          ? [] : ['UNVERIFIED_MUTATION_ROUTE_COVERAGE']),
+        ...(mutationCoverageVerified ? [] : ['UNVERIFIED_MUTATION_ROUTE_COVERAGE']),
         ...(sourceIdentity?.status === 'CURRENT_IDENTITIES_VERIFIED'
           && inventory.snapshot_alignment === 'SHARED_VSS_SNAPSHOT'
           ? [] : ['UNVERIFIED_MUTATION_RUNTIME_ACCEPTANCE']),
@@ -183,6 +191,7 @@ export function createHostInventoryHandler({
       ];
       const responseInventory = {
         ...source,
+        mutation_coverage: mutationCoverage ?? { status: 'NON_READY' },
         blockers: [...new Set(blockers)],
         filesystem_inventory: {
           status: filesystem.status,
