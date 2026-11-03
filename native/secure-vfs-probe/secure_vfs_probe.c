@@ -1366,8 +1366,7 @@ static int probe_xOpen_parent(sqlite3_vfs *vfs, const char *name, sqlite3_file *
     return SQLITE_CANTOPEN;
   }
 #ifdef _WIN32
-  if (role_index >= 0 && g_database_roles[role_index].manifest_bound
-      && !g_database_roles[role_index].manifest_ready) {
+  if (role_index >= 0 && !probe_win_manifest_role_ready(role_index)) {
     sqlite3_free(canonical_name);
     return SQLITE_CANTOPEN;
   }
@@ -1399,8 +1398,7 @@ static int probe_xOpen_parent(sqlite3_vfs *vfs, const char *name, sqlite3_file *
       return SQLITE_CANTOPEN;
     }
 #ifdef _WIN32
-    if (g_database_roles[sidecar_role_index].manifest_bound
-        && !g_database_roles[sidecar_role_index].manifest_ready) {
+    if (!probe_win_manifest_role_ready(sidecar_role_index)) {
       sqlite3_free(canonical_name);
       return SQLITE_CANTOPEN;
     }
@@ -1798,6 +1796,17 @@ static int probe_win_path_role(const char *path, int *role_index, wchar_t **rela
   return *relative_name ? 1 : -1;
 }
 
+static int probe_win_manifest_role_ready(int role_index) {
+  int ready = 0;
+  probe_registry_lock();
+  if (role_index >= 0 && role_index < g_database_role_count) {
+    ProbeDatabaseRole *role = &g_database_roles[role_index];
+    ready = !role->manifest_bound || role->manifest_ready;
+  }
+  probe_registry_unlock();
+  return ready;
+}
+
 static int probe_win_identity_is_registered_database(
     const LogicEngineWinFileIdentity *identity) {
   int found = 0;
@@ -1827,7 +1836,7 @@ static int probe_win_access_role(int role_index, const wchar_t *relative_name,
                                  int is_main, int flags, int *result) {
   ProbeDatabaseRole *role = &g_database_roles[role_index];
   DWORD desired = FILE_READ_ATTRIBUTES;
-  if (role->manifest_bound && !role->manifest_ready) return SQLITE_IOERR_ACCESS;
+  if (!probe_win_manifest_role_ready(role_index)) return SQLITE_IOERR_ACCESS;
   HANDLE handle;
   LogicEngineWinFileIdentity actual;
   DWORD error;
