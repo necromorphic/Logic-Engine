@@ -285,7 +285,6 @@ const logicEngine = new LogicEngine(store, {
   npcKnowledgeVisibilityAuthorizer: npcKnowledgeAuthorizers.visibilityAuthorizer,
 });
 const memoryProviderAdapters = [];
-const memoryNpcConsumers = {};
 if (memoryProviderPath !== undefined) {
   let contentFields;
   try {
@@ -307,7 +306,6 @@ if (memoryProviderPath !== undefined) {
       contentFields,
     });
     memoryProviderAdapters.push(memoryAdapter);
-    memoryNpcConsumers[adapterId] = memoryAdapter.consumer;
   }
   const worldIds = store.db.prepare('SELECT world_id FROM worlds ORDER BY world_id').all();
   for (const memoryAdapter of memoryProviderAdapters) {
@@ -328,7 +326,9 @@ const server = createApiServer({
   ),
   hostLifecycleJournal: hostRootInventoryJournal,
   mechanicPolicyAuthority,
-  memoryNpcConsumers,
+  // The legacy HTTP Host→Consumer retrieval bridge is intentionally not
+  // wired in production. NPC retrieval is available only through the
+  // embedded in-process Gateway composition, which owns the one-shot handoff.
   hostAssertionNonceStore,
 });
 server.listen(port, host, () => process.stdout.write(
