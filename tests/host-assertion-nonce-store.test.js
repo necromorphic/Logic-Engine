@@ -120,14 +120,20 @@ test('Host session revocation waits for an in-flight shared Coordinator lease', 
   });
   let stdout = '';
   let stderr = '';
+  let exited = false;
+  const exitPromise = once(child, 'exit').then(result => { exited = true; return result; });
   child.stdout.setEncoding('utf8').on('data', chunk => { stdout += chunk; });
   child.stderr.setEncoding('utf8').on('data', chunk => { stderr += chunk; });
   try {
-    await once(child.stdout, 'data');
+    await Promise.race([
+      once(child.stdout, 'data'),
+      exitPromise.then(() => { throw new Error('Revocation worker exited before acquiring the shared Coordinator.'); }),
+    ]);
     assert.match(stdout, /STARTED/);
     assert.doesNotMatch(stdout, /REVOKED/);
+    assert.equal(exited, false);
     release();
-    const [code] = await once(child, 'exit');
+    const [code] = await exitPromise;
     assert.equal(code, 0, stderr);
     assert.match(stdout, /REVOKED:true/);
   } finally {
