@@ -499,7 +499,7 @@ export function createCoreNpcGenerationContextRuntime({
   }
 
   function getLaneBDispatchEvidence(context, request) {
-    if (!context || typeof context !== 'object' || !dispatchableContexts.has(context)
+    if (!context || typeof context !== 'object' || dispatchableContexts.get(context) !== request
       || !validateRequest(request)
       || context.request_id !== request.request_id
       || context.generation_id !== request.generation_id
