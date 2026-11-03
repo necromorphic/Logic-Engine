@@ -272,7 +272,11 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
     engine, token: API_TOKEN, adminToken: ADMIN_TOKEN,
     adapterTokens: { [ADAPTER_ID]: ADAPTER_TOKEN },
     memoryNpcConsumers: { [ADAPTER_ID]: consumer },
-    hostAssertionNonceStore: { consume() { throw new Error('simulated SQLite I/O failure'); } },
+    hostAssertionNonceStore: {
+      consume() { throw new Error('simulated SQLite I/O failure'); },
+      revokeSession() { return false; },
+      isSessionRevoked() { return false; },
+    },
   });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
