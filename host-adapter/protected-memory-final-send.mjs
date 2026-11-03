@@ -1,3 +1,4 @@
+import { isProxy } from 'node:util/types';
 import { PROTECTED_MEMORY_SENDER_ROUTES } from '../src/security/memory-dispatch-gateway.js';
 
 /**
@@ -30,6 +31,7 @@ const CHAT_COMPLETION_ROUTES = new Set(PROTECTED_MEMORY_SENDER_ROUTES.filter(rou
 const HOST_ONLY_FIELDS = new Set([
   'logic_engine_conversation_uuid',
   'logic_engine_request_id',
+  'logic_engine_generation_id',
   'logic_engine_context_size',
   'logic_engine_generation_type',
   'logic_engine_memory',
@@ -49,19 +51,101 @@ function removeHostOnlyFields(value) {
   }
 }
 
-function renderNpcContext(contentBlocks) {
-  if (!Array.isArray(contentBlocks) || contentBlocks.length === 0) return '';
-  const bounded = contentBlocks.map(block => ({
-    epistemic_kind: block.epistemic_kind,
-    evidence_assessment: block.evidence_assessment,
-    content: block.content,
-  }));
-  return '[Logic Engine NPC Memory Context]\n'
-    + JSON.stringify(bounded)
-    + '\n[/Logic Engine NPC Memory Context]';
+function projectLaneAItems(items) {
+  if (!Array.isArray(items) || items.length > 200) {
+    throw new Error('PROTECTED_MEMORY_FINAL_SEND_LANE_A_INVALID');
+  }
+  const keys = [
+    'acquisition_id', 'fact_id', 'subject_ref', 'predicate', 'value',
+    'acquisition_kind', 'provenance_ref', 'provenance_digest',
+    'acquisition_authorization_ref', 'source_event_ids', 'visibility_authorization_ref',
+  ];
+  const projected = [];
+  let totalBytes = 0;
+  for (let index = 0; index < items.length; index += 1) {
+    const descriptor = Object.getOwnPropertyDescriptor(items, String(index));
+    if (!descriptor || !Object.hasOwn(descriptor, 'value')) {
+      throw new Error('PROTECTED_MEMORY_FINAL_SEND_LANE_A_INVALID');
+    }
+    const item = descriptor.value;
+    if (!item || typeof item !== 'object' || Array.isArray(item) || isProxy(item)
+      || Object.getPrototypeOf(item) !== Object.prototype
+      || Reflect.ownKeys(item).length !== keys.length
+      || Reflect.ownKeys(item).some(key => typeof key !== 'string' || !keys.includes(key))) {
+      throw new Error('PROTECTED_MEMORY_FINAL_SEND_LANE_A_INVALID');
+    }
+    for (const key of keys) {
+      const property = Object.getOwnPropertyDescriptor(item, key);
+      if (!property || !property.enumerable || !Object.hasOwn(property, 'value')) {
+        throw new Error('PROTECTED_MEMORY_FINAL_SEND_LANE_A_INVALID');
+      }
+    }
+    for (const key of ['acquisition_id', 'fact_id', 'subject_ref', 'predicate', 'acquisition_kind',
+      'provenance_ref', 'acquisition_authorization_ref', 'visibility_authorization_ref']) {
+      if (typeof item[key] !== 'string' || !item[key] || item[key].length > 200) {
+        throw new Error('PROTECTED_MEMORY_FINAL_SEND_LANE_A_INVALID');
+      }
+    }
+    if (typeof item.provenance_digest !== 'string' || !/^[a-f0-9]{64}$/.test(item.provenance_digest)
+      || !Array.isArray(item.source_event_ids) || isProxy(item.source_event_ids)
+      || Object.getPrototypeOf(item.source_event_ids) !== Array.prototype
+      || item.source_event_ids.length > 200) {
+      throw new Error('PROTECTED_MEMORY_FINAL_SEND_LANE_A_INVALID');
+    }
+    const sourceEventIds = [];
+    for (let eventIndex = 0; eventIndex < item.source_event_ids.length; eventIndex += 1) {
+      const event = Object.getOwnPropertyDescriptor(item.source_event_ids, String(eventIndex));
+      if (!event || !event.enumerable || !Object.hasOwn(event, 'value')
+        || typeof event.value !== 'string' || !event.value || event.value.length > 200) {
+        throw new Error('PROTECTED_MEMORY_FINAL_SEND_LANE_A_INVALID');
+      }
+      sourceEventIds.push(event.value);
+    }
+    const record = {
+      acquisition_id: item.acquisition_id,
+      fact_id: item.fact_id,
+      subject_ref: item.subject_ref,
+      predicate: item.predicate,
+      value: item.value,
+      acquisition_kind: item.acquisition_kind,
+      provenance_ref: item.provenance_ref,
+      provenance_digest: item.provenance_digest,
+      source_event_ids: sourceEventIds,
+    };
+    const serialized = JSON.stringify(record);
+    if (typeof serialized !== 'string') throw new Error('PROTECTED_MEMORY_FINAL_SEND_LANE_A_INVALID');
+    totalBytes += Buffer.byteLength(serialized, 'utf8');
+    if (totalBytes > 512 * 1024) throw new Error('PROTECTED_MEMORY_FINAL_SEND_LANE_A_TOO_LARGE');
+    projected.push(record);
+  }
+  return projected;
 }
 
-function serializeProtectedRequestBody(requestInit, senderRoute, contentBlocks) {
+function renderNpcContext(laneAItems, contentBlocks) {
+  if (!Array.isArray(contentBlocks)) {
+    throw new Error('PROTECTED_MEMORY_FINAL_SEND_LANE_B_INVALID');
+  }
+  const sections = [];
+  if (Array.isArray(laneAItems) && laneAItems.length > 0) {
+    const laneA = projectLaneAItems(laneAItems);
+    sections.push('[Logic Engine Core Knowledge — Lane A]\n'
+      + JSON.stringify({ purpose: 'npc_turn_context', completeness: 'complete', items: laneA })
+      + '\n[/Logic Engine Core Knowledge — Lane A]');
+  }
+  if (contentBlocks.length > 0) {
+    const bounded = contentBlocks.map(block => ({
+      epistemic_kind: block.epistemic_kind,
+      evidence_assessment: block.evidence_assessment,
+      content: block.content,
+    }));
+    sections.push('[Logic Engine NPC Memory Context — Lane B]\n'
+      + JSON.stringify({ purpose: 'npc_decision', items: bounded })
+      + '\n[/Logic Engine NPC Memory Context — Lane B]');
+  }
+  return sections.join('\n');
+}
+
+function serializeProtectedRequestBody(requestInit, senderRoute, laneAItems, contentBlocks) {
   let body;
   try { body = JSON.parse(requestInit.body); } catch {
     throw new Error('PROTECTED_MEMORY_FINAL_SEND_BODY_INVALID');
@@ -70,7 +154,7 @@ function serializeProtectedRequestBody(requestInit, senderRoute, contentBlocks) 
     throw new Error('PROTECTED_MEMORY_FINAL_SEND_BODY_INVALID');
   }
   removeHostOnlyFields(body);
-  const context = renderNpcContext(contentBlocks);
+  const context = renderNpcContext(laneAItems, contentBlocks);
   if (context) {
     if (CHAT_COMPLETION_ROUTES.has(senderRoute)) {
       if (!Array.isArray(body.messages)) throw new Error('PROTECTED_MEMORY_FINAL_SEND_MESSAGES_MISSING');
@@ -92,7 +176,6 @@ function serializeProtectedRequestBody(requestInit, senderRoute, contentBlocks) 
   }
   return serialized;
 }
-
 function assertRequest(endpointUrl, requestInit) {
   if (typeof endpointUrl !== 'string' || !/^https?:\/\//i.test(endpointUrl)
     || !requestInit || typeof requestInit !== 'object'
@@ -166,7 +249,8 @@ export function createProtectedMemoryFinalSend({ gateway, resolveProtectedMemory
       throw new Error('MEMORY_DISPATCH_LANE_A_REVALIDATION_REQUIRED');
     }
 
-    const exactBody = serializeProtectedRequestBody(requestInit, senderRoute, protectedMemory.contentBlocks ?? []);
+    const exactBody = serializeProtectedRequestBody(requestInit, senderRoute,
+      protectedMemory.laneA?.items ?? [], protectedMemory.contentBlocks ?? []);
     const model = protectedMemory.model;
     const controllerSignal = requestInit.signal;
     const transport = () => {
