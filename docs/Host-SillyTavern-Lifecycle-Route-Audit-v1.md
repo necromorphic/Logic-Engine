@@ -65,6 +65,19 @@ Additional unreceipted account-root and installed-source mutation surfaces are n
 
 The guard intentionally does not claim these operations are receipted. It disables them until operation-specific persisted receipts or a separately verified inventory reconciliation contract exists. Read-only routes are not guarded solely because they use POST.
 
+### Additional filesystem primitives outside the authenticated account root
+
+The recursive pinned-source audit also found filesystem primitives in four endpoint modules. These are now included in the source manifest and explicit route inventory; they are not silently omitted from the source audit.
+
+| Module / route | Filesystem effect | Root-inventory disposition |
+|---|---|---|
+| `src/endpoints/backends/kobold.js` — `POST /transcribe-audio` | Removes the server-created temporary upload after reading it | Transient upload cleanup; not a persisted chat/account-root mutation |
+| `src/endpoints/openai.js` — provider `POST */transcribe-audio` routes | Removes the server-created temporary upload after successful transcription | Transient upload cleanup; not a persisted chat/account-root mutation |
+| `src/endpoints/speech.js` — `POST /recognize` | Removes the server-created temporary upload after speech recognition | Transient upload cleanup; not a persisted chat/account-root mutation |
+| `src/endpoints/tokenizers.js` — tokenizer encode routes | Downloads/decompresses tokenizer models in `DATA_ROOT/_cache` | Shared server cache outside the authenticated per-user root; source-attested separately, not represented as per-user inventory data |
+
+These operations are not used to establish conversation identity, do not write chat histories, and do not mutate the authenticated account root. The source manifest pins their exact implementations so a later change to their path behavior cannot silently enter an authoritative Host deployment. The shared tokenizer cache is explicitly outside the per-user inventory boundary; no claim is made that the per-user root manifest covers it.
+
 ## 3. Authentication and session lifecycle
 
 | SillyTavern path | Required ordering | Disposition |
