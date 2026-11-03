@@ -276,7 +276,7 @@ diff --git a/src/endpoints/stable-diffusion.js b/src/endpoints/stable-diffusion.
 diff --git a/src/endpoints/thumbnails.js b/src/endpoints/thumbnails.js
 --- a/src/endpoints/thumbnails.js
 +++ b/src/endpoints/thumbnails.js
-@@ -285,6 +285,10 @@
+@@ -285,6 +285,11 @@
          const thumbnailFolder = getThumbnailFolder(request.user.directories, type);
          const pathToCachedFile = path.join(thumbnailFolder, file);
  
