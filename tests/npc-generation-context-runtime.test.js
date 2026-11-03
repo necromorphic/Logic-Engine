@@ -26,6 +26,7 @@ const memoryResult = () => ({
     evidence_assessment: 'disputed', content: { note: 'report' },
   }],
   reason: null, snapshot: { ...scope.snapshot },
+  provider_evidence_cursor: { data_version: 12, candidate_digest: 'b'.repeat(64) },
 });
 
 function setup() {
