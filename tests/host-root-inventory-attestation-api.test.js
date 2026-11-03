@@ -139,6 +139,7 @@ test('Core HTTP accepts only a signed, pinned, lifecycle-complete root attestati
   assert.equal(acceptedPayload.inventory_status, 'AUTHORITATIVE_COMPLETE');
   assert.equal(acceptedPayload.reconciliation.status, 'AUTHORITATIVE_COMPLETE');
   assert.equal(acceptedPayload.reconciliation.integrity_status, 'INTEGRITY_OK');
+  assert.equal(acceptedPayload.reconciliation.source_manifest_sha256, digest('pinned-source-manifest'));
 
   const replay = await post(base, '/v1/host-root-inventory/attest', { ...identity, attestation });
   assert.equal(replay.status, 200);
@@ -179,7 +180,9 @@ test('Core HTTP accepts only a signed, pinned, lifecycle-complete root attestati
     ...identity, attestation: refreshedAttestation,
   });
   assert.equal(refreshedAccepted.status, 200);
-  assert.equal((await refreshedAccepted.json()).inventory_status, 'AUTHORITATIVE_COMPLETE');
+  const refreshedAcceptedPayload = await refreshedAccepted.json();
+  assert.equal(refreshedAcceptedPayload.inventory_status, 'AUTHORITATIVE_COMPLETE');
+  assert.equal(refreshedAcceptedPayload.reconciliation.source_manifest_sha256, newSourceManifestSha256);
 
   const snapshot = journal.getAuthoritySnapshot({
     authority_id: AUTHORITY_ID,
@@ -191,5 +194,6 @@ test('Core HTTP accepts only a signed, pinned, lifecycle-complete root attestati
   });
   assert.equal(snapshot.status, 'INTEGRITY_OK');
   assert.equal(snapshot.authority_status, 'AUTHORITATIVE_COMPLETE');
+  assert.equal(snapshot.source_manifest_sha256, newSourceManifestSha256);
 
 });
