@@ -36,6 +36,7 @@ const laneB = () => ({
       evidence_assessment: 'disputed', content: { note: 'Lane B report' },
     }],
     reason: null, snapshot: { ...scope.snapshot },
+    provider_evidence_cursor: { data_version: 12, candidate_digest: 'b'.repeat(64) },
   },
 });
 function setup(overrides = {}) {
