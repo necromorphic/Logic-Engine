@@ -21,6 +21,8 @@
 #include <wchar.h>
 #include <strsafe.h>
 #include <bcrypt.h>
+#include <aclapi.h>
+#include <sddl.h>
 #include "../secure-vfs-probe/windows_relative_open.h"
 
 #define LE_STORE_MAX_BYTES (1024u * 1024u)
@@ -63,6 +65,66 @@ static int le_store_valid_regular(HANDLE file, DWORD *length) {
  * SYSTEM/Administrators). The installer must reject reparse-point ancestors.
  * This function additionally pins and checks the final directory handle.
  */
+static int le_store_acl_is_private(HANDLE directory) {
+  HANDLE token = NULL;
+  TOKEN_USER *user = NULL;
+  DWORD token_bytes = 0;
+  PSECURITY_DESCRIPTOR descriptor = NULL;
+  PSID owner = NULL;
+  PACL dacl = NULL;
+  SECURITY_DESCRIPTOR_CONTROL control = 0;
+  DWORD revision = 0;
+  PSID system_sid = NULL;
+  PSID admins_sid = NULL;
+  PSID trusted[3];
+  BOOL seen[3] = { FALSE, FALSE, FALSE };
+  DWORD index;
+  BOOL valid = FALSE;
+  if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token)) goto done;
+  GetTokenInformation(token, TokenUser, NULL, 0, &token_bytes);
+  if (GetLastError() != ERROR_INSUFFICIENT_BUFFER || token_bytes == 0 || token_bytes > 65536) goto done;
+  user = (TOKEN_USER *)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, token_bytes);
+  if (!user || !GetTokenInformation(token, TokenUser, user, token_bytes, &token_bytes)) goto done;
+  if (GetSecurityInfo(directory, SE_FILE_OBJECT,
+      OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
+      &owner, NULL, &dacl, NULL, &descriptor) != ERROR_SUCCESS) goto done;
+  if (!GetSecurityDescriptorControl(descriptor, &control, &revision)
+      || (control & SE_DACL_PROTECTED) == 0 || !dacl || dacl->AceCount != 3) goto done;
+  if (!ConvertStringSidToSidW(L"S-1-5-18", &system_sid)
+      || !ConvertStringSidToSidW(L"S-1-5-32-544", &admins_sid)) goto done;
+  trusted[0] = user->User.Sid;
+  trusted[1] = system_sid;
+  trusted[2] = admins_sid;
+  if (!EqualSid(owner, trusted[0]) && !EqualSid(owner, trusted[1])
+      && !EqualSid(owner, trusted[2])) goto done;
+  for (index = 0; index < dacl->AceCount; ++index) {
+    ACE_HEADER *header = NULL;
+    ACCESS_ALLOWED_ACE *ace;
+    PSID sid;
+    DWORD slot;
+    if (!GetAce(dacl, index, (LPVOID *)&header)
+        || header->AceType != ACCESS_ALLOWED_ACE_TYPE
+        || (header->AceFlags & INHERITED_ACE) != 0) goto done;
+    ace = (ACCESS_ALLOWED_ACE *)header;
+    if ((ace->Mask & FILE_ALL_ACCESS) != FILE_ALL_ACCESS) goto done;
+    sid = (PSID)&ace->SidStart;
+    for (slot = 0; slot < 3; ++slot) {
+      if (EqualSid(sid, trusted[slot])) break;
+    }
+    if (slot == 3 || seen[slot]) goto done;
+    seen[slot] = TRUE;
+  }
+  valid = seen[0] && seen[1] && seen[2];
+done:
+  if (descriptor) LocalFree(descriptor);
+  if (system_sid) LocalFree(system_sid);
+  if (admins_sid) LocalFree(admins_sid);
+  if (user) HeapFree(GetProcessHeap(), 0, user);
+  if (token) CloseHandle(token);
+  if (!valid) SetLastError(ERROR_ACCESS_DENIED);
+  return valid ? 1 : 0;
+}
+
 static int le_store_is_ntfs(HANDLE directory) {
   wchar_t final_path[32768];
   wchar_t volume_root[MAX_PATH];
@@ -108,7 +170,8 @@ int le_win_store_open(
       || (tag.FileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0
       || (tag.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0
       || !logic_engine_win_identity(directory, &store->directory_identity, NULL)
-      || !le_store_is_ntfs(directory)) {
+      || !le_store_is_ntfs(directory)
+      || !le_store_acl_is_private(directory)) {
     CloseHandle(directory);
     SetLastError(ERROR_ACCESS_DENIED);
     return 0;
