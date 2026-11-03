@@ -4,6 +4,7 @@ import { isAbsolute, resolve } from 'node:path';
 
 const execFileAsync = promisify(execFile);
 const activeLeases = new WeakSet();
+let vssOperationTail = Promise.resolve();
 const GUID = /^[{]?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}[}]?$/i;
 
 // Static PowerShell source: paths and identifiers are passed through the child
@@ -130,7 +131,7 @@ async function runPowerShell(script, env, timeout = 120_000) {
  * The lease is process-local and unforgeable by callers. Its root is valid only
  * inside the callback and is released in finally.
  */
-export async function withWindowsVssSnapshot(rootPath, callback) {
+async function withWindowsVssSnapshotUnlocked(rootPath, callback) {
   if (process.platform !== 'win32') throw new Error('HOST_VSS_PLATFORM_UNSUPPORTED');
   if (typeof rootPath !== 'string' || !rootPath.trim() || !isAbsolute(rootPath)) throw new Error('HOST_VSS_ROOT_INVALID');
   if (typeof callback !== 'function') throw new Error('HOST_VSS_CALLBACK_INVALID');
@@ -179,6 +180,17 @@ export async function withWindowsVssSnapshot(rootPath, callback) {
     activeLeases.delete(lease);
     await runPowerShell(DELETE_SCRIPT, { LE_VSS_SNAPSHOT_ID: descriptor.snapshotId }, 60_000);
   }
+}
+
+function withVssOperationLock(work) {
+  const previous = vssOperationTail;
+  let release;
+  vssOperationTail = new Promise(resolve => { release = resolve; });
+  return previous.then(work).finally(() => release());
+}
+
+export function withWindowsVssSnapshot(rootPath, callback) {
+  return withVssOperationLock(() => withWindowsVssSnapshotUnlocked(rootPath, callback));
 }
 
 export function isActiveWindowsVssSnapshot(lease) {
