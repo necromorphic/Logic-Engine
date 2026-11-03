@@ -4,7 +4,7 @@ import { receiveNpcContext } from '../host-adapter/npc-context-receiver.mjs';
 
 const hostContext = Object.freeze({
   adapter_id: 'st-gateway',
-  conversation_id: '11111111-1111-4111-8111-111111111111:22222222-2222-4222-8222-222222222222:33333333-3333-4333-8333-333333333333',
+  conversation_id: '55555555-5555-4555-8555-555555555555:11111111-1111-4111-8111-111111111111:33333333-3333-4333-8333-333333333333',
   world_id: 'world-main',
   actor_id: 'actor-npc',
   actor_type: 'npc',
