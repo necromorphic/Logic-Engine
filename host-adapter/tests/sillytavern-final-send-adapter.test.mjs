@@ -61,12 +61,16 @@ function createAdapter({
   gateway = { dispatchProtectedRequest: () => 'gateway' },
   prepareHostContext,
   chatCompletionSources = sources,
+  npcContextHostBridge = null,
+  shouldPrepareNpcContext = () => false,
 }) {
   return createSillyTavernFinalSendAdapter({
     gateway,
     resolveProtectedMemory,
     prepareHostContext,
     chatCompletionSources,
+    npcContextHostBridge,
+    shouldPrepareNpcContext,
     nativeForwardFetchResponse: async () => undefined,
   });
 }
@@ -173,6 +177,148 @@ test('CometAPI is registered and protected generation reaches the sole Gateway',
   assert.equal(result.status, 200);
   assert.deepEqual(gatewayRoutes, ['cometapi']);
   assert.equal(transportCalls, 1);
+});
+
+test('Host bridge transfer is bound to the exact generation request and prompt projection', async () => {
+  const generationRequest = Object.freeze({
+    request_id: 'request-bridge', generation_id: 'generation-bridge', generation_type: 'chat',
+  });
+  const handoff = Object.freeze({});
+  const projection = Object.freeze({
+    world_id: 'world-1', actor_id: 'actor-1', conversation_id: 'conversation-1',
+    adapter_id: 'sillytavern-1', purpose: 'npc_turn_context',
+    sources: Object.freeze([{ source_kind: 'canonical_entity', source_entity_id: 'entity-1', source_version: 'core-entity-v1:1' }]),
+    candidates: Object.freeze([{ record_ref: 'record-1', record_version: 'v1', authorization_generation: 1,
+      source_kind: 'canonical_entity', source_entity_id: 'entity-1', source_version: 'core-entity-v1:1' }]),
+    contentBlocks: Object.freeze([{ epistemic_kind: 'direct_observation', evidence_assessment: 'unassessed',
+      content: Object.freeze({ note: 'trusted fact' }) }]),
+  });
+  let prepared = 0;
+  let transferred = 0;
+  let gatewayCalls = 0;
+  let transportCalls = 0;
+  const bridge = {
+    async prepare(request, response) {
+      assert.ok(request && response);
+      prepared += 1;
+      return { status: 'ready' };
+    },
+    takeForDispatch() {
+      transferred += 1;
+      return { status: 'ready', requestMetadata: generationRequest, handoff, projection };
+    },
+  };
+  const adapter = createAdapter({
+    npcContextHostBridge: bridge,
+    shouldPrepareNpcContext: () => true,
+    resolveProtectedMemory: (_request, _hostContext, transfer) => ({
+      status: 'ready',
+      context: {
+        requestId: transfer.requestMetadata.request_id,
+        model: 'test-model',
+        worldId: transfer.projection.world_id,
+        actorId: transfer.projection.actor_id,
+        purpose: transfer.projection.purpose,
+        conversationId: transfer.projection.conversation_id,
+        adapterId: transfer.projection.adapter_id,
+        generationRequest: transfer.requestMetadata,
+        npcContextHandoff: transfer.handoff,
+        sources: transfer.projection.sources,
+        candidates: transfer.projection.candidates,
+        contentBlocks: transfer.projection.contentBlocks,
+      },
+    }),
+    gateway: {
+      dispatchProtectedRequest(request) {
+        gatewayCalls += 1;
+        return request.transport();
+      },
+    },
+  });
+  const request = { body: { chat_completion_source: 'COMETAPI', model: 'test-model', stream: false } };
+  const response = {};
+  await adapter.prepare(request, response);
+  const result = await adapter.dispatch({
+    request, response, senderRoute: 'cometapi',
+    endpointUrl: 'https://provider.example/v1/chat/completions',
+    requestInit, stream: false,
+    transport: async () => { transportCalls += 1; return { status: 200 }; },
+  });
+  assert.equal(result.status, 200);
+  assert.equal(prepared, 1);
+  assert.equal(transferred, 1);
+  assert.equal(gatewayCalls, 1);
+  assert.equal(transportCalls, 1);
+});
+
+test('Host bridge projection mismatch blocks protected native transport', async () => {
+  let transportCalls = 0;
+  const generationRequest = Object.freeze({
+    request_id: 'request-mismatch', generation_id: 'generation-mismatch', generation_type: 'chat',
+  });
+  const handoff = Object.freeze({});
+  const projection = Object.freeze({
+    world_id: 'world-1', actor_id: 'actor-1', conversation_id: 'conversation-1',
+    adapter_id: 'sillytavern-1', purpose: 'npc_turn_context',
+    sources: Object.freeze([]), candidates: Object.freeze([]),
+    contentBlocks: Object.freeze([{ epistemic_kind: 'direct_observation', evidence_assessment: 'unassessed',
+      content: Object.freeze({ note: 'trusted fact' }) }]),
+  });
+  const adapter = createAdapter({
+    npcContextHostBridge: {
+      async prepare() { return { status: 'ready' }; },
+      takeForDispatch() { return { status: 'ready', requestMetadata: generationRequest, handoff, projection }; },
+    },
+    shouldPrepareNpcContext: () => true,
+    resolveProtectedMemory: (_request, _hostContext, transfer) => ({
+      status: 'ready',
+      context: {
+        requestId: transfer.requestMetadata.request_id, model: 'test-model',
+        worldId: transfer.projection.world_id, actorId: transfer.projection.actor_id,
+        purpose: transfer.projection.purpose, conversationId: transfer.projection.conversation_id,
+        adapterId: transfer.projection.adapter_id, generationRequest: transfer.requestMetadata,
+        npcContextHandoff: transfer.handoff, sources: [...transfer.projection.sources],
+        candidates: transfer.projection.candidates, contentBlocks: transfer.projection.contentBlocks,
+      },
+    }),
+  });
+  const request = { body: { chat_completion_source: 'COMETAPI', model: 'test-model' } };
+  const response = {};
+  await adapter.prepare(request, response);
+  assert.throws(() => adapter.dispatch({
+    request, response, senderRoute: 'cometapi',
+    endpointUrl: 'https://provider.example/v1/chat/completions',
+    requestInit, stream: false,
+    transport: async () => { transportCalls += 1; return { status: 200 }; },
+  }), /MEMORY_DISPATCH_PROJECTION_BINDING_MISMATCH/);
+  assert.equal(transportCalls, 0);
+});
+
+test('protected resolution cannot bypass the configured Host bridge', async () => {
+  let transportCalls = 0;
+  const adapter = createAdapter({
+    npcContextHostBridge: {
+      async prepare() { return { status: 'ready' }; },
+      takeForDispatch() { throw new Error('should not be called'); },
+    },
+    shouldPrepareNpcContext: () => false,
+    resolveProtectedMemory: () => ({ status: 'ready', context: {
+      requestId: 'request-no-bridge', ...makeAdapterHandoffFields('request-no-bridge'),
+      model: 'test-model', worldId: 'world-1', actorId: 'actor-1', purpose: 'npc_decision',
+      sources: [], candidates: [], contentBlocks: [{ epistemic_kind: 'direct_observation',
+        evidence_assessment: 'unassessed', content: { note: 'x' } }],
+    } }),
+  });
+  const request = { body: { chat_completion_source: 'COMETAPI', model: 'test-model' } };
+  const response = {};
+  await adapter.prepare(request, response);
+  assert.throws(() => adapter.dispatch({
+    request, response, senderRoute: 'cometapi',
+    endpointUrl: 'https://provider.example/v1/chat/completions',
+    requestInit, stream: false,
+    transport: async () => { transportCalls += 1; return { status: 200 }; },
+  }), /MEMORY_DISPATCH_NOT_READY/);
+  assert.equal(transportCalls, 0);
 });
 
 test('unknown SillyTavern sender is denied for protected Memory generation', () => {
