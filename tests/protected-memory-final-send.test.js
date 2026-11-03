@@ -291,7 +291,7 @@ test('Core Lane A and Provider Lane B are projected separately with Lane A prove
   assert.doesNotMatch(prompt, /visibility-auth-1/);
 });
 
-test('Final-Send projection is independent of mutable Array prototype methods', async () => {
+test('Final-Send projection is independent of mutable Array and Set prototype methods', async () => {
   const laneAItem = {
     acquisition_id: 'acquisition-poison',
     fact_id: 'fact-poison',
@@ -326,13 +326,20 @@ test('Final-Send projection is independent of mutable Array prototype methods', 
   });
   const names = ['map', 'filter', 'includes', 'some', 'push', 'join', 'splice', Symbol.iterator];
   const descriptors = new Array(names.length);
-  const poison = () => { throw new Error('POISONED_ARRAY_METHOD_CALLED'); };
+  const setNames = ['has', 'add'];
+  const setDescriptors = new Array(setNames.length);
+  const poison = () => { throw new Error('POISONED_PROTOTYPE_METHOD_CALLED'); };
   let failure = null;
   try {
     for (let index = 0; index < names.length; index += 1) {
       const key = names[index];
       descriptors[index] = Object.getOwnPropertyDescriptor(Array.prototype, key);
       Object.defineProperty(Array.prototype, key, { value: poison, writable: true, configurable: true });
+    }
+    for (let index = 0; index < setNames.length; index += 1) {
+      const key = setNames[index];
+      setDescriptors[index] = Object.getOwnPropertyDescriptor(Set.prototype, key);
+      Object.defineProperty(Set.prototype, key, { value: poison, writable: true, configurable: true });
     }
     try {
       await finalSend({
@@ -351,8 +358,14 @@ test('Final-Send projection is independent of mutable Array prototype methods', 
       if (descriptor) Object.defineProperty(Array.prototype, key, descriptor);
       else delete Array.prototype[key];
     }
+    for (let index = 0; index < setNames.length; index += 1) {
+      const key = setNames[index];
+      const descriptor = setDescriptors[index];
+      if (descriptor) Object.defineProperty(Set.prototype, key, descriptor);
+      else delete Set.prototype[key];
+    }
   }
-  if (failure) throw new Error('Final-Send called a poisoned Array prototype method: ' + failure.message);
+  if (failure) throw new Error('Final-Send called a poisoned prototype method: ' + failure.message);
   assert.ok(outbound);
   const prompt = outbound.messages[0].content;
   assert.match(prompt, /Logic Engine Core Knowledge — Lane A/);
