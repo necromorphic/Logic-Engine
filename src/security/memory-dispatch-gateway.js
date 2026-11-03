@@ -92,12 +92,10 @@ const intrinsicStringEndsWith = String.prototype.endsWith;
 const isProxy = utilTypes.isProxy;
 const isAsyncFunction = utilTypes.isAsyncFunction;
 const isGeneratorFunction = utilTypes.isGeneratorFunction;
-const isAsyncGeneratorFunction = utilTypes.isAsyncGeneratorFunction;
 
 function isSynchronousCallable(callback) {
   if (typeof callback !== 'function' || isProxy(callback)
-    || isAsyncFunction(callback) || isGeneratorFunction(callback)
-    || isAsyncGeneratorFunction(callback)) return false;
+    || isAsyncFunction(callback) || isGeneratorFunction(callback)) return false;
   try {
     // Bound functions stringify as native code. Their target kind (sync/async)
     // is intentionally opaque, so reject them rather than invoke an untrusted
