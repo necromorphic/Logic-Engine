@@ -93,6 +93,7 @@ test('Host session rotation revokes the old capability before issuing a new sess
     },
   });
   const response = {
+    set() { return this; },
     status(code) { this.statusCode = code; return this; },
     json(value) { this.payload = value; return this; },
   };
@@ -113,6 +114,7 @@ test('Host session rotation preserves the old session when revocation fails', as
     revokeSession: async () => { throw new Error('upstream unavailable'); },
   });
   const response = {
+    set() { return this; },
     status(code) { this.statusCode = code; return this; },
     json(value) { this.payload = value; return this; },
   };
