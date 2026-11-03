@@ -139,6 +139,12 @@ Assert-NoReparsePointAncestors $InstallDirectory
 Assert-NoReparsePointAncestors $StateDirectory
 Assert-NoReparsePointAncestors $NodePath
 if ($EnvironmentFile) { Assert-NoReparsePointAncestors $EnvironmentFile }
+# Dry-run must inspect existing descendants too; repeat immediately before ACL
+# mutation inside ShouldProcess to narrow the validation-to-use window.
+Assert-NoReparsePoints $InstallDirectory
+if (Test-Path -LiteralPath $StateDirectory -PathType Container) {
+  Assert-NoReparsePoints $StateDirectory
+}
 if (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue) { throw "Service already exists; refusing to replace it." }
 $account = "NT SERVICE\$ServiceName"
 $entry = Join-Path $InstallDirectory 'src\index.js'
