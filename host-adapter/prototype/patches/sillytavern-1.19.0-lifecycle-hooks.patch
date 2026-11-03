@@ -743,7 +743,7 @@ diff --git a/src/endpoints/groups.js b/src/endpoints/groups.js
  import { color, tryParse } from '../util.js';
  import { getFileNameValidationFunction } from '../middleware/validateFileName.js';
  
-+import { createHostBulkMutationGuard } from './logic-engine-host-inventory-handler.mjs';
++import { assertHostStartupMigrationAllowed, createHostBulkMutationGuard } from './logic-engine-host-inventory-handler.mjs';
 +const hostBulkMutationGuard = createHostBulkMutationGuard({ pinnedHostCommit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127' });
 +
  export const router = express.Router();
@@ -767,8 +767,6 @@ diff --git a/src/endpoints/groups.js b/src/endpoints/groups.js
              let anyDataMigrated = false;
              const backupPath = path.join(userDirs.backups, '_group_metadata_update');
              const groupFiles = await fsPromises.readdir(userDirs.groups, { withFileTypes: true });
-                         continue;
-                     }
 @@ -153,7 +160,7 @@
      return response.send(groups);
  });
