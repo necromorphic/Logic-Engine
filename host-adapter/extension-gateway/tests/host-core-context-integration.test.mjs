@@ -414,6 +414,29 @@ test('Host Adapter requires Core root proof before context resolution and binds 
   assert.equal(resolvedCoreContexts[4].context.conversation_id, restartedConversationId);
   assert.equal(resolvedCoreContexts[4].context.world_id, 'host-e2e-world');
   assert.equal(resolvedCoreContexts[4].context.actor_id, 'host-e2e-actor');
+  // The integrated Final-Send path authenticates the actual native Express
+  // generation request and retrieves the Core envelope without a browser
+  // /dispatch request or a second request identity.
+  const nativeGenerationRequest = {
+    user: request.user,
+    session: request.session,
+    body: {
+      logic_engine_conversation_uuid: UUID,
+      logic_engine_request_id: '88888888-8888-4888-8888-888888888888',
+      logic_engine_context_size: 4096,
+      logic_engine_generation_type: 'normal',
+    },
+  };
+  const preparedGeneration = await adapter.prepareGenerationContext(nativeGenerationRequest, 'chat-completions');
+  assert.equal(preparedGeneration.status, 'READY');
+  assert.equal(preparedGeneration.context.conversation_uuid, UUID);
+  assert.equal(preparedGeneration.context.root_inventory_sequence, 1);
+  assert.equal(preparedGeneration.coreContext.world_id, 'host-e2e-world');
+  assert.equal(preparedGeneration.coreContext.actor_id, 'host-e2e-actor');
+  assert.equal(preparedGeneration.retrieval.status, 'ready');
+  assert.equal(preparedGeneration.requestId, '88888888-8888-4888-8888-888888888888');
+  assert.equal(resolvedCoreContexts[5].context.conversation_id, stableConversationId);
+
 
   // The production scanner currently emits DOUBLE_SCAN_CANDIDATE. Prove that
   // such a candidate cannot reach Core, even when the same server credentials exist.
