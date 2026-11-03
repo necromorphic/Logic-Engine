@@ -128,8 +128,10 @@ test('pinned ST chat-history mutation routes are guarded or explicitly unsupport
     assert.ok(groups.includes('assertHostStartupMigrationAllowed'),
         'startup group metadata migration must be gated by full Host inventory');
     const adminUsers = read('src/endpoints/users-admin.js');
-    assert.ok(adminUsers.includes('HOST_USER_ACCOUNT_DELETE_UNSUPPORTED'),
-        'account-root deletion must remain explicitly fail-closed');
+    for (const route of ['disable', 'enable', 'promote', 'demote', 'create', 'delete']) {
+        assert.ok(adminUsers.includes(`router.post('/${route}', requireAdminMiddleware, hostUnsupportedMutationGuard`),
+            `administrative account mutation /${route} must be fail-closed while Host authority is active`);
+    }
 });
 
 
