@@ -10,6 +10,34 @@ const sourceKeys = [
   'WORKERS_AI',
 ];
 const sources = Object.fromEntries(sourceKeys.map((key) => [key, key]));
+const expectedRoutes = Object.freeze({
+  CLAUDE: 'claude',
+  AI21: 'ai21',
+  MAKERSUITE: 'google-ai-studio',
+  VERTEXAI: 'vertex-ai',
+  MISTRALAI: 'mistral',
+  COHERE: 'cohere',
+  COMETAPI: 'cometapi',
+  DEEPSEEK: 'deepseek',
+  AIMLAPI: 'aimlapi',
+  XAI: 'xai',
+  CHUTES: 'chutes',
+  MINIMAX: 'minimax',
+  ELECTRONHUB: 'electronhub',
+  AZURE_OPENAI: 'azure-openai',
+  OPENAI: 'openai',
+  OPENROUTER: 'openrouter',
+  CUSTOM: 'custom',
+  PERPLEXITY: 'perplexity',
+  GROQ: 'groq',
+  FIREWORKS: 'fireworks',
+  NANOGPT: 'nanogpt',
+  POLLINATIONS: 'pollinations',
+  MOONSHOT: 'moonshot',
+  ZAI: 'zai',
+  SILICONFLOW: 'siliconflow',
+  WORKERS_AI: 'workers-ai',
+});
 const requestInit = { method: 'POST', body: '{"model":"test-model"}', headers: {} };
 
 function createAdapter({
@@ -41,6 +69,18 @@ test('adapter rejects missing or extra pinned source keys instead of silently om
     }),
     /SILLYTAVERN_SOURCE_REGISTRY_MISMATCH/,
   );
+});
+
+test('adapter maps every pinned Chat Completions source key to its protected sender identity', () => {
+  const adapter = createAdapter({ resolveProtectedMemory: () => null });
+  assert.deepEqual(Object.keys(expectedRoutes).sort(), [...sourceKeys].sort());
+  for (const [sourceKey, expectedRoute] of Object.entries(expectedRoutes)) {
+    assert.equal(
+      adapter.resolveSenderRoute({ body: { chat_completion_source: sources[sourceKey] } }),
+      expectedRoute,
+      sourceKey,
+    );
+  }
 });
 
 test('adapter maps all pinned non-Chat-Completions route families', () => {
