@@ -167,8 +167,10 @@ if ($PSCmdlet.ShouldProcess($ServiceName, "Create isolated virtual-service-accou
     & sc.exe delete $ServiceName | Out-Null
     throw
   }
+  Write-Output "Provisioned service: $ServiceName"
+  Write-Output "Service identity: $account"
+  Write-Output "State directory: $StateDirectory"
+  Write-Output "Do not start until all SQLite paths and secure-VFS production gates are configured."
+} else {
+  Write-Output "No provisioning changes were made (WhatIf or confirmation declined)."
 }
-Write-Output "Provisioned service: $ServiceName"
-Write-Output "Service identity: $account"
-Write-Output "State directory: $StateDirectory"
-Write-Output "Do not start until all SQLite paths and secure-VFS production gates are configured."
