@@ -174,3 +174,22 @@ test('Windows role manifest schema permits only the tested NTFS service-identity
   supported.filesystemPolicy.directoryMutationBoundary = 'dedicated-service-identity';
   assert.equal(validate(supported), true, JSON.stringify(validate.errors));
 });
+
+
+test('Windows role manifest schema rejects lifecycle transitions not supported by the read-only adapter', () => {
+  const creatingSidecar = manifest('windows', windowsIdentity);
+  creatingSidecar.roles[0].sidecars[0].state = 'creating';
+  assert.equal(validate(creatingSidecar), false,
+    'Windows enrollment cannot accept a sidecar creation transition without a durable coordinator');
+
+  const deletingSidecar = manifest('windows', windowsIdentity);
+  deletingSidecar.roles[0].sidecars[0].state = 'deleting';
+  assert.equal(validate(deletingSidecar), false,
+    'Windows enrollment cannot accept an interrupted delete transition');
+
+  const disabledRole = manifest('windows', windowsIdentity);
+  disabledRole.roles[0].state = 'disabled';
+  disabledRole.roles[0].sidecars[0].state = 'retired';
+  assert.equal(validate(disabledRole), false,
+    'the Windows adapter only enrolls active roles');
+});
