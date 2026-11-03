@@ -210,9 +210,9 @@ export async function verifyPinnedSourceIdentity({
     // SillyTavern server plugins and third-party browser extensions can add
     // routes or mutate account data outside the built-in endpoint patch set.
     // Until each extension has its own reviewed source attestation contract,
-    // the only accepted entries in these executable extension roots are the
-    // Logic Engine Gateway itself. Unknown extensions make Host authority
-    // non-ready; a root data scan cannot attest their code.
+    // the only accepted executable child directory is the Logic Engine Gateway.
+    // The stock .gitkeep placeholders and pinned plugins/package.json are inert;
+    // unknown files or extension directories make Host authority non-ready.
     if (!await exactDirectoryChildren(root, 'plugins', ['logic-engine-extension-gateway'], ['.gitkeep', 'package.json'])
       || !await exactDirectoryChildren(root, 'public/scripts/extensions/third-party', ['logic-engine-extension-gateway'], ['.gitkeep'])
       || !await exactDirectoryFiles(root, 'plugins/logic-engine-extension-gateway', pluginNames)
