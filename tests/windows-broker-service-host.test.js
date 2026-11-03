@@ -26,6 +26,7 @@ test('Windows broker keeps filesystem operations disabled without backend', () =
 
 test('Windows broker metadata store enforces pinned ancestry, NTFS and protected ACLs', () => {
   assert.match(store, /le_store_open_parent_chain\(configured_directory/);
+  assert.match(store, /#include \"\.\.\/secure-vfs-probe\/windows_relative_open\.h\"/);
   assert.match(store, /le_store_parent_acl_safe\(current\)/);
   assert.match(store, /INHERIT_ONLY_ACE/);
   assert.match(store, /FILE_ADD_FILE \| FILE_ADD_SUBDIRECTORY \| FILE_WRITE_EA/);
