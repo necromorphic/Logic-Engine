@@ -114,7 +114,7 @@ export function createHostInventoryHandler({
       const filesystem = inventory.filesystem;
       let sourceIdentity = { status: 'NON_READY', code: 'HOST_SOURCE_IDENTITY_VERIFIER_UNAVAILABLE' };
       if (typeof verifySourceIdentity === 'function') {
-        try { sourceIdentity = await verifySourceIdentity(); } catch {}
+        try { sourceIdentity = await verifySourceIdentity({ userExtensionsPath: directories.extensions }); } catch {}
       }
       let rootInventory = null;
       if (typeof persistRootInventory === 'function') {
