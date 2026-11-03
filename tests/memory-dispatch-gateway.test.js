@@ -588,6 +588,50 @@ test('gateway startup converts stale DISPATCH_STARTED rows to UNKNOWN and blocks
   }
 });
 
+test('cancellation after durable dispatch-start records UNKNOWN and blocks retries', async () => {
+  const controller = new AbortController();
+  let sends = 0;
+  let markStarted;
+  const started = new Promise(resolve => { markStarted = resolve; });
+  const fixture = await createFixture({
+    sendUpstream: () => new Promise((_resolve, reject) => {
+      sends += 1;
+      markStarted();
+      controller.signal.addEventListener('abort', () => {
+        reject(Object.assign(new Error('cancelled'), { name: 'AbortError' }));
+      }, { once: true });
+    }),
+  });
+  try {
+    const pending = fixture.gateway.dispatchProtectedRequest(
+      validRequest('cancel-after-start', { signal: controller.signal }),
+    );
+    await started;
+    controller.abort();
+    await assert.rejects(pending, /MEMORY_DISPATCH_OUTCOME_UNKNOWN/);
+    assert.equal(sends, 1);
+
+    const db = new DatabaseSync(fixture.ledgerPath);
+    try {
+      assert.equal(db.prepare('SELECT status FROM dispatch_ledger WHERE request_id=?')
+        .get('cancel-after-start').status, 'UNKNOWN');
+    } finally {
+      db.close();
+    }
+    await assert.rejects(
+      fixture.gateway.dispatchProtectedRequest(validRequest('cancel-after-start')),
+      /MEMORY_DISPATCH_DUPLICATE_ID/,
+    );
+    await assert.rejects(
+      fixture.gateway.dispatchProtectedRequest(validRequest('cancel-after-start-new-id')),
+      /MEMORY_DISPATCH_REPLAY_BLOCKED/,
+    );
+    assert.equal(sends, 1);
+  } finally {
+    await fixture.close();
+  }
+});
+
 test('existing dispatch ledger with missing schema fails closed without auto-repair', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'logic-dispatch-ledger-schema-'));
   const ledgerPath = join(directory, 'ledger.sqlite');
