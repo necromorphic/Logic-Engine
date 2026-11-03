@@ -27,7 +27,7 @@ const manifest = (platform, identity) => ({
   filesystemPolicy: {
     filesystem: platform === 'linux' ? 'ext4' : 'NTFS',
     identitySource: 'opened-handle',
-    directoryMutationBoundary: 'broker-exclusive-owner',
+    directoryMutationBoundary: platform === 'linux' ? 'broker-exclusive-owner' : 'dedicated-service-identity',
     ...(platform === 'linux' ? { applicationUid: 1001 } : {}),
   },
   roles: [{
