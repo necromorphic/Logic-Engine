@@ -387,17 +387,29 @@ function createNpcGenerationContextReceiver({
     const context = receipt.context;
     const laneA = context?.lanes?.lane_a;
     const laneB = context?.lanes?.lane_b;
-    if (!isPlainDataRecord(laneA) || laneA.lane !== 'A' || !densePlainArray(laneA.items)
-      || !isPlainDataRecord(laneB) || laneB.lane !== 'B' || laneB.status !== 'ready'
+    if (!plainDataRecord(laneA, ['lane', 'items'], [
+      'lane', 'purpose', 'world_id', 'actor_id', 'conversation_id', 'adapter_id',
+      'recipient', 'snapshot', 'completeness', 'read_authorization_ref',
+      'visibility_authorization_ref', 'items',
+    ]) || laneA.lane !== 'A' || !densePlainArray(laneA.items)
+      || !plainDataRecord(laneB, ['lane', 'candidates', 'admitted'], [
+        'lane', 'core_purpose', 'provider_purpose', 'status', 'world_id', 'actor_id',
+        'conversation_id', 'adapter_id', 'recipient', 'snapshot', 'admitted',
+        'candidates', 'reason',
+      ]) || laneB.lane !== 'B' || laneB.status !== 'ready'
       || !densePlainArray(laneB.candidates) || !densePlainArray(laneB.admitted)
       || laneB.candidates.length !== laneB.admitted.length) {
       return nonReady('dispatch_projection_invalid');
     }
     try {
       const contentBlocks = [];
-      for (const item of laneA.items) {
-        if (!isPlainDataRecord(item)
-          || !validId(item.acquisition_kind) || !validId(item.subject_ref)
+      for (let index = 0; index < laneA.items.length; index += 1) {
+        const item = laneA.items[index];
+        if (!plainDataRecord(item, ['acquisition_kind', 'subject_ref', 'predicate', 'value'], [
+          'acquisition_id', 'fact_id', 'subject_ref', 'predicate', 'value',
+          'acquisition_kind', 'provenance_ref', 'provenance_digest',
+          'acquisition_authorization_ref', 'source_event_ids', 'visibility_authorization_ref',
+        ]) || !validId(item.acquisition_kind) || !validId(item.subject_ref)
           || !validId(item.predicate)) return nonReady('dispatch_projection_invalid');
         contentBlocks.push({
           epistemic_kind: item.acquisition_kind,
@@ -414,7 +426,13 @@ function createNpcGenerationContextReceiver({
       for (let index = 0; index < laneB.candidates.length; index += 1) {
         const candidate = laneB.candidates[index];
         const admitted = laneB.admitted[index];
-        if (!isPlainDataRecord(candidate) || !isPlainDataRecord(admitted)
+        if (!exactRecord(candidate, [
+          'record_ref', 'record_version', 'authorization_generation',
+          'source_entity_id', 'source_version', 'epistemic_kind',
+          'evidence_assessment', 'content',
+        ]) || !plainDataRecord(admitted, ['record_ref', 'record_version'], [
+          'record_ref', 'record_version', 'epistemic_kind', 'evidence_assessment',
+        ])
           || !validId(candidate.record_ref) || !validId(candidate.record_version)
           || !Number.isSafeInteger(candidate.authorization_generation)
           || candidate.authorization_generation < 1
