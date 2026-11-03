@@ -968,6 +968,7 @@ export class HostLifecycleJournal {
     `).get(identity.host_installation_id, identity.authenticated_account_id, identity.root_id);
     let authorityStatus = 'REVIEW_ONLY';
     let attestationSha256 = null;
+    let sourceManifestSha256 = null;
     if (attestationRow
       && attestationRow.inventory_sequence === root.sequence
       && attestationRow.manifest_sha256 === root.latest_manifest_sha256
@@ -998,6 +999,7 @@ export class HostLifecycleJournal {
           }) === true) {
           authorityStatus = 'AUTHORITATIVE_COMPLETE';
           attestationSha256 = attestationRow.attestation_sha256;
+          sourceManifestSha256 = attestation.source_manifest_sha256;
         }
       } catch {}
     }
@@ -1013,6 +1015,7 @@ export class HostLifecycleJournal {
       root_journal_head_sha256: root.head_sha256,
       authority_status: authorityStatus,
       attestation_sha256: attestationSha256,
+      source_manifest_sha256: sourceManifestSha256,
     };
     return {
       sequence: root.sequence,
@@ -1022,6 +1025,7 @@ export class HostLifecycleJournal {
       lifecycle_head_sha256: lifecycleHead.head_sha256,
       authority_status: authorityStatus,
       ...(attestationSha256 ? { attestation_sha256: attestationSha256 } : {}),
+      ...(sourceManifestSha256 ? { source_manifest_sha256: sourceManifestSha256 } : {}),
       snapshot_fingerprint: sha256(canonical(snapshot)),
     };
   }
@@ -1164,6 +1168,7 @@ export class HostLifecycleJournal {
             lifecycle_sequence: lifecycleHead.sequence,
             lifecycle_head_sha256: lifecycleHead.head_sha256,
             attestation_sha256: currentAuthority.attestation_sha256,
+            source_manifest_sha256: currentAuthority.source_manifest_sha256,
             ...(rows.length > 1 ? { duplicate: true } : {}),
           };
         }
@@ -1270,6 +1275,7 @@ export class HostLifecycleJournal {
           lifecycle_sequence: existing.lifecycle_sequence,
           lifecycle_head_sha256: existing.lifecycle_head_sha256,
           attestation_sha256: attestationSha256,
+          source_manifest_sha256: attestation.source_manifest_sha256,
         };
       }
       if (this.#hasPendingMutation(input.host_installation_id, input.authenticated_account_id)) {
@@ -1324,6 +1330,7 @@ export class HostLifecycleJournal {
         lifecycle_sequence: lifecycleHead.sequence,
         lifecycle_head_sha256: lifecycleHead.head_sha256,
         attestation_sha256: attestationSha256,
+        source_manifest_sha256: attestation.source_manifest_sha256,
       };
     });
   }
@@ -1363,6 +1370,7 @@ export class HostLifecycleJournal {
         status: 'INTEGRITY_OK',
         authority_status: authority?.authority_status ?? 'REVIEW_ONLY',
         ...(authority?.attestation_sha256 ? { attestation_sha256: authority.attestation_sha256 } : {}),
+        ...(authority?.source_manifest_sha256 ? { source_manifest_sha256: authority.source_manifest_sha256 } : {}),
       };
     });
   }
