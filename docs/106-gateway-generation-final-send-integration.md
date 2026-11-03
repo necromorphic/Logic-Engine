@@ -32,6 +32,20 @@ The local patch wraps these five native ST generation handlers:
 
 The canonical registry currently contains 29 sender identities: all 26 pinned `CHAT_COMPLETION_SOURCES` values plus three synchronous text-generation handlers (`text-completions`, `kobold`, `novelai-text`). CometAPI is an OpenAI-compatible sender branch inside the Chat Completions handler and is explicitly registered as `cometapi`. Horde text is ordinary-only: `/api/horde/generate-text` returns a task ID and `/api/horde/task-status` later returns the model output without the originating request-scoped Final-Send context. `/api/horde/cancel-task` is cancellation control only. Until a durable server-owned task receipt binds the asynchronous task to the originating Gateway dispatch and final response revalidation, protected Memory is denied before Horde task creation. Unknown sender identities are not admitted for protected Memory. Image generation, TTS/audio, embeddings, translation, model-discovery requests and third-party extension routes are not part of this text-generation registry. Protected Memory must not be sent through them.
 
+### Audited native endpoints outside the protected text-generation registry
+
+These routes are present in the pinned modules but do not receive protected NPC text context:
+
+- `POST /api/backends/chat-completions/process` — prompt post-processing only; it does not dispatch to a provider.
+- `GET /api/backends/text-completions/props` and `/status` — configuration/status.
+- `POST /api/backends/kobold/transcribe-audio` and `/embed` — audio transcription and embedding, not NPC text generation.
+- `POST /api/novelai/generate-image` and `/generate-voice` — image and voice generation.
+- `POST /api/horde/generate-image` and `/caption-image` — image generation/captioning.
+- `POST /api/horde/task-status` — asynchronous text-result retrieval, ordinary-only because protected Horde task creation is denied.
+- `POST /api/horde/cancel-task` — cancellation control only.
+
+The Hook patch is scoped to the five text-generation handler entrypoints listed above. It does not classify these unrelated endpoints as protected text senders.
+
 ## Integration contract between #870 and #844
 
 The #870 Host Adapter/Core integration provides the underlying contracts:
