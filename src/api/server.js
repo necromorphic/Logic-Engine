@@ -357,6 +357,89 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
           throw error;
         }
       }
+      if (url.pathname === '/v1/host-root-inventory/attest') {
+        if (req.method !== 'POST') return send(res, 405, {
+          error: { code: 'METHOD_NOT_ALLOWED', message: 'Unsupported Host root-inventory operation.' },
+        });
+        if (!hostRootInventoryJournal || !resolveHostRootIdentity) {
+          return send(res, 503, {
+            error: { code: 'HOST_ROOT_INVENTORY_UNAVAILABLE', message: 'Host root inventory journal is not configured.' },
+          });
+        }
+        const adapterId = adapterIdFor(req);
+        if (!adapterId) return send(res, 403, {
+          error: { code: 'ADAPTER_REQUIRED', message: 'An authenticated adapter identity is required.' },
+        });
+        const body = await readBody(req, 64 * 1024);
+        const validIdentity = value => typeof value === 'string' && value === value.trim()
+          && value.length > 0 && value.length <= 200
+          && ![...value].some(character => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127);
+        if (!body || typeof body !== 'object' || Array.isArray(body)
+          || Object.keys(body).some(key => ![
+            'host_installation_id', 'authenticated_account_id', 'root_id', 'attestation',
+          ].includes(key))
+          || !validIdentity(body.host_installation_id)
+          || !validIdentity(body.authenticated_account_id)
+          || !/^[a-f0-9]{64}$/.test(body.root_id ?? '')
+          || !body.attestation || typeof body.attestation !== 'object' || Array.isArray(body.attestation)) {
+          throw new EngineError('INVALID_HOST_ROOT_INVENTORY_ATTESTATION',
+            'Root inventory attestation requires the trusted installation/account/root tuple and signed completeness proof.', 400);
+        }
+        let trustedIdentity;
+        try {
+          trustedIdentity = await resolveHostRootIdentity({
+            adapterId,
+            host_installation_id: body.host_installation_id,
+            authenticated_account_id: body.authenticated_account_id,
+            root_id: body.root_id,
+          });
+        } catch {
+          return send(res, 403, { error: { code: 'HOST_ROOT_INVENTORY_NOT_AUTHORIZED', message: 'Host root inventory identity is not authorized.' } });
+        }
+        if (!trustedIdentity || trustedIdentity.authorized !== true
+          || trustedIdentity.adapter_id !== adapterId
+          || trustedIdentity.host_installation_id !== body.host_installation_id
+          || trustedIdentity.authenticated_account_id !== body.authenticated_account_id
+          || trustedIdentity.root_id !== body.root_id) {
+          return send(res, 403, { error: { code: 'HOST_ROOT_INVENTORY_NOT_AUTHORIZED', message: 'Host root inventory identity is not authorized.' } });
+        }
+        try {
+          const result = hostRootInventoryJournal.attestRootInventory({
+            host_installation_id: trustedIdentity.host_installation_id,
+            authenticated_account_id: trustedIdentity.authenticated_account_id,
+            root_id: trustedIdentity.root_id,
+            attestation: body.attestation,
+          });
+          return send(res, 200, {
+            inventory_status: result.status,
+            reconciliation: {
+              status: result.status,
+              integrity_status: result.integrity_status,
+              sequence: result.sequence,
+              manifest_sha256: result.manifest_sha256,
+              journal_head_sha256: result.journal_head_sha256,
+              lifecycle_sequence: result.lifecycle_sequence,
+              lifecycle_head_sha256: result.lifecycle_head_sha256,
+              attestation_sha256: result.attestation_sha256,
+              ...(result.duplicate ? { duplicate: true } : {}),
+            },
+          });
+        } catch (error) {
+          if (error?.message === 'HOST_ROOT_INVENTORY_ATTESTATION_EXPIRED'
+            || error?.message === 'HOST_ROOT_INVENTORY_ATTESTATION_INVALID'
+            || error?.message === 'HOST_ROOT_INVENTORY_ATTESTATION_SIGNATURE_INVALID'
+            || error?.message === 'HOST_ROOT_INVENTORY_ATTESTATION_REPLAYED'
+            || error?.message === 'HOST_ROOT_INVENTORY_ATTESTATION_CONFLICT'
+            || error?.message === 'HOST_ROOT_INVENTORY_DELTA_REQUIRES_MANUAL_RECOVERY') {
+            throw new EngineError(error.message, 'Host root inventory completeness proof was rejected.', 409);
+          }
+          if (error instanceof TypeError) {
+            throw new EngineError('INVALID_HOST_ROOT_INVENTORY_ATTESTATION',
+              'Host root inventory completeness proof is malformed.', 400);
+          }
+          throw error;
+        }
+      }
       if (url.pathname === '/v1/host-root-inventory/baseline'
         || url.pathname === '/v1/host-root-inventory/observe') {
         if (req.method !== 'POST') return send(res, 405, {
