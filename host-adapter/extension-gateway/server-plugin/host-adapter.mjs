@@ -82,7 +82,14 @@ export function createSillyTavernHostAdapter({
       resolveConversationId: async request => {
         const userHandle = request?.user?.profile?.handle;
         const sessionId = request?.session?.logicEngineSessionId;
-        const conversationUuid = request?.body?.conversation_uuid;
+        const bodyConversationUuid = request?.body?.conversation_uuid;
+        const headerConversationUuid = request?.headers?.['x-logic-engine-conversation-uuid'];
+        if (bodyConversationUuid !== undefined && headerConversationUuid !== undefined
+          && bodyConversationUuid !== headerConversationUuid) return null;
+        // The browser extension may supply only a locator. Ownership is derived
+        // from the authenticated ST session and the server-verified inventory;
+        // this header is never treated as an identity or authorization claim.
+        const conversationUuid = bodyConversationUuid ?? headerConversationUuid;
         const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
         if (typeof userHandle !== 'string' || !userHandle.trim()
           || !uuid.test(sessionId ?? '') || !uuid.test(conversationUuid ?? '')) return null;
