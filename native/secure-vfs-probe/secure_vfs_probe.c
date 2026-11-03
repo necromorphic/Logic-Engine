@@ -3343,7 +3343,8 @@ static void probe_register_manifest_sidecar(sqlite3_context *context, int argc,
       break;
     }
   }
-  if (role_index < 0 || !g_database_roles[role_index].manifest_bound) {
+  if (role_index < 0 || !g_database_roles[role_index].manifest_bound
+      || g_database_roles[role_index].manifest_ready) {
     reject = 1;
   }
   if (!reject) {
@@ -3429,6 +3430,36 @@ static void probe_register_manifest_sidecar(sqlite3_context *context, int argc,
   probe_registry_unlock();
   if (reject) {
     sqlite3_result_error(context, "manifest sidecar identity conflicts with role registry", -1);
+    return;
+  }
+  sqlite3_result_int(context, 1);
+}
+
+static void probe_activate_manifest_role(sqlite3_context *context, int argc,
+                                         sqlite3_value **argv) {
+  const unsigned char *role_name = argc == 1 ? sqlite3_value_text(argv[0]) : NULL;
+  int role_index = -1;
+  if (!role_name || !role_name[0]) {
+    sqlite3_result_error(context, "manifest role name is required for activation", -1);
+    return;
+  }
+  probe_registry_lock();
+  for (int i = 0; i < g_database_role_count; ++i) {
+    if (strcmp(g_database_roles[i].role, (const char *)role_name) == 0) {
+      role_index = i;
+      break;
+    }
+  }
+  if (role_index >= 0 && g_database_roles[role_index].manifest_bound) {
+    /* Idempotent finalization is safe; sidecar enrollment itself is closed
+       once this bit is set. The role becomes visible to SQLite only here. */
+    g_database_roles[role_index].manifest_ready = 1;
+  } else {
+    role_index = -1;
+  }
+  probe_registry_unlock();
+  if (role_index < 0) {
+    sqlite3_result_error(context, "manifest role is absent or not manifest-bound", -1);
     return;
   }
   sqlite3_result_int(context, 1);
@@ -3773,6 +3804,9 @@ static int probe_auto_extension(sqlite3 *db, char **error, const sqlite3_api_rou
   if (rc != SQLITE_OK) return rc;
   rc = sqlite3_create_function(db, "logic_engine_vfs_probe_register_manifest_sidecar", 5,
     SQLITE_UTF8, 0, probe_register_manifest_sidecar, 0, 0);
+  if (rc != SQLITE_OK) return rc;
+  rc = sqlite3_create_function(db, "logic_engine_vfs_probe_activate_manifest_role", 1,
+    SQLITE_UTF8, 0, probe_activate_manifest_role, 0, 0);
   if (rc != SQLITE_OK) return rc;
 #endif
 #if defined(_WIN32) || defined(LOGIC_ENGINE_VFS_PROBE_ALLOW_UNBROKERED_TEST_ROLES)
