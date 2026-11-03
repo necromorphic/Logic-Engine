@@ -5,6 +5,7 @@ import { join, resolve } from 'node:path';
 const test = nodeTest;
 
 import { assertHostStartupMigrationAllowed, createHostBulkMutationGuard, createHostIdentityHandler, createHostInventoryHandler, createHostLifecycleSaveGuard, createHostUnsupportedMutationGuard, createHostRequestAuthenticationGate, createHostSessionHandler, resolveHostDataDirectories } from '../st-host-inventory-handler.mjs';
+import { PINNED_PATCH_BUNDLE_SHA256, PINNED_HOST_HANDLER_GIT_BLOB_SHA } from '../../extension-gateway/server-plugin/st-source-attestation.mjs';
 
 function makeResponse() {
   return {
@@ -334,8 +335,8 @@ test('host inventory clears only blockers covered by verified source and Core VS
     verifySourceIdentity: async () => ({
       status: 'CURRENT_IDENTITIES_VERIFIED',
       manifest_sha256: 'e'.repeat(64),
-      patch_blob_sha: 'f'.repeat(64),
-      host_handler_blob_sha: '1'.repeat(64),
+      patch_blob_sha: PINNED_PATCH_BUNDLE_SHA256,
+      host_handler_blob_sha: PINNED_HOST_HANDLER_GIT_BLOB_SHA,
     }),
     persistRootInventory: async input => {
       persistedInput = input;
