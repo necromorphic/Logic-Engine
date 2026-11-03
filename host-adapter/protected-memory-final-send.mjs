@@ -30,6 +30,7 @@ const CHAT_COMPLETION_ROUTES = new Set(PROTECTED_MEMORY_SENDER_ROUTES.filter(rou
 const HOST_ONLY_FIELDS = new Set([
   'logic_engine_conversation_uuid',
   'logic_engine_request_id',
+  'logic_engine_generation_id',
   'logic_engine_context_size',
   'logic_engine_generation_type',
   'logic_engine_memory',
