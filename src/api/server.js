@@ -430,7 +430,8 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
             || error?.message === 'HOST_ROOT_INVENTORY_ATTESTATION_SIGNATURE_INVALID'
             || error?.message === 'HOST_ROOT_INVENTORY_ATTESTATION_REPLAYED'
             || error?.message === 'HOST_ROOT_INVENTORY_ATTESTATION_CONFLICT'
-            || error?.message === 'HOST_ROOT_INVENTORY_DELTA_REQUIRES_MANUAL_RECOVERY') {
+            || error?.message === 'HOST_ROOT_INVENTORY_DELTA_REQUIRES_MANUAL_RECOVERY'
+            || error?.message === 'HOST_ROOT_INVENTORY_PENDING_MUTATION') {
             throw new EngineError(error.message, 'Host root inventory completeness proof was rejected.', 409);
           }
           if (error instanceof TypeError) {
