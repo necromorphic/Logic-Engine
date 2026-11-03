@@ -140,8 +140,9 @@ export function createHostInventoryHandler({
         && rootInventory.status === 'AUTHORITATIVE_COMPLETE'
         && /^[a-f0-9]{64}$/.test(rootInventory.attestation_sha256 ?? '')
         && Number.isSafeInteger(rootInventory.lifecycle_sequence)
-        && rootInventory.lifecycle_sequence > 0
-        && /^[a-f0-9]{64}$/.test(rootInventory.lifecycle_head_sha256 ?? '');
+        && rootInventory.lifecycle_sequence >= 0
+        && /^[a-f0-9]{64}$/.test(rootInventory.lifecycle_head_sha256 ?? '')
+        && (rootInventory.lifecycle_sequence !== 0 || rootInventory.lifecycle_head_sha256 === '0'.repeat(64));
       const sourceSnapshotAttested = rootInventoryAuthoritative
         && sourceIdentity?.status === 'CURRENT_IDENTITIES_VERIFIED'
         && /^[a-f0-9]{64}$/.test(sourceIdentity.manifest_sha256 ?? '')
