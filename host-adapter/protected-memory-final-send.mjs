@@ -260,17 +260,26 @@ export function createProtectedMemoryFinalSend({ gateway, resolveProtectedMemory
   }) {
     assertRequest(endpointUrl, requestInit);
 
-    const protectedMemory = protectedMemoryOverride !== undefined
+    const resolution = protectedMemoryOverride !== undefined
       ? protectedMemoryOverride
       : resolveProtectedMemory(hostRequestContext);
-    if (protectedMemory && typeof protectedMemory.then === 'function') {
+    if (resolution && typeof resolution.then === 'function') {
       throw new Error('MEMORY_DISPATCH_NOT_READY');
     }
-    if (protectedMemory === undefined) throw new Error('MEMORY_DISPATCH_NOT_READY');
-
-    if (protectedMemory === null) {
+    // Native transport is permitted only after an explicit Host classification.
+    // null/undefined/unknown is never interpreted as an ordinary request.
+    if (!isPlainRecord(resolution) || !['unprotected', 'ready', 'non_ready'].includes(resolution.status)) {
+      throw new Error('MEMORY_DISPATCH_NOT_READY');
+    }
+    if (resolution.status === 'unprotected') {
+      if (Reflect.ownKeys(resolution).length !== 1) throw new Error('MEMORY_DISPATCH_NOT_READY');
       return invokeTransport(transportImpl, fetchImpl, endpointUrl, requestInit);
     }
+    if (resolution.status !== 'ready' || Reflect.ownKeys(resolution).length !== 2
+      || !Object.hasOwn(resolution, 'context')) {
+      throw new Error('MEMORY_DISPATCH_NOT_READY');
+    }
+    const protectedMemory = resolution.context;
 
     if (!validRoute(senderRoute) || HOST_ROUTE_BY_SENDER.get(senderRoute) !== hostRoute) {
       throw new Error('MEMORY_DISPATCH_NOT_READY');
