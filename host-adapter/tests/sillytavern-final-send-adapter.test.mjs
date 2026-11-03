@@ -42,6 +42,20 @@ const expectedRoutes = Object.freeze({
 });
 const requestInit = { method: 'POST', body: '{"model":"test-model","messages":[{"role":"user","content":"hello"}]}', headers: {} };
 
+function makeAdapterHandoffFields(requestId) {
+  const generationRequest = {
+    request_id: requestId,
+    generation_id: `generation-${requestId}`,
+    generation_type: 'chat',
+  };
+  return {
+    conversationId: 'conversation-1',
+    adapterId: 'sillytavern-1',
+    generationRequest,
+    npcContextHandoff: { generationRequest, context: {} },
+  };
+}
+
 function createAdapter({
   resolveProtectedMemory,
   gateway = { dispatchProtectedRequest: () => 'gateway' },
@@ -120,6 +134,7 @@ test('adapter maps all pinned non-Chat-Completions route families', () => {
 test('CometAPI is registered and protected generation reaches the sole Gateway', async () => {
   const protectedContext = {
     requestId: 'request-cometapi',
+    ...makeAdapterHandoffFields('request-cometapi'),
     model: 'test-model',
     worldId: 'world-1',
     actorId: 'actor-1',
@@ -212,6 +227,7 @@ test('all three synchronous protected non-Chat-Completions routes dispatch throu
   const adapter = createAdapter({
     resolveProtectedMemory: () => ({
       requestId: 'request-routes',
+      ...makeAdapterHandoffFields('request-routes'),
       model: 'test-model',
       worldId: 'world-1',
       actorId: 'actor-1',
@@ -304,6 +320,7 @@ test('Horde async task creation remains native only when unprotected', async () 
 test('registered protected sender is delegated to the Core Gateway', () => {
   const protectedContext = {
     requestId: 'request-2',
+    ...makeAdapterHandoffFields('request-2'),
     model: 'test-model',
     worldId: 'world-1',
     actorId: 'actor-1',
@@ -404,6 +421,7 @@ test('trusted asynchronous Host preparation is passed to the synchronous Memory 
 function makeNpcProtectedMemory(overrides = {}) {
   return {
     requestId: 'dispatch-1',
+    ...makeAdapterHandoffFields('dispatch-1'),
     model: 'test-model',
     worldId: 'world-1',
     actorId: 'actor-1',
