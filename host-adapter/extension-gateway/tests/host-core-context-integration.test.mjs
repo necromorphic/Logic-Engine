@@ -502,6 +502,7 @@ test('Host Adapter requires Core root proof before context resolution and binds 
     body: {
       logic_engine_conversation_uuid: UUID,
       logic_engine_request_id: '88888888-8888-4888-8888-888888888888',
+      logic_engine_generation_id: '99999999-9999-4999-8999-999999999999',
       logic_engine_context_size: 4096,
       logic_engine_generation_type: 'normal',
     },
