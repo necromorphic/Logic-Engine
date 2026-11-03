@@ -161,7 +161,7 @@ test('account switching and version invalidation revoke the old Host capability 
         'account-switch helper must distinguish sessions without a Host capability');
     assert.equal(accountSwitchHelper.includes('LOGIC_ENGINE_HOST_IDENTITY_DIR'), false,
         'an existing Host capability must not bypass revocation when deployment configuration disappears');
-    const autoSwitchCalls = users.match(/await revokeHostSessionBeforeAccountSwitch\\(request,/g) ?? [];
+    const autoSwitchCalls = users.match(/await revokeHostSessionBeforeAccountSwitch\(request,/g) ?? [];
     assert.equal(autoSwitchCalls.length, 3,
         'single-user, trusted-header SSO, and Basic Auth account switches must all revoke the old capability');
     for (const [startMarker, nextMarker, accountAssignment] of [
