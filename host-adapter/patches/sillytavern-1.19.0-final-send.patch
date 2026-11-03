@@ -204,7 +204,7 @@
 +        ? Boolean(body.streaming)
 +        : active.route === 'horde-text' ? false : Boolean(body.stream);
 +    const hostTransformsStream = active.route === 'text-completions' && body.api_type === 'ollama' && stream;
-+    const transport = () => nativeFetch(endpointUrl, requestInit);
++    const transport = (outboundRequestInit = requestInit) => nativeFetch(endpointUrl, outboundRequestInit);
 +    const forwardResponse = stream ? (upstream) => {
 +        if (active.protectedForward) return active.protectedForward;
 +        const pending = active.adapter.forwardResponse(upstream, active.response);
