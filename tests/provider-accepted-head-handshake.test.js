@@ -8,6 +8,7 @@ import { spawn } from 'node:child_process';
 import { DatabaseSync } from 'node:sqlite';
 import { enrollAcceptedHeadDomain } from '../src/security/enroll-accepted-head-domain.js';
 import { SQLiteMemoryProvider } from '../src/application/sqlite-memory-provider.js';
+import { beginCoordinatorLock, openCoordinatorDatabase } from '../src/storage/coordinator-lock.js';
 import {
   advanceAcceptedHeadSync,
   enrollAcceptedHeadSync,
@@ -115,6 +116,43 @@ test('Provider mutations advance accepted head before commit and fail closed whe
 
     provider.grantQuery(scope, true);
     assert.equal(provider.authorizeQuery(scope), true);
+
+    // Final-Send reads Provider evidence synchronously under the same
+    // cross-process Coordinator lease and must not mutate Provider state.
+    await provider.rebuildIndex(scope.world_id);
+    await provider.reconcile(scope.world_id);
+    const coordinatorObserver = openCoordinatorDatabase(coordinatorPath);
+    const providerLease = beginCoordinatorLock(coordinatorObserver);
+    try {
+      const evidence = provider.readDispatchEvidenceSync({
+        worldId: scope.world_id,
+        actorId: scope.subject_id,
+        purpose: scope.purpose,
+        sources: [],
+        candidates: [],
+        coordinatorLease: providerLease,
+      });
+      assert.deepEqual(evidence, {
+        world_id: scope.world_id,
+        actor_id: scope.subject_id,
+        purpose: scope.purpose,
+        granted: true,
+        readiness: 'READY',
+        head: 3,
+        sources: [],
+        candidates: [],
+      });
+    } finally {
+      providerLease();
+      coordinatorObserver.close();
+    }
+    assert.throws(() => provider.readDispatchEvidenceSync({
+      worldId: scope.world_id,
+      actorId: scope.subject_id,
+      purpose: scope.purpose,
+      sources: [],
+      candidates: [],
+    }), /MEMORY_DISPATCH_NOT_READY/);
     const firstOperation = providerDb.prepare(
       'SELECT head,enrolled,last_operation_id,last_operation_digest FROM accepted_head_state WHERE singleton=1',
     ).get();
