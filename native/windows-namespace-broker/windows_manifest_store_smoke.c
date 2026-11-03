@@ -6,6 +6,7 @@
 #include <strsafe.h>
 #define LE_COUNT_OF(value) (sizeof(value) / sizeof((value)[0]))
 #include "windows_manifest_store.c"
+#include "windows_namespace_adapter.c"
 
 static int validate_test_json(const unsigned char *bytes, DWORD length, void *context) {
   static const unsigned char expected[] = { 0x7b, 0x22, 0x6f, 0x6b, 0x22, 0x3a, 0x74, 0x72, 0x75, 0x65, 0x7d };
@@ -18,6 +19,8 @@ int main(void) {
   LE_WIN_MANIFEST_STORE store;
   unsigned char *manifest = NULL, *intent = NULL;
   DWORD manifest_length = 0, intent_length = 0;
+  HANDLE sidecar = INVALID_HANDLE_VALUE, reopened = INVALID_HANDLE_VALUE;
+  LogicEngineWinFileIdentity sidecar_identity, reopened_identity, wrong_identity;
   static const unsigned char document[] = { 0x7b, 0x22, 0x6f, 0x6b, 0x22, 0x3a, 0x74, 0x72, 0x75, 0x65, 0x7d };
   int result = 1;
   HANDLE token = NULL;
@@ -59,8 +62,18 @@ int main(void) {
       || memcmp(manifest, document, manifest_length) != 0
       || memcmp(intent, document, intent_length) != 0) goto unlock_store;
   if (!le_win_store_remove_intent(&store)) goto unlock_store;
+  if (!le_win_namespace_create_sidecar(store.directory, L"smoke-wal", &sidecar, &sidecar_identity)) goto unlock_store;
+  if (!le_win_namespace_flush(sidecar)) goto unlock_store;
+  if (!le_win_namespace_open_sidecar(store.directory, L"smoke-wal", &sidecar_identity, &reopened, &reopened_identity)) goto unlock_store;
+  if (!logic_engine_win_identity_equal(&sidecar_identity, &reopened_identity)) goto unlock_store;
+  wrong_identity = sidecar_identity;
+  wrong_identity.file_id.Identifier[0] ^= 0x01;
+  if (le_win_namespace_open_sidecar(store.directory, L"smoke-wal", &wrong_identity, &reopened, &reopened_identity)) goto unlock_store;
+  if (!le_win_namespace_delete_sidecar(store.directory, sidecar, &sidecar_identity)) goto unlock_store;
   result = 0;
 unlock_store:
+  if (reopened != INVALID_HANDLE_VALUE) CloseHandle(reopened);
+  if (sidecar != INVALID_HANDLE_VALUE) CloseHandle(sidecar);
   if (manifest) HeapFree(GetProcessHeap(), 0, manifest);
   if (intent) HeapFree(GetProcessHeap(), 0, intent);
   le_win_store_unlock(&store);
@@ -72,6 +85,7 @@ done:
     if (SUCCEEDED(StringCchPrintfW(child, LE_COUNT_OF(child), L"%s\\manifest.json", directory))) DeleteFileW(child);
     if (SUCCEEDED(StringCchPrintfW(child, LE_COUNT_OF(child), L"%s\\store.lock", directory))) DeleteFileW(child);
     if (SUCCEEDED(StringCchPrintfW(child, LE_COUNT_OF(child), L"%s\\intent.json", directory))) DeleteFileW(child);
+    if (SUCCEEDED(StringCchPrintfW(child, LE_COUNT_OF(child), L"%s\\smoke-wal", directory))) DeleteFileW(child);
   }
   RemoveDirectoryW(directory);
   if (descriptor) LocalFree(descriptor);
