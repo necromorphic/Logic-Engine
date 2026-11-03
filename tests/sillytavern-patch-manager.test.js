@@ -123,7 +123,7 @@ test('Patch Manager performs preflight, backup, apply, verify and uninstall', as
   const { manager, stRoot, original, patched } = await fixture(t);
   assert.equal((await manager.execute('preflight')).status, 'PREFLIGHT_OK');
   assert.equal((await manager.execute('install')).status, 'INSTALLED');
-  assert.equal(await readFile(join(stRoot, 'src/host.js'), 'utf8'), patched);
+  assert.equal((await readFile(join(stRoot, 'src/host.js'), 'utf8')).replace(/\r\n/g, '\n'), patched);
   assert.equal((await manager.execute('verify')).status, 'INSTALLED_AND_VERIFIED');
   assert.equal((await manager.execute('uninstall')).status, 'ROLLED_BACK');
   assert.equal(await readFile(join(stRoot, 'src/host.js'), 'utf8'), original);
