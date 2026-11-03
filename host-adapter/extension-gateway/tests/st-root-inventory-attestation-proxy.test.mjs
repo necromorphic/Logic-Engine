@@ -58,6 +58,7 @@ test('root inventory proxy signs a VSS-aligned pinned-source attestation after C
         lifecycle_sequence: 1,
         lifecycle_head_sha256: '0'.repeat(64),
         source_manifest_sha256: 'e'.repeat(64),
+        attestation_sha256: 'f'.repeat(64),
       } });
     }
     throw new Error('unexpected Core path');
