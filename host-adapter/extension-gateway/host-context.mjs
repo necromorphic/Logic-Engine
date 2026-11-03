@@ -23,8 +23,7 @@ export async function resolveGatewayHostContext({
     hostContext = module.getContext();
   }
   if (!hostContext || typeof hostContext.getCurrentChatId !== 'function'
-    || typeof hostContext.saveMetadata !== 'function'
-    || typeof hostContext.getRequestHeaders !== 'function') {
+    || typeof hostContext.saveMetadata !== 'function') {
     throw new Error('HOST_EXTENSION_CONTEXT_UNAVAILABLE');
   }
   const session = await readJson(fetchImpl, GATEWAY + '/session');
@@ -56,28 +55,6 @@ export async function resolveGatewayHostContext({
     hostSessionId: session.host_session_id,
     hostInstallationId: identity.host_installation_id,
     authenticatedAccountId: identity.authenticated_account_id,
-    getRequestHeaders: hostContext.getRequestHeaders,
   });
 }
 
-export async function dispatchThroughExtensionGateway({ requestId, contextSize, type }, options = {}) {
-  if (!UUID.test(requestId ?? '')) throw new Error('HOST_DISPATCH_REQUEST_ID_INVALID');
-  if (!Number.isSafeInteger(contextSize) || contextSize < 1 || contextSize > 200000) {
-    throw new Error('HOST_DISPATCH_CONTEXT_SIZE_INVALID');
-  }
-  if (typeof type !== 'string' || !/^[a-z][a-z0-9_-]{0,31}$/.test(type)) {
-    throw new Error('HOST_DISPATCH_GENERATION_TYPE_INVALID');
-  }
-  const fetchImpl = options.fetchImpl ?? globalThis.fetch;
-  const resolved = await resolveGatewayHostContext(options);
-  return readJson(fetchImpl, GATEWAY + '/dispatch', {
-    method: 'POST',
-    headers: resolved.getRequestHeaders(),
-    body: JSON.stringify({
-      request_id: requestId,
-      conversation_uuid: resolved.conversationUuid,
-      context_size: contextSize,
-      generation_type: type,
-    }),
-  });
-}
