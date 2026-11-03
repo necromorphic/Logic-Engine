@@ -103,6 +103,7 @@ test('Host Adapter requires Core root proof before context resolution and binds 
       host_session_id: input.host_session_id,
       conversation_uuid: input.conversation_uuid,
       root_id: 'a'.repeat(64), authority_id: 'host-e2e-test-authority',
+      authority_status: 'AUTHORITATIVE_COMPLETE',
       generation: 1, snapshot_fingerprint: 'b'.repeat(64),
     }),
   });
