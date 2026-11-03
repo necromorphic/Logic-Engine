@@ -992,7 +992,7 @@ diff --git a/src/endpoints/users-public.js b/src/endpoints/users-public.js
  import { color, Cache, getConfigValue } from '../util.js';
  import { KEY_PREFIX, getUserAvatar, toKey, getPasswordHash, getPasswordSalt, getAccountVersion } from '../users.js';
 +import { revokeHostSessionBeforeLogout } from '../../plugins/logic-engine-extension-gateway/st-host-session-revocation.mjs';
-@@ -91,4 +92,13 @@
+@@ -91,4 +92,15 @@
  
          await loginLimiter.delete(ip);
 +        if (process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR
@@ -1003,6 +1003,8 @@ diff --git a/src/endpoints/users-public.js b/src/endpoints/users-public.js
 +            } catch {
 +                return response.status(503).json({ error: 'Host session revocation unavailable; account was not switched.' });
 +            }
++            delete request.session.logicEngineSessionId;
++            delete request.session.logicEngineSessionHandle;
 +        }
          request.session.handle = user.handle;
          request.session.version = getAccountVersion(user);
