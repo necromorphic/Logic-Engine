@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { validateWindowsManifest } from './windows-role-manifest.js';
 
 /*
  * Windows SQLite manifest lifecycle coordinator.
@@ -47,44 +48,8 @@ function clone(value) {
 }
 
 function validateManifest(manifest) {
-  assertRecord(manifest, 'manifest');
-  if (manifest.schemaVersion !== 1 || manifest.platform !== 'windows'
-      || !Number.isSafeInteger(manifest.generation) || manifest.generation < 1
-      || !Array.isArray(manifest.roles) || manifest.roles.length === 0) {
-    throw new TypeError('Invalid Windows manifest envelope');
-  }
-  const roles = new Set();
-  for (const role of manifest.roles) {
-    assertRecord(role, 'role');
-    if (typeof role.role !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(role.role)
-        || roles.has(role.role) || role.state !== 'active'
-        || typeof role.databaseBasename !== 'string'
-        || !role.databaseBasename || /[\\/:\0]/.test(role.databaseBasename)
-        || !Array.isArray(role.sidecars)) {
-      throw new TypeError('Invalid Windows manifest role');
-    }
-    roles.add(role.role);
-    const active = new Set();
-    const generations = new Set();
-    for (const sidecar of role.sidecars) {
-      assertRecord(sidecar, 'sidecar');
-      if (!Object.hasOwn(SIDECAR_SUFFIX, sidecar.kind)
-          || !['active', 'retired'].includes(sidecar.state)
-          || !Number.isSafeInteger(sidecar.generation)
-          || sidecar.generation < 1 || sidecar.generation > manifest.generation) {
-        throw new TypeError('Invalid stable sidecar record in Windows manifest');
-      }
-      assertIdentity(sidecar.identity, 'sidecar');
-      const generationKey = `${sidecar.kind}:${sidecar.generation}`;
-      if (generations.has(generationKey)) throw new TypeError('Duplicate sidecar generation');
-      generations.add(generationKey);
-      if (sidecar.state === 'active') {
-        if (active.has(sidecar.kind)) throw new TypeError('Multiple active sidecars of one kind');
-        active.add(sidecar.kind);
-      }
-    }
-  }
-  return roles;
+  validateWindowsManifest(manifest);
+  return true;
 }
 
 function roleFor(manifest, roleName) {
