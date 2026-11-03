@@ -890,6 +890,41 @@ test('cancellation after upstream completion but before Host response write supp
   }
 });
 
+test('abort raised inside the final Host writer settles after the Coordinator lease releases', async () => {
+  const fixture = await createFixture();
+  const controller = new AbortController();
+  try {
+    const request = validRequest('abort-inside-final-writer', { signal: controller.signal });
+    await fixture.gateway.dispatchProtectedRequest(request);
+
+    const hostResponse = new EventEmitter();
+    hostResponse.writableEnded = false;
+    hostResponse.destroyed = false;
+    let writes = 0;
+    fixture.gateway.authorizeResponseWrite(request.requestId, () => {
+      writes += 1;
+      controller.abort();
+      hostResponse.writableFinished = true;
+      hostResponse.emit('finish');
+    }, { final: true, response: hostResponse });
+
+    await Promise.resolve();
+    assert.equal(writes, 1);
+    const db = new DatabaseSync(fixture.ledgerPath);
+    try {
+      assert.equal(
+        db.prepare('SELECT status FROM dispatch_ledger WHERE request_id=?').get(request.requestId).status,
+        'UNKNOWN',
+        'a cancellation racing the final write is conservatively non-replayable',
+      );
+    } finally {
+      db.close();
+    }
+  } finally {
+    await fixture.close();
+  }
+});
+
 test('cancellation after dispatch-start records UNKNOWN and blocks every retry', async () => {
   const controller = new AbortController();
   let sends = 0;
