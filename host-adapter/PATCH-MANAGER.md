@@ -57,16 +57,13 @@ The #855 root server plugin now registers a fail-closed adapter implementing the
 
 ## Evidence on current branch
 
-At HEAD `131a1d6c81110209cb82f8ddbe2056a0a4c7d6e4` (CI still running):
+- The exact-pinned-source audit previously passed Patch Manager preflight, install, installed-file verification, syntax checks, real-handler fake-provider integration, and uninstall/rollback on SillyTavern 1.19.0.
+- The real-handler harness exercises all five native text-generation handlers, one provider request per handler, Chat Completions streaming, terminal Kobold retry suppression, and now a simulated Provider revoke immediately before the actual Express `response.end()`.
+- Adapter tests cover all 29 sender identities, unknown-route denial, terminal response tombstones, one protected dispatch per Express response, and the separately routed generation families.
+- Gateway tests cover durable dispatch-start, revoke races, final-write authorization, streaming chunk suppression, replay denial, and crash/restart recovery.
+- Patch Manager tests now cover durable backups outside the Extension directory and recovery after interruption during restore.
 
-- The preceding exact-source audit passed Patch Manager preflight, install, installed-file verification, Node syntax checks, real-handler fake-provider integration, and uninstall/rollback on pinned SillyTavern 1.19.0 (HEAD `83ddbf5d3aa6d6089219b9317947821d2376a549`).
-- The real-handler harness exercised one request through each of the five native handler families and measured exactly one fake-provider request and one Gateway dispatch per request. It also exercised the Kobold post-handoff failure path and verified no retry.
-- Adapter tests cover the full 25-source route map, unknown-route denial, terminal response tombstones, and the separately routed generation families.
-- Gateway integration tests cover sender-family dispatch, durable dispatch-start ordering, revalidation, revoke/policy rotation, streaming release, replay denial, and crash recovery. These are Logic-Engine-side tests, not a live deployment attestation.
-
-Previous passing pinned-source audit: https://github.com/necromorphic/Logic-Engine/actions/runs/41408750484
-
-Current Hook/adapter contract audit: https://github.com/necromorphic/Logic-Engine/actions/runs/41410030407
+The current branch has new code and regression tests beyond the last completed source-audit run. Exact-head Runtime, Memory Provider and pinned-source audit results are tracked on [PR #844](https://github.com/necromorphic/Logic-Engine/pull/844); do not reuse an earlier commit's CI result as evidence for the current HEAD.
 
 ## Production blockers — do not enable protected Memory
 
