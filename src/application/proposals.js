@@ -187,7 +187,7 @@ export class ProposalService {
       && identity.active_mechanic_set[0].status === 'enabled'
       && identity.active_mechanic_set[0].template_id === identity.template_id
       && identity.active_mechanic_set[0].template_version === identity.template_version
-      && identity.active_mechanic_set[0].template_hash === identity.template_hash),
+      && identity.active_mechanic_set[0].template_hash === identity.template_hash,
     'INVALID_MECHANIC_EVALUATION_IDENTITY', 'Evaluation must include a complete world, snapshot, instance, and pinned-template identity.');
     assert(typeof evaluation.action_id === 'string' && evaluation.action_id.trim(), 'INVALID_MECHANIC_EVALUATION', 'action_id is required.');
     assert(object(evaluation.condition_result) && evaluation.condition_result.status === 'true', 'INVALID_MECHANIC_EVALUATION', 'Only evaluations with proven-true conditions may be proposed.');
