@@ -959,7 +959,7 @@ diff --git a/src/endpoints/logic-engine-host-inventory-handler.mjs b/src/endpoin
 new file mode 100644
 --- /dev/null
 +++ b/src/endpoints/logic-engine-host-inventory-handler.mjs
-@@ -0,0 +1,5 @@
+@@ -0,0 +1,6 @@
 +export {
 +    assertHostStartupMigrationAllowed,
 +    createHostBulkMutationGuard,
@@ -1039,7 +1039,6 @@ diff --git a/src/users.js b/src/users.js
              }
          }
      }
-
 @@ -232,7 +236,11 @@
  export async function migrateUserData() {
      const publicDirectory = path.join(process.cwd(), 'public');
@@ -1053,7 +1052,7 @@ diff --git a/src/users.js b/src/users.js
 +    if (process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR) {
 +        throw new Error('HOST_LIFECYCLE_LEGACY_USER_DATA_MIGRATION_BLOCKED');
 +    }
-@@ -434,2 +442,6 @@
+@@ -434,2 +442,7 @@
  export async function migrateSystemPrompts() {
 +    if (process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR) {
 +        console.warn('Skipping system prompt migration while Host authority is active.');
@@ -1095,7 +1094,7 @@ diff --git a/src/users.js b/src/users.js
                  request.session.handle = userHandle;
                  request.session.version = getAccountVersion(user);
                  return true;
-@@ -994,5 +1017,14 @@
+@@ -994,5 +1017,12 @@
          if (request.session.version !== getAccountVersion(user)) {
              console.warn('User data has changed since the session was created. Invalidating session for user:', handle);
 +            if (request.session.logicEngineSessionId !== undefined) {
