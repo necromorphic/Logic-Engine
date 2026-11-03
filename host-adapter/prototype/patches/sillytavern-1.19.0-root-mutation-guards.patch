@@ -286,3 +286,25 @@ diff --git a/src/endpoints/thumbnails.js b/src/endpoints/thumbnails.js
          // Try to generate thumbnail if it doesn't exist
          if (!fs.existsSync(pathToCachedFile)) {
              const thumbResult = await generateThumbnail(request.user.directories, type, file, false);
+
+diff --git a/src/plugin-loader.js b/src/plugin-loader.js
+--- a/src/plugin-loader.js
++++ b/src/plugin-loader.js
+@@ -55,8 +55,15 @@
+         const files = fs.readdirSync(pluginsPath);
++        const hostAuthorityConfigured = Boolean(process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR);
++        if (hostAuthorityConfigured) {
++            const allowedPlugins = new Set(['logic-engine-extension-gateway']);
++            const unreviewedPlugins = files.filter(file => !allowedPlugins.has(file));
++            if (unreviewedPlugins.length > 0) {
++                throw new Error('HOST_UNREVIEWED_SERVER_PLUGIN_BLOCKED:' + unreviewedPlugins.join(','));
++            }
++        }
+ 
+         // No plugins to load.
+         if (files.length === 0) {
+             return emptyFn;
+         }
+ 
+-        await updatePlugins(pluginsPath);
++        if (!hostAuthorityConfigured) await updatePlugins(pluginsPath);
