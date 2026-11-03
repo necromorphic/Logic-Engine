@@ -1089,3 +1089,22 @@ diff --git a/src/endpoints/users-admin.js b/src/endpoints/users-admin.js
 +    }
 +    return next();
 +});
+
+diff --git a/src/users.js b/src/users.js
+--- a/src/users.js
++++ b/src/users.js
+@@ -426,4 +426,7 @@
+     if (errors.length > 0) {
+         console.log(color.red('Migration completed with errors. Move the following files manually:'));
+         errors.forEach(error => console.error(error));
++        if (process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR) {
++            throw new Error('HOST_USER_DATA_MIGRATION_INCOMPLETE');
++        }
+     }
+@@ -485,3 +488,6 @@
+         } catch (error) {
+             console.error('Error migrating system prompts:', error);
++            if (process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR) {
++                throw new Error('HOST_SYSTEM_PROMPT_MIGRATION_INCOMPLETE');
++            }
+         }
