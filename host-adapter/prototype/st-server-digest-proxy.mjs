@@ -758,6 +758,43 @@ export function createHostLifecycleJournalProxy({
 }
 
 
+function validNpcGenerationContextProjection(context, expected) {
+  const exactKeys = (value, keys) => value && typeof value === 'object' && !Array.isArray(value)
+    && Object.getPrototypeOf(value) === Object.prototype
+    && Object.keys(value).length === keys.length
+    && Object.keys(value).every(key => keys.includes(key));
+  const snapshot = value => exactKeys(value, ['world_revision', 'commit_sequence'])
+    && Number.isSafeInteger(value.world_revision) && value.world_revision >= 0
+    && Number.isSafeInteger(value.commit_sequence) && value.commit_sequence >= 0;
+  if (!exactKeys(context, [
+    'schema', 'request_id', 'generation_id', 'generation_type', 'world_id', 'actor_id',
+    'conversation_id', 'adapter_id', 'recipient', 'purpose', 'snapshot', 'lanes',
+  ]) || context.schema !== 'npc-generation-context-projection/v1'
+    || context.request_id !== expected.requestId || context.generation_id !== expected.requestId
+    || context.generation_type !== expected.generationType
+    || context.world_id !== expected.worldId || context.actor_id !== expected.actorId
+    || context.conversation_id !== expected.conversationId || context.adapter_id !== expected.adapterId
+    || context.recipient !== 'model' || context.purpose !== 'npc_turn_context'
+    || !snapshot(context.snapshot)
+    || !exactKeys(context.lanes, ['lane_a', 'lane_b'])) return false;
+  const laneA = context.lanes.lane_a;
+  const laneB = context.lanes.lane_b;
+  if (!exactKeys(laneA, [
+    'lane', 'purpose', 'authorization_ref', 'visibility_authorization_ref', 'items',
+  ]) || laneA.lane !== 'A' || laneA.purpose !== 'npc_turn_context'
+    || !validId(laneA.authorization_ref) || !validId(laneA.visibility_authorization_ref)
+    || !Array.isArray(laneA.items)) return false;
+  if (!exactKeys(laneB, [
+    'lane', 'core_purpose', 'provider_purpose', 'status', 'admitted', 'candidates', 'reason', 'snapshot',
+  ]) || laneB.lane !== 'B' || laneB.core_purpose !== 'npc_turn_context'
+    || laneB.provider_purpose !== 'npc_decision' || laneB.status !== 'ready'
+    || laneB.reason !== null || !Array.isArray(laneB.admitted) || !Array.isArray(laneB.candidates)
+    || laneB.admitted.length !== laneB.candidates.length || !snapshot(laneB.snapshot)
+    || laneB.snapshot.world_revision !== context.snapshot.world_revision
+    || laneB.snapshot.commit_sequence !== context.snapshot.commit_sequence) return false;
+  return true;
+}
+
 /**
  * Authenticated Host Adapter outbound dispatch to Core. The browser supplies
  * only a conversation UUID and bounded generation metadata. The adapter derives
@@ -886,10 +923,34 @@ export function createHostMemoryDispatchProxyHandler({
       try { payload = await upstream.json(); } catch {
         return response.status(502).json({ status: 'NON_READY', code: 'LOGIC_ENGINE_INVALID_RESPONSE' });
       }
-      if (!upstream.ok) return response.status(upstream.status === 404 || upstream.status === 503 ? 503 : 502).json({
-        status: 'NON_READY',
-        code: upstream.status === 404 ? 'CORE_HOST_DISPATCH_ROUTE_UNAVAILABLE' : 'CORE_HOST_DISPATCH_REJECTED',
-      });
+      if (!upstream.ok) {
+        const upstreamCode = payload?.error?.code;
+        const safeContextCodes = new Set([
+          'NPC_GENERATION_CONTEXT_NON_READY',
+          'NPC_GENERATION_CONTEXT_RECEIVER_REJECTED',
+          'MEMORY_NPC_CONSUMER_UNAVAILABLE',
+        ]);
+        return response.status(upstream.status === 404 || upstream.status === 503 ? 503 : 502).json({
+          status: 'NON_READY',
+          code: safeContextCodes.has(upstreamCode)
+            ? upstreamCode
+            : upstream.status === 404 ? 'CORE_HOST_DISPATCH_ROUTE_UNAVAILABLE' : 'CORE_HOST_DISPATCH_REJECTED',
+        });
+      }
+      if (!payload || !validNpcGenerationContextProjection(payload.npc_context, {
+        requestId: body.request_id,
+        generationType: body.generation_type,
+        worldId: hostBindings.world_id,
+        actorId: hostBindings.actor_id,
+        conversationId: coreConversationId,
+        adapterId: target.adapterId,
+      }) || !payload.retrieval || payload.retrieval.status !== 'ready'
+        || payload.retrieval.candidates?.length !== payload.npc_context.lanes.lane_b.candidates.length) {
+        return response.status(503).json({
+          status: 'NON_READY',
+          code: 'NPC_GENERATION_CONTEXT_UNAVAILABLE',
+        });
+      }
       return response.status(200).json(payload);
     } catch {
       return response.status(502).json({ status: 'NON_READY', code: 'LOGIC_ENGINE_UNREACHABLE' });
