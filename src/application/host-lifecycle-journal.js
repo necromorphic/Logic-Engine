@@ -66,7 +66,7 @@ const ROOT_ATTESTATION_KEYS = Object.freeze([
   'protocol_version', 'adapter_id', 'host_installation_id', 'authenticated_account_id', 'root_id',
   'inventory_sequence', 'manifest_sha256', 'inventory_head_sha256', 'covered_delta_sha256',
   'coverage_id', 'pinned_host_commit', 'patch_blob_sha', 'host_handler_blob_sha',
-  'source_identity_status', 'snapshot_alignment', 'snapshot_sha256',
+  'source_identity_status', 'source_manifest_sha256', 'snapshot_alignment', 'snapshot_sha256',
   'lifecycle_sequence', 'lifecycle_head_sha256', 'issued_at', 'nonce', 'signature',
 ]);
 
@@ -138,6 +138,7 @@ function validRootInventoryAttestation(attestation, expected) {
     && attestation.patch_blob_sha === HOST_INVENTORY_PATCH_BLOB_SHA
     && attestation.host_handler_blob_sha === HOST_INVENTORY_HANDLER_BLOB_SHA
     && attestation.source_identity_status === 'CURRENT_IDENTITIES_VERIFIED'
+    && validDigest(attestation.source_manifest_sha256)
     && attestation.snapshot_alignment === 'SHARED_VSS_SNAPSHOT'
     && validDigest(attestation.snapshot_sha256)
     && attestation.lifecycle_sequence === expected.lifecycle_sequence
