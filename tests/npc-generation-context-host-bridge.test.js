@@ -28,7 +28,10 @@ function setup({ prepareStatus = 'ready' } = {}) {
     },
     getLaneBDispatchEvidence(value, metadata) {
       return value === context && metadata === preparedMetadata
-        ? { status: 'ready', lane: 'B', sources: [], candidates: [] }
+        ? {
+          status: 'ready', lane: 'B', sources: [], candidates: [],
+          provider_evidence_cursor: { data_version: 12, candidate_digest: 'b'.repeat(64) },
+        }
         : { status: 'non_ready', reason: 'lane_b_rejected' };
     },
     revalidateLaneAForDispatch(value, metadata) {
@@ -58,6 +61,9 @@ test('Host bridge carries one prepared handoff to the exact request/response dis
   assert.equal(accepted.status, 'accepted');
   assert.equal(accepted.context, context);
   assert.equal(accepted.laneB.lane, 'B');
+  assert.deepEqual({ ...accepted.laneB.provider_evidence_cursor }, {
+    data_version: 12, candidate_digest: 'b'.repeat(64),
+  });
   assert.equal(accepted.revalidateLaneA().status, 'ready');
   assert.equal(accepted.revalidateLaneAUnderCoordinatorLease(coordinatorLease).status, 'ready');
   assert.equal(accepted.revalidateLaneAUnderCoordinatorLease({}).status, 'non_ready');
