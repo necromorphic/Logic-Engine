@@ -10,8 +10,8 @@ async function rawContentDigest(text) {
   return [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))]
     .map(value => value.toString(16).padStart(2, '0')).join('');
 }
-const CURRENTLY_HOOKED_PATHS = Object.freeze(['create-message', 'message-send', 'message-receive', 'create-swipe', 'select-swipe', 'delete-swipe', 'delete-message', 'edit-message']);
-const CURRENTLY_GUARDED_READ_ONLY_PATHS = Object.freeze(['export']);
+const CURRENTLY_HOOKED_PATHS = Object.freeze(['create-message', 'message-send', 'message-receive', 'create-swipe', 'select-swipe', 'delete-swipe', 'delete-message', 'edit-message', 'clear-chat']);
+const CURRENTLY_GUARDED_OR_RECONCILED_PATHS = Object.freeze(['delete-chat', 'delete-group-chat', 'delete-character-chat-recursive', 'import', 'import-character-chat', 'import-group-chat', 'export', 'restore', 'backup-restore', 'group-metadata-migration', 'chat-switch', 'external-edit', 'rollback', 'restart', 'replay', 'persistence-ordering']);
 const newId = () => {
   if (!globalThis.crypto?.randomUUID) throw Error('crypto.randomUUID unavailable; Host capture NON_READY');
   return globalThis.crypto.randomUUID();
@@ -701,6 +701,10 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
       message_count: chat.length,
       version_count: versionCount,
       inventory_sha256: inventory.inventory_sha256,
+      source_identity_status: inventory.host_source_identity_status,
+      root_inventory_status: inventory.root_inventory_reconciliation.status,
+      root_inventory_sequence: inventory.root_inventory_reconciliation.sequence,
+      root_inventory_manifest_sha256: inventory.root_inventory_reconciliation.manifest_sha256,
     });
   }
 
@@ -742,7 +746,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
     if (!conversationId || !(await enrolledOrFailClosed(conversationId))) return { status: 'NOT_ENROLLED' };
     const persisted = getPersistedInventory
       ? await verifyPersistedInventory(conversationId) : null;
-    if (persisted && persisted.status !== 'MATCHED_NON_AUTHORITATIVE') return persisted;
+    if (persisted && persisted.status !== 'MATCHED_AUTHORITATIVE') return persisted;
     const integrity = await journal.verifyIntegrity(conversationId);
     if (integrity.status !== 'INTEGRITY_OK') return integrity;
     const current = await currentFingerprint();
@@ -822,8 +826,10 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
     // Integrity is not completeness: this patch does not intercept every mutation
     // path. Keep reconciliation NON_READY until all required paths are wired.
     const readiness = await journal.status(conversationId, {
-      instrumentedPaths: [...CURRENTLY_HOOKED_PATHS, ...CURRENTLY_GUARDED_READ_ONLY_PATHS],
+      instrumentedPaths: [...CURRENTLY_HOOKED_PATHS, ...CURRENTLY_GUARDED_OR_RECONCILED_PATHS],
       sourceFingerprintMatches: true,
+      sourceIdentityStatus: persisted?.source_identity_status ?? 'NON_READY',
+      rootInventoryStatus: persisted?.root_inventory_status ?? 'NON_READY',
     });
     return persisted ? Object.freeze({
       ...readiness,
