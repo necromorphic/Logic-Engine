@@ -20,11 +20,11 @@ test('Windows broker metadata store uses a pinned directory and durable handle-r
  assert.match(store,/CreateFileW\(configured_directory/);
  assert.match(store,/FILE_FLAG_OPEN_REPARSE_POINT/);
  assert.match(store,/logic_engine_win_open_relative\(store->directory/);
- assert.match(store,/LockFileEx\(lock,LOCKFILE_EXCLUSIVE_LOCK/);
+ assert.match(store,/LockFileEx\\(lock,\\s*LOCKFILE_EXCLUSIVE_LOCK/);
  assert.match(store,/FILE_CREATE/);
  assert.match(store,/FlushFileBuffers\(file\)/);
- assert.match(store,/SetFileInformationByHandle\(file,FileRenameInfo/);
- assert.match(store,/RootDirectory=store->directory/);
+ assert.match(store,/SetFileInformationByHandle\\(file,\\s*FileRenameInfo/);
+ assert.match(store,/RootDirectory\\s*=\\s*store->directory/);
  assert.match(store,/FlushFileBuffers\(store->directory\)/);
  assert.match(store,/validate_manifest/);
  assert.match(store,/validate_intent/);
