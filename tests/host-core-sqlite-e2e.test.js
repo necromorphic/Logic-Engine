@@ -349,7 +349,7 @@ test('Host dispatch proxy retrieves a real SQLite Provider record through Core H
       assert.equal(revoked.payload.npc_context.lanes.lane_b.candidates.length, 0);
     } else {
       assert.equal(revoked.statusCode, 503);
-      assert.equal(revoked.payload.code, 'CORE_HOST_DISPATCH_REJECTED');
+      assert.equal(revoked.payload.code, 'NPC_GENERATION_CONTEXT_NON_READY');
     }
     assert.equal(JSON.stringify(revoked.payload).includes('retrieved from real SQLite Provider'), false);
   } finally {
