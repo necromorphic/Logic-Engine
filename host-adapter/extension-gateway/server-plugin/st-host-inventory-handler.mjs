@@ -541,8 +541,8 @@ export function createHostRequestAuthenticationGate({ resolveConversationId } = 
         return Object.freeze({ status: 'FORBIDDEN' });
       }
       const parts = binding.conversation_id.split(':');
-      if (parts[0] !== binding.host_installation_id
-        || parts[1] !== binding.authenticated_account_id
+      if (parts[0] !== sessionId
+        || parts[1] !== binding.host_installation_id
         || !validUuid(parts[2])) return Object.freeze({ status: 'FORBIDDEN' });
       const context = Object.freeze({
         host_installation_id: binding.host_installation_id,
