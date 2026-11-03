@@ -62,7 +62,9 @@ jobs:
             'src/endpoints/data-maid.js',
             'src/endpoints/settings.js',
             'src/endpoints/users-private.js',
+            'src/endpoints/users-public.js',
             'src/endpoints/users-admin.js',
+            'src/users.js',
             'src/endpoints/logic-engine-host-inventory-handler.mjs'
           )
           $actual = @((git -C Sillytavern diff --name-only) + (git -C Sillytavern ls-files --others --exclude-standard) | Sort-Object)
@@ -87,7 +89,7 @@ jobs:
           node --check Sillytavern/public/scripts/logic-engine-lifecycle/conversation-identity.mjs
           node --check Sillytavern/public/scripts/logic-engine-lifecycle/lifecycle-journal.mjs
           node --check Sillytavern/public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs
-          $files = @('public/script.js', 'public/scripts/bookmarks.js', 'public/scripts/group-chats.js', 'public/scripts/chat-backups.js', 'public/scripts/slash-commands.js', 'src/server-main.js', 'src/endpoints/backends/chat-completions.js', 'src/endpoints/chats.js', 'src/endpoints/groups.js', 'src/endpoints/characters.js', 'src/endpoints/backups.js', 'src/endpoints/data-maid.js', 'src/endpoints/settings.js', 'src/endpoints/users-private.js', 'src/endpoints/users-admin.js', 'src/endpoints/logic-engine-host-inventory-handler.mjs')
+          $files = @('public/script.js', 'public/scripts/bookmarks.js', 'public/scripts/group-chats.js', 'public/scripts/chat-backups.js', 'public/scripts/slash-commands.js', 'src/server-main.js', 'src/endpoints/backends/chat-completions.js', 'src/endpoints/chats.js', 'src/endpoints/groups.js', 'src/endpoints/characters.js', 'src/endpoints/backups.js', 'src/endpoints/data-maid.js', 'src/endpoints/settings.js', 'src/endpoints/users-private.js', 'src/endpoints/users-public.js', 'src/endpoints/users-admin.js', 'src/users.js', 'src/endpoints/logic-engine-host-inventory-handler.mjs')
           foreach ($file in $files) { node --check (Join-Path Sillytavern $file) }
       - name: Run Host lifecycle and identity acceptance tests
         shell: pwsh
