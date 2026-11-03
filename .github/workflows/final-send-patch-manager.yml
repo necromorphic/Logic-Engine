@@ -5,6 +5,7 @@ on:
     paths:
       - "index.mjs"
       - "host-adapter/patches/**"
+      - "host-adapter/patch-manager/**"
       - "host-adapter/protected-memory-final-send.mjs"
       - "host-adapter/sillytavern-final-send-adapter.mjs"
       - "host-adapter/sillytavern-generation-bridge.mjs"
@@ -56,4 +57,4 @@ jobs:
       - name: Test unified Patch Manager and Final-Send contracts against exact Host source
         env:
           SILLYTAVERN_DIR: SillyTavern
-        run: node --test tests/sillytavern-patch-manager.test.js tests/sillytavern-final-send-patch-artifact.test.js tests/sillytavern-final-send-adapter.test.js tests/protected-memory-final-send.test.js tests/sillytavern-generation-bridge.test.js tests/sillytavern-server-plugin-bootstrap.test.js
+        run: node --test tests/sillytavern-patch-manager.test.js tests/sillytavern-final-send-patch-artifact.test.js tests/sillytavern-final-send-adapter.test.js tests/protected-memory-final-send.test.js tests/sillytavern-generation-bridge.test.js tests/sillytavern-server-plugin-bootstrap.test.js host-adapter/patch-manager/manager.test.mjs
