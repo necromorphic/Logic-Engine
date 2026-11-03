@@ -74,6 +74,13 @@ function assertSourceMap(sources) {
   if (!sources || typeof sources !== 'object' || Array.isArray(sources)) {
     throw new TypeError('SillyTavern CHAT_COMPLETION_SOURCES is required.');
   }
+  const expectedKeys = Object.keys(ROUTE_BY_SOURCE_KEY);
+  const actualKeys = Reflect.ownKeys(sources);
+  if (actualKeys.length !== expectedKeys.length
+    || actualKeys.some(key => typeof key !== 'string' || !Object.hasOwn(ROUTE_BY_SOURCE_KEY, key))
+    || expectedKeys.some(key => !Object.hasOwn(sources, key))) {
+    throw new Error('SILLYTAVERN_SOURCE_REGISTRY_MISMATCH');
+  }
   const map = new Map();
   for (const [key, senderRoute] of Object.entries(ROUTE_BY_SOURCE_KEY)) {
     const sourceValue = sources[key];
