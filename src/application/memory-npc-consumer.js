@@ -960,10 +960,16 @@ export class MemoryNpcConsumer {
     return Object.freeze({
       status: 'ready',
       admitted: decision.admitted,
-      candidates: Object.freeze(admitted.map((item) => Object.freeze({
-        ...item,
-        content: Object.freeze(finalContentByIdentity.get(recordIdentityKey(item.record_ref, item.record_version))),
-      }))),
+      candidates: Object.freeze(admitted.map((item) => {
+        // Source-version lineage is independently attached by the NPC context
+        // runtime from a fresh canonical Core snapshot. Keep the Provider's
+        // checked source version private to this consumer result.
+        const { source_version: _providerSourceVersion, ...candidate } = item;
+        return Object.freeze({
+          ...candidate,
+          content: Object.freeze(finalContentByIdentity.get(recordIdentityKey(item.record_ref, item.record_version))),
+        });
+      })),
       reason: null,
       snapshot: Object.freeze({
         world_revision: sourceRead.world_revision,
