@@ -388,7 +388,7 @@ function assertNpcContextBinding({
   if (!isPlainRecord(laneA) || laneA.lane !== 'A' || laneA.purpose !== 'npc_turn_context'
     || laneA.world_id !== worldId || laneA.actor_id !== actorId
     || laneA.conversation_id !== conversationId || laneA.adapter_id !== adapterId
-    || laneA.recipient !== 'model' || !Array.isArray(laneA.items) || laneA.items.length !== 0
+    || laneA.recipient !== 'model' || !Array.isArray(laneA.items)
     || !isPlainRecord(laneB) || laneB.lane !== 'B' || laneB.core_purpose !== 'npc_turn_context'
     || laneB.provider_purpose !== purpose || laneB.status !== 'ready'
     || laneB.world_id !== worldId || laneB.actor_id !== actorId
@@ -426,11 +426,22 @@ function assertNpcContextBinding({
     || JSON.stringify(admittedKeys) !== JSON.stringify(expectedAdmittedKeys)) {
     throw new Error('MEMORY_DISPATCH_NOT_READY');
   }
-  const expectedBlocks = laneB.candidates.map((candidate) => ({
-    epistemic_kind: candidate.epistemic_kind,
-    evidence_assessment: candidate.evidence_assessment,
-    content: candidate.content,
-  }));
+  const expectedBlocks = [
+    ...laneA.items.map((item) => ({
+      epistemic_kind: item.acquisition_kind,
+      evidence_assessment: 'unassessed',
+      content: {
+        subject_ref: item.subject_ref,
+        predicate: item.predicate,
+        value: item.value,
+      },
+    })),
+    ...laneB.candidates.map((candidate) => ({
+      epistemic_kind: candidate.epistemic_kind,
+      evidence_assessment: candidate.evidence_assessment,
+      content: candidate.content,
+    })),
+  ];
   if (stableJson(normalizeNpcContentBlocks(contentBlocks)) !== stableJson(normalizeNpcContentBlocks(expectedBlocks))) {
     throw new Error('MEMORY_DISPATCH_NOT_READY');
   }
