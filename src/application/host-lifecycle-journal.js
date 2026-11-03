@@ -240,7 +240,8 @@ function validateEvent(event) {
  * authorization and mutation-receipt contracts are implemented.
  */
 export class HostLifecycleJournal {
-  constructor({ path, coordinatorPath, resolveIdentity, resolveRootIdentity = null, verifyMutationReceipt = () => false }) {
+  constructor({ path, coordinatorPath, resolveIdentity, resolveRootIdentity = null, verifyMutationReceipt = () => false, readOnly = false }) {
+    if (typeof readOnly !== 'boolean') throw new TypeError('HostLifecycleJournal readOnly must be boolean');
     if (!validText(path) || !isAbsolute(path) || path === ':memory:'
       || !validText(coordinatorPath) || !isAbsolute(coordinatorPath)
       || typeof resolveIdentity !== 'function' || isProxy(resolveIdentity)
@@ -256,13 +257,34 @@ export class HostLifecycleJournal {
     this.resolveIdentity = resolveIdentity;
     this.resolveRootIdentity = resolveRootIdentity;
     this.verifyMutationReceipt = verifyMutationReceipt;
+    this.readOnly = readOnly;
+    if (readOnly && (!existsSync(resolve(path)) || !existsSync(resolve(coordinatorPath)))) {
+      throw new Error('HOST_JOURNAL_READ_ONLY_REQUIRES_EXISTING_FILES');
+    }
     this.coordinator = openCoordinatorDatabase(coordinatorPath);
     this.db = null;
     let release = null;
     try {
       release = beginCoordinatorLock(this.coordinator);
-      this.db = new DatabaseSync(resolve(path));
-      this.db.exec(`
+      this.db = new DatabaseSync(resolve(path), readOnly ? { readOnly: true } : undefined);
+      if (readOnly) {
+        const objects = new Set(this.db.prepare(
+          "SELECT type || ':' || name AS object_name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'",
+        ).all().map(row => row.object_name));
+        const required = [
+          'table:host_lifecycle_heads', 'table:host_lifecycle_events',
+          'index:host_lifecycle_events_conversation', 'trigger:host_lifecycle_events_no_update',
+          'trigger:host_lifecycle_events_no_delete', 'table:host_lifecycle_authority_state',
+          'trigger:host_lifecycle_authority_generation_no_rollback', 'table:host_root_inventory_heads',
+          'table:host_root_inventory_events', 'trigger:host_root_inventory_events_no_update',
+          'trigger:host_root_inventory_events_no_delete',
+        ];
+        if (required.some(name => !objects.has(name))) throw new Error('HOST_JOURNAL_SCHEMA_INCOMPLETE');
+        const columns = new Set(this.db.prepare('PRAGMA table_info(host_lifecycle_events)').all().map(column => column.name));
+        if (!columns.has('host_session_id') || !columns.has('receipt_digest')) {
+          throw new Error('HOST_JOURNAL_SCHEMA_MIGRATION_REQUIRED');
+        }
+      } else this.db.exec(`
         PRAGMA journal_mode=WAL;
         PRAGMA synchronous=FULL;
         PRAGMA foreign_keys=ON;
@@ -350,12 +372,14 @@ export class HostLifecycleJournal {
             SELECT RAISE(ABORT, 'HOST_ROOT_INVENTORY_APPEND_ONLY');
           END;
       `);
+      if (!readOnly) {
       const lifecycleColumns = new Set(this.db.prepare('PRAGMA table_info(host_lifecycle_events)').all().map(column => column.name));
       for (const [column, definition] of [
         ['host_session_id', "TEXT NOT NULL DEFAULT '00000000-0000-4000-8000-000000000000'"],
         ['receipt_digest', 'TEXT'],
       ]) {
         if (!lifecycleColumns.has(column)) this.db.exec('ALTER TABLE host_lifecycle_events ADD COLUMN ' + column + ' ' + definition);
+      }
       }
     } catch (error) {
       try { this.db?.close(); } catch {}
@@ -367,6 +391,7 @@ export class HostLifecycleJournal {
   }
 
   #withWrite(work) {
+    if (this.readOnly) throw new Error('HOST_JOURNAL_READ_ONLY');
     const release = beginCoordinatorLock(this.coordinator);
     try {
       this.db.exec('BEGIN IMMEDIATE');
