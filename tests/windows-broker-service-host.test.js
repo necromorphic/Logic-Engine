@@ -35,8 +35,11 @@ test('Windows broker metadata store enforces pinned ancestry, NTFS and protected
   assert.match(store, /LockFileEx\(lock,\s*LOCKFILE_EXCLUSIVE_LOCK/);
   assert.match(store, /FILE_CREATE/);
   assert.match(store, /FlushFileBuffers\(file\)/);
-  assert.match(store, /SetFileInformationByHandle\(file,\s*FileRenameInfo/);
-  assert.match(store, /RootDirectory\s*=\s*store->directory/);
+  assert.match(store, /le_win_rename_relative\(file,\s*store->directory,\s*target\)/);
+  assert.match(store, /NtSetInformationFile/);
+  assert.match(store, /FileRenameInformation is 10/);
+  assert.match(store, /RootDirectory\s*=\s*directory/);
+  assert.doesNotMatch(store, /SetFileInformationByHandle\(file,\s*FileRenameInfo/);
   assert.match(store, /FlushFileBuffers\(store->directory\)/);
   assert.match(store, /validate_manifest/);
   assert.match(store, /validate_intent/);
