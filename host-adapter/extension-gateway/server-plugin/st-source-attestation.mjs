@@ -201,6 +201,7 @@ export function createSignedRootInventoryAttestation({
     patch_blob_sha: sourceIdentity.patch_blob_sha,
     host_handler_blob_sha: sourceIdentity.host_handler_blob_sha,
     source_identity_status: sourceIdentity.status,
+    source_manifest_sha256: sourceIdentity.manifest_sha256,
     snapshot_alignment: snapshotAlignment,
     snapshot_sha256: snapshotSha256,
     lifecycle_sequence: reconciliation.lifecycle_sequence,
