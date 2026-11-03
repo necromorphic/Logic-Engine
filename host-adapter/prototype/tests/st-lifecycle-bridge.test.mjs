@@ -205,7 +205,7 @@ test('persisted ST inventory is cross-checked against stable conversation identi
   inventory = mismatched;
   const rejected = await f.bridge.verifyPersistedInventory();
   assert.equal(rejected.status, 'NON_READY');
-  await assert.rejects(f.bridge.guardExport(), /persisted Host state does not match/);
+  await assert.rejects(f.bridge.guardExport(), /NON_READY:/);
   assert.match(rejected.reason, /version identity or digest differs/);
   const blockedSync = await f.bridge.syncCurrentDigestInventory();
   assert.equal(blockedSync.status, 'NON_READY');
@@ -214,8 +214,8 @@ test('persisted ST inventory is cross-checked against stable conversation identi
   inventory = await makePersistedInventory(chat, { sessionId: '5e6b0a80-4e73-4c66-aaf3-7a6e62c7f404', conversationUuid });
   inventory.host_session_id = '5e6b0a80-4e73-4c66-aaf3-7a6e62c7f404';
   const wrongSession = await f.bridge.verifyPersistedInventory();
-  assert.equal(wrongSession.status, 'MATCHED_NON_AUTHORITATIVE');
-  assert.equal(wrongSession.host_session_bound, true);
+  assert.equal(wrongSession.status, 'NON_READY');
+  assert.match(wrongSession.reason, /attested current conversation snapshot/);
 });
 
 test('export guard refuses to save while the local Host journal has a pending mutation', async () => {
