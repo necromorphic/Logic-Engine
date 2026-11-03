@@ -430,11 +430,11 @@ export function createCoreNpcGenerationContextRuntime({
     revalidateEvidence: revalidateIssuedContext,
     revalidateScope: resolveScope,
   });
-  const dispatchableContexts = new WeakSet();
+  const dispatchableContexts = new WeakMap();
 
   function consumeDispatchHandoff(handoff, request) {
     const result = receiver.consumeDispatchHandoff(handoff, request);
-    if (result.status === 'accepted') dispatchableContexts.add(result.context);
+    if (result.status === 'accepted') dispatchableContexts.set(result.context, request);
     return result;
   }
 
@@ -442,7 +442,7 @@ export function createCoreNpcGenerationContextRuntime({
   // section. Lane B admission/grant/source freshness remains the Gateway's
   // independent synchronous Provider responsibility.
   function revalidateLaneAForDispatch(context, request) {
-    if (!context || typeof context !== 'object' || !dispatchableContexts.has(context)
+    if (!context || typeof context !== 'object' || dispatchableContexts.get(context) !== request
       || !request || context.request_id !== request.request_id
       || context.generation_id !== request.generation_id
       || context.generation_type !== request.generation_type
