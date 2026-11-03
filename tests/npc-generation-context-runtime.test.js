@@ -209,3 +209,73 @@ test('receiver rejects Lane A revocation that occurs during asynchronous Lane B 
   assert.equal(received.status, 'non_ready');
   assert.equal(received.reason, 'context_evidence_changed');
 });
+
+
+test('Core runtime exposes an opaque one-shot handoff only after receiver acceptance', async () => {
+  const { runtime } = setup();
+  const built = await runtime.build(request);
+  assert.equal(built.status, 'ready');
+  const accepted = await runtime.receive(built.context, request);
+  assert.equal(accepted.status, 'accepted');
+
+  const issued = runtime.issueDispatchHandoff(accepted, request);
+  assert.equal(issued.status, 'ready');
+  const consumed = runtime.consumeDispatchHandoff(issued.handoff, request);
+  assert.equal(consumed.status, 'accepted');
+  assert.equal(consumed.context, built.context);
+  assert.equal(runtime.consumeDispatchHandoff(issued.handoff, request).status, 'non_ready');
+});
+
+
+test('synchronous dispatch fence revalidates Lane A visibility and exact Core scope after handoff', async () => {
+  const { runtime, setVisible, setScope } = setup();
+  const built = await runtime.build(request);
+  assert.equal(built.status, 'ready');
+  const accepted = await runtime.receive(built.context, request);
+  assert.equal(accepted.status, 'accepted');
+  const issued = runtime.issueDispatchHandoff(accepted, request);
+  assert.equal(issued.status, 'ready');
+  const consumed = runtime.consumeDispatchHandoff(issued.handoff, request);
+  assert.equal(consumed.status, 'accepted');
+
+  assert.equal(runtime.revalidateLaneAForDispatch(consumed.context, request).status, 'ready');
+  setVisible(false);
+  assert.equal(runtime.revalidateLaneAForDispatch(consumed.context, request).status, 'non_ready');
+
+  setVisible(true);
+  setScope({ ...scope, actor_id: 'npc-2', snapshot: scope.snapshot });
+  assert.equal(runtime.revalidateLaneAForDispatch(consumed.context, request).status, 'non_ready');
+});
+
+test('synchronous dispatch fence rejects copied contexts and unconsumed handoff contexts', async () => {
+  const { runtime } = setup();
+  const built = await runtime.build(request);
+  assert.equal(runtime.revalidateLaneAForDispatch(built.context, request).status, 'non_ready');
+  const copied = { ...built.context };
+  assert.equal(runtime.revalidateLaneAForDispatch(copied, request).status, 'non_ready');
+});
+
+
+test('prepareForDispatch completes async build and receiver checks but exposes only an opaque handoff', async () => {
+  const { runtime } = setup();
+  const prepared = await runtime.prepareForDispatch(request);
+  assert.equal(prepared.status, 'ready');
+  assert.equal(prepared.reason, null);
+  assert.equal(Object.hasOwn(prepared, 'context'), false);
+  assert.equal(Object.keys(prepared.handoff).length, 0);
+  assert.equal(Object.isFrozen(prepared.handoff), true);
+
+  const consumed = runtime.consumeDispatchHandoff(prepared.handoff, request);
+  assert.equal(consumed.status, 'accepted');
+  assert.equal(consumed.context.lanes.lane_a.items.length, 1);
+  assert.equal(runtime.revalidateLaneAForDispatch(consumed.context, request).status, 'ready');
+});
+
+test('prepareForDispatch returns no handoff when either lane is not ready', async () => {
+  const { runtime, setMemoryCurrent } = setup();
+  setMemoryCurrent(false);
+  const prepared = await runtime.prepareForDispatch(request);
+  assert.equal(prepared.status, 'non_ready');
+  assert.equal(prepared.handoff, null);
+  assert.equal(Object.hasOwn(prepared, 'context'), false);
+});
