@@ -282,6 +282,7 @@ export function createNpcGenerationContextBuilder({
     build,
     createReceiver: receiverOptions => createNpcGenerationContextReceiver({
       ...receiverOptions, issuedContexts, consumedContexts,
+      acceptedReceipts, consumedReceipts, dispatchHandoffs, consumedHandoffs,
     }),
   });
 }
@@ -291,8 +292,13 @@ export function createNpcGenerationContextBuilder({
  * this module's builder and rechecks the request binding and live Core scope.
  * It does not send to a model or create a transport lease.
  */
-function createNpcGenerationContextReceiver({ resolveScope, revalidateEvidence, revalidateScope, issuedContexts, consumedContexts }) {
+function createNpcGenerationContextReceiver({
+  resolveScope, revalidateEvidence, revalidateScope, issuedContexts, consumedContexts,
+  acceptedReceipts, consumedReceipts, dispatchHandoffs, consumedHandoffs,
+}) {
   if (!(issuedContexts instanceof WeakMap) || !(consumedContexts instanceof WeakSet)
+    || !(acceptedReceipts instanceof WeakMap) || !(consumedReceipts instanceof WeakSet)
+    || !(dispatchHandoffs instanceof WeakMap) || !(consumedHandoffs instanceof WeakSet)
     || typeof resolveScope !== 'function' || typeof revalidateEvidence !== 'function'
     || typeof revalidateScope !== 'function') {
     throw new TypeError('Receiver requires trusted Core scope and evidence callbacks');
