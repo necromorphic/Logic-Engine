@@ -154,6 +154,11 @@ test('account switching and version invalidation revoke the old Host capability 
     const invalidationClear = users.indexOf('request.session.handle = null;', invalidationCall);
     assert.ok(invalidationCall >= 0 && invalidationClear > invalidationCall,
         'account-version invalidation must revoke Core capability before clearing the ST session');
+    const autoSwitchCalls = users.match(/await revokeHostSessionBeforeAccountSwitch\\(request,/g) ?? [];
+    assert.equal(autoSwitchCalls.length, 3,
+        'single-user, trusted-header SSO, and Basic Auth account switches must all revoke the old capability');
+    assert.ok(users.includes("response.status(503).send('Host session revocation unavailable; account was not switched.')"),
+        'automatic login must fail closed instead of serving the login page after revocation failure');
     const login = read('src/endpoints/users-public.js');
     const loginCall = login.indexOf("await revokeHostSessionBeforeLogout(request, { reason: 'session_rotation' })");
     const loginMutation = login.indexOf('request.session.handle = user.handle;', loginCall);
