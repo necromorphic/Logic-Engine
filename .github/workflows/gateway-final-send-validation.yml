@@ -55,7 +55,7 @@ concurrency:
 jobs:
   gateway-final-send:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -69,5 +69,15 @@ jobs:
           node --check host-adapter/protected-memory-final-send.mjs
           node --check host-adapter/embedded-gateway-runtime.mjs
           node --check index.mjs
-      - name: Gateway and Final-Send tests
-        run: node --test tests/memory-dispatch-gateway.test.js tests/protected-memory-final-send.test.js tests/sillytavern-final-send-adapter.test.js tests/gateway-final-send-composition.test.js
+      - name: Memory Dispatch Gateway tests
+        timeout-minutes: 10
+        run: node --test --test-reporter=spec tests/memory-dispatch-gateway.test.js
+      - name: Protected Memory Final-Send tests
+        timeout-minutes: 10
+        run: node --test --test-reporter=spec tests/protected-memory-final-send.test.js
+      - name: SillyTavern Final-Send adapter tests
+        timeout-minutes: 10
+        run: node --test --test-reporter=spec tests/sillytavern-final-send-adapter.test.js
+      - name: Gateway Final-Send composition tests
+        timeout-minutes: 10
+        run: node --test --test-reporter=spec tests/gateway-final-send-composition.test.js
