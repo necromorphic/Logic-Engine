@@ -86,21 +86,28 @@ export const PROTECTED_MEMORY_SENDER_ROUTES = Object.freeze([
   'workers-ai', 'text-completions', 'kobold', 'novelai-text', 'horde-text',
 ]);
 
-const ASYNC_FUNCTION_PROTOTYPE = Object.getPrototypeOf(async function () {}).constructor;
-const GENERATOR_FUNCTION_PROTOTYPE = Object.getPrototypeOf(function* () {}).constructor;
-const ASYNC_GENERATOR_FUNCTION_PROTOTYPE = Object.getPrototypeOf(async function* () {}).constructor;
+const ASYNC_FUNCTION_PROTOTYPE = Object.getPrototypeOf(async function () {});
+const GENERATOR_FUNCTION_PROTOTYPE = Object.getPrototypeOf(function* () {});
+const ASYNC_GENERATOR_FUNCTION_PROTOTYPE = Object.getPrototypeOf(async function* () {});
+const intrinsicGetPrototypeOf = Object.getPrototypeOf;
+const intrinsicFunctionToString = Function.prototype.toString;
+const intrinsicReflectApply = Reflect.apply;
+const intrinsicStringIncludes = String.prototype.includes;
+const isProxy = utilTypes.isProxy;
 
 function isSynchronousCallable(callback) {
-  if (typeof callback !== 'function' || utilTypes.isProxy(callback)) return false;
+  if (typeof callback !== 'function' || isProxy(callback)) return false;
   try {
-    if (callback instanceof ASYNC_FUNCTION_PROTOTYPE
-      || callback instanceof GENERATOR_FUNCTION_PROTOTYPE
-      || callback instanceof ASYNC_GENERATOR_FUNCTION_PROTOTYPE) return false;
+    const prototype = intrinsicGetPrototypeOf(callback);
+    if (prototype === ASYNC_FUNCTION_PROTOTYPE
+      || prototype === GENERATOR_FUNCTION_PROTOTYPE
+      || prototype === ASYNC_GENERATOR_FUNCTION_PROTOTYPE) return false;
     // Bound functions stringify as native code. Their target kind (sync/async)
     // is intentionally opaque, so reject them rather than invoke an untrusted
-    // callback to discover whether it returns a Promise.
-    const source = Function.prototype.toString.call(callback);
-    return !source.includes('[native code]');
+    // callback to discover whether it returns a Promise. Use captured intrinsics
+    // so a caller cannot poison the check after this module is initialized.
+    const source = intrinsicReflectApply(intrinsicFunctionToString, callback, []);
+    return !intrinsicReflectApply(intrinsicStringIncludes, source, ['[native code]']);
   } catch {
     return false;
   }
