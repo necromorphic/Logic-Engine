@@ -46,7 +46,7 @@ Input data is copied into plain immutable data. Proxies, accessors, sparse/exten
 
 ## Receiver
 
-`createNpcGenerationContextReceiver` is a future dispatch seam only. It accepts only a context issued by the builder, for the exact same request/generation IDs and current World/Actor/conversation/adapter/snapshot. It requires trusted evidence revalidation before accepting. It returns an acceptance result; it does not send prompts, create a transport lease, or bypass the Host dispatch-start/sole-egress contract.
+`createNpcGenerationContextReceiver` is a future dispatch seam only. It accepts only a context issued by the builder, for the exact same request/generation IDs and current World/Actor/conversation/adapter/snapshot. Each issued context is a one-shot capability: the Builder shares replay state across all Receivers it creates, and a second or concurrent receipt fails closed even when it names the same request. The Receiver consumes the capability before asynchronous revalidation so concurrent calls cannot both pass. It requires trusted evidence revalidation before accepting. It returns an acceptance result; it does not send prompts, create a transport lease, or bypass the Host dispatch-start/sole-egress contract.
 
 ## Gateway compatibility review — 3 Nov 2026
 
