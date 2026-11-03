@@ -220,6 +220,13 @@ test('Host Adapter requires Core root proof before context resolution and binds 
           identity_status: 'CURRENT_IDENTITIES_VERIFIED',
         } }],
       },
+      mutation_coverage: {
+        status: 'VERIFIED',
+        source_commit: PINNED_HOST_COMMIT,
+        coverage_manifest_sha256: 'a'.repeat(64),
+        route_count: 47,
+        source_files_sha256: 'b'.repeat(64),
+      },
       snapshot_alignment: 'SHARED_VSS_SNAPSHOT',
     };
   };
