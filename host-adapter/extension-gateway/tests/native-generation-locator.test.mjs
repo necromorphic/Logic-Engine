@@ -40,6 +40,8 @@ test('native ST generation events receive only bounded Host locators before requ
   for (const data of [chat, text]) {
     assert.equal(data.logic_engine_conversation_uuid, conversationUuid);
     assert.match(data.logic_engine_request_id, /^[0-9a-f-]{36}$/i);
+    assert.match(data.logic_engine_generation_id, /^[0-9a-f-]{36}$/i);
+    assert.notEqual(data.logic_engine_generation_id, data.logic_engine_request_id);
     assert.equal(data.logic_engine_context_size, 8192);
     assert.equal(data.logic_engine_generation_type, data.type ?? 'normal');
     assert.equal('world_id' in data, false);
@@ -60,4 +62,5 @@ test('locator preparation failure does not break ordinary generation; protected 
   assert.equal(data.prompt, 'ordinary generation');
   assert.equal(data.logic_engine_conversation_uuid, undefined);
   assert.equal(data.logic_engine_request_id, undefined);
+  assert.equal(data.logic_engine_generation_id, undefined);
 });
