@@ -1251,7 +1251,7 @@ test('cancellation after dispatch-start records UNKNOWN and blocks every retry',
   }
 });
 
-test('serialized Gateway endpoint rejects dispatch because it cannot carry an in-process transport capability', async () => {
+test('serialized Gateway endpoint rejects dispatch because it cannot carry in-process dispatch capabilities', async () => {
   const hostToken = 'host-dispatch-token-for-gateway-tests-00000000000000000000000000000004';
   const signingKey = 'host-dispatch-signing-key-for-gateway-tests-00000000000000000000000000000005';
   let upstreamCalls = 0;
