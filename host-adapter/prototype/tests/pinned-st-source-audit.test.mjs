@@ -193,6 +193,8 @@ test('pinned ST chat-history mutation routes are guarded or explicitly unsupport
     const usersSource = read('src/users.js');
     assert.ok(usersSource.includes('HOST_LIFECYCLE_LEGACY_USER_DATA_MIGRATION_BLOCKED'),
         'legacy public user data must not be moved outside the attested root while Host is active');
+    assert.ok(usersSource.includes('HOST_LIFECYCLE_USER_DIRECTORY_MISSING'),
+        'Host must not create missing account directories after root authority is enabled');
     assert.ok(usersSource.includes('Skipping system prompt migration while Host authority is active.'),
         'system-prompt migration must not mutate account-root files while Host is active');
     assert.ok(usersSource.includes('delete request.session.logicEngineSessionId;'),
