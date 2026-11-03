@@ -185,7 +185,7 @@ function validRootCompletenessProof(proof, identity, root) {
     || proof.route_count !== PINNED_ST_MUTATION_ROUTE_COUNT
     || !validDigest(proof.source_files_sha256)
     || typeof proof.occurred_at !== 'string'
-    || !/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$/.test(proof.occurred_at)
+    || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(proof.occurred_at)
     || !Number.isFinite(Date.parse(proof.occurred_at))) return false;
   return true;
 }
