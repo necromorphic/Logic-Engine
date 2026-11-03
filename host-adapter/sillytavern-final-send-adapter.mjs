@@ -188,18 +188,21 @@ export function createSillyTavernFinalSendAdapter({
         throw terminalError(new Error('MEMORY_DISPATCH_NOT_READY'));
       }
       const resolutionKeys = Reflect.ownKeys(protectionResolution);
-      const isUnprotected = protectionResolution.status === 'unprotected'
-        && resolutionKeys.length === 1;
-      const isProtected = protectionResolution.status === 'ready'
-        && resolutionKeys.length === 2 && Object.hasOwn(protectionResolution, 'context')
-        && isPlainRecord(protectionResolution.context);
+      const statusDescriptor = Object.getOwnPropertyDescriptor(protectionResolution, 'status');
+      const isUnprotected = statusDescriptor && Object.hasOwn(statusDescriptor, 'value')
+        && statusDescriptor.value === 'unprotected' && resolutionKeys.length === 1;
+      const contextDescriptor = Object.getOwnPropertyDescriptor(protectionResolution, 'context');
+      const isProtected = statusDescriptor && Object.hasOwn(statusDescriptor, 'value')
+        && statusDescriptor.value === 'ready' && resolutionKeys.length === 2
+        && contextDescriptor && Object.hasOwn(contextDescriptor, 'value')
+        && isPlainRecord(contextDescriptor.value);
       if (!isUnprotected && !isProtected) {
         if (args.response && typeof args.response === 'object') {
           requestIdByResponse.set(args.response, { requestId: null, state: 'denied' });
         }
         throw terminalError(new Error('MEMORY_DISPATCH_NOT_READY'));
       }
-      const protectedMemory = isProtected ? protectionResolution.context : null;
+      const protectedMemory = isProtected ? contextDescriptor.value : null;
       if (isProtected) {
         if (!args.response || typeof args.response !== 'object'
           || typeof protectedMemory.requestId !== 'string' || !protectedMemory.requestId) {
