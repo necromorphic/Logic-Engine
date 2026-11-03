@@ -8,7 +8,11 @@ on:
       - 'security/**'
     paths:
       - 'native/secure-vfs-probe/*.c'
+      - 'native/windows-namespace-broker/**'
+      - 'tests/windows-broker-service-host.test.js'
       - 'native/secure-vfs-probe/*.h'
+      - 'native/secure-vfs-probe/*.js'
+      - 'tests/windows-manifest-lifecycle.test.js'
       - 'tests/security-vfs-extension-bootstrap.test.js'
       - 'tests/security-vfs-broker-integration.test.js'
       - 'tests/security-vfs-strict-mode.test.js'
@@ -25,6 +29,10 @@ on:
   pull_request:
     paths:
       - 'native/secure-vfs-probe/*.c'
+      - 'native/windows-namespace-broker/**'
+      - 'tests/windows-broker-service-host.test.js'
+      - 'native/secure-vfs-probe/*.js'
+      - 'tests/windows-manifest-lifecycle.test.js'
       - 'tests/sqlite-windows-acl-installer.test.js'
       - 'native/secure-vfs-probe/*.h'
       - 'tests/security-vfs-extension-bootstrap.test.js'
@@ -54,7 +62,7 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: '22.13.0'
+          node-version: '22.14.0'
       - name: Provide Node path for systemd unit validation
         run: |
           if [ ! -x /usr/bin/node ]; then sudo ln -s "$(command -v node)" /usr/bin/node; fi
@@ -82,9 +90,21 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: '22.13.0'
+          node-version: '22.14.0'
       - name: Test recursive Windows service ACL policy
         run: node --test tests/sqlite-windows-acl-installer.test.js
+      - name: Test Windows broker service host contract
+        run: node --test tests/windows-broker-service-host.test.js
+      - name: Compile Windows broker service host
+        shell: pwsh
+        run: |
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
+          $vs = & $vswhere -latest -products '*' -property installationPath
+          if (-not $vs) { throw 'Visual Studio Build Tools not found' }
+          $vcvars = Join-Path $vs 'VC/Auxiliary/Build/vcvars64.bat'
+          $command = 'call "' + $vcvars + '" && cl /nologo /W4 /WX /guard:cf /DUNICODE /D_UNICODE native\\windows-namespace-broker\\windows_broker_service.c /link advapi32.lib /OUT:native\\windows-namespace-broker\\windows_broker_service.exe'
+          cmd /c $command
+          if ($LASTEXITCODE -ne 0) { throw 'Windows broker service host compilation failed' }
       - name: Parse and test Windows service installer path guards
         shell: pwsh
         run: |
@@ -122,6 +142,24 @@ jobs:
           Set-Content -LiteralPath (Join-Path $install 'src/index.js') -Value '/* installer WhatIf fixture */'
           try {
             $node = (Get-Command node.exe -ErrorAction Stop).Source
+            $oldNode = Join-Path $root 'node-22.13.cmd'
+            Set-Content -LiteralPath $oldNode -Value @('@echo off', 'echo v22.13.0', 'exit /b 0')
+            $oldRuntimeRejected = $false
+            try {
+              & deploy/sqlite-security/install-windows-service.ps1 -ServiceName $serviceName -InstallDirectory $install -StateDirectory $state -NodePath $oldNode -WhatIf
+            } catch {
+              if ($_.Exception.Message -like '*Node.js 22.14.0 or newer is required*') {
+                $oldRuntimeRejected = $true
+              } else {
+                throw
+              }
+            }
+            if (-not $oldRuntimeRejected) {
+              throw 'Installer did not reject the unsupported Node 22.13 runtime'
+            }
+            if (Test-Path -LiteralPath $state) {
+              throw 'Unsupported Node runtime unexpectedly created the state directory'
+            }
             & deploy/sqlite-security/install-windows-service.ps1 -ServiceName $serviceName -InstallDirectory $install -StateDirectory $state -NodePath $node -WhatIf
             if (Test-Path -LiteralPath $state) {
               throw 'WhatIf unexpectedly created the state directory'
@@ -188,8 +226,10 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: '22.13.0'
+          node-version: '22.14.0'
       - name: Install schema validation dependency
         run: npm install --no-package-lock --no-audit --no-fund
       - name: Validate persistent role manifest schema
         run: node --test tests/sqlite-role-manifest-schema.test.js
+      - name: Test Windows manifest lifecycle transactions and crash recovery
+        run: node --test tests/windows-manifest-lifecycle.test.js

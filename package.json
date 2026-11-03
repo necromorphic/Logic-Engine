@@ -18,9 +18,10 @@
     "host:patch:verify": "node scripts/sillytavern-patch-manager.mjs verify",
     "host:patch:repair": "node scripts/sillytavern-patch-manager.mjs repair",
     "host:patch:update": "node scripts/sillytavern-patch-manager.mjs update",
-    "host:patch:uninstall": "node scripts/sillytavern-patch-manager.mjs uninstall"
+    "host:patch:uninstall": "node scripts/sillytavern-patch-manager.mjs uninstall",
+    "deployment:verify": "node scripts/deployment/verify.mjs"
   },
-  "devDependencies": {
+  "dependencies": {
     "ajv": "8.17.1",
     "ajv-formats": "3.0.1"
   }

@@ -481,10 +481,54 @@
                     "properties": {
                       "identity": {
                         "$ref": "#/$defs/windowsIdentity"
+                      },
+                      "state": {
+                        "enum": [
+                          "active",
+                          "retired"
+                        ]
                       }
                     }
                   }
+                },
+                "state": {
+                  "const": "active"
                 }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "platform": {
+            "const": "windows"
+          }
+        },
+        "required": [
+          "platform"
+        ]
+      },
+      "then": {
+        "properties": {
+          "filesystemPolicy": {
+            "type": "object",
+            "required": [
+              "filesystem",
+              "identitySource",
+              "directoryMutationBoundary"
+            ],
+            "properties": {
+              "filesystem": {
+                "const": "NTFS"
+              },
+              "identitySource": {
+                "const": "opened-handle"
+              },
+              "directoryMutationBoundary": {
+                "const": "dedicated-service-identity"
               }
             }
           }

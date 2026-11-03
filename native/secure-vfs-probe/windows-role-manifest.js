@@ -43,7 +43,7 @@ function assertManifestShape(manifest) {
     'filesystem', 'identitySource', 'directoryMutationBoundary',
   ], 'filesystem policy');
   if (typeof manifest.filesystemPolicy.filesystem !== 'string'
-      || !manifest.filesystemPolicy.filesystem.trim()
+      || manifest.filesystemPolicy.filesystem !== 'NTFS'
       || manifest.filesystemPolicy.identitySource !== 'opened-handle'
       || manifest.filesystemPolicy.directoryMutationBoundary !== 'dedicated-service-identity') {
     throw new TypeError('Invalid Windows filesystem trust policy in role manifest');
@@ -148,6 +148,11 @@ function assertManifestShape(manifest) {
       }
     }
   }
+}
+
+export function validateWindowsManifest(manifest) {
+  assertManifestShape(manifest);
+  return true;
 }
 
 export function registerWindowsManifestRole(database, manifest, roleName, databasePath) {

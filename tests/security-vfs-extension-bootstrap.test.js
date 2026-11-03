@@ -12,13 +12,13 @@ import { registerWindowsManifestRole } from '../native/secure-vfs-probe/windows-
 
 const extensionPath = process.env.LOGIC_ENGINE_VFS_PROBE_PATH;
 
-test('Node 22.13 node:sqlite keeps a loadable default VFS registered after bootstrap closes', {
+test('Node 22.14 node:sqlite keeps a loadable default VFS registered after bootstrap closes', {
   // The full npm test suite runs in a separate job without the native probe artifact.
   // This test is exercised explicitly by the Linux/Windows VFS probe workflow jobs.
   skip: !extensionPath,
 }, async (t) => {
   assert.equal(typeof extensionPath, 'string', 'workflow must build the platform VFS probe first');
-  assert.equal(process.versions.node, '22.13.0', 'the private SQLite VFS ABI probe is pinned to Node 22.13.0');
+  assert.equal(process.versions.node, '22.14.0', 'the private SQLite VFS ABI probe is pinned to Node 22.14.0');
 
   const directory = mkdtempSync(join(tmpdir(), 'logic-engine-vfs-probe-'));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
@@ -227,7 +227,7 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
   let reader;
   try {
     assert.equal(first.prepare('SELECT sqlite_version() AS version').get().version, '3.47.2',
-      'the native VFS ABI probe is pinned to the SQLite version bundled with Node 22.13.0');
+      'the native VFS ABI probe is pinned to the SQLite version bundled with Node 22.14.0');
     const openSyscall = process.platform === 'win32' ? 'CreateFileW' : 'open';
     assert.equal(
       first.prepare('SELECT logic_engine_vfs_probe_has_syscall(?) AS available').get(openSyscall).available,
@@ -256,7 +256,7 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
     first.exec("INSERT INTO probe VALUES('ok');");
     assert.equal(first.prepare('SELECT value FROM probe').get().value, 'ok');
     const opened = first.prepare('SELECT logic_engine_vfs_probe_open_count() AS count').get().count;
-    assert.equal(opened, 2, 'the worker and Core file-backed DatabaseSync connections must pass through the registered VFS xOpen');
+    assert.equal(opened, 2 + manifestEnrollmentOpenCountDelta, 'the worker and Core file-backed DatabaseSync connections must pass through the registered VFS xOpen, in addition to manifest enrollment opens');
     assert.equal(
       first.prepare('SELECT logic_engine_vfs_probe_hook_protection() AS protected').get().protected,
       1,

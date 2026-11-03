@@ -139,6 +139,14 @@ Assert-NoReparsePointAncestors $InstallDirectory
 Assert-NoReparsePointAncestors $StateDirectory
 Assert-NoReparsePointAncestors $NodePath
 if ($EnvironmentFile) { Assert-NoReparsePointAncestors $EnvironmentFile }
+$nodeVersionOutput = & $NodePath --version
+if ($LASTEXITCODE -ne 0 -or $nodeVersionOutput -notmatch '^v(\d+)\.(\d+)\.(\d+)$') {
+  throw "Unable to determine the configured Node.js runtime version: $NodePath"
+}
+$nodeVersion = [version]::new([int]$Matches[1], [int]$Matches[2], [int]$Matches[3])
+if ($nodeVersion -lt [version]'22.14.0') {
+  throw "Node.js 22.14.0 or newer is required for the SQLite addon runtime; found $nodeVersion"
+}
 # Dry-run must inspect existing descendants too; repeat immediately before ACL
 # mutation inside ShouldProcess to narrow the validation-to-use window.
 Assert-NoReparsePoints $InstallDirectory
