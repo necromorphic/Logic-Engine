@@ -127,7 +127,7 @@ function sameFile(left, right) {
 }
 
 function normalizeSources(sources) {
-  if (!Array.isArray(sources) || sources.length === 0 || sources.length > 256) {
+  if (!Array.isArray(sources) || sources.length > 256) {
     throw new Error('MEMORY_DISPATCH_NOT_READY');
   }
   const normalized = sources.map((source) => {
@@ -158,7 +158,7 @@ function normalizeSources(sources) {
 
 
 function normalizeCandidates(candidates) {
-  if (!Array.isArray(candidates) || candidates.length === 0 || candidates.length > 50) {
+  if (!Array.isArray(candidates) || candidates.length > 50) {
     throw new Error('MEMORY_DISPATCH_NOT_READY');
   }
   const normalized = candidates.map((candidate) => {
