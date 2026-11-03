@@ -209,6 +209,28 @@ test('Windows manifest enrollment retains retired sidecar generations beside one
   ]);
 });
 
+test('Windows manifest enrollment rejects an active sidecar generation older than retained retired history', () => {
+  const rollback = manifest();
+  rollback.generation = 9;
+  rollback.roles[0].sidecars = [
+    {
+      kind: 'wal',
+      identity: identity('00000000000000A1', '55555555555555555555555555555555'),
+      state: 'retired',
+      generation: 8,
+    },
+    {
+      kind: 'wal',
+      identity: identity('00000000000000A1', '88888888888888888888888888888888'),
+      state: 'active',
+      generation: 7,
+    },
+  ];
+  assert.throws(() => registerWindowsManifestRole(
+    fakeDatabase(), rollback, 'core', 'C:\\LogicEngine\\data\\core.sqlite'
+  ), /non-monotonic active wal generation/);
+});
+
 test('Windows manifest enrollment rejects two active sidecar identities for one role and kind', () => {
   const ambiguous = manifest();
   ambiguous.generation = 8;
