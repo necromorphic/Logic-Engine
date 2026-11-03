@@ -32,7 +32,8 @@ const sensitiveModuleReference = /(?:sqlite-memory-provider|memory-npc-consumer|
 const sensitiveNames = /\b(?:SQLiteMemoryProvider|MemoryNpcConsumer|createInternalMemoryImportFacadeForTest)\b/;
 const providerAdminCall = /\.\s*(?:putRecord|grantQuery|grantRecord|revokeRecord|revokeQuery|captureRawMessage|selectActiveRawVersion|markRawSourceDeleted|purgeRawSource|registerRawDerivedCopy)\s*\(/g;
 const productionDirectories = ['src', 'host-adapter', 'scripts'];
-const isTestOrFixture = (path) => /(?:^|\/)(?:tests?|fixtures|experiments)(?:\/|$)/i.test(path);
+const isTestOrFixture = (path) => /(?:^|\/)(?:tests?|fixtures|experiments)(?:\/|$)/i.test(path)
+  || /\.test\.[cm]?js$/i.test(path);
 
 function productionFiles() {
   return productionDirectories.flatMap((directory) => sourceFiles(directory))
