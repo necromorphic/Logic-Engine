@@ -190,6 +190,11 @@ test('pinned ST chat-history mutation routes are guarded or explicitly unsupport
         assert.ok(stableDiffusion.includes(`comfy.post('/${route}', hostUnsupportedMutationGuard`),
             `ComfyUI workflow mutation /${route} must be fail-closed while Host authority is active`);
     }
+    const usersSource = read('src/users.js');
+    assert.ok(usersSource.includes('HOST_LIFECYCLE_LEGACY_USER_DATA_MIGRATION_BLOCKED'),
+        'legacy public user data must not be moved outside the attested root while Host is active');
+    assert.ok(usersSource.includes('Skipping system prompt migration while Host authority is active.'),
+        'system-prompt migration must not mutate account-root files while Host is active');
     const serverMain = read('src/server-main.js');
     assert.ok(serverMain.includes('const hostAuthorityConfigured = Boolean(process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR)'),
         'startup account-root migration gate must be installed');
