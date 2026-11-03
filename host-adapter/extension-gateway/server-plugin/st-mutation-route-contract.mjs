@@ -246,8 +246,9 @@ export const PINNED_ST_MUTATION_COVERAGE_SHA256 = sha256(canonical({
     'HOST_USER_ACCOUNT_MUTATION_UNSUPPORTED',
     'HOST_USER_ROOT_RESET_UNSUPPORTED',
     'revokeHostSessionBeforeLogout(request)',
-    'HOST_USER_DATA_MIGRATION_INCOMPLETE',
-    'HOST_SYSTEM_PROMPT_MIGRATION_INCOMPLETE',
+    'HOST_LIFECYCLE_USER_DIRECTORY_MISSING',
+    'HOST_LIFECYCLE_LEGACY_USER_DATA_MIGRATION_BLOCKED',
+    'Skipping system prompt migration while Host authority is active.',
     'Skipping unreceipted startup group metadata migration while Host inventory is enabled.',
   ],
 }));
@@ -316,8 +317,10 @@ export async function verifyPinnedSillyTavernMutationCoverage({
       throw new Error('HOST_ST_ACCOUNT_MUTATION_GUARD_MISSING');
     }
     if (relative.endsWith('users.js')
-      && (!source.includes("throw new Error('HOST_USER_DATA_MIGRATION_INCOMPLETE')")
-        || !source.includes("throw new Error('HOST_SYSTEM_PROMPT_MIGRATION_INCOMPLETE')"))) {
+      && (!source.includes("throw new Error('HOST_LIFECYCLE_USER_DIRECTORY_MISSING')")
+        || !source.includes("throw new Error('HOST_LIFECYCLE_LEGACY_USER_DATA_MIGRATION_BLOCKED')")
+        || !source.includes("console.warn('Skipping system prompt migration while Host authority is active.')")
+        || !source.includes('if (process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR)'))) {
       throw new Error('HOST_ST_USER_DATA_MIGRATION_GUARD_MISSING');
     }
     if (relative.endsWith('users-private.js')
