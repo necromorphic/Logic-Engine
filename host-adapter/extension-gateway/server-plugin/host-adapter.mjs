@@ -129,6 +129,12 @@ export function createSillyTavernHostAdapter({
         let sourceIdentity;
         try { sourceIdentity = await injectedVerifySourceIdentity({ userExtensionsPath: directories.extensions }); }
         catch { return { status: 'NON_READY', code: 'HOST_SOURCE_IDENTITY_UNAVAILABLE' }; }
+        // Do not submit a root manifest to Core until the installed source set
+        // has independently passed the pinned-source identity verifier.
+        if (sourceIdentity?.status !== 'CURRENT_IDENTITIES_VERIFIED'
+          || !/^[a-f0-9]{64}$/.test(sourceIdentity.manifest_sha256 ?? '')) {
+          return { status: 'NON_READY', code: 'HOST_INVENTORY_NOT_AUTHORITATIVE' };
+        }
         let rootProof;
         try {
           if (typeof persistRootInventory !== 'function') {
