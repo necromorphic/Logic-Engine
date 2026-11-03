@@ -818,6 +818,7 @@ export class HostLifecycleJournal {
     let baselineManifestSha256 = null;
     let previousEntries = null;
     let latestManifestSha256 = null;
+    const history = [];
     for (let index = 0; index < rows.length; index++) {
       const row = rows[index];
       if (row.sequence !== index + 1 || row.previous_sha256 !== previous) {
@@ -875,6 +876,7 @@ export class HostLifecycleJournal {
       previous = expected;
       previousEntries = entries;
       latestManifestSha256 = manifestSha256;
+      history.push({ sequence: row.sequence, manifest_sha256: manifestSha256 });
     }
     const head = this.db.prepare(`
       SELECT sequence,baseline_manifest_sha256,latest_manifest_sha256,head_sha256,status
@@ -889,7 +891,7 @@ export class HostLifecycleJournal {
     }
     return { valid: true, sequence: rows.length, head_sha256: previous,
       baseline_manifest_sha256: baselineManifestSha256, latest_manifest_sha256: latestManifestSha256,
-      status: head.status };
+      history, status: head.status };
   }
 
   #verifyRootCompletenessRows(hostInstallationId, accountId, rootId, root, identity, rows) {
@@ -907,11 +909,16 @@ export class HostLifecycleJournal {
       try { proof = JSON.parse(row.canonical_proof_json); } catch {
         return { valid: false, reason: 'HOST_ROOT_INVENTORY_COMPLETENESS_PROOF_JSON_INVALID' };
       }
+      const rootVersion = root.history?.find(item => item.sequence === proof.root_inventory_sequence);
       if (canonical(proof) !== row.canonical_proof_json
         || proof.event_id !== row.event_id
         || proof.root_inventory_sequence !== row.root_inventory_sequence
         || proof.manifest_sha256 !== row.manifest_sha256
-        || !validRootCompletenessProof(proof, identity, root)
+        || !rootVersion
+        || !validRootCompletenessProof(proof, identity, {
+          sequence: rootVersion.sequence,
+          latest_manifest_sha256: rootVersion.manifest_sha256,
+        })
         || this.verifyCompletenessProof({
           proof,
           proof_signature: row.proof_signature,
@@ -961,14 +968,16 @@ export class HostLifecycleJournal {
       `).all(input.host_installation_id, input.authenticated_account_id, input.root_id);
       const root = this.#verifyRootInventoryRows(input.host_installation_id,
         input.authenticated_account_id, input.root_id, rows);
-      if (!root.valid || root.status !== 'BASELINED_REVIEW_ONLY' || root.sequence !== 1) {
+      if (!root.valid) {
         throw new Error('HOST_ROOT_INVENTORY_NOT_ELIGIBLE_FOR_COMPLETENESS');
       }
-      const baseline = JSON.parse(rows[0].canonical_event_json);
-      const totalBytes = baseline.entries.reduce((sum, entry) => sum + entry.identity.size, 0);
+      const currentInventoryEvent = JSON.parse(rows.at(-1).canonical_event_json);
+      const totalBytes = currentInventoryEvent.entries.reduce((sum, entry) => sum + entry.identity.size, 0);
       const proof = input.proof;
       if (!validRootCompletenessProof(proof, identity, root)
-        || proof.file_count !== baseline.entries.length
+        || proof.root_inventory_sequence !== root.sequence
+        || proof.manifest_sha256 !== root.latest_manifest_sha256
+        || proof.file_count !== currentInventoryEvent.entries.length
         || proof.total_bytes !== totalBytes
         || this.verifyCompletenessProof({
           proof,
@@ -994,7 +1003,14 @@ export class HostLifecycleJournal {
           || prior.proof.route_count !== proof.route_count) {
           throw new Error('HOST_ROOT_INVENTORY_COMPLETENESS_SOURCE_CHANGED');
         }
-        return {
+        if (prior.proof.root_inventory_sequence > proof.root_inventory_sequence) {
+          throw new Error('HOST_ROOT_INVENTORY_COMPLETENESS_SEQUENCE_REGRESSION');
+        }
+        if (prior.proof.root_inventory_sequence === proof.root_inventory_sequence) {
+          if (prior.proof.manifest_sha256 !== proof.manifest_sha256) {
+            throw new Error('HOST_ROOT_INVENTORY_COMPLETENESS_MANIFEST_CONFLICT');
+          }
+          return {
           status: 'AUTHORITATIVE_COMPLETE',
           integrity_status: 'INTEGRITY_OK',
           sequence: root.sequence,
@@ -1002,7 +1018,8 @@ export class HostLifecycleJournal {
           proof_sha256: prior.proof_sha256,
           completeness_sequence: prior.sequence,
           duplicate: true,
-        };
+          };
+        }
       }
       const existing = this.db.prepare(`
         SELECT event_id,proof_signature,canonical_proof_json,proof_sha256,sequence
@@ -1075,7 +1092,7 @@ export class HostLifecycleJournal {
     `).all(identity.host_installation_id, identity.authenticated_account_id, identity.root_id);
     const root = this.#verifyRootInventoryRows(identity.host_installation_id,
       identity.authenticated_account_id, identity.root_id, rows);
-    if (!root.valid || root.status !== 'BASELINED_REVIEW_ONLY') return null;
+    if (!root.valid || !['BASELINED_REVIEW_ONLY', 'NON_READY'].includes(root.status)) return null;
     const completenessRows = this.db.prepare(`
       SELECT event_id,root_inventory_sequence,manifest_sha256,previous_sha256,
         proof_sha256,proof_signature,canonical_proof_json,sequence
