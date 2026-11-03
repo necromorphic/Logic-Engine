@@ -64,8 +64,8 @@ The current Gateway candidates are not yet compatible with this Builder/Receiver
 
 Before enabling the path, Host/Gateway/Core must agree on all of the following:
 
-1. Async preparation builds the context inside the authenticated Core process and binds it to the exact Host request object, request ID, generation ID/type, World, Actor, conversation and adapter. The context itself never becomes browser-controlled or a JSON payload.
-2. The Final-Send adapter passes the exact issued context object to the Gateway receiver for that same request. Missing, cloned, serialized, replayed or cross-request contexts fail closed.
+1. Async preparation invokes `prepareForDispatch()` in the same trusted in-process composition as the Gateway and binds it to the exact Host request object, request ID, generation ID/type, World, Actor, conversation and adapter. The Host adapter must retain the exact request-metadata object alongside the handoff in a private WeakMap keyed by the original Host request; dispatch must retrieve and reuse that same metadata object. The context itself never becomes browser-controlled or a JSON payload.
+2. The Final-Send adapter passes the opaque handoff plus the exact retained request-metadata object to the Gateway receiver for that same Host request. Missing, cloned, serialized, replayed or cross-request handoffs/metadata fail closed.
 3. Dispatch-start performs current Lane A visibility/acquisition checks and Lane B record/grant/source checks under the same revocation-ordering authority as durable `DISPATCH_STARTED`. A preflight check followed by an unlocked transport is insufficient.
 4. The dispatch contract preserves Lane A and Lane B as separate inputs. A Lane-B-only `sources/candidates` projection cannot stand in for the full NPC context.
 5. The first response write remains blocked until Core final-response revalidation succeeds. No browser-side callback or post-response check can substitute for this.
