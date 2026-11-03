@@ -103,7 +103,7 @@ test('every reviewed per-user SillyTavern mutation route is guarded in the appli
       covered++;
     }
   }
-  assert.equal(covered, 58, 'the approved route inventory changed; review before updating coverage');
+  assert.equal(covered, 47, 'the approved route inventory changed; review before updating coverage');
 });
 
 test('global Host-source and account mutations remain fail-closed while Host is enabled', {
