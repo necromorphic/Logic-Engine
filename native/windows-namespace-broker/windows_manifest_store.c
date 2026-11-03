@@ -25,6 +25,7 @@
 #include <aclapi.h>
 #include <sddl.h>
 #include "windows_manifest_store.h"
+#include "windows_relative_open.h"
 
 #define LE_STORE_MANIFEST L"manifest.json"
 #define LE_STORE_INTENT L"intent.json"
@@ -402,6 +403,65 @@ static int le_win_store_read(
   return 1;
 }
 
+/*
+ * Use the native FileRenameInformation class so the rename remains relative
+ * to the retained directory HANDLE. There is deliberately no path fallback.
+ */
+typedef NTSTATUS (NTAPI *le_nt_set_information_file_fn)(
+    HANDLE, PIO_STATUS_BLOCK, PVOID, ULONG, ULONG);
+
+typedef struct LE_FILE_RENAME_INFORMATION {
+  BOOLEAN ReplaceIfExists;
+  HANDLE RootDirectory;
+  ULONG FileNameLength;
+  WCHAR FileName[1];
+} LE_FILE_RENAME_INFORMATION;
+
+static int le_win_rename_relative(
+    HANDLE file, HANDLE directory, const wchar_t *target) {
+  HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
+  le_nt_set_information_file_fn set_information;
+  IO_STATUS_BLOCK io_status;
+  LE_FILE_RENAME_INFORMATION *rename_info;
+  size_t name_length;
+  size_t buffer_length;
+  NTSTATUS status;
+  if (!ntdll || !file || file == INVALID_HANDLE_VALUE
+      || !directory || directory == INVALID_HANDLE_VALUE
+      || !target || !target[0]) {
+    SetLastError(ERROR_INVALID_PARAMETER);
+    return 0;
+  }
+  name_length = wcslen(target) * sizeof(wchar_t);
+  buffer_length = offsetof(LE_FILE_RENAME_INFORMATION, FileName) + name_length;
+  if (name_length > 0xffffffffu || buffer_length > 0xffffffffu) {
+    SetLastError(ERROR_INVALID_PARAMETER);
+    return 0;
+  }
+  set_information = (le_nt_set_information_file_fn)(void *)
+      GetProcAddress(ntdll, "NtSetInformationFile");
+  if (!set_information) {
+    SetLastError(ERROR_PROC_NOT_FOUND);
+    return 0;
+  }
+  rename_info = (LE_FILE_RENAME_INFORMATION *)HeapAlloc(
+      GetProcessHeap(), HEAP_ZERO_MEMORY, buffer_length);
+  if (!rename_info) return 0;
+  rename_info->ReplaceIfExists = TRUE;
+  rename_info->RootDirectory = directory;
+  rename_info->FileNameLength = (ULONG)name_length;
+  memcpy(rename_info->FileName, target, name_length);
+  ZeroMemory(&io_status, sizeof(io_status));
+  /* Native FILE_INFORMATION_CLASS::FileRenameInformation is 10. */
+  status = set_information(file, &io_status, rename_info, (ULONG)buffer_length, 10);
+  HeapFree(GetProcessHeap(), 0, rename_info);
+  if (status < 0) {
+    SetLastError(logic_engine_win_status_to_error(status));
+    return 0;
+  }
+  return 1;
+}
+
 static int le_win_store_replace(
     LE_WIN_MANIFEST_STORE *store, const wchar_t *target,
     const unsigned char *bytes, DWORD length, LE_STORE_VALIDATE validate) {
@@ -411,8 +471,9 @@ static int le_win_store_replace(
   HANDLE file = INVALID_HANDLE_VALUE;
   DWORD written_total = 0;
   size_t i;
-  size_t rename_bytes;
-  FILE_RENAME_INFO *rename_info = NULL;
+  DWORD written_total = 0;
+  size_t i;
+  HANDLE file = INVALID_HANDLE_VALUE;
   BOOL renamed = FALSE;
 #ifdef LE_STORE_DIAGNOSTICS
   const char *failure_stage = "open temp file";
@@ -439,7 +500,7 @@ static int le_win_store_replace(
   }
   file = logic_engine_win_open_relative(store->directory, temporary,
       GENERIC_WRITE | DELETE | FILE_READ_ATTRIBUTES,
-      FILE_SHARE_READ, FILE_CREATE, FILE_NON_DIRECTORY_FILE,
+      FILE_SHARE_READ | FILE_SHARE_DELETE, FILE_CREATE, FILE_NON_DIRECTORY_FILE,
       FILE_ATTRIBUTE_NORMAL, NULL, NULL);
   if (file == INVALID_HANDLE_VALUE) return 0;
 #ifdef LE_STORE_DIAGNOSTICS
@@ -455,23 +516,11 @@ static int le_win_store_replace(
   failure_stage = "flush temp file";
 #endif
   if (!FlushFileBuffers(file)) goto cleanup;
-  /* SetFileInformationByHandle validates the complete fixed structure size,
-   * including FILE_RENAME_INFO's trailing WCHAR and ABI padding, before it
-   * consumes FileNameLength. Allocate sizeof(struct) plus the variable name. */
-  rename_bytes = sizeof(FILE_RENAME_INFO) + wcslen(target) * sizeof(wchar_t);
-  rename_info = (FILE_RENAME_INFO *)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, rename_bytes);
-  if (!rename_info) goto cleanup;
-  rename_info->ReplaceIfExists = TRUE;
-  rename_info->RootDirectory = store->directory;
-  rename_info->FileNameLength = (DWORD)(wcslen(target) * sizeof(wchar_t));
-  memcpy(rename_info->FileName, target, rename_info->FileNameLength);
 #ifdef LE_STORE_DIAGNOSTICS
-  failure_stage = "handle-relative rename";
+  failure_stage = "handle-relative native rename";
 #endif
-  if (!SetFileInformationByHandle(file, FileRenameInfo, rename_info, (DWORD)rename_bytes)) goto cleanup;
+  if (!le_win_rename_relative(file, store->directory, target)) goto cleanup;
   renamed = TRUE;
-  /* Directory flush is a hard gate: never report a durable commit if NTFS
-   * refuses to flush the containing directory handle. */
 #ifdef LE_STORE_DIAGNOSTICS
   failure_stage = "flush parent directory";
 #endif
@@ -483,7 +532,6 @@ cleanup:
 #ifdef LE_STORE_DIAGNOSTICS
   fprintf(stderr, "manifest store failed at %s (GetLastError=%lu)\\n", failure_stage, (unsigned long)GetLastError());
 #endif
-  if (rename_info) HeapFree(GetProcessHeap(), 0, rename_info);
   if (file != INVALID_HANDLE_VALUE) {
     if (!renamed) {
       FILE_DISPOSITION_INFO disposition;
