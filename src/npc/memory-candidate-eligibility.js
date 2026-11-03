@@ -191,6 +191,7 @@ function lifecycleIsAdmissible(candidate) {
   // Unknown owner-defined states fail closed until their meaning is approved.
   return lifecycle.content_disposition === "usable"
     && lifecycle.source_reconciliation === "current"
+    && lifecycle.evidence_assessment === "supported"
     && lifecycle.access_outcome === ALLOW
     && lifecycle.index_health === "ready";
 }

@@ -82,7 +82,7 @@ function setup(t, { twoRecords = false, providerPath = null } = {}) {
     epistemic_kind: 'acquired_report',
     producer_kind: 'memory-index',
     content_disposition: 'usable',
-    evidence_assessment: 'unassessed',
+    evidence_assessment: 'supported',
     lineage: [{ source_kind: 'canonical_entity', entity_id: sourceId, source_version: engine.getSnapshot(worldId, { entityIds: [sourceId], includeSourceVersions: true }).entities[0]?.source_version ?? 'unverifiable' }],
   }));
   for (const record of records) {
