@@ -114,9 +114,11 @@ export function createSillyTavernFinalSendAdapter({
   chatCompletionSources,
   nativeForwardFetchResponse,
   prepareHostContext = async () => null,
+  runWithAuthenticatedHostSession = null,
 }) {
   if (typeof nativeForwardFetchResponse !== 'function'
-    || typeof prepareHostContext !== 'function') {
+    || typeof prepareHostContext !== 'function'
+    || (runWithAuthenticatedHostSession !== null && typeof runWithAuthenticatedHostSession !== 'function')) {
     throw new TypeError('Native SillyTavern response writer and trusted Host preparation callback are required.');
   }
   const sourceMap = assertSourceMap(chatCompletionSources);
@@ -169,6 +171,9 @@ export function createSillyTavernFinalSendAdapter({
         throw error;
       }
 
+      const prepared = args.request && typeof args.request === 'object'
+        ? preparedContextByRequest.get(args.request) : null;
+      const execute = () => {
       let protectedMemory;
       try {
         protectedMemory = resolveProtectedMemory(
@@ -252,6 +257,11 @@ export function createSillyTavernFinalSendAdapter({
         return result.catch(deny);
       }
       return result;
+      };
+      if (runWithAuthenticatedHostSession && prepared?.coreConversationId) {
+        return runWithAuthenticatedHostSession(args.request, prepared.coreConversationId, execute);
+      }
+      return execute();
     },
 
     authorizeResponseWrite(response, write, final = false) {
