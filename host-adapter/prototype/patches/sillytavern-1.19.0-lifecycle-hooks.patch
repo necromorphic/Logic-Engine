@@ -2599,12 +2599,12 @@ diff --git a/src/plugin-loader.js b/src/plugin-loader.js
 +                continue;
 +            }
              const pluginFilePath = path.join(pluginsPath, file);
-@@ -80,1 +92,2 @@
+@@ -80,1 +92,4 @@
 +        if (hostAuthorityConfigured && !loadedPlugins.has('logic-engine-extension-gateway')) {
 +            throw new Error('HOST_SERVER_PLUGIN_NOT_LOADED');
 +        }
          if (loadedPlugins.size > 0) {
-@@ -86,4 +99,5 @@
+@@ -86,4 +101,5 @@
      } catch (error) {
          console.error('Plugin loading failed.', error);
 +        if (process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR) throw error;
