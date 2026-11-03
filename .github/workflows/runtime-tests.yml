@@ -163,7 +163,7 @@ jobs:
           tests/core-trusted-initial-knowledge-ingestion.test.js
           tests/sqlite-memory-provider.test.js
 
-secure-vfs-registration-probe:
+  secure-vfs-registration-probe:
     # Build and test the native extension against the exact Node-bundled SQLite
     # engine on both OS families; do not use the PR merge ref for this probe.
     runs-on: ${{ matrix.os }}
