@@ -49,9 +49,30 @@ static BOOL auth(HANDLE pipe) {
  u=HeapAlloc(GetProcessHeap(),HEAP_ZERO_MEMORY,n);if(u&&GetTokenInformation(token,TokenUser,u,n,&n))ok=EqualSid(u->User.Sid,allowed_sid);
  done:if(u)HeapFree(GetProcessHeap(),0,u);if(token)CloseHandle(token);if(!RevertToSelf())ok=FALSE;return ok;
 }
+static HANDLE authenticated_process(HANDLE pipe) {
+ DWORD pid=0,needed=0;HANDLE process=NULL,token=NULL;TOKEN_USER *user=NULL;BOOL valid=FALSE;
+ if(!GetNamedPipeClientProcessId(pipe,&pid)||!pid)return NULL;
+ process=OpenProcess(PROCESS_DUP_HANDLE|PROCESS_QUERY_LIMITED_INFORMATION,FALSE,pid);
+ if(!process)return NULL;
+ if(!OpenProcessToken(process,TOKEN_QUERY,&token))goto failed;
+ GetTokenInformation(token,TokenUser,NULL,0,&needed);
+ if(GetLastError()!=ERROR_INSUFFICIENT_BUFFER||!needed||needed>65536)goto failed;
+ user=HeapAlloc(GetProcessHeap(),HEAP_ZERO_MEMORY,needed);
+ if(!user||!GetTokenInformation(token,TokenUser,user,needed,&needed))goto failed;
+ valid=EqualSid(user->User.Sid,allowed_sid);
+ if(user)HeapFree(GetProcessHeap(),0,user);
+ CloseHandle(token);
+ if(!valid){CloseHandle(process);return NULL;}
+ return process;
+ failed:
+ if(user)HeapFree(GetProcessHeap(),0,user);
+ if(token)CloseHandle(token);
+ if(process)CloseHandle(process);
+ return NULL;
+}
 static void client(HANDLE pipe) {
- Header q,r;BYTE payload[MAX_PACKET-sizeof(Header)];DWORD pid=0,available=0;
- if(!auth(pipe)||!GetNamedPipeClientProcessId(pipe,&pid)||!pid||!readn(pipe,&q,sizeof(q)))return;
+ Header q,r;BYTE payload[MAX_PACKET-sizeof(Header)];DWORD available=0;HANDLE process;
+ if(!auth(pipe)||(process=authenticated_process(pipe))==NULL||!readn(pipe,&q,sizeof(q))){if(process)CloseHandle(process);return;}
  q.magic=net32(q.magic);q.version=net16(q.version);q.operation=net16(q.operation);
  q.flags=net32(q.flags);q.request_id=net64(q.request_id);q.payload_length=net32(q.payload_length);
  if(q.magic!=MAGIC||q.version!=VERSION||q.flags||q.payload_length>sizeof(payload))return;
@@ -64,6 +85,7 @@ static void client(HANDLE pipe) {
  r.magic=net32(r.magic);r.version=net16(r.version);r.operation=net16(r.operation);
  r.flags=net32(r.flags);r.request_id=net64(r.request_id);r.payload_length=net32(r.payload_length);
  (void)writen(pipe,&r,sizeof(r));
+ CloseHandle(process);
 }
 static void run(void) {
  SECURITY_ATTRIBUTES sa;PSECURITY_DESCRIPTOR sd=NULL;ZeroMemory(&sa,sizeof(sa));
