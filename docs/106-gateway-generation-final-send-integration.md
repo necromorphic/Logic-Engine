@@ -3,6 +3,7 @@
 **Status:** selected architecture; production composition remains blocked.
 **Inputs:** #844, #855, #868, #870.  
 **Pinned Host:** SillyTavern 1.19.0, commit `06bde939fb1e9c4c8d8641d810f0a916b5bce127`.
+The supplied `SillyTavern-release.zip` identifies that exact commit and `package.json` version `1.19.0`; all 12 manifest pre-patch source-file SHA-256 values matched the uploaded archive. This verifies the patch's base-source identity locally; patch application and full route acceptance still require the exact-head workflow.
 
 ## Decision
 
