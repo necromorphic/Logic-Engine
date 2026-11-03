@@ -42,10 +42,12 @@ test('Host preserves AUTHORITATIVE_COMPLETE only with Core integrity, monotonic 
     }),
   });
   const proof = await persist({ userHandle: 'alice', rootPath, entries });
-  assert.equal(proof.status, 'AUTHORITATIVE_COMPLETE');
+  assert.equal(proof.status, 'BASELINED_REVIEW_ONLY');
   assert.equal(proof.integrity_status, 'INTEGRITY_OK');
   assert.equal(proof.sequence, 7);
   assert.equal(proof.manifest_sha256, 'c'.repeat(64));
+  assert.equal(proof.attestation_sha256, undefined,
+    'a Core baseline without signed source/VSS/lifecycle proof must never be promoted');
 });
 
 test('Host rejects authoritative-looking Core status without complete proof fields', async t => {
