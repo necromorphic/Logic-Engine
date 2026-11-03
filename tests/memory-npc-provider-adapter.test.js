@@ -202,6 +202,7 @@ test('real adapter composes file-backed SQLite Provider with Core query and cano
       worldId, actorEntityId: actorId, conversationId,
       adapterId: 'caller-selected-spoofed-adapter',
     }));
+    if (result.status !== 'ready') console.log('ADAPTER_RESULT', JSON.stringify(result));
     assert.equal(result.status, 'ready', `unexpected retrieval result: ${result.reason}`);
     assert.equal(result.candidates.length, 1);
     assert.deepEqual(result.candidates[0].content, {
