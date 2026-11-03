@@ -529,14 +529,17 @@ export function createHostRequestAuthenticationGate({ resolveConversationId } = 
       const exactBinding = binding && typeof binding === 'object' && !Array.isArray(binding)
         && Object.getPrototypeOf(binding) === Object.prototype
         && Object.keys(binding).sort().join(',') ===
-          'authenticated_account_id,conversation_id,host_installation_id,host_session_id';
+          'authenticated_account_id,conversation_id,host_installation_id,host_session_id,root_id,root_inventory_sequence,root_manifest_sha256';
       if (!exactBinding
         || !validUuid(binding.host_installation_id)
         || !validUuid(binding.authenticated_account_id)
         || !validUuid(binding.host_session_id)
         || binding.host_session_id !== sessionId
         || typeof binding.conversation_id !== 'string'
-        || !HOST_CONVERSATION_ID.test(binding.conversation_id)) {
+        || !HOST_CONVERSATION_ID.test(binding.conversation_id)
+        || typeof binding.root_id !== 'string' || !/^[a-f0-9]{64}$/.test(binding.root_id)
+        || !Number.isSafeInteger(binding.root_inventory_sequence) || binding.root_inventory_sequence < 1
+        || typeof binding.root_manifest_sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(binding.root_manifest_sha256)) {
         return Object.freeze({ status: 'DENIED' });
       }
       const parts = binding.conversation_id.split(':');
@@ -550,6 +553,9 @@ export function createHostRequestAuthenticationGate({ resolveConversationId } = 
         host_session_id: binding.host_session_id,
         conversation_id: binding.conversation_id,
         conversation_uuid: conversationUuid,
+        root_id: binding.root_id,
+        root_inventory_sequence: binding.root_inventory_sequence,
+        root_manifest_sha256: binding.root_manifest_sha256,
       });
       authenticatedRequests.set(request, context);
       return Object.freeze({ status: 'READY', context });
