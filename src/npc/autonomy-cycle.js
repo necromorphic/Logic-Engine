@@ -39,10 +39,10 @@ function isDenseDataArray(value) {
   try {
     if (Object.getPrototypeOf(value) !== Array.prototype) return false;
     const keys = Reflect.ownKeys(value);
-    if (keys.length !== value.length + 1 || !keys.includes("length")) return false;
+    if (keys.length !== value.length + 1 || keys[value.length] !== "length") return false;
     for (let index = 0; index < value.length; index += 1) {
       const key = String(index);
-      if (!keys.includes(key)) return false;
+      if (keys[index] !== key) return false;
       const descriptor = Object.getOwnPropertyDescriptor(value, key);
       if (descriptor === undefined || descriptor.enumerable !== true || !Object.hasOwn(descriptor, "value")) return false;
     }

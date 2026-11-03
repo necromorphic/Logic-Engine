@@ -68,10 +68,10 @@ function denseArray(value) {
   if (!hasSafeArrayIterator() || utilTypes.isProxy(value) || !Array.isArray(value)) return false;
   if (Object.getPrototypeOf(value) !== Array.prototype) return false;
   const keys = Reflect.ownKeys(value);
-  if (keys.length !== value.length + 1 || !keys.includes("length")) return false;
+  if (keys.length !== value.length + 1 || keys[value.length] !== "length") return false;
   for (let i = 0; i < value.length; i += 1) {
     const key = String(i);
-    if (!keys.includes(key)) return false;
+    if (keys[i] !== key) return false;
     const descriptor = Object.getOwnPropertyDescriptor(value, key);
     if (
       descriptor == null
