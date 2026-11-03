@@ -174,6 +174,7 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
   const hostAssertionRunners = Object.fromEntries(Object.entries(adapterTokens)
     .map(([id, secret]) => [id, createHostSessionAssertionRunner({
       secret,
+      adapterId: id,
       isSessionRevoked: (adapterId, identity) => hostAssertionNonceStore.isSessionRevoked(adapterId, identity),
       consumeNonce: (nonce, expiresAt, currentSeconds) => {
         if (!hostAssertionNonceStore) throw new Error('HOST_ASSERTION_REPLAY_GUARD_UNAVAILABLE');
