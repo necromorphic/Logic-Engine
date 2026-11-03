@@ -168,6 +168,9 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
       || typeof consumer?.retrieveForNpc !== 'function')) {
     throw new TypeError('Memory NPC consumers must be trusted, adapter-pinned consumer instances.');
   }
+  if (Object.keys(memoryNpcConsumers).length > 0 && hostAssertionNonceStore === null) {
+    throw new TypeError('Memory NPC retrieval requires a durable Host assertion nonce and revocation store.');
+  }
   const hostAssertionRunners = Object.fromEntries(Object.entries(adapterTokens)
     .map(([id, secret]) => [id, createHostSessionAssertionRunner({
       secret,
