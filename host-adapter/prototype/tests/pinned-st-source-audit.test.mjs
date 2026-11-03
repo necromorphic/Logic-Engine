@@ -133,6 +133,20 @@ test('pinned ST chat-history mutation routes are guarded or explicitly unsupport
 });
 
 
+test('native logout must fail closed before clearing the session', { skip: !root }, () => {
+    const source = fs.readFileSync(path.join(root, 'src/endpoints/users-private.js'), 'utf8');
+    const start = source.indexOf("router.post('/logout'");
+    const end = source.indexOf("router.get('/me'", start);
+    assert.ok(start >= 0 && end > start, 'native logout route must exist');
+    const route = source.slice(start, end);
+    const revoke = route.indexOf('await revokeHostSessionBeforeLogout(request)');
+    const clear = route.indexOf('request.session.handle = null;');
+    assert.ok(revoke >= 0 && clear > revoke,
+        'native logout must revoke the Core session before clearing the ST session');
+    assert.ok(route.includes("return response.status(503).json({ error: 'Host session revocation unavailable; session was not logged out.' });"),
+        'native logout must leave the ST session intact when Core revocation fails');
+});
+
 test('account switching and version invalidation revoke the old Host capability before session mutation', { skip: !root }, () => {
     const read = relativePath => fs.readFileSync(path.join(root, relativePath), 'utf8');
     const users = read('src/users.js');
