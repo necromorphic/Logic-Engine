@@ -27,6 +27,8 @@ on:
   pull_request:
     paths:
       - 'native/secure-vfs-probe/*.c'
+      - 'native/secure-vfs-probe/*.js'
+      - 'tests/windows-manifest-lifecycle.test.js'
       - 'tests/sqlite-windows-acl-installer.test.js'
       - 'native/secure-vfs-probe/*.h'
       - 'tests/security-vfs-extension-bootstrap.test.js'
