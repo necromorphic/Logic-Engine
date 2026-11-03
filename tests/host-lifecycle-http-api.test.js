@@ -224,6 +224,21 @@ test('Core accepts a signed Host root completeness proof before granting lifecyc
     ...authority,
   }).status, 'INTEGRITY_OK');
 
+  const changedSourceProof = {
+    ...completenessProof,
+    event_id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+    source_files_sha256: DIGEST('changed-pinned-source'),
+  };
+  const changedSourceSignature = createHmac('sha256', ADAPTER_TOKEN)
+    .update(canonical(changedSourceProof), 'utf8').digest('hex');
+  const sourceDrift = await post('/v1/host-root-inventory/complete', {
+    ...completenessBody,
+    proof: changedSourceProof,
+    proof_signature: changedSourceSignature,
+  });
+  assert.equal(sourceDrift.status, 409);
+  assert.equal((await sourceDrift.json()).error.code, 'HOST_ROOT_INVENTORY_COMPLETENESS_SOURCE_CHANGED');
+
   const prepared = {
     host_installation_id: INSTALLATION,
     authenticated_account_id: ACCOUNT,
