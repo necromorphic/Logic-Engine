@@ -28,7 +28,8 @@ function aliasesSameFile(left, right) {
 /**
  * Durable, process-independent replay guard for short-lived Host assertions.
  * It owns a separate SQLite file so nonce writes do not mutate Core's
- * accepted-head-protected canonical database or the shared Coordinator DB.
+ * accepted-head-protected canonical database, the shared Coordinator DB,
+ * or the Memory Provider's record/index database.
  */
 export class HostAssertionNonceStore {
   #db;
