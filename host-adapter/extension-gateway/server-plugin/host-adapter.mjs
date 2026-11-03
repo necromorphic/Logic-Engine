@@ -67,6 +67,11 @@ export function createSillyTavernHostAdapter({
   let dispatchMiddleware = (_request, response) =>
     response.status(503).json({ status: 'NON_READY', code: 'HOST_IDENTITY_STORE_UNCONFIGURED' });
   let dispatch = unavailable('HOST_IDENTITY_STORE_UNCONFIGURED');
+  let authenticateGenerationRequest = async () =>
+    Object.freeze({ status: 'NON_READY', code: 'HOST_IDENTITY_STORE_UNCONFIGURED' });
+  let isAuthenticatedHostRequest = () => false;
+  let resolveHostConversationId = () => null;
+  let resolveHostContext = () => null;
 
   if (identityStore) {
     const lifecycle = createHostLifecycleJournalProxy({ identityStore });
@@ -134,6 +139,10 @@ export function createSillyTavernHostAdapter({
       },
     });
     dispatchMiddleware = authentication.middleware;
+    authenticateGenerationRequest = authentication.authenticate;
+    isAuthenticatedHostRequest = authentication.isAuthenticatedHostRequest;
+    resolveHostConversationId = authentication.resolveHostConversationId;
+    resolveHostContext = authentication.resolveHostContext;
     dispatch = createHostMemoryDispatchProxyHandler({
       env,
       fetchImpl,
@@ -149,6 +158,10 @@ export function createSillyTavernHostAdapter({
     lifecycleStatus,
     dispatchMiddleware,
     dispatch,
+    authenticateGenerationRequest,
+    isAuthenticatedHostRequest,
+    resolveHostConversationId,
+    resolveHostContext,
     capture: createHostDigestProxyHandler({ env, fetchImpl }),
     reconcile: createHostInventoryReconcileProxyHandler({ env, fetchImpl }),
   });
