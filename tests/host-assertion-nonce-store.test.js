@@ -129,6 +129,7 @@ test('Host session revocation waits for an in-flight shared Coordinator lease', 
       once(child.stdout, 'data'),
       exitPromise.then(() => { throw new Error('Revocation worker exited before acquiring the shared Coordinator.'); }),
     ]);
+    await new Promise(resolveTimer => setTimeout(resolveTimer, 150));
     assert.match(stdout, /STARTED/);
     assert.doesNotMatch(stdout, /REVOKED/);
     assert.equal(exited, false);
