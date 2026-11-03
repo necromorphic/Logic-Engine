@@ -13,6 +13,7 @@ const binding = {
   host_installation_id: '11111111-1111-4111-8111-111111111111',
   authenticated_account_id: '22222222-2222-4222-8222-222222222222',
   root_id: 'a'.repeat(64),
+  source_manifest_sha256: 'b'.repeat(64),
 };
 
 test('root identity registry parses immutable exact deployment bindings', () => {
