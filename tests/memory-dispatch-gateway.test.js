@@ -1966,6 +1966,20 @@ test('Gateway rejects a body that does not contain the exact admitted NPC contex
   }
 });
 
+test('Gateway requires NPC context in the canonical system slot before user content', async () => {
+  const fixture = await createFixture();
+  try {
+    const request = validRequest('npc-prompt-position');
+    const payload = JSON.parse(request.body);
+    payload.messages.reverse();
+    request.body = JSON.stringify(payload);
+    await assert.rejects(() => fixture.gateway.dispatchProtectedRequest(request), /MEMORY_DISPATCH_NOT_READY/);
+    assert.equal(fixture.calls.length, 0);
+  } finally {
+    await fixture.close();
+  }
+});
+
 test('Gateway rejects a Host prompt projection that differs from the consumed NPC context', async () => {
   const fixture = await createFixture();
   try {
