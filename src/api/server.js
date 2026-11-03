@@ -474,8 +474,9 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
           && ![...value].some(character => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127);
         if (!body || typeof body !== 'object' || Array.isArray(body)
           || Object.keys(body).some(key => ![
-            'host_installation_id', 'authenticated_account_id', 'root_id', 'event_id', 'entries',
+            'host_installation_id', 'authenticated_account_id', 'root_id', 'event_id', 'entries', 'source_manifest_sha256',
           ].includes(key))
+          || (body.source_manifest_sha256 !== undefined && !/^[a-f0-9]{64}$/.test(body.source_manifest_sha256))
           || !validIdentity(body.host_installation_id)
           || !validIdentity(body.authenticated_account_id)
           || !/^[a-f0-9]{64}$/.test(body.root_id ?? '')
