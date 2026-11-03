@@ -84,6 +84,15 @@ test('adapter maps every pinned Chat Completions source key to its protected sen
   }
 });
 
+test('Final-Send hook refuses adapters without a mandatory response authorization method', () => {
+  const patch = readFileSync(new URL('../patches/sillytavern-1.19.0-final-send.patch', import.meta.url), 'utf8');
+  const rootPlugin = readFileSync(new URL('../../index.mjs', import.meta.url), 'utf8');
+  assert.ok(patch.includes("typeof candidate.authorizeResponseWrite !== 'function'"));
+  assert.ok(patch.includes('const authorizeResponseWrite = responseAdapter.authorizeResponseWrite.bind(responseAdapter)'));
+  assert.ok(!patch.includes("if (typeof responseAdapter.authorizeResponseWrite === 'function')"));
+  assert.ok(rootPlugin.includes('authorizeResponseWrite(_response, write)'));
+});
+
 test('native abort bypass is restricted to empty POST control requests', () => {
   const patch = readFileSync(new URL('../patches/sillytavern-1.19.0-final-send.patch', import.meta.url), 'utf8');
   assert.ok(patch.includes("requestInit?.method?.toUpperCase() === 'POST'"));
