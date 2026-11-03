@@ -19,13 +19,13 @@ on:
       - 'native/secure-vfs-probe/README.md'
       - 'deploy/sqlite-security/**'
       - 'tests/sqlite-windows-acl-installer.test.js'
-      - 'tests/sqlite-windows-acl-installer.test.js'
       - 'schemas/sqlite-role-manifest.schema.json'
       - 'tests/sqlite-role-manifest-schema.test.js'
       - '.github/workflows/security-vfs-extension-bootstrap.yml'
   pull_request:
     paths:
       - 'native/secure-vfs-probe/*.c'
+      - 'tests/sqlite-windows-acl-installer.test.js'
       - 'native/secure-vfs-probe/*.h'
       - 'tests/security-vfs-extension-bootstrap.test.js'
       - 'docs/97-issue-770-windows-vfs-integration-contract.md'
