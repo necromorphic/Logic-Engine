@@ -61,6 +61,7 @@ export const SOURCE_FILE_PATHS = Object.freeze([
   'plugins/logic-engine-extension-gateway/host-data-inventory.mjs',
   'plugins/logic-engine-extension-gateway/st-host-inventory-handler.mjs',
   'plugins/logic-engine-extension-gateway/st-host-lifecycle-receipt-store.mjs',
+  'plugins/logic-engine-extension-gateway/st-mutation-route-contract.mjs',
   'plugins/logic-engine-extension-gateway/st-source-attestation.mjs',
   'plugins/logic-engine-extension-gateway/st-source-inventory.mjs',
   'plugins/logic-engine-extension-gateway/fs-inventory.js',
