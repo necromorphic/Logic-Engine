@@ -888,6 +888,27 @@ export class HostLifecycleJournal {
       status: head.status };
   }
 
+  #hasPendingMutation(hostInstallationId, accountId) {
+    const rows = this.db.prepare(
+      'SELECT canonical_event_json FROM host_lifecycle_events WHERE host_installation_id=? AND authenticated_account_id=? ORDER BY sequence'
+    ).all(hostInstallationId, accountId);
+    const pending = new Map();
+    for (let index = 0; index < rows.length; index += 1) {
+      let event;
+      try { event = JSON.parse(rows[index].canonical_event_json); } catch {
+        return true;
+      }
+      if (event.event_type === 'MUTATION_PREPARED') {
+        if (pending.has(event.mutation_id)) return true;
+        pending.set(event.mutation_id, event);
+      } else if (event.event_type === 'MUTATION_COMMITTED' || event.event_type === 'MUTATION_ABORTED') {
+        if (!pending.has(event.mutation_id)) return true;
+        pending.delete(event.mutation_id);
+      }
+    }
+    return pending.size > 0;
+  }
+
   #getLifecycleHead(hostInstallationId, accountId) {
     const head = this.db.prepare(`
       SELECT sequence,head_sha256 FROM host_lifecycle_heads
@@ -1223,6 +1244,9 @@ export class HostLifecycleJournal {
           lifecycle_head_sha256: existing.lifecycle_head_sha256,
           attestation_sha256: attestationSha256,
         };
+      }
+      if (this.#hasPendingMutation(input.host_installation_id, input.authenticated_account_id)) {
+        throw new Error('HOST_ROOT_INVENTORY_PENDING_MUTATION');
       }
       const lifecycleHead = this.#getLifecycleHead(input.host_installation_id, input.authenticated_account_id);
       const expected = {
