@@ -568,7 +568,7 @@ export class MemoryDispatchGateway {
           const generationIndexSql = this.db.prepare(
             "SELECT sql FROM sqlite_master WHERE type='index' AND name='dispatch_ledger_generation_digest'",
           ).get()?.sql ?? '';
-          const normalizedIndexSql = generationIndexSql.replace(/\\s+/g, ' ').toLowerCase();
+          const normalizedIndexSql = generationIndexSql.replace(/\s+/g, ' ').toLowerCase();
           if (!normalizedIndexSql.includes('create unique index')
             || !normalizedIndexSql.includes('on dispatch_ledger(request_digest)')
             || normalizedIndexSql.includes(' where ')) {
