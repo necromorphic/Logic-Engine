@@ -1,9 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {
-  createNpcGenerationContextBuilder,
-  createNpcGenerationContextReceiver,
-} from '../src/application/npc-generation-context.js';
+import { createNpcGenerationContextBuilder } from '../src/application/npc-generation-context.js';
 
 const scope = Object.freeze({
   world_id: 'world-1', actor_id: 'npc-1', conversation_id: 'conversation-1',
@@ -50,7 +47,7 @@ function setup(overrides = {}) {
     revalidateEvidence: async () => overrides.revalidateEvidence ? overrides.revalidateEvidence() : true,
     revalidateScope: async () => currentScope,
   });
-  const receiver = createNpcGenerationContextReceiver({
+  const receiver = builder.createReceiver({
     resolveScope: async () => currentScope,
     revalidateEvidence: async () => overrides.revalidateEvidence ? overrides.revalidateEvidence() : true,
     revalidateScope: async () => currentScope,
@@ -156,6 +153,15 @@ test('receiver accepts only the exact context for the same request and current s
   assert.equal((await receiver.receive({ ...built.context }, request)).status, 'non_ready');
 });
 
+test('a receiver from another builder instance cannot accept an issued context', async () => {
+  const first = setup();
+  const second = setup();
+  const built = await first.builder.build(request);
+  assert.equal(built.status, 'ready');
+  assert.equal((await first.receiver.receive(built.context, request)).status, 'accepted');
+  assert.equal((await second.receiver.receive(built.context, request)).status, 'non_ready');
+});
+
 test('receiver rejects context after actor binding or source snapshot changes', async () => {
   const { builder, receiver, setScope } = setup();
   const built = await builder.build(request);
@@ -174,7 +180,7 @@ test('revocation detected by the final evidence fence prevents context creation'
 test('receiver repeats evidence revalidation and rejects a revoked generation', async () => {
   const { builder } = setup();
   const built = await builder.build(request);
-  const receiver = createNpcGenerationContextReceiver({
+  const receiver = builder.createReceiver({
     resolveScope: async () => scope,
     revalidateEvidence: async () => false,
     revalidateScope: async () => scope,
