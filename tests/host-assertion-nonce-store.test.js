@@ -151,3 +151,37 @@ test('Host session revocation waits for an in-flight shared Coordinator lease', 
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test('Host assertion nonce replay remains denied across store restart and independent connections', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-engine-host-nonce-restart-'));
+  const corePath = join(directory, 'core.sqlite');
+  const coordinatorPath = join(directory, 'coordinator.sqlite');
+  const noncePath = join(directory, 'host-assertion-nonces.sqlite');
+  let first;
+  let second;
+  try {
+    const nonce = '66666666-6666-4666-8666-666666666666';
+    first = new HostAssertionNonceStore({ path: noncePath, coreDatabasePath: corePath, coordinatorPath });
+    assert.equal(first.consume('st-adapter', nonce, 1_800_000_030, 1_800_000_000), true);
+    first.close();
+    first = null;
+
+    // A new Core/server process opens the same durable ledger after restart.
+    second = new HostAssertionNonceStore({ path: noncePath, coreDatabasePath: corePath, coordinatorPath });
+    assert.equal(second.consume('st-adapter', nonce, 1_800_000_030, 1_800_000_001), false);
+
+    // A separate live connection cannot consume the same adapter/nonce tuple.
+    const third = new HostAssertionNonceStore({ path: noncePath, coreDatabasePath: corePath, coordinatorPath });
+    try {
+      assert.equal(third.consume('st-adapter', nonce, 1_800_000_030, 1_800_000_002), false);
+      assert.equal(third.consume('other-adapter', nonce, 1_800_000_030, 1_800_000_002), true);
+    } finally {
+      third.close();
+    }
+  } finally {
+    try { second?.close(); } finally {
+      try { first?.close(); } finally { rmSync(directory, { recursive: true, force: true }); }
+    }
+  }
+});
+
