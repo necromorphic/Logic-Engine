@@ -47,8 +47,9 @@ export class MechanicPolicyAuthority {
   #authorityId;
   #generation;
   #fieldPolicy;
+  #onChange;
 
-  constructor({ authorityId, generation, fieldPolicy } = {}) {
+  constructor({ authorityId, generation, fieldPolicy, onChange = null } = {}) {
     if (typeof authorityId !== 'string' || !authorityId.trim() || authorityId.length > 200) {
       throw new TypeError('Mechanic policy authority requires a stable authorityId.');
     }
@@ -58,9 +59,13 @@ export class MechanicPolicyAuthority {
     if (typeof fieldPolicy !== 'function') {
       throw new TypeError('Mechanic policy authority requires a trusted synchronous fieldPolicy.');
     }
+    if (onChange !== null && typeof onChange !== 'function') {
+      throw new TypeError('Mechanic policy authority onChange must be a trusted function.');
+    }
     this.#authorityId = authorityId.trim();
     this.#generation = generation;
     this.#fieldPolicy = fieldPolicy;
+    this.#onChange = onChange;
   }
 
   getSnapshot() {
@@ -96,8 +101,13 @@ export class MechanicPolicyAuthority {
     if (this.#generation === Number.MAX_SAFE_INTEGER) {
       throw new RangeError('Mechanic policy authority generation is exhausted.');
     }
+    if (this.#generation === Number.MAX_SAFE_INTEGER) {
+      throw new RangeError('Mechanic policy authority generation is exhausted.');
+    }
+    const nextSnapshot = Object.freeze({ authority_id: this.#authorityId, generation: this.#generation + 1 });
+    this.#onChange?.(nextSnapshot);
     this.#fieldPolicy = fieldPolicy;
-    this.#generation += 1;
+    this.#generation = nextSnapshot.generation;
     return this.getSnapshot();
   }
 }
@@ -114,6 +124,7 @@ export function createProcessScopedMechanicPolicyAuthority({
   authorityId,
   generation = 1,
   fieldPolicy,
+  onChange = null,
 } = {}) {
   if (typeof authorityId !== 'string' || !authorityId.trim() || authorityId.length > 160) {
     throw new TypeError('Mechanic policy authority requires a non-empty deployment identity.');
@@ -122,5 +133,6 @@ export function createProcessScopedMechanicPolicyAuthority({
     authorityId: authorityId.trim() + ':' + randomUUID(),
     generation,
     fieldPolicy,
+    onChange,
   });
 }
