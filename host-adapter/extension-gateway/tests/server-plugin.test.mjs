@@ -380,6 +380,46 @@ test('host inventory clears only blockers covered by verified source and Core VS
   assert.deepEqual(response.body.blockers, []);
 });
 
+test('Host inventory refuses Core attestation when mutation route coverage is incomplete', async () => {
+  let persistenceCalls = 0;
+  const handler = createInventoryHandlerForTest({
+    enumerate: async () => ({
+      filesystem: {
+        status: 'complete',
+        snapshot_sha256: 'b'.repeat(64),
+        file_count: 0,
+        total_bytes: 0,
+        entries: [],
+      },
+      source: {
+        status: 'DOUBLE_SCAN_CANDIDATE',
+        authority: 'NON_AUTHORITATIVE',
+        files: [],
+        blockers: [],
+      },
+      mutation_coverage: { status: 'NON_READY' },
+      snapshot_alignment: 'SHARED_VSS_SNAPSHOT',
+    }),
+    persistRootInventory: async () => {
+      persistenceCalls += 1;
+      return { status: 'AUTHORITATIVE_COMPLETE', integrity_status: 'INTEGRITY_OK' };
+    },
+  });
+  const response = makeResponse();
+  await handler({
+    user: { profile: { handle: 'alice' }, directories: absoluteTestDirectories },
+    session: {
+      handle: 'alice',
+      logicEngineSessionId: '2e6b0a80-4e73-4c66-aaf3-7a6e62c7f401',
+      logicEngineSessionHandle: 'alice',
+    },
+    query: { conversation_uuid: '4e6b0a80-4e73-4c66-aaf3-7a6e62c7f403' },
+  }, response);
+  assert.equal(response.statusCode, 503);
+  assert.equal(response.body.code, 'HOST_MUTATION_ROUTE_COVERAGE_UNVERIFIED');
+  assert.equal(persistenceCalls, 0, 'Core must not receive a completeness proof for an incomplete route surface');
+});
+
 test('Host inventory cannot promote Core baseline without signed lifecycle attestation', async () => {
   const coveredSourceBlockers = [...CORE_ATTESTED_SOURCE_BLOCKERS];
   const handler = createInventoryHandlerForTest({
