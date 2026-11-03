@@ -170,7 +170,7 @@ test('pinned server mutation routes remain in the reviewed inventory', () => {
     'src/endpoints/assets.js': ['/delete', '/character'],
     'src/endpoints/data-maid.js': ['/delete'],
     'src/endpoints/vectors.js': ['/insert', '/delete', '/purge-all', '/purge'],
-    'src/endpoints/users-private.js': ['/reset-settings', '/reset-step2'],
+    'src/endpoints/users-private.js': ['/change-avatar', '/change-password', '/backup', '/reset-settings', '/change-name', '/reset-step2'],
     'src/endpoints/users-admin.js': ['/delete'],
     'src/endpoints/extensions.js': ['/install', '/update', '/switch', '/move', '/delete'],
     'src/endpoints/content-manager.js': ['/importURL', '/importUUID'],
@@ -261,7 +261,11 @@ test('every pinned chat-history mutation route is either receipted or fail-close
     ['src/endpoints/backups.js', '/chat/delete', 'hostBulkMutationGuard'],
     ['src/endpoints/data-maid.js', '/delete', 'hostBulkMutationGuard'],
     ['src/endpoints/settings.js', '/restore-snapshot', 'hostBulkMutationGuard'],
+    ['src/endpoints/users-private.js', '/change-avatar', 'hostUnsupportedMutationGuard'],
+    ['src/endpoints/users-private.js', '/change-password', 'hostUnsupportedMutationGuard'],
+    ['src/endpoints/users-private.js', '/backup', 'hostUnsupportedMutationGuard'],
     ['src/endpoints/users-private.js', '/reset-settings', 'hostBulkMutationGuard'],
+    ['src/endpoints/users-private.js', '/change-name', 'hostUnsupportedMutationGuard'],
   ];
   for (const [file, route, guard] of guardedRoutes) {
     const lines = section(file).split('\n').filter(line => line.startsWith('+router.post('));
