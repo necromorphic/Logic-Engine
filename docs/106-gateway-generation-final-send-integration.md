@@ -69,7 +69,9 @@ The #870 Host Adapter/Core integration provides the underlying contracts:
 - authenticated Host session and persistent installation/account identity;
 - conversation-to-World and World-to-Actor binding in Core;
 - an authenticated Host assertion with durable nonce replay protection;
+- an in-process `prepareGenerationContext(request, response)` capability for native generation hooks. It must run the same Host authentication gate and return immutable authenticated conversation/installation/account scope; it must not trust `x-logic-engine-conversation-uuid` or any browser-supplied Memory marker;
 - Core-owned NPC Memory retrieval through `MemoryNpcConsumer`;
+- a same-context prompt projection API (for example `projectDispatchHandoff(handoff)`) that returns Lane A + Lane B `contentBlocks` without exposing or duplicating the one-shot handoff capability. It must be derived from the exact issued context later consumed by Gateway;
 - authenticated World/Actor/conversation scope and the existing retrieval Result Envelope. These are inputs to the in-process NPC Generation Context Builder, not a serialized Final-Send handoff.
 
 Important limitation: #851's Extension Gateway is not part of the selected generation path. The current candidate removes its direct dispatch call and retains only fail-closed behavior after protected failure. Neither a browser interceptor nor a JSON `/dispatch` route can carry the builder-issued context identity into the in-process Gateway.
