@@ -182,11 +182,16 @@ function scrubHeaders(headers) {
     throw new Error('MEMORY_DISPATCH_NOT_READY');
   }
   const output = Object.create(null);
+  const hostIdentityHeaders = new Set([
+    'x-session-id', 'x-user-id', 'x-account-id', 'x-installation-id',
+    'x-chat-id', 'x-conversation-uuid', 'x-authenticated-account-id',
+  ]);
   for (const [key, value] of entries) {
     const normalized = String(key).toLowerCase();
     if (normalized.startsWith('x-logic-engine-') || normalized.startsWith('x-host-')
       || normalized.startsWith('x-conversation-') || normalized.startsWith('x-world-')
-      || normalized.startsWith('x-actor-') || normalized.startsWith('x-generation-')) continue;
+      || normalized.startsWith('x-actor-') || normalized.startsWith('x-generation-')
+      || hostIdentityHeaders.has(normalized)) continue;
     output[key] = value;
   }
   return output;
