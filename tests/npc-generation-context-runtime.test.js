@@ -367,6 +367,7 @@ test('complete-empty Lane B remains an explicit empty Lane B projection without 
   setMemoryResultFactory(() => ({
     status: 'ready', admitted: [], candidates: [], reason: null,
     snapshot: { ...scope.snapshot },
+    provider_evidence_cursor: { data_version: 12, candidate_digest: 'b'.repeat(64) },
   }));
   const prepared = await runtime.prepareForDispatch(request);
   assert.equal(prepared.status, 'ready');
