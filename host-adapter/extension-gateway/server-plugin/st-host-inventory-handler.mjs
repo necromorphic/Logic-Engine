@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
+import { lstat, open } from 'node:fs/promises';
 import { enumerateHostDataInventory } from './host-data-inventory.mjs';
 
 const HOST_SESSION_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -334,6 +335,83 @@ export function createHostIdentityHandler({
     }
   };
 }
+async function inspectSaveTargetEnrollment(directories, isGroup, locatorParts) {
+  const root = path.resolve(directories.root);
+  const base = path.resolve(isGroup ? directories.groupChats : directories.chats);
+  const baseRelative = path.relative(root, base);
+  if (!baseRelative || baseRelative === '..' || baseRelative.startsWith('..' + path.sep)
+    || path.isAbsolute(baseRelative)) return 'unknown';
+
+  let parent = base;
+  const parentSegments = locatorParts.slice(0, -1);
+  for (const segment of [null, ...parentSegments]) {
+    const stat = await lstat(parent, { bigint: true }).catch(() => null);
+    if (!stat?.isDirectory() || stat.isSymbolicLink()) return 'unknown';
+    if (segment !== null) parent = path.join(parent, segment);
+  }
+
+  const targetPath = path.join(parent, locatorParts.at(-1));
+  const initial = await lstat(targetPath, { bigint: true }).catch(error =>
+    error?.code === 'ENOENT' ? null : undefined);
+  if (initial === null) return 'missing';
+  if (!initial || initial.isSymbolicLink() || !initial.isFile() || initial.size === 0n) return 'unknown';
+
+  let handle;
+  try {
+    handle = await open(targetPath, 'r');
+    const opened = await handle.stat({ bigint: true });
+    const sameFile = initial.ino !== 0n && opened.ino !== 0n
+      && initial.ino === opened.ino
+      && initial.mode === opened.mode
+      && initial.size === opened.size
+      && initial.mtimeNs === opened.mtimeNs
+      && initial.ctimeNs === opened.ctimeNs
+      && (initial.dev === 0n || opened.dev === 0n || initial.dev === opened.dev);
+    if (!sameFile) return 'unknown';
+
+    const maxHeaderBytes = 16 * 1024 * 1024;
+    const chunks = [];
+    let offset = 0;
+    let header = null;
+    while (offset <= maxHeaderBytes) {
+      const buffer = Buffer.alloc(Math.min(64 * 1024, maxHeaderBytes + 1 - offset));
+      const { bytesRead } = await handle.read(buffer, 0, buffer.length, offset);
+      if (bytesRead === 0) {
+        header = Buffer.concat(chunks);
+        break;
+      }
+      const chunk = buffer.subarray(0, bytesRead);
+      const newline = chunk.indexOf(0x0a);
+      if (newline >= 0) {
+        chunks.push(chunk.subarray(0, newline));
+        header = Buffer.concat(chunks);
+        break;
+      }
+      chunks.push(Buffer.from(chunk));
+      offset += bytesRead;
+      if (offset > maxHeaderBytes) return 'unknown';
+    }
+    if (!header?.length) return 'unknown';
+    if (header[header.length - 1] === 0x0d) header = header.subarray(0, -1);
+    if (header.length >= 3 && header[0] === 0xef && header[1] === 0xbb && header[2] === 0xbf) {
+      header = header.subarray(3);
+    }
+    const record = JSON.parse(header.toString('utf8'));
+    if (!record || typeof record !== 'object' || Array.isArray(record)) return 'unknown';
+    const metadata = record.chat_metadata;
+    if (metadata === undefined) return 'unenrolled';
+    if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return 'unknown';
+    const conversationUuid = metadata.logic_engine_conversation_id;
+    if (conversationUuid === undefined || conversationUuid === null) return 'unenrolled';
+    return typeof conversationUuid === 'string' && HOST_SESSION_UUID.test(conversationUuid)
+      ? 'enrolled' : 'unknown';
+  } catch {
+    return 'unknown';
+  } finally {
+    await handle?.close().catch(() => {});
+  }
+}
+
 export function createHostLifecycleSaveGuard({ enumerate = enumerateHostDataInventory, pinnedHostCommit } = {}) {
   if (typeof enumerate !== 'function' || typeof pinnedHostCommit !== 'string' || !/^[a-f0-9]{40}$/.test(pinnedHostCommit)) throw new TypeError('Host lifecycle save guard configuration is invalid.');
   const supported = new Set(['create-message', 'message-send', 'message-receive', 'create-swipe', 'select-swipe', 'delete-swipe', 'delete-message', 'edit-message']);
@@ -345,6 +423,34 @@ export function createHostLifecycleSaveGuard({ enumerate = enumerateHostDataInve
     if (typeof userHandle !== 'string' || !userHandle.trim() || (session?.handle !== undefined && session.handle !== userHandle) || session?.logicEngineSessionHandle !== userHandle || !HOST_SESSION_UUID.test(session?.logicEngineSessionId ?? '')) return response.sendStatus(403);
     const directories = resolveHostDataDirectories(request?.user?.directories);
     if (!directories) return response.sendStatus(403);
+
+    const body = request?.body;
+    const isGroup = request?.path === '/group/save' || request?.originalUrl?.split('?')[0]?.endsWith('/group/save');
+    const locator = isGroup
+      ? (typeof body?.id === 'string' ? body.id : '')
+      : (typeof body?.avatar_url === 'string' && typeof body?.file_name === 'string'
+        ? body.avatar_url.replace(/\.png$/i, '') + '/' + body.file_name + '.jsonl' : '');
+    const slash = String.fromCharCode(92);
+    const locatorParts = locator.split('/');
+    if (!locator || locator.includes(slash)
+      || locatorParts.length !== (isGroup ? 1 : 2)
+      || locatorParts.some(part => !part || part === '.' || part === '..')) {
+      return response.status(400).json({ status: 'NON_READY', code: 'HOST_LIFECYCLE_SAVE_TARGET_INVALID' });
+    }
+
+    const submittedHeader = Array.isArray(body?.chat) ? body.chat[0] : null;
+    const submittedConversationUuid = submittedHeader?.chat_metadata?.logic_engine_conversation_id;
+
+    // Ordinary SillyTavern chats are not Host-enrolled and must remain writable
+    // even when VSS is unavailable. Inspect only the exact target: if it is
+    // absent or its stable first JSONL record has no Host conversation identity,
+    // the lifecycle receipt guard does not apply. Any enrolled or ambiguous
+    // target still goes through the full shared VSS inventory below.
+    if (submittedConversationUuid === undefined || submittedConversationUuid === null) {
+      const targetEnrollment = await inspectSaveTargetEnrollment(directories, isGroup, locatorParts);
+      if (targetEnrollment === 'missing' || targetEnrollment === 'unenrolled') return next();
+    }
+
     let inventory;
     try { inventory = await enumerate({ directories: { root: directories.root, chats: directories.chats, groups: directories.groups, groupChats: directories.groupChats }, hostCommit: pinnedHostCommit }); }
     catch (error) {
@@ -363,16 +469,6 @@ export function createHostLifecycleSaveGuard({ enumerate = enumerateHostDataInve
         source_code: safeCode(inventory?.source?.code),
       });
     }
-    const body = request?.body;
-    const isGroup = request?.path === '/group/save' || request?.originalUrl?.split('?')[0]?.endsWith('/group/save');
-    const locator = isGroup ? (typeof body?.id === 'string' ? body.id : '') : (typeof body?.avatar_url === 'string' && typeof body?.file_name === 'string' ? body.avatar_url.replace(/\.png$/i, '') + '/' + body.file_name + '.jsonl' : '');
-    const slash = String.fromCharCode(92);
-    const locatorParts = locator.split('/');
-    if (!locator || locator.includes(slash)
-      || locatorParts.length !== (isGroup ? 1 : 2)
-      || locatorParts.some(part => !part || part === '.' || part === '..')) {
-      return response.status(400).json({ status: 'NON_READY', code: 'HOST_LIFECYCLE_SAVE_TARGET_INVALID' });
-    }
     const kind = isGroup ? 'group-chat' : 'character-chat';
     const targets = inventory.source.files.filter(file => file?.kind === kind && file?.locator === locator);
     if (targets.length > 1) return response.status(503).json({ status: 'NON_READY', code: 'HOST_LIFECYCLE_SAVE_TARGET_AMBIGUOUS' });
@@ -381,8 +477,6 @@ export function createHostLifecycleSaveGuard({ enumerate = enumerateHostDataInve
     if (!target) return anyEnrolled ? response.status(409).json({ status: 'NON_READY', code: 'HOST_LIFECYCLE_SAVE_TARGET_NOT_ENROLLED' }) : next();
     const conversationUuid = target.logical_identity?.conversation_uuid;
     if (typeof conversationUuid !== 'string' || !HOST_SESSION_UUID.test(conversationUuid)) return response.status(409).json({ status: 'NON_READY', code: 'HOST_LIFECYCLE_SAVE_TARGET_IDENTITY_INVALID' });
-    const submittedHeader = Array.isArray(body?.chat) ? body.chat[0] : null;
-    const submittedConversationUuid = submittedHeader?.chat_metadata?.logic_engine_conversation_id;
     if (submittedConversationUuid !== conversationUuid) {
       return response.status(409).json({ status: 'NON_READY', code: 'HOST_LIFECYCLE_SAVE_PAYLOAD_IDENTITY_MISMATCH' });
     }
