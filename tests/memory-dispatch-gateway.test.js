@@ -159,14 +159,8 @@ function buildTestNpcHandoff({
 function createTestNpcContextRuntime() {
   const consumed = new WeakSet();
   const callbacks = new WeakMap();
+  const requests = new WeakMap();
   return Object.freeze({
-    projectDispatchHandoff(handoff, request) {
-      if (!handoff || typeof handoff !== 'object' || consumed.has(handoff)
-        || canonicalJson(handoff.generationRequest) !== canonicalJson(request)) {
-        return { status: 'non_ready', projection: null };
-      }
-      return { status: 'ready', projection: handoff.projection };
-    },
     consumeDispatchHandoff(handoff, request) {
       if (!handoff || typeof handoff !== 'object' || consumed.has(handoff)
         || canonicalJson(handoff.generationRequest) !== canonicalJson(request)) {
@@ -174,10 +168,52 @@ function createTestNpcContextRuntime() {
       }
       consumed.add(handoff);
       callbacks.set(handoff.context, handoff.revalidateLaneA);
+      requests.set(handoff.context, request);
       return { status: 'accepted', context: handoff.context };
     },
+    getLaneBDispatchEvidence(context, request) {
+      if (!context || requests.get(context) !== request) return { status: 'non_ready' };
+      const laneB = context.lanes?.lane_b;
+      if (!laneB || laneB.status !== 'ready' || !Array.isArray(laneB.candidates)) {
+        return { status: 'non_ready' };
+      }
+      const candidates = laneB.candidates.map(candidate => ({
+        record_ref: candidate.record_ref,
+        record_version: candidate.record_version,
+        authorization_generation: candidate.authorization_generation,
+        source_kind: 'canonical_entity',
+        source_entity_id: candidate.source_entity_id,
+        source_version: candidate.source_version,
+      }));
+      const sourceMap = new Map();
+      for (const candidate of candidates) {
+        sourceMap.set(JSON.stringify([candidate.source_entity_id, candidate.source_version]), {
+          source_kind: 'canonical_entity',
+          source_entity_id: candidate.source_entity_id,
+          source_version: candidate.source_version,
+        });
+      }
+      return {
+        status: 'ready',
+        lane: 'B',
+        world_id: context.world_id,
+        actor_id: context.actor_id,
+        conversation_id: context.conversation_id,
+        adapter_id: context.adapter_id,
+        core_purpose: 'npc_turn_context',
+        provider_purpose: laneB.provider_purpose,
+        snapshot: context.snapshot,
+        sources: [...sourceMap.values()].sort((left, right) =>
+          left.source_entity_id < right.source_entity_id ? -1
+            : left.source_entity_id > right.source_entity_id ? 1
+              : left.source_version < right.source_version ? -1
+                : left.source_version > right.source_version ? 1 : 0),
+        candidates,
+      };
+    },
     revalidateLaneAForDispatch(context, request) {
-      if (!context || context.request_id !== request.request_id
+      if (!context || requests.get(context) !== request
+        || context.request_id !== request.request_id
         || context.generation_id !== request.generation_id
         || context.generation_type !== request.generation_type) {
         return { status: 'non_ready' };
@@ -226,9 +262,9 @@ async function startAuthorityProcess(path) {
 
 function installTestTransport(gateway, factory) {
   const dispatch = gateway.dispatchProtectedRequest.bind(gateway);
-  gateway.dispatchProtectedRequest = (request) => dispatch({
+  gateway.dispatchProtectedRequest = request => dispatch({
     ...request,
-    transport: request.transport ?? factory(request),
+    transport: request.transport ?? (exactBody => factory(request, exactBody)),
   });
   return gateway;
 }
@@ -305,13 +341,13 @@ async function createFixture({ sendUpstream, createTransport, coreHead = 1, prov
       root_inventory_sequence: binding.root_inventory_sequence,
       root_manifest_sha256: binding.root_manifest_sha256,
     }),
-  }), (request) => createTransport
-    ? createTransport(request)
-    : () => {
-      calls.push(request);
-      if (sendUpstream) return sendUpstream(request);
-      return Promise.resolve({ status: 200, body: 'accepted' });
-    });
+  }), (request, exactBody) => {
+    const outbound = { ...request, body: exactBody };
+    calls.push(outbound);
+    if (createTransport) return createTransport(outbound)();
+    if (sendUpstream) return sendUpstream(outbound);
+    return Promise.resolve({ status: 200, body: 'accepted' });
+  });
   gateway = makeGateway();
 
   return {
@@ -379,31 +415,39 @@ const validRequest = (requestId = 'request-001', overrides = {}) => {
     revalidateLaneA: overrides.revalidateLaneA,
   });
   const contentBlocks = overrides.contentBlocks ?? handoff.contentBlocks;
-  const memoryText = testMemoryContextText(contentBlocks);
   const hostRoute = senderHostRoute(senderRoute);
-  const defaultBody = hostRoute === 'chat-completions'
-    ? JSON.stringify({ messages: [{ role: 'system', content: memoryText }, { role: 'user', content: 'test prompt' }] })
+  const rawBody = hostRoute === 'chat-completions'
+    ? JSON.stringify({ messages: [{ role: 'user', content: 'test prompt' }] })
     : hostRoute === 'novelai-text'
-      ? JSON.stringify({ input: memoryText + '\\n\\ntest prompt' })
-      : JSON.stringify({ prompt: memoryText + '\\n\\ntest prompt' });
+      ? JSON.stringify({ input: 'test prompt' })
+      : JSON.stringify({ prompt: 'test prompt' });
+  const prepareBody = blocks => {
+    const selectedBlocks = overrides.contentBlocks ?? blocks;
+    const memoryText = testMemoryContextText(selectedBlocks);
+    return hostRoute === 'chat-completions'
+      ? JSON.stringify({ messages: [{ role: 'system', content: memoryText }, { role: 'user', content: 'test prompt' }] })
+      : hostRoute === 'novelai-text'
+        ? JSON.stringify({ input: memoryText + '\\n\\ntest prompt' })
+        : JSON.stringify({ prompt: memoryText + '\\n\\ntest prompt' });
+  };
   return {
     requestId,
     route: 'host-selected-chat-generation',
     senderRoute,
     model: 'selected-model',
     stream: false,
-    body: defaultBody,
+    body: rawBody,
+    prepareBody,
     worldId,
     actorId,
     purpose,
-    sources,
-    candidates,
     hostContext: binding,
     generationRequest,
     npcContextHandoff: overrides.npcContextHandoff ?? handoff,
-    contentBlocks,
     ...overrides,
     requestId,
+    body: rawBody,
+    prepareBody,
   };
 };
 
