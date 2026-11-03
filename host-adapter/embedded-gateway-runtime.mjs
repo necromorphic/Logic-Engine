@@ -7,6 +7,7 @@ import {
   parseHostRootIdentityRegistry,
   resolveRegisteredHostRootIdentity,
 } from '../src/application/host-root-inventory-identity.js';
+import { verifySignedRootInventoryAttestation } from './extension-gateway/server-plugin/st-source-attestation.mjs';
 import { loadTrustedWorldPackCatalog } from '../src/application/world-pack-catalog.js';
 import { createHostBoundNpcKnowledgeAuthorizers } from '../src/application/npc-knowledge-authorization.js';
 import {
@@ -55,6 +56,10 @@ export function createEmbeddedGatewayRuntime({ hostAdapter, adapterId = process.
   if (!adapterTokens || typeof adapterTokens !== 'object' || Array.isArray(adapterTokens)
     || typeof adapterTokens[adapterId] !== 'string' || adapterTokens[adapterId].length < 16) {
     throw new Error('EMBEDDED_GATEWAY_ADAPTER_NOT_CONFIGURED');
+  }
+
+  if (process.env.LOGIC_ENGINE_ADAPTER_TOKEN !== adapterTokens[adapterId]) {
+    throw new Error('EMBEDDED_GATEWAY_HOST_ATTESTATION_KEY_MISMATCH');
   }
 
   const corePath = resolve(process.env.ENGINE_DB_PATH || './data/logic-engine.sqlite');
@@ -163,6 +168,21 @@ export function createEmbeddedGatewayRuntime({ hostAdapter, adapterId = process.
       resolveIdentity: () => ({ authorized: false }),
       resolveRootIdentity: input => resolveRegisteredHostRootIdentity(hostRootIdentityRegistry, input),
       verifyMutationReceipt: () => false,
+      verifyRootInventoryAttestation: ({ attestation, identity }) => {
+        const trusted = resolveRegisteredHostRootIdentity(hostRootIdentityRegistry, {
+          host_installation_id: identity?.host_installation_id,
+          authenticated_account_id: identity?.authenticated_account_id,
+          root_id: identity?.root_id,
+        });
+        return trusted.authorized === true
+          && trusted.adapter_id === adapterId
+          && trusted.source_manifest_sha256 === attestation?.source_manifest_sha256
+          && verifySignedRootInventoryAttestation({
+            attestation,
+            identity: { ...identity, adapter_id: adapterId },
+            adapterToken: adapterTokens[adapterId],
+          });
+      },
     });
 
     gateway = new MemoryDispatchGateway({
@@ -177,7 +197,7 @@ export function createEmbeddedGatewayRuntime({ hostAdapter, adapterId = process.
           || !Number.isSafeInteger(hostAuthorityGeneration) || hostAuthorityGeneration < 1) {
           return { status: 'NON_READY', reason: 'HOST_LIFECYCLE_AUTHORITY_UNCONFIGURED' };
         }
-        return hostJournal.readAuthoritySnapshotUnderLease({
+        const hostEvidence = hostJournal.readAuthoritySnapshotUnderLease({
           authority_id: hostAuthorityId.trim(),
           generation: hostAuthorityGeneration,
           adapter_id: adapterId,
@@ -185,6 +205,13 @@ export function createEmbeddedGatewayRuntime({ hostAdapter, adapterId = process.
           authenticated_account_id: hostContext.authenticated_account_id,
           root_id: hostContext.root_id,
         }, coordinatorLease);
+        if (hostEvidence.status !== 'READY') return hostEvidence;
+        return {
+          ...hostEvidence,
+          core_conversation_id: hostContext.core_conversation_id,
+          world_id: worldId,
+          actor_id: actorId,
+        };
       },
     });
 
