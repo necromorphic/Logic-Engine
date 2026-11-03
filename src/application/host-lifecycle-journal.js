@@ -988,6 +988,12 @@ export class HostLifecycleJournal {
         const prior = this.#verifyRootCompletenessRows(input.host_installation_id,
           input.authenticated_account_id, input.root_id, root, identity, priorProofRows);
         if (!prior.valid) throw new Error('HOST_ROOT_INVENTORY_COMPLETENESS_CHAIN_INVALID');
+        if (prior.proof.source_commit !== proof.source_commit
+          || prior.proof.coverage_manifest_sha256 !== proof.coverage_manifest_sha256
+          || prior.proof.source_files_sha256 !== proof.source_files_sha256
+          || prior.proof.route_count !== proof.route_count) {
+          throw new Error('HOST_ROOT_INVENTORY_COMPLETENESS_SOURCE_CHANGED');
+        }
         return {
           status: 'AUTHORITATIVE_COMPLETE',
           integrity_status: 'INTEGRITY_OK',
