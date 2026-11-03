@@ -923,10 +923,20 @@ export function createHostMemoryDispatchProxyHandler({
       try { payload = await upstream.json(); } catch {
         return response.status(502).json({ status: 'NON_READY', code: 'LOGIC_ENGINE_INVALID_RESPONSE' });
       }
-      if (!upstream.ok) return response.status(upstream.status === 404 || upstream.status === 503 ? 503 : 502).json({
-        status: 'NON_READY',
-        code: upstream.status === 404 ? 'CORE_HOST_DISPATCH_ROUTE_UNAVAILABLE' : 'CORE_HOST_DISPATCH_REJECTED',
-      });
+      if (!upstream.ok) {
+        const upstreamCode = payload?.error?.code;
+        const safeContextCodes = new Set([
+          'NPC_GENERATION_CONTEXT_NON_READY',
+          'NPC_GENERATION_CONTEXT_RECEIVER_REJECTED',
+          'MEMORY_NPC_CONSUMER_UNAVAILABLE',
+        ]);
+        return response.status(upstream.status === 404 || upstream.status === 503 ? 503 : 502).json({
+          status: 'NON_READY',
+          code: safeContextCodes.has(upstreamCode)
+            ? upstreamCode
+            : upstream.status === 404 ? 'CORE_HOST_DISPATCH_ROUTE_UNAVAILABLE' : 'CORE_HOST_DISPATCH_REJECTED',
+        });
+      }
       if (!payload || !validNpcGenerationContextProjection(payload.npc_context, {
         requestId: body.request_id,
         generationType: body.generation_type,
