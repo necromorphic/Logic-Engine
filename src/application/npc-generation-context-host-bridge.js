@@ -16,15 +16,15 @@ export function createNpcGenerationContextHostBridge({ runtime, createRequestMet
   }
 
   const preparedByRequest = new WeakMap();
-  const preparingRequests = new WeakSet();
+  const seenRequests = new WeakSet();
 
   async function prepare(hostRequest, hostResponse) {
     if (!hostRequest || typeof hostRequest !== 'object'
       || !hostResponse || typeof hostResponse !== 'object'
-      || preparedByRequest.has(hostRequest) || preparingRequests.has(hostRequest)) {
+      || seenRequests.has(hostRequest)) {
       return Object.freeze({ status: 'non_ready', reason: 'host_request_not_preparable' });
     }
-    preparingRequests.add(hostRequest);
+    seenRequests.add(hostRequest);
     try {
       let requestMetadata;
       try { requestMetadata = createRequestMetadata(hostRequest, hostResponse); }
@@ -45,8 +45,6 @@ export function createNpcGenerationContextHostBridge({ runtime, createRequestMet
         handoff: prepared.handoff,
       }));
       return Object.freeze({ status: 'ready', reason: null });
-    } finally {
-      preparingRequests.delete(hostRequest);
     }
   }
 
