@@ -22,7 +22,7 @@ const memoryResult = () => ({
   admitted: [{ record_ref: 'memory:1', record_version: 'v1' }],
   candidates: [{
     record_ref: 'memory:1', record_version: 'v1', authorization_generation: 2,
-    source_entity_id: 'source-1', source_version: 'source-v1', epistemic_kind: 'acquired_report',
+    source_entity_id: 'source-1', source_version: 'core-entity-v1:1', epistemic_kind: 'acquired_report',
     evidence_assessment: 'disputed', content: { note: 'report' },
   }],
   reason: null, snapshot: { ...scope.snapshot },
@@ -295,7 +295,7 @@ test('dispatch projection preserves both lanes and does not consume the opaque h
   assert.deepEqual(JSON.parse(JSON.stringify(projected.projection.sources)), [{
     source_kind: 'canonical_entity',
     source_entity_id: 'source-1',
-    source_version: 'source-v1',
+    source_version: 'core-entity-v1:1',
   }]);
   assert.deepEqual(JSON.parse(JSON.stringify(projected.projection.candidates)), [{
     record_ref: 'memory:1',
@@ -303,7 +303,7 @@ test('dispatch projection preserves both lanes and does not consume the opaque h
     authorization_generation: 2,
     source_kind: 'canonical_entity',
     source_entity_id: 'source-1',
-    source_version: 'source-v1',
+    source_version: 'core-entity-v1:1',
   }]);
   assert.equal(runtime.projectDispatchHandoff(prepared.handoff, { ...request, request_id: 'other' }).status, 'non_ready');
   assert.equal(runtime.consumeDispatchHandoff(prepared.handoff, request).status, 'accepted');
