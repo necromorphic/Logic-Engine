@@ -199,7 +199,7 @@ export function createSillyTavernFinalSendAdapter({
         bridgeTransfer = npcContextHostBridge.takeForDispatch(args.request, args.response);
         if (bridgeTransfer?.status !== 'ready'
           || !bridgeTransfer.handoff || !bridgeTransfer.requestMetadata
-          || !bridgeTransfer.projection) {
+          || !bridgeTransfer.projection || typeof bridgeTransfer.runWithHostSession !== 'function') {
           requestIdByResponse.set(args.response, { requestId: null, state: 'denied' });
           throw terminalError(new Error('MEMORY_DISPATCH_HOST_BRIDGE_NOT_READY'));
         }
@@ -277,7 +277,11 @@ export function createSillyTavernFinalSendAdapter({
           }
           throw terminalError(new Error('MEMORY_DISPATCH_NOT_READY'));
         }
-        requestIdByResponse.set(args.response, { requestId: protectedMemory.requestId, state: 'pending' });
+        requestIdByResponse.set(args.response, {
+          requestId: protectedMemory.requestId,
+          state: 'pending',
+          runWithHostSession: bridgeTransfer?.runWithHostSession ?? null,
+        });
       }
 
       const release = args.response ? requestIdByResponse.get(args.response) : null;
@@ -307,7 +311,7 @@ export function createSillyTavernFinalSendAdapter({
 
       let result;
       try {
-        result = finalSend({
+        const send = () => finalSend({
           senderRoute: args.senderRoute,
           hostRoute,
           endpointUrl: args.endpointUrl,
@@ -319,6 +323,7 @@ export function createSillyTavernFinalSendAdapter({
           protectedMemoryOverride: protectionResolution,
           hostTransformsStream: args.hostTransformsStream === true,
         });
+        result = bridgeTransfer ? bridgeTransfer.runWithHostSession(send) : send();
       } catch (error) {
         return deny(error);
       }
@@ -340,7 +345,10 @@ export function createSillyTavernFinalSendAdapter({
         throw terminalError(new Error('MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED'));
       }
       try {
-        const result = gateway.authorizeResponseWrite(release.requestId, write, { final, response });
+        const authorize = () => gateway.authorizeResponseWrite(release.requestId, write, { final, response });
+        const result = typeof release.runWithHostSession === 'function'
+          ? release.runWithHostSession(authorize)
+          : authorize();
         if (final) release.state = 'completed';
         return result;
       } catch (error) {
