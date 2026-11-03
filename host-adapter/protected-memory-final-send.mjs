@@ -147,6 +147,10 @@ function injectNpcMemory(hostRoute, providerBody, memoryText) {
     messages.splice(insertAt, 0, { role: 'system', content: memoryText });
     return { ...providerBody, messages };
   }
+  if (hostRoute === 'horde-text') {
+    if (typeof providerBody.prompt !== 'string') throw new Error('MEMORY_DISPATCH_NOT_READY');
+    return { ...providerBody, prompt: memoryText + '\\n\\n' + providerBody.prompt };
+  }
   if (hostRoute === 'text-completions' || hostRoute === 'kobold') {
     if (typeof providerBody.prompt !== 'string') throw new Error('MEMORY_DISPATCH_NOT_READY');
     return { ...providerBody, prompt: memoryText + '\n\n' + providerBody.prompt };
