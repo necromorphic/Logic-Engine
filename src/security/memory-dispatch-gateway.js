@@ -88,6 +88,7 @@ export const PROTECTED_MEMORY_SENDER_ROUTES = Object.freeze([
 
 const intrinsicFunctionToString = Function.prototype.toString;
 const intrinsicReflectApply = Reflect.apply;
+const intrinsicGetPrototypeOf = Object.getPrototypeOf;
 const intrinsicStringEndsWith = String.prototype.endsWith;
 const isProxy = utilTypes.isProxy;
 const isAsyncFunction = utilTypes.isAsyncFunction;
@@ -105,10 +106,10 @@ function assertDispatchNotAborted(signal) {
   }
   let aborted;
   try {
-    if (Object.getPrototypeOf(signal) !== abortSignalPrototype) {
+    if (intrinsicGetPrototypeOf(signal) !== abortSignalPrototype) {
       throw new Error('MEMORY_DISPATCH_ABORT_SIGNAL_INVALID');
     }
-    aborted = Reflect.apply(abortSignalAbortedGetter, signal, []);
+    aborted = intrinsicReflectApply(abortSignalAbortedGetter, signal, []);
   } catch {
     throw new Error('MEMORY_DISPATCH_ABORT_SIGNAL_INVALID');
   }
@@ -775,7 +776,7 @@ export class MemoryDispatchGateway {
       throw new Error('MEMORY_DISPATCH_NOT_READY');
     }
     if (laneASnapshot.items.length > 0
-      && (!isSynchronousCallable(revalidateLaneA))) {
+      && !isSynchronousCallable(revalidateLaneA)) {
       throw new Error('MEMORY_DISPATCH_LANE_A_REVALIDATION_REQUIRED');
     }
     const hostContextSnapshot = normalizeHostContext(hostContext);
