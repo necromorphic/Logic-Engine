@@ -307,6 +307,7 @@ test('host inventory clears only blockers covered by verified source and Core VS
         integrity_status: 'INTEGRITY_OK',
         sequence: 1,
         manifest_sha256: 'd'.repeat(64),
+        source_manifest_sha256: 'e'.repeat(64),
         upstream_status: 200,
       };
     },
@@ -834,7 +835,7 @@ test('default-user inventory accepts absent session.handle only after signed Hos
   }, response);
   assert.equal(response.statusCode, 200);
   assert.equal(response.body.host_user_handle, 'default-user');
-  assert.equal(response.body.host_build_claim_type, 'DEPLOYMENT_ASSERTION_NOT_RUNTIME_ATTESTATION');
+  assert.equal(response.body.host_build_claim_type, 'DEPLOYMENT_ASSERTION_ONLY');
 });
 
 test('default-user inventory rejects missing/mismatched signed session before scanning', async () => {
