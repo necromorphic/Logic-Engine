@@ -201,15 +201,17 @@ export class WindowsManifestLifecycleCoordinator {
       const current = activeSidecar(role, kind);
       if (!current) return false;
       const intent = intentFor(manifest, 'delete-sidecar', roleName, kind, current.identity);
-      await this.#store.writeIntent(intent);
       let handle;
       try {
+        // Verify the existing object before writing intent. A missing or
+        // replaced active sidecar is corruption, not a new deletion request.
         handle = await this.#namespace.openSidecar(roleName, kind, intent.basename);
-        if (!handle) throw new Error('Active manifest sidecar is absent; recovery is required');
+        if (!handle) throw new Error('Active manifest sidecar is absent; refusing deletion');
         const observed = await this.#namespace.identity(handle);
         if (identityKey(observed) !== identityKey(intent.expectedIdentity)) {
           throw new Error('Opened sidecar identity differs from the active manifest; refusing deletion');
         }
+        await this.#store.writeIntent(intent);
         await this.#namespace.deleteSidecar(handle, intent.expectedIdentity);
         await this.#namespace.flushParent(roleName);
         const updated = nextManifest(manifest, (next) => {
