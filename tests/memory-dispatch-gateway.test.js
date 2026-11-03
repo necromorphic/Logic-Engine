@@ -6,6 +6,7 @@ import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { once } from 'node:events';
+import { EventEmitter } from 'node:events';
 import { spawn } from 'node:child_process';
 import {
   advanceAcceptedHeadSync,
@@ -298,13 +299,93 @@ test('dispatch validates current heads and grants, records one content-free star
     try {
       const row = db.prepare('SELECT status,request_digest,model,sources_json FROM dispatch_ledger WHERE request_id=?')
         .get('request-001');
-      assert.equal(row.status, 'COMPLETED');
+      assert.equal(row.status, 'DISPATCH_STARTED', 'upstream response is not client delivery completion');
       assert.equal(row.model, 'selected-model');
       assert.match(row.request_digest, /^[a-f0-9]{64}$/);
       assert.equal(JSON.stringify(row).includes('SECRET_MEMORY_TEXT_DO_NOT_PERSIST'), false);
     } finally {
       db.close();
     }
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('final response write revalidates current evidence and records completion only after response finish', async () => {
+  const fixture = await createFixture();
+  try {
+    await fixture.gateway.dispatchProtectedRequest(validRequest('final-write-valid'));
+    const response = new EventEmitter();
+    response.writableEnded = false;
+    response.destroyed = false;
+    response.writableFinished = false;
+    let writes = 0;
+    fixture.gateway.authorizeResponseWrite('final-write-valid', () => {
+      writes += 1;
+      response.writableFinished = true;
+      response.emit('finish');
+    }, { final: true, response });
+    assert.equal(writes, 1);
+    await Promise.resolve();
+    const db = new DatabaseSync(fixture.ledgerPath);
+    try {
+      assert.equal(db.prepare('SELECT status FROM dispatch_ledger WHERE request_id=?')
+        .get('final-write-valid').status, 'COMPLETED');
+    } finally {
+      db.close();
+    }
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('Provider revoke after dispatch-start but before actual client write suppresses response and makes dispatch non-replayable', async () => {
+  const fixture = await createFixture();
+  try {
+    await fixture.gateway.dispatchProtectedRequest(validRequest('revoke-before-egress'));
+    fixture.setProviderGranted(false);
+    const response = new EventEmitter();
+    response.writableEnded = false;
+    response.destroyed = false;
+    let writes = 0;
+    assert.throws(() => fixture.gateway.authorizeResponseWrite(
+      'revoke-before-egress',
+      () => { writes += 1; },
+      { final: true, response },
+    ), /MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED/);
+    assert.equal(writes, 0, 'revocation must block the actual response writer');
+    const db = new DatabaseSync(fixture.ledgerPath);
+    try {
+      assert.equal(db.prepare('SELECT status FROM dispatch_ledger WHERE request_id=?')
+        .get('revoke-before-egress').status, 'UNKNOWN');
+    } finally {
+      db.close();
+    }
+    await assert.rejects(
+      fixture.gateway.dispatchProtectedRequest(validRequest('revoke-before-egress-new-id')),
+      /MEMORY_DISPATCH_REPLAY_BLOCKED/,
+    );
+    assert.equal(fixture.calls.length, 1);
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('streaming writes revalidate every chunk and suppress later chunks after revoke', async () => {
+  const fixture = await createFixture();
+  try {
+    await fixture.gateway.dispatchProtectedRequest(validRequest('stream-revoke', { stream: true }));
+    const response = new EventEmitter();
+    response.writableEnded = false;
+    response.destroyed = false;
+    let writes = 0;
+    fixture.gateway.authorizeResponseWrite('stream-revoke', () => { writes += 1; }, { response });
+    assert.equal(writes, 1);
+    fixture.setProviderGranted(false);
+    assert.throws(() => fixture.gateway.authorizeResponseWrite(
+      'stream-revoke', () => { writes += 1; }, { response },
+    ), /MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED/);
+    assert.equal(writes, 1, 'revoked stream must not write another chunk');
   } finally {
     await fixture.close();
   }
@@ -749,7 +830,7 @@ test('real Provider revokeRecord committed before dispatch-start produces zero u
     const completedLedger = new DatabaseSync(ledgerPath);
     try {
       assert.equal(completedLedger.prepare('SELECT status FROM dispatch_ledger WHERE request_id=?')
-        .get('dispatch-start-wins-before-revoke').status, 'COMPLETED');
+        .get('dispatch-start-wins-before-revoke').status, 'DISPATCH_STARTED');
     } finally {
       completedLedger.close();
     }
@@ -910,7 +991,7 @@ test('real Core source mutation and Gateway dispatch-start share one cross-proce
     const ledger = new DatabaseSync(fixture.ledgerPath);
     try {
       assert.equal(ledger.prepare('SELECT status FROM dispatch_ledger WHERE request_id=?')
-        .get('core-dispatch-start-wins').status, 'COMPLETED');
+        .get('core-dispatch-start-wins').status, 'DISPATCH_STARTED');
     } finally {
       ledger.close();
     }
