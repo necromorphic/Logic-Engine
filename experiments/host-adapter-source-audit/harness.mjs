@@ -96,7 +96,7 @@ test('server and browser extension loaders reject unreviewed third-party code be
   const pluginEnd = lifecyclePatch.indexOf('\ndiff --git ', pluginStart + 10);
   const pluginSection = lifecyclePatch.slice(pluginStart, pluginEnd < 0 ? undefined : pluginEnd);
   const files = pluginSection.indexOf('const files = fs.readdirSync(pluginsPath)');
-  const update = pluginSection.indexOf('if (!hostAuthorityConfigured) await updatePlugins(pluginsPath)');
+  const update = pluginSection.indexOf('Skipping server-plugin auto-update while Host authority is active.');
   const allowlist = pluginSection.indexOf('HOST_UNREVIEWED_SERVER_PLUGIN_BLOCKED');
   const firstImport = Math.min(
     pluginSection.indexOf('await loadFromDirectory(app, pluginFilePath, exitHooks)'),
