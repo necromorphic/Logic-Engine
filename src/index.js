@@ -1,7 +1,8 @@
-import { createHmac, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { existsSync, mkdirSync, realpathSync, statSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { SQLiteStore } from './storage/sqlite-store.js';
+import { beginCoordinatorLock } from './storage/coordinator-lock.js';
 import { LogicEngine } from './application/engine.js';
 import { createApiServer } from './api/server.js';
 import { HostVersionDigestLedger } from './application/host-version-digest-ledger.js';
@@ -111,13 +112,36 @@ if (typeof worldPackCatalogPath !== 'string' || !worldPackCatalogPath.trim()) {
   process.exit(1);
 }
 const worldPackCatalog = loadTrustedWorldPackCatalog(resolve(worldPackCatalogPath));
+let store;
+const persistMechanicPolicyAuthoritySnapshot = snapshot => {
+  if (!store?.coordinatorDb || !store?.db) return;
+  const fingerprint = createHash('sha256').update(JSON.stringify([
+    snapshot.authority_id, snapshot.generation,
+  ]), 'utf8').digest('hex');
+  const release = beginCoordinatorLock(store.coordinatorDb);
+  try {
+    store.db.prepare(`
+      INSERT INTO mechanic_policy_authority_state(singleton,authority_id,generation,fingerprint,updated_at)
+      VALUES(1,?,?,?,?)
+      ON CONFLICT(singleton) DO UPDATE SET
+        authority_id=excluded.authority_id,
+        generation=excluded.generation,
+        fingerprint=excluded.fingerprint,
+        updated_at=excluded.updated_at
+    `).run(snapshot.authority_id, snapshot.generation, fingerprint, new Date().toISOString());
+  } finally {
+    release();
+  }
+};
 const mechanicPolicyAuthority = createProcessScopedMechanicPolicyAuthority({
   authorityId: process.env.ENGINE_MECHANIC_POLICY_AUTHORITY_ID || 'logic-engine.default-visibility-policy',
   generation: Number(process.env.ENGINE_MECHANIC_POLICY_GENERATION || '1'),
   fieldPolicy: defaultMechanicPolicyFieldPolicy,
+  onChange: persistMechanicPolicyAuthoritySnapshot,
 });
 
-const store = new SQLiteStore(dbPath);
+store = new SQLiteStore(dbPath);
+persistMechanicPolicyAuthoritySnapshot(mechanicPolicyAuthority.getSnapshot());
 const npcKnowledgeAuthorizers = createHostBoundNpcKnowledgeAuthorizers({
   store,
   adapterIds: Object.keys(adapterTokens),
