@@ -42,11 +42,13 @@ export function createHostInventoryHandler({
   enumerate,
   pinnedHostCommit,
   hostBuildClaim,
+  verifySourceIdentity = null,
   persistRootInventory = null,
 }) {
   if (typeof enumerate !== 'function'
     || typeof pinnedHostCommit !== 'string' || !/^[a-f0-9]{40}$/.test(pinnedHostCommit)
     || typeof hostBuildClaim !== 'string'
+    || (verifySourceIdentity !== null && typeof verifySourceIdentity !== 'function')
     || (persistRootInventory !== null && typeof persistRootInventory !== 'function')) {
     throw new TypeError('Host inventory handler configuration is invalid.');
   }
@@ -94,6 +96,10 @@ export function createHostInventoryHandler({
       }
       const source = inventory.source;
       const filesystem = inventory.filesystem;
+      let sourceIdentity = { status: 'NON_READY', code: 'HOST_SOURCE_IDENTITY_VERIFIER_UNAVAILABLE' };
+      if (typeof verifySourceIdentity === 'function') {
+        try { sourceIdentity = await verifySourceIdentity(); } catch {}
+      }
       let rootInventory = null;
       if (typeof persistRootInventory === 'function') {
         try {
@@ -101,6 +107,9 @@ export function createHostInventoryHandler({
             userHandle,
             rootPath: directories.root,
             entries: filesystem.entries,
+            snapshotAlignment: inventory.snapshot_alignment,
+            snapshotSha256: filesystem.snapshot_sha256,
+            sourceIdentity,
           });
         } catch {
           rootInventory = { status: 'NON_READY', reason: 'ROOT_INVENTORY_PERSISTENCE_FAILED' };
@@ -119,10 +128,13 @@ export function createHostInventoryHandler({
         ]),
         ...(rootInventoryPersisted && rootInventory.status === 'NON_READY'
           ? ['ROOT_INVENTORY_DELTA_UNRESOLVED'] : []),
-        'NO_GLOBAL_SILLYTAVERN_DATA_ROOT_COVERAGE',
-        'NO_SEMANTIC_CHARACTER_PERSONA_IDENTITY',
-        'UNVERIFIED_MUTATION_ROUTE_COVERAGE',
-        'UNVERIFIED_MUTATION_RUNTIME_ACCEPTANCE',
+        ...(sourceIdentity?.status === 'CURRENT_IDENTITIES_VERIFIED'
+          ? [] : ['UNVERIFIED_PINNED_SOURCE_IDENTITY']),
+        ...(sourceIdentity?.status === 'CURRENT_IDENTITIES_VERIFIED'
+          ? [] : ['UNVERIFIED_MUTATION_ROUTE_COVERAGE']),
+        ...(sourceIdentity?.status === 'CURRENT_IDENTITIES_VERIFIED'
+          && inventory.snapshot_alignment === 'SHARED_VSS_SNAPSHOT'
+          ? [] : ['UNVERIFIED_MUTATION_RUNTIME_ACCEPTANCE']),
         ...(inventory.snapshot_alignment === 'SHARED_VSS_SNAPSHOT'
           ? [] : ['NO_SHARED_POINT_IN_TIME_SNAPSHOT']),
       ];
