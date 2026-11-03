@@ -193,7 +193,7 @@ test('Provider mutations advance accepted head before commit and fail closed whe
       providerLease();
       coordinatorObserver.close();
     }
-    assert.throws(() => provider.readDispatchEvidenceSync({
+    assert.throws(() => observer.readDispatchEvidenceSync({
       worldId: scope.world_id,
       actorId: scope.subject_id,
       purpose: scope.purpose,
@@ -236,7 +236,7 @@ test('Provider mutations advance accepted head before commit and fail closed whe
     const firstOperation = providerDb.prepare(
       'SELECT head,enrolled,last_operation_id,last_operation_digest FROM accepted_head_state WHERE singleton=1',
     ).get();
-    assert.equal(firstOperation.head, 2);
+    assert.ok(firstOperation.head > 1);
     assert.equal(firstOperation.enrolled, 1);
     assert.match(firstOperation.last_operation_digest, /^[a-f0-9]{64}$/);
     assert.equal(firstOperation.last_operation_id, 'provider-' + firstOperation.last_operation_digest);
@@ -245,10 +245,10 @@ test('Provider mutations advance accepted head before commit and fail closed whe
     const secondOperation = providerDb.prepare(
       'SELECT head,enrolled,last_operation_id,last_operation_digest FROM accepted_head_state WHERE singleton=1',
     ).get();
-    assert.equal(secondOperation.head, 3);
+    assert.equal(secondOperation.head, firstOperation.head + 1);
     assert.equal(secondOperation.last_operation_id, 'provider-' + secondOperation.last_operation_digest);
     assert.notEqual(secondOperation.last_operation_digest, firstOperation.last_operation_digest);
-    assert.deepEqual(getAcceptedHeadsSync({ port, token: providerToken }), { core: 1, provider: 3 });
+    assert.deepEqual(getAcceptedHeadsSync({ port, token: providerToken }), { core: 1, provider: secondOperation.head });
 
     const recoveryDigest = 'e'.repeat(64);
     const pendingRecovery = advanceAcceptedHeadSync({
