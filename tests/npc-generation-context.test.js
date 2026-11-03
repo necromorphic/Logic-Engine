@@ -47,12 +47,12 @@ function setup(overrides = {}) {
     resolveScope: async () => currentScope,
     readLaneA: async input => { calls.push(['A', input]); return overrides.laneA ? overrides.laneA(laneA()) : laneA(); },
     readLaneB: async input => { calls.push(['B', input]); return overrides.laneB ? overrides.laneB(laneB()) : laneB(); },
-    revalidateEvidence: async () => true,
+    revalidateEvidence: async () => overrides.revalidateEvidence ? overrides.revalidateEvidence() : true,
     revalidateScope: async () => currentScope,
   });
   const receiver = createNpcGenerationContextReceiver({
     resolveScope: async () => currentScope,
-    revalidateEvidence: async () => true,
+    revalidateEvidence: async () => overrides.revalidateEvidence ? overrides.revalidateEvidence() : true,
     revalidateScope: async () => currentScope,
   });
   return { builder, receiver, calls, setScope: value => { currentScope = value; } };
@@ -84,7 +84,6 @@ test('wrong NPC, conversation, world, adapter or purpose in either lane is rejec
     ['adapter_id', 'adapter-2'], ['purpose', 'npc_action_evaluation'],
   ]) {
     await t.test(field, async () => {
-      const { builder } = setup({ laneA: value => ({ ...value, [field]: field === 'purpose' ? value : value }) });
       // Corrupt the lane envelope itself; it must not be rebound to the resolved scope.
       const bad = laneA(); bad[field] = value;
       const configured = createNpcGenerationContextBuilder({
@@ -112,6 +111,7 @@ test('revoked, stale, partial and unavailable Lane B evidence fails closed', asy
   const cases = [
     ['revoked', () => ({ ...laneB(), status: 'non_ready' })],
     ['stale snapshot', () => ({ ...laneB(), snapshot: { world_revision: 3, commit_sequence: 19 } })],
+    ['stale source', () => ({ ...laneB(), status: 'non_ready' })],
     ['partial retrieval', () => ({ ...laneB(), result: { ...laneB().result, status: 'non_ready' } })],
     ['unknown assessment', () => { const x = laneB(); x.result.candidates[0].evidence_assessment = 'confirmed'; return x; }],
   ];
@@ -161,4 +161,25 @@ test('receiver rejects context after actor binding or source snapshot changes', 
   const built = await builder.build(request);
   setScope({ ...scope, actor_id: 'npc-2', snapshot: scope.snapshot });
   assert.equal((await receiver.receive(built.context, request)).status, 'non_ready');
+});
+
+test('revocation detected by the final evidence fence prevents context creation', async () => {
+  const { builder } = setup({ revalidateEvidence: async () => false });
+  const result = await builder.build(request);
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'generation_evidence_changed');
+  assert.equal(result.context, null);
+});
+
+test('receiver repeats evidence revalidation and rejects a revoked generation', async () => {
+  const { builder } = setup();
+  const built = await builder.build(request);
+  const receiver = createNpcGenerationContextReceiver({
+    resolveScope: async () => scope,
+    revalidateEvidence: async () => false,
+    revalidateScope: async () => scope,
+  });
+  const result = await receiver.receive(built.context, request);
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'context_evidence_changed');
 });
