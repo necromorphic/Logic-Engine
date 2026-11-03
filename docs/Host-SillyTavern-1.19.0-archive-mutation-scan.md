@@ -20,6 +20,7 @@ This is a static candidate scan, not a route-level proof. It searched endpoint m
 | `src/endpoints/secrets.js` | `POST /write`, `/delete`, `/rotate`, `/rename`, `/settings` | Trace secret-store writes and account/global scope |
 | `src/endpoints/sprites.js` | `POST /delete`, `/upload`, `/upload-zip` | Trace character sprite files and archive expansion |
 | `src/endpoints/stats.js` | `POST /recreate`, `/update` | Trace stats-file writes |
+| `src/endpoints/stable-diffusion.js` | ComfyUI `/save-workflow`, `/delete-workflow`, `/rename-workflow` | Writes/deletes/renames per-account workflow JSON files; fail-closed guarded and included in source identity coverage |
 | `src/endpoints/themes.js` | `POST /save`, `/delete` | Trace theme persistence |
 | `src/endpoints/worldinfo.js` | `POST /delete`, `/import`, `/edit` | Trace World Info file writes and imports |
 | `src/endpoints/vectors.js` | `POST /insert`, `/delete`, `/purge`, `/purge-all` | Trace vector-store mutations and whether they touch the enrolled root |
