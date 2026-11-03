@@ -388,7 +388,7 @@ test('Core Host conversation and Actor bindings are re-resolved after an awaited
       assert.equal(result.status, 'non_ready');
       assert.equal(result.reason, kind === 'conversation'
         ? 'query_access_unconfirmed'
-        : 'authorized_source_read_unavailable');
+        : 'actor_binding_unavailable');
       assert.deepEqual(result.candidates, []);
     });
   }
