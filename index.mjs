@@ -5,7 +5,6 @@ import { SillyTavernPatchManager } from './scripts/sillytavern-patch-manager.mjs
 
 const PLUGIN_OWNER = 'logic-engine-extension:host-adapter-v1';
 const PLUGIN_ROOT = dirname(fileURLToPath(import.meta.url));
-let patchManager = null;
 let registeredHook = null;
 let registeredAdapter = null;
 
@@ -120,8 +119,14 @@ export async function init(router) {
   });
   // The same manager/state/journal is used by the native Extension lifecycle
   // Hook. Startup is the bootstrap; it never applies a second independent patch.
-  const patchResult = await manager.execute('update');
-  patchManager = manager;
+  // Native generation modules are imported before server plugins initialize.
+  // Applying the patch here would change files on disk but leave this process's
+  // already-loaded routers unpatched. Startup must only verify a patch installed
+  // before process start; install/update lifecycle changes require a restart.
+  const patchResult = await manager.inspectInstalledReadOnly();
+  if (patchResult.status !== 'INSTALLED_AND_BACKUPS_VERIFIED') {
+    throw new Error('LOGIC_ENGINE_FINAL_SEND_PATCH_NOT_INSTALLED_OR_VERIFIED_RESTART_REQUIRED');
+  }
 
   try {
     const hookPath = join(hostRoot, 'src', 'logic-engine-final-send-hook.js');
@@ -136,12 +141,9 @@ export async function init(router) {
     hook.registerLogicEngineFinalSendAdapter(registeredAdapter, PLUGIN_OWNER);
     registeredHook = hook;
   } catch (error) {
-    try {
-      await manager.execute('uninstall');
-    } catch {
-      // A drifted patch is never overwritten during rollback. The Host remains
-      // fail-closed and the shared Patch Manager journal remains available.
-    }
+    // Keep the managed source patch and its durable journal intact. A missing
+    // or conflicting adapter leaves the Hook fail-closed; uninstall is owned
+    // only by the Extension delete lifecycle, never by plugin startup failure.
     throw error;
   }
 
@@ -170,9 +172,7 @@ export async function exit() {
   registeredNativeForward = () => {
     throw new Error('LOGIC_ENGINE_NATIVE_RESPONSE_WRITER_UNAVAILABLE');
   };
-  const manager = patchManager;
-  patchManager = null;
-  // Restore the single manager-owned patch when this server plugin is unloaded.
-  // On a normal restart init() reapplies/verifies it before requests are served.
-  if (manager) await manager.execute('uninstall');
+  // Do not uninstall on normal server shutdown/unload. The patched native
+  // route modules are loaded for this process and must remain patched on disk
+  // for the next startup. Extension deletion owns explicit uninstall.
 }
