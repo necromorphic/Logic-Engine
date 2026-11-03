@@ -82,6 +82,17 @@ test('pinned source verifier accepts only the exact manifest and matching deploy
   assert.equal(rejected.code, 'HOST_SOURCE_FILE_DIGEST_MISMATCH');
 });
 
+test('pinned source verifier does not accept a caller-selected manifest outside the installed Gateway', async t => {
+  const fixture = await createManifestRoot();
+  t.after(() => rm(fixture.root, { recursive: true, force: true }));
+  const rejected = await verifyPinnedSourceIdentity({
+    installRoot: fixture.root,
+    manifestPath: path.join(fixture.root, 'attacker-controlled-manifest.json'),
+  });
+  assert.equal(rejected.status, 'NON_READY');
+  assert.equal(rejected.code, 'HOST_SOURCE_MANIFEST_PATH_INVALID');
+});
+
 test('pinned source verifier rejects unmanifested installed Gateway files', async t => {
   const fixture = await createManifestRoot();
   t.after(() => rm(fixture.root, { recursive: true, force: true }));
