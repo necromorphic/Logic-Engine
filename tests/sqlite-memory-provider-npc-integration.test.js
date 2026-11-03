@@ -7,7 +7,7 @@ import { ActorBindingService } from '../src/application/actor-bindings.js';
 import { HostConversationWorldBindingService } from '../src/application/host-conversation-world-bindings.js';
 import { AuthorizedReadService } from '../src/application/authorized-read-service.js';
 import { createHostBoundNpcKnowledgeAuthorizers } from '../src/application/npc-knowledge-authorization.js';
-import { runWithAuthenticatedHostSession } from '../src/application/host-session-context.js;
+import { runWithAuthenticatedHostSession } from '../src/application/host-session-context.js';
 import { MemoryNpcConsumer } from '../src/application/memory-npc-consumer.js';
 import { SQLiteMemoryProvider } from '../src/application/sqlite-memory-provider.js';
 
