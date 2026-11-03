@@ -124,7 +124,7 @@ test('Core HTTP accepts only a signed, pinned, lifecycle-complete root attestati
     covered_delta_sha256: null,
     coverage_id: 'ST-1.19.0-HOST-LIFECYCLE-P0-V1',
     pinned_host_commit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127',
-    patch_blob_sha: '30c7b85141e2661dfa52a17dda6bf2f4e822373aeca8f856bbd8a0ad81cd2e6c',
+    patch_blob_sha: '5f71e283c464efecf4d258381bf2b8e78c311777571809c13defd5f01f65d1ca',
     host_handler_blob_sha: '159f0eb5f0d5dbda08a821a30bbc3b450bfe8e0f',
     source_identity_status: 'CURRENT_IDENTITIES_VERIFIED',
     source_manifest_sha256: SOURCE_MANIFEST_SHA256,
