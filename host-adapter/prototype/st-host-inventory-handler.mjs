@@ -238,7 +238,7 @@ export function createHostBulkMutationGuard({
     // independent of full-root VSS inventory; destructive character deletion remains guarded.
     const route = `${request?.baseUrl ?? ''}${request?.path ?? ''}`.split('?')[0];
     if (request?.method === 'POST'
-      && /\/characters\/(?:create|rename|edit|edit-avatar|edit-attribute|merge-attributes|import|duplicate)$/.test(route)) {
+      && /\/characters\/(?:create|edit)$/.test(route)) {
       return next();
     }
     const identity = getAuthenticatedHostIdentity(request, { requireDirectories: true });
@@ -340,14 +340,6 @@ export function createHostLifecycleSaveGuard({ enumerate = enumerateHostDataInve
   return async function hostLifecycleSaveGuard(request, response, next) {
     response.set('Cache-Control', 'no-store, private');
     response.set('Vary', 'Cookie');
-    // Ordinary, unenrolled ST saves carry no stable conversation identity and no
-    // prepared lifecycle permit. They must not depend on the VSS inventory service.
-    // Any lifecycle-marked or prepared save still takes the fail-closed path below.
-    const initialBody = request?.body;
-    const initialHeader = Array.isArray(initialBody?.chat) ? initialBody.chat[0] : null;
-    const initialConversationUuid = initialHeader?.chat_metadata?.logic_engine_conversation_id;
-    const initialPermit = request?.session?.logicEngineHostPreparedMutation;
-    if (initialConversationUuid === undefined && !initialPermit) return next();
     const userHandle = request?.user?.profile?.handle;
     const session = request?.session;
     if (typeof userHandle !== 'string' || !userHandle.trim() || (session?.handle !== undefined && session.handle !== userHandle) || session?.logicEngineSessionHandle !== userHandle || !HOST_SESSION_UUID.test(session?.logicEngineSessionId ?? '')) return response.sendStatus(403);
