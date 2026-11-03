@@ -230,6 +230,19 @@ test('host inventory persists the full root manifest server-side and removes onl
   };
   const handler = createHostInventoryHandler({
     enumerate: async () => inventory,
+    verifySourceIdentity: async () => ({
+      status: 'CURRENT_IDENTITIES_VERIFIED',
+      manifest_sha256: 'e'.repeat(64),
+      patch_blob_sha: PINNED_PATCH_BUNDLE_SHA256,
+      host_handler_blob_sha: PINNED_HOST_HANDLER_GIT_BLOB_SHA,
+    }),
+    verifyMutationCoverage: async () => ({
+      status: 'VERIFIED',
+      source_commit: pinned,
+      coverage_manifest_sha256: 'a'.repeat(64),
+      route_count: 92,
+      source_files_sha256: 'b'.repeat(64),
+    }),
     persistRootInventory: async input => {
       observed = input;
       return {
@@ -314,6 +327,13 @@ test('host inventory clears only blockers covered by verified source and Core VS
       patch_blob_sha: PINNED_PATCH_BUNDLE_SHA256,
       host_handler_blob_sha: PINNED_HOST_HANDLER_GIT_BLOB_SHA,
     }),
+    verifyMutationCoverage: async () => ({
+      status: 'VERIFIED',
+      source_commit: pinned,
+      coverage_manifest_sha256: 'a'.repeat(64),
+      route_count: 92,
+      source_files_sha256: 'b'.repeat(64),
+    }),
     persistRootInventory: async input => {
       persistedInput = input;
       return {
@@ -388,6 +408,13 @@ test('Host inventory cannot promote Core baseline without signed lifecycle attes
       patch_blob_sha: PINNED_PATCH_BUNDLE_SHA256,
       host_handler_blob_sha: PINNED_HOST_HANDLER_GIT_BLOB_SHA,
     }),
+    verifyMutationCoverage: async () => ({
+      status: 'VERIFIED',
+      source_commit: pinned,
+      coverage_manifest_sha256: 'a'.repeat(64),
+      route_count: 92,
+      source_files_sha256: 'b'.repeat(64),
+    }),
     persistRootInventory: async () => ({
       status: 'AUTHORITATIVE_COMPLETE',
       integrity_status: 'INTEGRITY_OK',
@@ -434,6 +461,19 @@ test('persisted but unexplained root drift remains an explicit NON_READY blocker
       },
       source: { status: 'DOUBLE_SCAN_CANDIDATE', authority: 'NON_AUTHORITATIVE', blockers: [], files: [] },
       snapshot_alignment: 'SHARED_VSS_SNAPSHOT',
+    }),
+    verifySourceIdentity: async () => ({
+      status: 'CURRENT_IDENTITIES_VERIFIED',
+      manifest_sha256: 'e'.repeat(64),
+      patch_blob_sha: PINNED_PATCH_BUNDLE_SHA256,
+      host_handler_blob_sha: PINNED_HOST_HANDLER_GIT_BLOB_SHA,
+    }),
+    verifyMutationCoverage: async () => ({
+      status: 'VERIFIED',
+      source_commit: pinned,
+      coverage_manifest_sha256: 'a'.repeat(64),
+      route_count: 92,
+      source_files_sha256: 'b'.repeat(64),
     }),
     persistRootInventory: async () => ({
       status: 'NON_READY',
