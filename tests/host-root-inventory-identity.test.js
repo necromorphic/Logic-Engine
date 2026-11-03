@@ -43,6 +43,17 @@ test('root identity registry rejects malformed, duplicate and unsupported record
   }
 });
 
+test('root identity registry rejects ambiguous adapter or manifest entries for the same Host root', () => {
+  assert.throws(() => parseHostRootIdentityRegistry(JSON.stringify([
+    binding,
+    { ...binding, source_manifest_sha256: 'c'.repeat(64) },
+  ])), /ambiguous root identity binding/);
+  assert.throws(() => parseHostRootIdentityRegistry(JSON.stringify([
+    binding,
+    { ...binding, adapter_id: 'adapter-b' },
+  ])), /ambiguous root identity binding/);
+});
+
 test('adapter resolver requires the exact adapter, installation, account and root tuple', () => {
   const registry = parseHostRootIdentityRegistry(JSON.stringify([binding]));
   const accepted = resolveAdapterHostRootIdentity(registry, {
