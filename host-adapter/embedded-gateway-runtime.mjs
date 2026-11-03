@@ -172,6 +172,7 @@ export function createEmbeddedGatewayRuntime({ hostAdapter, adapterId = process.
       readToken,
       readCoreEvidence: input => providerAdapter.consumer.readDispatchEvidenceSync(input),
       readProviderEvidence: input => providerAdapter.readDispatchEvidenceSync(input),
+      npcContextRuntime: providerAdapter.npcGenerationContext,
       readHostEvidence: ({ hostContext, coordinatorLease }) => {
         if (typeof hostAuthorityId !== 'string' || !hostAuthorityId.trim()
           || !Number.isSafeInteger(hostAuthorityGeneration) || hostAuthorityGeneration < 1) {
