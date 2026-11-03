@@ -453,6 +453,7 @@ test('Host session identity revokes the old session before rotating to another a
     createId: () => ids.shift(),
     revokeSession: async (request, reason) => {
       revocations.push({ sessionId: request.session.logicEngineSessionId, accountHandle: request.session.logicEngineSessionHandle, reason });
+      return true;
     },
   });
   const first = makeResponse();
