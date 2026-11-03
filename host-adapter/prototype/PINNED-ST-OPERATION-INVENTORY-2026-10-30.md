@@ -77,14 +77,14 @@ The candidate now carries a patch for exact ST commit `06bde939fb1e9c4c8d8641d81
 
 The patch now:
 - records message create/send/receive/edit/swipe/delete lifecycle transitions and requires a matching prepared receipt before native chat persistence;
-- guards 47 pinned per-user mutation routes across chats, groups, characters, avatars, files, World Info, presets, quick replies, themes, backgrounds, assets, vectors, settings, backups and Data Maid;
+- guards 54 pinned mutation routes, including chat/group/character lifecycle, both per-user root reset routes, all five extension source mutation routes, and the previously inventoried per-user data routes;
 - blocks extension install/update/switch/move/delete and all administrative account mutations while Host identity storage is enabled;
 - returns 503 for whole-user-root reset and skips unreceipted startup group metadata migration while Host is enabled;
 - keeps bulk chat rename/delete/import/export, backup restore, group cascade, character recursive deletion and vector purge fail-closed for enrolled histories until operation-specific receipts are implemented.
 
 The route contract is machine-checked against the applied pinned SillyTavern source. A separate Windows runtime-harness extension now mounts the actual endpoint routers and attempts representative mutations; it expects a 409/503 denial before the route handler can persist changes. Static route presence is not being represented as successful operation support.
 
-The Windows pinned-source workflow applies the patch to exact SillyTavern commit `06bde939fb1e9c4c8d8641d810f0a916b5bce127`, checks the source diff and syntax, and runs the real endpoint/file-operation harness.
+The Windows pinned-source workflow applies the patch to exact SillyTavern commit `06bde939fb1e9c4c8d8641d810f0a916b5bce127`, checks the source diff and syntax, and runs the real endpoint/file-operation harness. Startup user-data and system-prompt migrations now fail ST startup when incomplete, preventing a partial legacy migration from being treated as a complete per-user root.
 
 ## 4. Acceptance test matrix still required
 
