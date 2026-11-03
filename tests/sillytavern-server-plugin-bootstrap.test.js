@@ -35,6 +35,6 @@ test('server plugin connects Host preparation and NPC Context Receiver but keeps
 test('server plugin refuses late patch application and leaves patch installed on shutdown', () => {
   assert.match(source, /LOGIC_ENGINE_FINAL_SEND_PATCH_NOT_INSTALLED_OR_VERIFIED_RESTART_REQUIRED/);
   assert.match(source, /Native generation modules are imported before server plugins initialize/);
-  assert.match(source, /normal server shutdown never removes it/);
+  assert.match(source, /normal shutdown never removes it/);
   assert.doesNotMatch(source, /await manager\.execute\('uninstall'\)/);
 });
