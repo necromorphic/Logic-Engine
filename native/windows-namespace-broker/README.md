@@ -36,3 +36,15 @@ exclusively writable by the broker identity.
 - removes the pending intent through the opened file handle and requires a directory flush.
 
 This is not yet a complete durable store integration. The caller must provision and verify the directory's dedicated-service ACL and all ancestors, supply strict duplicate-key/schema/generation validators, invoke startup recovery under the exclusive lock, and prove crash semantics on supported Windows/NTFS versions. The service host still answers PING only; no SQLite operation is enabled. The Windows CI job compiles the store with MSVC and runs a filesystem smoke test for lock, atomic writes, reads and intent removal. This is not a crash-injection or ACL-isolation test.
+
+## NTFS sidecar adapter increment
+
+`windows_namespace_adapter.c` adds a narrow handle-relative API for SQLite sidecars:
+- CREATE_NEW-only creation and OPEN_EXISTING-only reopen relative to a retained parent HANDLE;
+- sidecar suffix allowlist (`-wal`, `-shm`, `-journal`) and basename validation;
+- opened-handle identity capture and optional expected-identity enforcement;
+- rejection of directories and reparse points;
+- file flush and parent-directory flush primitives;
+- deletion only after comparing the opened handle's identity with the expected manifest identity; the delete call consumes/closes that handle before flushing the parent.
+
+The adapter is not yet connected to the named-pipe protocol or SQLite VFS. The service still reports filesystem operations as UNSUPPORTED. The Windows smoke test now exercises create, flush, reopen, identity mismatch rejection, and delete. NTFS crash consistency and actual directory-flush support remain gated by the Windows job.
