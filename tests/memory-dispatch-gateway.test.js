@@ -27,6 +27,22 @@ const readToken = 'gateway-read-token-for-dispatch-gateway-tests-000000000000000
 const digestA = 'a'.repeat(64);
 const digestB = 'b'.repeat(64);
 const digestC = 'c'.repeat(64);
+const hostContext = Object.freeze({
+  adapter_id: 'st-gateway',
+  core_conversation_id: '55555555-5555-4555-8555-555555555555:11111111-1111-4111-8111-111111111111:33333333-3333-4333-8333-333333333333',
+  world_id: 'world-1',
+  actor_id: 'npc-1',
+  actor_type: 'npc',
+  host_installation_id: '11111111-1111-4111-8111-111111111111',
+  authenticated_account_id: '22222222-2222-4222-8222-222222222222',
+  host_session_id: '55555555-5555-4555-8555-555555555555',
+  host_conversation_id: '11111111-1111-4111-8111-111111111111:22222222-2222-4222-8222-222222222222:33333333-3333-4333-8333-333333333333',
+  conversation_uuid: '33333333-3333-4333-8333-333333333333',
+  root_id: 'e'.repeat(64),
+  root_inventory_sequence: 1,
+  root_manifest_sha256: 'f'.repeat(64),
+});
+
 const sourceSet = Object.freeze([{
   source_kind: 'canonical_entity',
   source_entity_id: 'entity-42',
@@ -95,6 +111,7 @@ async function createFixture({ sendUpstream, createTransport, coreHead = 1, prov
   });
 
   let providerGranted = initialProviderGrant;
+  let hostInventoryReady = true;
   let currentProviderCandidatesOverride = providerCandidatesOverride;
   let policyAuthority = { authority_id: 'test-memory-policy', generation: 1, fingerprint: 'd'.repeat(64) };
   const calls = [];
@@ -122,6 +139,16 @@ async function createFixture({ sendUpstream, createTransport, coreHead = 1, prov
       sources,
       candidates: currentProviderCandidatesOverride ?? candidates,
     }),
+    readHostEvidence: ({ hostContext: binding, worldId, actorId }) => ({
+      status: hostInventoryReady ? 'READY' : 'NON_READY',
+      adapter_id: binding.adapter_id,
+      core_conversation_id: binding.core_conversation_id,
+      world_id: worldId,
+      actor_id: actorId,
+      root_id: binding.root_id,
+      root_inventory_sequence: binding.root_inventory_sequence,
+      root_manifest_sha256: binding.root_manifest_sha256,
+    }),
   }), (request) => createTransport
     ? createTransport(request)
     : () => {
@@ -141,6 +168,7 @@ async function createFixture({ sendUpstream, createTransport, coreHead = 1, prov
       return gateway;
     },
     setProviderGranted(value) { providerGranted = value; },
+    setHostInventoryReady(value) { hostInventoryReady = value; },
     setProviderCandidates(value) { currentProviderCandidatesOverride = value; },
     setPolicyAuthority(value) { policyAuthority = value; },
     async close() {
@@ -173,6 +201,7 @@ const validRequest = (requestId = 'request-001', overrides = {}) => ({
   actorId: 'npc-1',
   purpose: 'recall',
   sources: sourceSet,
+  hostContext,
   candidates: [{
     record_ref: 'record-42',
     record_version: 'record-version-3',
@@ -200,6 +229,7 @@ test('Host dispatch signature binds the exact body, route, model, identity, and 
   const signature = createDispatchRequestSignature(secret, request);
   assert.equal(verifyDispatchRequestSignature(secret, request, signature), true);
   assert.equal(verifyDispatchRequestSignature(secret, { ...request, body: request.body + 'tampered' }, signature), false);
+  assert.equal(verifyDispatchRequestSignature(secret, { ...request, hostContext: { ...hostContext, root_manifest_sha256: '0'.repeat(64) } }, signature), false);
   assert.equal(verifyDispatchRequestSignature(secret, { ...request, candidates: [{ ...request.candidates[0], record_version: 'record-version-4' }] }, signature), false);
   assert.equal(verifyDispatchRequestSignature(secret, { ...request, candidates: [{ ...request.candidates[0], authorization_generation: 2 }] }, signature), false);
   assert.equal(verifyDispatchRequestSignature(secret, { ...request, sources: [{
@@ -1410,3 +1440,26 @@ test('real Core source mutation and Gateway dispatch-start share one cross-proce
     await fixture.close();
   }
 });
+
+test('Host inventory change is revalidated under the Coordinator lease before dispatch-start', async () => {
+  const fixture = await createFixture();
+  try {
+    fixture.setHostInventoryReady(false);
+    await assert.rejects(
+      fixture.gateway.dispatchProtectedRequest({
+        ...validRequest('host-inventory-revoked'),
+        transport: () => { fixture.calls.push('unexpected'); return Promise.resolve({ status: 200 }); },
+      }),
+      /MEMORY_DISPATCH_NOT_READY/,
+    );
+    assert.equal(fixture.calls.length, 0);
+    assert.equal(
+      fixture.gateway.db.prepare('SELECT COUNT(*) AS count FROM dispatch_ledger').get().count,
+      0,
+      'Host NON_READY must be rejected before durable DISPATCH_STARTED',
+    );
+  } finally {
+    await fixture.close();
+  }
+});
+
