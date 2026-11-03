@@ -83,8 +83,7 @@ test('Host inventory route persists digest-only root baselines and deltas throug
   let coreStore = null;
   let coreServer = null;
   const resolveRootIdentity = input => ({
-    authorized: input.adapterId === ADAPTER_ID
-      && input.host_installation_id === identity.host_installation_id
+    authorized: input.host_installation_id === identity.host_installation_id
       && input.authenticated_account_id === identity.authenticated_account_id
       && input.root_id === rootId,
     ...rootIdentity,
