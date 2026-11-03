@@ -205,7 +205,7 @@ test('Host bridge transfer is bound to the exact generation request and prompt p
     },
     takeForDispatch() {
       transferred += 1;
-      return { status: 'ready', requestMetadata: generationRequest, handoff, projection };
+      return { status: 'ready', requestMetadata: generationRequest, handoff, projection, runWithHostSession: callback => callback() };
     },
   };
   const adapter = createAdapter({
@@ -267,7 +267,7 @@ test('Host bridge projection mismatch blocks protected native transport', async 
   const adapter = createAdapter({
     npcContextHostBridge: {
       async prepare() { return { status: 'ready' }; },
-      takeForDispatch() { return { status: 'ready', requestMetadata: generationRequest, handoff, projection }; },
+      takeForDispatch() { return { status: 'ready', requestMetadata: generationRequest, handoff, projection, runWithHostSession: callback => callback() }; },
     },
     shouldPrepareNpcContext: () => true,
     resolveProtectedMemory: (_request, _hostContext, transfer) => ({
@@ -335,7 +335,7 @@ test('only a complete-empty NPC projection may explicitly classify generation as
   const adapter = createAdapter({
     npcContextHostBridge: {
       async prepare() { return { status: 'ready' }; },
-      takeForDispatch() { return { status: 'ready', requestMetadata: generationRequest, handoff: {}, projection }; },
+      takeForDispatch() { return { status: 'ready', requestMetadata: generationRequest, handoff: {}, projection, runWithHostSession: callback => callback() }; },
     },
     shouldPrepareNpcContext: () => true,
     resolveProtectedMemory: (_request, _hostContext, transfer) => {
@@ -372,7 +372,7 @@ test('non-empty NPC projection cannot be downgraded to native unprotected genera
   const adapter = createAdapter({
     npcContextHostBridge: {
       async prepare() { return { status: 'ready' }; },
-      takeForDispatch() { return { status: 'ready', requestMetadata: generationRequest, handoff: {}, projection }; },
+      takeForDispatch() { return { status: 'ready', requestMetadata: generationRequest, handoff: {}, projection, runWithHostSession: callback => callback() }; },
     },
     shouldPrepareNpcContext: () => true,
     resolveProtectedMemory: () => ({ status: 'unprotected' }),
