@@ -827,10 +827,20 @@ test('real Provider revokeRecord committed before dispatch-start produces zero u
     releaseTransport();
     await inFlight;
     assert.equal(calls.length, 1, 'dispatch-start winning first permits exactly one upstream call');
+    const revokedResponse = new EventEmitter();
+    revokedResponse.writableEnded = false;
+    revokedResponse.destroyed = false;
+    let revokedWrites = 0;
+    assert.throws(() => gateway.authorizeResponseWrite(
+      'dispatch-start-wins-before-revoke',
+      () => { revokedWrites += 1; },
+      { final: true, response: revokedResponse },
+    ), /MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED/);
+    assert.equal(revokedWrites, 0, 'revoke during inference must suppress final client output');
     const completedLedger = new DatabaseSync(ledgerPath);
     try {
       assert.equal(completedLedger.prepare('SELECT status FROM dispatch_ledger WHERE request_id=?')
-        .get('dispatch-start-wins-before-revoke').status, 'DISPATCH_STARTED');
+        .get('dispatch-start-wins-before-revoke').status, 'UNKNOWN');
     } finally {
       completedLedger.close();
     }
@@ -987,11 +997,19 @@ test('real Core source mutation and Gateway dispatch-start share one cross-proce
     releaseTransport();
     await inFlight;
     assert.equal(calls.length, 1, 'a Core mutation ordered after durable dispatch-start cannot recall the in-flight request');
+    const response = new EventEmitter();
+    response.writableEnded = false;
+    response.destroyed = false;
+    let writes = 0;
+    assert.throws(() => gateway.authorizeResponseWrite(
+      'core-dispatch-start-wins', () => { writes += 1; }, { final: true, response },
+    ), /MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED/);
+    assert.equal(writes, 0, 'Core source mutation during inference must suppress final client output');
 
     const ledger = new DatabaseSync(fixture.ledgerPath);
     try {
       assert.equal(ledger.prepare('SELECT status FROM dispatch_ledger WHERE request_id=?')
-        .get('core-dispatch-start-wins').status, 'DISPATCH_STARTED');
+        .get('core-dispatch-start-wins').status, 'UNKNOWN');
     } finally {
       ledger.close();
     }
