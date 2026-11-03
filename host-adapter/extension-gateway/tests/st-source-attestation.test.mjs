@@ -92,6 +92,24 @@ test('pinned source verifier rejects unmanifested installed Gateway files', asyn
   assert.equal(rejected.code, 'HOST_SOURCE_DIRECTORY_CONTENT_MISMATCH');
 });
 
+test('pinned source verifier rejects an unattested server plugin', async t => {
+  const fixture = await createManifestRoot();
+  t.after(() => rm(fixture.root, { recursive: true, force: true }));
+  await mkdir(path.join(fixture.root, 'plugins/unreviewed-plugin'), { recursive: true });
+  const rejected = await verifyPinnedSourceIdentity({ installRoot: fixture.root });
+  assert.equal(rejected.status, 'NON_READY');
+  assert.equal(rejected.code, 'HOST_SOURCE_DIRECTORY_CONTENT_MISMATCH');
+});
+
+test('pinned source verifier rejects an unattested third-party browser extension', async t => {
+  const fixture = await createManifestRoot();
+  t.after(() => rm(fixture.root, { recursive: true, force: true }));
+  await mkdir(path.join(fixture.root, 'public/scripts/extensions/third-party/unreviewed-extension'), { recursive: true });
+  const rejected = await verifyPinnedSourceIdentity({ installRoot: fixture.root });
+  assert.equal(rejected.status, 'NON_READY');
+  assert.equal(rejected.code, 'HOST_SOURCE_DIRECTORY_CONTENT_MISMATCH');
+});
+
 test('root inventory attestation signs the exact accepted snapshot envelope', async t => {
   const adapterToken = 'test-adapter-secret-at-least-16';
   const sourceIdentity = {
