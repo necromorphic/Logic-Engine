@@ -55,6 +55,7 @@ Additional unreceipted account-root and installed-source mutation surfaces are n
 - Statistics recreation/update
 - Extension install/update/switch/move/delete (source identity boundary)
 - Account profile changes, password/name/avatar changes and account backup creation
+- Administrative account create/disable/enable/promote/demote/delete operations
 
 The guard intentionally does not claim these operations are receipted. It disables them until operation-specific persisted receipts or a separately verified inventory reconciliation contract exists. Read-only routes are not guarded solely because they use POST.
 
