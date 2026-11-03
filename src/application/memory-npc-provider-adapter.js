@@ -60,7 +60,9 @@ export function createMemoryNpcProviderAdapter({
   isAuthenticatedHostRequest,
   resolveHostConversationId,
   resolveHostIdentity,
+  observerOnly = false,
 }) {
+  if (typeof observerOnly !== 'boolean') throw new TypeError('observerOnly must be a boolean');
   if (!engine?.store?.db || typeof engine.getSnapshot !== 'function') {
     throw new TypeError('Memory Provider adapter requires the live Core LogicEngine and persistent store');
   }
@@ -114,10 +116,11 @@ export function createMemoryNpcProviderAdapter({
     },
     validateSourceVersion: canonicalSourceValidator,
     validateInventory: canonicalInventoryValidator,
+    observerOnly,
   });
 
   try {
-    const actorBindingService = new ActorBindingService(engine);
+    const actorBindingService = new ActorBindingService(engine, { readOnly: observerOnly });
     const hostConversationWorldBindingService = new HostConversationWorldBindingService(engine);
     // Bind the authenticated Host capability to the exact Core-owned World and
     // unique Actor binding. The resolver is deployment-composed here; callers
@@ -155,7 +158,7 @@ export function createMemoryNpcProviderAdapter({
     // Expose only trusted ingestion/grant administration. Retrieval and
     // record-authorization methods remain private to MemoryNpcConsumer so a
     // caller cannot bypass Core's authenticated Host-session query gate.
-    const providerControl = Object.freeze({
+    const providerControl = observerOnly ? null : Object.freeze({
       putRecord: (...args) => provider.putRecord(...args),
       grantQuery: (...args) => provider.grantQuery(...args),
       grantRecord: (...args) => provider.grantRecord(...args),
@@ -216,6 +219,7 @@ export function createMemoryNpcProviderAdapter({
       consumer: consumerFacade,
       npcGenerationContext,
       async prepareWorld(worldId) {
+        if (observerOnly) throw new Error('PROVIDER_OBSERVER_READ_ONLY');
         await provider.rebuildIndex(worldId);
         return provider.reconcile(worldId);
       },
