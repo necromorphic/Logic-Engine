@@ -218,6 +218,7 @@ function makeTestNpcContext(request, generationRequest) {
     record_version: candidate.record_version,
     authorization_generation: candidate.authorization_generation,
     source_entity_id: candidate.source_entity_id,
+    source_version: candidate.source_version,
     epistemic_kind: 'acquired_report',
     evidence_assessment: 'supported',
     content: { note: 'SECRET_MEMORY_TEXT_DO_NOT_PERSIST' },
