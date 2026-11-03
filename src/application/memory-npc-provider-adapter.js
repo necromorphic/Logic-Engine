@@ -222,9 +222,7 @@ export function createMemoryNpcProviderAdapter({
       // Gateway readers are explicit: Core evidence comes from MemoryNpcConsumer;
       // Provider evidence comes from the read-only SQLite Provider observer.
       readCoreEvidenceSync: input => consumer.readDispatchEvidenceSync(input),
-      readProviderEvidenceSync: observerOnly
-        ? input => provider.readDispatchEvidenceSync(input)
-        : null,
+      readProviderEvidenceSync: input => provider.readDispatchEvidenceSync(input),
       // Compatibility alias for callers that previously meant Provider evidence.
       readDispatchEvidenceSync: input => provider.readDispatchEvidenceSync(input),
       async prepareWorld(worldId) {
