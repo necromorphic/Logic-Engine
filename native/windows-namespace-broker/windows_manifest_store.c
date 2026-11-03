@@ -138,6 +138,7 @@ int le_win_store_open(
     LE_STORE_VALIDATE validate_intent,
     void *validator_context) {
   HANDLE directory = INVALID_HANDLE_VALUE;
+  LogicEngineWinDirectoryAnchor anchor;
   FILE_ATTRIBUTE_TAG_INFO tag;
   if (!store || !configured_directory || !configured_directory[0]
       || !validate_manifest || !validate_intent) {
@@ -147,12 +148,15 @@ int le_win_store_open(
   ZeroMemory(store, sizeof(*store));
   store->directory = INVALID_HANDLE_VALUE;
   store->lock = INVALID_HANDLE_VALUE;
-  directory = CreateFileW(configured_directory,
+  ZeroMemory(&anchor, sizeof(anchor));
+  anchor.parent = INVALID_HANDLE_VALUE;
+  if (!logic_engine_win_anchor_path(configured_directory, &anchor)) return 0;
+  directory = logic_engine_win_open_relative(anchor.parent, anchor.basename,
       FILE_LIST_DIRECTORY | FILE_ADD_FILE | FILE_DELETE_CHILD |
-      FILE_READ_ATTRIBUTES | FILE_WRITE_ATTRIBUTES | GENERIC_WRITE | SYNCHRONIZE,
-      FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL,
-      OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
-      NULL);
+      FILE_READ_ATTRIBUTES | READ_CONTROL | FILE_WRITE_ATTRIBUTES | GENERIC_WRITE,
+      FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+      FILE_OPEN, FILE_DIRECTORY_FILE, FILE_ATTRIBUTE_DIRECTORY, NULL, NULL);
+  logic_engine_win_anchor_close(&anchor);
   if (directory == INVALID_HANDLE_VALUE) return 0;
   if (!GetFileInformationByHandleEx(directory, FileAttributeTagInfo, &tag, sizeof(tag))
       || (tag.FileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0
