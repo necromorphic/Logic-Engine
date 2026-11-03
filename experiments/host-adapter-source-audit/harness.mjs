@@ -27,13 +27,14 @@ const mutationPaths = [
   'src/endpoints/users-admin.js',
   'src/endpoints/extensions.js',
 ];
-const [events, script, groupChats, chatBackups, serverMain, hostRoutePatch, ...mutationContents] = await Promise.all([
+const [events, script, groupChats, chatBackups, serverMain, hostRoutePatch, lifecyclePatch, ...mutationContents] = await Promise.all([
   readFile(resolve(root, 'public/scripts/events.js'), 'utf8'),
   readFile(resolve(root, 'public/script.js'), 'utf8'),
   readFile(resolve(root, 'public/scripts/group-chats.js'), 'utf8'),
   readFile(resolve(root, 'public/scripts/chat-backups.js'), 'utf8'),
   readFile(resolve(root, 'src/server-main.js'), 'utf8'),
   readFile(resolve(process.cwd(), 'host-adapter/prototype/patches/sillytavern-1.19.0-source-inventory-route.patch'), 'utf8'),
+  readFile(resolve(process.cwd(), 'host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch'), 'utf8'),
   ...mutationPaths.map(path => readFile(resolve(root, path), 'utf8')),
 ]);
 const mutationSources = Object.fromEntries(
@@ -216,4 +217,52 @@ test('Host inventory route is mounted only behind SillyTavern authentication mid
     'private endpoint routers must be mounted after requireLoginMiddleware');
   assert.ok(hostRoutePatch.includes("app.use('/api/logic-engine/host', logicEngineHostInventoryRouter);"),
     'pinned Host route must be mounted at the reviewed private endpoint');
+});
+
+
+test('every pinned chat-history mutation route is either receipted or fail-closed', () => {
+  const section = file => {
+    const start = lifecyclePatch.indexOf('diff --git a/' + file + ' ');
+    assert.ok(start >= 0, 'missing lifecycle patch section: ' + file);
+    const end = lifecyclePatch.indexOf('\\ndiff --git ', start + 10);
+    return lifecyclePatch.slice(start, end < 0 ? undefined : end);
+  };
+  const guardedRoutes = [
+    ['src/endpoints/chats.js', '/save', 'hostLifecycleSaveGuard'],
+    ['src/endpoints/chats.js', '/rename', 'hostBulkMutationGuard'],
+    ['src/endpoints/chats.js', '/delete', 'hostBulkMutationGuard'],
+    ['src/endpoints/chats.js', '/export', 'hostBulkMutationGuard'],
+    ['src/endpoints/chats.js', '/group/import', 'hostBulkMutationGuard'],
+    ['src/endpoints/chats.js', '/import', 'hostBulkMutationGuard'],
+    ['src/endpoints/chats.js', '/group/delete', 'hostBulkMutationGuard'],
+    ['src/endpoints/chats.js', '/group/save', 'hostLifecycleSaveGuard'],
+    ['src/endpoints/groups.js', '/create', 'hostBulkMutationGuard'],
+    ['src/endpoints/groups.js', '/edit', 'hostBulkMutationGuard'],
+    ['src/endpoints/groups.js', '/delete', 'hostBulkMutationGuard'],
+    ['src/endpoints/characters.js', '/rename', 'hostBulkMutationGuard'],
+    ['src/endpoints/characters.js', '/delete', 'hostBulkMutationGuard'],
+    ['src/endpoints/characters.js', '/import', 'hostBulkMutationGuard'],
+    ['src/endpoints/characters.js', '/duplicate', 'hostBulkMutationGuard'],
+    ['src/endpoints/backups.js', '/chat/delete', 'hostBulkMutationGuard'],
+    ['src/endpoints/data-maid.js', '/delete', 'hostBulkMutationGuard'],
+    ['src/endpoints/settings.js', '/restore-snapshot', 'hostBulkMutationGuard'],
+    ['src/endpoints/users-private.js', '/reset-settings', 'hostBulkMutationGuard'],
+  ];
+  for (const [file, route, guard] of guardedRoutes) {
+    const lines = section(file).split('\\n').filter(line => line.startsWith('+router.post('));
+    assert.ok(lines.some(line => line.includes("'" + route + "'") && line.includes(guard)),
+      file + ' ' + route + ' must use ' + guard);
+  }
+
+  const privateUsers = section('src/endpoints/users-private.js');
+  assert.match(privateUsers, /HOST_USER_ROOT_RESET_UNSUPPORTED/,
+    'full user-root reset must fail closed while Host history is enabled');
+  const adminUsers = section('src/endpoints/users-admin.js');
+  assert.match(adminUsers, /HOST_USER_ACCOUNT_DELETE_UNSUPPORTED/,
+    'account-root deletion must fail closed while Host history is enabled');
+
+  const groups = section('src/endpoints/groups.js');
+  assert.match(groups, /assertHostStartupMigrationAllowed/);
+  assert.match(groups, /await assertHostStartupMigrationAllowed\\(\\{/,
+    'startup group metadata migration must check enrolled histories before writes');
 });
