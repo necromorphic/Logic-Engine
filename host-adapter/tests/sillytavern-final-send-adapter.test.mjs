@@ -91,6 +91,9 @@ test('Final-Send hook refuses adapters without a mandatory response authorizatio
   assert.ok(patch.includes('const authorizeResponseWrite = responseAdapter.authorizeResponseWrite.bind(responseAdapter)'));
   assert.ok(!patch.includes("if (typeof responseAdapter.authorizeResponseWrite === 'function')"));
   assert.ok(rootPlugin.includes('authorizeResponseWrite(_response, write)'));
+  assert.ok(rootPlugin.includes("cometapi: 'cometapi'"));
+  assert.ok(!rootPlugin.includes("'horde-text': 'horde-text'"));
+  assert.ok(rootPlugin.includes("return HOST_ROUTE_MAP[hostRoute] ?? 'unregistered'"));
 });
 
 test('native abort bypass is restricted to empty POST control requests', () => {
