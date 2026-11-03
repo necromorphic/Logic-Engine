@@ -222,7 +222,7 @@ test('real adapter composes file-backed SQLite Provider with Core query and cano
         assert.equal(built.context.lanes.lane_a.items[0].value, 'real Lane A acquired value');
         assert.equal(built.context.lanes.lane_a.items[0].visibility_authorization_ref, 'rule:initial-knowledge-v1');
         assert.equal(built.context.lanes.lane_b.candidates.length, 1);
-        assert.deepEqual(built.context.lanes.lane_b.candidates[0].content, {
+        assert.deepEqual({ ...built.context.lanes.lane_b.candidates[0].content }, {
           'attributes.public_note': 'real Core source value',
         });
         const received = await adapter.npcGenerationContext.receive(built.context, generationRequest);
