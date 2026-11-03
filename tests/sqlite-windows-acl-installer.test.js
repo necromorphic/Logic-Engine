@@ -53,12 +53,16 @@ test('Windows service installer rejects reparse-point ancestors before creating 
   assert.match(installer, /Assert-NoReparsePointAncestors \$StateDirectory/);
   assert.match(installer, /Assert-NoReparsePointAncestors \$NodePath/);
   assert.match(installer, /if \(\$EnvironmentFile\) \{ Assert-NoReparsePointAncestors \$EnvironmentFile \}/);
+  assert.match(installer, /Assert-NoReparsePoints \$InstallDirectory/);
+  assert.match(installer, /if \(Test-Path -LiteralPath \$StateDirectory -PathType Container\) \{[\s\S]*?Assert-NoReparsePoints \$StateDirectory/);
   const preflight = installer.indexOf('Assert-NoReparsePointAncestors $InstallDirectory');
+  const descendantPreflight = installer.indexOf('Assert-NoReparsePoints $InstallDirectory');
   const shouldProcess = installer.indexOf('if ($PSCmdlet.ShouldProcess(');
   const stateCreate = installer.indexOf('New-Item -ItemType Directory -Path $StateDirectory');
   const serviceCreate = installer.indexOf('Invoke-Sc @("create", $ServiceName');
   assert.ok(preflight >= 0 && preflight < stateCreate, 'path-chain validation must precede state-directory creation');
   assert.ok(preflight < serviceCreate, 'path-chain validation must precede service creation');
+  assert.ok(descendantPreflight > preflight && descendantPreflight < shouldProcess, 'WhatIf must inspect existing install descendants before ShouldProcess');
   assert.ok(shouldProcess >= 0 && shouldProcess < stateCreate, 'state-directory creation must be inside ShouldProcess so -WhatIf has no side effects');
   assert.ok(stateCreate < serviceCreate, 'state directory must exist before the service is created');
 });
