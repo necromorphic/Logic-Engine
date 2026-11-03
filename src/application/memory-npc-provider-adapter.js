@@ -165,7 +165,8 @@ export function createMemoryNpcProviderAdapter({
       revokeRecord: (...args) => provider.revokeRecord(...args),
     });
 
-    // Host receives only the two supported consumer operations. Core/Provider
+    // Host/Gateway receives only the supported retrieval, final-dispatch
+    // revalidation, and read-only Core evidence operations. Core/Provider
     // dependencies and authorization methods remain private to this closure.
     const consumerFacade = Object.freeze({
       retrieveForNpc: (...args) => consumer.retrieveForNpc(...args),
