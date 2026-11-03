@@ -1,5 +1,5 @@
 import { createServer } from 'node:http';
-import { createHash, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { EngineError } from '../core/errors.js';
 import { hashRequest } from '../core/request-hash.js';
 import { ProposalService } from '../application/proposals.js';
@@ -169,6 +169,8 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
   const hostAssertionRunners = Object.fromEntries(Object.entries(adapterTokens)
     .map(([id, secret]) => [id, createHostSessionAssertionRunner({
       secret,
+      adapterId: id,
+      isSessionRevoked: (adapterId, identity) => hostAssertionNonceStore.isSessionRevoked(adapterId, identity),
       consumeNonce: (nonce, expiresAt, currentSeconds) => {
         if (!hostAssertionNonceStore) throw new Error('HOST_ASSERTION_REPLAY_GUARD_UNAVAILABLE');
         try {
@@ -658,6 +660,55 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
         } });
       }
 
+
+      if (url.pathname === '/v1/host/session/revoke') {
+        if (req.method !== 'POST') return send(res, 405, { error: { code: 'METHOD_NOT_ALLOWED', message: 'Unsupported Host session revocation operation.' } });
+        const adapterId = adapterIdFor(req);
+        if (!adapterId) return send(res, 403, { error: { code: 'ADAPTER_REQUIRED', message: 'An authenticated adapter identity is required.' } });
+        const body = await readBody(req, 16 * 1024);
+        const allowed = ['protocol_version', 'host_installation_id', 'authenticated_account_id',
+          'host_session_id', 'issued_at', 'nonce', 'reason', 'signature'];
+        if (!hasExactOwnDataKeys(body, allowed)
+          || body.protocol_version !== 1
+          || !HOST_SESSION_UUID.test(body.host_installation_id ?? '')
+          || !HOST_SESSION_UUID.test(body.authenticated_account_id ?? '')
+          || !HOST_SESSION_UUID.test(body.host_session_id ?? '')
+          || !HOST_SESSION_UUID.test(body.nonce ?? '')
+          || !Number.isSafeInteger(body.issued_at)
+          || !['logout', 'session_rotation'].includes(body.reason)
+          || typeof body.signature !== 'string' || !/^[a-f0-9]{64}$/.test(body.signature)) {
+          throw new EngineError('INVALID_HOST_SESSION_REVOCATION', 'Host session revocation envelope is invalid.', 400);
+        }
+        const nowSeconds = Math.floor(Date.now() / 1000);
+        if (body.issued_at < nowSeconds - 30 || body.issued_at > nowSeconds + 5) {
+          return send(res, 401, { error: { code: 'HOST_SESSION_REVOCATION_EXPIRED', message: 'Host session revocation event is outside its acceptance window.' } });
+        }
+        const proof = JSON.stringify([
+          body.protocol_version, adapterId, body.host_installation_id,
+          body.authenticated_account_id, body.host_session_id, body.issued_at,
+          body.nonce, body.reason,
+        ]);
+        const expected = createHmac('sha256', adapterTokens[adapterId]).update(proof, 'utf8').digest();
+        const supplied = Buffer.from(body.signature, 'hex');
+        if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) {
+          return send(res, 401, { error: { code: 'HOST_SESSION_REVOCATION_INVALID', message: 'Host session revocation signature is invalid.' } });
+        }
+        let revoked;
+        try {
+          revoked = hostAssertionNonceStore.revokeSession(adapterId, {
+            host_installation_id: body.host_installation_id,
+            authenticated_account_id: body.authenticated_account_id,
+            host_session_id: body.host_session_id,
+          }, body.nonce, body.issued_at, body.reason);
+        } catch {
+          return send(res, 503, { error: { code: 'HOST_SESSION_REVOCATION_UNAVAILABLE', message: 'Durable Host session revocation is unavailable.' } });
+        }
+        if (revoked !== true) {
+          return send(res, 409, { error: { code: 'HOST_SESSION_REVOCATION_REPLAYED', message: 'Host session revocation event was already consumed.' } });
+        }
+        return send(res, 204, null);
+      }
+
       if (url.pathname === '/v1/host/memory-npc/retrieve') {
         if (req.method !== 'POST') return send(res, 405, { error: { code: 'METHOD_NOT_ALLOWED', message: 'Unsupported Host Memory retrieval operation.' } });
         const adapterId = adapterIdFor(req);
@@ -709,6 +760,12 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
           }
           if (code === 'HOST_ASSERTION_REPLAY_GUARD_UNAVAILABLE') {
             return send(res, 503, { error: { code, message: 'Durable Host assertion replay protection is unavailable.' } });
+          }
+          if (code === 'HOST_SESSION_REVOKED') {
+            return send(res, 401, { error: { code, message: 'Host session has been revoked.' } });
+          }
+          if (code === 'HOST_SESSION_REVOCATION_STATUS_UNAVAILABLE') {
+            return send(res, 503, { error: { code, message: 'Host session revocation status is unavailable.' } });
           }
           if (code === 'HOST_SESSION_ASSERTION_INVALID') {
             return send(res, 401, { error: { code, message: 'Host assertion could not be authenticated.' } });
