@@ -22,7 +22,7 @@ function candidate(overrides = {}) {
     lifecycle: {
       content_disposition: "usable",
       source_reconciliation: "current",
-      evidence_assessment: "unassessed",
+      evidence_assessment: "supported",
       access_outcome: "allow",
       index_health: "ready",
     },
@@ -56,7 +56,7 @@ test("admits only the safe reference metadata, never content", () => {
     record_ref: "memory:claim-1",
     record_version: "v3",
     epistemic_kind: "acquired_report",
-    evidence_assessment: "unassessed",
+    evidence_assessment: "supported",
   }]);
   assert.equal(JSON.stringify(result).includes("restricted raw text"), false);
   assert.equal(JSON.stringify(result).includes("secret title"), false);
@@ -181,26 +181,25 @@ test("every missing lifecycle dimension fails closed", () => {
   assert.deepEqual(unknownResult.admitted, []);
 });
 
-test("known evidence assessments are preserved; unknown assessments fail closed", () => {
-  for (const evidence_assessment of ["unassessed", "supported", "disputed", "insufficient"]) {
-    const result = evaluateMemoryCandidateAdmission(request, completeResult([
-      candidate({ lifecycle: { ...candidate().lifecycle, evidence_assessment } }),
-    ]));
-    assert.equal(result.status, "ready");
-    assert.deepEqual(result.admitted, [{
-      record_ref: "memory:claim-1",
-      record_version: "v3",
-      epistemic_kind: "acquired_report",
-      evidence_assessment,
-    }]);
-  }
+test("only supported evidence is admitted; unassessed, disputed, insufficient, and unknown fail closed", () => {
+  const supported = evaluateMemoryCandidateAdmission(request, completeResult([
+    candidate({ lifecycle: { ...candidate().lifecycle, evidence_assessment: "supported" } }),
+  ]));
+  assert.equal(supported.status, "ready");
+  assert.deepEqual(supported.admitted, [{
+    record_ref: "memory:claim-1",
+    record_version: "v3",
+    epistemic_kind: "acquired_report",
+    evidence_assessment: "supported",
+  }]);
 
-  for (const evidence_assessment of ["", "unknown", "verified_truth", undefined]) {
+  for (const evidence_assessment of ["unassessed", "disputed", "insufficient", "", "unknown", "verified_truth", undefined]) {
     const result = evaluateMemoryCandidateAdmission(request, completeResult([
       candidate({ lifecycle: { ...candidate().lifecycle, evidence_assessment } }),
     ]));
     assert.equal(result.status, "ready");
     assert.deepEqual(result.admitted, []);
+    assert.deepEqual(result, evaluateMemoryCandidateAdmission(request, completeResult([])));
   }
 });
 
@@ -254,23 +253,34 @@ test("known non-summary content kinds are explicit and summaries still require l
   assert.deepEqual(result.admitted, []);
 });
 
-test("conflicting eligible claims remain distinct and are not adjudicated by admission", () => {
-  const first = candidate({
-    record: { ref: "memory:claim-a", version: "v1" },
+test("contradictory or insufficient candidates are excluded without content or identity leakage", () => {
+  const disputed = candidate({
+    record: { ref: "private-conflicting-claim-a", version: "v1" },
     content_kind: "claim",
     epistemic_kind: "acquired_report",
+    content: "protected contradictory claim A",
     lifecycle: { ...candidate().lifecycle, evidence_assessment: "disputed" },
   });
-  const second = candidate({
-    record: { ref: "memory:claim-b", version: "v7" },
+  const insufficient = candidate({
+    record: { ref: "private-conflicting-claim-b", version: "v7" },
     content_kind: "report",
     epistemic_kind: "rumor",
+    content: "protected unsupported claim B",
     lifecycle: { ...candidate().lifecycle, evidence_assessment: "insufficient" },
   });
-  const result = evaluateMemoryCandidateAdmission(request, completeResult([first, second]));
+  const result = evaluateMemoryCandidateAdmission(request, completeResult([disputed, insufficient]));
   assert.equal(result.status, "ready");
-  assert.equal(result.admitted.length, 2);
-  assert.deepEqual(result.admitted.map(item => item.epistemic_kind), ["acquired_report", "rumor"]);
+  assert.deepEqual(result.admitted, []);
+  assert.deepEqual(result, evaluateMemoryCandidateAdmission(request, completeResult([])));
+  const serialized = JSON.stringify(result);
+  for (const marker of [
+    "private-conflicting-claim-a",
+    "private-conflicting-claim-b",
+    "protected contradictory claim A",
+    "protected unsupported claim B",
+    "disputed",
+    "insufficient",
+  ]) assert.equal(serialized.includes(marker), false);
 });
 
 test("stale, retracted, unavailable, and unknown freshness are not current knowledge", () => {
@@ -605,7 +615,7 @@ test("candidate admission never implies delivery, receipt, acquisition, or belie
       record_ref: "memory:claim-1",
       record_version: "v3",
       epistemic_kind: "acquired_report",
-      evidence_assessment: "unassessed",
+      evidence_assessment: "supported",
     }],
     reason: null,
   });
@@ -682,7 +692,7 @@ test("malformed candidate entries are ignored without leaking or aborting valid 
     record_ref: "memory:valid-peer",
     record_version: "v1",
     epistemic_kind: "acquired_report",
-    evidence_assessment: "unassessed",
+    evidence_assessment: "supported",
   }]);
   const serialized = JSON.stringify(result);
   assert.equal(serialized.includes("not-a-candidate"), false);
