@@ -373,9 +373,14 @@ export function createHostRootInventoryPersistence({
         ? await post('/v1/host-root-inventory/observe', randomUUID())
         : first;
       const normalizedRoot = normalizeRootInventoryResponse(rootResult);
-      if (!['BASELINED_REVIEW_ONLY', 'UNCHANGED_REVIEW_ONLY'].includes(normalizedRoot.status)) {
-        return normalizedRoot;
-      }
+      const validCurrentManifest = normalizedRoot.integrity_status === 'INTEGRITY_OK'
+        && Number.isSafeInteger(normalizedRoot.sequence) && normalizedRoot.sequence > 0
+        && /^[a-f0-9]{64}$/.test(normalizedRoot.manifest_sha256 ?? '');
+      const eligibleForCompleteness = ['BASELINED_REVIEW_ONLY', 'UNCHANGED_REVIEW_ONLY'].includes(normalizedRoot.status)
+        || (normalizedRoot.status === 'NON_READY'
+          && validCurrentManifest
+          && normalizedRoot.reason !== 'HOST_ROOT_INVENTORY_DELTA_LIMIT');
+      if (!eligibleForCompleteness || !validCurrentManifest) return normalizedRoot;
 
       // A Core completeness proof is emitted only when the full-root VSS
       // manifest, pinned source scan, and exact route-guard attestation all
