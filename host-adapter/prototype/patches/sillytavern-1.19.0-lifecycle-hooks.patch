@@ -966,18 +966,26 @@ diff --git a/src/endpoints/data-maid.js b/src/endpoints/data-maid.js
 diff --git a/src/endpoints/settings.js b/src/endpoints/settings.js
 --- a/src/endpoints/settings.js
 +++ b/src/endpoints/settings.js
-@@ -10,7 +10,10 @@
+@@ -10,7 +10,12 @@
  import { getConfigValue, generateTimestamp, removeOldBackups } from '../util.js';
  import { getAllUserHandles, getUserDirectories } from '../users.js';
  import { getFileNameValidationFunction } from '../middleware/validateFileName.js';
 +import { createHostBulkMutationGuard } from './logic-engine-host-inventory-handler.mjs';
++import { createHostUnsupportedMutationGuard } from './logic-engine-host-inventory-handler.mjs';
 +const hostBulkMutationGuard = createHostBulkMutationGuard({ pinnedHostCommit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127' });
++const hostUnsupportedMutationGuard = createHostUnsupportedMutationGuard();
  
 +
  const ENABLE_EXTENSIONS = !!getConfigValue('extensions.enabled', true, 'boolean');
  const ENABLE_EXTENSIONS_AUTO_UPDATE = !!getConfigValue('extensions.autoUpdate', true, 'boolean');
  const ENABLE_ACCOUNTS = !!getConfigValue('enableUserAccounts', false, 'boolean');
-@@ -347,7 +350,7 @@
+@@ -206 +211 @@
+-router.post('/save', function (request, response) {
++router.post('/save', hostUnsupportedMutationGuard, function (request, response) {
+@@ -340 +345 @@
+-router.post('/make-snapshot', async (request, response) => {
++router.post('/make-snapshot', hostUnsupportedMutationGuard, async (request, response) => {
+@@ -347,7 +352,7 @@
      }
  });
  
