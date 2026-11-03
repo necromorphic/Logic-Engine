@@ -24,13 +24,13 @@ The local patch wraps these five native ST generation handlers:
 
 | Native route | Gateway sender identities |
 |---|---|
-| `POST /api/backends/chat-completions/generate` | 25 provider families: Claude, Google AI Studio, Vertex AI, AI21, Mistral, Cohere, DeepSeek, xAI, AIMLAPI, ElectronHub, Chutes, MiniMax, Azure OpenAI, OpenAI, OpenRouter, Custom, Perplexity, Groq, Fireworks, NanoGPT, Pollinations, Moonshot, Z.AI, SiliconFlow, Cloudflare Workers AI |
+| `POST /api/backends/chat-completions/generate` | 26 provider-source identities: Claude, Google AI Studio, Vertex AI, AI21, Mistral, Cohere, CometAPI, DeepSeek, xAI, AIMLAPI, ElectronHub, Chutes, MiniMax, Azure OpenAI, OpenAI, OpenRouter, Custom, Perplexity, Groq, Fireworks, NanoGPT, Pollinations, Moonshot, Z.AI, SiliconFlow, Cloudflare Workers AI |
 | `POST /api/backends/text-completions/generate` | `text-completions` |
 | `POST /api/backends/kobold/generate` | `kobold` |
 | `POST /api/novelai/generate` | `novelai-text` |
 | `POST /api/horde/generate-text` | `horde-text` |
 
-The canonical registry currently contains 29 sender identities. Unknown sender identities are not admitted for protected Memory. Image generation, TTS/audio, embeddings, translation, model-discovery requests and third-party extension routes are not part of this text-generation registry. Protected Memory must not be sent through them.
+The canonical registry currently contains 30 sender identities: all 26 pinned `CHAT_COMPLETION_SOURCES` values plus the four separate text-generation handlers. CometAPI is an OpenAI-compatible sender branch inside the Chat Completions handler and is explicitly registered as `cometapi`. Unknown sender identities are not admitted for protected Memory. Image generation, TTS/audio, embeddings, translation, model-discovery requests and third-party extension routes are not part of this text-generation registry. Protected Memory must not be sent through them.
 
 ## Integration contract between #870 and #844
 
@@ -78,7 +78,7 @@ No browser-to-Core call, second generation ingress, relay, extra API port or Bas
 | Requirement | Evidence | State |
 |---|---|---|
 | Five pinned native generation handlers are wrapped | Exact-pinned-source audit and real-handler fake-provider harness | PASS for exercised source paths |
-| 29 sender identities are explicitly registered | Gateway registry and adapter mapping tests | PASS at registry level |
+| 30 sender identities are explicitly registered | Gateway registry and adapter mapping tests | PASS at registry level |
 | Durable dispatch-start / crash recovery | Gateway unit and child-process crash/restart tests | PASS at Gateway level |
 | Durable Patch Manager state/backup and interrupted restore recovery | Patch Manager stores state/backups in ST data; new tests cover Extension removal and restart during restore | Exact-head CI pending |
 | Revoke before dispatch-start | Real Provider revoke race tests | PASS at Gateway level |
