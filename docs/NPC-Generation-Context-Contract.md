@@ -56,7 +56,7 @@ This resolves only the async Receiver → sync in-process handoff shape. It is n
 
 The current Gateway candidates are not yet compatible with this Builder/Receiver contract. This is an integration blocker, not permission to flatten the context or serialize it across the Host boundary.
 
-- The managed Final-Send adapter candidate in #855 separates an asynchronous `prepare(request, response)` step from a synchronous `dispatch(args)` step. Its `resolveProtectedMemory(request, preparedHostContext)` callback must return synchronously. The current NPC `build()` and `receive()` methods are asynchronous; the adapter currently has no slot for a builder-issued context or its receiver.
+- The managed Final-Send adapter candidate in #855 separates asynchronous `prepare(request, response)` from synchronous `dispatch(args)`. The NPC runtime now provides an opaque handoff that can be minted after async build/receive during preparation and consumed synchronously during dispatch. The adapter and Gateway still need to carry and consume this token for the exact prepared Host request.
 - The current `MemoryDispatchGateway.dispatchProtectedRequest()` performs synchronous Core/Provider evidence reads while holding the shared Coordinator and then synchronously starts the transport. Its input is a Lane-B-shaped `sources/candidates` projection. It does not accept the Lane A acquisition envelope, preserve the Builder-issued object identity, or invoke this NPC Receiver.
 - The Extension Gateway staging candidate in #871 uses an HTTP Host → Core path. A JSON round-trip cannot carry the private WeakMap brand or preserve object identity. Its successful Memory retrieval test is not a generation-context handoff and is not evidence of protected model dispatch.
 
