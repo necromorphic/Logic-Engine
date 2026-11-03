@@ -270,7 +270,6 @@ export async function verifyPinnedSillyTavernMutationCoverage({
         checkedGuards++;
       }
       checkedRoutes++;
-      }
     }
   }
 
