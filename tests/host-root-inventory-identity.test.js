@@ -79,6 +79,25 @@ test('journal resolver independently checks the registered installation/account/
 });
 
 
+test('callers cannot substitute the deployment-pinned source manifest digest', () => {
+  const registry = parseHostRootIdentityRegistry(JSON.stringify([binding]));
+  const forged = {
+    adapterId: binding.adapter_id,
+    host_installation_id: binding.host_installation_id,
+    authenticated_account_id: binding.authenticated_account_id,
+    root_id: binding.root_id,
+    source_manifest_sha256: 'c'.repeat(64),
+  };
+  const adapterResolution = resolveAdapterHostRootIdentity(registry, forged);
+  const journalResolution = resolveRegisteredHostRootIdentity(registry, forged);
+  assert.equal(adapterResolution.authorized, true);
+  assert.equal(journalResolution.authorized, true);
+  assert.equal(adapterResolution.source_manifest_sha256, binding.source_manifest_sha256);
+  assert.equal(journalResolution.source_manifest_sha256, binding.source_manifest_sha256);
+  assert.notEqual(adapterResolution.source_manifest_sha256, forged.source_manifest_sha256);
+});
+
+
 test('lifecycle identity resolver binds adapter, installation and account before accepting a conversation UUID', () => {
   const registry = parseHostRootIdentityRegistry(JSON.stringify([binding]));
   const accepted = resolveAdapterHostLifecycleIdentity(registry, {
