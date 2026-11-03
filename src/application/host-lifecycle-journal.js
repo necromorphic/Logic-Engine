@@ -261,6 +261,14 @@ export class HostLifecycleJournal {
     if (readOnly && (!existsSync(resolve(path)) || !existsSync(resolve(coordinatorPath)))) {
       throw new Error('HOST_JOURNAL_READ_ONLY_REQUIRES_EXISTING_FILES');
     }
+    if (readOnly) {
+      const coordinatorCheck = new DatabaseSync(resolve(coordinatorPath), { readOnly: true });
+      try {
+        if (!coordinatorCheck.prepare(
+          "SELECT 1 FROM sqlite_master WHERE type='table' AND name='coordinator_lock'",
+        ).get()) throw new Error('HOST_COORDINATOR_SCHEMA_UNAVAILABLE');
+      } finally { coordinatorCheck.close(); }
+    }
     this.coordinator = openCoordinatorDatabase(coordinatorPath);
     this.db = null;
     let release = null;
