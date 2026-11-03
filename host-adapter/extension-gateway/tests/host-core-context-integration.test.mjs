@@ -512,13 +512,19 @@ test('Host Adapter requires Core root proof before context resolution and binds 
   // account from request.user.profile rather than reusing the old account ID.
   const switchedAccountRequest = {
     user: { profile: { handle: 'bob' }, directories: request.user.directories },
-    session: { ...accountsEnabledRequest.session },
+    session: { ...accountsEnabledRequest.session, handle: 'bob' },
     body: { ...request.body, request_id: '99999999-9999-4999-8999-999999999999' },
   };
   const switchedSessionResponse = responseRecorder();
-  adapter.session(switchedAccountRequest, switchedSessionResponse);
+  await adapter.session(switchedAccountRequest, switchedSessionResponse);
   assert.equal(switchedSessionResponse.statusCode, 200);
   assert.notEqual(switchedSessionResponse.payload.host_session_id, accountsSessionResponse.payload.host_session_id);
+  assert.ok(coreCalls.includes('/v1/host/session/revoke'));
+  assert.equal(nonceStore.isSessionRevoked(ADAPTER_ID, {
+    host_installation_id: accountsIdentityResponse.payload.host_installation_id,
+    authenticated_account_id: accountsIdentityResponse.payload.authenticated_account_id,
+    host_session_id: accountsSessionResponse.payload.host_session_id,
+  }), true);
   const switchedIdentityResponse = responseRecorder();
   await adapter.identity(switchedAccountRequest, switchedIdentityResponse);
   assert.equal(switchedIdentityResponse.statusCode, 200);
