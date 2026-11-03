@@ -24,6 +24,75 @@ function assertProtectedContext(context) {
   }
 }
 
+const CHAT_COMPLETION_ROUTES = new Set(PROTECTED_MEMORY_SENDER_ROUTES.filter(route =>
+  !['text-completions', 'kobold', 'novelai-text', 'horde-text'].includes(route)));
+
+const HOST_ONLY_FIELDS = new Set([
+  'logic_engine_conversation_uuid',
+  'logic_engine_request_id',
+  'logic_engine_context_size',
+  'logic_engine_generation_type',
+  'logic_engine_memory',
+  'logic_engine_protected_context',
+  'memory_dispatch',
+]);
+
+function removeHostOnlyFields(value) {
+  if (Array.isArray(value)) {
+    for (const item of value) removeHostOnlyFields(item);
+    return;
+  }
+  if (!value || typeof value !== 'object') return;
+  for (const key of Object.keys(value)) {
+    if (HOST_ONLY_FIELDS.has(key)) delete value[key];
+    else removeHostOnlyFields(value[key]);
+  }
+}
+
+function renderNpcContext(contentBlocks) {
+  if (!Array.isArray(contentBlocks) || contentBlocks.length === 0) return '';
+  const bounded = contentBlocks.map(block => ({
+    epistemic_kind: block.epistemic_kind,
+    evidence_assessment: block.evidence_assessment,
+    content: block.content,
+  }));
+  return '[Logic Engine NPC Memory Context]\\n'
+    + JSON.stringify(bounded)
+    + '\\n[/Logic Engine NPC Memory Context]';
+}
+
+function serializeProtectedRequestBody(requestInit, senderRoute, contentBlocks) {
+  let body;
+  try { body = JSON.parse(requestInit.body); } catch {
+    throw new Error('PROTECTED_MEMORY_FINAL_SEND_BODY_INVALID');
+  }
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    throw new Error('PROTECTED_MEMORY_FINAL_SEND_BODY_INVALID');
+  }
+  removeHostOnlyFields(body);
+  const context = renderNpcContext(contentBlocks);
+  if (context) {
+    if (CHAT_COMPLETION_ROUTES.has(senderRoute)) {
+      if (!Array.isArray(body.messages)) throw new Error('PROTECTED_MEMORY_FINAL_SEND_MESSAGES_MISSING');
+      let insertionIndex = 0;
+      while (insertionIndex < body.messages.length
+        && body.messages[insertionIndex]?.role === 'system') insertionIndex += 1;
+      body.messages.splice(insertionIndex, 0, { role: 'system', content: context });
+    } else {
+      const promptKey = senderRoute === 'novelai-text' ? 'input' : 'prompt';
+      if (typeof body[promptKey] !== 'string') {
+        throw new Error('PROTECTED_MEMORY_FINAL_SEND_PROMPT_MISSING');
+      }
+      body[promptKey] = context + '\\n\\n' + body[promptKey];
+    }
+  }
+  const serialized = JSON.stringify(body);
+  if (serialized.length === 0 || serialized.length > 4_000_000) {
+    throw new Error('PROTECTED_MEMORY_FINAL_SEND_BODY_INVALID');
+  }
+  return serialized;
+}
+
 function assertRequest(endpointUrl, requestInit) {
   if (typeof endpointUrl !== 'string' || !/^https?:\/\//i.test(endpointUrl)
     || !requestInit || typeof requestInit !== 'object'
@@ -86,7 +155,7 @@ export function createProtectedMemoryFinalSend({ gateway, resolveProtectedMemory
       throw new Error('MEMORY_DISPATCH_NOT_READY');
     }
 
-    const exactBody = requestInit.body;
+    const exactBody = serializeProtectedRequestBody(requestInit, senderRoute, protectedMemory.contentBlocks ?? []);
     const model = protectedMemory.model;
     const controllerSignal = requestInit.signal;
     const transport = () => {
