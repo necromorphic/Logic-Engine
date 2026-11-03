@@ -48,6 +48,28 @@ Input data is copied into plain immutable data. Proxies, accessors, sparse/exten
 
 `createNpcGenerationContextReceiver` is a future dispatch seam only. It accepts only a context issued by the builder, for the exact same request/generation IDs and current World/Actor/conversation/adapter/snapshot. It requires trusted evidence revalidation before accepting. It returns an acceptance result; it does not send prompts, create a transport lease, or bypass the Host dispatch-start/sole-egress contract.
 
+## Gateway compatibility review — 3 Nov 2026
+
+The current Gateway candidates are not yet compatible with this Builder/Receiver contract. This is an integration blocker, not permission to flatten the context or serialize it across the Host boundary.
+
+- The managed Final-Send adapter candidate in #855 separates an asynchronous `prepare(request, response)` step from a synchronous `dispatch(args)` step. Its `resolveProtectedMemory(request, preparedHostContext)` callback must return synchronously. The current NPC `build()` and `receive()` methods are asynchronous; the adapter currently has no slot for a builder-issued context or its receiver.
+- The current `MemoryDispatchGateway.dispatchProtectedRequest()` performs synchronous Core/Provider evidence reads while holding the shared Coordinator and then synchronously starts the transport. Its input is a Lane-B-shaped `sources/candidates` projection. It does not accept the Lane A acquisition envelope, preserve the Builder-issued object identity, or invoke this NPC Receiver.
+- The Extension Gateway staging candidate in #871 uses an HTTP Host → Core path. A JSON round-trip cannot carry the private WeakMap brand or preserve object identity. Its successful Memory retrieval test is not a generation-context handoff and is not evidence of protected model dispatch.
+
+### Required integration contract
+
+Before enabling the path, Host/Gateway/Core must agree on all of the following:
+
+1. Async preparation builds the context inside the authenticated Core process and binds it to the exact Host request object, request ID, generation ID/type, World, Actor, conversation and adapter. The context itself never becomes browser-controlled or a JSON payload.
+2. The Final-Send adapter passes the exact issued context object to the Gateway receiver for that same request. Missing, cloned, serialized, replayed or cross-request contexts fail closed.
+3. Dispatch-start performs current Lane A visibility/acquisition checks and Lane B record/grant/source checks under the same revocation-ordering authority as durable `DISPATCH_STARTED`. A preflight check followed by an unlocked transport is insufficient.
+4. The dispatch contract preserves Lane A and Lane B as separate inputs. A Lane-B-only `sources/candidates` projection cannot stand in for the full NPC context.
+5. The first response write remains blocked until Core final-response revalidation succeeds. No browser-side callback or post-response check can substitute for this.
+
+The current NPC receiver is asynchronous because its trusted scope and evidence revalidation callbacks are asynchronous. The current Gateway's dispatch-start critical section requires synchronous callbacks. This contract mismatch must be resolved deliberately by the Gateway/Core integration owners; do not call the async receiver from a synchronous dispatch callback, do not hold a synchronous SQLite transaction across `await`, and do not weaken either lane's freshness checks to make the interfaces fit.
+
+Until this integration exists and is covered by revoke-before-dispatch, revoke-during-inference, cross-request replay, cross-Actor isolation, and response-suppression tests, the NPC context remains a Core-side candidate only and protected Memory → NPC dispatch stays disabled.
+
 ## Explicit non-goals
 
 - No Lane A/Lane B source or authorization unification.
