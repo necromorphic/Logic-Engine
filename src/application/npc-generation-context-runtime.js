@@ -281,8 +281,8 @@ export function createCoreNpcGenerationContextRuntime({
       const candidate = result.candidates[index];
       if (!exactDataRecord(candidate, [
         'record_ref', 'record_version', 'authorization_generation',
-        'source_entity_id', 'epistemic_kind', 'evidence_assessment', 'content',
-      ]) || !validId(candidate.source_entity_id)) return null;
+        'source_entity_id', 'source_version', 'epistemic_kind', 'evidence_assessment', 'content',
+      ]) || !validId(candidate.source_entity_id) || !validSourceVersion(candidate.source_version)) return null;
       if (!seen.has(candidate.source_entity_id)) {
         seen.add(candidate.source_entity_id);
         entityIds.push(candidate.source_entity_id);
@@ -308,6 +308,8 @@ export function createCoreNpcGenerationContextRuntime({
       ]) || !validId(entity.entity_id) || !seen.has(entity.entity_id)
         || versions.has(entity.entity_id) || entity.status !== 'active'
         || !validSourceVersion(entity.source_version)) return null;
+      if (entity.source_version !== result.candidates.find(candidate =>
+        candidate.source_entity_id === entity.entity_id)?.source_version) return null;
       versions.set(entity.entity_id, entity.source_version);
     }
     if (versions.size !== entityIds.length) return null;
