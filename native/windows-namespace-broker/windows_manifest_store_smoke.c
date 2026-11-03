@@ -8,7 +8,7 @@
 #include "windows_manifest_store.c"
 
 static int validate_test_json(const unsigned char *bytes, DWORD length, void *context) {
-  static const unsigned char expected[] = "{\"ok\":true}";
+  static const unsigned char expected[] = "{"ok":true}";
   (void)context;
   return length == sizeof(expected) - 1 && memcmp(bytes, expected, sizeof(expected) - 1) == 0;
 }
@@ -18,7 +18,7 @@ int main(void) {
   LE_WIN_MANIFEST_STORE store;
   unsigned char *manifest = NULL, *intent = NULL;
   DWORD manifest_length = 0, intent_length = 0;
-  static const unsigned char document[] = "{\"ok\":true}";
+  static const unsigned char document[] = "{"ok":true}";
   int result = 1;
   HANDLE token = NULL;
   TOKEN_USER *user = NULL;
@@ -69,9 +69,9 @@ close_store:
 done:
   {
     wchar_t child[MAX_PATH];
-    if (SUCCEEDED(StringCchPrintfW(child, LE_COUNT_OF(child), L\"%s\\manifest.json\", directory))) DeleteFileW(child);
-    if (SUCCEEDED(StringCchPrintfW(child, LE_COUNT_OF(child), L\"%s\\store.lock\", directory))) DeleteFileW(child);
-    if (SUCCEEDED(StringCchPrintfW(child, LE_COUNT_OF(child), L\"%s\\intent.json\", directory))) DeleteFileW(child);
+    if (SUCCEEDED(StringCchPrintfW(child, LE_COUNT_OF(child), L"%s\manifest.json", directory))) DeleteFileW(child);
+    if (SUCCEEDED(StringCchPrintfW(child, LE_COUNT_OF(child), L"%s\store.lock", directory))) DeleteFileW(child);
+    if (SUCCEEDED(StringCchPrintfW(child, LE_COUNT_OF(child), L"%s\intent.json", directory))) DeleteFileW(child);
   }
   RemoveDirectoryW(directory);
   if (descriptor) LocalFree(descriptor);
