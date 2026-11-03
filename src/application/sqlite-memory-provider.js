@@ -1406,13 +1406,19 @@ export class SQLiteMemoryProvider {
           freshness: { status: 'current' },
           snapshot: current,
         }));
+        const resultScope = { world_id: scope.world_id, subject_id: scope.subject_id, purpose: scope.purpose };
+        const providerEvidenceCursor = Object.freeze({
+          data_version: this.#dataVersion(),
+          candidate_digest: hashRequest({ scope: resultScope, snapshot: current, candidates }),
+        });
         return {
           completeness: rows.length > 50 ? 'partial' : 'complete',
           index_health: lockedState.index_health,
           source_reconciliation: lockedState.source_reconciliation,
-          scope: { world_id: scope.world_id, subject_id: scope.subject_id, purpose: scope.purpose },
+          scope: resultScope,
           snapshot: current,
           candidates,
+          provider_evidence_cursor: providerEvidenceCursor,
         };
 
       });
