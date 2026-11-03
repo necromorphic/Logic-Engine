@@ -371,6 +371,19 @@ test('startup migrates an existing dispatch ledger to include CometAPI without l
       verify.close();
     }
 
+    const completedReplayId = 'pre-cometapi-ledger-completed-replay';
+    await assert.rejects(
+      () => fixture.gateway.dispatchProtectedRequest(validRequest(completedReplayId, {
+        generationRequest: {
+          request_id: completedReplayId,
+          generation_id: existing.generationRequest.generation_id,
+          generation_type: existing.generationRequest.generation_type,
+        },
+      })),
+      /MEMORY_DISPATCH_REPLAY_BLOCKED/,
+      'legacy completed dispatch history must retain its generation replay barrier after migration',
+    );
+
     const cometApiRequest = validRequest('cometapi-after-migration', { senderRoute: 'cometapi' });
     const response = await fixture.gateway.dispatchProtectedRequest(cometApiRequest);
     assert.equal(response.status, 200);
