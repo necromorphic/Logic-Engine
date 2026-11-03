@@ -240,7 +240,7 @@ diff --git a/src/endpoints/avatars.js b/src/endpoints/avatars.js
  
 -router.post('/delete', getFileNameValidationFunction('avatar'), function (request, response) {
 +router.post('/delete', hostUnsupportedMutationGuard, getFileNameValidationFunction('avatar'), function (request, response) {
-@@ -39,3 +41,3 @@
+@@ -38,4 +40,4 @@
      return response.sendStatus(404);
  });
  
