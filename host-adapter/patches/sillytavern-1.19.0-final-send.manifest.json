@@ -9,7 +9,7 @@
   "patch": {
     "version": "1.0.0",
     "path": "host-adapter/patches/sillytavern-1.19.0-final-send.patch",
-    "sha256": "d0e1ff516d14e6e5af8bb9c150b25722e5e409637ccb352fff0f81b4573f473b"
+    "sha256": "27c3ff31f16d049c0f9d68a20eaf580084f6463ca32889b1f4bad6edfe61cb81"
   },
   "sourceFiles": {
     "package.json": "5b6e0634a63872c33603bf803217613a388f2e5dbd5990f7b30d254bfbf027c2",
