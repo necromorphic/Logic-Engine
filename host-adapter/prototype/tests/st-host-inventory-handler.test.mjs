@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 const test = nodeTest;
 
-import { assertHostStartupMigrationAllowed, createHostBulkMutationGuard, createHostIdentityHandler, createHostInventoryHandler, createHostLifecycleSaveGuard, createHostRequestAuthenticationGate, createHostSessionHandler, resolveHostDataDirectories } from '../st-host-inventory-handler.mjs';
+import { assertHostStartupMigrationAllowed, createHostBulkMutationGuard, createHostIdentityHandler, createHostInventoryHandler, createHostLifecycleSaveGuard, createHostUnsupportedMutationGuard, createHostRequestAuthenticationGate, createHostSessionHandler, resolveHostDataDirectories } from '../st-host-inventory-handler.mjs';
 
 function makeResponse() {
   return {
@@ -937,4 +937,54 @@ test('startup group migration fails closed when full inventory cannot be proven'
     pinnedHostCommit: pinned,
     enumerate: async () => { throw new Error('provider unavailable'); },
   }), /HOST_LIFECYCLE_STARTUP_MIGRATION_INVENTORY_UNAVAILABLE/);
+});
+
+test('unsupported mutation guard blocks account-root and source mutations while Host authority is configured', () => {
+  const previous = process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR;
+  process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR = '/tmp/host-identity';
+  try {
+    let nextCalls = 0;
+    const response = makeResponse();
+    createHostUnsupportedMutationGuard()({ method: 'POST', session: {} }, response, () => { nextCalls++; });
+    assert.equal(response.statusCode, 503);
+    assert.equal(response.body.code, 'HOST_MUTATION_ROUTE_UNSUPPORTED');
+    assert.equal(nextCalls, 0);
+    assert.equal(response.headers['cache-control'], 'no-store, private');
+    assert.equal(response.headers.vary, 'Cookie');
+  } finally {
+    if (previous === undefined) delete process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR;
+    else process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR = previous;
+  }
+});
+
+test('unsupported mutation guard blocks a Host-capability session even if deployment config disappears', () => {
+  const previous = process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR;
+  delete process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR;
+  try {
+    let nextCalls = 0;
+    const response = makeResponse();
+    createHostUnsupportedMutationGuard()({
+      method: 'POST',
+      session: { logicEngineSessionId: 'host-session-id' },
+    }, response, () => { nextCalls++; });
+    assert.equal(response.statusCode, 503);
+    assert.equal(response.body.code, 'HOST_MUTATION_ROUTE_UNSUPPORTED');
+    assert.equal(nextCalls, 0);
+  } finally {
+    if (previous !== undefined) process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR = previous;
+  }
+});
+
+test('unsupported mutation guard leaves ordinary SillyTavern requests unchanged without Host authority', () => {
+  const previous = process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR;
+  delete process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR;
+  try {
+    let nextCalls = 0;
+    const response = makeResponse();
+    createHostUnsupportedMutationGuard()({ session: {} }, response, () => { nextCalls++; });
+    assert.equal(response.statusCode, null);
+    assert.equal(nextCalls, 1);
+  } finally {
+    if (previous !== undefined) process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR = previous;
+  }
 });
