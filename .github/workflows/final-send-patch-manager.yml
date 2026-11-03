@@ -4,7 +4,18 @@ on:
   pull_request:
     paths:
       - "index.mjs"
-      - "host-adapter/patch-manager/**"
+      - "host-adapter/patches/**"
+      - "host-adapter/protected-memory-final-send.mjs"
+      - "host-adapter/sillytavern-final-send-adapter.mjs"
+      - "host-adapter/sillytavern-generation-bridge.mjs"
+      - "tests/sillytavern-final-send-adapter.test.js"
+      - "tests/protected-memory-final-send.test.js"
+      - "tests/sillytavern-server-plugin-bootstrap.test.js"
+      - "scripts/install-logic-engine-extension.mjs"
+      - "scripts/sillytavern-patch-manager.mjs"
+      - "manifest.json"
+      - "tests/sillytavern-patch-manager.test.js"
+      - "tests/sillytavern-final-send-patch-artifact.test.js"
       - ".github/workflows/final-send-patch-manager.yml"
   workflow_dispatch:
 
@@ -40,7 +51,9 @@ jobs:
         shell: bash
         run: |
           test "$(git -C SillyTavern rev-parse HEAD)" = "06bde939fb1e9c4c8d8641d810f0a916b5bce127"
-      - name: Test Patch Manager against exact Host source
+      - name: Check server-plugin bootstrap syntax
+        run: node --check index.mjs
+      - name: Test unified Patch Manager and Final-Send contracts against exact Host source
         env:
           SILLYTAVERN_DIR: SillyTavern
-        run: node --test host-adapter/patch-manager/manager.test.mjs
+        run: node --test tests/sillytavern-patch-manager.test.js tests/sillytavern-final-send-patch-artifact.test.js tests/sillytavern-final-send-adapter.test.js tests/protected-memory-final-send.test.js tests/sillytavern-generation-bridge.test.js tests/sillytavern-server-plugin-bootstrap.test.js
