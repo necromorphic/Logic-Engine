@@ -52,7 +52,7 @@ let files = [];
 try {
   execFileSync('git', ['-C', sourceRoot, 'worktree', 'add', '--detach', expectedRoot, PINNED_HOST_COMMIT], { stdio: 'ignore' });
   for (const patchPath of [lifecyclePatchPath, unenrolledFixPatchPath, rootMutationPatchPath]) {
-    execFileSync('git', ['-C', expectedRoot, 'apply', '--unidiff-zero', patchPath], { stdio: 'ignore' });
+    execFileSync('git', ['-C', expectedRoot, '-c', 'core.autocrlf=false', 'apply', '--unidiff-zero', patchPath], { stdio: 'ignore' });
   }
   const expectedPluginDir = path.join(expectedRoot, 'plugins/logic-engine-extension-gateway');
   const expectedClientDir = path.join(expectedRoot, 'public/scripts/extensions/third-party/logic-engine-extension-gateway');
