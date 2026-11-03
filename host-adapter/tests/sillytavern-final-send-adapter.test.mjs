@@ -485,7 +485,7 @@ function npcBodyText(hostRoute, body) {
   return body.prompt;
 }
 
-function makeNpcFinalSendHarness({ context = makeNpcProtectedMemory(), resolve = () => context, gatewayDispatch } = {}) {
+function makeNpcFinalSendHarness({ context = makeNpcProtectedMemory(), resolve = () => ({ status: 'ready', context }), gatewayDispatch } = {}) {
   const providerCalls = [];
   const gatewayCalls = [];
   const gateway = {
@@ -586,7 +586,7 @@ test('protected Horde text dispatch is denied before provider transport', async 
 });
 
 test('Horde task-status remains ordinary-only and receives no injected NPC context', async () => {
-  const harness = makeNpcFinalSendHarness({ resolve: () => null });
+  const harness = makeNpcFinalSendHarness({ resolve: () => ({ status: 'unprotected' }) });
   const init = makeNpcRequestInit({ task_id: 'ordinary-task' });
   const result = await harness.finalSend({
     senderRoute: 'unregistered',
