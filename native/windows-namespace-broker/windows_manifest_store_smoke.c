@@ -22,6 +22,7 @@ int main(void) {
   HANDLE sidecar = INVALID_HANDLE_VALUE, reopened = INVALID_HANDLE_VALUE;
   LogicEngineWinFileIdentity sidecar_identity, reopened_identity, wrong_identity;
   static const unsigned char document[] = { 0x7b, 0x22, 0x6f, 0x6b, 0x22, 0x3a, 0x74, 0x72, 0x75, 0x65, 0x7d };
+  static const unsigned char invalid_document[] = { 0x7b, 0x7d };
   int result = 1;
   HANDLE token = NULL;
   TOKEN_USER *user = NULL;
@@ -55,6 +56,7 @@ int main(void) {
   if (!le_win_store_open(&store, directory, validate_test_json, validate_test_json, NULL)) goto done;
   if (!le_win_store_lock(&store)) goto close_store;
   if (!le_win_store_write_manifest(&store, document, (DWORD)(sizeof(document) - 1))) goto unlock_store;
+  if (le_win_store_write_manifest(&store, invalid_document, (DWORD)(sizeof(invalid_document) - 1))) goto unlock_store;
   if (!le_win_store_write_intent(&store, document, (DWORD)(sizeof(document) - 1))) goto unlock_store;
   if (!le_win_store_read_manifest(&store, &manifest, &manifest_length)) goto unlock_store;
   if (!le_win_store_read_intent(&store, &intent, &intent_length)) goto unlock_store;
@@ -63,12 +65,15 @@ int main(void) {
       || memcmp(intent, document, intent_length) != 0) goto unlock_store;
   if (!le_win_store_remove_intent(&store)) goto unlock_store;
   if (!le_win_namespace_create_sidecar(store.directory, L"smoke-wal", &sidecar, &sidecar_identity)) goto unlock_store;
+  if (le_win_namespace_create_sidecar(store.directory, L"smoke-wal", &reopened, &reopened_identity)) goto unlock_store;
+  if (le_win_namespace_create_sidecar(store.directory, L"smoke.txt", &reopened, &reopened_identity)) goto unlock_store;
   if (!le_win_namespace_flush(sidecar) || !le_win_namespace_flush_parent(store.directory)) goto unlock_store;
   if (!le_win_namespace_open_sidecar(store.directory, L"smoke-wal", &sidecar_identity, &reopened, &reopened_identity)) goto unlock_store;
   if (!logic_engine_win_identity_equal(&sidecar_identity, &reopened_identity)) goto unlock_store;
   wrong_identity = sidecar_identity;
   wrong_identity.file_id.Identifier[0] ^= 0x01;
   if (le_win_namespace_open_sidecar(store.directory, L"smoke-wal", &wrong_identity, &reopened, &reopened_identity)) goto unlock_store;
+  if (le_win_namespace_delete_sidecar(store.directory, &sidecar, &wrong_identity)) goto unlock_store;
   if (!le_win_namespace_delete_sidecar(store.directory, &sidecar, &sidecar_identity)) goto unlock_store;
   result = 0;
 unlock_store:
