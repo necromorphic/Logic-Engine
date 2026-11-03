@@ -1090,4 +1090,4 @@ diff --git a/src/endpoints/users-admin.js b/src/endpoints/users-admin.js
 +        return response.status(503).json({ error: { code: 'HOST_USER_ACCOUNT_MUTATION_UNSUPPORTED' } });
 +    }
 +    return next();
-+}); 
++});
