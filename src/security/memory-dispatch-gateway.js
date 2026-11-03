@@ -260,16 +260,14 @@ function normalizeLaneA(value) {
 }
 
 function normalizeProviderEvidenceCursor(value) {
-  if (!value || typeof value !== 'object' || Array.isArray(value) || utilTypes.isProxy(value)
-    || Object.getPrototypeOf(value) !== Object.prototype
-    || Reflect.ownKeys(value).length !== 2
-    || !Object.hasOwn(Object.getOwnPropertyDescriptor(value, 'data_version') ?? {}, 'value')
-    || !Object.hasOwn(Object.getOwnPropertyDescriptor(value, 'candidate_digest') ?? {}, 'value')
-    || !Number.isSafeInteger(value.data_version) || value.data_version < 0
-    || typeof value.candidate_digest !== 'string' || !/^[a-f0-9]{64}$/.test(value.candidate_digest)) {
+  let cursor;
+  try { cursor = readStrictRecord(value, ['data_version', 'candidate_digest']); }
+  catch { throw new Error('MEMORY_DISPATCH_NOT_READY'); }
+  if (!Number.isSafeInteger(cursor.data_version) || cursor.data_version < 0
+    || typeof cursor.candidate_digest !== 'string' || !/^[a-f0-9]{64}$/.test(cursor.candidate_digest)) {
     throw new Error('MEMORY_DISPATCH_NOT_READY');
   }
-  return Object.freeze({ data_version: value.data_version, candidate_digest: value.candidate_digest });
+  return Object.freeze({ data_version: cursor.data_version, candidate_digest: cursor.candidate_digest });
 }
 
 function assertSameProviderEvidenceCursor(current, expected) {
@@ -476,18 +474,18 @@ function assertSyncResult(value) {
 }
 
 function normalizePolicyAuthority(value) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)
-    || Object.keys(value).length !== 3
-    || Object.keys(value).some((key) => !['authority_id', 'generation', 'fingerprint'].includes(key))
-    || !validText(value.authority_id, 200)
-    || !Number.isSafeInteger(value.generation) || value.generation < 1
-    || typeof value.fingerprint !== 'string' || !/^[a-f0-9]{64}$/.test(value.fingerprint)) {
+  let authority;
+  try { authority = readStrictRecord(value, ['authority_id', 'generation', 'fingerprint']); }
+  catch { throw new Error('MEMORY_DISPATCH_NOT_READY'); }
+  if (!validText(authority.authority_id, 200)
+    || !Number.isSafeInteger(authority.generation) || authority.generation < 1
+    || typeof authority.fingerprint !== 'string' || !/^[a-f0-9]{64}$/.test(authority.fingerprint)) {
     throw new Error('MEMORY_DISPATCH_NOT_READY');
   }
   return Object.freeze({
-    authority_id: value.authority_id,
-    generation: value.generation,
-    fingerprint: value.fingerprint,
+    authority_id: authority.authority_id,
+    generation: authority.generation,
+    fingerprint: authority.fingerprint,
   });
 }
 
