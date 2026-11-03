@@ -47,14 +47,14 @@ None of these alternatives may be silently substituted for the approved architec
 
 At the audited Gateway head:
 
-- one logical protected generation route and one authoritative 26-family sender registry are validated by Gateway;
+- one logical protected generation route and one authoritative 30-identity sender registry (26 Chat Completions sources plus four separate text-generation routes) are validated by Gateway;
 - a request-scoped in-process transport capability is required; serialized JSON cannot supply it;
 - durable `DISPATCH_STARTED` is committed before the synchronous transport handoff;
 - the shared Coordinator lease serializes dispatch-start with revocation;
 - ambiguous handoff, transport, and crash outcomes become `UNKNOWN` and block replay;
 - FINAL RESPONSE REVALIDATION reacquires the same Coordinator lease, rechecks accepted Core/Provider heads, exact evidence, candidates, and `authority_id + generation + fingerprint`;
 - streaming's first Host response write is invoked synchronously only after successful final revalidation while the lease is held;
-- integration tests exercise all 26 sender-family identifiers and assert one upstream handoff per request, alongside revoke-during-inference, stream ordering, and crash/restart replay-block tests.
+- integration tests exercise all 30 sender identities and assert one upstream handoff per request, alongside revoke-during-inference, stream ordering, and crash/restart replay-block tests.
 
 These prove the Gateway/helper contract. They do **not** prove native SillyTavern call-site interception, because no supported native hook exists in the inspected release.
 
@@ -63,7 +63,7 @@ These prove the Gateway/helper contract. They do **not** prove native SillyTaver
 | Requirement | Status |
 |---|---|
 | Unified Gateway primitive | Implemented |
-| Protected sender-family registry (26) | Implemented and integration-tested at the Gateway boundary |
+| Protected sender registry (30) | Implemented and integration-tested at the Gateway boundary |
 | Synchronous dispatch-start before transport handoff | Implemented |
 | Shared Coordinator lease with revoke ordering | Implemented in the Gateway primitive |
 | Final response revalidation before Host release | Implemented in the Gateway primitive |
