@@ -23,6 +23,7 @@ function setup(t, authorize = () => true, authorizeRoot = () => true) {
     path: join(directory, 'host-journal.sqlite'),
     coordinatorPath: join(directory, 'coordinator.sqlite'),
     verifyMutationReceipt: () => true,
+    verifyCompletenessProof: () => true,
     resolveIdentity: (input) => ({
       authorized: authorize(input) === true,
       host_installation_id: input.host_installation_id,
@@ -254,6 +255,44 @@ function setupLifecycle(t, authorize = () => true) {
     event_id: 'root-authority-baseline',
     entries: rootEntries(digest('host-authority-root-baseline')),
   });
+  const rootHead = context.journal.verifyRootInventory({
+    host_installation_id: installation, authenticated_account_id: account, root_id: rootId,
+  });
+  const proof = {
+    protocol_version: 1,
+    adapter_id: 'test-adapter',
+    host_installation_id: installation,
+    authenticated_account_id: account,
+    root_id: rootId,
+    event_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+    root_inventory_sequence: rootHead.sequence,
+    manifest_sha256: rootHead.latest_manifest_sha256,
+    source_commit: PINNED_ST_COMMIT,
+    coverage_manifest_sha256: PINNED_ST_MUTATION_COVERAGE_SHA256,
+    snapshot_id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+    snapshot_alignment: 'SHARED_VSS_SNAPSHOT',
+    filesystem_scope: 'single-root-regular-files-only',
+    filesystem_status: 'complete',
+    scan_passes: 2,
+    reparse_points: 'ALL_FILE_ATTRIBUTE_REPARSE_POINT_ENTRIES_REJECTED',
+    file_count: 1,
+    total_bytes: 64,
+    source_status: 'DOUBLE_SCAN_CANDIDATE',
+    logical_identity_status: 'CURRENT_FILE_IDENTITIES_VERIFIED',
+    legacy_group_metadata_count: 0,
+    route_coverage_status: 'VERIFIED',
+    route_count: PINNED_ST_MUTATION_ROUTE_COUNT,
+    source_files_sha256: digest('verified-pinned-source-files'),
+    occurred_at: '2026-11-03T00:00:00.000Z',
+  };
+  const completed = context.journal.completeRootInventory({
+    host_installation_id: installation,
+    authenticated_account_id: account,
+    root_id: rootId,
+    proof,
+    proof_signature: digest('test-completeness-proof-signature'),
+  });
+  assert.equal(completed.status, 'AUTHORITATIVE_COMPLETE');
   const snapshot = context.journal.getAuthoritySnapshot({
     authority_id: authority.authority_id,
     generation: authority.generation,
