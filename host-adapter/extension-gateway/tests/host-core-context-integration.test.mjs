@@ -106,6 +106,16 @@ test('Host Adapter requires Core root proof before context resolution and binds 
       authority_status: 'AUTHORITATIVE_COMPLETE',
       generation: 1, snapshot_fingerprint: 'b'.repeat(64),
     }),
+    resolveHostMemoryIdentity: input => ({
+      authorized: true, adapter_id: ADAPTER_ID,
+      host_installation_id: input.host_installation_id,
+      authenticated_account_id: input.authenticated_account_id,
+      host_session_id: input.host_session_id,
+      conversation_uuid: input.conversation_uuid,
+      root_id: 'a'.repeat(64), authority_id: 'host-e2e-test-authority',
+      authority_status: 'AUTHORITATIVE_COMPLETE',
+      generation: 1, snapshot_fingerprint: 'b'.repeat(64),
+    }),
   });
   core.listen(0, '127.0.0.1');
   await once(core, 'listening');
