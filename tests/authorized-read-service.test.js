@@ -6,7 +6,7 @@ import { ActorBindingService } from '../src/application/actor-bindings.js';
 import { AuthorizedReadService } from '../src/application/authorized-read-service.js';
 import { DeploymentPolicyAuthority } from '../src/application/deployment-policy-authority.js';
 
-function setup(t, fieldPolicy) {
+function setup(t, fieldPolicy, { nested = false } = {}) {
   const store = new SQLiteStore(':memory:');
   const engine = new LogicEngine(store);
   const bindings = new ActorBindingService(engine);
