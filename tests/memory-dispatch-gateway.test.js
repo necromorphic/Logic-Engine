@@ -222,6 +222,33 @@ const validRequest = (requestId = 'request-001', overrides = {}) => ({
   ...overrides,
 });
 
+test('Gateway signing is independent of mutable Array prototype methods and iteration', () => {
+  const secret = 'host-dispatch-signing-secret-00000000000000000000000000000001';
+  const request = validRequest('poisoned-array-prototypes');
+  const names = ['map', 'sort', 'some', 'every', 'forEach', 'includes', 'concat'];
+  const descriptors = new Map();
+  const poison = () => { throw new Error('POISONED_ARRAY_METHOD_CALLED'); };
+  try {
+    for (let index = 0; index < names.length; index += 1) {
+      const name = names[index];
+      descriptors.set(name, Object.getOwnPropertyDescriptor(Array.prototype, name));
+      Object.defineProperty(Array.prototype, name, {
+        value: poison, writable: true, configurable: true,
+      });
+    }
+    descriptors.set(Symbol.iterator, Object.getOwnPropertyDescriptor(Array.prototype, Symbol.iterator));
+    Object.defineProperty(Array.prototype, Symbol.iterator, {
+      value: poison, writable: true, configurable: true,
+    });
+    assert.doesNotThrow(() => createDispatchRequestSignature(secret, request));
+  } finally {
+    for (const [key, descriptor] of descriptors) {
+      if (descriptor) Object.defineProperty(Array.prototype, key, descriptor);
+      else delete Array.prototype[key];
+    }
+  }
+});
+
 test('dispatch signature snapshot rejects getters and Proxy objects without executing them', () => {
   const secret = 'host-dispatch-signing-secret-00000000000000000000000000000001';
   let getterCalls = 0;
