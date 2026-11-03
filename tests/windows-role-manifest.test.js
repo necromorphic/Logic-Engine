@@ -171,6 +171,58 @@ test('Windows manifest enrollment rejects parent/database/active-sidecar identit
   ), /transitional or invalid sidecar/);
 });
 
+test('Windows manifest enrollment retains retired sidecar generations beside one active generation', () => {
+  const generations = manifest();
+  generations.generation = 9;
+  generations.roles[0].sidecars = [
+    {
+      kind: 'wal',
+      identity: identity('00000000000000A1', '55555555555555555555555555555555'),
+      state: 'retired',
+      generation: 6,
+    },
+    {
+      kind: 'wal',
+      identity: identity('00000000000000A1', '77777777777777777777777777777777'),
+      state: 'retired',
+      generation: 8,
+    },
+    {
+      kind: 'wal',
+      identity: identity('00000000000000A1', '88888888888888888888888888888888'),
+      state: 'active',
+      generation: 9,
+    },
+  ];
+  const db = fakeDatabase();
+  assert.equal(registerWindowsManifestRole(
+    db, generations, 'core', 'C:\\\\LogicEngine\\\\data\\\\core.sqlite'
+  ), 1);
+  const registrations = db.calls.filter((call) =>
+    call.sql.includes('register_manifest_sidecar')
+  );
+  assert.equal(registrations.length, 3);
+  assert.deepEqual(registrations.map((call) => call.args.slice(1)), [
+    ['wal', '00000000000000A1', '55555555555555555555555555555555', 'retired'],
+    ['wal', '00000000000000A1', '77777777777777777777777777777777', 'retired'],
+    ['wal', '00000000000000A1', '88888888888888888888888888888888', 'active'],
+  ]);
+});
+
+test('Windows manifest enrollment rejects two active sidecar identities for one role and kind', () => {
+  const ambiguous = manifest();
+  ambiguous.generation = 8;
+  ambiguous.roles[0].sidecars.push({
+    kind: 'wal',
+    identity: identity('00000000000000A1', '77777777777777777777777777777777'),
+    state: 'active',
+    generation: 8,
+  });
+  assert.throws(() => registerWindowsManifestRole(
+    fakeDatabase(), ambiguous, 'core', 'C:\\\\LogicEngine\\\\data\\\\core.sqlite'
+  ), /transitional or invalid sidecar/);
+});
+
 test('Windows manifest enrollment permits distinct roles to share a trusted parent directory', () => {
   const sharedParent = manifest();
   sharedParent.roles.push({
