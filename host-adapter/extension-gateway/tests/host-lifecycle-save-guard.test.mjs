@@ -31,11 +31,13 @@ async function setupDirectories(t) {
     chats: join(root, 'chats'),
     groups: join(root, 'groups'),
     groupChats: join(root, 'groupChats'),
+    extensions: join(root, 'extensions'),
   };
   await Promise.all([
     mkdir(join(directories.chats, 'Assistant'), { recursive: true }),
     mkdir(directories.groups, { recursive: true }),
     mkdir(directories.groupChats, { recursive: true }),
+    mkdir(directories.extensions, { recursive: true }),
   ]);
   t.after(() => rm(parent, { recursive: true, force: true }));
   return directories;
