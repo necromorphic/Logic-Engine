@@ -111,6 +111,11 @@ test('pinned ST chat-history mutation routes are guarded or explicitly unsupport
     const privateUsers = read('src/endpoints/users-private.js');
     assert.ok(privateUsers.includes('HOST_USER_ROOT_RESET_UNSUPPORTED'),
         'full user-root reset must remain explicitly fail-closed');
+    assert.ok(privateUsers.includes('revokeHostSessionBeforeLogout(request)'),
+        'native ST logout must revoke the old Core session before clearing the session');
+    assert.ok(privateUsers.indexOf('revokeHostSessionBeforeLogout(request)')
+        < privateUsers.indexOf('request.session.handle = null;'),
+        'Core revocation must complete before ST clears the old session');
     const groups = read('src/endpoints/groups.js');
     assert.ok(groups.includes('assertHostStartupMigrationAllowed'),
         'startup group metadata migration must be gated by full Host inventory');
