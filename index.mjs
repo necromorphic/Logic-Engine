@@ -60,7 +60,7 @@ function containsUntrustedMemoryMarker(body) {
     || Object.hasOwn(body, 'memory_dispatch');
 }
 
-function createFailClosedAdapter({ memoryNpcEnabled }) {
+function createFailClosedAdapter({ memoryNpcEnabled, authenticateHostGenerationRequest }) {
   const preparedUnprotectedRequests = new WeakSet();
   return Object.freeze({
     async prepare(request) {
@@ -69,14 +69,19 @@ function createFailClosedAdapter({ memoryNpcEnabled }) {
         throw new Error('LOGIC_ENGINE_UNTRUSTED_MEMORY_MARKER');
       }
       if (memoryNpcEnabled) {
-        const conversationUuid = request?.headers?.['x-logic-engine-conversation-uuid'];
-        if (typeof conversationUuid !== 'string'
-          || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(conversationUuid)) {
-          throw new Error('LOGIC_ENGINE_HOST_CONVERSATION_ID_REQUIRED');
+        if (typeof authenticateHostGenerationRequest !== 'function') {
+          throw new Error('LOGIC_ENGINE_HOST_AUTHENTICATION_NOT_CONFIGURED');
         }
-        // Until the production Gateway and its synchronous dual-lane evidence
-        // readers are composed, enabled protected requests are denied here.
-        // They never fall through to the native sender.
+        const hostAuthentication = await authenticateHostGenerationRequest(request);
+        if (!hostAuthentication || hostAuthentication.status !== 'READY'
+          || !hostAuthentication.context
+          || typeof hostAuthentication.context.conversation_id !== 'string') {
+          throw new Error('LOGIC_ENGINE_HOST_AUTHENTICATION_NOT_READY');
+        }
+        // The locator is authenticated against the live ST session and the
+        // server-verified Host inventory above. It is not accepted as identity.
+        // Protected egress remains denied until the production Gateway/readers
+        // are composed; there is no native fallback on this path.
         throw new Error('LOGIC_ENGINE_NPC_GATEWAY_NOT_WIRED');
       }
       preparedUnprotectedRequests.add(request);
@@ -146,6 +151,8 @@ export async function init(router) {
     throw new Error('LOGIC_ENGINE_FINAL_SEND_PATCH_NOT_INSTALLED_OR_VERIFIED_RESTART_REQUIRED');
   }
 
+  let hostAdapter = null;
+
   try {
     const hookPath = join(hostRoot, 'src', 'logic-engine-final-send-hook.js');
     const hook = await import(pathToFileURL(hookPath).href);
@@ -156,7 +163,11 @@ export async function init(router) {
     }
     registeredNativeForward = nativeUtil.forwardFetchResponse;
     const memoryNpcEnabled = process.env.LOGIC_ENGINE_MEMORY_NPC_ENABLED === 'true';
-    registeredAdapter = createFailClosedAdapter({ memoryNpcEnabled });
+    registeredAdapter = createFailClosedAdapter({
+      memoryNpcEnabled,
+      authenticateHostGenerationRequest: request => hostAdapter?.authenticateGenerationRequest(request)
+        ?? Object.freeze({ status: 'NON_READY', code: 'HOST_IDENTITY_STORE_UNCONFIGURED' }),
+    });
     hook.registerLogicEngineFinalSendAdapter(registeredAdapter, PLUGIN_OWNER);
     registeredHook = hook;
   } catch (error) {
@@ -166,7 +177,6 @@ export async function init(router) {
     throw error;
   }
 
-  let hostAdapter = null;
   try {
     hostAdapter = createSillyTavernHostAdapter({ env: process.env });
   } catch (error) {
