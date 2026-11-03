@@ -46,6 +46,12 @@ These routes are present in the pinned modules but do not receive protected NPC 
 
 The Hook patch is scoped to the five text-generation handler entrypoints listed above. It does not classify these unrelated endpoints as protected text senders.
 
+### Cross-block blockers found while wiring the NPC Context Receiver
+
+1. `src/application/npc-generation-context.js` places `lane_b.admitted` in the issued context as an array of admitted `{record_ref, record_version}` entries. `src/application/npc-generation-context-runtime.js::revalidateIssuedContext` currently requires `laneBContext.admitted === true`. `prepareForDispatch` calls this revalidator before issuing the one-shot handoff, so the current producer/consumer shape is incompatible and the handoff cannot reach Gateway as `ready`. The NPC/Core block must validate the admitted array against `lane_b.candidates` rather than compare it to boolean `true`.
+2. The opaque handoff intentionally does not expose the context to Host, but the Host prompt adapter needs a safe prompt projection. No `projectDispatchHandoff`/equivalent method currently exposes the Lane A facts plus Lane B candidates as `contentBlocks`. The NPC/Core block must provide a non-capability projection from the same issued context; Gateway must compare that projection with the context recovered by consuming the handoff.
+3. `MemoryDispatchGateway` does not yet consume `npcContextHandoff` or call `revalidateLaneAForDispatch`. Its current source/candidate checks are not a substitute for the Core-issued context capability. Production remains fail-closed until this is wired and tested under the shared Coordinator lease.
+
 ### Protected prompt construction and Host metadata scrubbing
 
 `createProtectedMemoryFinalSend` now requires a server-resolved `contentBlocks` array for every protected request. It serializes only each block's `epistemic_kind`, `evidence_assessment`, and `content`; inserts a system message after existing system/developer instructions for Chat Completions; and prefixes the `prompt`/`input` fields for Text Completions, Kobold, and NovelAI text. Horde is rejected before this step.
