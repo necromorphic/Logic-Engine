@@ -105,7 +105,7 @@ function send(res, status, data) {
   res.end(body);
 }
 
-export function createApiServer({ engine, token, internalToken = null, approvalToken = null, adminToken = null, adapterTokens = {}, authorizedReadFieldPolicy = null, mechanicPolicyAuthority = null, getActiveMechanicContextProvider = () => null, hostVersionLedger = null, hostRootInventoryJournal = null, resolveHostRootIdentity = null, hostLifecycleJournal = null, resolveHostLifecycleIdentity = null, memoryNpcConsumers = {}, hostAssertionNonceStore = null }) {
+export function createApiServer({ engine, token, internalToken = null, approvalToken = null, adminToken = null, adapterTokens = {}, authorizedReadFieldPolicy = null, mechanicPolicyAuthority = null, getActiveMechanicContextProvider = () => null, hostVersionLedger = null, hostRootInventoryJournal = null, resolveHostRootIdentity = null, hostLifecycleJournal = null, resolveHostLifecycleIdentity = null, resolveHostMemoryIdentity = null, memoryNpcConsumers = {}, hostAssertionNonceStore = null }) {
   if (!engine) throw new TypeError('engine required');
   if (typeof token !== 'string' || token.length < 16) throw new TypeError('API token must be at least 16 characters');
   if (internalToken !== null && (typeof internalToken !== 'string' || internalToken.length < 16 || internalToken === token)) {
@@ -142,6 +142,9 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
   if (resolveHostLifecycleIdentity !== null && typeof resolveHostLifecycleIdentity !== 'function') {
     throw new TypeError('Host lifecycle identity resolver must be trusted application configuration.');
   }
+  if (resolveHostMemoryIdentity !== null && typeof resolveHostMemoryIdentity !== 'function') {
+    throw new TypeError('Host Memory identity resolver must be trusted application configuration.');
+  }
   if (hostLifecycleJournal !== null && resolveHostLifecycleIdentity === null) {
     throw new TypeError('Host lifecycle journal requires a trusted adapter identity resolver.');
   }
@@ -170,6 +173,9 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
   }
   if (Object.keys(memoryNpcConsumers).length > 0 && hostAssertionNonceStore === null) {
     throw new TypeError('Memory NPC retrieval requires a durable Host assertion nonce and revocation store.');
+  }
+  if (Object.keys(memoryNpcConsumers).length > 0 && resolveHostMemoryIdentity === null) {
+    throw new TypeError('Memory NPC retrieval requires a separate Root Inventory completeness resolver.');
   }
   const hostAssertionRunners = Object.fromEntries(Object.entries(adapterTokens)
     .map(([id, secret]) => [id, createHostSessionAssertionRunner({
@@ -737,13 +743,13 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
             async () => {
               const assertionConversation = body.assertion.conversation_id.split(':');
               let trustedHostIdentity = null;
-              if (typeof resolveHostLifecycleIdentity === 'function'
+              if (typeof resolveHostMemoryIdentity === 'function'
                 && assertionConversation.length === 3
                 && assertionConversation[0] === body.assertion.host_session_id
                 && assertionConversation[1] === body.assertion.host_installation_id
                 && HOST_SESSION_UUID.test(assertionConversation[2] ?? '')) {
                 try {
-                  trustedHostIdentity = resolveHostLifecycleIdentity({
+                  trustedHostIdentity = resolveHostMemoryIdentity({
                     adapterId,
                     host_installation_id: body.assertion.host_installation_id,
                     authenticated_account_id: body.assertion.authenticated_account_id,
@@ -779,7 +785,7 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
               }
               let finalHostIdentity;
               try {
-                finalHostIdentity = resolveHostLifecycleIdentity({
+                finalHostIdentity = resolveHostMemoryIdentity({
                   adapterId,
                   host_installation_id: body.assertion.host_installation_id,
                   authenticated_account_id: body.assertion.authenticated_account_id,
