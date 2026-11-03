@@ -5,6 +5,7 @@ import {
   createHostRequestAuthenticationGate,
   createHostSessionHandler,
   resolveHostDataDirectories,
+  CORE_ATTESTED_SOURCE_BLOCKERS,
 } from './st-host-inventory-handler.mjs';
 import {
   createHostDigestProxyHandler,
@@ -41,9 +42,11 @@ export function createSillyTavernHostAdapter({
   enumerate = enumerateHostDataInventory,
   fetchImpl = globalThis.fetch,
   persistRootInventory: injectedPersistRootInventory = null,
+  verifySourceIdentity: injectedVerifySourceIdentity = verifySourceIdentity,
 } = {}) {
   if (!env || typeof env !== 'object' || typeof enumerate !== 'function'
     || typeof fetchImpl !== 'function'
+    || typeof injectedVerifySourceIdentity !== 'function'
     || (injectedPersistRootInventory !== null && typeof injectedPersistRootInventory !== 'function')) {
     throw new TypeError('SillyTavern Host Adapter configuration is invalid.');
   }
@@ -67,7 +70,7 @@ export function createSillyTavernHostAdapter({
     enumerate,
     pinnedHostCommit: PINNED_SILLYTAVERN_COMMIT,
     hostBuildClaim: env.LOGIC_ENGINE_HOST_BUILD_SHA || '',
-    verifySourceIdentity,
+    verifySourceIdentity: injectedVerifySourceIdentity,
     persistRootInventory,
   });
 
@@ -112,7 +115,9 @@ export function createSillyTavernHostAdapter({
         // Core must independently accept the full-root manifest before this
         // request can acquire a Host context. A local scan or baseline alone
         // is not proof of completeness and must remain NON_READY.
-        const sourceIdentity = await verifySourceIdentity();
+        let sourceIdentity;
+        try { sourceIdentity = await injectedVerifySourceIdentity(); }
+        catch { return { status: 'NON_READY', code: 'HOST_SOURCE_IDENTITY_UNAVAILABLE' }; }
         const rootProof = await persistRootInventory({
           userHandle,
           rootPath: directories.root,
@@ -123,17 +128,37 @@ export function createSillyTavernHostAdapter({
         });
         if (rootProof?.status !== 'AUTHORITATIVE_COMPLETE'
           || rootProof.integrity_status !== 'INTEGRITY_OK'
-          || !Number.isSafeInteger(rootProof.sequence)
-          || !/^[a-f0-9]{64}$/.test(rootProof.manifest_sha256 ?? '')) {
+          || !Number.isSafeInteger(rootProof.sequence) || rootProof.sequence < 1
+          || !/^[a-f0-9]{64}$/.test(rootProof.manifest_sha256 ?? '')
+          || !/^[a-f0-9]{64}$/.test(rootProof.attestation_sha256 ?? '')
+          || !Number.isSafeInteger(rootProof.lifecycle_sequence) || rootProof.lifecycle_sequence < 1
+          || !/^[a-f0-9]{64}$/.test(rootProof.lifecycle_head_sha256 ?? '')
+          || sourceIdentity?.status !== 'CURRENT_IDENTITIES_VERIFIED'
+          || !/^[a-f0-9]{64}$/.test(sourceIdentity.manifest_sha256 ?? '')
+          || rootProof.source_manifest_sha256 !== sourceIdentity.manifest_sha256
+          || hostInventory.snapshot_alignment !== 'SHARED_VSS_SNAPSHOT') {
           return { status: 'NON_READY', code: 'HOST_INVENTORY_NOT_AUTHORITATIVE' };
         }
 
-        if (hostInventory?.source?.status !== 'AUTHORITATIVE_COMPLETE'
-          || hostInventory?.authority?.status !== 'AUTHORITATIVE_COMPLETE'
-          || !/^[a-f0-9]{64}$/.test(hostInventory?.authority?.manifest_sha256 ?? '')
-          || !Array.isArray(hostInventory?.source?.files)
-          || hostInventory.source.files.filter(file =>
-            file?.logical_identity?.conversation_uuid === conversationUuid).length !== 1) {
+        const source = hostInventory.source;
+        const sourceFiles = Array.isArray(source?.files) ? source.files : null;
+        const unresolvedSourceBlockers = Array.isArray(source?.blockers)
+          ? source.blockers.filter(code => !CORE_ATTESTED_SOURCE_BLOCKERS.includes(code))
+          : null;
+        const conversationFiles = sourceFiles?.filter(file =>
+          file?.logical_identity?.conversation_uuid === conversationUuid) ?? [];
+        if (source?.status !== 'DOUBLE_SCAN_CANDIDATE'
+          || source?.authority !== 'NON_AUTHORITATIVE'
+          || source?.host_commit !== PINNED_SILLYTAVERN_COMMIT
+          || source?.scope !== 'PINNED_SILLYTAVERN_CHAT_DATA_ROOTS'
+          || source?.historical_boundary !== 'CURRENT_FILE_SET_ONLY_ENROLLMENT_BASELINE_REQUIRED'
+          || source?.logical_identity_status !== 'CURRENT_FILE_IDENTITIES_VERIFIED'
+          || unresolvedSourceBlockers === null || unresolvedSourceBlockers.length !== 0
+          || !sourceFiles || conversationFiles.length !== 1
+          || conversationFiles[0]?.logical_identity?.identity_status !== 'CURRENT_IDENTITIES_VERIFIED'
+          || source.snapshot_id !== hostInventory.filesystem.snapshot_id
+          || source.snapshot_provider !== 'windows-vss-client-accessible'
+          || source.snapshot_consistency !== 'VSS_POINT_IN_TIME_READ_ONLY') {
           return { status: 'NON_READY', code: 'HOST_INVENTORY_NOT_AUTHORITATIVE' };
         }
 
