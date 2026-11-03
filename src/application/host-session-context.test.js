@@ -181,9 +181,15 @@ test('live Host capability is permanently invalidated by logout, account switch,
 
   request.user.profile.handle = userHandle;
   request.session.logicEngineSessionHandle = userHandle;
-  request.session.logicEngineSessionId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
-  await assert.rejects(
-    runWithAuthenticatedHostSession(
+  await runWithAuthenticatedHostSession(
+    request, conversationId, async () => {
+      assert.equal(getAuthenticatedHostSessionContext()?.host_session_id, session);
+      request.session.logicEngineSessionId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+      assert.equal(getAuthenticatedHostSessionContext(), null);
+    }, isAuthenticated, resolveConversation, resolveLiveBindings, resolveLiveIdentity,
+  );
+  assert.throws(
+    () => runWithAuthenticatedHostSession(
       request, conversationId, async () => getAuthenticatedHostSessionContext(),
       isAuthenticated, resolveConversation, resolveLiveBindings, resolveLiveIdentity,
     ),
