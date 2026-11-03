@@ -783,11 +783,6 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
                 consumerFailed = true;
                 throw error;
               }
-              const finalCoreBinding = resolveCoreWorldActor();
-              if (finalCoreBinding.world_id !== admittedCoreBinding.world_id
-                || finalCoreBinding.actor_id !== admittedCoreBinding.actor_id) {
-                throw new Error('HOST_CORE_BINDING_CHANGED');
-              }
               let finalHostIdentity;
               try {
                 finalHostIdentity = resolveHostMemoryIdentity({
