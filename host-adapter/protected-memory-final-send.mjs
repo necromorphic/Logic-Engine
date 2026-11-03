@@ -20,7 +20,21 @@ function arrayContains(values, expected) {
 
 const isProxy = utilTypes.isProxy;
 const isAsyncFunction = utilTypes.isAsyncFunction;
-const ASYNC_FUNCTION_CONSTRUCTOR = Object.getPrototypeOf(async function asyncResolverMarker() {}).constructor;
+const isGeneratorFunction = utilTypes.isGeneratorFunction;
+const intrinsicFunctionToString = Function.prototype.toString;
+const intrinsicReflectApply = Reflect.apply;
+const intrinsicStringEndsWith = String.prototype.endsWith;
+
+function isSynchronousCallable(callback) {
+  if (typeof callback !== 'function' || isProxy(callback)
+    || isAsyncFunction(callback) || isGeneratorFunction(callback)) return false;
+  try {
+    const source = intrinsicReflectApply(intrinsicFunctionToString, callback, []);
+    return !intrinsicReflectApply(intrinsicStringEndsWith, source, ['{ [native code] }']);
+  } catch {
+    return false;
+  }
+}
 
 const validRoute = route => arrayContains(PROTECTED_MEMORY_SENDER_ROUTES, route);
 
@@ -286,9 +300,7 @@ function assertRequest(endpointUrl, requestInit) {
  */
 export function createProtectedMemoryFinalSend({ gateway, resolveProtectedMemory, fetchImpl = globalThis.fetch }) {
   if (!gateway || typeof gateway.dispatchProtectedRequest !== 'function'
-    || typeof resolveProtectedMemory !== 'function'
-    || resolveProtectedMemory instanceof ASYNC_FUNCTION_CONSTRUCTOR
-    || isAsyncFunction(resolveProtectedMemory)
+    || !isSynchronousCallable(resolveProtectedMemory)
     || typeof fetchImpl !== 'function') {
     throw new TypeError('Invalid protected Memory final-send configuration.');
   }
