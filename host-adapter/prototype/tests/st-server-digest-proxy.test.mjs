@@ -18,7 +18,7 @@ const HOST_CONVERSATION_ID = '22222222-2222-4222-8222-222222222222:66666666-6666
 const LIFECYCLE_CONVERSATION_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa:22222222-2222-4222-8222-222222222222:33333333-3333-4333-8333-333333333333';
 const requestFor = (body, { sessionId = SESSION_ID, userHandle = 'alice', sessionHandle = userHandle } = {}) => ({
   body,
-  user: { profile: { handle: userHandle }, directories: { root: '/tmp/st-root', chats: '/tmp/st-root/chats', groups: '/tmp/st-root/groups', groupChats: '/tmp/st-root/groupChats' } },
+  user: { profile: { handle: userHandle }, directories: { root: '/tmp/st-root', chats: '/tmp/st-root/chats', groups: '/tmp/st-root/groups', groupChats: '/tmp/st-root/groupChats', extensions: '/tmp/st-root/extensions' } },
   session: { handle: sessionHandle, logicEngineSessionId: sessionId, logicEngineSessionHandle: userHandle },
 });
 const capture = {
