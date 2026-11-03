@@ -111,9 +111,15 @@ export function createSillyTavernFinalSendAdapter({
   chatCompletionSources,
   nativeForwardFetchResponse,
   prepareHostContext = async () => null,
+  npcContextHostBridge = null,
+  shouldPrepareNpcContext = () => false,
 }) {
   if (typeof nativeForwardFetchResponse !== 'function'
-    || typeof prepareHostContext !== 'function') {
+    || typeof prepareHostContext !== 'function'
+    || typeof shouldPrepareNpcContext !== 'function'
+    || (npcContextHostBridge !== null
+      && (typeof npcContextHostBridge.prepare !== 'function'
+        || typeof npcContextHostBridge.takeForDispatch !== 'function'))) {
     throw new TypeError('Native SillyTavern response writer and trusted Host preparation callback are required.');
   }
   const sourceMap = assertSourceMap(chatCompletionSources);
@@ -123,6 +129,7 @@ export function createSillyTavernFinalSendAdapter({
   // ID after a completed first dispatch and send the same prompt again.
   const protectedDispatchByResponse = new WeakSet();
   const preparedContextByRequest = new WeakMap();
+  const npcPreparedRequests = new WeakSet();
   const finalSend = createProtectedMemoryFinalSend({
     gateway,
     resolveProtectedMemory,
@@ -136,6 +143,17 @@ export function createSillyTavernFinalSendAdapter({
       }
       assertAuthenticatedHostRequest(request);
       const hostContext = await prepareHostContext(request, response);
+      let prepareNpc = false;
+      try { prepareNpc = shouldPrepareNpcContext(request, response, hostContext) === true; }
+      catch { throw terminalError(new Error('MEMORY_DISPATCH_NOT_READY')); }
+      if (prepareNpc) {
+        if (!npcContextHostBridge) throw terminalError(new Error('MEMORY_DISPATCH_NOT_READY'));
+        const prepared = await npcContextHostBridge.prepare(request, response);
+        if (prepared?.status !== 'ready') {
+          throw terminalError(new Error('MEMORY_DISPATCH_NOT_READY'));
+        }
+        npcPreparedRequests.add(request);
+      }
       preparedContextByRequest.set(request, hostContext ?? null);
     },
 
@@ -169,11 +187,29 @@ export function createSillyTavernFinalSendAdapter({
       }
       const preparedHostContext = preparedContextByRequest.get(args.request);
       preparedContextByRequest.delete(args.request);
+      let bridgeTransfer = null;
+      if (npcPreparedRequests.has(args.request)) {
+        npcPreparedRequests.delete(args.request);
+        if (!npcContextHostBridge || !args.response || typeof args.response !== 'object') {
+          if (args.response && typeof args.response === 'object') {
+            requestIdByResponse.set(args.response, { requestId: null, state: 'denied' });
+          }
+          throw terminalError(new Error('MEMORY_DISPATCH_HOST_BRIDGE_NOT_READY'));
+        }
+        bridgeTransfer = npcContextHostBridge.takeForDispatch(args.request, args.response);
+        if (bridgeTransfer?.status !== 'ready'
+          || !bridgeTransfer.handoff || !bridgeTransfer.requestMetadata
+          || !bridgeTransfer.projection) {
+          requestIdByResponse.set(args.response, { requestId: null, state: 'denied' });
+          throw terminalError(new Error('MEMORY_DISPATCH_HOST_BRIDGE_NOT_READY'));
+        }
+      }
       let protectionResolution;
       try {
         protectionResolution = resolveProtectedMemory(
           args.request,
           preparedHostContext,
+          bridgeTransfer,
         );
       } catch (error) {
         if (args.response && typeof args.response === 'object') {
@@ -204,13 +240,32 @@ export function createSillyTavernFinalSendAdapter({
         && statusDescriptor.value === 'ready' && resolutionKeys.length === 2
         && contextDescriptor && Object.hasOwn(contextDescriptor, 'value')
         && isPlainRecord(contextDescriptor.value);
-      if (!isUnprotected && !isProtected) {
+      if (!isUnprotected && !isProtected
+        || (npcContextHostBridge && isProtected && !bridgeTransfer)
+        || (bridgeTransfer && !isProtected)) {
         if (args.response && typeof args.response === 'object') {
           requestIdByResponse.set(args.response, { requestId: null, state: 'denied' });
         }
         throw terminalError(new Error('MEMORY_DISPATCH_NOT_READY'));
       }
       const protectedMemory = isProtected ? contextDescriptor.value : null;
+      if (bridgeTransfer && (
+        protectedMemory.npcContextHandoff !== bridgeTransfer.handoff
+        || protectedMemory.generationRequest !== bridgeTransfer.requestMetadata
+        || protectedMemory.contentBlocks !== bridgeTransfer.projection.contentBlocks
+        || protectedMemory.sources !== bridgeTransfer.projection.sources
+        || protectedMemory.candidates !== bridgeTransfer.projection.candidates
+        || protectedMemory.worldId !== bridgeTransfer.projection.world_id
+        || protectedMemory.actorId !== bridgeTransfer.projection.actor_id
+        || protectedMemory.conversationId !== bridgeTransfer.projection.conversation_id
+        || protectedMemory.adapterId !== bridgeTransfer.projection.adapter_id
+        || protectedMemory.purpose !== bridgeTransfer.projection.purpose
+      )) {
+        if (args.response && typeof args.response === 'object') {
+          requestIdByResponse.set(args.response, { requestId: null, state: 'denied' });
+        }
+        throw terminalError(new Error('MEMORY_DISPATCH_PROJECTION_BINDING_MISMATCH'));
+      }
       if (isProtected) {
         if (!args.response || typeof args.response !== 'object'
           || typeof protectedMemory.requestId !== 'string' || !protectedMemory.requestId) {
