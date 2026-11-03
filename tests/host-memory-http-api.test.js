@@ -218,6 +218,40 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
   assert.equal((await wrongAccountRead.json()).error.code, 'HOST_ROOT_IDENTITY_UNAUTHORIZED');
   assert.equal(calls, 1);
 
+  const forgedIdentityAssertions = [
+    {
+      ...assertion,
+      host_installation_id: '17171717-1717-4717-8717-171717171717',
+      conversation_id: SESSION + ':17171717-1717-4717-8717-171717171717:' + CONVERSATION,
+      nonce: '18181818-1818-4818-8818-181818181818',
+    },
+    {
+      ...assertion,
+      host_session_id: '19191919-1919-4919-8919-191919191919',
+      conversation_id: '19191919-1919-4919-8919-191919191919:' + INSTALLATION + ':' + CONVERSATION,
+      nonce: '20202020-2020-4020-8020-202020202020',
+    },
+    {
+      ...assertion,
+      conversation_id: SESSION + ':' + INSTALLATION + ':21212121-2121-4121-8121-212121212121',
+      nonce: '22222222-2222-4222-8222-222222222222',
+    },
+  ];
+  for (let index = 0; index < forgedIdentityAssertions.length; index += 1) {
+    const forged = { ...forgedIdentityAssertions[index], issued_at: Math.floor(Date.now() / 1000) };
+    const response = await post(base, '/v1/host/memory-npc/retrieve', adapterHeaders, {
+      ...body, assertion: forged, signature: sign(forged),
+      request_id: [
+        '23232323-2323-4323-8323-232323232323',
+        '24242424-2424-4424-8424-242424242424',
+        '25252525-2525-4525-8525-252525252525',
+      ][index],
+    });
+    assert.equal(response.status, 401);
+    assert.equal((await response.json()).error.code, 'HOST_ROOT_IDENTITY_UNAUTHORIZED');
+  }
+  assert.equal(calls, 1);
+
   const invalidResults = [
     { status: 'ready', admitted: [], candidates: [], reason: null, snapshot: { world_revision: 0, commit_sequence: 0 }, provider_diagnostics: { secret: true } },
     { status: 'ready', admitted: [], candidates: [], snapshot: { world_revision: 0, commit_sequence: 0 } },
