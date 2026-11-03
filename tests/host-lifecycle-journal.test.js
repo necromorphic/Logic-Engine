@@ -303,7 +303,7 @@ const makeRootAttestation = result => {
     coverage_id: 'ST-1.19.0-HOST-LIFECYCLE-P0-V1',
     pinned_host_commit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127',
     patch_blob_sha: '5f71e283c464efecf4d258381bf2b8e78c311777571809c13defd5f01f65d1ca',
-    host_handler_blob_sha: '159f0eb5f0d5dbda08a821a30bbc3b450bfe8e0f',
+    host_handler_blob_sha: 'c672ba5ed4ec2b8259ac54f4cbc25b24f8a75e1a',
     source_identity_status: 'CURRENT_IDENTITIES_VERIFIED',
     source_manifest_sha256: sourceManifestSha256,
     snapshot_alignment: 'SHARED_VSS_SNAPSHOT',
