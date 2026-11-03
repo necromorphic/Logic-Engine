@@ -26,7 +26,7 @@ const intrinsicReflectApply = Reflect.apply;
 const intrinsicStringEndsWith = String.prototype.endsWith;
 const intrinsicStringTrimStart = String.prototype.trimStart;
 const intrinsicRegExpTest = RegExp.prototype.test;
-const asyncGeneratorFunctionSource = /^(?:async\\s+function\\s*\\*|async\\s*\\*)/;
+const asyncGeneratorFunctionSource = /^(?:async\s+function\s*\*|async\s*\*)/;
 
 function isSynchronousCallable(callback) {
   if (typeof callback !== 'function' || isProxy(callback)
