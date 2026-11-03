@@ -5,6 +5,7 @@
 #include <sddl.h>
 #include <strsafe.h>
 #define LE_COUNT_OF(value) (sizeof(value) / sizeof((value)[0]))
+#define LE_STORE_DIAGNOSTICS 1
 #include "windows_manifest_store.c"
 #include "windows_namespace_adapter.c"
 
