@@ -163,17 +163,19 @@ const nonReady = (reason) => Object.freeze({
 });
 
 /**
- * Internal host seam for a future Memory -> NPC retrieval path.
+ * Internal Host/Core seam used by the adapter-pinned Memory→NPC composition.
  *
  * This class deliberately has no default Memory provider or access policy and
- * is not wired into the public API. Its composition pins a configured adapter
- * identity and injects trusted Core conversation query authorization, Memory
- * record authorization/retrieval, and the existing Core AuthorizedReadService.
+ * exposes no general-purpose Provider API. Its production composition pins a
+ * configured adapter identity and injects trusted Core conversation query
+ * authorization, Memory record authorization/retrieval, and the existing
+ * Core AuthorizedReadService.
  *
- * First slice supports only direct canonical-entity sources. Memory summaries
- * and other source kinds are excluded until their source-lineage authorization
- * contract is implemented. Candidate metadata is never treated as proof of
- * access: Core source fields are re-read through AuthorizedReadService.
+ * The supported first slice is limited to direct canonical-entity sources.
+ * Memory summaries and other source kinds remain excluded until their
+ * source-lineage authorization contract is implemented. Candidate metadata
+ * is never proof of access: Core source fields are re-read through
+ * AuthorizedReadService.
  */
 export class MemoryNpcConsumer {
   #memoryProvider;
@@ -498,8 +500,10 @@ export class MemoryNpcConsumer {
     if (!queryAllowed) return nonReady('query_access_unconfirmed');
 
     // Query permission can be revoked while retrieval, record checks, or the
-    // canonical source read are in flight. Recheck before any READY result;
-    // this narrows the race but does not claim an atomic disclosure guarantee.
+    // canonical source read are in flight. These asynchronous rechecks reject
+    // stale work early; the final synchronous disclosure decision is separately
+    // serialized with Provider mutations and Host revocation by the shared
+    // Coordinator lease in finalizeUnderProviderLease.
     const queryStillAllowed = async () => {
       try {
         if (!coreQueryAllowed()) return false;
@@ -783,8 +787,9 @@ export class MemoryNpcConsumer {
     // later candidate's asynchronous authorization may take long enough for
     // access to an earlier candidate to be revoked. Do not carry that earlier
     // allow straight into the Core content read without a final access check.
-    // This narrows the TOCTOU window; atomic revocation guarantees still depend
-    // on a future owner-approved provider snapshot/lease contract.
+    // These per-candidate awaits are not the atomic boundary: the final query,
+    // candidate grants, live Host session and READY-envelope construction are
+    // fenced together under the shared Coordinator lease below.
     const initiallyAuthorizedCandidates = authorizedCandidates;
     authorizedCandidates = [];
     for (const candidate of initiallyAuthorizedCandidates) {
