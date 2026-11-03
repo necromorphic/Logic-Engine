@@ -224,6 +224,7 @@ test('host inventory persists the full root manifest server-side and removes onl
         integrity_status: 'INTEGRITY_OK',
         sequence: 1,
         manifest_sha256: 'd'.repeat(64),
+        source_manifest_sha256: 'e'.repeat(64),
         upstream_status: 200,
       };
     },
