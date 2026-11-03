@@ -1,6 +1,8 @@
 import { DatabaseSync } from 'node:sqlite';
 import { existsSync, lstatSync, mkdirSync, readlinkSync, realpathSync, statSync } from 'node:fs';
-import { basename, dirname, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, resolve } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
+import { beginCoordinatorLock, openCoordinatorDatabase } from '../storage/coordinator-lock.js';
 
 function canonicalFilePath(path) {
   let candidate = resolve(path);
@@ -48,6 +50,7 @@ function aliasesSameFile(left, right) {
  */
 export class HostAssertionNonceStore {
   #db;
+  #coordinatorDb;
 
   constructor({ path, coreDatabasePath, coordinatorPath, providerDatabasePath = null } = {}) {
     if (typeof path !== 'string' || !path.trim() || path === ':memory:') {
@@ -66,6 +69,7 @@ export class HostAssertionNonceStore {
       throw new Error('Host assertion nonce database must be separate from Core, Coordinator, and Provider databases.');
     }
     mkdirSync(dirname(noncePath), { recursive: true });
+    this.#coordinatorDb = openCoordinatorDatabase(coordinatorPath);
     this.#db = new DatabaseSync(noncePath);
     try {
       this.#db.exec(`
@@ -93,6 +97,7 @@ export class HostAssertionNonceStore {
       `);
     } catch (error) {
       this.#db.close();
+      this.#coordinatorDb.close();
       throw error;
     }
   }
@@ -122,31 +127,36 @@ export class HostAssertionNonceStore {
       || !['logout', 'session_rotation'].includes(reason)) {
       throw new TypeError('Host session revocation input is invalid.');
     }
-    this.#db.exec('BEGIN IMMEDIATE');
+    const releaseCoordinator = beginCoordinatorLock(this.#coordinatorDb);
     try {
-      const nonce = this.#db.prepare(`
-        INSERT OR IGNORE INTO host_assertion_nonces(adapter_id, nonce, expires_at, consumed_at)
-        VALUES(?, ?, ?, ?)
-      `).run(adapterId, eventNonce, revokedAt + 120, revokedAt);
-      if (nonce.changes !== 1) {
-        this.#db.exec('ROLLBACK');
-        return false;
+      this.#db.exec('BEGIN IMMEDIATE');
+      try {
+        const nonce = this.#db.prepare(`
+          INSERT OR IGNORE INTO host_assertion_nonces(adapter_id, nonce, expires_at, consumed_at)
+          VALUES(?, ?, ?, ?)
+        `).run(adapterId, eventNonce, revokedAt + 120, revokedAt);
+        if (nonce.changes !== 1) {
+          this.#db.exec('ROLLBACK');
+          return false;
+        }
+        this.#db.prepare(`
+          INSERT INTO host_session_revocations(
+            adapter_id, host_installation_id, authenticated_account_id,
+            host_session_id, revoked_at, reason, event_nonce
+          ) VALUES(?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(adapter_id, host_installation_id, authenticated_account_id, host_session_id)
+          DO UPDATE SET revoked_at = MIN(revoked_at, excluded.revoked_at),
+            reason = excluded.reason, event_nonce = excluded.event_nonce
+        `).run(adapterId, identity.host_installation_id, identity.authenticated_account_id,
+          identity.host_session_id, revokedAt, reason, eventNonce);
+        this.#db.exec('COMMIT');
+        return true;
+      } catch (error) {
+        try { this.#db.exec('ROLLBACK'); } catch {}
+        throw error;
       }
-      this.#db.prepare(`
-        INSERT INTO host_session_revocations(
-          adapter_id, host_installation_id, authenticated_account_id,
-          host_session_id, revoked_at, reason, event_nonce
-        ) VALUES(?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(adapter_id, host_installation_id, authenticated_account_id, host_session_id)
-        DO UPDATE SET revoked_at = MIN(revoked_at, excluded.revoked_at),
-          reason = excluded.reason, event_nonce = excluded.event_nonce
-      `).run(adapterId, identity.host_installation_id, identity.authenticated_account_id,
-        identity.host_session_id, revokedAt, reason, eventNonce);
-      this.#db.exec('COMMIT');
-      return true;
-    } catch (error) {
-      try { this.#db.exec('ROLLBACK'); } catch {}
-      throw error;
+    } finally {
+      releaseCoordinator();
     }
   }
 
@@ -158,6 +168,45 @@ export class HostAssertionNonceStore {
       || !uuid(identity.authenticated_account_id) || !uuid(identity.host_session_id)) {
       return true;
     }
+    return Boolean(this.#db.prepare(`
+      SELECT 1 FROM host_session_revocations
+      WHERE adapter_id = ? AND host_installation_id = ?
+        AND authenticated_account_id = ? AND host_session_id = ?
+      LIMIT 1
+    `).get(adapterId, identity.host_installation_id, identity.authenticated_account_id,
+      identity.host_session_id));
+  }
+
+  close() {
+    try { this.#db.close(); } finally { this.#coordinatorDb.close(); }
+  }
+}
+
+/** Read-only view of the durable Host session revocation ledger for Gateway revalidation. */
+export class HostSessionRevocationReader {
+  #db;
+
+  constructor({ path } = {}) {
+    if (typeof path !== 'string' || !path.trim() || !isAbsolute(path) || !existsSync(path)) {
+      throw new TypeError('Host session revocation reader requires an existing absolute database path.');
+    }
+    this.#db = new DatabaseSync(resolve(path), { readOnly: true });
+    try {
+      this.#db.exec('PRAGMA query_only=ON; PRAGMA busy_timeout=5000;');
+      const table = this.#db.prepare(\"SELECT name FROM sqlite_master WHERE type='table' AND name='host_session_revocations'\").get();
+      if (!table) throw new Error('HOST_SESSION_REVOCATION_LEDGER_UNAVAILABLE');
+    } catch (error) {
+      this.#db.close();
+      throw error;
+    }
+  }
+
+  isSessionRevoked(adapterId, identity) {
+    const uuid = value => typeof value === 'string'
+      && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+    if (typeof adapterId !== 'string' || !adapterId.trim()
+      || !identity || !uuid(identity.host_installation_id)
+      || !uuid(identity.authenticated_account_id) || !uuid(identity.host_session_id)) return true;
     return Boolean(this.#db.prepare(`
       SELECT 1 FROM host_session_revocations
       WHERE adapter_id = ? AND host_installation_id = ?
