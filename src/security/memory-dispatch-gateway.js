@@ -8,6 +8,7 @@ import { getAcceptedHeadStatusSync } from './accepted-head-client-sync.js';
 export function createDispatchRequestSignature(secret, request) {
   if (typeof secret !== 'string' || secret.length < 32
     || !request || typeof request !== 'object'
+    || !PROTECTED_MEMORY_SENDER_ROUTES.includes(request.senderRoute)
     || typeof request.body !== 'string' || typeof request.stream !== 'boolean') {
     throw new TypeError('Invalid signed dispatch request.');
   }
@@ -18,6 +19,7 @@ export function createDispatchRequestSignature(secret, request) {
   const canonical = JSON.stringify({
     request_id: request.requestId,
     route: request.route,
+    sender_route: request.senderRoute,
     model: request.model,
     stream: request.stream,
     body_digest: bodyDigest,
@@ -41,6 +43,16 @@ export function verifyDispatchRequestSignature(secret, request, signature) {
 
 export const SUPPORTED_PROTECTED_MEMORY_ROUTES = Object.freeze([
   'host-selected-chat-generation',
+]);
+
+// One authoritative registry for every protected SillyTavern chat-completion
+// sender family audited against the pinned 1.19.0 release.
+export const PROTECTED_MEMORY_SENDER_ROUTES = Object.freeze([
+  'claude', 'google-ai-studio', 'vertex-ai', 'ai21', 'mistral', 'cohere',
+  'deepseek', 'xai', 'aimlapi', 'electronhub', 'chutes', 'minimax',
+  'azure-openai', 'openai', 'openrouter', 'custom', 'perplexity', 'groq',
+  'fireworks', 'nanogpt', 'pollinations', 'moonshot', 'zai', 'siliconflow',
+  'workers-ai', 'text-completions', 'kobold', 'novelai-text', 'horde-text',
 ]);
 
 const ASYNC_FUNCTION_PROTOTYPE = Object.getPrototypeOf(async function () {}).constructor;
@@ -128,8 +140,9 @@ function normalizeCandidates(candidates) {
   }
   const normalized = candidates.map((candidate) => {
     if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)
-      || Object.keys(candidate).some((key) => !['record_ref', 'record_version', 'source_kind', 'source_entity_id', 'source_version'].includes(key))
+      || Object.keys(candidate).some((key) => !['record_ref', 'record_version', 'authorization_generation', 'source_kind', 'source_entity_id', 'source_version'].includes(key))
       || !validText(candidate.record_ref, 200) || !validText(candidate.record_version, 200)
+      || !Number.isSafeInteger(candidate.authorization_generation) || candidate.authorization_generation < 1
       || candidate.source_kind !== 'canonical_entity'
       || !validText(candidate.source_entity_id, 200) || !validText(candidate.source_version, 200)) {
       throw new Error('MEMORY_DISPATCH_NOT_READY');
@@ -137,6 +150,7 @@ function normalizeCandidates(candidates) {
     return Object.freeze({
       record_ref: candidate.record_ref,
       record_version: candidate.record_version,
+      authorization_generation: candidate.authorization_generation,
       source_kind: candidate.source_kind,
       source_entity_id: candidate.source_entity_id,
       source_version: candidate.source_version,
@@ -195,13 +209,41 @@ function assertSyncResult(value) {
   return value;
 }
 
+function normalizePolicyAuthority(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)
+    || Object.keys(value).length !== 3
+    || Object.keys(value).some((key) => !['authority_id', 'generation', 'fingerprint'].includes(key))
+    || !validText(value.authority_id, 200)
+    || !Number.isSafeInteger(value.generation) || value.generation < 1
+    || typeof value.fingerprint !== 'string' || !/^[a-f0-9]{64}$/.test(value.fingerprint)) {
+    throw new Error('MEMORY_DISPATCH_NOT_READY');
+  }
+  return Object.freeze({
+    authority_id: value.authority_id,
+    generation: value.generation,
+    fingerprint: value.fingerprint,
+  });
+}
+
+function assertSamePolicyAuthority(actual, expected) {
+  let normalized;
+  try { normalized = normalizePolicyAuthority(actual); } catch {
+    throw new Error('MEMORY_DISPATCH_NOT_READY');
+  }
+  if (JSON.stringify(normalized) !== JSON.stringify(expected)) {
+    throw new Error('MEMORY_DISPATCH_NOT_READY');
+  }
+  return normalized;
+}
+
 /**
  * Sole-dispatch primitive for requests carrying protected Memory.
  *
  * The caller must provide trusted synchronous Core/Provider readers that open
- * their databases read-only and validate the exact current source/grant state.
- * The module intentionally has no fallback reader or transport. Only the
- * explicitly allowlisted Google AI Studio chat route is supported.
+ * their databases read-only and validate the exact current source/grant state,
+ * including the complete policy authority tuple. One logical chat-generation
+ * route is shared by the explicit 25-family sender registry. There is no
+ * fallback reader or transport.
  */
 export class MemoryDispatchGateway {
   constructor({
@@ -211,17 +253,14 @@ export class MemoryDispatchGateway {
     readToken,
     readCoreEvidence,
     readProviderEvidence,
-    sendUpstream,
   }) {
     if (typeof ledgerPath !== 'string' || !isAbsolute(ledgerPath)
       || typeof coordinatorPath !== 'string' || !isAbsolute(coordinatorPath)
       || !Number.isInteger(authorityPort) || authorityPort < 1 || authorityPort > 65535
       || typeof readToken !== 'string' || readToken.length < 32
       || typeof readCoreEvidence !== 'function'
-      || typeof readProviderEvidence !== 'function'
-      || typeof sendUpstream !== 'function'
-      || sendUpstream instanceof ASYNC_FUNCTION_PROTOTYPE) {
-      throw new TypeError('MemoryDispatchGateway requires file-backed stores, a read-only authority token, trusted synchronous readers, and a non-async transport-start function.');
+      || typeof readProviderEvidence !== 'function') {
+      throw new TypeError('MemoryDispatchGateway requires file-backed stores, a read-only authority token, trusted synchronous readers.');
     }
     if (sameFile(ledgerPath, coordinatorPath)) {
       throw new Error('DISPATCH_LEDGER_COORDINATOR_PATH_ALIAS');
@@ -233,23 +272,26 @@ export class MemoryDispatchGateway {
     this.readToken = readToken;
     this.readCoreEvidence = readCoreEvidence;
     this.readProviderEvidence = readProviderEvidence;
-    this.sendUpstream = sendUpstream;
-    this.finalizingRequestIds = new Set();
 
     this.coordinatorDb = openCoordinatorDatabase(this.coordinatorPath);
     this.db = null;
+    this.pendingReleases = new Map();
     let release = () => {};
     let startupError = null;
     try {
       release = beginCoordinatorLock(this.coordinatorDb);
       const existed = existsSync(this.ledgerPath);
       this.db = new DatabaseSync(this.ledgerPath);
+      // Make the dispatch-start commit explicitly durable; do not rely on
+      // SQLite build defaults for the no-upstream-retry security boundary.
+      this.db.exec('PRAGMA busy_timeout=5000; PRAGMA synchronous=FULL;');
       if (!existed) {
         this.db.exec(`
           CREATE TABLE dispatch_ledger (
             request_id TEXT PRIMARY KEY,
             request_digest TEXT NOT NULL CHECK(length(request_digest)=64),
             route TEXT NOT NULL CHECK(route='host-selected-chat-generation'),
+            sender_route TEXT NOT NULL CHECK(sender_route IN ('claude','google-ai-studio','vertex-ai','ai21','mistral','cohere','deepseek','xai','aimlapi','electronhub','chutes','minimax','azure-openai','openai','openrouter','custom','perplexity','groq','fireworks','nanogpt','pollinations','moonshot','zai','siliconflow','workers-ai','text-completions','kobold','novelai-text','horde-text')),
             model TEXT NOT NULL,
             stream INTEGER NOT NULL CHECK(stream IN (0,1)),
             world_id TEXT NOT NULL,
@@ -259,6 +301,9 @@ export class MemoryDispatchGateway {
             candidates_json TEXT NOT NULL,
             core_head INTEGER NOT NULL CHECK(core_head > 0),
             provider_head INTEGER NOT NULL CHECK(provider_head > 0),
+            policy_authority_id TEXT NOT NULL,
+            policy_generation INTEGER NOT NULL CHECK(policy_generation > 0),
+            policy_fingerprint TEXT NOT NULL CHECK(length(policy_fingerprint)=64),
             status TEXT NOT NULL CHECK(status IN ('DISPATCH_STARTED','COMPLETED','UNKNOWN')),
             outcome_code INTEGER,
             started_at TEXT NOT NULL,
@@ -280,11 +325,57 @@ export class MemoryDispatchGateway {
         }
         const columns = new Set(this.db.prepare('PRAGMA table_info(dispatch_ledger)').all().map((row) => row.name));
         const required = [
-          'request_id', 'request_digest', 'route', 'model', 'stream', 'world_id', 'actor_id', 'purpose',
-          'sources_json', 'candidates_json', 'core_head', 'provider_head', 'status', 'outcome_code',
+          'request_id', 'request_digest', 'route', 'sender_route', 'model', 'stream', 'world_id', 'actor_id', 'purpose',
+          'sources_json', 'candidates_json', 'core_head', 'provider_head', 'policy_authority_id', 'policy_generation',
+          'policy_fingerprint', 'status', 'outcome_code',
           'started_at', 'finished_at',
         ];
         if (required.some((column) => !columns.has(column))) throw new Error('DISPATCH_LEDGER_SCHEMA_INCOMPLETE');
+        const tableSql = this.db.prepare(
+          "SELECT sql FROM sqlite_master WHERE type='table' AND name='dispatch_ledger'",
+        ).get()?.sql ?? '';
+        if (!tableSql.includes("'horde-text'")) {
+          // Expand the exact sender CHECK constraint without discarding durable
+          // dispatch history. Migration is serialized by the shared Coordinator.
+          this.db.exec(`
+            BEGIN IMMEDIATE;
+            DROP INDEX IF EXISTS dispatch_ledger_status_started;
+            DROP INDEX IF EXISTS dispatch_ledger_unresolved_digest;
+            ALTER TABLE dispatch_ledger RENAME TO dispatch_ledger_legacy;
+            CREATE TABLE dispatch_ledger (
+              request_id TEXT PRIMARY KEY,
+              request_digest TEXT NOT NULL CHECK(length(request_digest)=64),
+              route TEXT NOT NULL CHECK(route='host-selected-chat-generation'),
+              sender_route TEXT NOT NULL CHECK(sender_route IN ('claude','google-ai-studio','vertex-ai','ai21','mistral','cohere','deepseek','xai','aimlapi','electronhub','chutes','minimax','azure-openai','openai','openrouter','custom','perplexity','groq','fireworks','nanogpt','pollinations','moonshot','zai','siliconflow','workers-ai','text-completions','kobold','novelai-text','horde-text')),
+              model TEXT NOT NULL,
+              stream INTEGER NOT NULL CHECK(stream IN (0,1)),
+              world_id TEXT NOT NULL,
+              actor_id TEXT NOT NULL,
+              purpose TEXT NOT NULL,
+              sources_json TEXT NOT NULL,
+              candidates_json TEXT NOT NULL,
+              core_head INTEGER NOT NULL CHECK(core_head > 0),
+              provider_head INTEGER NOT NULL CHECK(provider_head > 0),
+              policy_authority_id TEXT NOT NULL,
+              policy_generation INTEGER NOT NULL CHECK(policy_generation > 0),
+              policy_fingerprint TEXT NOT NULL CHECK(length(policy_fingerprint)=64),
+              status TEXT NOT NULL CHECK(status IN ('DISPATCH_STARTED','COMPLETED','UNKNOWN')),
+              outcome_code INTEGER,
+              started_at TEXT NOT NULL,
+              finished_at TEXT
+            );
+            INSERT INTO dispatch_ledger SELECT
+              request_id,request_digest,route,sender_route,model,stream,world_id,actor_id,purpose,
+              sources_json,candidates_json,core_head,provider_head,policy_authority_id,policy_generation,
+              policy_fingerprint,status,outcome_code,started_at,finished_at
+            FROM dispatch_ledger_legacy;
+            DROP TABLE dispatch_ledger_legacy;
+            CREATE INDEX dispatch_ledger_status_started ON dispatch_ledger(status, started_at);
+            CREATE UNIQUE INDEX dispatch_ledger_unresolved_digest
+              ON dispatch_ledger(request_digest) WHERE status IN ('DISPATCH_STARTED','UNKNOWN');
+            COMMIT;
+          `);
+        }
       }
       // A durable STARTED row left by a process crash has an ambiguous outcome.
       // Never retry it automatically; persist UNKNOWN before accepting new work.
@@ -304,17 +395,23 @@ export class MemoryDispatchGateway {
     }
   }
 
-  async dispatchProtectedRequest({ requestId, route, model, stream, body, worldId, actorId, purpose, sources, candidates, forwardResponse, signal }) {
+  async dispatchProtectedRequest({ requestId, route, senderRoute, model, stream, body, worldId, actorId, purpose, sources, candidates, transport, forwardResponse, hostTransformsStream = false, signal }) {
     if (!validText(requestId, 200) || !SUPPORTED_PROTECTED_MEMORY_ROUTES.includes(route)
+      || !PROTECTED_MEMORY_SENDER_ROUTES.includes(senderRoute)
       || typeof model !== 'string' || !/^[A-Za-z0-9._-]{1,128}$/.test(model)
       || typeof stream !== 'boolean'
       || typeof body !== 'string' || body.length === 0 || body.length > 4_000_000
-      || !validText(worldId, 200) || !validText(actorId, 200) || !validText(purpose, 200)) {
+      || !validText(worldId, 200) || !validText(actorId, 200) || !validText(purpose, 200)
+      || typeof hostTransformsStream !== 'boolean'
+      || stream && !hostTransformsStream && typeof forwardResponse !== 'function') {
       throw new Error('MEMORY_DISPATCH_NOT_READY');
     }
     const sourceSet = normalizeSources(sources);
     const candidateSet = normalizeCandidates(candidates);
     assertSourcesMatchCandidates(sourceSet, candidateSet);
+    // Sender family is intentionally excluded from the replay digest:
+    // changing providers must not turn an ambiguous request into a new attempt.
+    // The signed envelope and ledger still bind the exact sender route.
     const requestDigest = createHash('sha256').update(JSON.stringify({
       route,
       model,
@@ -328,6 +425,7 @@ export class MemoryDispatchGateway {
     }), 'utf8').digest('hex');
     let coreHead;
     let providerHead;
+    let policyAuthority;
     let release = null;
     let upstreamPromise = null;
     let upstreamStartError = null;
@@ -363,8 +461,17 @@ export class MemoryDispatchGateway {
       assertSameSources(core.sources, sourceSet);
       assertSameSources(provider.sources, sourceSet);
       assertSameCandidates(provider.candidates, candidateSet);
+      policyAuthority = normalizePolicyAuthority(core.policy_authority);
       coreHead = core.head;
       providerHead = provider.head;
+
+      // The Host must pass a dormant request-scoped transport capability
+      // directly in-process. It is never accepted through the JSON Gateway
+      // endpoint and is never serialized. The Host creates it from its trusted
+      // provider endpoint, credentials, headers and final serialized body.
+      if (typeof transport !== 'function' || transport instanceof ASYNC_FUNCTION_PROTOTYPE) {
+        throw new Error('MEMORY_DISPATCH_TRANSPORT_CAPABILITY_INVALID');
+      }
 
       this.db.exec('BEGIN IMMEDIATE');
       try {
@@ -380,13 +487,14 @@ export class MemoryDispatchGateway {
         if (unresolvedReplay) throw new Error('MEMORY_DISPATCH_REPLAY_BLOCKED');
         this.db.prepare(`
           INSERT INTO dispatch_ledger(
-            request_id,request_digest,route,model,stream,world_id,actor_id,purpose,sources_json,candidates_json,
-            core_head,provider_head,status,outcome_code,started_at,finished_at
-          ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,'DISPATCH_STARTED',NULL,?,NULL)
+            request_id,request_digest,route,sender_route,model,stream,world_id,actor_id,purpose,sources_json,candidates_json,
+            core_head,provider_head,policy_authority_id,policy_generation,policy_fingerprint,status,outcome_code,started_at,finished_at
+          ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'DISPATCH_STARTED',NULL,?,NULL)
         `).run(
           requestId,
           requestDigest,
           route,
+          senderRoute,
           model,
           stream ? 1 : 0,
           worldId,
@@ -396,6 +504,9 @@ export class MemoryDispatchGateway {
           JSON.stringify(candidateSet),
           coreHead,
           providerHead,
+          policyAuthority.authority_id,
+          policyAuthority.generation,
+          policyAuthority.fingerprint,
           new Date().toISOString(),
         );
         this.db.exec('COMMIT');
@@ -406,17 +517,12 @@ export class MemoryDispatchGateway {
         }
         throw error;
       }
-      // Invoke the transport's synchronous start function before releasing the
-      // shared coordinator. AsyncFunction callbacks are rejected at construction:
-      // an `async` callback can defer the actual network handoff behind `await`.
-      // A non-async callback must initiate the final outbound request synchronously
-      // and return a Promise for the eventual response.
-      // This makes the durable DISPATCH_STARTED row and actual transport handoff
-      // one ordered boundary relative to Provider revocation/source invalidation.
+      // The dormant capability is invoked exactly once, synchronously after
+      // durable DISPATCH_STARTED and before releasing the shared coordinator.
+      // It must initiate the final outbound request immediately and return the
+      // response Promise; network I/O itself is awaited only after lock release.
       try {
-        upstreamPromise = this.sendUpstream({
-          route, model, stream, body, requestId, requestDigest, forwardResponse, signal,
-        });
+        upstreamPromise = transport();
         if (!upstreamPromise || typeof upstreamPromise.then !== 'function') {
           throw new Error('MEMORY_DISPATCH_TRANSPORT_START_INVALID');
         }
@@ -446,145 +552,118 @@ export class MemoryDispatchGateway {
       throw new Error('MEMORY_DISPATCH_OUTCOME_UNKNOWN');
     }
 
-    const outcomeCode = Number.isInteger(response?.status) ? response.status : null;
-    // Keep DISPATCH_STARTED durable until the actual Host response writer
-    // accepts the final end() call and emits finish. A crash or disconnected
-    // client before that point is an UNKNOWN delivery, never a replayable
-    // COMPLETED dispatch.
+    // FINAL RESPONSE REVALIDATION: after upstream completion, establish a
+    // request-scoped release capability. The actual Host writes are separately
+    // revalidated under the same Coordinator before every chunk/end operation.
+    let finalRelease = null;
+    let finalResponseAllowed = false;
+    const releaseContext = {
+      requestId, route, senderRoute, model, stream, worldId, actorId, purpose,
+      sources: sourceSet, candidates: candidateSet, coreHead, providerHead, policyAuthority,
+    };
+    try {
+      finalRelease = beginCoordinatorLock(this.coordinatorDb);
+      this.#revalidateReleaseContext(releaseContext);
+      this.pendingReleases.set(requestId, releaseContext);
+      finalResponseAllowed = true;
+    } catch {
+      try { this.#recordOutcome(requestId, 'UNKNOWN', null); } catch {}
+    } finally {
+      try { finalRelease?.(); } catch { finalResponseAllowed = false; }
+    }
+    if (!finalResponseAllowed) {
+      throw new Error('MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED');
+    }
+
+    if (stream && !hostTransformsStream) {
+      // Native ST forwarding writes each chunk through the patched response
+      // writer. Each write/end obtains a short Coordinator lease and rechecks
+      // current Core/Provider authorization. No lease spans network I/O.
+      try {
+        const streamForwardPromise = forwardResponse(response);
+        if (!streamForwardPromise || typeof streamForwardPromise.then !== 'function') {
+          throw new Error('MEMORY_DISPATCH_STREAM_FORWARD_START_INVALID');
+        }
+        await streamForwardPromise;
+        if (this.pendingReleases.has(requestId)) {
+          throw new Error('MEMORY_DISPATCH_STREAM_ENDED_WITHOUT_HOST_RELEASE');
+        }
+      } catch {
+        if (this.pendingReleases.has(requestId)) {
+          const outcomeRelease = beginCoordinatorLock(this.coordinatorDb);
+          try {
+            this.#recordOutcome(requestId, 'UNKNOWN', null);
+            this.pendingReleases.delete(requestId);
+          } finally {
+            outcomeRelease();
+          }
+        }
+        throw new Error('MEMORY_DISPATCH_OUTCOME_UNKNOWN');
+      }
+    }
     return response;
   }
 
-  /**
-   * Sole client-egress gate. Re-read current Core and Provider evidence while
-   * holding the same Coordinator lease used by revoke/source mutations, then
-   * invoke the real Express write synchronously before releasing that lease.
-   */
-  authorizeResponseWrite(requestId, write, { final = false, response = null } = {}) {
-    if (!validText(requestId, 200) || typeof write !== 'function'
-      || typeof final !== 'boolean') {
+  #revalidateReleaseContext(context) {
+    const currentAuthority = getAcceptedHeadStatusSync({
+      port: this.authorityPort,
+      token: this.readToken,
+    });
+    if (currentAuthority.pending.core || currentAuthority.pending.provider
+      || !currentAuthority.enrolled.core || !currentAuthority.enrolled.provider
+      || currentAuthority.heads.core !== context.coreHead
+      || currentAuthority.heads.provider !== context.providerHead) {
       throw new Error('MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED');
     }
-    if (this.finalizingRequestIds.has(requestId)) {
+    const currentCore = assertSyncResult(this.readCoreEvidence({
+      worldId: context.worldId, actorId: context.actorId, purpose: context.purpose, sources: context.sources,
+    }));
+    const currentProvider = assertSyncResult(this.readProviderEvidence({
+      worldId: context.worldId, actorId: context.actorId, purpose: context.purpose,
+      sources: context.sources, candidates: context.candidates,
+    }));
+    if (currentCore.world_id !== context.worldId || currentCore.actor_id !== context.actorId
+      || currentCore.readiness !== 'READY' || currentCore.inventory_status !== 'READY'
+      || currentCore.head !== context.coreHead
+      || currentProvider.world_id !== context.worldId || currentProvider.actor_id !== context.actorId
+      || currentProvider.purpose !== context.purpose || currentProvider.granted !== true
+      || currentProvider.readiness !== 'READY' || currentProvider.head !== context.providerHead) {
       throw new Error('MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED');
     }
+    assertSameSources(currentCore.sources, context.sources);
+    assertSameSources(currentProvider.sources, context.sources);
+    assertSameCandidates(currentProvider.candidates, context.candidates);
+    assertSamePolicyAuthority(currentCore.policy_authority, context.policyAuthority);
+  }
 
+  /** Revalidate and perform one synchronous Host write under the shared lease. */
+  authorizeResponseWrite(requestId, write, { final = false } = {}) {
+    if (!validText(requestId, 200) || typeof write !== 'function'
+      || write.constructor?.name === 'AsyncFunction') {
+      throw new TypeError('Invalid protected response release capability.');
+    }
+    const context = this.pendingReleases.get(requestId);
+    if (!context) throw new Error('MEMORY_DISPATCH_RELEASE_NOT_PENDING');
     let release;
     try {
       release = beginCoordinatorLock(this.coordinatorDb);
-      const row = this.db.prepare(
-        'SELECT * FROM dispatch_ledger WHERE request_id=? LIMIT 1',
-      ).get(requestId);
-      if (!row || row.status !== 'DISPATCH_STARTED') {
-        throw new Error('MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED');
+      this.#revalidateReleaseContext(context);
+      const result = write();
+      if (result !== null && (typeof result === 'object' || typeof result === 'function')
+        && typeof result.then === 'function') {
+        throw new Error('MEMORY_DISPATCH_RELEASE_MUST_BE_SYNCHRONOUS');
       }
-
-      let sources;
-      let candidates;
-      try {
-        sources = normalizeSources(JSON.parse(row.sources_json));
-        candidates = normalizeCandidates(JSON.parse(row.candidates_json));
-        assertSourcesMatchCandidates(sources, candidates);
-      } catch {
-        throw new Error('MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED');
-      }
-
-      const authority = getAcceptedHeadStatusSync({
-        port: this.authorityPort,
-        token: this.readToken,
-      });
-      if (authority.pending.core || authority.pending.provider
-        || !authority.enrolled.core || !authority.enrolled.provider) {
-        throw new Error('MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED');
-      }
-      const core = assertSyncResult(this.readCoreEvidence({
-        worldId: row.world_id,
-        actorId: row.actor_id,
-        purpose: row.purpose,
-        sources,
-      }));
-      const provider = assertSyncResult(this.readProviderEvidence({
-        worldId: row.world_id,
-        actorId: row.actor_id,
-        purpose: row.purpose,
-        sources,
-        candidates,
-      }));
-      if (core.world_id !== row.world_id || core.actor_id !== row.actor_id
-        || core.readiness !== 'READY' || core.inventory_status !== 'READY'
-        || !Number.isSafeInteger(core.head) || core.head !== authority.heads.core
-        || core.head !== row.core_head
-        || provider.world_id !== row.world_id || provider.actor_id !== row.actor_id
-        || provider.purpose !== row.purpose || provider.granted !== true
-        || provider.readiness !== 'READY'
-        || !Number.isSafeInteger(provider.head) || provider.head !== authority.heads.provider
-        || provider.head !== row.provider_head) {
-        throw new Error('MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED');
-      }
-      assertSameSources(core.sources, sources);
-      assertSameSources(provider.sources, sources);
-      assertSameCandidates(provider.candidates, candidates);
-
       if (final) {
-        if (!response || typeof response.once !== 'function'
-          || response.writableEnded === true || response.destroyed === true) {
-          throw new Error('MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED');
-        }
-        this.finalizingRequestIds.add(requestId);
-        let settled = false;
-        const settle = (status) => {
-          if (settled) return;
-          settled = true;
-          this.finalizingRequestIds.delete(requestId);
-          // Response events can fire synchronously in test doubles. Defer the
-          // durable outcome update until this egress Coordinator lease releases.
-          queueMicrotask(() => {
-            let outcomeRelease;
-            try {
-              outcomeRelease = beginCoordinatorLock(this.coordinatorDb);
-              this.#recordOutcome(requestId, status, status === 'COMPLETED' ? 200 : null);
-            } catch {
-              // Leave DISPATCH_STARTED durable. Startup recovery converts it
-              // to UNKNOWN, which is deliberately non-replayable.
-            } finally {
-              try { outcomeRelease?.(); } catch {}
-            }
-          });
-        };
-        response.once('finish', () => settle('COMPLETED'));
-        response.once('close', () => {
-          if (response.writableFinished !== true) settle('UNKNOWN');
-        });
-      }
-
-      let result;
-      try {
-        result = write();
-        if (result && typeof result.then === 'function') {
-          throw new Error('MEMORY_DISPATCH_RESPONSE_WRITE_MUST_BE_SYNCHRONOUS');
-        }
-      } catch (error) {
-        if (final) this.finalizingRequestIds.delete(requestId);
-        try { this.#recordOutcome(requestId, 'UNKNOWN', null); } catch {}
-        throw error;
+        this.#recordOutcome(requestId, 'COMPLETED', null);
+        this.pendingReleases.delete(requestId);
       }
       return result;
     } catch (error) {
-      if (error?.message === 'MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED') {
-        try {
-          const row = this.db.prepare(
-            'SELECT status FROM dispatch_ledger WHERE request_id=? LIMIT 1',
-          ).get(requestId);
-          if (row?.status === 'DISPATCH_STARTED') this.#recordOutcome(requestId, 'UNKNOWN', null);
-        } catch {}
-        throw error;
-      }
       try {
-        const row = this.db.prepare(
-          'SELECT status FROM dispatch_ledger WHERE request_id=? LIMIT 1',
-        ).get(requestId);
-        if (row?.status === 'DISPATCH_STARTED') this.#recordOutcome(requestId, 'UNKNOWN', null);
+        if (this.pendingReleases.has(requestId)) this.#recordOutcome(requestId, 'UNKNOWN', null);
       } catch {}
-      throw new Error('MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED');
+      this.pendingReleases.delete(requestId);
+      throw new Error('MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED', { cause: error });
     } finally {
       try { release?.(); } catch {}
     }
