@@ -1017,7 +1017,7 @@ export class MemoryDispatchGateway {
   /** Revalidate and perform one synchronous Host write under the shared lease. */
   authorizeResponseWrite(requestId, write, { final = false } = {}) {
     if (!validText(requestId, 200) || typeof write !== 'function'
-      || write.constructor?.name === 'AsyncFunction') {
+      || write instanceof ASYNC_FUNCTION_PROTOTYPE) {
       throw new TypeError('Invalid protected response release capability.');
     }
     const context = this.pendingReleases.get(requestId);
