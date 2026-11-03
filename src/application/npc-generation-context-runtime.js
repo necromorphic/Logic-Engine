@@ -247,9 +247,6 @@ export function createCoreNpcGenerationContextRuntime({
       || JSON.stringify(freshA.items) !== JSON.stringify(laneAContext?.items)
       || freshA.snapshot.world_revision !== context?.snapshot?.world_revision
       || freshA.snapshot.commit_sequence !== context?.snapshot?.commit_sequence) return false;
-    let freshB;
-    try { freshB = await consumer.retrieveForNpc({ conversationId: scope.conversation_id }); }
-    catch { return false; }
     const laneBContext = context?.lanes?.lane_b;
     const preparedResult = laneBContext ? {
       status: laneBContext.status,
@@ -258,7 +255,15 @@ export function createCoreNpcGenerationContextRuntime({
       reason: laneBContext.reason,
       snapshot: laneBContext.snapshot,
     } : null;
-    return freshB?.status === 'ready' && preparedResult !== null
+    if (preparedResult === null) return false;
+    let freshB;
+    try {
+      freshB = await consumer.revalidateForFinalDispatch(
+        { conversationId: scope.conversation_id },
+        preparedResult,
+      );
+    } catch { return false; }
+    return freshB?.status === 'ready'
       && JSON.stringify(freshB) === JSON.stringify(preparedResult)
       && freshB.snapshot?.world_revision === context.snapshot.world_revision
       && freshB.snapshot?.commit_sequence === context.snapshot.commit_sequence;
