@@ -186,6 +186,7 @@ export class SQLiteMemoryProvider {
   #reconcileGeneration;
   #transactionDepth;
   #coordinatorDepth;
+  #authorizationReadLeaseDepth;
   #stateGeneration;
   #queryAuthorizationGeneration;
   #recordAuthorizationGeneration;
@@ -244,6 +245,7 @@ export class SQLiteMemoryProvider {
     this.#reconcileGeneration = new Map();
     this.#transactionDepth = 0;
     this.#coordinatorDepth = 0;
+    this.#authorizationReadLeaseDepth = 0;
     this.#stateGeneration = new Map();
     this.#queryAuthorizationGeneration = new Map();
     this.#recordAuthorizationGeneration = new Map();
@@ -424,6 +426,9 @@ export class SQLiteMemoryProvider {
   }
 
   #withCoordinatorLock(work) {
+    if (this.#authorizationReadLeaseDepth > 0) {
+      throw new Error('PROVIDER_READ_LEASE_MUTATION_FORBIDDEN');
+    }
     if (this.#coordinatorDepth > 0) return work();
     const release = this.#acquireCoordinatorLock();
     this.#coordinatorDepth += 1;
@@ -882,12 +887,17 @@ export class SQLiteMemoryProvider {
           ...candidate,
         });
       }
-      const result = callback();
-      if (result !== null && (typeof result === 'object' || typeof result === 'function')
-        && typeof result.then === 'function') {
-        throw new TypeError('Provider authorized-read callback must be synchronous');
+      this.#authorizationReadLeaseDepth += 1;
+      try {
+        const result = callback();
+        if (result !== null && (typeof result === 'object' || typeof result === 'function')
+          && typeof result.then === 'function') {
+          throw new TypeError('Provider authorized-read callback must be synchronous');
+        }
+        return result;
+      } finally {
+        this.#authorizationReadLeaseDepth -= 1;
       }
-      return result;
     });
   }
 
