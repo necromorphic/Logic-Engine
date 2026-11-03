@@ -14,6 +14,7 @@ import { HostIdentityStore } from '../../host-adapter/prototype/st-host-identity
 import { HostLifecycleReceiptStore } from '../../host-adapter/prototype/st-host-lifecycle-receipt-store.mjs';
 import { createHostInventoryHandler } from '../../host-adapter/prototype/st-host-inventory-handler.mjs';
 import { createHostLifecycleJournalProxy, createHostRootInventoryPersistence } from '../../host-adapter/prototype/st-server-digest-proxy.mjs';
+import { PINNED_ST_MUTATION_COVERAGE_SHA256, PINNED_ST_MUTATION_ROUTE_COUNT } from '../../host-adapter/extension-gateway/server-plugin/st-mutation-route-contract.mjs';
 
 const PINNED_HOST_COMMIT = '06bde939fb1e9c4c8d8641d810f0a916b5bce127';
 const API_TOKEN = 'host-lifecycle-api-token-0123456789';
@@ -248,6 +249,7 @@ test('SillyTavern lifecycle proxy authenticates PREPARED/COMMITTED receipts and 
         ...rootIdentity,
       }),
       verifyMutationReceipt: verifyReceipt,
+      verifyCompletenessProof: () => true,
     });
     if (!authorityGenerationInitialized) {
       coreJournal.setAuthorityGeneration(AUTHORITY_ID, 1);
@@ -296,6 +298,44 @@ test('SillyTavern lifecycle proxy authenticates PREPARED/COMMITTED receipts and 
   assert.equal(inventoryResponse.statusCode, 200, JSON.stringify(inventoryResponse.body));
   assert.equal(inventoryResponse.body.root_inventory_reconciliation.status, 'BASELINED_REVIEW_ONLY');
   assert.equal(coreJournal.verifyRootInventory(rootIdentity).status, 'INTEGRITY_OK');
+
+  const inventoryHead = inventoryResponse.body.root_inventory_reconciliation;
+  const filesystem = (await enumerate()).filesystem;
+  const completenessProof = {
+    protocol_version: 1,
+    adapter_id: ADAPTER_ID,
+    host_installation_id: identity.host_installation_id,
+    authenticated_account_id: identity.authenticated_account_id,
+    root_id: rootId,
+    event_id: randomUUID(),
+    root_inventory_sequence: inventoryHead.sequence,
+    manifest_sha256: inventoryHead.manifest_sha256,
+    source_commit: PINNED_HOST_COMMIT,
+    coverage_manifest_sha256: PINNED_ST_MUTATION_COVERAGE_SHA256,
+    snapshot_id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+    snapshot_alignment: 'SHARED_VSS_SNAPSHOT',
+    filesystem_scope: 'single-root-regular-files-only',
+    filesystem_status: 'complete',
+    scan_passes: 2,
+    reparse_points: 'ALL_FILE_ATTRIBUTE_REPARSE_POINT_ENTRIES_REJECTED',
+    file_count: filesystem.file_count,
+    total_bytes: filesystem.total_bytes,
+    source_status: 'DOUBLE_SCAN_CANDIDATE',
+    logical_identity_status: 'CURRENT_FILE_IDENTITIES_VERIFIED',
+    legacy_group_metadata_count: 0,
+    route_coverage_status: 'VERIFIED',
+    route_count: PINNED_ST_MUTATION_ROUTE_COUNT,
+    source_files_sha256: digest('verified-pinned-source-files'),
+    occurred_at: new Date().toISOString(),
+  };
+  const completed = coreJournal.completeRootInventory({
+    host_installation_id: identity.host_installation_id,
+    authenticated_account_id: identity.authenticated_account_id,
+    root_id: rootId,
+    proof: completenessProof,
+    proof_signature: digest('test-only-completeness-proof'),
+  });
+  assert.equal(completed.status, 'AUTHORITATIVE_COMPLETE');
 
   const receiptStore = new HostLifecycleReceiptStore({
     directory: join(identityDirectory, 'lifecycle-receipts'),
