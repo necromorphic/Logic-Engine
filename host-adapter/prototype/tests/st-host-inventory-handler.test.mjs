@@ -250,6 +250,7 @@ test('host inventory persists the full root manifest server-side and removes onl
     chats: '/srv/st/data/chats',
     groups: '/srv/st/data/groups',
     groupChats: '/srv/st/data/group chats',
+    extensions: '/srv/st/data/extensions',
   };
   await handler({
     user: { profile: { handle: 'alice' }, directories },
@@ -336,6 +337,7 @@ test('host inventory clears only blockers covered by verified source and Core VS
     chats: '/srv/st/data/chats',
     groups: '/srv/st/data/groups',
     groupChats: '/srv/st/data/group chats',
+    extensions: '/srv/st/data/extensions',
   };
   await handler({
     user: { profile: { handle: 'alice' }, directories },
@@ -768,7 +770,7 @@ test('character-card edits are blocked while Host authority is active', () => {
 
 test('enrolled chat save API requires a matching server PREPARED permit and consumes it once', async () => {
   const root = join(tmpdir(), 'st-host-save-guard');
-  const directories = { root, chats: join(root, 'chats'), groups: join(root, 'groups'), groupChats: join(root, 'groupChats') };
+  const directories = { root, chats: join(root, 'chats'), groups: join(root, 'groups'), groupChats: join(root, 'groupChats'), extensions: join(root, 'extensions') };
   const enumerate = async () => ({
     filesystem: { status: 'complete' },
     source: { status: 'DOUBLE_SCAN_CANDIDATE', files: [{
@@ -800,7 +802,7 @@ test('enrolled chat save API requires a matching server PREPARED permit and cons
 
 test('group save resolves the extensionless group-chat inventory locator', async () => {
   const root = join(tmpdir(), 'st-host-group-save-guard');
-  const directories = { root, chats: join(root, 'chats'), groups: join(root, 'groups'), groupChats: join(root, 'groupChats') };
+  const directories = { root, chats: join(root, 'chats'), groups: join(root, 'groups'), groupChats: join(root, 'groupChats'), extensions: join(root, 'extensions') };
   const guard = createHostLifecycleSaveGuard({
     pinnedHostCommit: pinned,
     enumerate: async () => ({
@@ -826,7 +828,7 @@ test('group save resolves the extensionless group-chat inventory locator', async
 
 test('enrolled chat save API rejects permits scoped to another conversation or session', async () => {
   const root = join(tmpdir(), 'st-host-save-guard-scope');
-  const directories = { root, chats: join(root, 'chats'), groups: join(root, 'groups'), groupChats: join(root, 'groupChats') };
+  const directories = { root, chats: join(root, 'chats'), groups: join(root, 'groups'), groupChats: join(root, 'groupChats'), extensions: join(root, 'extensions') };
   const guard = createHostLifecycleSaveGuard({
     pinnedHostCommit: pinned,
     enumerate: async () => ({
@@ -886,6 +888,7 @@ test('default-user inventory accepts absent session.handle only after signed Hos
     chats: join(tmpdir(), 'st-default-user-root', 'chats'),
     groups: join(tmpdir(), 'st-default-user-root', 'groups'),
     groupChats: join(tmpdir(), 'st-default-user-root', 'groupChats'),
+    extensions: join(tmpdir(), 'st-default-user-root', 'extensions'),
   };
   const handler = createHostInventoryHandler({
     enumerate: async () => ({
