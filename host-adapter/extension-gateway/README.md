@@ -48,6 +48,8 @@ Enable SillyTavern's native `enableServerPlugins: true` setting. Keep server-plu
 
 - Installation and account IDs are generated and persisted by the server-side `HostIdentityStore`.
 - The Host session UUID is generated in SillyTavern's signed session and rotates when the authenticated account changes. Core validates this session separately from the stable conversation tuple.
+- Logout and account rotation first submit a signed, time-bounded, nonce-protected revocation event to Core. Core persists the revocation in the dedicated assertion-nonce database and rechecks it during Host assertion processing. If Core cannot confirm revocation, ST logout/rotation is rejected and the old session is not silently discarded.
+- `ENGINE_HOST_ASSERTION_NONCE_DB_PATH` must point to a durable database separate from Core, Coordinator and `ENGINE_MEMORY_PROVIDER_DB_PATH`; it stores both replay nonces and session revocations.
 - Stable conversation identity is `installation_id:account_id:conversation_uuid`; session identity is carried separately in the signed assertion.
 - The browser's localStorage and chat metadata are consistency/enrollment inputs, not authentication authorities.
 - `LOGIC_ENGINE_HOST_IDENTITY_DIR` must be an absolute deployment-owned directory outside SillyTavern's global `DATA_ROOT`, not merely outside the current account's `request.user.directories.root`. The server checks the resolved path before identity reads, root-inventory persistence, lifecycle journal/receipt operations, and Host-to-Core context resolution; a path inside global `DATA_ROOT`, including one reached through a symlinked parent, is NON_READY.
