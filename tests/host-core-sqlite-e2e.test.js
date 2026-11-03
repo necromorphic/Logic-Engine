@@ -63,6 +63,7 @@ test('Host dispatch proxy retrieves a real SQLite Provider record through Core H
       chats: join(dataRoot, 'default-user', 'chats'),
       groups: join(dataRoot, 'default-user', 'groups'),
       groupChats: join(dataRoot, 'default-user', 'groupChats'),
+      extensions: join(dataRoot, 'default-user', 'extensions'),
     };
     for (const directoryPath of Object.values(directories)) mkdirSync(directoryPath, { recursive: true });
     store = new SQLiteStore(corePath);
