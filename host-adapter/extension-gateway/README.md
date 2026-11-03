@@ -15,6 +15,8 @@ For Chat Completions it attaches these at `CHAT_COMPLETION_SETTINGS_READY`; for 
 
 The managed pinned SillyTavern Final-Send Hook wraps all five native generation route families. The server-side Final-Send plugin derives the actual route from the Express request path, authenticates the Host session, and calls `createSillyTavernHostAdapter.prepareGenerationContext()` on that same request. The Host Adapter re-resolves the supplied conversation UUID against its complete server-side inventory, obtains Core's World/Actor binding, and retrieves the Core Memory NPC result. The NPC Context Receiver validates the exact ready envelope and source lineage before any content can be serialized into the upstream provider request.
 
+**Current wiring limitation:** the checked-in `server-plugin/index.mjs` currently registers only Host Adapter routes. It does not yet construct the NPC Context Receiver + Final-Send adapter or register that adapter with the patched SillyTavern hook. The patch artifact and adapter modules are not proof of a connected production send path. Protected Memory remains fail-closed; the single server-plugin registration/composition step is still outstanding.
+
 There is no browser-facing `/dispatch` route. The old prototype that aborted native generation and returned Memory context to the browser has been removed from the installed Extension path. The only protected model egress is the native sender call intercepted by the managed Final-Send Hook.
 
 ## Public Host plugin routes
