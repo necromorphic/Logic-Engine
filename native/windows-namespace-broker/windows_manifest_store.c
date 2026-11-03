@@ -471,9 +471,6 @@ static int le_win_store_replace(
   HANDLE file = INVALID_HANDLE_VALUE;
   DWORD written_total = 0;
   size_t i;
-  DWORD written_total = 0;
-  size_t i;
-  HANDLE file = INVALID_HANDLE_VALUE;
   BOOL renamed = FALSE;
 #ifdef LE_STORE_DIAGNOSTICS
   const char *failure_stage = "open temp file";
@@ -525,7 +522,6 @@ static int le_win_store_replace(
   failure_stage = "flush parent directory";
 #endif
   if (!FlushFileBuffers(store->directory)) goto cleanup;
-  HeapFree(GetProcessHeap(), 0, rename_info);
   CloseHandle(file);
   return 1;
 cleanup:
