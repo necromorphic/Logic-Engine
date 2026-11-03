@@ -124,7 +124,7 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
     store.close();
     rmSync(directory, { recursive: true, force: true });
   });
-  const base = 'http://127.0.0.1:' + server.address().port;
+  let base = 'http://127.0.0.1:' + server.address().port;
   const headers = { authorization: 'Bearer ' + API_TOKEN };
   const adapterHeaders = { ...headers, 'x-adapter-id': ADAPTER_ID, 'x-adapter-token': ADAPTER_TOKEN };
   const adminHeaders = { ...headers, 'x-admin-token': ADMIN_TOKEN };
@@ -331,6 +331,7 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   const restartedBase = 'http://127.0.0.1:' + server.address().port;
+  base = restartedBase;
   const replayAfterRestart = await post(restartedBase, '/v1/host/memory-npc/retrieve', adapterHeaders, body);
   assert.equal(replayAfterRestart.status, 409);
   assert.equal((await replayAfterRestart.json()).error.code, 'HOST_SESSION_ASSERTION_REPLAYED');
@@ -497,6 +498,7 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   const afterRevocationRestart = 'http://127.0.0.1:' + server.address().port;
+  base = afterRevocationRestart;
   const afterRestartAssertion = {
     ...assertion, nonce: 'ffffffff-ffff-4fff-8fff-ffffffffffff',
     issued_at: Math.floor(Date.now() / 1000),
@@ -522,6 +524,7 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   const unavailableBase = 'http://127.0.0.1:' + server.address().port;
+  base = unavailableBase;
   const unavailableRevocation = {
     protocol_version: 1, host_installation_id: INSTALLATION,
     authenticated_account_id: ACCOUNT, host_session_id: SESSION,
