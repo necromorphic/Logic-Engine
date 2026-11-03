@@ -35,6 +35,16 @@ const HOST_ONLY_BODY_KEYS = new Set([
   'generationid',
   'generation_type',
   'generationtype',
+  'session_id',
+  'sessionid',
+  'host_session_id',
+  'hostsessionid',
+  'chat_id',
+  'chatid',
+  'installation_id',
+  'installationid',
+  'account_id',
+  'accountid',
 ]);
 
 function isPlainRecord(value) {
@@ -175,7 +185,9 @@ function scrubHeaders(headers) {
   const output = Object.create(null);
   for (const [key, value] of entries) {
     const normalized = String(key).toLowerCase();
-    if (normalized.startsWith('x-logic-engine-') || normalized.startsWith('x-host-')) continue;
+    if (normalized.startsWith('x-logic-engine-') || normalized.startsWith('x-host-')
+      || normalized.startsWith('x-conversation-') || normalized.startsWith('x-world-')
+      || normalized.startsWith('x-actor-') || normalized.startsWith('x-generation-')) continue;
     output[key] = value;
   }
   return output;
