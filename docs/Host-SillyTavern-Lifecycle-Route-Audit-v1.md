@@ -81,7 +81,7 @@ Core's append-only Root Inventory journal verifies monotonic sequence, previous 
 
 A filesystem scan is evidence for the current file set only. It is not, by itself, source-route completeness proof or Core authorization.
 
-The Host now verifies the pinned-source manifest against the installed ST route files, browser lifecycle files, Gateway server files, and handler blob. Only a verified source manifest plus a shared VSS snapshot allows the server to create an HMAC-signed root attestation using the adapter credential. Core independently validates the signature, exact root journal head, inventory sequence/digest, lifecycle head, nonce, expiry, and registered installation/account/root binding. An unchanged already-attested manifest is reused without creating a conflicting duplicate attestation.
+The Host now verifies the pinned-source manifest against the installed ST route files, browser lifecycle files, Gateway server files, and handler blob. Only a verified source manifest plus a shared VSS snapshot allows the server to create an HMAC-signed root attestation using the adapter credential. Core independently validates the signature, exact root journal head, inventory sequence/digest, lifecycle head, nonce, expiry, and registered installation/account/root binding. An unchanged already-attested manifest is reused without creating a conflicting duplicate attestation. If the source-manifest digest changes while the account-root manifest is unchanged, Core appends a no-op reconciliation event to advance the inventory sequence, allowing a fresh signed attestation without replacing the immutable prior proof.
 
 ## 5. Remaining P0 acceptance blockers
 
