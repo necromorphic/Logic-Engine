@@ -25,7 +25,7 @@
 #include <aclapi.h>
 #include <sddl.h>
 #include "windows_manifest_store.h"
-#include "windows_relative_open.h"
+#include "../secure-vfs-probe/windows_relative_open.h"
 
 #define LE_STORE_MANIFEST L"manifest.json"
 #define LE_STORE_INTENT L"intent.json"
