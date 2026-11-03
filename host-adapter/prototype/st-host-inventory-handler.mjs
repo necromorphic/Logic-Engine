@@ -345,7 +345,8 @@ export async function assertHostStartupMigrationAllowed({
   }
   if (process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR) {
     throw new Error('HOST_LIFECYCLE_STARTUP_MIGRATION_BLOCKED');
-  }\n  const resolved = resolveHostDataDirectories(directories);
+  }
+  const resolved = resolveHostDataDirectories(directories);
   if (!resolved) throw new Error('HOST_LIFECYCLE_STARTUP_MIGRATION_DIRECTORIES_INVALID');
 
   let inventory;
