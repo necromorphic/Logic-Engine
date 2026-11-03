@@ -506,6 +506,7 @@ test('bound async response writer is rejected before it can execute', async (t) 
     /Invalid protected response release capability/,
   );
   const asyncGeneratorWrite = async function* () { writes += 1; };
+  Object.setPrototypeOf(asyncGeneratorWrite, Function.prototype);
   assert.throws(
     () => fixture.gateway.authorizeResponseWrite(request.requestId, asyncGeneratorWrite),
     /Invalid protected response release capability/,
