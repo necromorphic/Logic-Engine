@@ -289,4 +289,47 @@ test('Core accepts a signed Host root completeness proof before granting lifecyc
   } });
   assert.equal(wrongAccountStatus.status, 403);
   assert.equal((await wrongAccountStatus.json()).error.code, 'HOST_LIFECYCLE_NOT_AUTHORIZED');
+
+  const changedManifest = await post('/v1/host-root-inventory/observe', {
+    ...rootBody,
+    event_id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+    entries: [{
+      path: 'chats/main.jsonl',
+      identity: { dev: '1', ino: '101', mode: 33188, size: 65, mtimeMs: 2, ctimeMs: 2 },
+      sha256: DIGEST('changed-chat-content'),
+    }],
+  });
+  assert.equal(changedManifest.status, 409);
+  assert.equal((await changedManifest.json()).inventory_status, 'NON_READY');
+  assert.equal(journal.getAuthoritySnapshot({
+    adapter_id: ADAPTER_ID,
+    host_installation_id: INSTALLATION,
+    authenticated_account_id: ACCOUNT,
+    root_id: ROOT_ID,
+    ...authority,
+  }).status, 'NON_READY');
+
+  journal.close();
+  journal = new HostLifecycleJournal({
+    path: join(directory, 'host-lifecycle.sqlite'),
+    coordinatorPath,
+    resolveIdentity: resolveJournalIdentity,
+    resolveRootIdentity: input => resolveRegisteredHostRootIdentity(registry, input),
+    verifyMutationReceipt: ({ event, identity }) => event.receipt_signature === receiptSignature(event, identity),
+    verifyCompletenessProof: ({ proof, proof_signature }) => proof_signature === createHmac('sha256', ADAPTER_TOKEN)
+      .update(canonical(proof), 'utf8').digest('hex'),
+  });
+  journal.setAuthorityGeneration(AUTHORITY_ID, AUTHORITY_GENERATION);
+  assert.equal(journal.verifyRootInventory({
+    host_installation_id: INSTALLATION,
+    authenticated_account_id: ACCOUNT,
+    root_id: ROOT_ID,
+  }).status, 'INTEGRITY_OK');
+  assert.equal(journal.getAuthoritySnapshot({
+    adapter_id: ADAPTER_ID,
+    host_installation_id: INSTALLATION,
+    authenticated_account_id: ACCOUNT,
+    root_id: ROOT_ID,
+    ...authority,
+  }).status, 'NON_READY');
 });
