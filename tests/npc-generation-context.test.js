@@ -47,10 +47,12 @@ function setup(overrides = {}) {
     resolveScope: async () => currentScope,
     readLaneA: async input => { calls.push(['A', input]); return overrides.laneA ? overrides.laneA(laneA()) : laneA(); },
     readLaneB: async input => { calls.push(['B', input]); return overrides.laneB ? overrides.laneB(laneB()) : laneB(); },
+    revalidateEvidence: async () => true,
     revalidateScope: async () => currentScope,
   });
   const receiver = createNpcGenerationContextReceiver({
     resolveScope: async () => currentScope,
+    revalidateEvidence: async () => true,
     revalidateScope: async () => currentScope,
   });
   return { builder, receiver, calls, setScope: value => { currentScope = value; } };
@@ -89,6 +91,7 @@ test('wrong NPC, conversation, world, adapter or purpose in either lane is rejec
         resolveScope: async () => scope,
         readLaneA: async () => bad,
         readLaneB: async () => laneB(),
+        revalidateEvidence: async () => true,
         revalidateScope: async () => scope,
       });
       assert.equal((await configured.build(request)).status, 'non_ready');
@@ -137,6 +140,7 @@ test('context is rejected when Core snapshot or scope changes during constructio
     resolveScope: async () => scope,
     readLaneA: async () => laneA(),
     readLaneB: async () => laneB(),
+    revalidateEvidence: async () => true,
     revalidateScope: async () => changed,
   });
   const result = await builder.build(request);

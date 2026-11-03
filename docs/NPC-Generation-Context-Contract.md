@@ -13,6 +13,7 @@ Convert two separately authorized Core evidence envelopes into one immutable, re
 - `resolveScope(requestMetadata)`: derive the authenticated World, Actor, conversation, adapter, recipient, purpose and current Core snapshot. The request metadata contains only `request_id`, `generation_id`, and `generation_type`.
 - `readLaneA(scope)`: perform the Core Lane A read and per-acquisition visibility authorization; return only a complete, visibility-filtered Lane A envelope.
 - `readLaneB(scope)`: invoke the authenticated Host/Core Memory retrieval path and wrap its exact Consumer result with the scope resolved from the verified Host assertion.
+- `revalidateEvidence(scope, envelopes)`: recheck Lane A per-acquisition visibility/currentness and Lane B Provider grants/source versions after assembly. Lane B should use the Consumer's fresh revalidation seam, not trust the prepared candidates.
 - `revalidateScope(scope)`: re-read active bindings and the Core snapshot after both reads.
 
 The builder does not accept caller-supplied World, Actor, conversation, adapter, records, fields, or authorization references. A callback failure, non-ready lane, malformed envelope, stale cursor, incomplete read, mismatched scope, or changed binding returns a content-free `non_ready` result.
@@ -41,7 +42,7 @@ Input data is copied into plain immutable data. Proxies, accessors, sparse/exten
 
 ## Receiver
 
-`createNpcGenerationContextReceiver` is a future dispatch seam only. It accepts only a context issued by the builder, for the exact same request/generation IDs and current World/Actor/conversation/adapter/snapshot. It returns an acceptance result; it does not send prompts, create a transport lease, or bypass the Host dispatch-start/sole-egress contract.
+`createNpcGenerationContextReceiver` is a future dispatch seam only. It accepts only a context issued by the builder, for the exact same request/generation IDs and current World/Actor/conversation/adapter/snapshot. It requires trusted evidence revalidation before accepting. It returns an acceptance result; it does not send prompts, create a transport lease, or bypass the Host dispatch-start/sole-egress contract.
 
 ## Explicit non-goals
 

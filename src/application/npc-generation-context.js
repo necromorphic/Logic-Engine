@@ -111,6 +111,7 @@ function validateLaneA(envelope, scope) {
     || envelope.recipient !== RECIPIENT || envelope.purpose !== PURPOSE
     || envelope.completeness !== 'complete'
     || !validId(envelope.read_authorization_ref) || !validId(envelope.visibility_authorization_ref)
+    || !exactRecord(envelope.snapshot, ['world_revision', 'commit_sequence'])
     || !sameSnapshot(envelope.snapshot, scope.snapshot) || !densePlainArray(envelope.items)) return false;
   try {
     const ids = new Set();
@@ -142,11 +143,14 @@ function validateLaneB(envelope, scope) {
     || envelope.world_id !== scope.world_id || envelope.actor_id !== scope.actor_id
     || envelope.conversation_id !== scope.conversation_id || envelope.adapter_id !== scope.adapter_id
     || envelope.recipient !== RECIPIENT || envelope.core_purpose !== PURPOSE
-    || envelope.provider_purpose !== 'npc_decision' || !sameSnapshot(envelope.snapshot, scope.snapshot)) return false;
+    || envelope.provider_purpose !== 'npc_decision'
+    || !exactRecord(envelope.snapshot, ['world_revision', 'commit_sequence'])
+    || !sameSnapshot(envelope.snapshot, scope.snapshot)) return false;
   const result = envelope.result;
   if (!exactRecord(result, ['status', 'admitted', 'candidates', 'reason', 'snapshot'])
     || result.status !== 'ready' || result.reason !== null
     || !densePlainArray(result.admitted) || !densePlainArray(result.candidates)
+    || !exactRecord(result.snapshot, ['world_revision', 'commit_sequence'])
     || !sameSnapshot(result.snapshot, scope.snapshot)
     || result.admitted.length !== result.candidates.length) return false;
   try {
@@ -178,9 +182,9 @@ function validateLaneB(envelope, scope) {
  * supply correlation metadata only, never identity or evidence.
  */
 export function createNpcGenerationContextBuilder({
-  resolveScope, readLaneA, readLaneB, revalidateScope,
+  resolveScope, readLaneA, readLaneB, revalidateEvidence, revalidateScope,
 }) {
-  for (const [name, fn] of Object.entries({ resolveScope, readLaneA, readLaneB, revalidateScope })) {
+  for (const [name, fn] of Object.entries({ resolveScope, readLaneA, readLaneB, revalidateEvidence, revalidateScope })) {
     if (typeof fn !== 'function') throw new TypeError(name + ' must be a trusted Core callback');
   }
 
@@ -206,6 +210,11 @@ export function createNpcGenerationContextBuilder({
 
     if (!validateLaneA(laneA, scope)) return nonReady('lane_a_evidence_not_current_or_authorized');
     if (!validateLaneB(laneB, scope)) return nonReady('lane_b_evidence_not_current_or_authorized');
+
+    let evidenceCurrent;
+    try { evidenceCurrent = await revalidateEvidence(scope, Object.freeze({ laneA, laneB })); }
+    catch { return nonReady('generation_evidence_changed'); }
+    if (evidenceCurrent !== true) return nonReady('generation_evidence_changed');
 
     let current;
     try { current = await revalidateScope(scope); } catch { return nonReady('generation_scope_changed'); }
@@ -260,9 +269,10 @@ export function createNpcGenerationContextBuilder({
  * this module's builder and rechecks the request binding and live Core scope.
  * It does not send to a model or create a transport lease.
  */
-export function createNpcGenerationContextReceiver({ resolveScope, revalidateScope }) {
-  if (typeof resolveScope !== 'function' || typeof revalidateScope !== 'function') {
-    throw new TypeError('Receiver requires trusted Core scope callbacks');
+export function createNpcGenerationContextReceiver({ resolveScope, revalidateEvidence, revalidateScope }) {
+  if (typeof resolveScope !== 'function' || typeof revalidateEvidence !== 'function'
+    || typeof revalidateScope !== 'function') {
+    throw new TypeError('Receiver requires trusted Core scope and evidence callbacks');
   }
   async function receive(context, request) {
     const issued = context && typeof context === 'object' ? issuedContexts.get(context) : null;
@@ -271,11 +281,14 @@ export function createNpcGenerationContextReceiver({ resolveScope, revalidateSco
       || context.request_id !== request.request_id || context.generation_id !== request.generation_id
       || context.generation_type !== request.generation_type) return nonReady('context_request_mismatch');
     let scope;
+    let evidenceCurrent;
     let current;
     try {
       scope = await resolveScope(Object.freeze({ ...request }));
+      evidenceCurrent = await revalidateEvidence(context);
       current = await revalidateScope(scope);
     } catch { return nonReady('context_scope_unavailable'); }
+    if (evidenceCurrent !== true) return nonReady('context_evidence_changed');
     if (!validateScope(scope) || !validateScope(current)
       || scope.world_id !== issued.world_id || scope.actor_id !== issued.actor_id
       || scope.conversation_id !== issued.conversation_id || scope.adapter_id !== issued.adapter_id
