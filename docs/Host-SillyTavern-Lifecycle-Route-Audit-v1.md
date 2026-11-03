@@ -78,6 +78,18 @@ The recursive pinned-source audit also found filesystem primitives in four endpo
 
 These operations are not used to establish conversation identity, do not write chat histories, and do not mutate the authenticated account root. The source manifest pins their exact implementations so a later change to their path behavior cannot silently enter an authoritative Host deployment. The shared tokenizer cache is explicitly outside the per-user inventory boundary; no claim is made that the per-user root manifest covers it.
 
+### Machine-checked pinned mutation coverage
+
+The exact pinned-source contract now enumerates **91 POST route entries across 27 endpoint modules**. The audit verifies the expected guard on every listed route against the patched SillyTavern source before Host root attestation can be requested:
+
+- 2 supported chat persistence routes use the operation-specific lifecycle save guard.
+- 89 other mutation routes are explicitly fail-closed until an operation-specific persisted receipt exists.
+- The inventory includes account/credential changes, user backups and resets, chat/group/character operations, content imports, files and asset upload/download/delete, image metadata, backgrounds, avatars, presets, quick replies, secrets, sprites, statistics, world information, vectors, settings snapshots, extension lifecycle, and ComfyUI workflow changes.
+- Logout remains separately verified by source-order assertion: Core session revocation must succeed before the SillyTavern session is cleared.
+- The route contract digest is bound into the Host inventory evidence. A missing guard, route rename, source drift, or incomplete route set leaves mutation coverage NON_READY and prevents authoritative root attestation.
+
+This is source-level coverage of the pinned built-in routes, not live runtime acceptance. It does not authorize third-party extensions or arbitrary filesystem writers; those remain excluded/fail-closed by the source attestation boundary.
+
 ## 3. Authentication and session lifecycle
 
 | SillyTavern path | Required ordering | Disposition |
