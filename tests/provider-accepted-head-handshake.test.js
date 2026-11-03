@@ -64,7 +64,7 @@ const providerOptions = (path, coordinatorPath) => ({
   path,
   coordinatorPath,
   getSnapshot: async () => ({ world_revision: 0, commit_sequence: 0 }),
-  validateSourceVersion: async () => true,
+  validateSourceVersion: () => true,
   validateInventory: async () => true,
 });
 
@@ -117,6 +117,23 @@ test('Provider mutations advance accepted head before commit and fail closed whe
     provider.grantQuery(scope, true);
     assert.equal(provider.authorizeQuery(scope), true);
 
+    const dispatchRecord = {
+      ...scope,
+      record_ref: 'memory:gateway-record',
+      record_version: 'record-v1',
+      source_kind: 'canonical_entity',
+      source_entity_id: 'entity-source-a',
+      source_version: 'source-v1',
+      content_kind: 'claim',
+      epistemic_kind: 'acquired_report',
+      producer_kind: 'memory-index',
+      content_disposition: 'usable',
+      evidence_assessment: 'unassessed',
+      lineage: [{ source_kind: 'canonical_entity', entity_id: 'entity-source-a', source_version: 'source-v1' }],
+    };
+    await provider.putRecord(dispatchRecord);
+    provider.grantRecord(scope, dispatchRecord.record_ref, dispatchRecord.record_version, true);
+
     // Final-Send reads Provider evidence synchronously under the same
     // cross-process Coordinator lease and must not mutate Provider state.
     await provider.rebuildIndex(scope.world_id);
@@ -128,8 +145,21 @@ test('Provider mutations advance accepted head before commit and fail closed whe
         worldId: scope.world_id,
         actorId: scope.subject_id,
         purpose: scope.purpose,
-        sources: [],
-        candidates: [],
+        sources: [{
+          source_kind: 'canonical_entity',
+          source_entity_id: dispatchRecord.source_entity_id,
+          source_version: dispatchRecord.source_version,
+        }],
+        candidates: [{
+          record_ref: dispatchRecord.record_ref,
+          record_version: dispatchRecord.record_version,
+          authorization_generation: providerDb.prepare(
+            'SELECT authorization_generation FROM memory_record_grants WHERE world_id=? AND subject_id=? AND purpose=? AND record_ref=? AND record_version=?',
+          ).get(scope.world_id, scope.subject_id, scope.purpose, dispatchRecord.record_ref, dispatchRecord.record_version).authorization_generation,
+          source_kind: 'canonical_entity',
+          source_entity_id: dispatchRecord.source_entity_id,
+          source_version: dispatchRecord.source_version,
+        }],
         coordinatorLease: providerLease,
       });
       assert.deepEqual(evidence, {
@@ -139,8 +169,21 @@ test('Provider mutations advance accepted head before commit and fail closed whe
         granted: true,
         readiness: 'READY',
         head: providerDb.prepare('SELECT head FROM accepted_head_state WHERE singleton=1').get().head,
-        sources: [],
-        candidates: [],
+        sources: [{
+          source_kind: 'canonical_entity',
+          source_entity_id: dispatchRecord.source_entity_id,
+          source_version: dispatchRecord.source_version,
+        }],
+        candidates: [{
+          record_ref: dispatchRecord.record_ref,
+          record_version: dispatchRecord.record_version,
+          authorization_generation: providerDb.prepare(
+            'SELECT authorization_generation FROM memory_record_grants WHERE world_id=? AND subject_id=? AND purpose=? AND record_ref=? AND record_version=?',
+          ).get(scope.world_id, scope.subject_id, scope.purpose, dispatchRecord.record_ref, dispatchRecord.record_version).authorization_generation,
+          source_kind: 'canonical_entity',
+          source_entity_id: dispatchRecord.source_entity_id,
+          source_version: dispatchRecord.source_version,
+        }],
       });
     } finally {
       providerLease();
