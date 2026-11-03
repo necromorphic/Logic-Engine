@@ -105,6 +105,37 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
       roleRegistrar, manifest, 'manifest-enrolled', manifestDbPath
     ), 1,
     'Windows manifest enrollment must bind the DB and final parent handle identities');
+
+    // A manifest-bound role is registered in a pending state. The native VFS
+    // must reject file-backed opens until the adapter has enrolled every
+    // declared sidecar and explicitly finalized the role.
+    const pendingManifestDbPath = join(directory, 'manifest-pending.sqlite');
+    writeFileSync(pendingManifestDbPath, '');
+    const pendingIdentity = captureIdentity(pendingManifestDbPath);
+    assert.equal(roleRegistrar.prepare(
+      'SELECT logic_engine_vfs_probe_register_database_role_manifest(?, ?, ?, ?, ?, ?, ?) AS registered'
+    ).get(
+      pendingManifestDbPath,
+      'manifest-pending',
+      pendingIdentity.databaseIdentity.volumeSerial,
+      pendingIdentity.databaseIdentity.fileId,
+      pendingIdentity.parentIdentity.volumeSerial,
+      pendingIdentity.parentIdentity.fileId,
+      path.win32.basename(pendingManifestDbPath),
+    ).registered, 1);
+    assert.throws(() => new DatabaseSync(pendingManifestDbPath),
+      'a manifest-bound role must not open before explicit finalization');
+    assert.equal(roleRegistrar.prepare(
+      'SELECT logic_engine_vfs_probe_activate_manifest_role(?) AS activated'
+    ).get('manifest-pending').activated, 1);
+    const activatedManifestDb = new DatabaseSync(pendingManifestDbPath);
+    try {
+      assert.equal(activatedManifestDb.prepare('SELECT 1 AS value').get().value, 1,
+        'the role may open only after manifest enrollment is finalized');
+    } finally {
+      activatedManifestDb.close();
+    }
+
     assert.throws(
       () => roleRegistrar.prepare(
         'SELECT logic_engine_vfs_probe_delete_registered_role(?)'
