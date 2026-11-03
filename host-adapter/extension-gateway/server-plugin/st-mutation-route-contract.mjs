@@ -156,6 +156,7 @@ export async function verifyPinnedSillyTavernMutationCoverage({
   const specialFiles = [
     'src/endpoints/extensions.js',
     'src/endpoints/users-admin.js',
+    'src/endpoints/users-private.js',
     'src/users.js',
     'src/endpoints/groups.js',
   ];
@@ -177,6 +178,11 @@ export async function verifyPinnedSillyTavernMutationCoverage({
       && (!source.includes("throw new Error('HOST_USER_DATA_MIGRATION_INCOMPLETE')")
         || !source.includes("throw new Error('HOST_SYSTEM_PROMPT_MIGRATION_INCOMPLETE')"))) {
       throw new Error('HOST_ST_USER_DATA_MIGRATION_GUARD_MISSING');
+    }
+    if (relative.endsWith('users-private.js')
+      && (!source.includes("router.post('/logout'")
+        || !source.includes('request.session = null'))) {
+      throw new Error('HOST_ST_LOGOUT_SESSION_INVALIDATION_MISSING');
     }
     if (relative.endsWith('users-private.js') && !source.includes('HOST_USER_ROOT_RESET_UNSUPPORTED')) {
       throw new Error('HOST_ST_ROOT_RESET_GUARD_MISSING');
