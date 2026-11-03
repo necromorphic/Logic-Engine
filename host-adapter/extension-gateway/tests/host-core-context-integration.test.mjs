@@ -314,6 +314,32 @@ test('Host Adapter requires Core root proof before context resolution and binds 
   });
   assert.equal(worldBinding.status, 201);
 
+  // The native generation request carries only a locator header. The Host
+  // Adapter must authenticate the actual ST session and verify the locator
+  // against the complete server-side inventory before issuing its capability.
+  const headerOnlyGenerationRequest = {
+    user: request.user,
+    session: request.session,
+    headers: { 'x-logic-engine-conversation-uuid': UUID },
+    body: {},
+  };
+  assert.equal(typeof adapter.authenticateGenerationRequest, 'function');
+  const hostGenerationCapability = await adapter.authenticateGenerationRequest(headerOnlyGenerationRequest);
+  assert.equal(hostGenerationCapability.status, 'READY');
+  assert.equal(hostGenerationCapability.context.conversation_id, conversationId);
+  assert.equal(adapter.isAuthenticatedHostRequest(headerOnlyGenerationRequest), true);
+  assert.equal(adapter.resolveHostContext(headerOnlyGenerationRequest).conversation_id, conversationId);
+
+  const conflictingLocatorRequest = {
+    user: request.user,
+    session: request.session,
+    headers: { 'x-logic-engine-conversation-uuid': UUID },
+    body: { conversation_uuid: '22222222-2222-4222-8222-222222222222' },
+  };
+  const conflictingCapability = await adapter.authenticateGenerationRequest(conflictingLocatorRequest);
+  assert.equal(conflictingCapability.status, 'NON_READY');
+  assert.equal(adapter.isAuthenticatedHostRequest(conflictingLocatorRequest), false);
+
   const gateResponse = responseRecorder();
   let passedGate = false;
   await adapter.dispatchMiddleware(request, gateResponse, () => { passedGate = true; });
