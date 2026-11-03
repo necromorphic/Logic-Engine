@@ -312,7 +312,7 @@ test('Host Adapter requires Core root proof before context resolution and binds 
   await productionAdapter.dispatchMiddleware(productionRequest, productionGateResponse, () => { productionPassedGate = true; });
   assert.equal(productionPassedGate, false);
   assert.equal(productionGateResponse.statusCode, 503);
-  assert.equal(productionGateResponse.payload.code, 'HOST_INVENTORY_NOT_AUTHORITATIVE');
+  assert.equal(productionGateResponse.payload.code, 'HOST_CONTEXT_UNAVAILABLE');
   assert.equal(productionCoreCalls.includes('/v1/host-root-inventory/attest'), false,
     'an unverified installed source manifest must never create a Core completeness attestation');
   assert.equal(productionCoreCalls.includes('/v1/host-context/resolve'), false);
@@ -502,6 +502,7 @@ test('Host Adapter requires Core root proof before context resolution and binds 
     body: {
       logic_engine_conversation_uuid: UUID,
       logic_engine_request_id: '88888888-8888-4888-8888-888888888888',
+      logic_engine_generation_id: '99999999-9999-4999-8999-999999999999',
       logic_engine_context_size: 4096,
       logic_engine_generation_type: 'normal',
     },
