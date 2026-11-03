@@ -864,7 +864,7 @@ diff --git a/src/endpoints/settings.js b/src/endpoints/settings.js
 diff --git a/src/endpoints/users-private.js b/src/endpoints/users-private.js
 --- a/src/endpoints/users-private.js
 +++ b/src/endpoints/users-private.js
-@@ -12,2 +12,9 @@
+@@ -12,2 +12,10 @@
  import { color, Cache, getConfigValue } from '../util.js';
  import { getIpAddress, retryAfter } from '../express-common.js';
 +import { revokeHostSessionBeforeLogout } from '../../plugins/logic-engine-extension-gateway/st-host-session-revocation.mjs';
@@ -875,7 +875,7 @@ diff --git a/src/endpoints/users-private.js b/src/endpoints/users-private.js
 +    return next();
 +};
 + 
-@@ -34,0 +41,6 @@
+@@ -34,0 +42,6 @@
 +        try {
 +            await revokeHostSessionBeforeLogout(request);
 +        } catch {
