@@ -5,12 +5,14 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
+import { createHmac } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import { beginCoordinatorLock, openCoordinatorDatabase } from '../src/storage/coordinator-lock.js';
 import {
   HostAssertionNonceStore,
   HostSessionRevocationReader,
 } from '../src/application/host-assertion-nonce-store.js';
+import { createHostSessionAssertionRunner } from '../src/application/host-session-context.js';
 
 const identity = Object.freeze({
   host_installation_id: '11111111-1111-4111-8111-111111111111',
@@ -182,6 +184,69 @@ test('Host assertion nonce replay remains denied across store restart and indepe
     try { second?.close(); } finally {
       try { first?.close(); } finally { rmSync(directory, { recursive: true, force: true }); }
     }
+  }
+});
+
+test('signed Host assertion replay is rejected by a fresh runner after durable ledger restart', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-engine-host-assertion-restart-'));
+  const corePath = join(directory, 'core.sqlite');
+  const coordinatorPath = join(directory, 'coordinator.sqlite');
+  const noncePath = join(directory, 'host-assertion-nonces.sqlite');
+  const secret = 'durable-host-assertion-replay-test-secret';
+  const nowSeconds = 1_800_000_000;
+  const assertion = {
+    protocol_version: 1,
+    host_installation_id: identity.host_installation_id,
+    authenticated_account_id: identity.authenticated_account_id,
+    host_session_id: identity.host_session_id,
+    conversation_id: identity.host_session_id + ':' + identity.host_installation_id + ':44444444-4444-4444-8444-444444444444',
+    world_id: 'durable-replay-world',
+    actor_id: 'durable-replay-actor',
+    issued_at: nowSeconds,
+    nonce: '77777777-7777-4777-8777-777777777777',
+  };
+  const signature = createHmac('sha256', secret).update(JSON.stringify([
+    assertion.protocol_version,
+    assertion.host_installation_id,
+    assertion.authenticated_account_id,
+    assertion.host_session_id,
+    assertion.conversation_id,
+    assertion.world_id,
+    assertion.actor_id,
+    assertion.issued_at,
+    assertion.nonce,
+  ]), 'utf8').digest('hex');
+  let store;
+  try {
+    store = new HostAssertionNonceStore({ path: noncePath, coreDatabasePath: corePath, coordinatorPath });
+    const firstRunner = createHostSessionAssertionRunner({
+      secret,
+      now: () => nowSeconds * 1000,
+      adapterId: 'st-adapter',
+      consumeNonce: (nonce, expiresAt, currentSeconds) =>
+        store.consume('st-adapter', nonce, expiresAt, currentSeconds),
+      isSessionRevoked: (adapterId, sessionIdentity) => store.isSessionRevoked(adapterId, sessionIdentity),
+    });
+    assert.equal(firstRunner.run(assertion, signature, () => true), true);
+    store.close();
+    store = null;
+
+    // A new runner and new SQLite connection represent a restarted Core process.
+    store = new HostAssertionNonceStore({ path: noncePath, coreDatabasePath: corePath, coordinatorPath });
+    const restartedRunner = createHostSessionAssertionRunner({
+      secret,
+      now: () => nowSeconds * 1000,
+      adapterId: 'st-adapter',
+      consumeNonce: (nonce, expiresAt, currentSeconds) =>
+        store.consume('st-adapter', nonce, expiresAt, currentSeconds),
+      isSessionRevoked: (adapterId, sessionIdentity) => store.isSessionRevoked(adapterId, sessionIdentity),
+    });
+    assert.throws(
+      () => restartedRunner.run(assertion, signature, () => true),
+      /HOST_SESSION_ASSERTION_REPLAYED/,
+    );
+  } finally {
+    try { store?.close(); } finally { rmSync(directory, { recursive: true, force: true }); }
   }
 });
 
