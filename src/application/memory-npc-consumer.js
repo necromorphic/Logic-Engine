@@ -522,6 +522,30 @@ export class MemoryNpcConsumer {
       }
     };
 
+    // The last disclosure decision runs while the shared Provider/Core/Host
+    // Coordinator is held. Provider grant mutations, Core binding changes and
+    // durable Host-session revocations therefore cannot interleave with the
+    // synchronous authorization checks and envelope construction below.
+    const finalizeUnderProviderLease = (candidates, finalize) => {
+      try {
+        if (typeof this.#memoryProvider.withAuthorizedReadLease !== 'function') {
+          return nonReady('memory_record_authorization_unavailable');
+        }
+        return this.#memoryProvider.withAuthorizedReadLease(scope, candidates, () => {
+          if (!isAuthenticatedHostSessionContext(hostSessionContext, conversationId)
+            || hostSessionContext.world_id !== worldId
+            || hostSessionContext.actor_id !== actorEntityId
+            || !coreQueryAllowed()
+            || !queryStillAllowedSynchronously()) {
+            return nonReady('query_access_unconfirmed');
+          }
+          return finalize();
+        });
+      } catch {
+        return nonReady('memory_record_authorization_unconfirmed');
+      }
+    };
+
     let memoryResult;
     try {
       // Freeze a stable data snapshot before any per-record authorization
@@ -636,8 +660,7 @@ export class MemoryNpcConsumer {
         })) {
         return nonReady('memory_snapshot_stale');
       }
-      if (!queryStillAllowedSynchronously()) return nonReady('query_access_unconfirmed');
-      return Object.freeze({
+      return finalizeUnderProviderLease([], () => Object.freeze({
         status: 'ready',
         admitted: Object.freeze([]),
         candidates: Object.freeze([]),
@@ -647,7 +670,7 @@ export class MemoryNpcConsumer {
           commit_sequence: emptySnapshotRead.commit_sequence,
         }),
         provider_evidence_cursor: memoryResult.provider_evidence_cursor,
-      });
+      }));
     }
 
     let authorizedCandidates = [];
@@ -1120,13 +1143,11 @@ export class MemoryNpcConsumer {
         return nonReady(providerAuthorizationFailureReason(error, 'memory_record_authorization_unavailable'));
       }
     }
-    // Core conversation/world and actor bindings are checked last, after the
-    // Provider fence, so a revoke during that synchronous fence cannot slip
-    // through to a ready envelope. This remains a cross-database freshness
-    // fence, not an atomic lease with a later model transport.
-    if (!queryStillAllowedSynchronously()) return nonReady('query_access_unconfirmed');
-
-    return Object.freeze({
+    return finalizeUnderProviderLease(admitted.map(item => ({
+      record_ref: item.record_ref,
+      record_version: item.record_version,
+      authorization_generation: item.authorization_generation,
+    })), () => Object.freeze({
       status: 'ready',
       admitted: decision.admitted,
       candidates: Object.freeze(admitted.map((item) => {
@@ -1145,6 +1166,6 @@ export class MemoryNpcConsumer {
         commit_sequence: sourceRead.commit_sequence,
       }),
       provider_evidence_cursor: memoryResult.provider_evidence_cursor,
-    });
+    }));
   }
 }
