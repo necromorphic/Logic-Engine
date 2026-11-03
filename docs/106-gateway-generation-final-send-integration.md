@@ -10,7 +10,7 @@ Use one in-process Core Memory Dispatch Gateway at the SillyTavern server-side f
 
 - The pinned ST Hook is the only native generation egress seam.
 - The Host Adapter resolves authenticated session, installation, account and conversation identity. Browser-supplied Memory markers are rejected.
-- The NPC Context Receiver is the existing Host-to-Core authenticated retrieval contract from #870 (`POST /v1/host/memory-npc/retrieve`), not a second generation ingress.
+- The NPC Context Receiver is composed inside Core from the authenticated Host scope and adapter-pinned `MemoryNpcConsumer`; it is not the JSON result of `POST /v1/host/memory-npc/retrieve`, and it is not a second generation ingress. Its builder-issued context must retain in-process object identity.
 - The Gateway owns durable `DISPATCH_STARTED`, shared Coordinator ordering, exactly-once transport handoff, ambiguous-outcome recovery, and final response write authorization.
 - The root SillyTavern server-plugin entrypoint (`index.mjs`) is the startup owner: it read-only verifies the single multi-route Patch Manager state and registers the Hook adapter. It must not apply a patch after native generation modules have already been imported; install/update happens before restart. Normal shutdown leaves the patch installed; explicit Extension deletion owns uninstall. The adapter is currently fail-closed for protected Memory and only preserves ordinary authenticated generation.
 - The multi-route Patch Manager incorporates #868's durable-state direction: state, journal and byte-exact backups live under `SillyTavern/data/logic-engine/final-send-patch`, outside the removable Extension directory; restore uses a durable transaction journal and fsync-backed atomic replacement. #868's standalone manager was scoped to the Chat Completions endpoint, so it was not transplanted wholesale because it would drop the four additional native text-generation routes.
@@ -39,9 +39,9 @@ The #870 Host Adapter/Core integration provides the underlying contracts:
 - conversation-to-World and World-to-Actor binding in Core;
 - an authenticated Host assertion with durable nonce replay protection;
 - Core-owned NPC Memory retrieval through `MemoryNpcConsumer`;
-- a validated Result Envelope returned by `/v1/host/memory-npc/retrieve`.
+- authenticated World/Actor/conversation scope and the existing retrieval Result Envelope. These are inputs to the in-process NPC Generation Context Builder, not a serialized Final-Send handoff.
 
-Important limitation: #870's current browser-side `interceptProtectedGeneration` prototype aborts the native generation and delegates to the Host `/dispatch` route; it does not hand the returned Result Envelope to the native sender or continue through Final-Send. That route is therefore not a completed NPC Context Receiver-to-model path and must not be treated as one.
+Important limitation: #851's Extension Gateway is not part of the selected generation path. The current candidate removes its direct dispatch call and retains only fail-closed behavior after protected failure. Neither a browser interceptor nor a JSON `/dispatch` route can carry the builder-issued context identity into the in-process Gateway.
 
 The #844 Gateway already provides:
 - file-backed durable dispatch ledger with `synchronous=FULL`;
@@ -56,8 +56,8 @@ These pieces are not yet composed into a production bootstrap. In particular, th
 
 The production bootstrap must supply, from trusted server configuration:
 1. the live pinned Host Adapter and its authenticated request-context resolver;
-2. a server-side, request-scoped NPC Context Receiver call to Core, with strict Result Envelope validation and no browser-owned Memory payload;
-3. a verified correlation from the actual native generation request to the authenticated Host conversation (the current native request does not yet have a demonstrated server-side conversation binding); a browser-supplied request ID may only select a server-stored, one-time receipt and cannot itself establish identity;
+2. the Core in-process NPC Generation Context runtime: asynchronous `prepareForDispatch(request)` builds/receives the context and issues a one-shot opaque handoff; the Gateway consumes it synchronously under the shared Coordinator. The context itself is never serialized;
+3. a verified correlation from the actual native generation request to the authenticated Host conversation and exact request/response lifecycle; a browser-supplied request ID may only select a server-stored, one-time receipt and cannot itself establish identity;
 4. the real `MemoryDispatchGateway` instance with configured Core/Provider read-only evidence readers and the exact shared Coordinator database;
 5. one stable request ID and one protected-dispatch decision per Host response;
 6. a fail-closed rule that `NON_READY`, missing identity, missing receiver, stale evidence, unknown sender or absent Gateway cannot downgrade to native fetch.
