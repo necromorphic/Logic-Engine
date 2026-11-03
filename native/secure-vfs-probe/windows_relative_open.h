@@ -264,7 +264,7 @@ static inline int logic_engine_win_anchor_path(
   cursor = copy + 3;
   /* For C:\\name.db, the volume root itself is the parent. The basename
    * was already copied above; do not reinterpret it as a directory child. */
-  if (last_separator == copy + 2) *cursor = L'\\0';
+  if (last_separator == copy + 2) *cursor = L'\0';
   while (*cursor) {
     wchar_t *end;
     wchar_t saved;
@@ -283,7 +283,7 @@ static inline int logic_engine_win_anchor_path(
       ACCESS_MASK directory_access = FILE_LIST_DIRECTORY | FILE_TRAVERSE | FILE_READ_ATTRIBUTES;
       /* The retained final-parent handle must be able to create SQLite
        * sidecars and delete only validated child handles after path changes. */
-      if (!end || end[1] == L'\\0')
+      if (!end || end[1] == L'\0')
         directory_access |= FILE_ADD_FILE | FILE_DELETE_CHILD;
       next = logic_engine_win_open_relative(current, cursor,
           directory_access,

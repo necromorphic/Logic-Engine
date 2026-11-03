@@ -127,6 +127,10 @@ function assertIntent(intent) {
   return intent;
 }
 
+export function validateWindowsManifestIntent(intent) {
+  return assertIntent(intent);
+}
+
 /**
  * store contract:
  *   withExclusiveLock(callback)
