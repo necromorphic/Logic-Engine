@@ -18,6 +18,7 @@ const ADAPTER_ID = 'st-host-adapter';
 const INSTALLATION = '11111111-1111-4111-8111-111111111111';
 const ACCOUNT = '22222222-2222-4222-8222-222222222222';
 const SESSION = '33333333-3333-4333-8333-333333333333';
+const ROTATED_SESSION = '12121212-1212-4212-8212-121212121212';
 const CONVERSATION = '44444444-4444-4444-8444-444444444444';
 const NONCE = '55555555-5555-4555-8555-555555555555';
 const conversationId = SESSION + ':' + INSTALLATION + ':' + CONVERSATION;
@@ -83,7 +84,7 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
     && input.adapterId === ADAPTER_ID
     && input.host_installation_id === INSTALLATION
     && input.authenticated_account_id === ACCOUNT
-    && input.host_session_id === SESSION
+    && [SESSION, ROTATED_SESSION].includes(input.host_session_id)
     && input.conversation_uuid === CONVERSATION ? ({
     authorized: true, adapter_id: ADAPTER_ID,
     host_installation_id: input.host_installation_id,
@@ -111,7 +112,7 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
       calls += 1;
       const context = getAuthenticatedHostSessionContext();
       assert.equal(context.conversation_id, requested);
-      assert.equal(context.host_session_id, SESSION);
+      assert.equal(context.host_session_id, requested.split(':')[0]);
       assert.equal(context.host_installation_id, INSTALLATION);
       assert.equal(context.authenticated_account_id, ACCOUNT);
       assert.equal(context.world_id, 'host-memory-world');
@@ -557,23 +558,45 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
   });
   assert.equal(revocationReplay.status, 409);
 
-  const rotatedSession = '12121212-1212-4212-8212-121212121212';
+  const rotationConversationId = ROTATED_SESSION + ':' + INSTALLATION + ':' + CONVERSATION;
+  let rotationConsumerStarted;
+  const rotationStarted = new Promise(resolve => { rotationConsumerStarted = resolve; });
+  pauseConsumer = true;
+  consumerStartedResolve = rotationConsumerStarted;
+  const rotationAssertion = {
+    ...assertion,
+    host_session_id: ROTATED_SESSION,
+    conversation_id: rotationConversationId,
+    nonce: '13131313-1313-4313-8313-131313131313',
+    issued_at: Math.floor(Date.now() / 1000),
+  };
+  const rotationRead = post(base, '/v1/host/memory-npc/retrieve', adapterHeaders, {
+    ...body, assertion: rotationAssertion, signature: sign(rotationAssertion),
+    request_id: '14141414-1414-4414-8414-141414141414',
+  });
+  await rotationStarted;
   const rotationEvent = {
     protocol_version: 1, host_installation_id: INSTALLATION,
-    authenticated_account_id: ACCOUNT, host_session_id: rotatedSession,
+    authenticated_account_id: ACCOUNT, host_session_id: ROTATED_SESSION,
     issued_at: Math.floor(Date.now() / 1000),
-    nonce: '13131313-1313-4313-8313-131313131313', reason: 'session_rotation',
+    nonce: '15151515-1515-4515-8515-151515151515', reason: 'session_rotation',
   };
   const rotationResponse = await post(base, '/v1/host/session/revoke', adapterHeaders, {
     ...rotationEvent, signature: signRevocation(rotationEvent),
   });
   assert.equal(rotationResponse.status, 204);
+  releaseConsumerResolve?.();
+  pauseConsumer = false;
+  const rotatedInFlightResponse = await rotationRead;
+  assert.equal(rotatedInFlightResponse.status, 401);
+  assert.equal((await rotatedInFlightResponse.json()).error.code, 'HOST_SESSION_REVOKED');
+  consumerStartedResolve = null;
   assert.equal(nonceStore.isSessionRevoked(ADAPTER_ID, {
     host_installation_id: INSTALLATION,
     authenticated_account_id: ACCOUNT,
-    host_session_id: rotatedSession,
+    host_session_id: ROTATED_SESSION,
   }), true);
-  assert.equal(calls, 11);
+  assert.equal(calls, 12);
 
   // Reopen the SQLite file to prove revocation survives a Core process restart.
   await new Promise(resolve => server.close(resolve));
@@ -605,7 +628,7 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
   });
   assert.equal(afterRestartRead.status, 401);
   assert.equal((await afterRestartRead.json()).error.code, 'HOST_SESSION_REVOKED');
-  assert.equal(calls, 11);
+  assert.equal(calls, 12);
 
   // A durable-store I/O failure is a distinct fail-closed 503, not a generic
   // 500 and never an authentication success.
@@ -642,5 +665,5 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
   });
   assert.equal(unavailableResponse.status, 503);
   assert.equal((await unavailableResponse.json()).error.code, 'HOST_ASSERTION_REPLAY_GUARD_UNAVAILABLE');
-  assert.equal(calls, 11);
+  assert.equal(calls, 12);
 });
