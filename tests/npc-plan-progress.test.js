@@ -199,3 +199,31 @@ test("fails closed when Array.prototype iterator is replaced", () => {
   }
   assert.deepEqual(result, { status: "non_ready", plan: null });
 });
+
+test("rejects benign Proxy plan objects before invoking their get traps", () => {
+  let getCalls = 0;
+  const candidate = new Proxy(plan(), {
+    get(target, key, receiver) {
+      getCalls += 1;
+      return Reflect.get(target, key, receiver);
+    },
+  });
+  assert.deepEqual(advanceNpcPlan(candidate, { type: "abandon" }), { status: "non_ready", plan: null });
+  assert.equal(getCalls, 0);
+});
+
+test("rejects Proxy step arrays before invoking their reflection traps", () => {
+  let trapCalls = 0;
+  const steps = new Proxy(plan().steps, {
+    get(target, key, receiver) {
+      trapCalls += 1;
+      return Reflect.get(target, key, receiver);
+    },
+    getOwnPropertyDescriptor(target, key) {
+      trapCalls += 1;
+      return Reflect.getOwnPropertyDescriptor(target, key);
+    },
+  });
+  assert.deepEqual(advanceNpcPlan({ ...plan(), steps }, { type: "abandon" }), { status: "non_ready", plan: null });
+  assert.equal(trapCalls, 0);
+});

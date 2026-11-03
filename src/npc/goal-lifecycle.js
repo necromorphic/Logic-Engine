@@ -1,3 +1,5 @@
+import { types as utilTypes } from "node:util";
+
 /**
  * NPC-owned goal lifecycle transition helper.
  *
@@ -47,7 +49,7 @@ function hasSafeArrayIterator() {
 
 function isPlainDataObject(value) {
   if (!hasSafeObjectPrototype()) return false;
-  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+  if (value === null || typeof value !== "object" || utilTypes.isProxy(value) || Array.isArray(value)) return false;
   const prototype = Object.getPrototypeOf(value);
   if (prototype !== Object.prototype && prototype !== null) return false;
   return Reflect.ownKeys(value).every((key) => {

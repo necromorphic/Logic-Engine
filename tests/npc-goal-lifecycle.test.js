@@ -91,3 +91,15 @@ test("fails closed on Object.prototype pollution without invoking inherited gett
   assert.deepEqual(result, { status: "non_ready", goal: null });
   assert.equal(invoked, false);
 });
+
+test("rejects benign Proxy goals before invoking their get traps", () => {
+  let getCalls = 0;
+  const goal = new Proxy({ id: "g", status: "active" }, {
+    get(target, key, receiver) {
+      getCalls += 1;
+      return Reflect.get(target, key, receiver);
+    },
+  });
+  assert.deepEqual(transitionNpcGoal(goal, "complete"), { status: "non_ready", goal: null });
+  assert.equal(getCalls, 0);
+});
