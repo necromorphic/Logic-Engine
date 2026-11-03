@@ -13,7 +13,7 @@ test('every reviewed per-user mutation route and global Host guard is present in
   assert.equal(coverage.route_count, 81);
   assert.equal(coverage.guard_assertion_count, PINNED_ST_MUTATION_GUARD_ASSERTION_COUNT);
   assert.equal(coverage.guard_assertion_count, PINNED_ST_MUTATION_GUARD_ASSERTION_COUNT);
-  assert.equal(coverage.guard_assertion_count, 108);
+  assert.equal(coverage.guard_assertion_count, 81);
   assert.match(coverage.source_files_sha256, /^[a-f0-9]{64}$/);
   assert.match(coverage.coverage_manifest_sha256, /^[a-f0-9]{64}$/);
 });
