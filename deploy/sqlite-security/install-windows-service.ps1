@@ -74,7 +74,7 @@ function Set-PrivateFileAcl([string]$Path, [string]$ServiceSid) {
       $_.AccessControlType -eq [Security.AccessControl.AccessControlType]::Allow -and
       (([int]$_.FileSystemRights -band [int]$required) -eq [int]$required)
     }
-    if (-not $present) { throw "Required environment-file ACL is missing for $sid: $Path" }
+    if (-not $present) { throw "Required environment-file ACL is missing for ${sid}: $Path" }
   }
 }
 function Set-PrivateTreeAcl([string]$Path, [string]$ServiceSid, [string]$ServiceRights) {
