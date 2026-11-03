@@ -1430,9 +1430,34 @@ export class HostLifecycleJournal {
     if (!snapshot || !/^[a-f0-9]{64}$/.test(snapshot.snapshot_fingerprint ?? '')) {
       return { status: 'NON_READY', reason: 'HOST_ROOT_INVENTORY_NOT_AUTHORITATIVE' };
     }
-    // A valid hash chain is integrity evidence, not completeness authority.
-    // Until the signed source attestation is accepted, remain fail-closed.
-    return { status: 'NON_READY', reason: 'HOST_ROOT_INVENTORY_REVIEW_ONLY' };
+    if (snapshot.authority_status !== 'AUTHORITATIVE_COMPLETE'
+      || !validDigest(snapshot.attestation_sha256)
+      || !validDigest(snapshot.source_manifest_sha256)) {
+      return { status: 'NON_READY', reason: 'HOST_ROOT_INVENTORY_REVIEW_ONLY' };
+    }
+    const trustedIdentity = this.resolveRootIdentity({
+      host_installation_id: input.host_installation_id,
+      authenticated_account_id: input.authenticated_account_id,
+      root_id: input.root_id,
+    });
+    if (!isPlainRecord(trustedIdentity) || trustedIdentity.authorized !== true
+      || trustedIdentity.adapter_id !== input.adapter_id
+      || trustedIdentity.source_manifest_sha256 !== snapshot.source_manifest_sha256) {
+      return { status: 'NON_READY', reason: 'HOST_ROOT_INVENTORY_DEPLOYMENT_BINDING_MISMATCH' };
+    }
+    return {
+      status: 'READY',
+      adapter_id: input.adapter_id,
+      host_installation_id: input.host_installation_id,
+      authenticated_account_id: input.authenticated_account_id,
+      root_id: input.root_id,
+      root_inventory_sequence: snapshot.sequence,
+      root_manifest_sha256: snapshot.manifest_sha256,
+      attestation_sha256: snapshot.attestation_sha256,
+      source_manifest_sha256: snapshot.source_manifest_sha256,
+      authority_id: input.authority_id,
+      generation: input.generation,
+    };
   }
 
   close() {
