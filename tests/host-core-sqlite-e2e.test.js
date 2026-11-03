@@ -11,6 +11,7 @@ import { LogicEngine } from '../src/application/engine.js';
 import { ActorBindingService } from '../src/application/actor-bindings.js';
 import { HostConversationWorldBindingService } from '../src/application/host-conversation-world-bindings.js';
 import { createMemoryNpcProviderAdapter } from '../src/application/memory-npc-provider-adapter.js';
+import { createHostBoundNpcKnowledgeAuthorizers } from '../src/application/npc-knowledge-authorization.js';
 import { HostAssertionNonceStore } from '../src/application/host-assertion-nonce-store.js';
 import { createApiServer } from '../src/api/server.js';
 import { createSillyTavernHostAdapter } from '../host-adapter/extension-gateway/server-plugin/host-adapter.mjs';
@@ -66,10 +67,34 @@ test('Host dispatch proxy retrieves a real SQLite Provider record through Core H
     };
     for (const directoryPath of Object.values(directories)) mkdirSync(directoryPath, { recursive: true });
     store = new SQLiteStore(corePath);
-    const engine = new LogicEngine(store);
     const worldId = 'host-core-sqlite-world';
     const actorId = 'host-core-sqlite-npc';
     const sourceId = 'host-core-sqlite-source';
+    const knowledgeSourceBytes = JSON.stringify({
+      schema_version: 1,
+      world_pack_id: 'test.host-core-sqlite-e2e',
+      world_pack_version: '1',
+      source_kind: 'author_initial',
+      source_ref: 'authoring:test.host-core-sqlite-e2e@1',
+      authorization_ref: 'rule:host-core-sqlite-initial-knowledge-v1',
+      assignments: [{ subject_id: actorId, fact_id: 'host-core-sqlite-initial-fact' }],
+    });
+    const trustedInitialKnowledgeSources = [{
+      world_pack_id: 'test.host-core-sqlite-e2e',
+      world_pack_version: '1',
+      source_kind: 'author_initial',
+      source_ref: 'authoring:test.host-core-sqlite-e2e@1',
+      authorization_ref: 'rule:host-core-sqlite-initial-knowledge-v1',
+      sha256: createHash('sha256').update(knowledgeSourceBytes).digest('hex'),
+    }];
+    const coreNpcAuthorizers = createHostBoundNpcKnowledgeAuthorizers({
+      store, adapterIds: [ADAPTER_ID], trustedInitialKnowledgeSources,
+    });
+    const engine = new LogicEngine(store, {
+      trustedInitialKnowledgeSources,
+      npcKnowledgeReadAuthorizer: coreNpcAuthorizers.readAuthorizer,
+      npcKnowledgeVisibilityAuthorizer: coreNpcAuthorizers.visibilityAuthorizer,
+    });
 
     engine.createWorld({
       world_id: worldId,
@@ -85,7 +110,15 @@ test('Host dispatch proxy retrieves a real SQLite Provider record through Core H
       effects: [
         { kind: 'entity.create', entity_id: actorId, entity_type: 'character', attributes: { name: 'NPC' } },
         { kind: 'entity.create', entity_id: sourceId, entity_type: 'character', attributes: { public_note: 'retrieved from real SQLite Provider' } },
+        { kind: 'fact.set', fact_id: 'host-core-sqlite-initial-fact', subject_ref: 'entity:' + actorId, predicate: 'knows', value: 'trusted Lane A fact' },
       ],
+    });
+    engine.recordTrustedInitialKnowledgeSource({
+      world_id: worldId,
+      source_bytes: knowledgeSourceBytes,
+      idempotency_key: 'host-core-sqlite-initial-knowledge',
+      expected_revision: 1,
+      expected_commit_sequence: 1,
     });
     new ActorBindingService(engine).bind(worldId, ADAPTER_ID, actorId);
     new HostConversationWorldBindingService(engine).bind({
@@ -97,7 +130,7 @@ test('Host dispatch proxy retrieves a real SQLite Provider record through Core H
       providerPath,
       coordinatorPath,
       adapterId: ADAPTER_ID,
-      trustedInitialKnowledgeSources: [],
+      trustedInitialKnowledgeSources,
       fieldPolicy: (_context, _entity, field) => field === 'entity_id' || field === 'attributes.public_note',
       contentFields: ['attributes.public_note'],
     });
@@ -138,6 +171,7 @@ test('Host dispatch proxy retrieves a real SQLite Provider record through Core H
       token: API_TOKEN,
       adapterTokens: { [ADAPTER_ID]: ADAPTER_TOKEN },
       memoryNpcConsumers: { [ADAPTER_ID]: providerAdapter.consumer },
+      memoryNpcGenerationContexts: { [ADAPTER_ID]: providerAdapter.npcGenerationContext },
       hostAssertionNonceStore: nonceStore,
     });
     server.listen(0, '127.0.0.1');
@@ -219,6 +253,17 @@ test('Host dispatch proxy retrieves a real SQLite Provider record through Core H
     assert.equal(retrieved.payload.retrieval.candidates.length, 1);
     assert.equal(
       retrieved.payload.retrieval.candidates[0].content['attributes.public_note'],
+      'retrieved from real SQLite Provider',
+    );
+    assert.equal(retrieved.payload.npc_context.schema, 'npc-generation-context-projection/v1');
+    assert.equal(retrieved.payload.npc_context.world_id, worldId);
+    assert.equal(retrieved.payload.npc_context.actor_id, actorId);
+    assert.equal(retrieved.payload.npc_context.conversation_id, conversationId);
+    assert.equal(retrieved.payload.npc_context.lanes.lane_a.items.length, 1);
+    assert.equal(retrieved.payload.npc_context.lanes.lane_a.items[0].value, 'trusted Lane A fact');
+    assert.equal(retrieved.payload.npc_context.lanes.lane_b.candidates.length, 1);
+    assert.equal(
+      retrieved.payload.npc_context.lanes.lane_b.candidates[0].content['attributes.public_note'],
       'retrieved from real SQLite Provider',
     );
     assert.equal(hostFetchRequests.length, 1, 'the installed Gateway adapter must perform one Core Memory HTTP request');
