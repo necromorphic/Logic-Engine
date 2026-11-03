@@ -89,7 +89,7 @@ test('adapter maps all pinned non-Chat-Completions route families', () => {
   assert.equal(adapter.resolveSenderRoute({}, 'text-completions'), 'text-completions');
   assert.equal(adapter.resolveSenderRoute({}, 'kobold'), 'kobold');
   assert.equal(adapter.resolveSenderRoute({}, 'novelai-text'), 'novelai-text');
-  assert.equal(adapter.resolveSenderRoute({}, 'horde-text'), 'horde-text');
+  assert.equal(adapter.resolveSenderRoute({}, 'horde-text'), 'unregistered');
 });
 
 test('CometAPI is registered and protected generation reaches the sole Gateway', async () => {
@@ -179,8 +179,8 @@ test('unknown native route remains unregistered and cannot enter protected dispa
   }), /MEMORY_DISPATCH_NOT_READY/);
 });
 
-test('all four protected non-Chat-Completions routes dispatch through Core Gateway', async () => {
-  const routes = ['text-completions', 'kobold', 'novelai-text', 'horde-text'];
+test('all three synchronous protected non-Chat-Completions routes dispatch through Core Gateway', async () => {
+  const routes = ['text-completions', 'kobold', 'novelai-text'];
   const calls = [];
   const adapter = createAdapter({
     resolveProtectedMemory: () => ({
@@ -215,6 +215,58 @@ test('all four protected non-Chat-Completions routes dispatch through Core Gatew
     assert.equal(result.status, 200);
   }
   assert.deepEqual(calls, routes);
+});
+
+test('Horde async task creation remains native only when unprotected', async () => {
+  const unprotectedAdapter = createAdapter({ resolveProtectedMemory: () => null });
+  const unprotectedRequest = { body: {} };
+  const unprotectedRoute = unprotectedAdapter.resolveSenderRoute(unprotectedRequest, 'horde-text');
+  assert.equal(unprotectedRoute, 'unregistered');
+  let ordinaryTransportCalls = 0;
+  const ordinaryResult = await unprotectedAdapter.dispatch({
+    request: unprotectedRequest,
+    response: {},
+    senderRoute: unprotectedRoute,
+    hostRoute: 'horde-text',
+    endpointUrl: 'https://aihorde.net/api/v2/generate/text/async',
+    requestInit,
+    stream: false,
+    transport: async () => {
+      ordinaryTransportCalls += 1;
+      return { status: 200 };
+    },
+  });
+  assert.equal(ordinaryResult.status, 200);
+  assert.equal(ordinaryTransportCalls, 1);
+
+  const protectedContext = {
+    requestId: 'request-horde-protected',
+    model: 'test-model',
+    worldId: 'world-1',
+    actorId: 'actor-1',
+    purpose: 'npc_decision',
+    sources: [{ source_kind: 'canonical_entity', source_entity_id: 'entity-1', source_version: 'v1' }],
+    candidates: [{ record_ref: 'record-1', record_version: 'v1', authorization_generation: 1,
+      source_kind: 'canonical_entity', source_entity_id: 'entity-1', source_version: 'v1' }],
+  };
+  const protectedAdapter = createAdapter({ resolveProtectedMemory: () => protectedContext });
+  const protectedRequest = { body: {} };
+  let protectedTransportCalls = 0;
+  assert.equal(protectedAdapter.resolveSenderRoute(protectedRequest, 'horde-text'), 'unregistered');
+  assert.throws(() => protectedAdapter.dispatch({
+    request: protectedRequest,
+    response: {},
+    senderRoute: 'unregistered',
+    hostRoute: 'horde-text',
+    endpointUrl: 'https://aihorde.net/api/v2/generate/text/async',
+    requestInit,
+    stream: false,
+    transport: async () => {
+      protectedTransportCalls += 1;
+      return { status: 200 };
+    },
+  }), /MEMORY_DISPATCH_NOT_READY/);
+  assert.equal(protectedTransportCalls, 0, 'protected Horde task creation must be denied before task submission');
 });
 
 test('registered protected sender is delegated to the Core Gateway', () => {
