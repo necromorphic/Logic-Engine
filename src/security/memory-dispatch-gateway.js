@@ -640,25 +640,19 @@ export class MemoryDispatchGateway {
     const sourceSet = normalizeSources(sources);
     const candidateSet = normalizeCandidates(candidates);
     assertSourcesMatchCandidates(sourceSet, candidateSet);
-    // Sender family is intentionally excluded from the replay digest:
-    // changing providers must not turn an ambiguous request into a new attempt.
-    // The signed envelope and ledger still bind the exact sender route.
+    // The logical generation identity, not provider-specific bytes, is the
+    // replay key. A retry cannot escape UNKNOWN by changing sender, model,
+    // body serialization, or request_id; the signed envelope binds those exact
+    // provider bytes separately.
     const requestDigest = createHash('sha256').update(JSON.stringify({
       route,
-      sender_route: senderRoute,
-      model,
-      stream,
-      body_digest: createHash('sha256').update(body, 'utf8').digest('hex'),
+      generation_id: generationRequest.generation_id,
+      generation_type: generationRequest.generation_type,
       world_id: worldId,
       actor_id: actorId,
       purpose,
       conversation_id: conversationId,
       adapter_id: adapterId,
-      host_route: hostRoute,
-      generation_request: generationRequest,
-      content_blocks_digest: createHash('sha256').update(stableJson(normalizeNpcContentBlocks(contentBlocks)), 'utf8').digest('hex'),
-      sources: sourceSet,
-      candidates: candidateSet,
     }), 'utf8').digest('hex');
     let coreHead;
     let providerHead;
