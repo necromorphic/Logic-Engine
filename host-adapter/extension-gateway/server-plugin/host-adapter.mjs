@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import {
   createHostIdentityHandler,
   createHostInventoryHandler,
@@ -130,6 +131,9 @@ export function createSillyTavernHostAdapter({
           host_session_id: sessionId,
           conversation_id: identityRecord.host_installation_id + ':'
             + identityRecord.authenticated_account_id + ':' + conversationUuid,
+          root_id: createHash('sha256').update(path.resolve(directories.root), 'utf8').digest('hex'),
+          root_inventory_sequence: rootProof.sequence,
+          root_manifest_sha256: rootProof.manifest_sha256,
         };
       },
     });
