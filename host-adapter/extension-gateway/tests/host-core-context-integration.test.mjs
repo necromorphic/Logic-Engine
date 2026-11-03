@@ -12,6 +12,8 @@ import { createApiServer } from '../../../src/api/server.js';
 import { getAuthenticatedHostSessionContext } from '../../../src/application/host-session-context.js';
 import { HostAssertionNonceStore } from '../../../src/application/host-assertion-nonce-store.js';
 import { createSillyTavernHostAdapter } from '../server-plugin/host-adapter.mjs';
+import { CORE_ATTESTED_SOURCE_BLOCKERS } from '../server-plugin/st-host-inventory-handler.mjs';
+import { PINNED_PATCH_BUNDLE_SHA256, PINNED_HOST_HANDLER_GIT_BLOB_SHA } from '../server-plugin/st-source-attestation.mjs';
 
 const API_TOKEN = 'core-api-token-long-enough-123456';
 const ADMIN_TOKEN = 'core-admin-token-long-enough-123456';
@@ -20,6 +22,8 @@ const ADAPTER_ID = 'st-host-adapter';
 const PINNED_HOST_COMMIT = '06bde939fb1e9c4c8d8641d810f0a916b5bce127';
 const UUID = '11111111-1111-4111-8111-111111111111';
 const ACCOUNT_HANDLE = 'default-user';
+const TEST_SOURCE_MANIFEST_SHA = 'f'.repeat(64);
+const TEST_SNAPSHOT_ID = '{57115DD3-F8D9-4CA2-84C2-4076FBB7D962}';
 
 function responseRecorder() {
   return {
@@ -189,28 +193,61 @@ test('Host Adapter requires Core root proof before context resolution and binds 
   const authoritativeFixture = async ({ directories }) => {
     assert.deepEqual(directories, { root, chats, groups, groupChats });
     return {
-    filesystem: { status: 'complete', entries: rootEntries },
-    source: {
-      status: 'AUTHORITATIVE_COMPLETE',
-      files: [{ logical_identity: { conversation_uuid: UUID } }],
-    },
-    authority: {
-      status: 'AUTHORITATIVE_COMPLETE',
-      manifest_sha256: 'a'.repeat(64),
-    },
+      filesystem: {
+        status: 'complete',
+        entries: rootEntries,
+        snapshot_sha256: 'b'.repeat(64),
+        snapshot_id: TEST_SNAPSHOT_ID,
+        snapshot_provider: 'windows-vss-client-accessible',
+        snapshot_consistency: 'VSS_POINT_IN_TIME_READ_ONLY',
+        reparse_points: 'ALL_FILE_ATTRIBUTE_REPARSE_POINT_ENTRIES_REJECTED',
+      },
+      source: {
+        status: 'DOUBLE_SCAN_CANDIDATE',
+        authority: 'NON_AUTHORITATIVE',
+        host_commit: PINNED_HOST_COMMIT,
+        scope: 'PINNED_SILLYTAVERN_CHAT_DATA_ROOTS',
+        historical_boundary: 'CURRENT_FILE_SET_ONLY_ENROLLMENT_BASELINE_REQUIRED',
+        logical_identity_status: 'CURRENT_FILE_IDENTITIES_VERIFIED',
+        snapshot_id: TEST_SNAPSHOT_ID,
+        snapshot_provider: 'windows-vss-client-accessible',
+        snapshot_consistency: 'VSS_POINT_IN_TIME_READ_ONLY',
+        blockers: [...CORE_ATTESTED_SOURCE_BLOCKERS],
+        files: [{ logical_identity: {
+          conversation_uuid: UUID,
+          identity_status: 'CURRENT_IDENTITIES_VERIFIED',
+        } }],
+      },
+      snapshot_alignment: 'SHARED_VSS_SNAPSHOT',
+    };
   };
-  };
-  // This proof stub is test-only. Production uses the Core root-inventory
-  // response and must reject its current REVIEW_ONLY result.
-  const testOnlyAuthoritativeRootProof = async ({ userHandle, rootPath, entries }) => {
+  const testSourceIdentity = async () => ({
+    status: 'CURRENT_IDENTITIES_VERIFIED',
+    manifest_sha256: TEST_SOURCE_MANIFEST_SHA,
+    patch_blob_sha: PINNED_PATCH_BUNDLE_SHA256,
+    host_handler_blob_sha: PINNED_HOST_HANDLER_GIT_BLOB_SHA,
+  });
+  // This proof stub is test-only. Production uses the signed Core root-inventory
+  // response; a local candidate scan without that proof must remain NON_READY.
+  const testOnlyAuthoritativeRootProof = async ({
+    userHandle, rootPath, entries, snapshotAlignment, snapshotSha256, sourceIdentity,
+  }) => {
     assert.equal(typeof userHandle, 'string');
     assert.equal(rootPath, root);
     assert.deepEqual(entries, rootEntries);
+    assert.equal(snapshotAlignment, 'SHARED_VSS_SNAPSHOT');
+    assert.equal(snapshotSha256, 'b'.repeat(64));
+    assert.equal(sourceIdentity.status, 'CURRENT_IDENTITIES_VERIFIED');
+    assert.equal(sourceIdentity.manifest_sha256, TEST_SOURCE_MANIFEST_SHA);
     return {
       status: 'AUTHORITATIVE_COMPLETE',
       integrity_status: 'INTEGRITY_OK',
       sequence: 1,
       manifest_sha256: 'c'.repeat(64),
+      source_manifest_sha256: TEST_SOURCE_MANIFEST_SHA,
+      attestation_sha256: 'd'.repeat(64),
+      lifecycle_sequence: 1,
+      lifecycle_head_sha256: 'e'.repeat(64),
     };
   };
   const adapter = createSillyTavernHostAdapter({
@@ -218,6 +255,7 @@ test('Host Adapter requires Core root proof before context resolution and binds 
     enumerate: authoritativeFixture,
     fetchImpl,
     persistRootInventory: testOnlyAuthoritativeRootProof,
+    verifySourceIdentity: testSourceIdentity,
   });
 
   const request = {
