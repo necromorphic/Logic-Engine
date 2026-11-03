@@ -724,7 +724,7 @@ export class MemoryNpcConsumer {
       || sourceRead.world_id !== worldId
       || !validSnapshot({ world_revision: sourceRead.world_revision, commit_sequence: sourceRead.commit_sequence })
       || !isDensePlainDataArray(sourceRead.entities)
-      || sourceRead.entities.length !== entityIds.length) {
+    ) {
       return nonReady('authorized_source_read_invalid');
     }
 
@@ -751,7 +751,7 @@ export class MemoryNpcConsumer {
       sourceById.set(entity.entity_id, entity);
     }
     if (sourceById.size !== requestedEntityIds.size) {
-      return nonReady('authorized_source_read_invalid');
+      return nonReady('authorized_source_missing');
     }
 
     const oracleCandidates = [];
@@ -873,14 +873,14 @@ export class MemoryNpcConsumer {
         commit_sequence: finalSourceSnapshotRead.commit_sequence,
       })
       || !isDensePlainDataArray(finalSourceSnapshotRead.entities)
-      || finalSourceSnapshotRead.entities.length !== entityIds.length) {
+    ) {
       return nonReady('authorized_source_read_invalid');
     }
     if (!sameSnapshot(sourceRead, {
       world_revision: finalSourceSnapshotRead.world_revision,
       commit_sequence: finalSourceSnapshotRead.commit_sequence,
     })) {
-      return nonReady('authorized_source_read_invalid');
+      return nonReady('memory_snapshot_stale');
     }
 
     // Reapply field visibility at the disclosure boundary. The first source
@@ -897,7 +897,7 @@ export class MemoryNpcConsumer {
       finalSourceById.set(entity.entity_id, entity);
     }
     if (finalSourceById.size !== requestedEntityIds.size) {
-      return nonReady('authorized_source_read_invalid');
+      return nonReady('authorized_source_missing');
     }
     const finalContentByIdentity = new Map();
     for (const item of admitted) {
@@ -909,10 +909,10 @@ export class MemoryNpcConsumer {
         Object.fromEntries(this.contentFields.map((field) => [field, source[field]])));
     }
 
-    // Recheck query and exact Provider record grants after the final field-bearing read.
-    // SQLite checks are synchronous, so no event-loop yield occurs before the
-    // envelope is returned. Revoke/re-grant is detected by the durable generation.
+    // Check Core authorization immediately after the final field-bearing read.
     if (!queryStillAllowedSynchronously()) return nonReady('query_access_unconfirmed');
+    // Recheck exact Provider record grants. These checks are synchronous, so
+    // no event-loop yield occurs before the final Core authorization fence.
     for (const item of admitted) {
       try {
         if (this.#memoryProvider.checkCandidateGrant({
@@ -925,6 +925,11 @@ export class MemoryNpcConsumer {
         return nonReady(providerAuthorizationFailureReason(error, 'memory_record_authorization_unavailable'));
       }
     }
+    // Core conversation/world and actor bindings are checked last, after the
+    // Provider fence, so a revoke during that synchronous fence cannot slip
+    // through to a ready envelope.
+    if (!queryStillAllowedSynchronously()) return nonReady('query_access_unconfirmed');
+
     return Object.freeze({
       status: 'ready',
       admitted: decision.admitted,
