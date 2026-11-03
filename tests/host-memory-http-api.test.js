@@ -488,6 +488,31 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
   consumerStartedResolve = null;
   assert.equal(calls, 9);
 
+  // Completeness can be withdrawn while the Consumer is suspended. An
+  // integrity-valid REVIEW_ONLY snapshot must not authorize disclosure.
+  let completenessConsumerStarted;
+  const completenessStarted = new Promise(resolve => { completenessConsumerStarted = resolve; });
+  pauseConsumer = true;
+  consumerStartedResolve = completenessConsumerStarted;
+  const completenessRaceAssertion = {
+    ...assertion, nonce: '31313131-3131-4131-8131-313131313131',
+    issued_at: Math.floor(Date.now() / 1000),
+  };
+  const completenessRaceRead = post(base, '/v1/host/memory-npc/retrieve', adapterHeaders, {
+    ...body, assertion: completenessRaceAssertion, signature: sign(completenessRaceAssertion),
+    request_id: '32323232-3232-4232-8232-323232323232',
+  });
+  await completenessStarted;
+  hostIdentitySnapshot = { ...hostIdentitySnapshot, authority_status: 'REVIEW_ONLY' };
+  releaseConsumerResolve?.();
+  pauseConsumer = false;
+  const completenessRaceResponse = await completenessRaceRead;
+  assert.equal(completenessRaceResponse.status, 401);
+  assert.equal((await completenessRaceResponse.json()).error.code, 'HOST_ROOT_IDENTITY_UNAUTHORIZED');
+  hostIdentitySnapshot = { ...hostIdentitySnapshot, authority_status: 'AUTHORITATIVE_COMPLETE' };
+  consumerStartedResolve = null;
+  assert.equal(calls, 10);
+
   // A signed logout revocation is durable, scoped to the exact installation /
   // account / session tuple, and invalidates assertions already in flight.
   const revocation = {
@@ -548,7 +573,7 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
     authenticated_account_id: ACCOUNT,
     host_session_id: rotatedSession,
   }), true);
-  assert.equal(calls, 10);
+  assert.equal(calls, 11);
 
   // Reopen the SQLite file to prove revocation survives a Core process restart.
   await new Promise(resolve => server.close(resolve));
@@ -580,7 +605,7 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
   });
   assert.equal(afterRestartRead.status, 401);
   assert.equal((await afterRestartRead.json()).error.code, 'HOST_SESSION_REVOKED');
-  assert.equal(calls, 10);
+  assert.equal(calls, 11);
 
   // A durable-store I/O failure is a distinct fail-closed 503, not a generic
   // 500 and never an authentication success.
@@ -617,5 +642,5 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
   });
   assert.equal(unavailableResponse.status, 503);
   assert.equal((await unavailableResponse.json()).error.code, 'HOST_ASSERTION_REPLAY_GUARD_UNAVAILABLE');
-  assert.equal(calls, 10);
+  assert.equal(calls, 11);
 });
