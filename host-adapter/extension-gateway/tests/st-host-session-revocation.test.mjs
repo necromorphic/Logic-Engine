@@ -60,6 +60,29 @@ test('logout revocation signs the exact adapter/installation/account/session tup
   assert.equal(body.signature, createHmac('sha256', ADAPTER_TOKEN).update(proof).digest('hex'));
 });
 
+test('remote HTTP revocation endpoints are rejected before sending credentials', async () => {
+  let calls = 0;
+  const revoke = createHostSessionRevocationClient({
+    env: {
+      LOGIC_ENGINE_CORE_URL: 'http://core.example.com:8787',
+      LOGIC_ENGINE_API_TOKEN: API_TOKEN,
+      LOGIC_ENGINE_ADAPTER_ID: 'st-host-adapter',
+      LOGIC_ENGINE_ADAPTER_TOKEN: ADAPTER_TOKEN,
+    },
+    identityStore: {
+      async resolveAuthenticatedAccount() { return { host_installation_id: INSTALLATION, authenticated_account_id: ACCOUNT }; },
+      async assertOutsideRoot() {},
+    },
+    getDataRoot: () => '/srv/st-data',
+    fetchImpl: async () => { calls++; return { status: 204 }; },
+  });
+  await assert.rejects(
+    revoke({ session: { logicEngineSessionId: SESSION, logicEngineSessionHandle: 'alice' } }, 'logout'),
+    /HOST_SESSION_REVOCATION_UNAVAILABLE/,
+  );
+  assert.equal(calls, 0);
+});
+
 test('session rotation revokes the old session identity', async () => {
   const { revoke, calls } = fixture();
   await revoke({ session: { logicEngineSessionId: SESSION, logicEngineSessionHandle: 'alice' } }, 'session_rotation');
