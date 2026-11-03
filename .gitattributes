@@ -1,3 +1,2 @@
 host-adapter/patches/*.patch -text
 host-adapter/prototype/patches/*.patch -text
-host-adapter/prototype/st-host-inventory-handler.mjs -text
