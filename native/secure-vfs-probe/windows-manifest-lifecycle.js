@@ -73,6 +73,9 @@ function nextManifest(manifest, mutate) {
 }
 
 function intentFor(manifest, operation, role, kind, expectedIdentity = null) {
+  if (manifest.generation >= Number.MAX_SAFE_INTEGER) {
+    throw new RangeError('Windows manifest generation is exhausted');
+  }
   return Object.freeze({
     schemaVersion: 1,
     operationId: cryptoRandomId(),
@@ -249,13 +252,19 @@ export class WindowsManifestLifecycleCoordinator {
             && entry.state === 'retired'
             && identityKey(entry.identity) === identityKey(intent.expectedIdentity));
         if (!committed) throw new Error('Manifest generation advanced without the matching lifecycle result');
+        const handle = await this.#namespace.openSidecar(intent.role, intent.kind, intent.basename);
         if (intent.operation === 'create-sidecar') {
-          const handle = await this.#namespace.openSidecar(intent.role, intent.kind, intent.basename);
           if (!handle) throw new Error('Committed active sidecar is missing');
           try {
             if (identityKey(await this.#namespace.identity(handle)) !== identityKey(committed.identity)) {
               throw new Error('Committed sidecar identity no longer matches its opened handle');
             }
+          } finally {
+            await this.#namespace.close(handle);
+          }
+        } else if (handle) {
+          try {
+            throw new Error('Retired sidecar name was recreated before lifecycle recovery completed');
           } finally {
             await this.#namespace.close(handle);
           }
