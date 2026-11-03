@@ -11,6 +11,9 @@
 #define MAGIC 0x4c454256u
 #define VERSION 2u
 #define MAX_PACKET 4096u
+static uint16_t net16(uint16_t v){return (uint16_t)((v<<8)|(v>>8));}
+static uint32_t net32(uint32_t v){return ((v&0x000000ffu)<<24)|((v&0x0000ff00u)<<8)|((v&0x00ff0000u)>>8)|((v&0xff000000u)>>24);}
+static uint64_t net64(uint64_t v){return ((uint64_t)net32((uint32_t)v)<<32)|net32((uint32_t)(v>>32));}
 #pragma pack(push, 1)
 typedef struct { uint32_t magic; uint16_t version, operation; uint32_t flags; uint64_t request_id; uint32_t payload_length; } Header;
 #pragma pack(pop)
@@ -49,6 +52,8 @@ static BOOL auth(HANDLE pipe) {
 static void client(HANDLE pipe) {
  Header q,r;BYTE payload[MAX_PACKET-sizeof(Header)];DWORD pid=0,available=0;
  if(!auth(pipe)||!GetNamedPipeClientProcessId(pipe,&pid)||!pid||!readn(pipe,&q,sizeof(q)))return;
+ q.magic=net32(q.magic);q.version=net16(q.version);q.operation=net16(q.operation);
+ q.flags=net32(q.flags);q.request_id=net64(q.request_id);q.payload_length=net32(q.payload_length);
  if(q.magic!=MAGIC||q.version!=VERSION||q.flags||q.payload_length>sizeof(payload))return;
  if(q.payload_length&&!readn(pipe,payload,q.payload_length))return;
  if(!PeekNamedPipe(pipe,NULL,0,NULL,&available,NULL)||available)return;
@@ -56,13 +61,15 @@ static void client(HANDLE pipe) {
  if(q.operation==1&&!q.payload_length)r.flags=0;
  else if(q.operation>=2&&q.operation<=8)r.flags=3; /* UNSUPPORTED: backend absent */
  else r.flags=1;
+ r.magic=net32(r.magic);r.version=net16(r.version);r.operation=net16(r.operation);
+ r.flags=net32(r.flags);r.request_id=net64(r.request_id);r.payload_length=net32(r.payload_length);
  (void)writen(pipe,&r,sizeof(r));
 }
 static void run(void) {
  SECURITY_ATTRIBUTES sa;PSECURITY_DESCRIPTOR sd=NULL;ZeroMemory(&sa,sizeof(sa));
  if(!pipe_sa(&sa,&sd)){status(SERVICE_STOPPED,GetLastError());return;}status(SERVICE_RUNNING,0);
  while(!InterlockedCompareExchange(&stopping,0,0)){
-  HANDLE p=CreateNamedPipeW(PIPE_NAME,PIPE_ACCESS_DUPLEX,PIPE_TYPE_BYTE|PIPE_READMODE_BYTE|PIPE_WAIT|PIPE_REJECT_REMOTE_CLIENTS,8,MAX_PACKET,MAX_PACKET,1000,&sa);
+  HANDLE p=CreateNamedPipeW(PIPE_NAME,PIPE_ACCESS_DUPLEX|FILE_FLAG_FIRST_PIPE_INSTANCE,PIPE_TYPE_BYTE|PIPE_READMODE_BYTE|PIPE_WAIT|PIPE_REJECT_REMOTE_CLIENTS,8,MAX_PACKET,MAX_PACKET,1000,&sa);
   if(p==INVALID_HANDLE_VALUE){DWORD e=GetLastError();if(e==ERROR_ACCESS_DENIED||e==ERROR_INVALID_PARAMETER)break;if(WaitForSingleObject(stop_event,500)==WAIT_OBJECT_0)break;continue;}
   if(ConnectNamedPipe(p,NULL)||GetLastError()==ERROR_PIPE_CONNECTED)client(p);
   DisconnectNamedPipe(p);CloseHandle(p);if(WaitForSingleObject(stop_event,0)==WAIT_OBJECT_0)break;
