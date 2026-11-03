@@ -252,6 +252,7 @@ test('Core Lane A and Provider Lane B are projected separately with Lane A prove
       visibility_authorization_ref: 'visibility-read-auth-1',
       items: [laneAItem],
     },
+    revalidateLaneAUnderCoordinatorLease: () => ({ status: 'ready' }),
     contentBlocks: [{
       epistemic_kind: 'acquired_report',
       evidence_assessment: 'supported',
@@ -314,6 +315,7 @@ test('Lane A projection rejects accessors instead of invoking them', async () =>
     resolveProtectedMemory: () => ({
       ...context,
       laneA: { items: [item] },
+      revalidateLaneAUnderCoordinatorLease: () => ({ status: 'ready' }),
       contentBlocks: [],
     }),
     fetchImpl: async () => { throw new Error('must not fetch'); },
