@@ -245,5 +245,11 @@ export function registerWindowsManifestRole(database, manifest, roleName, databa
       throw new Error(`Secure VFS rejected manifest sidecar ${role.role}/${sidecar.kind}`);
     }
   }
+  const activated = database.prepare(
+    'SELECT logic_engine_vfs_probe_activate_manifest_role(?) AS activated'
+  ).get(role.role);
+  if (activated?.activated !== 1) {
+    throw new Error(`Secure VFS could not finalize manifest role ${role.role}`);
+  }
   return result.registered;
 }
