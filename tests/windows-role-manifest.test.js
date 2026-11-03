@@ -341,6 +341,16 @@ test('Windows manifest enrollment rejects retired sidecar identities that alias 
   ), /Duplicate physical Windows identity/);
 });
 
+test('Windows manifest enrollment rejects metadata root repeated as a descendant parent identity', () => {
+  const aliasedChain = manifest();
+  aliasedChain.roles[0].parentIdentities[0] = structuredClone(
+    aliasedChain.metadataRootIdentity
+  );
+  assert.throws(() => registerWindowsManifestRole(
+    fakeDatabase(), aliasedChain, 'core', 'C:\\\\LogicEngine\\\\data\\\\core.sqlite'
+  ), /Duplicate parent directory identity/);
+});
+
 test('Windows manifest enrollment fails before DB registration when any ancestor identity mismatches', () => {
   const db = fakeDatabase({ failDirectoryValidationAt: 2 });
   assert.throws(() => registerWindowsManifestRole(
