@@ -12,8 +12,9 @@ int le_win_namespace_open_sidecar(
     const LogicEngineWinFileIdentity *expected,
     HANDLE *opened, LogicEngineWinFileIdentity *identity);
 int le_win_namespace_flush(HANDLE opened);
+int le_win_namespace_flush_parent(HANDLE parent);
 int le_win_namespace_delete_sidecar(
-    HANDLE parent, HANDLE opened,
+    HANDLE parent, HANDLE *opened,
     const LogicEngineWinFileIdentity *expected);
 #endif
 #endif
