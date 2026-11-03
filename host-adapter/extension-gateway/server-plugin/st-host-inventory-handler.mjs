@@ -584,6 +584,15 @@ export function createHostRequestAuthenticationGate({ resolveConversationId } = 
       return request !== null && (typeof request === 'object' || typeof request === 'function')
         ? authenticatedRequests.get(request)?.conversation_id ?? null : null;
     },
+    // Core's in-process capability uses PC-NEXT-11, not the Host storage key
+    // installation:account:conversationUuid. Keep both identities explicit.
+    resolveCoreConversationId(request) {
+      if (request === null || (typeof request !== 'object' && typeof request !== 'function')) return null;
+      const context = authenticatedRequests.get(request);
+      return context
+        ? [context.host_session_id, context.host_installation_id, context.conversation_uuid].join(':')
+        : null;
+    },
     resolveHostContext(request) {
       return request !== null && (typeof request === 'object' || typeof request === 'function')
         ? authenticatedRequests.get(request) ?? null : null;
