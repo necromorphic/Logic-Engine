@@ -271,6 +271,7 @@ test('every pinned chat-history mutation route is either receipted or fail-close
     ['src/endpoints/users-admin.js', '/promote', 'hostUnsupportedMutationGuard'],
     ['src/endpoints/users-admin.js', '/demote', 'hostUnsupportedMutationGuard'],
     ['src/endpoints/users-admin.js', '/create', 'hostUnsupportedMutationGuard'],
+    ['src/endpoints/users-admin.js', '/delete', 'hostUnsupportedMutationGuard'],
   ];
   for (const [file, route, guard] of guardedRoutes) {
     const lines = section(file).split('\n').filter(line => line.startsWith('+router.post('));
