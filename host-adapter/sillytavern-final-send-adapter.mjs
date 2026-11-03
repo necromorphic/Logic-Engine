@@ -114,9 +114,11 @@ export function createSillyTavernFinalSendAdapter({
   chatCompletionSources,
   nativeForwardFetchResponse,
   prepareHostContext = async () => null,
+  runWithAuthenticatedHostSession = null,
 }) {
   if (typeof nativeForwardFetchResponse !== 'function'
-    || typeof prepareHostContext !== 'function') {
+    || typeof prepareHostContext !== 'function'
+    || (runWithAuthenticatedHostSession !== null && typeof runWithAuthenticatedHostSession !== 'function')) {
     throw new TypeError('Native SillyTavern response writer and trusted Host preparation callback are required.');
   }
   const sourceMap = assertSourceMap(chatCompletionSources);
@@ -144,7 +146,7 @@ export function createSillyTavernFinalSendAdapter({
       if (hostContext?.status === 'NON_READY') {
         throw terminalError(new Error(hostContext.code || 'MEMORY_DISPATCH_NOT_READY'));
       }
-      preparedContextByRequest.set(request, Object.freeze({ request, hostContext: hostContext ?? null, hostRoute }));
+      preparedContextByRequest.set(request, Object.freeze({ request, response, hostContext: hostContext ?? null, hostRoute }));
     },
 
     resolveSenderRoute(request, hostRoute = 'chat-completions') {
@@ -169,6 +171,9 @@ export function createSillyTavernFinalSendAdapter({
         throw error;
       }
 
+      const prepared = args.request && typeof args.request === 'object'
+        ? preparedContextByRequest.get(args.request) : null;
+      const execute = () => {
       let protectedMemory;
       try {
         protectedMemory = resolveProtectedMemory(
@@ -252,6 +257,12 @@ export function createSillyTavernFinalSendAdapter({
         return result.catch(deny);
       }
       return result;
+      };
+      const coreConversationId = prepared?.hostContext?.coreConversationId;
+      if (runWithAuthenticatedHostSession && coreConversationId) {
+        return runWithAuthenticatedHostSession(args.request, coreConversationId, execute);
+      }
+      return execute();
     },
 
     authorizeResponseWrite(response, write, final = false) {
