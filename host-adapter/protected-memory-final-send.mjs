@@ -11,7 +11,21 @@ import { PROTECTED_MEMORY_SENDER_ROUTES } from '../src/security/memory-dispatch-
  */
 export { PROTECTED_MEMORY_SENDER_ROUTES };
 
-const validRoute = (route) => PROTECTED_MEMORY_SENDER_ROUTES.includes(route);
+function arrayContains(values, expected) {
+  for (let index = 0; index < values.length; index += 1) {
+    if (values[index] === expected) return true;
+  }
+  return false;
+}
+
+function ownKeyContains(keys, expected) {
+  for (let index = 0; index < keys.length; index += 1) {
+    if (keys[index] === expected) return true;
+  }
+  return false;
+}
+
+const validRoute = route => arrayContains(PROTECTED_MEMORY_SENDER_ROUTES, route);
 
 function assertProtectedContext(context) {
   if (!context || typeof context !== 'object' || Array.isArray(context)
@@ -25,8 +39,12 @@ function assertProtectedContext(context) {
   }
 }
 
-const CHAT_COMPLETION_ROUTES = new Set(PROTECTED_MEMORY_SENDER_ROUTES.filter(route =>
-  !['text-completions', 'kobold', 'novelai-text', 'horde-text'].includes(route)));
+const CHAT_COMPLETION_ROUTES = new Set();
+for (let index = 0; index < PROTECTED_MEMORY_SENDER_ROUTES.length; index += 1) {
+  const route = PROTECTED_MEMORY_SENDER_ROUTES[index];
+  if (route !== 'text-completions' && route !== 'kobold'
+    && route !== 'novelai-text' && route !== 'horde-text') CHAT_COMPLETION_ROUTES.add(route);
+}
 
 const HOST_ONLY_FIELDS = new Set([
   'logic_engine_conversation_uuid',
@@ -41,18 +59,21 @@ const HOST_ONLY_FIELDS = new Set([
 
 function removeHostOnlyFields(value) {
   if (Array.isArray(value)) {
-    for (const item of value) removeHostOnlyFields(item);
+    for (let index = 0; index < value.length; index += 1) removeHostOnlyFields(value[index]);
     return;
   }
   if (!value || typeof value !== 'object') return;
-  for (const key of Object.keys(value)) {
+  const keys = Object.keys(value);
+  for (let index = 0; index < keys.length; index += 1) {
+    const key = keys[index];
     if (HOST_ONLY_FIELDS.has(key)) delete value[key];
     else removeHostOnlyFields(value[key]);
   }
 }
 
 function projectLaneAItems(items) {
-  if (!Array.isArray(items) || items.length > 200) {
+  if (!Array.isArray(items) || isProxy(items) || items.length > 200
+    || Object.getPrototypeOf(items) !== Array.prototype) {
     throw new Error('PROTECTED_MEMORY_FINAL_SEND_LANE_A_INVALID');
   }
   const keys = [
@@ -63,86 +84,124 @@ function projectLaneAItems(items) {
   const projected = [];
   let totalBytes = 0;
   for (let index = 0; index < items.length; index += 1) {
-    const descriptor = Object.getOwnPropertyDescriptor(items, String(index));
-    if (!descriptor || !Object.hasOwn(descriptor, 'value')) {
+    const itemDescriptor = Object.getOwnPropertyDescriptor(items, String(index));
+    if (!itemDescriptor || !itemDescriptor.enumerable || !Object.hasOwn(itemDescriptor, 'value')) {
       throw new Error('PROTECTED_MEMORY_FINAL_SEND_LANE_A_INVALID');
     }
-    const item = descriptor.value;
+    const item = itemDescriptor.value;
     if (!item || typeof item !== 'object' || Array.isArray(item) || isProxy(item)
-      || Object.getPrototypeOf(item) !== Object.prototype
-      || Reflect.ownKeys(item).length !== keys.length
-      || Reflect.ownKeys(item).some(key => typeof key !== 'string' || !keys.includes(key))) {
+      || Object.getPrototypeOf(item) !== Object.prototype) {
       throw new Error('PROTECTED_MEMORY_FINAL_SEND_LANE_A_INVALID');
     }
-    for (const key of keys) {
+    const ownKeys = Reflect.ownKeys(item);
+    if (ownKeys.length !== keys.length) throw new Error('PROTECTED_MEMORY_FINAL_SEND_LANE_A_INVALID');
+    for (let keyIndex = 0; keyIndex < ownKeys.length; keyIndex += 1) {
+      if (typeof ownKeys[keyIndex] !== 'string' || !arrayContains(keys, ownKeys[keyIndex])) {
+        throw new Error('PROTECTED_MEMORY_FINAL_SEND_LANE_A_INVALID');
+      }
+    }
+    const values = Object.create(null);
+    for (let keyIndex = 0; keyIndex < keys.length; keyIndex += 1) {
+      const key = keys[keyIndex];
       const property = Object.getOwnPropertyDescriptor(item, key);
       if (!property || !property.enumerable || !Object.hasOwn(property, 'value')) {
         throw new Error('PROTECTED_MEMORY_FINAL_SEND_LANE_A_INVALID');
       }
+      values[key] = property.value;
     }
-    for (const key of ['acquisition_id', 'fact_id', 'subject_ref', 'predicate', 'acquisition_kind',
-      'provenance_ref', 'acquisition_authorization_ref', 'visibility_authorization_ref']) {
-      if (typeof item[key] !== 'string' || !item[key] || item[key].length > 200) {
+    const textKeys = [
+      'acquisition_id', 'fact_id', 'subject_ref', 'predicate', 'acquisition_kind',
+      'provenance_ref', 'acquisition_authorization_ref', 'visibility_authorization_ref',
+    ];
+    for (let keyIndex = 0; keyIndex < textKeys.length; keyIndex += 1) {
+      const value = values[textKeys[keyIndex]];
+      if (typeof value !== 'string' || !value || value.length > 200) {
         throw new Error('PROTECTED_MEMORY_FINAL_SEND_LANE_A_INVALID');
       }
     }
-    if (typeof item.provenance_digest !== 'string' || !/^[a-f0-9]{64}$/.test(item.provenance_digest)
-      || !Array.isArray(item.source_event_ids) || isProxy(item.source_event_ids)
-      || Object.getPrototypeOf(item.source_event_ids) !== Array.prototype
-      || item.source_event_ids.length > 200) {
+    const events = values.source_event_ids;
+    if (typeof values.provenance_digest !== 'string' || !/^[a-f0-9]{64}$/.test(values.provenance_digest)
+      || !Array.isArray(events) || isProxy(events)
+      || Object.getPrototypeOf(events) !== Array.prototype || events.length > 200) {
       throw new Error('PROTECTED_MEMORY_FINAL_SEND_LANE_A_INVALID');
     }
     const sourceEventIds = [];
-    for (let eventIndex = 0; eventIndex < item.source_event_ids.length; eventIndex += 1) {
-      const event = Object.getOwnPropertyDescriptor(item.source_event_ids, String(eventIndex));
+    for (let eventIndex = 0; eventIndex < events.length; eventIndex += 1) {
+      const event = Object.getOwnPropertyDescriptor(events, String(eventIndex));
       if (!event || !event.enumerable || !Object.hasOwn(event, 'value')
         || typeof event.value !== 'string' || !event.value || event.value.length > 200) {
         throw new Error('PROTECTED_MEMORY_FINAL_SEND_LANE_A_INVALID');
       }
-      sourceEventIds.push(event.value);
+      sourceEventIds[sourceEventIds.length] = event.value;
     }
     const record = {
-      acquisition_id: item.acquisition_id,
-      fact_id: item.fact_id,
-      subject_ref: item.subject_ref,
-      predicate: item.predicate,
-      value: item.value,
-      acquisition_kind: item.acquisition_kind,
-      provenance_ref: item.provenance_ref,
-      provenance_digest: item.provenance_digest,
+      acquisition_id: values.acquisition_id,
+      fact_id: values.fact_id,
+      subject_ref: values.subject_ref,
+      predicate: values.predicate,
+      value: values.value,
+      acquisition_kind: values.acquisition_kind,
+      provenance_ref: values.provenance_ref,
+      provenance_digest: values.provenance_digest,
       source_event_ids: sourceEventIds,
     };
     const serialized = JSON.stringify(record);
     if (typeof serialized !== 'string') throw new Error('PROTECTED_MEMORY_FINAL_SEND_LANE_A_INVALID');
     totalBytes += Buffer.byteLength(serialized, 'utf8');
     if (totalBytes > 512 * 1024) throw new Error('PROTECTED_MEMORY_FINAL_SEND_LANE_A_TOO_LARGE');
-    projected.push(record);
+    projected[projected.length] = record;
   }
   return projected;
 }
 
 function renderNpcContext(laneAItems, contentBlocks) {
-  if (!Array.isArray(contentBlocks)) {
+  if (!Array.isArray(contentBlocks) || isProxy(contentBlocks)
+    || Object.getPrototypeOf(contentBlocks) !== Array.prototype || contentBlocks.length > 50) {
     throw new Error('PROTECTED_MEMORY_FINAL_SEND_LANE_B_INVALID');
   }
   const sections = [];
   if (Array.isArray(laneAItems) && laneAItems.length > 0) {
     const laneA = projectLaneAItems(laneAItems);
-    sections.push('[Logic Engine Core Knowledge — Lane A]\n'
+    sections[sections.length] = '[Logic Engine Core Knowledge — Lane A]\\n'
       + JSON.stringify({ purpose: 'npc_turn_context', completeness: 'complete', items: laneA })
-      + '\n[/Logic Engine Core Knowledge — Lane A]');
+      + '\\n[/Logic Engine Core Knowledge — Lane A]';
   }
   if (contentBlocks.length > 0) {
-    const bounded = contentBlocks.map(block => ({
-      epistemic_kind: block.epistemic_kind,
-      evidence_assessment: block.evidence_assessment,
-      content: block.content,
-    }));
-    sections.push('[Logic Engine NPC Memory Context — Lane B]\n'
+    const bounded = [];
+    for (let index = 0; index < contentBlocks.length; index += 1) {
+      const blockDescriptor = Object.getOwnPropertyDescriptor(contentBlocks, String(index));
+      if (!blockDescriptor || !blockDescriptor.enumerable || !Object.hasOwn(blockDescriptor, 'value')) {
+        throw new Error('PROTECTED_MEMORY_FINAL_SEND_LANE_B_INVALID');
+      }
+      const block = blockDescriptor.value;
+      if (!block || typeof block !== 'object' || Array.isArray(block) || isProxy(block)
+        || Object.getPrototypeOf(block) !== Object.prototype) {
+        throw new Error('PROTECTED_MEMORY_FINAL_SEND_LANE_B_INVALID');
+      }
+      const epistemic = Object.getOwnPropertyDescriptor(block, 'epistemic_kind');
+      const assessment = Object.getOwnPropertyDescriptor(block, 'evidence_assessment');
+      const content = Object.getOwnPropertyDescriptor(block, 'content');
+      if (!epistemic || !Object.hasOwn(epistemic, 'value')
+        || !assessment || !Object.hasOwn(assessment, 'value')
+        || !content || !Object.hasOwn(content, 'value')) {
+        throw new Error('PROTECTED_MEMORY_FINAL_SEND_LANE_B_INVALID');
+      }
+      bounded[bounded.length] = {
+        epistemic_kind: epistemic.value,
+        evidence_assessment: assessment.value,
+        content: content.value,
+      };
+    }
+    sections[sections.length] = '[Logic Engine NPC Memory Context — Lane B]\\n'
       + JSON.stringify({ purpose: 'npc_decision', items: bounded })
-      + '\n[/Logic Engine NPC Memory Context — Lane B]');
+      + '\\n[/Logic Engine NPC Memory Context — Lane B]';
   }
-  return sections.join('\n');
+  let rendered = '';
+  for (let index = 0; index < sections.length; index += 1) {
+    if (index > 0) rendered += '\\n';
+    rendered += sections[index];
+  }
+  return rendered;
 }
 
 function serializeProtectedRequestBody(requestInit, senderRoute, laneAItems, contentBlocks) {
@@ -161,7 +220,14 @@ function serializeProtectedRequestBody(requestInit, senderRoute, laneAItems, con
       let insertionIndex = 0;
       while (insertionIndex < body.messages.length
         && body.messages[insertionIndex]?.role === 'system') insertionIndex += 1;
-      body.messages.splice(insertionIndex, 0, { role: 'system', content: context });
+      const messages = body.messages;
+      const inserted = new Array(messages.length + 1);
+      for (let index = 0; index < insertionIndex; index += 1) inserted[index] = messages[index];
+      inserted[insertionIndex] = { role: 'system', content: context };
+      for (let index = insertionIndex; index < messages.length; index += 1) {
+        inserted[index + 1] = messages[index];
+      }
+      body.messages = inserted;
     } else {
       const promptKey = senderRoute === 'novelai-text' ? 'input' : 'prompt';
       if (typeof body[promptKey] !== 'string') {
