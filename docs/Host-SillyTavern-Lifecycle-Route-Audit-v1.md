@@ -126,3 +126,17 @@ The signed root-inventory attestation producer is wired for shared Windows VSS s
 ## 6. Source evidence and limits
 
 The repository CI pins SillyTavern commit `06bde939fb1e9c4c8d8641d810f0a916b5bce127`, applies the reviewed Host patches, syntax-checks patched files, runs the source audit, and exercises the real-file harness on Windows. The separately supplied Sillytavern release archive identifies itself as version 1.19.0 but does not include Git metadata; that archive alone cannot prove the pinned commit or that the Host patches are installed. Live deployment acceptance therefore remains separate from the pinned CI result.
+
+## 7. Exact mutation-route authority gate — 3 November 2026
+
+The runtime Host inventory handler now executes the pinned mutation-route verifier against the installed SillyTavern source tree. It does not trust a route-coverage object produced by the filesystem enumerator. The verifier checks the 92 distinct POST route declarations and their 92 route-specific middleware assertions, plus the pinned account, logout, migration, extension-loader and group-startup guards.
+
+Before calling Core to persist a root baseline, Host requires both:
+- a current installed-source identity with a valid manifest digest; and
+- mutation coverage with the exact `PINNED_ST_MUTATION_COVERAGE_SHA256` and exact `PINNED_ST_MUTATION_ROUTE_COUNT` for the pinned Host commit.
+
+A merely well-formed digest, a nonzero but incomplete route count, or a verifier exception leaves the inventory diagnostic-only and adds `UNVERIFIED_MUTATION_ROUTE_COVERAGE`; it cannot create a Core baseline. Negative tests cover forged coverage digests and incorrect route counts. The deployed Gateway handler blob and the route-contract module are both included in the pinned source manifest.
+
+The route assertions were aligned with the actual patched SillyTavern 1.19.0 source: account-admin mutations use route-scoped guards; user-data migration blocks legacy writes and skips system-prompt migration under Host authority; group metadata migration skips writes when the startup migration gate refuses authority. The tests do not require a global `router.use()` where the implementation intentionally guards individual POST routes.
+
+This strengthens source/route attestation only. It does not make import, export, restore, move, branch-copy, account-root reset, or other explicitly unsupported operations receipted. Those routes remain fail-closed. Exact-head CI for the current integration head and live Windows VSS/deployment acceptance are still required; no production completion is claimed.
