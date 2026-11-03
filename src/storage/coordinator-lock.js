@@ -26,6 +26,24 @@ export function openCoordinatorDatabase(path) {
   }
 }
 
+const coordinatorLeases = new WeakMap();
+
+function coordinatorDatabaseIdentity(db) {
+  try {
+    const file = db.prepare('PRAGMA database_list').all()
+      .find(row => row.name === 'main')?.file;
+    return typeof file === 'string' && file.length > 0 ? resolve(file) : db;
+  } catch {
+    return db;
+  }
+}
+
+/** Verify an active lease belongs to the same file-backed Coordinator. */
+export function isCoordinatorLease(lease, db) {
+  if (typeof lease !== 'function' || !db || typeof db.prepare !== 'function') return false;
+  return coordinatorLeases.get(lease) === coordinatorDatabaseIdentity(db);
+}
+
 /**
  * Acquire the cross-process write lock synchronously. Keep the returned lease
  * until the participant's own local mutation has committed or rolled back.
@@ -36,11 +54,18 @@ export function beginCoordinatorLock(db) {
   if (!db || typeof db.exec !== 'function') throw new TypeError('A coordinator database handle is required.');
   db.exec('BEGIN IMMEDIATE');
   let released = false;
-  return () => {
+  const identity = coordinatorDatabaseIdentity(db);
+  const release = () => {
     if (released) return;
-    db.exec('ROLLBACK');
-    released = true;
+    try {
+      db.exec('ROLLBACK');
+    } finally {
+      released = true;
+      coordinatorLeases.delete(release);
+    }
   };
+  coordinatorLeases.set(release, identity);
+  return release;
 }
 
 

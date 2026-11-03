@@ -29,7 +29,9 @@ export async function init(router) {
   router.get('/inventory', hostAdapter.inventory);
   router.post('/host-lifecycle/events', hostAdapter.lifecycleEvents);
   router.get('/host-lifecycle/status', hostAdapter.lifecycleStatus);
-  router.post('/dispatch', hostAdapter.dispatchMiddleware, hostAdapter.dispatch);
+  // No browser-facing Memory dispatch endpoint exists. The native Final-Send
+  // plugin calls HostAdapter.prepareGenerationContext on the actual generation
+  // request and owns the only model egress path.
   router.post('/host-version-ledger/capture', hostAdapter.capture);
   router.post('/host-version-ledger/reconcile', hostAdapter.reconcile);
 }

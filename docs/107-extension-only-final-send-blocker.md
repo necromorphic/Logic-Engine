@@ -1,6 +1,6 @@
 # Extension-only Final-Send feasibility — SillyTavern 1.19.0
 
-**Disposition:** BLOCKED under the currently approved constraints; protected generation remains `DISABLED / FAIL-CLOSED`.  
+**Disposition:** HISTORICAL FEASIBILITY RESULT — superseded as the governing architecture by the explicitly authorized managed local SillyTavern source patch in PR #844 / #855 and the durable Patch Manager work in #868. The extension-only limitation findings below remain valid, but they no longer prohibit the approved pinned local patch. Protected generation remains `DISABLED / FAIL-CLOSED` until production evidence readers and final-send acceptance pass.  
 **Pinned Host:** SillyTavern 1.19.0, commit `06bde939fb1e9c4c8d8641d810f0a916b5bce127`.  
 **Scope:** verify whether supported Logic-Engine Extension mechanisms can install and operate the approved Final-Send Hook. This document does not change the architecture.
 
@@ -55,6 +55,8 @@ Streaming uses separate backend-specific client senders. The generic non-streami
 4. **Patch Manager boundary:** Patch Manager is restricted to the integrated Logic-Engine Extension package directories. It can install/update/repair/uninstall Extension-owned files, but it cannot edit native ST source, insert middleware into native routers, patch Express internals, or rewrite provider senders. Those actions are outside the approved Extension-only boundary.
 
 ## Result and required operating state
+
+**Superseding decision:** the owner explicitly authorized a managed local source-level patch of the installed pinned SillyTavern 1.19.0 working copy. The approved design uses the Patch Manager and the native Final-Send Hook; it does not modify SillyTavern upstream. See PR #844, #855, #868 and `docs/106-gateway-generation-final-send-integration.md`. The extension-only conclusion in this document is retained only as a record of why browser/server extension APIs alone were insufficient; it is not a veto on the later approved local patch.
 
 - The Extension Gateway/Host Adapter separation can be implemented and tested without native ST changes.
 - The Extension Gateway candidate is a routing-only, fail-closed ingress. Host Adapter now resolves exactly one active World/Actor binding from Core before dispatch and signs it; Core independently re-resolves it. This identity-binding step does not establish a protected native model send.

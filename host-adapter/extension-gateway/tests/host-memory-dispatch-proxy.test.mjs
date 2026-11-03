@@ -30,7 +30,11 @@ function recorder() {
 }
 
 function request() {
-  return { body: { request_id: requestId, conversation_uuid: conversation, context_size: 8192, generation_type: 'normal' } };
+  return {
+    user: { profile: { handle: 'default-user' } },
+    session: { handle: 'default-user', logicEngineSessionId: session, logicEngineSessionHandle: 'default-user' },
+    body: { request_id: requestId, conversation_uuid: conversation, context_size: 8192, generation_type: 'normal' },
+  };
 }
 
 test('Host Adapter resolves world and exactly one actor before signing the Host assertion', async () => {
@@ -41,6 +45,7 @@ test('Host Adapter resolves world and exactly one actor before signing the Host 
       host_installation_id: installation,
       authenticated_account_id: account,
       host_session_id: session,
+      conversation_uuid: conversation,
       conversation_id: hostConversationKey,
     }),
     fetchImpl: async (url, options) => {
@@ -104,6 +109,7 @@ test('Host Adapter fails closed when Core cannot resolve one unambiguous world/a
       host_installation_id: installation,
       authenticated_account_id: account,
       host_session_id: session,
+      conversation_uuid: conversation,
       conversation_id: hostConversationKey,
     }),
     fetchImpl: async () => {
@@ -126,6 +132,7 @@ test('Host Adapter rejects a Core binding response for another adapter or conver
       host_installation_id: installation,
       authenticated_account_id: account,
       host_session_id: session,
+      conversation_uuid: conversation,
       conversation_id: hostConversationKey,
     }),
     fetchImpl: async () => {
@@ -154,6 +161,7 @@ test('Host dispatch HTTP boundary rejects uppercase generation_type', async () =
       host_installation_id: installation,
       authenticated_account_id: account,
       host_session_id: session,
+      conversation_uuid: conversation,
       conversation_id: hostConversationKey,
     }),
     fetchImpl: async () => {

@@ -1,105 +1,55 @@
-import { interceptProtectedGeneration } from './gateway-policy.mjs';
-import { dispatchThroughExtensionGateway } from './host-context.mjs';
+import { resolveGatewayHostContext } from './host-context.mjs';
 
-/**
- * Review-only SillyTavern extension gateway.
- *
- * This module intentionally exposes no global arm/cancel API. Its exported
- * helpers are an integration seam, not an authorization boundary: any code
- * running in the same SillyTavern page/module environment must be treated as
- * potentially able to call them. The server-side Extension Gateway remains
- * authoritative and rejects dispatch until complete inventory proof and the
- * authenticated Core dispatch endpoint are available.
- */
-const gatewayState = {
-    pendingRequest: null,
-    dispatch: null,
-    dispatchInFlight: false,
-    protectedFailureLockout: false,
-    lastStatus: 'IDLE',
-};
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-export function armProtectedRequest(requestId, dispatch = dispatchThroughExtensionGateway) {
-    if (gatewayState.protectedFailureLockout) {
-        throw new Error('Logic Engine Extension Gateway: protected dispatch failed; reload required');
+function assertGenerationEnvelope(data) {
+    if (!data || typeof data !== 'object' || Array.isArray(data)) {
+        throw new Error('HOST_GENERATION_ENVELOPE_INVALID');
     }
-    if (gatewayState.pendingRequest) {
-        throw new Error('Logic Engine Extension Gateway: a request is already armed');
-    }
-    if (typeof requestId !== 'string' || requestId.length === 0) {
-        throw new Error('Logic Engine Extension Gateway: requestId is required');
-    }
-    gatewayState.pendingRequest = { requestId };
-    gatewayState.dispatch = typeof dispatch === 'function' ? dispatch : null;
-    gatewayState.lastStatus = 'ARMED';
+    return data;
 }
 
-export function cancelProtectedRequest(requestId) {
-    if (!gatewayState.pendingRequest || gatewayState.pendingRequest.requestId !== requestId) {
-        return false;
+export async function attachHostConversationLocator(data, getHostContext, resolveHostContext = resolveGatewayHostContext) {
+    assertGenerationEnvelope(data);
+    try {
+        const host = await resolveHostContext({ getHostContext });
+        const requestId = globalThis.crypto?.randomUUID?.();
+        if (!UUID.test(host.conversationUuid ?? '') || !UUID.test(requestId ?? '')) return data;
+        // These are untrusted locators/correlation metadata only. The server-side
+        // Host Adapter re-derives identity and checks the UUID against its complete
+        // authoritative inventory before it can retrieve any NPC context.
+        data.logic_engine_conversation_uuid = host.conversationUuid;
+        data.logic_engine_request_id = requestId;
+        data.logic_engine_context_size = Number.isSafeInteger(host.maxContext)
+            ? Math.max(1, Math.min(200000, host.maxContext)) : 200000;
+        data.logic_engine_generation_type = typeof data.type === 'string' ? data.type : 'normal';
+    } catch {
+        // Ordinary generation remains available while protected Memory is
+        // disabled. If deployment enables it, the server-side Host Adapter
+        // rejects this request as NON_READY because the locator is absent.
     }
-    gatewayState.pendingRequest = null;
-    gatewayState.dispatch = null;
-    gatewayState.lastStatus = 'CANCELLED';
-    return true;
+    return data;
 }
 
-export function getStatus() {
-    return {
-        status: gatewayState.lastStatus,
-        hasPendingRequest: Boolean(gatewayState.pendingRequest),
-        dispatchInFlight: gatewayState.dispatchInFlight,
-        protectedFailureLockout: gatewayState.protectedFailureLockout,
+export async function registerHostGenerationIdentity(context = null, { resolveHostContext = resolveGatewayHostContext } = {}) {
+    const hostContext = context ?? (await import('../../../st-context.js')).getContext();
+    if (!hostContext?.eventSource || !hostContext?.eventTypes) {
+        throw new Error('HOST_GENERATION_EVENTS_UNAVAILABLE');
+    }
+    const attach = data => attachHostConversationLocator(data, hostContext, resolveHostContext);
+    // ST awaits each listener before serializing the generation request.
+    // CHAT_COMPLETION_SETTINGS_READY is the last mutable point for Chat
+    // Completions; GENERATE_AFTER_DATA covers Text Completions, Kobold,
+    // NovelAI and Horde before their request payloads are serialized.
+    hostContext.eventSource.on(hostContext.eventTypes.CHAT_COMPLETION_SETTINGS_READY, attach);
+    hostContext.eventSource.on(hostContext.eventTypes.GENERATE_AFTER_DATA, attach);
+    return () => {
+        hostContext.eventSource.removeListener(hostContext.eventTypes.CHAT_COMPLETION_SETTINGS_READY, attach);
+        hostContext.eventSource.removeListener(hostContext.eventTypes.GENERATE_AFTER_DATA, attach);
     };
 }
 
-// SillyTavern resolves this global name from the extension manifest.
-// This is the only global intentionally registered by the prototype.
-globalThis.logicEngineExtensionGatewayGenerationInterceptor = async function (chat, contextSize, abort, type) {
-    const pendingRequest = gatewayState.pendingRequest;
-    if (!pendingRequest) {
-        // A failed protected dispatch must not turn the next user retry into
-        // an ordinary native-provider send. Keep this extension instance
-        // locked until reload; do not add a reset API to this review prototype.
-        if (gatewayState.protectedFailureLockout) {
-            abort(true);
-            gatewayState.lastStatus = 'BLOCKED_AFTER_PROTECTED_FAILURE';
-            return;
-        }
-        // A second generation must not bypass the protected dispatch while it
-        // is in flight. This is a local concurrency guard, not authorization
-        // and not protection against other extensions or server-side callers.
-        if (gatewayState.dispatchInFlight) {
-            abort(true);
-            gatewayState.lastStatus = 'BLOCKED_DISPATCH_IN_FLIGHT';
-        }
-        return;
-    }
-
-    // Consume the arm and close the generation gate before awaiting anything.
-    // This prevents concurrent generation from taking the native provider path
-    // while the protected callback is still running.
-    const dispatch = gatewayState.dispatch;
-    gatewayState.pendingRequest = null;
-    gatewayState.dispatch = null;
-    gatewayState.dispatchInFlight = true;
-
-    try {
-        const result = await interceptProtectedGeneration({
-            pendingRequest,
-            chat,
-            contextSize,
-            type,
-            abort,
-            dispatch,
-        });
-        gatewayState.lastStatus = result.status;
-        if (result.status !== 'DISPATCH_DELEGATED') {
-            gatewayState.protectedFailureLockout = true;
-        }
-    } finally {
-        gatewayState.dispatchInFlight = false;
-    }
-};
-
-// No automatic activation, network side effects, or authorization claims.
+if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+    const unregister = await registerHostGenerationIdentity();
+    globalThis.addEventListener?.('pagehide', unregister, { once: true });
+}

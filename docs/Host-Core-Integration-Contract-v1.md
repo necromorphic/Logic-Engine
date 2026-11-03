@@ -13,6 +13,21 @@ The end-to-end test `tests/host-core-sqlite-e2e.test.js` now instantiates the in
 
 Negative coverage on this staging tree includes HMAC tampering, expired/future timestamps, durable nonce replay across restart and concurrent requests, Host session/account identity mismatch, ambiguous/absent World/Actor bindings, query/record revoke races, stale canonical source/index, partial Provider retrieval, and incomplete Host inventory fail-closed behavior. Exact staging-head CI for source HEAD `a6c638cb620e2b44487700ad1362bc61aa7760b3` passed: Runtime `41404455844` (Linux and Windows suite jobs), Memory Provider blocker `41404455845` (full Runtime 1551 tests: 1530 passed, 0 failed, 21 skipped; Provider acceptance 132 passed), Host Gateway candidate `41404455857`, Gateway static validation `41404455852`, Gateway pinned-source audit `41404455843`, pinned ST Host source audit `41404455886`, and browser IndexedDB restart `41404455872`. The staging branch remains non-production: Memory retrieval is fail-closed when Provider configuration, explicit field allowlist, grants, or current canonical source lineage are absent.
 
+## 0.1 Final-Send integration amendment — 3 Nov 2026
+
+This amendment supersedes the browser-dispatch prototype described in the earlier staging sections wherever it conflicts with the unified Final-Send integration:
+
+- The browser Extension no longer uses generate_interceptor and does not call a browser-facing /dispatch route. It attaches only conversation/request locator metadata to SillyTavern's awaited native generation-data events.
+- The public Host server plugin has no Memory dispatch route. Its public routes remain limited to authenticated session, identity, inventory, lifecycle and version-ledger operations.
+- The actual native Express generation request is the input to the server-side Host Adapter. The Host Adapter validates the conversation locator against the complete Host inventory, authenticates the current ST session, carries the root inventory head, and resolves Core World/Actor + NPC Memory on that same request.
+- The NPC Context Receiver validates the Core Result Envelope and exact source lineage. Its output is passed only to the managed Final-Send adapter; Memory content is never returned to the browser.
+- The Final-Send serializer inserts admitted content into the exact provider request body and strips Host-only locator fields before transport.
+- The Gateway contract now requires readHostEvidence under the shared Coordinator lease. Host tuple and root inventory head are bound into the request digest and must be revalidated before durable DISPATCH_STARTED.
+
+The current integration branch composes the Host request resolver, NPC Context Receiver and body serializer, but its server plugin deliberately uses a non-transport Gateway stub. Production remains NON_READY until synchronous Core, Provider and Host evidence readers are supplied under the shared Coordinator and exact-head acceptance passes.
+
+The old browser-dispatch route is not an approved ingress and must not be restored. The only protected model egress is the pinned native Final-Send Hook.
+
 ## 1. Binding decisions and ownership
 
 | Concern | Owner | Contract |

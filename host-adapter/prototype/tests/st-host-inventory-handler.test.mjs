@@ -951,7 +951,7 @@ test('request authentication gate brands only the exact request after trusted se
       logicEngineSessionId: defaultUserSessionId,
       logicEngineSessionHandle: 'default-user',
     },
-    body: { conversation_id: 'attacker-selected' },
+    body: { conversation_id: 'attacker-selected', conversation_uuid: defaultUserConversationUuid },
   };
   const conversationId = [
     defaultUserInstallationId, defaultUserAccountId, defaultUserConversationUuid,
@@ -961,6 +961,9 @@ test('request authentication gate brands only the exact request after trusted se
     authenticated_account_id: defaultUserAccountId,
     host_session_id: defaultUserSessionId,
     conversation_id: conversationId,
+    root_id: 'a'.repeat(64),
+    root_inventory_sequence: 1,
+    root_manifest_sha256: 'b'.repeat(64),
   });
   const gate = createHostRequestAuthenticationGate({
     resolveConversationId: candidate => resolved.get(candidate),
@@ -982,6 +985,9 @@ test('request authentication gate rejects account mismatch and a conversation fr
     authenticated_account_id: defaultUserAccountId,
     host_session_id: defaultUserSessionId,
     conversation_id: [defaultUserInstallationId, defaultUserAccountId, defaultUserConversationUuid].join(':'),
+    root_id: 'a'.repeat(64),
+    root_inventory_sequence: 1,
+    root_manifest_sha256: 'b'.repeat(64),
   };
   const gate = createHostRequestAuthenticationGate({ resolveConversationId: () => binding });
   for (const session of [

@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import {
   createHostIdentityHandler,
   createHostInventoryHandler,
@@ -82,17 +83,18 @@ export function createSillyTavernHostAdapter({
   let dispatchMiddleware = (_request, response) =>
     response.status(503).json({ status: 'NON_READY', code: 'HOST_IDENTITY_STORE_UNCONFIGURED' });
   let dispatch = unavailable('HOST_IDENTITY_STORE_UNCONFIGURED');
+  let authentication = null;
 
   if (identityStore) {
     const lifecycle = createHostLifecycleJournalProxy({ identityStore });
     lifecycleEvents = lifecycle.append;
     lifecycleStatus = lifecycle.status;
 
-    const authentication = createHostRequestAuthenticationGate({
-      resolveConversationId: async request => {
+    authentication = createHostRequestAuthenticationGate({
+      resolveConversationId: async (request, requestedConversationUuid) => {
         const userHandle = request?.user?.profile?.handle;
         const sessionId = request?.session?.logicEngineSessionId;
-        const conversationUuid = request?.body?.conversation_uuid;
+        const conversationUuid = requestedConversationUuid;
         const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
         if (typeof userHandle !== 'string' || !userHandle.trim()
           || !uuid.test(sessionId ?? '') || !uuid.test(conversationUuid ?? '')) return null;
@@ -185,6 +187,9 @@ export function createSillyTavernHostAdapter({
           host_session_id: sessionId,
           conversation_id: identityRecord.host_installation_id + ':'
             + identityRecord.authenticated_account_id + ':' + conversationUuid,
+          root_id: createHash('sha256').update(path.resolve(directories.root), 'utf8').digest('hex'),
+          root_inventory_sequence: rootProof.sequence,
+          root_manifest_sha256: rootProof.manifest_sha256,
         };
       },
     });
@@ -192,7 +197,7 @@ export function createSillyTavernHostAdapter({
     dispatch = createHostMemoryDispatchProxyHandler({
       env,
       fetchImpl,
-      resolveHostContext: authentication.resolveHostContext,
+      resolveHostContext: request => authentication.resolveHostContext(request?.hostRequest ?? request),
     });
   }
 
@@ -204,6 +209,60 @@ export function createSillyTavernHostAdapter({
     lifecycleStatus,
     dispatchMiddleware,
     dispatch,
+    async prepareGenerationContext(request, hostRoute) {
+      if (!['chat-completions', 'text-completions', 'kobold', 'novelai-text', 'horde-text'].includes(hostRoute)) {
+        return Object.freeze({ status: 'NON_READY', code: 'HOST_GENERATION_ROUTE_UNREGISTERED' });
+      }
+      const generationBody = hostRoute === 'horde-text'
+        ? request?.body?.params
+        : request?.body;
+      const conversationUuid = generationBody?.logic_engine_conversation_uuid;
+      const requestId = generationBody?.logic_engine_request_id;
+      const contextSize = generationBody?.logic_engine_context_size;
+      const generationType = generationBody?.logic_engine_generation_type;
+      const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      if (!identityStore || !uuid.test(conversationUuid ?? '') || !uuid.test(requestId ?? '')
+        || !Number.isSafeInteger(contextSize) || contextSize < 1 || contextSize > 200000
+        || typeof generationType !== 'string' || !/^[a-z][a-z0-9_-]{0,31}$/.test(generationType)) {
+        return Object.freeze({ status: 'NON_READY', code: 'HOST_GENERATION_ENVELOPE_INVALID' });
+      }
+      const result = await authentication.authenticate(request, conversationUuid);
+      if (result.status !== 'READY') return result;
+      const captured = {
+        statusCode: null,
+        payload: null,
+        set() { return this; },
+        status(code) { this.statusCode = code; return this; },
+        json(payload) { this.payload = payload; return this; },
+        sendStatus(code) { this.statusCode = code; return this; },
+      };
+      await dispatch({
+        hostRequest: request,
+        body: {
+          request_id: requestId,
+          conversation_uuid: conversationUuid,
+          context_size: contextSize,
+          generation_type: generationType,
+        },
+      }, captured);
+      if (captured.statusCode !== 200
+        || !captured.payload || typeof captured.payload !== 'object'
+        || !captured.payload.host_context || captured.payload.retrieval?.status !== 'ready') {
+        return Object.freeze({
+          status: 'NON_READY',
+          code: typeof captured.payload?.code === 'string'
+            ? captured.payload.code : 'HOST_NPC_CONTEXT_NON_READY',
+        });
+      }
+      return Object.freeze({
+        status: 'READY',
+        context: result.context,
+        coreContext: captured.payload.host_context,
+        retrieval: captured.payload.retrieval,
+        requestId,
+        generationType,
+      });
+    },
     capture: createHostDigestProxyHandler({ env, fetchImpl }),
     reconcile: createHostInventoryReconcileProxyHandler({ env, fetchImpl }),
   });

@@ -3,7 +3,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { isProxy } from 'node:util/types';
 import { existsSync, realpathSync, statSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
-import { openCoordinatorDatabase, beginCoordinatorLock } from '../storage/coordinator-lock.js';
+import { openCoordinatorDatabase, beginCoordinatorLock, isCoordinatorLease } from '../storage/coordinator-lock.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DIGEST = /^[a-f0-9]{64}$/;
@@ -1383,6 +1383,29 @@ export class HostLifecycleJournal {
         ...(authority?.source_manifest_sha256 ? { source_manifest_sha256: authority.source_manifest_sha256 } : {}),
       };
     });
+  }
+
+  /**
+   * Read-only Host root-authority proof for Final-Send. The Gateway must hold
+   * the shared Coordinator lease already; this method never acquires a nested
+   * lease or opens a write transaction. Review-only inventory is not READY.
+   */
+  readAuthoritySnapshotUnderLease(input, coordinatorLease) {
+    if (!isCoordinatorLease(coordinatorLease, this.coordinator)
+      || !isPlainRecord(input) || !validText(input.authority_id)
+      || !Number.isSafeInteger(input.generation) || input.generation < 1
+      || !validText(input.adapter_id) || !validText(input.host_installation_id)
+      || !validText(input.authenticated_account_id) || !validDigest(input.root_id)) {
+      throw new Error('HOST_FINAL_SEND_EVIDENCE_NOT_READY');
+    }
+    this.#assertRootIdentity(input);
+    const snapshot = this.#authoritySnapshotFingerprint(input);
+    if (!snapshot || !/^[a-f0-9]{64}$/.test(snapshot.snapshot_fingerprint ?? '')) {
+      return { status: 'NON_READY', reason: 'HOST_ROOT_INVENTORY_NOT_AUTHORITATIVE' };
+    }
+    // A valid hash chain is integrity evidence, not completeness authority.
+    // Until the signed source attestation is accepted, remain fail-closed.
+    return { status: 'NON_READY', reason: 'HOST_ROOT_INVENTORY_REVIEW_ONLY' };
   }
 
   close() {

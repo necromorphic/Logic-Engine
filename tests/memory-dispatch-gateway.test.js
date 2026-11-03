@@ -19,6 +19,7 @@ import { SQLiteMemoryProvider } from '../src/application/sqlite-memory-provider.
 import { enrollAcceptedHeadDomain } from '../src/security/enroll-accepted-head-domain.js';
 import { SQLiteStore } from '../src/storage/sqlite-store.js';
 import { LogicEngine } from '../src/application/engine.js';
+import { createProtectedMemoryFinalSend, PROTECTED_MEMORY_SENDER_ROUTES } from '../host-adapter/protected-memory-final-send.mjs';
 
 const coreToken = 'core-token-for-dispatch-gateway-tests-00000000000000000000000000000001';
 const providerToken = 'provider-token-for-dispatch-gateway-tests-00000000000000000000000000000002';
@@ -26,6 +27,22 @@ const readToken = 'gateway-read-token-for-dispatch-gateway-tests-000000000000000
 const digestA = 'a'.repeat(64);
 const digestB = 'b'.repeat(64);
 const digestC = 'c'.repeat(64);
+const hostContext = Object.freeze({
+  adapter_id: 'st-gateway',
+  core_conversation_id: '55555555-5555-4555-8555-555555555555:11111111-1111-4111-8111-111111111111:33333333-3333-4333-8333-333333333333',
+  world_id: 'world-1',
+  actor_id: 'npc-1',
+  actor_type: 'npc',
+  host_installation_id: '11111111-1111-4111-8111-111111111111',
+  authenticated_account_id: '22222222-2222-4222-8222-222222222222',
+  host_session_id: '55555555-5555-4555-8555-555555555555',
+  host_conversation_id: '11111111-1111-4111-8111-111111111111:22222222-2222-4222-8222-222222222222:33333333-3333-4333-8333-333333333333',
+  conversation_uuid: '33333333-3333-4333-8333-333333333333',
+  root_id: 'e'.repeat(64),
+  root_inventory_sequence: 1,
+  root_manifest_sha256: 'f'.repeat(64),
+});
+
 const sourceSet = Object.freeze([{
   source_kind: 'canonical_entity',
   source_entity_id: 'entity-42',
@@ -63,7 +80,16 @@ async function startAuthorityProcess(path) {
   return { child, port: Number(match[1]) };
 }
 
-async function createFixture({ sendUpstream, coreHead = 1, providerHead = 1, initialProviderGrant = true, providerCandidatesOverride } = {}) {
+function installTestTransport(gateway, factory) {
+  const dispatch = gateway.dispatchProtectedRequest.bind(gateway);
+  gateway.dispatchProtectedRequest = (request) => dispatch({
+    ...request,
+    transport: request.transport ?? factory(request),
+  });
+  return gateway;
+}
+
+async function createFixture({ sendUpstream, createTransport, coreHead = 1, providerHead = 1, initialProviderGrant = true, providerCandidatesOverride } = {}) {
   const directory = mkdtempSync(join(tmpdir(), 'logic-memory-dispatch-gateway-'));
   const authorityPath = join(directory, 'authority.sqlite');
   const coordinatorPath = join(directory, 'coordinator.sqlite');
@@ -85,8 +111,11 @@ async function createFixture({ sendUpstream, coreHead = 1, providerHead = 1, ini
   });
 
   let providerGranted = initialProviderGrant;
+  let hostInventoryReady = true;
+  let currentProviderCandidatesOverride = providerCandidatesOverride;
+  let policyAuthority = { authority_id: 'test-memory-policy', generation: 1, fingerprint: 'd'.repeat(64) };
   const calls = [];
-  const makeGateway = () => new MemoryDispatchGateway({
+  const makeGateway = () => installTestTransport(new MemoryDispatchGateway({
     ledgerPath,
     coordinatorPath,
     authorityPort: service.port,
@@ -97,6 +126,7 @@ async function createFixture({ sendUpstream, coreHead = 1, providerHead = 1, ini
       actor_id: actorId,
       readiness: 'READY',
       inventory_status: 'READY',
+      policy_authority,
       sources,
     }),
     readProviderEvidence: ({ worldId, actorId, purpose, sources, candidates }) => ({
@@ -107,14 +137,25 @@ async function createFixture({ sendUpstream, coreHead = 1, providerHead = 1, ini
       granted: providerGranted,
       readiness: 'READY',
       sources,
-      candidates: providerCandidatesOverride ?? candidates,
+      candidates: currentProviderCandidatesOverride ?? candidates,
     }),
-    sendUpstream: (request) => {
+    readHostEvidence: ({ hostContext: binding, worldId, actorId }) => ({
+      status: hostInventoryReady ? 'READY' : 'NON_READY',
+      adapter_id: binding.adapter_id,
+      core_conversation_id: binding.core_conversation_id,
+      world_id: worldId,
+      actor_id: actorId,
+      root_id: binding.root_id,
+      root_inventory_sequence: binding.root_inventory_sequence,
+      root_manifest_sha256: binding.root_manifest_sha256,
+    }),
+  }), (request) => createTransport
+    ? createTransport(request)
+    : () => {
       calls.push(request);
       if (sendUpstream) return sendUpstream(request);
       return Promise.resolve({ status: 200, body: 'accepted' });
-    },
-  });
+    });
   gateway = makeGateway();
 
   return {
@@ -127,6 +168,9 @@ async function createFixture({ sendUpstream, coreHead = 1, providerHead = 1, ini
       return gateway;
     },
     setProviderGranted(value) { providerGranted = value; },
+    setHostInventoryReady(value) { hostInventoryReady = value; },
+    setProviderCandidates(value) { currentProviderCandidatesOverride = value; },
+    setPolicyAuthority(value) { policyAuthority = value; },
     async close() {
       if (closed) return;
       closed = true;
@@ -140,9 +184,16 @@ async function createFixture({ sendUpstream, coreHead = 1, providerHead = 1, ini
   };
 }
 
+async function dispatchAndRelease(gateway, request) {
+  const response = await gateway.dispatchProtectedRequest(request);
+  gateway.authorizeResponseWrite(request.requestId, () => response, { final: true });
+  return response;
+}
+
 const validRequest = (requestId = 'request-001', overrides = {}) => ({
   requestId,
   route: 'host-selected-chat-generation',
+  senderRoute: 'google-ai-studio',
   model: 'selected-model',
   stream: false,
   body: JSON.stringify({ messages: [{ role: 'user', content: 'SECRET_MEMORY_TEXT_DO_NOT_PERSIST' }] }),
@@ -150,14 +201,120 @@ const validRequest = (requestId = 'request-001', overrides = {}) => ({
   actorId: 'npc-1',
   purpose: 'recall',
   sources: sourceSet,
+  hostContext,
   candidates: [{
     record_ref: 'record-42',
     record_version: 'record-version-3',
+    authorization_generation: 1,
     source_kind: 'canonical_entity',
     source_entity_id: 'entity-42',
     source_version: 'version-7',
   }],
   ...overrides,
+});
+
+test('Lane A revoke before DISPATCH_STARTED blocks the upstream transport', async () => {
+  const fixture = await createFixture();
+  try {
+    const laneA = {
+      lane: 'A', purpose: 'npc_turn_context',
+      authorization_ref: 'core-read-auth', visibility_authorization_ref: 'core-visibility-auth',
+      items: [{ acquisition_id: 'acq-1', fact_id: 'fact-1', subject_ref: 'npc-1',
+        predicate: 'knows', value: 'secret', acquisition_kind: 'author_initial',
+        provenance_ref: 'source-1', provenance_digest: digestA,
+        acquisition_authorization_ref: 'acq-auth-1', source_event_ids: ['event-1'] }],
+    };
+    const request = validRequest('lane-a-revoked-before-dispatch', {
+      laneA,
+      revalidateLaneA: () => ({ status: 'non_ready', reason: 'dispatch_lane_a_changed' }),
+    });
+    await assert.rejects(fixture.gateway.dispatchProtectedRequest(request),
+      /MEMORY_DISPATCH_LANE_A_REVALIDATION_DENIED/);
+    assert.equal(fixture.calls.length, 0);
+    assert.equal(fixture.gateway.db.prepare('SELECT COUNT(*) AS count FROM memory_dispatch_ledger').get().count, 0);
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('Lane A revoke during model execution blocks final response release', async () => {
+  let laneAReads = 0;
+  const fixture = await createFixture({
+    createTransport: () => () => Promise.resolve({ status: 200, body: 'model-result' }),
+  });
+  try {
+    const laneA = {
+      lane: 'A', purpose: 'npc_turn_context',
+      authorization_ref: 'core-read-auth', visibility_authorization_ref: 'core-visibility-auth',
+      items: [{ acquisition_id: 'acq-1', fact_id: 'fact-1', subject_ref: 'npc-1',
+        predicate: 'knows', value: 'secret', acquisition_kind: 'author_initial',
+        provenance_ref: 'source-1', provenance_digest: digestA,
+        acquisition_authorization_ref: 'acq-auth-1', source_event_ids: ['event-1'] }],
+    };
+    const request = validRequest('lane-a-revoked-during-inference', {
+      laneA,
+      revalidateLaneA: () => (++laneAReads === 1
+        ? { status: 'ready' }
+        : { status: 'non_ready', reason: 'dispatch_lane_a_changed' }),
+    });
+    await assert.rejects(fixture.gateway.dispatchProtectedRequest(request),
+      /MEMORY_DISPATCH_LANE_A_REVALIDATION_DENIED/);
+    assert.equal(laneAReads, 2);
+    const row = fixture.gateway.db.prepare(
+      'SELECT dispatch_state, outcome FROM memory_dispatch_ledger WHERE request_id=?',
+    ).get(request.requestId);
+    assert.equal(row.dispatch_state, 'DISPATCH_STARTED');
+    assert.equal(row.outcome, 'UNKNOWN');
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('Lane A revoke between streamed response writes blocks the next chunk', async () => {
+  let laneAReads = 0;
+  const fixture = await createFixture({
+    createTransport: () => () => Promise.resolve({ status: 200, body: 'stream-result' }),
+  });
+  try {
+    const laneA = {
+      lane: 'A', purpose: 'npc_turn_context',
+      authorization_ref: 'core-read-auth', visibility_authorization_ref: 'core-visibility-auth',
+      items: [{ acquisition_id: 'acq-1', fact_id: 'fact-1', subject_ref: 'npc-1',
+        predicate: 'knows', value: 'secret', acquisition_kind: 'author_initial',
+        provenance_ref: 'source-1', provenance_digest: digestA,
+        acquisition_authorization_ref: 'acq-auth-1', source_event_ids: ['event-1'] }],
+    };
+    const request = validRequest('lane-a-revoked-between-chunks', {
+      stream: true,
+      laneA,
+      revalidateLaneA: () => (++laneAReads <= 2
+        ? { status: 'ready' }
+        : { status: 'non_ready', reason: 'dispatch_lane_a_changed' }),
+    });
+    const response = await fixture.gateway.dispatchProtectedRequest(request);
+    let writes = 0;
+    fixture.gateway.authorizeResponseWrite(request.requestId, () => { writes += 1; return true; }, { final: false });
+    assert.equal(writes, 1);
+    assert.throws(
+      () => fixture.gateway.authorizeResponseWrite(request.requestId, () => { writes += 1; return true; }, { final: false }),
+      /MEMORY_DISPATCH_LANE_A_REVALIDATION_DENIED/,
+    );
+    assert.equal(writes, 1);
+    assert.equal(laneAReads, 3);
+    assert.equal(response.status, 200);
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('dispatch ledger explicitly uses SQLite FULL synchronous durability', async () => {
+  const fixture = await createFixture();
+  try {
+    const row = fixture.gateway.db.prepare('PRAGMA synchronous').get();
+    assert.equal(row.synchronous, 2, 'dispatch-start must use SQLite synchronous=FULL');
+  } finally {
+    await fixture.close();
+  }
 });
 
 test('Host dispatch signature binds the exact body, route, model, identity, and source versions with locale-independent source ordering', () => {
@@ -166,7 +323,9 @@ test('Host dispatch signature binds the exact body, route, model, identity, and 
   const signature = createDispatchRequestSignature(secret, request);
   assert.equal(verifyDispatchRequestSignature(secret, request, signature), true);
   assert.equal(verifyDispatchRequestSignature(secret, { ...request, body: request.body + 'tampered' }, signature), false);
+  assert.equal(verifyDispatchRequestSignature(secret, { ...request, hostContext: { ...hostContext, root_manifest_sha256: '0'.repeat(64) } }, signature), false);
   assert.equal(verifyDispatchRequestSignature(secret, { ...request, candidates: [{ ...request.candidates[0], record_version: 'record-version-4' }] }, signature), false);
+  assert.equal(verifyDispatchRequestSignature(secret, { ...request, candidates: [{ ...request.candidates[0], authorization_generation: 2 }] }, signature), false);
   assert.equal(verifyDispatchRequestSignature(secret, { ...request, sources: [{
     source_kind: 'canonical_entity',
     source_entity_id: 'entity-42',
@@ -178,8 +337,8 @@ test('Host dispatch signature binds the exact body, route, model, identity, and 
       { source_kind: 'canonical_entity', source_entity_id: 'ä-entity', source_version: 'v1' },
     ],
     candidates: [
-      { record_ref: 'record-z', record_version: 'rv1', source_kind: 'canonical_entity', source_entity_id: 'z-entity', source_version: 'v1' },
-      { record_ref: 'record-a', record_version: 'rv1', source_kind: 'canonical_entity', source_entity_id: 'ä-entity', source_version: 'v1' },
+      { record_ref: 'record-z', record_version: 'rv1', authorization_generation: 1, source_kind: 'canonical_entity', source_entity_id: 'z-entity', source_version: 'v1' },
+      { record_ref: 'record-a', record_version: 'rv1', authorization_generation: 1, source_kind: 'canonical_entity', source_entity_id: 'ä-entity', source_version: 'v1' },
     ],
   };
   const reverseOrder = {
@@ -213,19 +372,50 @@ test('read-only Gateway SQLite connection can read committed WAL state without w
   }
 });
 
-test('Gateway rejects direct and bound async transport starters because they can defer handoff past the Coordinator lease', () => {
-  const asyncStarter = async () => ({ status: 200 });
-  const configuration = (sendUpstream) => ({
-    ledgerPath: '/tmp/dispatch-ledger.sqlite',
-    coordinatorPath: '/tmp/dispatch-coordinator.sqlite',
-    authorityPort: 1,
-    readToken,
-    readCoreEvidence: () => ({}),
-    readProviderEvidence: () => ({}),
-    sendUpstream,
+test('Gateway without an in-process transport capability fails closed before ledger creation', async () => {
+  const fixture = await createFixture();
+  try {
+    const directDispatch = MemoryDispatchGateway.prototype.dispatchProtectedRequest.bind(fixture.gateway);
+    await assert.rejects(
+      directDispatch(validRequest('missing-transport-capability')),
+      /MEMORY_DISPATCH_NOT_READY/,
+    );
+    assert.equal(fixture.calls.length, 0);
+    const ledger = new DatabaseSync(fixture.ledgerPath);
+    try {
+      assert.equal(ledger.prepare('SELECT COUNT(*) AS n FROM dispatch_ledger').get().n, 0);
+    } finally {
+      ledger.close();
+    }
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('request-scoped transport capability must be dormant and synchronous before DISPATCH_STARTED', async () => {
+  let starts = 0;
+  const fixture = await createFixture({
+    createTransport: () => async () => {
+      starts += 1;
+      return { status: 200 };
+    },
   });
-  assert.throws(() => new MemoryDispatchGateway(configuration(asyncStarter)), /non-async transport-start function/);
-  assert.throws(() => new MemoryDispatchGateway(configuration(asyncStarter.bind(null))), /non-async transport-start function/);
+  try {
+    await assert.rejects(
+      fixture.gateway.dispatchProtectedRequest(validRequest('async-capability-request')),
+      /MEMORY_DISPATCH_NOT_READY/,
+    );
+    assert.equal(starts, 0, 'an async capability must be rejected without invoking it');
+    const ledger = new DatabaseSync(fixture.ledgerPath);
+    try {
+      assert.equal(ledger.prepare('SELECT COUNT(*) AS n FROM dispatch_ledger').get().n, 0,
+        'invalid capability must be rejected before durable DISPATCH_STARTED');
+    } finally {
+      ledger.close();
+    }
+  } finally {
+    await fixture.close();
+  }
 });
 
 test('dispatch rejects Provider evidence whose exact candidate record/version set differs from the signed request', async () => {
@@ -233,6 +423,7 @@ test('dispatch rejects Provider evidence whose exact candidate record/version se
     providerCandidatesOverride: [{
       record_ref: 'record-42',
       record_version: 'record-version-4',
+      authorization_generation: 1,
       source_kind: 'canonical_entity',
       source_entity_id: 'entity-42',
       source_version: 'version-7',
@@ -254,7 +445,7 @@ test('transport handoff begins while the shared coordinator is still held', asyn
   let contender;
   let coordinatorWasHeldAtTransportStart = false;
   const fixture = await createFixture({
-    sendUpstream: () => {
+    createTransport: () => () => {
       try {
         contender.exec('BEGIN IMMEDIATE');
         contender.exec('ROLLBACK');
@@ -271,7 +462,7 @@ test('transport handoff begins while the shared coordinator is still held', asyn
 
   contender = new DatabaseSync(fixture.coordinatorPath);
   contender.exec('PRAGMA busy_timeout=0;');
-  await fixture.gateway.dispatchProtectedRequest(validRequest('transport-start-under-lock'));
+  await dispatchAndRelease(fixture.gateway, validRequest('transport-start-under-lock'));
   assert.equal(
     coordinatorWasHeldAtTransportStart,
     true,
@@ -281,10 +472,304 @@ test('transport handoff begins while the shared coordinator is still held', asyn
   contender.exec('ROLLBACK');
 });
 
+test('stream response is not released when Provider revoke wins during upstream inference', async () => {
+  let releaseTransport;
+  const transportGate = new Promise((resolve) => { releaseTransport = resolve; });
+  const fixture = await createFixture();
+  let upstreamCalls = 0;
+  let hostWrites = 0;
+  const finalSend = createProtectedMemoryFinalSend({
+    gateway: fixture.gateway,
+    resolveProtectedMemory: (hostRequestContext) => hostRequestContext,
+    fetchImpl: () => {
+      upstreamCalls += 1;
+      return transportGate;
+    },
+  });
+  try {
+    const pending = finalSend({
+      senderRoute: 'google-ai-studio',
+      endpointUrl: 'https://provider.example/stream',
+      requestInit: {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ stream: true, messages: [{ role: 'user', content: 'protected' }] }),
+      },
+      hostRequestContext: {
+        ...validRequest('stream-revoke-during-send'),
+      },
+      stream: true,
+      forwardResponse: () => {
+        hostWrites += 1;
+        return Promise.resolve();
+      },
+    });
+    fixture.setProviderGranted(false);
+    releaseTransport({ status: 200, body: 'must-not-be-streamed' });
+    await assert.rejects(pending, /MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED/);
+    assert.equal(upstreamCalls, 1);
+    assert.equal(hostWrites, 0, 'failed final revalidation must prevent the first Host response write');
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('successful stream begins its one Host response write under the Coordinator lease', async () => {
+  const fixture = await createFixture();
+  const contender = new DatabaseSync(fixture.coordinatorPath);
+  contender.exec('PRAGMA busy_timeout=0;');
+  let leaseHeldAtHostWrite = false;
+  let hostWrites = 0;
+  const finalSend = createProtectedMemoryFinalSend({
+    gateway: fixture.gateway,
+    resolveProtectedMemory: (hostRequestContext) => hostRequestContext,
+    fetchImpl: async () => ({ status: 200, body: 'stream-body' }),
+  });
+  try {
+    await finalSend({
+      senderRoute: 'google-ai-studio',
+      endpointUrl: 'https://provider.example/stream',
+      requestInit: {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ stream: true, messages: [{ role: 'user', content: 'protected' }] }),
+      },
+      hostRequestContext: {
+        ...validRequest('stream-response-under-lease'),
+      },
+      stream: true,
+      forwardResponse: () => {
+        fixture.gateway.authorizeResponseWrite('stream-response-under-lease', () => {
+          hostWrites += 1;
+          try {
+            contender.exec('BEGIN IMMEDIATE');
+            contender.exec('ROLLBACK');
+          } catch (error) {
+            leaseHeldAtHostWrite = /locked|busy/i.test(String(error?.message || ''));
+          }
+        }, { final: true });
+        return Promise.resolve();
+      },
+    });
+    assert.equal(hostWrites, 1);
+    assert.equal(leaseHeldAtHostWrite, true);
+  } finally {
+    contender.close();
+    await fixture.close();
+  }
+});
+
+test('Gateway rejects a missing or malformed policy authority tuple before upstream egress', async () => {
+  const fixture = await createFixture();
+  try {
+    fixture.setPolicyAuthority({ authority_id: 'test-memory-policy', generation: 1 });
+    await assert.rejects(
+      fixture.gateway.dispatchProtectedRequest({
+        ...validRequest('missing-policy-fingerprint'),
+        transport: () => {
+          fixture.calls.push('unexpected');
+          return Promise.resolve({ status: 200 });
+        },
+      }),
+      /MEMORY_DISPATCH_NOT_READY/,
+    );
+    assert.equal(fixture.calls.length, 0);
+    const ledger = new DatabaseSync(fixture.ledgerPath);
+    try {
+      assert.equal(ledger.prepare('SELECT COUNT(*) AS n FROM dispatch_ledger').get().n, 0);
+    } finally {
+      ledger.close();
+    }
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('all protected sender families share one real Gateway and each causes exactly one upstream call', async () => {
+  const fixture = await createFixture();
+  let upstreamCalls = 0;
+  const prepared = {
+    model: 'selected-model',
+    worldId: 'world-1',
+    actorId: 'npc-1',
+    purpose: 'recall',
+    sources: sourceSet,
+    candidates: validRequest().candidates,
+  };
+  const finalSend = createProtectedMemoryFinalSend({
+    gateway: fixture.gateway,
+    resolveProtectedMemory: (hostRequestContext) => hostRequestContext,
+    fetchImpl: async () => {
+      upstreamCalls += 1;
+      return { status: 200, body: 'upstream-response' };
+    },
+  });
+  try {
+    let routeIndex = 0;
+    for (const senderRoute of PROTECTED_MEMORY_SENDER_ROUTES) {
+      routeIndex += 1;
+      const requestId = 'sender-route-' + routeIndex;
+      await finalSend({
+        senderRoute,
+        endpointUrl: 'https://provider.example/v1/chat/completions',
+        requestInit: {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ messages: [{ role: 'user', content: 'protected' }] }),
+        },
+        hostRequestContext: { ...prepared, requestId },
+      });
+      fixture.gateway.authorizeResponseWrite(requestId, () => undefined, { final: true });
+    }
+    assert.equal(upstreamCalls, PROTECTED_MEMORY_SENDER_ROUTES.length);
+    const ledger = new DatabaseSync(fixture.ledgerPath);
+    try {
+      assert.equal(
+        ledger.prepare('SELECT COUNT(*) AS n FROM dispatch_ledger WHERE status=?').get('COMPLETED').n,
+        PROTECTED_MEMORY_SENDER_ROUTES.length,
+      );
+      const recordedRoutes = ledger.prepare(
+        'SELECT sender_route,policy_authority_id,policy_generation,policy_fingerprint FROM dispatch_ledger ORDER BY sender_route',
+      ).all();
+      assert.deepEqual(
+        recordedRoutes.map((row) => row.sender_route),
+        [...PROTECTED_MEMORY_SENDER_ROUTES].sort(),
+      );
+      assert.ok(recordedRoutes.every((row) => row.policy_authority_id === 'test-memory-policy'
+        && row.policy_generation === 1 && row.policy_fingerprint === 'd'.repeat(64)));
+    } finally {
+      ledger.close();
+    }
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('FINAL RESPONSE REVALIDATION blocks Host release after Provider revoke during upstream send', async () => {
+  let releaseTransport;
+  const transportGate = new Promise((resolve) => { releaseTransport = resolve; });
+  const fixture = await createFixture({
+    createTransport: () => () => {
+      fixture.calls.push('upstream');
+      return transportGate;
+    },
+  });
+  try {
+    const pending = fixture.gateway.dispatchProtectedRequest(validRequest('revoke-during-send'));
+    await new Promise((resolve) => setImmediate(resolve));
+    fixture.setProviderGranted(false);
+    releaseTransport({ status: 200, body: 'must-not-reach-host' });
+    await assert.rejects(pending, /MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED/);
+    assert.equal(fixture.calls.length, 1, 'exactly one upstream call occurred');
+    const ledger = new DatabaseSync(fixture.ledgerPath);
+    try {
+      const row = ledger.prepare('SELECT status FROM dispatch_ledger WHERE request_id=?')
+        .get('revoke-during-send');
+      assert.equal(row.status, 'UNKNOWN', 'withheld response remains non-replayable');
+    } finally {
+      ledger.close();
+    }
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('revoke after upstream completion but before response.end prevents the actual Host write', async () => {
+  const fixture = await createFixture();
+  let hostWrites = 0;
+  try {
+    const request = validRequest('revoke-before-response-end');
+    await fixture.gateway.dispatchProtectedRequest(request);
+    fixture.setProviderGranted(false);
+    assert.throws(
+      () => fixture.gateway.authorizeResponseWrite(request.requestId, () => { hostWrites += 1; }, { final: true }),
+      /MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED/,
+    );
+    assert.equal(hostWrites, 0, 'the final Express write must not occur after revoke');
+    const ledger = new DatabaseSync(fixture.ledgerPath);
+    try {
+      assert.equal(ledger.prepare('SELECT status FROM dispatch_ledger WHERE request_id=?')
+        .get(request.requestId).status, 'UNKNOWN');
+    } finally {
+      ledger.close();
+    }
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('streaming revalidates every chunk and stops the stream after revoke', async () => {
+  const fixture = await createFixture();
+  const hostChunks = [];
+  const request = validRequest('revoke-between-stream-chunks', { stream: true });
+  try {
+    await assert.rejects(fixture.gateway.dispatchProtectedRequest({
+      ...request,
+      forwardResponse: async () => {
+        fixture.gateway.authorizeResponseWrite(request.requestId, () => hostChunks.push('chunk-1'));
+        fixture.setProviderGranted(false);
+        fixture.gateway.authorizeResponseWrite(request.requestId, () => hostChunks.push('chunk-2'));
+      },
+    }), /MEMORY_DISPATCH_OUTCOME_UNKNOWN/);
+    assert.deepEqual(hostChunks, ['chunk-1'], 'no chunk after revoke may be written');
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('FINAL RESPONSE REVALIDATION rejects Provider record authorization-generation changes during upstream send', async () => {
+  let releaseTransport;
+  const transportGate = new Promise((resolve) => { releaseTransport = resolve; });
+  const fixture = await createFixture({
+    createTransport: () => () => {
+      fixture.calls.push('upstream');
+      return transportGate;
+    },
+  });
+  try {
+    const pending = fixture.gateway.dispatchProtectedRequest(validRequest('record-generation-during-send'));
+    await new Promise((resolve) => setImmediate(resolve));
+    fixture.setProviderCandidates([{
+      ...validRequest().candidates[0],
+      authorization_generation: 2,
+    }]);
+    releaseTransport({ status: 200, body: 'must-not-reach-host' });
+    await assert.rejects(pending, /MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED/);
+    assert.equal(fixture.calls.length, 1, 'authorization-generation change must not cause a retry');
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('FINAL RESPONSE REVALIDATION rejects policy authority tuple rotation during upstream send', async () => {
+  let releaseTransport;
+  const transportGate = new Promise((resolve) => { releaseTransport = resolve; });
+  const fixture = await createFixture({
+    createTransport: () => () => {
+      fixture.calls.push('upstream');
+      return transportGate;
+    },
+  });
+  try {
+    const pending = fixture.gateway.dispatchProtectedRequest(validRequest('policy-rotation-during-send'));
+    await new Promise((resolve) => setImmediate(resolve));
+    fixture.setPolicyAuthority({
+      authority_id: 'test-memory-policy',
+      generation: 2,
+      fingerprint: 'e'.repeat(64),
+    });
+    releaseTransport({ status: 200, body: 'must-not-reach-host' });
+    await assert.rejects(pending, /MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED/);
+    assert.equal(fixture.calls.length, 1, 'policy rotation does not trigger a retry');
+  } finally {
+    await fixture.close();
+  }
+});
+
 test('dispatch validates current heads and grants, records one content-free start, and sends once', async () => {
   const fixture = await createFixture();
   try {
-    const response = await fixture.gateway.dispatchProtectedRequest(validRequest());
+    const response = await dispatchAndRelease(fixture.gateway, validRequest());
     assert.equal(response.status, 200);
     assert.equal(fixture.calls.length, 1);
     assert.equal(fixture.calls[0].body, validRequest().body);
@@ -296,10 +781,14 @@ test('dispatch validates current heads and grants, records one content-free star
 
     const db = new DatabaseSync(fixture.ledgerPath);
     try {
-      const row = db.prepare('SELECT status,request_digest,model,sources_json FROM dispatch_ledger WHERE request_id=?')
+      const row = db.prepare('SELECT status,request_digest,model,sources_json,sender_route,policy_authority_id,policy_generation,policy_fingerprint FROM dispatch_ledger WHERE request_id=?')
         .get('request-001');
       assert.equal(row.status, 'COMPLETED');
       assert.equal(row.model, 'selected-model');
+      assert.equal(row.sender_route, 'google-ai-studio');
+      assert.equal(row.policy_authority_id, 'test-memory-policy');
+      assert.equal(row.policy_generation, 1);
+      assert.equal(row.policy_fingerprint, 'd'.repeat(64));
       assert.match(row.request_digest, /^[a-f0-9]{64}$/);
       assert.equal(JSON.stringify(row).includes('SECRET_MEMORY_TEXT_DO_NOT_PERSIST'), false);
     } finally {
@@ -330,6 +819,10 @@ test('unsupported route, denied Provider grant, and pending authority all produc
       fixture.gateway.dispatchProtectedRequest(validRequest('unsupported', { route: 'vertex-ai-chat-completions' })),
       /MEMORY_DISPATCH_NOT_READY/,
     );
+    await assert.rejects(
+      fixture.gateway.dispatchProtectedRequest(validRequest('unsupported-sender', { senderRoute: 'unregistered-provider' })),
+      /MEMORY_DISPATCH_NOT_READY/,
+    );
     fixture.setProviderGranted(false);
     await assert.rejects(
       fixture.gateway.dispatchProtectedRequest(validRequest('denied-grant')),
@@ -357,7 +850,7 @@ test('unsupported route, denied Provider grant, and pending authority all produc
 test('ambiguous transport outcome is recorded UNKNOWN and the request identity cannot be replayed', async () => {
   let sends = 0;
   const fixture = await createFixture({
-    sendUpstream: () => {
+    createTransport: () => () => {
       sends += 1;
       return Promise.reject(new Error('simulated timeout after dispatch start'));
     },
@@ -389,13 +882,70 @@ test('ambiguous transport outcome is recorded UNKNOWN and the request identity c
       fixture.gateway.dispatchProtectedRequest(validRequest('ambiguous-request-new-id')),
       /MEMORY_DISPATCH_REPLAY_BLOCKED/,
     );
+    await assert.rejects(
+      fixture.gateway.dispatchProtectedRequest(validRequest('ambiguous-request-other-sender', {
+        senderRoute: 'openai',
+      })),
+      /MEMORY_DISPATCH_REPLAY_BLOCKED/,
+      'changing sender family must not bypass the unresolved request digest',
+    );
     assert.equal(sends, 1);
   } finally {
     await fixture.close();
   }
 });
 
-test('loopback Gateway endpoint requires Host authentication and a body-bound signature before the injected Host-selected transport', async () => {
+test('cancellation after dispatch-start records UNKNOWN and blocks every retry', async () => {
+  const controller = new AbortController();
+  let sends = 0;
+  let signalStarted;
+  const transportStarted = new Promise(resolve => { signalStarted = resolve; });
+  const fixture = await createFixture({
+    createTransport: () => () => new Promise((_resolve, reject) => {
+      sends += 1;
+      signalStarted();
+      if (controller.signal.aborted) {
+        reject(Object.assign(new Error('cancelled'), { name: 'AbortError' }));
+        return;
+      }
+      controller.signal.addEventListener('abort', () => {
+        reject(Object.assign(new Error('cancelled'), { name: 'AbortError' }));
+      }, { once: true });
+    }),
+  });
+  try {
+    const pending = fixture.gateway.dispatchProtectedRequest(validRequest('cancelled-dispatch'));
+    await transportStarted;
+    controller.abort();
+    await assert.rejects(pending, /MEMORY_DISPATCH_OUTCOME_UNKNOWN/);
+    assert.equal(sends, 1, 'cancellation must not trigger a transport retry');
+
+    const db = new DatabaseSync(fixture.ledgerPath);
+    try {
+      assert.equal(
+        db.prepare('SELECT status FROM dispatch_ledger WHERE request_id=?')
+          .get('cancelled-dispatch').status,
+        'UNKNOWN',
+      );
+    } finally {
+      db.close();
+    }
+
+    await assert.rejects(
+      fixture.gateway.dispatchProtectedRequest(validRequest('cancelled-dispatch')),
+      /MEMORY_DISPATCH_DUPLICATE_ID/,
+    );
+    await assert.rejects(
+      fixture.gateway.dispatchProtectedRequest(validRequest('cancelled-dispatch-new-id')),
+      /MEMORY_DISPATCH_REPLAY_BLOCKED/,
+    );
+    assert.equal(sends, 1, 'same-ID and new-ID retries must both remain blocked');
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('serialized Gateway endpoint rejects dispatch because it cannot carry an in-process transport capability', async () => {
   const hostToken = 'host-dispatch-token-for-gateway-tests-00000000000000000000000000000004';
   const signingKey = 'host-dispatch-signing-key-for-gateway-tests-00000000000000000000000000000005';
   let upstreamCalls = 0;
@@ -426,6 +976,7 @@ test('loopback Gateway endpoint requires Host authentication and a body-bound si
     const payload = {
       request_id: request.requestId,
       route: request.route,
+      sender_route: request.senderRoute,
       model: request.model,
       stream: request.stream,
       body: request.body,
@@ -458,11 +1009,11 @@ test('loopback Gateway endpoint requires Host authentication and a body-bound si
       headers: { authorization: 'Bearer ' + hostToken, 'content-type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    assert.equal(response.status, 200);
-    assert.equal(await response.text(), 'selected-backend-response');
-    assert.equal(upstreamCalls, 1);
-    assert.equal(observedRoute, 'host-selected-chat-generation');
-    assert.equal(observedBody, request.body);
+    assert.equal(response.status, 503);
+    assert.deepEqual(await response.json(), { error: 'IN_PROCESS_TRANSPORT_REQUIRED' });
+    assert.equal(upstreamCalls, 0, 'JSON/HTTP dispatch must never create or invoke a provider transport');
+    assert.equal(observedRoute, undefined);
+    assert.equal(observedBody, undefined);
   } finally {
     await new Promise((resolve) => server.close(resolve));
     await fixture.close();
@@ -476,6 +1027,65 @@ test('gateway startup rejects any requested non-loopback bind', async () => {
     createMemoryDispatchGatewayServer({ gateway, hostToken, hostSigningKey, host: '0.0.0.0' }),
     /Invalid Memory dispatch Gateway server configuration/,
   );
+});
+
+test('real process crash after transport handoff recovers UNKNOWN on fresh Gateway startup', async () => {
+  const fixture = await createFixture();
+  const counterPath = join(fixture.directory, 'upstream-call-count.txt');
+  try {
+    fixture.gateway.close();
+    const moduleUrl = new URL('../src/security/memory-dispatch-gateway.js', import.meta.url).href;
+    const script = [
+      'import { appendFileSync } from "node:fs";',
+      'import { MemoryDispatchGateway } from ' + JSON.stringify(moduleUrl) + ';',
+      'const [ledgerPath, coordinatorPath, authorityPort, readToken, counterPath, requestJson] = process.argv.slice(1);',
+      'const gateway = new MemoryDispatchGateway({',
+      '  ledgerPath, coordinatorPath, authorityPort: Number(authorityPort), readToken,',
+      '  readCoreEvidence: ({ worldId, actorId, sources }) => ({ head: 1, world_id: worldId, actor_id: actorId, readiness: "READY", inventory_status: "READY", policy_authority: { authority_id: "test-memory-policy", generation: 1, fingerprint: "' + 'd'.repeat(64) + '" }, sources }),',
+      '  readProviderEvidence: ({ worldId, actorId, purpose, sources, candidates }) => ({ head: 1, world_id: worldId, actor_id: actorId, purpose, granted: true, readiness: "READY", sources, candidates }),',
+      '});',
+      'const request = JSON.parse(requestJson);',
+      'gateway.dispatchProtectedRequest({ ...request, transport: () => { appendFileSync(counterPath, "x"); process.stdout.write("HANDOFF\\n", () => process.exit(77)); return new Promise(() => {}); } });',
+      'setTimeout(() => process.exit(78), 5000);',
+    ].join('\\n');
+    const child = spawn(process.execPath, [
+      '--input-type=module', '-e', script,
+      fixture.ledgerPath, fixture.coordinatorPath, String(fixture.port), readToken,
+      counterPath, JSON.stringify(validRequest('process-crash-after-handoff')),
+    ], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
+      env: {
+        PATH: process.env.PATH || '',
+        SystemRoot: process.env.SystemRoot || '',
+        WINDIR: process.env.WINDIR || '',
+      },
+    });
+    const exitPromise = once(child, 'exit');
+    const [chunk] = await once(child.stdout, 'data');
+    assert.match(String(chunk), /HANDOFF/);
+    const [exitCode] = await exitPromise;
+    assert.equal(exitCode, 77, 'child must terminate immediately after the one transport handoff');
+
+    fixture.reopenGateway();
+    assert.equal((await import('node:fs')).readFileSync(counterPath, 'utf8'), 'x');
+    const ledger = new DatabaseSync(fixture.ledgerPath);
+    try {
+      assert.equal(
+        ledger.prepare('SELECT status FROM dispatch_ledger WHERE request_id=?')
+          .get('process-crash-after-handoff').status,
+        'UNKNOWN',
+      );
+    } finally {
+      ledger.close();
+    }
+    await assert.rejects(
+      fixture.gateway.dispatchProtectedRequest(validRequest('process-crash-replay-new-id')),
+      /MEMORY_DISPATCH_REPLAY_BLOCKED/,
+    );
+  } finally {
+    await fixture.close();
+  }
 });
 
 test('gateway startup converts stale DISPATCH_STARTED rows to UNKNOWN and blocks new-ID replay', async () => {
@@ -521,7 +1131,6 @@ test('existing dispatch ledger with missing schema fails closed without auto-rep
       readToken,
       readCoreEvidence: () => ({}),
       readProviderEvidence: () => ({}),
-      sendUpstream: () => Promise.resolve({ status: 200 }),
     }), /DISPATCH_LEDGER_SCHEMA_INCOMPLETE/);
     const verify = new DatabaseSync(ledgerPath);
     try {
@@ -643,14 +1252,16 @@ test('real Provider revokeRecord committed before dispatch-start produces zero u
     const transportStarted = new Promise((resolve) => { signalTransportStart = resolve; });
     let releaseTransport;
     const transportGate = new Promise((resolve) => { releaseTransport = resolve; });
-    gateway = new MemoryDispatchGateway({
+    gateway = installTestTransport(new MemoryDispatchGateway({
       ledgerPath,
       coordinatorPath,
       authorityPort: service.port,
       readToken,
       readCoreEvidence: ({ worldId, actorId, sources }) => ({
         head: 1, world_id: worldId, actor_id: actorId,
-        readiness: 'READY', inventory_status: 'READY', sources,
+        readiness: 'READY', inventory_status: 'READY',
+        policy_authority: { authority_id: 'test-memory-policy', generation: 1, fingerprint: 'd'.repeat(64) },
+        sources,
       }),
       readProviderEvidence: ({ worldId, actorId, purpose }) => {
         const head = providerReader.prepare('SELECT head FROM accepted_head_state WHERE singleton=1').get();
@@ -664,14 +1275,13 @@ test('real Provider revokeRecord committed before dispatch-start produces zero u
           granted: queryGrant?.allowed === 1 && recordGrant?.allowed === 1,
           readiness: index?.index_health === 'ready' && index?.source_reconciliation === 'current' ? 'READY' : 'NOT_READY',
           sources: stored ? [{ source_kind: stored.source_kind, source_entity_id: stored.source_entity_id, source_version: stored.source_version }] : [],
-          candidates: stored ? [{ record_ref: stored.record_ref, record_version: stored.record_version, source_kind: stored.source_kind, source_entity_id: stored.source_entity_id, source_version: stored.source_version }] : [],
+          candidates: stored ? [{ record_ref: stored.record_ref, record_version: stored.record_version, authorization_generation: 1, source_kind: stored.source_kind, source_entity_id: stored.source_entity_id, source_version: stored.source_version }] : [],
         };
       },
-      sendUpstream: (outgoing) => {
-        calls.push(outgoing);
-        signalTransportStart();
-        return transportGate.then(() => ({ status: 200, body: 'accepted' }));
-      },
+    }), (outgoing) => () => {
+      calls.push(outgoing);
+      signalTransportStart();
+      return transportGate.then(() => ({ status: 200, body: 'accepted' }));
     });
 
     // Tombstone and purge are real Provider mutation APIs too; the legacy row
@@ -744,12 +1354,12 @@ test('real Provider revokeRecord committed before dispatch-start produces zero u
     await transportStarted;
     provider.revokeRecord(scope, record.record_ref, record.record_version);
     releaseTransport();
-    await inFlight;
-    assert.equal(calls.length, 1, 'dispatch-start winning first permits exactly one upstream call');
+    await assert.rejects(inFlight, /MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED/);
+    assert.equal(calls.length, 1, 'dispatch-start winning first permits one upstream call but revoke blocks Host release');
     const completedLedger = new DatabaseSync(ledgerPath);
     try {
       assert.equal(completedLedger.prepare('SELECT status FROM dispatch_ledger WHERE request_id=?')
-        .get('dispatch-start-wins-before-revoke').status, 'COMPLETED');
+        .get('dispatch-start-wins-before-revoke').status, 'UNKNOWN');
     } finally {
       completedLedger.close();
     }
@@ -831,10 +1441,11 @@ test('real Core source mutation and Gateway dispatch-start share one cross-proce
         actor_id: actorId,
         readiness: 'READY',
         inventory_status: 'READY',
+        policy_authority: { authority_id: 'test-memory-policy', generation: 1, fingerprint: 'd'.repeat(64) },
         sources: currentSources,
       };
     };
-    gateway = new MemoryDispatchGateway({
+    gateway = installTestTransport(new MemoryDispatchGateway({
       ledgerPath: fixture.ledgerPath,
       coordinatorPath: fixture.coordinatorPath,
       authorityPort: fixture.port,
@@ -850,11 +1461,10 @@ test('real Core source mutation and Gateway dispatch-start share one cross-proce
         sources,
         candidates,
       }),
-      sendUpstream: (request) => {
-        calls.push(request);
-        markTransportStarted();
-        return transportGate.then(() => ({ status: 200 }));
-      },
+    }), (request) => () => {
+      calls.push(request);
+      markTransportStarted();
+      return transportGate.then(() => ({ status: 200 }));
     });
 
     const readCurrentVersion = () => {
@@ -904,13 +1514,13 @@ test('real Core source mutation and Gateway dispatch-start share one cross-proce
     await transportStarted;
     updateSource('core-update-after-dispatch-start');
     releaseTransport();
-    await inFlight;
-    assert.equal(calls.length, 1, 'a Core mutation ordered after durable dispatch-start cannot recall the in-flight request');
+    await assert.rejects(inFlight, /MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED/);
+    assert.equal(calls.length, 1, 'a Core mutation after dispatch-start cannot recall upstream but blocks Host release');
 
     const ledger = new DatabaseSync(fixture.ledgerPath);
     try {
       assert.equal(ledger.prepare('SELECT status FROM dispatch_ledger WHERE request_id=?')
-        .get('core-dispatch-start-wins').status, 'COMPLETED');
+        .get('core-dispatch-start-wins').status, 'UNKNOWN');
     } finally {
       ledger.close();
     }
@@ -921,6 +1531,70 @@ test('real Core source mutation and Gateway dispatch-start share one cross-proce
     try { coreStore?.close(); } catch {}
     if (previousCoordinatorPath === undefined) delete process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH;
     else process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH = previousCoordinatorPath;
+    await fixture.close();
+  }
+});
+
+test('Host inventory change is revalidated under the Coordinator lease before dispatch-start', async () => {
+  const fixture = await createFixture();
+  try {
+    fixture.setHostInventoryReady(false);
+    await assert.rejects(
+      fixture.gateway.dispatchProtectedRequest({
+        ...validRequest('host-inventory-revoked'),
+        transport: () => { fixture.calls.push('unexpected'); return Promise.resolve({ status: 200 }); },
+      }),
+      /MEMORY_DISPATCH_NOT_READY/,
+    );
+    assert.equal(fixture.calls.length, 0);
+    assert.equal(
+      fixture.gateway.db.prepare('SELECT COUNT(*) AS count FROM dispatch_ledger').get().count,
+      0,
+      'Host NON_READY must be rejected before durable DISPATCH_STARTED',
+    );
+  } finally {
+    await fixture.close();
+  }
+});
+
+
+
+test('Host inventory revoke after upstream completion blocks the actual response write', async () => {
+  const fixture = await createFixture();
+  try {
+    const request = validRequest('host-revoked-before-response-write');
+    const upstream = await fixture.gateway.dispatchProtectedRequest(request);
+    fixture.setHostInventoryReady(false);
+    let writes = 0;
+    assert.throws(
+      () => fixture.gateway.authorizeResponseWrite(request.requestId, () => { writes += 1; return upstream; }, { final: true }),
+      /MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED/,
+    );
+    assert.equal(writes, 0, 'Host response must not be written after inventory authority is revoked');
+    const row = fixture.gateway.db.prepare('SELECT status FROM dispatch_ledger WHERE request_id=?')
+      .get(request.requestId);
+    assert.equal(row.status, 'UNKNOWN', 'withheld response remains terminal and non-replayable');
+  } finally {
+    await fixture.close();
+  }
+});
+
+
+test('streaming stops the next chunk after Host inventory authority changes', async () => {
+  const fixture = await createFixture();
+  const hostChunks = [];
+  const request = validRequest('host-revoke-between-stream-chunks', { stream: true });
+  try {
+    await assert.rejects(fixture.gateway.dispatchProtectedRequest({
+      ...request,
+      forwardResponse: async () => {
+        fixture.gateway.authorizeResponseWrite(request.requestId, () => hostChunks.push('chunk-1'));
+        fixture.setHostInventoryReady(false);
+        fixture.gateway.authorizeResponseWrite(request.requestId, () => hostChunks.push('chunk-2'));
+      },
+    }), /MEMORY_DISPATCH_OUTCOME_UNKNOWN/);
+    assert.deepEqual(hostChunks, ['chunk-1'], 'no chunk after Host inventory authority changes may be written');
+  } finally {
     await fixture.close();
   }
 });

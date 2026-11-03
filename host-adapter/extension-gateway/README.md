@@ -1,75 +1,64 @@
-# SillyTavern Extension Gateway
+# SillyTavern Host Adapter and Final-Send integration
 
-**Status: review-only candidate. Protected Memory → NPC dispatch remains NON_READY / FAIL-CLOSED until the Core endpoint and durable assertion replay protection pass exact-head integration tests.**
+**Status: integration candidate. Protected Memory → NPC remains NON_READY / FAIL-CLOSED.**
 
-## Single integration boundary
+## One generation ingress and one model egress path
 
-The browser extension uses SillyTavern's native `generate_interceptor` to stop native generation for an explicitly armed protected request. It then sends only a bounded request envelope to the single authenticated server-plugin namespace:
+The browser Extension does not intercept, abort, or independently dispatch generation. It listens to SillyTavern's awaited generation-data events and adds only four untrusted correlation fields to the native request:
 
-`/api/plugins/logic-engine-extension-gateway/*`
+- `logic_engine_conversation_uuid`
+- `logic_engine_request_id`
+- `logic_engine_context_size`
+- `logic_engine_generation_type`
 
-The server plugin is loaded by SillyTavern after `requireLoginMiddleware`. It owns the only public Host ingress and performs bounded envelope routing only. It delegates to an internal Authenticated Host Adapter; that component verifies the ST session, resolves installation/account/session/conversation from server-controlled identity and inventory, and calls Core using server-held credentials plus a short-lived signed Host assertion. The Gateway does not authenticate sessions, assign World/Actor, authorize, access Memory/NPC/Mechanics, handle AI sending, or implement the Final-Send Hook. Adapter helpers do not register separate Express routes.
+For Chat Completions it attaches these at `CHAT_COMPLETION_SETTINGS_READY`; for Text Completions, Kobold, NovelAI and Horde it attaches them at `GENERATE_AFTER_DATA`. It sends no chat text, Memory content, World/Actor ID, Core URL, or credentials. If browser-side identity preparation fails, ordinary generation is left untouched; when protected Memory is enabled, the server rejects the missing locator as NON_READY.
 
-No `/api/logic-engine/*` route is mounted. The pinned lifecycle patch adds only internal middleware hooks to existing SillyTavern mutation routes and a private helper import; it does not create another Host API route or contact Core directly.
+The managed pinned SillyTavern Final-Send Hook wraps all five native generation route families. The server-side Final-Send plugin derives the actual route from the Express request path, authenticates the Host session, and calls `createSillyTavernHostAdapter.prepareGenerationContext()` on that same request. The Host Adapter re-resolves the supplied conversation UUID against its complete server-side inventory, obtains Core's World/Actor binding, and retrieves the Core Memory NPC result. The NPC Context Receiver validates the exact ready envelope and source lineage before any content can be serialized into the upstream provider request.
 
-## Pinned lifecycle integration
+**Current wiring state:** this directory's `server-plugin/index.mjs` is the separate public Host-ingress plugin; it registers only bounded Host Adapter routes. The native Final-Send Hook is owned by the repository-root `index.mjs`, installed as `plugins/logic-engine/index.mjs`. That entrypoint imports the NPC Context Receiver, constructs and registers the Final-Send adapter with the patched Hook, and uses an explicit `unavailableGateway` stub. Therefore the receiver/adapter registration is connected, but a real protected dispatch is not: complete-empty retrieval may use native generation, while non-empty protected context is denied before provider transport. Production remains NON_READY until the stub is replaced by a real Gateway with synchronous Core, Provider and Host evidence readers under the shared Coordinator.
 
-The exact pinned SillyTavern build requires the reviewed patch at
-`host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch`.
-Apply it only to commit `06bde939fb1e9c4c8d8641d810f0a916b5bce127`:
+There is no browser-facing `/dispatch` route. The old prototype that aborted native generation and returned Memory context to the browser has been removed from the installed Extension path. The only protected model egress is the native sender call intercepted by the managed Final-Send Hook.
 
-```sh
-git -C /path/to/SillyTavern apply --unidiff-zero --check /path/to/Logic-Engine/host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch
-git -C /path/to/SillyTavern apply --unidiff-zero /path/to/Logic-Engine/host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch
-git -C /path/to/SillyTavern diff --check
-```
+## Public Host plugin routes
 
-The patch is restricted to the reviewed client mutation entry points, existing
-chat/group/character/backup/Data Maid/settings/account-reset endpoint middleware, the bounded Gateway JSON body
-limit, and a private helper re-export. Its allowlist is enforced in CI. The
-helper imports the installed plugin's server-owned guard functions; it mounts
-no Express route. All browser-facing Host calls remain under
-`/api/plugins/logic-engine-extension-gateway/*`. Internal ST endpoint middleware
-cannot call Core and cannot bypass the Gateway's server-side receipt endpoints.
+Install the server plugin directory under:
 
-## Installation layout
+`plugins/logic-engine-extension-gateway/`
 
 Install the browser extension directory under:
 
 `public/scripts/extensions/third-party/logic-engine-extension-gateway/`
 
-Copy every `.mjs` and `.js` file plus `package.json` from `server-plugin/` under:
+The Host plugin exposes only the bounded session, identity, inventory, lifecycle and version-ledger routes under:
 
-`plugins/logic-engine-extension-gateway/`
+`/api/plugins/logic-engine-extension-gateway/*`
 
-Enable SillyTavern's native `enableServerPlugins: true` setting. Keep server-plugin auto-update disabled unless the plugin source is pinned and reviewed. The plugin routes remain behind ST's login middleware and CSRF protection.
+It does not expose a Memory retrieval or model dispatch route. The Final-Send server plugin uses the Host Adapter directly in-process for the actual generation request.
 
-## Identity contract
+Enable SillyTavern's native `enableServerPlugins: true` setting. Keep server-plugin auto-update disabled unless the plugin source is pinned and reviewed. All public Host routes remain behind ST login middleware and CSRF protection.
+
+## Identity and inventory contract
 
 - Installation and account IDs are generated and persisted by the server-side `HostIdentityStore`.
-- The Host session UUID is generated in SillyTavern's signed session and rotates when the authenticated account changes. Core validates this session separately from the stable conversation tuple.
-- Stable conversation identity is `installation_id:account_id:conversation_uuid`; session identity is carried separately in the signed assertion.
-- The browser's localStorage and chat metadata are consistency/enrollment inputs, not authentication authorities.
-- `LOGIC_ENGINE_HOST_IDENTITY_DIR` must be an absolute deployment-owned directory outside SillyTavern's global `DATA_ROOT`, not merely outside the current account's `request.user.directories.root`. The server checks the resolved path before identity reads, root-inventory persistence, lifecycle journal/receipt operations, and Host-to-Core context resolution; a path inside global `DATA_ROOT`, including one reached through a symlinked parent, is NON_READY.
-- `LOGIC_ENGINE_HOST_RECEIPT_DIR` must also be outside global `DATA_ROOT`. Neither identity nor receipt state may be restored together with ST user data.
-- These directory checks prevent accidental co-restoration with ST data; they do not make local state independently rollback-resistant. Core's accepted root-inventory authority remains required.
+- The Host session UUID is read from the signed SillyTavern session and rechecked for each protected generation.
+- The Host canonical conversation identity is `installation_id:account_id:conversation_uuid`; the signed ST `session_id` remains a separate context field. For Core binding, Host projects the authenticated scope to `host_session_id:host_installation_id:conversation_uuid`. The browser conversation UUID is only a locator; all other components are server-owned.
+- The browser conversation UUID is only a locator. Host validates it against the complete server-side Host inventory before resolving Core context.
+- Host carries the verified root ID, inventory sequence and manifest digest into the server-owned generation context. The Gateway must revalidate that inventory snapshot under the shared Coordinator before `DISPATCH_STARTED` and immediately before every actual client response write, including each streamed chunk and final end.
+- World and Actor are never accepted from the browser; Host obtains them from Core-owned durable binding resolution.
+- Core Security Gateway remains the sole World/Actor and Memory authorization authority.
+- `LOGIC_ENGINE_HOST_IDENTITY_DIR` must be an absolute deployment-owned directory outside SillyTavern's global `DATA_ROOT`.
 - `LOGIC_ENGINE_HOST_BUILD_SHA` is a deployment claim matched to the pinned commit, not runtime attestation.
-- The Authenticated Host Adapter resolves the conversation UUID against server-side inventory before signing any assertion.
-- The Gateway does not assign World or Actor. World and Actor are never accepted from the browser; the Host Adapter obtains them from Core-owned durable binding resolution and signs them into the trusted Host assertion.
-- Core Security Gateway independently re-resolves those bindings and remains the sole authorization authority.
 
-## Dispatch boundary
+The current Host root-inventory authority is review-only. A first baseline, unchanged review-only result, or unverified mutation is not production-authoritative. Consequently, the protected generation path remains NON_READY unless Core returns an authoritative complete inventory result.
 
-The browser sends only `request_id`, `conversation_uuid`, `context_size`, and `generation_type`. It does not send chat text, world ID, actor ID, Core URL, or credentials.
+## NPC Context Receiver and serialization
 
-The server Gateway signs the exact installation/account/session/conversation tuple with the configured adapter secret and sends it to Core at `/v1/host/memory-npc/retrieve`. If Core's matching authenticated endpoint is unavailable, the Gateway returns NON_READY and never falls through to native SillyTavern generation.
+The server-side `receiveNpcContext()` accepts only a Core-produced `status: ready` envelope, verifies admitted/candidate identity pairs, requires exact source versions, rejects accessors/Proxy-backed values and bounds content size. It derives World/Actor from Core context and retains the authenticated Host tuple plus root inventory head.
 
-Before a request can acquire a Host context, the Adapter sends the complete VSS-aligned user-root manifest to Core's root-inventory journal. It requires Core to return `AUTHORITATIVE_COMPLETE`, `INTEGRITY_OK`, a monotonic sequence and a manifest digest. A local scan, first baseline, unchanged review-only result, or missing Core journal is insufficient. Current Core behavior is review-only, so production dispatch remains NON_READY even when a test fixture supplies an authoritative source inventory.
+The protected Final-Send serializer injects admitted content into the actual provider body after native provider transformations: a system message for Chat Completions, or the appropriate prompt/input field for Text Completions, Kobold, NovelAI and Horde. Host-only correlation fields are stripped before upstream transport. The Gateway ledger receives source/candidate metadata and the exact serialized body digest; Memory content is not copied into the durable ledger.
 
-The endpoint is deliberately fail-closed until Core-side root-inventory authority, assertion verification, durable replay prevention, Provider retrieval and final response revalidation are integrated and tested on the same HEAD.
+## Current production gate
 
-## Pinned-source evidence
+The Host request → Core retrieval → NPC Context Receiver → Final-Send adapter registration → exact request serialization path is implemented as an integration candidate. The in-process Gateway is still intentionally unavailable: production Core/Provider/Host evidence readers are not yet composed under the shared Coordinator. The server plugin therefore uses a non-transport Gateway stub. A non-empty protected Memory result is denied before native egress; it cannot fall through to an alternative sender. An authorized complete-empty result contains no protected content and may use the ordinary native path.
 
-Target SillyTavern commit: `06bde939fb1e9c4c8d8641d810f0a916b5bce127`.
-
-The integration uses the native server-plugin loader and extension generation interceptor. CI verifies that the plugin mounts after `requireLoginMiddleware`, that `generate_interceptor` is invoked before provider dispatch, that the exact pinned lifecycle patch applies, and that its source changes stay within the reviewed allowlist. The patch does not add another public Host route.
+Do not enable `LOGIC_ENGINE_MEMORY_NPC_ENABLED=true` for production until the real Gateway readers, Host inventory revalidation, accepted-head checks, Coordinator lease, revoke race, crash/restart replay and final response write tests all pass on the same commit.

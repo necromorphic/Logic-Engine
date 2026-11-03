@@ -34,6 +34,22 @@ function requestMatchesAuthenticatedHostSession(request, conversationId) {
     && HOST_CONVERSATION_ID.test(conversationId);
 }
 
+function requestMatchesAuthenticatedHostContext(request, context) {
+  const session = request?.session;
+  const userHandle = request?.user?.profile?.handle;
+  const sessionHandle = session?.handle;
+  const sessionId = session?.logicEngineSessionId;
+  const sessionIdentityHandle = session?.logicEngineSessionHandle;
+  return typeof userHandle === 'string' && userHandle.trim().length > 0
+    && (sessionHandle === undefined || sessionHandle === userHandle)
+    && sessionIdentityHandle === userHandle
+    && typeof sessionId === 'string' && HOST_SESSION_UUID.test(sessionId)
+    && context && context.host_session_id === sessionId
+    && typeof context.conversation_id === 'string'
+    && context.conversation_id === [
+      context.host_installation_id, context.authenticated_account_id, context.conversation_uuid,
+    ].join(':');
+}
 const ALLOWED_FIELDS = new Set([
   'conversation_id', 'message_id', 'version_id', 'parent_version_id', 'content_sha256', 'active', 'deleted',
 ]);
@@ -858,12 +874,14 @@ export function createHostMemoryDispatchProxyHandler({
   return async function hostMemoryDispatchProxy(request, response) {
     response.set('Cache-Control', 'no-store, private');
     response.set('Vary', 'Cookie');
-    const context = resolveHostContext(request);
+    const hostRequest = request?.hostRequest ?? request;
+    const context = resolveHostContext(hostRequest);
     if (!context || !HOST_SESSION_UUID.test(context.host_installation_id ?? '')
       || !HOST_SESSION_UUID.test(context.authenticated_account_id ?? '')
       || !HOST_SESSION_UUID.test(context.host_session_id ?? '')
       || typeof context.conversation_id !== 'string'
-      || !HOST_CONVERSATION_ID.test(context.conversation_id)) {
+      || !HOST_CONVERSATION_ID.test(context.conversation_id)
+      || !requestMatchesAuthenticatedHostContext(hostRequest, context)) {
       return response.sendStatus(403);
     }
     const body = request?.body;
@@ -967,7 +985,7 @@ export function createHostMemoryDispatchProxyHandler({
         status: 'NON_READY',
         code: upstream.status === 404 ? 'CORE_HOST_DISPATCH_ROUTE_UNAVAILABLE' : 'CORE_HOST_DISPATCH_REJECTED',
       });
-      return response.status(200).json(payload);
+      return response.status(200).json({ host_context: hostBindings, retrieval: payload?.retrieval });
     } catch {
       return response.status(502).json({ status: 'NON_READY', code: 'LOGIC_ENGINE_UNREACHABLE' });
     }

@@ -73,7 +73,7 @@ function setup(t, { allowContent = true, authorizeQuery = true, authorizeCoreQue
   const candidate = (overrides = {}) => ({
     record: { ref: 'memory:claim-1', version: 'v1' },
     authorization_generation: 1,
-    source: { kind: 'canonical_entity', entity_id: 'source-a' },
+    source: { kind: 'canonical_entity', entity_id: 'source-a', source_version: 'core-entity-v1:1' },
     world_id: scope.world_id,
     subject_id: scope.subject_id,
     purpose: scope.purpose,
@@ -144,6 +144,23 @@ const request = () => ({
   worldId: 'memory-npc-world',
   actorEntityId: 'npc-a',
   conversationId: HOST_CONVERSATION_ID,
+});
+
+test('Final-Send Core evidence reader denies non-file-backed Core and absent Coordinator lease', (t) => {
+  const { consumer, scope } = setup(t);
+  assert.throws(() => consumer.readDispatchEvidenceSync({
+    worldId: scope.world_id,
+    actorId: scope.subject_id,
+    purpose: scope.purpose,
+    sources: [],
+    hostContext: {
+      adapter_id: 'adapter-a',
+      core_conversation_id: HOST_CONVERSATION_ID,
+      world_id: scope.world_id,
+      actor_id: scope.subject_id,
+    },
+    coordinatorLease: () => {},
+  }), /MEMORY_DISPATCH_NOT_READY/);
 });
 
 test('Core disclosure envelope rejects malformed, incomplete and unrequested data', async (t) => {
@@ -257,6 +274,7 @@ test('joins trusted Memory record authorization, Core authorized source read, an
     'attributes.public_note': 'authorized source text',
   });
   assert.equal(result.candidates[0].record_ref, 'memory:claim-1');
+  assert.equal(result.candidates[0].source_version, 'core-entity-v1:1');
   assert.deepEqual(getLastCandidateAuthorization(), {
     ...{ world_id: 'memory-npc-world', subject_id: 'npc-a', purpose: 'npc_decision' },
     record_ref: 'memory:claim-1',
@@ -264,6 +282,7 @@ test('joins trusted Memory record authorization, Core authorized source read, an
     authorization_generation: 1,
     source_kind: 'canonical_entity',
     source_entity_id: 'source-a',
+    source_version: 'core-entity-v1:1',
   });
   assert.equal(JSON.stringify(result).includes('must never leak'), false);
   assert.equal(JSON.stringify(result).includes('private_note'), false);
