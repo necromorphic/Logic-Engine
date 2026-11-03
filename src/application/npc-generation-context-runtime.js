@@ -89,28 +89,39 @@ export function createCoreNpcGenerationContextRuntime({
     });
   }
 
-  function readLaneA(scope) {
+  function readLaneA(input) {
+    let trustedScope;
+    try { trustedScope = resolveScope(); } catch { return Object.freeze({ status: 'non_ready', lane: 'A' }); }
+    const expectedRevision = input?.snapshot?.world_revision ?? input?.expected_revision;
+    const expectedCommitSequence = input?.snapshot?.commit_sequence ?? input?.expected_commit_sequence;
+    if (input?.world_id !== trustedScope.world_id || input?.actor_id !== trustedScope.actor_id
+      || input?.conversation_id !== trustedScope.conversation_id || input?.adapter_id !== adapterId
+      || input?.recipient !== RECIPIENT || input?.purpose !== PURPOSE
+      || expectedRevision !== trustedScope.snapshot.world_revision
+      || expectedCommitSequence !== trustedScope.snapshot.commit_sequence) {
+      return Object.freeze({ status: 'non_ready', lane: 'A' });
+    }
     const read = engine.readNpcKnowledge({
-      world_id: scope.world_id,
-      actor_id: scope.actor_id,
-      conversation_id: scope.conversation_id,
+      world_id: trustedScope.world_id,
+      actor_id: trustedScope.actor_id,
+      conversation_id: trustedScope.conversation_id,
       adapter_id: adapterId,
       recipient: RECIPIENT,
       purpose: PURPOSE,
-      expected_revision: scope.snapshot.world_revision,
-      expected_commit_sequence: scope.snapshot.commit_sequence,
+      expected_revision: expectedRevision,
+      expected_commit_sequence: expectedCommitSequence,
       limit: 200,
     });
     if (!exactDataRecord(read, [
       'status', 'world_id', 'conversation_id', 'adapter_id', 'actor_id', 'recipient',
       'purpose', 'snapshot', 'authorization_ref', 'truncated', 'items',
     ]) || read.status !== 'ready' || read.truncated !== false
-      || read.world_id !== scope.world_id || read.actor_id !== scope.actor_id
-      || read.conversation_id !== scope.conversation_id || read.adapter_id !== adapterId
+      || read.world_id !== trustedScope.world_id || read.actor_id !== trustedScope.actor_id
+      || read.conversation_id !== trustedScope.conversation_id || read.adapter_id !== adapterId
       || read.recipient !== RECIPIENT || read.purpose !== PURPOSE
       || !validSnapshot(read.snapshot)
-      || read.snapshot.world_revision !== scope.snapshot.world_revision
-      || read.snapshot.commit_sequence !== scope.snapshot.commit_sequence
+      || read.snapshot.world_revision !== expectedRevision
+      || read.snapshot.commit_sequence !== expectedCommitSequence
       || !validId(read.authorization_ref) || !densePlainArray(read.items)) {
       return Object.freeze({ status: 'non_ready', lane: 'A' });
     }
@@ -159,12 +170,12 @@ export function createCoreNpcGenerationContextRuntime({
       ];
       if (!exactDataRecord(decision, decisionKeys)
         || !['allowed', 'denied'].includes(decision.status)
-        || decision.world_id !== scope.world_id
-        || decision.conversation_id !== scope.conversation_id
-        || decision.adapter_id !== adapterId || decision.actor_id !== scope.actor_id
+        || decision.world_id !== trustedScope.world_id
+        || decision.conversation_id !== trustedScope.conversation_id
+        || decision.adapter_id !== adapterId || decision.actor_id !== trustedScope.actor_id
         || decision.recipient !== RECIPIENT || decision.purpose !== PURPOSE
-        || decision.world_revision !== scope.snapshot.world_revision
-        || decision.commit_sequence !== scope.snapshot.commit_sequence
+        || decision.world_revision !== expectedRevision
+        || decision.commit_sequence !== expectedCommitSequence
         || decision.acquisition_id !== item.acquisition_id
         || !validId(decision.authorization_ref)) {
         return Object.freeze({ status: 'non_ready', lane: 'A' });
@@ -185,9 +196,9 @@ export function createCoreNpcGenerationContextRuntime({
     return Object.freeze({
       status: 'ready',
       lane: 'A',
-      world_id: scope.world_id,
-      actor_id: scope.actor_id,
-      conversation_id: scope.conversation_id,
+      world_id: trustedScope.world_id,
+      actor_id: trustedScope.actor_id,
+      conversation_id: trustedScope.conversation_id,
       adapter_id: adapterId,
       recipient: RECIPIENT,
       purpose: PURPOSE,
@@ -199,17 +210,22 @@ export function createCoreNpcGenerationContextRuntime({
     });
   }
 
-  async function readLaneB(scope) {
-    const result = await consumer.retrieveForNpc({ conversationId: scope.conversation_id });
+  async function readLaneB(input) {
+    let trustedScope;
+    try { trustedScope = resolveScope(); } catch { return Object.freeze({ status: 'non_ready', lane: 'B' }); }
+    if (input?.conversation_id !== trustedScope.conversation_id) {
+      return Object.freeze({ status: 'non_ready', lane: 'B' });
+    }
+    const result = await consumer.retrieveForNpc({ conversationId: trustedScope.conversation_id });
     if (!result || result.status !== 'ready' || !validSnapshot(result.snapshot)) {
       return Object.freeze({ status: 'non_ready', lane: 'B' });
     }
     return Object.freeze({
       status: 'ready',
       lane: 'B',
-      world_id: scope.world_id,
-      actor_id: scope.actor_id,
-      conversation_id: scope.conversation_id,
+      world_id: trustedScope.world_id,
+      actor_id: trustedScope.actor_id,
+      conversation_id: trustedScope.conversation_id,
       adapter_id: adapterId,
       recipient: RECIPIENT,
       core_purpose: PURPOSE,
