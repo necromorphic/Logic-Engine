@@ -108,6 +108,9 @@ jobs:
           node --check Sillytavern/plugins/logic-engine-extension-gateway/fs-inventory.js
           node --check Sillytavern/public/scripts/extensions/third-party/logic-engine-extension-gateway/index.js
           node --check Sillytavern/public/scripts/extensions/third-party/logic-engine-extension-gateway/host-context.mjs
+          node --check Sillytavern/public/scripts/extensions/third-party/logic-engine-extension-gateway/gateway-policy.mjs
+          node --check Sillytavern/public/scripts/extensions/third-party/logic-engine-extension-gateway/conversation-identity.mjs
+          node --check host-adapter/prototype/generate-pinned-source-manifest.mjs
           node --check Sillytavern/public/scripts/logic-engine-lifecycle/conversation-identity.mjs
           node --check Sillytavern/public/scripts/logic-engine-lifecycle/lifecycle-journal.mjs
           node --check Sillytavern/public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs
