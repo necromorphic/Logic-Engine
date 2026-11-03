@@ -59,8 +59,8 @@ The #855 root server plugin now registers a fail-closed adapter implementing the
 
 ## Evidence on current branch
 
-- The exact-pinned-source audit previously passed Patch Manager preflight, install, installed-file verification, syntax checks, real-handler fake-provider integration, and uninstall/rollback on SillyTavern 1.19.0.
-- The real-handler harness exercises all five native text-generation handlers, one provider request per handler, Chat Completions streaming, terminal Kobold retry suppression, and now a simulated Provider revoke immediately before the actual Express `response.end()`.
+- A prior exact-pinned-source audit passed Patch Manager preflight, install, installed-file verification, syntax checks, the Chat Completions fake-provider harness, and uninstall/rollback on SillyTavern 1.19.0. The uploaded `SillyTavern-release.zip` matches all 12 manifest baseline source hashes. The abort guard and mandatory-writer patch changes made after that run have not yet passed exact-head CI.
+- The current real-handler harness invokes native Chat Completions only, including streaming, terminal retry suppression, and a simulated Provider revoke immediately before the actual Express `response.end()`. Adapter/Gateway tests cover all 26 Chat Completions source mappings and the three synchronous route identities, plus Horde protected denial; they do not yet prove native end-to-end provider call counts for Text Completions, Kobold, or NovelAI. A route-specific fake-provider harness for those three handlers remains an acceptance gap.
 - Adapter tests cover all 29 sender identities, unknown-route denial, terminal response tombstones, one protected dispatch per Express response, and the separately routed generation families.
 - Gateway tests cover durable dispatch-start, revoke races, final-write authorization, streaming chunk suppression, replay denial, and crash/restart recovery.
 - Patch Manager tests now cover durable backups outside the Extension directory and recovery after interruption during restore.
