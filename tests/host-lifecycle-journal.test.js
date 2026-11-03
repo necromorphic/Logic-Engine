@@ -378,7 +378,8 @@ test('Core requires a signed pinned-source completeness attestation before root 
     attestation: { ...changedAttestation, covered_delta_sha256: digest('wrong-delta') },
   }), /HOST_ROOT_INVENTORY_ATTESTATION_INVALID/);
 
-  authority.snapshot_fingerprint = journal.getAuthoritySnapshot(trusted).snapshot_fingerprint;
+  const authorityBeforeMutation = journal.getAuthoritySnapshot(trusted);
+  authority.snapshot_fingerprint = authorityBeforeMutation.snapshot_fingerprint;
   journal.append({
     event_id: '77777777-7777-4777-8777-777777777777',
     host_installation_id: installation,
@@ -394,8 +395,10 @@ test('Core requires a signed pinned-source completeness attestation before root 
     mutation_digest: digest('mutation-after-inventory-attestation'),
     occurred_at: new Date().toISOString(),
   });
-  assert.equal(journal.getAuthoritySnapshot(trusted).authority_status, 'REVIEW_ONLY',
-    'a lifecycle event after the signed snapshot invalidates its completeness attestation');
+  const authorityDuringMutation = journal.getAuthoritySnapshot(trusted);
+  assert.equal(authorityDuringMutation.authority_status, 'AUTHORITATIVE_COMPLETE',
+    'a signed root snapshot remains valid while the paired mutation receipt is being recorded');
+  assert.equal(authorityDuringMutation.snapshot_fingerprint, authorityBeforeMutation.snapshot_fingerprint);
 
   const changedAgain = journal.observeRootInventory(rootInput({
     event_id: 'root-event-3',
