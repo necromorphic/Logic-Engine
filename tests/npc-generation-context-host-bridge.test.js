@@ -44,6 +44,7 @@ function setup({ prepareStatus = 'ready', metadata = requestMetadata } = {}) {
   const bridge = createNpcGenerationContextHostBridge({
     runtime,
     createRequestMetadata: () => metadata,
+    runWithAuthenticatedHostSession: (_request, _conversationId, callback) => callback(),
   });
   return { bridge, handoff, projection, runtime, wasConsumed: () => consumed };
 }
@@ -107,6 +108,7 @@ test('Host bridge rejects mutable request metadata before asking Core to prepare
       revalidateLaneAForDispatch() { return { status: 'non_ready' }; },
     },
     createRequestMetadata: () => ({ ...requestMetadata }),
+    runWithAuthenticatedHostSession: (_request, _conversationId, callback) => callback(),
   });
   const result = await bridge.prepare({}, {});
   assert.equal(result.status, 'non_ready');
