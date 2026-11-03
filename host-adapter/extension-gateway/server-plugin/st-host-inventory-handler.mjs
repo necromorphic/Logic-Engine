@@ -288,6 +288,40 @@ export function createHostBulkMutationGuard({
   };
 }
 
+export async function assertHostStartupMigrationAllowed({
+  directories,
+  pinnedHostCommit,
+  enumerate = enumerateHostDataInventory,
+} = {}) {
+  if (typeof enumerate !== 'function'
+    || typeof pinnedHostCommit !== 'string'
+    || !/^[a-f0-9]{40}$/.test(pinnedHostCommit)) {
+    throw new Error('HOST_LIFECYCLE_STARTUP_MIGRATION_CONFIGURATION_INVALID');
+  }
+  const resolved = resolveHostDataDirectories(directories);
+  if (!resolved) throw new Error('HOST_LIFECYCLE_STARTUP_MIGRATION_DIRECTORIES_INVALID');
+
+  let inventory;
+  try {
+    inventory = await enumerate({ directories: resolved, hostCommit: pinnedHostCommit });
+  } catch {
+    throw new Error('HOST_LIFECYCLE_STARTUP_MIGRATION_INVENTORY_UNAVAILABLE');
+  }
+  if (inventory?.filesystem?.status !== 'complete'
+    || inventory?.source?.status !== 'DOUBLE_SCAN_CANDIDATE'
+    || !Array.isArray(inventory.source.files)) {
+    throw new Error('HOST_LIFECYCLE_STARTUP_MIGRATION_INVENTORY_NON_READY');
+  }
+  const hasEnrolledConversation = inventory.source.files.some(file =>
+    typeof file?.logical_identity?.conversation_uuid === 'string'
+    && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+      .test(file.logical_identity.conversation_uuid));
+  if (hasEnrolledConversation) {
+    throw new Error('HOST_LIFECYCLE_STARTUP_MIGRATION_BLOCKED');
+  }
+  return true;
+}
+
 export function createHostIdentityHandler({
   identityStore,
   getDataRoot = () => typeof globalThis.DATA_ROOT === 'string' && globalThis.DATA_ROOT.trim()
