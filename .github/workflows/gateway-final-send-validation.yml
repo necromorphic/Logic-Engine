@@ -5,11 +5,20 @@ on:
     paths:
       - 'src/security/memory-dispatch-gateway.js'
       - 'src/storage/coordinator-lock.js'
+      - 'src/application/memory-npc-consumer.js'
+      - 'src/application/memory-npc-provider-adapter.js'
+      - 'src/application/sqlite-memory-provider.js'
+      - 'src/application/host-lifecycle-journal.js'
+      - 'src/application/host-assertion-nonce-store.js'
+      - 'host-adapter/embedded-gateway-runtime.mjs'
+      - 'host-adapter/extension-gateway/server-plugin/st-source-attestation.mjs'
       - 'host-adapter/protected-memory-final-send.mjs'
       - 'host-adapter/sillytavern-final-send-adapter.mjs'
+      - 'index.mjs'
       - 'tests/memory-dispatch-gateway.test.js'
       - 'tests/protected-memory-final-send.test.js'
       - 'tests/sillytavern-final-send-adapter.test.js'
+      - 'tests/gateway-final-send-composition.test.js'
       - '.github/workflows/gateway-final-send-validation.yml'
   workflow_dispatch:
 
@@ -31,5 +40,7 @@ jobs:
           node --check src/security/memory-dispatch-gateway.js
           node --check src/storage/coordinator-lock.js
           node --check host-adapter/protected-memory-final-send.mjs
+          node --check host-adapter/embedded-gateway-runtime.mjs
+          node --check index.mjs
       - name: Gateway and Final-Send tests
-        run: node --test tests/memory-dispatch-gateway.test.js tests/protected-memory-final-send.test.js tests/sillytavern-final-send-adapter.test.js
+        run: node --test tests/memory-dispatch-gateway.test.js tests/protected-memory-final-send.test.js tests/sillytavern-final-send-adapter.test.js tests/gateway-final-send-composition.test.js
