@@ -122,7 +122,10 @@ export function createHostInventoryHandler({
         && inventory.mutation_coverage.route_count > 0
         && /^[a-f0-9]{64}$/.test(inventory.mutation_coverage.source_files_sha256 ?? '');
       const rootInventoryAuthoritative = rootInventoryPersisted
-        && rootInventory.status === 'AUTHORITATIVE_COMPLETE';
+        && rootInventory.status === 'AUTHORITATIVE_COMPLETE'
+        && Number.isSafeInteger(rootInventory.completeness_sequence)
+        && rootInventory.completeness_sequence > 0
+        && /^[a-f0-9]{64}$/.test(rootInventory.proof_sha256 ?? '');
       const blockers = [
         ...(source.logical_identity_status === 'CURRENT_FILE_IDENTITIES_VERIFIED'
           ? [] : ['CURRENT_CHAT_LOGICAL_IDENTITY_INCOMPLETE']),
@@ -177,6 +180,9 @@ export function createHostInventoryHandler({
             integrity_status: rootInventory.integrity_status,
             sequence: rootInventory.sequence,
             manifest_sha256: rootInventory.manifest_sha256,
+            ...(rootInventory.proof_sha256 ? { proof_sha256: rootInventory.proof_sha256 } : {}),
+            ...(Number.isSafeInteger(rootInventory.completeness_sequence)
+              ? { completeness_sequence: rootInventory.completeness_sequence } : {}),
             ...(rootInventory.delta_sha256 ? { delta_sha256: rootInventory.delta_sha256 } : {}),
             ...(rootInventory.counts ? { counts: rootInventory.counts } : {}),
             ...(rootInventory.reason ? { reason: rootInventory.reason } : {}),
