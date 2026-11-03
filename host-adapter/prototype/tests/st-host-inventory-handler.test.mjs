@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 const test = nodeTest;
 
-import { createHostBulkMutationGuard, createHostIdentityHandler, createHostInventoryHandler, createHostLifecycleSaveGuard, createHostRequestAuthenticationGate, createHostSessionHandler, resolveHostDataDirectories } from '../st-host-inventory-handler.mjs';
+import { assertHostStartupMigrationAllowed, createHostBulkMutationGuard, createHostIdentityHandler, createHostInventoryHandler, createHostLifecycleSaveGuard, createHostRequestAuthenticationGate, createHostSessionHandler, resolveHostDataDirectories } from '../st-host-inventory-handler.mjs';
 
 function makeResponse() {
   return {
@@ -861,4 +861,51 @@ test('request authentication gate returns NON_READY when authoritative inventory
   assert.equal(response.statusCode, 503);
   assert.equal(response.body.code, 'HOST_INVENTORY_NOT_AUTHORITATIVE');
   assert.equal(nextCalls, 0);
+});
+
+
+test('startup group migration is permitted only when a complete scan finds no enrolled conversations', async () => {
+  const directories = { ...absoluteTestDirectories };
+  const accepted = await assertHostStartupMigrationAllowed({
+    directories,
+    pinnedHostCommit: pinned,
+    enumerate: async input => {
+      assert.deepEqual(input, { directories, hostCommit: pinned });
+      return {
+        filesystem: { status: 'complete' },
+        source: { status: 'DOUBLE_SCAN_CANDIDATE', files: [{ logical_identity: null }] },
+      };
+    },
+  });
+  assert.equal(accepted, true);
+
+  await assert.rejects(assertHostStartupMigrationAllowed({
+    directories,
+    pinnedHostCommit: pinned,
+    enumerate: async () => ({
+      filesystem: { status: 'complete' },
+      source: {
+        status: 'DOUBLE_SCAN_CANDIDATE',
+        files: [{ logical_identity: { conversation_uuid: '11111111-1111-4111-8111-111111111111' } }],
+      },
+    }),
+  }), /HOST_LIFECYCLE_STARTUP_MIGRATION_BLOCKED/);
+});
+
+test('startup group migration fails closed when full inventory cannot be proven', async () => {
+  const directories = { ...absoluteTestDirectories };
+  await assert.rejects(assertHostStartupMigrationAllowed({
+    directories,
+    pinnedHostCommit: pinned,
+    enumerate: async () => ({
+      filesystem: { status: 'complete' },
+      source: { status: 'NON_READY', files: [] },
+    }),
+  }), /HOST_LIFECYCLE_STARTUP_MIGRATION_INVENTORY_NON_READY/);
+
+  await assert.rejects(assertHostStartupMigrationAllowed({
+    directories,
+    pinnedHostCommit: pinned,
+    enumerate: async () => { throw new Error('provider unavailable'); },
+  }), /HOST_LIFECYCLE_STARTUP_MIGRATION_INVENTORY_UNAVAILABLE/);
 });
