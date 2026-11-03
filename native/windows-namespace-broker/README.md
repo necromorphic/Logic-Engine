@@ -22,3 +22,16 @@ The eventual broker must run under a dedicated service identity, distinct from
 the application service identity. The --client-sid argument must be the exact
 application service SID. Broker manifest and anchor directories must be
 exclusively writable by the broker identity.
+
+## Durable metadata-store increment
+
+`windows_manifest_store.c` now supplies the first native storage primitives:
+- pins the configured metadata directory by handle and rejects a reparse-point final directory;
+- uses a fixed child-name allowlist for manifest, intent and lock files;
+- serializes writers with an exclusive byte-range lock;
+- opens children relative to the pinned directory handle with no-follow semantics;
+- validates bounded bytes through mandatory trusted manifest/intent callbacks;
+- writes a unique temporary file, flushes it, atomically renames it relative to the directory handle, then requires a directory flush;
+- removes the pending intent through the opened file handle and requires a directory flush.
+
+This is not yet a complete durable store integration. The caller must provision and verify the directory's dedicated-service ACL and all ancestors, supply strict duplicate-key/schema/generation validators, invoke startup recovery under the exclusive lock, and prove crash semantics on supported Windows/NTFS versions. The service host still answers PING only; no SQLite operation is enabled. The Windows CI job compiles this translation unit but does not yet execute filesystem/crash tests.
