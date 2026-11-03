@@ -97,6 +97,7 @@ Revocation is server-to-server and scoped to the exact adapter + installation + 
 The Host filesystem inventory covers the complete configured authenticated account data root, not just chat directories. On Windows, enumeration is performed from one shared VSS point-in-time snapshot; reparse points and unsafe entries are rejected. The manifest records normalized relative path, file identity, size/metadata, and SHA-256 content digest.
 
 Core's append-only Root Inventory journal verifies monotonic sequence, previous hash, event hash, manifest digest, and replay/conflict behavior. Deltas distinguish added, removed, modified, metadata-changed, replaced, and moved files. An unresolved or oversized delta remains non-ready.
+A fresh account may have no lifecycle events yet. The first signed root attestation therefore binds lifecycle sequence `0` only to the all-zero genesis head; Core rejects any nonzero head at sequence zero. This permits the initial inventory authority to be established without fabricating a lifecycle event, after which the first real lifecycle event advances the sequence to `1`.
 
 A filesystem scan is evidence for the current file set only. It is not, by itself, source-route completeness proof or Core authorization.
 
