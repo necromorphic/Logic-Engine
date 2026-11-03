@@ -19,7 +19,7 @@ export const CORE_ATTESTED_SOURCE_BLOCKERS = Object.freeze([
 export function resolveHostDataDirectories(directories) {
   if (!directories || typeof directories !== 'object' || Array.isArray(directories)) return null;
   const resolved = {};
-  for (const key of ['root', 'chats', 'groups', 'groupChats']) {
+  for (const key of ['root', 'chats', 'groups', 'groupChats', 'extensions']) {
     const value = directories[key];
     if (typeof value !== 'string' || !value.trim()) return null;
     const absolute = path.resolve(value);
