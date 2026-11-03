@@ -143,3 +143,16 @@ test('SQLite role manifest schema validates durable pending enrollment intents',
   assert.equal(validate(value), false,
     'pending enrollment identity must use the full canonical POSIX identity');
 });
+
+test('Windows role manifest permits the metadata root to be the database parent, while POSIX requires a recorded parent chain', () => {
+  const windowsRootAtParent = manifest('windows', windowsIdentity);
+  windowsRootAtParent.roles[0].parentComponents = [];
+  windowsRootAtParent.roles[0].parentIdentities = [];
+  assert.equal(validate(windowsRootAtParent), true, JSON.stringify(validate.errors));
+
+  const posixMissingParentChain = manifest('linux', posixIdentity);
+  posixMissingParentChain.roles[0].parentComponents = [];
+  posixMissingParentChain.roles[0].parentIdentities = [];
+  assert.equal(validate(posixMissingParentChain), false,
+    'POSIX enrollment must retain its explicit directory identity chain');
+});
