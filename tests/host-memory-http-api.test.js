@@ -66,6 +66,16 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
     event_type: 'action.completed', expected_revision: 0,
     effects: [{ kind: 'entity.create', entity_id: 'host-memory-actor', entity_type: 'character' }],
   });
+  let hostIdentityAllowed = true;
+  const resolveHostLifecycleIdentity = input => hostIdentityAllowed ? ({
+    authorized: true, adapter_id: ADAPTER_ID,
+    host_installation_id: input.host_installation_id,
+    authenticated_account_id: input.authenticated_account_id,
+    host_session_id: input.host_session_id,
+    conversation_uuid: input.conversation_uuid,
+    root_id: 'a'.repeat(64), authority_id: 'test-host-authority',
+    generation: 1, snapshot_fingerprint: 'b'.repeat(64),
+  }) : ({ authorized: false });
   let calls = 0;
   let failConsumer = false;
   let consumerResultOverride = null;
@@ -96,6 +106,7 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
     adapterTokens: { [ADAPTER_ID]: ADAPTER_TOKEN },
     memoryNpcConsumers: { [ADAPTER_ID]: consumer },
     hostAssertionNonceStore: nonceStore,
+    resolveHostLifecycleIdentity,
   });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
@@ -171,6 +182,23 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
   assert.equal(retrieved.status, 200);
   assert.deepEqual((await retrieved.json()).retrieval.status, 'ready');
   assert.equal(calls, 1);
+
+  // A correctly HMAC-signed assertion is still rejected unless its exact
+  // installation/account/session/conversation tuple is enrolled by Root
+  // Inventory Authority.
+  hostIdentityAllowed = false;
+  const unregisteredAssertion = {
+    ...assertion, nonce: '12121212-1212-4212-8212-121212121211',
+    issued_at: Math.floor(Date.now() / 1000),
+  };
+  const unregisteredRead = await post(base, '/v1/host/memory-npc/retrieve', adapterHeaders, {
+    ...body, assertion: unregisteredAssertion, signature: sign(unregisteredAssertion),
+    request_id: '12121212-1212-4212-8212-121212121212',
+  });
+  assert.equal(unregisteredRead.status, 401);
+  assert.equal((await unregisteredRead.json()).error.code, 'HOST_ROOT_IDENTITY_UNAUTHORIZED');
+  assert.equal(calls, 1);
+  hostIdentityAllowed = true;
 
   const invalidResults = [
     { status: 'ready', admitted: [], candidates: [], reason: null, snapshot: { world_revision: 0, commit_sequence: 0 }, provider_diagnostics: { secret: true } },
@@ -377,6 +405,7 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
     adapterTokens: { [ADAPTER_ID]: ADAPTER_TOKEN },
     memoryNpcConsumers: { [ADAPTER_ID]: consumer },
     hostAssertionNonceStore: { consume() { throw new Error('simulated SQLite I/O failure'); }, revokeSession() { throw new Error('simulated SQLite I/O failure'); }, isSessionRevoked() { throw new Error('simulated SQLite I/O failure'); } },
+    resolveHostLifecycleIdentity,
   });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
