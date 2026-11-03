@@ -21,6 +21,12 @@ test('root identity registry parses immutable exact deployment bindings', () => 
   assert.equal(Object.isFrozen(registry), true);
   assert.equal(Object.isFrozen(registry[0]), true);
   assert.deepEqual(registry[0], binding);
+  assert.equal(resolveAdapterHostRootIdentity(registry, {
+    adapterId: binding.adapter_id,
+    host_installation_id: binding.host_installation_id,
+    authenticated_account_id: binding.authenticated_account_id,
+    root_id: binding.root_id,
+  }).source_manifest_sha256, binding.source_manifest_sha256);
 });
 
 test('root identity registry rejects malformed, duplicate and unsupported records', () => {
@@ -30,6 +36,7 @@ test('root identity registry rejects malformed, duplicate and unsupported record
     JSON.stringify([{ ...binding, extra: 'not-allowed' }]),
     JSON.stringify([binding, binding]),
     JSON.stringify([{ ...binding, root_id: 'not-a-digest' }]),
+    JSON.stringify([{ ...binding, source_manifest_sha256: undefined }]),
     JSON.stringify([{ ...binding, adapter_id: ' ' }]),
   ]) {
     assert.throws(() => parseHostRootIdentityRegistry(value));
