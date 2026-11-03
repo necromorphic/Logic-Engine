@@ -760,9 +760,7 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
                 } catch {
                   throw new Error('HOST_CORE_BINDING_UNAUTHORIZED');
                 }
-                if (!actorBinding?.actor || !validBindingId(actorBinding.actor.entity_id)
-                  || conversationBinding.world_id !== body.assertion.world_id
-                  || actorBinding.actor.entity_id !== body.assertion.actor_id) {
+                if (!actorBinding?.actor || !validBindingId(actorBinding.actor.entity_id)) {
                   throw new Error('HOST_CORE_BINDING_UNAUTHORIZED');
                 }
                 return Object.freeze({
@@ -771,6 +769,10 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
                 });
               };
               const admittedCoreBinding = resolveCoreWorldActor();
+              if (admittedCoreBinding.world_id !== body.assertion.world_id
+                || admittedCoreBinding.actor_id !== body.assertion.actor_id) {
+                throw new Error('HOST_CORE_BINDING_UNAUTHORIZED');
+              }
               let trustedHostIdentity = null;
               if (typeof resolveHostMemoryIdentity === 'function'
                 && assertionConversation.length === 3
