@@ -388,13 +388,11 @@ function createNpcGenerationContextReceiver({
     const laneA = context?.lanes?.lane_a;
     const laneB = context?.lanes?.lane_b;
     if (!plainDataRecord(laneA, ['lane', 'items'], [
-      'lane', 'purpose', 'world_id', 'actor_id', 'conversation_id', 'adapter_id',
-      'authorization_ref', 'visibility_authorization_ref', 'items',
+      'lane', 'purpose', 'authorization_ref', 'visibility_authorization_ref', 'items',
     ]) || laneA.lane !== 'A' || !densePlainArray(laneA.items)
       || !plainDataRecord(laneB, ['lane', 'candidates', 'admitted'], [
-        'lane', 'core_purpose', 'provider_purpose', 'status', 'world_id', 'actor_id',
-        'conversation_id', 'adapter_id', 'recipient', 'snapshot', 'admitted',
-        'candidates', 'reason',
+        'lane', 'core_purpose', 'provider_purpose', 'status', 'admitted',
+        'candidates', 'reason', 'snapshot',
       ]) || laneB.lane !== 'B' || laneB.status !== 'ready'
       || !densePlainArray(laneB.candidates) || !densePlainArray(laneB.admitted)
       || laneB.candidates.length !== laneB.admitted.length) {
