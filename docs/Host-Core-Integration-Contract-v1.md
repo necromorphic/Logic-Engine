@@ -617,3 +617,17 @@ The Host runtime source verifier also requires the authenticated account's local
 
 
 **Core resolver contract clarification:** the deployment-owned root resolver must return the exact authenticated `adapter_id`, installation/account/root tuple, and pinned `source_manifest_sha256`. The API boundary checks the adapter binding; the journal independently resolves the same root identity. A resolver that omits or changes any field is unauthorized. `INTEGRITY_OK` describes the append-only journal/hash-chain state only; it never upgrades a review-only inventory to authority. Only the separate signed completeness attestation can produce `AUTHORITATIVE_COMPLETE`, and only that state may authorize Memory reads.
+
+
+## 3 Nov 2026 — Core final Provider authorization lease
+
+The final Memory disclosure fence now executes under the same file-backed Coordinator used by Core, Provider and the durable Host assertion/revocation ledger. The Provider exposes `withAuthorizedReadLease(scope, candidates, callback)` as a synchronous, read-only authorization boundary:
+
+- It validates and snapshots the exact World/Actor/purpose scope and record identities/generations before acquiring the lease.
+- While holding the shared Coordinator, it rechecks the current query grant and every candidate record grant/generation.
+- The callback must be synchronous; Promise/thenable results are rejected so no lease can cross an `await`.
+- The Core consumer performs its final branded Host-session liveness check, exact Core query/binding authorization and immutable Result Envelope construction inside that callback.
+- Provider grant mutations, Core binding mutations and durable Host session revocations that participate in this Coordinator cannot interleave with the final disclosure decision. The Host assertion runner still performs its post-callback expiry/revocation check before the HTTP response is sent.
+- Both truly-empty and filtered-empty ready results use the same lease. A missing lease implementation, stale grant, revoked session, changed binding, or Coordinator failure returns NON_READY.
+
+This lease closes the previous gap between the last asynchronous candidate checks and construction of a ready Memory envelope. It does not replace the separate Final-Send Gateway lease and sole-egress checks; the model transport remains independently gated.
