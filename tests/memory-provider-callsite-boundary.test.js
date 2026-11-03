@@ -67,12 +67,24 @@ test('authenticated Host capability construction has no unapproved production ca
   ]);
   const violations = [];
   for (const file of productionFiles().filter(({ path }) => !trustedCapabilityFiles.has(path))) {
-    if (/\brunWithAuthenticatedHostSession\s*\(/.test(file.content)) {
+    if (/\brunWithAuthenticatedHostSession\s*\(/.test(file.content)
+      || /\bcreateAuthenticatedHostSessionContext\s*\(/.test(file.content)) {
       violations.push(file.path + ': direct Host capability construction');
     }
   }
   assert.deepEqual(violations, [],
     'Only the Host session boundary and the approved Core composition factory may construct authenticated Host capabilities.');
+});
+
+test('signed Host assertion runners are instantiated only by the Core API composition', () => {
+  const violations = [];
+  for (const file of productionFiles().filter(({ path }) => path !== 'src/api/server.js')) {
+    if (/\bcreateHostSessionAssertionRunner\s*\(/.test(file.content)) {
+      violations.push(file.path + ': unapproved signed assertion runner construction');
+    }
+  }
+  assert.deepEqual(violations, [],
+    'Only the Core API composition may instantiate signed Host assertion runners and choose their replay/revocation stores.');
 });
 
 test('the approved composition factory is not wired into the production runtime or public HTTP API', () => {
