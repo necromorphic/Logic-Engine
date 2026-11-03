@@ -3459,8 +3459,9 @@ static void probe_set_manifest_sidecar_count(sqlite3_context *context, int argc,
   const unsigned char *role_name = argc == 2 ? sqlite3_value_text(argv[0]) : NULL;
   sqlite3_int64 expected = argc == 2 ? sqlite3_value_int64(argv[1]) : -1;
   int role_index = -1;
-  if (!role_name || !role_name[0] || expected < 0
-      || expected > PROBE_MAX_SIDECAR_IDENTITIES) {
+  if (!role_name || !role_name[0] || argc != 2
+      || sqlite3_value_type(argv[1]) != SQLITE_INTEGER
+      || expected < 0 || expected > PROBE_MAX_SIDECAR_IDENTITIES) {
     sqlite3_result_error(context, "invalid expected manifest sidecar count", -1);
     return;
   }
