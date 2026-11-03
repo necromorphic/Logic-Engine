@@ -49,7 +49,6 @@ test('Core HTTP accepts only a signed, pinned, lifecycle-complete root attestati
       authorized: true, adapter_id: ADAPTER_ID,
       host_installation_id: INSTALLATION, authenticated_account_id: ACCOUNT, root_id: ROOT_ID,
     } : { authorized: false };
-  let allowAttestationVerification = true;
   const journal = new HostLifecycleJournal({
     path: join(directory, 'host-lifecycle.sqlite'),
     coordinatorPath,
@@ -66,7 +65,7 @@ test('Core HTTP accepts only a signed, pinned, lifecycle-complete root attestati
     resolveRootIdentity,
     verifyRootInventoryAttestation: ({ attestation, identity }) => {
       if (identity.adapter_id !== ADAPTER_ID) return false;
-      return allowAttestationVerification && attestation.signature === sign(attestation);
+      return attestation.signature === sign(attestation);
     },
   });
   const server = createApiServer({
