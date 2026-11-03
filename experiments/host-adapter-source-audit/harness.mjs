@@ -202,6 +202,8 @@ test('legacy user-data migration cannot run under Host authority and system-prom
   const users = mutationSources['src/users.js'];
   assert.match(users, /HOST_LIFECYCLE_LEGACY_USER_DATA_MIGRATION_BLOCKED/);
   assert.match(users, /Skipping system prompt migration while Host authority is active/);
+  assert.match(users, /delete request\.session\.logicEngineSessionId;/);
+  assert.match(users, /delete request\.session\.logicEngineSessionHandle;/);
   const legacyCheck = users.indexOf('if (!fs.existsSync(legacyCharactersDirectory))');
   const legacyBlock = users.indexOf('HOST_LIFECYCLE_LEGACY_USER_DATA_MIGRATION_BLOCKED');
   assert.ok(legacyCheck >= 0 && legacyBlock > legacyCheck);
