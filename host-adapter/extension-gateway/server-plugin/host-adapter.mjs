@@ -47,10 +47,12 @@ export function createSillyTavernHostAdapter({
   fetchImpl = globalThis.fetch,
   persistRootInventory: injectedPersistRootInventory = null,
   verifySourceIdentity: injectedVerifySourceIdentity = verifySourceIdentity,
+  verifyMutationCoverage: injectedVerifyMutationCoverage,
 } = {}) {
   if (!env || typeof env !== 'object' || typeof enumerate !== 'function'
     || typeof fetchImpl !== 'function'
     || typeof injectedVerifySourceIdentity !== 'function'
+    || (injectedVerifyMutationCoverage !== undefined && typeof injectedVerifyMutationCoverage !== 'function')
     || (injectedPersistRootInventory !== null && typeof injectedPersistRootInventory !== 'function')) {
     throw new TypeError('SillyTavern Host Adapter configuration is invalid.');
   }
@@ -75,6 +77,7 @@ export function createSillyTavernHostAdapter({
     pinnedHostCommit: PINNED_SILLYTAVERN_COMMIT,
     hostBuildClaim: env.LOGIC_ENGINE_HOST_BUILD_SHA || '',
     verifySourceIdentity: injectedVerifySourceIdentity,
+    verifyMutationCoverage: injectedVerifyMutationCoverage,
     persistRootInventory,
   });
 
