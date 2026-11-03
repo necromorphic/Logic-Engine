@@ -31,6 +31,20 @@ function plainDataRecord(value, required, allowed = required) {
   } catch { return false; }
 }
 
+function densePlainArray(value) {
+  if (!Array.isArray(value) || utilTypes.isProxy(value)) return false;
+  try {
+    if (Object.getPrototypeOf(value) !== Array.prototype) return false;
+    const keys = Reflect.ownKeys(value);
+    if (keys.length !== value.length + 1 || !keys.includes('length')) return false;
+    for (let i = 0; i < value.length; i += 1) {
+      const descriptor = Object.getOwnPropertyDescriptor(value, String(i));
+      if (!descriptor || !Object.hasOwn(descriptor, 'value')) return false;
+    }
+    return true;
+  } catch { return false; }
+}
+
 function exactRecord(value, keys) {
   return plainDataRecord(value, keys, keys) && Reflect.ownKeys(value).length === keys.length;
 }
@@ -56,7 +70,7 @@ function immutableCopy(value, depth = 0, seen = new WeakSet()) {
     seen.delete(value);
     return Object.freeze(copy);
   }
-  if (!plainDataRecord(value, [])) throw new TypeError('context object is not plain data');
+  if (!plainDataRecord(value, [], Reflect.ownKeys(value))) throw new TypeError('context object is not plain data');
   const copy = Object.create(null);
   for (const key of Reflect.ownKeys(value)) {
     const descriptor = Object.getOwnPropertyDescriptor(value, key);
