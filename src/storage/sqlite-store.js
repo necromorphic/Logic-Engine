@@ -235,8 +235,20 @@ export class SQLiteStore {
     if (corePath !== ':memory:' && coordinatorPath && aliasesSameFile(corePath, coordinatorPath)) {
       throw new Error('Coordinator DB must be separate from the Core DB, including filesystem aliases.');
     }
-    if (corePath !== ':memory:') mkdirSync(dirname(corePath), { recursive: true });
-    if (coordinatorPath) mkdirSync(dirname(resolve(coordinatorPath)), { recursive: true });
+    if (readOnly) {
+      if (corePath === ':memory:' || !existsSync(corePath) || !coordinatorPath || !existsSync(coordinatorPath)) {
+        throw new Error('CORE_READ_ONLY_REQUIRES_EXISTING_CORE_AND_COORDINATOR_FILES');
+      }
+      const coordinatorCheck = new DatabaseSync(resolve(coordinatorPath), { readOnly: true });
+      try {
+        if (!coordinatorCheck.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='coordinator_lock'").get()) {
+          throw new Error('CORE_COORDINATOR_SCHEMA_UNAVAILABLE');
+        }
+      } finally { coordinatorCheck.close(); }
+    } else {
+      if (corePath !== ':memory:') mkdirSync(dirname(corePath), { recursive: true });
+      if (coordinatorPath) mkdirSync(dirname(resolve(coordinatorPath)), { recursive: true });
+    }
     this.acceptedHeadConfig = acceptedHeadConfigFromEnv();
     if (this.acceptedHeadConfig && (corePath === ':memory:' || !coordinatorPath)) {
       throw new Error('CORE_ACCEPTED_HEAD_REQUIRES_FILE_BACKED_STORE_AND_COORDINATOR');
