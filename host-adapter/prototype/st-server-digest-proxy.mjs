@@ -2,7 +2,7 @@ import { createHash, createHmac, randomUUID } from 'node:crypto';
 import pathModule from 'node:path';
 import { HostLifecycleReceiptStore } from './st-host-lifecycle-receipt-store.mjs';
 import { resolveHostDataDirectories } from './st-host-inventory-handler.mjs';
-import { createSignedRootInventoryAttestation } from '../server-plugin/st-source-attestation.mjs';
+import { createSignedRootInventoryAttestation } from './st-source-attestation.mjs';
 const validId = (value) => typeof value === 'string' && value === value.trim()
   && value.length > 0 && value.length <= 200
   && ![...value].some((character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127);
