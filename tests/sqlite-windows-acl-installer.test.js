@@ -62,3 +62,11 @@ test('Windows service installer rejects reparse-point ancestors before creating 
   assert.ok(shouldProcess >= 0 && shouldProcess < stateCreate, 'state-directory creation must be inside ShouldProcess so -WhatIf has no side effects');
   assert.ok(stateCreate < serviceCreate, 'state directory must exist before the service is created');
 });
+
+test('Windows service installer does not report provisioning success for WhatIf or declined confirmation', () => {
+  assert.match(installer, /No provisioning changes were made \(WhatIf or confirmation declined\)/);
+  const successMessage = installer.indexOf('Write-Output "Provisioned service: $ServiceName"');
+  const noChangeMessage = installer.indexOf('Write-Output "No provisioning changes were made');
+  assert.ok(successMessage >= 0 && noChangeMessage > successMessage);
+  assert.match(installer, /if \(\$PSCmdlet\.ShouldProcess\([\s\S]*?Write-Output "Provisioned service: \$ServiceName"[\s\S]*?\} else \{/);
+});
