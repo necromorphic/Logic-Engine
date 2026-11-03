@@ -342,6 +342,66 @@ test('host inventory clears only blockers covered by verified source and Core VS
   assert.deepEqual(response.body.blockers, []);
 });
 
+test('Host inventory cannot promote Core baseline without signed lifecycle attestation', async () => {
+  const coveredSourceBlockers = [...CORE_ATTESTED_SOURCE_BLOCKERS];
+  const handler = createHostInventoryHandler({
+    enumerate: async () => ({
+      filesystem: {
+        status: 'complete',
+        root: '/srv/st/data',
+        snapshot_sha256: 'b'.repeat(64),
+        file_count: 1,
+        total_bytes: 64,
+        entries: [{
+          path: 'chats/main.jsonl',
+          identity: { dev: '1', ino: '2', mode: 33188, size: 64, mtimeMs: 1, ctimeMs: 1 },
+          sha256: 'c'.repeat(64),
+        }],
+      },
+      source: {
+        status: 'DOUBLE_SCAN_CANDIDATE',
+        authority: 'NON_AUTHORITATIVE',
+        inventory_sha256: 'a'.repeat(64),
+        blockers: coveredSourceBlockers,
+        files: [],
+      },
+      snapshot_alignment: 'SHARED_VSS_SNAPSHOT',
+    }),
+    verifySourceIdentity: async () => ({
+      status: 'CURRENT_IDENTITIES_VERIFIED',
+      manifest_sha256: 'e'.repeat(64),
+      patch_blob_sha: PINNED_PATCH_BUNDLE_SHA256,
+      host_handler_blob_sha: PINNED_HOST_HANDLER_GIT_BLOB_SHA,
+    }),
+    persistRootInventory: async () => ({
+      status: 'AUTHORITATIVE_COMPLETE',
+      integrity_status: 'INTEGRITY_OK',
+      sequence: 1,
+      manifest_sha256: 'd'.repeat(64),
+      source_manifest_sha256: 'e'.repeat(64),
+    }),
+    pinnedHostCommit: pinned,
+    hostBuildClaim: '',
+  });
+  const response = makeResponse();
+  await handler({
+    user: { profile: { handle: 'alice' }, directories: {
+      root: '/srv/st/data', chats: '/srv/st/data/chats',
+      groups: '/srv/st/data/groups', groupChats: '/srv/st/data/group chats',
+    } },
+    session: {
+      handle: 'alice',
+      logicEngineSessionId: '2e6b0a80-4e73-4c66-aaf3-7a6e62c7f401',
+      logicEngineSessionHandle: 'alice',
+    },
+    query: { conversation_uuid: '4e6b0a80-4e73-4c66-aaf3-7a6e62c7f403' },
+  }, response);
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.body.root_inventory_reconciliation.status, 'REVIEW_ONLY');
+  assert.ok(response.body.blockers.includes('UNVERIFIED_ROOT_INVENTORY_ATTESTATION'));
+  assert.deepEqual(response.body.blockers.filter(code => coveredSourceBlockers.includes(code)), coveredSourceBlockers);
+});
+
 test('persisted but unexplained root drift remains an explicit NON_READY blocker', async () => {
   const handler = createHostInventoryHandler({
     enumerate: async () => ({
