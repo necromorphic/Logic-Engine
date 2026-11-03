@@ -459,6 +459,20 @@ test('bound async response writer is rejected before it can execute', async (t) 
     /Invalid protected response release capability/,
   );
   assert.equal(writes, 0);
+
+  // A bound synchronous callback is indistinguishable from a bound async
+  // callback without invocation, so the capability boundary rejects both.
+  const boundSyncWrite = (() => { writes += 1; }).bind(null);
+  assert.throws(
+    () => fixture.gateway.authorizeResponseWrite(request.requestId, boundSyncWrite),
+    /Invalid protected response release capability/,
+  );
+  const proxiedWrite = new Proxy(() => { writes += 1; }, {});
+  assert.throws(
+    () => fixture.gateway.authorizeResponseWrite(request.requestId, proxiedWrite),
+    /Invalid protected response release capability/,
+  );
+  assert.equal(writes, 0);
   fixture.gateway.authorizeResponseWrite(request.requestId, () => response, { final: true });
 });
 
