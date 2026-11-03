@@ -202,6 +202,13 @@ const validRequest = (requestId = 'request-001', overrides = {}) => ({
   purpose: 'recall',
   sources: sourceSet,
   hostContext,
+  laneA: {
+    lane: 'A',
+    purpose: 'npc_turn_context',
+    authorization_ref: 'core-read-authorization',
+    visibility_authorization_ref: 'core-visibility-policy',
+    items: [],
+  },
   candidates: [{
     record_ref: 'record-42',
     record_version: 'record-version-3',
