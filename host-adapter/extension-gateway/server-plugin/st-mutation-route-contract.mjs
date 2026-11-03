@@ -217,6 +217,7 @@ export async function verifyPinnedSillyTavernMutationCoverage({
     'src/endpoints/users-admin.js',
     'src/endpoints/users-private.js',
     'src/users.js',
+    'src/server-main.js',
     'src/endpoints/groups.js',
   ];
   for (const relative of specialFiles) {
