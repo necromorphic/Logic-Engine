@@ -864,23 +864,21 @@ diff --git a/src/endpoints/settings.js b/src/endpoints/settings.js
 diff --git a/src/endpoints/users-private.js b/src/endpoints/users-private.js
 --- a/src/endpoints/users-private.js
 +++ b/src/endpoints/users-private.js
-@@ -12,2 +12,5 @@
+@@ -12,2 +12,8 @@
  import { color, Cache, getConfigValue } from '../util.js';
  import { getIpAddress, retryAfter } from '../express-common.js';
-+import { createHostBulkMutationGuard } from './logic-engine-host-inventory-handler.mjs';
-+const hostBulkMutationGuard = createHostBulkMutationGuard({ pinnedHostCommit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127' });
-+
-@@ -184,1 +187,1 @@
--router.post('/reset-settings', async (request, response) => {
-+router.post('/reset-settings', hostBulkMutationGuard, async (request, response) => {
-@@ -261,1 +264,6 @@
--router.post('/reset-step2', async (request, response) => {
-+router.post('/reset-step2', (request, response, next) => {
++const hostUserRootResetGuard = (request, response, next) => {
 +    if (process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR) {
 +        return response.status(503).json({ error: { code: 'HOST_USER_ROOT_RESET_UNSUPPORTED' } });
 +    }
 +    return next();
-+}, async (request, response) => {
++};
+@@ -184,1 +190,1 @@
+-router.post('/reset-settings', async (request, response) => {
++router.post('/reset-settings', hostUserRootResetGuard, async (request, response) => {
+@@ -261,1 +267,1 @@
+-router.post('/reset-step2', async (request, response) => {
++router.post('/reset-step2', hostUserRootResetGuard, async (request, response) => {
 
 diff --git a/src/endpoints/users-admin.js b/src/endpoints/users-admin.js
 --- a/src/endpoints/users-admin.js
