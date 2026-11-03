@@ -67,13 +67,16 @@ function validateProjection(value) {
  * Gateway; only Gateway may consume it while holding the shared Coordinator.
  * The original Host request and response objects are lifecycle keys.
  */
-export function createNpcGenerationContextHostBridge({ runtime, createRequestMetadata }) {
+export function createNpcGenerationContextHostBridge({
+  runtime, createRequestMetadata, runWithAuthenticatedHostSession,
+}) {
   if (typeof runtime?.prepareForDispatch !== 'function'
     || typeof runtime?.projectDispatchHandoff !== 'function'
     || typeof runtime?.consumeDispatchHandoff !== 'function'
     || typeof runtime?.revalidateLaneAForDispatch !== 'function'
-    || typeof createRequestMetadata !== 'function') {
-    throw new TypeError('NPC Host bridge requires the trusted Core runtime and request metadata resolver.');
+    || typeof createRequestMetadata !== 'function'
+    || typeof runWithAuthenticatedHostSession !== 'function') {
+    throw new TypeError('NPC Host bridge requires the trusted Core runtime, authenticated Host session runner and request metadata resolver.');
   }
 
   const preparedByRequest = new WeakMap();
@@ -101,15 +104,18 @@ export function createNpcGenerationContextHostBridge({ runtime, createRequestMet
       seenRequestMetadata.add(requestMetadata);
 
       let prepared;
-      try { prepared = await runtime.prepareForDispatch(requestMetadata); }
-      catch { return Object.freeze({ status: 'non_ready', reason: 'npc_context_preparation_failed' }); }
+      let projected;
+      try {
+        await runWithAuthenticatedHostSession(hostRequest, requestMetadata.conversation_id, async () => {
+          prepared = await runtime.prepareForDispatch(requestMetadata);
+          if (prepared?.status === 'ready' && prepared.handoff) {
+            projected = runtime.projectDispatchHandoff(prepared.handoff, requestMetadata);
+          }
+        });
+      } catch { return Object.freeze({ status: 'non_ready', reason: 'npc_context_preparation_failed' }); }
       if (prepared?.status !== 'ready' || !prepared.handoff) {
         return Object.freeze({ status: 'non_ready', reason: prepared?.reason ?? 'npc_context_not_ready' });
       }
-
-      let projected;
-      try { projected = runtime.projectDispatchHandoff(prepared.handoff, requestMetadata); }
-      catch { return Object.freeze({ status: 'non_ready', reason: 'npc_context_projection_failed' }); }
       if (projected?.status !== 'ready' || !validateProjection(projected.projection)) {
         return Object.freeze({ status: 'non_ready', reason: projected?.reason ?? 'npc_context_projection_not_ready' });
       }
@@ -140,6 +146,10 @@ export function createNpcGenerationContextHostBridge({ runtime, createRequestMet
       requestMetadata: prepared.requestMetadata,
       handoff: prepared.handoff,
       projection: prepared.projection,
+      runWithHostSession: callback => {
+        if (typeof callback !== 'function') throw new TypeError('Host session callback is required.');
+        return runWithAuthenticatedHostSession(hostRequest, prepared.requestMetadata.conversation_id, callback);
+      },
       reason: null,
     });
   }
