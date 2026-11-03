@@ -11,7 +11,11 @@ function setup({ prepareStatus = 'ready', metadata = requestMetadata } = {}) {
   const projection = Object.freeze({
     world_id: 'world-1', actor_id: 'npc-1', conversation_id: 'conversation-1',
     adapter_id: 'adapter-1', purpose: 'npc_turn_context',
-    contentBlocks: Object.freeze([{ epistemic_kind: 'direct_observation', evidence_assessment: 'unassessed', content: Object.freeze({ fact: 'x' }) }]),
+    snapshot: Object.freeze({ world_revision: 1, commit_sequence: 1 }),
+    contentBlocks: Object.freeze([Object.freeze({
+      epistemic_kind: 'direct_observation', evidence_assessment: 'unassessed',
+      content: Object.freeze({ fact: 'x' }),
+    })]),
     sources: Object.freeze([]), candidates: Object.freeze([]),
   });
   let preparedMetadata = null;
