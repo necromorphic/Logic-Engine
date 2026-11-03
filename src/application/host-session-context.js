@@ -273,8 +273,9 @@ function validHostSessionAssertion(assertion) {
 /**
  * Verifies a short-lived Host assertion signed by the server-held adapter
  * secret, then creates the same non-serializable Core capability used by the
- * in-process Host gate. The nonce cache is process-local; expired assertions
- * cannot be replayed after restart.
+ * in-process Host gate. Production Memory retrieval must inject durable nonce
+ * consumption and session-revocation callbacks; the local Map fallback is only
+ * for isolated callers and must never authorize the production Memory route.
  */
 export function createHostSessionAssertionRunner({
   secret,
