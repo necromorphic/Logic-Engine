@@ -29,9 +29,12 @@ function isExactPlainDataRecord(value, expectedKeys) {
     if (prototype !== Object.prototype && prototype !== null) return false;
     const keys = Reflect.ownKeys(value);
     if (keys.length !== expectedKeys.length) return false;
-    for (const key of keys) if (typeof key !== 'string' || !expectedKeys.includes(key)) return false;
-    for (const key of expectedKeys) {
-      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    for (let index = 0; index < keys.length; index += 1) {
+      const key = keys[index];
+      if (typeof key !== 'string' || !expectedKeys.includes(key)) return false;
+    }
+    for (let index = 0; index < expectedKeys.length; index += 1) {
+      const descriptor = Object.getOwnPropertyDescriptor(value, expectedKeys[index]);
       if (!descriptor || descriptor.enumerable !== true || !Object.hasOwn(descriptor, 'value')) return false;
     }
     return true;
@@ -213,8 +216,8 @@ function validHostSessionAssertion(assertion) {
       || Reflect.ownKeys(assertion).length !== ASSERTION_KEYS.length
       || ASSERTION_KEYS.some(key => !Object.hasOwn(assertion, key))
       || Reflect.ownKeys(assertion).some(key => typeof key !== 'string' || !ASSERTION_KEYS.includes(key))) return false;
-    for (const key of ASSERTION_KEYS) {
-      const descriptor = Object.getOwnPropertyDescriptor(assertion, key);
+    for (let index = 0; index < ASSERTION_KEYS.length; index += 1) {
+      const descriptor = Object.getOwnPropertyDescriptor(assertion, ASSERTION_KEYS[index]);
       if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) return false;
     }
     return assertion.protocol_version === 1
