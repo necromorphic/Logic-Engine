@@ -108,6 +108,10 @@ test('server and browser extension loaders reject unreviewed third-party code be
     'host-adapter/extension-gateway/server-plugin/st-source-attestation.mjs'), 'utf8');
   assert.match(attestation, /HOST_UNREVIEWED_USER_EXTENSION_PRESENT/);
   assert.match(attestation, /userExtensionsPath/);
+  const hostHandler = await readFile(resolve(process.cwd(),
+    'host-adapter/extension-gateway/server-plugin/st-host-inventory-handler.mjs'), 'utf8');
+  assert.match(hostHandler, /'extensions'/);
+  assert.match(hostHandler, /path\.relative\(resolved\.root, resolved\[key\]\)/);
 });
  
 test('audit input is the exact pinned SillyTavern commit', async () => {
