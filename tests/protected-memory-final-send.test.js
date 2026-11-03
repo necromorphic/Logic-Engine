@@ -373,6 +373,44 @@ test('Final-Send projection is independent of mutable Array and Set prototype me
   assert.match(prompt, /Lane B evidence/);
 });
 
+test('Final-Send rejects top-level and Lane A accessors without executing them', () => {
+  let topLevelCalls = 0;
+  let laneCalls = 0;
+  const protectedContext = { ...context };
+  Object.defineProperty(protectedContext, 'requestId', {
+    enumerable: true, get() { topLevelCalls += 1; return 'getter-request'; },
+  });
+  const finalSend = createProtectedMemoryFinalSend({
+    gateway: { dispatchProtectedRequest: () => { throw new Error('must not dispatch'); } },
+    resolveProtectedMemory: () => protectedContext,
+    fetchImpl: async () => { throw new Error('must not fetch'); },
+  });
+  assert.throws(() => finalSend({
+    senderRoute: 'google-ai-studio',
+    endpointUrl: 'https://provider.example/generate',
+    requestInit: init(),
+    hostRequestContext: { trusted: true },
+  }), /MEMORY_DISPATCH_NOT_READY/);
+  assert.equal(topLevelCalls, 0);
+
+  const laneA = {};
+  Object.defineProperty(laneA, 'items', {
+    enumerable: true, get() { laneCalls += 1; return []; },
+  });
+  const nestedFinalSend = createProtectedMemoryFinalSend({
+    gateway: { dispatchProtectedRequest: () => { throw new Error('must not dispatch'); } },
+    resolveProtectedMemory: () => ({ ...context, laneA }),
+    fetchImpl: async () => { throw new Error('must not fetch'); },
+  });
+  assert.throws(() => nestedFinalSend({
+    senderRoute: 'google-ai-studio',
+    endpointUrl: 'https://provider.example/generate',
+    requestInit: init(),
+    hostRequestContext: { trusted: true },
+  }), /MEMORY_DISPATCH_NOT_READY/);
+  assert.equal(laneCalls, 0);
+});
+
 test('Lane A projection rejects accessors instead of invoking them', async () => {
   let calls = 0;
   const item = {
