@@ -1045,6 +1045,12 @@ test('malformed and cross-scope candidate rows cannot be silently converted to c
   assert.equal(crossScope.reason, 'memory_candidate_invalid_or_scope_mismatch');
   assert.deepEqual(crossScope.admitted, []);
   assert.deepEqual(crossScope.candidates, []);
+
+  setCandidates([candidate({ source: { kind: 'canonical_entity', entity_id: 'source-a' } })]);
+  const missingSourceVersion = await consumer.retrieveForNpc(request());
+  assert.equal(missingSourceVersion.status, 'non_ready');
+  assert.equal(missingSourceVersion.reason, 'memory_lineage_invalid');
+  assert.deepEqual(missingSourceVersion.candidates, []);
 });
 
 test('filtered-empty result still validates the current Core snapshot after record denial', async (t) => {
