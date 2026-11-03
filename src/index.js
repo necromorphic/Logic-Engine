@@ -290,11 +290,15 @@ if (memoryProviderPath !== undefined) {
       fieldPolicy: mechanicPolicyAuthority,
       contentFields,
     });
+    if (!memoryAdapter.npcGenerationContext
+      || typeof memoryAdapter.npcGenerationContext.build !== 'function'
+      || typeof memoryAdapter.npcGenerationContext.receive !== 'function') {
+      memoryAdapter.close();
+      throw new Error('CORE_NPC_GENERATION_CONTEXT_RUNTIME_REQUIRED');
+    }
     memoryProviderAdapters.push(memoryAdapter);
     memoryNpcConsumers[adapterId] = memoryAdapter.consumer;
-    if (memoryAdapter.npcGenerationContext) {
-      memoryNpcGenerationContexts[adapterId] = memoryAdapter.npcGenerationContext;
-    }
+    memoryNpcGenerationContexts[adapterId] = memoryAdapter.npcGenerationContext;
   }
   const worldIds = store.db.prepare('SELECT world_id FROM worlds ORDER BY world_id').all();
   for (const memoryAdapter of memoryProviderAdapters) {
