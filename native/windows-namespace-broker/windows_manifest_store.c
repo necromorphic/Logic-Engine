@@ -20,6 +20,7 @@
 #include <stddef.h>
 #include <wchar.h>
 #include <strsafe.h>
+#include <bcrypt.h>
 #include "../secure-vfs-probe/windows_relative_open.h"
 
 #define LE_STORE_MAX_BYTES (1024u * 1024u)
@@ -62,7 +63,7 @@ static int le_store_valid_regular(HANDLE file, DWORD *length) {
  * SYSTEM/Administrators). The installer must reject reparse-point ancestors.
  * This function additionally pins and checks the final directory handle.
  */
-static int le_win_store_open(
+int le_win_store_open(
     LE_WIN_MANIFEST_STORE *store,
     const wchar_t *configured_directory,
     LE_STORE_VALIDATE validate_manifest,
@@ -100,9 +101,8 @@ static int le_win_store_open(
   return 1;
 }
 
-static int le_win_store_lock(LE_WIN_MANIFEST_STORE *store) {
+int le_win_store_lock(LE_WIN_MANIFEST_STORE *store) {
   OVERLAPPED overlap;
-  LogicEngineWinFileIdentity identity;
   HANDLE lock;
   if (!store || store->directory == INVALID_HANDLE_VALUE || store->locked) {
     SetLastError(ERROR_INVALID_PARAMETER);
@@ -123,7 +123,7 @@ static int le_win_store_lock(LE_WIN_MANIFEST_STORE *store) {
   return 1;
 }
 
-static void le_win_store_unlock(LE_WIN_MANIFEST_STORE *store) {
+void le_win_store_unlock(LE_WIN_MANIFEST_STORE *store) {
   OVERLAPPED overlap;
   if (!store || !store->locked) return;
   ZeroMemory(&overlap, sizeof(overlap));
@@ -199,7 +199,7 @@ static int le_win_store_replace(
     SetLastError(ERROR_INVALID_DATA);
     return 0;
   }
-  if (!SystemFunction036(nonce, sizeof(nonce))) {
+  if (!BCRYPT_SUCCESS(BCryptGenRandom(NULL, nonce, (ULONG)sizeof(nonce), BCRYPT_USE_SYSTEM_PREFERRED_RNG))) {
     SetLastError(ERROR_GEN_FAILURE);
     return 0;
   }
@@ -253,24 +253,24 @@ cleanup:
   return 0;
 }
 
-static int le_win_store_read_manifest(
+int le_win_store_read_manifest(
     LE_WIN_MANIFEST_STORE *store, unsigned char **bytes, DWORD *length) {
   return le_win_store_read(store, LE_STORE_MANIFEST, store->validate_manifest, bytes, length);
 }
-static int le_win_store_read_intent(
+int le_win_store_read_intent(
     LE_WIN_MANIFEST_STORE *store, unsigned char **bytes, DWORD *length) {
   return le_win_store_read(store, LE_STORE_INTENT, store->validate_intent, bytes, length);
 }
-static int le_win_store_write_manifest(
+int le_win_store_write_manifest(
     LE_WIN_MANIFEST_STORE *store, const unsigned char *bytes, DWORD length) {
   return le_win_store_replace(store, LE_STORE_MANIFEST, bytes, length, store->validate_manifest);
 }
-static int le_win_store_write_intent(
+int le_win_store_write_intent(
     LE_WIN_MANIFEST_STORE *store, const unsigned char *bytes, DWORD length) {
   return le_win_store_replace(store, LE_STORE_INTENT, bytes, length, store->validate_intent);
 }
 
-static int le_win_store_remove_intent(LE_WIN_MANIFEST_STORE *store) {
+int le_win_store_remove_intent(LE_WIN_MANIFEST_STORE *store) {
   HANDLE file;
   FILE_DISPOSITION_INFO disposition;
   if (!store || !store->locked) {
@@ -294,7 +294,7 @@ static int le_win_store_remove_intent(LE_WIN_MANIFEST_STORE *store) {
   return FlushFileBuffers(store->directory) != 0;
 }
 
-static void le_win_store_close(LE_WIN_MANIFEST_STORE *store) {
+void le_win_store_close(LE_WIN_MANIFEST_STORE *store) {
   if (!store) return;
   le_win_store_unlock(store);
   if (store->directory != INVALID_HANDLE_VALUE && store->directory) CloseHandle(store->directory);
