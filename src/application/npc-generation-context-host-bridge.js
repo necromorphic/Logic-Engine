@@ -1,3 +1,63 @@
+import { types as utilTypes } from 'node:util';
+
+function validId(value) {
+  return typeof value === 'string' && value.length > 0 && value.length <= 200
+    && value === value.trim()
+    && ![...value].some(character => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127);
+}
+
+function isDeepFrozenPlainData(value, depth = 0, seen = new WeakSet()) {
+  if (depth > 32) return false;
+  if (value === null || ['string', 'boolean'].includes(typeof value)) return true;
+  if (typeof value === 'number') return Number.isFinite(value);
+  if (typeof value !== 'object' || utilTypes.isProxy(value) || seen.has(value) || !Object.isFrozen(value)) return false;
+  seen.add(value);
+  try {
+    if (Array.isArray(value)) {
+      if (Object.getPrototypeOf(value) !== Array.prototype) return false;
+      const keys = Reflect.ownKeys(value);
+      if (keys.length !== value.length + 1 || !keys.includes('length')) return false;
+      for (let index = 0; index < value.length; index += 1) {
+        const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+        if (!descriptor || !Object.hasOwn(descriptor, 'value')
+          || !isDeepFrozenPlainData(descriptor.value, depth + 1, seen)) return false;
+      }
+      return true;
+    }
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) return false;
+    const keys = Reflect.ownKeys(value);
+    for (const key of keys) {
+      if (typeof key !== 'string') return false;
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      if (!descriptor || descriptor.enumerable !== true || !Object.hasOwn(descriptor, 'value')
+        || !isDeepFrozenPlainData(descriptor.value, depth + 1, seen)) return false;
+    }
+    return true;
+  } catch { return false; }
+  finally { seen.delete(value); }
+}
+
+function validateProjection(value) {
+  if (!isDeepFrozenPlainData(value) || !value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const keys = [
+    'world_id', 'actor_id', 'conversation_id', 'adapter_id', 'purpose', 'snapshot',
+    'contentBlocks', 'sources', 'candidates',
+  ];
+  const ownKeys = Reflect.ownKeys(value);
+  if (ownKeys.length !== keys.length || ownKeys.some(key => typeof key !== 'string' || !keys.includes(key))
+    || !keys.every(key => Object.hasOwn(value, key))
+    || !validId(value.world_id) || !validId(value.actor_id)
+    || !validId(value.conversation_id) || !validId(value.adapter_id)
+    || value.purpose !== 'npc_turn_context'
+    || !value.snapshot || typeof value.snapshot !== 'object'
+    || !Number.isSafeInteger(value.snapshot.world_revision) || value.snapshot.world_revision < 0
+    || !Number.isSafeInteger(value.snapshot.commit_sequence) || value.snapshot.commit_sequence < 0
+    || !Array.isArray(value.contentBlocks) || !Array.isArray(value.sources)
+    || !Array.isArray(value.candidates)) return false;
+  return true;
+}
+
 /**
  * In-process bridge between the native Host request lifecycle and the Core NPC
  * generation-context runtime.
@@ -50,10 +110,7 @@ export function createNpcGenerationContextHostBridge({ runtime, createRequestMet
       let projected;
       try { projected = runtime.projectDispatchHandoff(prepared.handoff, requestMetadata); }
       catch { return Object.freeze({ status: 'non_ready', reason: 'npc_context_projection_failed' }); }
-      if (projected?.status !== 'ready' || !projected.projection
-        || !Array.isArray(projected.projection.contentBlocks)
-        || !Array.isArray(projected.projection.sources)
-        || !Array.isArray(projected.projection.candidates)) {
+      if (projected?.status !== 'ready' || !validateProjection(projected.projection)) {
         return Object.freeze({ status: 'non_ready', reason: projected?.reason ?? 'npc_context_projection_not_ready' });
       }
 
