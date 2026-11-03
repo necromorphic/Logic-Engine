@@ -91,11 +91,17 @@ test('signed Host assertion runners are instantiated only by the Core API compos
     'Only the Core API composition may instantiate signed Host assertion runners and choose their replay/revocation stores.');
 });
 
-test('the approved composition factory is not wired into the production runtime or public HTTP API', () => {
+test('the approved composition factory is the only Provider/Consumer composition wired into the production runtime', () => {
   const entrypoint = readFileSync(join(root, 'src/index.js'), 'utf8');
   const api = readFileSync(join(root, 'src/api/server.js'), 'utf8');
   assert.equal(sensitiveModuleReference.test(entrypoint), false,
-    'The normal runtime entrypoint must not activate Memory Provider/Consumer composition.');
+    'The normal runtime entrypoint must not import Provider/Consumer implementation modules directly.');
+  assert.match(entrypoint, /createMemoryNpcProviderAdapter\\s*\\(/,
+    'The runtime may activate Memory only through the approved Core composition factory.');
+  const factoryCallers = productionFiles().filter(({ path, content }) => path !== compositionBoundaryPath
+    && /\\bcreateMemoryNpcProviderAdapter\\s*\\(/.test(content)).map(({ path }) => path);
+  assert.deepEqual(factoryCallers, ['src/index.js'],
+    'Only the Core runtime composition root may invoke the approved Provider/Consumer factory.');
   assert.equal(sensitiveModuleReference.test(api), false,
     'The HTTP API must not import Provider/Consumer implementation modules.');
   const packageJson = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
