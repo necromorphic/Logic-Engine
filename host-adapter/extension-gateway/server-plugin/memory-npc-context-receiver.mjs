@@ -113,9 +113,16 @@ export function createHostMemoryNpcContextReceiver({
     if (!hostBindings || typeof hostBindings.world_id !== 'string' || typeof hostBindings.actor_id !== 'string') {
       throw new Error('HOST_WORLD_ACTOR_BINDING_UNAVAILABLE');
     }
+    const adapterId = env.LOGIC_ENGINE_ADAPTER_ID;
+    const conversationId = hostContext.host_session_id + ':' + hostContext.host_installation_id + ':' + conversationUuid;
+    if (typeof adapterId !== 'string' || !adapterId.trim()) {
+      throw new Error('HOST_MEMORY_NPC_CONTEXT_NOT_READY');
+    }
     return Object.freeze({
       requestId,
       hostContext,
+      adapterId,
+      conversationId,
       worldId: hostBindings.world_id,
       actorId: hostBindings.actor_id,
       retrieval: validateRetrieval(payload.retrieval),
