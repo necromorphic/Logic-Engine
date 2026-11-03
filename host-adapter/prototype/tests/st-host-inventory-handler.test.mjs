@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 const test = nodeTest;
 
-import { assertHostStartupMigrationAllowed, createHostBulkMutationGuard, createHostIdentityHandler, createHostInventoryHandler, createHostLifecycleSaveGuard, CORE_ATTESTED_SOURCE_BLOCKERS, createHostUnsupportedMutationGuard, createHostRequestAuthenticationGate, createHostSessionHandler, resolveHostDataDirectories } from '../st-host-inventory-handler.mjs';
+import { assertHostStartupMigrationAllowed, createHostBulkMutationGuard, createHostIdentityHandler, createHostInventoryHandler, createHostLifecycleSaveGuard, CORE_ATTESTED_SOURCE_BLOCKERS, createHostUnsupportedMutationGuard, createHostRequestAuthenticationGate, createHostSessionHandler, resolveHostDataDirectories } from '../../extension-gateway/server-plugin/st-host-inventory-handler.mjs';
 import { PINNED_PATCH_BUNDLE_SHA256, PINNED_HOST_HANDLER_GIT_BLOB_SHA } from '../../extension-gateway/server-plugin/st-source-attestation.mjs';
 
 function makeResponse() {
@@ -322,8 +322,8 @@ test('host inventory clears only blockers covered by verified source and Core VS
         sequence: 1,
         manifest_sha256: 'd'.repeat(64),
         attestation_sha256: 'f'.repeat(64),
-        lifecycle_sequence: 1,
-        lifecycle_head_sha256: 'a'.repeat(64),
+        lifecycle_sequence: 0,
+        lifecycle_head_sha256: '0'.repeat(64),
         source_manifest_sha256: 'e'.repeat(64),
         upstream_status: 200,
       };

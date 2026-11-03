@@ -7,6 +7,7 @@ import { createHostRootInventoryPersistence } from '../server-plugin/st-server-d
 import {
   PINNED_PATCH_BUNDLE_SHA256,
   PINNED_HOST_HANDLER_GIT_BLOB_SHA,
+  createSignedRootInventoryAttestation,
 } from '../server-plugin/st-source-attestation.mjs';
 
 const sha256 = value => createHash('sha256').update(value, 'utf8').digest('hex');
@@ -44,8 +45,8 @@ test('root inventory proxy signs a VSS-aligned pinned-source attestation after C
         sequence: 1,
         manifest_sha256: 'a'.repeat(64),
         journal_head_sha256: 'b'.repeat(64),
-        lifecycle_sequence: 1,
-        lifecycle_head_sha256: 'c'.repeat(64),
+        lifecycle_sequence: 0,
+        lifecycle_head_sha256: '0'.repeat(64),
       } });
     }
     if (new URL(url).pathname === '/v1/host-root-inventory/attest') {
@@ -55,8 +56,8 @@ test('root inventory proxy signs a VSS-aligned pinned-source attestation after C
         sequence: 1,
         manifest_sha256: 'a'.repeat(64),
         journal_head_sha256: 'b'.repeat(64),
-        lifecycle_sequence: 1,
-        lifecycle_head_sha256: 'c'.repeat(64),
+        lifecycle_sequence: 0,
+        lifecycle_head_sha256: '0'.repeat(64),
         source_manifest_sha256: 'e'.repeat(64),
         attestation_sha256: 'f'.repeat(64),
       } });
@@ -106,6 +107,37 @@ test('root inventory proxy signs a VSS-aligned pinned-source attestation after C
   assert.equal(signature, expected);
   assert.equal(body.attestation.patch_blob_sha, PINNED_PATCH_BUNDLE_SHA256);
   assert.equal(body.attestation.host_handler_blob_sha, PINNED_HOST_HANDLER_GIT_BLOB_SHA);
+});
+
+test('root inventory signer rejects a nonzero lifecycle head at genesis sequence zero', () => {
+  assert.throws(() => createSignedRootInventoryAttestation({
+    adapterId: 'test-adapter',
+    adapterToken: 'adapter-secret-at-least-16',
+    identity: {
+      host_installation_id: '11111111-1111-4111-8111-111111111111',
+      authenticated_account_id: '22222222-2222-4222-8222-222222222222',
+      root_id: '3'.repeat(64),
+    },
+    reconciliation: {
+      integrity_status: 'INTEGRITY_OK',
+      sequence: 1,
+      manifest_sha256: 'a'.repeat(64),
+      journal_head_sha256: 'b'.repeat(64),
+      lifecycle_sequence: 0,
+      lifecycle_head_sha256: 'c'.repeat(64),
+    },
+    snapshotAlignment: 'SHARED_VSS_SNAPSHOT',
+    snapshotSha256: 'd'.repeat(64),
+    sourceIdentity: {
+      status: 'CURRENT_IDENTITIES_VERIFIED',
+      patch_blob_sha: PINNED_PATCH_BUNDLE_SHA256,
+      host_handler_blob_sha: PINNED_HOST_HANDLER_GIT_BLOB_SHA,
+      manifest_sha256: 'e'.repeat(64),
+    },
+  }), {
+    name: 'TypeError',
+    message: 'HOST_ROOT_INVENTORY_ATTESTATION_INPUT_NON_READY',
+  });
 });
 
 test('root inventory proxy does not attest an independent scan or unverified source identity', async t => {
