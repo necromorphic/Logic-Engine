@@ -302,67 +302,32 @@ export function createHostUnsupportedMutationGuard({
   };
 }
 
+/**
+ * Fail-closed guard for bulk or non-lineage-aware mutations. A pre-mutation
+ * filesystem scan cannot authorize a write: it cannot prove route coverage,
+ * prevent a concurrent write, or produce a post-mutation receipt. Until the
+ * route has an operation-specific lifecycle receipt, reject it whenever Host
+ * authority is configured or a Host session is present.
+ */
 export function createHostBulkMutationGuard({
   enumerate = enumerateHostDataInventory,
   pinnedHostCommit,
 } = {}) {
-  if (typeof enumerate !== 'function' || typeof pinnedHostCommit !== 'string'
+  if ( typeof enumerate !== 'function' || typeof pinnedHostCommit !== 'string'
     || !/^[a-f0-9]{40}$/.test(pinnedHostCommit)) {
     throw new TypeError('Host bulk mutation guard configuration is invalid.');
   }
-  return async function hostBulkMutationGuard(request, response, next) {
+  return function hostBulkMutationGuard(request, response, next) {
     response.set('Cache-Control', 'no-store, private');
     response.set('Vary', 'Cookie');
-    // Character-card CRUD does not mutate chat files. Keep ordinary ST character editing
-    // independent of full-root VSS inventory; destructive character deletion remains guarded.
-    const route = `${request?.baseUrl ?? ''}${request?.path ?? ''}`.split('?')[0];
-    if (request?.method === 'POST'
-      && /\/characters\/(?:create|edit)$/.test(route)) {
-      return next();
-    }
-    const identity = getAuthenticatedHostIdentity(request, { requireDirectories: true });
-    if (!identity) return response.sendStatus(403);
-    const { directories } = identity;
-    if (!['root', 'chats', 'groups', 'groupChats'].every(key =>
-      typeof directories[key] === 'string' && path.isAbsolute(directories[key]))) {
-      return response.sendStatus(403);
-    }
-    let inventory;
-    try {
-      inventory = await enumerate({
-        directories: {
-          root: directories.root,
-          chats: directories.chats,
-          groups: directories.groups,
-          groupChats: directories.groupChats,
-        },
-        hostCommit: pinnedHostCommit,
-      });
-    } catch {
-      return response.status(503).json({
-        status: 'NON_READY',
-        code: 'HOST_BULK_MUTATION_INVENTORY_UNAVAILABLE',
-      });
-    }
-    if (inventory?.filesystem?.status !== 'complete'
-      || inventory?.source?.status !== 'DOUBLE_SCAN_CANDIDATE'
-      || !Array.isArray(inventory?.source?.files)) {
-      return response.status(503).json({
-        status: 'NON_READY',
-        code: 'HOST_BULK_MUTATION_INVENTORY_INCOMPLETE',
-      });
-    }
-    const hasEnrolledConversation = inventory.source.files.some(file =>
-      typeof file?.logical_identity?.conversation_uuid === 'string'
-      && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
-        .test(file.logical_identity.conversation_uuid));
-    if (hasEnrolledConversation) {
-      return response.status(409).json({
-        status: 'NON_READY',
-        code: 'HOST_LIFECYCLE_BULK_MUTATION_BLOCKED',
-      });
-    }
-    return next();
+    const hostConfigured = Boolean(process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR);
+    const hostSessionActive = typeof request?.session?.logicEngineSessionId === 'string'
+      && request.session.logicEngineSessionId.length > 0;
+    if (!hostConfigured && !hostSessionActive) return next();
+    return response.status(503).json({
+      status: 'NON_READY',
+      code: 'HOST_BULK_MUTATION_UNSUPPORTED',
+    });
   };
 }
 
@@ -376,7 +341,7 @@ export async function assertHostStartupMigrationAllowed({
     || !/^[a-f0-9]{40}$/.test(pinnedHostCommit)) {
     throw new Error('HOST_LIFECYCLE_STARTUP_MIGRATION_CONFIGURATION_INVALID');
   }
-  const resolved = resolveHostDataDirectories(directories);
+  if (process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR) {\n    throw new Error('HOST_LIFECYCLE_STARTUP_MIGRATION_BLOCKED');\n  }\n  const resolved = resolveHostDataDirectories(directories);
   if (!resolved) throw new Error('HOST_LIFECYCLE_STARTUP_MIGRATION_DIRECTORIES_INVALID');
 
   let inventory;
