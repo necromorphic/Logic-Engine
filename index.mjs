@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { SillyTavernPatchManager } from './scripts/sillytavern-patch-manager.mjs';
+import { createSillyTavernHostAdapter } from './host-adapter/extension-gateway/server-plugin/host-adapter.mjs';
 
 const PLUGIN_OWNER = 'logic-engine-extension:host-adapter-v1';
 const PLUGIN_ROOT = dirname(fileURLToPath(import.meta.url));
@@ -59,15 +60,24 @@ function containsUntrustedMemoryMarker(body) {
     || Object.hasOwn(body, 'memory_dispatch');
 }
 
-function createFailClosedAdapter() {
+function createFailClosedAdapter({ memoryNpcEnabled }) {
   return Object.freeze({
     async prepare(request) {
       assertAuthenticatedStRequest(request);
       if (containsUntrustedMemoryMarker(request.body)) {
         throw new Error('LOGIC_ENGINE_UNTRUSTED_MEMORY_MARKER');
       }
-      // No server-side Memory context is created while the deployment gate is
-      // DISABLED. The final-send hook still owns the native egress call site.
+      if (memoryNpcEnabled) {
+        const conversationUuid = request?.headers?.['x-logic-engine-conversation-uuid'];
+        if (typeof conversationUuid !== 'string'
+          || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(conversationUuid)) {
+          throw new Error('LOGIC_ENGINE_HOST_CONVERSATION_ID_REQUIRED');
+        }
+        // Until the production Gateway and its synchronous dual-lane evidence
+        // readers are composed, enabled protected requests are denied here.
+        // They never fall through to the native sender.
+        throw new Error('LOGIC_ENGINE_NPC_GATEWAY_NOT_WIRED');
+      }
     },
     resolveSenderRoute(request, hostRoute = 'chat-completions') {
       if (hostRoute !== 'chat-completions') {
@@ -103,7 +113,7 @@ export const info = Object.freeze({
 });
 
 export async function init(router) {
-  if (typeof router?.get !== 'function') {
+  if (typeof router?.get !== 'function' || typeof router?.post !== 'function') {
     throw new TypeError('SillyTavern server plugin requires an Express router');
   }
 
@@ -137,7 +147,8 @@ export async function init(router) {
       throw new Error('LOGIC_ENGINE_NATIVE_RESPONSE_WRITER_UNAVAILABLE');
     }
     registeredNativeForward = nativeUtil.forwardFetchResponse;
-    registeredAdapter = createFailClosedAdapter();
+    const memoryNpcEnabled = process.env.LOGIC_ENGINE_MEMORY_NPC_ENABLED === 'true';
+    registeredAdapter = createFailClosedAdapter({ memoryNpcEnabled });
     hook.registerLogicEngineFinalSendAdapter(registeredAdapter, PLUGIN_OWNER);
     registeredHook = hook;
   } catch (error) {
@@ -147,6 +158,38 @@ export async function init(router) {
     throw error;
   }
 
+  let hostAdapter = null;
+  try {
+    hostAdapter = createSillyTavernHostAdapter({ env: process.env });
+  } catch (error) {
+    if (process.env.LOGIC_ENGINE_MEMORY_NPC_ENABLED === 'true') {
+      throw new Error('LOGIC_ENGINE_HOST_ADAPTER_NOT_READY', { cause: error });
+    }
+    console.warn('[Logic Engine] Host Adapter is unavailable while Memory NPC is disabled:', error?.message);
+  }
+
+  if (hostAdapter) {
+    // One public ingress: all Host identity/lifecycle routes are mounted below
+    // this root plugin. The browser-facing /dispatch route is intentionally not
+    // mounted; protected retrieval is a server-internal operation only.
+    router.get('/host/session', hostAdapter.session);
+    router.get('/host/identity', hostAdapter.identity);
+    router.get('/host/inventory', hostAdapter.inventory);
+    router.post('/host/host-lifecycle/events', hostAdapter.lifecycleEvents);
+    router.get('/host/host-lifecycle/status', hostAdapter.lifecycleStatus);
+    router.post('/host/host-version-ledger/capture', hostAdapter.capture);
+    router.post('/host/host-version-ledger/reconcile', hostAdapter.reconcile);
+  }
+
+  router.get('/host/config', (_request, response) => {
+    response.set('Cache-Control', 'no-store, private');
+    return response.status(200).json({
+      memoryNpcEnabled: process.env.LOGIC_ENGINE_MEMORY_NPC_ENABLED === 'true',
+      hostAdapter: hostAdapter ? 'READY' : 'NOT_READY',
+      gateway: 'NOT_WIRED',
+    });
+  });
+
   router.get('/final-send/status', async (_request, response) => {
     const patch = await manager.inspectInstalledReadOnly();
     const installed = patch.status === 'INSTALLED_AND_BACKUPS_VERIFIED';
@@ -155,8 +198,11 @@ export async function init(router) {
       patch: patch.status,
       hostCommit: patch.hostCommit ?? null,
       patchVersion: patch.patchVersion ?? null,
+      hostAdapter: hostAdapter ? 'READY' : 'NOT_READY',
       gateway: 'NOT_WIRED',
-      memoryNpc: 'DISABLED_FAIL_CLOSED',
+      memoryNpc: process.env.LOGIC_ENGINE_MEMORY_NPC_ENABLED === 'true'
+        ? 'ENABLED_BUT_FAIL_CLOSED'
+        : 'DISABLED_FAIL_CLOSED',
     });
   });
 
