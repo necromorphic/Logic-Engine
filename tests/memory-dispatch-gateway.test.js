@@ -1463,3 +1463,24 @@ test('Host inventory change is revalidated under the Coordinator lease before di
   }
 });
 
+
+
+test('Host inventory revoke after upstream completion blocks the actual response write', async () => {
+  const fixture = await createFixture();
+  try {
+    const request = validRequest('host-revoked-before-response-write');
+    const upstream = await fixture.gateway.dispatchProtectedRequest(request);
+    fixture.setHostInventoryReady(false);
+    let writes = 0;
+    assert.throws(
+      () => fixture.gateway.authorizeResponseWrite(request.requestId, () => { writes += 1; return upstream; }, { final: true }),
+      /MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED/,
+    );
+    assert.equal(writes, 0, 'Host response must not be written after inventory authority is revoked');
+    const row = fixture.gateway.db.prepare('SELECT status FROM dispatch_ledger WHERE request_id=?')
+      .get(request.requestId);
+    assert.equal(row.status, 'UNKNOWN', 'withheld response remains terminal and non-replayable');
+  } finally {
+    await fixture.close();
+  }
+});
