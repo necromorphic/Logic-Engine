@@ -330,3 +330,12 @@ test('dispatch handoff exposes a Lane B-only provider projection with exact sour
   }]);
   assert.equal(Object.hasOwn(evidence, 'lane_a'), false);
 });
+
+
+test('prepareForDispatch fails closed when Core cannot prove canonical source-version lineage', async () => {
+  const { runtime, setCanonicalSourceVersion } = setup();
+  setCanonicalSourceVersion('unversioned-source');
+  const prepared = await runtime.prepareForDispatch(request);
+  assert.equal(prepared.status, 'non_ready');
+  assert.equal(prepared.handoff, null);
+});
