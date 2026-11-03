@@ -34,6 +34,40 @@ function densePlainArray(value) {
   } catch { return false; }
 }
 
+function toPlainData(value, depth = 0) {
+  if (depth > 32) throw new TypeError('prepared Memory result exceeds the supported depth');
+  if (value === null || typeof value !== 'object') return value;
+  if (utilTypes.isProxy(value)) throw new TypeError('prepared Memory result contains a Proxy');
+  if (Array.isArray(value)) {
+    if (!densePlainArray(value)) throw new TypeError('prepared Memory result contains a malformed array');
+    const copy = new Array(value.length);
+    for (let index = 0; index < value.length; index += 1) {
+      const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+      copy[index] = toPlainData(descriptor.value, depth + 1);
+    }
+    return copy;
+  }
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) {
+    throw new TypeError('prepared Memory result contains a non-plain object');
+  }
+  const keys = Reflect.ownKeys(value);
+  const copy = {};
+  for (let index = 0; index < keys.length; index += 1) {
+    const key = keys[index];
+    if (typeof key !== 'string') throw new TypeError('prepared Memory result contains a symbol key');
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (!descriptor || descriptor.enumerable !== true || !Object.hasOwn(descriptor, 'value')) {
+      throw new TypeError('prepared Memory result contains an accessor or hidden field');
+    }
+    Object.defineProperty(copy, key, {
+      value: toPlainData(descriptor.value, depth + 1),
+      enumerable: true, writable: true, configurable: true,
+    });
+  }
+  return copy;
+}
+
 function validId(value) {
   return typeof value === 'string' && value.length > 0 && value.length <= 200
     && value === value.trim()
@@ -276,7 +310,7 @@ export function createCoreNpcGenerationContextRuntime({
     try {
       freshB = await consumer.revalidateForFinalDispatch(
         { conversationId: scope.conversation_id },
-        preparedResult,
+        toPlainData(preparedResult),
       );
     } catch { return false; }
     return freshB?.status === 'ready'
