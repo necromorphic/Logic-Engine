@@ -57,6 +57,19 @@ function assertAuthenticatedHostRequest(request) {
   }
 }
 
+function resolveHostRoute(request) {
+  const path = typeof request?.originalUrl === 'string'
+    ? request.originalUrl
+    : typeof request?.baseUrl === 'string' && typeof request?.path === 'string'
+      ? request.baseUrl + request.path : '';
+  if (/\\/api\\/backends\\/chat-completions\\/generate(?:[?#]|$)/.test(path)) return 'chat-completions';
+  if (/\\/api\\/backends\\/text-completions\\/generate(?:[?#]|$)/.test(path)) return 'text-completions';
+  if (/\\/api\\/backends\\/kobold\\/generate(?:[?#]|$)/.test(path)) return 'kobold';
+  if (/\\/api\\/novelai\\/generate(?:[?#]|$)/.test(path)) return 'novelai-text';
+  if (/\\/api\\/horde\\/generate-text(?:[?#]|$)/.test(path)) return 'horde-text';
+  return null;
+}
+
 function terminalError(error) {
   const value = error instanceof Error ? error : new Error(String(error));
   try {
@@ -122,8 +135,13 @@ export function createSillyTavernFinalSendAdapter({
         throw new TypeError('Invalid authenticated SillyTavern request context.');
       }
       assertAuthenticatedHostRequest(request);
-      const hostContext = await prepareHostContext(request, response);
-      preparedContextByRequest.set(request, hostContext ?? null);
+      const hostRoute = resolveHostRoute(request);
+      if (!hostRoute) throw terminalError(new Error('LOGIC_ENGINE_FINAL_SEND_ROUTE_UNREGISTERED'));
+      const hostContext = await prepareHostContext(request, response, hostRoute);
+      if (hostContext?.status === 'NON_READY') {
+        throw terminalError(new Error(hostContext.code || 'MEMORY_DISPATCH_NOT_READY'));
+      }
+      preparedContextByRequest.set(request, Object.freeze({ hostContext: hostContext ?? null, hostRoute }));
     },
 
     resolveSenderRoute(request, hostRoute = 'chat-completions') {
