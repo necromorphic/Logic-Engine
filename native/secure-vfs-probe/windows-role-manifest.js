@@ -77,7 +77,8 @@ function assertManifestShape(manifest) {
     for (const identity of role.parentIdentities) {
       assertWindowsIdentity(identity, `parent ${role.role}`);
       const key = `${identity.volumeSerial.toLowerCase()}:${identity.fileId.toLowerCase()}`;
-      if (parentIds.has(key)) {
+      const metadataRootKey = `${manifest.metadataRootIdentity.volumeSerial.toLowerCase()}:${manifest.metadataRootIdentity.fileId.toLowerCase()}`;
+      if (key === metadataRootKey || parentIds.has(key)) {
         throw new TypeError(`Duplicate parent directory identity in role ${role.role}`);
       }
       parentIds.add(key);
