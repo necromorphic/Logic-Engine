@@ -203,16 +203,16 @@ function stableTestJson(value) {
   return '{' + Object.keys(value).sort().map((key) => JSON.stringify(key) + ':' + stableTestJson(value[key])).join(',') + '}';
 }
 
-function makeTestNpcContext(request, generationRequest, contentBlocks) {
+function makeTestNpcContext(request, generationRequest) {
   const snapshot = { world_id: request.worldId, world_revision: 1, commit_sequence: 1 };
-  const laneBCandidates = request.candidates.map((candidate, index) => ({
+  const laneBCandidates = request.candidates.map((candidate) => ({
     record_ref: candidate.record_ref,
     record_version: candidate.record_version,
     authorization_generation: candidate.authorization_generation,
     source_entity_id: candidate.source_entity_id,
-    epistemic_kind: contentBlocks[index]?.epistemic_kind ?? 'acquired_report',
-    evidence_assessment: contentBlocks[index]?.evidence_assessment ?? 'supported',
-    content: contentBlocks[index]?.content ?? { note: 'SECRET_MEMORY_TEXT_DO_NOT_PERSIST' },
+    epistemic_kind: 'acquired_report',
+    evidence_assessment: 'supported',
+    content: { note: 'SECRET_MEMORY_TEXT_DO_NOT_PERSIST' },
   }));
   return {
     request_id: request.requestId,
@@ -285,7 +285,7 @@ const validRequest = (requestId = 'request-001', overrides = {}) => {
     content: { note: 'SECRET_MEMORY_TEXT_DO_NOT_PERSIST' },
   }));
   const contextRequest = { ...base, conversationId, adapterId };
-  const npcContext = makeTestNpcContext(contextRequest, generationRequest, contentBlocks);
+  const npcContext = makeTestNpcContext(contextRequest, generationRequest);
   const npcContextHandoff = base.npcContextHandoff ?? { generationRequest, context: npcContext };
   const hostRoute = base.hostRoute ?? (['text-completions', 'kobold', 'novelai-text'].includes(base.senderRoute)
     ? base.senderRoute
