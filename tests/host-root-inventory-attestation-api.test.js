@@ -148,16 +148,19 @@ test('Core HTTP accepts only a signed, pinned, lifecycle-complete root attestati
   // A source manifest change on an unchanged account root must advance the
   // append-only inventory sequence so Core can accept a new source proof.
   const newSourceManifestSha256 = digest('new-pinned-source-manifest');
-  const refreshed = journal.observeRootInventory({
+  const refreshResponse = await post(base, '/v1/host-root-inventory/observe', {
     ...identity,
     event_id: '77777777-7777-4777-8777-777777777777',
     entries,
     source_manifest_sha256: newSourceManifestSha256,
   });
+  assert.equal(refreshResponse.status, 409);
+  const refreshPayload = await refreshResponse.json();
+  const refreshed = refreshPayload.reconciliation;
   assert.equal(refreshed.status, 'NON_READY');
   assert.equal(refreshed.reason, 'HOST_ROOT_INVENTORY_ATTESTATION_REFRESH_REQUIRED');
   assert.equal(refreshed.sequence, baselinePayload.reconciliation.sequence + 1);
-  assert.equal(Object.values(refreshed.delta).reduce((sum, values) => sum + values.length, 0), 0);
+  assert.equal(Object.values(refreshed.counts).reduce((sum, count) => sum + count, 0), 0);
 
   const refreshedAttestation = {
     ...attestation,
