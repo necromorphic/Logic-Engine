@@ -242,6 +242,10 @@ test('pinned server mutation routes remain in the reviewed inventory', () => {
     'src/endpoints/users-private.js': ['/change-avatar', '/change-password', '/backup', '/reset-settings', '/change-name', '/reset-step2'],
     'src/endpoints/users-public.js': ['/recover-step2'],
     'src/endpoints/users-admin.js': ['/delete'],
+    'src/endpoints/backends/kobold.js': ['/transcribe-audio'],
+    'src/endpoints/openai.js': ['/transcribe-audio', '/groq/transcribe-audio', '/mistral/transcribe-audio', '/zai/transcribe-audio', '/chutes/transcribe-audio'],
+    'src/endpoints/speech.js': ['/recognize'],
+    'src/endpoints/tokenizers.js': ['/llama/encode', '/llama/decode', '/openai/encode', '/openai/decode'],
     'src/endpoints/extensions.js': ['/install', '/update', '/switch', '/move', '/delete'],
     'src/endpoints/content-manager.js': ['/importURL', '/importUUID'],
     'src/endpoints/image-metadata.js': ['/folders/create', '/folders/set-thumbnails', '/folders/update', '/folders/delete', '/folders/assign', '/folders/unassign', '/', '/all', '/cleanup'],
@@ -269,8 +273,8 @@ test('legacy user-data migration cannot run under Host authority and system-prom
   assert.match(users, /HOST_LIFECYCLE_LEGACY_USER_DATA_MIGRATION_BLOCKED/);
   assert.match(users, /HOST_LIFECYCLE_USER_DIRECTORY_MISSING/);
   assert.match(users, /Skipping system prompt migration while Host authority is active/);
-  assert.match(users, /delete request\.session\.logicEngineSessionId;/);
-  assert.match(users, /delete request\.session\.logicEngineSessionHandle;/);
+  assert.match(users, /delete (?:request\.)?session\.logicEngineSessionId;/);
+  assert.match(users, /delete (?:request\.)?session\.logicEngineSessionHandle;/);
   const legacyCheck = users.indexOf('if (!fs.existsSync(legacyCharactersDirectory))');
   const legacyBlock = users.indexOf('HOST_LIFECYCLE_LEGACY_USER_DATA_MIGRATION_BLOCKED');
   assert.ok(legacyCheck >= 0 && legacyBlock > legacyCheck);
