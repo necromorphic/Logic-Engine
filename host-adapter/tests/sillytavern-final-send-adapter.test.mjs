@@ -311,6 +311,8 @@ test('registered protected sender is delegated to the Core Gateway', () => {
     sources: [{ source_kind: 'canonical_entity', source_entity_id: 'entity-1', source_version: 'v1' }],
     candidates: [{ record_ref: 'record-1', record_version: 'v1', authorization_generation: 1,
       source_kind: 'canonical_entity', source_entity_id: 'entity-1', source_version: 'v1' }],
+    contentBlocks: [{ epistemic_kind: 'acquired_report', evidence_assessment: 'supported',
+      content: { note: 'The bridge is closed.' } }],
   };
   let gatewayCalls = 0;
   const gateway = {
