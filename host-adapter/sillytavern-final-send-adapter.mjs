@@ -222,6 +222,7 @@ export function createSillyTavernFinalSendAdapter({
       try {
         result = finalSend({
           senderRoute: args.senderRoute,
+          hostRoute,
           endpointUrl: args.endpointUrl,
           requestInit: args.requestInit,
           hostRequestContext: args.request,
