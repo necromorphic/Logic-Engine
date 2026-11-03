@@ -4,7 +4,7 @@ import { copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { HOST_INVENTORY_COVERAGE_ID, PINNED_HOST_COMMIT, SOURCE_FILE_PATHS } from '../extension-gateway/server-plugin/st-source-attestation.mjs';
+import { HOST_INVENTORY_COVERAGE_ID, PINNED_HOST_COMMIT, PINNED_PATCH_BUNDLE_SHA256, PINNED_HOST_HANDLER_GIT_BLOB_SHA, SOURCE_FILE_PATHS } from '../extension-gateway/server-plugin/st-source-attestation.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const sourceRoot = path.resolve(process.env.SILLYTAVERN_DIR || path.join(repoRoot, 'Sillytavern'));
