@@ -105,6 +105,17 @@ test('async Host resolver remains rejected after its public prototype is replace
   assert.equal(calls, 0);
 });
 
+test('async generator Host resolver remains rejected after its public prototype is replaced', () => {
+  let calls = 0;
+  const asyncResolver = async function* () { calls += 1; yield context; };
+  Object.setPrototypeOf(asyncResolver, Function.prototype);
+  assert.throws(() => createProtectedMemoryFinalSend({
+    gateway: { dispatchProtectedRequest: () => { throw new Error('must not dispatch'); } },
+    resolveProtectedMemory: asyncResolver,
+  }), /Invalid protected Memory final-send configuration/);
+  assert.equal(calls, 0);
+});
+
 test('indeterminate trusted Memory classification fails closed instead of using direct fetch', () => {
   let calls = 0;
   const finalSend = createProtectedMemoryFinalSend({
