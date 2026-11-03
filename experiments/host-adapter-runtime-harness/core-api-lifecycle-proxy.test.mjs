@@ -23,6 +23,7 @@ const SESSION_ID = '99999999-9999-4999-8999-999999999999';
 const CONVERSATION_UUID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const AUTHORITY_ID = 'st-1.19-lifecycle-api-harness-authority';
 const digest = value => createHash('sha256').update(value).digest('hex');
+const SOURCE_MANIFEST_SHA256 = digest('host-lifecycle-api-harness-source-manifest');
 const canonical = value => Array.isArray(value)
   ? '[' + value.map(canonical).join(',') + ']'
   : value && typeof value === 'object'
@@ -186,6 +187,8 @@ test('SillyTavern lifecycle proxy authenticates PREPARED/COMMITTED receipts and 
       && input.authenticated_account_id === identity.authenticated_account_id
       && input.root_id === rootId,
     ...rootIdentity,
+    adapter_id: ADAPTER_ID,
+    source_manifest_sha256: SOURCE_MANIFEST_SHA256,
   });
 
   const resolveJournalLifecycleIdentity = input => {
@@ -199,6 +202,7 @@ test('SillyTavern lifecycle proxy authenticates PREPARED/COMMITTED receipts and 
       authorized: true,
       adapter_id: ADAPTER_ID,
       ...rootIdentity,
+      source_manifest_sha256: SOURCE_MANIFEST_SHA256,
       host_session_id: SESSION_ID,
       conversation_uuid: CONVERSATION_UUID,
       authority_id: AUTHORITY_ID,
@@ -246,6 +250,8 @@ test('SillyTavern lifecycle proxy authenticates PREPARED/COMMITTED receipts and 
           && input.authenticated_account_id === identity.authenticated_account_id
           && input.root_id === rootId,
         ...rootIdentity,
+        adapter_id: ADAPTER_ID,
+        source_manifest_sha256: SOURCE_MANIFEST_SHA256,
       }),
       verifyMutationReceipt: verifyReceipt,
     });
