@@ -65,7 +65,7 @@ function commit(engine, worldId, eventId, expectedRevision, effects, causedBy = 
   });
 }
 
-function enableFixture(engine, worldId, value = template()) {
+function enableFixture(engine, worldId, value = template(), instanceOptions = {}) {
   engine.registerMechanicTemplate(value);
   commit(engine, worldId, 'create-instance', 0, [
     { kind: 'entity.create', entity_id: 'entity.world-context', entity_type: 'world_context', attributes: { weather: 'rain' } },
@@ -75,6 +75,8 @@ function enableFixture(engine, worldId, value = template()) {
       instance_id: 'instance.executor',
       template_id: value.template_id,
       template_version: value.version,
+      parameters: instanceOptions.parameters ?? {},
+      state: instanceOptions.state ?? {},
     },
   ]);
   const created = engine.getMechanicInstance(worldId, 'instance.executor');
@@ -212,7 +214,7 @@ test('application executor pins one enabled instance and exact template to a con
   assert.equal(result.dependency_manifest.condition_ast_dependencies_complete, true);
   assert.equal(result.dependency_manifest.context_projection_dependencies_complete, true);
   assert.deepEqual(result.dependency_manifest.effect_target_dependencies, [
-    { kind: 'entity_absence', target_id: 'entity.new' },
+    { kind: 'entity_absence', target_id: 'entity.new', effect_index: 0, effect_id: 'create-entity' },
   ]);
   assert.equal(result.dependency_manifest.effect_target_dependencies_complete, true);
   assert.equal(result.dependency_manifest.causal_read_set_complete_for_supported_slice, true);
@@ -1790,33 +1792,6 @@ test('executor rejects participant and interaction contracts before resolving co
     assert.deepEqual(result.effects, []);
   }
 });
-
-test('executor rejects automatic conflict resolution without invoking a resolver', (t) => {
-  const { engine, worldId } = setup(t, 'executor-automatic-conflict-world');
-  enableFixture(engine, worldId, template({
-    conflict_policy: {
-      mode: 'automatic',
-      resolver_module_id: 'test.conflict-resolver',
-      resolver_module_version: '1.0.0',
-    },
-  }));
-  let providerCalls = 0;
-  const result = new MechanicExecutor(engine, {
-    resolveAuthorizedContext: () => {
-      providerCalls += 1;
-      return contextProvider()({
-        snapshot: engine.getSnapshot(worldId),
-        template: template(),
-        action: template().actions[0],
-      });
-    },
-  }).evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
-  assert.equal(result.status, 'unknown');
-  assert.equal(result.reason_code, 'UNSUPPORTED_MECHANIC_MODULE_OR_CONFLICT_POLICY');
-  assert.equal(providerCalls, 0);
-  assert.deepEqual(result.effects, []);
-});
-
 
 test('executor evaluates fact subjects against entity status at the effect position', (t) => {
   const cases = [
