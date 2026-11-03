@@ -859,7 +859,7 @@ export class SQLiteMemoryProvider {
    */
   withAuthorizedReadLease(scope, candidates, callback) {
     if (!isPlainDataRecord(scope) || !Array.isArray(candidates)
-      || typeof callback !== 'function' || callback.constructor?.name === 'AsyncFunction') {
+      || typeof callback !== 'function' || Object.getPrototypeOf(callback) === Object.getPrototypeOf(async function () {})) {
       throw new TypeError('Invalid Provider authorized-read lease input');
     }
     scope = { world_id: scope.world_id, subject_id: scope.subject_id, purpose: scope.purpose };
