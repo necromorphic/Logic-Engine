@@ -183,3 +183,17 @@ test('receiver repeats evidence revalidation and rejects a revoked generation', 
   assert.equal(result.status, 'non_ready');
   assert.equal(result.reason, 'context_evidence_changed');
 });
+
+test('receiver rejects a context when its first scope resolution has a different snapshot', async () => {
+  const { builder } = setup();
+  const built = await builder.build(request);
+  const changed = { ...scope, snapshot: { world_revision: 4, commit_sequence: 20 } };
+  const receiver = createNpcGenerationContextReceiver({
+    resolveScope: async () => changed,
+    revalidateEvidence: async () => true,
+    revalidateScope: async () => scope,
+  });
+  const result = await receiver.receive(built.context, request);
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'context_scope_changed');
+});

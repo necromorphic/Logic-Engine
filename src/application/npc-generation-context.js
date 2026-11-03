@@ -294,6 +294,7 @@ export function createNpcGenerationContextReceiver({ resolveScope, revalidateEvi
       || scope.conversation_id !== issued.conversation_id || scope.adapter_id !== issued.adapter_id
       || current.world_id !== issued.world_id || current.actor_id !== issued.actor_id
       || current.conversation_id !== issued.conversation_id || current.adapter_id !== issued.adapter_id
+      || !sameSnapshot(scope.snapshot, issued.snapshot)
       || !sameSnapshot(current.snapshot, issued.snapshot)) return nonReady('context_scope_changed');
     return Object.freeze({ status: 'accepted', context, reason: null });
   }
