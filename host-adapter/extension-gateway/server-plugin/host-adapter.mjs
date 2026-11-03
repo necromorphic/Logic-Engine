@@ -155,6 +155,9 @@ export function createSillyTavernHostAdapter({
     dispatchMiddleware,
     dispatch,
     async prepareGenerationContext(request, hostRoute) {
+      if (!['chat-completions', 'text-completions', 'kobold', 'novelai-text', 'horde-text'].includes(hostRoute)) {
+        return Object.freeze({ status: 'NON_READY', code: 'HOST_GENERATION_ROUTE_UNREGISTERED' });
+      }
       const generationBody = hostRoute === 'horde-text'
         ? request?.body?.params
         : request?.body;
