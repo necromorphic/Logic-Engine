@@ -25,6 +25,7 @@ const absoluteTestDirectories = {
   chats: resolve('/tmp/st-root/chats'),
   groups: resolve('/tmp/st-root/groups'),
   groupChats: resolve('/tmp/st-root/groupChats'),
+  extensions: resolve('/tmp/st-root/extensions'),
 };
 
 test('relative ST account directories are resolved against the server working directory', () => {
@@ -33,12 +34,14 @@ test('relative ST account directories are resolved against the server working di
     chats: './data/default-user/chats',
     groups: './data/default-user/groups',
     groupChats: './data/default-user/group chats',
+    extensions: './data/default-user/extensions',
   });
   assert.deepEqual(resolved, {
     root: resolve('./data/default-user'),
     chats: resolve('./data/default-user/chats'),
     groups: resolve('./data/default-user/groups'),
     groupChats: resolve('./data/default-user/group chats'),
+    extensions: resolve('./data/default-user/extensions'),
   });
   assert.equal(Object.isFrozen(resolved), true);
 });
