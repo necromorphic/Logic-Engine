@@ -255,7 +255,7 @@ diff --git a/public/script.js b/public/script.js
  export async function clearChat({ clearData = false } = {}) {
      cancelDebouncedChatSave();
      cancelDebouncedMetadataSave();
-@@ -1604 +1830,15 @@
+@@ -1604 +1830,18 @@
 -    if (clearData) chat.length = 0;
 +    if (clearData) {
 +        const lifecycleBridge = await getLogicEngineLifecycleBridge();
@@ -275,7 +275,7 @@ diff --git a/public/script.js b/public/script.js
 +        }
 +    }
 +
-@@ -1605,8 +1846,14 @@
+@@ -1605,8 +1848,14 @@
  }
  
  export async function deleteLastMessage() {
