@@ -577,6 +577,44 @@ export class MemoryNpcConsumer {
       return nonReady(reason);
     }
 
+    // Provider retrieval is awaited and may race with revocation of either
+    // Core-owned binding. Re-resolve the exact Host conversation and Actor
+    // before interpreting or disclosing any retrieved candidate. In
+    // particular, do not rely on AuthorizedReadService to discover an Actor
+    // revocation later: that would collapse an identity change into a generic
+    // source-read failure and allow unnecessary work on stale scope.
+    try {
+      const currentConversation = this.hostConversationWorldBindingService.resolve({
+        adapterId, conversationId,
+      });
+      if (!object(currentConversation) || currentConversation.world_id !== worldId) {
+        return nonReady('query_access_unconfirmed');
+      }
+    } catch {
+      return nonReady('query_access_unconfirmed');
+    }
+    try {
+      const currentActorBinding = this.actorBindingService.resolveForAdapter(worldId, adapterId);
+      if (!object(currentActorBinding) || currentActorBinding.world_id !== worldId
+        || currentActorBinding.adapter_id !== adapterId
+        || currentActorBinding.actor?.entity_id !== actorEntityId) {
+        return nonReady('actor_binding_unavailable');
+      }
+      const currentExactActor = this.actorBindingService.resolve(worldId, adapterId, actorEntityId);
+      if (!object(currentExactActor) || currentExactActor.world_id !== worldId
+        || currentExactActor.adapter_id !== adapterId
+        || currentExactActor.actor?.entity_id !== actorEntityId) {
+        return nonReady('actor_binding_unavailable');
+      }
+    } catch {
+      return nonReady('actor_binding_unavailable');
+    }
+    if (!isAuthenticatedHostSessionContext(hostSessionContext, conversationId)
+      || hostSessionContext.world_id !== worldId
+      || hostSessionContext.actor_id !== actorEntityId) {
+      return nonReady('query_access_unconfirmed');
+    }
+
     if (!object(memoryResult)) {
       return nonReady('memory_result_incomplete_or_scope_mismatch');
     }
