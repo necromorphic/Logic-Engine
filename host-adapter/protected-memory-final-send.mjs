@@ -201,7 +201,7 @@ function assertProtectedContext(context) {
     || typeof context.purpose !== 'string' || !context.purpose
     || typeof context.conversationId !== 'string' || !context.conversationId
     || typeof context.adapterId !== 'string' || !context.adapterId
-    || !context.npcContextHandoff || typeof context.npcContextHandoff !== 'object'
+    || !context.npcContextHandoff || typeof context.npcContextHandoff !== 'object' || Array.isArray(context.npcContextHandoff)
     || !context.generationRequest || typeof context.generationRequest !== 'object'
     || Array.isArray(context.generationRequest)
     || Object.keys(context.generationRequest).length !== 3
