@@ -307,7 +307,8 @@ test('Host Adapter requires Core root proof before context resolution and binds 
   assert.equal(productionPassedGate, false);
   assert.equal(productionGateResponse.statusCode, 503);
   assert.equal(productionGateResponse.payload.code, 'HOST_INVENTORY_NOT_AUTHORITATIVE');
-  assert.ok(productionCoreCalls.some(path => path.startsWith('/v1/host-root-inventory/')));
+  assert.equal(productionCoreCalls.some(path => path.startsWith('/v1/host-root-inventory/')), false,
+    'an unverified installed source manifest must fail before any Core inventory attestation request');
   assert.equal(productionCoreCalls.includes('/v1/host-context/resolve'), false);
 
   const sessionResponse = responseRecorder();
