@@ -36,7 +36,7 @@ function setup(t, options = {}) {
     rmSync(directory, { recursive: true, force: true });
   });
   return {
-    path, scope, record,
+    path, coordinatorPath: providerOptions.coordinatorPath, scope, record,
     get db() {
       // Separate test-only connection for observation and fault injection.
       // Production callers receive no handle to either Provider-owned DB.
@@ -101,6 +101,47 @@ test('final authorized-read lease serializes query and record grants with a sync
       authorization_generation: newCandidate.authorization_generation,
     }], () => 'must not disclose'),
     /MEMORY_QUERY_DENIED/,
+  );
+});
+
+test('final Provider read lease excludes authorization mutation from a second Provider connection', async (t) => {
+  const first = setup(t);
+  const second = setup(t, { coordinatorPath: first.coordinatorPath });
+  first.provider.grantQuery(first.scope, true);
+  first.provider.grantRecord(first.scope, first.record.record_ref, first.record.record_version, true);
+  first.provider.putRecord(first.record);
+  await first.provider.rebuildIndex(first.scope.world_id);
+  assert.equal((await first.provider.reconcile(first.scope.world_id)).status, 'current');
+
+  second.provider.grantQuery(first.scope, true);
+  second.provider.grantRecord(first.scope, first.record.record_ref, first.record.record_version, true);
+  const result = await first.provider.retrieveCandidates(first.scope);
+  const candidate = result.candidates[0];
+  const leaseCandidate = {
+    record_ref: candidate.record.ref,
+    record_version: candidate.record.version,
+    authorization_generation: candidate.authorization_generation,
+  };
+
+  let mutationError;
+  const disclosed = first.provider.withAuthorizedReadLease(first.scope, [leaseCandidate], () => {
+    try {
+      // This is a distinct Provider instance and SQLite connection. Its
+      // authorization mutation must contend on the shared Coordinator file.
+      second.provider.revokeRecord(first.scope, candidate.record.ref, candidate.record.version);
+    } catch (error) {
+      mutationError = error;
+    }
+    return 'final-envelope';
+  });
+
+  assert.equal(disclosed, 'final-envelope');
+  assert.match(String(mutationError?.message), /SQLITE_BUSY|database is locked/i);
+  // Once the disclosure lease ends, the other connection can commit the revoke.
+  second.provider.revokeRecord(first.scope, candidate.record.ref, candidate.record.version);
+  assert.throws(
+    () => first.provider.withAuthorizedReadLease(first.scope, [leaseCandidate], () => 'must not disclose'),
+    /MEMORY_RECORD_ACCESS_REVOKED/,
   );
 });
 
