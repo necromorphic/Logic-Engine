@@ -1535,7 +1535,8 @@ export class SQLiteMemoryProvider {
       JSON.stringify([candidate.source_kind, candidate.source_entity_id, candidate.source_version]),
       { source_kind: candidate.source_kind, entity_id: candidate.source_entity_id, source_version: candidate.source_version },
     ])).values()].sort((a, b) =>
-      JSON.stringify(a).localeCompare(JSON.stringify(b)));
+      JSON.stringify([a.source_kind, a.entity_id, a.source_version])
+        .localeCompare(JSON.stringify([b.source_kind, b.entity_id, b.source_version])));
     return Object.freeze({
       world_id: worldId,
       actor_id: actorId,
