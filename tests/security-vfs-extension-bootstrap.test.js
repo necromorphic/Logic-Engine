@@ -256,7 +256,7 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
     first.exec("INSERT INTO probe VALUES('ok');");
     assert.equal(first.prepare('SELECT value FROM probe').get().value, 'ok');
     const opened = first.prepare('SELECT logic_engine_vfs_probe_open_count() AS count').get().count;
-    assert.equal(opened, 2 + manifestEnrollmentOpenCountDelta, 'the worker and Core file-backed DatabaseSync connections must pass through the registered VFS xOpen; include the Windows manifest-finalization probe open when present');
+    assert.ok(opened >= 2 + manifestEnrollmentOpenCountDelta, 'the worker and Core file-backed DatabaseSync connections must pass through the registered VFS xOpen; SQLite may also open WAL/SHM or journal files');
     assert.equal(
       first.prepare('SELECT logic_engine_vfs_probe_hook_protection() AS protected').get().protected,
       1,
