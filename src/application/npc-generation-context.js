@@ -8,6 +8,8 @@ const object = value => value !== null && typeof value === 'object' && !Array.is
 const validId = value => typeof value === 'string' && value.length > 0
   && value.length <= ID_MAX && value === value.trim()
   && ![...value].some(character => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127);
+const validSourceVersion = value => typeof value === 'string'
+  && /^core-entity-v1:[1-9][0-9]*$/.test(value);
 const validCursor = value => Number.isSafeInteger(value) && value >= 0;
 const validSnapshot = value => object(value)
   && validCursor(value.world_revision) && validCursor(value.commit_sequence);
@@ -165,7 +167,7 @@ function validateLaneB(envelope, scope) {
         || !plainDataRecord(admitted, ['record_ref', 'record_version'], ['record_ref', 'record_version', 'epistemic_kind', 'evidence_assessment'])
         || !validId(candidate.record_ref) || !validId(candidate.record_version)
         || !Number.isSafeInteger(candidate.authorization_generation) || candidate.authorization_generation < 1
-        || !validId(candidate.source_entity_id) || !validId(candidate.source_version)
+        || !validId(candidate.source_entity_id) || !validSourceVersion(candidate.source_version)
         || !validId(candidate.epistemic_kind)
         || !['unassessed', 'supported', 'disputed', 'insufficient'].includes(candidate.evidence_assessment)
         || admitted.record_ref !== candidate.record_ref || admitted.record_version !== candidate.record_version) return false;
