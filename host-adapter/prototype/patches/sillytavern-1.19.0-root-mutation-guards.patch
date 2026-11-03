@@ -106,9 +106,6 @@ diff --git a/src/endpoints/secrets.js b/src/endpoints/secrets.js
 @@ -624 +626 @@
 -router.post('/rename', (request, response) => {
 +router.post('/rename', hostUnsupportedMutationGuard, (request, response) => {
-@@ -642 +644 @@
--router.post('/settings', async (_request, response) => {
-+router.post('/settings', hostUnsupportedMutationGuard, async (_request, response) => {
 diff --git a/src/endpoints/sprites.js b/src/endpoints/sprites.js
 --- a/src/endpoints/sprites.js
 +++ b/src/endpoints/sprites.js
