@@ -442,7 +442,7 @@ export class MemoryDispatchGateway {
   async dispatchProtectedRequest({ requestId, route, senderRoute, model, stream, body, worldId, actorId, purpose, sources, candidates, hostContext, transport, forwardResponse, hostTransformsStream = false, signal }) {
     if (!validText(requestId, 200) || !SUPPORTED_PROTECTED_MEMORY_ROUTES.includes(route)
       || !PROTECTED_MEMORY_SENDER_ROUTES.includes(senderRoute)
-      || typeof model !== 'string' || !/^[A-Za-z0-9._-]{1,128}$/.test(model)
+      || typeof model !== 'string' || model.length > 128 || !/^[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+){0,3}$/.test(model)
       || typeof stream !== 'boolean'
       || typeof body !== 'string' || body.length === 0 || body.length > 4_000_000
       || !validText(worldId, 200) || !validText(actorId, 200) || !validText(purpose, 200)
