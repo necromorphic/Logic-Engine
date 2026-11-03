@@ -24,7 +24,7 @@ The local patch wraps these five native ST generation handlers:
 
 | Native route | Gateway sender identities |
 |---|---|
-| `POST /api/backends/chat-completions/generate` | 26 provider-source identities: Claude, Google AI Studio, Vertex AI, AI21, Mistral, Cohere, CometAPI, DeepSeek, xAI, AIMLAPI, ElectronHub, Chutes, MiniMax, Azure OpenAI, OpenAI, OpenRouter, Custom, Perplexity, Groq, Fireworks, NanoGPT, Pollinations, Moonshot, Z.AI, SiliconFlow, Cloudflare Workers AI |
+| `POST /api/backends/chat-completions/generate` | 26 exact sender IDs: `claude`, `google-ai-studio`, `vertex-ai`, `ai21`, `mistral`, `cohere`, `cometapi`, `deepseek`, `aimlapi`, `xai`, `chutes`, `minimax`, `electronhub`, `azure-openai`, `openai`, `openrouter`, `custom`, `perplexity`, `groq`, `fireworks`, `nanogpt`, `pollinations`, `moonshot`, `zai`, `siliconflow`, `workers-ai` |
 | `POST /api/backends/text-completions/generate` | `text-completions` |
 | `POST /api/backends/kobold/generate` | `kobold` |
 | `POST /api/novelai/generate` | `novelai-text` |
@@ -50,7 +50,7 @@ The Hook patch is scoped to the five text-generation handler entrypoints listed 
 
 1. `src/application/npc-generation-context.js::validateLaneB` currently admits candidate records without `source_version`. Gateway's synchronous Provider evidence reader binds each candidate to the current source version, so the issued NPC context cannot prove that the prompt projection and Provider candidate refer to the same source revision. The NPC/Core block must add and validate `source_version` in the Lane B candidate contract, and the Provider reader must compare it.
 2. The opaque handoff intentionally does not expose the context to Host, but the Host prompt adapter needs a safe prompt projection. No `projectDispatchHandoff`/equivalent method currently exposes the Lane A facts plus Lane B candidates as `contentBlocks`. The NPC/Core block must provide a non-capability projection from the same issued context; Gateway must compare that projection with the context recovered by consuming the handoff.
-3. `MemoryDispatchGateway` now consumes `npcContextHandoff` under the shared Coordinator lease, validates request/scope/Lane B candidate lineage and prompt projection, and calls `revalidateLaneAForDispatch` both before `DISPATCH_STARTED` and immediately before final response release. It currently rejects non-empty Lane A `items` because no approved Lane A prompt projection exists yet. Production remains fail-closed until Core/NPC fixes the admitted-shape mismatch and exposes the safe combined projection.
+3. `MemoryDispatchGateway` now consumes `npcContextHandoff` under the shared Coordinator lease, validates request/scope/Lane B candidate lineage and prompt projection, and calls `revalidateLaneAForDispatch` both before `DISPATCH_STARTED` and immediately before final response release. It currently rejects non-empty Lane A `items` because no approved Lane A prompt projection exists yet. Production remains fail-closed until Core/NPC adds source-version lineage to Lane B candidates and exposes the safe combined projection.
 
 The resolver contract is explicit: `{ status: 'unprotected' }` is the only state allowed to use native transport; `{ status: 'ready', context }` must pass Gateway; `non_ready`, `null`, `undefined`, malformed envelopes, and unknown states all stop before native transport. This closes the ambiguous-null fallback that could otherwise turn a failed protected-context lookup into an ordinary request.
 
