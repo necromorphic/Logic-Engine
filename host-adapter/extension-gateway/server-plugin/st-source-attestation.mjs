@@ -119,6 +119,19 @@ async function exactDirectoryChildren(root, relativeDirectory, expectedNames) {
   }
 }
 
+async function isEmptySafeDirectory(directoryPath) {
+  try {
+    if (typeof directoryPath !== 'string' || !path.isAbsolute(directoryPath)) return false;
+    const stat = await lstat(directoryPath);
+    if (!stat.isDirectory() || stat.isSymbolicLink()) return false;
+    const actualPath = await realpath(directoryPath);
+    if (!path.isAbsolute(actualPath)) return false;
+    return (await readdir(actualPath)).length === 0;
+  } catch {
+    return false;
+  }
+}
+
 function validManifestShape(manifest) {
   return manifest && typeof manifest === 'object' && !Array.isArray(manifest)
     && Object.keys(manifest).sort().join(',') === [
@@ -146,12 +159,16 @@ function validManifestShape(manifest) {
 export async function verifyPinnedSourceIdentity({
   installRoot,
   manifestPath,
+  userExtensionsPath,
 } = {}) {
   try {
     if (typeof installRoot !== 'string' || !path.isAbsolute(installRoot)) {
       return { status: 'NON_READY', code: 'HOST_SOURCE_ROOT_INVALID' };
     }
     const root = await realpath(installRoot);
+    if (userExtensionsPath !== undefined && !await isEmptySafeDirectory(userExtensionsPath)) {
+      return { status: 'NON_READY', code: 'HOST_UNREVIEWED_USER_EXTENSION_PRESENT' };
+    }
     const manifestFile = path.join(root, 'plugins', 'logic-engine-extension-gateway', 'pinned-source-manifest.json');
     if (manifestPath !== undefined
       && (typeof manifestPath !== 'string' || !path.isAbsolute(manifestPath)
