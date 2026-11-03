@@ -182,6 +182,7 @@ export function createSignedRootInventoryAttestation({
     || snapshotAlignment !== 'SHARED_VSS_SNAPSHOT'
     || !/^[a-f0-9]{64}$/.test(snapshotSha256 ?? '')
     || sourceIdentity?.status !== 'CURRENT_IDENTITIES_VERIFIED'
+    || !/^[a-f0-9]{64}$/.test(sourceIdentity.manifest_sha256 ?? '')
     || sourceIdentity.patch_blob_sha !== PINNED_PATCH_BUNDLE_SHA256
     || sourceIdentity.host_handler_blob_sha !== PINNED_HOST_HANDLER_GIT_BLOB_SHA) {
     throw new TypeError('HOST_ROOT_INVENTORY_ATTESTATION_INPUT_NON_READY');
