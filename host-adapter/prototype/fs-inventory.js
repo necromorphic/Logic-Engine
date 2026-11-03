@@ -17,6 +17,7 @@ const sameFileIdentity = (left, right) => left.ino === right.ino
 const MAX_TOTAL_BYTES = 2 * 1024 * 1024 * 1024;
 const MAX_TOTAL_ENTRIES = 100_000;
 const sha256 = (value) => createHash('sha256').update(value).digest('hex');
+const compareText = (left, right) => left < right ? -1 : left > right ? 1 : 0;
 
 // Reconciliation accepts only the exact immutable object produced by this
 // scanner instance. A caller-supplied digest or copied manifest is not proof
@@ -213,7 +214,7 @@ async function enumerateStableFileInventoryOnRoot(rootPath, options = {}) {
     }
 
     await walk(root);
-    entries.sort((a, b) => a.path.localeCompare(b.path));
+    entries.sort((a, b) => compareText(a.path, b.path));
     return entries;
   }
 
