@@ -124,6 +124,7 @@ export function createHostInventoryHandler({
         && rootInventory.status === 'AUTHORITATIVE_COMPLETE';
       const sourceSnapshotAttested = rootInventoryAuthoritative
         && sourceIdentity?.status === 'CURRENT_IDENTITIES_VERIFIED'
+        && rootInventory.source_manifest_sha256 === sourceIdentity.manifest_sha256
         && inventory.snapshot_alignment === 'SHARED_VSS_SNAPSHOT';
       const coveredSourceBlockers = new Set([
         'NO_PRE_ENROLLMENT_DELETED_HISTORY',
