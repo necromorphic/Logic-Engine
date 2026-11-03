@@ -204,6 +204,36 @@ test('cross-process Host assertion capability expires during an asynchronous Pro
     await Promise.resolve();
     nowMs+=31_000;
     assert.equal(getAuthenticatedHostSessionContext(),null);
-  }), /HOST_SESSION_REVOKED/);
+  }), /HOST_SESSION_ASSERTION_EXPIRED/);
+  assert.equal(getAuthenticatedHostSessionContext(),null);
+});
+
+
+test('cross-process Host capability fails closed with a distinct error when durable revocation status becomes unavailable mid-read', async () => {
+  const secret='adapter-secret-that-is-long-enough';
+  let revocationStoreAvailable=true;
+  const runner=createHostSessionAssertionRunner({
+    secret, adapterId:'test-adapter', now:()=>1_800_000_000_000,
+    isSessionRevoked:()=> {
+      if (!revocationStoreAvailable) throw new Error('simulated database failure');
+      return false;
+    },
+  });
+  const assertion={
+    protocol_version:1,host_installation_id:installation,authenticated_account_id:account,
+    host_session_id:session,conversation_id:conversationId,world_id:worldId,actor_id:actorId,
+    issued_at:1_800_000_000,nonce:'16161616-1616-4616-8616-161616161616',
+  };
+  const canonical=JSON.stringify([
+    assertion.protocol_version,assertion.host_installation_id,assertion.authenticated_account_id,
+    assertion.host_session_id,assertion.conversation_id,assertion.world_id,assertion.actor_id,
+    assertion.issued_at,assertion.nonce,
+  ]);
+  const signature=createHmac('sha256',secret).update(canonical,'utf8').digest('hex');
+  await assert.rejects(runner.run(assertion,signature,async()=>{
+    assert.ok(getAuthenticatedHostSessionContext());
+    await Promise.resolve();
+    revocationStoreAvailable=false;
+  }), /HOST_SESSION_REVOCATION_STATUS_UNAVAILABLE/);
   assert.equal(getAuthenticatedHostSessionContext(),null);
 });
