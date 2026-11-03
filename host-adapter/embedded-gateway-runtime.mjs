@@ -209,8 +209,8 @@ export function createEmbeddedGatewayRuntime({ hostAdapter, adapterId = process.
         return {
           ...hostEvidence,
           core_conversation_id: hostContext.core_conversation_id,
-          world_id: worldId,
-          actor_id: actorId,
+          world_id: hostContext.world_id,
+          actor_id: hostContext.actor_id,
         };
       },
     });
