@@ -33,12 +33,14 @@ The canonical registry currently contains 29 sender identities. Unknown sender i
 
 ## Integration contract between #870 and #844
 
-The #870 Host Adapter/Core integration already provides:
+The #870 Host Adapter/Core integration provides the underlying contracts:
 - authenticated Host session and persistent installation/account identity;
 - conversation-to-World and World-to-Actor binding in Core;
 - an authenticated Host assertion with durable nonce replay protection;
 - Core-owned NPC Memory retrieval through `MemoryNpcConsumer`;
 - a validated Result Envelope returned by `/v1/host/memory-npc/retrieve`.
+
+Important limitation: #870's current browser-side `interceptProtectedGeneration` prototype aborts the native generation and delegates to the Host `/dispatch` route; it does not hand the returned Result Envelope to the native sender or continue through Final-Send. That route is therefore not a completed NPC Context Receiver-to-model path and must not be treated as one.
 
 The #844 Gateway already provides:
 - file-backed durable dispatch ledger with `synchronous=FULL`;
@@ -53,10 +55,11 @@ These pieces are not yet composed into a production bootstrap. In particular, th
 
 The production bootstrap must supply, from trusted server configuration:
 1. the live pinned Host Adapter and its authenticated request-context resolver;
-2. the NPC Context Receiver call and strict Result Envelope validation;
-3. the real `MemoryDispatchGateway` instance with the configured Core/Provider read-only evidence readers and the exact shared Coordinator database;
-4. one stable request ID and one protected-dispatch decision per Host response;
-5. a fail-closed rule that `NON_READY`, missing identity, missing receiver, stale evidence, unknown sender or absent Gateway cannot downgrade to native fetch.
+2. a server-side, request-scoped NPC Context Receiver call to Core, with strict Result Envelope validation and no browser-owned Memory payload;
+3. a verified correlation from the actual native generation request to the authenticated Host conversation (the current native request does not yet have a demonstrated server-side conversation binding); a browser-supplied request ID may only select a server-stored, one-time receipt and cannot itself establish identity;
+4. the real `MemoryDispatchGateway` instance with configured Core/Provider read-only evidence readers and the exact shared Coordinator database;
+5. one stable request ID and one protected-dispatch decision per Host response;
+6. a fail-closed rule that `NON_READY`, missing identity, missing receiver, stale evidence, unknown sender or absent Gateway cannot downgrade to native fetch.
 
 No browser-to-Core call, second generation ingress, relay, extra API port or Base URL substitution is introduced.
 
@@ -81,7 +84,7 @@ No browser-to-Core call, second generation ingress, relay, extra API port or Bas
 | Revoke between chunks suppresses later stream writes | Gateway stream write tests | PASS at Gateway level |
 | Actual non-stream Express end is revalidated | Hook wraps Express `response.end`; Gateway `authorizeResponseWrite` is called from the wrapper; patched real-handler harness now simulates revoke immediately before `response.end` and expects client egress suppression | Implemented; exact-head CI pending; production Core/Provider wiring not proven |
 | Retry cannot send twice per Host response | New adapter WeakSet guard and regression test | Implemented; exact-head CI pending |
-| NPC Context Receiver is wired into native generation | #870 receiver exists; no trusted native request-to-conversation mapping or bootstrap composition yet | BLOCKED |
+| NPC Context Receiver is wired into native generation | #870 Core receiver exists, but its current browser dispatch prototype aborts native generation and discards the result; no server-side request-to-conversation correlation or Final-Send composition exists | BLOCKED |
 | Production Core/Provider evidence readers and shared Coordinator are supplied to the Gateway | Gateway constructor supports them; plugin bootstrap currently registers a fail-closed adapter instead | BLOCKED |
 | Live SillyTavern session/provider/revoke/cancellation acceptance | No live deployment evidence | BLOCKED |
 
