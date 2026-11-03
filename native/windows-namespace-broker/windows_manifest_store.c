@@ -193,7 +193,7 @@ int le_win_store_lock(LE_WIN_MANIFEST_STORE *store) {
   lock = logic_engine_win_open_relative(store->directory, LE_STORE_LOCK,
       GENERIC_READ | GENERIC_WRITE | FILE_READ_ATTRIBUTES,
       FILE_SHARE_READ | FILE_SHARE_WRITE, FILE_OPEN_IF,
-      FILE_NON_DIRECTORY_FILE, FILE_ATTRIBUTE_NORMAL, NULL, &identity);
+      FILE_NON_DIRECTORY_FILE, FILE_ATTRIBUTE_NORMAL, NULL, NULL);
   if (lock == INVALID_HANDLE_VALUE) return 0;
   ZeroMemory(&overlap, sizeof(overlap));
   if (!LockFileEx(lock, LOCKFILE_EXCLUSIVE_LOCK, 0, MAXDWORD, MAXDWORD, &overlap)) {
