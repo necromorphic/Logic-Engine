@@ -147,6 +147,49 @@ function rootInventoryDelta(beforeEntries, afterEntries) {
   return delta;
 }
 
+function validRootCompletenessProof(proof, identity, root) {
+  const keys = [
+    'protocol_version', 'adapter_id', 'host_installation_id', 'authenticated_account_id', 'root_id',
+    'event_id', 'root_inventory_sequence', 'manifest_sha256', 'source_commit',
+    'coverage_manifest_sha256', 'snapshot_id', 'snapshot_alignment', 'filesystem_scope',
+    'filesystem_status', 'scan_passes', 'reparse_points', 'file_count', 'total_bytes',
+    'source_status', 'logical_identity_status', 'legacy_group_metadata_count',
+    'route_coverage_status', 'route_count', 'source_files_sha256', 'occurred_at',
+  ];
+  if (!isPlainRecord(proof) || Object.keys(proof).length !== keys.length
+    || Object.keys(proof).some(key => !keys.includes(key))
+    || proof.protocol_version !== 1
+    || proof.adapter_id !== identity.adapter_id
+    || proof.host_installation_id !== identity.host_installation_id
+    || proof.authenticated_account_id !== identity.authenticated_account_id
+    || proof.root_id !== identity.root_id
+    || !UUID.test(proof.event_id ?? '')
+    || proof.root_inventory_sequence !== root.sequence
+    || proof.manifest_sha256 !== root.latest_manifest_sha256
+    || proof.source_commit !== PINNED_ST_COMMIT
+    || proof.coverage_manifest_sha256 !== PINNED_ST_MUTATION_COVERAGE_SHA256
+    || !UUID.test(proof.snapshot_id ?? '')
+    || proof.snapshot_alignment !== 'SHARED_VSS_SNAPSHOT'
+    || proof.filesystem_scope !== 'single-root-regular-files-only'
+    || proof.filesystem_status !== 'complete'
+    || proof.scan_passes !== 2
+    || proof.reparse_points !== 'ALL_FILE_ATTRIBUTE_REPARSE_POINT_ENTRIES_REJECTED'
+    || !Number.isSafeInteger(proof.file_count) || proof.file_count < 0
+    || proof.file_count > MAX_ROOT_INVENTORY_ENTRIES
+    || !Number.isSafeInteger(proof.total_bytes) || proof.total_bytes < 0
+    || proof.total_bytes > 2 * 1024 * 1024 * 1024
+    || proof.source_status !== 'DOUBLE_SCAN_CANDIDATE'
+    || proof.logical_identity_status !== 'CURRENT_FILE_IDENTITIES_VERIFIED'
+    || proof.legacy_group_metadata_count !== 0
+    || proof.route_coverage_status !== 'VERIFIED'
+    || proof.route_count !== PINNED_ST_MUTATION_ROUTE_COUNT
+    || !validDigest(proof.source_files_sha256)
+    || typeof proof.occurred_at !== 'string'
+    || !/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$/.test(proof.occurred_at)
+    || !Number.isFinite(Date.parse(proof.occurred_at))) return false;
+  return true;
+}
+
 function canonicalFilePath(path) {
   let candidate = resolve(path);
   const suffix = [];
@@ -764,9 +807,10 @@ export class HostLifecycleJournal {
     if (!isPlainRecord(identity) || identity.authorized !== true
       || identity.host_installation_id !== host_installation_id
       || identity.authenticated_account_id !== authenticated_account_id
-      || identity.root_id !== root_id) {
+      || identity.root_id !== root_id || !validText(identity.adapter_id)) {
       throw new Error('HOST_ROOT_INVENTORY_IDENTITY_NOT_AUTHORIZED');
     }
+    return identity;
   }
 
   #verifyRootInventoryRows(hostInstallationId, accountId, rootId, rows) {
@@ -846,6 +890,148 @@ export class HostLifecycleJournal {
     return { valid: true, sequence: rows.length, head_sha256: previous,
       baseline_manifest_sha256: baselineManifestSha256, latest_manifest_sha256: latestManifestSha256,
       status: head.status };
+  }
+
+  #verifyRootCompletenessRows(hostInstallationId, accountId, rootId, root, identity, rows) {
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return { valid: false, reason: 'HOST_ROOT_INVENTORY_COMPLETENESS_PROOF_MISSING' };
+    }
+    let previous = '0'.repeat(64);
+    let latest = null;
+    for (let index = 0; index < rows.length; index++) {
+      const row = rows[index];
+      if (row.sequence !== index + 1 || row.previous_sha256 !== previous) {
+        return { valid: false, reason: 'HOST_ROOT_INVENTORY_COMPLETENESS_SEQUENCE_MISMATCH' };
+      }
+      let proof;
+      try { proof = JSON.parse(row.canonical_proof_json); } catch {
+        return { valid: false, reason: 'HOST_ROOT_INVENTORY_COMPLETENESS_PROOF_JSON_INVALID' };
+      }
+      if (canonical(proof) !== row.canonical_proof_json
+        || proof.event_id !== row.event_id
+        || proof.root_inventory_sequence !== row.root_inventory_sequence
+        || proof.manifest_sha256 !== row.manifest_sha256
+        || !validRootCompletenessProof(proof, identity, root)
+        || this.verifyCompletenessProof({
+          proof,
+          proof_signature: row.proof_signature,
+          identity,
+        }) !== true) {
+        return { valid: false, reason: 'HOST_ROOT_INVENTORY_COMPLETENESS_PROOF_INVALID' };
+      }
+      const expected = sha256(canonical({
+        host_installation_id: hostInstallationId,
+        authenticated_account_id: accountId,
+        root_id: rootId,
+        sequence: row.sequence,
+        previous_sha256: previous,
+        proof,
+        proof_signature: row.proof_signature,
+      }));
+      if (expected !== row.proof_sha256) {
+        return { valid: false, reason: 'HOST_ROOT_INVENTORY_COMPLETENESS_HASH_MISMATCH' };
+      }
+      previous = expected;
+      latest = { sequence: row.sequence, proof_sha256: expected, proof };
+    }
+    return { valid: true, ...latest, head_sha256: previous };
+  }
+
+  completeRootInventory(input) {
+    if (!isPlainRecord(input)
+      || Object.keys(input).some(key => ![
+        'host_installation_id', 'authenticated_account_id', 'root_id',
+        'proof', 'proof_signature',
+      ].includes(key))
+      || !validText(input.host_installation_id)
+      || !validText(input.authenticated_account_id)
+      || !validDigest(input.root_id)
+      || !isPlainRecord(input.proof)
+      || !validDigest(input.proof_signature)) {
+      throw new TypeError('Invalid Host root inventory completeness envelope.');
+    }
+    return this.#withWrite(() => {
+      const identity = this.#assertRootIdentity(input);
+      const rows = this.db.prepare(`
+        SELECT event_id,event_type,manifest_sha256,delta_sha256,sequence,event_sha256,
+          previous_sha256,canonical_event_json
+        FROM host_root_inventory_events
+        WHERE host_installation_id=? AND authenticated_account_id=? AND root_id=?
+        ORDER BY sequence
+      `).all(input.host_installation_id, input.authenticated_account_id, input.root_id);
+      const root = this.#verifyRootInventoryRows(input.host_installation_id,
+        input.authenticated_account_id, input.root_id, rows);
+      if (!root.valid || root.status !== 'BASELINED_REVIEW_ONLY' || root.sequence !== 1) {
+        throw new Error('HOST_ROOT_INVENTORY_NOT_ELIGIBLE_FOR_COMPLETENESS');
+      }
+      const baseline = JSON.parse(rows[0].canonical_event_json);
+      const totalBytes = baseline.entries.reduce((sum, entry) => sum + entry.identity.size, 0);
+      const proof = input.proof;
+      if (!validRootCompletenessProof(proof, identity, root)
+        || proof.file_count !== baseline.entries.length
+        || proof.total_bytes !== totalBytes
+        || this.verifyCompletenessProof({
+          proof,
+          proof_signature: input.proof_signature,
+          identity,
+        }) !== true) {
+        throw new Error('HOST_ROOT_INVENTORY_COMPLETENESS_PROOF_INVALID');
+      }
+      const existing = this.db.prepare(`
+        SELECT event_id,proof_signature,canonical_proof_json,proof_sha256,sequence
+        FROM host_root_inventory_completeness_events
+        WHERE host_installation_id=? AND authenticated_account_id=? AND event_id=?
+      `).get(input.host_installation_id, input.authenticated_account_id, proof.event_id);
+      const canonicalProof = canonical(proof);
+      if (existing) {
+        if (existing.canonical_proof_json !== canonicalProof
+          || existing.proof_signature !== input.proof_signature) {
+          throw new Error('HOST_ROOT_INVENTORY_COMPLETENESS_EVENT_ID_CONFLICT');
+        }
+        return {
+          status: 'AUTHORITATIVE_COMPLETE',
+          integrity_status: 'INTEGRITY_OK',
+          sequence: root.sequence,
+          manifest_sha256: root.latest_manifest_sha256,
+          proof_sha256: existing.proof_sha256,
+          completeness_sequence: existing.sequence,
+          duplicate: true,
+        };
+      }
+      const previousRow = this.db.prepare(`
+        SELECT sequence,proof_sha256 FROM host_root_inventory_completeness_events
+        WHERE host_installation_id=? AND authenticated_account_id=? AND root_id=?
+        ORDER BY sequence DESC LIMIT 1
+      `).get(input.host_installation_id, input.authenticated_account_id, input.root_id);
+      const sequence = (previousRow?.sequence ?? 0) + 1;
+      const previous_sha256 = previousRow?.proof_sha256 ?? '0'.repeat(64);
+      const proofSha256 = sha256(canonical({
+        host_installation_id: input.host_installation_id,
+        authenticated_account_id: input.authenticated_account_id,
+        root_id: input.root_id,
+        sequence,
+        previous_sha256,
+        proof,
+        proof_signature: input.proof_signature,
+      }));
+      this.db.prepare(`
+        INSERT INTO host_root_inventory_completeness_events (
+          host_installation_id,authenticated_account_id,root_id,sequence,event_id,
+          root_inventory_sequence,manifest_sha256,previous_sha256,proof_sha256,
+          proof_signature,canonical_proof_json
+        ) VALUES(?,?,?,?,?,?,?,?,?,?,?)
+      `).run(input.host_installation_id, input.authenticated_account_id, input.root_id,
+        sequence, proof.event_id, proof.root_inventory_sequence, proof.manifest_sha256,
+        previous_sha256, proofSha256, input.proof_signature, canonicalProof);
+      return {
+        status: 'AUTHORITATIVE_COMPLETE',
+        integrity_status: 'INTEGRITY_OK',
+        sequence: root.sequence,
+        manifest_sha256: root.latest_manifest_sha256,
+        proof_sha256: proofSha256,
+        completeness_sequence: sequence,
+      };
+    });
   }
 
   #authoritySnapshotFingerprint(identity) {
