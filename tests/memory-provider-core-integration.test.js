@@ -427,15 +427,11 @@ test('Core Actor binding revocation during candidate validation blocks disclosur
   assert.equal((await s.prepare()).status, 'current');
   s.triggerCoreActorRevocation();
 
-  const result = await s.consumer.retrieveForNpc({
+  await assert.rejects(() => s.consumer.retrieveForNpc({
     worldId: s.scope.world_id,
     actorEntityId: s.scope.subject_id,
     conversationId: HOST_CONVERSATION_ID,
-  });
-  assert.equal(result.status, 'non_ready');
-  assert.equal(result.reason, 'query_access_unconfirmed');
-  assert.deepEqual(result.admitted, []);
-  assert.deepEqual(result.candidates, []);
+  }), /HOST_SESSION_REVOKED/);
 });
 
 test('query access revoked during candidate source validation never becomes ready-empty', async (t) => {
