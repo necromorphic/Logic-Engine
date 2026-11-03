@@ -6,28 +6,55 @@ import { dirname, isAbsolute, resolve } from 'node:path';
 import { beginCoordinatorLock, openCoordinatorDatabase } from '../storage/coordinator-lock.js';
 import { getAcceptedHeadStatusSync } from './accepted-head-client-sync.js';
 
-export function createDispatchRequestSignature(secret, request) {
-  if (typeof secret !== 'string' || secret.length < 32
-    || !request || typeof request !== 'object'
-    || !PROTECTED_MEMORY_SENDER_ROUTES.includes(request.senderRoute)
-    || typeof request.body !== 'string' || typeof request.stream !== 'boolean') {
+function snapshotSignatureInput(request) {
+  const keys = [
+    'requestId', 'route', 'senderRoute', 'model', 'stream', 'body',
+    'worldId', 'actorId', 'purpose', 'sources', 'candidates', 'hostContext',
+  ];
+  if (!request || typeof request !== 'object' || Array.isArray(request) || utilTypes.isProxy(request)) {
     throw new TypeError('Invalid signed dispatch request.');
   }
-  const sources = normalizeSources(request.sources);
-  const candidates = normalizeCandidates(request.candidates);
-  const hostContext = normalizeHostContext(request.hostContext);
+  try {
+    const prototype = Object.getPrototypeOf(request);
+    if (prototype !== Object.prototype && prototype !== null) throw new TypeError('Invalid signed dispatch request.');
+    const snapshot = Object.create(null);
+    for (const key of keys) {
+      const descriptor = Object.getOwnPropertyDescriptor(request, key);
+      if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) {
+        throw new TypeError('Invalid signed dispatch request.');
+      }
+      snapshot[key] = descriptor.value;
+    }
+    return snapshot;
+  } catch {
+    throw new TypeError('Invalid signed dispatch request.');
+  }
+}
+
+export function createDispatchRequestSignature(secret, request) {
+  if (typeof secret !== 'string' || secret.length < 32) {
+    throw new TypeError('Invalid signed dispatch request.');
+  }
+  const input = snapshotSignatureInput(request);
+  if (!PROTECTED_MEMORY_SENDER_ROUTES.includes(input.senderRoute)
+    || typeof input.body !== 'string' || typeof input.stream !== 'boolean') {
+    throw new TypeError('Invalid signed dispatch request.');
+  }
+  const sources = normalizeSources(input.sources);
+  const candidates = normalizeCandidates(input.candidates);
+  const hostContext = normalizeHostContext(input.hostContext);
   assertSourcesMatchCandidates(sources, candidates);
-  const bodyDigest = createHash('sha256').update(request.body, 'utf8').digest('hex');
+  const bodyDigest = createHash('sha256').update(input.body, 'utf8').digest('hex');
   const canonical = JSON.stringify({
-    request_id: request.requestId,
-    route: request.route,
-    sender_route: request.senderRoute,
-    model: request.model,
-    stream: request.stream,
+    request_id: input.requestId,
+    route: input.route,
+    sender_route: input.senderRoute,
+    model: input.model,
+    stream: input.stream,
     body_digest: bodyDigest,
-    world_id: request.worldId,
-    actor_id: request.actorId,
-    purpose: request.purpose,
+    world_id: input.worldId,
+    actor_id: input.actorId,
+    purpose: input.purpose,
     sources,
     candidates,
     host_context: hostContext,
