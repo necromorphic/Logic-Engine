@@ -107,19 +107,33 @@ export function createSillyTavernHostAdapter({
           userHandle,
           rootPath: directories.root,
           entries: hostInventory.filesystem.entries,
+          filesystem: hostInventory.filesystem,
+          source: hostInventory.source,
+          mutationCoverage: hostInventory.mutation_coverage ?? null,
+          snapshotAlignment: hostInventory.snapshot_alignment ?? 'UNKNOWN',
+          hostCommit: PINNED_SILLYTAVERN_COMMIT,
         });
         if (rootProof?.status !== 'AUTHORITATIVE_COMPLETE'
           || rootProof.integrity_status !== 'INTEGRITY_OK'
-          || !Number.isSafeInteger(rootProof.sequence)
-          || !/^[a-f0-9]{64}$/.test(rootProof.manifest_sha256 ?? '')) {
+          || !Number.isSafeInteger(rootProof.sequence) || rootProof.sequence < 1
+          || !Number.isSafeInteger(rootProof.completeness_sequence) || rootProof.completeness_sequence < 1
+          || !/^[a-f0-9]{64}$/.test(rootProof.manifest_sha256 ?? '')
+          || !/^[a-f0-9]{64}$/.test(rootProof.proof_sha256 ?? '')) {
           return { status: 'NON_READY', code: 'HOST_INVENTORY_NOT_AUTHORITATIVE' };
         }
 
-        if (hostInventory?.source?.status !== 'AUTHORITATIVE_COMPLETE'
-          || hostInventory?.authority?.status !== 'AUTHORITATIVE_COMPLETE'
-          || !/^[a-f0-9]{64}$/.test(hostInventory?.authority?.manifest_sha256 ?? '')
-          || !Array.isArray(hostInventory?.source?.files)
-          || hostInventory.source.files.filter(file =>
+        const source = hostInventory?.source;
+        const coverage = hostInventory?.mutation_coverage;
+        if (source?.status !== 'DOUBLE_SCAN_CANDIDATE'
+          || source.host_commit !== PINNED_SILLYTAVERN_COMMIT
+          || source.logical_identity_status !== 'CURRENT_FILE_IDENTITIES_VERIFIED'
+          || source.legacy_group_metadata_count !== 0
+          || coverage?.status !== 'VERIFIED'
+          || coverage.source_commit !== PINNED_SILLYTAVERN_COMMIT
+          || hostInventory.snapshot_alignment !== 'SHARED_VSS_SNAPSHOT'
+          || hostInventory.filesystem?.snapshot_id !== source.snapshot_id
+          || !Array.isArray(source.files)
+          || source.files.filter(file =>
             file?.logical_identity?.conversation_uuid === conversationUuid).length !== 1) {
           return { status: 'NON_READY', code: 'HOST_INVENTORY_NOT_AUTHORITATIVE' };
         }
