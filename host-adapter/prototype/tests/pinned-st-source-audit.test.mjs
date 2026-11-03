@@ -109,6 +109,8 @@ test('pinned ST chat-history mutation routes are guarded or explicitly unsupport
         ['src/endpoints/characters.js', "router.post('/duplicate', hostBulkMutationGuard"],
         ['src/endpoints/backups.js', "router.post('/chat/delete', hostBulkMutationGuard"],
         ['src/endpoints/data-maid.js', "router.post('/delete', hostBulkMutationGuard"],
+        ['src/endpoints/settings.js', "router.post('/save', hostUnsupportedMutationGuard"],
+        ['src/endpoints/settings.js', "router.post('/make-snapshot', hostUnsupportedMutationGuard"],
         ['src/endpoints/settings.js', "router.post('/restore-snapshot', hostBulkMutationGuard"],
         ['src/endpoints/users-private.js', "router.post('/reset-settings', hostBulkMutationGuard"],
         ['src/endpoints/users-public.js', "router.post('/recover-step2', hostUnsupportedMutationGuard"],
