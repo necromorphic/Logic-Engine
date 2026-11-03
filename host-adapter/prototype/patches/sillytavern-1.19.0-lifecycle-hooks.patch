@@ -864,19 +864,28 @@ diff --git a/src/endpoints/settings.js b/src/endpoints/settings.js
 diff --git a/src/endpoints/users-private.js b/src/endpoints/users-private.js
 --- a/src/endpoints/users-private.js
 +++ b/src/endpoints/users-private.js
-@@ -12,2 +12,8 @@
+@@ -12,2 +12,9 @@
  import { color, Cache, getConfigValue } from '../util.js';
  import { getIpAddress, retryAfter } from '../express-common.js';
++import { revokeHostSessionBeforeLogout } from '../../plugins/logic-engine-extension-gateway/st-host-session-revocation.mjs';
 +const hostUserRootResetGuard = (request, response, next) => {
 +    if (process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR) {
 +        return response.status(503).json({ error: { code: 'HOST_USER_ROOT_RESET_UNSUPPORTED' } });
 +    }
 +    return next();
 +};
-@@ -184,1 +190,1 @@
++ 
+@@ -34,0 +41,6 @@
++        try {
++            await revokeHostSessionBeforeLogout(request);
++        } catch {
++            return response.status(503).json({ error: 'Host session revocation unavailable; session was not logged out.' });
++        }
++
+@@ -184,1 +197,1 @@
 -router.post('/reset-settings', async (request, response) => {
 +router.post('/reset-settings', hostUserRootResetGuard, async (request, response) => {
-@@ -261,1 +267,1 @@
+@@ -261,1 +274,1 @@
 -router.post('/reset-step2', async (request, response) => {
 +router.post('/reset-step2', hostUserRootResetGuard, async (request, response) => {
 
