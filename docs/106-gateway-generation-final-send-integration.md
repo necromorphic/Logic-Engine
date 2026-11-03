@@ -28,9 +28,9 @@ The local patch wraps these five native ST generation handlers:
 | `POST /api/backends/text-completions/generate` | `text-completions` |
 | `POST /api/backends/kobold/generate` | `kobold` |
 | `POST /api/novelai/generate` | `novelai-text` |
-| `POST /api/horde/generate-text` | `horde-text` |
+| `POST /api/horde/generate-text` | Hooked for fail-closed classification, but deliberately excluded from protected Memory. It creates an asynchronous task; the actual model output is returned later by `POST /api/horde/task-status`. |
 
-The canonical registry currently contains 30 sender identities: all 26 pinned `CHAT_COMPLETION_SOURCES` values plus the four separate text-generation handlers. CometAPI is an OpenAI-compatible sender branch inside the Chat Completions handler and is explicitly registered as `cometapi`. Unknown sender identities are not admitted for protected Memory. Image generation, TTS/audio, embeddings, translation, model-discovery requests and third-party extension routes are not part of this text-generation registry. Protected Memory must not be sent through them.
+The canonical registry currently contains 29 sender identities: all 26 pinned `CHAT_COMPLETION_SOURCES` values plus three synchronous text-generation handlers (`text-completions`, `kobold`, `novelai-text`). CometAPI is an OpenAI-compatible sender branch inside the Chat Completions handler and is explicitly registered as `cometapi`. Horde text is ordinary-only: `/api/horde/generate-text` returns a task ID and `/api/horde/task-status` later returns the model output without the originating request-scoped Final-Send context. `/api/horde/cancel-task` is cancellation control only. Until a durable server-owned task receipt binds the asynchronous task to the originating Gateway dispatch and final response revalidation, protected Memory is denied before Horde task creation. Unknown sender identities are not admitted for protected Memory. Image generation, TTS/audio, embeddings, translation, model-discovery requests and third-party extension routes are not part of this text-generation registry. Protected Memory must not be sent through them.
 
 ## Integration contract between #870 and #844
 
@@ -78,7 +78,7 @@ No browser-to-Core call, second generation ingress, relay, extra API port or Bas
 | Requirement | Evidence | State |
 |---|---|---|
 | Five pinned native generation handlers are wrapped | Exact-pinned-source audit and real-handler fake-provider harness | PASS for exercised source paths |
-| 30 sender identities are explicitly registered | Gateway registry and adapter mapping tests | PASS at registry level |
+| 29 sender identities are explicitly registered | Gateway registry and adapter mapping tests | PASS at registry level |
 | Durable dispatch-start / crash recovery | Gateway unit and child-process crash/restart tests | PASS at Gateway level |
 | Durable Patch Manager state/backup and interrupted restore recovery | Patch Manager stores state/backups in ST data; new tests cover Extension removal and restart during restore | Exact-head CI pending |
 | Revoke before dispatch-start | Real Provider revoke race tests | PASS at Gateway level |
