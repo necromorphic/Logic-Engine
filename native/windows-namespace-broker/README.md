@@ -26,7 +26,7 @@ exclusively writable by the broker identity.
 ## Durable metadata-store increment
 
 `windows_manifest_store.c` now supplies the first native storage primitives:
-- pins the configured metadata directory by handle and rejects a reparse-point final directory;
+- resolves the configured metadata directory through a handle-relative drive-root walk, rejecting reparse points in every traversed ancestor and the final directory;
 - requires the pinned directory to be on NTFS and have a protected DACL containing only the broker identity, SYSTEM and Administrators;
 - uses a fixed child-name allowlist for manifest, intent and lock files;
 - serializes writers with an exclusive byte-range lock;
