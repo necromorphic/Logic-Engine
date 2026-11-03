@@ -6,7 +6,7 @@ import { advanceAcceptedHeadSync, finalizeAcceptedHeadSync, getAcceptedHeadStatu
 import { hashRequest } from '../core/request-hash.js';
 import { existsSync, realpathSync, statSync } from 'node:fs';
 import { basename, dirname, isAbsolute, resolve } from 'node:path';
-import { beginCoordinatorLock, openCoordinatorDatabase } from '../storage/coordinator-lock.js';
+import { beginCoordinatorLock, isCoordinatorLease, openCoordinatorDatabase } from '../storage/coordinator-lock.js';
 
 const canonicalFilePath = (path) => {
   let candidate = resolve(path);
@@ -1429,6 +1429,124 @@ export class SQLiteMemoryProvider {
       throw error;
     }
     return lockedResult;
+  }
+
+  /**
+   * Synchronous read-only Provider proof for the Gateway. The caller must hold
+   * the shared Coordinator lease; this method never acquires a nested lease.
+   * The Provider cursor binds the complete indexed candidate projection at the
+   * time of NPC retrieval, so any subsequent Provider write fails closed.
+   */
+  readDispatchEvidenceSync({ worldId, actorId, purpose, sources, candidates, providerEvidenceCursor, coordinatorLease }) {
+    if (!isCoordinatorLease(coordinatorLease, this.#coordinatorDb)) {
+      throw new Error('PROVIDER_COORDINATOR_LEASE_REQUIRED');
+    }
+    if (!this.#observerOnly) throw new Error('PROVIDER_DISPATCH_READER_REQUIRES_OBSERVER_MODE');
+    if (!validId(worldId) || !validId(actorId) || !validPurpose(purpose)
+      || !Array.isArray(sources) || !Array.isArray(candidates)
+      || !providerEvidenceCursor || typeof providerEvidenceCursor !== 'object'
+      || !Number.isSafeInteger(providerEvidenceCursor.data_version)
+      || typeof providerEvidenceCursor.candidate_digest !== 'string'
+      || !/^[a-f0-9]{64}$/.test(providerEvidenceCursor.candidate_digest)) {
+      throw new Error('PROVIDER_DISPATCH_EVIDENCE_INVALID');
+    }
+
+    this.#assertAcceptedHeadCurrent();
+    const scope = this.#scope({ world_id: worldId, subject_id: actorId, purpose });
+    const dataVersionBefore = this.#dataVersion();
+    if (dataVersionBefore !== providerEvidenceCursor.data_version) {
+      throw new Error('PROVIDER_DISPATCH_EVIDENCE_CHANGED');
+    }
+    const indexState = this.#db.prepare(`
+      SELECT index_health,source_reconciliation,snapshot_revision,snapshot_sequence,failure_code
+      FROM memory_index_state WHERE world_id=?
+    `).get(worldId);
+    if (!indexState || indexState.index_health !== 'ready'
+      || indexState.source_reconciliation !== 'current'
+      || !Number.isSafeInteger(indexState.snapshot_revision)
+      || !Number.isSafeInteger(indexState.snapshot_sequence)
+      || indexState.failure_code !== null) {
+      throw new Error('PROVIDER_DISPATCH_INDEX_NOT_READY');
+    }
+    const queryGrant = this.#db.prepare(`
+      SELECT allowed FROM memory_query_grants
+      WHERE world_id=? AND subject_id=? AND purpose=?
+    `).get(worldId, actorId, purpose);
+    if (!queryGrant || queryGrant.allowed !== 1) throw new Error('PROVIDER_DISPATCH_QUERY_GRANT_DENIED');
+
+    const snapshot = Object.freeze({
+      world_revision: indexState.snapshot_revision,
+      commit_sequence: indexState.snapshot_sequence,
+    });
+    const rows = this.#db.prepare(`SELECT r.*,g.authorization_generation FROM memory_records r
+      JOIN memory_index_entries i USING(world_id,record_ref,record_version)
+      JOIN memory_record_grants g ON g.world_id=r.world_id AND g.record_ref=r.record_ref
+        AND g.record_version=r.record_version AND g.subject_id=? AND g.purpose=? AND g.allowed=1
+      WHERE r.world_id=? AND r.subject_id=? AND r.purpose=?
+      ORDER BY r.record_ref,r.record_version LIMIT 51`)
+      .all(actorId, purpose, worldId, actorId, purpose);
+    if (rows.length > 50) throw new Error('PROVIDER_DISPATCH_CANDIDATE_SET_PARTIAL');
+
+    const rawCandidates = rows.map(row => ({
+      record: { ref: row.record_ref, version: row.record_version },
+      authorization_generation: row.authorization_generation,
+      source: { kind: row.source_kind, entity_id: row.source_entity_id, source_version: row.source_version },
+      world_id: row.world_id, subject_id: row.subject_id, purpose: row.purpose,
+      content_kind: row.content_kind, epistemic_kind: row.epistemic_kind,
+      producer: { kind: row.producer_kind },
+      lifecycle: { content_disposition: row.content_disposition,
+        source_reconciliation: indexState.source_reconciliation,
+        evidence_assessment: row.evidence_assessment, index_health: indexState.index_health },
+      freshness: { status: 'current' },
+      snapshot,
+    }));
+    const currentCursor = {
+      data_version: this.#dataVersion(),
+      candidate_digest: hashRequest({ scope, snapshot, candidates: rawCandidates }),
+    };
+    if (currentCursor.data_version !== dataVersionBefore
+      || currentCursor.data_version !== providerEvidenceCursor.data_version
+      || currentCursor.candidate_digest !== providerEvidenceCursor.candidate_digest) {
+      throw new Error('PROVIDER_DISPATCH_EVIDENCE_CHANGED');
+    }
+
+    const rawByIdentity = new Map(rawCandidates.map(candidate => [
+      JSON.stringify([candidate.record.ref, candidate.record.version]), candidate,
+    ]));
+    for (const candidate of candidates) {
+      const raw = rawByIdentity.get(JSON.stringify([candidate.record_ref, candidate.record_version]));
+      if (!raw
+        || raw.authorization_generation !== candidate.authorization_generation
+        || raw.source.kind !== candidate.source_kind
+        || raw.source.entity_id !== candidate.source_entity_id
+        || raw.source.source_version !== candidate.source_version
+        || raw.epistemic_kind !== candidate.epistemic_kind
+        || raw.lifecycle.evidence_assessment !== candidate.evidence_assessment) {
+        throw new Error('PROVIDER_DISPATCH_CANDIDATE_NOT_CURRENT');
+      }
+    }
+    const localHead = this.#db.prepare(
+      'SELECT head FROM accepted_head_state WHERE domain=?',
+    ).get('provider');
+    if (!localHead || !Number.isSafeInteger(localHead.head)) {
+      throw new Error('PROVIDER_DISPATCH_ACCEPTED_HEAD_UNAVAILABLE');
+    }
+    const derivedSources = [...new Map(candidates.map(candidate => [
+      JSON.stringify([candidate.source_kind, candidate.source_entity_id, candidate.source_version]),
+      { source_kind: candidate.source_kind, entity_id: candidate.source_entity_id, source_version: candidate.source_version },
+    ])).values()].sort((a, b) =>
+      JSON.stringify(a).localeCompare(JSON.stringify(b)));
+    return Object.freeze({
+      world_id: worldId,
+      actor_id: actorId,
+      purpose,
+      granted: true,
+      readiness: 'READY',
+      head: localHead.head,
+      sources: Object.freeze(derivedSources.map(source => Object.freeze(source))),
+      candidates: Object.freeze(candidates),
+      provider_evidence_cursor: Object.freeze(currentCursor),
+    });
   }
 }
 
