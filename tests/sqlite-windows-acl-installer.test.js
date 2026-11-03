@@ -54,8 +54,11 @@ test('Windows service installer rejects reparse-point ancestors before creating 
   assert.match(installer, /Assert-NoReparsePointAncestors \$NodePath/);
   assert.match(installer, /if \(\$EnvironmentFile\) \{ Assert-NoReparsePointAncestors \$EnvironmentFile \}/);
   const preflight = installer.indexOf('Assert-NoReparsePointAncestors $InstallDirectory');
+  const shouldProcess = installer.indexOf('if ($PSCmdlet.ShouldProcess(');
   const stateCreate = installer.indexOf('New-Item -ItemType Directory -Path $StateDirectory');
   const serviceCreate = installer.indexOf('Invoke-Sc @("create", $ServiceName');
   assert.ok(preflight >= 0 && preflight < stateCreate, 'path-chain validation must precede state-directory creation');
   assert.ok(preflight < serviceCreate, 'path-chain validation must precede service creation');
+  assert.ok(shouldProcess >= 0 && shouldProcess < stateCreate, 'state-directory creation must be inside ShouldProcess so -WhatIf has no side effects');
+  assert.ok(stateCreate < serviceCreate, 'state directory must exist before the service is created');
 });
