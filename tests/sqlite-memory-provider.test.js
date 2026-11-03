@@ -80,7 +80,7 @@ test('final authorized-read lease serializes query and record grants with a sync
   );
   assert.throws(
     () => s.provider.withAuthorizedReadLease(s.scope, [leaseCandidate], async () => 'must not await'),
-    /must be synchronous/,
+    /Invalid Provider authorized-read lease input/,
   );
 
   s.provider.revokeRecord(s.scope, candidate.record.ref, candidate.record.version);
