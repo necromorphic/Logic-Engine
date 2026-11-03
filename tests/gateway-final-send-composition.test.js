@@ -47,3 +47,14 @@ test('unavailable Gateway remains terminal when Memory integration is disabled',
   assert.match(gateway, /dispatchProtectedRequest\(\)[\s\S]*throw new Error\('MEMORY_DISPATCH_NOT_READY'\)/);
   assert.match(gateway, /authorizeResponseWrite\(\)[\s\S]*throw new Error\('MEMORY_DISPATCH_NOT_READY'\)/);
 });
+
+test('Host session revocation is read by Gateway and serialized with the shared Coordinator', async () => {
+  const runtime = await readFile(new URL('../host-adapter/embedded-gateway-runtime.mjs', import.meta.url), 'utf8');
+  const store = await readFile(new URL('../src/application/host-assertion-nonce-store.js', import.meta.url), 'utf8');
+  const api = await readFile(new URL('../src/api/server.js', import.meta.url), 'utf8');
+  assert.match(runtime, /hostSessionRevocationReader\.isSessionRevoked/);
+  assert.match(runtime, /HOST_SESSION_REVOKED/);
+  assert.match(store, /async revokeSession\(/);
+  assert.match(store, /await acquireCoordinatorLeaseWithoutBlocking\(this\.\#coordinatorDb\)/);
+  assert.match(api, /await hostAssertionNonceStore\.revokeSession\(/);
+});
