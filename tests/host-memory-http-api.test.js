@@ -79,7 +79,7 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
     authority_status: 'AUTHORITATIVE_COMPLETE',
     generation: 1, snapshot_fingerprint: 'b'.repeat(64),
   };
-  const resolveHostLifecycleIdentity = input => hostIdentityAllowed
+  const resolveIdentity = (input, authorityStatus) => hostIdentityAllowed
     && input.adapterId === ADAPTER_ID
     && input.host_installation_id === INSTALLATION
     && input.authenticated_account_id === ACCOUNT
@@ -91,7 +91,10 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
     host_session_id: input.host_session_id,
     conversation_uuid: input.conversation_uuid,
     ...hostIdentitySnapshot,
+    authority_status: authorityStatus,
   }) : ({ authorized: false });
+  const resolveHostLifecycleIdentity = input => resolveIdentity(input, 'REVIEW_ONLY');
+  const resolveHostMemoryIdentity = input => resolveIdentity(input, hostIdentitySnapshot.authority_status);
   let calls = 0;
   let failConsumer = false;
   let consumerResultOverride = null;
@@ -124,15 +127,23 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
     memoryNpcConsumers: { [ADAPTER_ID]: consumer },
     hostAssertionNonceStore: { consume() { return true; } },
     resolveHostLifecycleIdentity,
-    resolveHostMemoryIdentity: resolveHostLifecycleIdentity,
+    resolveHostMemoryIdentity,
   }), /must expose atomic consume\(\), revokeSession\(\), and isSessionRevoked\(\)/);
   assert.throws(() => createApiServer({
     engine, token: API_TOKEN,
     adapterTokens: { [ADAPTER_ID]: ADAPTER_TOKEN },
     memoryNpcConsumers: { [ADAPTER_ID]: consumer },
     resolveHostLifecycleIdentity,
-    resolveHostMemoryIdentity: resolveHostLifecycleIdentity,
+    resolveHostMemoryIdentity,
   }), /requires a durable Host assertion nonce and revocation store/);
+
+  assert.throws(() => createApiServer({
+    engine, token: API_TOKEN,
+    adapterTokens: { [ADAPTER_ID]: ADAPTER_TOKEN },
+    memoryNpcConsumers: { [ADAPTER_ID]: consumer },
+    hostAssertionNonceStore: nonceStore,
+    resolveHostLifecycleIdentity,
+  }), /requires a separate Root Inventory completeness resolver/);
 
   let server = createApiServer({
     engine, token: API_TOKEN, adminToken: ADMIN_TOKEN,
@@ -140,7 +151,7 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
     memoryNpcConsumers: { [ADAPTER_ID]: consumer },
     hostAssertionNonceStore: nonceStore,
     resolveHostLifecycleIdentity,
-    resolveHostMemoryIdentity: resolveHostLifecycleIdentity,
+    resolveHostMemoryIdentity,
   });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
@@ -369,7 +380,7 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
     memoryNpcConsumers: { [ADAPTER_ID]: consumer },
     hostAssertionNonceStore: nonceStore,
     resolveHostLifecycleIdentity,
-    resolveHostMemoryIdentity: resolveHostLifecycleIdentity,
+    resolveHostMemoryIdentity,
   });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
@@ -538,7 +549,7 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
     memoryNpcConsumers: { [ADAPTER_ID]: consumer },
     hostAssertionNonceStore: nonceStore,
     resolveHostLifecycleIdentity,
-    resolveHostMemoryIdentity: resolveHostLifecycleIdentity,
+    resolveHostMemoryIdentity,
   });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
@@ -565,7 +576,7 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
     memoryNpcConsumers: { [ADAPTER_ID]: consumer },
     hostAssertionNonceStore: { consume() { throw new Error('simulated SQLite I/O failure'); }, revokeSession() { throw new Error('simulated SQLite I/O failure'); }, isSessionRevoked() { throw new Error('simulated SQLite I/O failure'); } },
     resolveHostLifecycleIdentity,
-    resolveHostMemoryIdentity: resolveHostLifecycleIdentity,
+    resolveHostMemoryIdentity,
   });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
