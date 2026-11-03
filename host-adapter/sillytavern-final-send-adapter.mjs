@@ -148,7 +148,7 @@ export function createSillyTavernFinalSendAdapter({
       catch { throw terminalError(new Error('MEMORY_DISPATCH_NOT_READY')); }
       if (prepareNpc) {
         if (!npcContextHostBridge) throw terminalError(new Error('MEMORY_DISPATCH_NOT_READY'));
-        const prepared = await npcContextHostBridge.prepare(request, response);
+        const prepared = await npcContextHostBridge.prepare(request, response, hostContext);
         if (prepared?.status !== 'ready') {
           throw terminalError(new Error('MEMORY_DISPATCH_NOT_READY'));
         }
