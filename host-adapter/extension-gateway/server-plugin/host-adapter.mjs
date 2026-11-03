@@ -104,12 +104,18 @@ export function createSillyTavernHostAdapter({
         if (typeof dataRoot !== 'string' || !path.isAbsolute(dataRoot)) {
           return { status: 'NON_READY', code: 'HOST_IDENTITY_DATA_ROOT_UNAVAILABLE' };
         }
-        await identityStore.assertOutsideRoot(dataRoot);
-        const identityRecord = await identityStore.resolveAuthenticatedAccount(userHandle);
-        const hostInventory = await enumerate({
-          directories,
-          hostCommit: PINNED_SILLYTAVERN_COMMIT,
-        });
+        let identityRecord;
+        let hostInventory;
+        try {
+          await identityStore.assertOutsideRoot(dataRoot);
+          identityRecord = await identityStore.resolveAuthenticatedAccount(userHandle);
+          hostInventory = await enumerate({
+            directories,
+            hostCommit: PINNED_SILLYTAVERN_COMMIT,
+          });
+        } catch {
+          return { status: 'NON_READY', code: 'HOST_INVENTORY_NOT_AUTHORITATIVE' };
+        }
         if (hostInventory?.filesystem?.status !== 'complete'
           || !Array.isArray(hostInventory?.filesystem?.entries)) {
           return { status: 'NON_READY', code: 'HOST_INVENTORY_NOT_AUTHORITATIVE' };
@@ -121,14 +127,22 @@ export function createSillyTavernHostAdapter({
         let sourceIdentity;
         try { sourceIdentity = await injectedVerifySourceIdentity({ userExtensionsPath: directories.extensions }); }
         catch { return { status: 'NON_READY', code: 'HOST_SOURCE_IDENTITY_UNAVAILABLE' }; }
-        const rootProof = await persistRootInventory({
-          userHandle,
-          rootPath: directories.root,
-          entries: hostInventory.filesystem.entries,
-          snapshotAlignment: hostInventory.snapshot_alignment,
-          snapshotSha256: hostInventory.filesystem.snapshot_sha256,
-          sourceIdentity,
-        });
+        let rootProof;
+        try {
+          if (typeof persistRootInventory !== 'function') {
+            return { status: 'NON_READY', code: 'HOST_INVENTORY_NOT_AUTHORITATIVE' };
+          }
+          rootProof = await persistRootInventory({
+            userHandle,
+            rootPath: directories.root,
+            entries: hostInventory.filesystem.entries,
+            snapshotAlignment: hostInventory.snapshot_alignment,
+            snapshotSha256: hostInventory.filesystem.snapshot_sha256,
+            sourceIdentity,
+          });
+        } catch {
+          return { status: 'NON_READY', code: 'HOST_INVENTORY_NOT_AUTHORITATIVE' };
+        }
         if (rootProof?.status !== 'AUTHORITATIVE_COMPLETE'
           || rootProof.integrity_status !== 'INTEGRITY_OK'
           || !Number.isSafeInteger(rootProof.sequence) || rootProof.sequence < 1
