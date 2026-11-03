@@ -244,7 +244,7 @@ export async function verifyPinnedSillyTavernMutationCoverage({
     const source = bytes.toString('utf8');
     files.set(relative, createHash('sha256').update(bytes).digest('hex'));
     for (const [route, guard] of Object.entries(expectedRoutes)) {
-      const expression = new RegExp("router\\.post\\('" + escapeRegExp(route) + "',([^\\n]*)");
+      const expression = new RegExp("(?:router|comfy)\\.post\\('" + escapeRegExp(route) + "',([^\\n]*)");
       const match = source.match(expression);
       if (!match || !match[1].includes(guard)) {
         throw new Error('HOST_ST_MUTATION_ROUTE_COVERAGE_MISMATCH:' + relative + ':' + route);
