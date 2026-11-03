@@ -226,8 +226,14 @@ test('final Provider read lease excludes cross-process authorization revoke unti
       validateInventory: async () => true,
     });
     process.stdout.write('READY\\n');
-    process.stdin.setEncoding('utf8').once('data', chunk => {
-      if (!chunk.startsWith('REVOKE')) process.exit(2);
+    let input = '';
+    process.stdin.setEncoding('utf8').on('data', chunk => {
+      input += chunk;
+      const newline = input.indexOf('\\n');
+      if (newline < 0) return;
+      const command = input.slice(0, newline);
+      process.stdin.pause();
+      if (command !== 'REVOKE') process.exit(2);
       provider.revokeRecord(
         { world_id: 'world-a', subject_id: 'npc-a', purpose: 'npc_decision' },
         'memory:record-a', 'record-v1',
