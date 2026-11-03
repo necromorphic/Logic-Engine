@@ -65,6 +65,9 @@ test('builds immutable generation context with isolated Lane A and Lane B envelo
   assert.equal(result.context.lanes.lane_a.items[0].value.text, 'Lane A source');
   assert.equal(result.context.lanes.lane_b.candidates[0].evidence_assessment, 'disputed');
   assert.equal(result.context.lanes.lane_b.provider_purpose, 'npc_decision');
+  assert.deepEqual({ ...result.context.lanes.lane_b.provider_evidence_cursor }, {
+    data_version: 12, candidate_digest: 'b'.repeat(64),
+  });
   assert.equal(Object.isFrozen(result.context), true);
   assert.equal(Object.isFrozen(result.context.lanes.lane_a.items[0].value), true);
   assert.throws(() => { result.context.actor_id = 'npc-2'; }, TypeError);
