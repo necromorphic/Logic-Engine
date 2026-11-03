@@ -81,3 +81,18 @@ Until this integration exists and is covered by revoke-before-dispatch, revoke-d
 - No conflict resolution or belief transition.
 - No model transport, final-send, or dispatch lease.
 - No production Memory → NPC enablement.
+
+## Core API receiver boundary and Host projection
+
+The signed Host Memory request remains on the existing `POST /v1/host/memory-npc/retrieve` route and retains the existing assertion/request envelope. When the adapter has a configured `npcGenerationContext` runtime, Core now performs the following inside the authenticated Host assertion scope:
+
+1. Calls `build({ request_id, generation_id: request_id, generation_type })`.
+2. Passes the exact object returned by the Builder to `receive(context, request)`.
+3. Requires `status === 'accepted'` and object identity equality between the received and built context.
+4. Only after Receiver acceptance, creates a fresh `npc-generation-context-projection/v1` data-transfer object.
+
+The projection is not the Builder-issued capability. The WeakMap/WeakSet object-identity capability remains inside Core and is never serialized. The projection is a bounded plain-data view for the authenticated Host to compose into a provider request. It carries the request/generation binding, Core World/Actor/Conversation/Adapter scope, snapshot, and the two distinct evidence lanes.
+
+The existing response keeps `retrieval` for compatibility and adds `npc_context` when the Core generation-context runtime is configured. Host must reject a missing, malformed, or differently bound projection; it must not treat a browser-supplied object as equivalent. A non-ready build or rejected Receiver returns HTTP 503 and must not fall back to native generation.
+
+This response projection is **not** a final-dispatch authorization token. The Final-Send Gateway still must revalidate both Lane A visibility and Lane B Provider grants against current Core/Provider state under the shared Coordinator lease at durable dispatch-start and immediately before every actual client response write. The projection alone cannot authorize dispatch or egress.
