@@ -406,9 +406,11 @@ export class MemoryDispatchGateway {
       || typeof body !== 'string' || body.length === 0 || body.length > 4_000_000
       || !validText(worldId, 200) || !validText(actorId, 200) || !validText(purpose, 200)
       || typeof hostTransformsStream !== 'boolean'
+      || signal !== undefined && (!signal || typeof signal.aborted !== 'boolean' || typeof signal.addEventListener !== 'function')
       || stream && !hostTransformsStream && typeof forwardResponse !== 'function') {
       throw new Error('MEMORY_DISPATCH_NOT_READY');
     }
+    if (signal?.aborted === true) throw new Error('MEMORY_DISPATCH_CANCELLED');
     const sourceSet = normalizeSources(sources);
     const candidateSet = normalizeCandidates(candidates);
     assertSourcesMatchCandidates(sourceSet, candidateSet);
@@ -435,6 +437,7 @@ export class MemoryDispatchGateway {
 
     try {
       release = beginCoordinatorLock(this.coordinatorDb);
+      if (signal?.aborted === true) throw new Error('MEMORY_DISPATCH_CANCELLED');
       const authority = getAcceptedHeadStatusSync({
         port: this.authorityPort,
         token: this.readToken,
@@ -534,7 +537,8 @@ export class MemoryDispatchGateway {
       }
     } catch (error) {
       if (error?.message === 'MEMORY_DISPATCH_DUPLICATE_ID'
-        || error?.message === 'MEMORY_DISPATCH_REPLAY_BLOCKED') throw error;
+        || error?.message === 'MEMORY_DISPATCH_REPLAY_BLOCKED'
+        || error?.message === 'MEMORY_DISPATCH_CANCELLED') throw error;
       throw new Error('MEMORY_DISPATCH_NOT_READY');
     } finally {
       try { release?.(); } catch {}
@@ -562,12 +566,29 @@ export class MemoryDispatchGateway {
     let finalResponseAllowed = false;
     const releaseContext = {
       requestId, route, senderRoute, model, stream, worldId, actorId, purpose,
-      sources: sourceSet, candidates: candidateSet, coreHead, providerHead, policyAuthority,
+      sources: sourceSet, candidates: candidateSet, coreHead, providerHead, policyAuthority, signal,
     };
     try {
       finalRelease = beginCoordinatorLock(this.coordinatorDb);
       this.#revalidateReleaseContext(releaseContext);
       this.pendingReleases.set(requestId, releaseContext);
+      if (signal) {
+        signal.addEventListener('abort', () => {
+          let abortRelease = null;
+          try {
+            abortRelease = beginCoordinatorLock(this.coordinatorDb);
+            if (this.pendingReleases.get(requestId) === releaseContext) {
+              this.#recordOutcome(requestId, 'UNKNOWN', null);
+              this.pendingReleases.delete(requestId);
+            }
+          } catch {
+            // A failed cancellation settlement remains DISPATCH_STARTED and is
+            // converted to UNKNOWN by durable startup recovery.
+          } finally {
+            try { abortRelease?.(); } catch {}
+          }
+        }, { once: true });
+      }
       finalResponseAllowed = true;
     } catch {
       try { this.#recordOutcome(requestId, 'UNKNOWN', null); } catch {}
@@ -615,6 +636,9 @@ export class MemoryDispatchGateway {
   }
 
   #revalidateReleaseContext(context) {
+    if (context.signal?.aborted === true) {
+      throw new Error('MEMORY_DISPATCH_CANCELLED');
+    }
     const currentAuthority = getAcceptedHeadStatusSync({
       port: this.authorityPort,
       token: this.readToken,
