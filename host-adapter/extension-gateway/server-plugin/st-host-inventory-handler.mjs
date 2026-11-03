@@ -120,8 +120,25 @@ export function createHostInventoryHandler({
         && rootInventory.sequence > 0
         && typeof rootInventory.manifest_sha256 === 'string'
         && /^[a-f0-9]{64}$/.test(rootInventory.manifest_sha256);
+      const rootInventoryAuthoritative = rootInventoryPersisted
+        && rootInventory.status === 'AUTHORITATIVE_COMPLETE';
+      const sourceSnapshotAttested = rootInventoryAuthoritative
+        && sourceIdentity?.status === 'CURRENT_IDENTITIES_VERIFIED'
+        && inventory.snapshot_alignment === 'SHARED_VSS_SNAPSHOT';
+      const coveredSourceBlockers = new Set([
+        'NO_PRE_ENROLLMENT_DELETED_HISTORY',
+        'NO_COMPLETE_MESSAGE_OR_SWIPE_REVISION_HISTORY',
+        'NO_HOST_INSTALLATION_BINDING',
+        'NO_CORE_WORLD_OR_SESSION_AUTHORIZATION',
+        'NO_ACCEPTED_HEAD_AUTHORITY',
+        'IMPORT_EXPORT_COPY_BRANCH_RESTORE_UNSUPPORTED',
+        'NO_APPLICATION_LEVEL_ATOMIC_SNAPSHOT',
+      ]);
+      const sourceBlockers = sourceSnapshotAttested
+        ? source.blockers.filter(code => !coveredSourceBlockers.has(code))
+        : source.blockers;
       const blockers = [
-        ...source.blockers,
+        ...sourceBlockers,
         ...(rootInventoryPersisted ? [] : [
           'NO_DURABLE_FULL_ROOT_BASELINE',
           'NO_FULL_ROOT_PER_FILE_DIFF',
