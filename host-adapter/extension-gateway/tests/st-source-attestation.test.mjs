@@ -100,7 +100,7 @@ test('root inventory attestation signs the exact accepted snapshot envelope', as
     patch_blob_sha: PINNED_PATCH_BUNDLE_SHA256,
     host_handler_blob_sha: PINNED_HOST_HANDLER_GIT_BLOB_SHA,
   };
-  const attestation = createSignedRootInventoryAttestation({
+  const input = {
     adapterId: 'test-adapter',
     adapterToken,
     identity: {
@@ -122,7 +122,12 @@ test('root inventory attestation signs the exact accepted snapshot envelope', as
     sourceIdentity,
     now: () => 1700000000000,
     createNonce: () => '33333333-3333-4333-8333-333333333333',
-  });
+  };
+  const attestation = createSignedRootInventoryAttestation(input);
+  assert.throws(() => createSignedRootInventoryAttestation({
+    ...input,
+    reconciliation: { ...input.reconciliation, lifecycle_sequence: 0 },
+  }), /HOST_ROOT_INVENTORY_ATTESTATION_INPUT_NON_READY/);
   const { signature, ...proof } = attestation;
   const expected = createHmac('sha256', adapterToken).update(canonical(proof), 'utf8').digest('hex');
   assert.equal(signature, expected);
