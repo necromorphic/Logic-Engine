@@ -29,7 +29,6 @@ if ((Test-PathWithin $InstallDirectory $StateDirectory) -or
 }
 if (-not (Test-Path -LiteralPath (Join-Path $InstallDirectory 'src\index.js') -PathType Leaf)) { throw "Logic-Engine entry point not found." }
 if (-not (Test-Path -LiteralPath $NodePath -PathType Leaf)) { throw "Node executable not found." }
-if (-not (Test-Path -LiteralPath $StateDirectory -PathType Container)) { New-Item -ItemType Directory -Path $StateDirectory -Force | Out-Null }
 if ($EnvironmentFile -and -not (Test-Path -LiteralPath $EnvironmentFile -PathType Leaf)) { throw "EnvironmentFile does not exist." }
 function Assert-NoReparsePoints([string]$Path) {
   $root = Get-Item -LiteralPath $Path -Force
@@ -40,6 +39,23 @@ function Assert-NoReparsePoints([string]$Path) {
     if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
       throw "Security-sensitive tree contains a reparse point: $($item.FullName)"
     }
+  }
+}
+function Assert-NoReparsePointAncestors([string]$Path) {
+  # Check the complete existing path chain before creating state directories or
+  # installing a service. Checking only the final tree root is too late when
+  # an ancestor redirects the path through a junction or symbolic link.
+  $current = [IO.Path]::GetFullPath($Path)
+  while ($current) {
+    if (Test-Path -LiteralPath $current) {
+      $item = Get-Item -LiteralPath $current -Force
+      if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw "Security-sensitive path contains a reparse-point ancestor: $current"
+      }
+    }
+    $parent = [IO.Directory]::GetParent($current)
+    if (-not $parent) { break }
+    $current = $parent.FullName
   }
 }
 function Set-PrivateFileAcl([string]$Path, [string]$ServiceSid) {
@@ -117,6 +133,14 @@ function Set-PrivateTreeAcl([string]$Path, [string]$ServiceSid, [string]$Service
       if (-not $present) { throw "Required ACL is missing for $sid on $($item.FullName)" }
     }
   }
+}
+# Validate all existing path components before creating directories or service state.
+Assert-NoReparsePointAncestors $InstallDirectory
+Assert-NoReparsePointAncestors $StateDirectory
+Assert-NoReparsePointAncestors $NodePath
+if ($EnvironmentFile) { Assert-NoReparsePointAncestors $EnvironmentFile }
+if (-not (Test-Path -LiteralPath $StateDirectory -PathType Container)) {
+  New-Item -ItemType Directory -Path $StateDirectory -Force | Out-Null
 }
 if (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue) { throw "Service already exists; refusing to replace it." }
 $account = "NT SERVICE\$ServiceName"
