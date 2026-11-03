@@ -82,32 +82,66 @@ The model projection keeps the lanes separate: Lane A is serialized as Core-auth
 
 ## Remaining production blockers
 
-The repository has two distinct server-plugin entrypoints. `host-adapter/extension-gateway/server-plugin/index.mjs` owns only the bounded public Host ingress routes. The actual SillyTavern native-hook owner is the repository-root `index.mjs` installed as `plugins/logic-engine/index.mjs`: it imports `receiveNpcContext()`, creates `createSillyTavernFinalSendAdapter()`, resolves the native SillyTavern sender registry/response writer, and registers that adapter through `registerLogicEngineFinalSendAdapter()`. This closes the prior adapter-unavailable gap and connects the NPC receiver to the managed native Hook. It does **not** activate protected model egress: the root plugin injects `unavailableGateway`, whose dispatch and response-write methods always deny. Memory-enabled generation remains protected even when Lane B is complete-empty: the receiver does not yet carry Lane A, so an empty Lane B result cannot prove that the full NPC context is empty. The root plugin now returns the received envelope rather than an unprotected `null`; the unavailable Gateway denies it before upstream transport. There is no native fallback. The Gateway now also requires an explicit Lane A projection (including authorization references) and rejects a missing lane instead of silently defaulting it to empty. The current `receiveNpcContext()` still emits Lane B only, so protected dispatch remains NON_READY until the Core Context Builder/Receiver handoff is restored and wired into the native sender process. The remaining blocker is replacing that deliberate stub with a production `MemoryDispatchGateway` composed from the live Core consumer, Provider instance and an authoritative Host reader under the same shared Coordinator. In addition, the current ST plugin still obtains retrieval over HTTP from a separate Core process; the Core/NPC one-shot handoff is not created and consumed in the native sender process. Until this process-boundary gap and Host inventory authority are closed, the Gateway remains NON_READY / FAIL-CLOSED.
+The production composition is now present in the integration branch; the earlier statements that the root plugin still installs `unavailableGateway` or that Core/Provider readers are not wired are historical and superseded.
 
-The real Gateway cannot be activated until all of the following are implemented and proven on one exact commit:
+The active composition when `LOGIC_ENGINE_MEMORY_NPC_ENABLED=true` is:
 
-1. **Core evidence reader:** `MemoryNpcConsumer.readDispatchEvidenceSync()` now checks the accepted Core head, active Host→World and adapter→Actor bindings, complete paginated canonical inventory and exact source versions under the shared Coordinator. It emits a fingerprint for the current policy authority. This is an instance method, not yet wired to the ST Gateway. The policy authority remains process-scoped, so durable cross-process policy generation is still unresolved.
-2. **Provider evidence reader:** `SQLiteMemoryProvider.readDispatchEvidenceSync()` now verifies the accepted Provider head, ready/current index state, query grant, exact record grants, persisted authorization generations, direct-source lineage and synchronous Core source-version validator under the shared Coordinator. `createMemoryNpcProviderAdapter()` exposes this trusted seam. It has focused accepted-head/revoke tests, but production composition is not wired.
-3. **Host evidence reader:** `HostLifecycleJournal.readAuthoritySnapshotUnderLease()` now verifies the journal under an existing Coordinator lease without nesting a lock. It deliberately returns NON_READY because the current root inventory is review-only. A READY Host reader cannot be supplied until the Host root-inventory authority contract is upgraded.
-4. **Host root inventory authority:** the current root inventory implementation distinguishes AUTHORITATIVE_COMPLETE from BASELINED_REVIEW_ONLY / UNCHANGED_REVIEW_ONLY. The Host Adapter intentionally accepts only the authoritative state. The Core review-only inventory state must be resolved by its owner; it must not be relabelled READY in Host.
-5. **Shared Coordinator and accepted-head deployment:** the ST process must use the same coordinator and accepted-head authority as Core and Provider, with independent paths and validated configuration.
-6. **Real final-send acceptance:** prove revoke-before-start gives zero upstream calls; revoke during inference blocks final response; streaming and non-streaming writes revalidate immediately before native writes; retry/cancellation/UNKNOWN/crash/restart cannot repeat dispatch; and all five real ST handlers remain covered.
+`authenticated SillyTavern request → Host Adapter → Core World/Actor binding → in-process NPC Context Runtime → one-shot Host request/response handoff → MemoryDispatchGateway → exact provider transport → final response release`.
 
-#851's parallel ingress is not included. The old browser /dispatch retrieval route is removed; the only generation ingress is the native SillyTavern request and the only protected model egress is the managed Final-Send Hook.
+The root `index.mjs` constructs `createEmbeddedGatewayRuntime()` inside the SillyTavern server process. That factory opens:
+- Core SQLite through a read-only `SQLiteStore`;
+- the Provider SQLite through `SQLiteMemoryProvider(observerOnly: true)`, without startup reconciliation or mutation;
+- the shared Coordinator database;
+- the durable dispatch ledger;
+- the Host lifecycle journal and Host assertion/revocation ledger.
+
+It composes three synchronous evidence readers under the same Coordinator lease:
+1. `MemoryNpcConsumer.readDispatchEvidenceSync()`: accepted Core head, canonical World/Actor bindings, complete canonical-entity inventory, exact active source versions, and policy-authority fingerprint.
+2. `SQLiteMemoryProvider.readDispatchEvidenceSync()`: accepted Provider head, ready/current index, query grant, per-record grants and authorization generations, exact candidates/source lineage, and evidence cursor.
+3. `HostLifecycleJournal.readAuthoritySnapshotUnderLease()` plus the Host session revocation reader: signed authoritative root inventory, deployment-pinned source manifest, exact root head, no pending Host mutation, and current session revocation state.
+
+The NPC handoff is created and consumed in the same ST server process. It is bound to the exact request and response objects, and the authenticated Host AsyncLocalStorage capability remains active through dispatch and final release. The serialized HTTP Gateway remains signature-only and cannot carry the in-process transport closure or handoff. No parallel ingress from #851 is used.
+
+The native sender path is fail-closed:
+- only the five pinned native text-generation handlers enter the managed hook;
+- only the exact registered sender identities are eligible for protected dispatch;
+- an unknown sender, missing/invalid context, rejected evidence, or incomplete Lane A/Lane B result is terminal and cannot fall through to native transport;
+- the only native fallback is an explicitly complete, independently revalidated empty result from both lanes;
+- the exact post-transformation provider body is passed once to Gateway, after durable `DISPATCH_STARTED`;
+- the Gateway revalidates Core, Provider, Host, policy, Lane A and accepted heads before release and again immediately before every protected response write/end;
+- Host session revocation is serialized by the shared Coordinator and checked both before dispatch and before release;
+- ambiguous transport outcomes and process crashes remain `UNKNOWN` and cannot be replayed.
+
+### Remaining P0 acceptance gates
+
+1. Exact-head CI for the current integration commit must finish green. Queued workflows are not passing evidence.
+2. Run the full sender matrix against the pinned SillyTavern 1.19.0 installation: all five native handlers and all 29 sender identities, including unknown-sender rejection.
+3. Run real-provider streaming and non-streaming acceptance, including client disconnect/cancellation, response transform, error paths and duplicate end/write behavior.
+4. Prove revoke-before-start produces zero upstream calls; revoke during inference blocks response release; revoke between stream chunks blocks the next chunk.
+5. Prove retry, ambiguous/UNKNOWN outcome, crash/restart and new request IDs cannot cause a second upstream dispatch.
+6. Verify the deployment has identical Host/Core adapter signing credentials, the deployment-owned root identity/source-manifest registry, the same absolute Coordinator path across processes, the same accepted-head authority, and the exact durable Host assertion/revocation ledger path.
+7. Complete live Windows/SillyTavern root-inventory and VSS acceptance. Repository fixtures do not substitute for a real installation.
+
+The current integration branch includes the fresh-account lifecycle genesis constraints: lifecycle sequence zero is accepted only with the all-zero genesis head; root inventory baseline sequence remains positive; no synthetic lifecycle event or review-only-to-ready relabelling is permitted.
+
+#851 parallel ingress is not included. Protected Memory must remain disabled unless the deployment configuration and all evidence readers report READY. A successful source-level or unit-test audit alone does not authorize production activation.
 
 ## Current acceptance state
 
-| Requirement | Evidence | State |
+| Requirement | Current implementation evidence | State |
 |---|---|---|
-| Five pinned native handlers and 29 sender identities | Exact pinned-source audit and fake-provider harness | PASS at source/test level |
-| Host conversation locator attached to native generation data | Pinned ST awaited event hooks and Extension source | Implemented; exact-head CI pending |
-| Server-side Host request binding | Host authentication gate + inventory-backed resolver on actual Express request | Implemented; exact-head CI pending |
-| NPC Context Receiver | Exact ready-envelope validation, admission/source-version matching, content bounds | Root ST plugin imports and invokes receiver; protected non-empty result remains denied by Gateway stub |
-| Exact provider body serialization | Route-specific context injection and Host metadata scrubbing | Root ST plugin registers adapter; non-empty context cannot reach transport while Gateway is stubbed |
-| Durable DISPATCH_STARTED, crash/replay handling | Gateway unit and child-process tests | PASS at Gateway unit level |
-| Host inventory revalidation under Coordinator | Lease-bound Host journal evidence method | Implemented fail-closed; returns NON_READY for review-only inventory |
-| Core/Provider evidence readers | Synchronous methods on MemoryNpcConsumer and SQLiteMemoryProvider; adapter facade exposes both | Instance seams implemented; production ST composition BLOCKED |
-| Real shared Coordinator Gateway in ST plugin | Root ST plugin registers Final-Send adapter but supplies `unavailableGateway`; no production evidence-reader composition | BLOCKED |
-| Live SillyTavern/provider/revoke/cancellation acceptance | No live deployment evidence | BLOCKED |
+| Five pinned native handlers and 29 sender identities | Managed source patch, exact sender registry, route/identity tests and pinned-source audit | Implemented; exact-head CI pending |
+| Authenticated Host request and conversation binding | Server-side signed ST session, complete inventory, Core World/Actor binding | Implemented; live ST acceptance pending |
+| NPC Context Receiver and one-shot handoff | In-process NPC runtime/receiver, exact request/response WeakMap handoff | Implemented; exact-head CI pending |
+| Lane A + Lane B model projection | Separate serialization, Lane A provenance and lease-bound revalidation | Implemented; full model/provider acceptance pending |
+| Core evidence reader | Synchronous accepted-head, binding, inventory and source-version verification | Wired to Gateway |
+| Provider evidence reader | Read-only observer, accepted head, index, grants, authorization generation and candidate cursor | Wired to Gateway |
+| Host evidence reader | Signed root inventory, deployment manifest pin, lifecycle journal and session revocation | Wired to Gateway; live authoritative inventory acceptance pending |
+| Shared Coordinator | Core, Provider, Host revocation, dispatch ledger and Final-Send use the same configured Coordinator path | Implemented; deployment identity check pending |
+| Durable dispatch/replay protection | `DISPATCH_STARTED`, content-free ledger, UNKNOWN recovery, digest replay block | Implemented; crash/restart acceptance pending |
+| Final response release | Revalidation before response release and immediately before every protected write/end | Implemented; real ST streaming acceptance pending |
+| Sender bypass / native fallback | Unknown routes terminal; fallback only for independently revalidated complete-empty two-lane result | Unit/source coverage present; full five-handler acceptance pending |
+| Live deployment acceptance | Real Windows SillyTavern, provider, root inventory/VSS, revoke and cancellation matrix | BLOCKED |
+
 
 **Safety state:** NON_READY; Memory → NPC remains DISABLED / FAIL-CLOSED. PR merge, production route enrollment and activation are not authorized by this candidate.
