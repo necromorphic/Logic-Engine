@@ -169,6 +169,16 @@ const hostLifecycleAuthorityGeneration = Number(process.env.ENGINE_HOST_AUTHORIT
 const canonicalHostReceiptProof = value => value && typeof value === 'object'
   ? '{' + Object.keys(value).sort().map(key => JSON.stringify(key) + ':' + canonicalHostReceiptProof(value[key])).join(',') + '}'
   : JSON.stringify(value);
+function verifyHostRootCompletenessProof({ proof, proof_signature, identity }) {
+  const secret = adapterTokens?.[identity?.adapter_id];
+  if (typeof secret !== 'string' || secret.length < 16
+    || !/^[a-f0-9]{64}$/.test(proof_signature ?? '')) return false;
+  const expected = createHmac('sha256', secret)
+    .update(canonicalHostReceiptProof(proof), 'utf8').digest();
+  const supplied = Buffer.from(proof_signature, 'hex');
+  return supplied.length === expected.length && timingSafeEqual(supplied, expected);
+}
+
 function verifyHostLifecycleReceipt({ event, identity }) {
   const secret = adapterTokens?.[identity?.adapter_id];
   if (typeof secret !== 'string' || secret.length < 16
@@ -253,6 +263,7 @@ if (hostRootIdentityRegistry.length > 0) {
     },
     resolveRootIdentity: input => resolveRegisteredHostRootIdentity(hostRootIdentityRegistry, input),
     verifyMutationReceipt: verifyHostLifecycleReceipt,
+    verifyCompletenessProof: verifyHostRootCompletenessProof,
   });
   if (typeof hostLifecycleAuthorityId === 'string' && hostLifecycleAuthorityId.trim()
     && Number.isSafeInteger(hostLifecycleAuthorityGeneration) && hostLifecycleAuthorityGeneration > 0) {
