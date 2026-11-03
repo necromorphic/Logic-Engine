@@ -26,7 +26,9 @@ export function createNpcGenerationContextHostBridge({ runtime, createRequestMet
     let requestMetadata;
     try { requestMetadata = createRequestMetadata(hostRequest, hostResponse); }
     catch { return Object.freeze({ status: 'non_ready', reason: 'request_metadata_unavailable' }); }
-    const prepared = await runtime.prepareForDispatch(requestMetadata);
+    let prepared;
+    try { prepared = await runtime.prepareForDispatch(requestMetadata); }
+    catch { return Object.freeze({ status: 'non_ready', reason: 'npc_context_preparation_failed' }); }
     if (prepared?.status !== 'ready' || !prepared.handoff) {
       return Object.freeze({ status: 'non_ready', reason: prepared?.reason ?? 'npc_context_not_ready' });
     }
@@ -47,22 +49,29 @@ export function createNpcGenerationContextHostBridge({ runtime, createRequestMet
     // Consume the Host lifecycle slot before invoking the runtime so failures
     // cannot be retried with a second response or a replayed dispatch callback.
     preparedByRequest.delete(hostRequest);
-    const accepted = runtime.consumeDispatchHandoff(prepared.handoff, prepared.requestMetadata);
-    if (accepted?.status !== 'accepted' || !accepted.context) {
-      return Object.freeze({ status: 'non_ready', reason: accepted?.reason ?? 'npc_handoff_rejected' });
+    try {
+      const accepted = runtime.consumeDispatchHandoff(prepared.handoff, prepared.requestMetadata);
+      if (accepted?.status !== 'accepted' || !accepted.context) {
+        return Object.freeze({ status: 'non_ready', reason: accepted?.reason ?? 'npc_handoff_rejected' });
+      }
+      const laneB = runtime.getLaneBDispatchEvidence(accepted.context, prepared.requestMetadata);
+      if (laneB?.status !== 'ready') {
+        return Object.freeze({ status: 'non_ready', reason: laneB?.reason ?? 'npc_lane_b_not_ready' });
+      }
+      const context = accepted.context;
+      const requestMetadata = prepared.requestMetadata;
+      return Object.freeze({
+        status: 'accepted',
+        context,
+        laneB,
+        revalidateLaneA: () => {
+          try { return runtime.revalidateLaneAForDispatch(context, requestMetadata); }
+          catch { return Object.freeze({ status: 'non_ready', reason: 'npc_lane_a_revalidation_failed' }); }
+        },
+      });
+    } catch {
+      return Object.freeze({ status: 'non_ready', reason: 'npc_handoff_consumption_failed' });
     }
-    const laneB = runtime.getLaneBDispatchEvidence(accepted.context, prepared.requestMetadata);
-    if (laneB?.status !== 'ready') {
-      return Object.freeze({ status: 'non_ready', reason: laneB?.reason ?? 'npc_lane_b_not_ready' });
-    }
-    const context = accepted.context;
-    const requestMetadata = prepared.requestMetadata;
-    return Object.freeze({
-      status: 'accepted',
-      context,
-      laneB,
-      revalidateLaneA: () => runtime.revalidateLaneAForDispatch(context, requestMetadata),
-    });
   }
 
   return Object.freeze({ prepare, consume });
