@@ -1,6 +1,6 @@
 # Gateway / Generation / Final-Send integration decision
 
-**Status:** Host request correlation and NPC Context serialization are integrated in the candidate branch; production Gateway composition remains NON_READY.  
+**Status:** Production Host/Core/NPC/Gateway/Final-Send composition and all three synchronous evidence-reader connections are implemented in the candidate branch; production activation remains gated on exact-head CI and live deployment acceptance.  
 **Inputs:** #844, #855, #868, #870.  
 **Pinned Host:** SillyTavern 1.19.0, commit 06bde939fb1e9c4c8d8641d810f0a916b5bce127.
 
