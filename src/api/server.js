@@ -747,13 +747,11 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
                 });
                 const built = await generationContext.build(generationRequest);
                 if (built?.status !== 'ready' || !built.context) {
-                  consumerFailed = true;
-                  throw new Error('NPC_GENERATION_CONTEXT_NON_READY');
+                  return { status: 'non_ready', code: 'NPC_GENERATION_CONTEXT_NON_READY' };
                 }
                 const received = await generationContext.receive(built.context, generationRequest);
                 if (received?.status !== 'accepted' || received.context !== built.context) {
-                  consumerFailed = true;
-                  throw new Error('NPC_GENERATION_CONTEXT_RECEIVER_REJECTED');
+                  return { status: 'non_ready', code: 'NPC_GENERATION_CONTEXT_RECEIVER_REJECTED' };
                 }
                 const laneB = received.context.lanes.lane_b;
                 const retrieval = {
@@ -775,6 +773,13 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
               }
             },
           );
+          if (result?.status === 'non_ready') {
+            return send(res, 503, { error: {
+              code: result.code === 'NPC_GENERATION_CONTEXT_RECEIVER_REJECTED'
+                ? 'NPC_GENERATION_CONTEXT_RECEIVER_REJECTED' : 'NPC_GENERATION_CONTEXT_NON_READY',
+              message: 'Core could not issue an accepted NPC generation context.',
+            } });
+          }
           if (!result || !validMemoryNpcResult(result.retrieval)
             || (memoryNpcGenerationContexts[adapterId]
               && result.npc_context?.schema !== 'npc-generation-context-projection/v1')) {
