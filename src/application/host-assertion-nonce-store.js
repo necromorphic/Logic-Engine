@@ -210,7 +210,7 @@ export class HostSessionRevocationReader {
     this.#db = new DatabaseSync(resolve(path), { readOnly: true });
     try {
       this.#db.exec('PRAGMA query_only=ON; PRAGMA busy_timeout=5000;');
-      const table = this.#db.prepare(\"SELECT name FROM sqlite_master WHERE type='table' AND name='host_session_revocations'\").get();
+      const table = this.#db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='host_session_revocations'").get();
       if (!table) throw new Error('HOST_SESSION_REVOCATION_LEDGER_UNAVAILABLE');
     } catch (error) {
       this.#db.close();
