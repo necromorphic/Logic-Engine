@@ -198,7 +198,7 @@ test('pinned server mutation routes remain in the reviewed inventory', () => {
 test('account recovery password reset is blocked while Host authority is active', () => {
   const usersPublic = mutationSources['src/endpoints/users-public.js'];
   assert.match(usersPublic,
-    /router\\.post\\('\\/recover-step2',\\s*hostUnsupportedMutationGuard,/);
+    /router\.post\('\/recover-step2',\s*hostUnsupportedMutationGuard,/);
 });
 
 test('bulk mutation guards do not authorize writes from a pre-mutation filesystem scan', async () => {
@@ -212,7 +212,7 @@ test('bulk mutation guards do not authorize writes from a pre-mutation filesyste
   assert.match(guard, /hostSessionActive/);
   assert.match(guard, /HOST_BULK_MUTATION_UNSUPPORTED/);
   assert.doesNotMatch(guard, /hasEnrolledConversation/);
-  assert.doesNotMatch(guard, /return next\\(\\);[\\s\\S]*?enumerate/);
+  assert.doesNotMatch(guard, /return next\(\);[\s\S]*?enumerate/);
 });
 
 test('pinned high-impact mutation implementations retain their write/delete primitives', () => {
