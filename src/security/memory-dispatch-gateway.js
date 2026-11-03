@@ -14,6 +14,7 @@ export function createDispatchRequestSignature(secret, request) {
   }
   const sources = normalizeSources(request.sources);
   const candidates = normalizeCandidates(request.candidates);
+  const hostContext = normalizeHostContext(request.hostContext);
   assertSourcesMatchCandidates(sources, candidates);
   const bodyDigest = createHash('sha256').update(request.body, 'utf8').digest('hex');
   const canonical = JSON.stringify({
@@ -28,6 +29,7 @@ export function createDispatchRequestSignature(secret, request) {
     purpose: request.purpose,
     sources,
     candidates,
+    host_context: hostContext,
   });
   return createHmac('sha256', secret).update(canonical, 'utf8').digest('hex');
 }
@@ -101,6 +103,44 @@ function sameFile(left, right) {
   const statA = statSync(a, { bigint: true });
   const statB = statSync(b, { bigint: true });
   return statA.dev === statB.dev && statA.ino === statB.ino;
+}
+
+function normalizeHostContext(value) {
+  const keys = [
+    'adapter_id', 'core_conversation_id', 'world_id', 'actor_id', 'actor_type',
+    'host_installation_id', 'authenticated_account_id', 'host_session_id',
+    'host_conversation_id', 'conversation_uuid', 'root_id',
+    'root_inventory_sequence', 'root_manifest_sha256',
+  ];
+  if (!value || typeof value !== 'object' || Array.isArray(value)
+    || Object.getPrototypeOf(value) !== Object.prototype
+    || Reflect.ownKeys(value).length !== keys.length
+    || Reflect.ownKeys(value).some(key => typeof key !== 'string' || !keys.includes(key))) {
+    throw new Error('MEMORY_DISPATCH_NOT_READY');
+  }
+  const uuid = item => typeof item === 'string'
+    && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(item);
+  for (const key of keys) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (!descriptor || !Object.hasOwn(descriptor, 'value')) throw new Error('MEMORY_DISPATCH_NOT_READY');
+  }
+  if (!validText(value.adapter_id) || !validText(value.world_id) || !validText(value.actor_id)
+    || !validText(value.actor_type) || !uuid(value.host_installation_id)
+    || !uuid(value.authenticated_account_id) || !uuid(value.host_session_id)
+    || !uuid(value.conversation_uuid) || !validText(value.core_conversation_id)
+    || !validText(value.host_conversation_id)
+    || value.core_conversation_id !== [
+      value.host_session_id, value.host_installation_id, value.conversation_uuid,
+    ].join(':')
+    || value.host_conversation_id !== [
+      value.host_installation_id, value.authenticated_account_id, value.conversation_uuid,
+    ].join(':')
+    || !/^[a-f0-9]{64}$/.test(value.root_id ?? '')
+    || !Number.isSafeInteger(value.root_inventory_sequence) || value.root_inventory_sequence < 1
+    || !/^[a-f0-9]{64}$/.test(value.root_manifest_sha256 ?? '')) {
+    throw new Error('MEMORY_DISPATCH_NOT_READY');
+  }
+  return Object.freeze(Object.fromEntries(keys.map(key => [key, value[key]])));
 }
 
 function normalizeSources(sources) {
@@ -253,13 +293,15 @@ export class MemoryDispatchGateway {
     readToken,
     readCoreEvidence,
     readProviderEvidence,
+    readHostEvidence,
   }) {
     if (typeof ledgerPath !== 'string' || !isAbsolute(ledgerPath)
       || typeof coordinatorPath !== 'string' || !isAbsolute(coordinatorPath)
       || !Number.isInteger(authorityPort) || authorityPort < 1 || authorityPort > 65535
       || typeof readToken !== 'string' || readToken.length < 32
       || typeof readCoreEvidence !== 'function'
-      || typeof readProviderEvidence !== 'function') {
+      || typeof readProviderEvidence !== 'function'
+      || typeof readHostEvidence !== 'function') {
       throw new TypeError('MemoryDispatchGateway requires file-backed stores, a read-only authority token, trusted synchronous readers.');
     }
     if (sameFile(ledgerPath, coordinatorPath)) {
@@ -272,6 +314,7 @@ export class MemoryDispatchGateway {
     this.readToken = readToken;
     this.readCoreEvidence = readCoreEvidence;
     this.readProviderEvidence = readProviderEvidence;
+    this.readHostEvidence = readHostEvidence;
 
     this.coordinatorDb = openCoordinatorDatabase(this.coordinatorPath);
     this.db = null;
@@ -395,7 +438,7 @@ export class MemoryDispatchGateway {
     }
   }
 
-  async dispatchProtectedRequest({ requestId, route, senderRoute, model, stream, body, worldId, actorId, purpose, sources, candidates, transport, forwardResponse, hostTransformsStream = false, signal }) {
+  async dispatchProtectedRequest({ requestId, route, senderRoute, model, stream, body, worldId, actorId, purpose, sources, candidates, hostContext, transport, forwardResponse, hostTransformsStream = false, signal }) {
     if (!validText(requestId, 200) || !SUPPORTED_PROTECTED_MEMORY_ROUTES.includes(route)
       || !PROTECTED_MEMORY_SENDER_ROUTES.includes(senderRoute)
       || typeof model !== 'string' || !/^[A-Za-z0-9._-]{1,128}$/.test(model)
@@ -408,6 +451,7 @@ export class MemoryDispatchGateway {
     }
     const sourceSet = normalizeSources(sources);
     const candidateSet = normalizeCandidates(candidates);
+    const hostContextSnapshot = normalizeHostContext(hostContext);
     assertSourcesMatchCandidates(sourceSet, candidateSet);
     // Sender family is intentionally excluded from the replay digest:
     // changing providers must not turn an ambiguous request into a new attempt.
@@ -422,6 +466,7 @@ export class MemoryDispatchGateway {
       purpose,
       sources: sourceSet,
       candidates: candidateSet,
+      host_context: hostContextSnapshot,
     }), 'utf8').digest('hex');
     let coreHead;
     let providerHead;
@@ -447,6 +492,9 @@ export class MemoryDispatchGateway {
       const provider = assertSyncResult(this.readProviderEvidence({
         worldId, actorId, purpose, sources: sourceSet, candidates: candidateSet,
       }));
+      const host = assertSyncResult(this.readHostEvidence({
+        hostContext: hostContextSnapshot, worldId, actorId, purpose,
+      }));
       if (core.world_id !== worldId || core.actor_id !== actorId
         || core.readiness !== 'READY' || core.inventory_status !== 'READY'
         || !Number.isSafeInteger(core.head) || core.head !== authority.heads.core) {
@@ -456,6 +504,14 @@ export class MemoryDispatchGateway {
         || provider.purpose !== purpose || provider.granted !== true
         || provider.readiness !== 'READY'
         || !Number.isSafeInteger(provider.head) || provider.head !== authority.heads.provider) {
+        throw new Error('MEMORY_DISPATCH_NOT_READY');
+      }
+      if (host.status !== 'READY' || host.adapter_id !== hostContextSnapshot.adapter_id
+        || host.core_conversation_id !== hostContextSnapshot.core_conversation_id
+        || host.world_id !== worldId || host.actor_id !== actorId
+        || host.root_id !== hostContextSnapshot.root_id
+        || host.root_inventory_sequence !== hostContextSnapshot.root_inventory_sequence
+        || host.root_manifest_sha256 !== hostContextSnapshot.root_manifest_sha256) {
         throw new Error('MEMORY_DISPATCH_NOT_READY');
       }
       assertSameSources(core.sources, sourceSet);
