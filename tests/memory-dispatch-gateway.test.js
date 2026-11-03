@@ -684,6 +684,34 @@ test('successful stream begins its one Host response write under the Coordinator
   }
 });
 
+test('Gateway rejects policy authority getters and proxies without invoking them', async () => {
+  const fixture = await createFixture();
+  let getterCalls = 0;
+  try {
+    const authority = { generation: 1, fingerprint: digestC };
+    Object.defineProperty(authority, 'authority_id', {
+      enumerable: true, get() { getterCalls += 1; return 'test-memory-policy'; },
+    });
+    fixture.setPolicyAuthority(authority);
+    await assert.rejects(fixture.gateway.dispatchProtectedRequest({
+      ...validRequest('policy-authority-getter'),
+      transport: () => { fixture.calls.push('unexpected-policy'); return Promise.resolve({ status: 200 }); },
+    }), /MEMORY_DISPATCH_NOT_READY/);
+    assert.equal(getterCalls, 0);
+
+    fixture.setPolicyAuthority(new Proxy({
+      authority_id: 'test-memory-policy', generation: 1, fingerprint: digestC,
+    }, {}));
+    await assert.rejects(fixture.gateway.dispatchProtectedRequest({
+      ...validRequest('policy-authority-proxy'),
+      transport: () => { fixture.calls.push('unexpected-policy-proxy'); return Promise.resolve({ status: 200 }); },
+    }), /MEMORY_DISPATCH_NOT_READY/);
+    assert.equal(fixture.calls.length, 0);
+  } finally {
+    await fixture.close();
+  }
+});
+
 test('Gateway rejects a missing or malformed policy authority tuple before upstream egress', async () => {
   const fixture = await createFixture();
   try {
