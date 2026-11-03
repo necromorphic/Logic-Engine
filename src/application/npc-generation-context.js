@@ -428,7 +428,7 @@ function createNpcGenerationContextReceiver({
         const candidate = laneB.candidates[index];
         const admitted = laneB.admitted[index];
         if (!exactRecord(candidate, [
-          'record_ref', 'record_version', 'authorization_generation',
+          'record_ref', 'record_version', 'authorization_generation', 'source_kind',
           'source_entity_id', 'source_version', 'epistemic_kind',
           'evidence_assessment', 'content',
         ]) || !plainDataRecord(admitted, ['record_ref', 'record_version'], [
@@ -437,7 +437,8 @@ function createNpcGenerationContextReceiver({
           || !validId(candidate.record_ref) || !validId(candidate.record_version)
           || !Number.isSafeInteger(candidate.authorization_generation)
           || candidate.authorization_generation < 1
-          || !validId(candidate.source_entity_id) || !validId(candidate.source_version)
+          || candidate.source_kind !== 'canonical_entity'
+          || !validId(candidate.source_entity_id) || !validSourceVersion(candidate.source_version)
           || !validId(candidate.epistemic_kind)
           || !['unassessed', 'supported', 'disputed', 'insufficient'].includes(candidate.evidence_assessment)
           || admitted.record_ref !== candidate.record_ref
