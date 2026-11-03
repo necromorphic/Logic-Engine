@@ -138,6 +138,13 @@ function validateLaneA(envelope, scope) {
   } catch { return false; }
 }
 
+function validProviderEvidenceCursor(value) {
+  return exactRecord(value, ['data_version', 'candidate_digest'])
+    && Number.isSafeInteger(value.data_version) && value.data_version >= 0
+    && typeof value.candidate_digest === 'string'
+    && /^[a-f0-9]{64}$/.test(value.candidate_digest);
+}
+
 function validateLaneB(envelope, scope) {
   const keys = ['status', 'lane', 'world_id', 'actor_id', 'conversation_id', 'adapter_id',
     'recipient', 'core_purpose', 'provider_purpose', 'snapshot', 'result'];
@@ -149,11 +156,12 @@ function validateLaneB(envelope, scope) {
     || !exactRecord(envelope.snapshot, ['world_revision', 'commit_sequence'])
     || !sameSnapshot(envelope.snapshot, scope.snapshot)) return 'lane_b_envelope_invalid';
   const result = envelope.result;
-  if (!exactRecord(result, ['status', 'admitted', 'candidates', 'reason', 'snapshot'])
+  if (!exactRecord(result, ['status', 'admitted', 'candidates', 'reason', 'snapshot', 'provider_evidence_cursor'])
     || result.status !== 'ready' || result.reason !== null
     || !densePlainArray(result.admitted) || !densePlainArray(result.candidates)
     || !exactRecord(result.snapshot, ['world_revision', 'commit_sequence'])
     || !sameSnapshot(result.snapshot, scope.snapshot)
+    || !validProviderEvidenceCursor(result.provider_evidence_cursor)
     || result.admitted.length !== result.candidates.length) return 'lane_b_result_invalid';
   try {
     const identities = new Set();
