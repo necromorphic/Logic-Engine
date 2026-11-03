@@ -549,7 +549,8 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
             ...(result.delta_sha256 ? { delta_sha256: result.delta_sha256 } : {}),
             ...(result.lifecycle_sequence !== undefined ? { lifecycle_sequence: result.lifecycle_sequence } : {}),
             ...(result.lifecycle_head_sha256 ? { lifecycle_head_sha256: result.lifecycle_head_sha256 } : {}),
-            ...(result.event_sha256 ? { journal_head_sha256: result.event_sha256 } : {}),
+            ...(result.journal_head_sha256 || result.event_sha256
+              ? { journal_head_sha256: result.journal_head_sha256 ?? result.event_sha256 } : {}),
             ...(result.reason ? { reason: result.reason } : {}),
             ...(result.duplicate ? { duplicate: true } : {}),
             ...(counts ? { counts } : {}),
