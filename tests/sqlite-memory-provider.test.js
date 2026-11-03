@@ -72,6 +72,13 @@ test('final authorized-read lease serializes query and record grants with a sync
 
   assert.equal(s.provider.withAuthorizedReadLease(s.scope, [leaseCandidate], () => 'authorized'), 'authorized');
   assert.throws(
+    () => s.provider.withAuthorizedReadLease(s.scope, [leaseCandidate], () => {
+      s.provider.grantQuery(s.scope, false);
+      return 'must not mutate';
+    }),
+    /PROVIDER_READ_LEASE_MUTATION_FORBIDDEN/,
+  );
+  assert.throws(
     () => s.provider.withAuthorizedReadLease(s.scope, [leaseCandidate], async () => 'must not await'),
     /must be synchronous/,
   );
