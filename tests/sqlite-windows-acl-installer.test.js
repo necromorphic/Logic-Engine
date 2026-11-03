@@ -80,7 +80,9 @@ test('Windows service installer enforces the Node-API 10 runtime floor before pr
   assert.ok(installer.includes("'^v(\\d+)\\.(\\d+)\\.(\\d+)$'"));
   assert.match(installer, /\[version\]'22\.14\.0'/);
   assert.match(installer, /Node\.js 22\.14\.0 or newer is required for the SQLite addon runtime/);
+  const nodeAncestorCheck = installer.indexOf('Assert-NoReparsePointAncestors $NodePath');
   const versionCheck = installer.indexOf('$nodeVersionOutput = & $NodePath --version');
   const serviceCreate = installer.indexOf('Invoke-Sc @("create", $ServiceName');
-  assert.ok(versionCheck >= 0 && versionCheck < serviceCreate, 'runtime compatibility must be checked before service creation');
+  assert.ok(nodeAncestorCheck >= 0 && nodeAncestorCheck < versionCheck, 'Node executable ancestors must be validated before executing Node');
+  assert.ok(versionCheck < serviceCreate, 'runtime compatibility must be checked before service creation');
 });
