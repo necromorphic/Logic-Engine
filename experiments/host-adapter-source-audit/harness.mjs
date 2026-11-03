@@ -24,6 +24,7 @@ const mutationPaths = [
   'src/endpoints/data-maid.js',
   'src/endpoints/vectors.js',
   'src/endpoints/users-private.js',
+  'src/users.js',
   'src/endpoints/users-admin.js',
   'src/endpoints/extensions.js',
   'src/endpoints/content-manager.js',
@@ -195,6 +196,15 @@ test('pinned server mutation routes remain in the reviewed inventory', () => {
         file + ' must retain reviewed mutation route ' + route);
     }
   }
+});
+
+test('legacy user-data migration cannot run under Host authority and system-prompt migration is skipped', () => {
+  const users = mutationSources['src/users.js'];
+  assert.match(users, /HOST_LIFECYCLE_LEGACY_USER_DATA_MIGRATION_BLOCKED/);
+  assert.match(users, /Skipping system prompt migration while Host authority is active/);
+  const legacyCheck = users.indexOf('if (!fs.existsSync(legacyCharactersDirectory))');
+  const legacyBlock = users.indexOf('HOST_LIFECYCLE_LEGACY_USER_DATA_MIGRATION_BLOCKED');
+  assert.ok(legacyCheck >= 0 && legacyBlock > legacyCheck);
 });
 
 test('startup account-root migrations are skipped while Host authority is configured', () => {
