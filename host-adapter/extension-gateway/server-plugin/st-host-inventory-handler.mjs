@@ -116,6 +116,13 @@ export function createHostInventoryHandler({
       if (typeof verifySourceIdentity === 'function') {
         try { sourceIdentity = await verifySourceIdentity({ userExtensionsPath: directories.extensions }); } catch {}
       }
+      // A root attestation request must never be made for an unverified installed
+      // source manifest; otherwise Core would persist evidence before the Host
+      // mutation surface itself has been authenticated.
+      if (sourceIdentity?.status !== 'CURRENT_IDENTITIES_VERIFIED'
+        || !/^[a-f0-9]{64}$/.test(sourceIdentity.manifest_sha256 ?? '')) {
+        return response.status(503).json({ status: 'NON_READY', code: 'HOST_INVENTORY_NOT_AUTHORITATIVE' });
+      }
       let rootInventory = null;
       if (typeof persistRootInventory === 'function') {
         try {
