@@ -511,15 +511,16 @@ export class MemoryNpcConsumer {
         return nonReady('memory_snapshot_stale');
       }
       const identity = recordIdentityKey(candidate.record.ref, candidate.record.version);
-      const identitySignature = JSON.stringify([
+      const identitySignature = [
         candidate.source?.kind ?? null,
         candidate.source?.entity_id ?? null,
         candidate.source?.source_version ?? null,
         candidate.content_kind ?? null,
         candidate.epistemic_kind ?? null,
-      ]);
+      ];
       const previousIdentitySignature = observedIdentitySignatures.get(identity);
-      if (previousIdentitySignature !== undefined && previousIdentitySignature !== identitySignature) {
+      if (observedIdentitySignatures.has(identity)
+        && identitySignature.some((value, index) => !Object.is(value, previousIdentitySignature[index]))) {
         return nonReady('memory_record_identity_conflict');
       }
       observedIdentitySignatures.set(identity, identitySignature);
