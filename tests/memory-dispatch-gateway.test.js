@@ -202,6 +202,58 @@ test('dispatch ledger explicitly uses SQLite FULL synchronous durability', async
   }
 });
 
+test('startup migrates an existing dispatch ledger to include CometAPI without losing history', async () => {
+  const fixture = await createFixture();
+  try {
+    const existing = validRequest('pre-cometapi-ledger');
+    await dispatchAndRelease(fixture.gateway, existing);
+
+    fixture.gateway.close();
+    const db = new DatabaseSync(fixture.ledgerPath);
+    try {
+      const tableSql = db.prepare(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='dispatch_ledger'",
+      ).get().sql;
+      assert.match(tableSql, /'cometapi'/);
+      const legacyTableSql = tableSql.replace("'cometapi',", '');
+      assert.notEqual(legacyTableSql, tableSql);
+      db.exec(`
+        BEGIN IMMEDIATE;
+        DROP INDEX dispatch_ledger_status_started;
+        DROP INDEX dispatch_ledger_unresolved_digest;
+        ALTER TABLE dispatch_ledger RENAME TO dispatch_ledger_legacy;
+        ${legacyTableSql};
+        INSERT INTO dispatch_ledger SELECT * FROM dispatch_ledger_legacy;
+        DROP TABLE dispatch_ledger_legacy;
+        CREATE INDEX dispatch_ledger_status_started ON dispatch_ledger(status, started_at);
+        CREATE UNIQUE INDEX dispatch_ledger_unresolved_digest
+          ON dispatch_ledger(request_digest) WHERE status IN ('DISPATCH_STARTED','UNKNOWN');
+        COMMIT;
+      `);
+    } finally {
+      db.close();
+    }
+
+    fixture.reopenGateway();
+    const verify = new DatabaseSync(fixture.ledgerPath);
+    try {
+      assert.equal(
+        verify.prepare('SELECT status FROM dispatch_ledger WHERE request_id=?').get(existing.requestId).status,
+        'COMPLETED',
+      );
+    } finally {
+      verify.close();
+    }
+
+    const cometApiRequest = validRequest('cometapi-after-migration', { senderRoute: 'cometapi' });
+    const response = await fixture.gateway.dispatchProtectedRequest(cometApiRequest);
+    assert.equal(response.status, 200);
+    assert.equal(fixture.calls.length, 2);
+  } finally {
+    await fixture.close();
+  }
+});
+
 test('Host dispatch signature binds the exact body, route, model, identity, and source versions with locale-independent source ordering', () => {
   const request = validRequest('signed-request');
   const secret = 'host-dispatch-signing-secret-00000000000000000000000000000001';
