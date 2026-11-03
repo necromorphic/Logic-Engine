@@ -2211,8 +2211,8 @@ test('Gateway accepts only the exact combined Lane A and Lane B prompt projectio
     const parsed = JSON.parse(request.body);
     parsed.messages[0].content = testNpcMemoryText(request.contentBlocks);
     request.body = JSON.stringify(parsed);
-    const result = await fixture.gateway.dispatchProtectedRequest(request);
-    assert.equal(result.status, 'dispatched');
+    const result = await dispatchAndRelease(fixture.gateway, request);
+    assert.equal(result.status, 200);
     assert.equal(fixture.calls.length, 1);
     assert.match(fixture.calls[0].request.body, /Kamurocho/);
   } finally {
