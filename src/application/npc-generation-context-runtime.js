@@ -400,9 +400,29 @@ export function createCoreNpcGenerationContextRuntime({
     return Object.freeze({ status: 'ready', reason: null });
   }
 
+  // Single preparation entry point for Host Final-Send prepare(). It keeps
+  // the immutable context inside Core and returns only the opaque in-process
+  // handoff; no Lane A/B payload is exposed to Host preparation code.
+  async function prepareForDispatch(request) {
+    const built = await builder.build(request);
+    if (built?.status !== 'ready' || !built.context) {
+      return Object.freeze({ status: 'non_ready', handoff: null, reason: built?.reason ?? 'context_build_not_ready' });
+    }
+    const accepted = await receiver.receive(built.context, request);
+    if (accepted?.status !== 'accepted') {
+      return Object.freeze({ status: 'non_ready', handoff: null, reason: accepted?.reason ?? 'context_receiver_not_ready' });
+    }
+    const issued = receiver.issueDispatchHandoff(accepted, request);
+    if (issued?.status !== 'ready' || !issued.handoff) {
+      return Object.freeze({ status: 'non_ready', handoff: null, reason: issued?.reason ?? 'dispatch_handoff_not_ready' });
+    }
+    return Object.freeze({ status: 'ready', handoff: issued.handoff, reason: null });
+  }
+
   return Object.freeze({
     build: builder.build,
     receive: receiver.receive,
+    prepareForDispatch,
     issueDispatchHandoff: receiver.issueDispatchHandoff,
     consumeDispatchHandoff,
     revalidateLaneAForDispatch,
