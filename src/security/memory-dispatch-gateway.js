@@ -36,7 +36,7 @@ export function createDispatchRequestSignature(secret, request) {
     throw new TypeError('Invalid signed dispatch request.');
   }
   const input = snapshotSignatureInput(request);
-  if (!PROTECTED_MEMORY_SENDER_ROUTES.includes(input.senderRoute)
+  if (!arrayContains(PROTECTED_MEMORY_SENDER_ROUTES, input.senderRoute)
     || typeof input.body !== 'string' || typeof input.stream !== 'boolean') {
     throw new TypeError('Invalid signed dispatch request.');
   }
@@ -87,14 +87,29 @@ export const PROTECTED_MEMORY_SENDER_ROUTES = Object.freeze([
 
 const ASYNC_FUNCTION_PROTOTYPE = Object.getPrototypeOf(async function () {}).constructor;
 
-const validText = (value, max = 200) => typeof value === 'string'
-  && value === value.trim()
-  && value.length > 0
-  && value.length <= max
-  && ![...value].some((character) => {
-    const code = character.charCodeAt(0);
-    return code < 32 || code === 127;
-  });
+function arrayContains(values, expected) {
+  for (let index = 0; index < values.length; index += 1) {
+    if (values[index] === expected) return true;
+  }
+  return false;
+}
+
+function ownKeyContains(keys, expected) {
+  for (let index = 0; index < keys.length; index += 1) {
+    if (keys[index] === expected) return true;
+  }
+  return false;
+}
+
+const validText = (value, max = 200) => {
+  if (typeof value !== 'string' || value.length === 0 || value.length > max
+    || value !== value.trim()) return false;
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code < 32 || code === 127) return false;
+  }
+  return true;
+};
 
 function canonicalPath(path) {
   const absolute = resolve(path);
@@ -142,14 +157,19 @@ function normalizeHostContext(value) {
   ];
   if (!value || typeof value !== 'object' || utilTypes.isProxy(value) || Array.isArray(value)
     || Object.getPrototypeOf(value) !== Object.prototype
-    || Reflect.ownKeys(value).length !== keys.length
-    || Reflect.ownKeys(value).some(key => typeof key !== 'string' || !keys.includes(key))) {
+    || Reflect.ownKeys(value).length !== keys.length) {
     throw new Error('MEMORY_DISPATCH_NOT_READY');
+  }
+  const ownKeys = Reflect.ownKeys(value);
+  for (let index = 0; index < ownKeys.length; index += 1) {
+    if (typeof ownKeys[index] !== 'string' || !arrayContains(keys, ownKeys[index])) {
+      throw new Error('MEMORY_DISPATCH_NOT_READY');
+    }
   }
   const uuid = item => typeof item === 'string'
     && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(item);
-  for (const key of keys) {
-    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+  for (let index = 0; index < keys.length; index += 1) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, keys[index]);
     if (!descriptor || !Object.hasOwn(descriptor, 'value')) throw new Error('MEMORY_DISPATCH_NOT_READY');
   }
   if (!validText(value.adapter_id) || !validText(value.world_id) || !validText(value.actor_id)
@@ -158,17 +178,21 @@ function normalizeHostContext(value) {
     || !uuid(value.conversation_uuid) || !validText(value.core_conversation_id)
     || !validText(value.host_conversation_id)
     || value.core_conversation_id !== [
-      value.host_session_id, value.host_installation_id, value.conversation_uuid,
-    ].join(':')
-    || value.host_conversation_id !== [
-      value.host_installation_id, value.authenticated_account_id, value.conversation_uuid,
-    ].join(':')
+      value.host_session_id + ':' + value.host_installation_id + ':' + value.conversation_uuid
+    || value.host_conversation_id !== value.host_installation_id + ':' + value.authenticated_account_id + ':' + value.conversation_uuid
     || !/^[a-f0-9]{64}$/.test(value.root_id ?? '')
     || !Number.isSafeInteger(value.root_inventory_sequence) || value.root_inventory_sequence < 1
     || !/^[a-f0-9]{64}$/.test(value.root_manifest_sha256 ?? '')) {
     throw new Error('MEMORY_DISPATCH_NOT_READY');
   }
-  return Object.freeze(Object.fromEntries(keys.map(key => [key, value[key]])));
+  const snapshot = {};
+  for (let index = 0; index < keys.length; index += 1) {
+    const key = keys[index];
+    Object.defineProperty(snapshot, key, {
+      value: value[key], enumerable: true, writable: false, configurable: false,
+    });
+  }
+  return Object.freeze(snapshot);
 }
 
 function cloneLaneAData(value, seen = new Set(), depth = 0, budget = { nodes: 0 }) {
@@ -183,7 +207,7 @@ function cloneLaneAData(value, seen = new Set(), depth = 0, budget = { nodes: 0 
     if (Array.isArray(value)) {
       if (Object.getPrototypeOf(value) !== Array.prototype) throw new Error('MEMORY_DISPATCH_NOT_READY');
       const keys = Reflect.ownKeys(value);
-      if (keys.length !== value.length + 1 || !keys.includes('length')) {
+      if (keys.length !== value.length + 1 || !ownKeyContains(keys, 'length')) {
         throw new Error('MEMORY_DISPATCH_NOT_READY');
       }
       const copy = new Array(value.length);
@@ -200,7 +224,8 @@ function cloneLaneAData(value, seen = new Set(), depth = 0, budget = { nodes: 0 
     if (prototype !== Object.prototype && prototype !== null) throw new Error('MEMORY_DISPATCH_NOT_READY');
     const keys = Reflect.ownKeys(value);
     const copy = {};
-    for (const key of keys) {
+    for (let index = 0; index < keys.length; index += 1) {
+      const key = keys[index];
       if (typeof key !== 'string') throw new Error('MEMORY_DISPATCH_NOT_READY');
       const descriptor = Object.getOwnPropertyDescriptor(value, key);
       if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) {
@@ -219,7 +244,11 @@ function cloneLaneAData(value, seen = new Set(), depth = 0, budget = { nodes: 0 
 
 function freezeLaneAData(value) {
   if (!value || typeof value !== 'object' || Object.isFrozen(value)) return value;
-  for (const key of Reflect.ownKeys(value)) freezeLaneAData(value[key]);
+  const keys = Reflect.ownKeys(value);
+  for (let index = 0; index < keys.length; index += 1) {
+    const key = keys[index];
+    freezeLaneAData(value[key]);
+  }
   return Object.freeze(value);
 }
 
@@ -235,8 +264,11 @@ function normalizeLaneA(value) {
     if (Object.getPrototypeOf(value) !== Object.prototype) throw new Error('MEMORY_DISPATCH_NOT_READY');
     ownKeys = Reflect.ownKeys(value);
   } catch { throw new Error('MEMORY_DISPATCH_NOT_READY'); }
-  if (ownKeys.length !== keys.length || ownKeys.some(key => typeof key !== 'string' || !keys.includes(key))) {
-    throw new Error('MEMORY_DISPATCH_NOT_READY');
+  if (ownKeys.length !== keys.length) throw new Error('MEMORY_DISPATCH_NOT_READY');
+  for (let index = 0; index < ownKeys.length; index += 1) {
+    if (typeof ownKeys[index] !== 'string' || !arrayContains(keys, ownKeys[index])) {
+      throw new Error('MEMORY_DISPATCH_NOT_READY');
+    }
   }
   for (const key of keys) {
     const descriptor = Object.getOwnPropertyDescriptor(value, key);
@@ -292,12 +324,13 @@ function readDispatchInput(value) {
     const prototype = Object.getPrototypeOf(value);
     if (prototype !== Object.prototype && prototype !== null) throw new Error('MEMORY_DISPATCH_NOT_READY');
     const keys = Reflect.ownKeys(value);
-    for (const key of required) {
-      if (!keys.includes(key)) throw new Error('MEMORY_DISPATCH_NOT_READY');
+    for (let index = 0; index < required.length; index += 1) {
+      if (!ownKeyContains(keys, required[index])) throw new Error('MEMORY_DISPATCH_NOT_READY');
     }
     const snapshot = Object.create(null);
-    for (const key of required.concat(optional)) {
-      if (!keys.includes(key)) continue;
+    for (let index = 0; index < required.length + optional.length; index += 1) {
+      const key = index < required.length ? required[index] : optional[index - required.length];
+      if (!ownKeyContains(keys, key)) continue;
       const descriptor = Object.getOwnPropertyDescriptor(value, key);
       if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) {
         throw new Error('MEMORY_DISPATCH_NOT_READY');
@@ -316,7 +349,7 @@ function readStrictArray(value, maxLength) {
   }
   let keys;
   try { keys = Reflect.ownKeys(value); } catch { throw new Error('MEMORY_DISPATCH_NOT_READY'); }
-  if (keys.length !== value.length + 1 || !keys.includes('length')) {
+  if (keys.length !== value.length + 1 || !ownKeyContains(keys, 'length')) {
     throw new Error('MEMORY_DISPATCH_NOT_READY');
   }
   const items = new Array(value.length);
@@ -340,12 +373,15 @@ function readStrictRecord(value, keys) {
     const prototype = Object.getPrototypeOf(value);
     if (prototype !== Object.prototype && prototype !== null) throw new Error('MEMORY_DISPATCH_NOT_READY');
     const ownKeys = Reflect.ownKeys(value);
-    if (ownKeys.length !== keys.length
-      || ownKeys.some(key => typeof key !== 'string' || !keys.includes(key))) {
-      throw new Error('MEMORY_DISPATCH_NOT_READY');
+    if (ownKeys.length !== keys.length) throw new Error('MEMORY_DISPATCH_NOT_READY');
+    for (let index = 0; index < ownKeys.length; index += 1) {
+      if (typeof ownKeys[index] !== 'string' || !arrayContains(keys, ownKeys[index])) {
+        throw new Error('MEMORY_DISPATCH_NOT_READY');
+      }
     }
     const record = Object.create(null);
-    for (const key of keys) {
+    for (let index = 0; index < keys.length; index += 1) {
+      const key = keys[index];
       const descriptor = Object.getOwnPropertyDescriptor(value, key);
       if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) {
         throw new Error('MEMORY_DISPATCH_NOT_READY');
@@ -445,7 +481,8 @@ function assertSameCandidates(actual, expected) {
 function assertSourcesMatchCandidates(sources, candidates) {
   const derived = [];
   const seen = new Set();
-  for (const candidate of candidates) {
+  for (let index = 0; index < candidates.length; index += 1) {
+    const candidate = candidates[index];
     const key = JSON.stringify([candidate.source_entity_id, candidate.source_version]);
     if (seen.has(key)) continue;
     seen.add(key);
@@ -585,25 +622,31 @@ export class MemoryDispatchGateway {
             WHERE status IN ('DISPATCH_STARTED','UNKNOWN');
         `);
       } else {
-        const objects = new Set(this.db.prepare(
+        const objectRows = this.db.prepare(
           "SELECT type || ':' || name AS object_name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'",
-        ).all().map((row) => row.object_name));
+        ).all();
+        const objects = new Set();
+        for (let index = 0; index < objectRows.length; index += 1) objects.add(objectRows[index].object_name);
         if (!objects.has('table:dispatch_ledger') || !objects.has('index:dispatch_ledger_status_started')
           || !objects.has('index:dispatch_ledger_unresolved_digest')) {
           throw new Error('DISPATCH_LEDGER_SCHEMA_INCOMPLETE');
         }
-        const columns = new Set(this.db.prepare('PRAGMA table_info(dispatch_ledger)').all().map((row) => row.name));
+        const columnRows = this.db.prepare('PRAGMA table_info(dispatch_ledger)').all();
+        const columns = new Set();
+        for (let index = 0; index < columnRows.length; index += 1) columns.add(columnRows[index].name);
         const required = [
           'request_id', 'request_digest', 'route', 'sender_route', 'model', 'stream', 'world_id', 'actor_id', 'purpose',
           'sources_json', 'candidates_json', 'core_head', 'provider_head', 'policy_authority_id', 'policy_generation',
           'policy_fingerprint', 'status', 'outcome_code',
           'started_at', 'finished_at',
         ];
-        if (required.some((column) => !columns.has(column))) throw new Error('DISPATCH_LEDGER_SCHEMA_INCOMPLETE');
+        for (let index = 0; index < required.length; index += 1) {
+          if (!columns.has(required[index])) throw new Error('DISPATCH_LEDGER_SCHEMA_INCOMPLETE');
+        }
         const tableSql = this.db.prepare(
           "SELECT sql FROM sqlite_master WHERE type='table' AND name='dispatch_ledger'",
         ).get()?.sql ?? '';
-        if (!tableSql.includes("'horde-text'")) {
+        if (tableSql.indexOf("'horde-text'") === -1) {
           // Expand the exact sender CHECK constraint without discarding durable
           // dispatch history. Migration is serialized by the shared Coordinator.
           this.db.exec(`
@@ -670,8 +713,8 @@ export class MemoryDispatchGateway {
       sources, candidates, providerEvidenceCursor, laneA, revalidateLaneA, hostContext,
       transport, forwardResponse, hostTransformsStream = false, signal,
     } = readDispatchInput(input);
-    if (!validText(requestId, 200) || !SUPPORTED_PROTECTED_MEMORY_ROUTES.includes(route)
-      || !PROTECTED_MEMORY_SENDER_ROUTES.includes(senderRoute)
+    if (!validText(requestId, 200) || !arrayContains(SUPPORTED_PROTECTED_MEMORY_ROUTES, route)
+      || !arrayContains(PROTECTED_MEMORY_SENDER_ROUTES, senderRoute)
       || typeof model !== 'string' || model.length > 128 || !/^[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+){0,3}$/.test(model)
       || typeof stream !== 'boolean'
       || typeof body !== 'string' || body.length === 0 || body.length > 4_000_000
@@ -821,7 +864,7 @@ export class MemoryDispatchGateway {
         this.db.exec('COMMIT');
       } catch (error) {
         try { this.db.exec('ROLLBACK'); } catch {}
-        if (String(error?.message || '').includes('UNIQUE constraint failed')) {
+        if (String(error?.message || '').indexOf('UNIQUE constraint failed') !== -1) {
           throw new Error('MEMORY_DISPATCH_DUPLICATE_ID');
         }
         throw error;
