@@ -46,9 +46,9 @@ has(pluginLoader, /app\.use\(\`\/api\/plugins\/\$\{id\}\`, router\)/,
   'native server plugin router must mount under /api/plugins/{id}');
 has(extensions, /runGenerationInterceptors/,
   'the native interceptor chain exists but is not used as the Memory ingress');
-has(script, /await eventSource\\.emit\\(event_types\\.GENERATE_AFTER_DATA, generate_data\\)/,
+has(script, /await eventSource\.emit\(event_types\.GENERATE_AFTER_DATA, generate_data\)/,
   'text-generation locator event must be awaited before native request serialization');
-has(openai, /await eventSource\\.emit\\(event_types\\.CHAT_COMPLETION_SETTINGS_READY, generate_data\\)/,
+has(openai, /await eventSource\.emit\(event_types\.CHAT_COMPLETION_SETTINGS_READY, generate_data\)/,
   'Chat Completions locator event must be awaited before native request serialization');
 assert.equal(Object.hasOwn(gatewayManifest, 'generate_interceptor'), false,
   'Logic Engine must not register a parallel browser generation interceptor');
@@ -60,7 +60,7 @@ has(gatewayClient, /logic_engine_conversation_uuid/,
   'Extension may attach only an untrusted Host conversation locator');
 has(gatewayServer, /id: 'logic-engine-extension-gateway'/,
   'server-side gateway must be a native SillyTavern server plugin');
-assert.doesNotMatch(gatewayServer, /router\\.post\\(['"]\\/dispatch/,
+assert.doesNotMatch(gatewayServer, /router\.post\(['"]\/dispatch/,
   'the browser-facing Memory dispatch route must not exist');
 assert.doesNotMatch(gatewayServer, /\/api\/logic-engine/,
   'the adapter must not register separate ST /api/logic-engine routes');
