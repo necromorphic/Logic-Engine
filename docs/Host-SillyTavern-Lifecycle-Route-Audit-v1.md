@@ -44,6 +44,7 @@ These operations do not yet have operation-specific persisted lineage receipts. 
 | `src/endpoints/thumbnails.js` | `GET /` thumbnail generation side effect | When Host authority is active, serve the original image instead of writing an unreceipted account thumbnail cache file |
 | `src/endpoints/users-admin.js` | `/create`, `/disable`, `/enable`, `/promote`, `/demote`, `/delete` | Unsupported mutation guard; fail closed while Host authority is active |
 | Startup group metadata migration | Legacy group metadata rewrite | Blocked whenever Host authority is configured; pre-migration scans cannot authorize writes |
+| Server startup account-root migrations | Content seeding, disk-cache verification, flat-secret migration, settings backup initialization, stats initialization | Skipped whenever Host authority is configured; temporary upload cleanup and global access-log maintenance remain outside the per-account root |
 | Browser character/group import and group-bookmark copy | Import/copy/restore path | Client guard; server bulk guards remain authoritative |
 
 **Consequences:** chat rename/move, import, export, backup restore, group deletion, character/group CRUD, account profile changes, and account/root reset are not enabled while Host authority is active. They remain blocked rather than being represented as completed lifecycle operations. A future implementation must add an operation-specific persisted lifecycle receipt for each operation before removing its guard.
