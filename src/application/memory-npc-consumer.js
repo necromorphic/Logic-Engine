@@ -1,4 +1,7 @@
 import { isDeepStrictEqual, types as utilTypes } from 'node:util';
+import { createHash } from 'node:crypto';
+import { isCoordinatorLease } from '../storage/coordinator-lock.js';
+import { getAcceptedHeadStatusSync } from '../security/accepted-head-client-sync.js';
 import { evaluateMemoryCandidateAdmission } from '../npc/memory-candidate-eligibility.js';
 import { getAuthenticatedHostSessionContext, isAuthenticatedHostSessionContext } from './host-session-context.js';
 
@@ -211,6 +214,123 @@ export class MemoryNpcConsumer {
     this.#memoryProvider = memoryProvider;
     this.contentFields = Object.freeze([...contentFields]);
     Object.freeze(this);
+  }
+
+  /**
+   * Synchronous Core evidence reader used only while the Final-Send Gateway
+   * holds the shared Coordinator lease. It re-resolves Host→World and
+   * adapter→Actor bindings, verifies the accepted Core head, checks each exact
+   * canonical source version and snapshots the active policy authority.
+   */
+  readDispatchEvidenceSync({ worldId, actorId, purpose, sources, hostContext, coordinatorLease } = {}) {
+    const engine = this.authorizedReadService.engine;
+    const store = engine?.store;
+    const authorityConfig = store?.acceptedHeadConfig;
+    if (!store?.db || !store?.coordinatorDb
+      || !isCoordinatorLease(coordinatorLease, store.coordinatorDb)
+      || !authorityConfig || !Number.isInteger(authorityConfig.port)
+      || typeof authorityConfig.token !== 'string' || authorityConfig.token.length < 32
+      || !validId(worldId) || !validId(actorId) || purpose !== 'npc_decision'
+      || !Array.isArray(sources) || sources.length > 256
+      || !object(hostContext)
+      || hostContext.adapter_id !== this.adapterId
+      || hostContext.world_id !== worldId || hostContext.actor_id !== actorId
+      || typeof hostContext.core_conversation_id !== 'string' || !validId(hostContext.core_conversation_id)) {
+      throw new Error('MEMORY_DISPATCH_NOT_READY');
+    }
+
+    const authority = getAcceptedHeadStatusSync({
+      port: authorityConfig.port,
+      token: authorityConfig.token,
+    });
+    const localHead = store.db.prepare(
+      'SELECT head,enrolled FROM accepted_head_state WHERE singleton=1',
+    ).get();
+    if (authority.pending.core || authority.pending.provider
+      || !authority.enrolled.core || !authority.enrolled.provider
+      || !localHead || localHead.enrolled !== 1
+      || !Number.isSafeInteger(localHead.head) || localHead.head < 1
+      || authority.heads.core !== localHead.head) {
+      throw new Error('MEMORY_DISPATCH_NOT_READY');
+    }
+
+    const conversation = this.hostConversationWorldBindingService.resolve({
+      adapterId: this.adapterId,
+      conversationId: hostContext.core_conversation_id,
+    });
+    if (conversation?.world_id !== worldId) throw new Error('MEMORY_DISPATCH_NOT_READY');
+    const actor = this.actorBindingService.resolveForAdapter(worldId, this.adapterId);
+    if (actor?.actor?.entity_id !== actorId) throw new Error('MEMORY_DISPATCH_NOT_READY');
+    const exactActor = this.actorBindingService.resolve(worldId, this.adapterId, actorId);
+    if (exactActor?.world_id !== worldId || exactActor?.adapter_id !== this.adapterId
+      || exactActor?.actor?.entity_id !== actorId || exactActor.actor.status === 'destroyed') {
+      throw new Error('MEMORY_DISPATCH_NOT_READY');
+    }
+
+    const normalizedSources = [];
+    const sourceIds = [];
+    const seen = new Set();
+    for (const source of sources) {
+      if (!object(source) || source.source_kind !== 'canonical_entity'
+        || !validId(source.source_entity_id)
+        || typeof source.source_version !== 'string'
+        || !/^core-entity-v1:[1-9][0-9]*$/.test(source.source_version)) {
+        throw new Error('MEMORY_DISPATCH_NOT_READY');
+      }
+      const key = JSON.stringify([source.source_entity_id, source.source_version]);
+      if (seen.has(key)) throw new Error('MEMORY_DISPATCH_NOT_READY');
+      seen.add(key);
+      sourceIds.push(source.source_entity_id);
+      normalizedSources.push({
+        source_kind: 'canonical_entity',
+        source_entity_id: source.source_entity_id,
+        source_version: source.source_version,
+      });
+    }
+    const compareCodeUnits = (left, right) => left < right ? -1 : left > right ? 1 : 0;
+    normalizedSources.sort((a, b) => compareCodeUnits(a.source_entity_id, b.source_entity_id)
+      || compareCodeUnits(a.source_version, b.source_version));
+
+    const snapshot = engine.getSnapshot(worldId, {
+      ...(sourceIds.length ? { entityIds: sourceIds } : {}),
+      includeSourceVersions: true,
+    });
+    if (!snapshot || snapshot.world_id !== worldId
+      || !Number.isSafeInteger(snapshot.world_revision) || snapshot.world_revision < 0
+      || !Number.isSafeInteger(snapshot.commit_sequence) || snapshot.commit_sequence < 0
+      || !Array.isArray(snapshot.entities) || snapshot.entities.length !== sourceIds.length) {
+      throw new Error('MEMORY_DISPATCH_NOT_READY');
+    }
+    const currentEntities = new Map(snapshot.entities.map(entity => [entity.entity_id, entity]));
+    for (const source of normalizedSources) {
+      const entity = currentEntities.get(source.source_entity_id);
+      if (!entity || entity.status !== 'active' || entity.source_version !== source.source_version) {
+        throw new Error('MEMORY_DISPATCH_NOT_READY');
+      }
+    }
+
+    const policy = this.authorizedReadService.getPolicyAuthoritySnapshot();
+    if (!policy || !this.authorizedReadService.isPolicyAuthorityCurrent(policy)
+      || !validId(policy.authority_id) || !Number.isSafeInteger(policy.generation) || policy.generation < 1) {
+      throw new Error('MEMORY_DISPATCH_NOT_READY');
+    }
+    const fingerprint = createHash('sha256').update(
+      JSON.stringify([policy.authority_id, policy.generation]), 'utf8',
+    ).digest('hex');
+
+    return Object.freeze({
+      world_id: worldId,
+      actor_id: actorId,
+      readiness: 'READY',
+      inventory_status: 'READY',
+      head: localHead.head,
+      sources: Object.freeze(normalizedSources.map(source => Object.freeze(source))),
+      policy_authority: Object.freeze({
+        authority_id: policy.authority_id,
+        generation: policy.generation,
+        fingerprint,
+      }),
+    });
   }
 
   /**
