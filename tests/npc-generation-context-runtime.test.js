@@ -310,6 +310,30 @@ test('dispatch projection preserves both lanes and does not consume the opaque h
   assert.equal(runtime.projectDispatchHandoff(prepared.handoff, request).status, 'non_ready');
 });
 
+test('Lane A-only projection retains authorized facts with an explicitly empty Lane B', async () => {
+  const { runtime, setMemoryResultFactory } = setup();
+  setMemoryResultFactory(() => ({
+    status: 'ready', admitted: [], candidates: [], reason: null,
+    snapshot: { ...scope.snapshot },
+  }));
+  const prepared = await runtime.prepareForDispatch(request);
+  assert.equal(prepared.status, 'ready');
+  const projected = runtime.projectDispatchHandoff(prepared.handoff, request);
+  assert.equal(projected.status, 'ready');
+  assert.equal(projected.projection.contentBlocks.length, 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(projected.projection.contentBlocks[0])), {
+    epistemic_kind: 'author_initial',
+    evidence_assessment: 'unassessed',
+    content: {
+      subject_ref: 'entity:npc-1',
+      predicate: 'knows',
+      value: { fact: 'private-to-npc-1' },
+    },
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(projected.projection.sources)), []);
+  assert.deepEqual(JSON.parse(JSON.stringify(projected.projection.candidates)), []);
+});
+
 test('prepareForDispatch returns no handoff when either lane is not ready', async () => {
   const { runtime, setMemoryCurrent } = setup();
   setMemoryCurrent(false);
