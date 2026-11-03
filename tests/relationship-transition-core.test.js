@@ -1071,3 +1071,73 @@ test('rollback currently treats distinct dimensions on the same directed pair as
     store.close();
   }
 });
+
+
+test('historical Relationship rule pin survives rebuild when its rule module is unavailable', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-relationship-historical-pin-'));
+  const databasePath = join(directory, 'core.sqlite');
+  let store;
+  try {
+    const fixtureState = await fixture(databasePath);
+    store = fixtureState.store;
+    const { engine, seed } = fixtureState;
+    const result = engine.commitRelationshipTransition('world-relationship-test', transitionRequest(seed));
+    assert.equal(result.accepted, true);
+    const eventBeforeRebuild = engine.getEvents('world-relationship-test').find((event) => event.event_id === result.event_id);
+    const effectBeforeRebuild = eventBeforeRebuild.effects.find((effect) => effect.kind === 'relationship.transition');
+    assert.equal(effectBeforeRebuild.rule_module_id, 'relationship-rules');
+    assert.equal(effectBeforeRebuild.rule_module_version, '1.0.0');
+    store.db.prepare('DELETE FROM rule_module_manifests WHERE module_id=? AND version=?').run('relationship-rules', '1.0.0');
+    store.close(); store = null;
+    const reopened = new SQLiteStore(databasePath); store = reopened;
+    assert.throws(() => reopened.getRuleModuleManifest('relationship-rules', '1.0.0'), (error) => error.code === 'RULE_MODULE_NOT_FOUND');
+    reopened.tx(() => reopened.rebuild('world-relationship-test', 2));
+    assert.equal(reopened.getRelationshipPair('world-relationship-test', 'A', 'B').dimensions.trust, 'low');
+    assert.deepEqual(reopened.getRelationshipPair('world-relationship-test', 'B', 'A').dimensions, {});
+    const eventAfterRebuild = reopened.events('world-relationship-test').find((event) => event.event_id === result.event_id);
+    const effectAfterRebuild = eventAfterRebuild.effects.find((effect) => effect.kind === 'relationship.transition');
+    assert.equal(effectAfterRebuild.rule_module_id, 'relationship-rules');
+    assert.equal(effectAfterRebuild.rule_module_version, '1.0.0');
+    assert.equal(reopened.db.prepare("SELECT COUNT(*) AS count FROM world_events WHERE world_id=? AND event_type='relationship.transition' AND validity='valid'").get('world-relationship-test').count, 1);
+  } finally { if (store) store.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test('rollback preserves a later transition on an independent relationship dimension', async () => {
+  const { store, engine, seed } = await fixture();
+  try {
+    const trust = engine.commitRelationshipTransition('world-relationship-test', transitionRequest(seed));
+    const affinity = engine.commitRelationshipTransition('world-relationship-test', transitionRequest(seed, {
+      patch: { affinity: 'low' }, expected_revision: 2, expected_commit_sequence: 2,
+      idempotency_key: 'relationship-affinity-write',
+    }));
+    const rollback = engine.rollbackEvent('world-relationship-test', { root_event_id: trust.event_id, idempotency_key: 'rollback-trust-only' });
+    assert.ok(rollback.invalidated_event_ids.includes(trust.event_id));
+    assert.equal(rollback.invalidated_event_ids.includes(affinity.event_id), false);
+    const events = engine.store.events('world-relationship-test', true);
+    assert.equal(events.find((event) => event.event_id === affinity.event_id).validity, 'valid');
+    assert.deepEqual(engine.store.getRelationshipPair('world-relationship-test', 'A', 'B').dimensions, { affinity: 'low' });
+  } finally { store.close(); }
+});
+
+test('Relationship pair read returns dimensions and freshness cursor from one SQLite snapshot', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-engine-relationship-read-snapshot-'));
+  const storagePath = join(directory, 'state.sqlite');
+  let store; let writerStore;
+  try {
+    const fixtureResult = await fixture(storagePath); store = fixtureResult.store;
+    const { engine, seed } = fixtureResult;
+    writerStore = new SQLiteStore(storagePath); const writerEngine = new LogicEngine(writerStore);
+    const originalCursor = store.currentCommitSequence.bind(store); let injected = false;
+    store.currentCommitSequence = (worldId) => {
+      if (!injected) {
+        injected = true;
+        try { writerEngine.commitRelationshipTransition(worldId, transitionRequest(seed)); }
+        catch (error) { if (!String(error.message).includes('locked') && error.code !== 'SQLITE_BUSY') throw error; }
+      }
+      return originalCursor(worldId);
+    };
+    const pair = store.getRelationshipPair('world-relationship-test', 'A', 'B');
+    if (pair.world_revision === 1) { assert.equal(pair.commit_sequence, 1); assert.deepEqual(pair.dimensions, {}); }
+    else { assert.equal(pair.world_revision, 2); assert.equal(pair.commit_sequence, 2); assert.equal(pair.dimensions.trust, 'low'); }
+  } finally { writerStore?.close(); store?.close(); rmSync(directory, { recursive: true, force: true }); }
+});
