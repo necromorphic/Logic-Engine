@@ -154,6 +154,24 @@ export function createSillyTavernHostAdapter({
     lifecycleStatus,
     dispatchMiddleware,
     dispatch,
+    async authenticateGenerationRequest(request, conversationUuid) {
+      if (!authentication) return Object.freeze({ status: 'NON_READY', code: 'HOST_IDENTITY_STORE_UNCONFIGURED' });
+      return authentication.authenticate(request, conversationUuid);
+    },
+    isAuthenticatedHostRequest(request) {
+      return authentication?.isAuthenticatedHostRequest(request) === true;
+    },
+    resolveCoreConversationId(request) {
+      return authentication?.resolveCoreConversationId(request) ?? null;
+    },
+    resolveHostIdentity(request) {
+      const context = authentication?.resolveHostContext(request);
+      if (!context) return null;
+      return Object.freeze({
+        host_installation_id: context.host_installation_id,
+        authenticated_account_id: context.authenticated_account_id,
+      });
+    },
     async prepareGenerationContext(request, hostRoute) {
       if (!['chat-completions', 'text-completions', 'kobold', 'novelai-text', 'horde-text'].includes(hostRoute)) {
         return Object.freeze({ status: 'NON_READY', code: 'HOST_GENERATION_ROUTE_UNREGISTERED' });
