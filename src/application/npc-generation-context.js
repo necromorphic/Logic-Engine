@@ -292,12 +292,18 @@ function createNpcGenerationContextReceiver({ resolveScope, revalidateEvidence, 
     || typeof revalidateScope !== 'function') {
     throw new TypeError('Receiver requires trusted Core scope and evidence callbacks');
   }
+  // A builder-issued context is a one-shot receiver capability. Consume it
+  // synchronously before any await so concurrent or repeated dispatch attempts
+  // cannot reuse the same generation context.
+  const consumedContexts = new WeakSet();
   async function receive(context, request) {
     const issued = context && typeof context === 'object' ? issuedContexts.get(context) : null;
     if (!issued || !validateRequest(request)
       || issued.request_id !== request.request_id || issued.generation_id !== request.generation_id
       || context.request_id !== request.request_id || context.generation_id !== request.generation_id
       || context.generation_type !== request.generation_type) return nonReady('context_request_mismatch');
+    if (consumedContexts.has(context)) return nonReady('context_replay_rejected');
+    consumedContexts.add(context);
     let scope;
     let evidenceCurrent;
     let current;
