@@ -834,6 +834,9 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
           if (code === 'HOST_ROOT_IDENTITY_UNAUTHORIZED') {
             return send(res, 401, { error: { code, message: 'Host installation/account identity is not authorized.' } });
           }
+          if (code === 'HOST_ROOT_IDENTITY_BINDING_CHANGED') {
+            return send(res, 409, { error: { code, message: 'Host Root Inventory binding changed during Memory retrieval.' } });
+          }
           if (code === 'HOST_SESSION_REVOKED') {
             return send(res, 401, { error: { code, message: 'Host session has been revoked.' } });
           }
