@@ -104,6 +104,7 @@ function setup(t, { allowContent = true, authorizeQuery = true, authorizeCoreQue
       scope,
       snapshot: { world_revision: snapshot.world_revision, commit_sequence: snapshot.commit_sequence },
       candidates: candidateList,
+      provider_evidence_cursor: { data_version: 1, candidate_digest: 'a'.repeat(64) },
     }),
     authorizeCandidate: async (input) => {
       lastCandidateAuthorization = input;
@@ -443,6 +444,7 @@ test('empty retrieval with a stale Memory snapshot is non-ready, not proof of ab
       commit_sequence: empty.snapshot.commit_sequence,
     },
     candidates: [],
+    provider_evidence_cursor: { data_version: 1, candidate_digest: 'a'.repeat(64) },
   });
 
   const result = await empty.consumer.retrieveForNpc(request());
@@ -1007,6 +1009,7 @@ test('complete-empty is ready only when the Memory index explicitly reports read
     scope: { world_id: 'memory-npc-world', subject_id: 'npc-a', purpose: 'npc_decision' },
     snapshot: { world_revision: snapshot.world_revision - 1, commit_sequence: snapshot.commit_sequence },
     candidates: [],
+    provider_evidence_cursor: { data_version: 1, candidate_digest: 'a'.repeat(64) },
   });
   const staleEmpty = await consumer.retrieveForNpc(request());
   assert.equal(staleEmpty.status, 'non_ready');
@@ -1502,4 +1505,29 @@ test('filtered-empty disclosure rechecks query authorization after the final Cor
   assert.deepEqual(result.admitted, []);
   assert.deepEqual(result.candidates, []);
   assert.equal(JSON.stringify(result).includes('authorized source text'), false);
+});
+
+
+test('Memory NPC rejects missing or malformed Provider evidence cursors', async t => {
+  for (const [label, cursor] of [
+    ['missing', undefined],
+    ['invalid digest', { data_version: 1, candidate_digest: 'not-a-digest' }],
+    ['invalid version', { data_version: -1, candidate_digest: 'a'.repeat(64) }],
+  ]) {
+    await t.test(label, async subtest => {
+      const { consumer, provider, setCandidates } = setup(subtest);
+      setCandidates([]);
+      const originalRetrieve = provider.retrieveCandidates.bind(provider);
+      provider.retrieveCandidates = async () => {
+        const result = await originalRetrieve();
+        if (cursor === undefined) delete result.provider_evidence_cursor;
+        else result.provider_evidence_cursor = cursor;
+        return result;
+      };
+      const result = await consumer.retrieveForNpc(request());
+      assert.equal(result.status, 'non_ready');
+      assert.equal(result.reason, 'memory_result_incomplete_or_scope_mismatch');
+      assert.deepEqual(result.candidates, []);
+    });
+  }
 });
