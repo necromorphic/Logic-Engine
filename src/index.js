@@ -169,6 +169,17 @@ const hostLifecycleAuthorityGeneration = Number(process.env.ENGINE_HOST_AUTHORIT
 const canonicalHostReceiptProof = value => value && typeof value === 'object'
   ? '{' + Object.keys(value).sort().map(key => JSON.stringify(key) + ':' + canonicalHostReceiptProof(value[key])).join(',') + '}'
   : JSON.stringify(value);
+function verifyHostRootInventoryAttestation({ attestation, identity }) {
+  const secret = adapterTokens?.[identity?.adapter_id];
+  if (typeof secret !== 'string' || secret.length < 16
+    || !/^[a-f0-9]{64}$/.test(attestation?.signature ?? '')) return false;
+  const { signature, ...proof } = attestation;
+  const expected = createHmac('sha256', secret)
+    .update(canonicalHostReceiptProof(proof), 'utf8').digest();
+  const supplied = Buffer.from(signature, 'hex');
+  return supplied.length === expected.length && timingSafeEqual(supplied, expected);
+}
+
 function verifyHostLifecycleReceipt({ event, identity }) {
   const secret = adapterTokens?.[identity?.adapter_id];
   if (typeof secret !== 'string' || secret.length < 16
@@ -206,7 +217,9 @@ function bindHostLifecycleAuthority(resolved) {
       generation: hostLifecycleAuthorityGeneration,
     });
   } catch { return { authorized: false }; }
-  if (snapshot?.status !== 'INTEGRITY_OK' || !/^[a-f0-9]{64}$/.test(snapshot.snapshot_fingerprint ?? '')) {
+  if (snapshot?.status !== 'INTEGRITY_OK'
+    || snapshot.authority_status !== 'AUTHORITATIVE_COMPLETE'
+    || !/^[a-f0-9]{64}$/.test(snapshot.snapshot_fingerprint ?? '')) {
     return { authorized: false };
   }
   return {
@@ -253,6 +266,7 @@ if (hostRootIdentityRegistry.length > 0) {
     },
     resolveRootIdentity: input => resolveRegisteredHostRootIdentity(hostRootIdentityRegistry, input),
     verifyMutationReceipt: verifyHostLifecycleReceipt,
+    verifyRootInventoryAttestation: verifyHostRootInventoryAttestation,
   });
   if (typeof hostLifecycleAuthorityId === 'string' && hostLifecycleAuthorityId.trim()
     && Number.isSafeInteger(hostLifecycleAuthorityGeneration) && hostLifecycleAuthorityGeneration > 0) {
