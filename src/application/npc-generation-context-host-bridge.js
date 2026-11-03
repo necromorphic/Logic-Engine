@@ -11,6 +11,7 @@ export function createNpcGenerationContextHostBridge({ runtime, createRequestMet
     || typeof runtime?.consumeDispatchHandoff !== 'function'
     || typeof runtime?.getLaneBDispatchEvidence !== 'function'
     || typeof runtime?.revalidateLaneAForDispatch !== 'function'
+    || typeof runtime?.revalidateLaneAForDispatchUnderCoordinatorLease !== 'function'
     || typeof createRequestMetadata !== 'function') {
     throw new TypeError('NPC Host bridge requires the trusted Core runtime and request metadata resolver.');
   }
@@ -82,6 +83,15 @@ export function createNpcGenerationContextHostBridge({ runtime, createRequestMet
         revalidateLaneA: () => {
           try { return runtime.revalidateLaneAForDispatch(context, requestMetadata); }
           catch { return Object.freeze({ status: 'non_ready', reason: 'npc_lane_a_revalidation_failed' }); }
+        },
+        revalidateLaneAUnderCoordinatorLease: coordinatorLease => {
+          try {
+            return runtime.revalidateLaneAForDispatchUnderCoordinatorLease(
+              context, requestMetadata, coordinatorLease,
+            );
+          } catch {
+            return Object.freeze({ status: 'non_ready', reason: 'npc_lane_a_revalidation_failed' });
+          }
         },
       });
     } catch {
