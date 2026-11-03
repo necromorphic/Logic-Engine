@@ -67,7 +67,12 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
     effects: [{ kind: 'entity.create', entity_id: 'host-memory-actor', entity_type: 'character' }],
   });
   let hostIdentityAllowed = true;
-  const resolveHostLifecycleIdentity = input => hostIdentityAllowed ? ({
+  const resolveHostLifecycleIdentity = input => hostIdentityAllowed
+    && input.adapterId === ADAPTER_ID
+    && input.host_installation_id === INSTALLATION
+    && input.authenticated_account_id === ACCOUNT
+    && input.host_session_id === SESSION
+    && input.conversation_uuid === CONVERSATION ? ({
     authorized: true, adapter_id: ADAPTER_ID,
     host_installation_id: input.host_installation_id,
     authenticated_account_id: input.authenticated_account_id,
@@ -199,6 +204,19 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
   assert.equal((await unregisteredRead.json()).error.code, 'HOST_ROOT_IDENTITY_UNAUTHORIZED');
   assert.equal(calls, 1);
   hostIdentityAllowed = true;
+
+  const wrongAccountAssertion = {
+    ...assertion, authenticated_account_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    nonce: '14141414-1414-4414-8414-141414141414',
+    issued_at: Math.floor(Date.now() / 1000),
+  };
+  const wrongAccountRead = await post(base, '/v1/host/memory-npc/retrieve', adapterHeaders, {
+    ...body, assertion: wrongAccountAssertion, signature: sign(wrongAccountAssertion),
+    request_id: '15151515-1515-4515-8515-151515151515',
+  });
+  assert.equal(wrongAccountRead.status, 401);
+  assert.equal((await wrongAccountRead.json()).error.code, 'HOST_ROOT_IDENTITY_UNAUTHORIZED');
+  assert.equal(calls, 1);
 
   const invalidResults = [
     { status: 'ready', admitted: [], candidates: [], reason: null, snapshot: { world_revision: 0, commit_sequence: 0 }, provider_diagnostics: { secret: true } },
