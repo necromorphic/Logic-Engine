@@ -1092,7 +1092,6 @@ diff --git a/src/users.js b/src/users.js
 +    if (process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR) {
 +        throw new Error('HOST_LIFECYCLE_LEGACY_USER_DATA_MIGRATION_BLOCKED');
 +    }
-
 @@ -434,1 +439,5 @@
  export async function migrateSystemPrompts() {
 +    if (process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR) {
@@ -1101,7 +1100,6 @@ diff --git a/src/users.js b/src/users.js
 +    }
 +
      /**
-
 diff --git a/src/endpoints/users-public.js b/src/endpoints/users-public.js
 --- a/src/endpoints/users-public.js
 +++ b/src/endpoints/users-public.js
@@ -1507,7 +1505,6 @@ new file mode 100644
 +  return digest({ sourceLocator: sourceLocator ?? null, projection });
 +}
 +export const lifecycleJournalContract=Object.freeze({schemaVersion:2,requiredCoveragePaths:REQUIRED_COVERAGE});
-
 diff --git a/public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs b/public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs
 new file mode 100644
 --- /dev/null
@@ -2383,7 +2380,6 @@ new file mode 100644
 +    guardExport: async () => assertUnavailableSafe(),
 +  });
 +}
-
 diff --git a/public/scripts/logic-engine-lifecycle/conversation-identity.mjs b/public/scripts/logic-engine-lifecycle/conversation-identity.mjs
 new file mode 100644
 --- /dev/null
