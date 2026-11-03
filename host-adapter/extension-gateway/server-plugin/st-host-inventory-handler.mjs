@@ -2,7 +2,11 @@ import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { lstat, open } from 'node:fs/promises';
 import { enumerateHostDataInventory } from './host-data-inventory.mjs';
-import { verifyPinnedSillyTavernMutationCoverage } from './st-mutation-route-contract.mjs';
+import {
+  PINNED_ST_MUTATION_COVERAGE_SHA256,
+  PINNED_ST_MUTATION_ROUTE_COUNT,
+  verifyPinnedSillyTavernMutationCoverage,
+} from './st-mutation-route-contract.mjs';
 
 const HOST_SESSION_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -123,9 +127,8 @@ export function createHostInventoryHandler({
       }
       const mutationCoverageVerified = mutationCoverage?.status === 'VERIFIED'
         && mutationCoverage.source_commit === pinnedHostCommit
-        && /^[a-f0-9]{64}$/.test(mutationCoverage.coverage_manifest_sha256 ?? '')
-        && Number.isSafeInteger(mutationCoverage.route_count)
-        && mutationCoverage.route_count > 0
+        && mutationCoverage.coverage_manifest_sha256 === PINNED_ST_MUTATION_COVERAGE_SHA256
+        && mutationCoverage.route_count === PINNED_ST_MUTATION_ROUTE_COUNT
         && /^[a-f0-9]{64}$/.test(mutationCoverage.source_files_sha256 ?? '');
       let sourceIdentity = { status: 'NON_READY', code: 'HOST_SOURCE_IDENTITY_VERIFIER_UNAVAILABLE' };
       if (typeof verifySourceIdentity === 'function') {
