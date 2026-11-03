@@ -80,7 +80,25 @@ test('stock better-sqlite3 uses the registered default VFS in its own engine', {
     } finally {
       raceRegistrar.close();
     }
-    const raceDb = new Database(raceFilename);
+    let raceDb;
+    try {
+      raceDb = new Database(raceFilename);
+    } catch (error) {
+      const diagnosticDb = new Database(':memory:');
+      try {
+        const diagnostics = diagnosticDb.prepare(`
+          SELECT
+            logic_engine_vfs_probe_open_count() AS mainOpens,
+            logic_engine_vfs_probe_native_open_count() AS nativeOpens,
+            logic_engine_vfs_probe_identity_reject_count() AS identityRejects,
+            logic_engine_vfs_probe_reused_descriptor_accept_count() AS acceptedMainOpens
+        `).get();
+        error.message += `; race VFS diagnostics: ${JSON.stringify(diagnostics)}`;
+      } finally {
+        diagnosticDb.close();
+      }
+      throw error;
+    }
     const replacementPath = path.join(directory, 'replacement.bin');
     const journalPath = `${raceFilename}-journal`;
     const quarantinePath = path.join(directory, '.logic-engine-vfs-quarantine');
