@@ -879,16 +879,17 @@ export class SQLiteMemoryProvider {
         || candidate.authorization_generation < 1) {
         throw new TypeError('Invalid Provider authorized-read candidate');
       }
-      stableCandidates.push({
+      stableCandidates[index] = {
         record_ref: candidate.record_ref,
         record_version: candidate.record_version,
         authorization_generation: candidate.authorization_generation,
-      });
+      };
     }
     return this.#withCoordinatorLock(() => {
       this.#assertAcceptedHeadCurrent();
       if (!this.#authorizeQuery(scope)) throw new Error('MEMORY_QUERY_DENIED');
-      for (const candidate of stableCandidates) {
+      for (let index = 0; index < stableCandidates.length; index += 1) {
+        const candidate = stableCandidates[index];
         this.checkCandidateGrant({
           ...scope,
           ...candidate,
