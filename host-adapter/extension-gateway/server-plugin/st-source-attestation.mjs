@@ -1,12 +1,12 @@
 import { createHash, createHmac, randomUUID } from 'node:crypto';
-import { lstat, readFile, readdir, realpath } from 'node:fs/promises';
+import { lstat, readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 
 export const PINNED_HOST_COMMIT = '06bde939fb1e9c4c8d8641d810f0a916b5bce127';
 export const HOST_INVENTORY_COVERAGE_ID = 'ST-1.19.0-HOST-LIFECYCLE-P0-V1';
 // Updated together with Core's accepted deployment constants.
-export const PINNED_PATCH_BUNDLE_SHA256 = '35ae74285a99fc802ee5442dc9000671233967f7d74d169b2ba106c6d991f256';
-export const PINNED_HOST_HANDLER_GIT_BLOB_SHA = 'dea9ad6acf7aa7c4bfa04f25a90aeb0db9e242a6';
+export const PINNED_PATCH_BUNDLE_SHA256 = 'f1697d252d4f3c46ead68dea1cd7d1fe9e1fa76339dd1a1f61579aa56ffd155e';
+export const PINNED_HOST_HANDLER_GIT_BLOB_SHA = 'c4f4ac39a915f16cf6b7a92dfe3731cb5cd654f9';
 
 export const SOURCE_FILE_PATHS = Object.freeze([
   'public/script.js',
@@ -127,14 +127,18 @@ async function exactDirectoryChildren(root, relativeDirectory, expectedNames) {
 async function isEmptySafeDirectory(directoryPath) {
   try {
     if (typeof directoryPath !== 'string' || !path.isAbsolute(directoryPath)) return false;
-    const stat = await lstat(directoryPath);
+    const resolved = path.resolve(directoryPath);
+    const root = path.parse(resolved).root;
+    if (!root) return false;
+    let cursor = root;
+    for (const segment of resolved.slice(root.length).split(path.sep).filter(Boolean)) {
+      cursor = path.join(cursor, segment);
+      const component = await lstat(cursor);
+      if (component.isSymbolicLink()) return false;
+    }
+    const stat = await lstat(resolved);
     if (!stat.isDirectory() || stat.isSymbolicLink()) return false;
-    const actualPath = await realpath(directoryPath);
-    if (!path.isAbsolute(actualPath)) return false;
-    const normalizedRequested = process.platform === 'win32' ? path.resolve(directoryPath).toLowerCase() : path.resolve(directoryPath);
-    const normalizedActual = process.platform === 'win32' ? actualPath.toLowerCase() : actualPath;
-    if (normalizedRequested !== normalizedActual) return false;
-    return (await readdir(actualPath)).length === 0;
+    return (await readdir(resolved)).length === 0;
   } catch {
     return false;
   }
