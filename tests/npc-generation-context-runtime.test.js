@@ -32,6 +32,7 @@ function setup() {
   let currentScope = scope;
   let visible = true;
   let memoryCurrent = true;
+  let revokeAtFinalFence = false;
   const engine = {
     getSnapshot: () => scope.snapshot,
     readNpcKnowledge(input) {
@@ -60,7 +61,7 @@ function setup() {
   const consumer = {
     async retrieveForNpc() { return memoryCurrent ? memoryResult() : { status: 'non_ready' }; },
     async revalidateForFinalDispatch(_request, prepared) {
-      return memoryCurrent && JSON.stringify(prepared) === JSON.stringify(memoryResult())
+      return memoryCurrent && !revokeAtFinalFence && JSON.stringify(prepared) === JSON.stringify(memoryResult())
         ? memoryResult() : { status: 'non_ready' };
     },
   };
@@ -73,6 +74,7 @@ function setup() {
     setScope: value => { currentScope = value; },
     setVisible: value => { visible = value; },
     setMemoryCurrent: value => { memoryCurrent = value; },
+    setRevokeAtFinalFence: value => { revokeAtFinalFence = value; },
   };
 }
 
@@ -96,9 +98,9 @@ test('omits per-acquisition denied Lane A records without leaking their values',
   assert.doesNotMatch(JSON.stringify(built.context), /private-to-npc-1/);
 });
 
-test('fails closed when the Memory Consumer is revoked or unavailable during final revalidation', async () => {
-  const { runtime, setMemoryCurrent } = setup();
-  setMemoryCurrent(false);
+test('fails closed when Memory authorization is revoked at the final evidence fence', async () => {
+  const { runtime, setRevokeAtFinalFence } = setup();
+  setRevokeAtFinalFence(true);
   const built = await runtime.build(request);
   assert.equal(built.status, 'non_ready');
   assert.equal(built.context, null);
