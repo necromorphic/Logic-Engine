@@ -36,7 +36,6 @@ const ROUTE_BY_HOST_ROUTE = Object.freeze({
   'text-completions': 'text-completions',
   kobold: 'kobold',
   'novelai-text': 'novelai-text',
-  'horde-text': 'horde-text',
 });
 
 const UNREGISTERED_SENDER_ROUTE = 'unregistered';
