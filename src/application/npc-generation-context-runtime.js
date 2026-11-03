@@ -282,8 +282,14 @@ export function createCoreNpcGenerationContextRuntime({
         envelopes.laneB.result,
       );
     } catch { return false; }
+    // Lane B revalidation is asynchronous. Re-read Lane A after that await so
+    // a visibility revoke during the Provider/Core checks cannot survive the
+    // build fence merely because the earlier Lane A read was still allowed.
+    const finalA = readLaneA(scope);
     return freshB?.status === 'ready'
-      && JSON.stringify(freshB) === JSON.stringify(envelopes.laneB.result);
+      && JSON.stringify(freshB) === JSON.stringify(envelopes.laneB.result)
+      && finalA.status === 'ready'
+      && JSON.stringify(finalA) === JSON.stringify(envelopes.laneA);
   }
 
   async function revalidateIssuedContext(context) {
@@ -317,10 +323,20 @@ export function createCoreNpcGenerationContextRuntime({
         toPlainData(preparedResult),
       );
     } catch { return false; }
+    // Revalidate Lane A again after the asynchronous Lane B check. The
+    // dispatch-start Gateway must still serialize this with durable revoke
+    // ordering; this second read closes the avoidable inter-lane await gap.
+    const finalA = readLaneA(scope);
     return freshB?.status === 'ready'
       && JSON.stringify(freshB) === JSON.stringify(preparedResult)
       && freshB.snapshot?.world_revision === context.snapshot.world_revision
-      && freshB.snapshot?.commit_sequence === context.snapshot.commit_sequence;
+      && freshB.snapshot?.commit_sequence === context.snapshot.commit_sequence
+      && finalA.status === 'ready'
+      && finalA.read_authorization_ref === laneAContext?.authorization_ref
+      && finalA.visibility_authorization_ref === laneAContext?.visibility_authorization_ref
+      && JSON.stringify(finalA.items) === JSON.stringify(laneAContext?.items)
+      && finalA.snapshot.world_revision === context.snapshot.world_revision
+      && finalA.snapshot.commit_sequence === context.snapshot.commit_sequence;
   }
 
   const builder = createNpcGenerationContextBuilder({
