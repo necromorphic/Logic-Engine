@@ -899,6 +899,27 @@ export class HostLifecycleJournal {
     };
   }
 
+  #rootInventoryAuthoritySnapshot(input) {
+    let trustedIdentity;
+    try {
+      trustedIdentity = this.resolveRootIdentity({
+        host_installation_id: input.host_installation_id,
+        authenticated_account_id: input.authenticated_account_id,
+        root_id: input.root_id,
+      });
+    } catch { return null; }
+    if (!isPlainRecord(trustedIdentity) || trustedIdentity.authorized !== true
+      || !validText(trustedIdentity.adapter_id)) return null;
+    return this.#authoritySnapshotFingerprint({
+      authority_id: 'host-root-inventory-attestation-check',
+      generation: 1,
+      adapter_id: trustedIdentity.adapter_id,
+      host_installation_id: input.host_installation_id,
+      authenticated_account_id: input.authenticated_account_id,
+      root_id: input.root_id,
+    });
+  }
+
   #authoritySnapshotFingerprint(identity) {
     if (!isPlainRecord(identity) || !validText(identity.authority_id)
       || !Number.isSafeInteger(identity.generation) || identity.generation < 1
@@ -1079,6 +1100,7 @@ export class HostLifecycleJournal {
       const integrity = this.#verifyRootInventoryRows(input.host_installation_id,
         input.authenticated_account_id, input.root_id, rows);
       if (!integrity.valid) throw new Error(integrity.reason);
+      const currentAuthority = this.#rootInventoryAuthoritySnapshot(input);
       const reusedEventId = rows.find((row) => row.event_id === input.event_id);
       if (reusedEventId) {
         const eventIndex = rows.indexOf(reusedEventId);
@@ -1102,8 +1124,21 @@ export class HostLifecycleJournal {
       }
       const latest = JSON.parse(rows.at(-1).canonical_event_json);
       if (manifestSha256 === integrity.latest_manifest_sha256) {
+        const lifecycleHead = this.#getLifecycleHead(input.host_installation_id, input.authenticated_account_id);
+        if (currentAuthority?.authority_status === 'AUTHORITATIVE_COMPLETE') {
+          return {
+            status: 'AUTHORITATIVE_COMPLETE',
+            integrity_status: 'INTEGRITY_OK',
+            sequence: integrity.sequence,
+            manifest_sha256: manifestSha256,
+            journal_head_sha256: integrity.head_sha256,
+            lifecycle_sequence: lifecycleHead.sequence,
+            lifecycle_head_sha256: lifecycleHead.head_sha256,
+            attestation_sha256: currentAuthority.attestation_sha256,
+            ...(rows.length > 1 ? { duplicate: true } : {}),
+          };
+        }
         if (rows.length > 1) {
-          const lifecycleHead = this.#getLifecycleHead(input.host_installation_id, input.authenticated_account_id);
           return { status: 'NON_READY', duplicate: true,
             reason: 'previously observed root inventory delta remains unresolved',
             sequence: integrity.sequence, manifest_sha256: manifestSha256,
@@ -1112,7 +1147,6 @@ export class HostLifecycleJournal {
             lifecycle_head_sha256: lifecycleHead.head_sha256,
             ...(rows.at(-1).delta_sha256 ? { delta_sha256: rows.at(-1).delta_sha256 } : {}) };
         }
-        const lifecycleHead = this.#getLifecycleHead(input.host_installation_id, input.authenticated_account_id);
         return { status: 'UNCHANGED_REVIEW_ONLY', sequence: integrity.sequence,
           manifest_sha256: manifestSha256,
           journal_head_sha256: integrity.head_sha256,
@@ -1273,8 +1307,14 @@ export class HostLifecycleJournal {
         ORDER BY sequence
       `).all(host_installation_id, authenticated_account_id, root_id);
       const result = this.#verifyRootInventoryRows(host_installation_id, authenticated_account_id, root_id, rows);
-      return result.valid ? { ...result, status: 'INTEGRITY_OK' }
-        : { status: 'NON_READY', reason: result.reason };
+      if (!result.valid) return { status: 'NON_READY', reason: result.reason };
+      const authority = this.#rootInventoryAuthoritySnapshot({ host_installation_id, authenticated_account_id, root_id });
+      return {
+        ...result,
+        status: 'INTEGRITY_OK',
+        authority_status: authority?.authority_status ?? 'REVIEW_ONLY',
+        ...(authority?.attestation_sha256 ? { attestation_sha256: authority.attestation_sha256 } : {}),
+      };
     });
   }
 
