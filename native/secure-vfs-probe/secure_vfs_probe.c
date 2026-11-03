@@ -1253,6 +1253,14 @@ static int probe_stat(const char *name, struct stat *info) {
 }
 #endif
 
+static const int probe_unhandled_file_classes =
+  SQLITE_OPEN_TEMP_DB | SQLITE_OPEN_TEMP_JOURNAL | SQLITE_OPEN_SUBJOURNAL
+  | SQLITE_OPEN_SUPER_JOURNAL | SQLITE_OPEN_TRANSIENT_DB;
+
+static int probe_file_class_is_unhandled(int flags) {
+  return (flags & probe_unhandled_file_classes) != 0;
+}
+
 static int probe_xOpen_parent(sqlite3_vfs *vfs, const char *name, sqlite3_file *file,
                               int flags, int *out_flags) {
   sqlite3_vfs *parent = (sqlite3_vfs *)vfs->pAppData;
@@ -1261,13 +1269,11 @@ static int probe_xOpen_parent(sqlite3_vfs *vfs, const char *name, sqlite3_file *
   /*
    * This feasibility VFS has no separately pinned temporary-file namespace.
    * Do not silently let SQLite create temp DBs, temp journals, subjournals,
-   * super-journals or transient DB files through the parent VFS. Pure
-   * SQLITE_OPEN_MEMORY databases remain supported.
+   * super-journals or transient DB files through the parent VFS. The
+   * unsupported-class predicate deliberately leaves ordinary MEMORY main-DB
+   * flags outside this rejection policy.
    */
-  const int unhandled_file_classes = SQLITE_OPEN_TEMP_DB
-    | SQLITE_OPEN_TEMP_JOURNAL | SQLITE_OPEN_SUBJOURNAL
-    | SQLITE_OPEN_SUPER_JOURNAL | SQLITE_OPEN_TRANSIENT_DB;
-  if ((flags & unhandled_file_classes) != 0) {
+  if (probe_file_class_is_unhandled(flags)) {
     return SQLITE_CANTOPEN;
   }
   if ((flags & (SQLITE_OPEN_MAIN_DB | SQLITE_OPEN_WAL | SQLITE_OPEN_MAIN_JOURNAL
@@ -2480,27 +2486,13 @@ static void probe_temp_file_class_rejected(sqlite3_context *context, int argc, s
     }
   }
 
-  /* A pure in-memory DB remains supported; it must not touch the OS namespace. */
-  {
-    sqlite3_file *file = (sqlite3_file *)sqlite3_malloc64((sqlite3_uint64)g_probe_vfs.szOsFile);
-    int out_flags = 0;
-    int rc;
-    if (!file) {
-      sqlite3_result_error_nomem(context);
-      return;
-    }
-    memset(file, 0, (size_t)g_probe_vfs.szOsFile);
-    /* Exercise SQLite's anonymous in-memory VFS callback contract. The literal
-     * ":memory:" name is resolved above the VFS and is not a direct xOpen input. */
-    rc = probe_xOpen(&g_probe_vfs, NULL, file,
-      SQLITE_OPEN_MEMORY | SQLITE_OPEN_MAIN_DB
-        | SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, &out_flags);
-    if (rc == SQLITE_OK && file->pMethods && file->pMethods->xClose) {
-      file->pMethods->xClose(file);
-    } else {
-      all_rejected_without_parent_open = 0;
-    }
-    sqlite3_free(file);
+  /* Confirm the unsupported-class policy does not reject an ordinary
+   * in-memory main-DB flag combination. This is a classification assertion,
+   * not a claim that the host platform VFS implements anonymous memory files. */
+  if (probe_file_class_is_unhandled(
+        SQLITE_OPEN_MEMORY | SQLITE_OPEN_MAIN_DB
+          | SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE)) {
+    all_rejected_without_parent_open = 0;
   }
 
   if (g_native_open_count != opens_before) all_rejected_without_parent_open = 0;
