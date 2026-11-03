@@ -365,6 +365,25 @@ test('Core requires a signed pinned-source completeness attestation before root 
   assert.equal(restoredAuthority.integrity_status, 'INTEGRITY_OK');
   assert.equal(journal.getAuthoritySnapshot(trusted).authority_status, 'AUTHORITATIVE_COMPLETE');
 
+  authority.snapshot_fingerprint = journal.getAuthoritySnapshot(trusted).snapshot_fingerprint;
+  journal.append({
+    event_id: '77777777-7777-4777-8777-777777777777',
+    host_installation_id: installation,
+    authenticated_account_id: account,
+    host_session_id: hostSession,
+    conversation_uuid: conversation,
+    authority_id: authority.authority_id,
+    generation: authority.generation,
+    snapshot_fingerprint: authority.snapshot_fingerprint,
+    event_type: 'MUTATION_PREPARED',
+    mutation_id: '88888888-8888-4888-8888-888888888888',
+    operation: 'edit-message',
+    mutation_digest: digest('mutation-after-inventory-attestation'),
+    occurred_at: new Date().toISOString(),
+  });
+  assert.equal(journal.getAuthoritySnapshot(trusted).authority_status, 'REVIEW_ONLY',
+    'a lifecycle event after the signed snapshot invalidates its completeness attestation');
+
   assert.equal(journal.attestRootInventory({
     host_installation_id: installation,
     authenticated_account_id: account,
