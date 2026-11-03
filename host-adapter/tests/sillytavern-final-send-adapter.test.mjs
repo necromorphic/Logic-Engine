@@ -148,7 +148,7 @@ test('CometAPI is registered and protected generation reaches the sole Gateway',
   const gatewayRoutes = [];
   let transportCalls = 0;
   const adapter = createAdapter({
-    resolveProtectedMemory: () => protectedContext,
+    resolveProtectedMemory: () => ({ status: 'ready', context: protectedContext }),
     gateway: {
       dispatchProtectedRequest(request) {
         gatewayRoutes.push(request.senderRoute);
@@ -186,7 +186,7 @@ test('unknown SillyTavern sender is denied for protected Memory generation', () 
     candidates: [{ record_ref: 'record-1', record_version: 'v1', authorization_generation: 1,
       source_kind: 'canonical_entity', source_entity_id: 'entity-1', source_version: 'v1' }],
   };
-  const adapter = createAdapter({ resolveProtectedMemory: () => protectedContext });
+  const adapter = createAdapter({ resolveProtectedMemory: () => ({ status: 'ready', context: protectedContext }) });
   const request = { body: { chat_completion_source: 'UNKNOWN_SOURCE', stream: false } };
 
   assert.throws(() => adapter.dispatch({
@@ -266,7 +266,7 @@ test('all three synchronous protected non-Chat-Completions routes dispatch throu
 });
 
 test('Horde async task creation remains native only when unprotected', async () => {
-  const unprotectedAdapter = createAdapter({ resolveProtectedMemory: () => null });
+  const unprotectedAdapter = createAdapter({ resolveProtectedMemory: () => ({ status: 'unprotected' }) });
   const unprotectedRequest = { body: {} };
   const unprotectedRoute = unprotectedAdapter.resolveSenderRoute(unprotectedRequest, 'horde-text');
   assert.equal(unprotectedRoute, 'unregistered');
@@ -397,7 +397,7 @@ test('trusted asynchronous Host preparation is passed to the synchronous Memory 
     },
     resolveProtectedMemory: (_request, hostContext) => {
       resolvedContext = hostContext;
-      return null;
+      return { status: 'unprotected' };
     },
   });
   const request = {
