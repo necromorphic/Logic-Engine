@@ -66,6 +66,7 @@ function copyContent(content) {
 export function receiveNpcContext({
   retrieval,
   hostContext,
+  hostBinding,
   requestId,
   model,
   purpose = 'npc_decision',
@@ -73,7 +74,17 @@ export function receiveNpcContext({
   if (!UUID(requestId) || !ID(model) || !ID(purpose)
     || !exactDataRecord(hostContext, ['adapter_id', 'conversation_id', 'world_id', 'actor_id', 'actor_type'])
     || !ID(hostContext.adapter_id) || !ID(hostContext.conversation_id)
-    || !ID(hostContext.world_id) || !ID(hostContext.actor_id) || !ID(hostContext.actor_type)) {
+    || !ID(hostContext.world_id) || !ID(hostContext.actor_id) || !ID(hostContext.actor_type)
+    || !exactDataRecord(hostBinding, [
+      'host_installation_id', 'authenticated_account_id', 'host_session_id', 'conversation_id',
+      'conversation_uuid', 'root_id', 'root_inventory_sequence', 'root_manifest_sha256',
+    ])
+    || !UUID(hostBinding.host_installation_id) || !UUID(hostBinding.authenticated_account_id)
+    || !UUID(hostBinding.host_session_id) || !UUID(hostBinding.conversation_uuid)
+    || !ID(hostBinding.conversation_id)
+    || !/^[a-f0-9]{64}$/.test(hostBinding.root_id ?? '')
+    || !Number.isSafeInteger(hostBinding.root_inventory_sequence) || hostBinding.root_inventory_sequence < 1
+    || !/^[a-f0-9]{64}$/.test(hostBinding.root_manifest_sha256 ?? '')) {
     throw new Error('NPC_CONTEXT_SCOPE_INVALID');
   }
   if (!exactDataRecord(retrieval, ['status', 'admitted', 'candidates', 'reason', 'snapshot'])
@@ -153,6 +164,21 @@ export function receiveNpcContext({
     sources: Object.freeze(sources),
     candidates: Object.freeze(candidates),
     contentBlocks: Object.freeze(contentBlocks),
+    hostContext: Object.freeze({
+      adapter_id: hostContext.adapter_id,
+      core_conversation_id: hostContext.conversation_id,
+      world_id: hostContext.world_id,
+      actor_id: hostContext.actor_id,
+      actor_type: hostContext.actor_type,
+      host_installation_id: hostBinding.host_installation_id,
+      authenticated_account_id: hostBinding.authenticated_account_id,
+      host_session_id: hostBinding.host_session_id,
+      host_conversation_id: hostBinding.conversation_id,
+      conversation_uuid: hostBinding.conversation_uuid,
+      root_id: hostBinding.root_id,
+      root_inventory_sequence: hostBinding.root_inventory_sequence,
+      root_manifest_sha256: hostBinding.root_manifest_sha256,
+    }),
     snapshot: Object.freeze({
       world_revision: retrieval.snapshot.world_revision,
       commit_sequence: retrieval.snapshot.commit_sequence,
