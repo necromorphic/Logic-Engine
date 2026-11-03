@@ -1074,7 +1074,7 @@ diff --git a/src/users.js b/src/users.js
 diff --git a/src/endpoints/users-private.js b/src/endpoints/users-private.js
 --- a/src/endpoints/users-private.js
 +++ b/src/endpoints/users-private.js
-@@ -11,7 +11,13 @@
+@@ -11,7 +11,14 @@
  import { checkForNewContent, CONTENT_TYPES } from './content-manager.js';
  import { color, Cache, getConfigValue } from '../util.js';
  import { getIpAddress, retryAfter } from '../express-common.js';
@@ -1083,6 +1083,7 @@ diff --git a/src/endpoints/users-private.js b/src/endpoints/users-private.js
 +import { revokeHostSessionBeforeLogout } from '../../plugins/logic-engine-extension-gateway/st-host-session-revocation.mjs';
 +const hostBulkMutationGuard = createHostBulkMutationGuard({ pinnedHostCommit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127' });
 +const hostUnsupportedMutationGuard = createHostUnsupportedMutationGuard();
++const hostRootResetGuard = createHostUnsupportedMutationGuard({ code: 'HOST_USER_ROOT_RESET_UNSUPPORTED' });
  
 +
  const RESET_POINTS = getConfigValue('rateLimiting.accountsResetMaxAttempts', 5, 'number');
@@ -1115,17 +1116,12 @@ diff --git a/src/endpoints/users-private.js b/src/endpoints/users-private.js
 @@ -204 +216 @@
 -router.post('/change-name', async (request, response) => {
 +router.post('/change-name', hostUnsupportedMutationGuard, async (request, response) => {
-@@ -258,7 +270,12 @@
+@@ -258,7 +271,7 @@
      }
  });
  
 -router.post('/reset-step2', async (request, response) => {
-+router.post('/reset-step2', (request, response, next) => {
-+    if (process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR) {
-+        return response.status(503).json({ error: { code: 'HOST_USER_ROOT_RESET_UNSUPPORTED' } });
-+    }
-+    return next();
-+}, async (request, response) => {
++router.post('/reset-step2', hostRootResetGuard, async (request, response) => {
      try {
          if (!request.body.code) {
              console.warn('Reset step 2 failed: Missing required fields');
