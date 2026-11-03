@@ -256,9 +256,24 @@ export const PINNED_ST_MUTATION_COVERAGE_SHA256 = sha256(canonical({
 }));
 
 function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
+');
+}
 
+export function hasPinnedPostRouteGuards(source, route, guards) {
+  if (typeof source !== 'string' || typeof route !== 'string' || !route
+    || !Array.isArray(guards) || guards.length === 0
+    || guards.some(guard => typeof guard !== 'string' || !guard)) return false;
+  const expression = new RegExp(
+    "(?:router|comfy)\\.post\\(\\s*(['\"])" + escapeRegExp(route) + "\\1\\s*,([^\\r\\n]*)",
+    'g',
+  );
+  const declarations = [...source.matchAll(expression)].map(match => match[2]);
+  return declarations.length > 0
+    && declarations.every(middleware => guards.every(guard => middleware.includes(guard)));
+}
 /**
  * Verify the actual, patched SillyTavern source tree loaded by the Host plugin.
  * The digest binds the exact bytes of every endpoint file used by the route
@@ -281,14 +296,10 @@ export async function verifyPinnedSillyTavernMutationCoverage({
     const source = bytes.toString('utf8');
     files.set(relative, createHash('sha256').update(bytes).digest('hex'));
     for (const [route, guards] of Object.entries(expectedRoutes)) {
-      const expression = new RegExp("(?:router|comfy)\\.post\\('" + escapeRegExp(route) + "',([^\\n]*)");
-      const match = source.match(expression);
-      for (const guard of guards) {
-        if (!match || !match[1].includes(guard)) {
-          throw new Error('HOST_ST_MUTATION_ROUTE_COVERAGE_MISMATCH:' + relative + ':' + route + ':' + guard);
-        }
-        checkedGuards++;
+      if (!hasPinnedPostRouteGuards(source, route, guards)) {
+        throw new Error('HOST_ST_MUTATION_ROUTE_COVERAGE_MISMATCH:' + relative + ':' + route);
       }
+      checkedGuards += guards.length;
       checkedRoutes++;
     }
   }
