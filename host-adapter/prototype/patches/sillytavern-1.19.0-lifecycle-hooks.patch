@@ -749,20 +749,18 @@ diff --git a/src/endpoints/groups.js b/src/endpoints/groups.js
  export const router = express.Router();
  
  /**
-@@ -34,6 +37,17 @@
+@@ -34,6 +37,15 @@
  export async function migrateGroupChatsMetadataFormat(userDirectories) {
      for (const userDirs of userDirectories) {
          try {
-+            if (process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR) {
-+                try {
-+                    await assertHostStartupMigrationAllowed({
-+                        directories: userDirs,
-+                        pinnedHostCommit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127',
-+                    });
-+                } catch (error) {
-+                    console.warn(color.yellow('Skipping startup group metadata migration: ' + error.message));
-+                    continue;
-+                }
++            try {
++                await assertHostStartupMigrationAllowed({
++                    directories: userDirs,
++                    pinnedHostCommit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127',
++                });
++            } catch (error) {
++                console.warn(color.yellow('Skipping startup group metadata migration: ' + error.message));
++                continue;
 +            }
              let anyDataMigrated = false;
              const backupPath = path.join(userDirs.backups, '_group_metadata_update');
