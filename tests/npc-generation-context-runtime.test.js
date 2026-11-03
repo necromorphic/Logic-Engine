@@ -36,6 +36,7 @@ function setup() {
   let memoryCurrent = true;
   let revokeAtFinalFence = false;
   let readAuthorizationRef = 'core-read-1';
+  let readActorId = scope.actor_id;
   let memoryResultFactory = memoryResult;
   const engine = {
     getSnapshot: () => scope.snapshot,
@@ -43,7 +44,7 @@ function setup() {
       assert.equal(input.actor_id, scope.actor_id);
       assert.equal(input.purpose, 'npc_turn_context');
       return {
-        status: 'ready', world_id: scope.world_id, actor_id: scope.actor_id,
+        status: 'ready', world_id: scope.world_id, actor_id: readActorId,
         conversation_id: scope.conversation_id, adapter_id: scope.adapter_id,
         recipient: 'model', purpose: 'npc_turn_context',
         snapshot: { ...scope.snapshot }, authorization_ref: readAuthorizationRef,
@@ -83,6 +84,7 @@ function setup() {
     setMemoryCurrent: value => { memoryCurrent = value; },
     setRevokeAtFinalFence: value => { revokeAtFinalFence = value; },
     setReadAuthorizationRef: value => { readAuthorizationRef = value; },
+    setReadActorId: value => { readActorId = value; },
     setMemoryResultFactory: value => { memoryResultFactory = value; },
   };
 }
@@ -131,6 +133,15 @@ test('fails closed when Memory authorization is revoked at the final evidence fe
   const built = await runtime.build(request);
   assert.equal(built.status, 'non_ready');
   assert.equal(built.context, null);
+});
+
+test('rejects Lane A results bound to another NPC before any record enters context', async () => {
+  const { runtime, setReadActorId } = setup();
+  setReadActorId('npc-2');
+  const built = await runtime.build(request);
+  assert.equal(built.status, 'non_ready');
+  assert.equal(built.context, null);
+  assert.doesNotMatch(JSON.stringify(built), /private-to-npc-1/);
 });
 
 test('receiver rejects a context after Core scope changes', async () => {
