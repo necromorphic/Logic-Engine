@@ -66,7 +66,7 @@ test('Extension Gateway is a routing-only boundary; Host authentication and Core
   assert.ok(gateway.includes('createSillyTavernHostAdapter'));
   assert.doesNotMatch(gateway, /createHostRequestAuthenticationGate|createHostMemoryDispatchProxyHandler/);
   assert.doesNotMatch(gateway, /request\.(user|session|body)|resolveConversationId|createHmac/);
-  assert.doesNotMatch(gateway, /router\\.post\\(['\"]\\/dispatch/);
+  assert.doesNotMatch(gateway, /router\.post\(['"]\/dispatch/);
 
   assert.match(adapter, /createHostRequestAuthenticationGate/);
   assert.match(adapter, /createHostMemoryDispatchProxyHandler/);
