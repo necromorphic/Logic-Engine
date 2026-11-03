@@ -15,15 +15,15 @@ $volumeRoot = [System.IO.Path]::GetPathRoot($root)
 $relative = $root.Substring($volumeRoot.Length).TrimStart('\')
 $created = $null
 # VSS serializes snapshot creation system-wide. Concurrent host scans may
-# receive WMI return code 9; retry that transient busy state, but fail closed
+# receive WMI return code 10; retry that transient busy state, but fail closed
 # after a bounded wait rather than racing or falling back to the live tree.
-for ($attempt = 0; $attempt -lt 20; $attempt++) {
+for ($attempt = 0; $attempt -lt 60; $attempt++) {
   $created = ([WmiClass]'Win32_ShadowCopy').Create($volumeRoot, 'ClientAccessible')
-  if ([int]$created.ReturnValue -ne 9) { break }
+  if ([int]$created.ReturnValue -ne 10) { break }
   Start-Sleep -Milliseconds 500
 }
 if ($created.ReturnValue -ne 0) {
-  if ([int]$created.ReturnValue -eq 9) { throw 'HOST_VSS_CREATE_BUSY:9' }
+  if ([int]$created.ReturnValue -eq 10) { throw 'HOST_VSS_CREATE_BUSY:10' }
   throw "HOST_VSS_CREATE_FAILED:$($created.ReturnValue)"
 }
 $id = [string]$created.ShadowID
