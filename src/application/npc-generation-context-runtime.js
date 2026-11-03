@@ -268,7 +268,9 @@ export function createCoreNpcGenerationContextRuntime({
     if (result.candidates.length === 0) return result;
     const entityIds = [];
     const seen = new Set();
-    for (const candidate of result.candidates) {
+    if (!densePlainArray(result.candidates)) return null;
+    for (let index = 0; index < result.candidates.length; index += 1) {
+      const candidate = result.candidates[index];
       if (!exactDataRecord(candidate, [
         'record_ref', 'record_version', 'authorization_generation',
         'source_entity_id', 'epistemic_kind', 'evidence_assessment', 'content',
@@ -290,7 +292,8 @@ export function createCoreNpcGenerationContextRuntime({
       || snapshot.commit_sequence !== result.snapshot.commit_sequence
       || !densePlainArray(snapshot.entities) || snapshot.entities.length !== entityIds.length) return null;
     const versions = new Map();
-    for (const entity of snapshot.entities) {
+    for (let index = 0; index < snapshot.entities.length; index += 1) {
+      const entity = snapshot.entities[index];
       if (!exactDataRecord(entity, [
         'entity_id', 'entity_type', 'status', 'attributes', 'created_by_event_id',
         'updated_revision', 'source_version',
@@ -509,12 +512,13 @@ export function createCoreNpcGenerationContextRuntime({
       || laneB.core_purpose !== PURPOSE || !validSnapshot(laneB.snapshot)
       || laneB.snapshot.world_revision !== context.snapshot.world_revision
       || laneB.snapshot.commit_sequence !== context.snapshot.commit_sequence
-      || !Array.isArray(laneB.candidates) || laneB.candidates.length > 50) {
+      || !densePlainArray(laneB.candidates) || laneB.candidates.length > 50) {
       return Object.freeze({ status: 'non_ready', reason: 'dispatch_lane_b_unavailable' });
     }
     const candidates = [];
     const sourceMap = new Map();
-    for (const candidate of laneB.candidates) {
+    for (let index = 0; index < laneB.candidates.length; index += 1) {
+      const candidate = laneB.candidates[index];
       if (!exactDataRecord(candidate, [
         'record_ref', 'record_version', 'authorization_generation',
         'source_kind', 'source_entity_id', 'source_version',
