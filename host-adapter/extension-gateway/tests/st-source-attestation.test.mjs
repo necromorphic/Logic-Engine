@@ -85,6 +85,19 @@ test('pinned source verifier accepts only the exact manifest and matching deploy
   assert.equal(rejected.code, 'HOST_SOURCE_FILE_DIGEST_MISMATCH');
 });
 
+test('pinned source verifier rejects mutation-route contract drift', async t => {
+  const fixture = await createManifestRoot();
+  t.after(() => rm(fixture.root, { recursive: true, force: true }));
+  const routeContract = path.join(
+    fixture.root,
+    'plugins/logic-engine-extension-gateway/st-mutation-route-contract.mjs',
+  );
+  await writeFile(routeContract, 'tampered route coverage contract');
+  const rejected = await verifyPinnedSourceIdentity({ installRoot: fixture.root });
+  assert.equal(rejected.status, 'NON_READY');
+  assert.equal(rejected.code, 'HOST_SOURCE_FILE_DIGEST_MISMATCH');
+});
+
 test('pinned source verifier does not accept a caller-selected manifest outside the installed Gateway', async t => {
   const fixture = await createManifestRoot();
   t.after(() => rm(fixture.root, { recursive: true, force: true }));
