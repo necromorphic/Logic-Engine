@@ -288,6 +288,20 @@ test('Host dispatch signature binds the exact body, route, model, identity, and 
   );
 });
 
+test('Horde async task-result route is excluded from protected dispatch', async () => {
+  assert.equal(PROTECTED_MEMORY_SENDER_ROUTES.includes('horde-text'), false);
+  const fixture = await createFixture();
+  try {
+    await assert.rejects(
+      fixture.gateway.dispatchProtectedRequest(validRequest('horde-protected-denied', { senderRoute: 'horde-text' })),
+      /MEMORY_DISPATCH_NOT_READY/,
+    );
+    assert.equal(fixture.calls.length, 0);
+  } finally {
+    await fixture.close();
+  }
+});
+
 test('CometAPI is accepted by the protected sender registry and durable ledger', async () => {
   const fixture = await createFixture();
   try {
