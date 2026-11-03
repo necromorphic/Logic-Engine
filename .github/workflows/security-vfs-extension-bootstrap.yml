@@ -243,3 +243,5 @@ jobs:
         run: node --test tests/sqlite-role-manifest-schema.test.js
       - name: Test Windows manifest lifecycle transactions and crash recovery
         run: node --test tests/windows-manifest-lifecycle.test.js
+      - name: Test strict Windows manifest and intent JSON parsing
+        run: node --test tests/windows-manifest-json.test.js
