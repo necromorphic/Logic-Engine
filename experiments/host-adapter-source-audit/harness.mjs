@@ -197,6 +197,21 @@ test('pinned server mutation routes remain in the reviewed inventory', () => {
   }
 });
 
+test('startup account-root migrations are skipped while Host authority is configured', () => {
+  const start = serverMain.indexOf('const hostAuthorityConfigured = Boolean(process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR)');
+  const check = serverMain.indexOf('await checkForNewContent(directories)', start);
+  const cache = serverMain.indexOf('await diskCache.verify(directories)', start);
+  const secrets = serverMain.indexOf('migrateFlatSecrets(directories)', start);
+  const settings = serverMain.indexOf('await settingsInit()', start);
+  const stats = serverMain.indexOf('await statsInit()', start);
+  assert.ok(start >= 0 && check > start && cache > check && secrets > cache);
+  assert.ok(settings > secrets && stats > settings);
+  const guarded = serverMain.slice(start, stats + 'await statsInit()'.length);
+  assert.match(guarded, /if \(hostAuthorityConfigured\)/);
+  assert.match(guarded, /if \(!hostAuthorityConfigured\)/);
+  assert.match(guarded, /Skipping account-root startup mutations/);
+});
+
 test('account recovery password reset is blocked while Host authority is active', () => {
   const usersPublic = mutationSources['src/endpoints/users-public.js'];
   assert.match(usersPublic,
