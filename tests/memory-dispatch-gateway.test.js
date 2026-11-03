@@ -226,15 +226,15 @@ test('Gateway snapshots its outer request envelope without invoking getters or P
   const fixture = await createFixture();
   let getterCalls = 0;
   try {
-    const request = validRequest('outer-request-getter');
+    const request = { ...validRequest('outer-request-getter'), transport: () => Promise.resolve({ status: 200 }) };
     Object.defineProperty(request, 'requestId', {
       enumerable: true, get() { getterCalls += 1; return 'forged-request-id'; },
     });
-    await assert.rejects(fixture.gateway.dispatchProtectedRequest(request), /MEMORY_DISPATCH_NOT_READY/);
+    await assert.rejects(MemoryDispatchGateway.prototype.dispatchProtectedRequest.call(fixture.gateway, request), /MEMORY_DISPATCH_NOT_READY/);
     assert.equal(getterCalls, 0);
 
-    const proxied = new Proxy(validRequest('outer-request-proxy'), {});
-    await assert.rejects(fixture.gateway.dispatchProtectedRequest(proxied), /MEMORY_DISPATCH_NOT_READY/);
+    const proxied = new Proxy({ ...validRequest('outer-request-proxy'), transport: () => Promise.resolve({ status: 200 }) }, {});
+    await assert.rejects(MemoryDispatchGateway.prototype.dispatchProtectedRequest.call(fixture.gateway, proxied), /MEMORY_DISPATCH_NOT_READY/);
     assert.equal(fixture.calls.length, 0);
   } finally {
     await fixture.close();
