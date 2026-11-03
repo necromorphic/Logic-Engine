@@ -74,10 +74,10 @@ export function createSillyTavernHostAdapter({
     lifecycleStatus = lifecycle.status;
 
     const authentication = createHostRequestAuthenticationGate({
-      resolveConversationId: async request => {
+      resolveConversationId: async (request, requestedConversationUuid) => {
         const userHandle = request?.user?.profile?.handle;
         const sessionId = request?.session?.logicEngineSessionId;
-        const conversationUuid = request?.body?.conversation_uuid;
+        const conversationUuid = requestedConversationUuid;
         const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
         if (typeof userHandle !== 'string' || !userHandle.trim()
           || !uuid.test(sessionId ?? '') || !uuid.test(conversationUuid ?? '')) return null;
@@ -149,6 +149,16 @@ export function createSillyTavernHostAdapter({
     lifecycleStatus,
     dispatchMiddleware,
     dispatch,
+    async prepareGenerationContext(request, hostRoute) {
+      const conversationUuid = hostRoute === 'horde-text'
+        ? request?.body?.params?.logic_engine_conversation_uuid
+        : request?.body?.logic_engine_conversation_uuid;
+      const result = identityStore && typeof conversationUuid === 'string'
+        ? await authentication.authenticate(request, conversationUuid)
+        : { status: 'NON_READY', code: 'HOST_GENERATION_CONVERSATION_LOCATOR_MISSING' };
+      if (result.status !== 'READY') return result;
+      return Object.freeze({ status: 'READY', context: result.context });
+    },
     capture: createHostDigestProxyHandler({ env, fetchImpl }),
     reconcile: createHostInventoryReconcileProxyHandler({ env, fetchImpl }),
   });
