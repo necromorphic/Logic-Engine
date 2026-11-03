@@ -216,6 +216,56 @@ test('recovery refuses a replacement that appears after a durable delete intent'
   assert.equal(h.state.manifest.roles[0].sidecars[0].state, 'active');
 });
 
+test('delete recovery completes a verified pending deletion when the file still exists', async () => {
+  const current = {
+    kind: 'wal', identity: identity('5'), state: 'active', generation: 2,
+  };
+  const h = makeHarness({
+    manifest: makeManifest([current], 2),
+    files: new Map([[sidecarKey, { identity: identity('5') }]]),
+  });
+  h.state.intent = {
+    schemaVersion: 1,
+    operationId: 'e'.repeat(32),
+    operation: 'delete-sidecar',
+    role: 'core',
+    kind: 'wal',
+    basename: 'core.sqlite-wal',
+    baseGeneration: 2,
+    targetGeneration: 3,
+    expectedIdentity: identity('5'),
+  };
+  const result = await h.coordinator.reconcile();
+  assert.deepEqual(result, { recovered: true, operation: 'delete-sidecar', generation: 3 });
+  assert.equal(h.state.files.has(sidecarKey), false);
+  assert.equal(h.state.manifest.roles[0].sidecars[0].state, 'retired');
+  assert.equal(h.state.intent, null);
+});
+
+test('reconcile clears a committed create intent only after rechecking the active handle identity', async () => {
+  const active = {
+    kind: 'wal', identity: identity('5'), state: 'active', generation: 2,
+  };
+  const h = makeHarness({
+    manifest: makeManifest([active], 2),
+    files: new Map([[sidecarKey, { identity: identity('5') }]]),
+  });
+  h.state.intent = {
+    schemaVersion: 1,
+    operationId: 'f'.repeat(32),
+    operation: 'create-sidecar',
+    role: 'core',
+    kind: 'wal',
+    basename: 'core.sqlite-wal',
+    baseGeneration: 1,
+    targetGeneration: 2,
+    expectedIdentity: null,
+  };
+  const result = await h.coordinator.reconcile();
+  assert.deepEqual(result, { recovered: true, operation: 'create-sidecar', generation: 2 });
+  assert.equal(h.state.intent, null);
+});
+
 test('reconcile clears an intent when its matching manifest generation was already committed', async () => {
   const current = {
     kind: 'wal', identity: identity('5'), state: 'retired', generation: 2,
