@@ -345,7 +345,8 @@ test('startup migrates an existing dispatch ledger to include CometAPI without l
       db.exec(`
         BEGIN IMMEDIATE;
         DROP INDEX dispatch_ledger_status_started;
-        DROP INDEX dispatch_ledger_unresolved_digest;
+        DROP INDEX dispatch_ledger_generation_digest;
+        DROP INDEX IF EXISTS dispatch_ledger_unresolved_digest;
         ALTER TABLE dispatch_ledger RENAME TO dispatch_ledger_legacy;
         ${legacyTableSql};
         INSERT INTO dispatch_ledger SELECT * FROM dispatch_ledger_legacy;
