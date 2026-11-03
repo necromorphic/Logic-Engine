@@ -16,10 +16,10 @@ const ADAPTER_ID = 'st-host-adapter';
 const INSTALLATION = '11111111-1111-4111-8111-111111111111';
 const ACCOUNT = '22222222-2222-4222-8222-222222222222';
 const ROOT_ID = createHash('sha256').update('host-root-test').digest('hex');
-const SOURCE_MANIFEST_SHA256 = digest('pinned-source-manifest');
 const AUTHORITY_ID = 'host-root-test-authority';
 const AUTHORITY_GENERATION = 1;
 const digest = value => createHash('sha256').update(value).digest('hex');
+const SOURCE_MANIFEST_SHA256 = digest('pinned-source-manifest');
 const canonical = value => value && typeof value === 'object'
   ? '{' + Object.keys(value).sort().map(key => JSON.stringify(key) + ':' + canonical(value[key])).join(',') + '}'
   : JSON.stringify(value);
