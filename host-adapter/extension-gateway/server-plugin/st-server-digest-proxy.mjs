@@ -19,7 +19,21 @@ const HOST_SESSION_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a
 const HOST_CONVERSATION_ID = new RegExp('^' + HOST_SESSION_UUID.source.slice(1, -1) + ':'
   + HOST_SESSION_UUID.source.slice(1, -1) + ':' + HOST_SESSION_UUID.source.slice(1, -1) + '$', 'i');
 
-function requestMatchesAuthenticatedHostSession(request, context) {
+function requestMatchesAuthenticatedHostSession(request, conversationId) {
+  const session = request?.session;
+  const userHandle = request?.user?.profile?.handle;
+  const sessionHandle = session?.handle;
+  const sessionId = session?.logicEngineSessionId;
+  const sessionIdentityHandle = session?.logicEngineSessionHandle;
+  return typeof userHandle === 'string' && userHandle.trim().length > 0
+    && (sessionHandle === undefined || sessionHandle === userHandle)
+    && sessionIdentityHandle === userHandle
+    && typeof sessionId === 'string' && HOST_SESSION_UUID.test(sessionId)
+    && typeof conversationId === 'string'
+    && HOST_CONVERSATION_ID.test(conversationId);
+}
+
+function requestMatchesAuthenticatedHostContext(request, context) {
   const session = request?.session;
   const userHandle = request?.user?.profile?.handle;
   const sessionHandle = session?.handle;
@@ -35,7 +49,6 @@ function requestMatchesAuthenticatedHostSession(request, context) {
       context.host_installation_id, context.authenticated_account_id, context.conversation_uuid,
     ].join(':');
 }
-
 const ALLOWED_FIELDS = new Set([
   'conversation_id', 'message_id', 'version_id', 'parent_version_id', 'content_sha256', 'active', 'deleted',
 ]);
@@ -786,7 +799,7 @@ export function createHostMemoryDispatchProxyHandler({
       || !HOST_SESSION_UUID.test(context.host_session_id ?? '')
       || typeof context.conversation_id !== 'string'
       || !HOST_CONVERSATION_ID.test(context.conversation_id)
-      || !requestMatchesAuthenticatedHostSession(hostRequest, context)) {
+      || !requestMatchesAuthenticatedHostContext(hostRequest, context)) {
       return response.sendStatus(403);
     }
     const body = request?.body;
