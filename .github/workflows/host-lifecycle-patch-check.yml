@@ -29,14 +29,14 @@ jobs:
           mkdir -p sillytavern/public/scripts/extensions/third-party/logic-engine-extension-gateway
           cp host-adapter/extension-gateway/index.js host-adapter/extension-gateway/gateway-policy.mjs host-adapter/extension-gateway/host-context.mjs host-adapter/extension-gateway/conversation-identity.mjs host-adapter/extension-gateway/manifest.json sillytavern/public/scripts/extensions/third-party/logic-engine-extension-gateway/
           patch="$PWD/host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch"
-          git -C sillytavern apply --unidiff-zero --check "$patch"
-          git -C sillytavern apply --unidiff-zero "$patch"
+          git -C sillytavern -c core.autocrlf=false apply --unidiff-zero --check "$patch"
+          git -C sillytavern -c core.autocrlf=false apply --unidiff-zero "$patch"
           delta_patch="$PWD/host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-unenrolled-chat-fix.patch"
-          git -C sillytavern apply --check "$delta_patch"
-          git -C sillytavern apply "$delta_patch"
+          git -C sillytavern -c core.autocrlf=false apply --check "$delta_patch"
+          git -C sillytavern -c core.autocrlf=false apply "$delta_patch"
           root_mutation_patch="$PWD/host-adapter/prototype/patches/sillytavern-1.19.0-root-mutation-guards.patch"
-          git -C sillytavern apply --unidiff-zero --check "$root_mutation_patch"
-          git -C sillytavern apply --unidiff-zero "$root_mutation_patch"
+          git -C sillytavern -c core.autocrlf=false apply --unidiff-zero --check "$root_mutation_patch"
+          git -C sillytavern -c core.autocrlf=false apply --unidiff-zero "$root_mutation_patch"
           git -C sillytavern diff --check
           expected=$(printf '%s\n' 'public/script.js' 'public/scripts/bookmarks.js' 'public/scripts/chat-backups.js' 'public/scripts/group-chats.js' 'public/scripts/logic-engine-lifecycle/conversation-identity.mjs' 'public/scripts/logic-engine-lifecycle/lifecycle-journal.mjs' 'public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs' 'public/scripts/slash-commands.js' 'src/endpoints/assets.js' 'src/endpoints/avatars.js' 'src/endpoints/backends/chat-completions.js' 'src/endpoints/backgrounds.js' 'src/endpoints/backups.js' 'src/endpoints/characters.js' 'src/endpoints/chats.js' 'src/endpoints/content-manager.js' 'src/endpoints/data-maid.js' 'src/endpoints/extensions.js' 'src/endpoints/files.js' 'src/endpoints/groups.js' 'src/endpoints/image-metadata.js' 'src/endpoints/images.js' 'src/endpoints/logic-engine-host-inventory-handler.mjs' 'src/endpoints/moving-ui.js' 'src/endpoints/presets.js' 'src/endpoints/quick-replies.js' 'src/endpoints/secrets.js' 'src/endpoints/settings.js' 'src/endpoints/sprites.js' 'src/endpoints/stable-diffusion.js' 'src/endpoints/stats.js' 'src/endpoints/themes.js' 'src/endpoints/thumbnails.js' 'src/endpoints/users-admin.js' 'src/endpoints/users-private.js' 'src/endpoints/users-public.js' 'src/endpoints/vectors.js' 'src/endpoints/worldinfo.js' 'src/plugin-loader.js' 'src/server-main.js' 'src/users.js')
           actual=$({ git -C sillytavern diff --name-only; git -C sillytavern ls-files --others --exclude-standard; } | sort)
