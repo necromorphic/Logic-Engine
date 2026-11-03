@@ -148,7 +148,7 @@ test('Host dispatch proxy retrieves a real SQLite Provider record through Core H
         root_id: 'a'.repeat(64), authority_id: 'e2e-test-authority',
         authority_status: 'REVIEW_ONLY',
         generation: 1, snapshot_fingerprint: 'b'.repeat(64),
-      }),,
+      }),
       resolveHostMemoryIdentity: input => ({
         authorized: true, adapter_id: ADAPTER_ID,
         host_installation_id: input.host_installation_id,
