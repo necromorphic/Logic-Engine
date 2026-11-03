@@ -132,11 +132,19 @@ export function createHostInventoryHandler({
         && typeof rootInventory.manifest_sha256 === 'string'
         && /^[a-f0-9]{64}$/.test(rootInventory.manifest_sha256);
       const rootInventoryAuthoritative = rootInventoryPersisted
-        && rootInventory.status === 'AUTHORITATIVE_COMPLETE';
+        && rootInventory.status === 'AUTHORITATIVE_COMPLETE'
+        && /^[a-f0-9]{64}$/.test(rootInventory.attestation_sha256 ?? '')
+        && Number.isSafeInteger(rootInventory.lifecycle_sequence)
+        && rootInventory.lifecycle_sequence > 0
+        && /^[a-f0-9]{64}$/.test(rootInventory.lifecycle_head_sha256 ?? '');
       const sourceSnapshotAttested = rootInventoryAuthoritative
         && sourceIdentity?.status === 'CURRENT_IDENTITIES_VERIFIED'
+        && /^[a-f0-9]{64}$/.test(sourceIdentity.manifest_sha256 ?? '')
         && rootInventory.source_manifest_sha256 === sourceIdentity.manifest_sha256
         && inventory.snapshot_alignment === 'SHARED_VSS_SNAPSHOT';
+      const reportedRootInventoryStatus = rootInventoryAuthoritative
+        ? 'AUTHORITATIVE_COMPLETE'
+        : rootInventory?.status === 'AUTHORITATIVE_COMPLETE' ? 'REVIEW_ONLY' : rootInventory?.status ?? 'NON_READY';
       const coveredSourceBlockers = new Set(CORE_ATTESTED_SOURCE_BLOCKERS);
       const sourceBlockers = sourceSnapshotAttested
         ? source.blockers.filter(code => !coveredSourceBlockers.has(code))
@@ -149,6 +157,8 @@ export function createHostInventoryHandler({
         ]),
         ...(rootInventoryPersisted && rootInventory.status === 'NON_READY'
           ? ['ROOT_INVENTORY_DELTA_UNRESOLVED'] : []),
+        ...(rootInventoryPersisted && rootInventory.status === 'AUTHORITATIVE_COMPLETE'
+          && !rootInventoryAuthoritative ? ['UNVERIFIED_ROOT_INVENTORY_ATTESTATION'] : []),
         ...(sourceIdentity?.status === 'CURRENT_IDENTITIES_VERIFIED'
           ? [] : ['UNVERIFIED_PINNED_SOURCE_IDENTITY']),
         ...(sourceIdentity?.status === 'CURRENT_IDENTITIES_VERIFIED'
@@ -182,10 +192,14 @@ export function createHostInventoryHandler({
         requested_conversation_uuid: requestedConversationUuid,
         ...(rootInventoryPersisted ? {
           root_inventory_reconciliation: {
-            status: rootInventory.status,
+            status: reportedRootInventoryStatus,
             integrity_status: rootInventory.integrity_status,
             sequence: rootInventory.sequence,
             manifest_sha256: rootInventory.manifest_sha256,
+            ...(rootInventory.attestation_sha256 ? { attestation_sha256: rootInventory.attestation_sha256 } : {}),
+            ...(Number.isSafeInteger(rootInventory.lifecycle_sequence)
+              ? { lifecycle_sequence: rootInventory.lifecycle_sequence } : {}),
+            ...(rootInventory.lifecycle_head_sha256 ? { lifecycle_head_sha256: rootInventory.lifecycle_head_sha256 } : {}),
             ...(rootInventory.source_manifest_sha256 ? { source_manifest_sha256: rootInventory.source_manifest_sha256 } : {}),
             ...(rootInventory.delta_sha256 ? { delta_sha256: rootInventory.delta_sha256 } : {}),
             ...(rootInventory.counts ? { counts: rootInventory.counts } : {}),
