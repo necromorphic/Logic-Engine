@@ -172,6 +172,7 @@ static int le_store_parent_acl_safe(HANDLE directory) {
   for (index = 0; index < dacl->AceCount; ++index) {
     ACE_HEADER *header = NULL;
     if (!GetAce(dacl, index, (LPVOID *)&header)) goto done;
+    if ((header->AceFlags & INHERIT_ONLY_ACE) != 0) continue;
     if (header->AceType == ACCESS_ALLOWED_ACE_TYPE) {
       ACCESS_ALLOWED_ACE *ace = (ACCESS_ALLOWED_ACE *)header;
       PSID sid = (PSID)&ace->SidStart;
