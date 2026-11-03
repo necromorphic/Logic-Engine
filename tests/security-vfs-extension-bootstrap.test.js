@@ -182,7 +182,7 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
     assert.equal(
       first.prepare('SELECT logic_engine_vfs_probe_temp_file_class_rejected() AS rejected').get().rejected,
       1,
-      'the VFS must reject TEMP_DB, TEMP_JOURNAL, SUBJOURNAL, SUPER_JOURNAL and TRANSIENT_DB before any parent-VFS OS open',
+      'the VFS must reject all file-backed temp classes even when SQLITE_OPEN_MEMORY is also set, without OS opens, while preserving pure in-memory DBs',
     );
     const journalMode = first.prepare("PRAGMA journal_mode=WAL").get().journal_mode;
     assert.equal(journalMode, "wal", "the registered VFS must permit WAL activation");
