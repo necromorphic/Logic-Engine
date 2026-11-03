@@ -55,6 +55,7 @@ export const SOURCE_FILE_PATHS = Object.freeze([
   'public/scripts/logic-engine-lifecycle/conversation-identity.mjs',
   'public/scripts/logic-engine-lifecycle/lifecycle-journal.mjs',
   'public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs',
+  'plugins/package.json',
   'plugins/logic-engine-extension-gateway/index.mjs',
   'plugins/logic-engine-extension-gateway/package.json',
   'plugins/logic-engine-extension-gateway/host-adapter.mjs',
@@ -106,7 +107,7 @@ async function exactDirectoryFiles(root, relativeDirectory, expectedNames) {
   }
 }
 
-async function exactDirectoryChildren(root, relativeDirectory, expectedNames) {
+async function exactDirectoryChildren(root, relativeDirectory, expectedNames, allowedFileNames = []) {
   try {
     const directory = path.resolve(root, relativeDirectory);
     if (!within(root, directory)) return false;
@@ -115,11 +116,14 @@ async function exactDirectoryChildren(root, relativeDirectory, expectedNames) {
     const actualPath = await realpath(directory);
     if (!within(root, actualPath)) return false;
     const entries = await readdir(directory, { withFileTypes: true });
-    if (entries.length !== expectedNames.length
-      || entries.some(entry => !entry.isDirectory() || entry.isSymbolicLink())) return false;
-    const actual = entries.map(entry => entry.name).sort();
-    const expected = [...expectedNames].sort();
-    return actual.every((name, index) => name === expected[index]);
+    const directories = entries.filter(entry => entry.isDirectory() && !entry.isSymbolicLink());
+    const files = entries.filter(entry => entry.isFile());
+    if (directories.length !== expectedNames.length
+      || entries.length !== directories.length + files.length
+      || files.some(entry => !allowedFileNames.includes(entry.name))) return false;
+    const actualDirectories = directories.map(entry => entry.name).sort();
+    const expectedDirectories = [...expectedNames].sort();
+    return actualDirectories.every((name, index) => name === expectedDirectories[index]);
   } catch {
     return false;
   }
@@ -209,8 +213,8 @@ export async function verifyPinnedSourceIdentity({
     // the only accepted entries in these executable extension roots are the
     // Logic Engine Gateway itself. Unknown extensions make Host authority
     // non-ready; a root data scan cannot attest their code.
-    if (!await exactDirectoryChildren(root, 'plugins', ['logic-engine-extension-gateway'])
-      || !await exactDirectoryChildren(root, 'public/scripts/extensions/third-party', ['logic-engine-extension-gateway'])
+    if (!await exactDirectoryChildren(root, 'plugins', ['logic-engine-extension-gateway'], ['.gitkeep', 'package.json'])
+      || !await exactDirectoryChildren(root, 'public/scripts/extensions/third-party', ['logic-engine-extension-gateway'], ['.gitkeep'])
       || !await exactDirectoryFiles(root, 'plugins/logic-engine-extension-gateway', pluginNames)
       || !await exactDirectoryFiles(root, 'public/scripts/extensions/third-party/logic-engine-extension-gateway', clientNames)) {
       return { status: 'NON_READY', code: 'HOST_SOURCE_DIRECTORY_CONTENT_MISMATCH' };
