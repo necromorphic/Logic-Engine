@@ -397,6 +397,39 @@ test('startup migrates an existing dispatch ledger to include CometAPI without l
   }
 });
 
+test('empty legacy request-digest ledger upgrades to permanent generation identity index', async () => {
+  const fixture = await createFixture();
+  try {
+    fixture.gateway.close();
+    const db = new DatabaseSync(fixture.ledgerPath);
+    try {
+      db.exec(`
+        DROP INDEX dispatch_ledger_generation_digest;
+        CREATE UNIQUE INDEX dispatch_ledger_unresolved_digest
+          ON dispatch_ledger(request_digest) WHERE status IN ('DISPATCH_STARTED','UNKNOWN');
+      `);
+    } finally {
+      db.close();
+    }
+
+    fixture.reopenGateway();
+    const verify = new DatabaseSync(fixture.ledgerPath);
+    try {
+      const indexSql = verify.prepare(
+        "SELECT sql FROM sqlite_master WHERE type='index' AND name='dispatch_ledger_generation_digest'",
+      ).get()?.sql ?? '';
+      assert.match(indexSql, /CREATE UNIQUE INDEX dispatch_ledger_generation_digest ON dispatch_ledger\\(request_digest\\)/i);
+      assert.equal(verify.prepare(
+        "SELECT COUNT(*) AS count FROM sqlite_master WHERE type='index' AND name='dispatch_ledger_unresolved_digest'",
+      ).get().count, 0);
+    } finally {
+      verify.close();
+    }
+  } finally {
+    await fixture.close();
+  }
+});
+
 test('Gateway refuses non-empty legacy request-digest ledgers without discarding ambiguous history', async () => {
   const fixture = await createFixture();
   try {
