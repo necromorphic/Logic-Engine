@@ -734,6 +734,21 @@ test('all protected sender families share one real Gateway and each causes exact
         hostRequestContext,
       });
       fixture.gateway.authorizeResponseWrite(requestId, () => undefined, { final: true });
+      if (routeIndex === 1) {
+        const replayId = 'sender-route-completed-replay';
+        const replay = validRequest(replayId, {
+          generationRequest: {
+            request_id: replayId,
+            generation_id: requestContext.generationRequest.generation_id,
+            generation_type: requestContext.generationRequest.generation_type,
+          },
+        });
+        await assert.rejects(
+          () => fixture.gateway.dispatchProtectedRequest(replay),
+          /MEMORY_DISPATCH_REPLAY_BLOCKED/,
+          'a completed generation identity must not be dispatched again under a new request ID',
+        );
+      }
     }
     assert.equal(upstreamCalls, PROTECTED_MEMORY_SENDER_ROUTES.length);
     const ledger = new DatabaseSync(fixture.ledgerPath);
