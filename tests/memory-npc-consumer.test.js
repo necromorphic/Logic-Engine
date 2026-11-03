@@ -386,7 +386,9 @@ test('Core Host conversation and Actor bindings are re-resolved after an awaited
 
       const result = await consumer.retrieveForNpc(request());
       assert.equal(result.status, 'non_ready');
-      assert.equal(result.reason, 'query_access_unconfirmed');
+      assert.equal(result.reason, kind === 'conversation'
+        ? 'query_access_unconfirmed'
+        : 'authorized_source_read_unavailable');
       assert.deepEqual(result.candidates, []);
     });
   }
