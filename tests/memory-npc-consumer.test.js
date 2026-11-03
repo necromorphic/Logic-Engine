@@ -853,7 +853,7 @@ test('actor binding revoked during asynchronous Memory retrieval cannot disclose
 
   const result = await consumer.retrieveForNpc(request());
   assert.equal(result.status, 'non_ready');
-  assert.equal(result.reason, 'authorized_source_read_unavailable');
+  assert.equal(result.reason, 'actor_binding_unavailable');
   assert.deepEqual(result.admitted, []);
   assert.deepEqual(result.candidates, []);
   assert.equal(JSON.stringify(result).includes('authorized source text'), false);
