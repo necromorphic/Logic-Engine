@@ -190,6 +190,7 @@ export class SQLiteMemoryProvider {
   #queryAuthorizationGeneration;
   #recordAuthorizationGeneration;
   #acceptedHeadConfig;
+  #observerOnly;
 
   constructor(options = {}) {
     if (!isPlainDataRecord(options)) throw new TypeError('SQLiteMemoryProvider requires plain data options');
@@ -200,9 +201,13 @@ export class SQLiteMemoryProvider {
       validateSourceVersion,
       validateInventory,
       authorizeRawRead = null,
+      observerOnly = false,
     } = options;
     // Reject non-string paths before Node path helpers can coerce caller-owned
     // objects and execute their Symbol.toPrimitive/valueOf hooks.
+    if (typeof observerOnly !== 'boolean') throw new TypeError('observerOnly must be a boolean');
+    if (observerOnly && path === ':memory:') throw new Error('PROVIDER_OBSERVER_REQUIRES_FILE_BACKED_STORE');
+    this.#observerOnly = observerOnly;
     if (typeof path !== 'string' || path.length === 0) {
       throw new TypeError('SQLiteMemoryProvider path must be a non-empty string');
     }
@@ -249,7 +254,7 @@ export class SQLiteMemoryProvider {
     let startupError = null;
     try {
       releaseStartupLock = this.#acquireCoordinatorLock();
-      this.#db = new DatabaseSync(path);
+      this.#db = new DatabaseSync(path, observerOnly ? { readOnly: true } : undefined);
       const schemaSql = `
       PRAGMA foreign_keys = ON;
       CREATE TABLE IF NOT EXISTS memory_records (
@@ -334,7 +339,7 @@ export class SQLiteMemoryProvider {
           throw new Error('PROVIDER_ACCEPTED_HEAD_AUTHORITY_REQUIRED');
         }
       }
-      if (this.#acceptedHeadConfig) {
+      if (observerOnly || this.#acceptedHeadConfig) {
         const existingObjects = new Set(this.#db.prepare(
           "SELECT type || ':' || name AS object_name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'",
         ).all().map((row) => row.object_name));
@@ -344,24 +349,33 @@ export class SQLiteMemoryProvider {
           throw new Error('PROVIDER_SCHEMA_INCOMPLETE');
         }
       }
-      this.#db.exec(schemaSql);
-      if (!this.#acceptedHeadConfig) {
+      if (!observerOnly) this.#db.exec(schemaSql);
+      if (!observerOnly && !this.#acceptedHeadConfig) {
         this.#db.prepare('INSERT OR IGNORE INTO accepted_head_state(singleton,head,enrolled,last_operation_id,last_operation_digest) VALUES(1,0,0,NULL,NULL)').run();
       }
       const recordGrantColumns = this.#db.prepare('PRAGMA table_info(memory_record_grants)').all();
-      if (!recordGrantColumns.some((column) => column.name === 'authorization_generation')) {
-        this.#db.exec('ALTER TABLE memory_record_grants ADD COLUMN authorization_generation INTEGER NOT NULL DEFAULT 1 CHECK(authorization_generation>=1)');
-      }
       const stateColumns = this.#db.prepare('PRAGMA table_info(memory_index_state)').all();
-      if (!stateColumns.some((column) => column.name === 'failure_code')) this.#db.exec('ALTER TABLE memory_index_state ADD COLUMN failure_code TEXT');
-      // Readiness is process-local evidence; restart requires full reconciliation.
-      this.#db.prepare(`
-        UPDATE memory_index_state
-        SET index_health='stale', source_reconciliation='stale',
-            snapshot_revision=NULL, snapshot_sequence=NULL,
-            failure_code='PROCESS_RESTART_RECONCILIATION_REQUIRED', updated_at=?
-        WHERE index_health='ready' AND source_reconciliation='current'
-      `).run(new Date().toISOString());
+      if (observerOnly) {
+        if (!recordGrantColumns.some((column) => column.name === 'authorization_generation')
+          || !stateColumns.some((column) => column.name === 'failure_code')) {
+          throw new Error('PROVIDER_SCHEMA_INCOMPLETE');
+        }
+      } else {
+        if (!recordGrantColumns.some((column) => column.name === 'authorization_generation')) {
+          this.#db.exec('ALTER TABLE memory_record_grants ADD COLUMN authorization_generation INTEGER NOT NULL DEFAULT 1 CHECK(authorization_generation>=1)');
+        }
+        if (!stateColumns.some((column) => column.name === 'failure_code')) {
+          this.#db.exec('ALTER TABLE memory_index_state ADD COLUMN failure_code TEXT');
+        }
+        // Writable Provider instances invalidate process-local readiness on restart.
+        this.#db.prepare(`
+          UPDATE memory_index_state
+          SET index_health='stale', source_reconciliation='stale',
+              snapshot_revision=NULL, snapshot_sequence=NULL,
+              failure_code='PROCESS_RESTART_RECONCILIATION_REQUIRED', updated_at=?
+          WHERE index_health='ready' AND source_reconciliation='current'
+        `).run(new Date().toISOString());
+      }
       if (this.#acceptedHeadConfig) {
         let status = getAcceptedHeadStatusSync({ port: this.#acceptedHeadConfig.port, token: this.#acceptedHeadConfig.token });
         const local = this.#db.prepare('SELECT head,enrolled,last_operation_id,last_operation_digest FROM accepted_head_state WHERE singleton=1').get();
@@ -370,6 +384,7 @@ export class SQLiteMemoryProvider {
         }
         const pending = status.operations.provider;
         if (pending) {
+          if (observerOnly) throw new Error('PROVIDER_ACCEPTED_HEAD_RECOVERY_REQUIRED');
           if (local.head !== pending.head || local.last_operation_id !== pending.operation_id
             || local.last_operation_digest !== pending.operation_digest) {
             throw new Error('PROVIDER_ACCEPTED_HEAD_RECOVERY_REQUIRED');
@@ -440,6 +455,7 @@ export class SQLiteMemoryProvider {
   }
 
   #withImmediateTransaction(work) {
+    if (this.#observerOnly) throw new Error('PROVIDER_OBSERVER_READ_ONLY');
     return this.#withCoordinatorLock(() => {
       this.#db.exec('BEGIN IMMEDIATE');
       this.#transactionDepth += 1;
@@ -755,6 +771,7 @@ export class SQLiteMemoryProvider {
   }
 
   #setState(worldId, indexHealth, reconciliation, snapshot = null, failureCode = null) {
+    if (this.#observerOnly) throw new Error('PROVIDER_OBSERVER_READ_ONLY');
     this.#withSerializedWrite(() => {
       this.#db.prepare(`INSERT INTO memory_index_state
         (world_id,index_health,source_reconciliation,snapshot_revision,snapshot_sequence,failure_code,updated_at)
