@@ -427,7 +427,8 @@ test('host inventory clears only blockers covered by verified source and Core VS
   assert.deepEqual(response.body.blockers, [
     'NO_APPLICATION_LEVEL_ATOMIC_SNAPSHOT',
     'PLATFORM_SPECIFIC_RACE_RESISTANCE_REQUIRES_SECURITY_REVIEW',
-  ], 'VSS is filesystem point-in-time evidence, not application-level atomicity or independent security acceptance');
+    'UNVERIFIED_MUTATION_RUNTIME_ACCEPTANCE',
+  ], 'VSS is filesystem point-in-time evidence, not application-level atomicity, independent security acceptance, or live mutation-route runtime acceptance');
 });
 
 test('Host inventory cannot promote Core baseline without signed lifecycle attestation', async () => {
