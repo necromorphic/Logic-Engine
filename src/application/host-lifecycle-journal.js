@@ -61,8 +61,8 @@ const MAX_ROOT_INVENTORY_BYTES = 8 * 1024 * 1024;
 const MAX_ROOT_DELTA_FILES = 5_000;
 const HOST_INVENTORY_COVERAGE_ID = 'ST-1.19.0-HOST-LIFECYCLE-P0-V1';
 const HOST_INVENTORY_PINNED_COMMIT = '06bde939fb1e9c4c8d8641d810f0a916b5bce127';
-const HOST_INVENTORY_PATCH_BLOB_SHA = '35ae74285a99fc802ee5442dc9000671233967f7d74d169b2ba106c6d991f256';
-const HOST_INVENTORY_HANDLER_BLOB_SHA = 'dea9ad6acf7aa7c4bfa04f25a90aeb0db9e242a6';
+const HOST_INVENTORY_PATCH_BLOB_SHA = 'f1697d252d4f3c46ead68dea1cd7d1fe9e1fa76339dd1a1f61579aa56ffd155e';
+const HOST_INVENTORY_HANDLER_BLOB_SHA = '6f1cd4cbef55134d368a4e200c9ba59b2a6e8b3c';
 const ROOT_ATTESTATION_KEYS = Object.freeze([
   'protocol_version', 'adapter_id', 'host_installation_id', 'authenticated_account_id', 'root_id',
   'inventory_sequence', 'manifest_sha256', 'inventory_head_sha256', 'covered_delta_sha256',
@@ -143,9 +143,12 @@ function validRootInventoryAttestation(attestation, expected) {
     && attestation.source_manifest_sha256 === expected.source_manifest_sha256
     && attestation.snapshot_alignment === 'SHARED_VSS_SNAPSHOT'
     && validDigest(attestation.snapshot_sha256)
-    && Number.isSafeInteger(attestation.lifecycle_sequence) && attestation.lifecycle_sequence > 0
-    && expected.lifecycle_sequence > 0
+    && Number.isSafeInteger(attestation.lifecycle_sequence) && attestation.lifecycle_sequence >= 0
+    && Number.isSafeInteger(expected.lifecycle_sequence) && expected.lifecycle_sequence >= 0
+    && validDigest(attestation.lifecycle_head_sha256)
+    && validDigest(expected.lifecycle_head_sha256)
     && attestation.lifecycle_sequence === expected.lifecycle_sequence
+    && (expected.lifecycle_sequence !== 0 || expected.lifecycle_head_sha256 === '0'.repeat(64))
     && attestation.lifecycle_head_sha256 === expected.lifecycle_head_sha256
     && Number.isSafeInteger(attestation.issued_at) && attestation.issued_at > 0
     && typeof attestation.nonce === 'string' && UUID.test(attestation.nonce)
@@ -1006,6 +1009,22 @@ export class HostLifecycleJournal {
       && attestationRow.inventory_head_sha256 === root.head_sha256) {
       try {
         const attestation = JSON.parse(attestationRow.canonical_attestation_json);
+        // Resolve the manifest pin from deployment-owned registry state at the
+        // moment of verification. Never accept the digest from the caller or
+        // the signed attestation as its own trust anchor.
+        const trustedIdentity = this.resolveRootIdentity({
+          host_installation_id: identity.host_installation_id,
+          authenticated_account_id: identity.authenticated_account_id,
+          root_id: identity.root_id,
+        });
+        if (!isPlainRecord(trustedIdentity) || trustedIdentity.authorized !== true
+          || trustedIdentity.adapter_id !== identity.adapter_id
+          || trustedIdentity.host_installation_id !== identity.host_installation_id
+          || trustedIdentity.authenticated_account_id !== identity.authenticated_account_id
+          || trustedIdentity.root_id !== identity.root_id
+          || !validDigest(trustedIdentity.source_manifest_sha256)) {
+          throw new Error('HOST_ROOT_INVENTORY_IDENTITY_NOT_AUTHORIZED');
+        }
         const attestationIdentity = {
           adapter_id: identity.adapter_id,
           host_installation_id: identity.host_installation_id,
@@ -1430,34 +1449,39 @@ export class HostLifecycleJournal {
     if (!snapshot || !/^[a-f0-9]{64}$/.test(snapshot.snapshot_fingerprint ?? '')) {
       return { status: 'NON_READY', reason: 'HOST_ROOT_INVENTORY_NOT_AUTHORITATIVE' };
     }
+    if (this.#hasPendingMutation(input.host_installation_id, input.authenticated_account_id)) {
+      return { status: 'NON_READY', reason: 'HOST_LIFECYCLE_MUTATION_PENDING' };
+    }
+    // Hash-chain integrity alone is not completeness authority. Final-Send
+    // may proceed only when the current signed attestation and deployment
+    // manifest pin were both revalidated from Core-owned journal/registry state.
     if (snapshot.authority_status !== 'AUTHORITATIVE_COMPLETE'
       || !validDigest(snapshot.attestation_sha256)
-      || !validDigest(snapshot.source_manifest_sha256)) {
+      || !validDigest(snapshot.source_manifest_sha256)
+      || !Number.isSafeInteger(snapshot.sequence) || snapshot.sequence < 1
+      || !validDigest(snapshot.manifest_sha256)
+      || !Number.isSafeInteger(snapshot.lifecycle_sequence) || snapshot.lifecycle_sequence < 0
+      || !validDigest(snapshot.lifecycle_head_sha256)
+      || (snapshot.lifecycle_sequence === 0 && snapshot.lifecycle_head_sha256 !== '0'.repeat(64))) {
       return { status: 'NON_READY', reason: 'HOST_ROOT_INVENTORY_REVIEW_ONLY' };
     }
-    const trustedIdentity = this.resolveRootIdentity({
-      host_installation_id: input.host_installation_id,
-      authenticated_account_id: input.authenticated_account_id,
-      root_id: input.root_id,
-    });
-    if (!isPlainRecord(trustedIdentity) || trustedIdentity.authorized !== true
-      || trustedIdentity.adapter_id !== input.adapter_id
-      || trustedIdentity.source_manifest_sha256 !== snapshot.source_manifest_sha256) {
-      return { status: 'NON_READY', reason: 'HOST_ROOT_INVENTORY_DEPLOYMENT_BINDING_MISMATCH' };
-    }
-    return {
+    return Object.freeze({
       status: 'READY',
+      authority_id: input.authority_id,
+      generation: input.generation,
       adapter_id: input.adapter_id,
       host_installation_id: input.host_installation_id,
       authenticated_account_id: input.authenticated_account_id,
       root_id: input.root_id,
       root_inventory_sequence: snapshot.sequence,
       root_manifest_sha256: snapshot.manifest_sha256,
-      attestation_sha256: snapshot.attestation_sha256,
+      root_journal_head_sha256: snapshot.journal_head_sha256,
+      lifecycle_sequence: snapshot.lifecycle_sequence,
+      lifecycle_head_sha256: snapshot.lifecycle_head_sha256,
       source_manifest_sha256: snapshot.source_manifest_sha256,
-      authority_id: input.authority_id,
-      generation: input.generation,
-    };
+      attestation_sha256: snapshot.attestation_sha256,
+      snapshot_fingerprint: snapshot.snapshot_fingerprint,
+    });
   }
 
   close() {

@@ -627,16 +627,16 @@ test('pinned ST 1.19.0 supported chat mutations persist; chat deletion, rename, 
     avatar_url: 'Harness Character.png', file: 'chat-one.jsonl', format: 'jsonl',
     exportfilename: 'chat-one.jsonl', is_group: false,
   });
-  assert.equal(exportResult.status, 409);
-  assert.equal(exportResult.result.code, 'HOST_LIFECYCLE_BULK_MUTATION_BLOCKED',
+  assert.equal(exportResult.status, 503);
+  assert.equal(exportResult.result.code, 'HOST_BULK_MUTATION_UNSUPPORTED',
     'chat export must fail closed while enrolled histories lack authoritative reconciliation');
 
   const blockedDeleteChat = await observe(async () => {
     const response = await post('/api/chats/delete', {
       avatar_url: 'Harness Character.png', chatfile: 'chat-one.jsonl',
     });
-    assert.equal(response.status, 409, JSON.stringify(response));
-    assert.equal(response.result.code, 'HOST_LIFECYCLE_BULK_MUTATION_BLOCKED');
+    assert.equal(response.status, 503, JSON.stringify(response));
+    assert.equal(response.result.code, 'HOST_BULK_MUTATION_UNSUPPORTED');
     assert.equal((await readFile(chatPath, 'utf8')).length > 0, true,
       'direct chat deletion API must leave the enrolled file untouched');
     return response;
@@ -647,8 +647,8 @@ test('pinned ST 1.19.0 supported chat mutations persist; chat deletion, rename, 
     const response = await post('/api/chats/rename', {
       avatar_url: 'Harness Character.png', original_file: 'chat-one.jsonl', renamed_file: 'chat-renamed.jsonl',
     });
-    assert.equal(response.status, 409);
-    assert.equal(response.result.code, 'HOST_LIFECYCLE_BULK_MUTATION_BLOCKED');
+    assert.equal(response.status, 503);
+    assert.equal(response.result.code, 'HOST_BULK_MUTATION_UNSUPPORTED');
     assert.equal((await readFile(join(directories.chats, 'Harness Character', 'chat-one.jsonl'), 'utf8')).length > 0, true);
     await assert.rejects(readFile(renamedPath, 'utf8'), { code: 'ENOENT' });
     return response;
@@ -670,8 +670,8 @@ test('pinned ST 1.19.0 supported chat mutations persist; chat deletion, rename, 
     file_type: 'jsonl', avatar_url: 'Harness Character.png',
     user_name: 'Harness User', character_name: 'Harness Character',
   }, { 'x-harness-upload': importUpload, 'x-harness-operation': 'import' });
-  assert.equal(imported.status, 409, JSON.stringify(imported));
-  assert.equal(imported.result.code, 'HOST_LIFECYCLE_BULK_MUTATION_BLOCKED');
+  assert.equal(imported.status, 503, JSON.stringify(imported));
+  assert.equal(imported.result.code, 'HOST_BULK_MUTATION_UNSUPPORTED');
   assert.deepEqual((await readdir(join(directories.chats, 'Harness Character'))).sort(), chatFilesBeforeImport,
     'blocked bulk import must not create or alter chat files');
   assert.equal(journal.db.prepare(
@@ -698,8 +698,8 @@ test('pinned ST 1.19.0 supported chat mutations persist; chat deletion, rename, 
     file_type: 'jsonl', avatar_url: 'Harness Character.png',
     user_name: 'Harness User', character_name: 'Harness Character',
   }, { 'x-harness-upload': restoreUpload, 'x-harness-operation': 'restore' });
-  assert.equal(restored.status, 409, JSON.stringify(restored));
-  assert.equal(restored.result.code, 'HOST_LIFECYCLE_BULK_MUTATION_BLOCKED');
+  assert.equal(restored.status, 503, JSON.stringify(restored));
+  assert.equal(restored.result.code, 'HOST_BULK_MUTATION_UNSUPPORTED');
   assert.deepEqual((await readdir(join(directories.chats, 'Harness Character'))).sort(), chatFilesBeforeRestore,
     'blocked backup restore must not create or alter chat files');
   assert.equal(journal.db.prepare(
@@ -717,8 +717,8 @@ test('pinned ST 1.19.0 supported chat mutations persist; chat deletion, rename, 
   })) + '\n');
   const groupMetadataPath = join(directories.groups, 'group-harness.json');
   const groupImport = await post('/api/chats/group/import', {}, { 'x-harness-upload': groupUpload });
-  assert.equal(groupImport.status, 409, JSON.stringify(groupImport));
-  assert.equal(groupImport.result.code, 'HOST_LIFECYCLE_BULK_MUTATION_BLOCKED',
+  assert.equal(groupImport.status, 503, JSON.stringify(groupImport));
+  assert.equal(groupImport.result.code, 'HOST_BULK_MUTATION_UNSUPPORTED',
     'group import must fail closed while lifecycle-identified chats exist');
   const groupChatPath = join(directories.groupChats, 'group-harness.jsonl');
   const groupSeed = await observe(async () => {
@@ -773,8 +773,8 @@ test('pinned ST 1.19.0 supported chat mutations persist; chat deletion, rename, 
 
   const groupDelete = await observe(async () => {
     const response = await post('/api/chats/group/delete', { id: 'group-harness' });
-    assert.equal(response.status, 409);
-    assert.equal(response.result.code, 'HOST_LIFECYCLE_BULK_MUTATION_BLOCKED');
+    assert.equal(response.status, 503);
+    assert.equal(response.result.code, 'HOST_BULK_MUTATION_UNSUPPORTED');
     const metadata = JSON.parse(await readFile(groupMetadataPath, 'utf8'));
     assert.ok(metadata.chats.includes('group-harness'));
     assert.equal((await readFile(groupChatPath, 'utf8')).length > 0, true);
@@ -815,8 +815,8 @@ test('pinned ST 1.19.0 supported chat mutations persist; chat deletion, rename, 
     const response = await post('/api/chats/delete', {
       avatar_url: 'Harness Character.png', chatfile: 'chat-one.jsonl',
     });
-    assert.equal(response.status, 409);
-    assert.equal(response.result.code, 'HOST_LIFECYCLE_BULK_MUTATION_BLOCKED');
+    assert.equal(response.status, 503);
+    assert.equal(response.result.code, 'HOST_BULK_MUTATION_UNSUPPORTED');
     assert.equal((await readFile(chatPath, 'utf8')).length > 0, true);
     return response;
   }, 'unchanged');
@@ -832,8 +832,8 @@ test('pinned ST 1.19.0 supported chat mutations persist; chat deletion, rename, 
     ['/api/users-private/reset-settings', {}],
   ]) {
     const response = await post(route, body);
-    assert.equal(response.status, 409, `${route}: ${JSON.stringify(response.result)}`);
-    assert.equal(response.result.code, 'HOST_LIFECYCLE_BULK_MUTATION_BLOCKED');
+    assert.equal(response.status, 503, `${route}: ${JSON.stringify(response.result)}`);
+    assert.equal(response.result.code, 'HOST_BULK_MUTATION_UNSUPPORTED');
   }
 
   const rootReset = await post('/api/users-private/reset-step2', { code: 'unused' });

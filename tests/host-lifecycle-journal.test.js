@@ -6,6 +6,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { HostLifecycleJournal } from '../src/application/host-lifecycle-journal.js';
+import { beginCoordinatorLock } from '../src/storage/coordinator-lock.js';
 
 const installation = '11111111-1111-4111-8111-111111111111';
 const account = '22222222-2222-4222-8222-222222222222';
@@ -17,7 +18,7 @@ const version = '00000000-0000-4000-8000-000000000003';
 const digest = (text) => createHash('sha256').update(text).digest('hex');
 const sourceManifestSha256 = digest('test-source-manifest');
 
-function setup(t, authorize = () => true, authorizeRoot = () => true, verifyRootAttestation = () => false) {
+function setup(t, authorize = () => true, authorizeRoot = () => true, verifyRootAttestation = () => false, resolveSourceManifest = () => sourceManifestSha256) {
   const directory = mkdtempSync(join(tmpdir(), 'logic-host-lifecycle-journal-'));
   const journal = new HostLifecycleJournal({
     path: join(directory, 'host-journal.sqlite'),
@@ -40,7 +41,7 @@ function setup(t, authorize = () => true, authorizeRoot = () => true, verifyRoot
       host_installation_id: input.host_installation_id,
       authenticated_account_id: input.authenticated_account_id,
       root_id: input.root_id,
-      source_manifest_sha256: sourceManifestSha256,
+      source_manifest_sha256: resolveSourceManifest(input),
     }),
   });
   t.after(() => {
@@ -301,8 +302,8 @@ const makeRootAttestation = result => {
     covered_delta_sha256: result.delta_sha256 ?? null,
     coverage_id: 'ST-1.19.0-HOST-LIFECYCLE-P0-V1',
     pinned_host_commit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127',
-    patch_blob_sha: '35ae74285a99fc802ee5442dc9000671233967f7d74d169b2ba106c6d991f256',
-    host_handler_blob_sha: 'dea9ad6acf7aa7c4bfa04f25a90aeb0db9e242a6',
+    patch_blob_sha: 'f1697d252d4f3c46ead68dea1cd7d1fe9e1fa76339dd1a1f61579aa56ffd155e',
+    host_handler_blob_sha: '6f1cd4cbef55134d368a4e200c9ba59b2a6e8b3c',
     source_identity_status: 'CURRENT_IDENTITIES_VERIFIED',
     source_manifest_sha256: sourceManifestSha256,
     snapshot_alignment: 'SHARED_VSS_SNAPSHOT',
@@ -426,6 +427,100 @@ test('Core requires a signed pinned-source completeness attestation before root 
     root_id: rootId,
     attestation: replayedNonce,
   }), /HOST_ROOT_INVENTORY_ATTESTATION_REPLAYED/);
+});
+
+test('Core re-resolves the deployment-pinned source manifest when checking an existing attestation', t => {
+  let registeredManifest = sourceManifestSha256;
+  const { journal } = setup(t, () => true, () => true, ({ attestation }) =>
+    attestation.signature === signRootAttestation(attestation), () => registeredManifest);
+  const baseline = journal.enrollRootInventory(rootInput());
+  const attestation = makeRootAttestation(baseline);
+  const accepted = journal.attestRootInventory({
+    host_installation_id: installation,
+    authenticated_account_id: account,
+    root_id: rootId,
+    attestation,
+  });
+  assert.equal(accepted.status, 'AUTHORITATIVE_COMPLETE');
+
+  registeredManifest = digest('rotated-deployment-source-manifest');
+  assert.equal(journal.getAuthoritySnapshot({
+    authority_id: authority.authority_id,
+    generation: authority.generation,
+    adapter_id: 'test-adapter',
+    host_installation_id: installation,
+    authenticated_account_id: account,
+    root_id: rootId,
+  }).authority_status, 'REVIEW_ONLY');
+});
+
+test('Final-Send root evidence is READY only with a current signed attestation under the Coordinator lease', t => {
+  const { journal } = setup(t, () => true, () => true, ({ attestation }) =>
+    attestation.signature === signRootAttestation(attestation));
+  const baseline = journal.enrollRootInventory(rootInput());
+  const trusted = {
+    authority_id: authority.authority_id,
+    generation: authority.generation,
+    adapter_id: 'test-adapter',
+    host_installation_id: installation,
+    authenticated_account_id: account,
+    root_id: rootId,
+  };
+
+  assert.throws(() => journal.readAuthoritySnapshotUnderLease(trusted, () => {}), /HOST_FINAL_SEND_EVIDENCE_NOT_READY/);
+  let release = beginCoordinatorLock(journal.coordinator);
+  try {
+    assert.equal(journal.readAuthoritySnapshotUnderLease(trusted, release).status, 'NON_READY');
+  } finally {
+    release();
+  }
+
+  const accepted = journal.attestRootInventory({
+    host_installation_id: installation,
+    authenticated_account_id: account,
+    root_id: rootId,
+    attestation: makeRootAttestation(baseline),
+  });
+  assert.equal(accepted.status, 'AUTHORITATIVE_COMPLETE');
+
+  release = beginCoordinatorLock(journal.coordinator);
+  try {
+    const evidence = journal.readAuthoritySnapshotUnderLease(trusted, release);
+    assert.equal(evidence.status, 'READY');
+    assert.equal(evidence.adapter_id, 'test-adapter');
+    assert.equal(evidence.root_id, rootId);
+    assert.equal(evidence.root_inventory_sequence, baseline.sequence);
+    assert.equal(evidence.root_manifest_sha256, baseline.manifest_sha256);
+    assert.equal(evidence.source_manifest_sha256, sourceManifestSha256);
+    assert.match(evidence.attestation_sha256, /^[a-f0-9]{64}$/);
+  } finally {
+    release();
+  }
+
+  const currentAuthority = journal.getAuthoritySnapshot(trusted);
+  journal.append({
+    event_id: '77777777-7777-4777-8777-777777777777',
+    host_installation_id: installation,
+    authenticated_account_id: account,
+    host_session_id: hostSession,
+    conversation_uuid: conversation,
+    authority_id: authority.authority_id,
+    generation: authority.generation,
+    snapshot_fingerprint: currentAuthority.snapshot_fingerprint,
+    event_type: 'MUTATION_PREPARED',
+    mutation_id: '88888888-8888-4888-8888-888888888888',
+    operation: 'edit-message',
+    mutation_digest: digest('pending-final-send-mutation'),
+    occurred_at: new Date().toISOString(),
+  });
+  release = beginCoordinatorLock(journal.coordinator);
+  try {
+    const pendingEvidence = journal.readAuthoritySnapshotUnderLease(trusted, release);
+    assert.equal(pendingEvidence.status, 'NON_READY');
+    assert.equal(pendingEvidence.reason, 'HOST_LIFECYCLE_MUTATION_PENDING');
+  } finally {
+    release();
+  }
 });
 
 test('signed root completeness attestation survives SQLite restart and remains bound to the same lifecycle head', t => {

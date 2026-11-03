@@ -801,7 +801,7 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
         }
         let revoked;
         try {
-          revoked = hostAssertionNonceStore.revokeSession(adapterId, {
+          revoked = await hostAssertionNonceStore.revokeSession(adapterId, {
             host_installation_id: body.host_installation_id,
             authenticated_account_id: body.authenticated_account_id,
             host_session_id: body.host_session_id,
