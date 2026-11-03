@@ -630,6 +630,8 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
       || inventory.host_source_identity_status !== 'CURRENT_IDENTITIES_VERIFIED'
       || inventory.root_inventory_reconciliation?.status !== 'AUTHORITATIVE_COMPLETE'
       || inventory.root_inventory_reconciliation?.integrity_status !== 'INTEGRITY_OK'
+      || !/^[a-f0-9]{64}$/.test(inventory.host_source_manifest_sha256 ?? '')
+      || inventory.root_inventory_reconciliation?.source_manifest_sha256 !== inventory.host_source_manifest_sha256
       || inventory.filesystem_inventory?.snapshot_alignment !== 'SHARED_VSS_SNAPSHOT'
       || !Array.isArray(inventory.blockers) || inventory.blockers.length !== 0
       || !HOST_UUID.test(inventory.host_session_id ?? '')
