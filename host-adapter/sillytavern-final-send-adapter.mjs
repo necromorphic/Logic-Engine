@@ -245,7 +245,7 @@ export function createSillyTavernFinalSendAdapter({
         throw terminalError(new Error('MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED'));
       }
       try {
-        const result = gateway.authorizeResponseWrite(release.requestId, write, { final });
+        const result = gateway.authorizeResponseWrite(release.requestId, write, { final, response });
         if (final) release.state = 'completed';
         return result;
       } catch (error) {
