@@ -34,6 +34,9 @@ test('Windows broker metadata store uses a pinned directory and durable handle-r
   assert.match(store, /validate_manifest/);
   assert.match(store, /validate_intent/);
   assert.match(store, /LE_STORE_MAX_BYTES/);
+  assert.match(store, /GetFinalPathNameByHandleW/);
+  assert.match(store, /GetVolumeInformationW/);
+  assert.match(store, /wcscmp\(filesystem, L\"NTFS\"\)/);
 });
 
 test('Windows metadata store exposes only fixed metadata names and no path fallback', () => {
