@@ -342,7 +342,7 @@ test('Host Adapter requires Core root proof before context resolution and binds 
   const gateResponse = responseRecorder();
   let passedGate = false;
   await adapter.dispatchMiddleware(request, gateResponse, () => { passedGate = true; });
-  assert.equal(passedGate, true);
+  assert.equal(passedGate, true, JSON.stringify(gateResponse.payload));
   const dispatchResponse = responseRecorder();
   await adapter.dispatch(request, dispatchResponse);
   assert.equal(coreCalls[0], '/v1/host-context/resolve');
