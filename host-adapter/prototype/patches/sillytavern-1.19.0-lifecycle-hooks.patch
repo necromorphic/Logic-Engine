@@ -620,6 +620,32 @@ diff --git a/src/server-main.js b/src/server-main.js
  app.use(bodyParser.json({ limit: '500mb' }));
  app.use(bodyParser.urlencoded({ extended: true, limit: '500mb' }));
  
+@@ -301,13 +307,19 @@
+     const directories = await getUserDirectoriesList();
+     await migrateGroupChatsMetadataFormat(directories);
+-    await checkForNewContent(directories);
+-    await diskCache.verify(directories);
+-    migrateFlatSecrets(directories);
++    const hostAuthorityConfigured = Boolean(process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR);
++    if (hostAuthorityConfigured) {
++        console.warn('Skipping account-root startup mutations while Host authority is active.');
++    } else {
++        await checkForNewContent(directories);
++        await diskCache.verify(directories);
++        migrateFlatSecrets(directories);
++    }
+     cleanUploads();
+     migrateAccessLog();
+ 
+-    await settingsInit();
+-    await statsInit();
++    if (!hostAuthorityConfigured) {
++        await settingsInit();
++        await statsInit();
++    }
+ 
+     const pluginsDirectory = path.join(serverDirectory, 'plugins');
+     const cleanupPlugins = await loadPlugins(app, pluginsDirectory);
 diff --git a/src/endpoints/backends/chat-completions.js b/src/endpoints/backends/chat-completions.js
 --- a/src/endpoints/backends/chat-completions.js
 +++ b/src/endpoints/backends/chat-completions.js
