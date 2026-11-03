@@ -278,8 +278,8 @@ test('Host Adapter requires Core root proof before context resolution and binds 
       snapshot_alignment: 'SHARED_VSS_SNAPSHOT',
     };
   };
-  // This proof stub is test-only. Production uses the Core root-inventory
-  // response and must reject its current REVIEW_ONLY result.
+  // This proof stub is test-only. Production obtains a signed completeness
+  // proof from the same VSS scan and requires Core to persist AUTHORITATIVE_COMPLETE.
   const testOnlyAuthoritativeRootProof = async ({ userHandle, rootPath, entries }) => {
     assert.equal(typeof userHandle, 'string');
     assert.equal(rootPath, root);
