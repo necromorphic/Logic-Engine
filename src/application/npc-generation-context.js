@@ -268,6 +268,7 @@ export function createNpcGenerationContextBuilder({
           candidates: laneB.result.candidates,
           reason: laneB.result.reason,
           snapshot: laneB.result.snapshot,
+          provider_evidence_cursor: laneB.result.provider_evidence_cursor,
         }),
       });
     } catch { return nonReady('generation_context_invalid'); }
