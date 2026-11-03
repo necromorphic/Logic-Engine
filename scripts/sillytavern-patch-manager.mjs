@@ -48,7 +48,10 @@ async function syncDirectory(directory) {
 }
 
 async function atomicReplaceExisting(path, content) {
-  const current = await stat(path);
+  const current = await lstat(path);
+  if (current.isSymbolicLink() || !current.isFile()) {
+    throw new Error('PATCH_RESTORE_TARGET_UNSAFE: ' + path);
+  }
   const temp = path + '.tmp-' + randomUUID();
   const handle = await open(temp, 'wx', current.mode & 0o777);
   try {
