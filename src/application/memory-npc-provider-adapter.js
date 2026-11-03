@@ -216,6 +216,9 @@ export function createMemoryNpcProviderAdapter({
     const adapter = {
       adapterId,
       provider: providerControl,
+      readProviderEvidenceSync: observerOnly
+        ? (input) => provider.readDispatchEvidenceSync(input)
+        : null,
       consumer: consumerFacade,
       npcGenerationContext,
       async prepareWorld(worldId) {
