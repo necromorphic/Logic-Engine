@@ -36,7 +36,7 @@ const createInventoryHandlerForTest = options => createHostInventoryHandler({
         status: 'VERIFIED',
         source_commit: pinned,
         coverage_manifest_sha256: 'a'.repeat(64),
-        route_count: 90,
+        route_count: 91,
         source_files_sha256: 'b'.repeat(64),
       },
     };
