@@ -23,24 +23,11 @@
 #include <bcrypt.h>
 #include <aclapi.h>
 #include <sddl.h>
-#include "../secure-vfs-probe/windows_relative_open.h"
+#include "windows_manifest_store.h"
 
-#define LE_STORE_MAX_BYTES (1024u * 1024u)
 #define LE_STORE_MANIFEST L"manifest.json"
 #define LE_STORE_INTENT L"intent.json"
 #define LE_STORE_LOCK L"store.lock"
-
-typedef int (*LE_STORE_VALIDATE)(const unsigned char *bytes, DWORD length, void *context);
-
-typedef struct LE_WIN_MANIFEST_STORE {
-  HANDLE directory;
-  HANDLE lock;
-  LogicEngineWinFileIdentity directory_identity;
-  LE_STORE_VALIDATE validate_manifest;
-  LE_STORE_VALIDATE validate_intent;
-  void *validator_context;
-  BOOL locked;
-} LE_WIN_MANIFEST_STORE;
 
 static int le_store_valid_regular(HANDLE file, DWORD *length) {
   FILE_ATTRIBUTE_TAG_INFO tag;
