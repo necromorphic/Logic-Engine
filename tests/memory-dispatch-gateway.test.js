@@ -1450,6 +1450,22 @@ test('gateway startup converts stale DISPATCH_STARTED rows to UNKNOWN and blocks
   }
 });
 
+test('Gateway construction requires the Core NPC handoff consumer and Lane A revalidator', () => {
+  const base = {
+    ledgerPath: ':memory:',
+    coordinatorPath: ':memory:',
+    authorityPort: 12345,
+    readToken: 't'.repeat(32),
+    readCoreEvidence: () => ({}),
+    readProviderEvidence: () => ({}),
+  };
+  assert.throws(() => new MemoryDispatchGateway(base), /Invalid memory dispatch gateway configuration/);
+  assert.throws(() => new MemoryDispatchGateway({
+    ...base,
+    npcContextRuntime: { consumeDispatchHandoff() { return { status: 'accepted' }; } },
+  }), /Invalid memory dispatch gateway configuration/);
+});
+
 test('existing dispatch ledger with missing schema fails closed without auto-repair', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'logic-dispatch-ledger-schema-'));
   const ledgerPath = join(directory, 'ledger.sqlite');
