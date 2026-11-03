@@ -5,7 +5,7 @@ import path from 'node:path';
 export const PINNED_HOST_COMMIT = '06bde939fb1e9c4c8d8641d810f0a916b5bce127';
 export const HOST_INVENTORY_COVERAGE_ID = 'ST-1.19.0-HOST-LIFECYCLE-P0-V1';
 // Updated together with Core's accepted deployment constants.
-export const PINNED_PATCH_BUNDLE_SHA256 = '1198e1a3c2d7b7a2413aedd45e8ad6ebbe19fb51c05ae6880a9f489025cbf9f4';
+export const PINNED_PATCH_BUNDLE_SHA256 = '9adf8569a6960667dff219d8e69cbcba4c928100a2858d68f6bc06bc9fee9e7a';
 export const PINNED_HOST_HANDLER_GIT_BLOB_SHA = 'a1581f4c39ca7bc7f30b52b155c4ae6222fa7abf';
 
 export const SOURCE_FILE_PATHS = Object.freeze([
