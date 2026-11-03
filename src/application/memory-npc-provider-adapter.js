@@ -170,6 +170,7 @@ export function createMemoryNpcProviderAdapter({
     const consumerFacade = Object.freeze({
       retrieveForNpc: (...args) => consumer.retrieveForNpc(...args),
       revalidateForFinalDispatch: (...args) => consumer.revalidateForFinalDispatch(...args),
+      readDispatchEvidenceSync: (...args) => consumer.readDispatchEvidenceSync(...args),
     });
 
     const resolveAuthenticatedNpcScope = () => {
@@ -221,7 +222,9 @@ export function createMemoryNpcProviderAdapter({
       // Gateway readers are explicit: Core evidence comes from MemoryNpcConsumer;
       // Provider evidence comes from the read-only SQLite Provider observer.
       readCoreEvidenceSync: input => consumer.readDispatchEvidenceSync(input),
-      readProviderEvidenceSync: input => provider.readDispatchEvidenceSync(input),
+      readProviderEvidenceSync: observerOnly
+        ? input => provider.readDispatchEvidenceSync(input)
+        : null,
       // Compatibility alias for callers that previously meant Provider evidence.
       readDispatchEvidenceSync: input => provider.readDispatchEvidenceSync(input),
       async prepareWorld(worldId) {
