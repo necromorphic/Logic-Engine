@@ -894,3 +894,192 @@ diff --git a/src/endpoints/users-admin.js b/src/endpoints/users-admin.js
 +    return next();
 +}, async (request, response) => {
 
+
+diff --git a/src/endpoints/avatars.js b/src/endpoints/avatars.js
+--- a/src/endpoints/avatars.js
++++ b/src/endpoints/avatars.js
+@@
++import { createHostBulkMutationGuard } from './logic-engine-host-inventory-handler.mjs';
++const hostBulkMutationGuard = createHostBulkMutationGuard({ pinnedHostCommit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127' });
++
+ export const router = express.Router();
+@@
+-router.post('/delete', getFileNameValidationFunction('avatar'), function (request, response) {
++router.post('/delete', hostBulkMutationGuard, getFileNameValidationFunction('avatar'), function (request, response) {
+
+diff --git a/src/endpoints/avatars.js b/src/endpoints/avatars.js
+--- a/src/endpoints/avatars.js
++++ b/src/endpoints/avatars.js
+@@
+-router.post('/upload', getFileNameValidationFunction('overwrite_name'), async (request, response) => {
++router.post('/upload', hostBulkMutationGuard, getFileNameValidationFunction('overwrite_name'), async (request, response) => {
+
+diff --git a/src/endpoints/files.js b/src/endpoints/files.js
+--- a/src/endpoints/files.js
++++ b/src/endpoints/files.js
+@@
++import { createHostBulkMutationGuard } from './logic-engine-host-inventory-handler.mjs';
++const hostBulkMutationGuard = createHostBulkMutationGuard({ pinnedHostCommit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127' });
++
+ export const router = express.Router();
+@@
+-router.post('/upload', async (request, response) => {
++router.post('/upload', hostBulkMutationGuard, async (request, response) => {
+
+diff --git a/src/endpoints/files.js b/src/endpoints/files.js
+--- a/src/endpoints/files.js
++++ b/src/endpoints/files.js
+@@
+-router.post('/delete', async (request, response) => {
++router.post('/delete', hostBulkMutationGuard, async (request, response) => {
+
+diff --git a/src/endpoints/worldinfo.js b/src/endpoints/worldinfo.js
+--- a/src/endpoints/worldinfo.js
++++ b/src/endpoints/worldinfo.js
+@@
++import { createHostBulkMutationGuard } from './logic-engine-host-inventory-handler.mjs';
++const hostBulkMutationGuard = createHostBulkMutationGuard({ pinnedHostCommit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127' });
++
+ export const router = express.Router();
+@@
+-router.post('/delete', (request, response) => {
++router.post('/delete', hostBulkMutationGuard, (request, response) => {
+
+diff --git a/src/endpoints/worldinfo.js b/src/endpoints/worldinfo.js
+--- a/src/endpoints/worldinfo.js
++++ b/src/endpoints/worldinfo.js
+@@
+-router.post('/import', (request, response) => {
++router.post('/import', hostBulkMutationGuard, (request, response) => {
+@@
+-router.post('/edit', (request, response) => {
++router.post('/edit', hostBulkMutationGuard, (request, response) => {
+
+diff --git a/src/endpoints/presets.js b/src/endpoints/presets.js
+--- a/src/endpoints/presets.js
++++ b/src/endpoints/presets.js
+@@
++import { createHostBulkMutationGuard } from './logic-engine-host-inventory-handler.mjs';
++const hostBulkMutationGuard = createHostBulkMutationGuard({ pinnedHostCommit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127' });
++
+ export const router = express.Router();
+@@
+-router.post('/save', function (request, response) {
++router.post('/save', hostBulkMutationGuard, function (request, response) {
+
+diff --git a/src/endpoints/presets.js b/src/endpoints/presets.js
+--- a/src/endpoints/presets.js
++++ b/src/endpoints/presets.js
+@@
+-router.post('/delete', function (request, response) {
++router.post('/delete', hostBulkMutationGuard, function (request, response) {
+@@
+-router.post('/restore', function (request, response) {
++router.post('/restore', hostBulkMutationGuard, function (request, response) {
+
+diff --git a/src/endpoints/quick-replies.js b/src/endpoints/quick-replies.js
+--- a/src/endpoints/quick-replies.js
++++ b/src/endpoints/quick-replies.js
+@@
++import { createHostBulkMutationGuard } from './logic-engine-host-inventory-handler.mjs';
++const hostBulkMutationGuard = createHostBulkMutationGuard({ pinnedHostCommit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127' });
++
+ export const router = express.Router();
+@@
+-router.post('/save', (request, response) => {
++router.post('/save', hostBulkMutationGuard, (request, response) => {
+
+diff --git a/src/endpoints/quick-replies.js b/src/endpoints/quick-replies.js
+--- a/src/endpoints/quick-replies.js
++++ b/src/endpoints/quick-replies.js
+@@
+-router.post('/delete', (request, response) => {
++router.post('/delete', hostBulkMutationGuard, (request, response) => {
+
+diff --git a/src/endpoints/themes.js b/src/endpoints/themes.js
+--- a/src/endpoints/themes.js
++++ b/src/endpoints/themes.js
+@@
++import { createHostBulkMutationGuard } from './logic-engine-host-inventory-handler.mjs';
++const hostBulkMutationGuard = createHostBulkMutationGuard({ pinnedHostCommit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127' });
++
+ export const router = express.Router();
+@@
+-router.post('/save', (request, response) => {
++router.post('/save', hostBulkMutationGuard, (request, response) => {
+
+diff --git a/src/endpoints/themes.js b/src/endpoints/themes.js
+--- a/src/endpoints/themes.js
++++ b/src/endpoints/themes.js
+@@
+-router.post('/delete', (request, response) => {
++router.post('/delete', hostBulkMutationGuard, (request, response) => {
+
+diff --git a/src/endpoints/backgrounds.js b/src/endpoints/backgrounds.js
+--- a/src/endpoints/backgrounds.js
++++ b/src/endpoints/backgrounds.js
+@@
++import { createHostBulkMutationGuard } from './logic-engine-host-inventory-handler.mjs';
++const hostBulkMutationGuard = createHostBulkMutationGuard({ pinnedHostCommit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127' });
++
+ export const router = express.Router();
+@@
+-router.post('/delete', getFileNameValidationFunction('bg'), async function (request, response) {
++router.post('/delete', hostBulkMutationGuard, getFileNameValidationFunction('bg'), async function (request, response) {
+
+diff --git a/src/endpoints/backgrounds.js b/src/endpoints/backgrounds.js
+--- a/src/endpoints/backgrounds.js
++++ b/src/endpoints/backgrounds.js
+@@
+-router.post('/rename', async function (request, response) {
++router.post('/rename', hostBulkMutationGuard, async function (request, response) {
+@@
+-router.post('/upload', async function (request, response) {
++router.post('/upload', hostBulkMutationGuard, async function (request, response) {
+
+diff --git a/src/endpoints/assets.js b/src/endpoints/assets.js
+--- a/src/endpoints/assets.js
++++ b/src/endpoints/assets.js
+@@
++import { createHostBulkMutationGuard } from './logic-engine-host-inventory-handler.mjs';
++const hostBulkMutationGuard = createHostBulkMutationGuard({ pinnedHostCommit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127' });
++
+ export const router = express.Router();
+@@
+-router.post('/delete', async (request, response) => {
++router.post('/delete', hostBulkMutationGuard, async (request, response) => {
+
+diff --git a/src/endpoints/vectors.js b/src/endpoints/vectors.js
+--- a/src/endpoints/vectors.js
++++ b/src/endpoints/vectors.js
+@@
++import { createHostBulkMutationGuard } from './logic-engine-host-inventory-handler.mjs';
++const hostBulkMutationGuard = createHostBulkMutationGuard({ pinnedHostCommit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127' });
++
+ export const router = express.Router();
+@@
+-router.post('/insert', async (req, res) => {
++router.post('/insert', hostBulkMutationGuard, async (req, res) => {
+
+diff --git a/src/endpoints/vectors.js b/src/endpoints/vectors.js
+--- a/src/endpoints/vectors.js
++++ b/src/endpoints/vectors.js
+@@
+-router.post('/delete', async (req, res) => {
++router.post('/delete', hostBulkMutationGuard, async (req, res) => {
+@@
+-router.post('/purge-all', async (req, res) => {
++router.post('/purge-all', hostBulkMutationGuard, async (req, res) => {
+@@
+-router.post('/purge', async (req, res) => {
++router.post('/purge', hostBulkMutationGuard, async (req, res) => {
+
+diff --git a/src/endpoints/settings.js b/src/endpoints/settings.js
+--- a/src/endpoints/settings.js
++++ b/src/endpoints/settings.js
+@@
+-router.post('/save', function (request, response) {
++router.post('/save', hostBulkMutationGuard, function (request, response) {
+@@
+-router.post('/make-snapshot', async (request, response) => {
++router.post('/make-snapshot', hostBulkMutationGuard, async (request, response) => {
