@@ -22,7 +22,8 @@ function plainDataRecord(value, required, allowed = required) {
     if (prototype !== Object.prototype && prototype !== null) return false;
     const keys = Reflect.ownKeys(value);
     if (keys.length < required.length) return false;
-    for (const key of keys) {
+    for (let index = 0; index < keys.length; index += 1) {
+      const key = keys[index];
       if (typeof key !== 'string' || !allowed.includes(key)) return false;
       const descriptor = Object.getOwnPropertyDescriptor(value, key);
       if (!descriptor || !Object.hasOwn(descriptor, 'value')) return false;
@@ -70,9 +71,11 @@ function immutableCopy(value, depth = 0, seen = new WeakSet()) {
     seen.delete(value);
     return Object.freeze(copy);
   }
-  if (!plainDataRecord(value, [], Reflect.ownKeys(value))) throw new TypeError('context object is not plain data');
+  const keys = Reflect.ownKeys(value);
+  if (!plainDataRecord(value, [], keys)) throw new TypeError('context object is not plain data');
   const copy = Object.create(null);
-  for (const key of Reflect.ownKeys(value)) {
+  for (let index = 0; index < keys.length; index += 1) {
+    const key = keys[index];
     const descriptor = Object.getOwnPropertyDescriptor(value, key);
     copy[key] = immutableCopy(descriptor.value, depth + 1, seen);
   }
@@ -184,8 +187,11 @@ function validateLaneB(envelope, scope) {
 export function createNpcGenerationContextBuilder({
   resolveScope, readLaneA, readLaneB, revalidateEvidence, revalidateScope,
 }) {
-  for (const [name, fn] of Object.entries({ resolveScope, readLaneA, readLaneB, revalidateEvidence, revalidateScope })) {
-    if (typeof fn !== 'function') throw new TypeError(name + ' must be a trusted Core callback');
+  const dependencies = { resolveScope, readLaneA, readLaneB, revalidateEvidence, revalidateScope };
+  const dependencyNames = Object.keys(dependencies);
+  for (let index = 0; index < dependencyNames.length; index += 1) {
+    const name = dependencyNames[index];
+    if (typeof dependencies[name] !== 'function') throw new TypeError(name + ' must be a trusted Core callback');
   }
 
   async function build(request) {
