@@ -228,7 +228,12 @@ export function createHostSessionHandler({ createId = randomUUID, revokeSession 
       }
       return Promise.resolve()
         .then(() => revokeSession(request, 'session_rotation'))
-        .then(issueReplacement)
+        .then(revoked => revoked === true
+          ? issueReplacement()
+          : response.status(503).json({
+            status: 'NON_READY',
+            code: 'HOST_SESSION_REVOCATION_UNAVAILABLE',
+          }))
         .catch(() => response.status(503).json({
           status: 'NON_READY',
           code: 'HOST_SESSION_REVOCATION_UNAVAILABLE',
