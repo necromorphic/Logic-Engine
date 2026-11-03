@@ -763,6 +763,7 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
                 || typeof trustedHostIdentity.root_id !== 'string'
                 || !/^[a-f0-9]{64}$/.test(trustedHostIdentity.root_id)
                 || typeof trustedHostIdentity.authority_id !== 'string' || !trustedHostIdentity.authority_id.trim()
+                || trustedHostIdentity.authority_status !== 'AUTHORITATIVE_COMPLETE'
                 || !Number.isSafeInteger(trustedHostIdentity.generation)
                 || !/^[a-f0-9]{64}$/.test(trustedHostIdentity.snapshot_fingerprint ?? '')) {
                 throw new Error('HOST_ROOT_IDENTITY_UNAUTHORIZED');
@@ -797,6 +798,7 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
                 || typeof finalHostIdentity.root_id !== 'string'
                 || !/^[a-f0-9]{64}$/.test(finalHostIdentity.root_id)
                 || typeof finalHostIdentity.authority_id !== 'string' || !finalHostIdentity.authority_id.trim()
+                || finalHostIdentity.authority_status !== 'AUTHORITATIVE_COMPLETE'
                 || !Number.isSafeInteger(finalHostIdentity.generation)
                 || !/^[a-f0-9]{64}$/.test(finalHostIdentity.snapshot_fingerprint ?? '')) {
                 throw new Error('HOST_ROOT_IDENTITY_UNAUTHORIZED');
