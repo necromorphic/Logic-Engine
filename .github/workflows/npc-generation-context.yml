@@ -6,15 +6,17 @@ on:
       - "src/application/memory-npc-provider-adapter.js"
       - "src/application/memory-npc-consumer.js"
       - "tests/npc-generation-context*.test.js"
+      - "tests/memory-npc-consumer.test.js"
       - "tests/memory-npc-provider-adapter.test.js"
       - ".github/workflows/npc-generation-context.yml"
   push:
-    branches: [main, 'npc/**']
+    branches: [main, 'npc/**', 'integration/host-core-v1']
     paths:
       - "src/application/npc-generation-context*.js"
       - "src/application/memory-npc-provider-adapter.js"
       - "src/application/memory-npc-consumer.js"
       - "tests/npc-generation-context*.test.js"
+      - "tests/memory-npc-consumer.test.js"
       - "tests/memory-npc-provider-adapter.test.js"
       - ".github/workflows/npc-generation-context.yml"
 permissions:
@@ -30,10 +32,11 @@ jobs:
           node-version: "22.13.1"
       - name: Install dependencies
         run: npm install --no-package-lock --no-audit --no-fund
-      - name: Run NPC generation-context and adapter composition tests
+      - name: Run NPC generation-context, Memory consumer and adapter composition tests
         run: >-
           node --import ./tests/configure-test-env.js --test
           tests/npc-generation-context.test.js
           tests/npc-generation-context-runtime.test.js
           tests/npc-generation-context-host-bridge.test.js
+          tests/memory-npc-consumer.test.js
           tests/memory-npc-provider-adapter.test.js
