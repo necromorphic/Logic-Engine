@@ -44,6 +44,13 @@ test('relative ST account directories are resolved against the server working di
     extensions: resolve('./data/default-user/extensions'),
   });
   assert.equal(Object.isFrozen(resolved), true);
+  assert.equal(resolveHostDataDirectories({
+    root: './data/default-user',
+    chats: './data/default-user/chats',
+    groups: './data/default-user/groups',
+    groupChats: './data/default-user/group chats',
+    extensions: '../shared/extensions',
+  }), null, 'the authenticated user extension directory must remain inside the inventoried account root');
 });
 
 test('server bulk mutation guard blocks unreceipted mutations for an active Host session', () => {
