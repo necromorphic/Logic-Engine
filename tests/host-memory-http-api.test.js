@@ -69,6 +69,9 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
   let calls = 0;
   let failConsumer = false;
   let consumerResultOverride = null;
+  let pauseConsumer = false;
+  let consumerStartedResolve = null;
+  let releaseConsumerResolve = null;
   const consumer = {
     adapterId: ADAPTER_ID,
     async retrieveForNpc({ conversationId: requested }) {
@@ -81,6 +84,10 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
       assert.equal(context.world_id, 'host-memory-world');
       assert.equal(context.actor_id, 'host-memory-actor');
       if (failConsumer) throw new Error('sensitive consumer implementation detail');
+      if (pauseConsumer) {
+        consumerStartedResolve?.();
+        await new Promise(resolve => { releaseConsumerResolve = resolve; });
+      }
       return consumerResultOverride ?? { status: 'ready', admitted: [], candidates: [], reason: null, snapshot: { world_revision: 0, commit_sequence: 0 } };
     },
   };
@@ -283,25 +290,38 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
     ...revocation, signature: '0'.repeat(64),
   });
   assert.equal(unsignedRevocation.status, 401);
+
+  // Start a Provider-backed retrieval and revoke the exact session while its
+  // Consumer is suspended. The already-started operation must not disclose.
+  let consumerStarted;
+  const started = new Promise(resolve => { consumerStarted = resolve; });
+  pauseConsumer = true;
+  consumerStartedResolve = consumerStarted;
+  const inFlightAssertion = {
+    ...assertion, nonce: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+    issued_at: Math.floor(Date.now() / 1000),
+  };
+  const inFlightRead = post(base, '/v1/host/memory-npc/retrieve', adapterHeaders, {
+    ...body, assertion: inFlightAssertion, signature: sign(inFlightAssertion),
+    request_id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+  });
+  await started;
   const revokedResponse = await post(base, '/v1/host/session/revoke', adapterHeaders, {
     ...revocation, signature: signRevocation(revocation),
   });
   assert.equal(revokedResponse.status, 204);
+  releaseConsumerResolve?.();
+  pauseConsumer = false;
+  const inFlightResponse = await inFlightRead;
+  assert.equal(inFlightResponse.status, 401);
+  assert.equal((await inFlightResponse.json()).error.code, 'HOST_SESSION_REVOKED');
+  consumerStartedResolve = null;
+
   const revocationReplay = await post(base, '/v1/host/session/revoke', adapterHeaders, {
     ...revocation, signature: signRevocation(revocation),
   });
   assert.equal(revocationReplay.status, 409);
-  const revokedAssertion = {
-    ...assertion, nonce: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
-    issued_at: Math.floor(Date.now() / 1000),
-  };
-  const revokedRead = await post(base, '/v1/host/memory-npc/retrieve', adapterHeaders, {
-    ...body, assertion: revokedAssertion, signature: sign(revokedAssertion),
-    request_id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
-  });
-  assert.equal(revokedRead.status, 401);
-  assert.equal((await revokedRead.json()).error.code, 'HOST_SESSION_REVOKED');
-  assert.equal(calls, 7);
+  assert.equal(calls, 8);
 
   // Reopen the SQLite file to prove revocation survives a Core process restart.
   await new Promise(resolve => server.close(resolve));
@@ -353,5 +373,5 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
   });
   assert.equal(unavailableResponse.status, 503);
   assert.equal((await unavailableResponse.json()).error.code, 'HOST_ASSERTION_REPLAY_GUARD_UNAVAILABLE');
-  assert.equal(calls, 7);
+  assert.equal(calls, 8);
 });
