@@ -973,6 +973,7 @@ diff --git a/src/endpoints/users-private.js b/src/endpoints/users-private.js
  import { color, Cache, getConfigValue } from '../util.js';
  import { getIpAddress, retryAfter } from '../express-common.js';
 +import { createHostBulkMutationGuard } from './logic-engine-host-inventory-handler.mjs';
++import { revokeHostSessionBeforeLogout } from '../../plugins/logic-engine-extension-gateway/st-host-session-revocation.mjs';
 +const hostBulkMutationGuard = createHostBulkMutationGuard({ pinnedHostCommit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127' });
  
 +
