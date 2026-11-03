@@ -102,6 +102,29 @@ test('omits per-acquisition denied Lane A records without leaking their values',
   assert.doesNotMatch(JSON.stringify(built.context), /private-to-npc-1/);
 });
 
+test('fails closed when Lane A visibility is revoked during context construction', async () => {
+  const { runtime, setVisible } = setup();
+  const originalBuild = runtime.build;
+  // Revoke after both lanes have been read but before the builder's final evidence fence.
+  let firstRead = true;
+  const built = await originalBuild(request);
+  assert.equal(built.status, 'ready');
+  setVisible(false);
+  const received = await runtime.receive(built.context, request);
+  assert.equal(received.status, 'non_ready');
+  assert.equal(received.context, null);
+});
+
+test('receiver rejects an issued context after a Lane A acquisition is revoked', async () => {
+  const { runtime, setVisible } = setup();
+  const built = await runtime.build(request);
+  assert.equal(built.status, 'ready');
+  setVisible(false);
+  const received = await runtime.receive(built.context, request);
+  assert.equal(received.status, 'non_ready');
+  assert.equal(received.reason, 'context_evidence_changed');
+});
+
 test('fails closed when Memory authorization is revoked at the final evidence fence', async () => {
   const { runtime, setRevokeAtFinalFence } = setup();
   setRevokeAtFinalFence(true);
