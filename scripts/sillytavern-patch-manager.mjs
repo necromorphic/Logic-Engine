@@ -379,7 +379,7 @@ export class SillyTavernPatchManager {
       }
       const canonicalPatchPath = resolve(temporaryRoot, 'logic-engine-final-send.patch');
       await writeFile(canonicalPatchPath, this.canonicalPatchBytes, { flag: 'wx', mode: 0o600 });
-      this.runGit(['apply', '--ignore-whitespace', '--check', canonicalPatchPath], temporaryRoot);
+      this.runGit(['-c', 'core.autocrlf=false', 'apply', '--ignore-whitespace', '--check', canonicalPatchPath], temporaryRoot);
     } finally {
       await rm(temporaryRoot, { recursive: true, force: true });
     }
@@ -439,7 +439,7 @@ export class SillyTavernPatchManager {
     try {
       await writeFile(canonicalPatchPath, this.canonicalPatchBytes, { flag: 'wx', mode: 0o600 });
       await this.normalizePatchTargetsForApply();
-      this.runGit(['apply', '--ignore-whitespace', canonicalPatchPath], this.stRoot);
+      this.runGit(['-c', 'core.autocrlf=false', 'apply', '--ignore-whitespace', canonicalPatchPath], this.stRoot);
       await this.restorePatchTargetLineEndings();
       await this.verifyInstalled();
       const installed = {
