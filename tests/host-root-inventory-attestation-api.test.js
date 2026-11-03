@@ -114,31 +114,6 @@ test('Core HTTP accepts only a signed, pinned, lifecycle-complete root attestati
   assert.equal(baselinePayload.inventory_status, 'REVIEW_ONLY');
   assert.equal(baselinePayload.reconciliation.integrity_status, 'INTEGRITY_OK');
 
-  const lifecycleEvent = journal.append({
-    event_id: '77777777-7777-4777-8777-777777777777',
-    host_installation_id: INSTALLATION,
-    authenticated_account_id: ACCOUNT,
-    host_session_id: '88888888-8888-4888-8888-888888888888',
-    conversation_uuid: '99999999-9999-4999-8999-999999999999',
-    authority_id: AUTHORITY_ID,
-    generation: AUTHORITY_GENERATION,
-    snapshot_fingerprint: journal.getAuthoritySnapshot({
-      authority_id: AUTHORITY_ID,
-      generation: AUTHORITY_GENERATION,
-      adapter_id: ADAPTER_ID,
-      host_installation_id: INSTALLATION,
-      authenticated_account_id: ACCOUNT,
-      root_id: ROOT_ID,
-    }).snapshot_fingerprint,
-    occurred_at: new Date().toISOString(),
-    event_type: 'VERSION_CREATED',
-    message_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
-    version_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
-    parent_version_id: null,
-    payload_sha256: digest('first-lifecycle-version'),
-    active: true,
-  });
-  assert.equal(lifecycleEvent.sequence, 1);
 
   const attestation = {
     protocol_version: 1,
@@ -156,8 +131,8 @@ test('Core HTTP accepts only a signed, pinned, lifecycle-complete root attestati
     source_manifest_sha256: SOURCE_MANIFEST_SHA256,
     snapshot_alignment: 'SHARED_VSS_SNAPSHOT',
     snapshot_sha256: digest('vss-snapshot'),
-    lifecycle_sequence: lifecycleEvent.sequence,
-    lifecycle_head_sha256: lifecycleEvent.event_sha256,
+    lifecycle_sequence: 0,
+    lifecycle_head_sha256: '0'.repeat(64),
     issued_at: Math.floor(Date.now() / 1000),
     nonce: '66666666-6666-4666-8666-666666666666',
     signature: '',
@@ -177,6 +152,36 @@ test('Core HTTP accepts only a signed, pinned, lifecycle-complete root attestati
   assert.equal(acceptedPayload.reconciliation.status, 'AUTHORITATIVE_COMPLETE');
   assert.equal(acceptedPayload.reconciliation.integrity_status, 'INTEGRITY_OK');
   assert.equal(acceptedPayload.reconciliation.source_manifest_sha256, digest('pinned-source-manifest'));
+
+  // A fresh Host account has no lifecycle events yet. The signed genesis head
+  // (sequence zero, all-zero hash) must still allow its first root attestation.
+  const lifecycleSnapshot = journal.getAuthoritySnapshot({
+    authority_id: AUTHORITY_ID,
+    generation: AUTHORITY_GENERATION,
+    adapter_id: ADAPTER_ID,
+    host_installation_id: INSTALLATION,
+    authenticated_account_id: ACCOUNT,
+    root_id: ROOT_ID,
+  });
+  assert.equal(lifecycleSnapshot.authority_status, 'AUTHORITATIVE_COMPLETE');
+  const lifecycleEvent = journal.append({
+    event_id: '77777777-7777-4777-8777-777777777777',
+    host_installation_id: INSTALLATION,
+    authenticated_account_id: ACCOUNT,
+    host_session_id: '88888888-8888-4888-8888-888888888888',
+    conversation_uuid: '99999999-9999-4999-8999-999999999999',
+    authority_id: AUTHORITY_ID,
+    generation: AUTHORITY_GENERATION,
+    snapshot_fingerprint: lifecycleSnapshot.snapshot_fingerprint,
+    occurred_at: new Date().toISOString(),
+    event_type: 'VERSION_CREATED',
+    message_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    version_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+    parent_version_id: null,
+    payload_sha256: digest('first-lifecycle-version'),
+    active: true,
+  });
+  assert.equal(lifecycleEvent.sequence, 1);
 
   const replay = await post(base, '/v1/host-root-inventory/attest', { ...identity, attestation });
   assert.equal(replay.status, 200);
