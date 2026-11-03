@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createSillyTavernFinalSendAdapter } from '../sillytavern-final-send-adapter.mjs';
+import { createProtectedMemoryFinalSend, PROTECTED_MEMORY_SENDER_ROUTES } from '../protected-memory-final-send.mjs';
 
 const sourceKeys = [
   'CLAUDE', 'AI21', 'MAKERSUITE', 'VERTEXAI', 'MISTRALAI', 'COHERE',
@@ -395,4 +396,245 @@ test('trusted asynchronous Host preparation is passed to the synchronous Memory 
   });
   assert.equal(result.status, 200);
   assert.equal(resolvedContext, trustedHostContext);
+});
+
+function makeNpcProtectedMemory(overrides = {}) {
+  return {
+    requestId: 'dispatch-1',
+    model: 'test-model',
+    worldId: 'world-1',
+    actorId: 'actor-1',
+    purpose: 'npc_decision',
+    sources: [{ source_kind: 'canonical_entity', source_entity_id: 'entity-1', source_version: 'v1' }],
+    candidates: [{
+      record_ref: 'record-1',
+      record_version: 'v1',
+      authorization_generation: 1,
+      source_kind: 'canonical_entity',
+      source_entity_id: 'entity-1',
+      source_version: 'v1',
+    }],
+    contentBlocks: [{
+      epistemic_kind: 'acquired_report',
+      evidence_assessment: 'supported',
+      content: { 'attributes.public_note': 'The bridge is closed.' },
+    }],
+    ...overrides,
+  };
+}
+
+function makeNpcProviderBody(hostRoute) {
+  if (hostRoute === 'chat-completions') {
+    return {
+      model: 'test-model',
+      messages: [
+        { role: 'system', content: 'Base system rules.' },
+        { role: 'developer', content: 'Keep the character consistent.' },
+        { role: 'user', content: 'What do you know?' },
+      ],
+      logic_engine_context_size: 4096,
+      memory_dispatch: { forged: true },
+      metadata: { host_context: { conversation_uuid: 'forged' } },
+    };
+  }
+  if (hostRoute === 'novelai-text') return { model: 'test-model', input: 'What do you know?' };
+  return { model: 'test-model', prompt: 'What do you know?' };
+}
+
+function makeNpcRequestInit(body) {
+  return {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      authorization: 'Bearer provider-secret',
+      'x-logic-engine-conversation-uuid': 'host-only',
+      'x-host-session-id': 'host-only',
+    },
+    body: JSON.stringify(body),
+  };
+}
+
+function npcBodyText(hostRoute, body) {
+  if (hostRoute === 'chat-completions') return body.messages.map((message) => message.content).join('\n');
+  if (hostRoute === 'novelai-text') return body.input;
+  return body.prompt;
+}
+
+function makeNpcFinalSendHarness({ context = makeNpcProtectedMemory(), resolve = () => context, gatewayDispatch } = {}) {
+  const providerCalls = [];
+  const gatewayCalls = [];
+  const gateway = {
+    dispatchProtectedRequest(request) {
+      gatewayCalls.push(request);
+      return gatewayDispatch ? gatewayDispatch(request) : request.transport();
+    },
+  };
+  const finalSend = createProtectedMemoryFinalSend({
+    gateway,
+    resolveProtectedMemory: resolve,
+    fetchImpl: async (url, init) => {
+      providerCalls.push({ url, init });
+      return { status: 200, body: init.body };
+    },
+  });
+  return { finalSend, providerCalls, gatewayCalls };
+}
+
+test('all 29 registered sender identities inject NPC context into exact outbound provider bytes', async () => {
+  assert.equal(PROTECTED_MEMORY_SENDER_ROUTES.length, 29);
+  for (const senderRoute of PROTECTED_MEMORY_SENDER_ROUTES) {
+    const hostRoute = ['text-completions', 'kobold', 'novelai-text'].includes(senderRoute)
+      ? senderRoute
+      : 'chat-completions';
+    const harness = makeNpcFinalSendHarness();
+    const result = await harness.finalSend({
+      senderRoute,
+      hostRoute,
+      endpointUrl: 'https://provider.example/generate',
+      requestInit: makeNpcRequestInit(makeNpcProviderBody(hostRoute)),
+      stream: false,
+    });
+    assert.equal(result.status, 200, senderRoute);
+    assert.equal(harness.providerCalls.length, 1, senderRoute);
+    assert.equal(harness.gatewayCalls.length, 1, senderRoute);
+    const outboundInit = harness.providerCalls[0].init;
+    const outboundBody = JSON.parse(outboundInit.body);
+    const promptText = npcBodyText(hostRoute, outboundBody);
+    assert.match(promptText, /Logic Engine NPC Memory Context/, senderRoute);
+    assert.match(promptText, /The bridge is closed\./, senderRoute);
+    assert.equal(JSON.stringify(outboundBody).includes('logic_engine_'), false, senderRoute);
+    assert.equal(JSON.stringify(outboundBody).includes('memory_dispatch'), false, senderRoute);
+    assert.equal(JSON.stringify(outboundBody).includes('host_context'), false, senderRoute);
+    assert.equal(outboundInit.headers.authorization, 'Bearer provider-secret', senderRoute);
+    assert.equal(Object.keys(outboundInit.headers).some((key) => key.toLowerCase().startsWith('x-logic-engine-')), false);
+    assert.equal(Object.keys(outboundInit.headers).some((key) => key.toLowerCase().startsWith('x-host-')), false);
+    assert.equal(harness.gatewayCalls[0].body, outboundInit.body, senderRoute);
+    assert.equal(harness.gatewayCalls[0].senderRoute, senderRoute);
+  }
+});
+
+test('chat NPC context is inserted after existing system/developer instructions and before user content', async () => {
+  const harness = makeNpcFinalSendHarness();
+  await harness.finalSend({
+    senderRoute: 'openai',
+    hostRoute: 'chat-completions',
+    endpointUrl: 'https://provider.example/generate',
+    requestInit: makeNpcRequestInit(makeNpcProviderBody('chat-completions')),
+  });
+  const messages = JSON.parse(harness.providerCalls[0].init.body).messages;
+  assert.deepEqual(messages.map((message) => message.role), ['system', 'developer', 'system', 'user']);
+  assert.match(messages[2].content, /The bridge is closed\./);
+});
+
+test('an empty READY NPC context is explicit and does not invent records', async () => {
+  const harness = makeNpcFinalSendHarness({ context: makeNpcProtectedMemory({ contentBlocks: [] }) });
+  await harness.finalSend({
+    senderRoute: 'openai',
+    hostRoute: 'chat-completions',
+    endpointUrl: 'https://provider.example/generate',
+    requestInit: makeNpcRequestInit(makeNpcProviderBody('chat-completions')),
+  });
+  const promptText = npcBodyText('chat-completions', JSON.parse(harness.providerCalls[0].init.body));
+  assert.match(promptText, /No admitted NPC memory records are available/);
+});
+
+test('protected Horde text dispatch is denied before provider transport', async () => {
+  const harness = makeNpcFinalSendHarness();
+  assert.throws(() => harness.finalSend({
+    senderRoute: 'horde-text',
+    hostRoute: 'horde-text',
+    endpointUrl: 'https://provider.example/generate',
+    requestInit: makeNpcRequestInit({ prompt: 'ordinary' }),
+  }), /MEMORY_DISPATCH_NOT_READY/);
+  assert.equal(harness.providerCalls.length, 0);
+  assert.equal(harness.gatewayCalls.length, 0);
+});
+
+test('Horde task-status remains ordinary-only and receives no injected NPC context', async () => {
+  const harness = makeNpcFinalSendHarness({ resolve: () => null });
+  const init = makeNpcRequestInit({ task_id: 'ordinary-task' });
+  const result = await harness.finalSend({
+    senderRoute: 'unregistered',
+    hostRoute: 'horde-task-status',
+    endpointUrl: 'https://provider.example/task-status',
+    requestInit: init,
+  });
+  assert.equal(result.status, 200);
+  assert.equal(harness.gatewayCalls.length, 0);
+  assert.equal(harness.providerCalls[0].init.body, init.body);
+});
+
+test('protected dispatch fails closed when NPC content blocks are missing or malformed', async () => {
+  for (const contentBlocks of [undefined, null, [{}], [{ epistemic_kind: 'report', evidence_assessment: 'supported', content: [] }]]) {
+    const harness = makeNpcFinalSendHarness({ context: makeNpcProtectedMemory({ contentBlocks }) });
+    assert.throws(() => harness.finalSend({
+      senderRoute: 'openai',
+      hostRoute: 'chat-completions',
+      endpointUrl: 'https://provider.example/generate',
+      requestInit: makeNpcRequestInit(makeNpcProviderBody('chat-completions')),
+    }), /MEMORY_DISPATCH_NOT_READY/);
+    assert.equal(harness.providerCalls.length, 0);
+    assert.equal(harness.gatewayCalls.length, 0);
+  }
+});
+
+test('protected dispatch fails closed on malformed provider body or route/body mismatch', async () => {
+  const harness = makeNpcFinalSendHarness();
+  assert.throws(() => harness.finalSend({
+    senderRoute: 'openai',
+    hostRoute: 'chat-completions',
+    endpointUrl: 'https://provider.example/generate',
+    requestInit: { method: 'POST', body: '{not-json' },
+  }), /MEMORY_DISPATCH_NOT_READY/);
+  assert.throws(() => harness.finalSend({
+    senderRoute: 'kobold',
+    hostRoute: 'kobold',
+    endpointUrl: 'https://provider.example/generate',
+    requestInit: makeNpcRequestInit({ input: 'wrong route field' }),
+  }), /MEMORY_DISPATCH_NOT_READY/);
+  assert.equal(harness.providerCalls.length, 0);
+});
+
+test('transport remains dormant until Gateway invokes the exact outbound capability', async () => {
+  let captured;
+  const harness = makeNpcFinalSendHarness({
+    gatewayDispatch(request) {
+      captured = request;
+      return { accepted: true };
+    },
+  });
+  const result = harness.finalSend({
+    senderRoute: 'openai',
+    hostRoute: 'chat-completions',
+    endpointUrl: 'https://provider.example/generate',
+    requestInit: makeNpcRequestInit(makeNpcProviderBody('chat-completions')),
+  });
+  assert.deepEqual(result, { accepted: true });
+  assert.equal(harness.providerCalls.length, 0);
+  assert.match(captured.body, /Logic Engine NPC Memory Context/);
+  const response = await captured.transport();
+  assert.equal(response.status, 200);
+  assert.equal(harness.providerCalls.length, 1);
+  assert.equal(harness.providerCalls[0].init.body, captured.body);
+});
+
+test('transport override receives the post-injection requestInit', async () => {
+  let sentInit;
+  const harness = makeNpcFinalSendHarness({
+    gatewayDispatch(request) {
+      return request.transport();
+    },
+  });
+  await harness.finalSend({
+    senderRoute: 'kobold',
+    hostRoute: 'kobold',
+    endpointUrl: 'https://provider.example/generate',
+    requestInit: makeNpcRequestInit(makeNpcProviderBody('kobold')),
+    transport: (outboundRequestInit) => {
+      sentInit = outboundRequestInit;
+      return Promise.resolve({ status: 201 });
+    },
+  });
+  assert.equal(sentInit.method, 'POST');
+  assert.match(JSON.parse(sentInit.body).prompt, /The bridge is closed\./);
 });
