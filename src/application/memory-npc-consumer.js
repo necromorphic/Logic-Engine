@@ -73,6 +73,9 @@ const validSnapshot = (value) => object(value)
 const sameSnapshot = (left, right) => validSnapshot(left) && validSnapshot(right)
   && left.world_revision === right.world_revision
   && left.commit_sequence === right.commit_sequence;
+const validProviderEvidenceCursor = value => object(value)
+  && Number.isSafeInteger(value.data_version) && value.data_version >= 0
+  && typeof value.candidate_digest === 'string' && /^[a-f0-9]{64}$/.test(value.candidate_digest);
 const recordIdentityKey = (ref, version) => JSON.stringify([ref, version]);
 const CONTENT_KINDS = new Set(['claim', 'report', 'summary', 'author_initial', 'imported', 'inference']);
 const EPISTEMIC_KINDS = new Set(['canonical', 'acquired_report', 'rumor', 'inference', 'authored_initial', 'imported']);
@@ -404,6 +407,7 @@ export class MemoryNpcConsumer {
       || !Array.isArray(memoryResult.candidates)
       || memoryResult.candidates.length > 50
       || !validSnapshot(memoryResult.snapshot)
+      || !validProviderEvidenceCursor(memoryResult.provider_evidence_cursor)
       || memoryResult.scope?.world_id !== scope.world_id
       || memoryResult.scope?.subject_id !== scope.subject_id
       || memoryResult.scope?.purpose !== scope.purpose) {
@@ -479,6 +483,7 @@ export class MemoryNpcConsumer {
           world_revision: emptySnapshotRead.world_revision,
           commit_sequence: emptySnapshotRead.commit_sequence,
         }),
+        provider_evidence_cursor: memoryResult.provider_evidence_cursor,
       });
     }
 
@@ -684,6 +689,7 @@ export class MemoryNpcConsumer {
           world_revision: filteredEmptySnapshotRead.world_revision,
           commit_sequence: filteredEmptySnapshotRead.commit_sequence,
         }),
+        provider_evidence_cursor: memoryResult.provider_evidence_cursor,
       });
     }
 
@@ -975,6 +981,7 @@ export class MemoryNpcConsumer {
         world_revision: sourceRead.world_revision,
         commit_sequence: sourceRead.commit_sequence,
       }),
+      provider_evidence_cursor: memoryResult.provider_evidence_cursor,
     });
   }
 }
