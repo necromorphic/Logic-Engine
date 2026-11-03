@@ -102,9 +102,9 @@ jobs:
           $vs = & $vswhere -latest -products '*' -property installationPath
           if (-not $vs) { throw 'Visual Studio Build Tools not found' }
           $vcvars = Join-Path $vs 'VC/Auxiliary/Build/vcvars64.bat'
-          $command = 'call "' + $vcvars + '" && cl /nologo /W4 /WX /guard:cf /DUNICODE /D_UNICODE /c native\\windows-namespace-broker\\windows_manifest_store.c /Fo:native\\windows-namespace-broker\\windows_manifest_store.obj'
+          $command = 'call "' + $vcvars + '" && cl /nologo /W4 /WX /guard:cf /DUNICODE /D_UNICODE native\\windows-namespace-broker\\windows_manifest_store_smoke.c /link bcrypt.lib /OUT:native\\windows-namespace-broker\\windows_manifest_store_smoke.exe && native\\windows-namespace-broker\\windows_manifest_store_smoke.exe'
           cmd /c $command
-          if ($LASTEXITCODE -ne 0) { throw 'Windows durable manifest store compilation failed' }
+          if ($LASTEXITCODE -ne 0) { throw 'Windows durable manifest store build or filesystem smoke test failed' }
       - name: Compile Windows broker service host
         shell: pwsh
         run: |
