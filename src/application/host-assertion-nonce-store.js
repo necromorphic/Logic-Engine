@@ -1,7 +1,6 @@
 import { DatabaseSync } from 'node:sqlite';
 import { existsSync, lstatSync, mkdirSync, readlinkSync, realpathSync, statSync } from 'node:fs';
 import { basename, dirname, isAbsolute, resolve } from 'node:path';
-import { DatabaseSync } from 'node:sqlite';
 import { beginCoordinatorLock, openCoordinatorDatabase } from '../storage/coordinator-lock.js';
 
 function canonicalFilePath(path) {
