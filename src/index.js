@@ -135,6 +135,7 @@ if (aliasesSameFile(hostVersionLedgerPath, coordinatorPath)) {
 const assertionNoncePath = process.env.ENGINE_HOST_ASSERTION_NONCE_DB_PATH
   ? resolve(process.env.ENGINE_HOST_ASSERTION_NONCE_DB_PATH)
   : resolve('./data/logic-engine-host-assertion-nonces.sqlite');
+const memoryProviderPath = process.env.ENGINE_MEMORY_PROVIDER_DB_PATH;
 const coreDatabasePath = store.db.prepare('PRAGMA database_list').all()
   .find(entry => entry.name === 'main')?.file;
 if (typeof coreDatabasePath !== 'string' || !coreDatabasePath) {
@@ -147,6 +148,7 @@ const hostAssertionNonceStore = new HostAssertionNonceStore({
   path: assertionNoncePath,
   coreDatabasePath,
   coordinatorPath,
+  providerDatabasePath: memoryProviderPath === undefined ? null : resolve(memoryProviderPath),
 });
 // This deny-only verifier is deliberately not source authority. Until the trusted
 // Host/Core complete-inventory adapter is wired, reconciliation can never set READY.
@@ -268,7 +270,6 @@ const logicEngine = new LogicEngine(store, {
 });
 const memoryProviderAdapters = [];
 const memoryNpcConsumers = {};
-const memoryProviderPath = process.env.ENGINE_MEMORY_PROVIDER_DB_PATH;
 if (memoryProviderPath !== undefined) {
   let contentFields;
   try {
