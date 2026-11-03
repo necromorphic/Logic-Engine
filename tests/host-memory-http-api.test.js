@@ -67,7 +67,7 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
   }), /must be separate from Core, Coordinator, and Provider databases/);
   const danglingProviderAlias = join(directory, 'nonce-provider-dangling-alias.sqlite');
   try {
-    symlinkSync(providerDatabasePath, danglingProviderAlias);
+    symlinkSync(providerDatabasePath, danglingProviderAlias, 'file');
     assert.throws(() => new HostAssertionNonceStore({
       path: danglingProviderAlias,
       coreDatabasePath: corePath,
