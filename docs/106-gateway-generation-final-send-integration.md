@@ -12,7 +12,7 @@ Use one in-process Core Memory Dispatch Gateway at the SillyTavern server-side f
 - The Host Adapter resolves authenticated session, installation, account and conversation identity. Browser-supplied Memory markers are rejected.
 - The NPC Context Receiver is the existing Host-to-Core authenticated retrieval contract from #870 (`POST /v1/host/memory-npc/retrieve`), not a second generation ingress.
 - The Gateway owns durable `DISPATCH_STARTED`, shared Coordinator ordering, exactly-once transport handoff, ambiguous-outcome recovery, and final response write authorization.
-- The managed Patch Manager from #868 is the only owner of the local ST source patch and its durable backups/journal.
+- The multi-route Patch Manager in this PR is the only owner of the local ST source patch. It incorporates #868's durable-state direction: state, journal and byte-exact backups live under `SillyTavern/data/logic-engine/final-send-patch`, outside the removable Extension directory; restore uses a durable transaction journal and fsync-backed atomic replacement. #868's standalone manager was scoped to the Chat Completions endpoint, so it was not transplanted wholesale because it would drop the four additional native text-generation routes.
 - #851's independent Extension Gateway ingress is not inserted into the generation path. It adds a second ingress but does not own the native provider transport or the final Express response write.
 
 The Gateway receives a non-serializable, request-scoped transport capability from the native ST sender. The capability is invoked only after durable dispatch-start while the shared Coordinator is held. The network Promise is awaited after the lease is released. The response Hook guards actual `response.write()` and `response.end()` operations; each protected write revalidates Core/Provider evidence under the same Coordinator before invoking the native writer.
@@ -79,6 +79,7 @@ No browser-to-Core call, second generation ingress, relay, extra API port or Bas
 | Five pinned native generation handlers are wrapped | Exact-pinned-source audit and real-handler fake-provider harness | PASS for exercised source paths |
 | 29 sender identities are explicitly registered | Gateway registry and adapter mapping tests | PASS at registry level |
 | Durable dispatch-start / crash recovery | Gateway unit and child-process crash/restart tests | PASS at Gateway level |
+| Durable Patch Manager state/backup and interrupted restore recovery | Patch Manager stores state/backups in ST data; new tests cover Extension removal and restart during restore | Exact-head CI pending |
 | Revoke before dispatch-start | Real Provider revoke race tests | PASS at Gateway level |
 | Revoke during inference suppresses response | Gateway revalidation tests | PASS at Gateway level |
 | Revoke between chunks suppresses later stream writes | Gateway stream write tests | PASS at Gateway level |
