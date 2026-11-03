@@ -984,21 +984,21 @@ diff --git a/src/users.js b/src/users.js
 +    delete session.logicEngineSessionId;
 +    delete session.logicEngineSessionHandle;
 +}
-@@ -787,5 +797,6 @@
+@@ -787,5 +796,6 @@
          const user = await storage.getItem(toKey(userHandles[0]));
          if (user && !user.password) {
 +            await revokeHostSessionBeforeAccountSwitch(request, userHandles[0]);
              request.session.handle = userHandles[0];
              request.session.version = getAccountVersion(user);
              return true;
-@@ -884,5 +895,6 @@
+@@ -884,5 +894,6 @@
              const user = await storage.getItem(toKey(userHandle));
              if (user && user.enabled) {
 +                await revokeHostSessionBeforeAccountSwitch(request, userHandle);
                  request.session.handle = userHandle;
                  request.session.version = getAccountVersion(user);
                  return true;
-@@ -925,6 +937,7 @@
+@@ -925,6 +936,7 @@
              const user = await storage.getItem(toKey(userHandle));
              // Verify pass again here just to be sure
              if (user && user.enabled && user.password && user.password === getPasswordHash(password, user.salt)) {
@@ -1006,7 +1006,7 @@ diff --git a/src/users.js b/src/users.js
                  request.session.handle = userHandle;
                  request.session.version = getAccountVersion(user);
                  return true;
-@@ -994,5 +1007,12 @@
+@@ -994,5 +1006,12 @@
          if (request.session.version !== getAccountVersion(user)) {
              console.warn('User data has changed since the session was created. Invalidating session for user:', handle);
 +            if (request.session.logicEngineSessionId !== undefined) {
@@ -1019,7 +1019,7 @@ diff --git a/src/users.js b/src/users.js
              request.session.handle = null;
              request.session.csrfToken = null;
              request.session.version = null;
-@@ -1053,3 +1066,4 @@
+@@ -1053,3 +1065,4 @@
      } catch (error) {
          console.error('Error during auto-login:', error);
 +        if (['HOST_SESSION_REVOCATION_UNAVAILABLE', 'HOST_SESSION_REVOCATION_IDENTITY_INVALID'].includes(error?.message)) return response.status(503).send('Host session revocation unavailable; account was not switched.');
